@@ -304,12 +304,14 @@ struct BundleResources {
     }
 
     var pythonHome: String? {
-        // Check app bundle (distributed app)
-        if let bundledPath = bundle.privateFrameworksURL?
-            .appendingPathComponent("Python.framework/Versions/3.11")
-            .path,
-           FileManager.default.fileExists(atPath: bundledPath) {
-            return bundledPath
+        // Check app bundle (distributed app) - try 3.14 first, then 3.11
+        for version in ["3.14", "3.11"] {
+            if let bundledPath = bundle.privateFrameworksURL?
+                .appendingPathComponent("Python.framework/Versions/\(version)")
+                .path,
+               FileManager.default.fileExists(atPath: bundledPath) {
+                return bundledPath
+            }
         }
 
         // Check TestBundle (development)
@@ -323,13 +325,33 @@ struct BundleResources {
         return nil
     }
 
+    /// Detect Python version from pythonHome path
+    private var pythonVersion: String {
+        if let home = pythonHome {
+            if home.contains("3.14") { return "3.14" }
+            if home.contains("3.11") { return "3.11" }
+        }
+        return "3.14"
+    }
+
     var pythonPath: String? {
-        // Additional Python path for packages (havsfunc, mvsfunc, etc.)
+        // Check app bundle Resources/PythonPackages (distributed app)
+        if let resourcePath = bundle.resourcePath {
+            let packagesPath = "\(resourcePath)/PythonPackages"
+            if FileManager.default.fileExists(atPath: packagesPath) {
+                if let home = pythonHome {
+                    return "\(packagesPath):\(home)/lib/python\(pythonVersion)/site-packages"
+                }
+                return packagesPath
+            }
+        }
+
+        // Check TestBundle (development)
         if let testBundle = testBundlePath {
             let packagesPath = "\(testBundle)/PythonPackages"
             if FileManager.default.fileExists(atPath: packagesPath) {
                 if let home = pythonHome {
-                    return "\(packagesPath):\(home)/lib/python3.14/site-packages"
+                    return "\(packagesPath):\(home)/lib/python\(pythonVersion)/site-packages"
                 }
                 return packagesPath
             }
