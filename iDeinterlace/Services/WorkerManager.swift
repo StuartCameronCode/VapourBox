@@ -95,9 +95,16 @@ final class WorkerManager: ObservableObject {
     }
 
     private func locateWorker() -> URL? {
-        // Check in app bundle
+        // Check in app bundle (standard location)
         if let workerPath = Bundle.main.path(forAuxiliaryExecutable: "iDeinterlaceWorker") {
             return URL(fileURLWithPath: workerPath)
+        }
+
+        // Check Contents/Helpers in app bundle
+        let helpersWorker = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Helpers/iDeinterlaceWorker")
+        if FileManager.default.isExecutableFile(atPath: helpersWorker.path) {
+            return helpersWorker
         }
 
         // Check in same directory as main executable
@@ -109,12 +116,14 @@ final class WorkerManager: ObservableObject {
 
         // Check Swift PM build directory (for development)
         if let mainExec = mainExec {
-            // Walk up to find project root and check .build/debug
+            // Walk up to find project root and check .build/debug or .build/release
             var dir = mainExec.deletingLastPathComponent()
             for _ in 0..<10 {
-                let spmWorker = dir.appendingPathComponent(".build/debug/iDeinterlaceWorker")
-                if FileManager.default.isExecutableFile(atPath: spmWorker.path) {
-                    return spmWorker
+                for config in ["debug", "release"] {
+                    let spmWorker = dir.appendingPathComponent(".build/\(config)/iDeinterlaceWorker")
+                    if FileManager.default.isExecutableFile(atPath: spmWorker.path) {
+                        return spmWorker
+                    }
                 }
                 dir = dir.deletingLastPathComponent()
             }

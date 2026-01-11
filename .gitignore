@@ -71,3 +71,6 @@ Tests/TestBundle/PythonPackages/*
 !Tests/TestBundle/PythonPackages/.gitkeep
 Tests/TestBundle/lib/
 Tests/TestBundle/.setup-complete
+
+# Build output
+build/
