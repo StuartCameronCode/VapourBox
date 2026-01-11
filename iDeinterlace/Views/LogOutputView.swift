@@ -1,4 +1,5 @@
 import SwiftUI
+import iDeinterlaceShared
 
 /// Expandable log output section
 struct LogSection: View {
@@ -54,7 +55,7 @@ struct LogOutputView: View {
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
             )
-            .onChange(of: log) { _, _ in
+            .onChange(of: log) { _ in
                 withAnimation {
                     proxy.scrollTo("logBottom", anchor: .bottom)
                 }

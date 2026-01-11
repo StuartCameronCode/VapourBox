@@ -1,4 +1,5 @@
 import SwiftUI
+import iDeinterlaceShared
 
 /// Main application window
 struct MainWindowView: View {

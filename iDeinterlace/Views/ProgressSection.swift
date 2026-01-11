@@ -1,4 +1,5 @@
 import SwiftUI
+import iDeinterlaceShared
 
 /// Progress display during video processing
 struct ProgressSection: View {

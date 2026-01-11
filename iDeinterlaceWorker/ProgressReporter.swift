@@ -1,4 +1,5 @@
 import Foundation
+import iDeinterlaceShared
 
 /// Reports progress and messages from worker to main app via JSON on stdout
 final class ProgressReporter {

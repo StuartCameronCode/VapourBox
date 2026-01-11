@@ -1,4 +1,5 @@
 import SwiftUI
+import iDeinterlaceShared
 import Combine
 
 /// Settings view model - manages QTGMC and encoding parameters with persistence

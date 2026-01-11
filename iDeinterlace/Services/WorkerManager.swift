@@ -1,4 +1,5 @@
 import Foundation
+import iDeinterlaceShared
 import Combine
 
 /// Manages the worker process lifecycle and communication

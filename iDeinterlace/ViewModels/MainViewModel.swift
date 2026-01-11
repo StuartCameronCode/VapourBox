@@ -1,4 +1,5 @@
 import SwiftUI
+import iDeinterlaceShared
 import Combine
 import UniformTypeIdentifiers
 

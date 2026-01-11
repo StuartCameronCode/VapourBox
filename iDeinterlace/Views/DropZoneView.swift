@@ -1,4 +1,5 @@
 import SwiftUI
+import iDeinterlaceShared
 import UniformTypeIdentifiers
 
 /// Drag and drop zone for video files

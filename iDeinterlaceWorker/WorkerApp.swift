@@ -1,4 +1,5 @@
 import Foundation
+import iDeinterlaceShared
 
 /// Main worker application logic
 final class WorkerApp {

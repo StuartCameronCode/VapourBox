@@ -1,4 +1,5 @@
 import SwiftUI
+import iDeinterlaceShared
 
 @main
 struct iDeinterlaceApp: App {

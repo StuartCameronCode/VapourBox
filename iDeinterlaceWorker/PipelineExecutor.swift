@@ -1,4 +1,5 @@
 import Foundation
+import iDeinterlaceShared
 
 /// Executes the vspipe | ffmpeg pipeline for video processing
 final class PipelineExecutor {
@@ -288,9 +289,9 @@ struct BundleResources {
         }
 
         // Check Helpers directory
-        if let helpers = bundle.bundleURL.appendingPathComponent("Contents/Helpers/vspipe").path,
-           FileManager.default.isExecutableFile(atPath: helpers) {
-            return helpers
+        let vspipeHelpers = bundle.bundleURL.appendingPathComponent("Contents/Helpers/vspipe").path
+        if FileManager.default.isExecutableFile(atPath: vspipeHelpers) {
+            return vspipeHelpers
         }
 
         // Fallback to PATH
@@ -302,9 +303,9 @@ struct BundleResources {
             return path
         }
 
-        if let helpers = bundle.bundleURL.appendingPathComponent("Contents/Helpers/ffmpeg").path,
-           FileManager.default.isExecutableFile(atPath: helpers) {
-            return helpers
+        let ffmpegHelpers = bundle.bundleURL.appendingPathComponent("Contents/Helpers/ffmpeg").path
+        if FileManager.default.isExecutableFile(atPath: ffmpegHelpers) {
+            return ffmpegHelpers
         }
 
         return findInPath("ffmpeg")

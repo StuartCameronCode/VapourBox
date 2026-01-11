@@ -1,4 +1,5 @@
 import SwiftUI
+import iDeinterlaceShared
 
 /// Main settings view (shown in Settings menu)
 struct SettingsView: View {

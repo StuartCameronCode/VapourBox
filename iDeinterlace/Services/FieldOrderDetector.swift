@@ -1,4 +1,5 @@
 import Foundation
+import iDeinterlaceShared
 
 /// Detects field order from video file metadata using ffprobe
 actor FieldOrderDetector {

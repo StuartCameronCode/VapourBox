@@ -1,4 +1,5 @@
 import Foundation
+import iDeinterlaceShared
 
 /// Generates VapourSynth scripts from templates by substituting parameters
 final class ScriptGenerator {
