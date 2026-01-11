@@ -1,0 +1,56 @@
+# Xcode
+build/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+*.moved-aside
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+!default.pbxuser
+!default.mode1v3
+!default.mode2v3
+!default.perspectivev3
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Dependencies (large binaries, fetch separately)
+BundledDependencies/Python.framework/
+BundledDependencies/VapourSynth/
+BundledDependencies/FFmpeg/
+BundledDependencies/Scripts/*.py
+!BundledDependencies/Scripts/.gitkeep
+
+# Build products
+*.app
+*.dmg
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Test outputs
+TestResults/
