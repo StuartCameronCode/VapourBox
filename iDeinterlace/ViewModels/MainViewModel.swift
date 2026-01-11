@@ -75,22 +75,53 @@ final class MainViewModel: ObservableObject {
     func handleFileDrop(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
 
-        // Check for file URL
+        // Try file URL first (most common case from Finder)
         if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { [weak self] item, error in
-                guard let data = item as? Data,
-                      let url = URL(dataRepresentation: data, relativeTo: nil) else {
-                    return
-                }
-
-                Task { @MainActor in
-                    await self?.setInputFile(url)
-                }
-            }
+            loadFileURLAsync(provider: provider)
             return true
         }
 
+        // Try movie/video types
+        for type in [UTType.movie, UTType.video, UTType.quickTimeMovie, UTType.mpeg4Movie] {
+            if provider.hasItemConformingToTypeIdentifier(type.identifier) {
+                loadFileURLAsync(provider: provider)
+                return true
+            }
+        }
+
         return false
+    }
+
+    /// Load file URL from NSItemProvider asynchronously
+    private func loadFileURLAsync(provider: NSItemProvider) {
+        // First try loading as URL object directly
+        _ = provider.loadObject(ofClass: URL.self) { [weak self] url, error in
+            if let url = url, error == nil {
+                Task { @MainActor in
+                    await self?.setInputFile(url)
+                }
+                return
+            }
+
+            // Fallback: try loading as raw data
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
+                var fileURL: URL?
+
+                if let urlItem = item as? URL {
+                    fileURL = urlItem
+                } else if let data = item as? Data {
+                    fileURL = URL(dataRepresentation: data, relativeTo: nil)
+                } else if let string = item as? String {
+                    fileURL = URL(fileURLWithPath: string)
+                }
+
+                if let finalURL = fileURL {
+                    Task { @MainActor in
+                        await self?.setInputFile(finalURL)
+                    }
+                }
+            }
+        }
     }
 
     /// Set input file and auto-generate output path

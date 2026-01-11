@@ -63,6 +63,9 @@ private struct InputSection: View {
                 fileURL: viewModel.inputFileURL,
                 onDrop: { providers in
                     viewModel.handleFileDrop(providers)
+                },
+                onClickBrowse: {
+                    viewModel.selectInputFile()
                 }
             )
             .frame(height: 120)

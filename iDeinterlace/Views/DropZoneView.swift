@@ -6,8 +6,19 @@ import UniformTypeIdentifiers
 struct DropZoneView: View {
     let fileURL: URL?
     let onDrop: ([NSItemProvider]) -> Bool
+    var onClickBrowse: (() -> Void)?
 
     @State private var isTargeted = false
+
+    /// Supported drop types - file URLs and various video formats
+    private static let supportedTypes: [UTType] = [
+        .fileURL,
+        .movie,
+        .video,
+        .quickTimeMovie,
+        .mpeg4Movie,
+        .avi
+    ]
 
     var body: some View {
         ZStack {
@@ -57,7 +68,11 @@ struct DropZoneView: View {
                 }
             }
         }
-        .onDrop(of: [.fileURL, .movie, .video], isTargeted: $isTargeted) { providers in
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onClickBrowse?()
+        }
+        .onDrop(of: Self.supportedTypes, isTargeted: $isTargeted) { providers in
             onDrop(providers)
         }
         .animation(.easeInOut(duration: 0.15), value: isTargeted)
