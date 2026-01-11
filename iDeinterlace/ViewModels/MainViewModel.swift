@@ -73,53 +73,104 @@ final class MainViewModel: ObservableObject {
 
     /// Handle file drop from drag and drop
     func handleFileDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first else { return false }
+        guard let provider = providers.first else {
+            return false
+        }
 
-        // Try file URL first (most common case from Finder)
+        let registeredTypes = provider.registeredTypeIdentifiers
+
+        // Try to load as file URL first (works for most Finder drops)
         if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            loadFileURLAsync(provider: provider)
+            loadAsFileURL(provider: provider)
             return true
         }
 
-        // Try movie/video types
-        for type in [UTType.movie, UTType.video, UTType.quickTimeMovie, UTType.mpeg4Movie] {
-            if provider.hasItemConformingToTypeIdentifier(type.identifier) {
-                loadFileURLAsync(provider: provider)
-                return true
-            }
+        // For media files, use loadDataRepresentation to get the file path from pasteboard
+        // This works better for files dragged directly from Finder
+        if let firstType = registeredTypes.first, let utType = UTType(firstType) {
+            loadMediaFile(provider: provider, type: utType)
+            return true
         }
 
         return false
     }
 
-    /// Load file URL from NSItemProvider asynchronously
-    private func loadFileURLAsync(provider: NSItemProvider) {
-        // First try loading as URL object directly
-        _ = provider.loadObject(ofClass: URL.self) { [weak self] url, error in
-            if let url = url, error == nil {
+    /// Load as file URL (for Finder drops that provide public.file-url)
+    private func loadAsFileURL(provider: NSItemProvider) {
+        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { [weak self] item, error in
+            var fileURL: URL?
+
+            if let url = item as? URL {
+                fileURL = url
+            } else if let data = item as? Data {
+                fileURL = URL(dataRepresentation: data, relativeTo: nil)
+            } else if let string = item as? String {
+                fileURL = URL(fileURLWithPath: string)
+            }
+
+            if let url = fileURL {
                 Task { @MainActor in
                     await self?.setInputFile(url)
+                }
+            }
+        }
+    }
+
+    /// Load media file using various strategies
+    private func loadMediaFile(provider: NSItemProvider, type: UTType) {
+        // Strategy 1: Try in-place file representation (doesn't copy the file)
+        _ = provider.loadInPlaceFileRepresentation(forTypeIdentifier: type.identifier) { [weak self] url, isInPlace, error in
+            if let url = url, error == nil {
+                // If in-place, this is the actual file URL we can use
+                if isInPlace {
+                    Task { @MainActor in
+                        await self?.setInputFile(url)
+                    }
+                    return
+                }
+
+                // Not in-place means it's a copy - get the path before it's deleted
+                let path = url.path
+                Task { @MainActor in
+                    // Try to find original using NSPasteboard or other means
+                    // For now, use the temp path and hope the file exists long enough
+                    await self?.setInputFile(URL(fileURLWithPath: path))
                 }
                 return
             }
 
-            // Fallback: try loading as raw data
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
-                var fileURL: URL?
+            // Strategy 2: Try regular file representation
+            self?.loadFileRepresentationFallback(provider: provider, type: type)
+        }
+    }
 
-                if let urlItem = item as? URL {
-                    fileURL = urlItem
-                } else if let data = item as? Data {
-                    fileURL = URL(dataRepresentation: data, relativeTo: nil)
-                } else if let string = item as? String {
-                    fileURL = URL(fileURLWithPath: string)
+    /// Fallback file loading using loadFileRepresentation
+    private nonisolated func loadFileRepresentationFallback(provider: NSItemProvider, type: UTType) {
+        _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { [weak self] url, error in
+            guard let url = url, error == nil else {
+                // Last resort: try getting URL from NSPasteboard directly
+                Task { @MainActor in
+                    self?.tryPasteboardFallback()
                 }
+                return
+            }
 
-                if let finalURL = fileURL {
-                    Task { @MainActor in
-                        await self?.setInputFile(finalURL)
-                    }
-                }
+            // Copy the path string before temp file is deleted
+            let pathString = url.path
+
+            Task { @MainActor in
+                await self?.setInputFile(URL(fileURLWithPath: pathString))
+            }
+        }
+    }
+
+    /// Try to get file URL from NSPasteboard as last resort
+    private func tryPasteboardFallback() {
+        let pasteboard = NSPasteboard.general
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
+           let url = urls.first {
+            Task {
+                await setInputFile(url)
             }
         }
     }

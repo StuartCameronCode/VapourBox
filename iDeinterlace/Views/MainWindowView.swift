@@ -61,8 +61,10 @@ private struct InputSection: View {
 
             DropZoneView(
                 fileURL: viewModel.inputFileURL,
-                onDrop: { providers in
-                    viewModel.handleFileDrop(providers)
+                onFileDropped: { url in
+                    Task {
+                        await viewModel.setInputFile(url)
+                    }
                 },
                 onClickBrowse: {
                     viewModel.selectInputFile()

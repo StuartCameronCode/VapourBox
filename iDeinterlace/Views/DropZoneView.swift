@@ -1,24 +1,15 @@
 import SwiftUI
+import AppKit
 import iDeinterlaceShared
 import UniformTypeIdentifiers
 
 /// Drag and drop zone for video files
 struct DropZoneView: View {
     let fileURL: URL?
-    let onDrop: ([NSItemProvider]) -> Bool
+    let onFileDropped: (URL) -> Void
     var onClickBrowse: (() -> Void)?
 
     @State private var isTargeted = false
-
-    /// Supported drop types - file URLs and various video formats
-    private static let supportedTypes: [UTType] = [
-        .fileURL,
-        .movie,
-        .video,
-        .quickTimeMovie,
-        .mpeg4Movie,
-        .avi
-    ]
 
     var body: some View {
         ZStack {
@@ -72,10 +63,40 @@ struct DropZoneView: View {
         .onTapGesture {
             onClickBrowse?()
         }
-        .onDrop(of: Self.supportedTypes, isTargeted: $isTargeted) { providers in
-            onDrop(providers)
+        .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
+            handleDrop(providers: providers)
         }
         .animation(.easeInOut(duration: 0.15), value: isTargeted)
+    }
+
+    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        // Try to get file URLs from the dragging pasteboard directly
+        let pasteboard = NSPasteboard(name: .drag)
+
+        // Read file URLs from pasteboard
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true
+        ]) as? [URL], let url = urls.first {
+            onFileDropped(url)
+            return true
+        }
+
+        // Fallback: try to read as filenames
+        if let filenames = pasteboard.propertyList(forType: .fileURL) as? String,
+           let url = URL(string: filenames) {
+            onFileDropped(url)
+            return true
+        }
+
+        // Second fallback: try NSFilenamesPboardType
+        if let filenames = pasteboard.propertyList(forType: NSPasteboard.PasteboardType("NSFilenamesPboardType")) as? [String],
+           let firstFile = filenames.first {
+            let url = URL(fileURLWithPath: firstFile)
+            onFileDropped(url)
+            return true
+        }
+
+        return false
     }
 
     private var backgroundColor: Color {
@@ -92,7 +113,7 @@ struct DropZoneView: View {
 // MARK: - Preview
 
 #Preview("Empty") {
-    DropZoneView(fileURL: nil, onDrop: { _ in true })
+    DropZoneView(fileURL: nil, onFileDropped: { _ in })
         .frame(height: 150)
         .padding()
 }
@@ -100,7 +121,7 @@ struct DropZoneView: View {
 #Preview("With File") {
     DropZoneView(
         fileURL: URL(fileURLWithPath: "/Users/test/Videos/sample_video.mov"),
-        onDrop: { _ in true }
+        onFileDropped: { _ in }
     )
     .frame(height: 150)
     .padding()
