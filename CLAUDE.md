@@ -1,5 +1,15 @@
 # iDeinterlace - AI Assistant Guide
 
+## Important: Documentation Maintenance
+
+**Always keep both `README.md` and `CLAUDE.md` up to date when making changes to:**
+- Build instructions or dependencies
+- Project structure
+- Development workflow
+- Configuration or setup steps
+
+Both files should stay synchronized - README.md is for humans, CLAUDE.md is for AI assistants.
+
 ## Project Overview
 
 iDeinterlace is a macOS SwiftUI application for video deinterlacing using QTGMC via VapourSynth. It provides a simple drag-and-drop interface as an alternative to more complex tools like Hybrid.
@@ -60,16 +70,77 @@ iDeinterlace/
 | `iDeinterlaceWorker/Templates/qtgmc_template.vpy` | VapourSynth script template |
 | `iDeinterlace/Views/Settings/SettingsView.swift` | Full QTGMC configuration UI |
 
+## Development Environment Setup
+
+For development and testing, use Homebrew Python 3.14 (VapourSynth is built against this version):
+
+```bash
+# 1. Install system dependencies
+brew install vapoursynth ffmpeg ffms2
+ln -s "../libffms2.dylib" "/opt/homebrew/lib/vapoursynth/libffms2.dylib"
+
+# 2. Install Python packages
+pip3.14 install mvsfunc adjust --break-system-packages
+
+# 3. Download and install havsfunc r31 (last version with QTGMC)
+curl -L "https://github.com/HomeOfVapourSynthEvolution/havsfunc/archive/refs/tags/r31.tar.gz" | tar -xz
+cp havsfunc-r31/havsfunc.py /opt/homebrew/lib/python3.14/site-packages/
+
+# 4. Build and install VapourSynth plugins from source:
+# - mvtools: https://github.com/dubhater/vapoursynth-mvtools
+# - NNEDI3CL: https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL
+# - fmtconv: https://github.com/EleonoreMizo/fmtconv
+# - miscfilters: https://github.com/vapoursynth/vs-miscfilters-obsolete
+# - resize2: https://github.com/Jaded-Encoding-Thaumaturgy/vapoursynth-resize2
+
+# Each plugin: meson setup build && meson compile -C build
+# Then copy .dylib to /opt/homebrew/lib/vapoursynth/
+
+# 5. Install NNEDI3CL weights file
+mkdir -p /opt/homebrew/share/NNEDI3CL
+curl -L "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL/raw/master/NNEDI3CL/nnedi3_weights.bin" \
+  -o /opt/homebrew/share/NNEDI3CL/nnedi3_weights.bin
+
+# 6. Verify setup
+vspipe --version
+python3.14 -c "import vapoursynth; print(str(vapoursynth.core))"
+```
+
+### havsfunc Compatibility Patches
+
+The havsfunc.py file requires patches for current mvtools API:
+
+1. Add helper function at top of file to rename `_lambda`/`_global` to `lambda`/`global`:
+```python
+def _fix_mv_args(args):
+    result = {}
+    for k, v in args.items():
+        if k == '_lambda': result['lambda'] = v
+        elif k == '_global': result['global'] = v
+        else: result[k] = v
+    return result
+```
+
+2. Replace `**analyse_args)` with `**_fix_mv_args(analyse_args))` globally
+3. Replace `**recalculate_args)` with `**_fix_mv_args(recalculate_args))` globally
+4. Replace `_global=True, overlap=overlap)` with `overlap=overlap, **{'global': True})`
+5. Update NNEDI3/EEDI3 fallback to check for nnedi3cl:
+   - Change `myNNEDI3 = ... else core.nnedi3.nnedi3` to include `core.nnedi3cl.NNEDI3CL` fallback
+   - Make myEEDI3 assignment conditional (return None if eedi3 not available)
+
 ## Build Commands
 
 ```bash
+# Activate conda environment first
+conda activate ideinterlace
+
 # Build both targets (Debug)
 xcodebuild -scheme iDeinterlace -configuration Debug build
 
 # Build for Release
 xcodebuild -scheme iDeinterlace -configuration Release build
 
-# Build dependencies (requires Homebrew, Python)
+# Build dependencies for distribution (requires Homebrew, Python)
 ./Scripts/build-dependencies.sh
 
 # Sign all bundled binaries

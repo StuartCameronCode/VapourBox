@@ -1,26 +1,25 @@
 """
 iDeinterlace QTGMC VapourSynth Script Template
-This template is processed by ScriptGenerator to substitute parameters.
+Uses havsfunc QTGMC for deinterlacing.
 Placeholders use the format: {{PARAMETER_NAME}}
 """
 
 import vapoursynth as vs
-import havsfunc as haf
+import sys
 
 core = vs.core
 
-# Load input video
-# ffms2 is preferred for frame-accurate seeking
+# Load input video using ffms2 for frame-accurate seeking
 clip = core.ffms2.Source(source=r"{{INPUT_PATH}}")
 
-# Get input properties
+# Get input properties for progress tracking
 input_fps_num = clip.fps.numerator
 input_fps_den = clip.fps.denominator
 total_frames = clip.num_frames
-
-# Print video info for progress tracking
-import sys
 print(f"INPUT_INFO:frames={total_frames},fps_num={input_fps_num},fps_den={input_fps_den}", file=sys.stderr)
+
+# Import havsfunc for QTGMC
+import havsfunc as haf
 
 # Apply QTGMC deinterlacing
 clip = haf.QTGMC(

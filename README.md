@@ -61,11 +61,64 @@ Click **Settings** to access QTGMC parameters:
 ### Prerequisites
 - Xcode 15 or later
 - macOS 13.0 SDK or later
-- Python 3.11+ (for building dependencies)
+- Homebrew
 
-### Building Dependencies
+### Development Environment Setup
 
-The app bundles Python, VapourSynth, FFmpeg, and various plugins. To build these:
+1. **Install system dependencies via Homebrew:**
+   ```bash
+   brew install vapoursynth ffmpeg ffms2 meson
+   ln -s "../libffms2.dylib" "/opt/homebrew/lib/vapoursynth/libffms2.dylib"
+   ```
+
+2. **Install Python packages** (uses Homebrew's Python 3.14):
+   ```bash
+   pip3.14 install mvsfunc adjust --break-system-packages
+   ```
+
+3. **Download havsfunc r31** (last version with QTGMC):
+   ```bash
+   curl -L "https://github.com/HomeOfVapourSynthEvolution/havsfunc/archive/refs/tags/r31.tar.gz" | tar -xz
+   cp havsfunc-r31/havsfunc.py /opt/homebrew/lib/python3.14/site-packages/
+   ```
+
+4. **Build VapourSynth plugins from source:**
+
+   The following plugins need to be built and copied to `/opt/homebrew/lib/vapoursynth/`:
+   - [mvtools](https://github.com/dubhater/vapoursynth-mvtools)
+   - [NNEDI3CL](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL)
+   - [fmtconv](https://github.com/EleonoreMizo/fmtconv)
+   - [miscfilters](https://github.com/vapoursynth/vs-miscfilters-obsolete)
+
+   Build each with:
+   ```bash
+   git clone <repo-url>
+   cd <repo-name>
+   meson setup build
+   meson compile -C build
+   cp build/*.dylib /opt/homebrew/lib/vapoursynth/
+   ```
+
+5. **Install NNEDI3CL weights:**
+   ```bash
+   mkdir -p /opt/homebrew/share/NNEDI3CL
+   curl -L "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL/raw/master/NNEDI3CL/nnedi3_weights.bin" \
+     -o /opt/homebrew/share/NNEDI3CL/nnedi3_weights.bin
+   ```
+
+6. **Apply havsfunc patches** (see CLAUDE.md for details):
+
+   The havsfunc.py file requires patches for mvtools API compatibility. Add a helper function to rename `_lambda`/`_global` parameters and update interpolation fallbacks for nnedi3cl.
+
+7. **Verify setup:**
+   ```bash
+   vspipe --version
+   python3.14 -c "import vapoursynth; print(str(vapoursynth.core))"
+   ```
+
+### Building Dependencies for Distribution
+
+For bundling all dependencies in the app:
 
 ```bash
 cd Scripts
@@ -79,6 +132,20 @@ This will download and prepare all required dependencies in the `BundledDependen
 1. Open `iDeinterlace.xcodeproj` in Xcode
 2. Select the **iDeinterlace** scheme
 3. Build and Run (Cmd+R)
+
+### Testing with Development Environment
+
+```bash
+# Activate conda environment
+conda activate ideinterlace
+
+# Test VapourSynth setup
+vspipe --version
+python -c "import vapoursynth; print(vapoursynth.core.version())"
+
+# Test with sample script
+vspipe -i test_script.vpy -
+```
 
 ### Code Signing for Distribution
 

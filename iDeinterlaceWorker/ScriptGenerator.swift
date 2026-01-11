@@ -264,6 +264,7 @@ final class ScriptGenerator {
         {{#FPS_DIVISOR}}
             FPSDivisor={{FPS_DIVISOR}},
         {{/FPS_DIVISOR}}
+            opencl=True,
         )
 
         clip.set_output()
