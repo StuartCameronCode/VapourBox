@@ -107,6 +107,19 @@ final class WorkerManager: ObservableObject {
             return url
         }
 
+        // Check Swift PM build directory (for development)
+        if let mainExec = mainExec {
+            // Walk up to find project root and check .build/debug
+            var dir = mainExec.deletingLastPathComponent()
+            for _ in 0..<10 {
+                let spmWorker = dir.appendingPathComponent(".build/debug/iDeinterlaceWorker")
+                if FileManager.default.isExecutableFile(atPath: spmWorker.path) {
+                    return spmWorker
+                }
+                dir = dir.deletingLastPathComponent()
+            }
+        }
+
         return nil
     }
 

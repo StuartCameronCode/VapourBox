@@ -48,11 +48,22 @@ final class PipelineExecutor {
 
         // Set up environment for embedded Python/VapourSynth
         var env = ProcessInfo.processInfo.environment
+        // Clear any conda/virtualenv variables that might interfere
+        env.removeValue(forKey: "CONDA_PREFIX")
+        env.removeValue(forKey: "CONDA_DEFAULT_ENV")
+        env.removeValue(forKey: "VIRTUAL_ENV")
+
         if let pythonHome = bundleResources.pythonHome {
             env["PYTHONHOME"] = pythonHome
         }
+        if let pythonPath = bundleResources.pythonPath {
+            env["PYTHONPATH"] = pythonPath
+        }
         if let vsPluginsPath = bundleResources.vsPluginsPath {
             env["VAPOURSYNTH_PLUGIN_PATH"] = vsPluginsPath
+        }
+        if let weightsPath = bundleResources.nnedi3WeightsPath {
+            env["NNEDI3CL_WEIGHTS_PATH"] = weightsPath
         }
 
         // Create pipe between vspipe and ffmpeg
@@ -272,59 +283,141 @@ final class PipelineExecutor {
     }
 }
 
-/// Locates bundled dependencies
+/// Locates bundled dependencies - always uses bundled versions, never system installed
 struct BundleResources {
     private let bundle = Bundle.main
 
+    /// Find TestBundle directory for development (walks up from executable to find project root)
+    private var testBundlePath: String? {
+        guard let execURL = bundle.executableURL else { return nil }
+
+        var dir = execURL.deletingLastPathComponent()
+        for _ in 0..<10 {
+            let testBundle = dir.appendingPathComponent("Tests/TestBundle")
+            let marker = testBundle.appendingPathComponent(".setup-complete")
+            if FileManager.default.fileExists(atPath: marker.path) {
+                return testBundle.path
+            }
+            dir = dir.deletingLastPathComponent()
+        }
+        return nil
+    }
+
     var pythonHome: String? {
-        bundle.privateFrameworksURL?
+        // Check app bundle (distributed app)
+        if let bundledPath = bundle.privateFrameworksURL?
             .appendingPathComponent("Python.framework/Versions/3.11")
-            .path
+            .path,
+           FileManager.default.fileExists(atPath: bundledPath) {
+            return bundledPath
+        }
+
+        // Check TestBundle (development)
+        if let testBundle = testBundlePath {
+            let pythonPath = "\(testBundle)/Frameworks/Python.framework/Versions/3.14"
+            if FileManager.default.fileExists(atPath: pythonPath) {
+                return pythonPath
+            }
+        }
+
+        return nil
+    }
+
+    var pythonPath: String? {
+        // Additional Python path for packages (havsfunc, mvsfunc, etc.)
+        if let testBundle = testBundlePath {
+            let packagesPath = "\(testBundle)/PythonPackages"
+            if FileManager.default.fileExists(atPath: packagesPath) {
+                if let home = pythonHome {
+                    return "\(packagesPath):\(home)/lib/python3.14/site-packages"
+                }
+                return packagesPath
+            }
+        }
+        return nil
     }
 
     var vspipePath: String? {
-        // Check bundle helpers
+        // Check app bundle helpers
         if let path = bundle.path(forAuxiliaryExecutable: "vspipe") {
             return path
         }
 
-        // Check Helpers directory
+        // Check Contents/Helpers in app bundle
         let vspipeHelpers = bundle.bundleURL.appendingPathComponent("Contents/Helpers/vspipe").path
         if FileManager.default.isExecutableFile(atPath: vspipeHelpers) {
             return vspipeHelpers
         }
 
-        // Fallback to PATH
-        return findInPath("vspipe")
+        // Check TestBundle (development) - use wrapper script which sets up environment
+        if let testBundle = testBundlePath {
+            let vspipePath = "\(testBundle)/Helpers/vspipe"
+            if FileManager.default.isExecutableFile(atPath: vspipePath) {
+                return vspipePath
+            }
+        }
+
+        return nil
     }
 
     var ffmpegPath: String? {
+        // Check app bundle helpers
         if let path = bundle.path(forAuxiliaryExecutable: "ffmpeg") {
             return path
         }
 
+        // Check Contents/Helpers in app bundle
         let ffmpegHelpers = bundle.bundleURL.appendingPathComponent("Contents/Helpers/ffmpeg").path
         if FileManager.default.isExecutableFile(atPath: ffmpegHelpers) {
             return ffmpegHelpers
         }
 
-        return findInPath("ffmpeg")
+        // Check TestBundle (development)
+        if let testBundle = testBundlePath {
+            let ffmpegPath = "\(testBundle)/Helpers/ffmpeg"
+            if FileManager.default.isExecutableFile(atPath: ffmpegPath) {
+                return ffmpegPath
+            }
+        }
+
+        return nil
     }
 
     var vsPluginsPath: String? {
-        bundle.builtInPlugInsURL?.appendingPathComponent("VapourSynth").path
-    }
+        // Check app bundle plugins
+        if let bundledPath = bundle.builtInPlugInsURL?.appendingPathComponent("VapourSynth").path,
+           FileManager.default.fileExists(atPath: bundledPath) {
+            return bundledPath
+        }
 
-    private func findInPath(_ executable: String) -> String? {
-        let pathDirs = ProcessInfo.processInfo.environment["PATH"]?
-            .components(separatedBy: ":") ?? []
-
-        for dir in pathDirs {
-            let fullPath = (dir as NSString).appendingPathComponent(executable)
-            if FileManager.default.isExecutableFile(atPath: fullPath) {
-                return fullPath
+        // Check TestBundle (development)
+        if let testBundle = testBundlePath {
+            let pluginsPath = "\(testBundle)/PlugIns/VapourSynth"
+            if FileManager.default.fileExists(atPath: pluginsPath) {
+                return pluginsPath
             }
         }
+
+        return nil
+    }
+
+    var nnedi3WeightsPath: String? {
+        // Check app bundle resources
+        if let resourcePath = bundle.resourcePath {
+            let weightsPath = "\(resourcePath)/NNEDI3CL/nnedi3_weights.bin"
+            if FileManager.default.fileExists(atPath: weightsPath) {
+                return weightsPath
+            }
+        }
+
+        // Check TestBundle (development)
+        if let testBundle = testBundlePath {
+            let weightsPath = "\(testBundle)/Resources/NNEDI3CL/nnedi3_weights.bin"
+            if FileManager.default.fileExists(atPath: weightsPath) {
+                return weightsPath
+            }
+        }
+
         return nil
     }
 }
