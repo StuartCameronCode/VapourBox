@@ -1,0 +1,221 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Levels &mdash; VapourSynth R73 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/custom.css?v=c3bcf009" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=a12aaffa"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Limiter" href="limiter.html" />
+    <link rel="prev" title="Invert/InvertMask" href="invert_invertmask.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            VapourSynth
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../gettingstarted.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../pythonreference.html">Python Reference</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../../functions.html">Function Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../../functions.html#general-functions">General Functions</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="../../functions.html#video-functions">Video Functions</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="addborders.html">AddBorders</a></li>
+<li class="toctree-l3"><a class="reference internal" href="assumefps.html">AssumeFPS</a></li>
+<li class="toctree-l3"><a class="reference internal" href="averageframes.html">AverageFrames</a></li>
+<li class="toctree-l3"><a class="reference internal" href="binarize_binarizemask.html">Binarize/BinarizeMask</a></li>
+<li class="toctree-l3"><a class="reference internal" href="blankclip.html">BlankClip</a></li>
+<li class="toctree-l3"><a class="reference internal" href="boxblur.html">BoxBlur</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cliptoprop.html">ClipToProp</a></li>
+<li class="toctree-l3"><a class="reference internal" href="convolution.html">Convolution</a></li>
+<li class="toctree-l3"><a class="reference internal" href="copyframeprops.html">CopyFrameProps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="crop_cropabs.html">Crop/CropAbs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="deflate_inflate.html">Deflate/Inflate</a></li>
+<li class="toctree-l3"><a class="reference internal" href="deleteframes.html">DeleteFrames</a></li>
+<li class="toctree-l3"><a class="reference internal" href="doubleweave.html">DoubleWeave</a></li>
+<li class="toctree-l3"><a class="reference internal" href="duplicateframes.html">DuplicateFrames</a></li>
+<li class="toctree-l3"><a class="reference internal" href="expr.html">Expr</a></li>
+<li class="toctree-l3"><a class="reference internal" href="flipvertical_fliphorizontal.html">FlipVertical/FlipHorizontal</a></li>
+<li class="toctree-l3"><a class="reference internal" href="frameeval.html">FrameEval</a></li>
+<li class="toctree-l3"><a class="reference internal" href="freezeframes.html">FreezeFrames</a></li>
+<li class="toctree-l3"><a class="reference internal" href="interleave.html">Interleave</a></li>
+<li class="toctree-l3"><a class="reference internal" href="invert_invertmask.html">Invert/InvertMask</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Levels</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#std.Levels"><code class="docutils literal notranslate"><span class="pre">Levels()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="limiter.html">Limiter</a></li>
+<li class="toctree-l3"><a class="reference internal" href="loop.html">Loop</a></li>
+<li class="toctree-l3"><a class="reference internal" href="lut.html">Lut</a></li>
+<li class="toctree-l3"><a class="reference internal" href="lut2.html">Lut2</a></li>
+<li class="toctree-l3"><a class="reference internal" href="makediff.html">MakeDiff</a></li>
+<li class="toctree-l3"><a class="reference internal" href="makefulldiff.html">MakeFullDiff</a></li>
+<li class="toctree-l3"><a class="reference internal" href="maskedmerge.html">MaskedMerge</a></li>
+<li class="toctree-l3"><a class="reference internal" href="median.html">Median</a></li>
+<li class="toctree-l3"><a class="reference internal" href="merge.html">Merge</a></li>
+<li class="toctree-l3"><a class="reference internal" href="mergediff.html">MergeDiff</a></li>
+<li class="toctree-l3"><a class="reference internal" href="mergefulldiff.html">MergeFullDiff</a></li>
+<li class="toctree-l3"><a class="reference internal" href="minimum_maximum.html">Minimum/Maximum</a></li>
+<li class="toctree-l3"><a class="reference internal" href="modifyframe.html">ModifyFrame</a></li>
+<li class="toctree-l3"><a class="reference internal" href="pemverifier.html">PEMVerifier</a></li>
+<li class="toctree-l3"><a class="reference internal" href="planestats.html">PlaneStats</a></li>
+<li class="toctree-l3"><a class="reference internal" href="premultiply.html">PreMultiply</a></li>
+<li class="toctree-l3"><a class="reference internal" href="prewitt_sobel.html">Prewitt/Sobel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="proptoclip.html">PropToClip</a></li>
+<li class="toctree-l3"><a class="reference internal" href="removeframeprops.html">RemoveFrameProps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="resize.html">Resize</a></li>
+<li class="toctree-l3"><a class="reference internal" href="reverse.html">Reverse</a></li>
+<li class="toctree-l3"><a class="reference internal" href="selectevery.html">SelectEvery</a></li>
+<li class="toctree-l3"><a class="reference internal" href="separatefields.html">SeparateFields</a></li>
+<li class="toctree-l3"><a class="reference internal" href="setfieldbased.html">SetFieldBased</a></li>
+<li class="toctree-l3"><a class="reference internal" href="setframeprop.html">SetFrameProp</a></li>
+<li class="toctree-l3"><a class="reference internal" href="setframeprops.html">SetFrameProps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="setvideocache.html">SetVideoCache</a></li>
+<li class="toctree-l3"><a class="reference internal" href="shuffleplanes.html">ShufflePlanes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="splice.html">Splice</a></li>
+<li class="toctree-l3"><a class="reference internal" href="splitplanes.html">SplitPlanes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="stackvertical_stackhorizontal.html">StackVertical/StackHorizontal</a></li>
+<li class="toctree-l3"><a class="reference internal" href="transpose.html">Transpose</a></li>
+<li class="toctree-l3"><a class="reference internal" href="trim.html">Trim</a></li>
+<li class="toctree-l3"><a class="reference internal" href="turn180.html">Turn180</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../functions.html#text">Text</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../functions.html#audio-functions">Audio Functions</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../output.html">Output</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../applications.html">Applications and Libraries</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../apireference.html">VapourSynth C API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">VapourSynth</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../functions.html">Function Reference</a></li>
+      <li class="breadcrumb-item active">Levels</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/functions/video/levels.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="levels">
+<h1>Levels<a class="headerlink" href="#levels" title="Link to this heading"></a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="std.Levels">
+<span class="sig-prename descclassname"><span class="pre">std.</span></span><span class="sig-name descname"><span class="pre">Levels</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">vnode</span> <span class="pre">clip[,</span> <span class="pre">float</span> <span class="pre">min_in,</span> <span class="pre">float</span> <span class="pre">max_in,</span> <span class="pre">float</span> <span class="pre">gamma=1.0,</span> <span class="pre">float</span> <span class="pre">min_out,</span> <span class="pre">float</span> <span class="pre">max_out,</span> <span class="pre">int[]</span> <span class="pre">planes=[0,</span> <span class="pre">1,</span> <span class="pre">2]]</span></em><span class="sig-paren">)</span><a class="headerlink" href="#std.Levels" title="Link to this definition"></a></dt>
+<dd><p>Adjusts brightness, contrast, and gamma.</p>
+<p>The range [<em>min_in</em>, <em>max_in</em>] is remapped into [<em>min_out</em>, <em>max_out</em>]. Note that the
+range behavior is unintuitive for YUV float formats since the assumed range will be
+0-1 even for the UV-planes.</p>
+<p>For example, to convert from limited range YUV to full range (8 bit):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">clip</span> <span class="o">=</span> <span class="n">std</span><span class="o">.</span><span class="n">Levels</span><span class="p">(</span><span class="n">clip</span><span class="p">,</span> <span class="n">min_in</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">max_in</span><span class="o">=</span><span class="mi">235</span><span class="p">,</span> <span class="n">min_out</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_out</span><span class="o">=</span><span class="mi">255</span><span class="p">,</span> <span class="n">planes</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">clip</span> <span class="o">=</span> <span class="n">std</span><span class="o">.</span><span class="n">Levels</span><span class="p">(</span><span class="n">clip</span><span class="p">,</span> <span class="n">min_in</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">max_in</span><span class="o">=</span><span class="mi">240</span><span class="p">,</span> <span class="n">min_out</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_out</span><span class="o">=</span><span class="mi">255</span><span class="p">,</span> <span class="n">planes</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">])</span>
+</pre></div>
+</div>
+<p>The default value of <em>max_in</em> and <em>max_out</em> is the format’s minimum and maximum
+allowed values respectively. Note that all input is clamped to the input range
+to prevent out of range output.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<dl class="simple">
+<dt>The default ranges are 0-1 for floating point formats. This may have an undesired</dt><dd><p>effect on YUV formats.</p>
+</dd>
+</dl>
+</div>
+<dl class="simple">
+<dt><em>clip</em></dt><dd><p>Clip to process. It must have integer sample type and bit depth
+between 8 and 16, or float sample type and bit depth of 32. If
+there are any frames with other formats, an error will be
+returned.</p>
+</dd>
+<dt><em>gamma</em></dt><dd><p>Controls the degree of non-linearity of the conversion. Values
+greater than 1.0 brighten the output, while values less than 1.0
+darken it.</p>
+</dd>
+<dt><em>planes</em></dt><dd><p>Specifies which planes will be processed. Any unprocessed planes
+will be simply copied.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="invert_invertmask.html" class="btn btn-neutral float-left" title="Invert/InvertMask" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="limiter.html" class="btn btn-neutral float-right" title="Limiter" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2012-2025, Fredrik Mellbin.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

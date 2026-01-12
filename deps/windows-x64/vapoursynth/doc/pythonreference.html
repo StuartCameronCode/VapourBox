@@ -1,0 +1,1754 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Python Reference &mdash; VapourSynth R73 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/css/custom.css?v=c3bcf009" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=a12aaffa"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Function Reference" href="functions.html" />
+    <link rel="prev" title="Getting Started" href="gettingstarted.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            VapourSynth
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="gettingstarted.html">Getting Started</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Python Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#vapoursynth-structure">VapourSynth Structure</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#grammar">Grammar</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#slicing-and-other-syntactic-sugar">Slicing and Other Syntactic Sugar</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#function-arguments-return-types-and-property-type-deduction-in-python">Function Arguments, Return Types and Property Type Deduction in Python</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#python-keywords-as-filter-arguments">Python Keywords as Filter Arguments</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#windows-file-paths">Windows File Paths</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#output">Output</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#raw-access-to-frame-data">Raw Access to Frame Data</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#classes-and-functions">Classes and Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#core"><code class="docutils literal notranslate"><span class="pre">core</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#get_outputs"><code class="docutils literal notranslate"><span class="pre">get_outputs()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#get_output"><code class="docutils literal notranslate"><span class="pre">get_output()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#clear_output"><code class="docutils literal notranslate"><span class="pre">clear_output()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#clear_outputs"><code class="docutils literal notranslate"><span class="pre">clear_outputs()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#construct_signature"><code class="docutils literal notranslate"><span class="pre">construct_signature()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#register_on_destroy"><code class="docutils literal notranslate"><span class="pre">register_on_destroy()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#unregister_on_destroy"><code class="docutils literal notranslate"><span class="pre">unregister_on_destroy()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#Core"><code class="docutils literal notranslate"><span class="pre">Core</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#Core.num_threads"><code class="docutils literal notranslate"><span class="pre">Core.num_threads</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Core.max_cache_size"><code class="docutils literal notranslate"><span class="pre">Core.max_cache_size</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Core.used_cache_size"><code class="docutils literal notranslate"><span class="pre">Core.used_cache_size</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Core.clear_cache"><code class="docutils literal notranslate"><span class="pre">Core.clear_cache()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Core.core_version"><code class="docutils literal notranslate"><span class="pre">Core.core_version</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Core.api_version"><code class="docutils literal notranslate"><span class="pre">Core.api_version</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Core.plugins"><code class="docutils literal notranslate"><span class="pre">Core.plugins()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Core.get_video_format"><code class="docutils literal notranslate"><span class="pre">Core.get_video_format()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Core.query_video_format"><code class="docutils literal notranslate"><span class="pre">Core.query_video_format()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Core.create_video_frame"><code class="docutils literal notranslate"><span class="pre">Core.create_video_frame()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Core.add_log_handler"><code class="docutils literal notranslate"><span class="pre">Core.add_log_handler()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Core.remove_log_handler"><code class="docutils literal notranslate"><span class="pre">Core.remove_log_handler()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Core.log_message"><code class="docutils literal notranslate"><span class="pre">Core.log_message()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Core.rule6"><code class="docutils literal notranslate"><span class="pre">Core.rule6()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#Local"><code class="docutils literal notranslate"><span class="pre">Local</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#VideoNode"><code class="docutils literal notranslate"><span class="pre">VideoNode</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#VideoNode.format"><code class="docutils literal notranslate"><span class="pre">VideoNode.format</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoNode.width"><code class="docutils literal notranslate"><span class="pre">VideoNode.width</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoNode.height"><code class="docutils literal notranslate"><span class="pre">VideoNode.height</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoNode.num_frames"><code class="docutils literal notranslate"><span class="pre">VideoNode.num_frames</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoNode.fps"><code class="docutils literal notranslate"><span class="pre">VideoNode.fps</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoNode.fps_num"><code class="docutils literal notranslate"><span class="pre">VideoNode.fps_num</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoNode.fps_den"><code class="docutils literal notranslate"><span class="pre">VideoNode.fps_den</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoNode.flags"><code class="docutils literal notranslate"><span class="pre">VideoNode.flags</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoNode.get_frame"><code class="docutils literal notranslate"><span class="pre">VideoNode.get_frame()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoNode.get_frame_async"><code class="docutils literal notranslate"><span class="pre">VideoNode.get_frame_async()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoNode.set_output"><code class="docutils literal notranslate"><span class="pre">VideoNode.set_output()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoNode.output"><code class="docutils literal notranslate"><span class="pre">VideoNode.output()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoNode.frames"><code class="docutils literal notranslate"><span class="pre">VideoNode.frames()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoNode.clear_cache"><code class="docutils literal notranslate"><span class="pre">VideoNode.clear_cache()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoNode.is_inspectable"><code class="docutils literal notranslate"><span class="pre">VideoNode.is_inspectable()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#VideoOutputTuple"><code class="docutils literal notranslate"><span class="pre">VideoOutputTuple</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#VideoOutputTuple.clip"><code class="docutils literal notranslate"><span class="pre">VideoOutputTuple.clip</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoOutputTuple.alpha"><code class="docutils literal notranslate"><span class="pre">VideoOutputTuple.alpha</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoOutputTuple.alt_output"><code class="docutils literal notranslate"><span class="pre">VideoOutputTuple.alt_output</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#VideoFrame"><code class="docutils literal notranslate"><span class="pre">VideoFrame</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFrame.format"><code class="docutils literal notranslate"><span class="pre">VideoFrame.format</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFrame.width"><code class="docutils literal notranslate"><span class="pre">VideoFrame.width</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFrame.height"><code class="docutils literal notranslate"><span class="pre">VideoFrame.height</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFrame.readonly"><code class="docutils literal notranslate"><span class="pre">VideoFrame.readonly</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFrame.props"><code class="docutils literal notranslate"><span class="pre">VideoFrame.props</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFrame.copy"><code class="docutils literal notranslate"><span class="pre">VideoFrame.copy()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFrame.close"><code class="docutils literal notranslate"><span class="pre">VideoFrame.close()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFrame.closed"><code class="docutils literal notranslate"><span class="pre">VideoFrame.closed</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFrame.get_read_ptr"><code class="docutils literal notranslate"><span class="pre">VideoFrame.get_read_ptr()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFrame.get_write_ptr"><code class="docutils literal notranslate"><span class="pre">VideoFrame.get_write_ptr()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFrame.get_stride"><code class="docutils literal notranslate"><span class="pre">VideoFrame.get_stride()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFrame.readchunks"><code class="docutils literal notranslate"><span class="pre">VideoFrame.readchunks()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#VideoFormat"><code class="docutils literal notranslate"><span class="pre">VideoFormat</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFormat.id"><code class="docutils literal notranslate"><span class="pre">VideoFormat.id</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFormat.name"><code class="docutils literal notranslate"><span class="pre">VideoFormat.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFormat.color_family"><code class="docutils literal notranslate"><span class="pre">VideoFormat.color_family</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFormat.sample_type"><code class="docutils literal notranslate"><span class="pre">VideoFormat.sample_type</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFormat.bits_per_sample"><code class="docutils literal notranslate"><span class="pre">VideoFormat.bits_per_sample</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFormat.bytes_per_sample"><code class="docutils literal notranslate"><span class="pre">VideoFormat.bytes_per_sample</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFormat.subsampling_w"><code class="docutils literal notranslate"><span class="pre">VideoFormat.subsampling_w</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFormat.subsampling_h"><code class="docutils literal notranslate"><span class="pre">VideoFormat.subsampling_h</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFormat.num_planes"><code class="docutils literal notranslate"><span class="pre">VideoFormat.num_planes</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#VideoFormat.replace"><code class="docutils literal notranslate"><span class="pre">VideoFormat.replace()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#AudioNode"><code class="docutils literal notranslate"><span class="pre">AudioNode</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#AudioNode.sample_type"><code class="docutils literal notranslate"><span class="pre">AudioNode.sample_type</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioNode.bits_per_sample"><code class="docutils literal notranslate"><span class="pre">AudioNode.bits_per_sample</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioNode.bytes_per_sample"><code class="docutils literal notranslate"><span class="pre">AudioNode.bytes_per_sample</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioNode.channel_layout"><code class="docutils literal notranslate"><span class="pre">AudioNode.channel_layout</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioNode.num_channels"><code class="docutils literal notranslate"><span class="pre">AudioNode.num_channels</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioNode.sample_rate"><code class="docutils literal notranslate"><span class="pre">AudioNode.sample_rate</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioNode.get_frame"><code class="docutils literal notranslate"><span class="pre">AudioNode.get_frame()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioNode.get_frame_async"><code class="docutils literal notranslate"><span class="pre">AudioNode.get_frame_async()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioNode.set_output"><code class="docutils literal notranslate"><span class="pre">AudioNode.set_output()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioNode.frames"><code class="docutils literal notranslate"><span class="pre">AudioNode.frames()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioNode.clear_cache"><code class="docutils literal notranslate"><span class="pre">AudioNode.clear_cache()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioNode.is_inspectable"><code class="docutils literal notranslate"><span class="pre">AudioNode.is_inspectable()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#AudioFrame"><code class="docutils literal notranslate"><span class="pre">AudioFrame</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#AudioFrame.sample_type"><code class="docutils literal notranslate"><span class="pre">AudioFrame.sample_type</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioFrame.bits_per_sample"><code class="docutils literal notranslate"><span class="pre">AudioFrame.bits_per_sample</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioFrame.bytes_per_sample"><code class="docutils literal notranslate"><span class="pre">AudioFrame.bytes_per_sample</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioFrame.channel_layout"><code class="docutils literal notranslate"><span class="pre">AudioFrame.channel_layout</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioFrame.num_channels"><code class="docutils literal notranslate"><span class="pre">AudioFrame.num_channels</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioFrame.readonly"><code class="docutils literal notranslate"><span class="pre">AudioFrame.readonly</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioFrame.props"><code class="docutils literal notranslate"><span class="pre">AudioFrame.props</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioFrame.copy"><code class="docutils literal notranslate"><span class="pre">AudioFrame.copy()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioFrame.get_read_ptr"><code class="docutils literal notranslate"><span class="pre">AudioFrame.get_read_ptr()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioFrame.get_write_ptr"><code class="docutils literal notranslate"><span class="pre">AudioFrame.get_write_ptr()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#AudioFrame.get_stride"><code class="docutils literal notranslate"><span class="pre">AudioFrame.get_stride()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#Plugin"><code class="docutils literal notranslate"><span class="pre">Plugin</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#Plugin.namespace"><code class="docutils literal notranslate"><span class="pre">Plugin.namespace</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Plugin.name"><code class="docutils literal notranslate"><span class="pre">Plugin.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Plugin.version"><code class="docutils literal notranslate"><span class="pre">Plugin.version</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Plugin.plugin_path"><code class="docutils literal notranslate"><span class="pre">Plugin.plugin_path</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Plugin.identifier"><code class="docutils literal notranslate"><span class="pre">Plugin.identifier</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Plugin.functions"><code class="docutils literal notranslate"><span class="pre">Plugin.functions()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#Function"><code class="docutils literal notranslate"><span class="pre">Function</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#Function.name"><code class="docutils literal notranslate"><span class="pre">Function.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Function.plugin"><code class="docutils literal notranslate"><span class="pre">Function.plugin</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Function.signature"><code class="docutils literal notranslate"><span class="pre">Function.signature</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Function.return_signature"><code class="docutils literal notranslate"><span class="pre">Function.return_signature</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#Environment"><code class="docutils literal notranslate"><span class="pre">Environment</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#Environment.is_single"><code class="docutils literal notranslate"><span class="pre">Environment.is_single()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Environment.env_id"><code class="docutils literal notranslate"><span class="pre">Environment.env_id</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Environment.single"><code class="docutils literal notranslate"><span class="pre">Environment.single</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Environment.alive"><code class="docutils literal notranslate"><span class="pre">Environment.alive</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Environment.copy"><code class="docutils literal notranslate"><span class="pre">Environment.copy()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#Environment.use"><code class="docutils literal notranslate"><span class="pre">Environment.use()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#get_current_environment"><code class="docutils literal notranslate"><span class="pre">get_current_environment()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#EnvironmentPolicy"><code class="docutils literal notranslate"><span class="pre">EnvironmentPolicy</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#EnvironmentPolicy.on_policy_registered"><code class="docutils literal notranslate"><span class="pre">EnvironmentPolicy.on_policy_registered()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#EnvironmentPolicy.on_policy_cleared"><code class="docutils literal notranslate"><span class="pre">EnvironmentPolicy.on_policy_cleared()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#EnvironmentPolicy.get_current_environment"><code class="docutils literal notranslate"><span class="pre">EnvironmentPolicy.get_current_environment()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#EnvironmentPolicy.set_environment"><code class="docutils literal notranslate"><span class="pre">EnvironmentPolicy.set_environment()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#EnvironmentPolicy.is_alive"><code class="docutils literal notranslate"><span class="pre">EnvironmentPolicy.is_alive()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#EnvironmentPolicyAPI"><code class="docutils literal notranslate"><span class="pre">EnvironmentPolicyAPI</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#EnvironmentPolicyAPI.wrap_environment"><code class="docutils literal notranslate"><span class="pre">EnvironmentPolicyAPI.wrap_environment()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#EnvironmentPolicyAPI.create_environment"><code class="docutils literal notranslate"><span class="pre">EnvironmentPolicyAPI.create_environment()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#EnvironmentPolicyAPI.set_logger"><code class="docutils literal notranslate"><span class="pre">EnvironmentPolicyAPI.set_logger()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#EnvironmentPolicyAPI.destroy_environment"><code class="docutils literal notranslate"><span class="pre">EnvironmentPolicyAPI.destroy_environment()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#EnvironmentPolicyAPI.unregister_policy"><code class="docutils literal notranslate"><span class="pre">EnvironmentPolicyAPI.unregister_policy()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#EnvironmentPolicyAPI.get_vapoursynth_api"><code class="docutils literal notranslate"><span class="pre">EnvironmentPolicyAPI.get_vapoursynth_api()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#EnvironmentPolicyAPI.get_core_ptr"><code class="docutils literal notranslate"><span class="pre">EnvironmentPolicyAPI.get_core_ptr()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#register_policy"><code class="docutils literal notranslate"><span class="pre">register_policy()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#try_enable_introspection"><code class="docutils literal notranslate"><span class="pre">_try_enable_introspection()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#has_policy"><code class="docutils literal notranslate"><span class="pre">has_policy()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#EnvironmentData"><code class="docutils literal notranslate"><span class="pre">EnvironmentData</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#Func"><code class="docutils literal notranslate"><span class="pre">Func</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#Error"><code class="docutils literal notranslate"><span class="pre">Error</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#constants">Constants</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#video">Video</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#color-family">Color Family</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#format">Format</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#chroma-location">Chroma Location</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#field-based">Field Based</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#color-range">Color Range</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#matrix-coefficients">Matrix Coefficients</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#transfercharacteristics">TransferCharacteristics</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#color-primaries">Color Primaries</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#audio">Audio</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#channels">Channels</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#sample-type">Sample Type</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions.html">Function Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="output.html">Output</a></li>
+<li class="toctree-l1"><a class="reference internal" href="applications.html">Applications and Libraries</a></li>
+<li class="toctree-l1"><a class="reference internal" href="apireference.html">VapourSynth C API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">VapourSynth</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Python Reference</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/pythonreference.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="python-reference">
+<span id="pythonreference"></span><h1>Python Reference<a class="headerlink" href="#python-reference" title="Link to this heading"></a></h1>
+<p>VapourSynth is separated into a core library and a Python module. This section
+explains how the core library is exposed through Python and some of the
+special things unique to Python scripting, such as slicing and output.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Any script executed through the vsscript api (that means vspipe, avfs, vsvfw or
+other API users) will have __name__ set to “__vapoursynth__” unlike normal Python
+scripts where it usually is “__main__”.</p>
+</div>
+<section id="vapoursynth-structure">
+<h2>VapourSynth Structure<a class="headerlink" href="#vapoursynth-structure" title="Link to this heading"></a></h2>
+<p>Most operations in the VapourSynth library are performed through the singleton
+core object. This core may load plugins, which all end up in their own unit,
+or namespace, so to say, to avoid naming conflicts in the contained functions.
+For this reason you call a plugin function with <em>core.unit.Function()</em>.</p>
+<p>All arguments to functions have names that are lowercase and all function names
+are CamelCase. Unit names are also lowercase and usually short. This is good to
+remember as a general rule.</p>
+</section>
+<section id="grammar">
+<h2>Grammar<a class="headerlink" href="#grammar" title="Link to this heading"></a></h2>
+<section id="slicing-and-other-syntactic-sugar">
+<h3>Slicing and Other Syntactic Sugar<a class="headerlink" href="#slicing-and-other-syntactic-sugar" title="Link to this heading"></a></h3>
+<p>The VideoNode and AudioNode class (always called “clip” in practice) supports the full
+range of indexing and slicing operations in Python. If you do perform a slicing
+operation on a clip, you will get a new clip back with the desired frames.
+Here are a few examples.</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Operation</p></th>
+<th class="head"><p>Description</p></th>
+<th class="head"><p>Equivalent</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>clip = clip[5]</p></td>
+<td><p>Make a single frame clip containing frame number 5</p></td>
+<td><p>clip = core.std.Trim(clip, first=5, last=5)</p></td>
+</tr>
+<tr class="row-odd"><td><p>clip = clip[5:11]</p></td>
+<td><p>Make a clip containing frames 5 to 10 <a class="footnote-reference brackets" href="#f1" id="id1" role="doc-noteref"><span class="fn-bracket">[</span>1<span class="fn-bracket">]</span></a></p></td>
+<td><p>clip = core.std.Trim(clip, first=5, last=10)</p>
+<p>clip = core.std.AudioTrim(clip, first=5, last=10)</p>
+</td>
+</tr>
+<tr class="row-even"><td><p>clip = clip[::2]</p></td>
+<td><p>Select even numbered frames</p></td>
+<td><p>clip = core.std.SelectEvery(clip, cycle=2, offsets=0)</p></td>
+</tr>
+<tr class="row-odd"><td><p>clip = clip[1::2]</p></td>
+<td><p>Select odd numbered frames</p></td>
+<td><p>clip = core.std.SelectEvery(clip, cycle=2, offsets=1)</p></td>
+</tr>
+<tr class="row-even"><td><p>clip = clip[::-1]</p></td>
+<td><p>Reverses a clip</p></td>
+<td><p>clip = core.std.Reverse(clip)</p>
+<p>clip = core.std.AudioReverse(clip)</p>
+</td>
+</tr>
+<tr class="row-odd"><td><p>clip = clip1 + clip2</p></td>
+<td><p>The addition operator can be used to splice clips together</p></td>
+<td><p>clip = core.std.Splice([clip1, clip2], mismatch=False)</p>
+<p>clip = core.std.AudioSplice([clip1, clip2])</p>
+</td>
+</tr>
+<tr class="row-even"><td><p>clip = clip * 10</p></td>
+<td><p>The multiplication operator can be used to loop a clip <a class="footnote-reference brackets" href="#f2" id="id2" role="doc-noteref"><span class="fn-bracket">[</span>2<span class="fn-bracket">]</span></a></p></td>
+<td><p>clip = core.std.Loop(clip, times=10)</p>
+<p>clip = core.std.AudioLoop(clip, times=10)</p>
+</td>
+</tr>
+</tbody>
+</table>
+<aside class="footnote-list brackets">
+<aside class="footnote brackets" id="f1" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#id1">1</a><span class="fn-bracket">]</span></span>
+<p>Note that frame numbers, like python arrays, start counting at 0 and the end value of slicing is not inclusive</p>
+</aside>
+<aside class="footnote brackets" id="f2" role="doc-footnote">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#id2">2</a><span class="fn-bracket">]</span></span>
+<p>Note that multiplication by 0 is a special case that will repeat the clip up to the maximum frame count</p>
+</aside>
+</aside>
+<p>Filters can be chained with a dot:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">clip</span> <span class="o">=</span> <span class="n">clip</span><span class="o">.</span><span class="n">std</span><span class="o">.</span><span class="n">Trim</span><span class="p">(</span><span class="n">first</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">last</span><span class="o">=</span><span class="mi">2000</span><span class="p">)</span><span class="o">.</span><span class="n">std</span><span class="o">.</span><span class="n">FlipVertical</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>Which is equivalent to:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">clip</span> <span class="o">=</span> <span class="n">core</span><span class="o">.</span><span class="n">std</span><span class="o">.</span><span class="n">FlipVertical</span><span class="p">(</span><span class="n">core</span><span class="o">.</span><span class="n">std</span><span class="o">.</span><span class="n">Trim</span><span class="p">(</span><span class="n">clip</span><span class="p">,</span> <span class="n">first</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">last</span><span class="o">=</span><span class="mi">2000</span><span class="p">))</span>
+</pre></div>
+</div>
+</section>
+<section id="function-arguments-return-types-and-property-type-deduction-in-python">
+<h3>Function Arguments, Return Types and Property Type Deduction in Python<a class="headerlink" href="#function-arguments-return-types-and-property-type-deduction-in-python" title="Link to this heading"></a></h3>
+<p>VapourSynth internally uses a very simple map of key-value pairs to pass values to and from functions.
+As a result of this every key is actually a one dimensional array of values of a single type. The Python bindings
+try to hide this as best as possible to make things less annoying. For example a function returning only a single key
+will have the only the array itself returned and an array with a single value will in turn only have the single value returned.</p>
+<p>Similarly function arguments are first converted to the appropriate type specified by the function’s argument string or fails if this isn’t possible.
+There is however one quirk where the data type’s type hint (utf-8/non-printable raw data) is set based on whether a <em>str</em> or a <em>bytes</em>/<em>bytearray</em>
+object is passed. Likewise a <em>str</em> object will be returned for all utf-8 hinted data and a bytes object for all other types.</p>
+<p>Frame properties and “anything goes” function arguments have much stricter type requirements since the underlying type has to be possible to deduce from them.
+When using this type of functions, such as SetFrameProps, or property assignment it may be necessary to convert to int, float, str or bytes explicitly
+to make things works.</p>
+</section>
+<section id="python-keywords-as-filter-arguments">
+<h3>Python Keywords as Filter Arguments<a class="headerlink" href="#python-keywords-as-filter-arguments" title="Link to this heading"></a></h3>
+<p>If a filter’s argument happens to be a Python keyword, you may append
+an underscore to the argument’s name when invoking the filter. The Python
+module will strip one trailing underscore (if present) from all filter arguments before
+passing them to the filters.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">clip</span> <span class="o">=</span> <span class="n">core</span><span class="o">.</span><span class="n">plugin</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="n">clip</span><span class="p">,</span> <span class="n">lambda_</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Another way to deal with such arguments is to place them in a dictionary:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">kwargs</span> <span class="o">=</span> <span class="p">{</span> <span class="s2">&quot;lambda&quot;</span><span class="p">:</span> <span class="mi">1</span> <span class="p">}</span>
+<span class="n">clip</span> <span class="o">=</span> <span class="n">core</span><span class="o">.</span><span class="n">plugin</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="n">clip</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>VapourSynth will also support the PEP8 convention of using a single trailing
+underscore to prevent collisions with python keywords.</p>
+</section>
+<section id="windows-file-paths">
+<h3>Windows File Paths<a class="headerlink" href="#windows-file-paths" title="Link to this heading"></a></h3>
+<p>If you have a string containing backslashes, you must either prefix the
+string with “r”, or duplicate every single backslash. The reason is
+that the backslash is an escape character in Python.</p>
+<p>Use <a class="reference external" href="https://docs.python.org/3/library/os.path.html#os.path.normcase">os.path.normcase(path)</a>
+to fix Incorrect path string.</p>
+<p>Correct example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="s2">&quot;B:/VapourSynth/VapourSynth.dll&quot;</span>
+<span class="s2">&quot;B:</span><span class="se">\\</span><span class="s2">VapourSynth</span><span class="se">\\</span><span class="s2">VapourSynth.dll&quot;</span>
+<span class="sa">r</span><span class="s2">&quot;B:\VapourSynth\VapourSynth.dll&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="output">
+<h3>Output<a class="headerlink" href="#output" title="Link to this heading"></a></h3>
+<p>The normal way of specifying the clip(s) to output is to call
+<em>clip.set_output()</em>. All standard VapourSynth components only use output
+index 0, except for vspipe where it’s configurable but defaults to 0.
+There are also other variables that can be set to control how a format is
+output. For example, setting <em>alt_output=1</em> changes the packing of the
+YUV422P10 format to one that is common in professional software (like Adobe
+products). Note that currently <em>alt_output</em> modes only has an effect with
+YUV420P8 (I420, IYUV), YUV422P8 (YUY2, UYVY) and YUV422P10 (v210).</p>
+<p>An example on how to get v210 output:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">some_clip</span> <span class="o">=</span> <span class="n">core</span><span class="o">.</span><span class="n">resize</span><span class="o">.</span><span class="n">Bicubic</span><span class="p">(</span><span class="n">clip</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="n">vs</span><span class="o">.</span><span class="n">YUV422P10</span><span class="p">)</span>
+<span class="n">some_clip</span><span class="o">.</span><span class="n">set_output</span><span class="p">(</span><span class="n">alt_output</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>An example on how to get UYVY output:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">some_clip</span> <span class="o">=</span> <span class="n">core</span><span class="o">.</span><span class="n">resize</span><span class="o">.</span><span class="n">Bicubic</span><span class="p">(</span><span class="n">clip</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="n">vs</span><span class="o">.</span><span class="n">YUV422P8</span><span class="p">)</span>
+<span class="n">some_clip</span><span class="o">.</span><span class="n">set_output</span><span class="p">(</span><span class="n">alt_output</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="raw-access-to-frame-data">
+<h3>Raw Access to Frame Data<a class="headerlink" href="#raw-access-to-frame-data" title="Link to this heading"></a></h3>
+<p>The VideoFrame and AudioFrame classes contains one picture/audio chunk and all the metadata
+associated with it. It is possible to access the raw data using either
+<em>get_read_ptr(plane)</em> or <em>get_write_ptr(plane)</em> and <em>get_stride(plane)</em> with ctypes.</p>
+<p>A more Python friendly wrapping is also available where each plane/channel can be accessed
+as a Python array using <em>frame[plane/channel]</em>.</p>
+<p>To get a frame simply call <em>get_frame(n)</em> on a clip. Should you desire to get
+all frames in a clip, use this code:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">for</span> <span class="n">frame</span> <span class="ow">in</span> <span class="n">clip</span><span class="o">.</span><span class="n">frames</span><span class="p">():</span>
+    <span class="c1"># Do stuff with your frame</span>
+    <span class="k">pass</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="classes-and-functions">
+<h2>Classes and Functions<a class="headerlink" href="#classes-and-functions" title="Link to this heading"></a></h2>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="core">
+<span class="sig-name descname"><span class="pre">core</span></span><a class="headerlink" href="#core" title="Link to this definition"></a></dt>
+<dd><p>Gets the singleton Core object. If it is the first time the function is called,
+the Core will be instantiated with the default options. This is the preferred
+way to reference the core.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="get_outputs">
+<span class="sig-name descname"><span class="pre">get_outputs</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#get_outputs" title="Link to this definition"></a></dt>
+<dd><p>Return a read-only mapping of all outputs registered on the current node.</p>
+<p>The mapping will automatically update when a new output is registered.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="get_output">
+<span class="sig-name descname"><span class="pre">get_output</span></span><span class="sig-paren">(</span><span class="optional">[</span><em class="sig-param"><span class="n"><span class="pre">index</span> <span class="pre">=</span> <span class="pre">0</span></span></em><span class="optional">]</span><span class="sig-paren">)</span><a class="headerlink" href="#get_output" title="Link to this definition"></a></dt>
+<dd><p>Get a previously set output node. Throws an error if the index hasn’t been
+set. Will return a VideoOutputTuple containing <em>alpha</em> and the <em>alt_output</em> setting for video output and an AudioNode for audio.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="clear_output">
+<span class="sig-name descname"><span class="pre">clear_output</span></span><span class="sig-paren">(</span><span class="optional">[</span><em class="sig-param"><span class="n"><span class="pre">index</span> <span class="pre">=</span> <span class="pre">0</span></span></em><span class="optional">]</span><span class="sig-paren">)</span><a class="headerlink" href="#clear_output" title="Link to this definition"></a></dt>
+<dd><p>Clears a clip previously set for output.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="clear_outputs">
+<span class="sig-name descname"><span class="pre">clear_outputs</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#clear_outputs" title="Link to this definition"></a></dt>
+<dd><p>Clears all clips set for output in the current environment.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="construct_signature">
+<span class="sig-name descname"><span class="pre">construct_signature</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">signature</span></span></em><span class="optional">[</span>, <em class="sig-param"><span class="n"><span class="pre">injected=None</span></span></em><span class="optional">]</span><span class="sig-paren">)</span><a class="headerlink" href="#construct_signature" title="Link to this definition"></a></dt>
+<dd><p>Creates a <em>inspect.Signature</em> object for the given registration signature.</p>
+<p>If <em>injected</em> is not None, the default of the first argument of the signature will be replaced with the value supplied with injected.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="register_on_destroy">
+<span class="sig-name descname"><span class="pre">register_on_destroy</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">callback</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#register_on_destroy" title="Link to this definition"></a></dt>
+<dd><p>Registers a callback that is called when the script is being finalized.
+This allows you to release resources at the end of a script.</p>
+<p>A callback must be registered with every script that is run,
+even if the code is being reused in multiple script runs.</p>
+<p>No new callbacks can be registered when the script is already being finalized.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="unregister_on_destroy">
+<span class="sig-name descname"><span class="pre">unregister_on_destroy</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">callback</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unregister_on_destroy" title="Link to this definition"></a></dt>
+<dd><p>Unregisters a previously added callback.</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="Core">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">Core</span></span><a class="headerlink" href="#Core" title="Link to this definition"></a></dt>
+<dd><p>The <em>Core</em> class uses a singleton pattern. Use the <em>core</em> attribute to obtain an
+instance. All loaded plugins are exposed as attributes of the core object.
+These attributes in turn hold the functions contained in the plugin.
+Use <em>plugins()</em> to obtain a full list of all currently loaded plugins
+you may call this way.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Core.num_threads">
+<span class="sig-name descname"><span class="pre">num_threads</span></span><a class="headerlink" href="#Core.num_threads" title="Link to this definition"></a></dt>
+<dd><p>The number of concurrent threads used by the core. Can be set to change the number. Setting to a value less than one makes it default to the number of hardware threads.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Core.max_cache_size">
+<span class="sig-name descname"><span class="pre">max_cache_size</span></span><a class="headerlink" href="#Core.max_cache_size" title="Link to this definition"></a></dt>
+<dd><p>Set the upper framebuffer cache size after which memory is aggressively
+freed. The value is in megabytes.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Core.used_cache_size">
+<span class="sig-name descname"><span class="pre">used_cache_size</span></span><a class="headerlink" href="#Core.used_cache_size" title="Link to this definition"></a></dt>
+<dd><p>The size of the core’s current cache. The value is in bytes.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="Core.clear_cache">
+<span class="sig-name descname"><span class="pre">clear_cache</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#Core.clear_cache" title="Link to this definition"></a></dt>
+<dd><p>Frees all memory used by internal caches. Useful when suspending or switching between multiple core instances.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Core.core_version">
+<span class="sig-name descname"><span class="pre">core_version</span></span><a class="headerlink" href="#Core.core_version" title="Link to this definition"></a></dt>
+<dd><p>Returns the core version as VapourSynthVersion tuple.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If you are writing a library, and are not retrieving this from the proxy,
+you should consider using <em>vapoursynth.__version__</em> instead not to have to
+unnecessarily fetch the core and lock inside an environment.</p>
+</div>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Core.api_version">
+<span class="sig-name descname"><span class="pre">api_version</span></span><a class="headerlink" href="#Core.api_version" title="Link to this definition"></a></dt>
+<dd><p>Returns the api version as VapourSynthAPIVersion tuple.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If you are writing a library, and are not retrieving this from the proxy,
+you should consider using <em>vapoursynth.__api_version__</em> instead not to have to
+unnecessarily fetch the core and lock inside an environment.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="Core.plugins">
+<span class="sig-name descname"><span class="pre">plugins</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#Core.plugins" title="Link to this definition"></a></dt>
+<dd><p>Containing all loaded plugins.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="Core.get_video_format">
+<span class="sig-name descname"><span class="pre">get_video_format</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">id</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#Core.get_video_format" title="Link to this definition"></a></dt>
+<dd><p>Retrieve a Format object corresponding to the specified id. Returns None if the <em>id</em> is invalid.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="Core.query_video_format">
+<span class="sig-name descname"><span class="pre">query_video_format</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">color_family</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sample_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bits_per_sample</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">subsampling_w</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">subsampling_h</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#Core.query_video_format" title="Link to this definition"></a></dt>
+<dd><p>Retrieve a Format object corresponding to the format information, Invalid formats throw an exception.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="Core.create_video_frame">
+<span class="sig-name descname"><span class="pre">create_video_frame</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">format</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">width</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">height</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#Core.create_video_frame" title="Link to this definition"></a></dt>
+<dd><p>Creates a new frame with uninitialized planes with the given dimensions and format.
+This function is safe to call within a frame callback.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="Core.add_log_handler">
+<span class="sig-name descname"><span class="pre">add_log_handler</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">handler_func</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#Core.add_log_handler" title="Link to this definition"></a></dt>
+<dd><p>Installs a custom handler for the various error messages VapourSynth emits.
+The message handler is currently global, i.e. per process, not per VSCore instance.
+Returns a LogHandle object.
+<em>handler_func</em> is a callback function of the form <em>func(MessageType, message)</em>.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="Core.remove_log_handler">
+<span class="sig-name descname"><span class="pre">remove_log_handler</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">handle</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#Core.remove_log_handler" title="Link to this definition"></a></dt>
+<dd><p>Removes a custom handler.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="Core.log_message">
+<span class="sig-name descname"><span class="pre">log_message</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#Core.log_message" title="Link to this definition"></a></dt>
+<dd><p>Send a message through VapourSynth’s logging framework.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="Core.rule6">
+<span class="sig-name descname"><span class="pre">rule6</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#Core.rule6" title="Link to this definition"></a></dt>
+<dd><p>Illegal behavior detection.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="Local">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">Local</span></span><a class="headerlink" href="#Local" title="Link to this definition"></a></dt>
+<dd><p>Internally, there can be more than one core. This is usually the case in previewer-applications.
+Use this class to store variables that depend on the currently active core.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">l</span> <span class="o">=</span> <span class="n">Local</span><span class="p">()</span>
+<span class="n">l</span><span class="o">.</span><span class="n">test</span> <span class="o">=</span> <span class="mi">1</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="VideoNode">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">VideoNode</span></span><a class="headerlink" href="#VideoNode" title="Link to this definition"></a></dt>
+<dd><p>Represents a video clip. The class itself supports indexing and slicing to
+perform trim, reverse and selectevery operations. Several operators are also
+defined for the VideoNode class: addition appends clips and multiplication
+repeats them. Note that slicing and indexing always return a new VideoNode
+object and not a VideoFrame.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoNode.format">
+<span class="sig-name descname"><span class="pre">format</span></span><a class="headerlink" href="#VideoNode.format" title="Link to this definition"></a></dt>
+<dd><p>A Format object describing the frame data. If the format can change
+between frames, this value is None.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoNode.width">
+<span class="sig-name descname"><span class="pre">width</span></span><a class="headerlink" href="#VideoNode.width" title="Link to this definition"></a></dt>
+<dd><p>The width of the video. This value will be 0 if the width and height can
+change between frames.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoNode.height">
+<span class="sig-name descname"><span class="pre">height</span></span><a class="headerlink" href="#VideoNode.height" title="Link to this definition"></a></dt>
+<dd><p>The height of the video. This value will be 0 if the width and height can
+change between frames.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoNode.num_frames">
+<span class="sig-name descname"><span class="pre">num_frames</span></span><a class="headerlink" href="#VideoNode.num_frames" title="Link to this definition"></a></dt>
+<dd><p>The number of frames in the clip.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoNode.fps">
+<span class="sig-name descname"><span class="pre">fps</span></span><a class="headerlink" href="#VideoNode.fps" title="Link to this definition"></a></dt>
+<dd><p>The framerate represented as a <em>Fraction</em>. It is 0/1 when the clip has a variable
+framerate.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoNode.numerator">
+<span class="sig-name descname"><span class="pre">numerator</span></span><a class="headerlink" href="#VideoNode.numerator" title="Link to this definition"></a></dt>
+<dd><p>The numerator of the framerate. If the clip has variable framerate, the value will be 0.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoNode.denominator">
+<span class="sig-name descname"><span class="pre">denominator</span></span><a class="headerlink" href="#VideoNode.denominator" title="Link to this definition"></a></dt>
+<dd><p>The denominator of the framerate. If the clip has variable framerate, the value will be 0.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoNode.fps_num">
+<span class="sig-name descname"><span class="pre">fps_num</span></span><a class="headerlink" href="#VideoNode.fps_num" title="Link to this definition"></a></dt>
+<dd><p>Deprecated, use <em>fps.numerator</em> instead</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoNode.fps_den">
+<span class="sig-name descname"><span class="pre">fps_den</span></span><a class="headerlink" href="#VideoNode.fps_den" title="Link to this definition"></a></dt>
+<dd><p>Deprecated, use <em>fps.denominator</em> instead</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoNode.flags">
+<span class="sig-name descname"><span class="pre">flags</span></span><a class="headerlink" href="#VideoNode.flags" title="Link to this definition"></a></dt>
+<dd><p>Special flags set for this clip. This attribute should normally be
+ignored.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="VideoNode.get_frame">
+<span class="sig-name descname"><span class="pre">get_frame</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#VideoNode.get_frame" title="Link to this definition"></a></dt>
+<dd><p>Returns a VideoFrame from position <em>n</em>.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="VideoNode.get_frame_async">
+<span class="sig-name descname"><span class="pre">get_frame_async</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#VideoNode.get_frame_async" title="Link to this definition"></a></dt>
+<dd><p>Returns a concurrent.futures.Future-object which result will be a VideoFrame instance or sets the
+exception thrown when rendering the frame.</p>
+<p><em>The future will always be in the running or completed state</em></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">get_frame_async</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cb</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">callable</span></span></em><span class="sig-paren">)</span></dt>
+<dd><p>Renders a frame in another thread. When the frame is rendered, it will either call <cite>cb(Frame, None)</cite> on success
+or <cite>cb(None, Exception)</cite> if something fails.</p>
+<p>Added: R58</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="VideoNode.set_output">
+<span class="sig-name descname"><span class="pre">set_output</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">index</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">alpha</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">alt_output</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#VideoNode.set_output" title="Link to this definition"></a></dt>
+<dd><p>Set the clip to be accessible for output. This is the standard way to
+specify which clip(s) to output. All VapourSynth tools (vsvfw, vsfs,
+vspipe) use the clip in <em>index</em> 0. It’s possible to specify an additional
+containing the <em>alpha</em> to output at the same time. Currently only vspipe
+takes <em>alpha</em> into consideration when outputting.
+The <em>alt_output</em> argument is for optional alternate output modes. Currently
+it controls the FOURCCs used for VFW-style output with certain formats.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="VideoNode.output">
+<span class="sig-name descname"><span class="pre">output</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fileobj</span></span></em><span class="optional">[</span>, <em class="sig-param"><span class="n"><span class="pre">y4m</span> <span class="pre">=</span> <span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prefetch</span> <span class="pre">=</span> <span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">progress_update</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">backlog=-1</span></span></em><span class="optional">]</span><span class="sig-paren">)</span><a class="headerlink" href="#VideoNode.output" title="Link to this definition"></a></dt>
+<dd><p>Write the whole clip to the specified file handle. It is possible to pipe to stdout by specifying <em>sys.stdout</em> as the file.
+YUV4MPEG2 headers will be added when <em>y4m</em> is true.
+The current progress can be reported by passing a callback function of the form <em>func(current_frame, total_frames)</em> to <em>progress_update</em>.
+The <em>prefetch</em> argument is only for debugging purposes and should never need to be changed.
+The <em>backlog</em> argument is only for debugging purposes and should never need to be changed.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="VideoNode.frames">
+<span class="sig-name descname"><span class="pre">frames</span></span><span class="sig-paren">(</span><span class="optional">[</span><em class="sig-param"><span class="n"><span class="pre">prefetch=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">backlog=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">close=False</span></span></em><span class="optional">]</span><span class="sig-paren">)</span><a class="headerlink" href="#VideoNode.frames" title="Link to this definition"></a></dt>
+<dd><p>Returns a generator iterator of all VideoFrames in the clip. It will render multiple frames concurrently.</p>
+<p>The <em>prefetch</em> argument defines how many frames are rendered concurrently. Is only there for debugging purposes and should never need to be changed.
+The <em>backlog</em> argument defines how many unconsumed frames (including those that did not finish rendering yet) vapoursynth buffers at most before it stops rendering additional frames. This argument is there to limit the memory this function uses storing frames.
+The <em>close</em> argument determines if the frame should be closed after each iteration step. It defaults to false to remain backward compatible.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="VideoNode.clear_cache">
+<span class="sig-name descname"><span class="pre">clear_cache</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#VideoNode.clear_cache" title="Link to this definition"></a></dt>
+<dd><p>Frees all memory used by this node’s internal cache.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="VideoNode.is_inspectable">
+<span class="sig-name descname"><span class="pre">is_inspectable</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">version</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#VideoNode.is_inspectable" title="Link to this definition"></a></dt>
+<dd><p>Returns a truthy value if you can use the node inspection API with a given version.
+The python inspection-api is versioned, as the underlying API is unstable at the time of writing.
+The version number will be incremented every time the python API changes.
+There will be no attempt to maintain backwards compatibility as long as the API is marked as unstable.</p>
+<p>This method may never return a truthy value.</p>
+<p>This is the only stable function in the current inspection api-implementation.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Be aware that introspection features must be enabled manually by the backing environment. Standalone Python-Scripts,
+not running inside vspipe or other editors, have introspection enabled automatically.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The graph-inspection-api is unstable. Omitting the version-argument will therefore always return
+None.</p>
+</div>
+<p>The current version of the unstable python graph-inspection API is 0.</p>
+<p>Added: R58</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>version</strong> – If None, it will use the version number of the last stable API.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="VideoOutputTuple">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">VideoOutputTuple</span></span><a class="headerlink" href="#VideoOutputTuple" title="Link to this definition"></a></dt>
+<dd><p>This class is returned by get_output if the output is video.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoOutputTuple.clip">
+<span class="sig-name descname"><span class="pre">clip</span></span><a class="headerlink" href="#VideoOutputTuple.clip" title="Link to this definition"></a></dt>
+<dd><p>A VideoNode-instance containing the color planes.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoOutputTuple.alpha">
+<span class="sig-name descname"><span class="pre">alpha</span></span><a class="headerlink" href="#VideoOutputTuple.alpha" title="Link to this definition"></a></dt>
+<dd><p>A VideoNode-instance containing the alpha planes.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoOutputTuple.alt_output">
+<span class="sig-name descname"><span class="pre">alt_output</span></span><a class="headerlink" href="#VideoOutputTuple.alt_output" title="Link to this definition"></a></dt>
+<dd><p>An integer with the alternate output mode to be used. May be ignored if no meaningful mapping exists.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="VideoFrame">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">VideoFrame</span></span><a class="headerlink" href="#VideoFrame" title="Link to this definition"></a></dt>
+<dd><blockquote>
+<div><p>This class represents a video frame and all metadata attached to it.</p>
+</div></blockquote>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoFrame.format">
+<span class="sig-name descname"><span class="pre">format</span></span><a class="headerlink" href="#VideoFrame.format" title="Link to this definition"></a></dt>
+<dd><p>A Format object describing the frame data.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoFrame.width">
+<span class="sig-name descname"><span class="pre">width</span></span><a class="headerlink" href="#VideoFrame.width" title="Link to this definition"></a></dt>
+<dd><p>The width of the frame.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoFrame.height">
+<span class="sig-name descname"><span class="pre">height</span></span><a class="headerlink" href="#VideoFrame.height" title="Link to this definition"></a></dt>
+<dd><p>The height of the frame.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoFrame.readonly">
+<span class="sig-name descname"><span class="pre">readonly</span></span><a class="headerlink" href="#VideoFrame.readonly" title="Link to this definition"></a></dt>
+<dd><p>If <em>readonly</em> is True, the frame data and properties cannot be modified.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoFrame.props">
+<span class="sig-name descname"><span class="pre">props</span></span><a class="headerlink" href="#VideoFrame.props" title="Link to this definition"></a></dt>
+<dd><p>This attribute holds all the frame’s properties as a dict. They are also mapped as sub-attributes for
+compatibility with older scripts. For more information, see:
+<a class="reference external" href="apireference.html#reserved-frame-properties">API Reference</a>
+Note: This includes the data for matrix, transfer and primaries. (_Matrix,
+_Transfer, _Primaries) See <a class="reference external" href="functions/resize.html">Resize</a> for more information.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="VideoFrame.copy">
+<span class="sig-name descname"><span class="pre">copy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#VideoFrame.copy" title="Link to this definition"></a></dt>
+<dd><p>Returns a writable copy of the frame.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="VideoFrame.close">
+<span class="sig-name descname"><span class="pre">close</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#VideoFrame.close" title="Link to this definition"></a></dt>
+<dd><p>Forcefully releases the frame. Once freed, the you cannot call any function on the frame, nor use the associated
+FrameProps.</p>
+<p>To make sure you don’t forget to close the frame, the frame is now a context-manager that automatically calls
+this method for you:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="n">core</span><span class="o">.</span><span class="n">std</span><span class="o">.</span><span class="n">BlankClip</span><span class="p">()</span><span class="o">.</span><span class="n">get_frame</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">props</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoFrame.closed">
+<span class="sig-name descname"><span class="pre">closed</span></span><a class="headerlink" href="#VideoFrame.closed" title="Link to this definition"></a></dt>
+<dd><p>Tells you if the frame has been closed. It will be False if the close()-method has not been called yet.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="VideoFrame.get_read_ptr">
+<span class="sig-name descname"><span class="pre">get_read_ptr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">plane</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#VideoFrame.get_read_ptr" title="Link to this definition"></a></dt>
+<dd><p>Returns a pointer to the raw frame data. The data may not be modified.
+Note that this is a thin wrapper for the underlying
+C-api and as such calls to <em>get_write_ptr</em>, including the ones made internally by other functions in the Python bindings,
+may invalidate any pointers previously gotten to the frame with
+<em>get_read_ptr</em> when called.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="VideoFrame.get_write_ptr">
+<span class="sig-name descname"><span class="pre">get_write_ptr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">plane</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#VideoFrame.get_write_ptr" title="Link to this definition"></a></dt>
+<dd><p>Returns a pointer to the raw frame data. It may be modified using ctypes
+or some other similar python package.  Note that this is a thin wrapper for the underlying
+C-api and as such calls to <em>get_write_ptr</em>, including the ones made internally by other functions in the Python bindings,
+may invalidate any pointers previously gotten to the frame with
+<em>get_read_ptr</em> when called.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="VideoFrame.get_stride">
+<span class="sig-name descname"><span class="pre">get_stride</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">plane</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#VideoFrame.get_stride" title="Link to this definition"></a></dt>
+<dd><p>Returns the stride between lines in a <em>plane</em>.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="VideoFrame.readchunks">
+<span class="sig-name descname"><span class="pre">readchunks</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#VideoFrame.readchunks" title="Link to this definition"></a></dt>
+<dd><p>This method is usually used to dump the contents of a VideoFrame to disk.
+The returned generator yields contiguous chunks of the VideoFrame memory.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="s1">&#39;output.raw&#39;</span><span class="p">,</span> <span class="s1">&#39;wb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">file</span><span class="p">:</span>
+   <span class="k">with</span> <span class="n">vs</span><span class="o">.</span><span class="n">core</span><span class="o">.</span><span class="n">std</span><span class="o">.</span><span class="n">BlankClip</span><span class="p">(</span><span class="n">color</span><span class="o">=</span><span class="p">[</span><span class="mi">25</span><span class="p">,</span> <span class="mi">50</span><span class="p">,</span> <span class="mi">60</span><span class="p">])</span><span class="o">.</span><span class="n">get_frame</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+      <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">f</span><span class="o">.</span><span class="n">readchunks</span><span class="p">():</span>
+         <span class="n">file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Usually, the frame contents will be held in a contiguous array,
+and this method will yield <em>n_planes</em> of data chunks each holding the entire plane.
+Don’t, however, take this for granted, as it can’t be the case,
+and you will iterate over lines of plane data instead, which are assured to be contiguous.</p>
+<p>If you want to safely read the whole plane, use frame[plane_idx] to get the plane memoryview.</p>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="VideoFormat">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">VideoFormat</span></span><a class="headerlink" href="#VideoFormat" title="Link to this definition"></a></dt>
+<dd><p>This class represents all information needed to describe a frame format. It
+holds the general color type, subsampling, number of planes and so on.
+The names map directly to the C API so consult it for more detailed
+information.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoFormat.id">
+<span class="sig-name descname"><span class="pre">id</span></span><a class="headerlink" href="#VideoFormat.id" title="Link to this definition"></a></dt>
+<dd><p>A unique <em>id</em> identifying the format.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoFormat.name">
+<span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#VideoFormat.name" title="Link to this definition"></a></dt>
+<dd><p>A human readable name of the format.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoFormat.color_family">
+<span class="sig-name descname"><span class="pre">color_family</span></span><a class="headerlink" href="#VideoFormat.color_family" title="Link to this definition"></a></dt>
+<dd><p>Which group of colorspaces the format describes.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoFormat.sample_type">
+<span class="sig-name descname"><span class="pre">sample_type</span></span><a class="headerlink" href="#VideoFormat.sample_type" title="Link to this definition"></a></dt>
+<dd><p>If the format is integer or floating point based.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoFormat.bits_per_sample">
+<span class="sig-name descname"><span class="pre">bits_per_sample</span></span><a class="headerlink" href="#VideoFormat.bits_per_sample" title="Link to this definition"></a></dt>
+<dd><p>How many bits are used to store one sample in one plane.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoFormat.bytes_per_sample">
+<span class="sig-name descname"><span class="pre">bytes_per_sample</span></span><a class="headerlink" href="#VideoFormat.bytes_per_sample" title="Link to this definition"></a></dt>
+<dd><p>The actual storage is padded up to 2^n bytes for efficiency.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoFormat.subsampling_w">
+<span class="sig-name descname"><span class="pre">subsampling_w</span></span><a class="headerlink" href="#VideoFormat.subsampling_w" title="Link to this definition"></a></dt>
+<dd><p>The subsampling for the second and third plane in the horizontal
+direction.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoFormat.subsampling_h">
+<span class="sig-name descname"><span class="pre">subsampling_h</span></span><a class="headerlink" href="#VideoFormat.subsampling_h" title="Link to this definition"></a></dt>
+<dd><p>The subsampling for the second and third plane in the vertical direction.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="VideoFormat.num_planes">
+<span class="sig-name descname"><span class="pre">num_planes</span></span><a class="headerlink" href="#VideoFormat.num_planes" title="Link to this definition"></a></dt>
+<dd><p>The number of planes the format has.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="VideoFormat.replace">
+<span class="sig-name descname"><span class="pre">replace</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">core</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#VideoFormat.replace" title="Link to this definition"></a></dt>
+<dd><p>Returns a new format with the given modifications.</p>
+<p>The only supported attributes that can be replaced are <cite>color_family</cite>,
+<cite>sample_type</cite>, <cite>bits_per_sample</cite>, <cite>subsampling_w</cite>, <cite>subsampling_h</cite>.</p>
+<p>The optional <cite>core</cite>-parameter defines on which core the new format
+should be registered. This is usually not needed and defaults
+to the core of the current environment.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="AudioNode">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">AudioNode</span></span><a class="headerlink" href="#AudioNode" title="Link to this definition"></a></dt>
+<dd><p>Represents an audio clip. The class itself supports indexing and slicing to
+perform trim, reverse and selectevery operations. Several operators are also
+defined for the AudioNode class: addition appends clips and multiplication
+repeats them. Note that slicing and indexing always return a new AudioNode
+object and not a AudioFrame.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="AudioNode.sample_type">
+<span class="sig-name descname"><span class="pre">sample_type</span></span><a class="headerlink" href="#AudioNode.sample_type" title="Link to this definition"></a></dt>
+<dd><p>If the format is integer or floating point based.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="AudioNode.bits_per_sample">
+<span class="sig-name descname"><span class="pre">bits_per_sample</span></span><a class="headerlink" href="#AudioNode.bits_per_sample" title="Link to this definition"></a></dt>
+<dd><p>How many bits are used to store one sample in one plane.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="AudioNode.bytes_per_sample">
+<span class="sig-name descname"><span class="pre">bytes_per_sample</span></span><a class="headerlink" href="#AudioNode.bytes_per_sample" title="Link to this definition"></a></dt>
+<dd><p>The actual storage is padded up to 2^n bytes for efficiency.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="AudioNode.channel_layout">
+<span class="sig-name descname"><span class="pre">channel_layout</span></span><a class="headerlink" href="#AudioNode.channel_layout" title="Link to this definition"></a></dt>
+<dd><p>A mask of used channels.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="AudioNode.num_channels">
+<span class="sig-name descname"><span class="pre">num_channels</span></span><a class="headerlink" href="#AudioNode.num_channels" title="Link to this definition"></a></dt>
+<dd><p>The number of channels the format has.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="AudioNode.sample_rate">
+<span class="sig-name descname"><span class="pre">sample_rate</span></span><a class="headerlink" href="#AudioNode.sample_rate" title="Link to this definition"></a></dt>
+<dd><p>Playback sample rate.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="AudioNode.get_frame">
+<span class="sig-name descname"><span class="pre">get_frame</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#AudioNode.get_frame" title="Link to this definition"></a></dt>
+<dd><p>Returns an AudioFrame from position <em>n</em>.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="AudioNode.get_frame_async">
+<span class="sig-name descname"><span class="pre">get_frame_async</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#AudioNode.get_frame_async" title="Link to this definition"></a></dt>
+<dd><p>Returns a concurrent.futures.Future-object which result will be an AudioFrame instance or sets the
+exception thrown when rendering the frame.</p>
+<p><em>The future will always be in the running or completed state</em></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="AudioNode.set_output">
+<span class="sig-name descname"><span class="pre">set_output</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">index</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#AudioNode.set_output" title="Link to this definition"></a></dt>
+<dd><p>Set the clip to be accessible for output.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="AudioNode.frames">
+<span class="sig-name descname"><span class="pre">frames</span></span><span class="sig-paren">(</span><span class="optional">[</span><em class="sig-param"><span class="n"><span class="pre">prefetch=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">backlog=None</span></span></em><span class="optional">]</span><span class="sig-paren">)</span><a class="headerlink" href="#AudioNode.frames" title="Link to this definition"></a></dt>
+<dd><p>Returns a generator iterator of all AudioFrames in the clip. It will render multiple frames concurrently.</p>
+<p>The <em>prefetch</em> argument defines how many frames are rendered concurrently. Is only there for debugging purposes and should never need to be changed.
+The <em>backlog</em> argument defines how many unconsumed frames (including those that did not finish rendering yet) vapoursynth buffers at most before it stops rendering additional frames. This argument is there to limit the memory this function uses storing frames.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="AudioNode.clear_cache">
+<span class="sig-name descname"><span class="pre">clear_cache</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#AudioNode.clear_cache" title="Link to this definition"></a></dt>
+<dd><p>Frees all memory used by this node’s internal cache.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="AudioNode.is_inspectable">
+<span class="sig-name descname"><span class="pre">is_inspectable</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">version</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#AudioNode.is_inspectable" title="Link to this definition"></a></dt>
+<dd><p>Returns a truthy value if you can use the node inspection API with a given version.
+The python inspection-api is versioned, as the underlying API is unstable at the time of writing.
+The version number will be incremented every time the python API changes.
+There will be no attempt to maintain backwards compatibility as long as the API is marked as unstable.</p>
+<p>This method may never return a truthy value.</p>
+<p>This is the only stable function in the current inspection api-implementation.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Be aware that introspection features must be enabled manually by the backing environment. Standalone Python-Scripts,
+not running inside vspipe or other editors, have introspection enabled automatically.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The graph-inspection-api is unstable. Omitting the version-argument will therefore always return
+None.</p>
+</div>
+<p>The current version of the unstable python graph-inspection API is 0.</p>
+<p>Added: R58</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>version</strong> – If None, it will use the version number of the last stable API.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="AudioFrame">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">AudioFrame</span></span><a class="headerlink" href="#AudioFrame" title="Link to this definition"></a></dt>
+<dd><blockquote>
+<div><p>This class represents an audio frame and all metadata attached to it.</p>
+</div></blockquote>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="AudioFrame.sample_type">
+<span class="sig-name descname"><span class="pre">sample_type</span></span><a class="headerlink" href="#AudioFrame.sample_type" title="Link to this definition"></a></dt>
+<dd><p>If the format is integer or floating point based.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="AudioFrame.bits_per_sample">
+<span class="sig-name descname"><span class="pre">bits_per_sample</span></span><a class="headerlink" href="#AudioFrame.bits_per_sample" title="Link to this definition"></a></dt>
+<dd><p>How many bits are used to store one sample in one plane.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="AudioFrame.bytes_per_sample">
+<span class="sig-name descname"><span class="pre">bytes_per_sample</span></span><a class="headerlink" href="#AudioFrame.bytes_per_sample" title="Link to this definition"></a></dt>
+<dd><p>The actual storage is padded up to 2^n bytes for efficiency.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="AudioFrame.channel_layout">
+<span class="sig-name descname"><span class="pre">channel_layout</span></span><a class="headerlink" href="#AudioFrame.channel_layout" title="Link to this definition"></a></dt>
+<dd><p>A mask of used channels.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="AudioFrame.num_channels">
+<span class="sig-name descname"><span class="pre">num_channels</span></span><a class="headerlink" href="#AudioFrame.num_channels" title="Link to this definition"></a></dt>
+<dd><p>The number of channels the format has.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="AudioFrame.readonly">
+<span class="sig-name descname"><span class="pre">readonly</span></span><a class="headerlink" href="#AudioFrame.readonly" title="Link to this definition"></a></dt>
+<dd><p>If <em>readonly</em> is True, the frame data and properties cannot be modified.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="AudioFrame.props">
+<span class="sig-name descname"><span class="pre">props</span></span><a class="headerlink" href="#AudioFrame.props" title="Link to this definition"></a></dt>
+<dd><p>This attribute holds all the frame’s properties as a dict. Note that audio frame properties are fairly
+non-sensical as a concept for audio due to an arbitrary number of samples being lumped together and rarely used.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="AudioFrame.copy">
+<span class="sig-name descname"><span class="pre">copy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#AudioFrame.copy" title="Link to this definition"></a></dt>
+<dd><p>Returns a writable copy of the frame.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="AudioFrame.get_read_ptr">
+<span class="sig-name descname"><span class="pre">get_read_ptr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">plane</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#AudioFrame.get_read_ptr" title="Link to this definition"></a></dt>
+<dd><p>Returns a pointer to the raw frame data. The data may not be modified.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="AudioFrame.get_write_ptr">
+<span class="sig-name descname"><span class="pre">get_write_ptr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">plane</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#AudioFrame.get_write_ptr" title="Link to this definition"></a></dt>
+<dd><p>Returns a pointer to the raw frame data. It may be modified using ctypes
+or some other similar python package.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="AudioFrame.get_stride">
+<span class="sig-name descname"><span class="pre">get_stride</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">plane</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#AudioFrame.get_stride" title="Link to this definition"></a></dt>
+<dd><p>Returns the stride between lines in a <em>plane</em>.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="Plugin">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">Plugin</span></span><a class="headerlink" href="#Plugin" title="Link to this definition"></a></dt>
+<dd><p>Plugin is a class that represents a loaded plugin and its namespace.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Plugin.namespace">
+<span class="sig-name descname"><span class="pre">namespace</span></span><a class="headerlink" href="#Plugin.namespace" title="Link to this definition"></a></dt>
+<dd><p>The namespace of the plugin.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Plugin.name">
+<span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#Plugin.name" title="Link to this definition"></a></dt>
+<dd><p>The name string of the plugin.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Plugin.version">
+<span class="sig-name descname"><span class="pre">version</span></span><a class="headerlink" href="#Plugin.version" title="Link to this definition"></a></dt>
+<dd><p>The version of the plugin returned as a PluginVersion tuple.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Plugin.plugin_path">
+<span class="sig-name descname"><span class="pre">plugin_path</span></span><a class="headerlink" href="#Plugin.plugin_path" title="Link to this definition"></a></dt>
+<dd><p>The main library location of the plugin. Note that internal functions don’t have a plugin path and instead return None.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Plugin.identifier">
+<span class="sig-name descname"><span class="pre">identifier</span></span><a class="headerlink" href="#Plugin.identifier" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="Plugin.functions">
+<span class="sig-name descname"><span class="pre">functions</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#Plugin.functions" title="Link to this definition"></a></dt>
+<dd><p>Containing all the functions in the plugin, You can access it by calling <em>core.&lt;namespace&gt;.functions()</em>.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="Function">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">Function</span></span><a class="headerlink" href="#Function" title="Link to this definition"></a></dt>
+<dd><p>Function is a simple wrapper class for a function provided by a VapourSynth plugin.
+Its main purpose is to be called and nothing else.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Function.name">
+<span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#Function.name" title="Link to this definition"></a></dt>
+<dd><p>The function name. Identical to the string used to register the function.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Function.plugin">
+<span class="sig-name descname"><span class="pre">plugin</span></span><a class="headerlink" href="#Function.plugin" title="Link to this definition"></a></dt>
+<dd><p>The <em>Plugin</em> object the function belongs to.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Function.signature">
+<span class="sig-name descname"><span class="pre">signature</span></span><a class="headerlink" href="#Function.signature" title="Link to this definition"></a></dt>
+<dd><p>Raw function signature string. Identical to the string used to register the function.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Function.return_signature">
+<span class="sig-name descname"><span class="pre">return_signature</span></span><a class="headerlink" href="#Function.return_signature" title="Link to this definition"></a></dt>
+<dd><p>Raw function signature string. Identical to the return type string used register the function.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="Environment">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">Environment</span></span><a class="headerlink" href="#Environment" title="Link to this definition"></a></dt>
+<dd><p>This class represents an environment.</p>
+<p>Some editors allow multiple vapoursynth-scripts to run in the same process, each of them comes with a different Core-instance and
+their own set of outputs. Each core-instance with their associated outputs represent their own environment.</p>
+<p>At any given time, only one environment can be active (in the same context). This class allows introspection about
+environments and allows to switch to them at will.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">env</span> <span class="o">=</span> <span class="n">get_current_environment</span><span class="p">()</span>
+<span class="c1"># sometime later</span>
+<span class="k">with</span> <span class="n">env</span><span class="o">.</span><span class="n">use</span><span class="p">():</span>
+  <span class="c1"># Do stuff inside this env.</span>
+</pre></div>
+</div>
+<dl class="py function">
+<dt class="sig sig-object py" id="Environment.is_single">
+<span class="sig-name descname"><span class="pre">is_single</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#Environment.is_single" title="Link to this definition"></a></dt>
+<dd><p>Returns True if the script is _not_ running inside a vsscript-Environment.
+If it is running inside a vsscript-Environment, it returns False.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Environment.env_id">
+<span class="sig-name descname"><span class="pre">env_id</span></span><a class="headerlink" href="#Environment.env_id" title="Link to this definition"></a></dt>
+<dd><p>Return -1 if the script is not running inside a vsscript-Environment.
+Otherwise, it will return the current environment-id.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Environment.single">
+<span class="sig-name descname"><span class="pre">single</span></span><a class="headerlink" href="#Environment.single" title="Link to this definition"></a></dt>
+<dd><p>See is_single()</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="Environment.alive">
+<span class="sig-name descname"><span class="pre">alive</span></span><a class="headerlink" href="#Environment.alive" title="Link to this definition"></a></dt>
+<dd><p>Has the environment been destroyed by the underlying application?</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="Environment.copy">
+<span class="sig-name descname"><span class="pre">copy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#Environment.copy" title="Link to this definition"></a></dt>
+<dd><p>Creates a copy of the environment-object.</p>
+<p>Added: R51</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="Environment.use">
+<span class="sig-name descname"><span class="pre">use</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#Environment.use" title="Link to this definition"></a></dt>
+<dd><p>Returns a context-manager that enables the given environment in the block enclosed in the with-statement and restores the environment to the one
+defined before the with-block has been encountered.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">env</span> <span class="o">=</span> <span class="n">get_current_environment</span><span class="p">()</span>
+<span class="k">with</span> <span class="n">env</span><span class="o">.</span><span class="n">use</span><span class="p">():</span>
+    <span class="k">with</span> <span class="n">env</span><span class="o">.</span><span class="n">use</span><span class="p">():</span>
+        <span class="k">pass</span>
+</pre></div>
+</div>
+<p>Added: R51</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="get_current_environment">
+<span class="sig-name descname"><span class="pre">get_current_environment</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#get_current_environment" title="Link to this definition"></a></dt>
+<dd><p>Returns an Environment-object representing the environment the script is currently running in. It will raise an error if we are currently not inside any
+script-environment while vsscript is being used.</p>
+<p>This function is intended for Python-based editors using vsscript.</p>
+<p>Added: R51</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="EnvironmentPolicy">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">EnvironmentPolicy</span></span><a class="headerlink" href="#EnvironmentPolicy" title="Link to this definition"></a></dt>
+<dd><p>This class is intended for subclassing by custom Script-Runners and Editors.
+Normal users don’t need this class. Most methods implemented here have corresponding APIs in other parts of this module.</p>
+<p>An instance of this class controls which environment is activated in the current context.
+The exact meaning of “context” is defined by the concrete EnvironmentPolicy. A environment is represented by a <a class="reference internal" href="#EnvironmentData" title="EnvironmentData"><code class="xref py py-class docutils literal notranslate"><span class="pre">EnvironmentData</span></code></a>-object.</p>
+<p>To use this class, first create a subclass and then use <a class="reference internal" href="#register_policy" title="register_policy"><code class="xref py py-func docutils literal notranslate"><span class="pre">register_policy()</span></code></a> to get VapourSynth to use your policy. This must happen before vapoursynth is first
+used. VapourSynth will automatically register an internal policy if it needs one. The subclass must be weak-referenciable!</p>
+<p>Once the method <a class="reference internal" href="#EnvironmentPolicy.on_policy_registered" title="EnvironmentPolicy.on_policy_registered"><code class="xref py py-meth docutils literal notranslate"><span class="pre">on_policy_registered()</span></code></a> has been called, the policy is responsible for creating and managing environments.</p>
+<p>Special considerations have been made to ensure the functions of class cannot be abused. You cannot retrieve the current running policy yourself.
+The additional API exposed by “on_policy_registered” is only valid if the policy has been registered.
+Once the policy is unregistered, all calls to the additional API will fail with a RuntimeError.</p>
+<p>Added: R51</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="EnvironmentPolicy.on_policy_registered">
+<span class="sig-name descname"><span class="pre">on_policy_registered</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">special_api</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#EnvironmentPolicy.on_policy_registered" title="Link to this definition"></a></dt>
+<dd><p>This method is called when the policy has successfully been registered. It proivdes additional internal methods that are hidden as they are useless and or harmful
+unless you implement your own policy.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>special_api</strong> – This is a <a class="reference internal" href="#EnvironmentPolicyAPI" title="EnvironmentPolicyAPI"><code class="xref py py-class docutils literal notranslate"><span class="pre">EnvironmentPolicyAPI</span></code></a>-object that exposes additional API</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="EnvironmentPolicy.on_policy_cleared">
+<span class="sig-name descname"><span class="pre">on_policy_cleared</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#EnvironmentPolicy.on_policy_cleared" title="Link to this definition"></a></dt>
+<dd><p>This method is called once the python-process exits or when unregister_policy is called by the environment-policy. This allows the policy to free the resources
+used by the policy.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="EnvironmentPolicy.get_current_environment">
+<span class="sig-name descname"><span class="pre">get_current_environment</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#EnvironmentPolicy.get_current_environment" title="Link to this definition"></a></dt>
+<dd><p>This method is called by the module to detect which environment is currently running in the current context. If None is returned, it means that no environment is currently active.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>An <a class="reference internal" href="#EnvironmentData" title="EnvironmentData"><code class="xref py py-class docutils literal notranslate"><span class="pre">EnvironmentData</span></code></a>-object representing the currently active environment in the current context.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="EnvironmentPolicy.set_environment">
+<span class="sig-name descname"><span class="pre">set_environment</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">environment</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#EnvironmentPolicy.set_environment" title="Link to this definition"></a></dt>
+<dd><p>This method is called by the module to change the currently active environment. If None is passed to this function the policy may switch to another environment of its choosing.</p>
+<p>Note: The function is responsible to check whether or not the environment is alive. If a dead environment is passed, it should act like None has been passed instead of the dead environment but must never error.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>environment</strong> – The <a class="reference internal" href="#EnvironmentData" title="EnvironmentData"><code class="xref py py-class docutils literal notranslate"><span class="pre">EnvironmentData</span></code></a> to enable in the current context.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The environment that was enabled previously.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="EnvironmentPolicy.is_alive">
+<span class="sig-name descname"><span class="pre">is_alive</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">environment</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#EnvironmentPolicy.is_alive" title="Link to this definition"></a></dt>
+<dd><p>Is the current environment still active and managed by the policy.</p>
+<p>The default implementation checks if <cite>EnvironmentPolicyAPI.destroy_environment</cite> has been called on the environment.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="EnvironmentPolicyAPI">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">EnvironmentPolicyAPI</span></span><a class="headerlink" href="#EnvironmentPolicyAPI" title="Link to this definition"></a></dt>
+<dd><p>This class is intended to be used by custom Script-Runners and Editors. An instance of this class exposes an additional API.
+The methods are bound to a specific <a class="reference internal" href="#EnvironmentPolicy" title="EnvironmentPolicy"><code class="xref py py-class docutils literal notranslate"><span class="pre">EnvironmentPolicy</span></code></a>-instance and will only work if the policy is currently registered.</p>
+<p>Added: R51</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="EnvironmentPolicyAPI.wrap_environment">
+<span class="sig-name descname"><span class="pre">wrap_environment</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">environment</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#EnvironmentPolicyAPI.wrap_environment" title="Link to this definition"></a></dt>
+<dd><p>Creates a new <a class="reference internal" href="#Environment" title="Environment"><code class="xref py py-class docutils literal notranslate"><span class="pre">Environment</span></code></a>-object bound to the passed environment-id.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>This function does not check if the id corresponds to a live environment as the caller is expected to know which environments are active.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="EnvironmentPolicyAPI.create_environment">
+<span class="sig-name descname"><span class="pre">create_environment</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">flags</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#EnvironmentPolicyAPI.create_environment" title="Link to this definition"></a></dt>
+<dd><p>Returns a <a class="reference internal" href="#Environment" title="Environment"><code class="xref py py-class docutils literal notranslate"><span class="pre">Environment</span></code></a> that is used by the wrapper for context sensitive data used by VapourSynth.
+For example it holds the currently active core object as well as the currently registered outputs.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="EnvironmentPolicyAPI.set_logger">
+<span class="sig-name descname"><span class="pre">set_logger</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">environment</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">callback</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#EnvironmentPolicyAPI.set_logger" title="Link to this definition"></a></dt>
+<dd><p>This function sets the logger for the given environment.</p>
+<p>This logger is a callback function that accepts two parameters: Level, which is an instance of vs.MessageType and a string containing the log message.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="EnvironmentPolicyAPI.destroy_environment">
+<span class="sig-name descname"><span class="pre">destroy_environment</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">environment</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#EnvironmentPolicyAPI.destroy_environment" title="Link to this definition"></a></dt>
+<dd><p>Marks an environment as destroyed. Older environment-policy implementations that don’t use this function still work.</p>
+<p>Either EnvironmentPolicy.is_alive must be overridden or this method be used to mark the environment as destroyed.</p>
+<p>Added: R52</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="EnvironmentPolicyAPI.unregister_policy">
+<span class="sig-name descname"><span class="pre">unregister_policy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#EnvironmentPolicyAPI.unregister_policy" title="Link to this definition"></a></dt>
+<dd><p>Unregisters the policy it is bound to and allows another policy to be registered.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="EnvironmentPolicyAPI.get_vapoursynth_api">
+<span class="sig-name descname"><span class="pre">get_vapoursynth_api</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">version</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#EnvironmentPolicyAPI.get_vapoursynth_api" title="Link to this definition"></a></dt>
+<dd><p>Exposes getVapoursynthAPI to python. Returns a ctypes.c_void_p.</p>
+<p>Access to this function is provisional and might be removed if it is abused too much.</p>
+<p>Added: R62</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="EnvironmentPolicyAPI.get_core_ptr">
+<span class="sig-name descname"><span class="pre">get_core_ptr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">environment</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#EnvironmentPolicyAPI.get_core_ptr" title="Link to this definition"></a></dt>
+<dd><p>Returns a ctypes.c_void_p pointing to the <cite>Core*</cite>-object that powers the environment.</p>
+<p>Access to this function is provisional and might be removed if it is abused too much.</p>
+<p>Added: R62</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="register_policy">
+<span class="sig-name descname"><span class="pre">register_policy</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">policy</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#register_policy" title="Link to this definition"></a></dt>
+<dd><p>This function is intended for use by custom Script-Runners and Editors. It installs your custom <a class="reference internal" href="#EnvironmentPolicy" title="EnvironmentPolicy"><code class="xref py py-class docutils literal notranslate"><span class="pre">EnvironmentPolicy</span></code></a>. This function only works if no other policy has been
+installed.</p>
+<p>If no policy is installed, the first environment-sensitive call will automatically register an internal policy.</p>
+<p>Added: R50</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This must be done before VapourSynth is used in any way. Here is a non-exhaustive list that automatically register a policy:</p>
+<ul class="simple">
+<li><p>Using “vsscript_init” in “VSScript.h”</p></li>
+<li><p>Using <a class="reference internal" href="#get_outputs" title="get_outputs"><code class="xref py py-func docutils literal notranslate"><span class="pre">get_outputs()</span></code></a></p></li>
+<li><p>Using <a class="reference internal" href="#get_output" title="get_output"><code class="xref py py-func docutils literal notranslate"><span class="pre">get_output()</span></code></a></p></li>
+<li><p>Using <a class="reference internal" href="#clear_output" title="clear_output"><code class="xref py py-func docutils literal notranslate"><span class="pre">clear_output()</span></code></a></p></li>
+<li><p>Using <a class="reference internal" href="#clear_outputs" title="clear_outputs"><code class="xref py py-func docutils literal notranslate"><span class="pre">clear_outputs()</span></code></a></p></li>
+<li><p>Using <a class="reference internal" href="#get_current_environment" title="get_current_environment"><code class="xref py py-func docutils literal notranslate"><span class="pre">get_current_environment()</span></code></a></p></li>
+<li><p>Accessing any attribute of <a class="reference internal" href="#core" title="core"><code class="xref py py-attr docutils literal notranslate"><span class="pre">core</span></code></a></p></li>
+</ul>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="try_enable_introspection">
+<span class="sig-name descname"><span class="pre">_try_enable_introspection</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">version</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#try_enable_introspection" title="Link to this definition"></a></dt>
+<dd><p>Tries to enable introspection. Returns true if it succeeds.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>version</strong> – If not passed it will use the newest stable introspection-api.</p>
+</dd>
+</dl>
+<p>Added: R58</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="has_policy">
+<span class="sig-name descname"><span class="pre">has_policy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#has_policy" title="Link to this definition"></a></dt>
+<dd><p>This function is intended for subclassing by custom Script-Runners and Editors. This function checks if a <a class="reference internal" href="#EnvironmentPolicy" title="EnvironmentPolicy"><code class="xref py py-class docutils literal notranslate"><span class="pre">EnvironmentPolicy</span></code></a> has been installed.</p>
+<p>Added: R50</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="EnvironmentData">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">EnvironmentData</span></span><a class="headerlink" href="#EnvironmentData" title="Link to this definition"></a></dt>
+<dd><p>Internal class that stores the context sensitive data that VapourSynth needs. It is an opaque object whose attributes you cannot access directly.</p>
+<p>A normal user has no way of getting an instance of this object. You can only encounter EnvironmentData-objects if you work with EnvironmentPolicies.</p>
+<p>This object is weak-referenciable meaning you can get a callback if the environment-data object is actually being freed (i.e. no other object holds an instance
+to the environment data.)</p>
+<p>Added: R50</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="Func">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">Func</span></span><a class="headerlink" href="#Func" title="Link to this definition"></a></dt>
+<dd><p>Func is a simple wrapper class for VapourSynth VSFunc objects.
+Its main purpose is to be called and manage reference counting.</p>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="Error">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">Error</span></span><a class="headerlink" href="#Error" title="Link to this definition"></a></dt>
+<dd><p>The standard exception class. This exception is thrown on most errors
+encountered in VapourSynth.</p>
+</dd></dl>
+
+</section>
+<section id="constants">
+<h2>Constants<a class="headerlink" href="#constants" title="Link to this heading"></a></h2>
+<section id="video">
+<h3>Video<a class="headerlink" href="#video" title="Link to this heading"></a></h3>
+<section id="color-family">
+<h4>Color Family<a class="headerlink" href="#color-family" title="Link to this heading"></a></h4>
+<p>The color family constants describe groups of formats and the basic way their
+color information is stored. You should be familiar with all of them apart from
+maybe <em>YCOCG</em> and <em>COMPAT</em>. The latter is a special junk category for non-planar
+formats. These are the declared constants in the module:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">UNDEFINED</span>
+<span class="n">RGB</span>
+<span class="n">YUV</span>
+<span class="n">GRAY</span>
+</pre></div>
+</div>
+</section>
+<section id="format">
+<h4>Format<a class="headerlink" href="#format" title="Link to this heading"></a></h4>
+<p>Format constants exactly describe a format. All common and even more uncommon
+formats have handy constants predefined so in practice no one should really
+need to register one of their own. These values are mostly used by the resizers
+to specify which format to convert to. The naming system is quite simple. First
+the color family, then the subsampling (only YUV has it) and after that how many
+bits per sample in one plane. The exception to this rule is RGB, which has the
+bits for all 3 planes added together. The long list of values:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">NONE</span>
+<span class="n">GRAY8</span>
+<span class="n">GRAY9</span>
+<span class="n">GRAY10</span>
+<span class="n">GRAY12</span>
+<span class="n">GRAY14</span>
+<span class="n">GRAY16</span>
+<span class="n">GRAY32</span>
+<span class="n">GRAYH</span>
+<span class="n">GRAYS</span>
+<span class="n">YUV420P8</span>
+<span class="n">YUV422P8</span>
+<span class="n">YUV444P8</span>
+<span class="n">YUV410P8</span>
+<span class="n">YUV411P8</span>
+<span class="n">YUV440P8</span>
+<span class="n">YUV420P9</span>
+<span class="n">YUV422P9</span>
+<span class="n">YUV444P9</span>
+<span class="n">YUV420P10</span>
+<span class="n">YUV422P10</span>
+<span class="n">YUV444P10</span>
+<span class="n">YUV420P12</span>
+<span class="n">YUV422P12</span>
+<span class="n">YUV444P12</span>
+<span class="n">YUV420P14</span>
+<span class="n">YUV422P14</span>
+<span class="n">YUV444P14</span>
+<span class="n">YUV420P16</span>
+<span class="n">YUV422P16</span>
+<span class="n">YUV444P16</span>
+<span class="n">YUV444PH</span>
+<span class="n">YUV444PS</span>
+<span class="n">RGB24</span>
+<span class="n">RGB27</span>
+<span class="n">RGB30</span>
+<span class="n">RGB36</span>
+<span class="n">RGB42</span>
+<span class="n">RGB48</span>
+<span class="n">RGBH</span>
+<span class="n">RGBS</span>
+</pre></div>
+</div>
+</section>
+<section id="chroma-location">
+<h4>Chroma Location<a class="headerlink" href="#chroma-location" title="Link to this heading"></a></h4>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">CHROMA_LEFT</span>
+<span class="n">CHROMA_CENTER</span>
+<span class="n">CHROMA_TOP_LEFT</span>
+<span class="n">CHROMA_TOP</span>
+<span class="n">CHROMA_BOTTOM_LEFT</span>
+<span class="n">CHROMA_BOTTOM</span>
+</pre></div>
+</div>
+</section>
+<section id="field-based">
+<h4>Field Based<a class="headerlink" href="#field-based" title="Link to this heading"></a></h4>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">FIELD_PROGRESSIVE</span>
+<span class="n">FIELD_TOP</span>
+<span class="n">FIELD_BOTTOM</span>
+</pre></div>
+</div>
+</section>
+<section id="color-range">
+<h4>Color Range<a class="headerlink" href="#color-range" title="Link to this heading"></a></h4>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">RANGE_FULL</span>
+<span class="n">RANGE_LIMITED</span>
+</pre></div>
+</div>
+</section>
+<section id="matrix-coefficients">
+<h4>Matrix Coefficients<a class="headerlink" href="#matrix-coefficients" title="Link to this heading"></a></h4>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">MATRIX_RGB</span>
+<span class="n">MATRIX_BT709</span>
+<span class="n">MATRIX_UNSPECIFIED</span>
+<span class="n">MATRIX_FCC</span>
+<span class="n">MATRIX_BT470_BG</span>
+<span class="n">MATRIX_ST170_M</span>
+<span class="n">MATRIX_ST240_M</span>
+<span class="n">MATRIX_YCGCO</span>
+<span class="n">MATRIX_BT2020_NCL</span>
+<span class="n">MATRIX_BT2020_CL</span>
+<span class="n">MATRIX_CHROMATICITY_DERIVED_NCL</span>
+<span class="n">MATRIX_CHROMATICITY_DERIVED_CL</span>
+<span class="n">MATRIX_ICTCP</span>
+</pre></div>
+</div>
+</section>
+<section id="transfercharacteristics">
+<h4>TransferCharacteristics<a class="headerlink" href="#transfercharacteristics" title="Link to this heading"></a></h4>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">TRANSFER_BT709</span>
+<span class="n">TRANSFER_UNSPECIFIED</span>
+<span class="n">TRANSFER_BT470_M</span>
+<span class="n">TRANSFER_BT470_BG</span>
+<span class="n">TRANSFER_BT601</span>
+<span class="n">TRANSFER_ST240_M</span>
+<span class="n">TRANSFER_LINEAR</span>
+<span class="n">TRANSFER_LOG_100</span>
+<span class="n">TRANSFER_LOG_316</span>
+<span class="n">TRANSFER_IEC_61966_2_4</span>
+<span class="n">TRANSFER_IEC_61966_2_1</span>
+<span class="n">TRANSFER_BT2020_10</span>
+<span class="n">TRANSFER_BT2020_12</span>
+<span class="n">TRANSFER_ST2084</span>
+<span class="n">TRANSFER_ST428</span>
+<span class="n">TRANSFER_ARIB_B67</span>
+</pre></div>
+</div>
+</section>
+<section id="color-primaries">
+<h4>Color Primaries<a class="headerlink" href="#color-primaries" title="Link to this heading"></a></h4>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">PRIMARIES_BT709</span>
+<span class="n">PRIMARIES_UNSPECIFIED</span>
+<span class="n">PRIMARIES_BT470_M</span>
+<span class="n">PRIMARIES_BT470_BG</span>
+<span class="n">PRIMARIES_ST170_M</span>
+<span class="n">PRIMARIES_ST240_M</span>
+<span class="n">PRIMARIES_FILM</span>
+<span class="n">PRIMARIES_BT2020</span>
+<span class="n">PRIMARIES_ST428</span>
+<span class="n">PRIMARIES_ST431_2</span>
+<span class="n">PRIMARIES_ST432_1</span>
+<span class="n">PRIMARIES_EBU3213_E</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="audio">
+<h3>Audio<a class="headerlink" href="#audio" title="Link to this heading"></a></h3>
+<section id="channels">
+<h4>Channels<a class="headerlink" href="#channels" title="Link to this heading"></a></h4>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">FRONT_LEFT</span>
+<span class="n">FRONT_RIGHT</span>
+<span class="n">FRONT_CENTER</span>
+<span class="n">LOW_FREQUENCY</span>
+<span class="n">BACK_LEFT</span>
+<span class="n">BACK_RIGHT</span>
+<span class="n">FRONT_LEFT_OF_CENTER</span>
+<span class="n">FRONT_RIGHT_OF_CENTER</span>
+<span class="n">BACK_CENTER</span>
+<span class="n">SIDE_LEFT</span>
+<span class="n">SIDE_RIGHT</span>
+<span class="n">TOP_CENTER</span>
+<span class="n">TOP_FRONT_LEFT</span>
+<span class="n">TOP_FRONT_CENTER</span>
+<span class="n">TOP_FRONT_RIGHT</span>
+<span class="n">TOP_BACK_LEFT</span>
+<span class="n">TOP_BACK_CENTER</span>
+<span class="n">TOP_BACK_RIGHT</span>
+<span class="n">STEREO_LEFT</span>
+<span class="n">STEREO_RIGHT</span>
+<span class="n">WIDE_LEFT</span>
+<span class="n">WIDE_RIGHT</span>
+<span class="n">SURROUND_DIRECT_LEFT</span>
+<span class="n">SURROUND_DIRECT_RIGHT</span>
+<span class="n">LOW_FREQUENCY2</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="sample-type">
+<h3>Sample Type<a class="headerlink" href="#sample-type" title="Link to this heading"></a></h3>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">INTEGER</span>
+<span class="n">FLOAT</span>
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="gettingstarted.html" class="btn btn-neutral float-left" title="Getting Started" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="functions.html" class="btn btn-neutral float-right" title="Function Reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2012-2025, Fredrik Mellbin.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,255 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FrameEval &mdash; VapourSynth R73 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/custom.css?v=c3bcf009" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=a12aaffa"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="FreezeFrames" href="freezeframes.html" />
+    <link rel="prev" title="FlipVertical/FlipHorizontal" href="flipvertical_fliphorizontal.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            VapourSynth
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../gettingstarted.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../pythonreference.html">Python Reference</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../../functions.html">Function Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../../functions.html#general-functions">General Functions</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="../../functions.html#video-functions">Video Functions</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="addborders.html">AddBorders</a></li>
+<li class="toctree-l3"><a class="reference internal" href="assumefps.html">AssumeFPS</a></li>
+<li class="toctree-l3"><a class="reference internal" href="averageframes.html">AverageFrames</a></li>
+<li class="toctree-l3"><a class="reference internal" href="binarize_binarizemask.html">Binarize/BinarizeMask</a></li>
+<li class="toctree-l3"><a class="reference internal" href="blankclip.html">BlankClip</a></li>
+<li class="toctree-l3"><a class="reference internal" href="boxblur.html">BoxBlur</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cliptoprop.html">ClipToProp</a></li>
+<li class="toctree-l3"><a class="reference internal" href="convolution.html">Convolution</a></li>
+<li class="toctree-l3"><a class="reference internal" href="copyframeprops.html">CopyFrameProps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="crop_cropabs.html">Crop/CropAbs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="deflate_inflate.html">Deflate/Inflate</a></li>
+<li class="toctree-l3"><a class="reference internal" href="deleteframes.html">DeleteFrames</a></li>
+<li class="toctree-l3"><a class="reference internal" href="doubleweave.html">DoubleWeave</a></li>
+<li class="toctree-l3"><a class="reference internal" href="duplicateframes.html">DuplicateFrames</a></li>
+<li class="toctree-l3"><a class="reference internal" href="expr.html">Expr</a></li>
+<li class="toctree-l3"><a class="reference internal" href="flipvertical_fliphorizontal.html">FlipVertical/FlipHorizontal</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">FrameEval</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#std.FrameEval"><code class="docutils literal notranslate"><span class="pre">FrameEval()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="freezeframes.html">FreezeFrames</a></li>
+<li class="toctree-l3"><a class="reference internal" href="interleave.html">Interleave</a></li>
+<li class="toctree-l3"><a class="reference internal" href="invert_invertmask.html">Invert/InvertMask</a></li>
+<li class="toctree-l3"><a class="reference internal" href="levels.html">Levels</a></li>
+<li class="toctree-l3"><a class="reference internal" href="limiter.html">Limiter</a></li>
+<li class="toctree-l3"><a class="reference internal" href="loop.html">Loop</a></li>
+<li class="toctree-l3"><a class="reference internal" href="lut.html">Lut</a></li>
+<li class="toctree-l3"><a class="reference internal" href="lut2.html">Lut2</a></li>
+<li class="toctree-l3"><a class="reference internal" href="makediff.html">MakeDiff</a></li>
+<li class="toctree-l3"><a class="reference internal" href="makefulldiff.html">MakeFullDiff</a></li>
+<li class="toctree-l3"><a class="reference internal" href="maskedmerge.html">MaskedMerge</a></li>
+<li class="toctree-l3"><a class="reference internal" href="median.html">Median</a></li>
+<li class="toctree-l3"><a class="reference internal" href="merge.html">Merge</a></li>
+<li class="toctree-l3"><a class="reference internal" href="mergediff.html">MergeDiff</a></li>
+<li class="toctree-l3"><a class="reference internal" href="mergefulldiff.html">MergeFullDiff</a></li>
+<li class="toctree-l3"><a class="reference internal" href="minimum_maximum.html">Minimum/Maximum</a></li>
+<li class="toctree-l3"><a class="reference internal" href="modifyframe.html">ModifyFrame</a></li>
+<li class="toctree-l3"><a class="reference internal" href="pemverifier.html">PEMVerifier</a></li>
+<li class="toctree-l3"><a class="reference internal" href="planestats.html">PlaneStats</a></li>
+<li class="toctree-l3"><a class="reference internal" href="premultiply.html">PreMultiply</a></li>
+<li class="toctree-l3"><a class="reference internal" href="prewitt_sobel.html">Prewitt/Sobel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="proptoclip.html">PropToClip</a></li>
+<li class="toctree-l3"><a class="reference internal" href="removeframeprops.html">RemoveFrameProps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="resize.html">Resize</a></li>
+<li class="toctree-l3"><a class="reference internal" href="reverse.html">Reverse</a></li>
+<li class="toctree-l3"><a class="reference internal" href="selectevery.html">SelectEvery</a></li>
+<li class="toctree-l3"><a class="reference internal" href="separatefields.html">SeparateFields</a></li>
+<li class="toctree-l3"><a class="reference internal" href="setfieldbased.html">SetFieldBased</a></li>
+<li class="toctree-l3"><a class="reference internal" href="setframeprop.html">SetFrameProp</a></li>
+<li class="toctree-l3"><a class="reference internal" href="setframeprops.html">SetFrameProps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="setvideocache.html">SetVideoCache</a></li>
+<li class="toctree-l3"><a class="reference internal" href="shuffleplanes.html">ShufflePlanes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="splice.html">Splice</a></li>
+<li class="toctree-l3"><a class="reference internal" href="splitplanes.html">SplitPlanes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="stackvertical_stackhorizontal.html">StackVertical/StackHorizontal</a></li>
+<li class="toctree-l3"><a class="reference internal" href="transpose.html">Transpose</a></li>
+<li class="toctree-l3"><a class="reference internal" href="trim.html">Trim</a></li>
+<li class="toctree-l3"><a class="reference internal" href="turn180.html">Turn180</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../functions.html#text">Text</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../functions.html#audio-functions">Audio Functions</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../output.html">Output</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../applications.html">Applications and Libraries</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../apireference.html">VapourSynth C API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">VapourSynth</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../functions.html">Function Reference</a></li>
+      <li class="breadcrumb-item active">FrameEval</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/functions/video/frameeval.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="frameeval">
+<h1>FrameEval<a class="headerlink" href="#frameeval" title="Link to this heading"></a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="std.FrameEval">
+<span class="sig-prename descclassname"><span class="pre">std.</span></span><span class="sig-name descname"><span class="pre">FrameEval</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">vnode</span> <span class="pre">clip</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">func</span> <span class="pre">eval</span></span></em><span class="optional">[</span>, <em class="sig-param"><span class="n"><span class="pre">vnode[]</span> <span class="pre">prop_src</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">vnode[]</span> <span class="pre">clip_src</span></span></em><span class="optional">]</span><span class="sig-paren">)</span><a class="headerlink" href="#std.FrameEval" title="Link to this definition"></a></dt>
+<dd><p>Allows an arbitrary function to be evaluated every frame. The function gets
+the frame number, <em>n</em>, as input and should return a clip the output frame can
+be requested from.</p>
+<p>The <em>clip</em> argument is only used to get the output format from since there is
+no reliable automatic way to deduce it.</p>
+<p>When using the argument <em>prop_src</em> the function will also have an argument,
+<em>f</em>, containing the current frames. This is mainly so frame properties can be
+accessed and used to make decisions. Note that <em>f</em> will only be a list if
+more than one <em>prop_src</em> clip is provided.</p>
+<p>The <em>clip_src</em> argument only exists as a way to hint which clips are referenced in the
+<em>eval</em> function which can improve caching and graph generation. Its use is encouraged
+but not required.</p>
+<p>This function can be used to accomplish the same things as Animate,
+ScriptClip and all the other conditional filters in Avisynth. Note that to
+modify per frame properties you should use <em>ModifyFrame</em>.</p>
+<p>How to animate a BlankClip to fade from white to black. This is the simplest
+use case without using the <em>prop_src</em> argument:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">vapoursynth</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">vs</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">functools</span>
+
+<span class="n">base_clip</span> <span class="o">=</span> <span class="n">vs</span><span class="o">.</span><span class="n">core</span><span class="o">.</span><span class="n">std</span><span class="o">.</span><span class="n">BlankClip</span><span class="p">(</span><span class="nb">format</span><span class="o">=</span><span class="n">vs</span><span class="o">.</span><span class="n">YUV420P8</span><span class="p">,</span> <span class="n">length</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="p">[</span><span class="mi">255</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">128</span><span class="p">])</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">animator</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">clip</span><span class="p">):</span>
+   <span class="k">if</span> <span class="n">n</span> <span class="o">&gt;</span> <span class="mi">255</span><span class="p">:</span>
+      <span class="k">return</span> <span class="n">clip</span>
+   <span class="k">else</span><span class="p">:</span>
+      <span class="k">return</span> <span class="n">vs</span><span class="o">.</span><span class="n">core</span><span class="o">.</span><span class="n">std</span><span class="o">.</span><span class="n">BlankClip</span><span class="p">(</span><span class="nb">format</span><span class="o">=</span><span class="n">vs</span><span class="o">.</span><span class="n">YUV420P8</span><span class="p">,</span> <span class="n">length</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="p">[</span><span class="n">n</span><span class="p">,</span> <span class="mi">128</span><span class="p">,</span> <span class="mi">128</span><span class="p">])</span>
+
+<span class="n">animated_clip</span> <span class="o">=</span> <span class="n">vs</span><span class="o">.</span><span class="n">core</span><span class="o">.</span><span class="n">std</span><span class="o">.</span><span class="n">FrameEval</span><span class="p">(</span><span class="n">base_clip</span><span class="p">,</span> <span class="n">functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">animator</span><span class="p">,</span> <span class="n">clip</span><span class="o">=</span><span class="n">base_clip</span><span class="p">))</span>
+<span class="n">animated_clip</span><span class="o">.</span><span class="n">set_output</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>How to perform a simple per frame auto white balance. It shows how to access
+calculated frame properties and use them for conditional filtering:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">vapoursynth</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">vs</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">functools</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">GrayWorld1Adjust</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">clip</span><span class="p">,</span> <span class="n">core</span><span class="p">):</span>
+   <span class="n">small_number</span> <span class="o">=</span> <span class="mf">0.000000001</span>
+   <span class="n">red</span>   <span class="o">=</span> <span class="n">f</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">props</span><span class="p">[</span><span class="s1">&#39;PlaneStatsAverage&#39;</span><span class="p">]</span>
+   <span class="n">green</span> <span class="o">=</span> <span class="n">f</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">props</span><span class="p">[</span><span class="s1">&#39;PlaneStatsAverage&#39;</span><span class="p">]</span>
+   <span class="n">blue</span>  <span class="o">=</span> <span class="n">f</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">props</span><span class="p">[</span><span class="s1">&#39;PlaneStatsAverage&#39;</span><span class="p">]</span>
+   <span class="n">max_rgb</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">red</span><span class="p">,</span> <span class="n">green</span><span class="p">,</span> <span class="n">blue</span><span class="p">)</span>
+   <span class="n">red_corr</span>   <span class="o">=</span> <span class="n">max_rgb</span><span class="o">/</span><span class="nb">max</span><span class="p">(</span><span class="n">red</span><span class="p">,</span> <span class="n">small_number</span><span class="p">)</span>
+   <span class="n">green_corr</span> <span class="o">=</span> <span class="n">max_rgb</span><span class="o">/</span><span class="nb">max</span><span class="p">(</span><span class="n">green</span><span class="p">,</span> <span class="n">small_number</span><span class="p">)</span>
+   <span class="n">blue_corr</span>  <span class="o">=</span> <span class="n">max_rgb</span><span class="o">/</span><span class="nb">max</span><span class="p">(</span><span class="n">blue</span><span class="p">,</span> <span class="n">small_number</span><span class="p">)</span>
+   <span class="n">norm</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">blue</span><span class="p">,</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">red_corr</span><span class="o">*</span><span class="n">red_corr</span> <span class="o">+</span> <span class="n">green_corr</span><span class="o">*</span><span class="n">green_corr</span> <span class="o">+</span> <span class="n">blue_corr</span><span class="o">*</span><span class="n">blue_corr</span><span class="p">)</span> <span class="o">/</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mi">3</span><span class="p">),</span> <span class="n">small_number</span><span class="p">)</span>
+   <span class="n">r_gain</span> <span class="o">=</span> <span class="n">red_corr</span><span class="o">/</span><span class="n">norm</span>
+   <span class="n">g_gain</span> <span class="o">=</span> <span class="n">green_corr</span><span class="o">/</span><span class="n">norm</span>
+   <span class="n">b_gain</span> <span class="o">=</span> <span class="n">blue_corr</span><span class="o">/</span><span class="n">norm</span>
+   <span class="k">return</span> <span class="n">core</span><span class="o">.</span><span class="n">std</span><span class="o">.</span><span class="n">Expr</span><span class="p">(</span><span class="n">clip</span><span class="p">,</span> <span class="n">expr</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;x &#39;</span> <span class="o">+</span> <span class="nb">repr</span><span class="p">(</span><span class="n">r_gain</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39; *&#39;</span><span class="p">,</span> <span class="s1">&#39;x &#39;</span> <span class="o">+</span> <span class="nb">repr</span><span class="p">(</span><span class="n">g_gain</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39; *&#39;</span><span class="p">,</span> <span class="s1">&#39;x &#39;</span> <span class="o">+</span> <span class="nb">repr</span><span class="p">(</span><span class="n">b_gain</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39; *&#39;</span><span class="p">])</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">GrayWorld1</span><span class="p">(</span><span class="n">clip</span><span class="p">,</span> <span class="n">matrix_s</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+   <span class="n">rgb_clip</span> <span class="o">=</span> <span class="n">vs</span><span class="o">.</span><span class="n">core</span><span class="o">.</span><span class="n">resize</span><span class="o">.</span><span class="n">Bilinear</span><span class="p">(</span><span class="n">clip</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="n">vs</span><span class="o">.</span><span class="n">RGB24</span><span class="p">)</span>
+   <span class="n">r_avg</span> <span class="o">=</span> <span class="n">vs</span><span class="o">.</span><span class="n">core</span><span class="o">.</span><span class="n">std</span><span class="o">.</span><span class="n">PlaneStats</span><span class="p">(</span><span class="n">rgb_clip</span><span class="p">,</span> <span class="n">plane</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+   <span class="n">g_avg</span> <span class="o">=</span> <span class="n">vs</span><span class="o">.</span><span class="n">core</span><span class="o">.</span><span class="n">std</span><span class="o">.</span><span class="n">PlaneStats</span><span class="p">(</span><span class="n">rgb_clip</span><span class="p">,</span> <span class="n">plane</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+   <span class="n">b_avg</span> <span class="o">=</span> <span class="n">vs</span><span class="o">.</span><span class="n">core</span><span class="o">.</span><span class="n">std</span><span class="o">.</span><span class="n">PlaneStats</span><span class="p">(</span><span class="n">rgb_clip</span><span class="p">,</span> <span class="n">plane</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+   <span class="n">adjusted_clip</span> <span class="o">=</span> <span class="n">vs</span><span class="o">.</span><span class="n">core</span><span class="o">.</span><span class="n">std</span><span class="o">.</span><span class="n">FrameEval</span><span class="p">(</span><span class="n">rgb_clip</span><span class="p">,</span> <span class="n">functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">GrayWorld1Adjust</span><span class="p">,</span> <span class="n">clip</span><span class="o">=</span><span class="n">rgb_clip</span><span class="p">,</span> <span class="n">core</span><span class="o">=</span><span class="n">vs</span><span class="o">.</span><span class="n">core</span><span class="p">),</span> <span class="n">prop_src</span><span class="o">=</span><span class="p">[</span><span class="n">r_avg</span><span class="p">,</span> <span class="n">g_avg</span><span class="p">,</span> <span class="n">b_avg</span><span class="p">])</span>
+   <span class="k">return</span> <span class="n">vs</span><span class="o">.</span><span class="n">core</span><span class="o">.</span><span class="n">resize</span><span class="o">.</span><span class="n">Bilinear</span><span class="p">(</span><span class="n">adjusted_clip</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="n">clip</span><span class="o">.</span><span class="n">format</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">matrix_s</span><span class="o">=</span><span class="n">matrix_s</span><span class="p">)</span>
+
+<span class="n">vs</span><span class="o">.</span><span class="n">core</span><span class="o">.</span><span class="n">std</span><span class="o">.</span><span class="n">LoadPlugin</span><span class="p">(</span><span class="n">path</span><span class="o">=</span><span class="s1">&#39;BestSource.dll&#39;</span><span class="p">)</span>
+<span class="n">main</span> <span class="o">=</span> <span class="n">vs</span><span class="o">.</span><span class="n">core</span><span class="o">.</span><span class="n">bs</span><span class="o">.</span><span class="n">VideoSource</span><span class="p">(</span><span class="n">source</span><span class="o">=</span><span class="s1">&#39;...&#39;</span><span class="p">)</span>
+<span class="n">main</span> <span class="o">=</span> <span class="n">GrayWorld1</span><span class="p">(</span><span class="n">main</span><span class="p">)</span>
+<span class="n">main</span><span class="o">.</span><span class="n">set_output</span><span class="p">()</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="flipvertical_fliphorizontal.html" class="btn btn-neutral float-left" title="FlipVertical/FlipHorizontal" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="freezeframes.html" class="btn btn-neutral float-right" title="FreezeFrames" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2012-2025, Fredrik Mellbin.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

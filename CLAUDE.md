@@ -12,7 +12,12 @@ Both files should stay synchronized - README.md is for humans, CLAUDE.md is for 
 
 ## Project Overview
 
-iDeinterlace is a macOS SwiftUI application for video deinterlacing using QTGMC via VapourSynth. It provides a simple drag-and-drop interface as an alternative to more complex tools like Hybrid.
+iDeinterlace is a **cross-platform** (macOS + Windows) video deinterlacing application using QTGMC via VapourSynth. It provides a simple drag-and-drop interface as an alternative to more complex tools like Hybrid.
+
+**Technology Stack:**
+- **UI**: Flutter (Dart) - cross-platform desktop app
+- **Worker**: Rust - CLI that runs vspipe | ffmpeg pipeline
+- **Processing**: VapourSynth + QTGMC (havsfunc)
 
 ## Architecture
 
@@ -20,10 +25,10 @@ iDeinterlace is a macOS SwiftUI application for video deinterlacing using QTGMC 
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    iDeinterlace.app                          │
+│                    iDeinterlace                              │
 ├─────────────────────────────────────────────────────────────┤
-│  Main Process (SwiftUI)     │  Worker Process (CLI)         │
-│  - User interface           │  - Receives job config JSON   │
+│  Flutter App (Dart)         │  Rust Worker (CLI)            │
+│  - Cross-platform GUI       │  - Receives job config JSON   │
 │  - Settings management      │  - Generates .vpy script      │
 │  - Process coordination     │  - Runs: vspipe | ffmpeg      │
 │  - Progress display         │  - Reports progress (stdout)  │
@@ -32,9 +37,9 @@ iDeinterlace is a macOS SwiftUI application for video deinterlacing using QTGMC 
 
 ### Communication Protocol
 
-- **Config**: JSON file path passed as CLI argument to worker
+- **Config**: JSON file path passed as CLI argument to worker (`--config path/to/job.json`)
 - **Progress**: JSON lines from worker stdout
-- **Cancel**: SIGTERM to worker process
+- **Cancel**: SIGTERM (Unix) or TerminateProcess (Windows)
 
 ### JSON Message Format (Worker → App)
 
@@ -42,75 +47,193 @@ iDeinterlace is a macOS SwiftUI application for video deinterlacing using QTGMC 
 {"type":"progress","frame":1234,"totalFrames":50000,"fps":45.2,"eta":892}
 {"type":"log","level":"info","message":"Starting encoding..."}
 {"type":"error","message":"Failed to load input"}
-{"type":"complete","success":true}
+{"type":"complete","success":true,"outputPath":"/path/to/output.mp4"}
 ```
 
-## Key Directories
+## Project Structure
 
 ```
 iDeinterlace/
-├── iDeinterlace/           # Main SwiftUI app target
-│   ├── Models/             # Data models (QTGMCParameters, VideoJob, etc.)
-│   ├── Views/              # SwiftUI views
-│   ├── ViewModels/         # View models (MVVM pattern)
-│   └── Services/           # WorkerManager, ProgressParser, etc.
-├── iDeinterlaceWorker/     # CLI worker target
-│   └── Templates/          # VapourSynth script templates
-├── BundledDependencies/    # Pre-built deps (gitignored)
-└── Scripts/                # Build and signing scripts
+├── app/                        # Flutter application
+│   ├── lib/
+│   │   ├── models/             # VideoJob, QTGMCParameters, ProgressInfo
+│   │   ├── viewmodels/         # MainViewModel, SettingsViewModel
+│   │   ├── views/              # MainWindow, DropZone, ProgressSection
+│   │   │   └── settings/       # QTGMC parameter UI sections
+│   │   ├── services/           # WorkerManager, FieldOrderDetector
+│   │   └── utils/              # Platform utilities
+│   ├── macos/                  # macOS platform config
+│   └── windows/                # Windows platform config
+│
+├── worker/                     # Rust worker crate
+│   ├── src/
+│   │   ├── models/             # Matching data models (serde)
+│   │   │   ├── video_job.rs
+│   │   │   ├── qtgmc_parameters.rs
+│   │   │   └── progress_info.rs
+│   │   ├── script_generator.rs # VapourSynth .vpy generation
+│   │   ├── pipeline_executor.rs# vspipe | ffmpeg execution
+│   │   ├── progress_reporter.rs# JSON stdout output
+│   │   ├── dependency_locator.rs# Find bundled deps
+│   │   └── platform/           # Platform-specific code
+│   │       ├── macos.rs
+│   │       └── windows.rs
+│   └── templates/
+│       └── qtgmc_template.vpy  # VapourSynth script template
+│
+├── deps/                       # Platform-specific dependencies
+│   ├── macos-arm64/
+│   │   ├── python/             # Python.framework
+│   │   ├── vapoursynth/plugins/# VS plugins (.dylib)
+│   │   ├── ffmpeg/             # FFmpeg binary
+│   │   └── python-packages/    # havsfunc, mvsfunc, etc.
+│   ├── macos-x64/
+│   └── windows-x64/
+│       ├── python/             # Embeddable Python
+│       ├── vapoursynth/plugins/# VS plugins (.dll)
+│       ├── ffmpeg/             # FFmpeg binary
+│       └── python-packages/
+│
+├── scripts/                    # Build and setup scripts
+│   ├── download-deps-windows.ps1
+│   └── download-deps-macos.sh
+│
+├── packaging/                  # Platform installers
+│   ├── macos/                  # Info.plist, entitlements
+│   └── windows/                # NSIS installer config
+│
+└── legacy/                     # Original Swift code (reference)
+    ├── iDeinterlace/           # SwiftUI app
+    ├── iDeinterlaceWorker/     # Swift worker
+    └── Shared/                 # Shared models
 ```
 
 ## Key Files
 
+### Rust Worker
 | File | Purpose |
 |------|---------|
-| `iDeinterlace/Models/QTGMCParameters.swift` | All 70+ QTGMC parameters as Codable struct |
-| `iDeinterlace/Services/WorkerManager.swift` | Spawns worker process, handles IPC via pipes |
-| `iDeinterlaceWorker/PipelineExecutor.swift` | Executes vspipe \| ffmpeg pipeline |
-| `iDeinterlaceWorker/Templates/qtgmc_template.vpy` | VapourSynth script template |
-| `iDeinterlace/Views/Settings/SettingsView.swift` | Full QTGMC configuration UI |
+| `worker/src/models/video_job.rs` | Job config, EncodingSettings, enums |
+| `worker/src/models/qtgmc_parameters.rs` | All 70+ QTGMC parameters (serde) |
+| `worker/src/script_generator.rs` | Template substitution for .vpy |
+| `worker/src/pipeline_executor.rs` | vspipe \| ffmpeg execution |
+| `worker/templates/qtgmc_template.vpy` | VapourSynth script template |
 
-## Development Environment Setup
+### Flutter App
+| File | Purpose |
+|------|---------|
+| `app/lib/models/video_job.dart` | Job config (json_serializable) |
+| `app/lib/models/qtgmc_parameters.dart` | QTGMC params matching Rust |
+| `app/lib/services/worker_manager.dart` | Process spawning, IPC |
+| `app/lib/views/main_window.dart` | Main UI |
 
-For development and testing, use Homebrew Python 3.14 (VapourSynth is built against this version):
+## Build Commands
 
-```bash
-# 1. Install system dependencies
-brew install vapoursynth ffmpeg ffms2
-ln -s "../libffms2.dylib" "/opt/homebrew/lib/vapoursynth/libffms2.dylib"
+### Prerequisites
+- Flutter SDK 3.16+
+- Rust 1.70+
+- Windows: Visual Studio Build Tools with C++ workload
+- macOS: Xcode Command Line Tools
 
-# 2. Install Python packages
-pip3.14 install mvsfunc adjust --break-system-packages
+### Download Dependencies
 
-# 3. Download and install havsfunc r31 (last version with QTGMC)
-curl -L "https://github.com/HomeOfVapourSynthEvolution/havsfunc/archive/refs/tags/r31.tar.gz" | tar -xz
-cp havsfunc-r31/havsfunc.py /opt/homebrew/lib/python3.14/site-packages/
-
-# 4. Build and install VapourSynth plugins from source:
-# - mvtools: https://github.com/dubhater/vapoursynth-mvtools
-# - NNEDI3CL: https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL
-# - fmtconv: https://github.com/EleonoreMizo/fmtconv
-# - miscfilters: https://github.com/vapoursynth/vs-miscfilters-obsolete
-# - resize2: https://github.com/Jaded-Encoding-Thaumaturgy/vapoursynth-resize2
-
-# Each plugin: meson setup build && meson compile -C build
-# Then copy .dylib to /opt/homebrew/lib/vapoursynth/
-
-# 5. Install NNEDI3CL weights file
-mkdir -p /opt/homebrew/share/NNEDI3CL
-curl -L "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL/raw/master/NNEDI3CL/nnedi3_weights.bin" \
-  -o /opt/homebrew/share/NNEDI3CL/nnedi3_weights.bin
-
-# 6. Verify setup
-vspipe --version
-python3.14 -c "import vapoursynth; print(str(vapoursynth.core))"
+**Windows (PowerShell):**
+```powershell
+.\scripts\download-deps-windows.ps1
 ```
 
-### havsfunc Compatibility Patches
+**macOS:**
+```bash
+./scripts/download-deps-macos.sh
+```
+
+### Build Rust Worker
+
+```bash
+cd worker
+cargo build --release
+```
+
+### Build Flutter App
+
+**Windows:**
+```bash
+cd app
+flutter pub get
+flutter build windows --release
+```
+
+**macOS:**
+```bash
+cd app
+flutter pub get
+flutter build macos --release
+```
+
+### Generate Dart JSON Serialization
+
+```bash
+cd app
+dart run build_runner build
+```
+
+## Common Tasks
+
+### Adding a New QTGMC Parameter
+
+1. Add to `worker/src/models/qtgmc_parameters.rs` (with serde attributes)
+2. Add to `app/lib/models/qtgmc_parameters.dart` (with json_annotation)
+3. Add to `worker/templates/qtgmc_template.vpy` using `{{#PARAM}}...{{/PARAM}}` syntax
+4. Add to `worker/src/script_generator.rs` substitution logic
+5. Add UI control in Flutter settings view
+
+### Modifying Worker Communication
+
+1. Update `WorkerMessage` enum in both:
+   - `worker/src/models/progress_info.rs`
+   - `app/lib/models/progress_info.dart`
+2. Update JSON serialization to match
+3. Update `ProgressReporter` (Rust) and `WorkerManager` (Dart)
+
+### Adding Platform Support
+
+1. Add deps directory: `deps/{platform}-{arch}/`
+2. Create download script in `scripts/`
+3. Update `DependencyLocator` in Rust for new paths
+4. Add Flutter platform config if needed
+
+## QTGMC Parameters Reference
+
+The most important parameters:
+
+- **Preset**: Master setting (Placebo → Draft) that sets defaults
+- **TFF**: Top-field-first (true) or bottom-field-first (false)
+- **TR0/TR1/TR2**: Temporal radius settings controlling smoothing
+- **EdiMode**: Interpolation method (NNEDI3, EEDI3+NNEDI3, etc.)
+- **SourceMatch**: Higher fidelity mode (0=off, 1-3=increasingly accurate)
+- **FPSDivisor**: 1=double-rate (50i→50p), 2=single-rate (50i→25p)
+
+## Testing
+
+```bash
+# Rust tests
+cd worker
+cargo test
+
+# Flutter tests
+cd app
+flutter test
+
+# Test worker standalone
+cd worker
+cargo run --release -- --config test_job.json
+```
+
+## havsfunc Compatibility Patches
 
 The havsfunc.py file requires patches for current mvtools API:
 
-1. Add helper function at top of file to rename `_lambda`/`_global` to `lambda`/`global`:
+1. Add helper function to rename `_lambda`/`_global`:
 ```python
 def _fix_mv_args(args):
     result = {}
@@ -121,110 +244,66 @@ def _fix_mv_args(args):
     return result
 ```
 
-2. Replace `**analyse_args)` with `**_fix_mv_args(analyse_args))` globally
-3. Replace `**recalculate_args)` with `**_fix_mv_args(recalculate_args))` globally
-4. Replace `_global=True, overlap=overlap)` with `overlap=overlap, **{'global': True})`
-5. Update NNEDI3/EEDI3 fallback to check for nnedi3cl:
-   - Change `myNNEDI3 = ... else core.nnedi3.nnedi3` to include `core.nnedi3cl.NNEDI3CL` fallback
-   - Make myEEDI3 assignment conditional (return None if eedi3 not available)
-
-## Build Commands
-
-```bash
-# Activate conda environment first
-conda activate ideinterlace
-
-# Build both targets (Debug)
-xcodebuild -scheme iDeinterlace -configuration Debug build
-
-# Build for Release
-xcodebuild -scheme iDeinterlace -configuration Release build
-
-# Build dependencies for distribution (requires Homebrew, Python)
-./Scripts/build-dependencies.sh
-
-# Sign all bundled binaries
-./Scripts/codesign-dependencies.sh "Developer ID Application: Name (TEAMID)"
-
-# Run tests
-xcodebuild test -scheme iDeinterlace
-```
-
-## Common Tasks
-
-### Adding a New QTGMC Parameter
-
-1. Add property to `QTGMCParameters.swift` struct
-2. Add corresponding entry in `qtgmc_template.vpy` template
-3. Add UI control in appropriate settings section view
-4. Update JSON serialization tests
-
-### Modifying Worker Communication
-
-1. Update message types in `iDeinterlaceWorker/ProgressReporter.swift`
-2. Update parsing in `iDeinterlace/Services/ProgressParser.swift`
-3. Update `WorkerMessage` enum if adding new message types
-
-### Adding a New Encoding Option
-
-1. Add to `EncodingSettings` struct in `VideoJob.swift`
-2. Update FFmpeg argument building in `PipelineExecutor.swift`
-3. Add UI controls in `EncodingSectionView.swift`
-
-## QTGMC Parameters Reference
-
-The most important parameters to understand:
-
-- **Preset**: Master setting (Placebo → Draft) that sets defaults for most other params
-- **TFF**: Top-field-first (true) or bottom-field-first (false) - critical for correct output
-- **TR0/TR1/TR2**: Temporal radius settings controlling smoothing strength
-- **EdiMode**: Interpolation method (NNEDI3, EEDI3+NNEDI3, etc.)
-- **SourceMatch**: Higher fidelity mode (0=off, 1-3=increasingly accurate)
-- **FPSDivisor**: 1=double-rate output (50i→50p), 2=single-rate (50i→25p)
-
-## Testing
-
-```bash
-# Unit tests
-xcodebuild test -scheme iDeinterlace -only-testing:iDeinterlaceTests
-
-# Test worker standalone (with test config)
-./build/Debug/iDeinterlaceWorker --config test_job.json
-
-# Integration test with sample video
-./Scripts/integration-test.sh sample.mov
-```
-
-## Bundle Structure
-
-```
-iDeinterlace.app/Contents/
-├── MacOS/
-│   ├── iDeinterlace           # Main app
-│   └── iDeinterlaceWorker     # Worker CLI
-├── Frameworks/
-│   └── Python.framework/      # Embedded Python + VapourSynth
-├── PlugIns/VapourSynth/       # VS native plugins (.dylib)
-├── Helpers/
-│   ├── vspipe                 # VapourSynth pipe utility
-│   └── ffmpeg                 # FFmpeg binary
-└── Resources/
-    ├── vapoursynth.conf       # VS config pointing to bundled plugins
-    └── qtgmc_template.vpy     # Script template
-```
+2. Replace `**analyse_args)` with `**_fix_mv_args(analyse_args))`
+3. Replace `**recalculate_args)` with `**_fix_mv_args(recalculate_args))`
+4. Update NNEDI3/EEDI3 fallback to check for nnedi3cl
 
 ## Code Style
 
-- SwiftUI with MVVM pattern
-- Async/await for concurrency
-- Combine for reactive bindings
-- Guard/if-let instead of force unwrapping
-- Prefer editing existing files over creating new ones
-- Keep implementations simple and focused
+### Rust
+- Use `anyhow` for error handling
+- Use `serde` with `rename_all = "camelCase"` for JSON compatibility
+- Platform-specific code in `platform/` module with `#[cfg]`
+
+### Dart/Flutter
+- Provider for state management
+- `json_annotation` + `json_serializable` for models
+- MVVM pattern (models, viewmodels, views, services)
 
 ## Debugging Tips
 
-1. **Worker crashes**: Check Console.app for crash logs, run worker standalone
-2. **Plugin load failures**: Check `vapoursynth.conf` paths, verify dylib signatures
-3. **Progress not updating**: Check JSON parsing in `ProgressParser.swift`
-4. **Encoding fails**: Run the generated .vpy script manually with vspipe to isolate issue
+1. **Worker crashes**: Run worker standalone with `--config` to isolate
+2. **JSON mismatch**: Compare Rust and Dart model serialization
+3. **Plugin load failures**: Check environment variables in `DependencyLocator`
+4. **Progress not updating**: Check stdout parsing in `WorkerManager`
+5. **Encoding fails**: Run generated .vpy script manually with vspipe
+6. **Template not found**: Check that `worker/templates/qtgmc_template.vpy` exists and search paths in `script_generator.rs`
+
+## Windows-Specific Notes
+
+### VapourSynth Portable Setup
+
+On Windows, VapourSynth R73 portable bundles `VSScriptPython38.dll` which requires Python 3.8 (not 3.11+):
+
+```
+deps/windows-x64/vapoursynth/
+├── VSPipe.exe              # Main executable
+├── VSScriptPython38.dll    # Requires Python 3.8
+├── python38.dll            # Python 3.8 runtime
+├── python3.dll
+├── python38.zip            # Python stdlib
+├── vs-plugins/             # VapourSynth plugins (.dll)
+└── Lib/site-packages/      # Python packages (havsfunc, etc.)
+```
+
+### Environment Variables (Windows)
+
+The worker sets these via `DependencyLocator`:
+- `PYTHONHOME` → `deps/windows-x64/vapoursynth`
+- `PYTHONPATH` → `deps/windows-x64/vapoursynth/Lib/site-packages`
+- `VAPOURSYNTH_PLUGIN_PATH` → `deps/windows-x64/vapoursynth/vs-plugins`
+- `PATH` → prepend vapoursynth and ffmpeg directories
+
+### Required Plugins (Windows)
+
+All plugins go in `deps/windows-x64/vapoursynth/vs-plugins/`:
+- `libmvtools.dll` - Motion estimation
+- `EEDI3m.dll` - Edge-directed interpolation
+- `libvs_znedi3.dll` + `nnedi3_weights.bin` - Neural network interpolation
+- `libfmtconv.dll` - Format conversion
+- `ffms2.dll` - FFmpeg source
+- `MiscFilters.dll` - Misc filters
+
+### Show in Folder (Windows)
+
+Uses `cmd /c explorer /select, <path>` to open File Explorer with the file selected.

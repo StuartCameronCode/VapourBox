@@ -1,0 +1,226 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Output &mdash; VapourSynth R73 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/css/custom.css?v=c3bcf009" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=a12aaffa"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Applications and Libraries" href="applications.html" />
+    <link rel="prev" title="SplitChannels" href="functions/audio/splitchannels.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            VapourSynth
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="gettingstarted.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pythonreference.html">Python Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="functions.html">Function Reference</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Output</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#vspipe">VSPipe</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#synopsis">Synopsis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#options">Options</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#examples">Examples</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#avfs">AVFS</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#avisynth-support">Avisynth Support</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#vfw">VFW</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="applications.html">Applications and Libraries</a></li>
+<li class="toctree-l1"><a class="reference internal" href="apireference.html">VapourSynth C API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">VapourSynth</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Output</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/output.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="output">
+<h1>Output<a class="headerlink" href="#output" title="Link to this heading"></a></h1>
+<section id="vspipe">
+<h2>VSPipe<a class="headerlink" href="#vspipe" title="Link to this heading"></a></h2>
+<section id="synopsis">
+<h3>Synopsis<a class="headerlink" href="#synopsis" title="Link to this heading"></a></h3>
+<p><strong>vspipe</strong> &lt;script&gt; &lt;outfile&gt; [options]</p>
+<p>vspipe’s main purpose is to evaluate VapourSynth scripts and output the
+frames to a file.</p>
+<p>If <em>outfile</em> is a hyphen (<code class="docutils literal notranslate"><span class="pre">-</span></code>), vspipe will write to the standard output.</p>
+<p>If <em>outfile</em> is a double hyphen (<code class="docutils literal notranslate"><span class="pre">--</span></code>), vspipe will do everything as usual, except it
+will not write the video frames anywhere.</p>
+</section>
+<section id="options">
+<h3>Options<a class="headerlink" href="#options" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">-a,</span> <span class="pre">--arg</span> <span class="pre">key=value</span></code></dt><dd><p>Argument to pass to the script environment, it a key with this name and value (str typed) will be set in the globals dict</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">-s,</span> <span class="pre">--start</span> <span class="pre">N</span></code></dt><dd><p>Set output frame range (first frame)</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">-e,</span> <span class="pre">--end</span> <span class="pre">N</span></code></dt><dd><p>Set output frame range (last frame)</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">-o,</span> <span class="pre">--outputindex</span> <span class="pre">N</span></code></dt><dd><p>Select output index</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">-r,</span> <span class="pre">--requests</span> <span class="pre">N</span></code></dt><dd><p>Set number of concurrent frame requests</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">-c,</span> <span class="pre">--container</span> <span class="pre">&lt;y4m/wav/w64&gt;</span></code></dt><dd><p>Add headers for the specified format to the output</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">-t,</span> <span class="pre">--timecodes</span> <span class="pre">FILE</span></code></dt><dd><p>Write timecodes v2 file</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--progress</span></code></dt><dd><p>Print progress to stderr</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">--filter-time</span></code></dt><dd><p>Records the time spent in each filter and prints it out at the end of processing.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">-i,</span> <span class="pre">--info</span></code></dt><dd><p>Show video info and exit</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">-g,</span> <span class="pre">--graph</span> <span class="pre">&lt;simple/full&gt;</span></code></dt><dd><p>Print output node filter graph in dot format to outfile and exit</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--version</span></code></dt><dd><p>Show version info and exit</p>
+</dd>
+</dl>
+</section>
+<section id="examples">
+<h3>Examples<a class="headerlink" href="#examples" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt>Show script info:</dt><dd><p><code class="docutils literal notranslate"><span class="pre">vspipe</span> <span class="pre">--info</span> <span class="pre">script.vpy</span> <span class="pre">-</span></code></p>
+</dd>
+<dt>Write to stdout:</dt><dd><p><code class="docutils literal notranslate"><span class="pre">vspipe</span> <span class="pre">[options]</span> <span class="pre">script.vpy</span> <span class="pre">-</span></code></p>
+</dd>
+<dt>Write to a named pipe (Windows only):</dt><dd><p><code class="docutils literal notranslate"><span class="pre">vspipe</span> <span class="pre">[options]</span> <span class="pre">script.vpy</span> <span class="pre">&quot;\\\\.\\pipe\\&lt;pipename&gt;&quot;</span></code></p>
+</dd>
+<dt>Request all frames but don’t output them:</dt><dd><p><code class="docutils literal notranslate"><span class="pre">vspipe</span> <span class="pre">[options]</span> <span class="pre">script.vpy</span> <span class="pre">--</span></code></p>
+</dd>
+<dt>Write frames 5-100 to file:</dt><dd><p><code class="docutils literal notranslate"><span class="pre">vspipe</span> <span class="pre">--start</span> <span class="pre">5</span> <span class="pre">--end</span> <span class="pre">100</span> <span class="pre">script.vpy</span> <span class="pre">output.raw</span></code></p>
+</dd>
+<dt>Pipe to x264 and write timecodes file:</dt><dd><p><code class="docutils literal notranslate"><span class="pre">vspipe</span> <span class="pre">script.vpy</span> <span class="pre">-</span> <span class="pre">-c</span> <span class="pre">y4m</span> <span class="pre">--timecodes</span> <span class="pre">timecodes.txt</span> <span class="pre">|</span> <span class="pre">x264</span> <span class="pre">--demuxer</span> <span class="pre">y4m</span> <span class="pre">-o</span> <span class="pre">script.mkv</span> <span class="pre">-</span></code></p>
+</dd>
+<dt>Pass values to a script:</dt><dd><p><code class="docutils literal notranslate"><span class="pre">vspipe</span> <span class="pre">--arg</span> <span class="pre">deinterlace=yes</span> <span class="pre">--arg</span> <span class="pre">&quot;message=fluffy</span> <span class="pre">kittens&quot;</span> <span class="pre">script.vpy</span> <span class="pre">output.raw</span></code></p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="avfs">
+<h2>AVFS<a class="headerlink" href="#avfs" title="Link to this heading"></a></h2>
+<p>AV FileSystem is based on <a class="reference external" href="https://turtlewar.org/avfs/">AVFS</a> and shares most of its
+source code and functionality. This package has several uses. It can easily make
+a script file openable by any application, as it appears like a real,
+uncompressed avi file. It can also be used to bridge the 32/64 bit gap, since a
+plain file can always be read.</p>
+<p>To use it simply run <code class="docutils literal notranslate"><span class="pre">avfs</span></code> in the <code class="docutils literal notranslate"><span class="pre">core32</span></code> or <code class="docutils literal notranslate"><span class="pre">core64</span></code> directories with the script name as argument.
+This will create a virtual file in <code class="docutils literal notranslate"><span class="pre">C:\\Volumes</span></code>.</p>
+<p>The <em>alt_output</em> argument of <em>set_output</em> is respected and can be used to get additional compatibility
+with professional applications.</p>
+<section id="avisynth-support">
+<h3>Avisynth Support<a class="headerlink" href="#avisynth-support" title="Link to this heading"></a></h3>
+<p>Note that this AVFS version is also compatible with Avisynth 2.6 and Avisynth+. When using Avisynth+
+higher bitdepth output is also supported. The easiest way to obtain a recent version is to extract
+<code class="docutils literal notranslate"><span class="pre">avfs.exe</span></code> from the portable VapourSynth archives.</p>
+</section>
+</section>
+<section id="vfw">
+<h2>VFW<a class="headerlink" href="#vfw" title="Link to this heading"></a></h2>
+<p>On windows, you can output video to VFW based programs.</p>
+<p>If you install VapourSynth by installer, the VSVFW.dll is registered already</p>
+<p>Else, you could register it manually, use register file below or use <a class="reference external" href="https://github.com/theChaosCoder/vapoursynth-portable-FATPACK/blob/master/VapourSynth64Portable/extras/enable_vfw_support.bat">theChaosCoder’s batch</a>.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Windows</span> <span class="n">Registry</span> <span class="n">Editor</span> <span class="n">Version</span> <span class="mf">5.00</span>
+
+<span class="p">[</span><span class="n">HKEY_LOCAL_MACHINE</span>\<span class="n">SOFTWARE</span>\<span class="n">Classes</span>\<span class="n">CLSID</span>\<span class="p">{</span><span class="mi">58</span><span class="n">F74CA0</span><span class="o">-</span><span class="n">BD0E</span><span class="o">-</span><span class="mi">4664</span><span class="o">-</span><span class="n">A49B</span><span class="o">-</span><span class="mi">8</span><span class="n">D10E6F0C131</span><span class="p">}]</span>
+<span class="o">@=</span><span class="s2">&quot;VapourSynth&quot;</span>
+
+<span class="p">[</span><span class="n">HKEY_LOCAL_MACHINE</span>\<span class="n">SOFTWARE</span>\<span class="n">Classes</span>\<span class="n">CLSID</span>\<span class="p">{</span><span class="mi">58</span><span class="n">F74CA0</span><span class="o">-</span><span class="n">BD0E</span><span class="o">-</span><span class="mi">4664</span><span class="o">-</span><span class="n">A49B</span><span class="o">-</span><span class="mi">8</span><span class="n">D10E6F0C131</span><span class="p">}</span>\<span class="n">InProcServer32</span><span class="p">]</span>
+<span class="o">@=</span><span class="s2">&quot;&lt;your VSVFW.dll directory&gt;</span><span class="se">\\</span><span class="s2">VSVFW.dll&quot;</span>
+<span class="s2">&quot;ThreadingModel&quot;</span><span class="o">=</span><span class="s2">&quot;Apartment&quot;</span>
+
+<span class="p">[</span><span class="n">HKEY_LOCAL_MACHINE</span>\<span class="n">SOFTWARE</span>\<span class="n">Classes</span>\<span class="n">AVIFile</span>\<span class="n">Extensions</span>\<span class="n">VPY</span><span class="p">]</span>
+<span class="o">@=</span><span class="s2">&quot;{58F74CA0-BD0E-4664-A49B-8D10E6F0C131}&quot;</span>
+</pre></div>
+</div>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="functions/audio/splitchannels.html" class="btn btn-neutral float-left" title="SplitChannels" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="applications.html" class="btn btn-neutral float-right" title="Applications and Libraries" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2012-2025, Fredrik Mellbin.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

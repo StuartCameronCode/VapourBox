@@ -1,0 +1,548 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Function Reference &mdash; VapourSynth R73 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/css/custom.css?v=c3bcf009" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=a12aaffa"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="LoadAllPlugins" href="functions/general/loadallplugins.html" />
+    <link rel="prev" title="Python Reference" href="pythonreference.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            VapourSynth
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="gettingstarted.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pythonreference.html">Python Reference</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Function Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#general-functions">General Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="functions/general/loadallplugins.html">LoadAllPlugins</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/general/loadplugin.html">LoadPlugin</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/general/loadpluginavs.html">LoadPlugin (Avisynth Compatibility)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/general/setmaxcpu.html">SetMaxCPU</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#video-functions">Video Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/addborders.html">AddBorders</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/assumefps.html">AssumeFPS</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/averageframes.html">AverageFrames</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/binarize_binarizemask.html">Binarize/BinarizeMask</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/blankclip.html">BlankClip</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/boxblur.html">BoxBlur</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/cliptoprop.html">ClipToProp</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/convolution.html">Convolution</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/copyframeprops.html">CopyFrameProps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/crop_cropabs.html">Crop/CropAbs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/deflate_inflate.html">Deflate/Inflate</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/deleteframes.html">DeleteFrames</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/doubleweave.html">DoubleWeave</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/duplicateframes.html">DuplicateFrames</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/expr.html">Expr</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/flipvertical_fliphorizontal.html">FlipVertical/FlipHorizontal</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/frameeval.html">FrameEval</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/freezeframes.html">FreezeFrames</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/interleave.html">Interleave</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/invert_invertmask.html">Invert/InvertMask</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/levels.html">Levels</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/limiter.html">Limiter</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/loop.html">Loop</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/lut.html">Lut</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/lut2.html">Lut2</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/makediff.html">MakeDiff</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/makefulldiff.html">MakeFullDiff</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/maskedmerge.html">MaskedMerge</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/median.html">Median</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/merge.html">Merge</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/mergediff.html">MergeDiff</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/mergefulldiff.html">MergeFullDiff</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/minimum_maximum.html">Minimum/Maximum</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/modifyframe.html">ModifyFrame</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/pemverifier.html">PEMVerifier</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/planestats.html">PlaneStats</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/premultiply.html">PreMultiply</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/prewitt_sobel.html">Prewitt/Sobel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/proptoclip.html">PropToClip</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/removeframeprops.html">RemoveFrameProps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/resize.html">Resize</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/reverse.html">Reverse</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/selectevery.html">SelectEvery</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/separatefields.html">SeparateFields</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/setfieldbased.html">SetFieldBased</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/setframeprop.html">SetFrameProp</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/setframeprops.html">SetFrameProps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/setvideocache.html">SetVideoCache</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/shuffleplanes.html">ShufflePlanes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/splice.html">Splice</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/splitplanes.html">SplitPlanes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/stackvertical_stackhorizontal.html">StackVertical/StackHorizontal</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/transpose.html">Transpose</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/trim.html">Trim</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/video/turn180.html">Turn180</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#text">Text</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="functions/video/text/clipinfo.html">ClipInfo</a></li>
+<li class="toctree-l4"><a class="reference internal" href="functions/video/text/coreinfo.html">CoreInfo</a></li>
+<li class="toctree-l4"><a class="reference internal" href="functions/video/text/framenum.html">FrameNum</a></li>
+<li class="toctree-l4"><a class="reference internal" href="functions/video/text/frameprops.html">FrameProps</a></li>
+<li class="toctree-l4"><a class="reference internal" href="functions/video/text/text.html">Text</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#audio-functions">Audio Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="functions/audio/assumesamplerate.html">AssumeSampleRate</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/audio/audiogain.html">AudioGain</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/audio/audioloop.html">AudioLoop</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/audio/audiomix.html">AudioMix</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/audio/audioreverse.html">AudioReverse</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/audio/audiosplice.html">AudioSplice</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/audio/audiotrim.html">AudioTrim</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/audio/blankaudio.html">BlankAudio</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/audio/setaudiocache.html">SetAudioCache</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/audio/shufflechannels.html">ShuffleChannels</a></li>
+<li class="toctree-l3"><a class="reference internal" href="functions/audio/splitchannels.html">SplitChannels</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="output.html">Output</a></li>
+<li class="toctree-l1"><a class="reference internal" href="applications.html">Applications and Libraries</a></li>
+<li class="toctree-l1"><a class="reference internal" href="apireference.html">VapourSynth C API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">VapourSynth</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Function Reference</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/functions.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="function-reference">
+<h1>Function Reference<a class="headerlink" href="#function-reference" title="Link to this heading"></a></h1>
+<section id="general-functions">
+<h2>General Functions<a class="headerlink" href="#general-functions" title="Link to this heading"></a></h2>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="functions/general/loadallplugins.html">LoadAllPlugins</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/general/loadallplugins.html#std.LoadAllPlugins"><code class="docutils literal notranslate"><span class="pre">LoadAllPlugins()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/general/loadplugin.html">LoadPlugin</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/general/loadplugin.html#std.LoadPlugin"><code class="docutils literal notranslate"><span class="pre">LoadPlugin()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/general/loadpluginavs.html">LoadPlugin (Avisynth Compatibility)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/general/loadpluginavs.html#avs.LoadPlugin"><code class="docutils literal notranslate"><span class="pre">LoadPlugin()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/general/setmaxcpu.html">SetMaxCPU</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/general/setmaxcpu.html#std.SetMaxCPU"><code class="docutils literal notranslate"><span class="pre">SetMaxCPU()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+<section id="video-functions">
+<h2>Video Functions<a class="headerlink" href="#video-functions" title="Link to this heading"></a></h2>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/addborders.html">AddBorders</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/addborders.html#std.AddBorders"><code class="docutils literal notranslate"><span class="pre">AddBorders()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/assumefps.html">AssumeFPS</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/assumefps.html#std.AssumeFPS"><code class="docutils literal notranslate"><span class="pre">AssumeFPS()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/averageframes.html">AverageFrames</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/averageframes.html#std.AverageFrames"><code class="docutils literal notranslate"><span class="pre">AverageFrames()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/binarize_binarizemask.html">Binarize/BinarizeMask</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/binarize_binarizemask.html#std.Binarize"><code class="docutils literal notranslate"><span class="pre">Binarize()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/binarize_binarizemask.html#std.BinarizeMask"><code class="docutils literal notranslate"><span class="pre">BinarizeMask()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/blankclip.html">BlankClip</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/blankclip.html#std.BlankClip"><code class="docutils literal notranslate"><span class="pre">BlankClip()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/boxblur.html">BoxBlur</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/boxblur.html#std.BoxBlur"><code class="docutils literal notranslate"><span class="pre">BoxBlur()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/cliptoprop.html">ClipToProp</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/cliptoprop.html#std.ClipToProp"><code class="docutils literal notranslate"><span class="pre">ClipToProp()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/convolution.html">Convolution</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/convolution.html#std.Convolution"><code class="docutils literal notranslate"><span class="pre">Convolution()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/copyframeprops.html">CopyFrameProps</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/copyframeprops.html#std.CopyFrameProps"><code class="docutils literal notranslate"><span class="pre">CopyFrameProps()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/crop_cropabs.html">Crop/CropAbs</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/crop_cropabs.html#std.Crop"><code class="docutils literal notranslate"><span class="pre">Crop()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/crop_cropabs.html#std.CropAbs"><code class="docutils literal notranslate"><span class="pre">CropAbs()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/deflate_inflate.html">Deflate/Inflate</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/deflate_inflate.html#std.Deflate"><code class="docutils literal notranslate"><span class="pre">Deflate()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/deflate_inflate.html#std.Inflate"><code class="docutils literal notranslate"><span class="pre">Inflate()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/deleteframes.html">DeleteFrames</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/deleteframes.html#std.DeleteFrames"><code class="docutils literal notranslate"><span class="pre">DeleteFrames()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/doubleweave.html">DoubleWeave</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/doubleweave.html#std.DoubleWeave"><code class="docutils literal notranslate"><span class="pre">DoubleWeave()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/duplicateframes.html">DuplicateFrames</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/duplicateframes.html#std.DuplicateFrames"><code class="docutils literal notranslate"><span class="pre">DuplicateFrames()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/expr.html">Expr</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/expr.html#std.Expr"><code class="docutils literal notranslate"><span class="pre">Expr()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/flipvertical_fliphorizontal.html">FlipVertical/FlipHorizontal</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/flipvertical_fliphorizontal.html#std.FlipVertical"><code class="docutils literal notranslate"><span class="pre">FlipVertical()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/flipvertical_fliphorizontal.html#std.FlipHorizontal"><code class="docutils literal notranslate"><span class="pre">FlipHorizontal()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/frameeval.html">FrameEval</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/frameeval.html#std.FrameEval"><code class="docutils literal notranslate"><span class="pre">FrameEval()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/freezeframes.html">FreezeFrames</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/freezeframes.html#std.FreezeFrames"><code class="docutils literal notranslate"><span class="pre">FreezeFrames()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/interleave.html">Interleave</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/interleave.html#std.Interleave"><code class="docutils literal notranslate"><span class="pre">Interleave()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/invert_invertmask.html">Invert/InvertMask</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/invert_invertmask.html#std.Invert"><code class="docutils literal notranslate"><span class="pre">Invert()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/invert_invertmask.html#std.InvertMask"><code class="docutils literal notranslate"><span class="pre">InvertMask()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/levels.html">Levels</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/levels.html#std.Levels"><code class="docutils literal notranslate"><span class="pre">Levels()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/limiter.html">Limiter</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/limiter.html#std.Limiter"><code class="docutils literal notranslate"><span class="pre">Limiter()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/loop.html">Loop</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/loop.html#std.Loop"><code class="docutils literal notranslate"><span class="pre">Loop()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/lut.html">Lut</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/lut.html#std.Lut"><code class="docutils literal notranslate"><span class="pre">Lut()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/lut2.html">Lut2</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/lut2.html#std.Lut2"><code class="docutils literal notranslate"><span class="pre">Lut2()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/makediff.html">MakeDiff</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/makediff.html#std.MakeDiff"><code class="docutils literal notranslate"><span class="pre">MakeDiff()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/makefulldiff.html">MakeFullDiff</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/makefulldiff.html#std.MakeFullDiff"><code class="docutils literal notranslate"><span class="pre">MakeFullDiff()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/maskedmerge.html">MaskedMerge</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/maskedmerge.html#std.MaskedMerge"><code class="docutils literal notranslate"><span class="pre">MaskedMerge()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/median.html">Median</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/median.html#std.Median"><code class="docutils literal notranslate"><span class="pre">Median()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/merge.html">Merge</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/merge.html#std.Merge"><code class="docutils literal notranslate"><span class="pre">Merge()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/mergediff.html">MergeDiff</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/mergediff.html#std.MergeDiff"><code class="docutils literal notranslate"><span class="pre">MergeDiff()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/mergefulldiff.html">MergeFullDiff</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/mergefulldiff.html#std.MergeFullDiff"><code class="docutils literal notranslate"><span class="pre">MergeFullDiff()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/minimum_maximum.html">Minimum/Maximum</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/minimum_maximum.html#std.Minimum"><code class="docutils literal notranslate"><span class="pre">Minimum()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/minimum_maximum.html#std.Maximum"><code class="docutils literal notranslate"><span class="pre">Maximum()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/modifyframe.html">ModifyFrame</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/modifyframe.html#std.ModifyFrame"><code class="docutils literal notranslate"><span class="pre">ModifyFrame()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/pemverifier.html">PEMVerifier</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/pemverifier.html#std.PEMVerifier"><code class="docutils literal notranslate"><span class="pre">PEMVerifier()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/planestats.html">PlaneStats</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/planestats.html#std.PlaneStats"><code class="docutils literal notranslate"><span class="pre">PlaneStats()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/premultiply.html">PreMultiply</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/premultiply.html#std.PreMultiply"><code class="docutils literal notranslate"><span class="pre">PreMultiply()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/prewitt_sobel.html">Prewitt/Sobel</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/prewitt_sobel.html#std.Prewitt"><code class="docutils literal notranslate"><span class="pre">Prewitt()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/prewitt_sobel.html#std.Sobel"><code class="docutils literal notranslate"><span class="pre">Sobel()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/proptoclip.html">PropToClip</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/proptoclip.html#std.PropToClip"><code class="docutils literal notranslate"><span class="pre">PropToClip()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/removeframeprops.html">RemoveFrameProps</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/removeframeprops.html#std.RemoveFrameProps"><code class="docutils literal notranslate"><span class="pre">RemoveFrameProps()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/resize.html">Resize</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/resize.html#resize.Bilinear"><code class="docutils literal notranslate"><span class="pre">Bilinear()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/resize.html#resize.Bicubic"><code class="docutils literal notranslate"><span class="pre">Bicubic()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/resize.html#resize.Point"><code class="docutils literal notranslate"><span class="pre">Point()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/resize.html#resize.Lanczos"><code class="docutils literal notranslate"><span class="pre">Lanczos()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/resize.html#resize.Spline16"><code class="docutils literal notranslate"><span class="pre">Spline16()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/resize.html#resize.Spline36"><code class="docutils literal notranslate"><span class="pre">Spline36()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/resize.html#resize.Spline64"><code class="docutils literal notranslate"><span class="pre">Spline64()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/resize.html#resize.Bob"><code class="docutils literal notranslate"><span class="pre">Bob()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/reverse.html">Reverse</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/reverse.html#std.Reverse"><code class="docutils literal notranslate"><span class="pre">Reverse()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/selectevery.html">SelectEvery</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/selectevery.html#std.SelectEvery"><code class="docutils literal notranslate"><span class="pre">SelectEvery()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/separatefields.html">SeparateFields</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/separatefields.html#std.SeparateFields"><code class="docutils literal notranslate"><span class="pre">SeparateFields()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/setfieldbased.html">SetFieldBased</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/setfieldbased.html#std.SetFieldBased"><code class="docutils literal notranslate"><span class="pre">SetFieldBased()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/setframeprop.html">SetFrameProp</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/setframeprop.html#std.SetFrameProp"><code class="docutils literal notranslate"><span class="pre">SetFrameProp()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/setframeprops.html">SetFrameProps</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/setframeprops.html#std.SetFrameProps"><code class="docutils literal notranslate"><span class="pre">SetFrameProps()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/setvideocache.html">SetVideoCache</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/setvideocache.html#std.SetVideoCache"><code class="docutils literal notranslate"><span class="pre">SetVideoCache()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/shuffleplanes.html">ShufflePlanes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/shuffleplanes.html#std.ShufflePlanes"><code class="docutils literal notranslate"><span class="pre">ShufflePlanes()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/splice.html">Splice</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/splice.html#std.Splice"><code class="docutils literal notranslate"><span class="pre">Splice()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/splitplanes.html">SplitPlanes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/splitplanes.html#std.SplitPlanes"><code class="docutils literal notranslate"><span class="pre">SplitPlanes()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/stackvertical_stackhorizontal.html">StackVertical/StackHorizontal</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/stackvertical_stackhorizontal.html#std.StackVertical"><code class="docutils literal notranslate"><span class="pre">StackVertical()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/stackvertical_stackhorizontal.html#std.StackHorizontal"><code class="docutils literal notranslate"><span class="pre">StackHorizontal()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/transpose.html">Transpose</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/transpose.html#std.Transpose"><code class="docutils literal notranslate"><span class="pre">Transpose()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/trim.html">Trim</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/trim.html#std.Trim"><code class="docutils literal notranslate"><span class="pre">Trim()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/turn180.html">Turn180</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/turn180.html#std.Turn180"><code class="docutils literal notranslate"><span class="pre">Turn180()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</div>
+<section id="text">
+<h3>Text<a class="headerlink" href="#text" title="Link to this heading"></a></h3>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/text/clipinfo.html">ClipInfo</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/text/clipinfo.html#text.ClipInfo"><code class="docutils literal notranslate"><span class="pre">ClipInfo()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/text/coreinfo.html">CoreInfo</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/text/coreinfo.html#text.CoreInfo"><code class="docutils literal notranslate"><span class="pre">CoreInfo()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/text/framenum.html">FrameNum</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/text/framenum.html#text.FrameNum"><code class="docutils literal notranslate"><span class="pre">FrameNum()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/text/frameprops.html">FrameProps</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/text/frameprops.html#text.FrameProps"><code class="docutils literal notranslate"><span class="pre">FrameProps()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/video/text/text.html">Text</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/video/text/text.html#text.Text"><code class="docutils literal notranslate"><span class="pre">Text()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+</section>
+<section id="audio-functions">
+<h2>Audio Functions<a class="headerlink" href="#audio-functions" title="Link to this heading"></a></h2>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="functions/audio/assumesamplerate.html">AssumeSampleRate</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/audio/assumesamplerate.html#std.AssumeSampleRate"><code class="docutils literal notranslate"><span class="pre">AssumeSampleRate()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/audio/audiogain.html">AudioGain</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/audio/audiogain.html#std.AudioGain"><code class="docutils literal notranslate"><span class="pre">AudioGain()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/audio/audioloop.html">AudioLoop</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/audio/audioloop.html#std.AudioLoop"><code class="docutils literal notranslate"><span class="pre">AudioLoop()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/audio/audiomix.html">AudioMix</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/audio/audiomix.html#std.AudioMix"><code class="docutils literal notranslate"><span class="pre">AudioMix()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/audio/audioreverse.html">AudioReverse</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/audio/audioreverse.html#std.AudioReverse"><code class="docutils literal notranslate"><span class="pre">AudioReverse()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/audio/audiosplice.html">AudioSplice</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/audio/audiosplice.html#std.AudioSplice"><code class="docutils literal notranslate"><span class="pre">AudioSplice()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/audio/audiotrim.html">AudioTrim</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/audio/audiotrim.html#std.AudioTrim"><code class="docutils literal notranslate"><span class="pre">AudioTrim()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/audio/blankaudio.html">BlankAudio</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/audio/blankaudio.html#std.BlankAudio"><code class="docutils literal notranslate"><span class="pre">BlankAudio()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/audio/setaudiocache.html">SetAudioCache</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/audio/setaudiocache.html#std.SetAudioCache"><code class="docutils literal notranslate"><span class="pre">SetAudioCache()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/audio/shufflechannels.html">ShuffleChannels</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/audio/shufflechannels.html#std.ShuffleChannels"><code class="docutils literal notranslate"><span class="pre">ShuffleChannels()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="functions/audio/splitchannels.html">SplitChannels</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="functions/audio/splitchannels.html#std.SplitChannels"><code class="docutils literal notranslate"><span class="pre">SplitChannels()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="pythonreference.html" class="btn btn-neutral float-left" title="Python Reference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="functions/general/loadallplugins.html" class="btn btn-neutral float-right" title="LoadAllPlugins" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2012-2025, Fredrik Mellbin.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

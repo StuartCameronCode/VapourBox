@@ -1,0 +1,292 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Expr &mdash; VapourSynth R73 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/custom.css?v=c3bcf009" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=a12aaffa"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="FlipVertical/FlipHorizontal" href="flipvertical_fliphorizontal.html" />
+    <link rel="prev" title="DuplicateFrames" href="duplicateframes.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            VapourSynth
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../gettingstarted.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../pythonreference.html">Python Reference</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../../functions.html">Function Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../../functions.html#general-functions">General Functions</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="../../functions.html#video-functions">Video Functions</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="addborders.html">AddBorders</a></li>
+<li class="toctree-l3"><a class="reference internal" href="assumefps.html">AssumeFPS</a></li>
+<li class="toctree-l3"><a class="reference internal" href="averageframes.html">AverageFrames</a></li>
+<li class="toctree-l3"><a class="reference internal" href="binarize_binarizemask.html">Binarize/BinarizeMask</a></li>
+<li class="toctree-l3"><a class="reference internal" href="blankclip.html">BlankClip</a></li>
+<li class="toctree-l3"><a class="reference internal" href="boxblur.html">BoxBlur</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cliptoprop.html">ClipToProp</a></li>
+<li class="toctree-l3"><a class="reference internal" href="convolution.html">Convolution</a></li>
+<li class="toctree-l3"><a class="reference internal" href="copyframeprops.html">CopyFrameProps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="crop_cropabs.html">Crop/CropAbs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="deflate_inflate.html">Deflate/Inflate</a></li>
+<li class="toctree-l3"><a class="reference internal" href="deleteframes.html">DeleteFrames</a></li>
+<li class="toctree-l3"><a class="reference internal" href="doubleweave.html">DoubleWeave</a></li>
+<li class="toctree-l3"><a class="reference internal" href="duplicateframes.html">DuplicateFrames</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Expr</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#std.Expr"><code class="docutils literal notranslate"><span class="pre">Expr()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="flipvertical_fliphorizontal.html">FlipVertical/FlipHorizontal</a></li>
+<li class="toctree-l3"><a class="reference internal" href="frameeval.html">FrameEval</a></li>
+<li class="toctree-l3"><a class="reference internal" href="freezeframes.html">FreezeFrames</a></li>
+<li class="toctree-l3"><a class="reference internal" href="interleave.html">Interleave</a></li>
+<li class="toctree-l3"><a class="reference internal" href="invert_invertmask.html">Invert/InvertMask</a></li>
+<li class="toctree-l3"><a class="reference internal" href="levels.html">Levels</a></li>
+<li class="toctree-l3"><a class="reference internal" href="limiter.html">Limiter</a></li>
+<li class="toctree-l3"><a class="reference internal" href="loop.html">Loop</a></li>
+<li class="toctree-l3"><a class="reference internal" href="lut.html">Lut</a></li>
+<li class="toctree-l3"><a class="reference internal" href="lut2.html">Lut2</a></li>
+<li class="toctree-l3"><a class="reference internal" href="makediff.html">MakeDiff</a></li>
+<li class="toctree-l3"><a class="reference internal" href="makefulldiff.html">MakeFullDiff</a></li>
+<li class="toctree-l3"><a class="reference internal" href="maskedmerge.html">MaskedMerge</a></li>
+<li class="toctree-l3"><a class="reference internal" href="median.html">Median</a></li>
+<li class="toctree-l3"><a class="reference internal" href="merge.html">Merge</a></li>
+<li class="toctree-l3"><a class="reference internal" href="mergediff.html">MergeDiff</a></li>
+<li class="toctree-l3"><a class="reference internal" href="mergefulldiff.html">MergeFullDiff</a></li>
+<li class="toctree-l3"><a class="reference internal" href="minimum_maximum.html">Minimum/Maximum</a></li>
+<li class="toctree-l3"><a class="reference internal" href="modifyframe.html">ModifyFrame</a></li>
+<li class="toctree-l3"><a class="reference internal" href="pemverifier.html">PEMVerifier</a></li>
+<li class="toctree-l3"><a class="reference internal" href="planestats.html">PlaneStats</a></li>
+<li class="toctree-l3"><a class="reference internal" href="premultiply.html">PreMultiply</a></li>
+<li class="toctree-l3"><a class="reference internal" href="prewitt_sobel.html">Prewitt/Sobel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="proptoclip.html">PropToClip</a></li>
+<li class="toctree-l3"><a class="reference internal" href="removeframeprops.html">RemoveFrameProps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="resize.html">Resize</a></li>
+<li class="toctree-l3"><a class="reference internal" href="reverse.html">Reverse</a></li>
+<li class="toctree-l3"><a class="reference internal" href="selectevery.html">SelectEvery</a></li>
+<li class="toctree-l3"><a class="reference internal" href="separatefields.html">SeparateFields</a></li>
+<li class="toctree-l3"><a class="reference internal" href="setfieldbased.html">SetFieldBased</a></li>
+<li class="toctree-l3"><a class="reference internal" href="setframeprop.html">SetFrameProp</a></li>
+<li class="toctree-l3"><a class="reference internal" href="setframeprops.html">SetFrameProps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="setvideocache.html">SetVideoCache</a></li>
+<li class="toctree-l3"><a class="reference internal" href="shuffleplanes.html">ShufflePlanes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="splice.html">Splice</a></li>
+<li class="toctree-l3"><a class="reference internal" href="splitplanes.html">SplitPlanes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="stackvertical_stackhorizontal.html">StackVertical/StackHorizontal</a></li>
+<li class="toctree-l3"><a class="reference internal" href="transpose.html">Transpose</a></li>
+<li class="toctree-l3"><a class="reference internal" href="trim.html">Trim</a></li>
+<li class="toctree-l3"><a class="reference internal" href="turn180.html">Turn180</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../functions.html#text">Text</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../functions.html#audio-functions">Audio Functions</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../output.html">Output</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../applications.html">Applications and Libraries</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../apireference.html">VapourSynth C API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">VapourSynth</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../functions.html">Function Reference</a></li>
+      <li class="breadcrumb-item active">Expr</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/functions/video/expr.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="expr">
+<h1>Expr<a class="headerlink" href="#expr" title="Link to this heading"></a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="std.Expr">
+<span class="sig-prename descclassname"><span class="pre">std.</span></span><span class="sig-name descname"><span class="pre">Expr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">vnode[]</span> <span class="pre">clips</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">string[]</span> <span class="pre">expr</span></span></em><span class="optional">[</span>, <em class="sig-param"><span class="n"><span class="pre">int</span> <span class="pre">format</span></span></em><span class="optional">]</span><span class="sig-paren">)</span><a class="headerlink" href="#std.Expr" title="Link to this definition"></a></dt>
+<dd><p>Expr evaluates an expression per pixel for up to 26 input <em>clips</em>.
+The expression, <em>expr</em>, is written using reverse polish notation and can be
+specified for each plane individually.
+The expression given for the previous plane is used if the <em>expr</em> array
+contains fewer expressions than the input clip has planes.
+In practice this means that a single expression will be applied to all planes
+by default.</p>
+<p>Specifying an empty string as the expression enables a fast plane copy from
+the first specified clip, when possible. If it is not possible due to the
+output <em>format</em> being incompatible, the plane contents will be undefined.</p>
+<p>Since the expression is evaluated at runtime, there are a few pitfalls. In
+order to keep speed up, the input ranges are not normalized to the usual
+floating point ranges. Instead they are left as is, meaning that an 8 bit
+clip will have values in the 0-255 range and a 10 bit clip will have values
+in the 0-1023 range.
+Note that floating point clips are even more difficult, as most channels are
+stored in the 0-1 range with the exception of U, V, Co and Cg planes, which
+are in the -0.5-0.5 range.
+If you mix clips with different input formats this must be taken into
+consideration.</p>
+<p>When the output format uses integer samples, the result of the expression is
+clamped to the [0, 2**bits_per_sample-1] range.
+When the output format uses float samples, the result of the expression is
+stored without any clamping.</p>
+<p>By default the output <em>format</em> is the same as the first input clip’s format.
+You can override it by setting <em>format</em>. The only restriction is that the
+output <em>format</em> must have the same subsampling as the input <em>clips</em> and be
+8..16 bit integer or 32 bit float. 16 bit float is also supported on cpus
+with the f16c instructions.</p>
+<p>Logical operators are also a bit special, since everything is done in
+floating point arithmetic.
+All values greater than 0 are considered true for the purpose of comparisons.
+Logical operators return 0.0 for false and 1.0 for true in their operations.</p>
+<p>Since the expression is being evaluated at runtime, there are also the stack
+manipulation operators, <em>swap</em> and <em>dup</em>. The former swaps the topmost and
+second topmost values, and the latter duplicates the topmost stack value.</p>
+<p>These operators also have <em>swapN</em> and <em>dupN</em> forms that allow a value N
+steps up in the stack to be swapped or duplicated. The top value of the stack
+has index zero meaning that <em>dup</em> is equivalent to <em>dup0</em> and <em>swap</em> is
+equivalent to <em>swap1</em>. This is because <em>swapN</em> always swaps with the topmost
+value at index 0.</p>
+<p>Expressions are converted to byte-code or machine-code by an optimizing
+compiler and are not guaranteed to evaluate in the order originally written.
+The compiler assumes that all input values are finite (i.e neither NaN nor
+INF) and that no operator will produce a non-finite value. Such expressions
+are invalid. This is especially important for the transcendental operators:</p>
+<ul class="simple">
+<li><p>exp - expression must not overflow (i.e. x &lt;= 88)</p></li>
+<li><p>log - input must be finite and non-negative (i.e. x &gt;= 0 &amp;&amp; x &lt;= 3e+38)</p></li>
+<li><p>pow - base must be finite and non-negative. Result must not overflow (i.e. x &gt;= 0 &amp;&amp; x &lt;= 3e+38; 1e-38 &lt;= result &lt;= 3e+38)</p></li>
+</ul>
+<p>Clip load operators:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">x</span><span class="o">-</span><span class="n">z</span><span class="p">,</span> <span class="n">a</span><span class="o">-</span><span class="n">w</span>
+</pre></div>
+</div>
+<p>The operators taking one argument are:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">exp</span> <span class="n">log</span> <span class="n">sqrt</span> <span class="n">sin</span> <span class="n">cos</span> <span class="nb">abs</span> <span class="ow">not</span> <span class="n">dup</span> <span class="n">dupN</span>
+</pre></div>
+</div>
+<p>The operators taking two arguments are:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">+</span> <span class="o">-</span> <span class="o">*</span> <span class="o">/</span> <span class="nb">max</span> <span class="nb">min</span> <span class="nb">pow</span> <span class="o">&gt;</span> <span class="o">&lt;</span> <span class="o">=</span> <span class="o">&gt;=</span> <span class="o">&lt;=</span> <span class="ow">and</span> <span class="ow">or</span> <span class="n">xor</span> <span class="n">swap</span> <span class="n">swapN</span>
+</pre></div>
+</div>
+<p>The operators taking three arguments are:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>?
+</pre></div>
+</div>
+<p>For example these operations:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>a b c ?
+
+d e &lt;
+
+f abs
+</pre></div>
+</div>
+<p>Are equivalent to these operations in C:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>a ? b : c
+
+d &lt; e
+
+abs(f)
+</pre></div>
+</div>
+<p>The sin/cos operators are approximated to within 2e-6 absolute error for
+inputs with magnitude up to 1e5, and there is no accuracy guarantees for
+inputs whose magnitude is larger than 2e5.</p>
+<p>How to average the Y planes of 3 YUV clips and pass through the UV planes
+unchanged (assuming same format):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">std</span><span class="o">.</span><span class="n">Expr</span><span class="p">(</span><span class="n">clips</span><span class="o">=</span><span class="p">[</span><span class="n">clipa</span><span class="p">,</span> <span class="n">clipb</span><span class="p">,</span> <span class="n">clipc</span><span class="p">],</span> <span class="n">expr</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;x y + z + 3 /&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">])</span>
+</pre></div>
+</div>
+<p>How to average the Y planes of 3 YUV clips and pass through the UV planes
+unchanged (different formats):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">std</span><span class="o">.</span><span class="n">Expr</span><span class="p">(</span><span class="n">clips</span><span class="o">=</span><span class="p">[</span><span class="n">clipa16bit</span><span class="p">,</span> <span class="n">clipb10bit</span><span class="p">,</span> <span class="n">clipa8bit</span><span class="p">],</span>
+   <span class="n">expr</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;x y 64 * + z 256 * + 3 /&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">])</span>
+</pre></div>
+</div>
+<p>Setting the output format because the resulting values are illegal in a 10
+bit clip (note that the U and V planes will contain junk since direct copy
+isn’t possible):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">std</span><span class="o">.</span><span class="n">Expr</span><span class="p">(</span><span class="n">clips</span><span class="o">=</span><span class="p">[</span><span class="n">clipa10bit</span><span class="p">,</span> <span class="n">clipb16bit</span><span class="p">,</span> <span class="n">clipa8bit</span><span class="p">],</span>
+   <span class="n">expr</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;x 64 * y + z 256 * + 3 /&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">],</span> <span class="nb">format</span><span class="o">=</span><span class="n">vs</span><span class="o">.</span><span class="n">YUV420P16</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="duplicateframes.html" class="btn btn-neutral float-left" title="DuplicateFrames" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="flipvertical_fliphorizontal.html" class="btn btn-neutral float-right" title="FlipVertical/FlipHorizontal" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2012-2025, Fredrik Mellbin.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
