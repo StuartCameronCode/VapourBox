@@ -357,13 +357,31 @@ clip.set_output()
 ''';
   }
 
+  /// Get the platform suffix for the deps directory (e.g., "windows-x64", "macos-arm64").
+  String _getPlatformSuffix() {
+    if (Platform.isWindows) {
+      return 'windows-x64'; // TODO: detect ARM64 when Flutter supports it
+    } else if (Platform.isMacOS) {
+      // Detect ARM64 vs x64 on macOS
+      // Process.run returns the architecture
+      return Platform.version.contains('arm64') ? 'macos-arm64' : 'macos-x64';
+    }
+    return 'unknown';
+  }
+
   Future<String?> _findTool(String name) async {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
     final ext = Platform.isWindows ? '.exe' : '';
+    final platformDir = _getPlatformSuffix();
 
-    // Check bundled locations
+    // Check bundled locations (platform-specific subdirectory)
     final bundledPaths = Platform.isWindows
-        ? ['$exeDir\\deps\\ffmpeg\\$name$ext', '$exeDir\\deps\\vapoursynth\\$name$ext']
+        ? [
+            '$exeDir\\deps\\$platformDir\\ffmpeg\\$name$ext',
+            '$exeDir\\deps\\$platformDir\\vapoursynth\\$name$ext',
+            // VSPipe is capitalized on Windows
+            '$exeDir\\deps\\$platformDir\\vapoursynth\\VSPipe$ext',
+          ]
         : ['$exeDir/../Helpers/$name', '$exeDir/../Frameworks/bin/$name'];
 
     for (final p in bundledPaths) {
@@ -391,18 +409,26 @@ clip.set_output()
   Future<Map<String, String>> _getEnvironment() async {
     final env = Map<String, String>.from(Platform.environment);
     final exeDir = File(Platform.resolvedExecutable).parent.path;
+    final platformDir = _getPlatformSuffix();
 
     if (Platform.isWindows) {
-      final depsDir = '$exeDir\\deps';
-      env['PYTHONHOME'] = '$depsDir\\python';
-      env['PYTHONPATH'] = '$depsDir\\python-packages';
-      env['PATH'] = '$depsDir\\python;$depsDir\\vapoursynth;$depsDir\\ffmpeg;${env['PATH'] ?? ''}';
-      env['VAPOURSYNTH_PLUGIN_PATH'] = '$depsDir\\vapoursynth\\plugins';
+      // Windows uses deps/{platform}/ structure with VapourSynth portable
+      // Python 3.8 is bundled inside the VapourSynth directory
+      final depsDir = '$exeDir\\deps\\$platformDir';
+      final vsDir = '$depsDir\\vapoursynth';
+      env['PYTHONHOME'] = vsDir;
+      env['PYTHONPATH'] = '$vsDir\\Lib\\site-packages';
+      env['PYTHONNOUSERSITE'] = '1';
+      env['PATH'] = '$vsDir;$depsDir\\ffmpeg;${env['PATH'] ?? ''}';
+      env['VAPOURSYNTH_PLUGIN_PATH'] = '$vsDir\\vs-plugins';
     } else if (Platform.isMacOS) {
+      // macOS app bundle structure
       final contentsDir = '$exeDir/..';
       env['PYTHONHOME'] = '$contentsDir/Frameworks/Python.framework/Versions/Current';
-      env['PYTHONPATH'] = '$contentsDir/Resources/python-packages';
-      env['VAPOURSYNTH_PLUGIN_PATH'] = '$contentsDir/PlugIns/VapourSynth';
+      env['PYTHONPATH'] = '$contentsDir/Resources/PythonPackages';
+      env['PYTHONNOUSERSITE'] = '1';
+      env['VAPOURSYNTH_PLUGIN_PATH'] = '$contentsDir/Frameworks/VapourSynth';
+      env['DYLD_LIBRARY_PATH'] = '$contentsDir/Frameworks';
       env['PATH'] = '$contentsDir/Helpers:${env['PATH'] ?? ''}';
     }
 
