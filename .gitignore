@@ -97,6 +97,7 @@ Tests/TestBundle/PythonPackages/*
 Tests/TestBundle/lib/
 Tests/TestBundle/.setup-complete
 Tests/TestResources/deinterlaced_*.avi
+Tests/TestResources/*_deinterlaced.*
 *.ffindex
 
 # =============================================================================

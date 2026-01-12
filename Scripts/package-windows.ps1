@@ -21,6 +21,21 @@ $DistDir = Join-Path $ProjectRoot "dist"
 $AppName = "iDeinterlace"
 $PackageDir = Join-Path $DistDir "$AppName-$Version-windows-x64"
 
+# Find and add Flutter to PATH if not already available
+$FlutterPaths = @(
+    "C:\dev\flutter\bin",
+    "C:\flutter\bin",
+    "C:\tools\flutter\bin",
+    "C:\Users\$env:USERNAME\flutter\bin",
+    "$env:LOCALAPPDATA\flutter\bin"
+)
+foreach ($fp in $FlutterPaths) {
+    if (Test-Path "$fp\flutter.bat") {
+        $env:PATH = "$fp;$env:PATH"
+        break
+    }
+}
+
 Write-Host "=== Packaging iDeinterlace for Windows ===" -ForegroundColor Cyan
 Write-Host ""
 
@@ -80,10 +95,7 @@ if (Test-Path $PackageDir) {
     Remove-Item -Recurse -Force $PackageDir
 }
 New-Item -ItemType Directory -Force -Path $PackageDir | Out-Null
-New-Item -ItemType Directory -Force -Path "$PackageDir\deps\vapoursynth" | Out-Null
-New-Item -ItemType Directory -Force -Path "$PackageDir\deps\vapoursynth\vs-plugins" | Out-Null
-New-Item -ItemType Directory -Force -Path "$PackageDir\deps\vapoursynth\Lib\site-packages" | Out-Null
-New-Item -ItemType Directory -Force -Path "$PackageDir\deps\ffmpeg" | Out-Null
+New-Item -ItemType Directory -Force -Path "$PackageDir\deps\windows-x64\ffmpeg" | Out-Null
 New-Item -ItemType Directory -Force -Path "$PackageDir\templates" | Out-Null
 
 # Copy Flutter app
@@ -110,47 +122,36 @@ Copy-Item (Join-Path $ProjectRoot "worker\templates\qtgmc_template.vpy") "$Packa
 # Copy dependencies
 Write-Host "[6/7] Copying dependencies..." -ForegroundColor Yellow
 
-# VapourSynth core files
+# VapourSynth - copy entire directory
 Write-Host "    Copying VapourSynth..."
 $VSDir = Join-Path $DepsDir "vapoursynth"
-$VSFiles = @(
-    "VSPipe.exe",
-    "VSScript.dll",
-    "VapourSynth.dll",
-    "VSScriptPython38.dll",
-    "python38.dll",
-    "python3.dll",
-    "python38.zip",
-    "python38._pth"
+
+# Remove the pre-created directory and copy the whole thing
+Remove-Item -Recurse -Force "$PackageDir\deps\windows-x64\vapoursynth" -ErrorAction SilentlyContinue
+Copy-Item -Recurse -Force $VSDir "$PackageDir\deps\windows-x64\vapoursynth"
+
+# Remove unnecessary files to reduce size (keep portable.vs - required for portable mode!)
+$UnnecessaryFiles = @(
+    "7z.exe", "7z.dll", "AVFS.exe", "VSVFW.dll",
+    "pfm-192-vapoursynth-win.exe", "vsrepo.py", "vsgenstubs.py",
+    "MANIFEST.in"
 )
-foreach ($file in $VSFiles) {
-    $src = Join-Path $VSDir $file
-    if (Test-Path $src) {
-        Copy-Item $src "$PackageDir\deps\vapoursynth\"
-    }
+foreach ($file in $UnnecessaryFiles) {
+    $path = Join-Path "$PackageDir\deps\windows-x64\vapoursynth" $file
+    if (Test-Path $path) { Remove-Item $path -Force }
 }
 
-# Python 3.8 DLLs
-$PydFiles = Get-ChildItem -Path $VSDir -Filter "*.pyd" -ErrorAction SilentlyContinue
-foreach ($pyd in $PydFiles) {
-    Copy-Item $pyd.FullName "$PackageDir\deps\vapoursynth\"
-}
-
-# VapourSynth plugins
-Write-Host "    Copying VapourSynth plugins..."
-Copy-Item -Recurse -Force "$VSDir\vs-plugins\*" "$PackageDir\deps\vapoursynth\vs-plugins\"
-
-# Python packages
-Write-Host "    Copying Python packages..."
-$SitePackages = Join-Path $VSDir "Lib\site-packages"
-if (Test-Path $SitePackages) {
-    Copy-Item -Recurse -Force "$SitePackages\*" "$PackageDir\deps\vapoursynth\Lib\site-packages\"
+# Remove unnecessary directories (keep vs-coreplugins to avoid warning)
+$UnnecessaryDirs = @("doc", "sdk", "vsgenstubs4", "wheel")
+foreach ($dir in $UnnecessaryDirs) {
+    $path = Join-Path "$PackageDir\deps\windows-x64\vapoursynth" $dir
+    if (Test-Path $path) { Remove-Item -Recurse -Force $path }
 }
 
 # FFmpeg
 Write-Host "    Copying FFmpeg..."
-Copy-Item (Join-Path $DepsDir "ffmpeg\ffmpeg.exe") "$PackageDir\deps\ffmpeg\"
-Copy-Item (Join-Path $DepsDir "ffmpeg\ffprobe.exe") "$PackageDir\deps\ffmpeg\" -ErrorAction SilentlyContinue
+Copy-Item (Join-Path $DepsDir "ffmpeg\ffmpeg.exe") "$PackageDir\deps\windows-x64\ffmpeg\"
+Copy-Item (Join-Path $DepsDir "ffmpeg\ffprobe.exe") "$PackageDir\deps\windows-x64\ffmpeg\" -ErrorAction SilentlyContinue
 
 # Create launcher batch file
 Write-Host "    Creating launcher..."
@@ -184,7 +185,7 @@ Contents
 --------
 - ideinterlace.exe       : Main application
 - ideinterlace-worker.exe: Processing worker
-- deps/                  : Bundled dependencies (VapourSynth, FFmpeg, etc.)
+- deps/windows-x64/      : Bundled dependencies (VapourSynth, FFmpeg, etc.)
 - templates/             : VapourSynth script templates
 
 For more information, visit:

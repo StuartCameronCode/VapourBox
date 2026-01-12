@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/progress_info.dart';
@@ -296,9 +297,19 @@ class ProgressPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Log',
-              style: Theme.of(context).textTheme.titleSmall,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Log',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.copy, size: 18),
+                  tooltip: 'Copy logs to clipboard',
+                  onPressed: () => _copyLogs(context, viewModel),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             Expanded(
@@ -314,6 +325,19 @@ class ProgressPanel extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _copyLogs(BuildContext context, MainViewModel viewModel) {
+    final logText = viewModel.logMessages
+        .map((m) => '[${m.level.name.toUpperCase()}] ${m.message}')
+        .join('\n');
+    Clipboard.setData(ClipboardData(text: logText));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Logs copied to clipboard'),
+        duration: Duration(seconds: 2),
       ),
     );
   }
