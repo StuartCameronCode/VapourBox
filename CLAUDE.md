@@ -307,3 +307,77 @@ All plugins go in `deps/windows-x64/vapoursynth/vs-plugins/`:
 ### Show in Folder (Windows)
 
 Uses `cmd /c explorer /select, <path>` to open File Explorer with the file selected.
+
+## Packaging / Deployment
+
+### Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `Scripts/download-deps-windows.ps1` | Download all Windows dependencies |
+| `Scripts/download-deps-macos.sh` | Download all macOS dependencies |
+| `Scripts/package-windows.ps1` | Create standalone Windows zip |
+| `Scripts/package-macos.sh` | Create standalone macOS .app bundle |
+
+### Windows Packaging
+
+```powershell
+.\Scripts\package-windows.ps1 -Version "1.0.0" [-SkipBuild]
+```
+
+Creates `dist/iDeinterlace-1.0.0-windows-x64.zip` containing:
+```
+iDeinterlace-1.0.0-windows-x64/
+├── ideinterlace.exe              # Flutter app
+├── ideinterlace-worker.exe       # Rust worker
+├── *.dll                         # Flutter runtime DLLs
+├── data/                         # Flutter assets
+├── templates/
+│   └── qtgmc_template.vpy
+├── deps/
+│   ├── vapoursynth/
+│   │   ├── VSPipe.exe
+│   │   ├── vs-plugins/           # VapourSynth plugins
+│   │   └── Lib/site-packages/    # Python packages
+│   └── ffmpeg/
+│       └── ffmpeg.exe
+├── Launch iDeinterlace.bat
+└── README.txt
+```
+
+### macOS Packaging
+
+```bash
+./Scripts/package-macos.sh --version 1.0.0 [--arch arm64|x64] [--skip-build]
+```
+
+Creates `dist/iDeinterlace.app` and `dist/iDeinterlace-1.0.0-macos-arm64.zip` containing:
+```
+iDeinterlace.app/Contents/
+├── MacOS/
+│   └── ideinterlace             # Flutter app
+├── Helpers/
+│   ├── ideinterlace-worker      # Rust worker
+│   ├── vspipe                   # VapourSynth (wrapper script)
+│   ├── vspipe-bin               # VapourSynth (actual binary)
+│   ├── ffmpeg
+│   └── ffprobe
+├── Frameworks/
+│   ├── Python.framework/        # Python runtime
+│   ├── VapourSynth/             # VS plugins (.dylib)
+│   ├── libvapoursynth.dylib
+│   └── libvapoursynth-script.dylib
+├── Resources/
+│   ├── Templates/
+│   │   └── qtgmc_template.vpy
+│   ├── PythonPackages/          # havsfunc, mvsfunc
+│   └── NNEDI3/
+│       └── nnedi3_weights.bin
+└── Info.plist
+```
+
+### Build Flags
+
+- `--skip-build` / `-SkipBuild`: Skip Flutter and Rust compilation (use existing builds)
+- `--version` / `-Version`: Set version number in package name and Info.plist
+- `--arch`: (macOS only) Target architecture: `arm64` or `x64`

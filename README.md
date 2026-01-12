@@ -159,6 +159,46 @@ cd app
 flutter test
 ```
 
+## Packaging / Deployment
+
+### Windows
+
+Create a standalone zip file with all dependencies:
+
+```powershell
+# First, ensure dependencies are downloaded
+.\Scripts\download-deps-windows.ps1
+
+# Package the application
+.\Scripts\package-windows.ps1 -Version "1.0.0"
+```
+
+Output: `dist/iDeinterlace-1.0.0-windows-x64.zip`
+
+### macOS
+
+Create a standalone .app bundle with all dependencies:
+
+```bash
+# First, ensure dependencies are downloaded
+./Scripts/download-deps-macos.sh
+
+# Package the application
+./Scripts/package-macos.sh --version 1.0.0
+```
+
+Output: `dist/iDeinterlace.app` and `dist/iDeinterlace-1.0.0-macos-arm64.zip`
+
+### Package Contents
+
+The packaged application includes:
+- Flutter application executable
+- Rust worker executable
+- VapourSynth (vspipe) and plugins
+- FFmpeg
+- Python runtime and packages (havsfunc, mvsfunc)
+- QTGMC script templates
+
 ## Dependencies
 
 | Component | Version | Purpose |
