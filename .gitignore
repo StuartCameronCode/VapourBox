@@ -115,3 +115,6 @@ BundledDependencies/VapourSynth/
 BundledDependencies/FFmpeg/
 BundledDependencies/Scripts/*.py
 !BundledDependencies/Scripts/.gitkeep
+
+# Claude temp files
+tmpclaude-*
