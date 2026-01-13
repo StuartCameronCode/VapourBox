@@ -4,8 +4,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as path;
+import 'package:uuid/uuid.dart';
 
+import '../models/encoding_settings.dart';
 import '../models/qtgmc_parameters.dart';
+import '../models/restoration_pipeline.dart';
 import '../models/video_job.dart';
 
 /// Service for generating video thumbnails and processed previews.
@@ -14,7 +17,7 @@ class PreviewGenerator {
   Process? _previewProcess;
   String? _ffmpegPath;
   String? _ffprobePath;
-  String? _vspipePath;
+  String? _workerPath;
   String? _tempDir;
 
   /// Cached thumbnails for the current video.
@@ -40,12 +43,43 @@ class PreviewGenerator {
   Future<void> initialize() async {
     _ffmpegPath = await _findTool('ffmpeg');
     _ffprobePath = await _findTool('ffprobe');
-    _vspipePath = await _findTool('vspipe');
+    _workerPath = await _findWorker();
 
     // Create temp directory for thumbnails and previews
     final systemTemp = Directory.systemTemp;
     _tempDir = '${systemTemp.path}/ideinterlace_preview_${DateTime.now().millisecondsSinceEpoch}';
     await Directory(_tempDir!).create(recursive: true);
+  }
+
+  /// Find the worker executable.
+  Future<String?> _findWorker() async {
+    final exeDir = path.dirname(Platform.resolvedExecutable);
+    final ext = Platform.isWindows ? '.exe' : '';
+
+    // Check bundled locations - include both debug and release builds for development
+    // Flutter debug build is at: app/build/windows/x64/runner/Debug/ideinterlace.exe
+    // Worker is at: worker/target/debug/ideinterlace-worker.exe (6 levels up from exe)
+    final bundledPaths = Platform.isWindows
+        ? [
+            '$exeDir\\ideinterlace-worker$ext',
+            // Development: go up from app/build/windows/x64/runner/Debug to project root
+            '$exeDir\\..\\..\\..\\..\\..\\..\\worker\\target\\release\\ideinterlace-worker$ext',
+            '$exeDir\\..\\..\\..\\..\\..\\..\\worker\\target\\debug\\ideinterlace-worker$ext',
+          ]
+        : [
+            '$exeDir/../Helpers/ideinterlace-worker',
+            // Development: go up from app/build/macos/... to project root
+            '$exeDir/../../../../../../worker/target/release/ideinterlace-worker',
+            '$exeDir/../../../../../../worker/target/debug/ideinterlace-worker',
+          ];
+
+    for (final p in bundledPaths) {
+      if (await File(p).exists()) {
+        return p;
+      }
+    }
+
+    return null;
   }
 
   /// Load a video and extract thumbnails for the scrubber.
@@ -105,15 +139,16 @@ class PreviewGenerator {
 
   /// Generate a processed preview frame at the specified time.
   ///
-  /// This runs the full QTGMC pipeline on a small segment around the
-  /// specified time and returns the processed frame.
+  /// This runs the full restoration pipeline via the worker and returns
+  /// the processed frame. Uses the same code path as actual video processing
+  /// to ensure preview matches the final output.
   Future<Uint8List?> generateProcessedPreview({
     required double timeSeconds,
-    required QTGMCParameters qtgmcParams,
+    required RestorationPipeline pipeline,
     required FieldOrder fieldOrder,
     CancelToken? cancelToken,
   }) async {
-    if (_currentVideoPath == null || _vspipePath == null || _ffmpegPath == null) {
+    if (_currentVideoPath == null || _workerPath == null) {
       return null;
     }
 
@@ -123,34 +158,42 @@ class PreviewGenerator {
     if (cancelToken?.isCancelled ?? false) return null;
 
     final frameNumber = (timeSeconds * _frameRate).round();
-    final outputPath = '$_tempDir/preview_${DateTime.now().millisecondsSinceEpoch}.png';
-    final scriptPath = '$_tempDir/preview_script.vpy';
+    final configPath = '$_tempDir/preview_config_${DateTime.now().millisecondsSinceEpoch}.json';
 
     try {
-      // Generate VapourSynth script for single frame extraction
-      final script = _generatePreviewScript(
+      // Set TFF based on field order for QTGMC
+      final tff = fieldOrder == FieldOrder.topFieldFirst;
+      final deinterlaceWithTff = pipeline.deinterlace.copyWith(tff: tff);
+      final pipelineWithTff = pipeline.copyWith(deinterlace: deinterlaceWithTff);
+
+      // Create a job config for the worker
+      final job = VideoJob(
+        id: const Uuid().v4(),
         inputPath: _currentVideoPath!,
-        frameNumber: frameNumber,
-        qtgmcParams: qtgmcParams,
-        fieldOrder: fieldOrder,
+        outputPath: '$_tempDir/preview_output.avi', // Not used in preview mode
+        qtgmcParameters: deinterlaceWithTff,
+        restorationPipeline: pipelineWithTff,
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+        detectedFieldOrder: fieldOrder,
       );
 
-      await File(scriptPath).writeAsString(script);
+      // Write job config to file
+      final configJson = jsonEncode(job.toJson());
+      await File(configPath).writeAsString(configJson);
 
       if (cancelToken?.isCancelled ?? false) return null;
 
-      // Run vspipe to get the frame, pipe through ffmpeg to encode as PNG
+      // Run worker in preview mode
       _previewProcess = await Process.start(
-        _vspipePath!,
+        _workerPath!,
         [
-          '--start', frameNumber.toString(),
-          '--end', frameNumber.toString(),
-          '--outputindex', '0',
-          '-c', 'y4m',
-          scriptPath,
-          '-',
+          '--config', configPath,
+          '--preview',
+          '--frame', frameNumber.toString(),
         ],
-        environment: await _getEnvironment(),
       );
 
       if (cancelToken?.isCancelled ?? false) {
@@ -158,41 +201,37 @@ class PreviewGenerator {
         return null;
       }
 
-      // Pipe to ffmpeg for PNG encoding
-      final ffmpegProcess = await Process.start(
-        _ffmpegPath!,
-        [
-          '-y',
-          '-i', 'pipe:0',
-          '-vframes', '1',
-          '-f', 'image2',
-          outputPath,
-        ],
-      );
+      // Collect PNG output from stdout
+      final pngBytes = <int>[];
 
-      // Connect the pipes
-      _previewProcess!.stdout.pipe(ffmpegProcess.stdin);
+      await for (final chunk in _previewProcess!.stdout) {
+        if (cancelToken?.isCancelled ?? false) {
+          _previewProcess?.kill();
+          return null;
+        }
+        pngBytes.addAll(chunk);
+      }
 
-      // Wait for completion
-      final results = await Future.wait([
-        _previewProcess!.exitCode,
-        ffmpegProcess.exitCode,
-      ]);
-
+      // Wait for process to complete
+      final exitCode = await _previewProcess!.exitCode;
       _previewProcess = null;
+
+      // Clean up config file
+      await File(configPath).delete().catchError((_) => File(configPath));
 
       if (cancelToken?.isCancelled ?? false) return null;
 
-      if (results[0] == 0 && results[1] == 0 && await File(outputPath).exists()) {
-        final bytes = await File(outputPath).readAsBytes();
-        // Clean up
-        await File(outputPath).delete().catchError((_) => File(outputPath));
-        return bytes;
+      if (exitCode == 0 && pngBytes.isNotEmpty) {
+        return Uint8List.fromList(pngBytes);
       }
     } catch (e) {
       // Ignore errors
     } finally {
       _previewProcess = null;
+      // Clean up config file on error
+      try {
+        await File(configPath).delete();
+      } catch (_) {}
     }
 
     return null;
@@ -323,52 +362,6 @@ class PreviewGenerator {
     return null;
   }
 
-  String _generatePreviewScript({
-    required String inputPath,
-    required int frameNumber,
-    required QTGMCParameters qtgmcParams,
-    required FieldOrder fieldOrder,
-  }) {
-    final escapedPath = inputPath.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
-    final tff = fieldOrder == FieldOrder.topFieldFirst;
-
-    return '''
-import vapoursynth as vs
-from vapoursynth import core
-import havsfunc as haf
-
-# Load video
-clip = core.ffms2.Source(source=r'$escapedPath')
-
-# Convert to YUV420P8 for QTGMC
-clip = core.resize.Bicubic(clip, format=vs.YUV420P8)
-
-# Apply QTGMC
-clip = haf.QTGMC(
-    clip,
-    Preset="${qtgmcParams.preset.displayName}",
-    TFF=$tff,
-    FPSDivisor=${qtgmcParams.fpsDivisor},
-    opencl=${qtgmcParams.opencl}
-)
-
-# Output single frame
-clip.set_output()
-''';
-  }
-
-  /// Get the platform suffix for the deps directory (e.g., "windows-x64", "macos-arm64").
-  String _getPlatformSuffix() {
-    if (Platform.isWindows) {
-      return 'windows-x64'; // TODO: detect ARM64 when Flutter supports it
-    } else if (Platform.isMacOS) {
-      // Detect ARM64 vs x64 on macOS
-      // Process.run returns the architecture
-      return Platform.version.contains('arm64') ? 'macos-arm64' : 'macos-x64';
-    }
-    return 'unknown';
-  }
-
   Future<String?> _findTool(String name) async {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
     final ext = Platform.isWindows ? '.exe' : '';
@@ -406,33 +399,15 @@ clip.set_output()
     return null;
   }
 
-  Future<Map<String, String>> _getEnvironment() async {
-    final env = Map<String, String>.from(Platform.environment);
-    final exeDir = File(Platform.resolvedExecutable).parent.path;
-    final platformDir = _getPlatformSuffix();
-
+  /// Get the platform suffix for the deps directory (e.g., "windows-x64", "macos-arm64").
+  String _getPlatformSuffix() {
     if (Platform.isWindows) {
-      // Windows uses deps/{platform}/ structure with VapourSynth portable
-      // Python 3.8 is bundled inside the VapourSynth directory
-      final depsDir = '$exeDir\\deps\\$platformDir';
-      final vsDir = '$depsDir\\vapoursynth';
-      env['PYTHONHOME'] = vsDir;
-      env['PYTHONPATH'] = '$vsDir\\Lib\\site-packages';
-      env['PYTHONNOUSERSITE'] = '1';
-      env['PATH'] = '$vsDir;$depsDir\\ffmpeg;${env['PATH'] ?? ''}';
-      env['VAPOURSYNTH_PLUGIN_PATH'] = '$vsDir\\vs-plugins';
+      return 'windows-x64'; // TODO: detect ARM64 when Flutter supports it
     } else if (Platform.isMacOS) {
-      // macOS app bundle structure
-      final contentsDir = '$exeDir/..';
-      env['PYTHONHOME'] = '$contentsDir/Frameworks/Python.framework/Versions/Current';
-      env['PYTHONPATH'] = '$contentsDir/Resources/PythonPackages';
-      env['PYTHONNOUSERSITE'] = '1';
-      env['VAPOURSYNTH_PLUGIN_PATH'] = '$contentsDir/Frameworks/VapourSynth';
-      env['DYLD_LIBRARY_PATH'] = '$contentsDir/Frameworks';
-      env['PATH'] = '$contentsDir/Helpers:${env['PATH'] ?? ''}';
+      // Detect ARM64 vs x64 on macOS
+      return Platform.version.contains('arm64') ? 'macos-arm64' : 'macos-x64';
     }
-
-    return env;
+    return 'unknown';
   }
 }
 

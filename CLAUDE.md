@@ -231,9 +231,9 @@ cargo run --release -- --config test_job.json
 
 ## havsfunc Compatibility Patches
 
-The havsfunc.py file requires patches for current mvtools API:
+The havsfunc.py file requires patches for API compatibility. The `download-deps-windows.ps1` script applies these automatically, but for reference:
 
-1. Add helper function to rename `_lambda`/`_global`:
+### 1. mvtools API (renamed parameters)
 ```python
 def _fix_mv_args(args):
     result = {}
@@ -243,10 +243,25 @@ def _fix_mv_args(args):
         else: result[k] = v
     return result
 ```
+Replace `**analyse_args)` with `**_fix_mv_args(analyse_args))` and similarly for `recalculate_args`.
 
-2. Replace `**analyse_args)` with `**_fix_mv_args(analyse_args))`
-3. Replace `**recalculate_args)` with `**_fix_mv_args(recalculate_args))`
-4. Update NNEDI3/EEDI3 fallback to check for nnedi3cl
+### 2. DFTTest API (sstring parameter removed)
+The newer DFTTest plugin removed the `sstring` parameter. Replace:
+```python
+# Old (havsfunc r31):
+core.dfttest.DFTTest(clip, tbsize=1, sstring='0.0:4.0 0.2:9.0 1.0:15.0', planes=planes)
+# New:
+core.dfttest.DFTTest(clip, tbsize=1, sigma=10.0, planes=planes)
+```
+
+### 3. VapourSynth YCOCG removal
+Newer VapourSynth versions removed `vs.YCOCG`. In LUTDeCrawl, replace:
+```python
+# Old:
+input.format.color_family not in [vs.YUV, vs.YCOCG]
+# New:
+input.format.color_family != vs.YUV
+```
 
 ## Code Style
 
@@ -303,6 +318,12 @@ All plugins go in `deps/windows-x64/vapoursynth/vs-plugins/`:
 - `libfmtconv.dll` - Format conversion
 - `ffms2.dll` - FFmpeg source
 - `MiscFilters.dll` - Misc filters
+- `DFTTest.dll` - FFT-based denoising (used by SMDegrain prefilter=3 and MCTemporalDenoise)
+
+### Required Libraries (Windows)
+
+These go in `deps/windows-x64/vapoursynth/`:
+- `libfftw3f-3.dll` - FFTW library (required by DFTTest)
 
 ### Show in Folder (Windows)
 

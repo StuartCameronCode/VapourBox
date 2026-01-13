@@ -116,8 +116,9 @@ if (-not (Test-Path $WorkerExe)) {
 }
 Copy-Item $WorkerExe "$PackageDir\"
 
-# Copy VapourSynth script template
+# Copy VapourSynth script templates
 Copy-Item (Join-Path $ProjectRoot "worker\templates\qtgmc_template.vpy") "$PackageDir\templates\"
+Copy-Item (Join-Path $ProjectRoot "worker\templates\pipeline_template.vpy") "$PackageDir\templates\"
 
 # Copy dependencies
 Write-Host "[6/7] Copying dependencies..." -ForegroundColor Yellow

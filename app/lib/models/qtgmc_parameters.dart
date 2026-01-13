@@ -86,6 +86,9 @@ enum QTGMCPreset {
 /// All QTGMC parameters supported by the VapourSynth implementation.
 @JsonSerializable()
 class QTGMCParameters {
+  /// Whether this pass is enabled.
+  final bool enabled;
+
   // === Preset ===
   final QTGMCPreset preset;
 
@@ -186,6 +189,7 @@ class QTGMCParameters {
   final int? device;
 
   const QTGMCParameters({
+    this.enabled = true,
     this.preset = QTGMCPreset.slower,
     this.inputType = 0,
     this.tff,
@@ -270,6 +274,7 @@ class QTGMCParameters {
   Map<String, dynamic> toJson() => _$QTGMCParametersToJson(this);
 
   QTGMCParameters copyWith({
+    bool? enabled,
     QTGMCPreset? preset,
     int? inputType,
     bool? tff,
@@ -349,6 +354,7 @@ class QTGMCParameters {
     int? device,
   }) {
     return QTGMCParameters(
+      enabled: enabled ?? this.enabled,
       preset: preset ?? this.preset,
       inputType: inputType ?? this.inputType,
       tff: tff ?? this.tff,

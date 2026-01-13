@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QTGMCParameters {
+    /// Whether this pass is enabled.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
     // === Preset ===
     /// Master quality/speed preset
     #[serde(default)]
@@ -346,6 +350,7 @@ fn default_amp() -> f64 { 0.0625 }
 impl Default for QTGMCParameters {
     fn default() -> Self {
         Self {
+            enabled: true,
             preset: QTGMCPreset::default(),
             input_type: 0,
             tff: None,

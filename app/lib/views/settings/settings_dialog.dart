@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/encoding_settings.dart';
-import '../../models/qtgmc_parameters.dart';
 import '../../models/video_job.dart';
 import '../../viewmodels/main_viewmodel.dart';
 
@@ -20,7 +19,7 @@ class _SettingsDialogState extends State<SettingsDialog>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
   }
 
   @override
@@ -53,7 +52,7 @@ class _SettingsDialogState extends State<SettingsDialog>
               child: Row(
                 children: [
                   Text(
-                    'Settings',
+                    'Output Settings',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const Spacer(),
@@ -69,7 +68,6 @@ class _SettingsDialogState extends State<SettingsDialog>
             TabBar(
               controller: _tabController,
               tabs: const [
-                Tab(text: 'QTGMC'),
                 Tab(text: 'Encoding'),
                 Tab(text: 'Input/Output'),
               ],
@@ -80,7 +78,6 @@ class _SettingsDialogState extends State<SettingsDialog>
               child: TabBarView(
                 controller: _tabController,
                 children: const [
-                  _QtgmcSettingsTab(),
                   _EncodingSettingsTab(),
                   _InputOutputSettingsTab(),
                 ],
@@ -111,207 +108,6 @@ class _SettingsDialogState extends State<SettingsDialog>
           ],
         ),
       ),
-    );
-  }
-}
-
-class _QtgmcSettingsTab extends StatelessWidget {
-  const _QtgmcSettingsTab();
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<MainViewModel>(
-      builder: (context, viewModel, child) {
-        final params = viewModel.qtgmcParams;
-
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            // Preset
-            _buildSection(
-              context,
-              title: 'Preset',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  DropdownButtonFormField<QTGMCPreset>(
-                    value: params.preset,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                    items: QTGMCPreset.values.map((preset) {
-                      return DropdownMenuItem(
-                        value: preset,
-                        child: Text(preset.displayName),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        viewModel.updateQtgmcParams(params.copyWith(preset: value));
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    params.preset.description,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.6),
-                        ),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Frame Rate
-            _buildSection(
-              context,
-              title: 'Frame Rate Output',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SegmentedButton<int>(
-                    segments: const [
-                      ButtonSegment(
-                        value: 1,
-                        label: Text('Double Rate'),
-                      ),
-                      ButtonSegment(
-                        value: 2,
-                        label: Text('Single Rate'),
-                      ),
-                    ],
-                    selected: {params.fpsDivisor},
-                    onSelectionChanged: (value) {
-                      viewModel.updateQtgmcParams(
-                          params.copyWith(fpsDivisor: value.first));
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    params.fpsDivisor == 1
-                        ? 'Double rate: 50i → 50p (recommended for smooth motion)'
-                        : 'Single rate: 50i → 25p (smaller file, film-like)',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.6),
-                        ),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // GPU Acceleration
-            _buildSection(
-              context,
-              title: 'GPU Acceleration',
-              child: SwitchListTile(
-                title: const Text('Use OpenCL'),
-                subtitle: const Text('Enable GPU acceleration for NNEDI3'),
-                value: params.opencl,
-                onChanged: (value) {
-                  viewModel.updateQtgmcParams(params.copyWith(opencl: value));
-                },
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Advanced section (collapsed by default)
-            ExpansionTile(
-              title: const Text('Advanced Settings'),
-              children: [
-                // Source Match
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Source Match'),
-                      const SizedBox(height: 8),
-                      SegmentedButton<int>(
-                        segments: const [
-                          ButtonSegment(value: 0, label: Text('Off')),
-                          ButtonSegment(value: 1, label: Text('Basic')),
-                          ButtonSegment(value: 2, label: Text('Refined')),
-                          ButtonSegment(value: 3, label: Text('Full')),
-                        ],
-                        selected: {params.sourceMatch},
-                        onSelectionChanged: (value) {
-                          viewModel.updateQtgmcParams(
-                              params.copyWith(sourceMatch: value.first));
-                        },
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Higher values produce more accurate results but are slower',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurface
-                                  .withValues(alpha: 0.6),
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // Sharpness
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Sharpness'),
-                      Slider(
-                        value: params.sharpness ?? 0.0,
-                        min: 0.0,
-                        max: 2.0,
-                        divisions: 20,
-                        label: (params.sharpness ?? 0.0).toStringAsFixed(1),
-                        onChanged: (value) {
-                          viewModel.updateQtgmcParams(
-                              params.copyWith(sharpness: value));
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildSection(
-    BuildContext context, {
-    required String title,
-    required Widget child,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-        ),
-        const SizedBox(height: 12),
-        child,
-      ],
     );
   }
 }
@@ -352,40 +148,71 @@ class _EncodingSettingsTab extends StatelessWidget {
 
             const SizedBox(height: 24),
 
-            // Quality
-            _buildSection(
-              context,
-              title: 'Quality',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Slider(
-                    value: settings.quality.toDouble(),
-                    min: 0,
-                    max: 51,
-                    divisions: 51,
-                    label: settings.qualityDescription,
-                    onChanged: (value) {
-                      viewModel.updateEncodingSettings(
-                          settings.copyWith(quality: value.round()));
-                    },
-                  ),
-                  Text(
-                    settings.qualityDescription,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  Text(
-                    'Lower values = higher quality, larger file',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.6),
-                        ),
-                  ),
-                ],
+            // Quality (not applicable for lossless codecs)
+            if (!settings.codec.isFFV1)
+              _buildSection(
+                context,
+                title: 'Quality',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Slider(
+                      value: settings.quality.toDouble(),
+                      min: 0,
+                      max: 51,
+                      divisions: 51,
+                      label: settings.qualityDescription,
+                      onChanged: (value) {
+                        viewModel.updateEncodingSettings(
+                            settings.copyWith(quality: value.round()));
+                      },
+                    ),
+                    Text(
+                      settings.qualityDescription,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    Text(
+                      'Lower values = higher quality, larger file',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withValues(alpha: 0.6),
+                          ),
+                    ),
+                  ],
+                ),
               ),
-            ),
+
+            // Note for lossless codec
+            if (settings.codec.isFFV1)
+              _buildSection(
+                context,
+                title: 'Quality',
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        size: 20,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'FFV1 is a lossless codec. No quality setting is needed.',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
             const SizedBox(height: 24),
 

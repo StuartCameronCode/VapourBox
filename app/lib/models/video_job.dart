@@ -3,16 +3,23 @@ import 'package:uuid/uuid.dart';
 
 import 'qtgmc_parameters.dart';
 import 'encoding_settings.dart';
+import 'restoration_pipeline.dart';
 
 part 'video_job.g.dart';
 
 /// Represents a complete video processing job.
-@JsonSerializable()
+@JsonSerializable(explicitToJson: true)
 class VideoJob {
   final String id;
   final String inputPath;
   final String outputPath;
+
+  /// Legacy QTGMC-only parameters (for backwards compatibility).
   final QTGMCParameters qtgmcParameters;
+
+  /// Full restoration pipeline (new multi-pass system).
+  final RestorationPipeline? restorationPipeline;
+
   final EncodingSettings encodingSettings;
   final FieldOrder? detectedFieldOrder;
   final int? totalFrames;
@@ -23,6 +30,7 @@ class VideoJob {
     required this.inputPath,
     required this.outputPath,
     QTGMCParameters? qtgmcParameters,
+    this.restorationPipeline,
     EncodingSettings? encodingSettings,
     this.detectedFieldOrder,
     this.totalFrames,
@@ -30,6 +38,11 @@ class VideoJob {
   })  : id = id ?? const Uuid().v4(),
         qtgmcParameters = qtgmcParameters ?? QTGMCParameters(),
         encodingSettings = encodingSettings ?? EncodingSettings();
+
+  /// Get the effective restoration pipeline.
+  /// Uses restorationPipeline if set, otherwise creates one from legacy qtgmcParameters.
+  RestorationPipeline get effectivePipeline =>
+      restorationPipeline ?? RestorationPipeline.fromLegacy(qtgmcParameters);
 
   factory VideoJob.fromJson(Map<String, dynamic> json) =>
       _$VideoJobFromJson(json);
@@ -40,6 +53,7 @@ class VideoJob {
     String? inputPath,
     String? outputPath,
     QTGMCParameters? qtgmcParameters,
+    RestorationPipeline? restorationPipeline,
     EncodingSettings? encodingSettings,
     FieldOrder? detectedFieldOrder,
     int? totalFrames,
@@ -50,6 +64,7 @@ class VideoJob {
       inputPath: inputPath ?? this.inputPath,
       outputPath: outputPath ?? this.outputPath,
       qtgmcParameters: qtgmcParameters ?? this.qtgmcParameters,
+      restorationPipeline: restorationPipeline ?? this.restorationPipeline,
       encodingSettings: encodingSettings ?? this.encodingSettings,
       detectedFieldOrder: detectedFieldOrder ?? this.detectedFieldOrder,
       totalFrames: totalFrames ?? this.totalFrames,
@@ -63,6 +78,7 @@ class VideoJob {
 enum VideoCodec {
   h264('libx264', 'H.264'),
   h265('libx265', 'H.265 (HEVC)'),
+  ffv1('ffv1', 'FFV1 (Lossless)'),
   proresProxy('prores_ks -profile:v 0', 'ProRes Proxy'),
   proresLT('prores_ks -profile:v 1', 'ProRes LT'),
   prores422('prores_ks -profile:v 2', 'ProRes 422'),
@@ -79,6 +95,8 @@ enum VideoCodec {
         return 'Widely compatible, good compression';
       case VideoCodec.h265:
         return 'Better compression, less compatible';
+      case VideoCodec.ffv1:
+        return 'Lossless archival codec';
       case VideoCodec.proresProxy:
         return 'Lightweight proxy editing';
       case VideoCodec.proresLT:
@@ -91,9 +109,13 @@ enum VideoCodec {
   }
 
   bool get isProRes => value.startsWith('prores_ks');
+  bool get isFFV1 => this == VideoCodec.ffv1;
 
-  ContainerFormat get preferredContainer =>
-      isProRes ? ContainerFormat.mov : ContainerFormat.mp4;
+  ContainerFormat get preferredContainer {
+    if (isProRes) return ContainerFormat.mov;
+    if (isFFV1) return ContainerFormat.avi;
+    return ContainerFormat.mp4;
+  }
 }
 
 /// Output container formats.
@@ -101,7 +123,8 @@ enum VideoCodec {
 enum ContainerFormat {
   mp4('mp4', 'MP4'),
   mov('mov', 'QuickTime MOV'),
-  mkv('mkv', 'Matroska MKV');
+  mkv('mkv', 'Matroska MKV'),
+  avi('avi', 'AVI');
 
   const ContainerFormat(this.value, this.displayName);
 

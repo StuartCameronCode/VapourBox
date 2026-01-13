@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/progress_info.dart';
-import '../models/video_job.dart';
 import '../viewmodels/main_viewmodel.dart';
 import 'drop_zone.dart';
+import 'pass_list/pass_list_panel.dart';
+import 'pass_settings/pass_settings_container.dart';
 import 'preview_panel.dart';
 import 'progress_panel.dart';
 import 'settings/settings_dialog.dart';
@@ -136,97 +137,104 @@ class MainWindow extends StatelessWidget {
   }
 
   Widget _buildInfoPanel(BuildContext context, MainViewModel viewModel) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Input file info
-          Text(
-            'Input',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+    return Column(
+      children: [
+        // Fixed header with video info and output settings
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
+              ),
+            ),
           ),
-          const SizedBox(height: 8),
-          _buildInfoRow(
-              context, 'File', viewModel.inputPath?.split('/').last ?? ''),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildVideoInfoSection(context, viewModel),
+              const SizedBox(height: 12),
+              // Output summary row
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Output: ${viewModel.encodingSettings.codec.displayName} → ${viewModel.encodingSettings.container.name.toUpperCase()}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => _showSettings(context, viewModel),
+                    child: const Text('Edit'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
 
-          if (viewModel.videoInfo != null) ...[
-            _buildInfoRow(context, 'Resolution', viewModel.videoInfo!.resolution),
-            _buildInfoRow(
-                context, 'Frame Rate', viewModel.videoInfo!.frameRateFormatted),
-            _buildInfoRow(
-                context, 'Duration', viewModel.videoInfo!.durationFormatted),
-            _buildInfoRow(context, 'Frames', '${viewModel.videoInfo!.frameCount}'),
-            _buildInfoRow(context, 'Codec', viewModel.videoInfo!.codec),
-            _buildInfoRow(context, 'Field Order',
-                viewModel.videoInfo!.fieldOrderDescription),
-          ],
-
-          if (viewModel.isAnalyzing) ...[
-            const SizedBox(height: 8),
-            const Row(
+        // Scrollable pass list and settings
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                SizedBox(width: 8),
-                Text('Analyzing...'),
+                // Pass list panel
+                const PassListPanel(),
+
+                const Divider(height: 32),
+
+                // Selected pass settings
+                const PassSettingsContainer(),
               ],
             ),
-          ],
-
-          const SizedBox(height: 24),
-
-          // Output settings
-          Text(
-            'Output',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
           ),
-          const SizedBox(height: 8),
-          _buildInfoRow(
-              context, 'File', viewModel.outputPath?.split('/').last ?? ''),
-          _buildInfoRow(
-              context, 'Codec', viewModel.encodingSettings.codec.displayName),
-          _buildInfoRow(
-              context, 'Quality', viewModel.encodingSettings.qualityDescription),
-          _buildInfoRow(
-              context, 'Container', viewModel.encodingSettings.container.name.toUpperCase()),
+        ),
+      ],
+    );
+  }
 
-          const SizedBox(height: 24),
+  Widget _buildVideoInfoSection(BuildContext context, MainViewModel viewModel) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Input',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+        ),
+        const SizedBox(height: 8),
+        _buildInfoRow(
+            context, 'File', viewModel.inputPath?.split('/').last ?? ''),
 
-          // QTGMC settings
-          Text(
-            'QTGMC',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
-          const SizedBox(height: 8),
+        if (viewModel.videoInfo != null) ...[
+          _buildInfoRow(context, 'Resolution', viewModel.videoInfo!.resolution),
           _buildInfoRow(
-              context, 'Preset', viewModel.qtgmcParams.preset.displayName),
+              context, 'Frame Rate', viewModel.videoInfo!.frameRateFormatted),
+          _buildInfoRow(
+              context, 'Duration', viewModel.videoInfo!.durationFormatted),
+          _buildInfoRow(context, 'Frames', '${viewModel.videoInfo!.frameCount}'),
           _buildInfoRow(context, 'Field Order',
-              viewModel.effectiveFieldOrder == FieldOrder.topFieldFirst ? 'TFF' : 'BFF'),
-          _buildInfoRow(context, 'FPS Divisor',
-              viewModel.qtgmcParams.fpsDivisor == 1 ? 'Double (50i→50p)' : 'Single (50i→25p)'),
-          if (viewModel.qtgmcParams.opencl)
-            _buildInfoRow(context, 'GPU', 'OpenCL enabled'),
+              viewModel.videoInfo!.fieldOrderDescription),
+        ],
 
-          const SizedBox(height: 16),
-
-          // Edit settings button
-          OutlinedButton.icon(
-            icon: const Icon(Icons.edit),
-            label: const Text('Edit Settings'),
-            onPressed: () => _showSettings(context, viewModel),
+        if (viewModel.isAnalyzing) ...[
+          const SizedBox(height: 8),
+          const Row(
+            children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 8),
+              Text('Analyzing...'),
+            ],
           ),
         ],
-      ),
+      ],
     );
   }
 

@@ -256,6 +256,97 @@ impl PipelineExecutor {
         args
     }
 
+    /// Generate a preview frame as PNG to stdout.
+    ///
+    /// This runs vspipe for a single frame and pipes it through ffmpeg
+    /// to output PNG data to stdout.
+    pub fn generate_preview(&self, script_path: &Path, frame: i32) -> Result<()> {
+        use std::io::Write;
+
+        let vspipe_path = self.deps.vspipe_path()?;
+        let ffmpeg_path = self.deps.ffmpeg_path()?;
+        let env = self.deps.build_environment();
+
+        // Start vspipe for single frame
+        let mut vspipe = Command::new(&vspipe_path)
+            .args([
+                "--start", &frame.to_string(),
+                "--end", &frame.to_string(),
+                "-c", "y4m",
+                script_path.to_string_lossy().as_ref(),
+                "-",
+            ])
+            .envs(&env)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .with_context(|| format!("Failed to start vspipe: {:?}", vspipe_path))?;
+
+        let vspipe_stdout = vspipe.stdout.take().context("Failed to get vspipe stdout")?;
+        let vspipe_stderr = vspipe.stderr.take();
+
+        // Start ffmpeg to encode as PNG to stdout
+        // Use zscale filter to properly convert YUV limited range to RGB full range
+        let ffmpeg = Command::new(&ffmpeg_path)
+            .args([
+                "-f", "yuv4mpegpipe",
+                "-i", "-",
+                "-vframes", "1",
+                "-vf", "scale=in_range=tv:out_range=pc",
+                "-f", "image2pipe",
+                "-vcodec", "png",
+                "-",
+            ])
+            .envs(&env)
+            .stdin(vspipe_stdout)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .with_context(|| format!("Failed to start ffmpeg: {:?}", ffmpeg_path))?;
+
+        // Read vspipe stderr in background for error messages
+        let stderr_thread = if let Some(stderr) = vspipe_stderr {
+            Some(thread::spawn(move || {
+                let reader = BufReader::new(stderr);
+                let mut errors = Vec::new();
+                for line in reader.lines().map_while(Result::ok) {
+                    // Skip INPUT_INFO lines
+                    if !line.starts_with("INPUT_INFO:") && !line.trim().is_empty() {
+                        errors.push(line);
+                    }
+                }
+                errors
+            }))
+        } else {
+            None
+        };
+
+        // Wait for vspipe to finish
+        let vspipe_status = vspipe.wait().context("Failed to wait for vspipe")?;
+
+        // Read PNG output from ffmpeg
+        let output = ffmpeg.wait_with_output().context("Failed to wait for ffmpeg")?;
+
+        // Check for errors
+        if !vspipe_status.success() {
+            let errors = stderr_thread.map(|t| t.join().ok()).flatten().unwrap_or_default();
+            if !errors.is_empty() {
+                bail!("vspipe failed: {}", errors.join("\n"));
+            }
+            bail!("vspipe exited with code {}", vspipe_status.code().unwrap_or(-1));
+        }
+
+        if !output.status.success() {
+            bail!("ffmpeg exited with code {}", output.status.code().unwrap_or(-1));
+        }
+
+        // Write PNG to stdout
+        std::io::stdout().write_all(&output.stdout)?;
+        std::io::stdout().flush()?;
+
+        Ok(())
+    }
+
     /// Terminate both processes.
     fn terminate(&mut self) {
         if let Some(ref mut vspipe) = self.vspipe_process {

@@ -7,9 +7,11 @@
     - VapourSynth R73 (portable, includes Python 3.8)
     - Python 3.8 embeddable (for VSScript)
     - FFmpeg (latest GPL build)
-    - VapourSynth plugins (mvtools, nnedi3cl, znedi3, eedi3m, fmtconv, ffms2, miscfilters)
+    - VapourSynth plugins (mvtools, nnedi3cl, znedi3, eedi3m, fmtconv, ffms2, miscfilters, dfttest)
+    - FFTW library (required by dfttest)
     - Python packages (havsfunc, mvsfunc, adjust)
     - NNEDI3 weights
+    - Patches havsfunc for API compatibility (mvtools, DFTTest, YCOCG)
 
 .PARAMETER TargetDir
     The target directory for dependencies. Default: deps/windows-x64
@@ -204,6 +206,11 @@ $Plugins7z = @(
         Name = "miscfilters"
         Url = "https://github.com/vapoursynth/vs-miscfilters-obsolete/releases/download/R2/miscfilters-r2.7z"
         Check = "MiscFilters.dll"
+    },
+    @{
+        Name = "dfttest"
+        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest/releases/download/r7/DFTTest-r7.7z"
+        Check = "DFTTest.dll"
     }
 )
 
@@ -282,6 +289,37 @@ foreach ($Plugin in $PluginsZip) {
 Write-Host "  Plugins installed" -ForegroundColor Green
 
 # =============================================================================
+# 4b. FFTW Library (required by DFTTest)
+# =============================================================================
+Write-Host ""
+Write-Host "[4b/8] Downloading FFTW library..." -ForegroundColor Yellow
+
+$FFTWPath = "$FullTargetDir\vapoursynth\libfftw3f-3.dll"
+if (-not (Test-Path $FFTWPath)) {
+    Write-Host "  Downloading FFTW 3.3.5..." -ForegroundColor Gray
+    $FFTWZip = Join-Path $TempDir "fftw.zip"
+    $FFTWUrl = "https://fftw.org/pub/fftw/fftw-3.3.5-dll64.zip"
+
+    try {
+        Download-File -Url $FFTWUrl -OutFile $FFTWZip
+        $FFTWExtractDir = Join-Path $TempDir "fftw-extract"
+        Expand-Archive -Path $FFTWZip -DestinationPath $FFTWExtractDir -Force
+
+        # Copy the single-precision float DLL (required by DFTTest)
+        Copy-Item "$FFTWExtractDir\libfftw3f-3.dll" "$FullTargetDir\vapoursynth\" -Force
+        Write-Host "    Copied: libfftw3f-3.dll" -ForegroundColor Gray
+
+        Remove-Item $FFTWZip -Force -ErrorAction SilentlyContinue
+        Remove-Item $FFTWExtractDir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "  FFTW library installed" -ForegroundColor Green
+    } catch {
+        Write-Host "    Failed: $_" -ForegroundColor Red
+    }
+} else {
+    Write-Host "  FFTW library already installed" -ForegroundColor Gray
+}
+
+# =============================================================================
 # 5. Python Packages (havsfunc, mvsfunc, adjust)
 # =============================================================================
 Write-Host ""
@@ -344,16 +382,17 @@ if (-not (Test-Path "$SitePackagesDir\adjust.py")) {
 Write-Host "  Python packages installed" -ForegroundColor Green
 
 # =============================================================================
-# 6. Patch havsfunc for mvtools API
+# 6. Patch havsfunc for API compatibility
 # =============================================================================
 Write-Host ""
-Write-Host "[6/8] Patching havsfunc for mvtools API..." -ForegroundColor Yellow
+Write-Host "[6/8] Patching havsfunc for API compatibility..." -ForegroundColor Yellow
 
 $HavsfuncPath = "$SitePackagesDir\havsfunc.py"
 if (Test-Path $HavsfuncPath) {
     $Content = Get-Content $HavsfuncPath -Raw
+    $PatchesApplied = @()
 
-    # Check if already patched
+    # Patch 1: mvtools API (renamed _lambda/_global to lambda/global)
     if ($Content -notmatch "_fix_mv_args") {
         Write-Host "  Applying mvtools API compatibility patch..." -ForegroundColor Gray
 
@@ -379,9 +418,29 @@ def _fix_mv_args(args):
         # Replace analyse_args and recalculate_args calls
         $Content = $Content -replace "\*\*analyse_args\)", "**_fix_mv_args(analyse_args))"
         $Content = $Content -replace "\*\*recalculate_args\)", "**_fix_mv_args(recalculate_args))"
+        $PatchesApplied += "mvtools API"
+    }
 
+    # Patch 2: DFTTest API (sstring parameter removed in newer versions)
+    if ($Content -match "sstring='0.0:4.0 0.2:9.0 1.0:15.0'") {
+        Write-Host "  Applying DFTTest API compatibility patch..." -ForegroundColor Gray
+        # Replace sstring parameter with sigma (approximate equivalent)
+        $Content = $Content -replace "sstring='0.0:4.0 0.2:9.0 1.0:15.0'", "sigma=10.0"
+        $PatchesApplied += "DFTTest API"
+    }
+
+    # Patch 3: VapourSynth YCOCG removal (no longer exists in newer VS)
+    if ($Content -match "vs\.YCOCG") {
+        Write-Host "  Applying YCOCG compatibility patch..." -ForegroundColor Gray
+        # Remove YCOCG from color family checks (it's deprecated/removed)
+        $Content = $Content -replace "input\.format\.color_family not in \[vs\.YUV, vs\.YCOCG\]", "input.format.color_family != vs.YUV"
+        $Content = $Content -replace "'LUTDeCrawl: This is not an 8-10 bit YUV or YCoCg clip'", "'LUTDeCrawl: This is not an 8-10 bit YUV clip'"
+        $PatchesApplied += "YCOCG removal"
+    }
+
+    if ($PatchesApplied.Count -gt 0) {
         Set-Content $HavsfuncPath $Content -NoNewline
-        Write-Host "  havsfunc patched" -ForegroundColor Green
+        Write-Host "  havsfunc patched ($($PatchesApplied -join ', '))" -ForegroundColor Green
     } else {
         Write-Host "  havsfunc already patched" -ForegroundColor Gray
     }

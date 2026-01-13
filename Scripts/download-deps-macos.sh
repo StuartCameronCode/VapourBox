@@ -6,6 +6,13 @@
 # - curl, unzip, tar
 # - Homebrew (for some dependencies)
 #
+# Includes:
+# - VapourSynth, FFmpeg, Python
+# - Plugins: mvtools, nnedi3, znedi3, eedi3m, fmtconv, ffms2, miscfilters, dfttest
+# - FFTW library (required by dfttest)
+# - Python packages: havsfunc, mvsfunc, adjust
+# - Patches havsfunc for API compatibility (mvtools, DFTTest, YCOCG)
+#
 # Usage: ./Scripts/download-deps-macos.sh [--arch arm64|x64]
 
 set -e
@@ -125,7 +132,8 @@ VS_PLUGINS_DIR="$BREW_PREFIX/lib/vapoursynth"
 if [ -d "$VS_PLUGINS_DIR" ]; then
     echo "    Copying plugins from Homebrew..."
     for plugin in libmvtools.dylib libffms2.dylib libfmtconv.dylib libnnedi3.dylib \
-                  libznedi3.dylib libnnedi3cl.dylib libmiscfilters.dylib libeedi3m.dylib; do
+                  libznedi3.dylib libnnedi3cl.dylib libmiscfilters.dylib libeedi3m.dylib \
+                  libdfttest.dylib; do
         if [ -f "$VS_PLUGINS_DIR/$plugin" ]; then
             cp "$VS_PLUGINS_DIR/$plugin" "$DEPS_DIR/vapoursynth/plugins/"
             echo "        Copied $plugin"
@@ -135,6 +143,26 @@ else
     echo "    WARNING: VapourSynth plugins directory not found"
     echo "    Please install plugins via Homebrew:"
     echo "        brew install vapoursynth-mvtools vapoursynth-ffms2"
+fi
+
+# ============================================================================
+# FFTW Library (required by DFTTest)
+# ============================================================================
+echo "[3b/7] Setting up FFTW library..."
+
+# Check for FFTW in Homebrew
+FFTW_LIB="$BREW_PREFIX/lib/libfftw3f.dylib"
+if [ -f "$FFTW_LIB" ]; then
+    cp "$FFTW_LIB" "$DEPS_DIR/vapoursynth/"
+    # Also copy versioned dylib if exists
+    if [ -f "$BREW_PREFIX/lib/libfftw3f.3.dylib" ]; then
+        cp "$BREW_PREFIX/lib/libfftw3f.3.dylib" "$DEPS_DIR/vapoursynth/"
+    fi
+    echo "    FFTW library copied from Homebrew"
+else
+    echo "    WARNING: FFTW not found in Homebrew"
+    echo "    Please install: brew install fftw"
+    echo "    FFTW is required for DFTTest plugin (used by SMDegrain prefilter=3, MCTemporalDenoise)"
 fi
 
 # ============================================================================
@@ -186,13 +214,15 @@ else
 fi
 
 # ============================================================================
-# Patch havsfunc for mvtools compatibility
+# Patch havsfunc for API compatibility
 # ============================================================================
-echo "[6/7] Patching havsfunc for mvtools compatibility..."
+echo "[6/7] Patching havsfunc for API compatibility..."
 
 HAVSFUNC="$DEPS_DIR/python-packages/havsfunc.py"
 if [ -f "$HAVSFUNC" ]; then
-    # Check if already patched
+    PATCHES_APPLIED=""
+
+    # Patch 1: mvtools API (renamed _lambda/_global to lambda/global)
     if ! grep -q "_fix_mv_args" "$HAVSFUNC"; then
         echo "    Applying mvtools argument patch..."
 
@@ -228,7 +258,31 @@ $PATCH_CODE" "$HAVSFUNC"
         sed -i 's/\*\*recalculate_args)/**_fix_mv_args(recalculate_args))/g' "$HAVSFUNC"
 
         rm -f "$HAVSFUNC.bak"
-        echo "    havsfunc patched"
+        PATCHES_APPLIED="mvtools API"
+    fi
+
+    # Patch 2: DFTTest API (sstring parameter removed in newer versions)
+    if grep -q "sstring='0.0:4.0 0.2:9.0 1.0:15.0'" "$HAVSFUNC"; then
+        echo "    Applying DFTTest API patch..."
+        # Replace sstring parameter with sigma (approximate equivalent)
+        sed -i '' "s/sstring='0.0:4.0 0.2:9.0 1.0:15.0'/sigma=10.0/g" "$HAVSFUNC" 2>/dev/null || \
+        sed -i "s/sstring='0.0:4.0 0.2:9.0 1.0:15.0'/sigma=10.0/g" "$HAVSFUNC"
+        PATCHES_APPLIED="${PATCHES_APPLIED:+$PATCHES_APPLIED, }DFTTest API"
+    fi
+
+    # Patch 3: VapourSynth YCOCG removal (no longer exists in newer VS)
+    if grep -q "vs\.YCOCG" "$HAVSFUNC"; then
+        echo "    Applying YCOCG compatibility patch..."
+        # Remove YCOCG from color family checks (it's deprecated/removed)
+        sed -i '' 's/input\.format\.color_family not in \[vs\.YUV, vs\.YCOCG\]/input.format.color_family != vs.YUV/g' "$HAVSFUNC" 2>/dev/null || \
+        sed -i 's/input\.format\.color_family not in \[vs\.YUV, vs\.YCOCG\]/input.format.color_family != vs.YUV/g' "$HAVSFUNC"
+        sed -i '' "s/'LUTDeCrawl: This is not an 8-10 bit YUV or YCoCg clip'/'LUTDeCrawl: This is not an 8-10 bit YUV clip'/g" "$HAVSFUNC" 2>/dev/null || \
+        sed -i "s/'LUTDeCrawl: This is not an 8-10 bit YUV or YCoCg clip'/'LUTDeCrawl: This is not an 8-10 bit YUV clip'/g" "$HAVSFUNC"
+        PATCHES_APPLIED="${PATCHES_APPLIED:+$PATCHES_APPLIED, }YCOCG removal"
+    fi
+
+    if [ -n "$PATCHES_APPLIED" ]; then
+        echo "    havsfunc patched ($PATCHES_APPLIED)"
     else
         echo "    havsfunc already patched, skipping"
     fi
@@ -286,13 +340,21 @@ MISSING=""
 [ ! -f "$DEPS_DIR/ffmpeg/ffmpeg" ] && MISSING="$MISSING ffmpeg"
 [ ! -f "$DEPS_DIR/vapoursynth/vspipe" ] && MISSING="$MISSING vspipe"
 [ ! -f "$DEPS_DIR/vapoursynth/plugins/libmvtools.dylib" ] && MISSING="$MISSING mvtools"
+[ ! -f "$DEPS_DIR/vapoursynth/plugins/libdfttest.dylib" ] && MISSING="$MISSING dfttest"
 [ ! -f "$DEPS_DIR/python-packages/havsfunc.py" ] && MISSING="$MISSING havsfunc"
+
+# Check for FFTW (required by dfttest)
+if [ ! -f "$DEPS_DIR/vapoursynth/libfftw3f.dylib" ] && [ ! -f "$DEPS_DIR/vapoursynth/libfftw3f.3.dylib" ]; then
+    MISSING="$MISSING fftw"
+fi
 
 if [ -n "$MISSING" ]; then
     echo "WARNING: Missing dependencies:$MISSING"
     echo ""
     echo "Please install missing dependencies via Homebrew:"
-    echo "  brew install vapoursynth vapoursynth-mvtools vapoursynth-ffms2"
+    echo "  brew install vapoursynth vapoursynth-mvtools vapoursynth-ffms2 fftw"
+    echo ""
+    echo "Note: dfttest may need to be compiled from source or installed via vsrepo"
     echo ""
 fi
 

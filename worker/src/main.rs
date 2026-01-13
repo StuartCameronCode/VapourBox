@@ -3,6 +3,9 @@
 //! This worker process receives a job configuration file via --config argument,
 //! generates a VapourSynth script, and runs the vspipe | ffmpeg pipeline.
 //! Progress is reported via JSON messages on stdout.
+//!
+//! Preview mode: Use --preview --frame N to generate a single processed frame
+//! as PNG output to stdout (binary).
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -32,10 +35,24 @@ struct Args {
     /// Path to the job configuration JSON file
     #[arg(long)]
     config: PathBuf,
+
+    /// Preview mode: generate a single processed frame as PNG to stdout
+    #[arg(long)]
+    preview: bool,
+
+    /// Frame number to extract in preview mode (required with --preview)
+    #[arg(long)]
+    frame: Option<i32>,
 }
 
 fn main() -> ExitCode {
     let args = Args::parse();
+
+    // Preview mode outputs raw PNG to stdout - no JSON messages
+    if args.preview {
+        return run_preview_mode(&args);
+    }
+
     let reporter = ProgressReporter::new();
 
     // Set up cancellation flag
@@ -66,6 +83,68 @@ fn main() -> ExitCode {
                 reporter.send_complete(false, None);
                 ExitCode::from(1)
             }
+        }
+    }
+}
+
+/// Run in preview mode - generate single frame PNG to stdout
+fn run_preview_mode(args: &Args) -> ExitCode {
+    let frame = match args.frame {
+        Some(f) => f,
+        None => {
+            eprintln!("Error: --frame is required with --preview");
+            return ExitCode::from(1);
+        }
+    };
+
+    // Load job configuration
+    let config_content = match std::fs::read_to_string(&args.config) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error reading config: {}", e);
+            return ExitCode::from(1);
+        }
+    };
+
+    let job: VideoJob = match serde_json::from_str(&config_content) {
+        Ok(j) => j,
+        Err(e) => {
+            eprintln!("Error parsing config: {}", e);
+            return ExitCode::from(1);
+        }
+    };
+
+    // Generate VapourSynth script
+    let script_generator = match ScriptGenerator::new() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("Error creating script generator: {}", e);
+            return ExitCode::from(1);
+        }
+    };
+
+    let script_path = match script_generator.generate(&job) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Error generating script: {}", e);
+            return ExitCode::from(1);
+        }
+    };
+
+    // Execute preview
+    let executor = match PipelineExecutor::new(ProgressReporter::new()) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("Error creating executor: {}", e);
+            return ExitCode::from(1);
+        }
+    };
+
+    match executor.generate_preview(&script_path, frame) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("Error generating preview: {}", e);
+            ExitCode::from(1)
         }
     }
 }

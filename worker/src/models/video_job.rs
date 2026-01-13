@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::QTGMCParameters;
+use super::{QTGMCParameters, RestorationPipeline};
 
 /// Represents a complete video processing job.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,8 +18,12 @@ pub struct VideoJob {
     /// Output video file path
     pub output_path: String,
 
-    /// QTGMC deinterlacing parameters
+    /// Legacy QTGMC deinterlacing parameters (for backwards compatibility)
     pub qtgmc_parameters: QTGMCParameters,
+
+    /// Full restoration pipeline (new multi-pass system)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restoration_pipeline: Option<RestorationPipeline>,
 
     /// FFmpeg encoding settings
     pub encoding_settings: EncodingSettings,
@@ -35,6 +39,16 @@ pub struct VideoJob {
     /// Input video frame rate
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_frame_rate: Option<f64>,
+}
+
+impl VideoJob {
+    /// Get the effective restoration pipeline.
+    /// Uses restoration_pipeline if set, otherwise creates one from legacy qtgmc_parameters.
+    pub fn effective_pipeline(&self) -> RestorationPipeline {
+        self.restoration_pipeline
+            .clone()
+            .unwrap_or_else(|| RestorationPipeline::from_legacy(&self.qtgmc_parameters))
+    }
 }
 
 /// Video encoding settings for FFmpeg output.
@@ -119,6 +133,9 @@ pub enum VideoCodec {
     #[serde(rename = "libx265")]
     H265,
 
+    #[serde(rename = "ffv1")]
+    FFV1,
+
     #[serde(rename = "prores_ks -profile:v 0")]
     ProResProxy,
 
@@ -138,6 +155,7 @@ impl VideoCodec {
         match self {
             VideoCodec::H264 => "libx264",
             VideoCodec::H265 => "libx265",
+            VideoCodec::FFV1 => "ffv1",
             VideoCodec::ProResProxy => "prores_ks",
             VideoCodec::ProResLT => "prores_ks",
             VideoCodec::ProRes422 => "prores_ks",
@@ -161,10 +179,17 @@ impl VideoCodec {
         self.prores_profile().is_some()
     }
 
+    /// Check if this is FFV1 codec.
+    pub fn is_ffv1(&self) -> bool {
+        matches!(self, VideoCodec::FFV1)
+    }
+
     /// Get the preferred container format for this codec.
     pub fn preferred_container(&self) -> ContainerFormat {
         if self.is_prores() {
             ContainerFormat::Mov
+        } else if self.is_ffv1() {
+            ContainerFormat::Avi
         } else {
             ContainerFormat::Mp4
         }
@@ -175,6 +200,7 @@ impl VideoCodec {
         match self {
             VideoCodec::H264 => "H.264",
             VideoCodec::H265 => "H.265 (HEVC)",
+            VideoCodec::FFV1 => "FFV1 (Lossless)",
             VideoCodec::ProResProxy => "ProRes Proxy",
             VideoCodec::ProResLT => "ProRes LT",
             VideoCodec::ProRes422 => "ProRes 422",
@@ -191,6 +217,7 @@ pub enum ContainerFormat {
     Mp4,
     Mov,
     Mkv,
+    Avi,
 }
 
 impl ContainerFormat {
@@ -200,6 +227,7 @@ impl ContainerFormat {
             ContainerFormat::Mp4 => "mp4",
             ContainerFormat::Mov => "mov",
             ContainerFormat::Mkv => "mkv",
+            ContainerFormat::Avi => "avi",
         }
     }
 
@@ -209,6 +237,7 @@ impl ContainerFormat {
             ContainerFormat::Mp4 => "MP4",
             ContainerFormat::Mov => "QuickTime MOV",
             ContainerFormat::Mkv => "Matroska MKV",
+            ContainerFormat::Avi => "AVI",
         }
     }
 }

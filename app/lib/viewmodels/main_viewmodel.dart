@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../models/encoding_settings.dart';
 import '../models/progress_info.dart';
 import '../models/qtgmc_parameters.dart';
+import '../models/restoration_pipeline.dart';
 import '../models/video_job.dart';
 import '../services/field_order_detector.dart';
 import '../services/preview_generator.dart';
@@ -37,6 +38,11 @@ class MainViewModel extends ChangeNotifier {
   bool _autoFieldOrder = true;
   FieldOrder _manualFieldOrder = FieldOrder.topFieldFirst;
 
+  // Restoration pipeline
+  RestorationPipeline _restorationPipeline = const RestorationPipeline();
+  PassType _selectedPass = PassType.deinterlace;
+  bool _advancedMode = false;
+
   // Preview state
   List<Uint8List> _thumbnails = [];
   Uint8List? _currentFrame;
@@ -63,6 +69,9 @@ class MainViewModel extends ChangeNotifier {
   EncodingSettings get encodingSettings => _encodingSettings;
   bool get autoFieldOrder => _autoFieldOrder;
   FieldOrder get manualFieldOrder => _manualFieldOrder;
+  RestorationPipeline get restorationPipeline => _restorationPipeline;
+  PassType get selectedPass => _selectedPass;
+  bool get advancedMode => _advancedMode;
 
   // Preview getters
   List<Uint8List> get thumbnails => _thumbnails;
@@ -239,7 +248,7 @@ class MainViewModel extends ChangeNotifier {
     try {
       final preview = await _previewGenerator.generateProcessedPreview(
         timeSeconds: timeSeconds,
-        qtgmcParams: _qtgmcParams,
+        pipeline: _restorationPipeline,
         fieldOrder: effectiveFieldOrder,
         cancelToken: _previewCancelToken,
       );
@@ -299,6 +308,36 @@ class MainViewModel extends ChangeNotifier {
     _requestPreviewUpdate();
   }
 
+  /// Updates the restoration pipeline.
+  void updateRestorationPipeline(RestorationPipeline pipeline) {
+    _restorationPipeline = pipeline;
+    // Keep qtgmcParams in sync with deinterlace settings
+    _qtgmcParams = pipeline.deinterlace;
+    notifyListeners();
+    _requestPreviewUpdate();
+  }
+
+  /// Toggles a pass on or off.
+  void togglePass(PassType pass, bool enabled) {
+    _restorationPipeline = _restorationPipeline.togglePass(pass, enabled);
+    // Keep qtgmcParams in sync
+    _qtgmcParams = _restorationPipeline.deinterlace;
+    notifyListeners();
+    _requestPreviewUpdate();
+  }
+
+  /// Selects a pass for editing.
+  void selectPass(PassType pass) {
+    _selectedPass = pass;
+    notifyListeners();
+  }
+
+  /// Sets the advanced mode.
+  void setAdvancedMode(bool advanced) {
+    _advancedMode = advanced;
+    notifyListeners();
+  }
+
   /// Starts processing.
   Future<void> startProcessing() async {
     if (!canProcess) return;
@@ -315,6 +354,11 @@ class MainViewModel extends ChangeNotifier {
       outputPath: _outputPath!,
       qtgmcParameters: _qtgmcParams.copyWith(
         tff: effectiveFieldOrder == FieldOrder.topFieldFirst,
+      ),
+      restorationPipeline: _restorationPipeline.copyWith(
+        deinterlace: _restorationPipeline.deinterlace.copyWith(
+          tff: effectiveFieldOrder == FieldOrder.topFieldFirst,
+        ),
       ),
       encodingSettings: _encodingSettings,
       totalFrames: _videoInfo?.frameCount,
@@ -360,6 +404,8 @@ class MainViewModel extends ChangeNotifier {
         return '.mkv';
       case ContainerFormat.mov:
         return '.mov';
+      case ContainerFormat.avi:
+        return '.avi';
     }
   }
 

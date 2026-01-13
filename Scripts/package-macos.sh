@@ -138,8 +138,9 @@ fi
 cp "$WORKER_BIN" "$CONTENTS/Helpers/ideinterlace-worker"
 chmod +x "$CONTENTS/Helpers/ideinterlace-worker"
 
-# Copy VapourSynth script template
+# Copy VapourSynth script templates
 cp "$PROJECT_ROOT/worker/templates/qtgmc_template.vpy" "$CONTENTS/Resources/Templates/"
+cp "$PROJECT_ROOT/worker/templates/pipeline_template.vpy" "$CONTENTS/Resources/Templates/"
 
 # Copy dependencies
 echo "[6/8] Copying dependencies..."
