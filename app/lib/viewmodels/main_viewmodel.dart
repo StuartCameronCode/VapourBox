@@ -52,6 +52,12 @@ class MainViewModel extends ChangeNotifier {
   CancelToken? _previewCancelToken;
   Timer? _previewDebounceTimer;
 
+  // Timeline zoom state
+  double _timelineZoom = 1.0; // 1.0 = full view, 2.0 = 2x zoom, etc.
+  double _timelineViewStart = 0.0; // 0.0 to 1.0, normalized start position
+  Timer? _zoomDebounceTimer;
+  bool _isLoadingZoomedThumbnails = false;
+
   // Subscriptions
   StreamSubscription<ProgressInfo>? _progressSub;
   StreamSubscription<LogMessage>? _logSub;
@@ -80,6 +86,15 @@ class MainViewModel extends ChangeNotifier {
   double get scrubberPosition => _scrubberPosition;
   bool get isGeneratingPreview => _isGeneratingPreview;
   double get videoDuration => _previewGenerator.duration;
+
+  // Timeline zoom getters
+  double get timelineZoom => _timelineZoom;
+  double get timelineViewStart => _timelineViewStart;
+  double get timelineViewEnd =>
+      (_timelineViewStart + 1.0 / _timelineZoom).clamp(0.0, 1.0);
+  bool get isLoadingZoomedThumbnails => _isLoadingZoomedThumbnails;
+  double get visibleStartTime => _timelineViewStart * videoDuration;
+  double get visibleEndTime => timelineViewEnd * videoDuration;
 
   bool get canProcess =>
       _inputPath != null &&
@@ -222,6 +237,100 @@ class MainViewModel extends ChangeNotifier {
 
     // Debounce the processed preview generation
     _requestPreviewUpdate();
+  }
+
+  /// Zooms in on the timeline, centering on the current scrubber position.
+  void zoomIn() {
+    if (_timelineZoom >= 16.0) return; // Max zoom 16x
+
+    final oldZoom = _timelineZoom;
+    _timelineZoom = (_timelineZoom * 1.5).clamp(1.0, 16.0);
+
+    // Adjust view start to keep scrubber position centered
+    _adjustViewForZoom(oldZoom);
+    notifyListeners();
+    _requestThumbnailRegeneration();
+  }
+
+  /// Zooms out on the timeline.
+  void zoomOut() {
+    if (_timelineZoom <= 1.0) return;
+
+    final oldZoom = _timelineZoom;
+    _timelineZoom = (_timelineZoom / 1.5).clamp(1.0, 16.0);
+
+    // Adjust view start to keep scrubber position centered
+    _adjustViewForZoom(oldZoom);
+    notifyListeners();
+    _requestThumbnailRegeneration();
+  }
+
+  /// Sets the timeline zoom level directly.
+  void setTimelineZoom(double zoom) {
+    final oldZoom = _timelineZoom;
+    _timelineZoom = zoom.clamp(1.0, 16.0);
+    _adjustViewForZoom(oldZoom);
+    notifyListeners();
+    _requestThumbnailRegeneration();
+  }
+
+  /// Pans the timeline view.
+  void panTimeline(double delta) {
+    if (_timelineZoom <= 1.0) return;
+
+    final maxStart = 1.0 - (1.0 / _timelineZoom);
+    _timelineViewStart = (_timelineViewStart + delta).clamp(0.0, maxStart);
+    notifyListeners();
+    _requestThumbnailRegeneration();
+  }
+
+  /// Adjusts the view start to keep the scrubber position stable during zoom.
+  void _adjustViewForZoom(double oldZoom) {
+    // Calculate the visible range width
+    final newViewWidth = 1.0 / _timelineZoom;
+    final maxStart = 1.0 - newViewWidth;
+
+    // Try to center on the scrubber position
+    final targetCenter = _scrubberPosition;
+    _timelineViewStart = (targetCenter - newViewWidth / 2).clamp(0.0, maxStart);
+  }
+
+  /// Requests thumbnail regeneration with debouncing.
+  void _requestThumbnailRegeneration() {
+    _zoomDebounceTimer?.cancel();
+    _zoomDebounceTimer = Timer(const Duration(milliseconds: 300), () {
+      _regenerateThumbnailsForZoom();
+    });
+  }
+
+  /// Regenerates thumbnails for the current zoom level.
+  Future<void> _regenerateThumbnailsForZoom() async {
+    if (_inputPath == null) return;
+
+    _isLoadingZoomedThumbnails = true;
+    notifyListeners();
+
+    try {
+      _thumbnails = await _previewGenerator.loadVideoRange(
+        videoPath: _inputPath!,
+        startTime: visibleStartTime,
+        endTime: visibleEndTime,
+        thumbnailCount: 20,
+      );
+    } catch (e) {
+      // Ignore errors
+    }
+
+    _isLoadingZoomedThumbnails = false;
+    notifyListeners();
+  }
+
+  /// Resets the timeline zoom to 1x.
+  void resetTimelineZoom() {
+    _timelineZoom = 1.0;
+    _timelineViewStart = 0.0;
+    notifyListeners();
+    _requestThumbnailRegeneration();
   }
 
   /// Requests a preview update with debouncing.
@@ -415,6 +524,7 @@ class MainViewModel extends ChangeNotifier {
     _logSub?.cancel();
     _completionSub?.cancel();
     _previewDebounceTimer?.cancel();
+    _zoomDebounceTimer?.cancel();
     _workerManager.dispose();
     _previewGenerator.dispose();
     super.dispose();

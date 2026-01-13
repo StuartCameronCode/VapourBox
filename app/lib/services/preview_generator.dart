@@ -98,6 +98,64 @@ class PreviewGenerator {
     return await _extractThumbnails(videoPath, thumbnailCount);
   }
 
+  /// Load thumbnails for a specific time range of the video.
+  ///
+  /// Used for zoomed timeline views where we want higher density thumbnails
+  /// for a portion of the video.
+  Future<List<Uint8List>> loadVideoRange({
+    required String videoPath,
+    required double startTime,
+    required double endTime,
+    required int thumbnailCount,
+  }) async {
+    if (_ffmpegPath == null || _ffprobePath == null) {
+      throw Exception('FFmpeg tools not found');
+    }
+
+    // Ensure video info is loaded
+    if (_currentVideoPath != videoPath) {
+      _currentVideoPath = videoPath;
+      await _probeVideo(videoPath);
+    }
+
+    // Extract thumbnails for the specified range
+    return await _extractThumbnailsForRange(
+      videoPath,
+      startTime,
+      endTime,
+      thumbnailCount,
+    );
+  }
+
+  Future<List<Uint8List>> _extractThumbnailsForRange(
+    String videoPath,
+    double startTime,
+    double endTime,
+    int count,
+  ) async {
+    final thumbnails = <Uint8List>[];
+    final duration = endTime - startTime;
+    final interval = duration / count;
+
+    // Use ffmpeg to extract thumbnails in parallel
+    final futures = <Future<Uint8List?>>[];
+
+    for (var i = 0; i < count; i++) {
+      final time = startTime + i * interval;
+      futures.add(_extractSingleThumbnail(videoPath, time, i));
+    }
+
+    final results = await Future.wait(futures);
+
+    for (final result in results) {
+      if (result != null) {
+        thumbnails.add(result);
+      }
+    }
+
+    return thumbnails;
+  }
+
   /// Get a single frame at a specific time position.
   Future<Uint8List?> getFrameAt(double timeSeconds) async {
     if (_currentVideoPath == null || _ffmpegPath == null) return null;
@@ -157,7 +215,12 @@ class PreviewGenerator {
 
     if (cancelToken?.isCancelled ?? false) return null;
 
-    final frameNumber = (timeSeconds * _frameRate).round();
+    // Calculate frame number in the output video
+    // When deinterlacing with FPSDivisor=1 (double-rate), output has 2x frames
+    var frameNumber = (timeSeconds * _frameRate).round();
+    if (pipeline.deinterlace.enabled && pipeline.deinterlace.fpsDivisor == 1) {
+      frameNumber *= 2;
+    }
     final configPath = '$_tempDir/preview_config_${DateTime.now().millisecondsSinceEpoch}.json';
 
     try {
