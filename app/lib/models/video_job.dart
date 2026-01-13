@@ -116,6 +116,28 @@ enum VideoCodec {
     if (isFFV1) return ContainerFormat.avi;
     return ContainerFormat.mp4;
   }
+
+  /// Check if this codec is supported by the given container.
+  bool supportsContainer(ContainerFormat container) {
+    switch (container) {
+      case ContainerFormat.mp4:
+        // MP4 supports H.264, H.265 only
+        return this == VideoCodec.h264 || this == VideoCodec.h265;
+      case ContainerFormat.mov:
+        // MOV supports H.264, H.265, ProRes
+        return this == VideoCodec.h264 ||
+               this == VideoCodec.h265 ||
+               isProRes;
+      case ContainerFormat.mkv:
+        // MKV supports H.264, H.265, FFV1
+        return this == VideoCodec.h264 ||
+               this == VideoCodec.h265 ||
+               this == VideoCodec.ffv1;
+      case ContainerFormat.avi:
+        // AVI supports FFV1, H.264 (uncommon)
+        return this == VideoCodec.ffv1 || this == VideoCodec.h264;
+    }
+  }
 }
 
 /// Output container formats.
@@ -132,6 +154,13 @@ enum ContainerFormat {
   final String displayName;
 
   String get extension => value;
+
+  /// Get the list of codecs supported by this container.
+  List<VideoCodec> get supportedCodecs {
+    return VideoCodec.values
+        .where((codec) => codec.supportsContainer(this))
+        .toList();
+  }
 }
 
 /// Video field order.

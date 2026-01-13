@@ -1,23 +1,30 @@
 """
-iDeinterlace Multi-Pass Restoration Pipeline Template
-Supports: Crop, Deinterlace (QTGMC), Noise Reduction, Chroma Fixes, Color Correction, Resize
-Placeholders use the format: {{PARAMETER_NAME}}
-Conditional blocks use: {{#BLOCK_NAME}}...{{/BLOCK_NAME}}
+iDeinterlace Preview Template
+Loads a short extracted video clip for fast preview generation.
+Uses the same filter pipeline as the main template.
 """
 
 import vapoursynth as vs
 import sys
+import os
 
 core = vs.core
 
-# Load input video using ffms2 for frame-accurate seeking
-clip = core.ffms2.Source(source=r"{{INPUT_PATH}}")
+# Load the temporary preview video clip (extracted with fast keyframe seeking)
+video_path = r"{{VIDEO_PATH}}"
 
-# Get input properties for progress tracking
-input_fps_num = clip.fps.numerator
-input_fps_den = clip.fps.denominator
+# Load using ffms2 (fast since the clip is only ~11 frames)
+clip = core.ffms2.Source(video_path, cachefile="")
+
+# Set frame rate properties that QTGMC expects (from original video)
+clip = core.std.AssumeFPS(clip, fpsnum={{FPS_NUM}}, fpsden={{FPS_DEN}})
+
+# Mark as interlaced for QTGMC (field-based)
+clip = core.std.SetFieldBased(clip, {{FIELD_BASED}})
+
+# Report frame info
 total_frames = clip.num_frames
-print(f"INPUT_INFO:frames={total_frames},fps_num={input_fps_num},fps_den={input_fps_den}", file=sys.stderr)
+print(f"INPUT_INFO:frames={total_frames},fps_num={{FPS_NUM}},fps_den={{FPS_DEN}}", file=sys.stderr)
 
 # Import havsfunc for various filters (QTGMC, SMDegrain, chroma fixes)
 import havsfunc as haf
@@ -478,6 +485,8 @@ clip = core.resize.Bilinear(clip, width=target_w, height=target_h)
 {{/RESIZE}}
 
 # ============================================================================
-# OUTPUT
+# OUTPUT - select the middle frame for preview
 # ============================================================================
+middle_frame = clip.num_frames // 2
+clip = clip[middle_frame]
 clip.set_output()

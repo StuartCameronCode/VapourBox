@@ -215,12 +215,9 @@ class PreviewGenerator {
 
     if (cancelToken?.isCancelled ?? false) return null;
 
-    // Calculate frame number in the output video
-    // When deinterlacing with FPSDivisor=1 (double-rate), output has 2x frames
-    var frameNumber = (timeSeconds * _frameRate).round();
-    if (pipeline.deinterlace.enabled && pipeline.deinterlace.fpsDivisor == 1) {
-      frameNumber *= 2;
-    }
+    // Calculate frame number in the SOURCE video (not output)
+    // We no longer double for FPSDivisor=1 because we're seeking in the source
+    final frameNumber = (timeSeconds * _frameRate).round();
     final configPath = '$_tempDir/preview_config_${DateTime.now().millisecondsSinceEpoch}.json';
 
     try {
@@ -241,6 +238,7 @@ class PreviewGenerator {
           container: ContainerFormat.avi,
         ),
         detectedFieldOrder: fieldOrder,
+        inputFrameRate: _frameRate,
       );
 
       // Write job config to file

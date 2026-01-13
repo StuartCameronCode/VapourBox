@@ -124,23 +124,61 @@ class _EncodingSettingsTab extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // Video Codec
+            // Container Format (first so codec options can be filtered)
+            _buildSection(
+              context,
+              title: 'Container Format',
+              child: SegmentedButton<ContainerFormat>(
+                segments: ContainerFormat.values.map((format) {
+                  return ButtonSegment(
+                    value: format,
+                    label: Text(format.name.toUpperCase()),
+                  );
+                }).toList(),
+                selected: {settings.container},
+                onSelectionChanged: (value) {
+                  final newContainer = value.first;
+                  // If current codec isn't supported by new container, switch to first supported codec
+                  var newCodec = settings.codec;
+                  if (!newCodec.supportsContainer(newContainer)) {
+                    newCodec = newContainer.supportedCodecs.first;
+                  }
+                  viewModel.updateEncodingSettings(
+                      settings.copyWith(container: newContainer, codec: newCodec));
+                },
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Video Codec (filtered by container)
             _buildSection(
               context,
               title: 'Video Codec',
               child: Column(
                 children: VideoCodec.values.map((codec) {
+                  final isSupported = codec.supportsContainer(settings.container);
                   return RadioListTile<VideoCodec>(
-                    title: Text(codec.displayName),
-                    subtitle: Text(codec.description),
+                    title: Text(
+                      codec.displayName,
+                      style: isSupported ? null : TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38),
+                      ),
+                    ),
+                    subtitle: Text(
+                      isSupported ? codec.description : 'Not supported in ${settings.container.name.toUpperCase()}',
+                      style: isSupported ? null : TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38),
+                      ),
+                    ),
                     value: codec,
                     groupValue: settings.codec,
-                    onChanged: (value) {
+                    onChanged: isSupported ? (value) {
                       if (value != null) {
                         viewModel.updateEncodingSettings(
                             settings.copyWith(codec: value));
                       }
-                    },
+                    } : null,
                   );
                 }).toList(),
               ),
@@ -213,27 +251,6 @@ class _EncodingSettingsTab extends StatelessWidget {
                   ),
                 ),
               ),
-
-            const SizedBox(height: 24),
-
-            // Container
-            _buildSection(
-              context,
-              title: 'Container Format',
-              child: SegmentedButton<ContainerFormat>(
-                segments: ContainerFormat.values.map((format) {
-                  return ButtonSegment(
-                    value: format,
-                    label: Text(format.name.toUpperCase()),
-                  );
-                }).toList(),
-                selected: {settings.container},
-                onSelectionChanged: (value) {
-                  viewModel.updateEncodingSettings(
-                      settings.copyWith(container: value.first));
-                },
-              ),
-            ),
 
             const SizedBox(height: 24),
 

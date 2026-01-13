@@ -15,20 +15,34 @@ use crate::models::{
 /// Generates VapourSynth scripts from templates.
 pub struct ScriptGenerator {
     template: String,
+    preview_template: String,
+}
+
+/// Parameters for preview script generation.
+pub struct PreviewParams {
+    /// Path to the temporary preview video clip
+    pub video_path: String,
+    /// Original video FPS numerator
+    pub fps_num: i32,
+    /// Original video FPS denominator
+    pub fps_den: i32,
+    /// Field order: 1 = BFF, 2 = TFF
+    pub field_based: i32,
 }
 
 impl ScriptGenerator {
-    /// Create a new script generator, loading the template.
+    /// Create a new script generator, loading the templates.
     pub fn new() -> Result<Self> {
         let template = Self::load_template()?;
-        Ok(Self { template })
+        let preview_template = Self::load_preview_template()?;
+        Ok(Self { template, preview_template })
     }
 
     /// Generate a .vpy script file for the given job.
     /// Returns the path to the generated script.
     pub fn generate(&self, job: &VideoJob) -> Result<PathBuf> {
         let pipeline = job.effective_pipeline();
-        let script = self.substitute_parameters(job, &pipeline);
+        let script = self.substitute_parameters(&self.template, job, &pipeline);
 
         // Write to temp file
         let temp_dir = env::temp_dir();
@@ -40,29 +54,66 @@ impl ScriptGenerator {
         Ok(script_path)
     }
 
+    /// Generate a preview .vpy script that loads from extracted frames.
+    /// Returns the path to the generated script.
+    pub fn generate_preview(&self, job: &VideoJob, preview_params: &PreviewParams) -> Result<PathBuf> {
+        let pipeline = job.effective_pipeline();
+
+        // Start with preview template and substitute preview-specific params
+        let mut script = self.preview_template.clone();
+
+        // Escape backslashes for Python
+        let escaped_video_path = preview_params.video_path.replace('\\', "\\\\");
+        script = script.replace("{{VIDEO_PATH}}", &escaped_video_path);
+        script = script.replace("{{FPS_NUM}}", &preview_params.fps_num.to_string());
+        script = script.replace("{{FPS_DEN}}", &preview_params.fps_den.to_string());
+        script = script.replace("{{FIELD_BASED}}", &preview_params.field_based.to_string());
+
+        // Now apply the same pipeline substitutions
+        script = self.substitute_parameters_on(&script, job, &pipeline);
+
+        // Write to temp file
+        let temp_dir = env::temp_dir();
+        let script_path = temp_dir.join(format!("{}_preview.vpy", job.id));
+
+        fs::write(&script_path, &script)
+            .with_context(|| format!("Failed to write preview script to {:?}", script_path))?;
+
+        Ok(script_path)
+    }
+
     /// Load the template from various locations.
     fn load_template() -> Result<String> {
+        Self::load_template_by_name("pipeline_template.vpy", "qtgmc_template.vpy")
+    }
+
+    /// Load the preview template from various locations.
+    fn load_preview_template() -> Result<String> {
+        Self::load_template_by_name("preview_template.vpy", "preview_template.vpy")
+    }
+
+    /// Load a template by name from various locations.
+    fn load_template_by_name(primary_name: &str, fallback_name: &str) -> Result<String> {
         // Try locations in order of preference
         let exe_path = env::current_exe()?;
         let exe_dir = exe_path.parent().unwrap_or(Path::new("."));
 
         let search_paths = [
-            // Next to executable - pipeline template first
-            exe_dir.join("templates").join("pipeline_template.vpy"),
-            exe_dir.join("Templates").join("pipeline_template.vpy"),
-            // Fallback to legacy QTGMC template
-            exe_dir.join("templates").join("qtgmc_template.vpy"),
-            exe_dir.join("Templates").join("qtgmc_template.vpy"),
+            // Next to executable
+            exe_dir.join("templates").join(primary_name),
+            exe_dir.join("Templates").join(primary_name),
+            exe_dir.join("templates").join(fallback_name),
+            exe_dir.join("Templates").join(fallback_name),
             // In parent (for development: worker/target/release -> worker/templates)
-            exe_dir.join("..").join("..").join("templates").join("pipeline_template.vpy"),
-            exe_dir.join("..").join("..").join("..").join("templates").join("pipeline_template.vpy"),
-            exe_dir.join("..").join("..").join("templates").join("qtgmc_template.vpy"),
-            exe_dir.join("..").join("..").join("..").join("templates").join("qtgmc_template.vpy"),
+            exe_dir.join("..").join("..").join("templates").join(primary_name),
+            exe_dir.join("..").join("..").join("..").join("templates").join(primary_name),
+            exe_dir.join("..").join("..").join("templates").join(fallback_name),
+            exe_dir.join("..").join("..").join("..").join("templates").join(fallback_name),
             // Relative to current dir
-            PathBuf::from("templates").join("pipeline_template.vpy"),
-            PathBuf::from("templates").join("qtgmc_template.vpy"),
-            PathBuf::from("worker").join("templates").join("pipeline_template.vpy"),
-            PathBuf::from("worker").join("templates").join("qtgmc_template.vpy"),
+            PathBuf::from("templates").join(primary_name),
+            PathBuf::from("templates").join(fallback_name),
+            PathBuf::from("worker").join("templates").join(primary_name),
+            PathBuf::from("worker").join("templates").join(fallback_name),
         ];
 
         for path in &search_paths {
@@ -74,19 +125,31 @@ impl ScriptGenerator {
             }
         }
 
-        // Fallback to embedded template
-        eprintln!("Using embedded fallback template");
-        Ok(Self::embedded_template())
+        // Fallback to embedded template (only for main template)
+        if primary_name.contains("pipeline") || primary_name.contains("qtgmc") {
+            eprintln!("Using embedded fallback template");
+            return Ok(Self::embedded_template());
+        }
+
+        anyhow::bail!("Could not find template: {}", primary_name)
     }
 
-    /// Substitute parameters in the template.
-    fn substitute_parameters(&self, job: &VideoJob, pipeline: &RestorationPipeline) -> String {
-        let mut script = self.template.clone();
+    /// Substitute parameters in a script string.
+    fn substitute_parameters(&self, template: &str, job: &VideoJob, pipeline: &RestorationPipeline) -> String {
+        let mut script = template.to_string();
         let params = &job.qtgmc_parameters;
 
         // Input path (escape backslashes for Python)
         let escaped_input = job.input_path.replace('\\', "\\\\");
         script = script.replace("{{INPUT_PATH}}", &escaped_input);
+
+        self.substitute_parameters_on(&script, job, pipeline)
+    }
+
+    /// Substitute pipeline parameters on an already-prepared script.
+    fn substitute_parameters_on(&self, script: &str, job: &VideoJob, pipeline: &RestorationPipeline) -> String {
+        let mut script = script.to_string();
+        let params = &job.qtgmc_parameters;
 
         // ====================================================================
         // PRE-CROP PASS
@@ -380,10 +443,22 @@ impl ScriptGenerator {
 
             // Standard resize
             if resize.resize_enabled {
-                let width = resize.target_width.unwrap_or(1920);
-                let height = resize.target_height.unwrap_or(1080);
+                script = script.replace("{{#RESIZE_STANDARD}}", "");
+                script = script.replace("{{/RESIZE_STANDARD}}", "");
+
+                // Use -1 for unspecified dimensions (maintain aspect will calculate)
+                let width = resize.target_width.unwrap_or(-1);
+                let height = resize.target_height.unwrap_or(-1);
                 script = script.replace("{{TARGET_WIDTH}}", &width.to_string());
                 script = script.replace("{{TARGET_HEIGHT}}", &height.to_string());
+
+                // Handle maintain aspect ratio
+                if resize.maintain_aspect {
+                    script = script.replace("{{#MAINTAIN_ASPECT}}", "");
+                    script = script.replace("{{/MAINTAIN_ASPECT}}", "");
+                } else {
+                    script = remove_block("{{#MAINTAIN_ASPECT}}", "{{/MAINTAIN_ASPECT}}", script);
+                }
 
                 match resize.kernel {
                     ResizeKernel::Spline36 | ResizeKernel::Nnedi3 | ResizeKernel::Eedi3 => {
@@ -417,10 +492,7 @@ impl ScriptGenerator {
                     }
                 }
             } else {
-                script = remove_block("{{#RESIZE_SPLINE36}}", "{{/RESIZE_SPLINE36}}", script);
-                script = remove_block("{{#RESIZE_LANCZOS}}", "{{/RESIZE_LANCZOS}}", script);
-                script = remove_block("{{#RESIZE_BICUBIC}}", "{{/RESIZE_BICUBIC}}", script);
-                script = remove_block("{{#RESIZE_BILINEAR}}", "{{/RESIZE_BILINEAR}}", script);
+                script = remove_block("{{#RESIZE_STANDARD}}", "{{/RESIZE_STANDARD}}", script);
             }
         } else {
             script = remove_block("{{#RESIZE}}", "{{/RESIZE}}", script);

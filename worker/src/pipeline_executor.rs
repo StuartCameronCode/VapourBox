@@ -1,7 +1,8 @@
 //! Pipeline executor for vspipe | ffmpeg.
 
+use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
@@ -13,6 +14,7 @@ use anyhow::{bail, Context, Result};
 use crate::dependency_locator::DependencyLocator;
 use crate::models::{LogLevel, ProgressInfo, VideoJob};
 use crate::progress_reporter::ProgressReporter;
+use crate::script_generator::{PreviewParams, ScriptGenerator};
 
 /// Executes the vspipe | ffmpeg pipeline.
 pub struct PipelineExecutor {
@@ -258,20 +260,86 @@ impl PipelineExecutor {
 
     /// Generate a preview frame as PNG to stdout.
     ///
-    /// This runs vspipe for a single frame and pipes it through ffmpeg
-    /// to output PNG data to stdout.
-    pub fn generate_preview(&self, script_path: &Path, frame: i32) -> Result<()> {
+    /// This extracts frames around the target time using ffmpeg (fast keyframe seek),
+    /// then processes them through VapourSynth with the filter pipeline.
+    pub fn generate_preview(&self, job: &VideoJob, time_seconds: f64) -> Result<()> {
         use std::io::Write;
 
-        let vspipe_path = self.deps.vspipe_path()?;
         let ffmpeg_path = self.deps.ffmpeg_path()?;
+        let vspipe_path = self.deps.vspipe_path()?;
         let env = self.deps.build_environment();
 
-        // Start vspipe for single frame
+        // Create temp directory for extracted frames
+        let temp_dir = std::env::temp_dir().join(format!("ideinterlace_preview_{}", job.id));
+        fs::create_dir_all(&temp_dir)
+            .with_context(|| format!("Failed to create temp dir: {:?}", temp_dir))?;
+
+        // Number of frames to extract (need enough for QTGMC temporal processing)
+        let num_frames = 11; // Extract 11 frames, use middle one
+        let frame_rate = job.input_frame_rate.unwrap_or(29.97);
+        let frame_duration = 1.0 / frame_rate;
+
+        // Calculate start time (go back half the frames)
+        let start_time = (time_seconds - (num_frames as f64 / 2.0) * frame_duration).max(0.0);
+
+        eprintln!("Extracting {} frames starting at {:.3}s", num_frames, start_time);
+
+        // Extract frames to a temporary lossless video file (FFV1)
+        // Using a video file instead of images because ffms2 is available but imwri is not
+        let temp_video_path = temp_dir.join("preview_clip.mkv");
+        let extract_result = Command::new(&ffmpeg_path)
+            .args([
+                "-ss", &format!("{:.3}", start_time),
+                "-i", &job.input_path,
+                "-vframes", &num_frames.to_string(),
+                "-c:v", "ffv1",
+                "-level", "1",
+                "-an",
+                temp_video_path.to_string_lossy().as_ref(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .with_context(|| "Failed to run ffmpeg for frame extraction")?;
+
+        if !extract_result.status.success() {
+            let stderr = String::from_utf8_lossy(&extract_result.stderr);
+            // Clean up
+            let _ = fs::remove_dir_all(&temp_dir);
+            bail!("Failed to extract frames: {}", stderr);
+        }
+
+        // Verify the file was created
+        if !temp_video_path.exists() {
+            let _ = fs::remove_dir_all(&temp_dir);
+            bail!("Failed to create preview clip");
+        }
+
+        eprintln!("Extracted frames to {:?}", temp_video_path);
+
+        // Determine field order for interlaced content
+        let field_based = if job.qtgmc_parameters.tff == Some(true) {
+            2 // TFF
+        } else {
+            1 // BFF
+        };
+
+        // Generate preview script using the script generator
+        let script_generator = ScriptGenerator::new()?;
+        let preview_params = PreviewParams {
+            video_path: temp_video_path.to_string_lossy().to_string(),
+            fps_num: (frame_rate * 1000.0) as i32,
+            fps_den: 1000,
+            field_based,
+        };
+
+        let script_path = script_generator.generate_preview(job, &preview_params)?;
+
+        eprintln!("Generated preview script: {:?}", script_path);
+
+        // Run vspipe on the preview script (outputs single frame)
         let mut vspipe = Command::new(&vspipe_path)
             .args([
-                "--start", &frame.to_string(),
-                "--end", &frame.to_string(),
                 "-c", "y4m",
                 script_path.to_string_lossy().as_ref(),
                 "-",
@@ -286,7 +354,6 @@ impl PipelineExecutor {
         let vspipe_stderr = vspipe.stderr.take();
 
         // Start ffmpeg to encode as PNG to stdout
-        // Use zscale filter to properly convert YUV limited range to RGB full range
         let ffmpeg = Command::new(&ffmpeg_path)
             .args([
                 "-f", "yuv4mpegpipe",
@@ -310,8 +377,9 @@ impl PipelineExecutor {
                 let reader = BufReader::new(stderr);
                 let mut errors = Vec::new();
                 for line in reader.lines().map_while(Result::ok) {
-                    // Skip INPUT_INFO lines
-                    if !line.starts_with("INPUT_INFO:") && !line.trim().is_empty() {
+                    if !line.starts_with("INPUT_INFO:") &&
+                       !line.starts_with("Loaded template") &&
+                       !line.trim().is_empty() {
                         errors.push(line);
                     }
                 }
@@ -326,6 +394,10 @@ impl PipelineExecutor {
 
         // Read PNG output from ffmpeg
         let output = ffmpeg.wait_with_output().context("Failed to wait for ffmpeg")?;
+
+        // Clean up temp files
+        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::remove_file(&script_path);
 
         // Check for errors
         if !vspipe_status.success() {

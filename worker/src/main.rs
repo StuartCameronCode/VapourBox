@@ -114,24 +114,13 @@ fn run_preview_mode(args: &Args) -> ExitCode {
         }
     };
 
-    // Generate VapourSynth script
-    let script_generator = match ScriptGenerator::new() {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("Error creating script generator: {}", e);
-            return ExitCode::from(1);
-        }
-    };
+    // Calculate time from frame number
+    let frame_rate = job.input_frame_rate.unwrap_or(29.97);
+    let time_seconds = frame as f64 / frame_rate;
 
-    let script_path = match script_generator.generate(&job) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Error generating script: {}", e);
-            return ExitCode::from(1);
-        }
-    };
+    eprintln!("Preview: frame {} at {:.3}s (fps: {:.2})", frame, time_seconds, frame_rate);
 
-    // Execute preview
+    // Execute preview (extracts frames with ffmpeg, processes with VapourSynth)
     let executor = match PipelineExecutor::new(ProgressReporter::new()) {
         Ok(e) => e,
         Err(e) => {
@@ -140,7 +129,7 @@ fn run_preview_mode(args: &Args) -> ExitCode {
         }
     };
 
-    match executor.generate_preview(&script_path, frame) {
+    match executor.generate_preview(&job, time_seconds) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("Error generating preview: {}", e);
