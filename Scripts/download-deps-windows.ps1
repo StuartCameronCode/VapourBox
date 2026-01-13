@@ -7,7 +7,7 @@
     - VapourSynth R73 (portable, includes Python 3.8)
     - Python 3.8 embeddable (for VSScript)
     - FFmpeg (latest GPL build)
-    - VapourSynth plugins (mvtools, nnedi3cl, znedi3, eedi3m, fmtconv, ffms2, miscfilters, dfttest)
+    - VapourSynth plugins (mvtools, nnedi3cl, znedi3, eedi3m, fmtconv, ffms2, miscfilters, dfttest, neo_f3kdb, cas)
     - FFTW library (required by dfttest)
     - Python packages (havsfunc, mvsfunc, adjust)
     - NNEDI3 weights
@@ -211,6 +211,41 @@ $Plugins7z = @(
         Name = "dfttest"
         Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest/releases/download/r7/DFTTest-r7.7z"
         Check = "DFTTest.dll"
+    },
+    @{
+        Name = "neo_f3kdb"
+        Url = "https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb/releases/download/r10/neo_f3kdb_r10.7z"
+        Check = "neo-f3kdb.dll"
+    },
+    @{
+        Name = "cas"
+        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CAS/releases/download/r2/CAS-r2.7z"
+        Check = "CAS.dll"
+    },
+    @{
+        Name = "dctfilter"
+        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DCTFilter/releases/download/r2/DctFilter-r2.7z"
+        Check = "DCTFilter.dll"
+    },
+    @{
+        Name = "deblock"
+        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Deblock/releases/download/r6/Deblock-r6.7z"
+        Check = "Deblock.dll"
+    },
+    @{
+        Name = "awarpsharp2"
+        Url = "https://github.com/dubhater/vapoursynth-awarpsharp2/releases/download/v4/vapoursynth-awarpsharp2-v4-win64.7z"
+        Check = "libawarpsharp2.dll"
+    },
+    @{
+        Name = "removegrain"
+        Url = "https://github.com/vapoursynth/vs-removegrain/releases/download/R1/removegrain-r1.7z"
+        Check = "RemoveGrainVS.dll"
+    },
+    @{
+        Name = "ctmf"
+        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF/releases/download/r5/CTMF-r5.7z"
+        Check = "CTMF.dll"
     }
 )
 

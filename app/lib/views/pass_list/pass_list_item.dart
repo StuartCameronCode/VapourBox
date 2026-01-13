@@ -112,6 +112,14 @@ class PassListItem extends StatelessWidget {
         return Icons.view_stream;
       case PassType.noiseReduction:
         return Icons.grain;
+      case PassType.dehalo:
+        return Icons.flare;
+      case PassType.deblock:
+        return Icons.grid_off;
+      case PassType.deband:
+        return Icons.gradient;
+      case PassType.sharpen:
+        return Icons.center_focus_strong;
       case PassType.colorCorrection:
         return Icons.palette;
       case PassType.chromaFixes:

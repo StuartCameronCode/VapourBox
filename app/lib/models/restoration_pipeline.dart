@@ -3,8 +3,12 @@ import 'package:json_annotation/json_annotation.dart';
 import 'chroma_fix_parameters.dart';
 import 'color_correction_parameters.dart';
 import 'crop_resize_parameters.dart';
+import 'deband_parameters.dart';
+import 'deblock_parameters.dart';
+import 'dehalo_parameters.dart';
 import 'noise_reduction_parameters.dart';
 import 'qtgmc_parameters.dart';
+import 'sharpen_parameters.dart';
 
 part 'restoration_pipeline.g.dart';
 
@@ -12,6 +16,10 @@ part 'restoration_pipeline.g.dart';
 enum PassType {
   deinterlace,
   noiseReduction,
+  dehalo,
+  deblock,
+  deband,
+  sharpen,
   colorCorrection,
   chromaFixes,
   cropResize,
@@ -25,6 +33,14 @@ extension PassTypeExtension on PassType {
         return 'Deinterlace';
       case PassType.noiseReduction:
         return 'Noise Reduction';
+      case PassType.dehalo:
+        return 'Dehalo';
+      case PassType.deblock:
+        return 'Deblock';
+      case PassType.deband:
+        return 'Deband';
+      case PassType.sharpen:
+        return 'Sharpen';
       case PassType.colorCorrection:
         return 'Color Correction';
       case PassType.chromaFixes:
@@ -40,6 +56,14 @@ extension PassTypeExtension on PassType {
         return 'Remove interlacing artifacts using QTGMC';
       case PassType.noiseReduction:
         return 'Reduce video noise and grain';
+      case PassType.dehalo:
+        return 'Remove halo artifacts around edges';
+      case PassType.deblock:
+        return 'Remove compression block artifacts';
+      case PassType.deband:
+        return 'Remove color banding from gradients';
+      case PassType.sharpen:
+        return 'Sharpen edges and enhance detail';
       case PassType.colorCorrection:
         return 'Adjust brightness, contrast, and colors';
       case PassType.chromaFixes:
@@ -60,6 +84,18 @@ class RestorationPipeline {
   /// Noise reduction pass parameters.
   final NoiseReductionParameters noiseReduction;
 
+  /// Dehalo pass parameters.
+  final DehaloParameters dehalo;
+
+  /// Deblock pass parameters.
+  final DeblockParameters deblock;
+
+  /// Deband pass parameters (f3kdb).
+  final DebandParameters deband;
+
+  /// Sharpening pass parameters.
+  final SharpenParameters sharpen;
+
   /// Color correction pass parameters.
   final ColorCorrectionParameters colorCorrection;
 
@@ -72,6 +108,10 @@ class RestorationPipeline {
   const RestorationPipeline({
     this.deinterlace = const QTGMCParameters(),
     this.noiseReduction = const NoiseReductionParameters(),
+    this.dehalo = const DehaloParameters(),
+    this.deblock = const DeblockParameters(),
+    this.deband = const DebandParameters(),
+    this.sharpen = const SharpenParameters(),
     this.colorCorrection = const ColorCorrectionParameters(),
     this.chromaFixes = const ChromaFixParameters(),
     this.cropResize = const CropResizeParameters(),
@@ -83,6 +123,10 @@ class RestorationPipeline {
       deinterlace: qtgmcParams,
       // Other passes disabled by default when migrating from legacy
       noiseReduction: const NoiseReductionParameters(enabled: false),
+      dehalo: const DehaloParameters(enabled: false),
+      deblock: const DeblockParameters(enabled: false),
+      deband: const DebandParameters(enabled: false),
+      sharpen: const SharpenParameters(enabled: false),
       colorCorrection: const ColorCorrectionParameters(enabled: false),
       chromaFixes: const ChromaFixParameters(enabled: false),
       cropResize: const CropResizeParameters(enabled: false),
@@ -92,7 +136,7 @@ class RestorationPipeline {
   /// Get the ordered list of enabled passes.
   List<PassType> get enabledPasses {
     final passes = <PassType>[];
-    // Order: Crop first (pre-processing), then deinterlace, noise, chroma, color, resize last
+    // Order: Crop first (pre-processing), then deinterlace, noise, dehalo, deblock, deband, sharpen, chroma, color, resize last
     if (cropResize.enabled && cropResize.cropEnabled) {
       passes.add(PassType.cropResize); // Pre-crop
     }
@@ -101,6 +145,18 @@ class RestorationPipeline {
     }
     if (noiseReduction.enabled) {
       passes.add(PassType.noiseReduction);
+    }
+    if (dehalo.enabled) {
+      passes.add(PassType.dehalo);
+    }
+    if (deblock.enabled) {
+      passes.add(PassType.deblock);
+    }
+    if (deband.enabled) {
+      passes.add(PassType.deband);
+    }
+    if (sharpen.enabled) {
+      passes.add(PassType.sharpen);
     }
     if (chromaFixes.enabled) {
       passes.add(PassType.chromaFixes);
@@ -122,6 +178,10 @@ class RestorationPipeline {
     var count = 0;
     if (deinterlace.enabled) count++;
     if (noiseReduction.enabled) count++;
+    if (dehalo.enabled) count++;
+    if (deblock.enabled) count++;
+    if (deband.enabled) count++;
+    if (sharpen.enabled) count++;
     if (colorCorrection.enabled) count++;
     if (chromaFixes.enabled) count++;
     if (cropResize.enabled) count++;
@@ -135,6 +195,14 @@ class RestorationPipeline {
         return deinterlace.enabled;
       case PassType.noiseReduction:
         return noiseReduction.enabled;
+      case PassType.dehalo:
+        return dehalo.enabled;
+      case PassType.deblock:
+        return deblock.enabled;
+      case PassType.deband:
+        return deband.enabled;
+      case PassType.sharpen:
+        return sharpen.enabled;
       case PassType.colorCorrection:
         return colorCorrection.enabled;
       case PassType.chromaFixes:
@@ -153,6 +221,14 @@ class RestorationPipeline {
             : 'Off';
       case PassType.noiseReduction:
         return noiseReduction.summary;
+      case PassType.dehalo:
+        return dehalo.summary;
+      case PassType.deblock:
+        return deblock.summary;
+      case PassType.deband:
+        return deband.summary;
+      case PassType.sharpen:
+        return sharpen.summary;
       case PassType.colorCorrection:
         return colorCorrection.summary;
       case PassType.chromaFixes:
@@ -165,6 +241,10 @@ class RestorationPipeline {
   RestorationPipeline copyWith({
     QTGMCParameters? deinterlace,
     NoiseReductionParameters? noiseReduction,
+    DehaloParameters? dehalo,
+    DeblockParameters? deblock,
+    DebandParameters? deband,
+    SharpenParameters? sharpen,
     ColorCorrectionParameters? colorCorrection,
     ChromaFixParameters? chromaFixes,
     CropResizeParameters? cropResize,
@@ -172,6 +252,10 @@ class RestorationPipeline {
     return RestorationPipeline(
       deinterlace: deinterlace ?? this.deinterlace,
       noiseReduction: noiseReduction ?? this.noiseReduction,
+      dehalo: dehalo ?? this.dehalo,
+      deblock: deblock ?? this.deblock,
+      deband: deband ?? this.deband,
+      sharpen: sharpen ?? this.sharpen,
       colorCorrection: colorCorrection ?? this.colorCorrection,
       chromaFixes: chromaFixes ?? this.chromaFixes,
       cropResize: cropResize ?? this.cropResize,
@@ -188,6 +272,22 @@ class RestorationPipeline {
       case PassType.noiseReduction:
         return copyWith(
           noiseReduction: noiseReduction.copyWith(enabled: enabled),
+        );
+      case PassType.dehalo:
+        return copyWith(
+          dehalo: dehalo.copyWith(enabled: enabled),
+        );
+      case PassType.deblock:
+        return copyWith(
+          deblock: deblock.copyWith(enabled: enabled),
+        );
+      case PassType.deband:
+        return copyWith(
+          deband: deband.copyWith(enabled: enabled),
+        );
+      case PassType.sharpen:
+        return copyWith(
+          sharpen: sharpen.copyWith(enabled: enabled),
         );
       case PassType.colorCorrection:
         return copyWith(

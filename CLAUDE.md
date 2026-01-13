@@ -319,6 +319,13 @@ All plugins go in `deps/windows-x64/vapoursynth/vs-plugins/`:
 - `ffms2.dll` - FFmpeg source
 - `MiscFilters.dll` - Misc filters
 - `DFTTest.dll` - FFT-based denoising (used by SMDegrain prefilter=3 and MCTemporalDenoise)
+- `neo-f3kdb.dll` - Debanding (f3kdb)
+- `CAS.dll` - Contrast Adaptive Sharpening
+- `DCTFilter.dll` - DCT filtering (used by Deblock_QED)
+- `Deblock.dll` - Deblocking (used by Deblock_QED and simple deblock)
+- `libawarpsharp2.dll` - Edge warping (used by YAHR dehalo)
+- `RemoveGrainVS.dll` - Grain removal/repair (used by YAHR dehalo)
+- `CTMF.dll` - Constant Time Median Filter (used by YAHR dehalo)
 
 ### Required Libraries (Windows)
 

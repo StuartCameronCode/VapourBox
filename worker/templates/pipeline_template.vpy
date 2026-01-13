@@ -1,6 +1,6 @@
 """
 iDeinterlace Multi-Pass Restoration Pipeline Template
-Supports: Crop, Deinterlace (QTGMC), Noise Reduction, Chroma Fixes, Color Correction, Resize
+Supports: Crop, Deinterlace (QTGMC), Noise Reduction, Dehalo, Deblock, Deband, Sharpen, Chroma Fixes, Color Correction, Resize
 Placeholders use the format: {{PARAMETER_NAME}}
 Conditional blocks use: {{#BLOCK_NAME}}...{{/BLOCK_NAME}}
 """
@@ -311,7 +311,174 @@ clip = mvf.BM3D(
 {{/NOISE_REDUCTION}}
 
 # ============================================================================
-# PASS 4: CHROMA FIXES
+# PASS 4: DEHALO
+# ============================================================================
+{{#DEHALO}}
+
+{{#DEHALO_DEHALO_ALPHA}}
+# DeHalo_alpha - general purpose halo removal
+clip = haf.DeHalo_alpha(
+    clip,
+{{#DEHALO_RX}}
+    rx={{DEHALO_RX}},
+{{/DEHALO_RX}}
+{{#DEHALO_RY}}
+    ry={{DEHALO_RY}},
+{{/DEHALO_RY}}
+{{#DEHALO_DARKSTR}}
+    darkstr={{DEHALO_DARKSTR}},
+{{/DEHALO_DARKSTR}}
+{{#DEHALO_BRIGHTSTR}}
+    brightstr={{DEHALO_BRIGHTSTR}},
+{{/DEHALO_BRIGHTSTR}}
+)
+{{/DEHALO_DEHALO_ALPHA}}
+
+{{#DEHALO_FINE_DEHALO}}
+# FineDehalo - more precise halo removal with edge preservation
+clip = haf.FineDehalo(
+    clip,
+{{#DEHALO_RX}}
+    rx={{DEHALO_RX}},
+{{/DEHALO_RX}}
+{{#DEHALO_RY}}
+    ry={{DEHALO_RY}},
+{{/DEHALO_RY}}
+{{#DEHALO_DARKSTR}}
+    darkstr={{DEHALO_DARKSTR}},
+{{/DEHALO_DARKSTR}}
+{{#DEHALO_BRIGHTSTR}}
+    brightstr={{DEHALO_BRIGHTSTR}},
+{{/DEHALO_BRIGHTSTR}}
+{{#DEHALO_LOW_THRESHOLD}}
+    thmi={{DEHALO_LOW_THRESHOLD}},
+{{/DEHALO_LOW_THRESHOLD}}
+{{#DEHALO_HIGH_THRESHOLD}}
+    thma={{DEHALO_HIGH_THRESHOLD}},
+{{/DEHALO_HIGH_THRESHOLD}}
+)
+{{/DEHALO_FINE_DEHALO}}
+
+{{#DEHALO_YAHR}}
+# YAHR - Yet Another Halo Remover
+clip = haf.YAHR(
+    clip,
+{{#DEHALO_YAHR_BLUR}}
+    blur={{DEHALO_YAHR_BLUR}},
+{{/DEHALO_YAHR_BLUR}}
+{{#DEHALO_YAHR_DEPTH}}
+    depth={{DEHALO_YAHR_DEPTH}},
+{{/DEHALO_YAHR_DEPTH}}
+)
+{{/DEHALO_YAHR}}
+{{/DEHALO}}
+
+# ============================================================================
+# PASS 5: DEBLOCK
+# ============================================================================
+{{#DEBLOCK}}
+
+{{#DEBLOCK_QED}}
+# Deblock_QED - Quality Enhanced Deblocking
+clip = haf.Deblock_QED(
+    clip,
+{{#DEBLOCK_QUANT1}}
+    quant1={{DEBLOCK_QUANT1}},
+{{/DEBLOCK_QUANT1}}
+{{#DEBLOCK_QUANT2}}
+    quant2={{DEBLOCK_QUANT2}},
+{{/DEBLOCK_QUANT2}}
+{{#DEBLOCK_AOFFSET1}}
+    aOff1={{DEBLOCK_AOFFSET1}},
+{{/DEBLOCK_AOFFSET1}}
+{{#DEBLOCK_AOFFSET2}}
+    aOff2={{DEBLOCK_AOFFSET2}},
+{{/DEBLOCK_AOFFSET2}}
+)
+{{/DEBLOCK_QED}}
+
+{{#DEBLOCK_SIMPLE}}
+# Simple deblocking using Deblock plugin
+clip = core.deblock.Deblock(
+    clip,
+{{#DEBLOCK_QUANT1}}
+    quant={{DEBLOCK_QUANT1}},
+{{/DEBLOCK_QUANT1}}
+)
+{{/DEBLOCK_SIMPLE}}
+{{/DEBLOCK}}
+
+# ============================================================================
+# PASS 6: DEBAND (f3kdb)
+# ============================================================================
+{{#DEBAND}}
+# neo_f3kdb - remove banding artifacts
+clip = core.neo_f3kdb.Deband(
+    clip,
+{{#DEBAND_RANGE}}
+    range={{DEBAND_RANGE}},
+{{/DEBAND_RANGE}}
+{{#DEBAND_Y}}
+    y={{DEBAND_Y}},
+{{/DEBAND_Y}}
+{{#DEBAND_CB}}
+    cb={{DEBAND_CB}},
+{{/DEBAND_CB}}
+{{#DEBAND_CR}}
+    cr={{DEBAND_CR}},
+{{/DEBAND_CR}}
+{{#DEBAND_GRAINY}}
+    grainy={{DEBAND_GRAINY}},
+{{/DEBAND_GRAINY}}
+{{#DEBAND_GRAINC}}
+    grainc={{DEBAND_GRAINC}},
+{{/DEBAND_GRAINC}}
+{{#DEBAND_DYNAMIC_GRAIN}}
+    dynamic_grain={{DEBAND_DYNAMIC_GRAIN}},
+{{/DEBAND_DYNAMIC_GRAIN}}
+{{#DEBAND_OUTPUT_DEPTH}}
+    output_depth={{DEBAND_OUTPUT_DEPTH}},
+{{/DEBAND_OUTPUT_DEPTH}}
+)
+{{/DEBAND}}
+
+# ============================================================================
+# PASS 7: SHARPEN
+# ============================================================================
+{{#SHARPEN}}
+
+{{#SHARPEN_LSFMOD}}
+# LSFmod - Limited Sharpening with overshoot control
+clip = haf.LSFmod(
+    clip,
+{{#SHARPEN_STRENGTH}}
+    strength={{SHARPEN_STRENGTH}},
+{{/SHARPEN_STRENGTH}}
+{{#SHARPEN_OVERSHOOT}}
+    overshoot={{SHARPEN_OVERSHOOT}},
+{{/SHARPEN_OVERSHOOT}}
+{{#SHARPEN_UNDERSHOOT}}
+    undershoot={{SHARPEN_UNDERSHOOT}},
+{{/SHARPEN_UNDERSHOOT}}
+{{#SHARPEN_SOFT_EDGE}}
+    soft={{SHARPEN_SOFT_EDGE}},
+{{/SHARPEN_SOFT_EDGE}}
+)
+{{/SHARPEN_LSFMOD}}
+
+{{#SHARPEN_CAS}}
+# CAS - Contrast Adaptive Sharpening
+clip = core.cas.CAS(
+    clip,
+{{#SHARPEN_CAS_SHARPNESS}}
+    sharpness={{SHARPEN_CAS_SHARPNESS}},
+{{/SHARPEN_CAS_SHARPNESS}}
+)
+{{/SHARPEN_CAS}}
+{{/SHARPEN}}
+
+# ============================================================================
+# PASS 8: CHROMA FIXES
 # ============================================================================
 {{#CHROMA_FIXES}}
 
@@ -365,7 +532,7 @@ clip = haf.Vinverse(
 {{/CHROMA_FIXES}}
 
 # ============================================================================
-# PASS 5: COLOR CORRECTION
+# PASS 9: COLOR CORRECTION
 # ============================================================================
 {{#COLOR_CORRECTION}}
 import adjust
@@ -413,7 +580,7 @@ clip = core.std.Levels(
 {{/COLOR_CORRECTION}}
 
 # ============================================================================
-# PASS 6: RESIZE / UPSCALE
+# PASS 10: RESIZE / UPSCALE
 # ============================================================================
 {{#RESIZE}}
 

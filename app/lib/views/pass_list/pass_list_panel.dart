@@ -49,6 +49,46 @@ class PassListPanel extends StatelessWidget {
             ),
 
             PassListItem(
+              passType: PassType.dehalo,
+              title: 'Dehalo',
+              subtitle: pipeline.dehalo.summary,
+              isEnabled: pipeline.dehalo.enabled,
+              isSelected: viewModel.selectedPass == PassType.dehalo,
+              onToggle: (enabled) => viewModel.togglePass(PassType.dehalo, enabled),
+              onTap: () => viewModel.selectPass(PassType.dehalo),
+            ),
+
+            PassListItem(
+              passType: PassType.deblock,
+              title: 'Deblock',
+              subtitle: pipeline.deblock.summary,
+              isEnabled: pipeline.deblock.enabled,
+              isSelected: viewModel.selectedPass == PassType.deblock,
+              onToggle: (enabled) => viewModel.togglePass(PassType.deblock, enabled),
+              onTap: () => viewModel.selectPass(PassType.deblock),
+            ),
+
+            PassListItem(
+              passType: PassType.deband,
+              title: 'Deband',
+              subtitle: pipeline.deband.summary,
+              isEnabled: pipeline.deband.enabled,
+              isSelected: viewModel.selectedPass == PassType.deband,
+              onToggle: (enabled) => viewModel.togglePass(PassType.deband, enabled),
+              onTap: () => viewModel.selectPass(PassType.deband),
+            ),
+
+            PassListItem(
+              passType: PassType.sharpen,
+              title: 'Sharpen',
+              subtitle: pipeline.sharpen.summary,
+              isEnabled: pipeline.sharpen.enabled,
+              isSelected: viewModel.selectedPass == PassType.sharpen,
+              onToggle: (enabled) => viewModel.togglePass(PassType.sharpen, enabled),
+              onTap: () => viewModel.selectPass(PassType.sharpen),
+            ),
+
+            PassListItem(
               passType: PassType.chromaFixes,
               title: 'Chroma Fixes',
               subtitle: pipeline.chromaFixes.summary,

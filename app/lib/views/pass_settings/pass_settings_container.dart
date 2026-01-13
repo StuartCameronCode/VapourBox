@@ -6,8 +6,12 @@ import '../../viewmodels/main_viewmodel.dart';
 import 'chroma_fix_settings_panel.dart';
 import 'color_correction_settings_panel.dart';
 import 'crop_resize_settings_panel.dart';
+import 'deband_settings_panel.dart';
+import 'deblock_settings_panel.dart';
+import 'dehalo_settings_panel.dart';
 import 'deinterlace_settings_panel.dart';
 import 'noise_reduction_settings_panel.dart';
+import 'sharpen_settings_panel.dart';
 
 /// Container widget that shows the settings panel for the currently selected pass.
 class PassSettingsContainer extends StatelessWidget {
@@ -31,6 +35,14 @@ class PassSettingsContainer extends StatelessWidget {
         return const DeinterlaceSettingsPanel(key: ValueKey('deinterlace'));
       case PassType.noiseReduction:
         return const NoiseReductionSettingsPanel(key: ValueKey('noiseReduction'));
+      case PassType.dehalo:
+        return const DehaloSettingsPanel(key: ValueKey('dehalo'));
+      case PassType.deblock:
+        return const DeblockSettingsPanel(key: ValueKey('deblock'));
+      case PassType.deband:
+        return const DebandSettingsPanel(key: ValueKey('deband'));
+      case PassType.sharpen:
+        return const SharpenSettingsPanel(key: ValueKey('sharpen'));
       case PassType.colorCorrection:
         return const ColorCorrectionSettingsPanel(key: ValueKey('colorCorrection'));
       case PassType.chromaFixes:

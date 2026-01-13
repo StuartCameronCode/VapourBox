@@ -10,6 +10,7 @@ use anyhow::{Context, Result};
 
 use crate::models::{
     VideoJob, RestorationPipeline, NoiseReductionMethod, ResizeKernel, UpscaleMethod,
+    DehaloMethod, DeblockMethod, SharpenMethod,
 };
 
 /// Generates VapourSynth scripts from templates.
@@ -311,6 +312,132 @@ impl ScriptGenerator {
             }
         } else {
             script = remove_block("{{#NOISE_REDUCTION}}", "{{/NOISE_REDUCTION}}", script);
+        }
+
+        // ====================================================================
+        // DEHALO PASS
+        // ====================================================================
+        let dehalo = &pipeline.dehalo;
+        if dehalo.enabled {
+            script = script.replace("{{#DEHALO}}", "");
+            script = script.replace("{{/DEHALO}}", "");
+
+            match dehalo.method {
+                DehaloMethod::DehaloAlpha => {
+                    script = script.replace("{{#DEHALO_DEHALO_ALPHA}}", "");
+                    script = script.replace("{{/DEHALO_DEHALO_ALPHA}}", "");
+                    script = remove_block("{{#DEHALO_FINE_DEHALO}}", "{{/DEHALO_FINE_DEHALO}}", script);
+                    script = remove_block("{{#DEHALO_YAHR}}", "{{/DEHALO_YAHR}}", script);
+                }
+                DehaloMethod::FineDehalo => {
+                    script = remove_block("{{#DEHALO_DEHALO_ALPHA}}", "{{/DEHALO_DEHALO_ALPHA}}", script);
+                    script = script.replace("{{#DEHALO_FINE_DEHALO}}", "");
+                    script = script.replace("{{/DEHALO_FINE_DEHALO}}", "");
+                    script = remove_block("{{#DEHALO_YAHR}}", "{{/DEHALO_YAHR}}", script);
+                    script = process_optional_int("DEHALO_LOW_THRESHOLD", Some(dehalo.low_threshold), script);
+                    script = process_optional_int("DEHALO_HIGH_THRESHOLD", Some(dehalo.high_threshold), script);
+                }
+                DehaloMethod::Yahr => {
+                    script = remove_block("{{#DEHALO_DEHALO_ALPHA}}", "{{/DEHALO_DEHALO_ALPHA}}", script);
+                    script = remove_block("{{#DEHALO_FINE_DEHALO}}", "{{/DEHALO_FINE_DEHALO}}", script);
+                    script = script.replace("{{#DEHALO_YAHR}}", "");
+                    script = script.replace("{{/DEHALO_YAHR}}", "");
+                    script = process_optional_int("DEHALO_YAHR_BLUR", Some(dehalo.yahr_blur), script);
+                    script = process_optional_int("DEHALO_YAHR_DEPTH", Some(dehalo.yahr_depth), script);
+                }
+            }
+
+            // Common parameters for DeHalo_alpha and FineDehalo
+            if dehalo.method != DehaloMethod::Yahr {
+                script = process_optional_double("DEHALO_RX", Some(dehalo.rx), script);
+                script = process_optional_double("DEHALO_RY", Some(dehalo.ry), script);
+                script = process_optional_double("DEHALO_DARKSTR", Some(dehalo.dark_str), script);
+                script = process_optional_double("DEHALO_BRIGHTSTR", Some(dehalo.bright_str), script);
+            }
+        } else {
+            script = remove_block("{{#DEHALO}}", "{{/DEHALO}}", script);
+        }
+
+        // ====================================================================
+        // DEBLOCK PASS
+        // ====================================================================
+        let deblock = &pipeline.deblock;
+        if deblock.enabled {
+            script = script.replace("{{#DEBLOCK}}", "");
+            script = script.replace("{{/DEBLOCK}}", "");
+
+            match deblock.method {
+                DeblockMethod::DeblockQed => {
+                    script = script.replace("{{#DEBLOCK_QED}}", "");
+                    script = script.replace("{{/DEBLOCK_QED}}", "");
+                    script = remove_block("{{#DEBLOCK_SIMPLE}}", "{{/DEBLOCK_SIMPLE}}", script);
+
+                    script = process_optional_int("DEBLOCK_QUANT1", Some(deblock.quant1), script);
+                    script = process_optional_int("DEBLOCK_QUANT2", Some(deblock.quant2), script);
+                    script = process_optional_int("DEBLOCK_AOFFSET1", Some(deblock.a_offset1), script);
+                    script = process_optional_int("DEBLOCK_AOFFSET2", Some(deblock.a_offset2), script);
+                }
+                DeblockMethod::Deblock => {
+                    script = remove_block("{{#DEBLOCK_QED}}", "{{/DEBLOCK_QED}}", script);
+                    script = script.replace("{{#DEBLOCK_SIMPLE}}", "");
+                    script = script.replace("{{/DEBLOCK_SIMPLE}}", "");
+
+                    script = process_optional_int("DEBLOCK_QUANT1", Some(deblock.quant1), script);
+                }
+            }
+        } else {
+            script = remove_block("{{#DEBLOCK}}", "{{/DEBLOCK}}", script);
+        }
+
+        // ====================================================================
+        // DEBAND PASS (f3kdb)
+        // ====================================================================
+        let deband = &pipeline.deband;
+        if deband.enabled {
+            script = script.replace("{{#DEBAND}}", "");
+            script = script.replace("{{/DEBAND}}", "");
+
+            script = process_optional_int("DEBAND_RANGE", Some(deband.range), script);
+            script = process_optional_int("DEBAND_Y", Some(deband.y), script);
+            script = process_optional_int("DEBAND_CB", Some(deband.cb), script);
+            script = process_optional_int("DEBAND_CR", Some(deband.cr), script);
+            script = process_optional_int("DEBAND_GRAINY", Some(deband.grain_y), script);
+            script = process_optional_int("DEBAND_GRAINC", Some(deband.grain_c), script);
+            script = process_optional_bool("DEBAND_DYNAMIC_GRAIN", Some(deband.dynamic_grain), script);
+            script = process_optional_int("DEBAND_OUTPUT_DEPTH", Some(deband.output_depth), script);
+        } else {
+            script = remove_block("{{#DEBAND}}", "{{/DEBAND}}", script);
+        }
+
+        // ====================================================================
+        // SHARPEN PASS
+        // ====================================================================
+        let sharpen = &pipeline.sharpen;
+        if sharpen.enabled {
+            script = script.replace("{{#SHARPEN}}", "");
+            script = script.replace("{{/SHARPEN}}", "");
+
+            match sharpen.method {
+                SharpenMethod::LSFmod => {
+                    script = script.replace("{{#SHARPEN_LSFMOD}}", "");
+                    script = script.replace("{{/SHARPEN_LSFMOD}}", "");
+                    script = remove_block("{{#SHARPEN_CAS}}", "{{/SHARPEN_CAS}}", script);
+
+                    script = process_optional_int("SHARPEN_STRENGTH", Some(sharpen.strength), script);
+                    script = process_optional_int("SHARPEN_OVERSHOOT", Some(sharpen.overshoot), script);
+                    script = process_optional_int("SHARPEN_UNDERSHOOT", Some(sharpen.undershoot), script);
+                    script = process_optional_int("SHARPEN_SOFT_EDGE", Some(sharpen.soft_edge), script);
+                }
+                SharpenMethod::CAS => {
+                    script = remove_block("{{#SHARPEN_LSFMOD}}", "{{/SHARPEN_LSFMOD}}", script);
+                    script = script.replace("{{#SHARPEN_CAS}}", "");
+                    script = script.replace("{{/SHARPEN_CAS}}", "");
+
+                    script = process_optional_double("SHARPEN_CAS_SHARPNESS", Some(sharpen.cas_sharpness), script);
+                }
+            }
+        } else {
+            script = remove_block("{{#SHARPEN}}", "{{/SHARPEN}}", script);
         }
 
         // ====================================================================

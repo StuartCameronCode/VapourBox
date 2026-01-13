@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
+    DebandParameters, DeblockParameters, DehaloParameters, SharpenParameters,
     NoiseReductionParameters, QTGMCParameters,
 };
 
@@ -13,6 +14,10 @@ use super::{
 pub enum PassType {
     Deinterlace,
     NoiseReduction,
+    Dehalo,
+    Deblock,
+    Deband,
+    Sharpen,
     ColorCorrection,
     ChromaFixes,
     CropResize,
@@ -24,6 +29,10 @@ impl PassType {
         match self {
             PassType::Deinterlace => "Deinterlace",
             PassType::NoiseReduction => "Noise Reduction",
+            PassType::Dehalo => "Dehalo",
+            PassType::Deblock => "Deblock",
+            PassType::Deband => "Deband",
+            PassType::Sharpen => "Sharpen",
             PassType::ColorCorrection => "Color Correction",
             PassType::ChromaFixes => "Chroma Fixes",
             PassType::CropResize => "Crop / Resize",
@@ -35,6 +44,10 @@ impl PassType {
         match self {
             PassType::Deinterlace => "Remove interlacing artifacts using QTGMC",
             PassType::NoiseReduction => "Reduce video noise and grain",
+            PassType::Dehalo => "Remove halo artifacts around edges",
+            PassType::Deblock => "Remove compression block artifacts",
+            PassType::Deband => "Remove color banding from gradients",
+            PassType::Sharpen => "Sharpen edges and enhance detail",
             PassType::ColorCorrection => "Adjust brightness, contrast, and colors",
             PassType::ChromaFixes => "Fix chroma bleeding and crawl artifacts",
             PassType::CropResize => "Crop borders and resize output",
@@ -55,6 +68,22 @@ pub struct RestorationPipeline {
     #[serde(default)]
     pub noise_reduction: NoiseReductionParameters,
 
+    /// Dehalo pass parameters.
+    #[serde(default)]
+    pub dehalo: DehaloParameters,
+
+    /// Deblock pass parameters.
+    #[serde(default)]
+    pub deblock: DeblockParameters,
+
+    /// Deband pass parameters (f3kdb).
+    #[serde(default)]
+    pub deband: DebandParameters,
+
+    /// Sharpening pass parameters.
+    #[serde(default)]
+    pub sharpen: SharpenParameters,
+
     /// Color correction pass parameters.
     #[serde(default)]
     pub color_correction: ColorCorrectionParameters,
@@ -73,6 +102,10 @@ impl Default for RestorationPipeline {
         Self {
             deinterlace: QTGMCParameters::default(),
             noise_reduction: NoiseReductionParameters::default(),
+            dehalo: DehaloParameters::default(),
+            deblock: DeblockParameters::default(),
+            deband: DebandParameters::default(),
+            sharpen: SharpenParameters::default(),
             color_correction: ColorCorrectionParameters::default(),
             chroma_fixes: ChromaFixParameters::default(),
             crop_resize: CropResizeParameters::default(),
@@ -86,6 +119,10 @@ impl RestorationPipeline {
         Self {
             deinterlace: qtgmc_params.clone(),
             noise_reduction: NoiseReductionParameters { enabled: false, ..Default::default() },
+            dehalo: DehaloParameters { enabled: false, ..Default::default() },
+            deblock: DeblockParameters { enabled: false, ..Default::default() },
+            deband: DebandParameters { enabled: false, ..Default::default() },
+            sharpen: SharpenParameters { enabled: false, ..Default::default() },
             color_correction: ColorCorrectionParameters { enabled: false, ..Default::default() },
             chroma_fixes: ChromaFixParameters { enabled: false, ..Default::default() },
             crop_resize: CropResizeParameters { enabled: false, ..Default::default() },
@@ -96,7 +133,7 @@ impl RestorationPipeline {
     pub fn enabled_passes(&self) -> Vec<PassType> {
         let mut passes = Vec::new();
 
-        // Order: Crop first (pre-processing), then deinterlace, noise, chroma, color, resize last
+        // Order: Crop first (pre-processing), then deinterlace, noise, dehalo, deblock, deband, sharpen, chroma, color, resize last
         if self.crop_resize.enabled && self.crop_resize.crop_enabled {
             passes.push(PassType::CropResize); // Pre-crop
         }
@@ -105,6 +142,18 @@ impl RestorationPipeline {
         }
         if self.noise_reduction.enabled {
             passes.push(PassType::NoiseReduction);
+        }
+        if self.dehalo.enabled {
+            passes.push(PassType::Dehalo);
+        }
+        if self.deblock.enabled {
+            passes.push(PassType::Deblock);
+        }
+        if self.deband.enabled {
+            passes.push(PassType::Deband);
+        }
+        if self.sharpen.enabled {
+            passes.push(PassType::Sharpen);
         }
         if self.chroma_fixes.enabled {
             passes.push(PassType::ChromaFixes);
@@ -132,6 +181,10 @@ impl RestorationPipeline {
         let mut count = 0;
         if self.deinterlace.enabled { count += 1; }
         if self.noise_reduction.enabled { count += 1; }
+        if self.dehalo.enabled { count += 1; }
+        if self.deblock.enabled { count += 1; }
+        if self.deband.enabled { count += 1; }
+        if self.sharpen.enabled { count += 1; }
         if self.color_correction.enabled { count += 1; }
         if self.chroma_fixes.enabled { count += 1; }
         if self.crop_resize.enabled { count += 1; }
@@ -143,6 +196,10 @@ impl RestorationPipeline {
         match pass {
             PassType::Deinterlace => self.deinterlace_enabled(),
             PassType::NoiseReduction => self.noise_reduction.enabled,
+            PassType::Dehalo => self.dehalo.enabled,
+            PassType::Deblock => self.deblock.enabled,
+            PassType::Deband => self.deband.enabled,
+            PassType::Sharpen => self.sharpen.enabled,
             PassType::ColorCorrection => self.color_correction.enabled,
             PassType::ChromaFixes => self.chroma_fixes.enabled,
             PassType::CropResize => self.crop_resize.enabled,
