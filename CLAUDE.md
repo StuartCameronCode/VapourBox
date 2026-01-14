@@ -1,4 +1,4 @@
-# iDeinterlace - AI Assistant Guide
+# VapourBox - AI Assistant Guide
 
 ## Important: Documentation Maintenance
 
@@ -12,7 +12,7 @@ Both files should stay synchronized - README.md is for humans, CLAUDE.md is for 
 
 ## Project Overview
 
-iDeinterlace is a **cross-platform** (macOS + Windows) video deinterlacing application using QTGMC via VapourSynth. It provides a simple drag-and-drop interface as an alternative to more complex tools like Hybrid.
+VapourBox is a **cross-platform** (macOS + Windows) video deinterlacing application using QTGMC via VapourSynth. It provides a simple drag-and-drop interface as an alternative to more complex tools like Hybrid.
 
 **Technology Stack:**
 - **UI**: Flutter (Dart) - cross-platform desktop app
@@ -25,7 +25,7 @@ iDeinterlace is a **cross-platform** (macOS + Windows) video deinterlacing appli
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    iDeinterlace                              │
+│                    VapourBox                              │
 ├─────────────────────────────────────────────────────────────┤
 │  Flutter App (Dart)         │  Rust Worker (CLI)            │
 │  - Cross-platform GUI       │  - Receives job config JSON   │
@@ -53,7 +53,7 @@ iDeinterlace is a **cross-platform** (macOS + Windows) video deinterlacing appli
 ## Project Structure
 
 ```
-iDeinterlace/
+VapourBox/
 ├── app/                        # Flutter application
 │   ├── lib/
 │   │   ├── models/             # VideoJob, QTGMCParameters, ProgressInfo
@@ -94,6 +94,12 @@ iDeinterlace/
 │       ├── ffmpeg/             # FFmpeg binary
 │       └── python-packages/
 │
+├── licenses/                   # License files
+│   ├── GPL-2.0.txt
+│   ├── GPL-3.0.txt
+│   ├── LGPL-2.1.txt
+│   └── NOTICES.txt             # Third-party attributions
+│
 ├── scripts/                    # Build and setup scripts
 │   ├── download-deps-windows.ps1
 │   └── download-deps-macos.sh
@@ -103,8 +109,8 @@ iDeinterlace/
 │   └── windows/                # NSIS installer config
 │
 └── legacy/                     # Original Swift code (reference)
-    ├── iDeinterlace/           # SwiftUI app
-    ├── iDeinterlaceWorker/     # Swift worker
+    ├── VapourBox/           # SwiftUI app
+    ├── VapourBoxWorker/     # Swift worker
     └── Shared/                 # Shared models
 ```
 
@@ -126,6 +132,7 @@ iDeinterlace/
 | `app/lib/models/qtgmc_parameters.dart` | QTGMC params matching Rust |
 | `app/lib/services/worker_manager.dart` | Process spawning, IPC |
 | `app/lib/views/main_window.dart` | Main UI |
+| `app/lib/views/about_dialog.dart` | About dialog with licenses |
 
 ## Build Commands
 
@@ -353,11 +360,11 @@ Uses `cmd /c explorer /select, <path>` to open File Explorer with the file selec
 .\Scripts\package-windows.ps1 -Version "1.0.0" [-SkipBuild]
 ```
 
-Creates `dist/iDeinterlace-1.0.0-windows-x64.zip` containing:
+Creates `dist/VapourBox-1.0.0-windows-x64.zip` containing:
 ```
-iDeinterlace-1.0.0-windows-x64/
-├── ideinterlace.exe              # Flutter app
-├── ideinterlace-worker.exe       # Rust worker
+VapourBox-1.0.0-windows-x64/
+├── vapourbox.exe              # Flutter app
+├── vapourbox-worker.exe       # Rust worker
 ├── *.dll                         # Flutter runtime DLLs
 ├── data/                         # Flutter assets
 ├── templates/
@@ -369,7 +376,7 @@ iDeinterlace-1.0.0-windows-x64/
 │   │   └── Lib/site-packages/    # Python packages
 │   └── ffmpeg/
 │       └── ffmpeg.exe
-├── Launch iDeinterlace.bat
+├── Launch VapourBox.bat
 └── README.txt
 ```
 
@@ -379,13 +386,13 @@ iDeinterlace-1.0.0-windows-x64/
 ./Scripts/package-macos.sh --version 1.0.0 [--arch arm64|x64] [--skip-build]
 ```
 
-Creates `dist/iDeinterlace.app` and `dist/iDeinterlace-1.0.0-macos-arm64.zip` containing:
+Creates `dist/VapourBox.app` and `dist/VapourBox-1.0.0-macos-arm64.zip` containing:
 ```
-iDeinterlace.app/Contents/
+VapourBox.app/Contents/
 ├── MacOS/
-│   └── ideinterlace             # Flutter app
+│   └── vapourbox             # Flutter app
 ├── Helpers/
-│   ├── ideinterlace-worker      # Rust worker
+│   ├── vapourbox-worker      # Rust worker
 │   ├── vspipe                   # VapourSynth (wrapper script)
 │   ├── vspipe-bin               # VapourSynth (actual binary)
 │   ├── ffmpeg

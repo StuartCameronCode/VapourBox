@@ -1,4 +1,4 @@
-//! iDeinterlace Worker - CLI video deinterlacing tool
+//! VapourBox Worker - CLI video restoration tool
 //!
 //! This worker process receives a job configuration file via --config argument,
 //! generates a VapourSynth script, and runs the vspipe | ffmpeg pipeline.
@@ -28,8 +28,8 @@ use script_generator::ScriptGenerator;
 
 /// Command-line arguments
 #[derive(Parser, Debug)]
-#[command(name = "ideinterlace-worker")]
-#[command(about = "Video deinterlacing worker using QTGMC via VapourSynth")]
+#[command(name = "vapourbox-worker")]
+#[command(about = "Video restoration worker using VapourSynth")]
 #[command(version)]
 struct Args {
     /// Path to the job configuration JSON file

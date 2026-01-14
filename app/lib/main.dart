@@ -18,7 +18,7 @@ void main() async {
     backgroundColor: Colors.transparent,
     skipTaskbar: false,
     titleBarStyle: TitleBarStyle.normal,
-    title: 'iDeinterlace',
+    title: 'VapourBox',
   );
 
   await windowManager.waitUntilReadyToShow(windowOptions, () async {
@@ -37,7 +37,7 @@ class IDeinterlaceApp extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (_) => MainViewModel(),
       child: MaterialApp(
-        title: 'iDeinterlace',
+        title: 'VapourBox',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(

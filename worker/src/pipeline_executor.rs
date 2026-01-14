@@ -270,7 +270,7 @@ impl PipelineExecutor {
         let env = self.deps.build_environment();
 
         // Create temp directory for extracted frames
-        let temp_dir = std::env::temp_dir().join(format!("ideinterlace_preview_{}", job.id));
+        let temp_dir = std::env::temp_dir().join(format!("vapourbox_preview_{}", job.id));
         fs::create_dir_all(&temp_dir)
             .with_context(|| format!("Failed to create temp dir: {:?}", temp_dir))?;
 

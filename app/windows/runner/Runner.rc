@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.ideinterlace" "\0"
-            VALUE "FileDescription", "ideinterlace" "\0"
+            VALUE "CompanyName", "com.vapourbox" "\0"
+            VALUE "FileDescription", "vapourbox" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "ideinterlace" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.ideinterlace. All rights reserved." "\0"
-            VALUE "OriginalFilename", "ideinterlace.exe" "\0"
-            VALUE "ProductName", "ideinterlace" "\0"
+            VALUE "InternalName", "vapourbox" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 com.vapourbox. All rights reserved." "\0"
+            VALUE "OriginalFilename", "vapourbox.exe" "\0"
+            VALUE "ProductName", "vapourbox" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

@@ -1,7 +1,7 @@
-name: ideinterlace
-description: "Video deinterlacing with QTGMC via VapourSynth"
+name: vapourbox
+description: "Video restoration and cleanup powered by VapourSynth"
 publish_to: 'none'
-version: 1.0.0+1
+version: 0.1.0+1
 
 environment:
   sdk: ^3.6.2
@@ -25,6 +25,7 @@ dependencies:
   # Utilities
   uuid: ^4.5.0
   shared_preferences: ^2.3.0
+  url_launcher: ^6.2.0
 
   # Window management
   window_manager: ^0.4.0

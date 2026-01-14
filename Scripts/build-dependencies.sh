@@ -1,6 +1,6 @@
 #!/bin/bash
 # build-dependencies.sh
-# Downloads and prepares all bundled dependencies for iDeinterlace
+# Downloads and prepares all bundled dependencies for VapourBox
 #
 # Prerequisites:
 # - Homebrew installed
@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 DEPS_DIR="$PROJECT_DIR/BundledDependencies"
 
-echo "=== iDeinterlace Dependency Builder ==="
+echo "=== VapourBox Dependency Builder ==="
 echo "Project directory: $PROJECT_DIR"
 echo "Dependencies directory: $DEPS_DIR"
 

@@ -1,5 +1,5 @@
 """
-iDeinterlace Multi-Pass Restoration Pipeline Template
+VapourBox Multi-Pass Restoration Pipeline Template
 Supports: Crop, Deinterlace (QTGMC), Noise Reduction, Dehalo, Deblock, Deband, Sharpen, Chroma Fixes, Color Correction, Resize
 Placeholders use the format: {{PARAMETER_NAME}}
 Conditional blocks use: {{#BLOCK_NAME}}...{{/BLOCK_NAME}}

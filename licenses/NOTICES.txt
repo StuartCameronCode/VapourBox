@@ -1,0 +1,143 @@
+VapourBox - Third Party Licenses
+===================================
+
+This application includes the following third-party components:
+
+
+VapourSynth (LGPL 2.1)
+----------------------
+Copyright (c) 2012-2024 Fredrik Mellbin
+https://github.com/vapoursynth/vapoursynth
+License: See LGPL-2.1.txt
+
+
+havsfunc (Unlicense)
+--------------------
+Copyright (c) 2012-2024 HolyWu
+https://github.com/HomeOfVapourSynthEvolution/havsfunc
+License: Public Domain (Unlicense)
+
+
+mvsfunc (Unlicense)
+-------------------
+Copyright (c) 2014-2024 mawen1250
+https://github.com/HomeOfVapourSynthEvolution/mvsfunc
+License: Public Domain (Unlicense)
+
+
+mvtools (GPL 2.0)
+-----------------
+Copyright (c) 2005-2024 Manao, Fizick, Pinterf, dubhater
+https://github.com/dubhater/vapoursynth-mvtools
+License: See GPL-2.0.txt
+
+
+znedi3 (GPL 2.0)
+----------------
+Copyright (c) 2018-2024 sekrit-twc
+https://github.com/sekrit-twc/znedi3
+License: See GPL-2.0.txt
+
+
+EEDI3 (GPL 2.0)
+---------------
+Copyright (c) 2010-2024 tritical, HolyWu
+https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3
+License: See GPL-2.0.txt
+
+
+fmtconv (WTFPL)
+---------------
+Copyright (c) 2012-2024 Firesledge (Laurent de Soras)
+https://github.com/EleonoreMizo/fmtconv
+License: WTFPL (Do What The F*ck You Want To Public License)
+
+
+FFmpeg (LGPL 2.1+)
+------------------
+Copyright (c) 2000-2024 FFmpeg contributors
+https://github.com/FFmpeg/FFmpeg
+License: See LGPL-2.1.txt (or GPL depending on build configuration)
+
+
+ffms2 (MIT)
+-----------
+Copyright (c) 2007-2024 FFMS contributors
+https://github.com/FFMS/ffms2
+License: MIT License
+
+
+DFTTest (GPL 3.0)
+-----------------
+Copyright (c) 2015-2024 HolyWu
+https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest
+License: See GPL-3.0.txt
+
+
+neo-f3kdb (GPL 3.0)
+-------------------
+Copyright (c) 2019-2024 HomeOfAviSynthPlusEvolution
+https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb
+License: See GPL-3.0.txt
+
+
+CAS - Contrast Adaptive Sharpening (MIT)
+----------------------------------------
+Copyright (c) 2019-2024 HolyWu
+https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CAS
+License: MIT License
+
+
+DCTFilter (GPL 2.0)
+-------------------
+Copyright (c) 2014-2024 HolyWu
+https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DCTFilter
+License: See GPL-2.0.txt
+
+
+Deblock (GPL 2.0)
+-----------------
+Copyright (c) 2004-2024 Manao, Fizick
+https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Deblock
+License: See GPL-2.0.txt
+
+
+AWarpSharp2 (GPL 2.0)
+---------------------
+Copyright (c) 2015-2024 dubhater
+https://github.com/dubhater/vapoursynth-awarpsharp2
+License: See GPL-2.0.txt
+
+
+RemoveGrain (GPL 2.0)
+---------------------
+https://github.com/vapoursynth/vs-removegrain
+License: See GPL-2.0.txt
+
+
+CTMF (GPL 2.0)
+--------------
+Copyright (c) 2014-2024 HolyWu
+https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF
+License: See GPL-2.0.txt
+
+
+Flutter (BSD 3-Clause)
+----------------------
+Copyright (c) 2014-2024 The Flutter Authors
+https://github.com/flutter/flutter
+License: BSD 3-Clause License
+
+
+Python (PSF License)
+--------------------
+Copyright (c) 2001-2024 Python Software Foundation
+https://github.com/python/cpython
+License: Python Software Foundation License
+
+
+===================================
+Full license texts are provided in the accompanying license files:
+- GPL-2.0.txt
+- GPL-3.0.txt
+- LGPL-2.1.txt

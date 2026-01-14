@@ -1,4 +1,4 @@
-# Package iDeinterlace for Windows
+# Package VapourBox for Windows
 # Creates a standalone zip file with all dependencies
 #
 # Prerequisites:
@@ -18,7 +18,7 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $ScriptDir
 $DistDir = Join-Path $ProjectRoot "dist"
-$AppName = "iDeinterlace"
+$AppName = "VapourBox"
 $PackageDir = Join-Path $DistDir "$AppName-$Version-windows-x64"
 
 # Find and add Flutter to PATH if not already available
@@ -36,7 +36,7 @@ foreach ($fp in $FlutterPaths) {
     }
 }
 
-Write-Host "=== Packaging iDeinterlace for Windows ===" -ForegroundColor Cyan
+Write-Host "=== Packaging VapourBox for Windows ===" -ForegroundColor Cyan
 Write-Host ""
 
 # Check prerequisites
@@ -109,7 +109,7 @@ Copy-Item -Recurse -Force "$FlutterBuildDir\*" "$PackageDir\"
 
 # Copy Rust worker
 Write-Host "    Copying Rust worker..."
-$WorkerExe = Join-Path $ProjectRoot "worker\target\release\ideinterlace-worker.exe"
+$WorkerExe = Join-Path $ProjectRoot "worker\target\release\vapourbox-worker.exe"
 if (-not (Test-Path $WorkerExe)) {
     Write-Host "ERROR: Worker executable not found at $WorkerExe" -ForegroundColor Red
     exit 1
@@ -154,28 +154,34 @@ Write-Host "    Copying FFmpeg..."
 Copy-Item (Join-Path $DepsDir "ffmpeg\ffmpeg.exe") "$PackageDir\deps\windows-x64\ffmpeg\"
 Copy-Item (Join-Path $DepsDir "ffmpeg\ffprobe.exe") "$PackageDir\deps\windows-x64\ffmpeg\" -ErrorAction SilentlyContinue
 
+# Copy licenses
+Write-Host "    Copying licenses..."
+Copy-Item -Path "$ProjectRoot\licenses" -Destination "$PackageDir\licenses" -Recurse
+Copy-Item -Path "$ProjectRoot\LICENSE" -Destination "$PackageDir\LICENSE"
+
 # Create launcher batch file
 Write-Host "    Creating launcher..."
 $LauncherContent = @"
 @echo off
 cd /d "%~dp0"
-start "" "%~dp0ideinterlace.exe"
+start "" "%~dp0vapourbox.exe"
 "@
-Set-Content -Path "$PackageDir\Launch iDeinterlace.bat" -Value $LauncherContent
+Set-Content -Path "$PackageDir\Launch VapourBox.bat" -Value $LauncherContent
 
 # Create README
 $ReadmeContent = @"
-iDeinterlace v$Version for Windows
-==================================
+VapourBox v$Version for Windows
+===============================
 
-A video deinterlacing application using QTGMC via VapourSynth.
+Video restoration and cleanup powered by VapourSynth.
+By Stuart Cameron - https://stuart-cameron.com
 
 Getting Started
 ---------------
-1. Double-click "Launch iDeinterlace.bat" or "ideinterlace.exe"
-2. Drag and drop an interlaced video file onto the window
-3. Click "Process" to start deinterlacing
-4. The output will be saved with "_deinterlaced" suffix
+1. Double-click "Launch VapourBox.bat" or "vapourbox.exe"
+2. Drag and drop a video file onto the window
+3. Configure restoration passes as needed
+4. Click "Go" to start processing
 
 Requirements
 ------------
@@ -184,13 +190,13 @@ Requirements
 
 Contents
 --------
-- ideinterlace.exe       : Main application
-- ideinterlace-worker.exe: Processing worker
-- deps/windows-x64/      : Bundled dependencies (VapourSynth, FFmpeg, etc.)
-- templates/             : VapourSynth script templates
+- vapourbox.exe       : Main application
+- vapourbox-worker.exe: Processing worker
+- deps/windows-x64/   : Bundled dependencies (VapourSynth, FFmpeg, etc.)
+- templates/          : VapourSynth script templates
 
 For more information, visit:
-https://github.com/stuartcameron/iDeinterlace
+https://github.com/stuartcameron/VapourBox
 "@
 Set-Content -Path "$PackageDir\README.txt" -Value $ReadmeContent
 

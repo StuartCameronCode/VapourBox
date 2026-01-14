@@ -1,5 +1,5 @@
 #!/bin/bash
-# Download dependencies for iDeinterlace on macOS
+# Download dependencies for VapourBox on macOS
 # Downloads VapourSynth, FFmpeg, plugins, and Python packages
 #
 # Prerequisites:
@@ -47,7 +47,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DEPS_DIR="$PROJECT_ROOT/deps/macos-$ARCH"
 TEMP_DIR="$PROJECT_ROOT/deps/temp-macos"
 
-echo "=== Downloading iDeinterlace Dependencies for macOS ($ARCH) ==="
+echo "=== Downloading VapourBox Dependencies for macOS ($ARCH) ==="
 echo ""
 echo "Target directory: $DEPS_DIR"
 echo ""
@@ -228,7 +228,7 @@ if [ -f "$HAVSFUNC" ]; then
 
         # Create the patch
         PATCH_CODE='
-# Patch for mvtools API compatibility (added by iDeinterlace)
+# Patch for mvtools API compatibility (added by VapourBox)
 def _fix_mv_args(args):
     """Fix mvtools argument names (_lambda -> lambda, _global -> global)"""
     result = {}

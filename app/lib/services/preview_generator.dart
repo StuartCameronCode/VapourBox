@@ -47,7 +47,7 @@ class PreviewGenerator {
 
     // Create temp directory for thumbnails and previews
     final systemTemp = Directory.systemTemp;
-    _tempDir = '${systemTemp.path}/ideinterlace_preview_${DateTime.now().millisecondsSinceEpoch}';
+    _tempDir = '${systemTemp.path}/vapourbox_preview_${DateTime.now().millisecondsSinceEpoch}';
     await Directory(_tempDir!).create(recursive: true);
   }
 
@@ -57,20 +57,20 @@ class PreviewGenerator {
     final ext = Platform.isWindows ? '.exe' : '';
 
     // Check bundled locations - include both debug and release builds for development
-    // Flutter debug build is at: app/build/windows/x64/runner/Debug/ideinterlace.exe
-    // Worker is at: worker/target/debug/ideinterlace-worker.exe (6 levels up from exe)
+    // Flutter debug build is at: app/build/windows/x64/runner/Debug/vapourbox.exe
+    // Worker is at: worker/target/debug/vapourbox-worker.exe (6 levels up from exe)
     final bundledPaths = Platform.isWindows
         ? [
-            '$exeDir\\ideinterlace-worker$ext',
+            '$exeDir\\vapourbox-worker$ext',
             // Development: go up from app/build/windows/x64/runner/Debug to project root
-            '$exeDir\\..\\..\\..\\..\\..\\..\\worker\\target\\release\\ideinterlace-worker$ext',
-            '$exeDir\\..\\..\\..\\..\\..\\..\\worker\\target\\debug\\ideinterlace-worker$ext',
+            '$exeDir\\..\\..\\..\\..\\..\\..\\worker\\target\\release\\vapourbox-worker$ext',
+            '$exeDir\\..\\..\\..\\..\\..\\..\\worker\\target\\debug\\vapourbox-worker$ext',
           ]
         : [
-            '$exeDir/../Helpers/ideinterlace-worker',
+            '$exeDir/../Helpers/vapourbox-worker',
             // Development: go up from app/build/macos/... to project root
-            '$exeDir/../../../../../../worker/target/release/ideinterlace-worker',
-            '$exeDir/../../../../../../worker/target/debug/ideinterlace-worker',
+            '$exeDir/../../../../../../worker/target/release/vapourbox-worker',
+            '$exeDir/../../../../../../worker/target/debug/vapourbox-worker',
           ];
 
     for (final p in bundledPaths) {

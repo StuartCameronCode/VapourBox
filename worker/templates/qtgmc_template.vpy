@@ -1,5 +1,5 @@
 """
-iDeinterlace QTGMC VapourSynth Script Template
+VapourBox QTGMC VapourSynth Script Template
 Uses havsfunc QTGMC for deinterlacing.
 Placeholders use the format: {{PARAMETER_NAME}}
 """

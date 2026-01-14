@@ -5,9 +5,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_ROOT/.build/release"
-APP_NAME="iDeinterlace"
+APP_NAME="VapourBox"
 APP_BUNDLE="$PROJECT_ROOT/build/$APP_NAME.app"
-BUNDLE_ID="com.stuartcameron.iDeinterlace"
+BUNDLE_ID="com.stuartcameron.VapourBox"
 
 echo "Building Swift Package..."
 cd "$PROJECT_ROOT"
@@ -20,8 +20,8 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 mkdir -p "$APP_BUNDLE/Contents/Helpers"
 
 echo "Copying executables..."
-cp "$BUILD_DIR/iDeinterlace" "$APP_BUNDLE/Contents/MacOS/"
-cp "$BUILD_DIR/iDeinterlaceWorker" "$APP_BUNDLE/Contents/Helpers/"
+cp "$BUILD_DIR/VapourBox" "$APP_BUNDLE/Contents/MacOS/"
+cp "$BUILD_DIR/VapourBoxWorker" "$APP_BUNDLE/Contents/Helpers/"
 
 echo "Creating Info.plist..."
 cat > "$APP_BUNDLE/Contents/Info.plist" << 'PLIST'
@@ -32,13 +32,13 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << 'PLIST'
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>iDeinterlace</string>
+    <string>VapourBox</string>
     <key>CFBundleIdentifier</key>
-    <string>com.stuartcameron.iDeinterlace</string>
+    <string>com.stuartcameron.VapourBox</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>iDeinterlace</string>
+    <string>VapourBox</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -88,4 +88,4 @@ echo ""
 echo "App bundle created: $APP_BUNDLE"
 echo ""
 echo "To run: open '$APP_BUNDLE'"
-echo "Or:     '$APP_BUNDLE/Contents/MacOS/iDeinterlace'"
+echo "Or:     '$APP_BUNDLE/Contents/MacOS/VapourBox'"

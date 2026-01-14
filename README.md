@@ -1,6 +1,6 @@
-# iDeinterlace
+# VapourBox
 
-Cross-platform video deinterlacing application using QTGMC via VapourSynth. Provides a simple drag-and-drop interface for converting interlaced video to progressive.
+Cross-platform video restoration and cleanup application powered by VapourSynth. Provides a simple drag-and-drop interface for restoring analog and interlaced media captures.
 
 ## Supported Platforms
 
@@ -10,6 +10,7 @@ Cross-platform video deinterlacing application using QTGMC via VapourSynth. Prov
 ## Features
 
 - **Simple drag-and-drop interface** - Just drop your video file and go
+- **Multi-pass restoration pipeline** - Deinterlace, denoise, dehalo, deblock, deband, sharpen
 - **Full QTGMC configuration** - Access all 70+ QTGMC parameters
 - **Real-time progress** - Current FPS, estimated time remaining, detailed logs
 - **Standalone application** - All dependencies bundled
@@ -20,7 +21,7 @@ Cross-platform video deinterlacing application using QTGMC via VapourSynth. Prov
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    iDeinterlace                              │
+│                      VapourBox                               │
 ├─────────────────────────────────────────────────────────────┤
 │  Flutter App (UI)           │  Rust Worker (CLI)            │
 │  - Cross-platform GUI       │  - Receives job config JSON   │
@@ -33,7 +34,7 @@ Cross-platform video deinterlacing application using QTGMC via VapourSynth. Prov
 ## Project Structure
 
 ```
-iDeinterlace/
+VapourBox/
 ├── app/                    # Flutter application (Dart)
 │   ├── lib/
 │   │   ├── models/         # Data models (VideoJob, QTGMCParameters)
@@ -56,6 +57,8 @@ iDeinterlace/
 │   ├── macos-arm64/
 │   ├── macos-x64/
 │   └── windows-x64/
+│
+├── licenses/               # License files (GPL, LGPL, NOTICES)
 │
 ├── scripts/                # Build and setup scripts
 │
@@ -82,8 +85,8 @@ iDeinterlace/
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/yourusername/iDeinterlace.git
-cd iDeinterlace
+git clone https://github.com/stuartcameron/VapourBox.git
+cd VapourBox
 ```
 
 ### 2. Download dependencies
@@ -121,10 +124,11 @@ flutter build macos --release
 ## Usage
 
 ### Basic Workflow
-1. Launch iDeinterlace
-2. Drag and drop an interlaced video file onto the drop zone
-3. Choose an output location (defaults to same folder with "_deinterlaced" suffix)
-4. Click **Go** to start processing
+1. Launch VapourBox
+2. Drag and drop a video file onto the drop zone
+3. Choose an output location (defaults to same folder with "_restored" suffix)
+4. Configure restoration passes as needed
+5. Click **Go** to start processing
 
 ### Configuration
 Click **Settings** to access QTGMC parameters:
@@ -173,7 +177,7 @@ Create a standalone zip file with all dependencies:
 .\Scripts\package-windows.ps1 -Version "1.0.0"
 ```
 
-Output: `dist/iDeinterlace-1.0.0-windows-x64.zip`
+Output: `dist/VapourBox-1.0.0-windows-x64.zip`
 
 ### macOS
 
@@ -187,7 +191,7 @@ Create a standalone .app bundle with all dependencies:
 ./Scripts/package-macos.sh --version 1.0.0
 ```
 
-Output: `dist/iDeinterlace.app` and `dist/iDeinterlace-1.0.0-macos-arm64.zip`
+Output: `dist/VapourBox.app` and `dist/VapourBox-1.0.0-macos-arm64.zip`
 
 ### Package Contents
 
@@ -198,6 +202,7 @@ The packaged application includes:
 - FFmpeg
 - Python runtime and packages (havsfunc, mvsfunc)
 - QTGMC script templates
+- License files (GPL, LGPL, NOTICES)
 
 ## Dependencies
 
@@ -216,7 +221,13 @@ The packaged application includes:
 
 ## License
 
-[MIT License](LICENSE)
+This program is free software: you can redistribute it and/or modify it under the terms of the [GNU General Public License](LICENSE) as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+See the [licenses/](licenses/) directory for full license texts and third-party component attributions.
+
+## Author
+
+Stuart Cameron - [stuart-cameron.com](https://stuart-cameron.com)
 
 ## Acknowledgments
 

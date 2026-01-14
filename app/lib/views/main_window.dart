@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../models/progress_info.dart';
 import '../viewmodels/main_viewmodel.dart';
+import 'about_dialog.dart' as about;
 import 'drop_zone.dart';
 import 'pass_list/pass_list_panel.dart';
 import 'pass_settings/pass_settings_container.dart';
@@ -54,13 +55,20 @@ class MainWindow extends StatelessWidget {
         children: [
           // App title
           Text(
-            'iDeinterlace',
+            'VapourBox',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
           ),
 
           const Spacer(),
+
+          // About button
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            tooltip: 'About',
+            onPressed: () => _showAbout(context),
+          ),
 
           // Settings button
           IconButton(
@@ -326,6 +334,13 @@ class MainWindow extends StatelessWidget {
         value: viewModel,
         child: const SettingsDialog(),
       ),
+    );
+  }
+
+  void _showAbout(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => const about.AboutDialog(),
     );
   }
 }

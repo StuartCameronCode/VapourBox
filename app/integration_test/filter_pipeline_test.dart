@@ -29,7 +29,7 @@ class TestConfig {
   static final String projectRoot = _findProjectRoot();
   static String get inputFile => '$projectRoot/Tests/TestResources/interlaced_test.avi';
   static String get outputDir => '$projectRoot/Tests/TestOutput';
-  static String get workerPath => '$projectRoot/worker/target/release/ideinterlace-worker.exe';
+  static String get workerPath => '$projectRoot/worker/target/release/vapourbox-worker.exe';
   static String get depsDir => '$projectRoot/deps/windows-x64';
 
   static String _findProjectRoot() {

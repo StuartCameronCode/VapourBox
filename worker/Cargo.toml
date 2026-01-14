@@ -1,17 +1,17 @@
 [package]
-name = "ideinterlace-worker"
-version = "1.0.0"
+name = "vapourbox-worker"
+version = "0.1.0"
 edition = "2021"
-description = "Video deinterlacing worker using QTGMC via VapourSynth"
-authors = ["iDeinterlace Contributors"]
-license = "MIT"
+description = "Video restoration worker using VapourSynth"
+authors = ["Stuart Cameron"]
+license = "GPL-3.0"
 
 [lib]
-name = "ideinterlace_worker"
+name = "vapourbox_worker"
 path = "src/lib.rs"
 
 [[bin]]
-name = "ideinterlace-worker"
+name = "vapourbox-worker"
 path = "src/main.rs"
 
 [dependencies]

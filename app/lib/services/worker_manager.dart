@@ -41,7 +41,7 @@ class WorkerManager {
 
     // Write job config to temp file
     final tempDir = Directory.systemTemp;
-    final configFile = File('${tempDir.path}/ideinterlace_job_${job.id}.json');
+    final configFile = File('${tempDir.path}/vapourbox_job_${job.id}.json');
     await configFile.writeAsString(jsonEncode(job.toJson()));
 
     try {
@@ -178,7 +178,7 @@ class WorkerManager {
 
     // Development: check relative to executable
     final exeDir = File(Platform.resolvedExecutable).parent.path;
-    final workerExe = 'ideinterlace-worker${Platform.isWindows ? '.exe' : ''}';
+    final workerExe = 'vapourbox-worker${Platform.isWindows ? '.exe' : ''}';
 
     // For development builds, the exe is in:
     // app/build/windows/x64/runner/Debug/ or Release/
@@ -205,10 +205,10 @@ class WorkerManager {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
 
     if (Platform.isWindows) {
-      return '$exeDir\\ideinterlace-worker.exe';
+      return '$exeDir\\vapourbox-worker.exe';
     } else if (Platform.isMacOS) {
-      // In .app bundle: Contents/MacOS/ideinterlace-worker
-      return '$exeDir/ideinterlace-worker';
+      // In .app bundle: Contents/MacOS/vapourbox-worker
+      return '$exeDir/vapourbox-worker';
     }
 
     return null;

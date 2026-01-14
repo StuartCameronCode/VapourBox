@@ -1,5 +1,5 @@
 """
-iDeinterlace Preview Template
+VapourBox Preview Template
 Loads a short extracted video clip for fast preview generation.
 Uses the same filter pipeline as the main template.
 """

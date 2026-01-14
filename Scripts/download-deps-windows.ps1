@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Downloads all dependencies for iDeinterlace on Windows x64.
+    Downloads all dependencies for VapourBox on Windows x64.
 
 .DESCRIPTION
     This script downloads and sets up:
@@ -18,7 +18,7 @@
 
 .EXAMPLE
     .\download-deps-windows.ps1
-    .\download-deps-windows.ps1 -TargetDir "C:\ideinterlace\deps\windows-x64"
+    .\download-deps-windows.ps1 -TargetDir "C:\vapourbox\deps\windows-x64"
 #>
 
 param(
@@ -33,7 +33,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $ScriptDir
 $FullTargetDir = Join-Path $ProjectRoot $TargetDir
 
-Write-Host "=== iDeinterlace Windows Dependency Downloader ===" -ForegroundColor Cyan
+Write-Host "=== VapourBox Windows Dependency Downloader ===" -ForegroundColor Cyan
 Write-Host "Target directory: $FullTargetDir"
 Write-Host ""
 
@@ -52,7 +52,7 @@ foreach ($Dir in $Directories) {
 }
 
 # Temporary download directory
-$TempDir = Join-Path $env:TEMP "ideinterlace-deps"
+$TempDir = Join-Path $env:TEMP "vapourbox-deps"
 if (-not (Test-Path $TempDir)) {
     New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
 }

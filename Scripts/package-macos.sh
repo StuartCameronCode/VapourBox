@@ -1,5 +1,5 @@
 #!/bin/bash
-# Package iDeinterlace for macOS
+# Package VapourBox for macOS
 # Creates a standalone .app bundle and optional .zip/.dmg
 #
 # Prerequisites:
@@ -50,11 +50,11 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DIST_DIR="$PROJECT_ROOT/dist"
-APP_NAME="iDeinterlace"
+APP_NAME="VapourBox"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 DEPS_DIR="$PROJECT_ROOT/deps/macos-$ARCH"
 
-echo "=== Packaging iDeinterlace for macOS ($ARCH) ==="
+echo "=== Packaging VapourBox for macOS ($ARCH) ==="
 echo ""
 
 # Check prerequisites
@@ -84,15 +84,15 @@ if [ "$SKIP_BUILD" = false ]; then
     cd "$PROJECT_ROOT/worker"
     if [ "$ARCH" = "arm64" ]; then
         cargo build --release --target aarch64-apple-darwin
-        WORKER_BIN="$PROJECT_ROOT/worker/target/aarch64-apple-darwin/release/ideinterlace-worker"
+        WORKER_BIN="$PROJECT_ROOT/worker/target/aarch64-apple-darwin/release/vapourbox-worker"
     else
         cargo build --release --target x86_64-apple-darwin
-        WORKER_BIN="$PROJECT_ROOT/worker/target/x86_64-apple-darwin/release/ideinterlace-worker"
+        WORKER_BIN="$PROJECT_ROOT/worker/target/x86_64-apple-darwin/release/vapourbox-worker"
     fi
     # Fallback to default target if specific target not found
     if [ ! -f "$WORKER_BIN" ]; then
         cargo build --release
-        WORKER_BIN="$PROJECT_ROOT/worker/target/release/ideinterlace-worker"
+        WORKER_BIN="$PROJECT_ROOT/worker/target/release/vapourbox-worker"
     fi
     echo "    Rust worker built"
 
@@ -105,7 +105,7 @@ if [ "$SKIP_BUILD" = false ]; then
 else
     echo "[2/8] Skipping Rust build (--skip-build)"
     echo "[3/8] Skipping Flutter build (--skip-build)"
-    WORKER_BIN="$PROJECT_ROOT/worker/target/release/ideinterlace-worker"
+    WORKER_BIN="$PROJECT_ROOT/worker/target/release/vapourbox-worker"
 fi
 
 # Create app bundle structure
@@ -114,7 +114,7 @@ rm -rf "$APP_BUNDLE"
 mkdir -p "$DIST_DIR"
 
 # Copy Flutter app bundle as base
-FLUTTER_APP="$PROJECT_ROOT/app/build/macos/Build/Products/Release/ideinterlace.app"
+FLUTTER_APP="$PROJECT_ROOT/app/build/macos/Build/Products/Release/vapourbox.app"
 if [ ! -d "$FLUTTER_APP" ]; then
     echo "ERROR: Flutter app bundle not found at $FLUTTER_APP"
     exit 1
@@ -135,8 +135,8 @@ if [ ! -f "$WORKER_BIN" ]; then
     echo "ERROR: Worker executable not found at $WORKER_BIN"
     exit 1
 fi
-cp "$WORKER_BIN" "$CONTENTS/Helpers/ideinterlace-worker"
-chmod +x "$CONTENTS/Helpers/ideinterlace-worker"
+cp "$WORKER_BIN" "$CONTENTS/Helpers/vapourbox-worker"
+chmod +x "$CONTENTS/Helpers/vapourbox-worker"
 
 # Copy VapourSynth script templates
 cp "$PROJECT_ROOT/worker/templates/qtgmc_template.vpy" "$CONTENTS/Resources/Templates/"
@@ -236,6 +236,11 @@ if [ -d "$PYTHON_DIR/Python.framework" ]; then
 elif [ -d "$DEPS_DIR/Frameworks/Python.framework" ]; then
     cp -R "$DEPS_DIR/Frameworks/Python.framework" "$CONTENTS/Frameworks/"
 fi
+
+# Copy licenses
+echo "    Copying licenses..."
+cp -r "$PROJECT_ROOT/licenses" "$CONTENTS/Resources/licenses"
+cp "$PROJECT_ROOT/LICENSE" "$CONTENTS/Resources/LICENSE"
 
 # Create vspipe wrapper script
 echo "[7/8] Creating wrapper scripts..."

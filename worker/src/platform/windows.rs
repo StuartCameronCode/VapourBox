@@ -11,7 +11,7 @@ pub fn home_dir() -> Option<PathBuf> {
 pub fn app_data_dir() -> Option<PathBuf> {
     std::env::var("LOCALAPPDATA")
         .ok()
-        .map(|p| PathBuf::from(p).join("iDeinterlace"))
+        .map(|p| PathBuf::from(p).join("VapourBox"))
 }
 
 /// Get the cache directory (same as app data on Windows).

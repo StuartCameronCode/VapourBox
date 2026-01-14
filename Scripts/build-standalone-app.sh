@@ -1,12 +1,12 @@
 #!/bin/bash
-# Build a fully standalone distributable iDeinterlace.app
+# Build a fully standalone distributable VapourBox.app
 # This bundles Python, VapourSynth, ffmpeg, and all required plugins
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_ROOT/.build/release"
-APP_NAME="iDeinterlace"
+APP_NAME="VapourBox"
 APP_BUNDLE="$PROJECT_ROOT/dist/$APP_NAME.app"
 CONTENTS="$APP_BUNDLE/Contents"
 
@@ -15,7 +15,7 @@ HOMEBREW_PREFIX="/opt/homebrew"
 PYTHON_VERSION="3.14"
 PYTHON_FRAMEWORK="$HOMEBREW_PREFIX/opt/python@$PYTHON_VERSION/Frameworks/Python.framework"
 
-echo "=== Building Standalone iDeinterlace.app ==="
+echo "=== Building Standalone VapourBox.app ==="
 echo ""
 
 # Step 1: Build Swift executables
@@ -37,8 +37,8 @@ mkdir -p "$CONTENTS/lib"
 
 # Step 3: Copy executables
 echo "[3/8] Copying executables..."
-cp "$BUILD_DIR/iDeinterlace" "$CONTENTS/MacOS/"
-cp "$BUILD_DIR/iDeinterlaceWorker" "$CONTENTS/Helpers/"
+cp "$BUILD_DIR/VapourBox" "$CONTENTS/MacOS/"
+cp "$BUILD_DIR/VapourBoxWorker" "$CONTENTS/Helpers/"
 
 # Step 4: Copy Python framework
 echo "[4/8] Copying Python framework..."
@@ -198,13 +198,13 @@ cat > "$CONTENTS/Info.plist" << 'PLIST'
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>iDeinterlace</string>
+    <string>VapourBox</string>
     <key>CFBundleIdentifier</key>
-    <string>com.stuartcameron.iDeinterlace</string>
+    <string>com.stuartcameron.VapourBox</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>iDeinterlace</string>
+    <string>VapourBox</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

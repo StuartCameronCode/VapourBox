@@ -17,7 +17,7 @@ fi
 IDENTITY="$1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-APP_PATH="${2:-$PROJECT_DIR/build/Release/iDeinterlace.app}"
+APP_PATH="${2:-$PROJECT_DIR/build/Release/VapourBox.app}"
 
 echo "=== Code Signing Dependencies ==="
 echo "Identity: $IDENTITY"
@@ -25,7 +25,7 @@ echo "App path: $APP_PATH"
 
 if [ ! -d "$APP_PATH" ]; then
     echo "Error: App not found at $APP_PATH"
-    echo "Build the app first with: xcodebuild -scheme iDeinterlace -configuration Release"
+    echo "Build the app first with: xcodebuild -scheme VapourBox -configuration Release"
     exit 1
 fi
 
@@ -65,17 +65,17 @@ fi
 # Sign the worker executable
 echo ""
 echo "Signing worker executable..."
-if [ -f "$APP_PATH/Contents/MacOS/iDeinterlaceWorker" ]; then
+if [ -f "$APP_PATH/Contents/MacOS/VapourBoxWorker" ]; then
     codesign --force --sign "$IDENTITY" --timestamp \
-        --entitlements "$PROJECT_DIR/iDeinterlaceWorker/iDeinterlaceWorker.entitlements" \
-        "$APP_PATH/Contents/MacOS/iDeinterlaceWorker"
+        --entitlements "$PROJECT_DIR/VapourBoxWorker/VapourBoxWorker.entitlements" \
+        "$APP_PATH/Contents/MacOS/VapourBoxWorker"
 fi
 
 # Sign the main app
 echo ""
 echo "Signing main application..."
 codesign --force --sign "$IDENTITY" --timestamp \
-    --entitlements "$PROJECT_DIR/iDeinterlace/Resources/iDeinterlace.entitlements" \
+    --entitlements "$PROJECT_DIR/VapourBox/Resources/VapourBox.entitlements" \
     "$APP_PATH"
 
 # Verify

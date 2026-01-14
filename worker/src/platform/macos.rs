@@ -9,10 +9,10 @@ pub fn home_dir() -> Option<PathBuf> {
 
 /// Get the application support directory.
 pub fn app_support_dir() -> Option<PathBuf> {
-    home_dir().map(|h| h.join("Library").join("Application Support").join("iDeinterlace"))
+    home_dir().map(|h| h.join("Library").join("Application Support").join("VapourBox"))
 }
 
 /// Get the cache directory.
 pub fn cache_dir() -> Option<PathBuf> {
-    home_dir().map(|h| h.join("Library").join("Caches").join("iDeinterlace"))
+    home_dir().map(|h| h.join("Library").join("Caches").join("VapourBox"))
 }
