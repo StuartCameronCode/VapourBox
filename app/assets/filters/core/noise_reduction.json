@@ -1,0 +1,174 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "noise_reduction",
+  "version": "1.0.0",
+  "name": "Noise Reduction",
+  "description": "Remove video noise and grain",
+  "category": "restoration",
+  "icon": "grain",
+  "order": 2,
+
+  "dependencies": {
+    "plugins": ["havsfunc", "mvsfunc"],
+    "vs_plugins": ["libmvtools.dll", "DFTTest.dll"]
+  },
+
+  "methods": [
+    {
+      "id": "smdegrain",
+      "name": "SMDegrain",
+      "description": "Motion-compensated denoising - excellent quality",
+      "function": "haf.SMDegrain",
+      "parameters": ["smDegrainTr", "smDegrainThSad", "smDegrainThSadc", "smDegrainRefine", "smDegrainPrefilter"]
+    },
+    {
+      "id": "mctemporal",
+      "name": "MCTemporalDenoise",
+      "description": "Advanced temporal denoising - best for heavy noise",
+      "function": "haf.MCTemporalDenoise",
+      "parameters": ["mcTemporalSettings", "mcTemporalSigma"]
+    },
+    {
+      "id": "qtgmc_builtin",
+      "name": "QTGMC Built-in",
+      "description": "Use QTGMC's integrated denoising - fastest option",
+      "function": "qtgmc_internal",
+      "parameters": []
+    }
+  ],
+
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": { "hidden": true }
+    },
+    "method": {
+      "type": "enum",
+      "default": "smdegrain",
+      "options": ["smdegrain", "mctemporal", "qtgmc_builtin"],
+      "ui": {
+        "label": "Method",
+        "widget": "dropdown"
+      }
+    },
+    "smDegrainTr": {
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 3,
+      "step": 1,
+      "vapoursynth": { "name": "tr" },
+      "ui": {
+        "label": "Temporal Radius",
+        "description": "Number of frames to use for denoising",
+        "widget": "slider",
+        "visibleWhen": { "method": ["smdegrain"] }
+      }
+    },
+    "smDegrainThSad": {
+      "type": "integer",
+      "default": 300,
+      "min": 0,
+      "max": 1000,
+      "step": 25,
+      "vapoursynth": { "name": "thSAD" },
+      "ui": {
+        "label": "Luma Threshold",
+        "description": "SAD threshold for luma denoising",
+        "widget": "slider",
+        "visibleWhen": { "method": ["smdegrain"] }
+      }
+    },
+    "smDegrainThSadc": {
+      "type": "integer",
+      "default": 150,
+      "min": 0,
+      "max": 500,
+      "step": 25,
+      "vapoursynth": { "name": "thSADC" },
+      "ui": {
+        "label": "Chroma Threshold",
+        "description": "SAD threshold for chroma denoising",
+        "widget": "slider",
+        "visibleWhen": { "method": ["smdegrain"] }
+      }
+    },
+    "smDegrainRefine": {
+      "type": "boolean",
+      "default": true,
+      "vapoursynth": { "name": "RefineMotion" },
+      "ui": {
+        "label": "Refine Motion",
+        "description": "Refine motion vectors for better quality",
+        "visibleWhen": { "method": ["smdegrain"] }
+      }
+    },
+    "smDegrainPrefilter": {
+      "type": "integer",
+      "default": 2,
+      "min": 0,
+      "max": 3,
+      "step": 1,
+      "vapoursynth": { "name": "prefilter" },
+      "ui": {
+        "label": "Prefilter",
+        "description": "Prefilter strength for motion estimation",
+        "widget": "slider",
+        "visibleWhen": { "method": ["smdegrain"] }
+      }
+    },
+    "mcTemporalSettings": {
+      "type": "enum",
+      "default": "high",
+      "options": ["very high", "high", "medium", "low", "very low"],
+      "vapoursynth": { "name": "settings" },
+      "ui": {
+        "label": "Settings",
+        "description": "Quality preset",
+        "widget": "dropdown",
+        "visibleWhen": { "method": ["mctemporal"] }
+      }
+    },
+    "mcTemporalSigma": {
+      "type": "number",
+      "default": 4.0,
+      "min": 0.0,
+      "max": 20.0,
+      "step": 0.5,
+      "vapoursynth": { "name": "sigma" },
+      "ui": {
+        "label": "Sigma",
+        "description": "Noise sigma estimate",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": { "method": ["mctemporal"] }
+      }
+    }
+  },
+
+  "ui": {
+    "sections": [
+      {
+        "title": "Method",
+        "parameters": ["method"],
+        "expanded": true
+      },
+      {
+        "title": "SMDegrain Settings",
+        "parameters": ["smDegrainTr", "smDegrainThSad", "smDegrainThSadc", "smDegrainRefine", "smDegrainPrefilter"],
+        "expanded": true
+      },
+      {
+        "title": "MCTemporalDenoise Settings",
+        "parameters": ["mcTemporalSettings", "mcTemporalSigma"],
+        "expanded": true
+      }
+    ]
+  },
+
+  "codeTemplate": {
+    "imports": ["import havsfunc as haf", "import mvsfunc as mvf"],
+    "generate": "method"
+  }
+}

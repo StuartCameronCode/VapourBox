@@ -1,0 +1,124 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "deblock",
+  "version": "1.0.0",
+  "name": "Deblock",
+  "description": "Remove blocking artifacts from compressed video",
+  "category": "restoration",
+  "icon": "grid_off",
+  "order": 3,
+
+  "dependencies": {
+    "plugins": ["havsfunc"],
+    "vs_plugins": ["DCTFilter.dll", "Deblock.dll"]
+  },
+
+  "methods": [
+    {
+      "id": "deblock_qed",
+      "name": "Deblock QED",
+      "description": "Quality Edge-Directed Deblock - good for all sources",
+      "function": "haf.Deblock_QED",
+      "parameters": ["quant1", "quant2", "aOffset1", "aOffset2"]
+    },
+    {
+      "id": "deblock",
+      "name": "Deblock",
+      "description": "Simple deblock filter - faster but less quality",
+      "function": "core.deblock.Deblock",
+      "parameters": ["quant1"]
+    }
+  ],
+
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": { "hidden": true }
+    },
+    "method": {
+      "type": "enum",
+      "default": "deblock_qed",
+      "options": ["deblock_qed", "deblock"],
+      "ui": {
+        "label": "Method",
+        "widget": "dropdown"
+      }
+    },
+    "quant1": {
+      "type": "integer",
+      "default": 24,
+      "min": 1,
+      "max": 60,
+      "step": 1,
+      "vapoursynth": { "name": "quant1" },
+      "ui": {
+        "label": "Quant 1",
+        "description": "Quantization level for luma deblocking",
+        "widget": "slider"
+      }
+    },
+    "quant2": {
+      "type": "integer",
+      "default": 26,
+      "min": 1,
+      "max": 60,
+      "step": 1,
+      "vapoursynth": { "name": "quant2" },
+      "ui": {
+        "label": "Quant 2",
+        "description": "Quantization level for chroma deblocking",
+        "widget": "slider",
+        "visibleWhen": { "method": ["deblock_qed"] }
+      }
+    },
+    "aOffset1": {
+      "type": "integer",
+      "default": 1,
+      "min": -4,
+      "max": 4,
+      "step": 1,
+      "vapoursynth": { "name": "aOffset1" },
+      "ui": {
+        "label": "Alpha Offset 1",
+        "description": "Luma alpha offset for edge detection",
+        "widget": "slider",
+        "visibleWhen": { "method": ["deblock_qed"] }
+      }
+    },
+    "aOffset2": {
+      "type": "integer",
+      "default": 1,
+      "min": -4,
+      "max": 4,
+      "step": 1,
+      "vapoursynth": { "name": "aOffset2" },
+      "ui": {
+        "label": "Alpha Offset 2",
+        "description": "Chroma alpha offset for edge detection",
+        "widget": "slider",
+        "visibleWhen": { "method": ["deblock_qed"] }
+      }
+    }
+  },
+
+  "ui": {
+    "sections": [
+      {
+        "title": "Method",
+        "parameters": ["method"],
+        "expanded": true
+      },
+      {
+        "title": "Settings",
+        "parameters": ["quant1", "quant2", "aOffset1", "aOffset2"],
+        "expanded": true
+      }
+    ]
+  },
+
+  "codeTemplate": {
+    "imports": ["import havsfunc as haf"],
+    "generate": "method"
+  }
+}

@@ -1,0 +1,215 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "crop_resize",
+  "version": "1.0.0",
+  "name": "Crop & Resize",
+  "description": "Crop borders and resize or upscale video",
+  "category": "transform",
+  "icon": "crop",
+  "order": 9,
+
+  "dependencies": {
+    "vs_plugins": ["libvs_znedi3.dll"]
+  },
+
+  "methods": [
+    {
+      "id": "standard",
+      "name": "Standard Resize",
+      "description": "Standard resize with selectable kernel",
+      "function": "core.resize",
+      "parameters": ["targetWidth", "targetHeight", "kernel"]
+    },
+    {
+      "id": "nnedi3_2x",
+      "name": "NNEDI3 2x Upscale",
+      "description": "High-quality 2x upscale using neural network interpolation",
+      "function": "core.znedi3.nnedi3",
+      "parameters": ["upscaleTarget"]
+    }
+  ],
+
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": { "hidden": true }
+    },
+    "cropEnabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Enable Cropping",
+        "description": "Crop borders from video"
+      }
+    },
+    "cropLeft": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 200,
+      "step": 2,
+      "vapoursynth": { "name": "left" },
+      "ui": {
+        "label": "Crop Left",
+        "description": "Pixels to crop from left",
+        "widget": "slider",
+        "visibleWhen": { "cropEnabled": true }
+      }
+    },
+    "cropRight": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 200,
+      "step": 2,
+      "vapoursynth": { "name": "right" },
+      "ui": {
+        "label": "Crop Right",
+        "description": "Pixels to crop from right",
+        "widget": "slider",
+        "visibleWhen": { "cropEnabled": true }
+      }
+    },
+    "cropTop": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 200,
+      "step": 2,
+      "vapoursynth": { "name": "top" },
+      "ui": {
+        "label": "Crop Top",
+        "description": "Pixels to crop from top",
+        "widget": "slider",
+        "visibleWhen": { "cropEnabled": true }
+      }
+    },
+    "cropBottom": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 200,
+      "step": 2,
+      "vapoursynth": { "name": "bottom" },
+      "ui": {
+        "label": "Crop Bottom",
+        "description": "Pixels to crop from bottom",
+        "widget": "slider",
+        "visibleWhen": { "cropEnabled": true }
+      }
+    },
+    "resizeEnabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Enable Resize",
+        "description": "Resize video to target dimensions"
+      }
+    },
+    "targetWidth": {
+      "type": "integer",
+      "default": null,
+      "min": 320,
+      "max": 7680,
+      "step": 2,
+      "vapoursynth": { "name": "width" },
+      "ui": {
+        "label": "Target Width",
+        "description": "Target width in pixels (null = auto)",
+        "widget": "number",
+        "visibleWhen": { "resizeEnabled": true }
+      }
+    },
+    "targetHeight": {
+      "type": "integer",
+      "default": null,
+      "min": 240,
+      "max": 4320,
+      "step": 2,
+      "vapoursynth": { "name": "height" },
+      "ui": {
+        "label": "Target Height",
+        "description": "Target height in pixels (null = auto)",
+        "widget": "number",
+        "visibleWhen": { "resizeEnabled": true }
+      }
+    },
+    "kernel": {
+      "type": "enum",
+      "default": "Spline36",
+      "options": ["Bilinear", "Bicubic", "Point", "Lanczos", "Spline16", "Spline36", "Spline64"],
+      "vapoursynth": { "name": "kernel" },
+      "ui": {
+        "label": "Resize Kernel",
+        "description": "Interpolation algorithm",
+        "widget": "dropdown",
+        "visibleWhen": { "resizeEnabled": true }
+      }
+    },
+    "maintainAspect": {
+      "type": "boolean",
+      "default": true,
+      "ui": {
+        "label": "Maintain Aspect Ratio",
+        "description": "Keep original aspect ratio when resizing",
+        "visibleWhen": { "resizeEnabled": true }
+      }
+    },
+    "upscaleEnabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Enable Upscale",
+        "description": "High-quality upscaling using NNEDI3"
+      }
+    },
+    "upscaleMethod": {
+      "type": "enum",
+      "default": "nnedi3_2x",
+      "options": ["nnedi3_2x", "nnedi3_4x"],
+      "ui": {
+        "label": "Upscale Method",
+        "description": "Upscaling method and factor",
+        "widget": "dropdown",
+        "visibleWhen": { "upscaleEnabled": true }
+      }
+    },
+    "upscaleTarget": {
+      "type": "enum",
+      "default": "1080p",
+      "options": ["720p", "1080p", "1440p", "4K"],
+      "ui": {
+        "label": "Target Resolution",
+        "description": "Target upscale resolution",
+        "widget": "dropdown",
+        "visibleWhen": { "upscaleEnabled": true }
+      }
+    }
+  },
+
+  "ui": {
+    "sections": [
+      {
+        "title": "Crop",
+        "parameters": ["cropEnabled", "cropLeft", "cropRight", "cropTop", "cropBottom"],
+        "expanded": true
+      },
+      {
+        "title": "Resize",
+        "parameters": ["resizeEnabled", "targetWidth", "targetHeight", "kernel", "maintainAspect"],
+        "expanded": true
+      },
+      {
+        "title": "Upscale (NNEDI3)",
+        "parameters": ["upscaleEnabled", "upscaleMethod", "upscaleTarget"],
+        "expanded": false
+      }
+    ]
+  },
+
+  "codeTemplate": {
+    "imports": [],
+    "generate": "custom"
+  }
+}

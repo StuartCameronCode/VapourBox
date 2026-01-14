@@ -1,0 +1,157 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "deband",
+  "version": "1.0.0",
+  "name": "Deband",
+  "description": "Remove banding artifacts using f3kdb",
+  "category": "restoration",
+  "icon": "gradient",
+  "order": 5,
+
+  "dependencies": {
+    "vs_plugins": ["neo-f3kdb.dll"]
+  },
+
+  "methods": [
+    {
+      "id": "f3kdb",
+      "name": "f3kdb",
+      "description": "Flash 3D deband filter - removes banding while preserving detail",
+      "function": "core.neo_f3kdb.Deband",
+      "parameters": ["range", "y", "cb", "cr", "grainY", "grainC", "dynamicGrain", "outputDepth"]
+    }
+  ],
+
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": { "hidden": true }
+    },
+    "range": {
+      "type": "integer",
+      "default": 15,
+      "min": 1,
+      "max": 31,
+      "step": 1,
+      "vapoursynth": { "name": "range" },
+      "ui": {
+        "label": "Range",
+        "description": "Banding detection range",
+        "widget": "slider"
+      }
+    },
+    "y": {
+      "type": "integer",
+      "default": 64,
+      "min": 0,
+      "max": 127,
+      "step": 1,
+      "vapoursynth": { "name": "y" },
+      "ui": {
+        "label": "Luma Threshold",
+        "description": "Threshold for luma plane deband",
+        "widget": "slider"
+      }
+    },
+    "cb": {
+      "type": "integer",
+      "default": 64,
+      "min": 0,
+      "max": 127,
+      "step": 1,
+      "vapoursynth": { "name": "cb" },
+      "ui": {
+        "label": "Chroma Cb Threshold",
+        "description": "Threshold for Cb chroma plane deband",
+        "widget": "slider"
+      }
+    },
+    "cr": {
+      "type": "integer",
+      "default": 64,
+      "min": 0,
+      "max": 127,
+      "step": 1,
+      "vapoursynth": { "name": "cr" },
+      "ui": {
+        "label": "Chroma Cr Threshold",
+        "description": "Threshold for Cr chroma plane deband",
+        "widget": "slider"
+      }
+    },
+    "grainY": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 127,
+      "step": 1,
+      "vapoursynth": { "name": "grainy" },
+      "ui": {
+        "label": "Luma Grain",
+        "description": "Amount of grain to add to luma",
+        "widget": "slider"
+      }
+    },
+    "grainC": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 127,
+      "step": 1,
+      "vapoursynth": { "name": "grainc" },
+      "ui": {
+        "label": "Chroma Grain",
+        "description": "Amount of grain to add to chroma",
+        "widget": "slider"
+      }
+    },
+    "dynamicGrain": {
+      "type": "boolean",
+      "default": false,
+      "vapoursynth": { "name": "dynamic_grain" },
+      "ui": {
+        "label": "Dynamic Grain",
+        "description": "Use dynamic grain instead of static"
+      }
+    },
+    "outputDepth": {
+      "type": "integer",
+      "default": 8,
+      "min": 8,
+      "max": 16,
+      "step": 2,
+      "vapoursynth": { "name": "output_depth" },
+      "ui": {
+        "label": "Output Depth",
+        "description": "Output bit depth (8, 10, 12, 14, 16)",
+        "widget": "dropdown"
+      }
+    }
+  },
+
+  "ui": {
+    "sections": [
+      {
+        "title": "Thresholds",
+        "parameters": ["range", "y", "cb", "cr"],
+        "expanded": true
+      },
+      {
+        "title": "Grain",
+        "parameters": ["grainY", "grainC", "dynamicGrain"],
+        "expanded": true
+      },
+      {
+        "title": "Output",
+        "parameters": ["outputDepth"],
+        "expanded": false
+      }
+    ]
+  },
+
+  "codeTemplate": {
+    "imports": [],
+    "generate": "method"
+  }
+}

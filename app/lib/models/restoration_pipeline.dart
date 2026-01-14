@@ -6,7 +6,9 @@ import 'crop_resize_parameters.dart';
 import 'deband_parameters.dart';
 import 'deblock_parameters.dart';
 import 'dehalo_parameters.dart';
+import 'dynamic_parameters.dart';
 import 'noise_reduction_parameters.dart';
+import 'parameter_converter.dart';
 import 'qtgmc_parameters.dart';
 import 'sharpen_parameters.dart';
 
@@ -302,6 +304,11 @@ class RestorationPipeline {
           cropResize: cropResize.copyWith(enabled: enabled),
         );
     }
+  }
+
+  /// Convert to a dynamic pipeline for schema-based processing.
+  DynamicPipeline toDynamicPipeline() {
+    return ParameterConverter.fromPipeline(this);
   }
 
   factory RestorationPipeline.fromJson(Map<String, dynamic> json) =>

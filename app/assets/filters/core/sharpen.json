@@ -1,0 +1,140 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "sharpen",
+  "version": "1.0.0",
+  "name": "Sharpen",
+  "description": "Sharpen video edges and detail",
+  "category": "enhancement",
+  "icon": "auto_fix_high",
+  "order": 6,
+
+  "dependencies": {
+    "plugins": ["havsfunc"],
+    "vs_plugins": ["CAS.dll"]
+  },
+
+  "methods": [
+    {
+      "id": "lsfmod",
+      "name": "LSFmod",
+      "description": "LimitedSharpenFaster - quality sharpening with overshoot protection",
+      "function": "haf.LSFmod",
+      "parameters": ["strength", "overshoot", "undershoot", "softEdge"]
+    },
+    {
+      "id": "cas",
+      "name": "CAS",
+      "description": "Contrast Adaptive Sharpening - fast GPU-optimized sharpening",
+      "function": "core.cas.CAS",
+      "parameters": ["casSharpness"]
+    }
+  ],
+
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": { "hidden": true }
+    },
+    "method": {
+      "type": "enum",
+      "default": "lsfmod",
+      "options": ["lsfmod", "cas"],
+      "ui": {
+        "label": "Method",
+        "widget": "dropdown"
+      }
+    },
+    "strength": {
+      "type": "integer",
+      "default": 100,
+      "min": 0,
+      "max": 200,
+      "step": 5,
+      "vapoursynth": { "name": "strength" },
+      "ui": {
+        "label": "Strength",
+        "description": "Sharpening strength",
+        "widget": "slider",
+        "visibleWhen": { "method": ["lsfmod"] }
+      }
+    },
+    "overshoot": {
+      "type": "integer",
+      "default": 1,
+      "min": 0,
+      "max": 255,
+      "step": 1,
+      "vapoursynth": { "name": "Overshoot" },
+      "ui": {
+        "label": "Overshoot",
+        "description": "Maximum overshoot allowed",
+        "widget": "slider",
+        "visibleWhen": { "method": ["lsfmod"] }
+      }
+    },
+    "undershoot": {
+      "type": "integer",
+      "default": 1,
+      "min": 0,
+      "max": 255,
+      "step": 1,
+      "vapoursynth": { "name": "Undershoot" },
+      "ui": {
+        "label": "Undershoot",
+        "description": "Maximum undershoot allowed",
+        "widget": "slider",
+        "visibleWhen": { "method": ["lsfmod"] }
+      }
+    },
+    "softEdge": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "vapoursynth": { "name": "soft" },
+      "ui": {
+        "label": "Soft Edge",
+        "description": "Soft edge protection percentage",
+        "widget": "slider",
+        "visibleWhen": { "method": ["lsfmod"] }
+      }
+    },
+    "casSharpness": {
+      "type": "number",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "vapoursynth": { "name": "sharpness" },
+      "ui": {
+        "label": "CAS Sharpness",
+        "description": "CAS sharpening strength (0-1)",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": { "method": ["cas"] }
+      }
+    }
+  },
+
+  "ui": {
+    "sections": [
+      {
+        "title": "Method",
+        "parameters": ["method"],
+        "expanded": true
+      },
+      {
+        "title": "Settings",
+        "parameters": ["strength", "overshoot", "undershoot", "softEdge", "casSharpness"],
+        "expanded": true
+      }
+    ]
+  },
+
+  "codeTemplate": {
+    "imports": ["import havsfunc as haf"],
+    "generate": "method"
+  }
+}

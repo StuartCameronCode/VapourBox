@@ -573,6 +573,10 @@ fn test_20_combined_all_filters() {
             sm_degrain_prefilter: 2,
             ..NoiseReductionParameters::default()
         },
+        dehalo: DehaloParameters::default(),
+        deblock: DeblockParameters::default(),
+        deband: DebandParameters::default(),
+        sharpen: SharpenParameters::default(),
         color_correction: ColorCorrectionParameters {
             enabled: true,
             brightness: 5.0,

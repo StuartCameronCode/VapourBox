@@ -1,0 +1,108 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "my_custom_filter",
+  "version": "1.0.0",
+  "name": "My Custom Filter",
+  "description": "Example custom filter - copy and modify this template",
+  "category": "custom",
+  "icon": "extension",
+  "order": 100,
+
+  "dependencies": {
+    "plugins": ["havsfunc"],
+    "vs_plugins": []
+  },
+
+  "methods": [
+    {
+      "id": "method_one",
+      "name": "Method One",
+      "description": "First processing method",
+      "function": "haf.SomeFunction",
+      "parameters": ["param1", "param2"]
+    },
+    {
+      "id": "method_two",
+      "name": "Method Two",
+      "description": "Alternative processing method",
+      "function": "haf.AnotherFunction",
+      "parameters": ["param3"]
+    }
+  ],
+
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": { "hidden": true }
+    },
+    "method": {
+      "type": "enum",
+      "default": "method_one",
+      "options": ["method_one", "method_two"],
+      "ui": {
+        "label": "Method",
+        "widget": "dropdown"
+      }
+    },
+    "param1": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.1,
+      "vapoursynth": { "name": "strength" },
+      "ui": {
+        "label": "Strength",
+        "description": "Processing strength",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": { "method": ["method_one"] }
+      }
+    },
+    "param2": {
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 5,
+      "step": 1,
+      "vapoursynth": { "name": "radius" },
+      "ui": {
+        "label": "Radius",
+        "description": "Processing radius",
+        "widget": "slider",
+        "visibleWhen": { "method": ["method_one"] }
+      }
+    },
+    "param3": {
+      "type": "boolean",
+      "default": true,
+      "vapoursynth": { "name": "enable_feature" },
+      "ui": {
+        "label": "Enable Feature",
+        "description": "Enable extra processing",
+        "visibleWhen": { "method": ["method_two"] }
+      }
+    }
+  },
+
+  "ui": {
+    "sections": [
+      {
+        "title": "Method",
+        "parameters": ["method"],
+        "expanded": true
+      },
+      {
+        "title": "Settings",
+        "parameters": ["param1", "param2", "param3"],
+        "expanded": true
+      }
+    ]
+  },
+
+  "codeTemplate": {
+    "imports": ["import havsfunc as haf"],
+    "generate": "method"
+  }
+}

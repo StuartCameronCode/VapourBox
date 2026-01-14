@@ -1,0 +1,187 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "color_correction",
+  "version": "1.0.0",
+  "name": "Color Correction",
+  "description": "Adjust brightness, contrast, saturation and levels",
+  "category": "color",
+  "icon": "tune",
+  "order": 7,
+
+  "dependencies": {
+    "plugins": ["havsfunc"]
+  },
+
+  "methods": [
+    {
+      "id": "tweak",
+      "name": "Tweak",
+      "description": "Basic color adjustments - brightness, contrast, saturation, hue",
+      "function": "haf.Tweak",
+      "parameters": ["brightness", "contrast", "saturation", "hue"]
+    }
+  ],
+
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": { "hidden": true }
+    },
+    "brightness": {
+      "type": "number",
+      "default": 0.0,
+      "min": -50.0,
+      "max": 50.0,
+      "step": 1.0,
+      "vapoursynth": { "name": "bright" },
+      "ui": {
+        "label": "Brightness",
+        "description": "Brightness adjustment (-50 to +50)",
+        "widget": "slider",
+        "precision": 0
+      }
+    },
+    "contrast": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.5,
+      "max": 2.0,
+      "step": 0.05,
+      "vapoursynth": { "name": "cont" },
+      "ui": {
+        "label": "Contrast",
+        "description": "Contrast multiplier (1.0 = no change)",
+        "widget": "slider",
+        "precision": 2
+      }
+    },
+    "saturation": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 3.0,
+      "step": 0.05,
+      "vapoursynth": { "name": "sat" },
+      "ui": {
+        "label": "Saturation",
+        "description": "Saturation multiplier (1.0 = no change)",
+        "widget": "slider",
+        "precision": 2
+      }
+    },
+    "hue": {
+      "type": "number",
+      "default": 0.0,
+      "min": -180.0,
+      "max": 180.0,
+      "step": 5.0,
+      "vapoursynth": { "name": "hue" },
+      "ui": {
+        "label": "Hue",
+        "description": "Hue rotation in degrees",
+        "widget": "slider",
+        "precision": 0
+      }
+    },
+    "levelsEnabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Enable Levels",
+        "description": "Enable input/output level adjustments"
+      }
+    },
+    "inputBlack": {
+      "type": "integer",
+      "default": 16,
+      "min": 0,
+      "max": 255,
+      "step": 1,
+      "vapoursynth": { "name": "input_low" },
+      "ui": {
+        "label": "Input Black",
+        "description": "Input black level",
+        "widget": "slider",
+        "visibleWhen": { "levelsEnabled": true }
+      }
+    },
+    "inputWhite": {
+      "type": "integer",
+      "default": 235,
+      "min": 0,
+      "max": 255,
+      "step": 1,
+      "vapoursynth": { "name": "input_high" },
+      "ui": {
+        "label": "Input White",
+        "description": "Input white level",
+        "widget": "slider",
+        "visibleWhen": { "levelsEnabled": true }
+      }
+    },
+    "outputBlack": {
+      "type": "integer",
+      "default": 16,
+      "min": 0,
+      "max": 255,
+      "step": 1,
+      "vapoursynth": { "name": "output_low" },
+      "ui": {
+        "label": "Output Black",
+        "description": "Output black level",
+        "widget": "slider",
+        "visibleWhen": { "levelsEnabled": true }
+      }
+    },
+    "outputWhite": {
+      "type": "integer",
+      "default": 235,
+      "min": 0,
+      "max": 255,
+      "step": 1,
+      "vapoursynth": { "name": "output_high" },
+      "ui": {
+        "label": "Output White",
+        "description": "Output white level",
+        "widget": "slider",
+        "visibleWhen": { "levelsEnabled": true }
+      }
+    },
+    "gamma": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.1,
+      "max": 4.0,
+      "step": 0.1,
+      "vapoursynth": { "name": "gamma" },
+      "ui": {
+        "label": "Gamma",
+        "description": "Gamma correction",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": { "levelsEnabled": true }
+      }
+    }
+  },
+
+  "ui": {
+    "sections": [
+      {
+        "title": "Basic Adjustments",
+        "parameters": ["brightness", "contrast", "saturation", "hue"],
+        "expanded": true
+      },
+      {
+        "title": "Levels",
+        "parameters": ["levelsEnabled", "inputBlack", "inputWhite", "outputBlack", "outputWhite", "gamma"],
+        "expanded": false
+      }
+    ]
+  },
+
+  "codeTemplate": {
+    "imports": ["import havsfunc as haf"],
+    "generate": "method"
+  }
+}

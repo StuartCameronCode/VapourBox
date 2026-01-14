@@ -451,6 +451,7 @@ mod tests {
             input_path: "input.mp4".to_string(),
             output_path: "output.mp4".to_string(),
             qtgmc_parameters: QTGMCParameters::default(),
+            restoration_pipeline: None,
             encoding_settings: EncodingSettings::default(),
             detected_field_order: None,
             total_frames: None,

@@ -1,0 +1,1016 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "deinterlace",
+  "version": "1.0.0",
+  "name": "Deinterlace",
+  "description": "QTGMC high-quality deinterlacing",
+  "category": "deinterlace",
+  "icon": "layers",
+  "order": 1,
+
+  "dependencies": {
+    "plugins": ["havsfunc", "mvsfunc"],
+    "vs_plugins": ["libmvtools.dll", "EEDI3m.dll", "libvs_znedi3.dll", "libfmtconv.dll", "ffms2.dll"]
+  },
+
+  "methods": [
+    {
+      "id": "qtgmc",
+      "name": "QTGMC",
+      "description": "High-quality deinterlacing using motion compensation",
+      "function": "haf.QTGMC",
+      "parameters": ["preset", "tff", "inputType", "fpsDivisor", "tr0", "tr1", "tr2", "rep0", "rep1", "rep2", "repChroma", "ediMode", "nnSize", "nnNeurons", "ediQual", "ediMaxD", "chromaEdi", "blockSize", "overlap", "search", "searchParam", "pelSearch", "chromaMotion", "trueMotion", "lambda", "lsad", "pNew", "pLevel", "globalMotion", "dct", "subPel", "subPelInterp", "thSad1", "thSad2", "thScd1", "thScd2", "sharpness", "sMode", "slMode", "slRad", "sOvs", "svThin", "sbb", "srchClipPp", "noiseProcess", "ezDenoise", "ezKeepGrain", "noisePreset", "denoiser", "fftThreads", "denoiseMc", "noiseTr", "sigma", "chromaNoise", "showNoise", "grainRestore", "noiseRestore", "noiseDeint", "stabilizeNoise", "sourceMatch", "matchPreset", "matchEdi", "matchPreset2", "matchEdi2", "matchTr2", "matchEnhance", "lossless", "border", "precise", "forceTr", "str", "amp", "fastMa", "eSearchP", "refineMotion", "opencl", "device"]
+    }
+  ],
+
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "ui": { "hidden": true }
+    },
+    "preset": {
+      "type": "enum",
+      "default": "Slower",
+      "options": ["Placebo", "Very Slow", "Slower", "Slow", "Medium", "Fast", "Faster", "Very Fast", "Super Fast", "Ultra Fast", "Draft"],
+      "vapoursynth": { "name": "Preset" },
+      "ui": {
+        "label": "Preset",
+        "description": "Quality/speed tradeoff preset",
+        "widget": "dropdown"
+      }
+    },
+    "tff": {
+      "type": "boolean",
+      "default": true,
+      "vapoursynth": { "name": "TFF" },
+      "ui": {
+        "label": "Top Field First",
+        "description": "Field order: true for TFF, false for BFF"
+      }
+    },
+    "inputType": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 3,
+      "vapoursynth": { "name": "InputType" },
+      "ui": {
+        "label": "Input Type",
+        "description": "0=interlaced, 1=telecined, 2=progressive, 3=double-rate progressive",
+        "widget": "dropdown"
+      }
+    },
+    "fpsDivisor": {
+      "type": "integer",
+      "default": 1,
+      "min": 1,
+      "max": 2,
+      "vapoursynth": { "name": "FPSDivisor" },
+      "ui": {
+        "label": "FPS Divisor",
+        "description": "1=double-rate output (50i→50p), 2=single-rate (50i→25p)",
+        "widget": "dropdown"
+      }
+    },
+    "tr0": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 3,
+      "vapoursynth": { "name": "TR0" },
+      "ui": {
+        "label": "TR0",
+        "description": "Temporal radius for motion analysis (preset default)",
+        "widget": "slider"
+      }
+    },
+    "tr1": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 3,
+      "vapoursynth": { "name": "TR1" },
+      "ui": {
+        "label": "TR1",
+        "description": "Temporal radius for initial output (preset default)",
+        "widget": "slider"
+      }
+    },
+    "tr2": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 3,
+      "vapoursynth": { "name": "TR2" },
+      "ui": {
+        "label": "TR2",
+        "description": "Temporal radius for final output (preset default)",
+        "widget": "slider"
+      }
+    },
+    "rep0": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 4,
+      "vapoursynth": { "name": "Rep0" },
+      "ui": {
+        "label": "Rep0",
+        "description": "Repair level for motion analysis clip",
+        "widget": "slider"
+      }
+    },
+    "rep1": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 4,
+      "vapoursynth": { "name": "Rep1" },
+      "ui": {
+        "label": "Rep1",
+        "description": "Repair level after initial clip generation",
+        "widget": "slider"
+      }
+    },
+    "rep2": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 4,
+      "vapoursynth": { "name": "Rep2" },
+      "ui": {
+        "label": "Rep2",
+        "description": "Repair level after final clip generation",
+        "widget": "slider"
+      }
+    },
+    "repChroma": {
+      "type": "boolean",
+      "default": true,
+      "vapoursynth": { "name": "RepChroma" },
+      "ui": {
+        "label": "Repair Chroma",
+        "description": "Apply repair to chroma as well as luma"
+      }
+    },
+    "ediMode": {
+      "type": "enum",
+      "default": null,
+      "options": ["NNEDI3", "EEDI3+NNEDI3", "EEDI3", "Bob"],
+      "vapoursynth": { "name": "EdiMode" },
+      "ui": {
+        "label": "Interpolation Mode",
+        "description": "Edge-directed interpolation method",
+        "widget": "dropdown"
+      }
+    },
+    "nnSize": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 6,
+      "vapoursynth": { "name": "NNSize" },
+      "ui": {
+        "label": "NN Size",
+        "description": "NNEDI3 neural network size (0-6, larger=better but slower)",
+        "widget": "slider"
+      }
+    },
+    "nnNeurons": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 4,
+      "vapoursynth": { "name": "NNeurons" },
+      "ui": {
+        "label": "NN Neurons",
+        "description": "NNEDI3 neural network neurons (0-4)",
+        "widget": "slider"
+      }
+    },
+    "ediQual": {
+      "type": "integer",
+      "default": 1,
+      "min": 1,
+      "max": 2,
+      "vapoursynth": { "name": "EdiQual" },
+      "ui": {
+        "label": "EDI Quality",
+        "description": "NNEDI3 quality level",
+        "widget": "slider"
+      }
+    },
+    "ediMaxD": {
+      "type": "integer",
+      "default": null,
+      "min": 1,
+      "max": 24,
+      "vapoursynth": { "name": "EdiMaxD" },
+      "ui": {
+        "label": "EDI Max D",
+        "description": "EEDI3 max search distance",
+        "widget": "slider"
+      }
+    },
+    "chromaEdi": {
+      "type": "enum",
+      "default": "",
+      "options": ["", "NNEDI3", "Bob", "Blend"],
+      "vapoursynth": { "name": "ChromaEdi" },
+      "ui": {
+        "label": "Chroma EDI",
+        "description": "Chroma interpolation method",
+        "widget": "dropdown"
+      }
+    },
+    "blockSize": {
+      "type": "integer",
+      "default": null,
+      "min": 4,
+      "max": 32,
+      "vapoursynth": { "name": "BlockSize" },
+      "ui": {
+        "label": "Block Size",
+        "description": "Motion analysis block size",
+        "widget": "dropdown"
+      }
+    },
+    "overlap": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 16,
+      "vapoursynth": { "name": "Overlap" },
+      "ui": {
+        "label": "Overlap",
+        "description": "Block overlap",
+        "widget": "slider"
+      }
+    },
+    "search": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 5,
+      "vapoursynth": { "name": "Search" },
+      "ui": {
+        "label": "Search",
+        "description": "Motion search algorithm",
+        "widget": "slider"
+      }
+    },
+    "searchParam": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 128,
+      "vapoursynth": { "name": "SearchParam" },
+      "ui": {
+        "label": "Search Param",
+        "description": "Search parameter",
+        "widget": "slider"
+      }
+    },
+    "pelSearch": {
+      "type": "integer",
+      "default": null,
+      "min": 1,
+      "max": 4,
+      "vapoursynth": { "name": "PelSearch" },
+      "ui": {
+        "label": "Pel Search",
+        "description": "Sub-pixel search level",
+        "widget": "slider"
+      }
+    },
+    "chromaMotion": {
+      "type": "boolean",
+      "default": null,
+      "vapoursynth": { "name": "ChromaMotion" },
+      "ui": {
+        "label": "Chroma Motion",
+        "description": "Include chroma in motion analysis"
+      }
+    },
+    "trueMotion": {
+      "type": "boolean",
+      "default": false,
+      "vapoursynth": { "name": "TrueMotion" },
+      "ui": {
+        "label": "True Motion",
+        "description": "Use true motion search"
+      }
+    },
+    "lambda": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 2000,
+      "vapoursynth": { "name": "Lambda" },
+      "ui": {
+        "label": "Lambda",
+        "description": "Motion coherence",
+        "widget": "slider"
+      }
+    },
+    "lsad": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 2000,
+      "vapoursynth": { "name": "LSAD" },
+      "ui": {
+        "label": "LSAD",
+        "description": "SAD threshold for lambda",
+        "widget": "slider"
+      }
+    },
+    "pNew": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 100,
+      "vapoursynth": { "name": "PNew" },
+      "ui": {
+        "label": "PNew",
+        "description": "Penalty for new vector",
+        "widget": "slider"
+      }
+    },
+    "pLevel": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 2,
+      "vapoursynth": { "name": "PLevel" },
+      "ui": {
+        "label": "PLevel",
+        "description": "Penalty level",
+        "widget": "slider"
+      }
+    },
+    "globalMotion": {
+      "type": "boolean",
+      "default": true,
+      "vapoursynth": { "name": "GlobalMotion" },
+      "ui": {
+        "label": "Global Motion",
+        "description": "Detect global (camera) motion"
+      }
+    },
+    "dct": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 10,
+      "vapoursynth": { "name": "DCT" },
+      "ui": {
+        "label": "DCT",
+        "description": "DCT mode for motion analysis",
+        "widget": "slider"
+      }
+    },
+    "subPel": {
+      "type": "integer",
+      "default": null,
+      "min": 1,
+      "max": 4,
+      "vapoursynth": { "name": "SubPel" },
+      "ui": {
+        "label": "Sub Pel",
+        "description": "Sub-pixel accuracy",
+        "widget": "slider"
+      }
+    },
+    "subPelInterp": {
+      "type": "integer",
+      "default": 2,
+      "min": 0,
+      "max": 2,
+      "vapoursynth": { "name": "SubPelInterp" },
+      "ui": {
+        "label": "SubPel Interp",
+        "description": "Sub-pixel interpolation method",
+        "widget": "slider"
+      }
+    },
+    "thSad1": {
+      "type": "integer",
+      "default": 640,
+      "min": 0,
+      "max": 2000,
+      "vapoursynth": { "name": "ThSAD1" },
+      "ui": {
+        "label": "ThSAD1",
+        "description": "SAD threshold 1 for motion compensation",
+        "widget": "slider"
+      }
+    },
+    "thSad2": {
+      "type": "integer",
+      "default": 256,
+      "min": 0,
+      "max": 2000,
+      "vapoursynth": { "name": "ThSAD2" },
+      "ui": {
+        "label": "ThSAD2",
+        "description": "SAD threshold 2 for motion compensation",
+        "widget": "slider"
+      }
+    },
+    "thScd1": {
+      "type": "integer",
+      "default": 180,
+      "min": 0,
+      "max": 500,
+      "vapoursynth": { "name": "ThSCD1" },
+      "ui": {
+        "label": "ThSCD1",
+        "description": "Scene change detection threshold 1",
+        "widget": "slider"
+      }
+    },
+    "thScd2": {
+      "type": "integer",
+      "default": 98,
+      "min": 0,
+      "max": 255,
+      "vapoursynth": { "name": "ThSCD2" },
+      "ui": {
+        "label": "ThSCD2",
+        "description": "Scene change detection threshold 2",
+        "widget": "slider"
+      }
+    },
+    "sharpness": {
+      "type": "number",
+      "default": null,
+      "min": 0.0,
+      "max": 2.0,
+      "step": 0.1,
+      "vapoursynth": { "name": "Sharpness" },
+      "ui": {
+        "label": "Sharpness",
+        "description": "Output sharpening amount",
+        "widget": "slider",
+        "precision": 1
+      }
+    },
+    "sMode": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 2,
+      "vapoursynth": { "name": "SMode" },
+      "ui": {
+        "label": "Sharpening Mode",
+        "description": "Sharpening mode",
+        "widget": "slider"
+      }
+    },
+    "slMode": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 4,
+      "vapoursynth": { "name": "SLMode" },
+      "ui": {
+        "label": "SLMode",
+        "description": "Sharpness limiting mode",
+        "widget": "slider"
+      }
+    },
+    "slRad": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 6,
+      "vapoursynth": { "name": "SLRad" },
+      "ui": {
+        "label": "SLRad",
+        "description": "Sharpness limiting radius",
+        "widget": "slider"
+      }
+    },
+    "sOvs": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 255,
+      "vapoursynth": { "name": "SOvs" },
+      "ui": {
+        "label": "SOvs",
+        "description": "Overshoot limit",
+        "widget": "slider"
+      }
+    },
+    "svThin": {
+      "type": "number",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.1,
+      "vapoursynth": { "name": "SVThin" },
+      "ui": {
+        "label": "SVThin",
+        "description": "Vertical thinning",
+        "widget": "slider",
+        "precision": 1
+      }
+    },
+    "sbb": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 3,
+      "vapoursynth": { "name": "SBB" },
+      "ui": {
+        "label": "SBB",
+        "description": "Back-blend sharpening",
+        "widget": "slider"
+      }
+    },
+    "srchClipPp": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 3,
+      "vapoursynth": { "name": "SrchClipPP" },
+      "ui": {
+        "label": "Search Clip PP",
+        "description": "Search clip post-processing",
+        "widget": "slider"
+      }
+    },
+    "noiseProcess": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 2,
+      "vapoursynth": { "name": "NoiseProcess" },
+      "ui": {
+        "label": "Noise Process",
+        "description": "Noise processing mode",
+        "widget": "slider"
+      }
+    },
+    "ezDenoise": {
+      "type": "number",
+      "default": null,
+      "min": 0.0,
+      "max": 5.0,
+      "step": 0.1,
+      "vapoursynth": { "name": "EZDenoise" },
+      "ui": {
+        "label": "EZ Denoise",
+        "description": "Easy denoise strength",
+        "widget": "slider",
+        "precision": 1
+      }
+    },
+    "ezKeepGrain": {
+      "type": "number",
+      "default": null,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.1,
+      "vapoursynth": { "name": "EZKeepGrain" },
+      "ui": {
+        "label": "EZ Keep Grain",
+        "description": "Amount of grain to preserve",
+        "widget": "slider",
+        "precision": 1
+      }
+    },
+    "noisePreset": {
+      "type": "enum",
+      "default": "Fast",
+      "options": ["Slower", "Slow", "Medium", "Fast", "Faster"],
+      "vapoursynth": { "name": "NoisePreset" },
+      "ui": {
+        "label": "Noise Preset",
+        "description": "Noise analysis quality preset",
+        "widget": "dropdown"
+      }
+    },
+    "denoiser": {
+      "type": "enum",
+      "default": null,
+      "options": ["", "dfttest", "fft3dfilter", "knlmeanscl"],
+      "vapoursynth": { "name": "Denoiser" },
+      "ui": {
+        "label": "Denoiser",
+        "description": "Denoiser to use",
+        "widget": "dropdown"
+      }
+    },
+    "fftThreads": {
+      "type": "integer",
+      "default": 1,
+      "min": 1,
+      "max": 16,
+      "vapoursynth": { "name": "FftThreads" },
+      "ui": {
+        "label": "FFT Threads",
+        "description": "Threads for FFT denoisers",
+        "widget": "slider"
+      }
+    },
+    "denoiseMc": {
+      "type": "boolean",
+      "default": null,
+      "vapoursynth": { "name": "DenoiseMC" },
+      "ui": {
+        "label": "Denoise MC",
+        "description": "Motion-compensated denoising"
+      }
+    },
+    "noiseTr": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 3,
+      "vapoursynth": { "name": "NoiseTR" },
+      "ui": {
+        "label": "Noise TR",
+        "description": "Temporal radius for noise analysis",
+        "widget": "slider"
+      }
+    },
+    "sigma": {
+      "type": "number",
+      "default": null,
+      "min": 0.0,
+      "max": 20.0,
+      "step": 0.5,
+      "vapoursynth": { "name": "Sigma" },
+      "ui": {
+        "label": "Sigma",
+        "description": "Noise sigma",
+        "widget": "slider",
+        "precision": 1
+      }
+    },
+    "chromaNoise": {
+      "type": "boolean",
+      "default": false,
+      "vapoursynth": { "name": "ChromaNoise" },
+      "ui": {
+        "label": "Chroma Noise",
+        "description": "Process chroma noise"
+      }
+    },
+    "showNoise": {
+      "type": "number",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 2.0,
+      "step": 0.1,
+      "vapoursynth": { "name": "ShowNoise" },
+      "ui": {
+        "label": "Show Noise",
+        "description": "Debug: show noise pattern",
+        "widget": "slider",
+        "precision": 1
+      }
+    },
+    "grainRestore": {
+      "type": "number",
+      "default": null,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.1,
+      "vapoursynth": { "name": "GrainRestore" },
+      "ui": {
+        "label": "Grain Restore",
+        "description": "Amount of grain to restore",
+        "widget": "slider",
+        "precision": 1
+      }
+    },
+    "noiseRestore": {
+      "type": "number",
+      "default": null,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.1,
+      "vapoursynth": { "name": "NoiseRestore" },
+      "ui": {
+        "label": "Noise Restore",
+        "description": "Amount of noise to restore",
+        "widget": "slider",
+        "precision": 1
+      }
+    },
+    "noiseDeint": {
+      "type": "enum",
+      "default": null,
+      "options": ["", "Bob", "Generate"],
+      "vapoursynth": { "name": "NoiseDeint" },
+      "ui": {
+        "label": "Noise Deint",
+        "description": "Noise pattern deinterlacing",
+        "widget": "dropdown"
+      }
+    },
+    "stabilizeNoise": {
+      "type": "boolean",
+      "default": null,
+      "vapoursynth": { "name": "StabilizeNoise" },
+      "ui": {
+        "label": "Stabilize Noise",
+        "description": "Stabilize noise between frames"
+      }
+    },
+    "sourceMatch": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 3,
+      "vapoursynth": { "name": "SourceMatch" },
+      "ui": {
+        "label": "Source Match",
+        "description": "Source matching level (0=off, 1-3=increasing accuracy)",
+        "widget": "slider"
+      }
+    },
+    "matchPreset": {
+      "type": "enum",
+      "default": null,
+      "options": ["", "Placebo", "Very Slow", "Slower", "Slow", "Medium", "Fast", "Faster", "Very Fast", "Super Fast", "Ultra Fast"],
+      "vapoursynth": { "name": "MatchPreset" },
+      "ui": {
+        "label": "Match Preset",
+        "description": "Source matching quality preset",
+        "widget": "dropdown"
+      }
+    },
+    "matchEdi": {
+      "type": "enum",
+      "default": null,
+      "options": ["", "NNEDI3", "EEDI3+NNEDI3", "EEDI3"],
+      "vapoursynth": { "name": "MatchEdi" },
+      "ui": {
+        "label": "Match EDI",
+        "description": "Source matching interpolation",
+        "widget": "dropdown"
+      }
+    },
+    "matchPreset2": {
+      "type": "enum",
+      "default": null,
+      "options": ["", "Placebo", "Very Slow", "Slower", "Slow", "Medium", "Fast", "Faster", "Very Fast", "Super Fast", "Ultra Fast"],
+      "vapoursynth": { "name": "MatchPreset2" },
+      "ui": {
+        "label": "Match Preset 2",
+        "description": "Second pass matching preset",
+        "widget": "dropdown"
+      }
+    },
+    "matchEdi2": {
+      "type": "enum",
+      "default": null,
+      "options": ["", "NNEDI3", "EEDI3+NNEDI3", "EEDI3"],
+      "vapoursynth": { "name": "MatchEdi2" },
+      "ui": {
+        "label": "Match EDI 2",
+        "description": "Second pass matching interpolation",
+        "widget": "dropdown"
+      }
+    },
+    "matchTr2": {
+      "type": "integer",
+      "default": 1,
+      "min": 0,
+      "max": 3,
+      "vapoursynth": { "name": "MatchTR2" },
+      "ui": {
+        "label": "Match TR2",
+        "description": "Source matching temporal radius",
+        "widget": "slider"
+      }
+    },
+    "matchEnhance": {
+      "type": "number",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.1,
+      "vapoursynth": { "name": "MatchEnhance" },
+      "ui": {
+        "label": "Match Enhance",
+        "description": "Source matching enhancement",
+        "widget": "slider",
+        "precision": 1
+      }
+    },
+    "lossless": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 2,
+      "vapoursynth": { "name": "Lossless" },
+      "ui": {
+        "label": "Lossless",
+        "description": "Lossless mode level",
+        "widget": "slider"
+      }
+    },
+    "border": {
+      "type": "boolean",
+      "default": false,
+      "vapoursynth": { "name": "Border" },
+      "ui": {
+        "label": "Border",
+        "description": "Process borders"
+      }
+    },
+    "precise": {
+      "type": "boolean",
+      "default": null,
+      "vapoursynth": { "name": "Precise" },
+      "ui": {
+        "label": "Precise",
+        "description": "Use precise calculations"
+      }
+    },
+    "forceTr": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 3,
+      "vapoursynth": { "name": "ForceTR" },
+      "ui": {
+        "label": "Force TR",
+        "description": "Force temporal radius",
+        "widget": "slider"
+      }
+    },
+    "str": {
+      "type": "number",
+      "default": 2.0,
+      "min": 0.0,
+      "max": 4.0,
+      "step": 0.25,
+      "vapoursynth": { "name": "Str" },
+      "ui": {
+        "label": "Strength",
+        "description": "Motion compensation strength",
+        "widget": "slider",
+        "precision": 2
+      }
+    },
+    "amp": {
+      "type": "number",
+      "default": 0.0625,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.0625,
+      "vapoursynth": { "name": "Amp" },
+      "ui": {
+        "label": "Amp",
+        "description": "Amplification amount",
+        "widget": "slider",
+        "precision": 4
+      }
+    },
+    "fastMa": {
+      "type": "boolean",
+      "default": false,
+      "vapoursynth": { "name": "FastMA" },
+      "ui": {
+        "label": "Fast MA",
+        "description": "Fast motion analysis"
+      }
+    },
+    "eSearchP": {
+      "type": "boolean",
+      "default": false,
+      "vapoursynth": { "name": "ESearchP" },
+      "ui": {
+        "label": "ESearchP",
+        "description": "Extended search pattern"
+      }
+    },
+    "refineMotion": {
+      "type": "boolean",
+      "default": false,
+      "vapoursynth": { "name": "RefineMotion" },
+      "ui": {
+        "label": "Refine Motion",
+        "description": "Refine motion vectors"
+      }
+    },
+    "opencl": {
+      "type": "boolean",
+      "default": false,
+      "vapoursynth": { "name": "OpenCL" },
+      "ui": {
+        "label": "OpenCL",
+        "description": "Use OpenCL GPU acceleration"
+      }
+    },
+    "device": {
+      "type": "integer",
+      "default": null,
+      "min": 0,
+      "max": 10,
+      "vapoursynth": { "name": "Device" },
+      "ui": {
+        "label": "Device",
+        "description": "OpenCL device index",
+        "widget": "slider"
+      }
+    }
+  },
+
+  "presets": {
+    "Placebo": { "tr0": 2, "tr1": 2, "tr2": 3 },
+    "Very Slow": { "tr0": 2, "tr1": 2, "tr2": 2 },
+    "Slower": { "tr0": 2, "tr1": 1, "tr2": 2 },
+    "Slow": { "tr0": 2, "tr1": 1, "tr2": 1 },
+    "Medium": { "tr0": 1, "tr1": 1, "tr2": 1 },
+    "Fast": { "tr0": 1, "tr1": 0, "tr2": 1 },
+    "Faster": { "tr0": 1, "tr1": 0, "tr2": 0 },
+    "Very Fast": { "tr0": 0, "tr1": 0, "tr2": 0 },
+    "Super Fast": { "tr0": 0, "tr1": 0, "tr2": 0 },
+    "Ultra Fast": { "tr0": 0, "tr1": 0, "tr2": 0 },
+    "Draft": { "tr0": 0, "tr1": 0, "tr2": 0 }
+  },
+
+  "ui": {
+    "sections": [
+      {
+        "title": "Basic",
+        "parameters": ["preset", "tff", "fpsDivisor"],
+        "expanded": true
+      },
+      {
+        "title": "Input",
+        "parameters": ["inputType"],
+        "expanded": false,
+        "advancedOnly": true
+      },
+      {
+        "title": "Quality (Temporal Radius)",
+        "parameters": ["tr0", "tr1", "tr2", "rep0", "rep1", "rep2", "repChroma"],
+        "expanded": false,
+        "advancedOnly": true
+      },
+      {
+        "title": "Interpolation",
+        "parameters": ["ediMode", "nnSize", "nnNeurons", "ediQual", "ediMaxD", "chromaEdi"],
+        "expanded": false,
+        "advancedOnly": true
+      },
+      {
+        "title": "Motion Analysis",
+        "parameters": ["blockSize", "overlap", "search", "searchParam", "pelSearch", "chromaMotion", "trueMotion", "lambda", "lsad", "pNew", "pLevel", "globalMotion", "dct", "subPel", "subPelInterp"],
+        "expanded": false,
+        "advancedOnly": true
+      },
+      {
+        "title": "Motion Thresholds",
+        "parameters": ["thSad1", "thSad2", "thScd1", "thScd2"],
+        "expanded": false,
+        "advancedOnly": true
+      },
+      {
+        "title": "Sharpening",
+        "parameters": ["sharpness", "sMode", "slMode", "slRad", "sOvs", "svThin", "sbb", "srchClipPp"],
+        "expanded": false,
+        "advancedOnly": true
+      },
+      {
+        "title": "Noise Processing",
+        "parameters": ["noiseProcess", "ezDenoise", "ezKeepGrain", "noisePreset", "denoiser", "fftThreads", "denoiseMc", "noiseTr", "sigma", "chromaNoise", "showNoise", "grainRestore", "noiseRestore", "noiseDeint", "stabilizeNoise"],
+        "expanded": false,
+        "advancedOnly": true
+      },
+      {
+        "title": "Source Matching",
+        "parameters": ["sourceMatch", "matchPreset", "matchEdi", "matchPreset2", "matchEdi2", "matchTr2", "matchEnhance", "lossless"],
+        "expanded": false,
+        "advancedOnly": true
+      },
+      {
+        "title": "Advanced",
+        "parameters": ["border", "precise", "forceTr", "str", "amp", "fastMa", "eSearchP", "refineMotion"],
+        "expanded": false,
+        "advancedOnly": true
+      },
+      {
+        "title": "GPU Acceleration",
+        "parameters": ["opencl", "device"],
+        "expanded": false,
+        "advancedOnly": true
+      }
+    ]
+  },
+
+  "codeTemplate": {
+    "imports": ["import havsfunc as haf", "import mvsfunc as mvf"],
+    "generate": "method"
+  }
+}

@@ -1,0 +1,227 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "dehalo",
+  "version": "1.0.0",
+  "name": "Dehalo",
+  "description": "Remove halo artifacts around edges",
+  "category": "restoration",
+  "icon": "blur_off",
+  "order": 4,
+
+  "dependencies": {
+    "plugins": ["havsfunc"],
+    "vs_plugins": ["RemoveGrainVS.dll", "CTMF.dll"],
+    "optional": ["libawarpsharp2.dll"]
+  },
+
+  "methods": [
+    {
+      "id": "dehalo_alpha",
+      "name": "DeHalo Alpha",
+      "description": "General purpose dehalo, good for most sources",
+      "function": "haf.DeHalo_alpha",
+      "parameters": ["rx", "ry", "darkStr", "brightStr"]
+    },
+    {
+      "id": "fine_dehalo",
+      "name": "Fine Dehalo",
+      "description": "More precise, better edge preservation",
+      "function": "haf.FineDehalo",
+      "parameters": ["rx", "ry", "darkStr", "brightStr", "lowThreshold", "highThreshold"]
+    },
+    {
+      "id": "yahr",
+      "name": "YAHR",
+      "description": "Yet Another Halo Remover - fast and effective",
+      "function": "haf.YAHR",
+      "parameters": ["yahrBlur", "yahrDepth"]
+    }
+  ],
+
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "hidden": true
+      }
+    },
+    "method": {
+      "type": "enum",
+      "default": "dehalo_alpha",
+      "options": ["dehalo_alpha", "fine_dehalo", "yahr"],
+      "ui": {
+        "label": "Method",
+        "widget": "dropdown"
+      }
+    },
+    "rx": {
+      "type": "number",
+      "default": 2.0,
+      "min": 1.0,
+      "max": 3.0,
+      "step": 0.1,
+      "vapoursynth": {
+        "name": "rx"
+      },
+      "ui": {
+        "label": "Horizontal Radius",
+        "description": "Horizontal radius for halo detection",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": ["dehalo_alpha", "fine_dehalo"]
+        }
+      }
+    },
+    "ry": {
+      "type": "number",
+      "default": 2.0,
+      "min": 1.0,
+      "max": 3.0,
+      "step": 0.1,
+      "vapoursynth": {
+        "name": "ry"
+      },
+      "ui": {
+        "label": "Vertical Radius",
+        "description": "Vertical radius for halo detection",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": ["dehalo_alpha", "fine_dehalo"]
+        }
+      }
+    },
+    "darkStr": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "vapoursynth": {
+        "name": "darkstr"
+      },
+      "ui": {
+        "label": "Dark Halo Strength",
+        "description": "Strength of dark halo removal",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": {
+          "method": ["dehalo_alpha", "fine_dehalo"]
+        }
+      }
+    },
+    "brightStr": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "vapoursynth": {
+        "name": "brightstr"
+      },
+      "ui": {
+        "label": "Bright Halo Strength",
+        "description": "Strength of bright halo removal",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": {
+          "method": ["dehalo_alpha", "fine_dehalo"]
+        }
+      }
+    },
+    "lowThreshold": {
+      "type": "integer",
+      "default": 50,
+      "min": 0,
+      "max": 200,
+      "step": 5,
+      "vapoursynth": {
+        "name": "thmi"
+      },
+      "ui": {
+        "label": "Low Threshold",
+        "description": "Low threshold for halo mask",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": ["fine_dehalo"]
+        }
+      }
+    },
+    "highThreshold": {
+      "type": "integer",
+      "default": 100,
+      "min": 0,
+      "max": 255,
+      "step": 5,
+      "vapoursynth": {
+        "name": "thma"
+      },
+      "ui": {
+        "label": "High Threshold",
+        "description": "High threshold for halo mask",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": ["fine_dehalo"]
+        }
+      }
+    },
+    "yahrBlur": {
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 3,
+      "step": 1,
+      "vapoursynth": {
+        "name": "blur"
+      },
+      "ui": {
+        "label": "Blur",
+        "description": "Blur amount for YAHR",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": ["yahr"]
+        }
+      }
+    },
+    "yahrDepth": {
+      "type": "integer",
+      "default": 32,
+      "min": 8,
+      "max": 128,
+      "step": 8,
+      "vapoursynth": {
+        "name": "depth"
+      },
+      "ui": {
+        "label": "Depth",
+        "description": "Processing depth for YAHR",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": ["yahr"]
+        }
+      }
+    }
+  },
+
+  "ui": {
+    "sections": [
+      {
+        "title": "Method",
+        "parameters": ["method"],
+        "expanded": true
+      },
+      {
+        "title": "Settings",
+        "parameters": ["rx", "ry", "darkStr", "brightStr", "lowThreshold", "highThreshold", "yahrBlur", "yahrDepth"],
+        "expanded": true
+      }
+    ]
+  },
+
+  "codeTemplate": {
+    "imports": ["import havsfunc as haf"],
+    "generate": "method"
+  }
+}

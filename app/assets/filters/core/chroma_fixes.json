@@ -1,0 +1,238 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "chroma_fixes",
+  "version": "1.0.0",
+  "name": "Chroma Fixes",
+  "description": "Fix chroma bleeding, rainbows, and dot crawl",
+  "category": "restoration",
+  "icon": "palette",
+  "order": 8,
+
+  "dependencies": {
+    "plugins": ["havsfunc"]
+  },
+
+  "methods": [
+    {
+      "id": "fix_chroma_bleeding",
+      "name": "Fix Chroma Bleeding",
+      "description": "Reduce color bleeding from adjacent areas",
+      "function": "haf.FixChromaBleedingMod",
+      "parameters": ["chromaBleedCx", "chromaBleedCy", "chromaBleedCBlur", "chromaBleedStrength"]
+    },
+    {
+      "id": "vinverse",
+      "name": "Vinverse",
+      "description": "Remove combing/interlacing artifacts from chroma",
+      "function": "haf.Vinverse",
+      "parameters": ["vinverseSstr", "vinverseAmnt", "vinverseScl"]
+    },
+    {
+      "id": "lut_decrawl",
+      "name": "LUT DeCrawl",
+      "description": "Remove dot crawl artifacts from composite video",
+      "function": "haf.LUTDeCrawl",
+      "parameters": ["deCrawlYThresh", "deCrawlCThresh", "deCrawlMaxDiff"]
+    }
+  ],
+
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": { "hidden": true }
+    },
+    "applyChromaBleedingFix": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Fix Chroma Bleeding",
+        "description": "Apply chroma bleeding fix"
+      }
+    },
+    "chromaBleedCx": {
+      "type": "integer",
+      "default": 4,
+      "min": 0,
+      "max": 16,
+      "step": 1,
+      "vapoursynth": { "name": "cx" },
+      "ui": {
+        "label": "Horizontal Offset",
+        "description": "Chroma X offset correction",
+        "widget": "slider",
+        "visibleWhen": { "applyChromaBleedingFix": true }
+      }
+    },
+    "chromaBleedCy": {
+      "type": "integer",
+      "default": 4,
+      "min": 0,
+      "max": 16,
+      "step": 1,
+      "vapoursynth": { "name": "cy" },
+      "ui": {
+        "label": "Vertical Offset",
+        "description": "Chroma Y offset correction",
+        "widget": "slider",
+        "visibleWhen": { "applyChromaBleedingFix": true }
+      }
+    },
+    "chromaBleedCBlur": {
+      "type": "number",
+      "default": 0.7,
+      "min": 0.0,
+      "max": 2.0,
+      "step": 0.1,
+      "vapoursynth": { "name": "cblur" },
+      "ui": {
+        "label": "Chroma Blur",
+        "description": "Chroma blur strength",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": { "applyChromaBleedingFix": true }
+      }
+    },
+    "chromaBleedStrength": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.1,
+      "vapoursynth": { "name": "strength" },
+      "ui": {
+        "label": "Strength",
+        "description": "Fix strength",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": { "applyChromaBleedingFix": true }
+      }
+    },
+    "applyDeCrawl": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Apply DeCrawl",
+        "description": "Remove dot crawl artifacts"
+      }
+    },
+    "deCrawlYThresh": {
+      "type": "integer",
+      "default": 10,
+      "min": 0,
+      "max": 50,
+      "step": 1,
+      "vapoursynth": { "name": "ythresh" },
+      "ui": {
+        "label": "Luma Threshold",
+        "description": "Luma threshold for de-crawl",
+        "widget": "slider",
+        "visibleWhen": { "applyDeCrawl": true }
+      }
+    },
+    "deCrawlCThresh": {
+      "type": "integer",
+      "default": 10,
+      "min": 0,
+      "max": 50,
+      "step": 1,
+      "vapoursynth": { "name": "cthresh" },
+      "ui": {
+        "label": "Chroma Threshold",
+        "description": "Chroma threshold for de-crawl",
+        "widget": "slider",
+        "visibleWhen": { "applyDeCrawl": true }
+      }
+    },
+    "deCrawlMaxDiff": {
+      "type": "integer",
+      "default": 50,
+      "min": 0,
+      "max": 255,
+      "step": 5,
+      "vapoursynth": { "name": "maxdiff" },
+      "ui": {
+        "label": "Max Difference",
+        "description": "Maximum difference allowed",
+        "widget": "slider",
+        "visibleWhen": { "applyDeCrawl": true }
+      }
+    },
+    "applyVinverse": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Apply Vinverse",
+        "description": "Remove chroma combing artifacts"
+      }
+    },
+    "vinverseSstr": {
+      "type": "number",
+      "default": 2.7,
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.1,
+      "vapoursynth": { "name": "sstr" },
+      "ui": {
+        "label": "Strength",
+        "description": "Spatial strength",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": { "applyVinverse": true }
+      }
+    },
+    "vinverseAmnt": {
+      "type": "integer",
+      "default": 255,
+      "min": 0,
+      "max": 255,
+      "step": 5,
+      "vapoursynth": { "name": "amnt" },
+      "ui": {
+        "label": "Amount",
+        "description": "Blend amount (0-255)",
+        "widget": "slider",
+        "visibleWhen": { "applyVinverse": true }
+      }
+    },
+    "vinverseScl": {
+      "type": "integer",
+      "default": 12,
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "vapoursynth": { "name": "scl" },
+      "ui": {
+        "label": "Scale",
+        "description": "Scale parameter",
+        "widget": "slider",
+        "visibleWhen": { "applyVinverse": true }
+      }
+    }
+  },
+
+  "ui": {
+    "sections": [
+      {
+        "title": "Chroma Bleeding Fix",
+        "parameters": ["applyChromaBleedingFix", "chromaBleedCx", "chromaBleedCy", "chromaBleedCBlur", "chromaBleedStrength"],
+        "expanded": true
+      },
+      {
+        "title": "DeCrawl (Dot Crawl)",
+        "parameters": ["applyDeCrawl", "deCrawlYThresh", "deCrawlCThresh", "deCrawlMaxDiff"],
+        "expanded": true
+      },
+      {
+        "title": "Vinverse (Combing Fix)",
+        "parameters": ["applyVinverse", "vinverseSstr", "vinverseAmnt", "vinverseScl"],
+        "expanded": true
+      }
+    ]
+  },
+
+  "codeTemplate": {
+    "imports": ["import havsfunc as haf"],
+    "generate": "custom"
+  }
+}
