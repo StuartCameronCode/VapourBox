@@ -333,6 +333,7 @@ All plugins go in `deps/windows-x64/vapoursynth/vs-plugins/`:
 - `libawarpsharp2.dll` - Edge warping (used by YAHR dehalo)
 - `RemoveGrainVS.dll` - Grain removal/repair (used by YAHR dehalo)
 - `CTMF.dll` - Constant Time Median Filter (used by YAHR dehalo)
+- `fft3dfilter.dll` - FFT-based denoising (used by QTGMC Very Slow/Slower presets)
 
 ### Required Libraries (Windows)
 

@@ -50,10 +50,7 @@
       "type": "enum",
       "default": "dehalo_alpha",
       "options": ["dehalo_alpha", "fine_dehalo", "yahr"],
-      "ui": {
-        "label": "Method",
-        "widget": "dropdown"
-      }
+      "ui": { "hidden": true }
     },
     "rx": {
       "type": "number",
@@ -207,11 +204,6 @@
 
   "ui": {
     "sections": [
-      {
-        "title": "Method",
-        "parameters": ["method"],
-        "expanded": true
-      },
       {
         "title": "Settings",
         "parameters": ["rx", "ry", "darkStr", "brightStr", "lowThreshold", "highThreshold", "yahrBlur", "yahrDepth"],

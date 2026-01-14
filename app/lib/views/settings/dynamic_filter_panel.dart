@@ -177,7 +177,7 @@ class DynamicFilterPanel extends StatelessWidget {
 }
 
 /// A variant of DynamicFilterPanel that can be used inside a pass container.
-class DynamicFilterPanelCompact extends StatelessWidget {
+class DynamicFilterPanelCompact extends StatefulWidget {
   final FilterSchema schema;
   final DynamicParameters params;
   final ValueChanged<DynamicParameters> onChanged;
@@ -190,13 +190,53 @@ class DynamicFilterPanelCompact extends StatelessWidget {
   });
 
   @override
+  State<DynamicFilterPanelCompact> createState() => _DynamicFilterPanelCompactState();
+}
+
+class _DynamicFilterPanelCompactState extends State<DynamicFilterPanelCompact> {
+  bool _advancedMode = false;
+
+  FilterSchema get schema => widget.schema;
+  DynamicParameters get params => widget.params;
+  ValueChanged<DynamicParameters> get onChanged => widget.onChanged;
+
+  @override
   Widget build(BuildContext context) {
     // Build method dropdown first if the filter has methods
     final hasMultipleMethods = schema.methods.length > 1;
+    final hasAdvancedContent = _hasAdvancedContent();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Advanced mode toggle (only show if there's advanced content)
+        if (hasAdvancedContent) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Text(
+                'Advanced',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                height: 24,
+                child: Switch(
+                  value: _advancedMode,
+                  onChanged: (value) {
+                    setState(() {
+                      _advancedMode = value;
+                    });
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+        ],
+
         // Method selection (if multiple methods available)
         if (hasMultipleMethods) ...[
           Text('Method', style: Theme.of(context).textTheme.labelLarge),
@@ -231,38 +271,133 @@ class DynamicFilterPanelCompact extends StatelessWidget {
     );
   }
 
+  /// Check if there's any advanced content to show.
+  bool _hasAdvancedContent() {
+    // Has parameter presets (which would be hidden in advanced mode)
+    if (schema.parameterPresets != null && schema.parameterPresets!.isNotEmpty) {
+      return true;
+    }
+    // Has advanced-only sections
+    final sections = schema.ui?.sections;
+    if (sections != null) {
+      return sections.any((s) => s.advancedOnly);
+    }
+    return false;
+  }
+
+  /// Get set of parameter IDs that are controlled by presets.
+  Set<String> _getPresetControlledParams() {
+    final controlled = <String>{};
+    final presets = schema.parameterPresets;
+    if (presets != null) {
+      for (final preset in presets.values) {
+        for (final optionValues in preset.options.values) {
+          controlled.addAll(optionValues.keys);
+        }
+      }
+    }
+    return controlled;
+  }
+
   List<Widget> _buildMethodParameters(BuildContext context) {
-    final methodId = params.method.isNotEmpty ? params.method : schema.methods.first.id;
-    final method = schema.getMethod(methodId) ?? schema.methods.first;
-
     final widgets = <Widget>[];
+    final presetControlledParams = _getPresetControlledParams();
 
-    for (final paramId in method.parameters) {
-      final param = schema.parameters[paramId];
-      if (param == null) continue;
+    // In simple mode, show parameter preset selectors
+    // In advanced mode, hide them and show the raw parameters
+    if (!_advancedMode) {
+      final presets = schema.parameterPresets;
+      if (presets != null) {
+        for (final entry in presets.entries) {
+          widgets.add(
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: PresetSelectorWidget(
+                presetId: entry.key,
+                preset: entry.value,
+                currentValues: params.values,
+                onChanged: (newValues) {
+                  onChanged(params.withValues(newValues));
+                },
+              ),
+            ),
+          );
+        }
+      }
+    }
 
-      // Skip hidden parameters
-      if (param.ui?.hidden == true) continue;
+    // Use UI sections if available, otherwise show all non-hidden parameters
+    final sections = schema.ui?.sections;
+    if (sections != null && sections.isNotEmpty) {
+      for (final section in sections) {
+        // In simple mode, skip advanced-only sections
+        if (!_advancedMode && section.advancedOnly) continue;
 
-      // Check visibility conditions
-      if (!_isVisible(paramId)) continue;
+        // In advanced mode with sections, show section headers
+        if (_advancedMode && section.advancedOnly) {
+          widgets.add(
+            Padding(
+              padding: const EdgeInsets.only(top: 16, bottom: 8),
+              child: Text(
+                section.title,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+            ),
+          );
+        }
 
-      widgets.add(
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: ParameterWidgetFactory.build(
-            paramId: paramId,
-            param: param,
-            value: params.values[paramId] ?? param.defaultValue,
-            onChanged: (newValue) {
-              onChanged(params.withValue(paramId, newValue));
-            },
-          ),
-        ),
-      );
+        for (final paramId in section.parameters) {
+          // In simple mode, skip parameters controlled by presets
+          if (!_advancedMode && presetControlledParams.contains(paramId)) continue;
+
+          final widget = _buildParameterWidget(context, paramId, showHidden: _advancedMode);
+          if (widget != null) {
+            widgets.add(widget);
+          }
+        }
+      }
+    } else {
+      // No sections defined, show all parameters from method
+      final methodId = params.method.isNotEmpty ? params.method : schema.methods.first.id;
+      final method = schema.getMethod(methodId) ?? schema.methods.first;
+
+      for (final paramId in method.parameters) {
+        // In simple mode, skip parameters controlled by presets
+        if (!_advancedMode && presetControlledParams.contains(paramId)) continue;
+
+        final widget = _buildParameterWidget(context, paramId, showHidden: _advancedMode);
+        if (widget != null) {
+          widgets.add(widget);
+        }
+      }
     }
 
     return widgets;
+  }
+
+  Widget? _buildParameterWidget(BuildContext context, String paramId, {bool showHidden = false}) {
+    final param = schema.parameters[paramId];
+    if (param == null) return null;
+
+    // Skip hidden parameters (unless showHidden is true)
+    if (!showHidden && param.ui?.hidden == true) return null;
+
+    // Check visibility conditions
+    if (!_isVisible(paramId)) return null;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: ParameterWidgetFactory.build(
+        paramId: paramId,
+        param: param,
+        value: params.values[paramId] ?? param.defaultValue,
+        onChanged: (newValue) {
+          onChanged(params.withValue(paramId, newValue));
+        },
+      ),
+    );
   }
 
   Widget _buildMethodDescription(BuildContext context) {

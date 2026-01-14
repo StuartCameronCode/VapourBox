@@ -65,6 +65,10 @@ class ParameterUiConfig {
   /// Keys are parameter names, values are the required values (or list of values).
   final Map<String, dynamic>? visibleWhen;
 
+  /// Custom labels for boolean values (renders as dropdown instead of toggle).
+  /// Example: {"true": "Top Field First", "false": "Bottom Field First"}
+  final Map<String, String>? booleanLabels;
+
   const ParameterUiConfig({
     this.label,
     this.description,
@@ -72,6 +76,7 @@ class ParameterUiConfig {
     this.precision,
     this.hidden,
     this.visibleWhen,
+    this.booleanLabels,
   });
 
   factory ParameterUiConfig.fromJson(Map<String, dynamic> json) =>
@@ -245,6 +250,34 @@ class FilterDependencies {
   Map<String, dynamic> toJson() => _$FilterDependenciesToJson(this);
 }
 
+/// A parameter preset group - a dropdown that sets one or more parameters.
+@JsonSerializable()
+class ParameterPreset {
+  /// Display label for the preset selector.
+  final String label;
+
+  /// Optional description.
+  final String? description;
+
+  /// Default option key.
+  @JsonKey(name: 'default')
+  final String? defaultOption;
+
+  /// Map of option display name to parameter values to apply.
+  final Map<String, Map<String, dynamic>> options;
+
+  const ParameterPreset({
+    required this.label,
+    this.description,
+    this.defaultOption,
+    required this.options,
+  });
+
+  factory ParameterPreset.fromJson(Map<String, dynamic> json) =>
+      _$ParameterPresetFromJson(json);
+  Map<String, dynamic> toJson() => _$ParameterPresetToJson(this);
+}
+
 /// Code generation configuration.
 @JsonSerializable()
 class CodeTemplate {
@@ -324,7 +357,10 @@ class FilterSchema {
   /// Parameter definitions.
   final Map<String, ParameterDefinition> parameters;
 
-  /// Preset configurations.
+  /// Parameter preset selectors - dropdowns that set one or more parameters.
+  final Map<String, ParameterPreset>? parameterPresets;
+
+  /// Preset configurations (for QTGMC-style quality presets).
   final Map<String, Map<String, dynamic>>? presets;
 
   /// UI layout configuration.
@@ -349,6 +385,7 @@ class FilterSchema {
     this.dependencies,
     required this.methods,
     required this.parameters,
+    this.parameterPresets,
     this.presets,
     this.ui,
     this.codeTemplate,

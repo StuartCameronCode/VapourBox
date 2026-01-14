@@ -1,5 +1,6 @@
 /// End-to-end integration tests for the filter pipeline.
 /// These tests spawn the actual worker process and run video processing.
+/// Each filter test verifies the output differs from a baseline (no filters).
 ///
 /// Run with: flutter test integration_test/filter_pipeline_test.dart
 /// Or: dart test integration_test/filter_pipeline_test.dart --chain-stack-traces
@@ -7,6 +8,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
 
 import 'package:test/test.dart';
 import 'package:uuid/uuid.dart';
@@ -31,6 +34,7 @@ class TestConfig {
   static String get outputDir => '$projectRoot/Tests/TestOutput';
   static String get workerPath => '$projectRoot/worker/target/release/vapourbox-worker.exe';
   static String get depsDir => '$projectRoot/deps/windows-x64';
+  static String get baselineFile => '$outputDir/baseline_deinterlace_only.avi';
 
   static String _findProjectRoot() {
     var dir = Directory.current;
@@ -43,6 +47,224 @@ class TestConfig {
     }
     return dir.path.replaceAll('\\', '/');
   }
+}
+
+/// Global baseline frame hash for comparison (visual content only)
+String? _baselineFrameHash;
+
+/// Extracts a frame from a video and returns its hash (visual content only)
+Future<String> extractFrameHash(String videoPath, {int frameNumber = 5}) async {
+  final tempDir = Directory.systemTemp;
+  final framePath = '${tempDir.path}/frame_${DateTime.now().millisecondsSinceEpoch}.png';
+  final ffmpegPath = '${TestConfig.depsDir}/ffmpeg/ffmpeg.exe';
+
+  try {
+    // Extract a specific frame as PNG (lossless, no metadata variation)
+    final result = await Process.run(
+      ffmpegPath,
+      [
+        '-i', videoPath,
+        '-vf', 'select=eq(n\\,$frameNumber)',
+        '-vframes', '1',
+        '-y',
+        framePath,
+      ],
+      environment: {
+        'PATH': '${TestConfig.depsDir}/ffmpeg;${Platform.environment['PATH']}',
+      },
+    );
+
+    if (result.exitCode != 0) {
+      throw Exception('Failed to extract frame: ${result.stderr}');
+    }
+
+    // Read the frame and compute hash
+    final frameFile = File(framePath);
+    if (!await frameFile.exists()) {
+      throw Exception('Frame extraction produced no output');
+    }
+
+    final bytes = await frameFile.readAsBytes();
+    final hash = md5.convert(bytes).toString();
+
+    // Cleanup
+    await frameFile.delete().catchError((_) => frameFile);
+
+    return hash;
+  } catch (e) {
+    // Cleanup on error
+    final frameFile = File(framePath);
+    if (await frameFile.exists()) {
+      await frameFile.delete().catchError((_) => frameFile);
+    }
+    rethrow;
+  }
+}
+
+/// Verifies that two videos have different visual content
+Future<bool> videosAreDifferent(String path1, String path2) async {
+  final hash1 = await extractFrameHash(path1);
+  final hash2 = await extractFrameHash(path2);
+  return hash1 != hash2;
+}
+
+/// Verifies output differs from baseline (compares actual video frames)
+Future<void> verifyDiffersFromBaseline(String outputPath, String filterName) async {
+  if (_baselineFrameHash == null) {
+    throw StateError('Baseline not yet generated. Run baseline test first.');
+  }
+
+  final outputHash = await extractFrameHash(outputPath);
+  if (outputHash == _baselineFrameHash) {
+    throw TestFailure(
+      '$filterName: Output video frames are IDENTICAL to baseline!\n'
+      'This means the filter had NO EFFECT on the visual output.\n'
+      'Baseline frame hash: $_baselineFrameHash\n'
+      'Output frame hash: $outputHash'
+    );
+  }
+  print('  ✓ Visual output differs from baseline (filter had effect)');
+}
+
+/// Global baseline preview hash for comparison
+String? _baselinePreviewHash;
+
+/// Result of running a preview test
+class PreviewTestResult {
+  final bool success;
+  final String? previewHash;
+  final String? error;
+  final Duration duration;
+  final List<String> logs;
+  final int? exitCode;
+
+  PreviewTestResult({
+    required this.success,
+    this.previewHash,
+    this.error,
+    required this.duration,
+    required this.logs,
+    this.exitCode,
+  });
+}
+
+/// Runs a preview generation through the worker and returns the result
+Future<PreviewTestResult> runPreviewTest(
+  String testName,
+  VideoJob job, {
+  int frameNumber = 5,
+  Duration timeout = const Duration(minutes: 2),
+}) async {
+  final stopwatch = Stopwatch()..start();
+  final logs = <String>[];
+
+  // Write job config to temp file
+  final configFile = File('${Directory.systemTemp.path}/preview_${job.id}.json');
+  await configFile.writeAsString(jsonEncode(job.toJson()));
+
+  // Set up environment
+  final env = Map<String, String>.from(Platform.environment);
+  final depsDir = TestConfig.depsDir;
+
+  env['PYTHONHOME'] = '$depsDir/vapoursynth';
+  env['PYTHONPATH'] = '$depsDir/vapoursynth/Lib/site-packages';
+  env['PATH'] = '$depsDir/vapoursynth;$depsDir/ffmpeg;${env['PATH']}';
+  env['VAPOURSYNTH_PLUGIN_PATH'] = '$depsDir/vapoursynth/vs-plugins';
+
+  try {
+    print('\n${'=' * 60}');
+    print('PREVIEW TEST: $testName');
+    print('Frame: $frameNumber');
+    print('=' * 60);
+
+    // Run worker in preview mode
+    final process = await Process.start(
+      TestConfig.workerPath,
+      ['--config', configFile.path, '--preview', '--frame', frameNumber.toString()],
+      environment: env,
+      workingDirectory: File(TestConfig.workerPath).parent.path,
+    );
+
+    // Collect PNG data from stdout
+    final pngData = <int>[];
+    process.stdout.listen((data) {
+      pngData.addAll(data);
+    });
+
+    // Collect stderr for logs
+    process.stderr
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((line) {
+      logs.add(line);
+      if (line.contains('Error') || line.contains('error')) {
+        print('  [stderr] $line');
+      }
+    });
+
+    // Wait for completion
+    final exitCode = await process.exitCode.timeout(
+      timeout,
+      onTimeout: () {
+        process.kill();
+        throw TimeoutException('Preview timed out after ${timeout.inSeconds}s');
+      },
+    );
+
+    stopwatch.stop();
+
+    // Clean up
+    await configFile.delete().catchError((_) => configFile);
+
+    if (exitCode == 0 && pngData.isNotEmpty) {
+      // Compute hash of the preview image
+      final hash = md5.convert(pngData).toString();
+      print('  Preview generated: ${pngData.length} bytes, hash: $hash');
+
+      return PreviewTestResult(
+        success: true,
+        previewHash: hash,
+        duration: stopwatch.elapsed,
+        logs: logs,
+        exitCode: exitCode,
+      );
+    } else {
+      return PreviewTestResult(
+        success: false,
+        error: 'Preview failed with exit code $exitCode (${pngData.length} bytes output)',
+        duration: stopwatch.elapsed,
+        logs: logs,
+        exitCode: exitCode,
+      );
+    }
+  } catch (e) {
+    stopwatch.stop();
+    await configFile.delete().catchError((_) => configFile);
+
+    return PreviewTestResult(
+      success: false,
+      error: e.toString(),
+      duration: stopwatch.elapsed,
+      logs: logs,
+    );
+  }
+}
+
+/// Verifies preview differs from baseline
+Future<void> verifyPreviewDiffersFromBaseline(String? previewHash, String filterName) async {
+  if (_baselinePreviewHash == null) {
+    throw StateError('Baseline preview not yet generated. Run baseline preview test first.');
+  }
+
+  if (previewHash == _baselinePreviewHash) {
+    throw TestFailure(
+      '$filterName: Preview image is IDENTICAL to baseline!\n'
+      'This means the filter had NO EFFECT on the preview.\n'
+      'Baseline preview hash: $_baselinePreviewHash\n'
+      'Output preview hash: $previewHash'
+    );
+  }
+  print('  ✓ Preview differs from baseline (filter had effect)');
 }
 
 /// Result of running a filter test
@@ -264,6 +486,81 @@ void main() {
     print('Worker: ${TestConfig.workerPath}');
   });
 
+  // BASELINE TEST - Must run first to establish comparison reference
+  group('Baseline', () {
+    test('Generate baseline (deinterlace only, no filters)', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: TestConfig.baselineFile,
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          // NO other filters enabled - this is our baseline
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runFilterTest('Baseline (no filters)', job);
+      expect(result.success, isTrue, reason: result.error);
+      expect(File(result.outputPath!).existsSync(), isTrue);
+
+      // Store baseline frame hash for comparison
+      _baselineFrameHash = await extractFrameHash(result.outputPath!);
+      print('  Baseline frame hash: $_baselineFrameHash');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('Control: Second baseline export matches first (validates comparison)', () async {
+      // This test validates our comparison mechanism works correctly
+      // Two exports with identical parameters should produce identical visual output
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/baseline_control.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runFilterTest('Baseline Control', job);
+      expect(result.success, isTrue, reason: result.error);
+
+      // Verify this matches the first baseline
+      final controlHash = await extractFrameHash(result.outputPath!);
+      expect(
+        controlHash,
+        equals(_baselineFrameHash),
+        reason: 'Control export should match baseline exactly!\n'
+            'Baseline hash: $_baselineFrameHash\n'
+            'Control hash: $controlHash\n'
+            'If these differ, the comparison mechanism may be unreliable.',
+      );
+      print('  ✓ Control export matches baseline (comparison mechanism is valid)');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+  });
+
   group('Deinterlace Filters', () {
     test('Deinterlace - Fast preset', () async {
       final job = createTestJob('test_deinterlace_fast');
@@ -347,6 +644,7 @@ void main() {
       );
       final result = await runFilterTest('SMDegrain Light', job);
       expect(result.success, isTrue, reason: result.error);
+      await verifyDiffersFromBaseline(result.outputPath!, 'SMDegrain Light');
     }, timeout: const Timeout(Duration(minutes: 10)));
 
     test('Noise Reduction - SMDegrain Heavy', () async {
@@ -559,6 +857,7 @@ void main() {
       );
       final result = await runFilterTest('DeHalo_alpha', job);
       expect(result.success, isTrue, reason: result.error);
+      await verifyDiffersFromBaseline(result.outputPath!, 'DeHalo_alpha');
     }, timeout: const Timeout(Duration(minutes: 5)));
 
     test('Dehalo - FineDehalo', () async {
@@ -585,6 +884,7 @@ void main() {
       );
       final result = await runFilterTest('FineDehalo', job);
       expect(result.success, isTrue, reason: result.error);
+      await verifyDiffersFromBaseline(result.outputPath!, 'FineDehalo');
     }, timeout: const Timeout(Duration(minutes: 5)));
 
     test('Dehalo - YAHR', () async {
@@ -607,6 +907,7 @@ void main() {
       );
       final result = await runFilterTest('YAHR', job);
       expect(result.success, isTrue, reason: result.error);
+      await verifyDiffersFromBaseline(result.outputPath!, 'YAHR');
     }, timeout: const Timeout(Duration(minutes: 5)));
   });
 
@@ -633,6 +934,7 @@ void main() {
       );
       final result = await runFilterTest('Deblock_QED', job);
       expect(result.success, isTrue, reason: result.error);
+      await verifyDiffersFromBaseline(result.outputPath!, 'Deblock_QED');
     }, timeout: const Timeout(Duration(minutes: 5)));
 
     test('Deblock - Simple Deblock', () async {
@@ -654,6 +956,7 @@ void main() {
       );
       final result = await runFilterTest('Simple Deblock', job);
       expect(result.success, isTrue, reason: result.error);
+      await verifyDiffersFromBaseline(result.outputPath!, 'Simple Deblock');
     }, timeout: const Timeout(Duration(minutes: 5)));
   });
 
@@ -683,6 +986,7 @@ void main() {
       );
       final result = await runFilterTest('f3kdb Light', job);
       expect(result.success, isTrue, reason: result.error);
+      await verifyDiffersFromBaseline(result.outputPath!, 'f3kdb Light');
     }, timeout: const Timeout(Duration(minutes: 5)));
 
     test('Deband - f3kdb Heavy', () async {
@@ -710,6 +1014,7 @@ void main() {
       );
       final result = await runFilterTest('f3kdb Heavy', job);
       expect(result.success, isTrue, reason: result.error);
+      await verifyDiffersFromBaseline(result.outputPath!, 'f3kdb Heavy');
     }, timeout: const Timeout(Duration(minutes: 5)));
   });
 
@@ -736,6 +1041,7 @@ void main() {
       );
       final result = await runFilterTest('LSFmod', job);
       expect(result.success, isTrue, reason: result.error);
+      await verifyDiffersFromBaseline(result.outputPath!, 'LSFmod');
     }, timeout: const Timeout(Duration(minutes: 5)));
 
     test('Sharpen - CAS', () async {
@@ -757,6 +1063,7 @@ void main() {
       );
       final result = await runFilterTest('CAS', job);
       expect(result.success, isTrue, reason: result.error);
+      await verifyDiffersFromBaseline(result.outputPath!, 'CAS');
     }, timeout: const Timeout(Duration(minutes: 5)));
   });
 
@@ -992,5 +1299,866 @@ void main() {
       final result = await runFilterTest('All Filters Combined', job);
       expect(result.success, isTrue, reason: result.error);
     }, timeout: const Timeout(Duration(minutes: 15)));
+  });
+
+  // =========================================================================
+  // PREVIEW PIPELINE TESTS
+  // These tests verify the preview generation uses the correct filter pipeline
+  // =========================================================================
+  group('Preview Pipeline', () {
+    test('Preview Baseline (deinterlace only)', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_baseline.avi', // Not used for preview
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview Baseline', job);
+      expect(result.success, isTrue, reason: result.error);
+      expect(result.previewHash, isNotNull);
+
+      // Store baseline preview hash
+      _baselinePreviewHash = result.previewHash;
+      print('  Baseline preview hash: $_baselinePreviewHash');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('Preview Control: Second baseline matches first', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_control.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview Control', job);
+      expect(result.success, isTrue, reason: result.error);
+      expect(
+        result.previewHash,
+        equals(_baselinePreviewHash),
+        reason: 'Control preview should match baseline exactly!',
+      );
+      print('  ✓ Control preview matches baseline (comparison is valid)');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // =========================================================================
+    // NOISE REDUCTION PREVIEW TESTS
+    // =========================================================================
+    test('Preview - SMDegrain Light', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_nr_smdegrain_light.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.smDegrain,
+            smDegrainTr: 1,
+            smDegrainThSAD: 150,
+            smDegrainThSADC: 75,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview SMDegrain Light', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'SMDegrain Light');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('Preview - SMDegrain Heavy', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_nr_smdegrain_heavy.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.smDegrain,
+            smDegrainTr: 3,
+            smDegrainThSAD: 400,
+            smDegrainThSADC: 200,
+            smDegrainRefine: true,
+            smDegrainPrefilter: 3,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview SMDegrain Heavy', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'SMDegrain Heavy');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('Preview - MCTemporalDenoise', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_nr_mctemporal.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.mcTemporalDenoise,
+            mcTemporalSigma: 4.0,
+            mcTemporalRadius: 2,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview MCTemporalDenoise', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'MCTemporalDenoise');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // =========================================================================
+    // COLOR CORRECTION PREVIEW TESTS
+    // =========================================================================
+    test('Preview - Brightness/Contrast', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_color_brightness.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          colorCorrection: ColorCorrectionParameters(
+            enabled: true,
+            brightness: 10.0,
+            contrast: 1.1,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview Brightness/Contrast', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'Brightness/Contrast');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('Preview - Saturation', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_color_saturation.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          colorCorrection: ColorCorrectionParameters(
+            enabled: true,
+            saturation: 1.3,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview Saturation', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'Saturation');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('Preview - Levels', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_color_levels.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          colorCorrection: ColorCorrectionParameters(
+            enabled: true,
+            applyLevels: true,
+            inputLow: 16,
+            inputHigh: 235,
+            outputLow: 0,
+            outputHigh: 255,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview Levels', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'Levels');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // =========================================================================
+    // CHROMA FIX PREVIEW TESTS
+    // =========================================================================
+    test('Preview - Chroma Bleeding Fix', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_chroma_bleeding.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          chromaFixes: ChromaFixParameters(
+            enabled: true,
+            applyChromaBleedingFix: true,
+            chromaBleedCx: 4,
+            chromaBleedCy: 4,
+            chromaBleedCBlur: 0.7,
+            chromaBleedStrength: 1.0,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview Chroma Bleeding', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'Chroma Bleeding Fix');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('Preview - DeCrawl', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_chroma_decrawl.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          chromaFixes: ChromaFixParameters(
+            enabled: true,
+            applyDeCrawl: true,
+            deCrawlYThresh: 10,
+            deCrawlCThresh: 10,
+            deCrawlMaxDiff: 50,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview DeCrawl', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'DeCrawl');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('Preview - Vinverse', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_chroma_vinverse.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          chromaFixes: ChromaFixParameters(
+            enabled: true,
+            applyVinverse: true,
+            vinverseSstr: 2.0,
+            vinverseAmnt: 200,
+            vinverseScl: 12,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview Vinverse', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'Vinverse');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // =========================================================================
+    // DEHALO PREVIEW TESTS
+    // =========================================================================
+    test('Preview - Sharpen LSFmod', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_sharpen_lsfmod.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          sharpen: SharpenParameters(
+            enabled: true,
+            method: SharpenMethod.lsfmod,
+            strength: 100,
+            overshoot: 1,
+            undershoot: 1,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview Sharpen LSFmod', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'Sharpen LSFmod');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('Preview - Sharpen CAS', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_sharpen_cas.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          sharpen: SharpenParameters(
+            enabled: true,
+            method: SharpenMethod.cas,
+            casSharpness: 0.8,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview Sharpen CAS', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'Sharpen CAS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('Preview - Dehalo Alpha', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_dehalo.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          dehalo: DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.dehaloAlpha,
+            rx: 2.0,
+            ry: 2.0,
+            darkStr: 1.0,
+            brightStr: 1.0,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview Dehalo Alpha', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'Dehalo Alpha');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('Preview - Deblock QED', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_deblock.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          deblock: DeblockParameters(
+            enabled: true,
+            method: DeblockMethod.deblockQed,
+            quant1: 24,
+            quant2: 26,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview Deblock QED', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'Deblock QED');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('Preview - Deband f3kdb', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_deband.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          deband: DebandParameters(
+            enabled: true,
+            range: 15,
+            y: 32,
+            cb: 32,
+            cr: 32,
+            grainY: 16,
+            grainC: 16,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview Deband f3kdb', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'Deband f3kdb');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('Preview - All Filters Combined', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_all_filters.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          sharpen: SharpenParameters(
+            enabled: true,
+            method: SharpenMethod.cas,
+            casSharpness: 0.5,
+          ),
+          dehalo: DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.dehaloAlpha,
+            rx: 2.0,
+            ry: 2.0,
+          ),
+          deblock: DeblockParameters(
+            enabled: true,
+            method: DeblockMethod.deblockQed,
+            quant1: 20,
+            quant2: 22,
+          ),
+          deband: DebandParameters(
+            enabled: true,
+            range: 15,
+            y: 24,
+            cb: 24,
+            cr: 24,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview All Filters', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'All Filters Combined');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // =========================================================================
+    // ADDITIONAL DEHALO PREVIEW TESTS
+    // =========================================================================
+    test('Preview - FineDehalo', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_dehalo_fine.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          dehalo: DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.fineDehalo,
+            rx: 2.0,
+            ry: 2.0,
+            darkStr: 0.8,
+            brightStr: 0.8,
+            lowThreshold: 50,
+            highThreshold: 100,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview FineDehalo', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'FineDehalo');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('Preview - YAHR', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_dehalo_yahr.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          dehalo: DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.yahr,
+            yahrBlur: 2,
+            yahrDepth: 32,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview YAHR', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'YAHR');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // =========================================================================
+    // ADDITIONAL DEBLOCK PREVIEW TESTS
+    // =========================================================================
+    test('Preview - Simple Deblock', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_deblock_simple.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          deblock: DeblockParameters(
+            enabled: true,
+            method: DeblockMethod.deblock,
+            quant1: 30,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview Simple Deblock', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'Simple Deblock');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // =========================================================================
+    // ADDITIONAL DEBAND PREVIEW TESTS
+    // =========================================================================
+    test('Preview - f3kdb Heavy', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_deband_heavy.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          deband: DebandParameters(
+            enabled: true,
+            range: 24,
+            y: 48,
+            cb: 48,
+            cr: 48,
+            grainY: 32,
+            grainC: 32,
+            dynamicGrain: true,
+            outputDepth: 16,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview f3kdb Heavy', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'f3kdb Heavy');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // =========================================================================
+    // CROP/RESIZE PREVIEW TESTS
+    // =========================================================================
+    test('Preview - Crop Overscan', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_crop_overscan.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          cropResize: CropResizeParameters(
+            enabled: true,
+            cropEnabled: true,
+            cropLeft: 8,
+            cropRight: 8,
+            cropTop: 8,
+            cropBottom: 8,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview Crop Overscan', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'Crop Overscan');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('Preview - Resize 720p Spline36', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_resize_720p.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          cropResize: CropResizeParameters(
+            enabled: true,
+            resizeEnabled: true,
+            targetWidth: 1280,
+            targetHeight: 720,
+            kernel: ResizeKernel.spline36,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview Resize 720p', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'Resize 720p Spline36');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('Preview - Resize 1080p Lanczos', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/preview_resize_1080p.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          cropResize: CropResizeParameters(
+            enabled: true,
+            resizeEnabled: true,
+            targetWidth: 1920,
+            targetHeight: 1080,
+            kernel: ResizeKernel.lanczos,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+        ),
+      );
+      final result = await runPreviewTest('Preview Resize 1080p', job);
+      expect(result.success, isTrue, reason: result.error);
+      await verifyPreviewDiffersFromBaseline(result.previewHash, 'Resize 1080p Lanczos');
+    }, timeout: const Timeout(Duration(minutes: 2)));
   });
 }

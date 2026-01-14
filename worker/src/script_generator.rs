@@ -126,10 +126,15 @@ impl ScriptGenerator {
             }
         }
 
-        // Fallback to embedded template (only for main template)
+        // Fallback to embedded templates
         if primary_name.contains("pipeline") || primary_name.contains("qtgmc") {
             eprintln!("Using embedded fallback template");
             return Ok(Self::embedded_template());
+        }
+
+        if primary_name.contains("preview") {
+            eprintln!("Using embedded fallback preview template");
+            return Ok(Self::embedded_preview_template());
         }
 
         anyhow::bail!("Could not find template: {}", primary_name)
@@ -663,6 +668,381 @@ clip = haf.QTGMC(
 )
 
 # Output the processed clip
+clip.set_output()
+"#.to_string()
+    }
+
+    /// Embedded fallback preview template.
+    fn embedded_preview_template() -> String {
+        r#"import vapoursynth as vs
+import sys
+import os
+
+core = vs.core
+
+# Load the temporary preview video clip (extracted with fast keyframe seeking)
+video_path = r"{{VIDEO_PATH}}"
+
+# Load using ffms2 (fast since the clip is only ~11 frames)
+clip = core.ffms2.Source(video_path, cachefile="")
+
+# Set frame rate properties that QTGMC expects (from original video)
+clip = core.std.AssumeFPS(clip, fpsnum={{FPS_NUM}}, fpsden={{FPS_DEN}})
+
+# Mark as interlaced for QTGMC (field-based)
+clip = core.std.SetFieldBased(clip, {{FIELD_BASED}})
+
+# Report frame info
+total_frames = clip.num_frames
+print(f"INPUT_INFO:frames={total_frames},fps_num={{FPS_NUM}},fps_den={{FPS_DEN}}", file=sys.stderr)
+
+# Import havsfunc for various filters (QTGMC, SMDegrain, chroma fixes)
+import havsfunc as haf
+
+# PASS 1: PRE-CROP
+{{#PRE_CROP}}
+clip = core.std.Crop(clip, left={{CROP_LEFT}}, right={{CROP_RIGHT}}, top={{CROP_TOP}}, bottom={{CROP_BOTTOM}})
+{{/PRE_CROP}}
+
+# PASS 2: DEINTERLACING (QTGMC)
+{{#DEINTERLACE}}
+clip = haf.QTGMC(
+    clip,
+    Preset="{{PRESET}}",
+{{#TFF}}
+    TFF={{TFF}},
+{{/TFF}}
+{{#FPS_DIVISOR}}
+    FPSDivisor={{FPS_DIVISOR}},
+{{/FPS_DIVISOR}}
+{{#OPENCL}}
+    opencl={{OPENCL}},
+{{/OPENCL}}
+)
+{{/DEINTERLACE}}
+
+# PASS 3: NOISE REDUCTION
+{{#NOISE_REDUCTION}}
+import mvsfunc as mvf
+
+{{#NR_SMDEGRAIN}}
+clip = haf.SMDegrain(
+    clip,
+{{#NR_TR}}
+    tr={{NR_TR}},
+{{/NR_TR}}
+{{#NR_TH_SAD}}
+    thSAD={{NR_TH_SAD}},
+{{/NR_TH_SAD}}
+)
+{{/NR_SMDEGRAIN}}
+
+{{#NR_MCTD}}
+clip = haf.MCTemporalDenoise(
+    clip,
+{{#NR_SIGMA}}
+    sigma={{NR_SIGMA}},
+{{/NR_SIGMA}}
+)
+{{/NR_MCTD}}
+
+{{#NR_BM3D}}
+clip = mvf.BM3D(
+    clip,
+{{#NR_BM3D_SIGMA}}
+    sigma={{NR_BM3D_SIGMA}},
+{{/NR_BM3D_SIGMA}}
+)
+{{/NR_BM3D}}
+{{/NOISE_REDUCTION}}
+
+# PASS 4: DEHALO
+{{#DEHALO}}
+
+{{#DEHALO_DEHALO_ALPHA}}
+clip = haf.DeHalo_alpha(
+    clip,
+{{#DEHALO_RX}}
+    rx={{DEHALO_RX}},
+{{/DEHALO_RX}}
+{{#DEHALO_RY}}
+    ry={{DEHALO_RY}},
+{{/DEHALO_RY}}
+{{#DEHALO_DARKSTR}}
+    darkstr={{DEHALO_DARKSTR}},
+{{/DEHALO_DARKSTR}}
+{{#DEHALO_BRIGHTSTR}}
+    brightstr={{DEHALO_BRIGHTSTR}},
+{{/DEHALO_BRIGHTSTR}}
+)
+{{/DEHALO_DEHALO_ALPHA}}
+
+{{#DEHALO_FINE_DEHALO}}
+clip = haf.FineDehalo(
+    clip,
+{{#DEHALO_RX}}
+    rx={{DEHALO_RX}},
+{{/DEHALO_RX}}
+{{#DEHALO_RY}}
+    ry={{DEHALO_RY}},
+{{/DEHALO_RY}}
+{{#DEHALO_DARKSTR}}
+    darkstr={{DEHALO_DARKSTR}},
+{{/DEHALO_DARKSTR}}
+{{#DEHALO_BRIGHTSTR}}
+    brightstr={{DEHALO_BRIGHTSTR}},
+{{/DEHALO_BRIGHTSTR}}
+)
+{{/DEHALO_FINE_DEHALO}}
+
+{{#DEHALO_YAHR}}
+clip = haf.YAHR(
+    clip,
+{{#DEHALO_YAHR_BLUR}}
+    blur={{DEHALO_YAHR_BLUR}},
+{{/DEHALO_YAHR_BLUR}}
+{{#DEHALO_YAHR_DEPTH}}
+    depth={{DEHALO_YAHR_DEPTH}},
+{{/DEHALO_YAHR_DEPTH}}
+)
+{{/DEHALO_YAHR}}
+{{/DEHALO}}
+
+# PASS 5: DEBLOCK
+{{#DEBLOCK}}
+
+{{#DEBLOCK_QED}}
+clip = haf.Deblock_QED(
+    clip,
+{{#DEBLOCK_QUANT1}}
+    quant1={{DEBLOCK_QUANT1}},
+{{/DEBLOCK_QUANT1}}
+{{#DEBLOCK_QUANT2}}
+    quant2={{DEBLOCK_QUANT2}},
+{{/DEBLOCK_QUANT2}}
+)
+{{/DEBLOCK_QED}}
+
+{{#DEBLOCK_SIMPLE}}
+clip = core.deblock.Deblock(
+    clip,
+{{#DEBLOCK_QUANT1}}
+    quant={{DEBLOCK_QUANT1}},
+{{/DEBLOCK_QUANT1}}
+)
+{{/DEBLOCK_SIMPLE}}
+{{/DEBLOCK}}
+
+# PASS 6: DEBAND
+{{#DEBAND}}
+clip = core.neo_f3kdb.Deband(
+    clip,
+{{#DEBAND_RANGE}}
+    range={{DEBAND_RANGE}},
+{{/DEBAND_RANGE}}
+{{#DEBAND_Y}}
+    y={{DEBAND_Y}},
+{{/DEBAND_Y}}
+{{#DEBAND_CB}}
+    cb={{DEBAND_CB}},
+{{/DEBAND_CB}}
+{{#DEBAND_CR}}
+    cr={{DEBAND_CR}},
+{{/DEBAND_CR}}
+{{#DEBAND_GRAINY}}
+    grainy={{DEBAND_GRAINY}},
+{{/DEBAND_GRAINY}}
+{{#DEBAND_GRAINC}}
+    grainc={{DEBAND_GRAINC}},
+{{/DEBAND_GRAINC}}
+{{#DEBAND_OUTPUT_DEPTH}}
+    output_depth={{DEBAND_OUTPUT_DEPTH}},
+{{/DEBAND_OUTPUT_DEPTH}}
+)
+{{/DEBAND}}
+
+# PASS 7: SHARPEN
+{{#SHARPEN}}
+
+{{#SHARPEN_LSFMOD}}
+clip = haf.LSFmod(
+    clip,
+{{#SHARPEN_STRENGTH}}
+    strength={{SHARPEN_STRENGTH}},
+{{/SHARPEN_STRENGTH}}
+{{#SHARPEN_OVERSHOOT}}
+    overshoot={{SHARPEN_OVERSHOOT}},
+{{/SHARPEN_OVERSHOOT}}
+{{#SHARPEN_UNDERSHOOT}}
+    undershoot={{SHARPEN_UNDERSHOOT}},
+{{/SHARPEN_UNDERSHOOT}}
+{{#SHARPEN_SOFT_EDGE}}
+    soft={{SHARPEN_SOFT_EDGE}},
+{{/SHARPEN_SOFT_EDGE}}
+)
+{{/SHARPEN_LSFMOD}}
+
+{{#SHARPEN_CAS}}
+clip = core.cas.CAS(
+    clip,
+{{#SHARPEN_CAS_SHARPNESS}}
+    sharpness={{SHARPEN_CAS_SHARPNESS}},
+{{/SHARPEN_CAS_SHARPNESS}}
+)
+{{/SHARPEN_CAS}}
+{{/SHARPEN}}
+
+# PASS 8: CHROMA FIXES
+{{#CHROMA_FIXES}}
+
+{{#CHROMA_FIX_BLEEDING}}
+clip = haf.FixChromaBleedingMod(
+    clip,
+{{#CHROMA_CX}}
+    cx={{CHROMA_CX}},
+{{/CHROMA_CX}}
+{{#CHROMA_CY}}
+    cy={{CHROMA_CY}},
+{{/CHROMA_CY}}
+{{#CHROMA_THR}}
+    thr={{CHROMA_THR}},
+{{/CHROMA_THR}}
+{{#CHROMA_STRENGTH}}
+    strength={{CHROMA_STRENGTH}},
+{{/CHROMA_STRENGTH}}
+)
+{{/CHROMA_FIX_BLEEDING}}
+
+{{#CHROMA_DECRAWL}}
+clip = haf.LUTDeCrawl(
+    clip,
+{{#DECRAWL_YTHRESH}}
+    ythresh={{DECRAWL_YTHRESH}},
+{{/DECRAWL_YTHRESH}}
+{{#DECRAWL_CTHRESH}}
+    cthresh={{DECRAWL_CTHRESH}},
+{{/DECRAWL_CTHRESH}}
+{{#DECRAWL_MAXDIFF}}
+    maxdiff={{DECRAWL_MAXDIFF}},
+{{/DECRAWL_MAXDIFF}}
+)
+{{/CHROMA_DECRAWL}}
+
+{{#CHROMA_VINVERSE}}
+clip = haf.Vinverse(
+    clip,
+{{#VINVERSE_SSTR}}
+    sstr={{VINVERSE_SSTR}},
+{{/VINVERSE_SSTR}}
+{{#VINVERSE_AMNT}}
+    amnt={{VINVERSE_AMNT}},
+{{/VINVERSE_AMNT}}
+)
+{{/CHROMA_VINVERSE}}
+{{/CHROMA_FIXES}}
+
+# PASS 9: COLOR CORRECTION
+{{#COLOR_CORRECTION}}
+import adjust
+
+{{#COLOR_TWEAK}}
+clip = adjust.Tweak(
+    clip,
+{{#COLOR_BRIGHTNESS}}
+    bright={{COLOR_BRIGHTNESS}},
+{{/COLOR_BRIGHTNESS}}
+{{#COLOR_CONTRAST}}
+    cont={{COLOR_CONTRAST}},
+{{/COLOR_CONTRAST}}
+{{#COLOR_SATURATION}}
+    sat={{COLOR_SATURATION}},
+{{/COLOR_SATURATION}}
+{{#COLOR_HUE}}
+    hue={{COLOR_HUE}},
+{{/COLOR_HUE}}
+)
+{{/COLOR_TWEAK}}
+
+{{#COLOR_LEVELS}}
+clip = core.std.Levels(
+    clip,
+{{#LEVELS_INPUT_LOW}}
+    min_in={{LEVELS_INPUT_LOW}},
+{{/LEVELS_INPUT_LOW}}
+{{#LEVELS_INPUT_HIGH}}
+    max_in={{LEVELS_INPUT_HIGH}},
+{{/LEVELS_INPUT_HIGH}}
+{{#LEVELS_OUTPUT_LOW}}
+    min_out={{LEVELS_OUTPUT_LOW}},
+{{/LEVELS_OUTPUT_LOW}}
+{{#LEVELS_OUTPUT_HIGH}}
+    max_out={{LEVELS_OUTPUT_HIGH}},
+{{/LEVELS_OUTPUT_HIGH}}
+{{#LEVELS_GAMMA}}
+    gamma={{LEVELS_GAMMA}},
+{{/LEVELS_GAMMA}}
+)
+{{/COLOR_LEVELS}}
+{{/COLOR_CORRECTION}}
+
+# PASS 10: RESIZE
+{{#RESIZE}}
+
+{{#RESIZE_INTEGER_UPSCALE}}
+{{#UPSCALE_NNEDI3}}
+def nnedi3_2x(c):
+    c = core.znedi3.nnedi3(c, field=1, dh=True)
+    c = core.std.Transpose(c)
+    c = core.znedi3.nnedi3(c, field=1, dh=True)
+    c = core.std.Transpose(c)
+    return c
+for _ in range({{UPSCALE_FACTOR}} // 2 if {{UPSCALE_FACTOR}} > 1 else 1):
+    clip = nnedi3_2x(clip)
+{{/UPSCALE_NNEDI3}}
+{{#UPSCALE_EEDI3}}
+clip = core.resize.Spline36(clip, width=clip.width * {{UPSCALE_FACTOR}}, height=clip.height * {{UPSCALE_FACTOR}})
+{{/UPSCALE_EEDI3}}
+{{/RESIZE_INTEGER_UPSCALE}}
+
+{{#RESIZE_STANDARD}}
+target_w = {{TARGET_WIDTH}}
+target_h = {{TARGET_HEIGHT}}
+{{#MAINTAIN_ASPECT}}
+aspect = clip.width / clip.height
+if target_w > 0 and target_h <= 0:
+    target_h = int(target_w / aspect)
+    target_h = target_h - (target_h % 2)
+elif target_h > 0 and target_w <= 0:
+    target_w = int(target_h * aspect)
+    target_w = target_w - (target_w % 2)
+elif target_w > 0 and target_h > 0:
+    scale_w = target_w / clip.width
+    scale_h = target_h / clip.height
+    scale = min(scale_w, scale_h)
+    target_w = int(clip.width * scale)
+    target_w = target_w - (target_w % 2)
+    target_h = int(clip.height * scale)
+    target_h = target_h - (target_h % 2)
+{{/MAINTAIN_ASPECT}}
+
+{{#RESIZE_SPLINE36}}
+clip = core.resize.Spline36(clip, width=target_w, height=target_h)
+{{/RESIZE_SPLINE36}}
+{{#RESIZE_LANCZOS}}
+clip = core.resize.Lanczos(clip, width=target_w, height=target_h)
+{{/RESIZE_LANCZOS}}
+{{#RESIZE_BICUBIC}}
+clip = core.resize.Bicubic(clip, width=target_w, height=target_h)
+{{/RESIZE_BICUBIC}}
+{{#RESIZE_BILINEAR}}
+clip = core.resize.Bilinear(clip, width=target_w, height=target_h)
+{{/RESIZE_BILINEAR}}
+{{/RESIZE_STANDARD}}
+{{/RESIZE}}
+
+# OUTPUT - select the middle frame for preview
+middle_frame = clip.num_frames // 2
+clip = clip[middle_frame]
 clip.set_output()
 "#.to_string()
     }

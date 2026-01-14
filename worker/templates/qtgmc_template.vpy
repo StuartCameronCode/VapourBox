@@ -240,5 +240,118 @@ clip = haf.QTGMC(
 {{/DEVICE}}
 )
 
+{{#NOISE_REDUCTION}}
+# Apply noise reduction
+{{#NR_SMDEGRAIN}}
+clip = haf.SMDegrain(clip, tr={{NR_TEMPORAL_RADIUS}}, thSAD={{NR_THRESHOLD}}, prefilter={{NR_PREFILTER}}, contrasharp={{NR_CONTRA_SHARP}}, RefineMotion={{NR_REFINE_MOTION}})
+{{/NR_SMDEGRAIN}}
+{{#NR_MCTD}}
+clip = haf.MCTemporalDenoise(clip, settings="{{NR_MCTD_SETTINGS}}")
+{{/NR_MCTD}}
+{{#NR_BM3D}}
+clip = core.bm3dcpu.BM3D(clip, sigma={{NR_BM3D_SIGMA}}, radius={{NR_BM3D_RADIUS}})
+{{/NR_BM3D}}
+{{/NOISE_REDUCTION}}
+
+{{#DEHALO}}
+# Apply dehalo
+{{#DEHALO_DEHALO_ALPHA}}
+clip = haf.DeHalo_alpha(clip, rx={{DEHALO_RX}}, ry={{DEHALO_RY}}, darkstr={{DEHALO_DARK_STR}}, brightstr={{DEHALO_BRIGHT_STR}})
+{{/DEHALO_DEHALO_ALPHA}}
+{{#DEHALO_FINE_DEHALO}}
+clip = haf.FineDehalo(clip, rx={{DEHALO_RX}}, ry={{DEHALO_RY}}, darkstr={{DEHALO_DARK_STR}}, brightstr={{DEHALO_BRIGHT_STR}})
+{{/DEHALO_FINE_DEHALO}}
+{{#DEHALO_YAHR}}
+clip = haf.YAHR(clip, blur={{DEHALO_YAHR_BLUR}}, depth={{DEHALO_YAHR_DEPTH}})
+{{/DEHALO_YAHR}}
+{{/DEHALO}}
+
+{{#DEBLOCK}}
+# Apply deblocking
+{{#DEBLOCK_QED}}
+clip = haf.Deblock_QED(clip, quant1={{DEBLOCK_QUANT1}}, quant2={{DEBLOCK_QUANT2}})
+{{/DEBLOCK_QED}}
+{{#DEBLOCK_SIMPLE}}
+clip = core.deblock.Deblock(clip, quant={{DEBLOCK_QUANT}})
+{{/DEBLOCK_SIMPLE}}
+{{/DEBLOCK}}
+
+{{#DEBAND}}
+# Apply debanding
+clip = core.neo_f3kdb.Deband(clip, y={{DEBAND_Y}}, cb={{DEBAND_CB}}, cr={{DEBAND_CR}}, grainy={{DEBAND_GRAINY}}, grainc={{DEBAND_GRAINC}}, range={{DEBAND_RANGE}}, output_depth={{DEBAND_OUTPUT_DEPTH}})
+{{/DEBAND}}
+
+{{#SHARPEN}}
+# Apply sharpening
+{{#SHARPEN_LSFMOD}}
+clip = haf.LSFmod(clip, strength={{SHARPEN_STRENGTH}}, Overshoot={{SHARPEN_OVERSHOOT}}, Undershoot={{SHARPEN_UNDERSHOOT}}, soft={{SHARPEN_SOFT_EDGE}})
+{{/SHARPEN_LSFMOD}}
+{{#SHARPEN_CAS}}
+clip = core.cas.CAS(clip, sharpness={{SHARPEN_CAS_SHARPNESS}})
+{{/SHARPEN_CAS}}
+{{/SHARPEN}}
+
+{{#CHROMA_FIXES}}
+# Apply chroma fixes
+{{#CHROMA_FIX_BLEEDING}}
+clip = haf.FixChromaBleedingMod(clip, cx={{CHROMA_CX}}, cy={{CHROMA_CY}}, thr={{CHROMA_THR}}, strength={{CHROMA_STRENGTH}})
+{{/CHROMA_FIX_BLEEDING}}
+{{#CHROMA_DECRAWL}}
+clip = haf.LUTDeCrawl(clip, ythresh={{CHROMA_Y_THRESH}}, cthresh={{CHROMA_C_THRESH}}, maxdiff={{CHROMA_MAX_DIFF}}, scnchg={{CHROMA_SCNCHG}})
+{{/CHROMA_DECRAWL}}
+{{#CHROMA_VINVERSE}}
+clip = core.vinverse.Vinverse(clip, sstr={{CHROMA_VINVERSE_SSTR}}, amnt={{CHROMA_VINVERSE_AMNT}}, scl={{CHROMA_VINVERSE_SCL}})
+{{/CHROMA_VINVERSE}}
+{{/CHROMA_FIXES}}
+
+{{#COLOR_CORRECTION}}
+# Apply color correction
+{{#COLOR_TWEAK}}
+clip = haf.Tweak(clip, hue={{COLOR_HUE}}, sat={{COLOR_SAT}}, bright={{COLOR_BRIGHT}}, cont={{COLOR_CONT}})
+{{/COLOR_TWEAK}}
+{{#COLOR_LEVELS}}
+clip = core.std.Levels(clip, min_in={{COLOR_MIN_IN}}, max_in={{COLOR_MAX_IN}}, min_out={{COLOR_MIN_OUT}}, max_out={{COLOR_MAX_OUT}}, gamma={{COLOR_GAMMA}})
+{{/COLOR_LEVELS}}
+{{/COLOR_CORRECTION}}
+
+{{#RESIZE}}
+# Apply resize/crop
+{{#PRE_CROP}}
+clip = core.std.Crop(clip, left={{CROP_LEFT}}, right={{CROP_RIGHT}}, top={{CROP_TOP}}, bottom={{CROP_BOTTOM}})
+{{/PRE_CROP}}
+{{#RESIZE_INTEGER_UPSCALE}}
+# Integer upscale using edge-directed interpolation
+{{#UPSCALE_NNEDI3}}
+clip = core.nnedi3cl.NNEDI3CL(clip, field=0, dh=True)
+clip = core.std.Transpose(clip)
+clip = core.nnedi3cl.NNEDI3CL(clip, field=0, dh=True)
+clip = core.std.Transpose(clip)
+{{/UPSCALE_NNEDI3}}
+{{#UPSCALE_EEDI3}}
+clip = core.eedi3m.EEDI3(clip, field=0, dh=True)
+clip = core.std.Transpose(clip)
+clip = core.eedi3m.EEDI3(clip, field=0, dh=True)
+clip = core.std.Transpose(clip)
+{{/UPSCALE_EEDI3}}
+{{/RESIZE_INTEGER_UPSCALE}}
+{{#RESIZE_STANDARD}}
+{{#MAINTAIN_ASPECT}}
+# Resize maintaining aspect ratio
+{{/MAINTAIN_ASPECT}}
+{{#RESIZE_SPLINE36}}
+clip = core.resize.Spline36(clip, width={{TARGET_WIDTH}}, height={{TARGET_HEIGHT}})
+{{/RESIZE_SPLINE36}}
+{{#RESIZE_LANCZOS}}
+clip = core.resize.Lanczos(clip, width={{TARGET_WIDTH}}, height={{TARGET_HEIGHT}})
+{{/RESIZE_LANCZOS}}
+{{#RESIZE_BICUBIC}}
+clip = core.resize.Bicubic(clip, width={{TARGET_WIDTH}}, height={{TARGET_HEIGHT}})
+{{/RESIZE_BICUBIC}}
+{{#RESIZE_BILINEAR}}
+clip = core.resize.Bilinear(clip, width={{TARGET_WIDTH}}, height={{TARGET_HEIGHT}})
+{{/RESIZE_BILINEAR}}
+{{/RESIZE_STANDARD}}
+{{/RESIZE}}
+
 # Output the processed clip
 clip.set_output()

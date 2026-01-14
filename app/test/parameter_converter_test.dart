@@ -21,7 +21,7 @@ void main() {
         expect(dynamic.filterId, 'deinterlace');
         expect(dynamic.enabled, true);
         expect(dynamic.values['method'], 'qtgmc');
-        expect(dynamic.values['preset'], 'slower');
+        expect(dynamic.values['preset'], 'Slower');
         expect(dynamic.values['fpsDivisor'], 1);
       });
 
@@ -35,7 +35,7 @@ void main() {
         );
         final dynamic = ParameterConverter.fromQTGMC(params);
 
-        expect(dynamic.values['preset'], 'fast');
+        expect(dynamic.values['preset'], 'Fast');
         expect(dynamic.values['tff'], true);
         expect(dynamic.values['fpsDivisor'], 2);
         expect(dynamic.values['sourceMatch'], 1);
@@ -386,7 +386,7 @@ void main() {
         expect(dynamicPipeline.get('crop_resize'), isNotNull);
 
         // Check values
-        expect(dynamicPipeline.get('deinterlace')?.values['preset'], 'fast');
+        expect(dynamicPipeline.get('deinterlace')?.values['preset'], 'Fast');
         expect(dynamicPipeline.get('dehalo')?.enabled, true);
         expect(dynamicPipeline.get('deband')?.values['range'], 20);
         expect(dynamicPipeline.get('sharpen')?.values['method'], 'cas');
@@ -401,7 +401,7 @@ void main() {
 
         final dynamicPipeline = pipeline.toDynamicPipeline();
 
-        expect(dynamicPipeline.get('deinterlace')?.values['preset'], 'medium');
+        expect(dynamicPipeline.get('deinterlace')?.values['preset'], 'Medium');
       });
     });
   });

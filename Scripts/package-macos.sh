@@ -141,6 +141,7 @@ chmod +x "$CONTENTS/Helpers/vapourbox-worker"
 # Copy VapourSynth script templates
 cp "$PROJECT_ROOT/worker/templates/qtgmc_template.vpy" "$CONTENTS/Resources/Templates/"
 cp "$PROJECT_ROOT/worker/templates/pipeline_template.vpy" "$CONTENTS/Resources/Templates/"
+cp "$PROJECT_ROOT/worker/templates/preview_template.vpy" "$CONTENTS/Resources/Templates/"
 
 # Copy dependencies
 echo "[6/8] Copying dependencies..."

@@ -615,3 +615,364 @@ fn test_20_combined_all_filters() {
 
     run_job(&job, "Combined - All Filters Active").unwrap();
 }
+
+#[test]
+fn test_21_sharpen_lsfmod() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_21_sharpen_lsfmod");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+    job.qtgmc_parameters.tff = Some(true);
+
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        sharpen: SharpenParameters {
+            enabled: true,
+            method: SharpenMethod::LSFmod,
+            strength: 150,
+            overshoot: 2,
+            undershoot: 2,
+            soft_edge: 0,
+            cas_sharpness: 0.5,
+        },
+        ..RestorationPipeline::default()
+    });
+
+    run_job(&job, "Sharpen - LSFmod").unwrap();
+}
+
+#[test]
+fn test_22_sharpen_cas() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_22_sharpen_cas");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+    job.qtgmc_parameters.tff = Some(true);
+
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        sharpen: SharpenParameters {
+            enabled: true,
+            method: SharpenMethod::CAS,
+            strength: 100,
+            overshoot: 1,
+            undershoot: 1,
+            soft_edge: 0,
+            cas_sharpness: 0.7,
+        },
+        ..RestorationPipeline::default()
+    });
+
+    run_job(&job, "Sharpen - CAS").unwrap();
+}
+
+#[test]
+fn test_23_dehalo_alpha() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_23_dehalo_alpha");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+    job.qtgmc_parameters.tff = Some(true);
+
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        dehalo: DehaloParameters {
+            enabled: true,
+            method: DehaloMethod::DehaloAlpha,
+            rx: 2.0,
+            ry: 2.0,
+            dark_str: 1.0,
+            bright_str: 1.0,
+            ..DehaloParameters::default()
+        },
+        ..RestorationPipeline::default()
+    });
+
+    run_job(&job, "Dehalo - DeHalo_alpha").unwrap();
+}
+
+#[test]
+fn test_24_dehalo_yahr() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_24_dehalo_yahr");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+    job.qtgmc_parameters.tff = Some(true);
+
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        dehalo: DehaloParameters {
+            enabled: true,
+            method: DehaloMethod::Yahr,
+            yahr_blur: 2,
+            yahr_depth: 32,
+            ..DehaloParameters::default()
+        },
+        ..RestorationPipeline::default()
+    });
+
+    run_job(&job, "Dehalo - YAHR").unwrap();
+}
+
+#[test]
+fn test_25_deblock_qed() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_25_deblock_qed");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+    job.qtgmc_parameters.tff = Some(true);
+
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        deblock: DeblockParameters {
+            enabled: true,
+            method: DeblockMethod::DeblockQed,
+            quant1: 24,
+            quant2: 26,
+            ..DeblockParameters::default()
+        },
+        ..RestorationPipeline::default()
+    });
+
+    run_job(&job, "Deblock - Deblock_QED").unwrap();
+}
+
+#[test]
+fn test_26_deblock_simple() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_26_deblock_simple");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+    job.qtgmc_parameters.tff = Some(true);
+
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        deblock: DeblockParameters {
+            enabled: true,
+            method: DeblockMethod::Deblock,
+            quant1: 25,
+            quant2: 25,
+            ..DeblockParameters::default()
+        },
+        ..RestorationPipeline::default()
+    });
+
+    run_job(&job, "Deblock - Simple").unwrap();
+}
+
+#[test]
+fn test_27_deband() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_27_deband");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+    job.qtgmc_parameters.tff = Some(true);
+
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        deband: DebandParameters {
+            enabled: true,
+            range: 15,
+            y: 64,
+            cb: 64,
+            cr: 64,
+            grain_y: 48,
+            grain_c: 48,
+            dynamic_grain: true,
+            output_depth: 8,
+        },
+        ..RestorationPipeline::default()
+    });
+
+    run_job(&job, "Deband - f3kdb").unwrap();
+}
+
+// Test that verifies scripts contain expected filter calls
+fn run_job_and_verify(job: &VideoJob, test_name: &str, expected_patterns: &[&str]) -> Result<(), String> {
+    println!("\n========================================");
+    println!("TEST: {}", test_name);
+    println!("Output: {}", job.output_path);
+    println!("========================================\n");
+
+    // Generate the script
+    let generator = ScriptGenerator::new().map_err(|e| format!("Failed to create generator: {}", e))?;
+    let script_path = generator.generate(job).map_err(|e| format!("Failed to generate script: {}", e))?;
+
+    println!("Generated script: {:?}", script_path);
+
+    // Print the script content for debugging
+    let script_content = std::fs::read_to_string(&script_path).unwrap_or_default();
+    println!("--- Script Content ---\n{}\n--- End Script ---\n", script_content);
+
+    if script_content.is_empty() {
+        return Err("Generated empty script".to_string());
+    }
+
+    // Verify expected patterns are present
+    for pattern in expected_patterns {
+        if !script_content.contains(pattern) {
+            return Err(format!("Script missing expected pattern: '{}'", pattern));
+        }
+        println!("✓ Found expected pattern: '{}'", pattern);
+    }
+
+    println!("Script generated successfully for: {}", test_name);
+    Ok(())
+}
+
+#[test]
+fn test_28_verify_sharpen_lsfmod_in_script() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_28_verify_sharpen_lsfmod");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+    job.qtgmc_parameters.tff = Some(true);
+
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        sharpen: SharpenParameters {
+            enabled: true,
+            method: SharpenMethod::LSFmod,
+            strength: 150,
+            overshoot: 2,
+            undershoot: 2,
+            soft_edge: 0,
+            cas_sharpness: 0.5,
+        },
+        ..RestorationPipeline::default()
+    });
+
+    run_job_and_verify(&job, "Verify Sharpen LSFmod in Script", &[
+        "haf.LSFmod",
+        "strength=150",
+        "overshoot=2",
+        "undershoot=2",
+    ]).unwrap();
+}
+
+#[test]
+fn test_29_verify_sharpen_cas_in_script() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_29_verify_sharpen_cas");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+    job.qtgmc_parameters.tff = Some(true);
+
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        sharpen: SharpenParameters {
+            enabled: true,
+            method: SharpenMethod::CAS,
+            strength: 100,
+            overshoot: 1,
+            undershoot: 1,
+            soft_edge: 0,
+            cas_sharpness: 0.7,
+        },
+        ..RestorationPipeline::default()
+    });
+
+    run_job_and_verify(&job, "Verify Sharpen CAS in Script", &[
+        "core.cas.CAS",
+        "sharpness=0.7",
+    ]).unwrap();
+}
+
+#[test]
+fn test_30_verify_dehalo_in_script() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_30_verify_dehalo");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+    job.qtgmc_parameters.tff = Some(true);
+
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        dehalo: DehaloParameters {
+            enabled: true,
+            method: DehaloMethod::DehaloAlpha,
+            rx: 2.5,
+            ry: 2.5,
+            dark_str: 1.2,
+            bright_str: 1.2,
+            ..DehaloParameters::default()
+        },
+        ..RestorationPipeline::default()
+    });
+
+    run_job_and_verify(&job, "Verify Dehalo in Script", &[
+        "haf.DeHalo_alpha",
+        "rx=2.5",
+        "ry=2.5",
+    ]).unwrap();
+}
+
+#[test]
+fn test_31_verify_deblock_in_script() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_31_verify_deblock");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+    job.qtgmc_parameters.tff = Some(true);
+
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        deblock: DeblockParameters {
+            enabled: true,
+            method: DeblockMethod::DeblockQed,
+            quant1: 24,
+            quant2: 26,
+            ..DeblockParameters::default()
+        },
+        ..RestorationPipeline::default()
+    });
+
+    run_job_and_verify(&job, "Verify Deblock in Script", &[
+        "haf.Deblock_QED",
+        "quant1=24",
+        "quant2=26",
+    ]).unwrap();
+}
+
+#[test]
+fn test_32_verify_deband_in_script() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_32_verify_deband");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+    job.qtgmc_parameters.tff = Some(true);
+
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        deband: DebandParameters {
+            enabled: true,
+            range: 15,
+            y: 64,
+            cb: 64,
+            cr: 64,
+            grain_y: 48,
+            grain_c: 48,
+            dynamic_grain: true,
+            output_depth: 8,
+        },
+        ..RestorationPipeline::default()
+    });
+
+    run_job_and_verify(&job, "Verify Deband in Script", &[
+        "core.neo_f3kdb.Deband",
+        "y=64",
+        "range=15",
+    ]).unwrap();
+}

@@ -19,7 +19,7 @@ class ParameterConverter {
       enabled: params.enabled,
       values: {
         'method': 'qtgmc',
-        'preset': params.preset.name,
+        'preset': params.preset.displayName,
         'tff': params.tff,
         'fpsDivisor': params.fpsDivisor,
         'inputType': params.inputType,
@@ -320,6 +320,327 @@ class ParameterConverter {
         'chroma_fixes': fromChromaFixes(pipeline.chromaFixes),
         'crop_resize': fromCropResize(pipeline.cropResize),
       },
+    );
+  }
+
+  // ============================================================
+  // Reverse conversions: DynamicParameters -> typed parameters
+  // ============================================================
+
+  /// Convert dynamic parameters to QTGMC parameters.
+  static QTGMCParameters toQTGMC(DynamicParameters params) {
+    final v = params.values;
+    final presetStr = v['preset'] as String? ?? 'Slower';
+    return QTGMCParameters(
+      enabled: params.enabled,
+      preset: QTGMCPreset.values.firstWhere(
+        (p) => p.displayName == presetStr || p.name == presetStr.toLowerCase(),
+        orElse: () => QTGMCPreset.slower,
+      ),
+      tff: v['tff'] as bool?,
+      fpsDivisor: v['fpsDivisor'] as int? ?? 1,
+      inputType: v['inputType'] as int? ?? 0,
+      tr0: v['tr0'] as int?,
+      tr1: v['tr1'] as int?,
+      tr2: v['tr2'] as int?,
+      rep0: v['rep0'] as int?,
+      rep1: v['rep1'] as int? ?? 0,
+      rep2: v['rep2'] as int?,
+      repChroma: v['repChroma'] as bool? ?? true,
+      ediMode: v['ediMode'] as String?,
+      ediQual: v['ediQual'] as int? ?? 1,
+      nnSize: v['nnSize'] as int?,
+      nnNeurons: v['nnNeurons'] as int?,
+      ediMaxD: v['ediMaxD'] as int?,
+      chromaEdi: v['chromaEdi'] as String? ?? '',
+      sharpness: (v['sharpness'] as num?)?.toDouble(),
+      sMode: v['sMode'] as int?,
+      slMode: v['slMode'] as int?,
+      slRad: v['slRad'] as int?,
+      sOvs: v['sOvs'] as int? ?? 0,
+      svThin: (v['svThin'] as num?)?.toDouble() ?? 0.0,
+      sbb: v['sbb'] as int?,
+      srchClipPp: v['srchClipPp'] as int?,
+      sourceMatch: v['sourceMatch'] as int? ?? 0,
+      matchPreset: v['matchPreset'] as String?,
+      matchEdi: v['matchEdi'] as String?,
+      matchPreset2: v['matchPreset2'] as String?,
+      matchEdi2: v['matchEdi2'] as String?,
+      matchTr2: v['matchTr2'] as int? ?? 1,
+      matchEnhance: (v['matchEnhance'] as num?)?.toDouble() ?? 0.5,
+      lossless: v['lossless'] as int? ?? 0,
+      noiseProcess: v['noiseProcess'] as int?,
+      ezDenoise: (v['ezDenoise'] as num?)?.toDouble(),
+      ezKeepGrain: (v['ezKeepGrain'] as num?)?.toDouble(),
+      noisePreset: v['noisePreset'] as String? ?? 'Fast',
+      denoiser: v['denoiser'] as String?,
+      fftThreads: v['fftThreads'] as int? ?? 1,
+      denoiseMc: v['denoiseMc'] as bool?,
+      noiseTr: v['noiseTr'] as int?,
+      sigma: (v['sigma'] as num?)?.toDouble(),
+      chromaNoise: v['chromaNoise'] as bool? ?? false,
+      showNoise: (v['showNoise'] as num?)?.toDouble() ?? 0.0,
+      grainRestore: (v['grainRestore'] as num?)?.toDouble(),
+      noiseRestore: (v['noiseRestore'] as num?)?.toDouble(),
+      noiseDeint: v['noiseDeint'] as String?,
+      stabilizeNoise: v['stabilizeNoise'] as bool?,
+      chromaMotion: v['chromaMotion'] as bool?,
+      trueMotion: v['trueMotion'] as bool? ?? false,
+      blockSize: v['blockSize'] as int?,
+      overlap: v['overlap'] as int?,
+      search: v['search'] as int?,
+      searchParam: v['searchParam'] as int?,
+      pelSearch: v['pelSearch'] as int?,
+      lambda: v['lambda'] as int?,
+      lsad: v['lsad'] as int?,
+      pNew: v['pNew'] as int?,
+      pLevel: v['pLevel'] as int?,
+      globalMotion: v['globalMotion'] as bool? ?? true,
+      dct: v['dct'] as int? ?? 0,
+      subPel: v['subPel'] as int?,
+      subPelInterp: v['subPelInterp'] as int? ?? 2,
+      thSad1: v['thSad1'] as int? ?? 640,
+      thSad2: v['thSad2'] as int? ?? 256,
+      thScd1: v['thScd1'] as int? ?? 180,
+      thScd2: v['thScd2'] as int? ?? 98,
+      border: v['border'] as bool? ?? false,
+      precise: v['precise'] as bool?,
+      forceTr: v['forceTr'] as int? ?? 0,
+      str: (v['str'] as num?)?.toDouble() ?? 2.0,
+      amp: (v['amp'] as num?)?.toDouble() ?? 0.0625,
+      fastMa: v['fastMa'] as bool? ?? false,
+      eSearchP: v['eSearchP'] as bool? ?? false,
+      refineMotion: v['refineMotion'] as bool? ?? false,
+      opencl: v['opencl'] as bool? ?? false,
+      device: v['device'] as int?,
+    );
+  }
+
+  /// Convert dynamic parameters to noise reduction parameters.
+  static NoiseReductionParameters toNoiseReduction(DynamicParameters params) {
+    final v = params.values;
+    final methodStr = v['method'] as String? ?? 'smdegrain';
+    NoiseReductionMethod method;
+    switch (methodStr) {
+      case 'mc_temporal_denoise':
+        method = NoiseReductionMethod.mcTemporalDenoise;
+        break;
+      case 'qtgmc_builtin':
+        method = NoiseReductionMethod.qtgmcBuiltin;
+        break;
+      default:
+        method = NoiseReductionMethod.smDegrain;
+    }
+
+    return NoiseReductionParameters(
+      enabled: params.enabled,
+      preset: params.enabled ? NoiseReductionPreset.custom : NoiseReductionPreset.off,
+      method: method,
+      smDegrainTr: v['smDegrainTr'] as int? ?? 2,
+      smDegrainThSAD: v['smDegrainThSAD'] as int? ?? 300,
+      smDegrainThSADC: v['smDegrainThSADC'] as int? ?? 150,
+      smDegrainRefine: v['smDegrainRefine'] as bool? ?? true,
+      smDegrainPrefilter: v['smDegrainPrefilter'] as int? ?? 2,
+      mcTemporalSigma: (v['mcTemporalSigma'] as num?)?.toDouble() ?? 4.0,
+      mcTemporalRadius: v['mcTemporalRadius'] as int? ?? 2,
+      mcTemporalProfile: v['mcTemporalProfile'] as String? ?? 'fast',
+      qtgmcEzDenoise: (v['qtgmcEzDenoise'] as num?)?.toDouble() ?? 2.0,
+      qtgmcEzKeepGrain: (v['qtgmcEzKeepGrain'] as num?)?.toDouble() ?? 0.2,
+    );
+  }
+
+  /// Convert dynamic parameters to dehalo parameters.
+  static DehaloParameters toDehalo(DynamicParameters params) {
+    final v = params.values;
+    final methodStr = v['method'] as String? ?? 'dehalo_alpha';
+    DehaloMethod method;
+    switch (methodStr) {
+      case 'fine_dehalo':
+        method = DehaloMethod.fineDehalo;
+        break;
+      case 'yahr':
+        method = DehaloMethod.yahr;
+        break;
+      default:
+        method = DehaloMethod.dehaloAlpha;
+    }
+
+    return DehaloParameters(
+      enabled: params.enabled,
+      method: method,
+      rx: (v['rx'] as num?)?.toDouble() ?? 2.0,
+      ry: (v['ry'] as num?)?.toDouble() ?? 2.0,
+      darkStr: (v['darkStr'] as num?)?.toDouble() ?? 1.0,
+      brightStr: (v['brightStr'] as num?)?.toDouble() ?? 1.0,
+      lowThreshold: v['lowThreshold'] as int? ?? 50,
+      highThreshold: v['highThreshold'] as int? ?? 100,
+      yahrBlur: v['yahrBlur'] as int? ?? 2,
+      yahrDepth: v['yahrDepth'] as int? ?? 32,
+    );
+  }
+
+  /// Convert dynamic parameters to deblock parameters.
+  static DeblockParameters toDeblock(DynamicParameters params) {
+    final v = params.values;
+    final methodStr = v['method'] as String? ?? 'deblock_qed';
+    DeblockMethod method;
+    switch (methodStr) {
+      case 'deblock':
+        method = DeblockMethod.deblock;
+        break;
+      default:
+        method = DeblockMethod.deblockQed;
+    }
+
+    return DeblockParameters(
+      enabled: params.enabled,
+      method: method,
+      quant1: v['quant1'] as int? ?? 24,
+      quant2: v['quant2'] as int? ?? 26,
+      aOffset1: v['aOffset1'] as int? ?? 1,
+      aOffset2: v['aOffset2'] as int? ?? 1,
+      blockSize: v['blockSize'] as int? ?? 8,
+      overlap: v['overlap'] as int? ?? 4,
+    );
+  }
+
+  /// Convert dynamic parameters to deband parameters.
+  static DebandParameters toDeband(DynamicParameters params) {
+    final v = params.values;
+    return DebandParameters(
+      enabled: params.enabled,
+      range: v['range'] as int? ?? 15,
+      y: v['y'] as int? ?? 64,
+      cb: v['cb'] as int? ?? 64,
+      cr: v['cr'] as int? ?? 64,
+      grainY: v['grainY'] as int? ?? 64,
+      grainC: v['grainC'] as int? ?? 64,
+      dynamicGrain: v['dynamicGrain'] as bool? ?? true,
+      outputDepth: v['outputDepth'] as int? ?? 16,
+    );
+  }
+
+  /// Convert dynamic parameters to sharpen parameters.
+  static SharpenParameters toSharpen(DynamicParameters params) {
+    final v = params.values;
+    final methodStr = v['method'] as String? ?? 'lsfmod';
+    SharpenMethod method;
+    switch (methodStr) {
+      case 'cas':
+        method = SharpenMethod.cas;
+        break;
+      default:
+        method = SharpenMethod.lsfmod;
+    }
+
+    return SharpenParameters(
+      enabled: params.enabled,
+      method: method,
+      strength: v['strength'] as int? ?? 100,
+      overshoot: v['overshoot'] as int? ?? 1,
+      undershoot: v['undershoot'] as int? ?? 1,
+      softEdge: v['softEdge'] as int? ?? 0,
+      casSharpness: (v['casSharpness'] as num?)?.toDouble() ?? 0.5,
+    );
+  }
+
+  /// Convert dynamic parameters to color correction parameters.
+  static ColorCorrectionParameters toColorCorrection(DynamicParameters params) {
+    final v = params.values;
+    return ColorCorrectionParameters(
+      enabled: params.enabled,
+      brightness: (v['brightness'] as num?)?.toDouble() ?? 0.0,
+      contrast: (v['contrast'] as num?)?.toDouble() ?? 1.0,
+      hue: (v['hue'] as num?)?.toDouble() ?? 0.0,
+      saturation: (v['saturation'] as num?)?.toDouble() ?? 1.0,
+      coring: v['coring'] as bool? ?? true,
+      applyLevels: v['applyLevels'] as bool? ?? false,
+      inputLow: v['inputLow'] as int? ?? 0,
+      inputHigh: v['inputHigh'] as int? ?? 255,
+      outputLow: v['outputLow'] as int? ?? 0,
+      outputHigh: v['outputHigh'] as int? ?? 255,
+      gamma: (v['gamma'] as num?)?.toDouble() ?? 1.0,
+    );
+  }
+
+  /// Convert dynamic parameters to chroma fix parameters.
+  static ChromaFixParameters toChromaFixes(DynamicParameters params) {
+    final v = params.values;
+    return ChromaFixParameters(
+      enabled: params.enabled,
+      applyChromaBleedingFix: v['applyChromaBleedingFix'] as bool? ?? false,
+      chromaBleedCx: v['chromaBleedCx'] as int? ?? 4,
+      chromaBleedCy: v['chromaBleedCy'] as int? ?? 4,
+      chromaBleedCBlur: (v['chromaBleedCBlur'] as num?)?.toDouble() ?? 0.6,
+      chromaBleedStrength: (v['chromaBleedStrength'] as num?)?.toDouble() ?? 1.0,
+      applyDeCrawl: v['applyDeCrawl'] as bool? ?? false,
+      deCrawlYThresh: v['deCrawlYThresh'] as int? ?? 10,
+      deCrawlCThresh: v['deCrawlCThresh'] as int? ?? 10,
+      deCrawlMaxDiff: v['deCrawlMaxDiff'] as int? ?? 50,
+      applyVinverse: v['applyVinverse'] as bool? ?? false,
+      vinverseSstr: (v['vinverseSstr'] as num?)?.toDouble() ?? 2.7,
+      vinverseAmnt: v['vinverseAmnt'] as int? ?? 255,
+      vinverseScl: v['vinverseScl'] as int? ?? 12,
+    );
+  }
+
+  /// Convert dynamic parameters to crop resize parameters.
+  static CropResizeParameters toCropResize(DynamicParameters params) {
+    final v = params.values;
+    return CropResizeParameters(
+      enabled: params.enabled,
+      cropEnabled: v['cropEnabled'] as bool? ?? false,
+      cropLeft: v['cropLeft'] as int? ?? 0,
+      cropRight: v['cropRight'] as int? ?? 0,
+      cropTop: v['cropTop'] as int? ?? 0,
+      cropBottom: v['cropBottom'] as int? ?? 0,
+      resizeEnabled: v['resizeEnabled'] as bool? ?? false,
+      targetWidth: v['targetWidth'] as int? ?? 1920,
+      targetHeight: v['targetHeight'] as int? ?? 1080,
+      kernel: ResizeKernel.values.firstWhere(
+        (k) => k.name == (v['kernel'] ?? 'lanczos'),
+        orElse: () => ResizeKernel.lanczos,
+      ),
+      maintainAspect: v['maintainAspect'] as bool? ?? true,
+      useIntegerUpscale: v['useIntegerUpscale'] as bool? ?? false,
+      upscaleMethod: UpscaleMethod.values.firstWhere(
+        (m) => m.name == (v['upscaleMethod'] ?? 'nnedi3Rpow2'),
+        orElse: () => UpscaleMethod.nnedi3Rpow2,
+      ),
+      upscaleFactor: v['upscaleFactor'] as int? ?? 2,
+    );
+  }
+
+  /// Convert a dynamic pipeline to a restoration pipeline.
+  static RestorationPipeline toPipeline(DynamicPipeline dynamic) {
+    return RestorationPipeline(
+      deinterlace: dynamic.get('deinterlace') != null
+          ? toQTGMC(dynamic.get('deinterlace')!)
+          : const QTGMCParameters(),
+      noiseReduction: dynamic.get('noise_reduction') != null
+          ? toNoiseReduction(dynamic.get('noise_reduction')!)
+          : const NoiseReductionParameters(),
+      dehalo: dynamic.get('dehalo') != null
+          ? toDehalo(dynamic.get('dehalo')!)
+          : const DehaloParameters(),
+      deblock: dynamic.get('deblock') != null
+          ? toDeblock(dynamic.get('deblock')!)
+          : const DeblockParameters(),
+      deband: dynamic.get('deband') != null
+          ? toDeband(dynamic.get('deband')!)
+          : const DebandParameters(),
+      sharpen: dynamic.get('sharpen') != null
+          ? toSharpen(dynamic.get('sharpen')!)
+          : const SharpenParameters(),
+      colorCorrection: dynamic.get('color_correction') != null
+          ? toColorCorrection(dynamic.get('color_correction')!)
+          : const ColorCorrectionParameters(),
+      chromaFixes: dynamic.get('chroma_fixes') != null
+          ? toChromaFixes(dynamic.get('chroma_fixes')!)
+          : const ChromaFixParameters(),
+      cropResize: dynamic.get('crop_resize') != null
+          ? toCropResize(dynamic.get('crop_resize')!)
+          : const CropResizeParameters(),
     );
   }
 }

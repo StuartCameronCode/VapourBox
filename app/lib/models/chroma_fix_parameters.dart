@@ -175,7 +175,7 @@ class ChromaFixParameters {
   /// Get a human-readable summary of the current settings.
   String get summary {
     if (!enabled) return 'Off';
-    if (preset != ChromaFixPreset.custom) {
+    if (preset != ChromaFixPreset.custom && preset != ChromaFixPreset.off) {
       switch (preset) {
         case ChromaFixPreset.vhsCleanup:
           return 'VHS Cleanup';

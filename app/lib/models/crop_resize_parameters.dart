@@ -219,7 +219,7 @@ class CropResizeParameters {
   /// Get a human-readable summary of the current settings.
   String get summary {
     if (!enabled) return 'Off';
-    if (preset != CropResizePreset.custom) {
+    if (preset != CropResizePreset.custom && preset != CropResizePreset.off) {
       switch (preset) {
         case CropResizePreset.removeOverscan:
           return 'Remove Overscan';

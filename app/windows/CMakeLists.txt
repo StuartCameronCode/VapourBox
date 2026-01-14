@@ -106,3 +106,13 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# === VapourBox Worker and Templates ===
+# Copy worker templates to the build output directory
+set(WORKER_TEMPLATES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../worker/templates")
+if(EXISTS "${WORKER_TEMPLATES_DIR}")
+  install(DIRECTORY "${WORKER_TEMPLATES_DIR}/"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/templates"
+    COMPONENT Runtime
+    FILES_MATCHING PATTERN "*.vpy")
+endif()

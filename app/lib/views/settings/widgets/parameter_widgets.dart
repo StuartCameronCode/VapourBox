@@ -87,9 +87,13 @@ class _SliderParameterWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final doubleValue = (value is num) ? value.toDouble() : (param.defaultValue as num).toDouble();
     final min = param.min ?? 0.0;
     final max = param.max ?? 100.0;
+    final doubleValue = (value is num)
+        ? value.toDouble()
+        : (param.defaultValue is num)
+            ? (param.defaultValue as num).toDouble()
+            : min;
     final step = param.step ?? 1.0;
     final precision = param.ui?.precision ?? (param.type == ParameterType.integer ? 0 : 1);
     final divisions = ((max - min) / step).round();
@@ -205,6 +209,48 @@ class _CheckboxParameterWidget extends StatelessWidget {
     final boolValue = value is bool ? value : (param.defaultValue as bool? ?? false);
     final label = param.ui?.label ?? _formatParamName(paramId);
 
+    // Check if we have custom labels for true/false - render as dropdown
+    final booleanLabels = param.ui?.booleanLabels;
+    if (booleanLabels != null) {
+      final trueLabel = booleanLabels['true'] ?? 'True';
+      final falseLabel = booleanLabels['false'] ?? 'False';
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<bool>(
+            value: boolValue,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            items: [
+              DropdownMenuItem(value: true, child: Text(trueLabel)),
+              DropdownMenuItem(value: false, child: Text(falseLabel)),
+            ],
+            onChanged: (newValue) {
+              if (newValue != null) {
+                onChanged(newValue);
+              }
+            },
+          ),
+          if (param.ui?.description != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              param.ui!.description!,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                  ),
+            ),
+          ],
+        ],
+      );
+    }
+
+    // Default: render as switch
     return SwitchListTile(
       title: Text(label),
       subtitle: param.ui?.description != null ? Text(param.ui!.description!) : null,
@@ -321,4 +367,85 @@ String _formatOptionName(String option) {
       .split(' ')
       .map((word) => word.isNotEmpty ? '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}' : '')
       .join(' ');
+}
+
+/// Widget for a parameter preset selector.
+/// Displays a dropdown that sets one or more parameters when changed.
+class PresetSelectorWidget extends StatelessWidget {
+  final String presetId;
+  final ParameterPreset preset;
+  final Map<String, dynamic> currentValues;
+  final ValueChanged<Map<String, dynamic>> onChanged;
+
+  const PresetSelectorWidget({
+    super.key,
+    required this.presetId,
+    required this.preset,
+    required this.currentValues,
+    required this.onChanged,
+  });
+
+  /// Find which option matches the current parameter values.
+  String? _findCurrentOption() {
+    for (final entry in preset.options.entries) {
+      final optionName = entry.key;
+      final optionValues = entry.value;
+
+      // Check if all values in this option match current values
+      bool matches = true;
+      for (final paramEntry in optionValues.entries) {
+        if (currentValues[paramEntry.key] != paramEntry.value) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) return optionName;
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentOption = _findCurrentOption() ?? preset.defaultOption ?? preset.options.keys.first;
+    final options = preset.options.keys.toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(preset.label, style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: options.contains(currentOption) ? currentOption : options.first,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          ),
+          items: options.map((option) {
+            return DropdownMenuItem(
+              value: option,
+              child: Text(option),
+            );
+          }).toList(),
+          onChanged: (newOption) {
+            if (newOption != null) {
+              final newValues = preset.options[newOption];
+              if (newValues != null) {
+                onChanged(newValues);
+              }
+            }
+          },
+        ),
+        if (preset.description != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            preset.description!,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+          ),
+        ],
+      ],
+    );
+  }
 }

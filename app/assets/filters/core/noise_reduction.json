@@ -47,10 +47,7 @@
       "type": "enum",
       "default": "smdegrain",
       "options": ["smdegrain", "mctemporal", "qtgmc_builtin"],
-      "ui": {
-        "label": "Method",
-        "widget": "dropdown"
-      }
+      "ui": { "hidden": true }
     },
     "smDegrainTr": {
       "type": "integer",
@@ -149,11 +146,6 @@
 
   "ui": {
     "sections": [
-      {
-        "title": "Method",
-        "parameters": ["method"],
-        "expanded": true
-      },
       {
         "title": "SMDegrain Settings",
         "parameters": ["smDegrainTr", "smDegrainThSad", "smDegrainThSadc", "smDegrainRefine", "smDegrainPrefilter"],

@@ -44,10 +44,7 @@
       "type": "boolean",
       "default": true,
       "vapoursynth": { "name": "TFF" },
-      "ui": {
-        "label": "Top Field First",
-        "description": "Field order: true for TFF, false for BFF"
-      }
+      "ui": { "hidden": true }
     },
     "inputType": {
       "type": "integer",
@@ -55,11 +52,7 @@
       "min": 0,
       "max": 3,
       "vapoursynth": { "name": "InputType" },
-      "ui": {
-        "label": "Input Type",
-        "description": "0=interlaced, 1=telecined, 2=progressive, 3=double-rate progressive",
-        "widget": "dropdown"
-      }
+      "ui": { "hidden": true }
     },
     "fpsDivisor": {
       "type": "integer",
@@ -67,11 +60,7 @@
       "min": 1,
       "max": 2,
       "vapoursynth": { "name": "FPSDivisor" },
-      "ui": {
-        "label": "FPS Divisor",
-        "description": "1=double-rate output (50i→50p), 2=single-rate (50i→25p)",
-        "widget": "dropdown"
-      }
+      "ui": { "hidden": true }
     },
     "tr0": {
       "type": "integer",
@@ -921,6 +910,38 @@
         "label": "Device",
         "description": "OpenCL device index",
         "widget": "slider"
+      }
+    }
+  },
+
+  "parameterPresets": {
+    "fieldOrder": {
+      "label": "Field Order",
+      "description": "Which field comes first in the interlaced source",
+      "default": "Top Field First",
+      "options": {
+        "Top Field First": { "tff": true },
+        "Bottom Field First": { "tff": false }
+      }
+    },
+    "outputRate": {
+      "label": "Output Rate",
+      "description": "Frame rate of the deinterlaced output",
+      "default": "Double Rate (50i→50p)",
+      "options": {
+        "Double Rate (50i→50p)": { "fpsDivisor": 1 },
+        "Single Rate (50i→25p)": { "fpsDivisor": 2 }
+      }
+    },
+    "inputMode": {
+      "label": "Input Mode",
+      "description": "Type of input video",
+      "default": "Interlaced",
+      "options": {
+        "Interlaced": { "inputType": 0 },
+        "Telecined (3:2 pulldown)": { "inputType": 1 },
+        "Progressive": { "inputType": 2 },
+        "Double-Rate Progressive": { "inputType": 3 }
       }
     }
   },

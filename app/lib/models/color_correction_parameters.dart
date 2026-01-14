@@ -160,7 +160,7 @@ class ColorCorrectionParameters {
   /// Get a human-readable summary of the current settings.
   String get summary {
     if (!enabled) return 'Off';
-    if (preset != ColorCorrectionPreset.custom) {
+    if (preset != ColorCorrectionPreset.custom && preset != ColorCorrectionPreset.off) {
       switch (preset) {
         case ColorCorrectionPreset.broadcastSafe:
           return 'Broadcast Safe';

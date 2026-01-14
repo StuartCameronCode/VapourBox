@@ -39,6 +39,7 @@ dev_dependencies:
   test: ^1.25.0
   integration_test:
     sdk: flutter
+  crypto: ^3.0.3
 
 flutter:
   uses-material-design: true

@@ -86,6 +86,8 @@ class MainViewModel extends ChangeNotifier {
   double get scrubberPosition => _scrubberPosition;
   bool get isGeneratingPreview => _isGeneratingPreview;
   double get videoDuration => _previewGenerator.duration;
+  List<String> get previewLog => _previewGenerator.previewLog;
+  String? get previewError => _previewGenerator.lastError;
 
   // Timeline zoom getters
   double get timelineZoom => _timelineZoom;

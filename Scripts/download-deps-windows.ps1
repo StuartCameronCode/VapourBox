@@ -7,7 +7,7 @@
     - VapourSynth R73 (portable, includes Python 3.8)
     - Python 3.8 embeddable (for VSScript)
     - FFmpeg (latest GPL build)
-    - VapourSynth plugins (mvtools, nnedi3cl, znedi3, eedi3m, fmtconv, ffms2, miscfilters, dfttest, neo_f3kdb, cas)
+    - VapourSynth plugins (mvtools, nnedi3cl, znedi3, eedi3m, fmtconv, ffms2, miscfilters, dfttest, neo_f3kdb, cas, fft3dfilter)
     - FFTW library (required by dfttest)
     - Python packages (havsfunc, mvsfunc, adjust)
     - NNEDI3 weights
@@ -246,6 +246,11 @@ $Plugins7z = @(
         Name = "ctmf"
         Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF/releases/download/r5/CTMF-r5.7z"
         Check = "CTMF.dll"
+    },
+    @{
+        Name = "fft3dfilter"
+        Url = "https://github.com/myrsloik/VapourSynth-FFT3DFilter/releases/download/R2/FFT3DFilter-r2.7z"
+        Check = "fft3dfilter.dll"
     }
 )
 

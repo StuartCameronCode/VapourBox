@@ -35,9 +35,27 @@ class PreviewGenerator {
   /// Total frame count.
   int _totalFrames = 0;
 
+  /// Log messages from preview generation (stderr output).
+  final List<String> _previewLog = [];
+
+  /// Last error message from preview generation.
+  String? _lastError;
+
   double get duration => _duration;
   double get frameRate => _frameRate;
   int get totalFrames => _totalFrames;
+
+  /// Get all preview log messages.
+  List<String> get previewLog => List.unmodifiable(_previewLog);
+
+  /// Get the last error message.
+  String? get lastError => _lastError;
+
+  /// Clear the preview log.
+  void clearLog() {
+    _previewLog.clear();
+    _lastError = null;
+  }
 
   /// Initialize the preview generator with tool paths.
   Future<void> initialize() async {
@@ -247,6 +265,11 @@ class PreviewGenerator {
 
       if (cancelToken?.isCancelled ?? false) return null;
 
+      // Clear log for this preview generation
+      _previewLog.clear();
+      _lastError = null;
+      _previewLog.add('[${DateTime.now().toIso8601String()}] Starting preview generation for frame $frameNumber');
+
       // Run worker in preview mode
       _previewProcess = await Process.start(
         _workerPath!,
@@ -262,8 +285,22 @@ class PreviewGenerator {
         return null;
       }
 
-      // Collect PNG output from stdout
+      // Collect PNG output from stdout and capture stderr for logging
       final pngBytes = <int>[];
+      final stderrBuffer = StringBuffer();
+
+      // Listen to stderr asynchronously
+      final stderrFuture = _previewProcess!.stderr
+          .transform(utf8.decoder)
+          .forEach((data) {
+        stderrBuffer.write(data);
+        // Add each line to the log
+        for (final line in data.split('\n')) {
+          if (line.trim().isNotEmpty) {
+            _previewLog.add(line);
+          }
+        }
+      });
 
       await for (final chunk in _previewProcess!.stdout) {
         if (cancelToken?.isCancelled ?? false) {
@@ -273,9 +310,15 @@ class PreviewGenerator {
         pngBytes.addAll(chunk);
       }
 
+      // Wait for stderr to finish
+      await stderrFuture;
+
       // Wait for process to complete
       final exitCode = await _previewProcess!.exitCode;
       _previewProcess = null;
+
+      // Log the result
+      _previewLog.add('[${DateTime.now().toIso8601String()}] Process exited with code $exitCode, output size: ${pngBytes.length} bytes');
 
       // Clean up config file
       await File(configPath).delete().catchError((_) => File(configPath));
@@ -284,9 +327,15 @@ class PreviewGenerator {
 
       if (exitCode == 0 && pngBytes.isNotEmpty) {
         return Uint8List.fromList(pngBytes);
+      } else if (exitCode != 0) {
+        _lastError = 'Preview generation failed (exit code $exitCode)';
+        if (stderrBuffer.isNotEmpty) {
+          _lastError = '$_lastError:\n$stderrBuffer';
+        }
       }
     } catch (e) {
-      // Ignore errors
+      _lastError = 'Preview generation error: $e';
+      _previewLog.add('[ERROR] $e');
     } finally {
       _previewProcess = null;
       // Clean up config file on error

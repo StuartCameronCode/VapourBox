@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'models/filter_registry.dart';
 import 'viewmodels/main_viewmodel.dart';
 import 'views/main_window.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize filter registry (loads filter schemas from assets)
+  await FilterRegistry.instance.initialize();
 
   // Initialize window manager for desktop
   await windowManager.ensureInitialized();

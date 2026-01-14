@@ -5,11 +5,14 @@ part 'noise_reduction_parameters.g.dart';
 /// Noise reduction method options.
 enum NoiseReductionMethod {
   @JsonValue('smDegrain')
-  smDegrain,
+  smDegrain('SMDegrain'),
   @JsonValue('mcTemporalDenoise')
-  mcTemporalDenoise,
+  mcTemporalDenoise('MCTemporalDenoise'),
   @JsonValue('qtgmcBuiltin')
-  qtgmcBuiltin,
+  qtgmcBuiltin('QTGMC Built-in');
+
+  const NoiseReductionMethod(this.displayName);
+  final String displayName;
 }
 
 /// Noise reduction preset levels.
@@ -172,10 +175,11 @@ class NoiseReductionParameters {
   /// Get a human-readable summary of the current settings.
   String get summary {
     if (!enabled) return 'Off';
-    if (preset != NoiseReductionPreset.custom) {
+    // Handle preset-based summary (but treat 'off' as custom when enabled)
+    if (preset != NoiseReductionPreset.custom && preset != NoiseReductionPreset.off) {
       return preset.name[0].toUpperCase() + preset.name.substring(1);
     }
-    return '${method.name} (TR=$smDegrainTr)';
+    return method.displayName;
   }
 
   factory NoiseReductionParameters.fromJson(Map<String, dynamic> json) =>

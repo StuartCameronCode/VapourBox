@@ -188,6 +188,32 @@
     }
   },
 
+  "parameterPresets": {
+    "cropPreset": {
+      "label": "Crop Preset",
+      "description": "Quick crop presets for common scenarios",
+      "default": "None",
+      "options": {
+        "None": { "cropEnabled": false, "cropLeft": 0, "cropRight": 0, "cropTop": 0, "cropBottom": 0 },
+        "Remove Overscan": { "cropEnabled": true, "cropLeft": 8, "cropRight": 8, "cropTop": 8, "cropBottom": 8 },
+        "NTSC Overscan": { "cropEnabled": true, "cropLeft": 8, "cropRight": 8, "cropTop": 4, "cropBottom": 4 },
+        "PAL Overscan": { "cropEnabled": true, "cropLeft": 10, "cropRight": 10, "cropTop": 8, "cropBottom": 8 }
+      }
+    },
+    "resizePreset": {
+      "label": "Resize Preset",
+      "description": "Quick resize presets for common resolutions",
+      "default": "None",
+      "options": {
+        "None": { "resizeEnabled": false },
+        "720p": { "resizeEnabled": true, "targetWidth": 1280, "targetHeight": 720 },
+        "1080p": { "resizeEnabled": true, "targetWidth": 1920, "targetHeight": 1080 },
+        "1440p": { "resizeEnabled": true, "targetWidth": 2560, "targetHeight": 1440 },
+        "4K": { "resizeEnabled": true, "targetWidth": 3840, "targetHeight": 2160 }
+      }
+    }
+  },
+
   "ui": {
     "sections": [
       {
@@ -203,7 +229,8 @@
       {
         "title": "Upscale (NNEDI3)",
         "parameters": ["upscaleEnabled", "upscaleMethod", "upscaleTarget"],
-        "expanded": false
+        "expanded": false,
+        "advancedOnly": true
       }
     ]
   },

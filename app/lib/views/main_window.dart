@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/progress_info.dart';
@@ -274,11 +275,16 @@ class MainWindow extends StatelessWidget {
 
   Widget _buildStatusBar(BuildContext context, MainViewModel viewModel) {
     String statusText = 'Ready';
+    bool isClickable = false;
 
     if (viewModel.isAnalyzing) {
       statusText = 'Analyzing video...';
     } else if (viewModel.isGeneratingPreview) {
-      statusText = 'Generating preview...';
+      statusText = 'Generating preview... (click for log)';
+      isClickable = true;
+    } else if (viewModel.previewError != null) {
+      statusText = 'Preview failed (click for details)';
+      isClickable = true;
     } else if (viewModel.isProcessing) {
       final progress = viewModel.currentProgress;
       if (progress != null) {
@@ -313,7 +319,28 @@ class MainWindow extends StatelessWidget {
             ),
             const SizedBox(width: 8),
           ],
-          Text(statusText),
+          if (viewModel.previewError != null && !viewModel.isGeneratingPreview)
+            Icon(
+              Icons.error_outline,
+              size: 16,
+              color: Theme.of(context).colorScheme.error,
+            ),
+          if (viewModel.previewError != null && !viewModel.isGeneratingPreview)
+            const SizedBox(width: 8),
+          isClickable
+              ? InkWell(
+                  onTap: () => _showPreviewLog(context, viewModel),
+                  child: Text(
+                    statusText,
+                    style: TextStyle(
+                      color: viewModel.previewError != null
+                          ? Theme.of(context).colorScheme.error
+                          : Theme.of(context).colorScheme.primary,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                )
+              : Text(statusText),
           const Spacer(),
           if (viewModel.inputPath != null && viewModel.videoInfo != null)
             Text(
@@ -322,6 +349,113 @@ class MainWindow extends StatelessWidget {
                     color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                   ),
             ),
+        ],
+      ),
+    );
+  }
+
+  void _showPreviewLog(BuildContext context, MainViewModel viewModel) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.article_outlined),
+            const SizedBox(width: 8),
+            const Text('Preview Generation Log'),
+            const Spacer(),
+            IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 600,
+          height: 400,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (viewModel.previewError != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.errorContainer,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.error,
+                          color: Theme.of(context).colorScheme.onErrorContainer,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            viewModel.previewError!,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onErrorContainer,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                const Text(
+                  'Worker Output:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  constraints: const BoxConstraints(minHeight: 200),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: viewModel.previewLog.isEmpty
+                      ? const Center(child: Text('No log output yet'))
+                      : SelectableText(
+                          viewModel.previewLog.join('\n'),
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                          ),
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () {
+              final fullLog = StringBuffer();
+              if (viewModel.previewError != null) {
+                fullLog.writeln('ERROR: ${viewModel.previewError}');
+                fullLog.writeln('');
+              }
+              fullLog.writeln(viewModel.previewLog.join('\n'));
+              Clipboard.setData(ClipboardData(text: fullLog.toString()));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Log copied to clipboard'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+            icon: const Icon(Icons.copy),
+            label: const Text('Copy to Clipboard'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
         ],
       ),
     );

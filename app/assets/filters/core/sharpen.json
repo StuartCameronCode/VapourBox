@@ -40,10 +40,7 @@
       "type": "enum",
       "default": "lsfmod",
       "options": ["lsfmod", "cas"],
-      "ui": {
-        "label": "Method",
-        "widget": "dropdown"
-      }
+      "ui": { "hidden": true }
     },
     "strength": {
       "type": "integer",
@@ -120,11 +117,6 @@
 
   "ui": {
     "sections": [
-      {
-        "title": "Method",
-        "parameters": ["method"],
-        "expanded": true
-      },
       {
         "title": "Settings",
         "parameters": ["strength", "overshoot", "undershoot", "softEdge", "casSharpness"],
