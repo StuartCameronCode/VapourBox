@@ -52,6 +52,31 @@ class ParameterWidgetFactory {
     }
   }
 
+  /// Build a widget, wrapping in OptionalParameterWidget if param is optional.
+  /// Optional parameters show a checkbox to enable/disable them.
+  /// When disabled (value is null), the parameter is not passed to VapourSynth.
+  static Widget buildOptional({
+    required String paramId,
+    required ParameterDefinition param,
+    required dynamic value,
+    required ValueChanged<dynamic> onChanged,
+  }) {
+    if (param.optional == true) {
+      return _OptionalParameterWidget(
+        paramId: paramId,
+        param: param,
+        value: value,
+        onChanged: onChanged,
+      );
+    }
+    return build(
+      paramId: paramId,
+      param: param,
+      value: value,
+      onChanged: onChanged,
+    );
+  }
+
   /// Infer widget type from parameter type if not specified.
   static WidgetType _inferWidgetType(ParameterDefinition param) {
     switch (param.type) {
@@ -68,6 +93,81 @@ class ParameterWidgetFactory {
       case ParameterType.string:
         return WidgetType.textfield;
     }
+  }
+}
+
+/// Wrapper widget for optional parameters with enable/disable checkbox.
+/// When the checkbox is unchecked, the parameter value is null and
+/// will not be passed to VapourSynth.
+class _OptionalParameterWidget extends StatelessWidget {
+  final String paramId;
+  final ParameterDefinition param;
+  final dynamic value; // null = disabled
+  final ValueChanged<dynamic> onChanged;
+
+  const _OptionalParameterWidget({
+    required this.paramId,
+    required this.param,
+    required this.value,
+    required this.onChanged,
+  });
+
+  bool get isEnabled => value != null;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = param.ui?.label ?? _formatParamName(paramId);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Enable checkbox - use SizedBox to control size but allow tap target
+        Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: Checkbox(
+              value: isEnabled,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+              onChanged: (checked) {
+                if (checked == true) {
+                  // Enable with default value
+                  onChanged(param.defaultValue);
+                } else {
+                  // Disable (null)
+                  onChanged(null);
+                }
+              },
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        // Parameter widget (dimmed when disabled)
+        Expanded(
+          child: IgnorePointer(
+            ignoring: !isEnabled,
+            child: Opacity(
+              opacity: isEnabled ? 1.0 : 0.5,
+              child: _buildInnerWidget(context, label),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInnerWidget(BuildContext context, String label) {
+    // Use the actual value if enabled, otherwise use default for display
+    final displayValue = value ?? param.defaultValue;
+
+    return ParameterWidgetFactory.build(
+      paramId: paramId,
+      param: param,
+      value: displayValue,
+      onChanged: onChanged,
+    );
   }
 }
 

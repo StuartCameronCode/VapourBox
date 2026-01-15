@@ -40,61 +40,65 @@
       "default": false,
       "ui": {
         "label": "Enable Cropping",
-        "description": "Crop borders from video"
+        "description": "Crop borders from video (recommended for VHS overscan)"
       }
     },
     "cropLeft": {
       "type": "integer",
-      "default": 0,
+      "default": 8,
       "min": 0,
       "max": 200,
       "step": 2,
+      "optional": true,
       "vapoursynth": { "name": "left" },
       "ui": {
         "label": "Crop Left",
-        "description": "Pixels to crop from left",
+        "description": "Pixels to crop from left (8-10 for VHS overscan)",
         "widget": "slider",
         "visibleWhen": { "cropEnabled": true }
       }
     },
     "cropRight": {
       "type": "integer",
-      "default": 0,
+      "default": 8,
       "min": 0,
       "max": 200,
       "step": 2,
+      "optional": true,
       "vapoursynth": { "name": "right" },
       "ui": {
         "label": "Crop Right",
-        "description": "Pixels to crop from right",
+        "description": "Pixels to crop from right (8-10 for VHS overscan)",
         "widget": "slider",
         "visibleWhen": { "cropEnabled": true }
       }
     },
     "cropTop": {
       "type": "integer",
-      "default": 0,
+      "default": 4,
       "min": 0,
       "max": 200,
       "step": 2,
+      "optional": true,
       "vapoursynth": { "name": "top" },
       "ui": {
         "label": "Crop Top",
-        "description": "Pixels to crop from top",
+        "description": "Pixels to crop from top (4-8 for VHS overscan)",
         "widget": "slider",
         "visibleWhen": { "cropEnabled": true }
       }
     },
     "cropBottom": {
       "type": "integer",
-      "default": 0,
+      "default": 4,
       "min": 0,
       "max": 200,
       "step": 2,
+      "optional": true,
       "vapoursynth": { "name": "bottom" },
       "ui": {
         "label": "Crop Bottom",
-        "description": "Pixels to crop from bottom",
+        "description": "Pixels to crop from bottom (4-8 for VHS overscan)",
         "widget": "slider",
         "visibleWhen": { "cropEnabled": true }
       }
@@ -113,6 +117,7 @@
       "min": 320,
       "max": 7680,
       "step": 2,
+      "optional": true,
       "vapoursynth": { "name": "width" },
       "ui": {
         "label": "Target Width",
@@ -127,6 +132,7 @@
       "min": 240,
       "max": 4320,
       "step": 2,
+      "optional": true,
       "vapoursynth": { "name": "height" },
       "ui": {
         "label": "Target Height",
@@ -139,10 +145,11 @@
       "type": "enum",
       "default": "Spline36",
       "options": ["Bilinear", "Bicubic", "Point", "Lanczos", "Spline16", "Spline36", "Spline64"],
+      "optional": true,
       "vapoursynth": { "name": "kernel" },
       "ui": {
         "label": "Resize Kernel",
-        "description": "Interpolation algorithm",
+        "description": "Interpolation algorithm (Spline36 or Lanczos for quality)",
         "widget": "dropdown",
         "visibleWhen": { "resizeEnabled": true }
       }
@@ -168,6 +175,7 @@
       "type": "enum",
       "default": "nnedi3_2x",
       "options": ["nnedi3_2x", "nnedi3_4x"],
+      "optional": true,
       "ui": {
         "label": "Upscale Method",
         "description": "Upscaling method and factor",
@@ -179,6 +187,7 @@
       "type": "enum",
       "default": "1080p",
       "options": ["720p", "1080p", "1440p", "4K"],
+      "optional": true,
       "ui": {
         "label": "Target Resolution",
         "description": "Target upscale resolution",

@@ -6,7 +6,9 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 import 'package:uuid/uuid.dart';
 
+import '../models/dynamic_parameters.dart';
 import '../models/encoding_settings.dart';
+import '../models/parameter_converter.dart';
 import '../models/progress_info.dart';
 import '../models/qtgmc_parameters.dart';
 import '../models/restoration_pipeline.dart';
@@ -43,6 +45,9 @@ class MainViewModel extends ChangeNotifier {
   PassType _selectedPass = PassType.deinterlace;
   bool _advancedMode = false;
 
+  // Dynamic parameters for UI state (preserves null values for optional params)
+  final Map<String, DynamicParameters> _dynamicParams = {};
+
   // Preview state
   List<Uint8List> _thumbnails = [];
   Uint8List? _currentFrame;
@@ -78,6 +83,102 @@ class MainViewModel extends ChangeNotifier {
   RestorationPipeline get restorationPipeline => _restorationPipeline;
   PassType get selectedPass => _selectedPass;
   bool get advancedMode => _advancedMode;
+
+  /// Get dynamic parameters for a filter (UI state).
+  /// Returns cached params if available, otherwise converts from typed model.
+  DynamicParameters getDynamicParams(String filterId) {
+    if (_dynamicParams.containsKey(filterId)) {
+      return _dynamicParams[filterId]!;
+    }
+    // Create from typed model on first access
+    final params = _convertToParams(filterId);
+    _dynamicParams[filterId] = params;
+    return params;
+  }
+
+  /// Update dynamic parameters for a filter.
+  void updateDynamicParams(String filterId, DynamicParameters params) {
+    _dynamicParams[filterId] = params;
+    // Also update the typed model in the pipeline
+    _updatePipelineFromDynamic(filterId, params);
+    notifyListeners();
+    _requestPreviewUpdate();
+  }
+
+  DynamicParameters _convertToParams(String filterId) {
+    switch (filterId) {
+      case 'deinterlace':
+        return ParameterConverter.fromQTGMC(_restorationPipeline.deinterlace);
+      case 'noise_reduction':
+        return ParameterConverter.fromNoiseReduction(_restorationPipeline.noiseReduction);
+      case 'dehalo':
+        return ParameterConverter.fromDehalo(_restorationPipeline.dehalo);
+      case 'deblock':
+        return ParameterConverter.fromDeblock(_restorationPipeline.deblock);
+      case 'deband':
+        return ParameterConverter.fromDeband(_restorationPipeline.deband);
+      case 'sharpen':
+        return ParameterConverter.fromSharpen(_restorationPipeline.sharpen);
+      case 'color_correction':
+        return ParameterConverter.fromColorCorrection(_restorationPipeline.colorCorrection);
+      case 'chroma_fixes':
+        return ParameterConverter.fromChromaFixes(_restorationPipeline.chromaFixes);
+      case 'crop_resize':
+        return ParameterConverter.fromCropResize(_restorationPipeline.cropResize);
+      default:
+        return DynamicParameters(filterId: filterId);
+    }
+  }
+
+  void _updatePipelineFromDynamic(String filterId, DynamicParameters params) {
+    switch (filterId) {
+      case 'deinterlace':
+        _restorationPipeline = _restorationPipeline.copyWith(
+          deinterlace: ParameterConverter.toQTGMC(params),
+        );
+        break;
+      case 'noise_reduction':
+        _restorationPipeline = _restorationPipeline.copyWith(
+          noiseReduction: ParameterConverter.toNoiseReduction(params),
+        );
+        break;
+      case 'dehalo':
+        _restorationPipeline = _restorationPipeline.copyWith(
+          dehalo: ParameterConverter.toDehalo(params),
+        );
+        break;
+      case 'deblock':
+        _restorationPipeline = _restorationPipeline.copyWith(
+          deblock: ParameterConverter.toDeblock(params),
+        );
+        break;
+      case 'deband':
+        _restorationPipeline = _restorationPipeline.copyWith(
+          deband: ParameterConverter.toDeband(params),
+        );
+        break;
+      case 'sharpen':
+        _restorationPipeline = _restorationPipeline.copyWith(
+          sharpen: ParameterConverter.toSharpen(params),
+        );
+        break;
+      case 'color_correction':
+        _restorationPipeline = _restorationPipeline.copyWith(
+          colorCorrection: ParameterConverter.toColorCorrection(params),
+        );
+        break;
+      case 'chroma_fixes':
+        _restorationPipeline = _restorationPipeline.copyWith(
+          chromaFixes: ParameterConverter.toChromaFixes(params),
+        );
+        break;
+      case 'crop_resize':
+        _restorationPipeline = _restorationPipeline.copyWith(
+          cropResize: ParameterConverter.toCropResize(params),
+        );
+        break;
+    }
+  }
 
   // Preview getters
   List<Uint8List> get thumbnails => _thumbnails;
@@ -433,8 +534,37 @@ class MainViewModel extends ChangeNotifier {
     _restorationPipeline = _restorationPipeline.togglePass(pass, enabled);
     // Keep qtgmcParams in sync
     _qtgmcParams = _restorationPipeline.deinterlace;
+    // Sync dynamic params cache with new enabled state
+    final filterId = _passTypeToFilterId(pass);
+    if (_dynamicParams.containsKey(filterId)) {
+      _dynamicParams[filterId] = _dynamicParams[filterId]!.withEnabled(enabled);
+    }
     notifyListeners();
     _requestPreviewUpdate();
+  }
+
+  /// Convert PassType to filter ID.
+  String _passTypeToFilterId(PassType pass) {
+    switch (pass) {
+      case PassType.deinterlace:
+        return 'deinterlace';
+      case PassType.noiseReduction:
+        return 'noise_reduction';
+      case PassType.dehalo:
+        return 'dehalo';
+      case PassType.deblock:
+        return 'deblock';
+      case PassType.deband:
+        return 'deband';
+      case PassType.sharpen:
+        return 'sharpen';
+      case PassType.colorCorrection:
+        return 'color_correction';
+      case PassType.chromaFixes:
+        return 'chroma_fixes';
+      case PassType.cropResize:
+        return 'crop_resize';
+    }
   }
 
   /// Selects a pass for editing.

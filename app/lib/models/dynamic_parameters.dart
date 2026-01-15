@@ -16,12 +16,19 @@ class DynamicParameters {
   final bool enabled;
 
   /// Parameter values (key is parameter ID, value is the parameter value).
+  /// Note: For optional parameters, null means disabled (don't pass to plugin).
   final Map<String, dynamic> values;
+
+  /// Set of optional parameter IDs that are explicitly enabled.
+  /// This is used to distinguish between "disabled" (null) and "not set".
+  @JsonKey(defaultValue: {})
+  final Set<String> enabledOptionalParams;
 
   const DynamicParameters({
     required this.filterId,
     this.enabled = false,
     this.values = const {},
+    this.enabledOptionalParams = const {},
   });
 
   /// Create with default values from a schema.
@@ -77,30 +84,53 @@ class DynamicParameters {
   /// Get the currently selected method ID.
   String get method => getString('method');
 
+  /// Check if an optional parameter is enabled.
+  bool isOptionalParamEnabled(String paramId) {
+    return enabledOptionalParams.contains(paramId);
+  }
+
   /// Create a copy with updated enabled state.
   DynamicParameters withEnabled(bool enabled) {
     return DynamicParameters(
       filterId: filterId,
       enabled: enabled,
       values: values,
+      enabledOptionalParams: enabledOptionalParams,
     );
   }
 
   /// Create a copy with a single parameter updated.
+  /// If value is null, the optional param is disabled; otherwise enabled.
   DynamicParameters withValue(String key, dynamic value) {
+    final newEnabledOptional = Set<String>.from(enabledOptionalParams);
+    if (value != null) {
+      newEnabledOptional.add(key);
+    } else {
+      newEnabledOptional.remove(key);
+    }
     return DynamicParameters(
       filterId: filterId,
       enabled: enabled,
       values: {...values, key: value},
+      enabledOptionalParams: newEnabledOptional,
     );
   }
 
   /// Create a copy with multiple parameters updated.
   DynamicParameters withValues(Map<String, dynamic> newValues) {
+    final newEnabledOptional = Set<String>.from(enabledOptionalParams);
+    for (final entry in newValues.entries) {
+      if (entry.value != null) {
+        newEnabledOptional.add(entry.key);
+      } else {
+        newEnabledOptional.remove(entry.key);
+      }
+    }
     return DynamicParameters(
       filterId: filterId,
       enabled: enabled,
       values: {...values, ...newValues},
+      enabledOptionalParams: newEnabledOptional,
     );
   }
 

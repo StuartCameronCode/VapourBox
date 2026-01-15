@@ -30,36 +30,39 @@
     },
     "range": {
       "type": "integer",
-      "default": 15,
+      "default": 20,
       "min": 1,
       "max": 31,
       "step": 1,
+      "optional": true,
       "vapoursynth": { "name": "range" },
       "ui": {
         "label": "Range",
-        "description": "Banding detection range",
+        "description": "Banding detection range (15-25 for VHS)",
         "widget": "slider"
       }
     },
     "y": {
       "type": "integer",
-      "default": 64,
+      "default": 48,
       "min": 0,
       "max": 127,
       "step": 1,
+      "optional": true,
       "vapoursynth": { "name": "y" },
       "ui": {
         "label": "Luma Threshold",
-        "description": "Threshold for luma plane deband",
+        "description": "Threshold for luma plane deband (32-64 for VHS)",
         "widget": "slider"
       }
     },
     "cb": {
       "type": "integer",
-      "default": 64,
+      "default": 48,
       "min": 0,
       "max": 127,
       "step": 1,
+      "optional": true,
       "vapoursynth": { "name": "cb" },
       "ui": {
         "label": "Chroma Cb Threshold",
@@ -69,10 +72,11 @@
     },
     "cr": {
       "type": "integer",
-      "default": 64,
+      "default": 48,
       "min": 0,
       "max": 127,
       "step": 1,
+      "optional": true,
       "vapoursynth": { "name": "cr" },
       "ui": {
         "label": "Chroma Cr Threshold",
@@ -82,23 +86,25 @@
     },
     "grainY": {
       "type": "integer",
-      "default": 0,
+      "default": 12,
       "min": 0,
       "max": 127,
       "step": 1,
+      "optional": true,
       "vapoursynth": { "name": "grainy" },
       "ui": {
         "label": "Luma Grain",
-        "description": "Amount of grain to add to luma",
+        "description": "Amount of grain to add to luma (8-16 for VHS)",
         "widget": "slider"
       }
     },
     "grainC": {
       "type": "integer",
-      "default": 0,
+      "default": 8,
       "min": 0,
       "max": 127,
       "step": 1,
+      "optional": true,
       "vapoursynth": { "name": "grainc" },
       "ui": {
         "label": "Chroma Grain",
@@ -108,11 +114,12 @@
     },
     "dynamicGrain": {
       "type": "boolean",
-      "default": false,
+      "default": true,
+      "optional": true,
       "vapoursynth": { "name": "dynamic_grain" },
       "ui": {
         "label": "Dynamic Grain",
-        "description": "Use dynamic grain instead of static"
+        "description": "Use dynamic grain instead of static (recommended for VHS)"
       }
     },
     "outputDepth": {
@@ -121,6 +128,7 @@
       "min": 8,
       "max": 16,
       "step": 2,
+      "optional": true,
       "vapoursynth": { "name": "output_depth" },
       "ui": {
         "label": "Output Depth",

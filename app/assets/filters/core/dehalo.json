@@ -58,6 +58,7 @@
       "min": 1.0,
       "max": 3.0,
       "step": 0.1,
+      "optional": true,
       "vapoursynth": {
         "name": "rx"
       },
@@ -77,6 +78,7 @@
       "min": 1.0,
       "max": 3.0,
       "step": 0.1,
+      "optional": true,
       "vapoursynth": {
         "name": "ry"
       },
@@ -92,10 +94,11 @@
     },
     "darkStr": {
       "type": "number",
-      "default": 1.0,
+      "default": 0.8,
       "min": 0.0,
       "max": 1.0,
       "step": 0.05,
+      "optional": true,
       "vapoursynth": {
         "name": "darkstr"
       },
@@ -111,10 +114,11 @@
     },
     "brightStr": {
       "type": "number",
-      "default": 1.0,
+      "default": 0.8,
       "min": 0.0,
       "max": 1.0,
       "step": 0.05,
+      "optional": true,
       "vapoursynth": {
         "name": "brightstr"
       },
@@ -134,6 +138,7 @@
       "min": 0,
       "max": 200,
       "step": 5,
+      "optional": true,
       "vapoursynth": {
         "name": "thmi"
       },
@@ -152,6 +157,7 @@
       "min": 0,
       "max": 255,
       "step": 5,
+      "optional": true,
       "vapoursynth": {
         "name": "thma"
       },
@@ -170,6 +176,7 @@
       "min": 1,
       "max": 3,
       "step": 1,
+      "optional": true,
       "vapoursynth": {
         "name": "blur"
       },
@@ -188,6 +195,7 @@
       "min": 8,
       "max": 128,
       "step": 8,
+      "optional": true,
       "vapoursynth": {
         "name": "depth"
       },

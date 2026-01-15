@@ -47,7 +47,7 @@
       "default": false,
       "ui": {
         "label": "Fix Chroma Bleeding",
-        "description": "Apply chroma bleeding fix"
+        "description": "Apply chroma bleeding fix (common on VHS)"
       }
     },
     "chromaBleedCx": {
@@ -56,6 +56,7 @@
       "min": 0,
       "max": 16,
       "step": 1,
+      "optional": true,
       "vapoursynth": { "name": "cx" },
       "ui": {
         "label": "Horizontal Offset",
@@ -70,6 +71,7 @@
       "min": 0,
       "max": 16,
       "step": 1,
+      "optional": true,
       "vapoursynth": { "name": "cy" },
       "ui": {
         "label": "Vertical Offset",
@@ -84,6 +86,7 @@
       "min": 0.0,
       "max": 2.0,
       "step": 0.1,
+      "optional": true,
       "vapoursynth": { "name": "cblur" },
       "ui": {
         "label": "Chroma Blur",
@@ -99,6 +102,7 @@
       "min": 0.0,
       "max": 1.0,
       "step": 0.1,
+      "optional": true,
       "vapoursynth": { "name": "strength" },
       "ui": {
         "label": "Strength",
@@ -113,7 +117,7 @@
       "default": false,
       "ui": {
         "label": "Apply DeCrawl",
-        "description": "Remove dot crawl artifacts"
+        "description": "Remove dot crawl artifacts (common on composite video)"
       }
     },
     "deCrawlYThresh": {
@@ -122,6 +126,7 @@
       "min": 0,
       "max": 50,
       "step": 1,
+      "optional": true,
       "vapoursynth": { "name": "ythresh" },
       "ui": {
         "label": "Luma Threshold",
@@ -136,6 +141,7 @@
       "min": 0,
       "max": 50,
       "step": 1,
+      "optional": true,
       "vapoursynth": { "name": "cthresh" },
       "ui": {
         "label": "Chroma Threshold",
@@ -150,6 +156,7 @@
       "min": 0,
       "max": 255,
       "step": 5,
+      "optional": true,
       "vapoursynth": { "name": "maxdiff" },
       "ui": {
         "label": "Max Difference",
@@ -172,6 +179,7 @@
       "min": 0.0,
       "max": 10.0,
       "step": 0.1,
+      "optional": true,
       "vapoursynth": { "name": "sstr" },
       "ui": {
         "label": "Strength",
@@ -187,6 +195,7 @@
       "min": 0,
       "max": 255,
       "step": 5,
+      "optional": true,
       "vapoursynth": { "name": "amnt" },
       "ui": {
         "label": "Amount",
@@ -201,6 +210,7 @@
       "min": 0,
       "max": 100,
       "step": 1,
+      "optional": true,
       "vapoursynth": { "name": "scl" },
       "ui": {
         "label": "Scale",

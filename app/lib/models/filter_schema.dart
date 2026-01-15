@@ -112,6 +112,10 @@ class ParameterDefinition {
   /// UI configuration.
   final ParameterUiConfig? ui;
 
+  /// Whether this parameter can be enabled/disabled with a checkbox.
+  /// When disabled (null value), the parameter is not passed to VapourSynth.
+  final bool? optional;
+
   const ParameterDefinition({
     required this.type,
     required this.defaultValue,
@@ -121,6 +125,7 @@ class ParameterDefinition {
     this.options,
     this.vapoursynth,
     this.ui,
+    this.optional,
   });
 
   /// Get the VapourSynth parameter name (falls back to schema name if not specified).
@@ -405,8 +410,15 @@ class FilterSchema {
   }
 
   /// Get default values for all parameters.
+  /// Optional parameters are excluded (they start as null/disabled).
   Map<String, dynamic> getDefaults() {
-    return parameters.map((key, param) => MapEntry(key, param.defaultValue));
+    final defaults = <String, dynamic>{};
+    for (final entry in parameters.entries) {
+      // Skip optional parameters - they start as disabled (null)
+      if (entry.value.optional == true) continue;
+      defaults[entry.key] = entry.value.defaultValue;
+    }
+    return defaults;
   }
 
   /// Validate parameter values against schema.

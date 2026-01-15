@@ -55,10 +55,11 @@
       "min": 1,
       "max": 3,
       "step": 1,
+      "optional": true,
       "vapoursynth": { "name": "tr" },
       "ui": {
         "label": "Temporal Radius",
-        "description": "Number of frames to use for denoising",
+        "description": "Number of frames to use for denoising (2 recommended for VHS)",
         "widget": "slider",
         "visibleWhen": { "method": ["smdegrain"] }
       }
@@ -69,10 +70,11 @@
       "min": 0,
       "max": 1000,
       "step": 25,
+      "optional": true,
       "vapoursynth": { "name": "thSAD" },
       "ui": {
         "label": "Luma Threshold",
-        "description": "SAD threshold for luma denoising",
+        "description": "SAD threshold for luma denoising (250-400 for VHS)",
         "widget": "slider",
         "visibleWhen": { "method": ["smdegrain"] }
       }
@@ -83,6 +85,7 @@
       "min": 0,
       "max": 500,
       "step": 25,
+      "optional": true,
       "vapoursynth": { "name": "thSADC" },
       "ui": {
         "label": "Chroma Threshold",
@@ -94,6 +97,7 @@
     "smDegrainRefine": {
       "type": "boolean",
       "default": true,
+      "optional": true,
       "vapoursynth": { "name": "RefineMotion" },
       "ui": {
         "label": "Refine Motion",
@@ -107,6 +111,7 @@
       "min": 0,
       "max": 3,
       "step": 1,
+      "optional": true,
       "vapoursynth": { "name": "prefilter" },
       "ui": {
         "label": "Prefilter",
@@ -119,6 +124,7 @@
       "type": "enum",
       "default": "high",
       "options": ["very high", "high", "medium", "low", "very low"],
+      "optional": true,
       "vapoursynth": { "name": "settings" },
       "ui": {
         "label": "Settings",
@@ -133,6 +139,7 @@
       "min": 0.0,
       "max": 20.0,
       "step": 0.5,
+      "optional": true,
       "vapoursynth": { "name": "sigma" },
       "ui": {
         "label": "Sigma",

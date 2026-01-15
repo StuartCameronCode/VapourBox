@@ -128,12 +128,18 @@ class DynamicFilterPanel extends StatelessWidget {
     final param = schema.parameters[paramId];
     if (param == null) return const SizedBox.shrink();
 
+    // For optional parameters, pass the actual value (may be null = disabled)
+    // For non-optional parameters, fall back to default value
+    final value = param.optional == true
+        ? params.values[paramId]
+        : (params.values[paramId] ?? param.defaultValue);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: ParameterWidgetFactory.build(
+      child: ParameterWidgetFactory.buildOptional(
         paramId: paramId,
         param: param,
-        value: params.values[paramId] ?? param.defaultValue,
+        value: value,
         onChanged: (newValue) {
           onChanged(params.withValue(paramId, newValue));
         },
@@ -387,12 +393,18 @@ class _DynamicFilterPanelCompactState extends State<DynamicFilterPanelCompact> {
     // Check visibility conditions
     if (!_isVisible(paramId)) return null;
 
+    // For optional parameters, pass the actual value (may be null = disabled)
+    // For non-optional parameters, fall back to default value
+    final value = param.optional == true
+        ? params.values[paramId]
+        : (params.values[paramId] ?? param.defaultValue);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: ParameterWidgetFactory.build(
+      child: ParameterWidgetFactory.buildOptional(
         paramId: paramId,
         param: param,
-        value: params.values[paramId] ?? param.defaultValue,
+        value: value,
         onChanged: (newValue) {
           onChanged(params.withValue(paramId, newValue));
         },

@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../models/dynamic_parameters.dart';
 import '../../models/filter_registry.dart';
-import '../../models/filter_schema.dart';
-import '../../models/parameter_converter.dart';
 import '../../models/restoration_pipeline.dart';
 import '../../viewmodels/main_viewmodel.dart';
 import '../settings/dynamic_filter_panel.dart';
@@ -39,87 +36,6 @@ class PassSettingsContainer extends StatelessWidget {
     }
   }
 
-  /// Gets dynamic parameters for the selected pass from the pipeline.
-  static DynamicParameters _getParams(RestorationPipeline pipeline, PassType passType) {
-    switch (passType) {
-      case PassType.deinterlace:
-        return ParameterConverter.fromQTGMC(pipeline.deinterlace);
-      case PassType.noiseReduction:
-        return ParameterConverter.fromNoiseReduction(pipeline.noiseReduction);
-      case PassType.dehalo:
-        return ParameterConverter.fromDehalo(pipeline.dehalo);
-      case PassType.deblock:
-        return ParameterConverter.fromDeblock(pipeline.deblock);
-      case PassType.deband:
-        return ParameterConverter.fromDeband(pipeline.deband);
-      case PassType.sharpen:
-        return ParameterConverter.fromSharpen(pipeline.sharpen);
-      case PassType.colorCorrection:
-        return ParameterConverter.fromColorCorrection(pipeline.colorCorrection);
-      case PassType.chromaFixes:
-        return ParameterConverter.fromChromaFixes(pipeline.chromaFixes);
-      case PassType.cropResize:
-        return ParameterConverter.fromCropResize(pipeline.cropResize);
-    }
-  }
-
-  /// Updates the pipeline with new dynamic parameters.
-  static void _updatePipeline(
-    MainViewModel viewModel,
-    PassType passType,
-    DynamicParameters newParams,
-  ) {
-    final pipeline = viewModel.restorationPipeline;
-
-    switch (passType) {
-      case PassType.deinterlace:
-        viewModel.updateRestorationPipeline(
-          pipeline.copyWith(deinterlace: ParameterConverter.toQTGMC(newParams)),
-        );
-        break;
-      case PassType.noiseReduction:
-        viewModel.updateRestorationPipeline(
-          pipeline.copyWith(noiseReduction: ParameterConverter.toNoiseReduction(newParams)),
-        );
-        break;
-      case PassType.dehalo:
-        viewModel.updateRestorationPipeline(
-          pipeline.copyWith(dehalo: ParameterConverter.toDehalo(newParams)),
-        );
-        break;
-      case PassType.deblock:
-        viewModel.updateRestorationPipeline(
-          pipeline.copyWith(deblock: ParameterConverter.toDeblock(newParams)),
-        );
-        break;
-      case PassType.deband:
-        viewModel.updateRestorationPipeline(
-          pipeline.copyWith(deband: ParameterConverter.toDeband(newParams)),
-        );
-        break;
-      case PassType.sharpen:
-        viewModel.updateRestorationPipeline(
-          pipeline.copyWith(sharpen: ParameterConverter.toSharpen(newParams)),
-        );
-        break;
-      case PassType.colorCorrection:
-        viewModel.updateRestorationPipeline(
-          pipeline.copyWith(colorCorrection: ParameterConverter.toColorCorrection(newParams)),
-        );
-        break;
-      case PassType.chromaFixes:
-        viewModel.updateRestorationPipeline(
-          pipeline.copyWith(chromaFixes: ParameterConverter.toChromaFixes(newParams)),
-        );
-        break;
-      case PassType.cropResize:
-        viewModel.updateRestorationPipeline(
-          pipeline.copyWith(cropResize: ParameterConverter.toCropResize(newParams)),
-        );
-        break;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Consumer<MainViewModel>(
@@ -133,7 +49,8 @@ class PassSettingsContainer extends StatelessWidget {
           return _buildFallbackPanel(context, passType);
         }
 
-        final params = _getParams(viewModel.restorationPipeline, passType);
+        // Use cached dynamic params from ViewModel (preserves null values)
+        final params = viewModel.getDynamicParams(filterId);
 
         return AnimatedSwitcher(
           duration: const Duration(milliseconds: 200),
@@ -143,7 +60,7 @@ class PassSettingsContainer extends StatelessWidget {
               schema: schema,
               params: params,
               onChanged: (newParams) {
-                _updatePipeline(viewModel, passType, newParams);
+                viewModel.updateDynamicParams(filterId, newParams);
               },
             ),
           ),

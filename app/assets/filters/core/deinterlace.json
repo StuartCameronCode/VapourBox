@@ -52,7 +52,11 @@
       "min": 0,
       "max": 3,
       "vapoursynth": { "name": "InputType" },
-      "ui": { "hidden": true }
+      "ui": {
+        "label": "Input Type",
+        "description": "0: Interlaced | 1: Telecined (3:2 pulldown) | 2: Progressive | 3: Double-rate progressive",
+        "widget": "slider"
+      }
     },
     "fpsDivisor": {
       "type": "integer",
@@ -65,6 +69,7 @@
     "tr0": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 3,
       "vapoursynth": { "name": "TR0" },
@@ -77,6 +82,7 @@
     "tr1": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 3,
       "vapoursynth": { "name": "TR1" },
@@ -89,6 +95,7 @@
     "tr2": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 3,
       "vapoursynth": { "name": "TR2" },
@@ -101,6 +108,7 @@
     "rep0": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 4,
       "vapoursynth": { "name": "Rep0" },
@@ -125,6 +133,7 @@
     "rep2": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 4,
       "vapoursynth": { "name": "Rep2" },
@@ -146,6 +155,7 @@
     "ediMode": {
       "type": "enum",
       "default": null,
+      "optional": true,
       "options": ["NNEDI3", "EEDI3+NNEDI3", "EEDI3", "Bob"],
       "vapoursynth": { "name": "EdiMode" },
       "ui": {
@@ -157,6 +167,7 @@
     "nnSize": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 6,
       "vapoursynth": { "name": "NNSize" },
@@ -169,6 +180,7 @@
     "nnNeurons": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 4,
       "vapoursynth": { "name": "NNeurons" },
@@ -193,6 +205,7 @@
     "ediMaxD": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 1,
       "max": 24,
       "vapoursynth": { "name": "EdiMaxD" },
@@ -216,6 +229,7 @@
     "blockSize": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 4,
       "max": 32,
       "vapoursynth": { "name": "BlockSize" },
@@ -228,6 +242,7 @@
     "overlap": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 16,
       "vapoursynth": { "name": "Overlap" },
@@ -240,6 +255,7 @@
     "search": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 5,
       "vapoursynth": { "name": "Search" },
@@ -252,6 +268,7 @@
     "searchParam": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 128,
       "vapoursynth": { "name": "SearchParam" },
@@ -264,6 +281,7 @@
     "pelSearch": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 1,
       "max": 4,
       "vapoursynth": { "name": "PelSearch" },
@@ -276,6 +294,7 @@
     "chromaMotion": {
       "type": "boolean",
       "default": null,
+      "optional": true,
       "vapoursynth": { "name": "ChromaMotion" },
       "ui": {
         "label": "Chroma Motion",
@@ -294,6 +313,7 @@
     "lambda": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 2000,
       "vapoursynth": { "name": "Lambda" },
@@ -306,6 +326,7 @@
     "lsad": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 2000,
       "vapoursynth": { "name": "LSAD" },
@@ -318,6 +339,7 @@
     "pNew": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 100,
       "vapoursynth": { "name": "PNew" },
@@ -330,6 +352,7 @@
     "pLevel": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 2,
       "vapoursynth": { "name": "PLevel" },
@@ -363,6 +386,7 @@
     "subPel": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 1,
       "max": 4,
       "vapoursynth": { "name": "SubPel" },
@@ -435,6 +459,7 @@
     "sharpness": {
       "type": "number",
       "default": null,
+      "optional": true,
       "min": 0.0,
       "max": 2.0,
       "step": 0.1,
@@ -449,6 +474,7 @@
     "sMode": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 2,
       "vapoursynth": { "name": "SMode" },
@@ -461,6 +487,7 @@
     "slMode": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 4,
       "vapoursynth": { "name": "SLMode" },
@@ -473,6 +500,7 @@
     "slRad": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 6,
       "vapoursynth": { "name": "SLRad" },
@@ -511,6 +539,7 @@
     "sbb": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 3,
       "vapoursynth": { "name": "SBB" },
@@ -523,6 +552,7 @@
     "srchClipPp": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 3,
       "vapoursynth": { "name": "SrchClipPP" },
@@ -535,6 +565,7 @@
     "noiseProcess": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 2,
       "vapoursynth": { "name": "NoiseProcess" },
@@ -547,6 +578,7 @@
     "ezDenoise": {
       "type": "number",
       "default": null,
+      "optional": true,
       "min": 0.0,
       "max": 5.0,
       "step": 0.1,
@@ -561,6 +593,7 @@
     "ezKeepGrain": {
       "type": "number",
       "default": null,
+      "optional": true,
       "min": 0.0,
       "max": 1.0,
       "step": 0.1,
@@ -586,6 +619,7 @@
     "denoiser": {
       "type": "enum",
       "default": null,
+      "optional": true,
       "options": ["", "dfttest", "fft3dfilter", "knlmeanscl"],
       "vapoursynth": { "name": "Denoiser" },
       "ui": {
@@ -609,6 +643,7 @@
     "denoiseMc": {
       "type": "boolean",
       "default": null,
+      "optional": true,
       "vapoursynth": { "name": "DenoiseMC" },
       "ui": {
         "label": "Denoise MC",
@@ -618,6 +653,7 @@
     "noiseTr": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 3,
       "vapoursynth": { "name": "NoiseTR" },
@@ -630,6 +666,7 @@
     "sigma": {
       "type": "number",
       "default": null,
+      "optional": true,
       "min": 0.0,
       "max": 20.0,
       "step": 0.5,
@@ -667,6 +704,7 @@
     "grainRestore": {
       "type": "number",
       "default": null,
+      "optional": true,
       "min": 0.0,
       "max": 1.0,
       "step": 0.1,
@@ -681,6 +719,7 @@
     "noiseRestore": {
       "type": "number",
       "default": null,
+      "optional": true,
       "min": 0.0,
       "max": 1.0,
       "step": 0.1,
@@ -695,6 +734,7 @@
     "noiseDeint": {
       "type": "enum",
       "default": null,
+      "optional": true,
       "options": ["", "Bob", "Generate"],
       "vapoursynth": { "name": "NoiseDeint" },
       "ui": {
@@ -706,6 +746,7 @@
     "stabilizeNoise": {
       "type": "boolean",
       "default": null,
+      "optional": true,
       "vapoursynth": { "name": "StabilizeNoise" },
       "ui": {
         "label": "Stabilize Noise",
@@ -727,6 +768,7 @@
     "matchPreset": {
       "type": "enum",
       "default": null,
+      "optional": true,
       "options": ["", "Placebo", "Very Slow", "Slower", "Slow", "Medium", "Fast", "Faster", "Very Fast", "Super Fast", "Ultra Fast"],
       "vapoursynth": { "name": "MatchPreset" },
       "ui": {
@@ -738,6 +780,7 @@
     "matchEdi": {
       "type": "enum",
       "default": null,
+      "optional": true,
       "options": ["", "NNEDI3", "EEDI3+NNEDI3", "EEDI3"],
       "vapoursynth": { "name": "MatchEdi" },
       "ui": {
@@ -749,6 +792,7 @@
     "matchPreset2": {
       "type": "enum",
       "default": null,
+      "optional": true,
       "options": ["", "Placebo", "Very Slow", "Slower", "Slow", "Medium", "Fast", "Faster", "Very Fast", "Super Fast", "Ultra Fast"],
       "vapoursynth": { "name": "MatchPreset2" },
       "ui": {
@@ -760,6 +804,7 @@
     "matchEdi2": {
       "type": "enum",
       "default": null,
+      "optional": true,
       "options": ["", "NNEDI3", "EEDI3+NNEDI3", "EEDI3"],
       "vapoursynth": { "name": "MatchEdi2" },
       "ui": {
@@ -818,6 +863,7 @@
     "precise": {
       "type": "boolean",
       "default": null,
+      "optional": true,
       "vapoursynth": { "name": "Precise" },
       "ui": {
         "label": "Precise",
@@ -903,6 +949,7 @@
     "device": {
       "type": "integer",
       "default": null,
+      "optional": true,
       "min": 0,
       "max": 10,
       "vapoursynth": { "name": "Device" },
