@@ -41,34 +41,54 @@ app/pubspec.lock
 # Generated Dart files
 app/lib/**/*.g.dart
 
-# Platform-specific
+# Auto-generated Flutter plugin registrations
+app/macos/Flutter/GeneratedPluginRegistrant.swift
+app/windows/flutter/generated_plugin_registrant.cc
+app/windows/flutter/generated_plugin_registrant.h
+app/windows/flutter/generated_plugins.cmake
+
+# Platform-specific (unsupported platforms)
 app/android/
 app/ios/
 app/linux/
 app/web/
 
 # =============================================================================
-# Dependencies (platform-specific binaries)
+# Dependencies - Ignore generated/downloaded files, keep essential bundles
 # =============================================================================
-deps/macos-arm64/
-deps/macos-x64/
-deps/windows-x64/
-deps/windows-arm64/
 
-# Keep the directory structure
-!deps/*/
-!deps/*/.gitkeep
+# Python cache files (anywhere)
+**/__pycache__/
+*.pyc
+*.pyo
 
-# =============================================================================
-# Legacy Swift Code (keep for reference)
-# =============================================================================
-# The legacy/ directory is tracked, but build artifacts are not
-legacy/.build/
-legacy/.swiftpm/
-legacy/build/
-legacy/DerivedData/
-legacy/*.xcodeproj/xcuserdata/
-legacy/*.xcworkspace/xcuserdata/
+# Downloaded archives
+deps/**/*.7z
+deps/**/*.zip
+deps/**/*.tar.gz
+
+# Temp/staging directories
+deps/**/python38-temp/
+deps/**/python-temp/
+deps/**/eedi3-temp/
+deps/**/python/
+deps/**/resources/
+
+# Documentation (not needed for bundling)
+deps/**/doc/
+
+# SDK and development files
+deps/**/sdk/
+deps/**/wheel/
+
+# Test scripts in deps
+deps/**/*.ps1
+
+# Misc files not needed for bundling
+deps/**/*.rst
+deps/**/MANIFEST.in
+deps/**/vsgenstubs*
+deps/**/vsrepo.py
 
 # =============================================================================
 # Build Outputs
@@ -84,6 +104,7 @@ dist/
 # =============================================================================
 # Tests
 # =============================================================================
+Tests/TestOutput/
 Tests/TestBundle/Helpers/*
 !Tests/TestBundle/Helpers/.gitkeep
 Tests/TestBundle/Frameworks/*
@@ -117,5 +138,9 @@ BundledDependencies/FFmpeg/
 BundledDependencies/Scripts/*.py
 !BundledDependencies/Scripts/.gitkeep
 
-# Claude temp files
+# Claude Code
+.claude/
 tmpclaude-*
+
+# Personal planning files
+licenseplan.md
