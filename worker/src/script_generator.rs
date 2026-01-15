@@ -149,6 +149,22 @@ impl ScriptGenerator {
         let escaped_input = job.input_path.replace('\\', "\\\\");
         script = script.replace("{{INPUT_PATH}}", &escaped_input);
 
+        // Frame trimming (start/end frame range)
+        if job.start_frame.is_some() || job.end_frame.is_some() {
+            script = script.replace("{{#FRAME_TRIM}}", "");
+            script = script.replace("{{/FRAME_TRIM}}", "");
+            let start = job.start_frame.unwrap_or(0);
+            let end = job.end_frame.map(|e| e + 1).unwrap_or(-1); // Python slice end is exclusive, -1 means to end
+            script = script.replace("{{START_FRAME}}", &start.to_string());
+            if end == -1 {
+                script = script.replace("{{END_FRAME}}", "None");
+            } else {
+                script = script.replace("{{END_FRAME}}", &end.to_string());
+            }
+        } else {
+            script = remove_block("{{#FRAME_TRIM}}", "{{/FRAME_TRIM}}", script);
+        }
+
         self.substitute_parameters_on(&script, job, pipeline)
     }
 
@@ -642,6 +658,11 @@ core = vs.core
 
 # Load input video using ffms2 for frame-accurate seeking
 clip = core.ffms2.Source(source=r"{{INPUT_PATH}}")
+
+# Frame trimming (if start/end frame specified)
+{{#FRAME_TRIM}}
+clip = clip[{{START_FRAME}}:{{END_FRAME}}]
+{{/FRAME_TRIM}}
 
 # Get input properties for progress tracking
 input_fps_num = clip.fps.numerator

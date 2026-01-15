@@ -13,6 +13,11 @@ core = vs.core
 # Load input video using ffms2 for frame-accurate seeking
 clip = core.ffms2.Source(source=r"{{INPUT_PATH}}")
 
+# Frame trimming (if start/end frame specified)
+{{#FRAME_TRIM}}
+clip = clip[{{START_FRAME}}:{{END_FRAME}}]
+{{/FRAME_TRIM}}
+
 # Get input properties for progress tracking
 input_fps_num = clip.fps.numerator
 input_fps_den = clip.fps.denominator

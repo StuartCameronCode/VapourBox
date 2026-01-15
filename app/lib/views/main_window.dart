@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../models/processing_preset.dart';
 import '../models/progress_info.dart';
 import '../viewmodels/main_viewmodel.dart';
 import 'about_dialog.dart' as about;
@@ -63,6 +64,88 @@ class MainWindow extends StatelessWidget {
           ),
 
           const Spacer(),
+
+          // Preset dropdown
+          PopupMenuButton<String>(
+            tooltip: 'Load or save presets',
+            icon: const Icon(Icons.tune),
+            onSelected: (value) async {
+              if (value == 'save') {
+                _showSavePresetDialog(context, viewModel);
+              } else if (value.startsWith('load:')) {
+                final presetId = value.substring(5);
+                final preset = viewModel.availablePresets.where((p) => p.id == presetId).firstOrNull;
+                if (preset != null) {
+                  viewModel.loadPreset(preset);
+                }
+              } else if (value.startsWith('delete:')) {
+                final presetId = value.substring(7);
+                final preset = viewModel.availablePresets.where((p) => p.id == presetId).firstOrNull;
+                if (preset != null && !preset.isBuiltIn) {
+                  await viewModel.deletePreset(preset);
+                }
+              }
+            },
+            itemBuilder: (context) {
+              final presets = viewModel.availablePresets;
+              final builtIn = presets.where((p) => p.isBuiltIn).toList();
+              final user = presets.where((p) => !p.isBuiltIn).toList();
+
+              return [
+                const PopupMenuItem<String>(
+                  enabled: false,
+                  child: Text('Built-in Presets', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+                ...builtIn.map((p) => PopupMenuItem<String>(
+                      value: 'load:${p.id}',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: Text(p.name),
+                        subtitle: p.description != null ? Text(p.description!, style: const TextStyle(fontSize: 11)) : null,
+                      ),
+                    )),
+                if (user.isNotEmpty) ...[
+                  const PopupMenuDivider(),
+                  const PopupMenuItem<String>(
+                    enabled: false,
+                    child: Text('My Presets', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                  ...user.map((p) => PopupMenuItem<String>(
+                        value: 'load:${p.id}',
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                                title: Text(p.name),
+                                subtitle: p.description != null ? Text(p.description!, style: const TextStyle(fontSize: 11)) : null,
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete, size: 18),
+                              onPressed: () {
+                                Navigator.pop(context, 'delete:${p.id}');
+                              },
+                            ),
+                          ],
+                        ),
+                      )),
+                ],
+                const PopupMenuDivider(),
+                const PopupMenuItem<String>(
+                  value: 'save',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    leading: Icon(Icons.save),
+                    title: Text('Save Current Settings...'),
+                  ),
+                ),
+              ];
+            },
+          ),
 
           // About button
           IconButton(
@@ -475,6 +558,67 @@ class MainWindow extends StatelessWidget {
     showDialog(
       context: context,
       builder: (context) => const about.AboutDialog(),
+    );
+  }
+
+  void _showSavePresetDialog(BuildContext context, MainViewModel viewModel) {
+    final nameController = TextEditingController();
+    final descriptionController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Save Preset'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: 'Preset Name',
+                hintText: 'My Custom Preset',
+              ),
+              autofocus: true,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: descriptionController,
+              decoration: const InputDecoration(
+                labelText: 'Description (optional)',
+                hintText: 'What is this preset for?',
+              ),
+              maxLines: 2,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final name = nameController.text.trim();
+              if (name.isEmpty) return;
+
+              await viewModel.saveAsPreset(
+                name,
+                description: descriptionController.text.trim().isNotEmpty
+                    ? descriptionController.text.trim()
+                    : null,
+              );
+
+              if (context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Preset "$name" saved')),
+                );
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -5,13 +5,27 @@ import 'package:provider/provider.dart';
 import '../viewmodels/main_viewmodel.dart';
 import '../widgets/before_after_comparison.dart';
 
-class PreviewPanel extends StatelessWidget {
+class PreviewPanel extends StatefulWidget {
   const PreviewPanel({super.key});
+
+  @override
+  State<PreviewPanel> createState() => _PreviewPanelState();
+}
+
+class _PreviewPanelState extends State<PreviewPanel> {
+  // Track visual pan offset during drag (in pixels)
+  double _panOffsetPixels = 0.0;
+  bool _isDragging = false;
 
   @override
   Widget build(BuildContext context) {
     return Consumer<MainViewModel>(
       builder: (context, viewModel, child) {
+        // Reset pan offset when thumbnails are regenerated
+        if (!viewModel.isLoadingZoomedThumbnails && !_isDragging) {
+          _panOffsetPixels = 0.0;
+        }
+
         return Column(
           children: [
             // Preview comparison area
@@ -58,14 +72,110 @@ class PreviewPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Time display and zoom controls
+          // Time display, in/out controls, and zoom controls
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // Current time
-              Text(
-                _formatTime(viewModel.scrubberPosition * viewModel.videoDuration),
-                style: Theme.of(context).textTheme.bodySmall,
+              // Current time and in/out buttons
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _formatTime(viewModel.scrubberPosition * viewModel.videoDuration),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(width: 8),
+                  // In point button
+                  Tooltip(
+                    message: 'Set in point (start of export range)',
+                    child: InkWell(
+                      onTap: viewModel.setInPointToCurrent,
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: viewModel.inPoint != null
+                              ? Colors.green.withValues(alpha: 0.2)
+                              : colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: viewModel.inPoint != null
+                                ? Colors.green
+                                : colorScheme.outline.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Text(
+                          viewModel.inPoint != null
+                              ? 'In: ${_formatTime(viewModel.inPoint! * viewModel.videoDuration)}'
+                              : 'Set In',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: viewModel.inPoint != null
+                                    ? Colors.green
+                                    : colorScheme.onSurface.withValues(alpha: 0.7),
+                                fontWeight: viewModel.inPoint != null
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  // Out point button
+                  Tooltip(
+                    message: 'Set out point (end of export range)',
+                    child: InkWell(
+                      onTap: viewModel.setOutPointToCurrent,
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: viewModel.outPoint != null
+                              ? Colors.red.withValues(alpha: 0.2)
+                              : colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: viewModel.outPoint != null
+                                ? Colors.red
+                                : colorScheme.outline.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Text(
+                          viewModel.outPoint != null
+                              ? 'Out: ${_formatTime(viewModel.outPoint! * viewModel.videoDuration)}'
+                              : 'Set Out',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: viewModel.outPoint != null
+                                    ? Colors.red
+                                    : colorScheme.onSurface.withValues(alpha: 0.7),
+                                fontWeight: viewModel.outPoint != null
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Clear button (only show when in/out is set)
+                  if (viewModel.hasInOutRange) ...[
+                    const SizedBox(width: 4),
+                    Tooltip(
+                      message: 'Clear in/out points',
+                      child: InkWell(
+                        onTap: viewModel.clearInOutPoints,
+                        borderRadius: BorderRadius.circular(4),
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          child: Icon(
+                            Icons.clear,
+                            size: 14,
+                            color: colorScheme.onSurface.withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
 
               // Zoom controls
@@ -151,22 +261,39 @@ class PreviewPanel extends StatelessWidget {
           const SizedBox(height: 8),
 
           // Thumbnail strip with slider
-          Listener(
-            onPointerSignal: (event) {
-              if (event is PointerScrollEvent) {
-                // Mouse wheel zoom
-                if (event.scrollDelta.dy < 0) {
-                  viewModel.zoomIn();
-                } else if (event.scrollDelta.dy > 0) {
-                  viewModel.zoomOut();
-                }
-              }
-            },
-            child: SizedBox(
-              height: 60,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final timelineWidth = constraints.maxWidth;
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final timelineWidth = constraints.maxWidth;
+
+              return Listener(
+                onPointerSignal: (event) {
+                  if (event is PointerScrollEvent) {
+                    // Calculate normalized position under mouse
+                    final hoverX = event.localPosition.dx;
+                    final normalizedHover = (hoverX / timelineWidth).clamp(0.0, 1.0);
+
+                    // Convert to video position (account for zoom)
+                    double videoPosition;
+                    if (isZoomed) {
+                      final viewStart = viewModel.timelineViewStart;
+                      final viewEnd = viewModel.timelineViewEnd;
+                      videoPosition = viewStart + normalizedHover * (viewEnd - viewStart);
+                    } else {
+                      videoPosition = normalizedHover;
+                    }
+
+                    // Mouse wheel zoom centered on hover position
+                    if (event.scrollDelta.dy < 0) {
+                      viewModel.zoomInAt(videoPosition);
+                    } else if (event.scrollDelta.dy > 0) {
+                      viewModel.zoomOutAt(videoPosition);
+                    }
+                  }
+                },
+                child: SizedBox(
+                  height: 60,
+                  child: Builder(
+                    builder: (context) {
 
                   // Calculate playhead position within visible range
                   double playheadPosition;
@@ -186,21 +313,24 @@ class PreviewPanel extends StatelessWidget {
 
                   return Stack(
                     children: [
-                      // Thumbnail strip background
+                      // Thumbnail strip background with visual pan offset
                       if (thumbnails.isNotEmpty)
                         Positioned.fill(
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(4),
-                            child: Row(
-                              children: thumbnails.map((thumb) {
-                                return Expanded(
-                                  child: Image.memory(
-                                    thumb,
-                                    fit: BoxFit.cover,
-                                    gaplessPlayback: true,
-                                  ),
-                                );
-                              }).toList(),
+                            child: Transform.translate(
+                              offset: Offset(isZoomed ? _panOffsetPixels : 0, 0),
+                              child: Row(
+                                children: thumbnails.map((thumb) {
+                                  return Expanded(
+                                    child: Image.memory(
+                                      thumb,
+                                      fit: BoxFit.cover,
+                                      gaplessPlayback: true,
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
                             ),
                           ),
                         )
@@ -290,8 +420,21 @@ class PreviewPanel extends StatelessWidget {
                       // Gesture detector for scrubbing and panning
                       Positioned.fill(
                         child: GestureDetector(
+                          onHorizontalDragStart: (details) {
+                            if (isZoomed) {
+                              setState(() {
+                                _isDragging = true;
+                                _panOffsetPixels = 0.0;
+                              });
+                            }
+                          },
                           onHorizontalDragUpdate: (details) {
                             if (isZoomed) {
+                              // Update visual pan offset for immediate feedback
+                              setState(() {
+                                _panOffsetPixels += details.delta.dx;
+                              });
+
                               // Pan the timeline when zoomed
                               final panDelta =
                                   -details.delta.dx / timelineWidth /
@@ -302,6 +445,14 @@ class PreviewPanel extends StatelessWidget {
                               final position =
                                   details.localPosition.dx / timelineWidth;
                               viewModel.setScrubberPosition(position);
+                            }
+                          },
+                          onHorizontalDragEnd: (details) {
+                            if (isZoomed) {
+                              setState(() {
+                                _isDragging = false;
+                                // Pan offset will be reset when thumbnails regenerate
+                              });
                             }
                           },
                           onTapDown: (details) {
@@ -326,26 +477,125 @@ class PreviewPanel extends StatelessWidget {
                       ),
                     ],
                   );
-                },
-              ),
-            ),
+                    },
+                  ),
+                ),
+              );
+            },
           ),
 
           const SizedBox(height: 8),
 
-          // Slider for fine control
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 4,
-              thumbShape: const RoundSliderThumbShape(
-                enabledThumbRadius: 8,
-              ),
-            ),
-            child: Slider(
-              value: viewModel.scrubberPosition,
-              onChanged: (value) => viewModel.setScrubberPosition(value),
+          // Minimap showing full timeline and current view
+          SizedBox(
+            height: 12,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final minimapWidth = constraints.maxWidth;
+                final viewStart = viewModel.timelineViewStart;
+                final viewEnd = viewModel.timelineViewEnd;
+                final playheadX = viewModel.scrubberPosition * minimapWidth;
+
+                return GestureDetector(
+                  onTapDown: (details) {
+                    final tapPosition = details.localPosition.dx / minimapWidth;
+                    viewModel.setScrubberPosition(tapPosition.clamp(0.0, 1.0));
+                  },
+                  onHorizontalDragUpdate: (details) {
+                    final dragPosition = details.localPosition.dx / minimapWidth;
+                    viewModel.setScrubberPosition(dragPosition.clamp(0.0, 1.0));
+                  },
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                    child: Stack(
+                      children: [
+                        // Visible range highlight (only show when zoomed)
+                        if (isZoomed)
+                          Positioned(
+                            left: viewStart * minimapWidth,
+                            width: (viewEnd - viewStart) * minimapWidth,
+                            top: 0,
+                            bottom: 0,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: colorScheme.primary.withValues(alpha: 0.3),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          ),
+
+                        // Dimmed region before in point
+                        if (viewModel.inPoint != null)
+                          Positioned(
+                            left: 0,
+                            width: viewModel.inPoint! * minimapWidth,
+                            top: 0,
+                            bottom: 0,
+                            child: Container(
+                              color: Colors.black.withValues(alpha: 0.4),
+                            ),
+                          ),
+
+                        // Dimmed region after out point
+                        if (viewModel.outPoint != null)
+                          Positioned(
+                            left: viewModel.outPoint! * minimapWidth,
+                            right: 0,
+                            top: 0,
+                            bottom: 0,
+                            child: Container(
+                              color: Colors.black.withValues(alpha: 0.4),
+                            ),
+                          ),
+
+                        // In point marker (green)
+                        if (viewModel.inPoint != null)
+                          Positioned(
+                            left: viewModel.inPoint! * minimapWidth - 1,
+                            width: 2,
+                            top: 0,
+                            bottom: 0,
+                            child: Container(
+                              color: Colors.green,
+                            ),
+                          ),
+
+                        // Out point marker (red)
+                        if (viewModel.outPoint != null)
+                          Positioned(
+                            left: viewModel.outPoint! * minimapWidth - 1,
+                            width: 2,
+                            top: 0,
+                            bottom: 0,
+                            child: Container(
+                              color: Colors.red,
+                            ),
+                          ),
+
+                        // Playhead indicator
+                        Positioned(
+                          left: playheadX - 1,
+                          width: 2,
+                          top: 0,
+                          bottom: 0,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: colorScheme.primary,
+                              borderRadius: BorderRadius.circular(1),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
           ),
+
         ],
       ),
     );

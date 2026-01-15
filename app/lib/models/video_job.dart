@@ -25,6 +25,12 @@ class VideoJob {
   final int? totalFrames;
   final double? inputFrameRate;
 
+  /// Start frame for partial export (inclusive). Null means start from beginning.
+  final int? startFrame;
+
+  /// End frame for partial export (inclusive). Null means export to end.
+  final int? endFrame;
+
   VideoJob({
     String? id,
     required this.inputPath,
@@ -35,6 +41,8 @@ class VideoJob {
     this.detectedFieldOrder,
     this.totalFrames,
     this.inputFrameRate,
+    this.startFrame,
+    this.endFrame,
   })  : id = id ?? const Uuid().v4(),
         qtgmcParameters = qtgmcParameters ?? QTGMCParameters(),
         encodingSettings = encodingSettings ?? EncodingSettings();
@@ -58,6 +66,8 @@ class VideoJob {
     FieldOrder? detectedFieldOrder,
     int? totalFrames,
     double? inputFrameRate,
+    int? startFrame,
+    int? endFrame,
   }) {
     return VideoJob(
       id: id ?? this.id,
@@ -69,6 +79,8 @@ class VideoJob {
       detectedFieldOrder: detectedFieldOrder ?? this.detectedFieldOrder,
       totalFrames: totalFrames ?? this.totalFrames,
       inputFrameRate: inputFrameRate ?? this.inputFrameRate,
+      startFrame: startFrame ?? this.startFrame,
+      endFrame: endFrame ?? this.endFrame,
     );
   }
 }

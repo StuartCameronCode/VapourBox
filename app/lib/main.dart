@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'models/filter_registry.dart';
+import 'services/preset_service.dart';
 import 'viewmodels/main_viewmodel.dart';
 import 'views/main_window.dart';
 
@@ -11,6 +12,9 @@ void main() async {
 
   // Initialize filter registry (loads filter schemas from assets)
   await FilterRegistry.instance.initialize();
+
+  // Initialize preset service (loads built-in and user presets)
+  await PresetService.instance.initialize();
 
   // Initialize window manager for desktop
   await windowManager.ensureInitialized();

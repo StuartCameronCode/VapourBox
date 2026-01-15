@@ -13,7 +13,9 @@ import '../models/progress_info.dart';
 import '../models/qtgmc_parameters.dart';
 import '../models/restoration_pipeline.dart';
 import '../models/video_job.dart';
+import '../models/processing_preset.dart';
 import '../services/field_order_detector.dart';
+import '../services/preset_service.dart';
 import '../services/preview_generator.dart';
 import '../services/worker_manager.dart';
 
@@ -62,6 +64,10 @@ class MainViewModel extends ChangeNotifier {
   double _timelineViewStart = 0.0; // 0.0 to 1.0, normalized start position
   Timer? _zoomDebounceTimer;
   bool _isLoadingZoomedThumbnails = false;
+
+  // In/out point markers (normalized 0.0-1.0)
+  double? _inPoint;
+  double? _outPoint;
 
   // Subscriptions
   StreamSubscription<ProgressInfo>? _progressSub;
@@ -198,6 +204,17 @@ class MainViewModel extends ChangeNotifier {
   bool get isLoadingZoomedThumbnails => _isLoadingZoomedThumbnails;
   double get visibleStartTime => _timelineViewStart * videoDuration;
   double get visibleEndTime => timelineViewEnd * videoDuration;
+
+  // In/out point getters
+  double? get inPoint => _inPoint;
+  double? get outPoint => _outPoint;
+  double get effectiveInPoint => _inPoint ?? 0.0;
+  double get effectiveOutPoint => _outPoint ?? 1.0;
+  int? get inPointFrame =>
+      _inPoint != null ? (_inPoint! * (videoInfo?.frameCount ?? 0)).round() : null;
+  int? get outPointFrame =>
+      _outPoint != null ? (_outPoint! * (videoInfo?.frameCount ?? 0)).round() : null;
+  bool get hasInOutRange => _inPoint != null || _outPoint != null;
 
   bool get canProcess =>
       _inputPath != null &&
@@ -344,35 +361,42 @@ class MainViewModel extends ChangeNotifier {
 
   /// Zooms in on the timeline, centering on the current scrubber position.
   void zoomIn() {
+    zoomInAt(_scrubberPosition);
+  }
+
+  /// Zooms in on the timeline, centering on the specified position.
+  void zoomInAt(double centerPosition) {
     if (_timelineZoom >= 16.0) return; // Max zoom 16x
 
-    final oldZoom = _timelineZoom;
     _timelineZoom = (_timelineZoom * 1.5).clamp(1.0, 16.0);
 
-    // Adjust view start to keep scrubber position centered
-    _adjustViewForZoom(oldZoom);
+    // Adjust view start to keep center position stable
+    _adjustViewForZoomAt(centerPosition);
     notifyListeners();
     _requestThumbnailRegeneration();
   }
 
   /// Zooms out on the timeline.
   void zoomOut() {
+    zoomOutAt(_scrubberPosition);
+  }
+
+  /// Zooms out on the timeline, centering on the specified position.
+  void zoomOutAt(double centerPosition) {
     if (_timelineZoom <= 1.0) return;
 
-    final oldZoom = _timelineZoom;
     _timelineZoom = (_timelineZoom / 1.5).clamp(1.0, 16.0);
 
-    // Adjust view start to keep scrubber position centered
-    _adjustViewForZoom(oldZoom);
+    // Adjust view start to keep center position stable
+    _adjustViewForZoomAt(centerPosition);
     notifyListeners();
     _requestThumbnailRegeneration();
   }
 
   /// Sets the timeline zoom level directly.
   void setTimelineZoom(double zoom) {
-    final oldZoom = _timelineZoom;
     _timelineZoom = zoom.clamp(1.0, 16.0);
-    _adjustViewForZoom(oldZoom);
+    _adjustViewForZoomAt(_scrubberPosition);
     notifyListeners();
     _requestThumbnailRegeneration();
   }
@@ -387,15 +411,59 @@ class MainViewModel extends ChangeNotifier {
     _requestThumbnailRegeneration();
   }
 
-  /// Adjusts the view start to keep the scrubber position stable during zoom.
-  void _adjustViewForZoom(double oldZoom) {
+  /// Adjusts the view start to keep the specified position stable during zoom.
+  void _adjustViewForZoomAt(double centerPosition) {
     // Calculate the visible range width
     final newViewWidth = 1.0 / _timelineZoom;
     final maxStart = 1.0 - newViewWidth;
 
-    // Try to center on the scrubber position
-    final targetCenter = _scrubberPosition;
-    _timelineViewStart = (targetCenter - newViewWidth / 2).clamp(0.0, maxStart);
+    // Try to center on the specified position
+    _timelineViewStart = (centerPosition - newViewWidth / 2).clamp(0.0, maxStart);
+  }
+
+  /// Sets the in point to the current scrubber position.
+  void setInPointToCurrent() {
+    _inPoint = _scrubberPosition;
+    // Ensure in point is before out point
+    if (_outPoint != null && _inPoint! > _outPoint!) {
+      _outPoint = null;
+    }
+    notifyListeners();
+  }
+
+  /// Sets the out point to the current scrubber position.
+  void setOutPointToCurrent() {
+    _outPoint = _scrubberPosition;
+    // Ensure out point is after in point
+    if (_inPoint != null && _outPoint! < _inPoint!) {
+      _inPoint = null;
+    }
+    notifyListeners();
+  }
+
+  /// Sets the in point directly (normalized 0.0-1.0).
+  void setInPoint(double position) {
+    _inPoint = position.clamp(0.0, 1.0);
+    if (_outPoint != null && _inPoint! > _outPoint!) {
+      _outPoint = null;
+    }
+    notifyListeners();
+  }
+
+  /// Sets the out point directly (normalized 0.0-1.0).
+  void setOutPoint(double position) {
+    _outPoint = position.clamp(0.0, 1.0);
+    if (_inPoint != null && _outPoint! < _inPoint!) {
+      _inPoint = null;
+    }
+    notifyListeners();
+  }
+
+  /// Clears both in and out points.
+  void clearInOutPoints() {
+    _inPoint = null;
+    _outPoint = null;
+    notifyListeners();
   }
 
   /// Requests thumbnail regeneration with debouncing.
@@ -588,6 +656,19 @@ class MainViewModel extends ChangeNotifier {
     _logMessages.clear();
     notifyListeners();
 
+    // Calculate frame range from in/out points
+    int? startFrame;
+    int? endFrame;
+    if (_inPoint != null || _outPoint != null) {
+      final frameCount = _videoInfo?.frameCount ?? 0;
+      if (_inPoint != null) {
+        startFrame = (_inPoint! * frameCount).round();
+      }
+      if (_outPoint != null) {
+        endFrame = (_outPoint! * frameCount).round();
+      }
+    }
+
     // Build job configuration
     final job = VideoJob(
       id: const Uuid().v4(),
@@ -603,6 +684,8 @@ class MainViewModel extends ChangeNotifier {
       ),
       encodingSettings: _encodingSettings,
       totalFrames: _videoInfo?.frameCount,
+      startFrame: startFrame,
+      endFrame: endFrame,
     );
 
     try {
@@ -648,6 +731,46 @@ class MainViewModel extends ChangeNotifier {
       case ContainerFormat.avi:
         return '.avi';
     }
+  }
+
+  // ============================================================================
+  // PRESET MANAGEMENT
+  // ============================================================================
+
+  /// Get all available presets.
+  List<ProcessingPreset> get availablePresets => PresetService.instance.presets;
+
+  /// Load a preset, applying its settings.
+  void loadPreset(ProcessingPreset preset) {
+    _restorationPipeline = preset.pipeline;
+    _qtgmcParams = preset.pipeline.deinterlace;
+    _encodingSettings = preset.encodingSettings;
+
+    // Clear dynamic params cache to force refresh
+    _dynamicParams.clear();
+
+    notifyListeners();
+    _requestPreviewUpdate();
+  }
+
+  /// Save current settings as a new preset.
+  Future<ProcessingPreset> saveAsPreset(String name, {String? description}) async {
+    final preset = ProcessingPreset(
+      name: name,
+      description: description,
+      pipeline: _restorationPipeline,
+      encodingSettings: _encodingSettings,
+    );
+
+    await PresetService.instance.savePreset(preset);
+    return preset;
+  }
+
+  /// Delete a user preset.
+  Future<void> deletePreset(ProcessingPreset preset) async {
+    if (preset.isBuiltIn) return;
+    await PresetService.instance.deletePreset(preset);
+    notifyListeners();
   }
 
   @override

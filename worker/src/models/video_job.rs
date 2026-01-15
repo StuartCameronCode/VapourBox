@@ -39,6 +39,14 @@ pub struct VideoJob {
     /// Input video frame rate
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_frame_rate: Option<f64>,
+
+    /// Start frame for partial export (inclusive). None means start from beginning.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_frame: Option<i32>,
+
+    /// End frame for partial export (inclusive). None means export to end.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_frame: Option<i32>,
 }
 
 impl VideoJob {
