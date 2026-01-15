@@ -12,7 +12,7 @@ Both files should stay synchronized - README.md is for humans, CLAUDE.md is for 
 
 ## Project Overview
 
-VapourBox is a **cross-platform** (macOS + Windows) video deinterlacing application using QTGMC via VapourSynth. It provides a simple drag-and-drop interface as an alternative to more complex tools like Hybrid.
+VapourBox is a **cross-platform** (macOS + Windows) video restoration application using VapourSynth. It provides a simple drag-and-drop interface for deinterlacing, denoising, sharpening, and other video restoration tasks as an alternative to more complex tools like Hybrid.
 
 **Technology Stack:**
 - **UI**: Flutter (Dart) - cross-platform desktop app
@@ -56,12 +56,14 @@ VapourBox is a **cross-platform** (macOS + Windows) video deinterlacing applicat
 VapourBox/
 ├── app/                        # Flutter application
 │   ├── lib/
-│   │   ├── models/             # VideoJob, QTGMCParameters, ProgressInfo
+│   │   ├── models/             # VideoJob, FilterSchema, ProcessingPreset
 │   │   ├── viewmodels/         # MainViewModel, SettingsViewModel
-│   │   ├── views/              # MainWindow, DropZone, ProgressSection
+│   │   ├── views/              # MainWindow, DropZone, PreviewPanel
 │   │   │   └── settings/       # QTGMC parameter UI sections
-│   │   ├── services/           # WorkerManager, FieldOrderDetector
-│   │   └── utils/              # Platform utilities
+│   │   ├── services/           # WorkerManager, PresetService, FilterLoader
+│   │   └── widgets/            # Reusable UI widgets
+│   ├── assets/filters/         # Built-in filter schemas (JSON)
+│   │   └── core/               # Core filters (deinterlace, denoise, etc.)
 │   ├── macos/                  # macOS platform config
 │   └── windows/                # Windows platform config
 │
@@ -79,7 +81,7 @@ VapourBox/
 │   │       ├── macos.rs
 │   │       └── windows.rs
 │   └── templates/
-│       └── qtgmc_template.vpy  # VapourSynth script template
+│       └── pipeline_template.vpy  # VapourSynth script template
 │
 ├── deps/                       # Platform-specific dependencies
 │   ├── macos-arm64/
@@ -104,14 +106,9 @@ VapourBox/
 │   ├── download-deps-windows.ps1
 │   └── download-deps-macos.sh
 │
-├── packaging/                  # Platform installers
-│   ├── macos/                  # Info.plist, entitlements
-│   └── windows/                # NSIS installer config
-│
-└── legacy/                     # Original Swift code (reference)
-    ├── VapourBox/           # SwiftUI app
-    ├── VapourBoxWorker/     # Swift worker
-    └── Shared/                 # Shared models
+└── packaging/                  # Platform installers
+    ├── macos/                  # Info.plist, entitlements
+    └── windows/                # NSIS installer config
 ```
 
 ## Key Files
@@ -119,20 +116,34 @@ VapourBox/
 ### Rust Worker
 | File | Purpose |
 |------|---------|
-| `worker/src/models/video_job.rs` | Job config, EncodingSettings, enums |
+| `worker/src/models/video_job.rs` | Job config, EncodingSettings, restoration passes |
 | `worker/src/models/qtgmc_parameters.rs` | All 70+ QTGMC parameters (serde) |
 | `worker/src/script_generator.rs` | Template substitution for .vpy |
 | `worker/src/pipeline_executor.rs` | vspipe \| ffmpeg execution |
-| `worker/templates/qtgmc_template.vpy` | VapourSynth script template |
+| `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 
 ### Flutter App
 | File | Purpose |
 |------|---------|
 | `app/lib/models/video_job.dart` | Job config (json_serializable) |
 | `app/lib/models/qtgmc_parameters.dart` | QTGMC params matching Rust |
+| `app/lib/models/filter_schema.dart` | Filter schema data model |
+| `app/lib/models/processing_preset.dart` | Preset data model |
 | `app/lib/services/worker_manager.dart` | Process spawning, IPC |
+| `app/lib/services/filter_loader.dart` | Load filter schemas from JSON |
+| `app/lib/services/preset_service.dart` | Save/load user presets |
 | `app/lib/views/main_window.dart` | Main UI |
+| `app/lib/views/preview_panel.dart` | Timeline, thumbnails, in/out markers |
 | `app/lib/views/about_dialog.dart` | About dialog with licenses |
+
+### Filter System
+| File | Purpose |
+|------|---------|
+| `app/assets/filters/core/*.json` | Built-in filter schema definitions |
+| `app/lib/models/filter_schema.dart` | FilterSchema, ParameterDefinition models |
+| `app/lib/models/filter_registry.dart` | Singleton registry of all loaded filters |
+| `app/lib/services/filter_loader.dart` | Loads JSON schemas, validates structure |
+| `app/lib/widgets/filter_parameter_widget.dart` | Dynamic UI generation from schema |
 
 ## Build Commands
 
@@ -186,11 +197,32 @@ dart run build_runner build
 
 ## Common Tasks
 
+### Adding a New Filter (JSON Schema)
+
+1. Create JSON file in `app/assets/filters/core/` (or `~/.vapourbox/filters/` for user filters)
+2. Define required fields: `id`, `version`, `name`, `description`, `category`
+3. Add `methods` array with at least one method
+4. Add `parameters` object with `enabled` and `method` (hidden), plus filter-specific params
+5. Configure `ui.sections` to organize parameters in the UI
+6. For built-in filters: add to `pubspec.yaml` assets if new directory
+7. Restart app to load the filter
+
+See **Filter Schema System** section below for full schema reference and examples.
+
+### Adding a New Built-in Preset
+
+1. Edit `app/lib/services/preset_service.dart`
+2. Add new `ProcessingPreset` in `_createBuiltInPresets()`
+3. Configure `pipeline` with desired filter settings
+4. Set `isBuiltIn: true`
+
+See **Preset System** section below for details.
+
 ### Adding a New QTGMC Parameter
 
 1. Add to `worker/src/models/qtgmc_parameters.rs` (with serde attributes)
 2. Add to `app/lib/models/qtgmc_parameters.dart` (with json_annotation)
-3. Add to `worker/templates/qtgmc_template.vpy` using `{{#PARAM}}...{{/PARAM}}` syntax
+3. Add to `worker/templates/pipeline_template.vpy` using `{{#PARAM}}...{{/PARAM}}` syntax
 4. Add to `worker/src/script_generator.rs` substitution logic
 5. Add UI control in Flutter settings view
 
@@ -208,6 +240,371 @@ dart run build_runner build
 2. Create download script in `scripts/`
 3. Update `DependencyLocator` in Rust for new paths
 4. Add Flutter platform config if needed
+
+---
+
+## Filter Schema System
+
+VapourBox uses a JSON schema system for defining filters. This allows adding new VapourSynth filters without modifying Dart code.
+
+### Filter Locations
+
+- **Built-in filters**: `app/assets/filters/core/`
+- **User filters**: `~/.vapourbox/filters/` (created on first run)
+
+### Schema Structure
+
+```json
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "my_filter",
+  "version": "1.0.0",
+  "name": "My Filter",
+  "description": "What this filter does",
+  "category": "enhancement",
+  "icon": "auto_fix_high",
+  "order": 100,
+
+  "dependencies": {
+    "plugins": ["havsfunc"],
+    "vs_plugins": ["MyPlugin.dll"]
+  },
+
+  "methods": [
+    {
+      "id": "method_a",
+      "name": "Method A",
+      "description": "First algorithm",
+      "function": "haf.SomeFunction",
+      "parameters": ["param1", "param2"]
+    }
+  ],
+
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": { "hidden": true }
+    },
+    "method": {
+      "type": "enum",
+      "default": "method_a",
+      "options": ["method_a"],
+      "ui": { "hidden": true }
+    },
+    "param1": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.1,
+      "optional": true,
+      "vapoursynth": { "name": "strength" },
+      "ui": {
+        "label": "Strength",
+        "description": "Processing strength",
+        "widget": "slider",
+        "precision": 1
+      }
+    }
+  },
+
+  "ui": {
+    "sections": [
+      {
+        "title": "Settings",
+        "parameters": ["param1", "param2"],
+        "expanded": true
+      }
+    ]
+  }
+}
+```
+
+### Schema Reference
+
+#### Top-Level Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | Yes | Unique identifier (lowercase, underscores) |
+| `version` | string | Yes | Semantic version (e.g., "1.0.0") |
+| `name` | string | Yes | Display name in UI |
+| `description` | string | Yes | Brief description |
+| `category` | string | Yes | `restoration`, `enhancement`, `color`, `custom` |
+| `icon` | string | No | Material icon name |
+| `order` | integer | No | Sort order in filter list |
+| `dependencies` | object | No | Required plugins |
+| `methods` | array | Yes | Available processing methods |
+| `parameters` | object | Yes | Parameter definitions |
+| `ui` | object | No | UI layout configuration |
+
+#### Parameter Types
+
+| Type | Description | Additional Fields |
+|------|-------------|-------------------|
+| `boolean` | True/false toggle | - |
+| `integer` | Whole number | `min`, `max`, `step` |
+| `number` | Decimal number | `min`, `max`, `step` |
+| `string` | Text input | - |
+| `enum` | Selection from options | `options` (array) |
+
+#### Parameter Definition
+
+```json
+{
+  "type": "number",
+  "default": 1.0,
+  "min": 0.0,
+  "max": 10.0,
+  "step": 0.1,
+  "optional": true,
+  "vapoursynth": { "name": "vs_param_name" },
+  "ui": {
+    "label": "Display Name",
+    "description": "Tooltip text",
+    "widget": "slider",
+    "precision": 2,
+    "hidden": false,
+    "visibleWhen": { "method": ["method_a"] },
+    "booleanLabels": { "true": "Yes", "false": "No" }
+  }
+}
+```
+
+#### Optional Parameters
+
+When `"optional": true` is set:
+- Shows a checkbox to enable/disable the parameter
+- When disabled, parameter is not passed to VapourSynth (uses VS default)
+- When enabled, user-specified value is used
+
+#### Conditional Visibility (`visibleWhen`)
+
+Show parameters only when certain conditions are met:
+
+```json
+"visibleWhen": { "method": ["method_a", "method_b"] }
+```
+
+The parameter is visible when the `method` parameter equals any of the listed values.
+
+#### Widget Types
+
+| Widget | Best For |
+|--------|----------|
+| `slider` | Numeric values with min/max range |
+| `dropdown` | Enum selections |
+| `checkbox` | Boolean values |
+| `textfield` | Free-form text |
+| `number` | Numeric input without slider |
+
+### Adding a New Filter
+
+1. Create JSON file in `app/assets/filters/core/` (built-in) or `~/.vapourbox/filters/` (user)
+2. Define required fields: `id`, `version`, `name`, `description`, `category`, `methods`, `parameters`
+3. Add `enabled` and `method` parameters (usually hidden)
+4. Define processing parameters with appropriate types and UI config
+5. Configure `ui.sections` to organize parameters
+6. Restart app (or it auto-detects user filters on launch)
+
+### Filter Example: Simple Sharpening
+
+```json
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "simple_sharpen",
+  "version": "1.0.0",
+  "name": "Simple Sharpen",
+  "description": "Basic unsharp mask sharpening",
+  "category": "enhancement",
+  "icon": "blur_on",
+  "order": 50,
+
+  "methods": [
+    {
+      "id": "unsharp",
+      "name": "Unsharp Mask",
+      "description": "Standard unsharp mask",
+      "function": "core.std.MakeDiff",
+      "parameters": ["strength"]
+    }
+  ],
+
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": { "hidden": true }
+    },
+    "method": {
+      "type": "enum",
+      "default": "unsharp",
+      "options": ["unsharp"],
+      "ui": { "hidden": true }
+    },
+    "strength": {
+      "type": "number",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 2.0,
+      "step": 0.1,
+      "ui": {
+        "label": "Strength",
+        "description": "Sharpening intensity",
+        "widget": "slider",
+        "precision": 1
+      }
+    }
+  },
+
+  "ui": {
+    "sections": [
+      {
+        "title": "Settings",
+        "parameters": ["strength"],
+        "expanded": true
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Preset System
+
+### Overview
+
+Presets save and restore complete filter pipeline configurations. Users can save their settings for reuse across sessions.
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `app/lib/models/processing_preset.dart` | ProcessingPreset data model |
+| `app/lib/services/preset_service.dart` | Save/load presets, manage built-in presets |
+
+### Preset Model
+
+```dart
+class ProcessingPreset {
+  final String id;
+  final String name;
+  final String? description;
+  final RestorationPipeline pipeline;      // All filter settings
+  final EncodingSettings encodingSettings; // Output codec settings
+  final DateTime createdAt;
+  final bool isBuiltIn;
+}
+```
+
+### Built-in Presets
+
+Located in `PresetService._createBuiltInPresets()`:
+- **Fast**: Quick processing, Draft quality
+- **Balanced**: Good quality/speed tradeoff
+- **High Quality**: Best quality, slower
+- **VHS Restoration**: Specialized for VHS sources
+
+### Preset Storage
+
+- **Built-in**: Defined in code, `isBuiltIn: true`
+- **User presets**: Saved to `~/.vapourbox/presets/*.json`
+
+### Adding a Built-in Preset
+
+Edit `app/lib/services/preset_service.dart`:
+
+```dart
+ProcessingPreset(
+  id: 'my_preset',
+  name: 'My Preset',
+  description: 'What this preset does',
+  pipeline: RestorationPipeline(
+    deinterlace: DeinterlacePass(enabled: true, ...),
+    denoise: DenoisePass(enabled: true, ...),
+    // ... other passes
+  ),
+  encodingSettings: EncodingSettings(...),
+  createdAt: DateTime.now(),
+  isBuiltIn: true,
+)
+```
+
+---
+
+## Timeline and Preview System
+
+### Overview
+
+The timeline provides thumbnail-based navigation with zoom, pan, and in/out point markers.
+
+### Key Features
+
+- **Thumbnail strip**: Click to jump, drag to scrub
+- **Mouse wheel zoom**: Centers on cursor position
+- **Visual pan feedback**: Thumbnails slide during drag
+- **Minimap**: Shows current view position in full video
+- **In/Out markers**: Set export range with draggable handles
+
+### Timeline State (MainViewModel)
+
+```dart
+// Zoom state
+double _timelineZoom = 1.0;        // 1.0 = full view, 4.0 = 4x zoom
+double _timelineViewStart = 0.0;  // Normalized start position
+
+// In/Out markers
+double? _inPoint;   // Normalized 0.0-1.0
+double? _outPoint;  // Normalized 0.0-1.0
+```
+
+### Key Methods
+
+```dart
+// Zoom at specific position (for mouse wheel)
+void zoomInAt(double normalizedPosition);
+void zoomOutAt(double normalizedPosition);
+
+// Pan timeline
+void panTimeline(double deltaNormalized);
+
+// In/Out points
+void setInPointToCurrent();
+void setOutPointToCurrent();
+void clearInOutPoints();
+
+// Get frame numbers for export
+int? get inPointFrame;
+int? get outPointFrame;
+```
+
+### Visual Pan Feedback
+
+The `PreviewPanel` is a `StatefulWidget` that tracks drag state:
+
+```dart
+double _panOffsetPixels = 0.0;  // Visual offset during drag
+bool _isDragging = false;
+
+// Applied via Transform.translate to thumbnail Row
+Transform.translate(
+  offset: Offset(isZoomed ? _panOffsetPixels : 0, 0),
+  child: Row(children: thumbnails...),
+)
+```
+
+### Export Integration
+
+When in/out points are set, `VideoJob` includes:
+
+```dart
+final int? startFrame;  // From inPoint * totalFrames
+final int? endFrame;    // From outPoint * totalFrames
+```
+
+The Rust worker uses these to trim the output via VapourSynth slicing.
 
 ## QTGMC Parameters Reference
 
@@ -289,7 +686,12 @@ input.format.color_family != vs.YUV
 3. **Plugin load failures**: Check environment variables in `DependencyLocator`
 4. **Progress not updating**: Check stdout parsing in `WorkerManager`
 5. **Encoding fails**: Run generated .vpy script manually with vspipe
-6. **Template not found**: Check that `worker/templates/qtgmc_template.vpy` exists and search paths in `script_generator.rs`
+6. **Template not found**: Check that `worker/templates/pipeline_template.vpy` exists and search paths in `script_generator.rs`
+7. **Filter not appearing**: Check JSON syntax in filter schema file, verify `id` is unique
+8. **Filter parameter not working**: Check `vapoursynth.name` matches actual VS parameter name
+9. **Preset not loading**: Check JSON file in `~/.vapourbox/presets/`, verify structure matches `ProcessingPreset`
+10. **Timeline zoom issues**: Check `timelineZoom` and `timelineViewStart` bounds in `MainViewModel`
+11. **In/Out points not exporting**: Verify `startFrame`/`endFrame` in VideoJob JSON sent to worker
 
 ## Windows-Specific Notes
 
@@ -369,7 +771,7 @@ VapourBox-1.0.0-windows-x64/
 ├── *.dll                         # Flutter runtime DLLs
 ├── data/                         # Flutter assets
 ├── templates/
-│   └── qtgmc_template.vpy
+│   └── pipeline_template.vpy
 ├── deps/
 │   ├── vapoursynth/
 │   │   ├── VSPipe.exe
@@ -405,7 +807,7 @@ VapourBox.app/Contents/
 │   └── libvapoursynth-script.dylib
 ├── Resources/
 │   ├── Templates/
-│   │   └── qtgmc_template.vpy
+│   │   └── pipeline_template.vpy
 │   ├── PythonPackages/          # havsfunc, mvsfunc
 │   └── NNEDI3/
 │       └── nnedi3_weights.bin
