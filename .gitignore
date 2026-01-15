@@ -89,6 +89,16 @@ deps/**/*.rst
 deps/**/MANIFEST.in
 deps/**/vsgenstubs*
 deps/**/vsrepo.py
+deps/**/7z.dll
+deps/**/cython/
+deps/**/vsscript/
+
+# Loose files in deps root (downloaded/extracted)
+deps/**/python-packages/
+deps/windows-x64/*.dll
+deps/windows-x64/*.bin
+deps/macos-*/*.dylib
+deps/macos-*/*.bin
 
 # =============================================================================
 # Build Outputs
