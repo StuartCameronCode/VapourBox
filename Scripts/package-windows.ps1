@@ -117,7 +117,6 @@ if (-not (Test-Path $WorkerExe)) {
 Copy-Item $WorkerExe "$PackageDir\"
 
 # Copy VapourSynth script templates
-Copy-Item (Join-Path $ProjectRoot "worker\templates\qtgmc_template.vpy") "$PackageDir\templates\"
 Copy-Item (Join-Path $ProjectRoot "worker\templates\pipeline_template.vpy") "$PackageDir\templates\"
 Copy-Item (Join-Path $ProjectRoot "worker\templates\preview_template.vpy") "$PackageDir\templates\"
 
@@ -149,6 +148,19 @@ foreach ($dir in $UnnecessaryDirs) {
     $path = Join-Path "$PackageDir\deps\windows-x64\vapoursynth" $dir
     if (Test-Path $path) { Remove-Item -Recurse -Force $path }
 }
+
+# Remove __pycache__ directories recursively
+Get-ChildItem -Path "$PackageDir\deps\windows-x64\vapoursynth" -Directory -Recurse -Filter "__pycache__" | Remove-Item -Recurse -Force
+
+# Remove development files from site-packages
+$DevDirs = @("cython", "vsscript")
+foreach ($dir in $DevDirs) {
+    $path = Join-Path "$PackageDir\deps\windows-x64\vapoursynth\Lib\site-packages" $dir
+    if (Test-Path $path) { Remove-Item -Recurse -Force $path }
+}
+
+# Remove temporary files (tmpclaude-*, etc.)
+Get-ChildItem -Path "$PackageDir\deps\windows-x64\vapoursynth" -Recurse -Filter "tmpclaude-*" | Remove-Item -Force
 
 # FFmpeg
 Write-Host "    Copying FFmpeg..."

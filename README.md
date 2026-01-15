@@ -227,13 +227,20 @@ Output: `dist/VapourBox.app` and `dist/VapourBox-1.0.0-macos-arm64.zip`
 ### Package Contents
 
 The packaged application includes:
-- Flutter application executable
-- Rust worker executable
-- VapourSynth (vspipe) and plugins
+- Flutter application executable (`vapourbox.exe`)
+- Rust worker executable (`vapourbox-worker.exe`)
+- VapourSynth (VSPipe) and plugins
 - FFmpeg
 - Python runtime and packages (havsfunc, mvsfunc)
-- QTGMC script templates
+- VapourSynth script templates
 - License files (GPL, LGPL, NOTICES)
+
+### Packaging Options
+
+| Flag | Description |
+|------|-------------|
+| `-Version` | Set version number (default: "1.0.0") |
+| `-SkipBuild` | Skip Flutter and Rust compilation (use existing builds) |
 
 ---
 

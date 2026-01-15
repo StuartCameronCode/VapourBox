@@ -766,22 +766,30 @@ Uses `cmd /c explorer /select, <path>` to open File Explorer with the file selec
 Creates `dist/VapourBox-1.0.0-windows-x64.zip` containing:
 ```
 VapourBox-1.0.0-windows-x64/
-├── vapourbox.exe              # Flutter app
-├── vapourbox-worker.exe       # Rust worker
+├── vapourbox.exe                 # Flutter app
+├── vapourbox-worker.exe          # Rust worker
 ├── *.dll                         # Flutter runtime DLLs
 ├── data/                         # Flutter assets
 ├── templates/
-│   └── pipeline_template.vpy
-├── deps/
+│   ├── pipeline_template.vpy     # Main processing template
+│   └── preview_template.vpy      # Preview generation template
+├── deps/windows-x64/
 │   ├── vapoursynth/
 │   │   ├── VSPipe.exe
-│   │   ├── vs-plugins/           # VapourSynth plugins
-│   │   └── Lib/site-packages/    # Python packages
+│   │   ├── vs-plugins/           # VapourSynth plugins (.dll)
+│   │   └── Lib/site-packages/    # Python packages (havsfunc, mvsfunc)
 │   └── ffmpeg/
 │       └── ffmpeg.exe
+├── licenses/                     # GPL, LGPL, NOTICES
 ├── Launch VapourBox.bat
 └── README.txt
 ```
+
+The packaging script automatically removes unnecessary files:
+- Documentation, SDK, and development files
+- `__pycache__` directories
+- Temp files (`tmpclaude-*`, etc.)
+- Unused utilities (`7z.exe`, `vsrepo.py`, etc.)
 
 ### macOS Packaging
 
