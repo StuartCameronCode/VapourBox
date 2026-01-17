@@ -1,0 +1,32 @@
+#!/bin/bash
+# VapourSynth vspipe wrapper - fully self-contained, no Homebrew dependency
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DEPS_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Use our embedded Python
+export PATH="$DEPS_ROOT/python/bin:$PATH"
+export PYTHONHOME="$DEPS_ROOT/python"
+
+# Set plugin path to our bundled plugins
+export VAPOURSYNTH_PLUGIN_PATH="$SCRIPT_DIR/plugins"
+
+# Set Python path to load our vapoursynth module and packages
+export PYTHONPATH="$DEPS_ROOT/python-packages:${PYTHONPATH:-}"
+
+# Add our lib directories to dylib search path
+export DYLD_LIBRARY_PATH="$SCRIPT_DIR:$DEPS_ROOT/python/lib:${DYLD_LIBRARY_PATH:-}"
+
+# Generate config dynamically with correct absolute path
+CONF_FILE=$(mktemp)
+cat > "$CONF_FILE" << EOF
+UserPluginDir=$SCRIPT_DIR/plugins
+AutoloadUserPluginDir=true
+AutoloadSystemPluginDir=false
+EOF
+export VAPOURSYNTH_CONF_PATH="$CONF_FILE"
+
+# Run vspipe and clean up config
+"$SCRIPT_DIR/vspipe-bin" "$@"
+EXIT_CODE=$?
+rm -f "$CONF_FILE"
+exit $EXIT_CODE
