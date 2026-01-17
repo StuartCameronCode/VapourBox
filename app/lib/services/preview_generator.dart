@@ -271,7 +271,8 @@ class PreviewGenerator {
       _previewLog.add('[${DateTime.now().toIso8601String()}] Starting preview generation for frame $frameNumber');
 
       // Run worker in preview mode
-      _previewProcess = await Process.start(
+      // Use local variable to avoid race conditions when another preview request cancels this one
+      final process = await Process.start(
         _workerPath!,
         [
           '--config', configPath,
@@ -279,9 +280,11 @@ class PreviewGenerator {
           '--frame', frameNumber.toString(),
         ],
       );
+      _previewProcess = process;
 
       if (cancelToken?.isCancelled ?? false) {
-        _previewProcess?.kill();
+        process.kill();
+        _previewProcess = null;
         return null;
       }
 
@@ -289,8 +292,8 @@ class PreviewGenerator {
       final pngBytes = <int>[];
       final stderrBuffer = StringBuffer();
 
-      // Listen to stderr asynchronously
-      final stderrFuture = _previewProcess!.stderr
+      // Listen to stderr asynchronously (use local variable to avoid race conditions)
+      final stderrFuture = process.stderr
           .transform(utf8.decoder)
           .forEach((data) {
         stderrBuffer.write(data);
@@ -302,9 +305,10 @@ class PreviewGenerator {
         }
       });
 
-      await for (final chunk in _previewProcess!.stdout) {
+      await for (final chunk in process.stdout) {
         if (cancelToken?.isCancelled ?? false) {
-          _previewProcess?.kill();
+          process.kill();
+          _previewProcess = null;
           return null;
         }
         pngBytes.addAll(chunk);
@@ -313,8 +317,8 @@ class PreviewGenerator {
       // Wait for stderr to finish
       await stderrFuture;
 
-      // Wait for process to complete
-      final exitCode = await _previewProcess!.exitCode;
+      // Wait for process to complete (use local variable to avoid race conditions)
+      final exitCode = await process.exitCode;
       _previewProcess = null;
 
       // Log the result

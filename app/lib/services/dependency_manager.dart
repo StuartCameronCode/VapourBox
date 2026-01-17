@@ -179,7 +179,9 @@ class DependencyManager {
       // From app/build/windows/x64/runner/Debug/ up 6 levels
       final devDeps = Directory(path.join(appDir, '..', '..', '..', '..', '..', '..', 'deps', 'windows-x64'));
       if (await devDeps.exists()) {
-        return Directory(await devDeps.resolveSymbolicLinks());
+        final resolved = Directory(await devDeps.resolveSymbolicLinks());
+        print('DependencyManager: Found dev deps at ${resolved.path}');
+        return resolved;
       }
 
       // Fall back to production path (will trigger download)
