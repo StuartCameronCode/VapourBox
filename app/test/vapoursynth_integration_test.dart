@@ -117,8 +117,6 @@ clip.set_output()
       expect(result.exitCode, 0, reason: 'stderr: ${result.stderr}');
     });
 
-    // Skip: DFTTest crashes on macOS arm64 - likely fftw compatibility issue
-    // TODO: Rebuild fftw with proper arm64 support or find pre-built version
     test('DFTTest works', () async {
       final script = '''
 import vapoursynth as vs
@@ -133,7 +131,7 @@ clip.set_output()
 
       final result = await _runVspipeScript(vspipePath, script, outputFrames: true);
       expect(result.exitCode, 0, reason: 'stderr: ${result.stderr}');
-    }, skip: 'DFTTest crashes on macOS arm64 - fftw compatibility issue');
+    });
 
     test('CAS (Contrast Adaptive Sharpening) works', () async {
       final script = '''
