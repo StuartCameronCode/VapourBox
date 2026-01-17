@@ -52,6 +52,8 @@ fn create_base_job(output_name: &str) -> VideoJob {
         detected_field_order: Some(FieldOrder::TopFieldFirst),
         total_frames: None,
         input_frame_rate: None,
+        start_frame: None,
+        end_frame: None,
     }
 }
 

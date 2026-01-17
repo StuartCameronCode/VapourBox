@@ -180,16 +180,24 @@ class WorkerManager {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
     final workerExe = 'vapourbox-worker${Platform.isWindows ? '.exe' : ''}';
 
-    // For development builds, the exe is in:
-    // app/build/windows/x64/runner/Debug/ or Release/
-    // Worker is at: worker/target/release/
-    // So we need to go up 6 levels from Debug to project root
-    final devPaths = [
-      '$exeDir/$workerExe',
-      // Relative to project root (go up from app/build/windows/x64/runner/Debug)
-      '$exeDir/../../../../../../worker/target/release/$workerExe',
-      '$exeDir/../../../../../../worker/target/debug/$workerExe',
-    ];
+    List<String> devPaths;
+    if (Platform.isWindows) {
+      // Windows: app/build/windows/x64/runner/Debug/ - 6 levels to project root
+      devPaths = [
+        '$exeDir/$workerExe',
+        '$exeDir/../../../../../../worker/target/release/$workerExe',
+        '$exeDir/../../../../../../worker/target/debug/$workerExe',
+      ];
+    } else if (Platform.isMacOS) {
+      // macOS: app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS - 9 levels to project root
+      devPaths = [
+        '$exeDir/$workerExe',
+        '$exeDir/../../../../../../../../../worker/target/release/$workerExe',
+        '$exeDir/../../../../../../../../../worker/target/debug/$workerExe',
+      ];
+    } else {
+      devPaths = ['$exeDir/$workerExe'];
+    }
 
     for (final path in devPaths) {
       final file = File(path);
@@ -238,20 +246,32 @@ class WorkerManager {
       // VapourSynth plugin path
       env['VAPOURSYNTH_PLUGIN_PATH'] = '$depsDir\\vapoursynth\\vs-plugins';
     } else if (Platform.isMacOS) {
-      // Python framework
-      env['PYTHONHOME'] = '$depsDir/python';
+      // Check if we have a bundled Python framework (production) or use Homebrew (development)
+      final bundledPython = Directory('$depsDir/python');
+      if (await bundledPython.exists()) {
+        env['PYTHONHOME'] = '$depsDir/python';
+      }
+      // Don't set PYTHONHOME for development - use system Python from Homebrew
+
+      // Python packages path
       env['PYTHONPATH'] = '$depsDir/python-packages';
 
-      // VapourSynth
+      // VapourSynth plugins
       env['VAPOURSYNTH_PLUGIN_PATH'] = '$depsDir/vapoursynth/plugins';
 
       // Add to PATH
       final paths = [
-        '$depsDir/python/bin',
         '$depsDir/vapoursynth',
         '$depsDir/ffmpeg',
       ];
-      env['PATH'] = '${paths.join(':')};${env['PATH'] ?? ''}';
+      // Only add bundled Python to PATH if it exists
+      if (await bundledPython.exists()) {
+        paths.insert(0, '$depsDir/python/bin');
+      }
+      env['PATH'] = '${paths.join(':')}:${env['PATH'] ?? ''}';
+
+      // Set DYLD_LIBRARY_PATH for VapourSynth libraries
+      env['DYLD_LIBRARY_PATH'] = '$depsDir/vapoursynth:${env['DYLD_LIBRARY_PATH'] ?? ''}';
     }
 
     return env;
@@ -282,11 +302,12 @@ class WorkerManager {
       }
 
       // Development: go up to project root and find deps/macos-arm64 or macos-x64
-      final devDepsArm = Directory('$exeDir/../../../../../../deps/macos-arm64');
+      // From app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS up 9 levels
+      final devDepsArm = Directory('$exeDir/../../../../../../../../../deps/macos-arm64');
       if (await devDepsArm.exists()) {
         return devDepsArm.absolute.path;
       }
-      final devDepsX64 = Directory('$exeDir/../../../../../../deps/macos-x64');
+      final devDepsX64 = Directory('$exeDir/../../../../../../../../../deps/macos-x64');
       if (await devDepsX64.exists()) {
         return devDepsX64.absolute.path;
       }

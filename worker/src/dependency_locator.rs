@@ -147,20 +147,30 @@ impl DependencyLocator {
         Ok(path)
     }
 
-    /// Get the Python home directory.
-    pub fn python_home(&self) -> PathBuf {
+    /// Get the Python home directory, or None if Python is not bundled.
+    pub fn python_home(&self) -> Option<PathBuf> {
         let platform_dir = self.platform_dir();
 
         #[cfg(target_os = "macos")]
         {
-            // macOS uses Python.framework
-            platform_dir.join("python").join("Python.framework").join("Versions").join("Current")
+            // macOS: Check for python-build-standalone embedded Python
+            let python_dir = platform_dir.join("python");
+            if python_dir.join("bin").join("python3.12").exists() {
+                return Some(python_dir);
+            }
+            // Legacy: Check if Python.framework is bundled
+            let python_framework = python_dir.join("Python.framework").join("Versions").join("Current");
+            if python_framework.exists() {
+                return Some(python_framework);
+            }
+            // Development mode: no bundled Python, use system Python
+            None
         }
 
         #[cfg(target_os = "windows")]
         {
             // Windows: Python 3.8 is bundled inside VapourSynth portable
-            platform_dir.join("vapoursynth")
+            Some(platform_dir.join("vapoursynth"))
         }
     }
 
@@ -171,11 +181,17 @@ impl DependencyLocator {
 
         #[cfg(target_os = "macos")]
         {
-            // Custom Python packages first
+            // Custom Python packages first (always needed)
             paths.push(platform_dir.join("python-packages").to_string_lossy().to_string());
-            let python_home = self.python_home();
-            paths.push(python_home.join("lib").join("python3.14").join("site-packages").to_string_lossy().to_string());
-            paths.push(python_home.join("lib").join("python3.11").join("site-packages").to_string_lossy().to_string());
+
+            // Add bundled Python site-packages if available
+            if let Some(python_home) = self.python_home() {
+                // Python 3.12 from python-build-standalone
+                paths.push(python_home.join("lib").join("python3.12").join("site-packages").to_string_lossy().to_string());
+                // Legacy support for other Python versions
+                paths.push(python_home.join("lib").join("python3.14").join("site-packages").to_string_lossy().to_string());
+                paths.push(python_home.join("lib").join("python3.11").join("site-packages").to_string_lossy().to_string());
+            }
         }
 
         #[cfg(target_os = "windows")]
@@ -229,7 +245,10 @@ impl DependencyLocator {
 
         #[cfg(target_os = "macos")]
         {
-            paths.push(self.python_home().join("bin").to_string_lossy().to_string());
+            // Add bundled Python bin if available
+            if let Some(python_home) = self.python_home() {
+                paths.push(python_home.join("bin").to_string_lossy().to_string());
+            }
         }
 
         // On Windows, Python is bundled inside vapoursynth directory (already in path)
@@ -248,8 +267,10 @@ impl DependencyLocator {
         // Clear problematic variables
         env.insert("PYTHONNOUSERSITE".to_string(), "1".to_string());
 
-        // Set Python environment
-        env.insert("PYTHONHOME".to_string(), self.python_home().to_string_lossy().to_string());
+        // Set Python environment (only PYTHONHOME if Python is bundled)
+        if let Some(python_home) = self.python_home() {
+            env.insert("PYTHONHOME".to_string(), python_home.to_string_lossy().to_string());
+        }
         env.insert("PYTHONPATH".to_string(), self.python_path());
 
         // Set VapourSynth plugin path
@@ -276,9 +297,16 @@ impl DependencyLocator {
 
         #[cfg(target_os = "macos")]
         {
-            // macOS library path
-            let lib_path = self.platform_dir().join("vapoursynth");
-            env.insert("DYLD_LIBRARY_PATH".to_string(), lib_path.to_string_lossy().to_string());
+            // macOS library path for VapourSynth and Python
+            let vs_lib_path = self.platform_dir().join("vapoursynth");
+            let python_lib_path = self.platform_dir().join("python").join("lib");
+            let existing_dyld = std::env::var("DYLD_LIBRARY_PATH").unwrap_or_default();
+            let new_dyld = if existing_dyld.is_empty() {
+                format!("{}:{}", vs_lib_path.to_string_lossy(), python_lib_path.to_string_lossy())
+            } else {
+                format!("{}:{}:{}", vs_lib_path.to_string_lossy(), python_lib_path.to_string_lossy(), existing_dyld)
+            };
+            env.insert("DYLD_LIBRARY_PATH".to_string(), new_dyld);
         }
 
         env

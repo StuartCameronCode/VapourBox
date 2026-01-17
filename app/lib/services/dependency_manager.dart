@@ -169,9 +169,23 @@ class DependencyManager {
     final appDir = path.dirname(executablePath);
 
     if (Platform.isWindows) {
-      return Directory(path.join(appDir, 'deps', 'windows-x64'));
+      // Production: deps folder next to executable
+      final prodDeps = Directory(path.join(appDir, 'deps', 'windows-x64'));
+      if (await prodDeps.exists()) {
+        return prodDeps;
+      }
+
+      // Development: go up to project root and find deps/windows-x64
+      // From app/build/windows/x64/runner/Debug/ up 6 levels
+      final devDeps = Directory(path.join(appDir, '..', '..', '..', '..', '..', '..', 'deps', 'windows-x64'));
+      if (await devDeps.exists()) {
+        return Directory(await devDeps.resolveSymbolicLinks());
+      }
+
+      // Fall back to production path (will trigger download)
+      return prodDeps;
     } else if (Platform.isMacOS) {
-      // In .app bundle: Contents/MacOS/../Frameworks or alongside app
+      // Production: In .app bundle: Contents/Frameworks
       final contentsDir = path.dirname(path.dirname(appDir));
       final frameworksDir = path.join(contentsDir, 'Frameworks');
 
@@ -179,7 +193,18 @@ class DependencyManager {
         return Directory(frameworksDir);
       }
 
-      // Development mode - use project deps folder
+      // Development: go up to project root and find deps/macos-arm64 or macos-x64
+      // From app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS up 9 levels
+      final devDepsArm = Directory(path.join(appDir, '..', '..', '..', '..', '..', '..', '..', '..', '..', 'deps', 'macos-arm64'));
+      if (await devDepsArm.exists()) {
+        return Directory(await devDepsArm.resolveSymbolicLinks());
+      }
+      final devDepsX64 = Directory(path.join(appDir, '..', '..', '..', '..', '..', '..', '..', '..', '..', 'deps', 'macos-x64'));
+      if (await devDepsX64.exists()) {
+        return Directory(await devDepsX64.resolveSymbolicLinks());
+      }
+
+      // Fall back to production-style path (will trigger download)
       return Directory(path.join(appDir, 'deps', platformId));
     }
 
@@ -277,8 +302,9 @@ class DependencyManager {
       ];
     } else if (Platform.isMacOS) {
       return [
-        'vspipe',
-        'ffmpeg',
+        'vapoursynth/vspipe',
+        'vapoursynth/plugins',
+        'ffmpeg/ffmpeg',
       ];
     }
     return [];
@@ -438,6 +464,27 @@ class DependencyManager {
       } else {
         await Directory(filePath).create(recursive: true);
       }
+    }
+
+    // On macOS, remove quarantine attribute to allow execution without Gatekeeper blocking
+    if (Platform.isMacOS) {
+      await _removeQuarantine(depsDir.path);
+    }
+  }
+
+  /// Remove quarantine extended attribute on macOS.
+  /// This allows downloaded binaries to run without Gatekeeper blocking them.
+  Future<void> _removeQuarantine(String directoryPath) async {
+    try {
+      final result = await Process.run('xattr', ['-cr', directoryPath]);
+      if (result.exitCode == 0) {
+        print('DependencyManager: Removed quarantine attribute from $directoryPath');
+      } else {
+        print('DependencyManager: xattr warning: ${result.stderr}');
+      }
+    } catch (e) {
+      // xattr should always be available on macOS, but don't fail if it isn't
+      print('DependencyManager: Could not remove quarantine: $e');
     }
   }
 

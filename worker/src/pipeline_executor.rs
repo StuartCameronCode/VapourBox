@@ -456,6 +456,8 @@ mod tests {
             detected_field_order: None,
             total_frames: None,
             input_frame_rate: None,
+            start_frame: None,
+            end_frame: None,
         };
 
         // We can't fully test without dependencies, but the struct compiles

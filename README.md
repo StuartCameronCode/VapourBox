@@ -84,7 +84,7 @@ VapourBox/
 
 ### macOS
 - Xcode Command Line Tools
-- Homebrew
+- Homebrew (for building dependencies only - not required at runtime)
 
 ## Quick Start
 
@@ -484,7 +484,7 @@ The parameter is visible when the `method` parameter equals any of the listed va
 
 | Component | Version | Purpose |
 |-----------|---------|---------|
-| Python | 3.8 (Windows) / 3.11+ (macOS) | VapourSynth runtime |
+| Python | 3.8 (Windows) / 3.12 (macOS, embedded) | VapourSynth runtime |
 | VapourSynth | R73 | Video processing framework |
 | FFmpeg | Latest | Video encoding |
 | mvtools | v24 | Motion estimation |

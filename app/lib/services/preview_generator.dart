@@ -75,8 +75,8 @@ class PreviewGenerator {
     final ext = Platform.isWindows ? '.exe' : '';
 
     // Check bundled locations - include both debug and release builds for development
-    // Flutter debug build is at: app/build/windows/x64/runner/Debug/vapourbox.exe
-    // Worker is at: worker/target/debug/vapourbox-worker.exe (6 levels up from exe)
+    // Windows: app/build/windows/x64/runner/Debug/ - 6 levels to project root
+    // macOS: app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS - 9 levels to project root
     final bundledPaths = Platform.isWindows
         ? [
             '$exeDir\\vapourbox-worker$ext',
@@ -86,9 +86,9 @@ class PreviewGenerator {
           ]
         : [
             '$exeDir/../Helpers/vapourbox-worker',
-            // Development: go up from app/build/macos/... to project root
-            '$exeDir/../../../../../../worker/target/release/vapourbox-worker',
-            '$exeDir/../../../../../../worker/target/debug/vapourbox-worker',
+            // Development: go up from app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS to project root (9 levels)
+            '$exeDir/../../../../../../../../../worker/target/release/vapourbox-worker',
+            '$exeDir/../../../../../../../../../worker/target/debug/vapourbox-worker',
           ];
 
     for (final p in bundledPaths) {
@@ -485,7 +485,13 @@ class PreviewGenerator {
             // VSPipe is capitalized on Windows
             '$exeDir\\deps\\$platformDir\\vapoursynth\\VSPipe$ext',
           ]
-        : ['$exeDir/../Helpers/$name', '$exeDir/../Frameworks/bin/$name'];
+        : [
+            '$exeDir/../Helpers/$name',
+            '$exeDir/../Frameworks/bin/$name',
+            // Development: go up from app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS to project root (9 levels)
+            '$exeDir/../../../../../../../../../deps/$platformDir/ffmpeg/$name',
+            '$exeDir/../../../../../../../../../deps/$platformDir/vapoursynth/$name',
+          ];
 
     for (final p in bundledPaths) {
       if (await File(p).exists()) {
