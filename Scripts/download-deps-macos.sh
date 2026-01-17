@@ -3,6 +3,12 @@
 # Builds VapourSynth plugins from source for native architecture support
 # Creates a fully self-contained app with no Homebrew runtime dependencies
 #
+# Pre-built ARM64 plugins sourced from:
+# - yuygfgg/Macos_vapoursynth_plugins (https://github.com/yuygfgg/Macos_vapoursynth_plugins)
+#   - neo_f3kdb, dfttest, fftw libraries
+# - Stefan-Olt/vs-plugin-build (https://github.com/Stefan-Olt/vs-plugin-build)
+#   - BestSource
+#
 # Prerequisites:
 # - Homebrew (for build tools only, not runtime)
 # - Xcode Command Line Tools
@@ -74,9 +80,9 @@ BREW_DEPS=(
     # Build tools
     cmake meson ninja nasm autoconf automake libtool pkg-config cython
     # Libraries needed to build (will be copied, not linked at runtime from homebrew)
-    fftw zimg
+    zimg
     # FFmpeg (will be copied)
-    ffmpeg ffms2
+    ffmpeg
 )
 
 for dep in "${BREW_DEPS[@]}"; do
@@ -310,24 +316,72 @@ chmod +x "$DEPS_DIR/ffmpeg/ffmpeg" "$DEPS_DIR/ffmpeg/ffprobe"
 echo "  Copied FFmpeg"
 
 # ============================================================================
-# Copy FFMS2 plugin
+# Download pre-built plugins from yuygfgg/Macos_vapoursynth_plugins (ARM64)
+# These are optimized ARM64 builds that work better than building from source
 # ============================================================================
 echo ""
-echo "=== Copying FFMS2 plugin ==="
-if [ -f "$BREW_PREFIX/lib/libffms2.dylib" ]; then
-    cp "$BREW_PREFIX/lib/libffms2.dylib" "$PLUGINS_DIR/"
-    echo "  Copied FFMS2 plugin"
+echo "=== Downloading pre-built ARM64 plugins ==="
+
+YUYGFGG_BASE="https://github.com/yuygfgg/Macos_vapoursynth_plugins/raw/main"
+LIB_DIR="$DEPS_DIR/lib"
+mkdir -p "$LIB_DIR"
+
+if [ "$ARCH" = "arm64" ]; then
+    # Download optimized ARM64 plugins from yuygfgg
+    echo "  Downloading from yuygfgg/Macos_vapoursynth_plugins..."
+
+    # FFTW libraries (required for dfttest)
+    curl -sL "$YUYGFGG_BASE/support/libfftw3f.3.dylib" -o "$LIB_DIR/libfftw3f.3.dylib"
+    curl -sL "$YUYGFGG_BASE/support/libfftw3f_threads.3.dylib" -o "$LIB_DIR/libfftw3f_threads.3.dylib"
+
+    # Fix library paths
+    install_name_tool -id "@loader_path/libfftw3f.3.dylib" "$LIB_DIR/libfftw3f.3.dylib"
+    install_name_tool -id "@loader_path/libfftw3f_threads.3.dylib" "$LIB_DIR/libfftw3f_threads.3.dylib"
+    install_name_tool -change "@rpath/libfftw3f.3.dylib" "@loader_path/libfftw3f.3.dylib" "$LIB_DIR/libfftw3f_threads.3.dylib"
+
+    # Sign libraries
+    codesign -s - -f "$LIB_DIR/libfftw3f.3.dylib" 2>/dev/null
+    codesign -s - -f "$LIB_DIR/libfftw3f_threads.3.dylib" 2>/dev/null
+
+    # neo_f3kdb (optimized ARM64 build)
+    curl -sL "$YUYGFGG_BASE/lib/libneo-f3kdb.dylib" -o "$PLUGINS_DIR/libneo-f3kdb.dylib"
+    install_name_tool -id "@loader_path/libneo-f3kdb.dylib" "$PLUGINS_DIR/libneo-f3kdb.dylib"
+    codesign -s - -f "$PLUGINS_DIR/libneo-f3kdb.dylib" 2>/dev/null
+
+    # dfttest (with proper FFTW support)
+    curl -sL "$YUYGFGG_BASE/lib/libdfttest.dylib" -o "$PLUGINS_DIR/libdfttest.dylib"
+    install_name_tool -change "@rpath/libfftw3f.3.dylib" "@loader_path/../../lib/libfftw3f.3.dylib" "$PLUGINS_DIR/libdfttest.dylib"
+    install_name_tool -change "@rpath/libfftw3f_threads.3.dylib" "@loader_path/../../lib/libfftw3f_threads.3.dylib" "$PLUGINS_DIR/libdfttest.dylib"
+    codesign -s - -f "$PLUGINS_DIR/libdfttest.dylib" 2>/dev/null
+
+    echo "  Downloaded pre-built ARM64 plugins from yuygfgg"
 fi
 
 # ============================================================================
-# Copy FFTW library
+# Download BestSource (frame-accurate source filter)
 # ============================================================================
 echo ""
-echo "=== Copying FFTW library ==="
-if [ -f "$BREW_PREFIX/lib/libfftw3f.dylib" ]; then
-    cp "$BREW_PREFIX/lib/libfftw3f.dylib" "$DEPS_DIR/vapoursynth/"
-    cp "$BREW_PREFIX/lib/libfftw3f.3.dylib" "$DEPS_DIR/vapoursynth/" 2>/dev/null || true
-    echo "  Copied FFTW"
+echo "=== Downloading BestSource ==="
+
+BESTSOURCE_URL="https://github.com/Stefan-Olt/vs-plugin-build/releases/download/rel/BestSource-R8-macos-arm64.zip"
+if [ "$ARCH" = "x86_64" ]; then
+    BESTSOURCE_URL="https://github.com/Stefan-Olt/vs-plugin-build/releases/download/rel/BestSource-R8-macos-x86_64.zip"
+fi
+
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libBestSource.dylib" ]; then
+    curl -sL "$BESTSOURCE_URL" -o "$BUILD_DIR/bestsource.zip"
+    unzip -q -o "$BUILD_DIR/bestsource.zip" -d "$BUILD_DIR/bestsource"
+
+    # Find and copy the dylib
+    find "$BUILD_DIR/bestsource" -name "*.dylib" -exec cp {} "$PLUGINS_DIR/libBestSource.dylib" \;
+
+    # Fix paths and sign
+    install_name_tool -id "@loader_path/libBestSource.dylib" "$PLUGINS_DIR/libBestSource.dylib" 2>/dev/null || true
+    codesign -s - -f "$PLUGINS_DIR/libBestSource.dylib" 2>/dev/null
+
+    echo "  Downloaded BestSource"
+else
+    echo "  BestSource already exists, skipping"
 fi
 
 # ============================================================================
@@ -453,10 +507,15 @@ else
 fi
 
 # DFTTest (FFT-based denoising)
-build_plugin "dfttest" \
-    "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest.git" \
-    "libdfttest.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
+# On ARM64, we use the pre-built version from yuygfgg (downloaded above)
+if [ "$ARCH" != "arm64" ]; then
+    build_plugin "dfttest" \
+        "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest.git" \
+        "libdfttest.dylib" \
+        "meson setup build --buildtype=release && ninja -C build"
+else
+    echo "  DFTTest: using pre-built ARM64 version from yuygfgg"
+fi
 
 # FFT3DFilter
 build_plugin "fft3dfilter" \
@@ -483,19 +542,24 @@ build_plugin "addgrain" \
     "meson setup build --buildtype=release && ninja -C build"
 
 # neo-f3kdb (debanding)
-echo ""
-echo "=== Building neo-f3kdb ==="
-if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libf3kdb.dylib" ]; then
-    rm -rf f3kdb
-    git clone --depth 1 https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb.git f3kdb
-    cd f3kdb
-    cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="$ARCH"
-    cmake --build build --config Release
-    find build -name "*.dylib" | head -1 | xargs -I {} cp {} "$PLUGINS_DIR/libf3kdb.dylib"
-    cd "$BUILD_DIR"
-    echo "  Built neo-f3kdb"
+# On ARM64, we use the pre-built version from yuygfgg (downloaded above)
+if [ "$ARCH" != "arm64" ]; then
+    echo ""
+    echo "=== Building neo-f3kdb ==="
+    if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libneo-f3kdb.dylib" ]; then
+        rm -rf f3kdb
+        git clone --depth 1 https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb.git f3kdb
+        cd f3kdb
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="$ARCH"
+        cmake --build build --config Release
+        find build -name "*.dylib" | head -1 | xargs -I {} cp {} "$PLUGINS_DIR/libneo-f3kdb.dylib"
+        cd "$BUILD_DIR"
+        echo "  Built neo-f3kdb"
+    else
+        echo "  neo-f3kdb already exists, skipping"
+    fi
 else
-    echo "  neo-f3kdb already exists, skipping"
+    echo "  neo_f3kdb: using pre-built ARM64 version from yuygfgg"
 fi
 
 # CAS (Contrast Adaptive Sharpening)

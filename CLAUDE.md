@@ -719,11 +719,11 @@ The worker sets these via `DependencyLocator`:
 ### Required Plugins (Windows)
 
 All plugins go in `deps/windows-x64/vapoursynth/vs-plugins/`:
+- `BestSource.dll` - Frame-accurate video source (from [Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build))
 - `libmvtools.dll` - Motion estimation
 - `EEDI3m.dll` - Edge-directed interpolation
 - `libvs_znedi3.dll` + `nnedi3_weights.bin` - Neural network interpolation
 - `libfmtconv.dll` - Format conversion
-- `ffms2.dll` - FFmpeg source
 - `MiscFilters.dll` - Misc filters
 - `DFTTest.dll` - FFT-based denoising (used by SMDegrain prefilter=3 and MCTemporalDenoise)
 - `neo-f3kdb.dll` - Debanding (f3kdb)
@@ -849,14 +849,14 @@ This runs `xattr -cr` to recursively remove the `com.apple.quarantine` extended 
 ### Required Plugins (macOS)
 
 All plugins are native arm64/x64 builds in `deps/macos-{arch}/vapoursynth/plugins/`:
+- `libBestSource.dylib` - Frame-accurate video source (from [Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build))
 - `libmvtools.dylib` - Motion estimation
 - `libeedi3m.dylib` - Edge-directed interpolation
 - `libznedi3.dylib` + `nnedi3_weights.bin` - Neural network interpolation
 - `libfmtconv.dylib` - Format conversion
-- `libffms2.dylib` - FFmpeg source
 - `libmiscfilters.dylib` - Misc filters
-- `libdfttest.dylib` - FFT-based denoising
-- `libneof3kdb.dylib` - Debanding
+- `libdfttest.dylib` - FFT-based denoising (from [yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins))
+- `libneo-f3kdb.dylib` - Debanding (from [yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins))
 - `libcas.dylib` - Contrast Adaptive Sharpening
 - `libdctfilter.dylib` - DCT filtering
 - `libdeblock.dylib` - Deblocking
@@ -864,6 +864,14 @@ All plugins are native arm64/x64 builds in `deps/macos-{arch}/vapoursynth/plugin
 - `librgvs.dylib` - RemoveGrain/Repair
 - `libctmf.dylib` - Constant Time Median Filter
 - `libfft3dfilter.dylib` - FFT-based denoising (QTGMC slower presets)
+
+### Required Libraries (macOS)
+
+Support libraries in `deps/macos-{arch}/lib/`:
+- `libfftw3f.3.dylib` - FFTW library (from [yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins))
+- `libfftw3f_threads.3.dylib` - FFTW threading support
+- `libboost_filesystem.dylib` - Boost filesystem (for NNEDI3CL)
+- `libboost_atomic.dylib` - Boost atomic (for NNEDI3CL)
 
 ### Python Module Library Paths
 

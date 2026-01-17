@@ -487,11 +487,13 @@ The parameter is visible when the `method` parameter equals any of the listed va
 | Python | 3.8 (Windows) / 3.12 (macOS, embedded) | VapourSynth runtime |
 | VapourSynth | R73 | Video processing framework |
 | FFmpeg | Latest | Video encoding |
+| BestSource | Latest | Frame-accurate video source |
 | mvtools | v24 | Motion estimation |
 | znedi3 | Latest | Neural network interpolation |
 | EEDI3m | r8 | Edge-directed interpolation |
 | fmtconv | r30 | Format conversion |
-| ffms2 | 2.40 | FFmpeg source |
+| neo_f3kdb | Latest | Debanding filter |
+| DFTTest | Latest | FFT-based denoising |
 | havsfunc | Latest | QTGMC implementation |
 | MiscFilters | Latest | Misc VapourSynth filters |
 
@@ -512,3 +514,9 @@ Stuart Cameron - [stuart-cameron.com](https://stuart-cameron.com)
 - **havsfunc** by HolyWu - QTGMC VapourSynth port
 - **FFmpeg** project - Video encoding
 - **Hybrid** by Selur - Inspiration for this project
+
+### Pre-built Binary Sources
+
+macOS ARM64 plugins sourced from:
+- **[yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins)** - Pre-built ARM64 VapourSynth plugins for macOS (neo_f3kdb, dfttest, fftw libraries)
+- **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** - BestSource and other cross-platform VapourSynth plugins
