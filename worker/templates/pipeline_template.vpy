@@ -10,8 +10,8 @@ import sys
 
 core = vs.core
 
-# Load input video using ffms2 for frame-accurate seeking
-clip = core.ffms2.Source(source=r"{{INPUT_PATH}}")
+# Load input video using BestSource for frame-accurate seeking
+clip = core.bs.VideoSource(source=r"{{INPUT_PATH}}")
 
 # Frame trimming (if start/end frame specified)
 {{#FRAME_TRIM}}

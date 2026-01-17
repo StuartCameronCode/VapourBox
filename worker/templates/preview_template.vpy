@@ -13,8 +13,8 @@ core = vs.core
 # Load the temporary preview video clip (extracted with fast keyframe seeking)
 video_path = r"{{VIDEO_PATH}}"
 
-# Load using ffms2 (fast since the clip is only ~11 frames)
-clip = core.ffms2.Source(video_path, cachefile="")
+# Load using BestSource (fast since the clip is only ~11 frames)
+clip = core.bs.VideoSource(source=video_path)
 
 # Set frame rate properties that QTGMC expects (from original video)
 clip = core.std.AssumeFPS(clip, fpsnum={{FPS_NUM}}, fpsden={{FPS_DEN}})
