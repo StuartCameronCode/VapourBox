@@ -1,12 +1,41 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-class AboutDialog extends StatelessWidget {
+import '../services/dependency_manager.dart';
+
+class AboutDialog extends StatefulWidget {
   const AboutDialog({super.key});
 
-  static const String _version = '0.1.0';
-  static const String _githubUrl = 'https://github.com/stuartcameron/VapourBox';
+  @override
+  State<AboutDialog> createState() => _AboutDialogState();
+}
+
+class _AboutDialogState extends State<AboutDialog> {
+  String _version = '';
+  String _depsVersion = '';
+  String _githubUrl = 'https://github.com/StuartCameron/VapourBox';
   static const String _authorUrl = 'https://stuart-cameron.com';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersionInfo();
+  }
+
+  Future<void> _loadVersionInfo() async {
+    // Get app version from package info
+    final packageInfo = await PackageInfo.fromPlatform();
+
+    // Get deps version from dependency manager
+    final depsInfo = await DependencyManager.instance.getExpectedVersion();
+
+    setState(() {
+      _version = packageInfo.version;
+      _depsVersion = depsInfo.version;
+      _githubUrl = 'https://github.com/${depsInfo.githubRepo}';
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +60,7 @@ class AboutDialog extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Version $_version',
+                      _version.isEmpty ? 'Loading...' : 'Version $_version',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: Theme.of(context)
                                 .colorScheme
@@ -39,6 +68,16 @@ class AboutDialog extends StatelessWidget {
                                 .withValues(alpha: 0.6),
                           ),
                     ),
+                    if (_depsVersion.isNotEmpty)
+                      Text(
+                        'Dependencies: $_depsVersion',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withValues(alpha: 0.4),
+                            ),
+                      ),
                     const SizedBox(height: 12),
                     Text(
                       'Video restoration and cleanup powered by VapourSynth',

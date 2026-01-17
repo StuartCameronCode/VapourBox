@@ -1,0 +1,159 @@
+name: Build macOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 0.2.0)'
+        required: true
+        type: string
+      deps_tag:
+        description: 'Deps release tag (e.g., deps-v1.0.0)'
+        required: true
+        type: string
+      arch:
+        description: 'Architecture (arm64, x64, or both)'
+        required: false
+        type: choice
+        options:
+          - arm64
+          - x64
+          - both
+        default: both
+      upload_to_release:
+        description: 'Upload to GitHub release'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: macos-14  # M1 runner for arm64 support
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          toolchain: stable
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            worker/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Download macOS dependencies
+        run: |
+          DEPS_VERSION="${{ inputs.deps_tag }}"
+          DEPS_VERSION="${DEPS_VERSION#deps-v}"
+
+          mkdir -p deps/macos-arm64 deps/macos-x64
+
+          # Download arm64 deps
+          if [[ "${{ inputs.arch }}" == "arm64" || "${{ inputs.arch }}" == "both" ]]; then
+            DEPS_URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.deps_tag }}/VapourBox-deps-${DEPS_VERSION}-macos-arm64.zip"
+            echo "Downloading arm64 deps from: $DEPS_URL"
+            curl -L -o deps-arm64.zip "$DEPS_URL"
+            unzip -o deps-arm64.zip -d deps-temp
+            mv deps-temp/VapourBox-deps-*/. deps/macos-arm64/ 2>/dev/null || mv deps-temp/*/* deps/macos-arm64/
+            rm -rf deps-arm64.zip deps-temp
+          fi
+
+          # Download x64 deps
+          if [[ "${{ inputs.arch }}" == "x64" || "${{ inputs.arch }}" == "both" ]]; then
+            DEPS_URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.deps_tag }}/VapourBox-deps-${DEPS_VERSION}-macos-x64.zip"
+            echo "Downloading x64 deps from: $DEPS_URL"
+            curl -L -o deps-x64.zip "$DEPS_URL"
+            unzip -o deps-x64.zip -d deps-temp
+            mv deps-temp/VapourBox-deps-*/. deps/macos-x64/ 2>/dev/null || mv deps-temp/*/* deps/macos-x64/
+            rm -rf deps-x64.zip deps-temp
+          fi
+
+          echo "Dependencies extracted:"
+          ls -la deps/
+
+      - name: Update version numbers
+        run: |
+          VERSION="${{ inputs.version }}"
+          DEPS_TAG="${{ inputs.deps_tag }}"
+          DEPS_VERSION="${DEPS_TAG#deps-v}"
+
+          # Update pubspec.yaml
+          sed -i '' "s/^version: .*/version: ${VERSION}+1/" app/pubspec.yaml
+
+          # Update deps-version.json
+          sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${DEPS_VERSION}\"/" app/assets/deps-version.json
+          sed -i '' "s/\"releaseTag\": \"[^\"]*\"/\"releaseTag\": \"${DEPS_TAG}\"/" app/assets/deps-version.json
+
+          # Update macOS Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" app/macos/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" app/macos/Runner/Info.plist
+
+          # Update Cargo.toml
+          sed -i '' "s/^version = \".*\"/version = \"${VERSION}\"/" worker/Cargo.toml
+
+      - name: Build Rust worker (arm64)
+        if: ${{ inputs.arch == 'arm64' || inputs.arch == 'both' }}
+        run: |
+          cd worker
+          cargo build --release --target aarch64-apple-darwin
+
+      - name: Build Rust worker (x64)
+        if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
+        run: |
+          cd worker
+          cargo build --release --target x86_64-apple-darwin
+
+      - name: Build Flutter app
+        run: |
+          cd app
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+          flutter build macos --release
+
+      - name: Package release (arm64)
+        if: ${{ inputs.arch == 'arm64' || inputs.arch == 'both' }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          ./Scripts/package-macos.sh --version "$VERSION" --arch arm64 --skip-build
+
+      - name: Package release (x64)
+        if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          ./Scripts/package-macos.sh --version "$VERSION" --arch x64 --skip-build
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: VapourBox-${{ inputs.version }}-macos
+          path: dist/VapourBox-${{ inputs.version }}-macos-*.zip
+
+      - name: Upload to release
+        if: ${{ inputs.upload_to_release }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for f in dist/VapourBox-${{ inputs.version }}-macos-*.zip; do
+            if [ -f "$f" ]; then
+              gh release upload "v${{ inputs.version }}" "$f" --clobber || echo "Release may not exist yet"
+            fi
+          done

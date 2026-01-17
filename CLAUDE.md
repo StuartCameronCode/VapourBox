@@ -827,3 +827,463 @@ VapourBox.app/Contents/
 - `--skip-build` / `-SkipBuild`: Skip Flutter and Rust compilation (use existing builds)
 - `--version` / `-Version`: Set version number in package name and Info.plist
 - `--arch`: (macOS only) Target architecture: `arm64` or `x64`
+
+---
+
+## Dependency Versioning and Auto-Download
+
+### Overview
+
+Dependencies (VapourSynth, FFmpeg, plugins, Python packages) are versioned separately from the app and distributed as separate zip files. The app automatically downloads dependencies from GitHub releases if missing or outdated.
+
+### Version Strategy
+
+| Component | Versioned How | When to Bump |
+|-----------|---------------|--------------|
+| **App** | `pubspec.yaml` version | Any app code change |
+| **Dependencies** | `deps-version.json` | Any dependency added, removed, or updated |
+
+Dependencies are only re-downloaded when the version changes, not on every app update.
+
+### File Structure
+
+```
+VapourBox/
+├── app/
+│   └── assets/
+│       └── deps-version.json    # Expected dependency version (bundled in app)
+├── deps/
+│   ├── windows-x64/
+│   │   └── ...                  # Windows dependencies
+│   ├── macos-arm64/
+│   │   └── ...                  # macOS ARM64 dependencies
+│   └── macos-x64/
+│       └── ...                  # macOS x64 dependencies
+└── Scripts/
+    ├── package-windows.ps1      # Package app only (no deps)
+    ├── package-deps-windows.ps1 # Package dependencies only
+    ├── package-macos.sh         # Package app only (no deps)
+    └── package-deps-macos.sh    # Package dependencies only
+```
+
+### Version Files
+
+**App-bundled version** (`app/assets/deps-version.json`):
+```json
+{
+  "version": "1.0.0",
+  "platforms": {
+    "windows-x64": {
+      "sha256": "abc123...",
+      "size": 195000000
+    },
+    "macos-arm64": {
+      "sha256": "def456...",
+      "size": 180000000
+    },
+    "macos-x64": {
+      "sha256": "789ghi...",
+      "size": 185000000
+    }
+  }
+}
+```
+
+**Installed version** (`<deps-dir>/version.json`):
+```json
+{
+  "version": "1.0.0",
+  "installedAt": "2025-01-15T12:00:00Z"
+}
+```
+
+### Auto-Download Flow
+
+1. **App Launch**: `DependencyManager` checks if dependencies are installed
+2. **Version Check**: Compare installed `version.json` to bundled `deps-version.json`
+3. **Download if Needed**:
+   - Missing entirely → download
+   - Version mismatch → download (replaces existing)
+   - SHA256 mismatch → download (corruption recovery)
+4. **Progress Dialog**: Shows download progress, blocks main window
+5. **Error Handling**: Network errors prompt retry/cancel
+6. **Extract**: Unzip to deps directory
+7. **Continue**: Main window opens after successful install
+
+### GitHub Release Structure
+
+**App and deps use separate release tags** to avoid re-uploading unchanged deps:
+
+```
+GitHub Releases:
+├── v0.1.0 (app release)
+│   └── VapourBox-0.1.0-windows-x64.zip      # App only (~50 MB)
+├── v0.2.0 (app release)
+│   └── VapourBox-0.2.0-windows-x64.zip      # App only (~50 MB)
+├── v0.3.0 (app release)
+│   └── VapourBox-0.3.0-windows-x64.zip      # App only (~50 MB)
+│
+└── deps-v1.0.0 (deps release - separate tag!)
+    ├── VapourBox-deps-1.0.0-windows-x64.zip # Dependencies (~185 MB)
+    ├── VapourBox-deps-1.0.0-macos-arm64.zip # Dependencies (~175 MB)
+    └── VapourBox-deps-1.0.0-macos-x64.zip   # Dependencies (~180 MB)
+```
+
+This way:
+- App releases are small (~50 MB each)
+- Deps only uploaded once per deps version change
+- Multiple app versions share the same deps release
+
+### Download URLs
+
+The app reads `releaseTag` from `deps-version.json` and constructs URLs as:
+```
+https://github.com/{githubRepo}/releases/download/{releaseTag}/{filename}
+```
+
+Example: `https://github.com/StuartCameron/VapourBox/releases/download/deps-v1.0.0/VapourBox-deps-1.0.0-windows-x64.zip`
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `app/assets/deps-version.json` | Expected dependency version metadata |
+| `app/lib/services/dependency_manager.dart` | Check/download/extract dependencies |
+| `app/lib/views/dependency_download_dialog.dart` | Download progress UI |
+| `Scripts/package-deps-windows.ps1` | Package Windows dependencies |
+| `Scripts/package-deps-macos.sh` | Package macOS dependencies |
+
+### DependencyManager API
+
+```dart
+class DependencyManager {
+  /// Check if dependencies are installed and up-to-date
+  Future<DependencyStatus> checkDependencies();
+
+  /// Download and install dependencies
+  /// Emits progress updates via stream
+  Stream<DownloadProgress> downloadDependencies();
+
+  /// Get the expected dependency version from bundled metadata
+  Future<String> getExpectedVersion();
+
+  /// Get the installed dependency version (or null if not installed)
+  Future<String?> getInstalledVersion();
+}
+
+enum DependencyStatus {
+  installed,      // Correct version installed
+  missing,        // Not installed at all
+  outdated,       // Wrong version installed
+  corrupted,      // Installed but SHA256 mismatch
+}
+```
+
+---
+
+## Release Process
+
+### When Asked to Do a New Build
+
+Follow this checklist:
+
+1. **Confirm App Version**
+   - Ask user for new version number (e.g., "0.2.0")
+   - Update `app/pubspec.yaml` version field
+
+2. **Check Dependency Changes**
+   - Review changes since last release
+   - If any of these changed, bump deps version:
+     - VapourSynth version
+     - FFmpeg version
+     - Any VS plugin added/removed/updated
+     - Python packages (havsfunc, mvsfunc)
+     - havsfunc patches
+   - If unchanged, keep existing deps version
+
+3. **Update Version Files**
+   - If deps changed: bump version in `app/assets/deps-version.json`
+   - Always update app version in `pubspec.yaml`
+
+4. **Build and Package**
+
+   **Windows:**
+   ```powershell
+   # Build app
+   cd app && flutter build windows --release
+   cd ../worker && cargo build --release
+
+   # Package app (no deps)
+   .\Scripts\package-windows.ps1 -Version "0.2.0"
+
+   # Package deps (only if version bumped)
+   .\Scripts\package-deps-windows.ps1 -Version "1.0.0"
+   ```
+
+   **macOS:**
+   ```bash
+   # Build app
+   cd app && flutter build macos --release
+   cd ../worker && cargo build --release
+
+   # Package app (no deps)
+   ./Scripts/package-macos.sh --version 0.2.0
+
+   # Package deps (only if version bumped)
+   ./Scripts/package-deps-macos.sh --version 1.0.0
+   ```
+
+5. **Test Zips**
+   - Ask user to test the zip files
+   - Fresh install test (no existing deps)
+   - Upgrade test (existing deps, version mismatch)
+   - Verify all filters work
+
+6. **Create GitHub Releases**
+
+   **If deps version changed** - create deps release first:
+   - Repository: `https://github.com/StuartCameron/VapourBox`
+   - Tag: `deps-v{deps-version}` (e.g., `deps-v1.0.0`)
+   - Title: `Dependencies v{deps-version}`
+   - Attach deps zip files only
+   - Note: This is a separate release from the app!
+
+   **Always** - create app release:
+   - Repository: `https://github.com/StuartCameron/VapourBox`
+   - Tag: `v{app-version}` (e.g., `v0.2.0`)
+   - Title: `VapourBox v{app-version}`
+   - Attach app zip files only (NOT deps!)
+   - Include changelog
+   - Reference deps version in release notes
+
+### Example Release Workflow
+
+```
+User: "Do a new build"
+
+Claude: "What version number for this release? Current is 0.1.0"
+
+User: "0.2.0"
+
+Claude: "Checking for dependency changes since last release..."
+        [Reviews git diff for deps/, download scripts, havsfunc patches]
+        "Dependencies unchanged. Using existing deps release deps-v1.0.0"
+        "Building and packaging..."
+        [Runs build commands]
+        "Created:
+         - dist/VapourBox-0.2.0-windows-x64.zip (48 MB)
+         (No new deps zip needed - deps-v1.0.0 already exists)
+
+         Please test:
+         1. Extract app zip to new folder (no deps/ folder)
+         2. Run vapourbox.exe - should show download dialog
+         3. Let it download deps from deps-v1.0.0 release
+         4. Verify app works with a video
+
+         Confirm when ready to release."
+
+User: "Tested, all good"
+
+Claude: [Creates GitHub release for app only]
+        "Released VapourBox v0.2.0:
+         https://github.com/StuartCameron/VapourBox/releases/tag/v0.2.0
+
+         Uses dependencies from: deps-v1.0.0"
+```
+
+**If deps changed:**
+```
+Claude: "Dependencies CHANGED (new plugin added). Bumping deps to 1.1.0"
+        "Created:
+         - dist/VapourBox-0.2.0-windows-x64.zip (48 MB)
+         - dist/VapourBox-deps-1.1.0-windows-x64.zip (190 MB)
+
+         Will create TWO releases:
+         1. deps-v1.1.0 (deps zip)
+         2. v0.2.0 (app zip)"
+```
+
+### Dependency Version History
+
+Track dependency version changes here:
+
+| Deps Version | Date | Changes |
+|--------------|------|---------|
+| 1.0.0 | 2025-01-15 | Initial release |
+
+---
+
+## Release Automation
+
+### Overview
+
+The release system automates the entire process of creating releases for both macOS and Windows. A single command on macOS orchestrates the complete workflow.
+
+### Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `Scripts/release.sh` | Main orchestrator - runs the full release process |
+| `Scripts/get-github-version.sh` | Fetch latest versions from GitHub releases |
+| `Scripts/update-version.sh` | Update version across all project files |
+| `Scripts/check-deps-changed.sh` | Detect if dependencies changed since last release |
+| `Scripts/package-deps-macos.sh` | Package macOS dependencies |
+| `Scripts/package-deps-windows.ps1` | Package Windows dependencies |
+| `Scripts/package-macos.sh` | Package macOS app |
+| `Scripts/package-windows.ps1` | Package Windows app |
+
+### GitHub Actions Workflows
+
+| Workflow | Purpose |
+|----------|---------|
+| `.github/workflows/build-windows.yml` | Build Windows app remotely |
+| `.github/workflows/build-macos.yml` | Build macOS app remotely |
+
+### Quick Start
+
+Run from macOS to create a full release:
+
+```bash
+./Scripts/release.sh
+```
+
+This will:
+1. Prompt for app version (default: 0.1 above current)
+2. Check if dependencies changed since last deps release
+3. Package and release deps if changed
+4. Update version numbers across all files
+5. Build macOS app locally
+6. Trigger GitHub Actions for Windows build
+7. Create draft GitHub release
+
+### Script Details
+
+#### `Scripts/get-github-version.sh`
+
+Fetches version information from GitHub releases:
+
+```bash
+# Get current app version
+./Scripts/get-github-version.sh --app          # Returns: 0.1.0
+
+# Get current deps version
+./Scripts/get-github-version.sh --deps         # Returns: 1.0.0
+
+# Get suggested next versions (increments minor)
+./Scripts/get-github-version.sh --next-app     # Returns: 0.2.0
+./Scripts/get-github-version.sh --next-deps    # Returns: 1.1.0
+```
+
+#### `Scripts/update-version.sh`
+
+Updates version across all project files:
+
+```bash
+./Scripts/update-version.sh --app 0.2.0 --deps 1.1.0 --deps-tag deps-v1.1.0
+```
+
+Updates:
+- `app/pubspec.yaml` - Flutter version + build number
+- `app/windows/runner/Runner.rc` - Windows executable metadata
+- `app/macos/Runner/Info.plist` - macOS bundle version
+- `worker/Cargo.toml` - Rust crate version
+- `app/assets/deps-version.json` - Deps version and release tag
+
+#### `Scripts/check-deps-changed.sh`
+
+Compares current deps against the last deps release:
+
+```bash
+./Scripts/check-deps-changed.sh [--verbose]
+
+# Exit codes:
+# 0 = CHANGED (new deps release needed)
+# 1 = UNCHANGED (use existing deps release)
+# 2 = ERROR
+
+# Examples:
+CHANGED: Dependencies modified since deps-v1.0.0
+UNCHANGED: No dependency changes since deps-v1.0.0
+```
+
+Checks:
+- `deps/` directory content changes
+- Download scripts changes
+- Untracked files in deps/
+
+#### `Scripts/release.sh`
+
+Main orchestrator with options:
+
+```bash
+./Scripts/release.sh [OPTIONS]
+
+Options:
+  --skip-deps-check  Skip dependency change detection
+  --skip-build       Use existing builds instead of rebuilding
+  --dry-run          Show what would be done without executing
+  -h, --help         Show help message
+```
+
+### Manual Release Process
+
+If you prefer manual control:
+
+1. **Check versions:**
+   ```bash
+   ./Scripts/get-github-version.sh --app
+   ./Scripts/get-github-version.sh --deps
+   ```
+
+2. **Check if deps changed:**
+   ```bash
+   ./Scripts/check-deps-changed.sh --verbose
+   ```
+
+3. **Package deps (if changed):**
+   ```bash
+   # macOS
+   ./Scripts/package-deps-macos.sh --version 1.1.0 --arch both
+
+   # Windows (run on Windows or copy deps)
+   .\Scripts\package-deps-windows.ps1 -Version 1.1.0
+   ```
+
+4. **Create deps release (if changed):**
+   ```bash
+   gh release create deps-v1.1.0 \
+     --title "Dependencies 1.1.0" \
+     dist/VapourBox-deps-1.1.0-*.zip
+   ```
+
+5. **Update versions:**
+   ```bash
+   ./Scripts/update-version.sh --app 0.2.0 --deps 1.1.0 --deps-tag deps-v1.1.0
+   ```
+
+6. **Build apps:**
+   ```bash
+   # macOS
+   cd worker && cargo build --release
+   cd ../app && flutter pub get && flutter build macos --release
+   ./Scripts/package-macos.sh --version 0.2.0 --skip-build
+
+   # Windows (via GitHub Actions or on Windows machine)
+   gh workflow run build-windows.yml -f version=0.2.0 -f deps_tag=deps-v1.1.0
+   ```
+
+7. **Create app release:**
+   ```bash
+   gh release create v0.2.0 \
+     --title "VapourBox 0.2.0" \
+     --draft \
+     dist/VapourBox-0.2.0-macos-*.zip
+   ```
+
+### Cross-Platform Notes
+
+- **Flutter Windows on macOS**: Not possible natively. Use GitHub Actions or Windows machine.
+- **Flutter macOS on Windows**: Not possible natively. Use GitHub Actions or macOS machine.
+- **Deps packaging**: Windows deps can be zipped on macOS if `deps/windows-x64/` exists.
+
+---

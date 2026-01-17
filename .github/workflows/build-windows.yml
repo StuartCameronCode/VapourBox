@@ -1,0 +1,205 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 0.2.0)'
+        required: true
+        type: string
+      deps_tag:
+        description: 'Deps release tag (e.g., deps-v1.0.0)'
+        required: true
+        type: string
+      upload_to_release:
+        description: 'Upload to GitHub release'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            worker/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Download Windows dependencies
+        shell: pwsh
+        run: |
+          Write-Host "Downloading dependencies..."
+          $depsUrl = "https://github.com/${{ github.repository }}/releases/download/${{ inputs.deps_tag }}/VapourBox-deps-${{ inputs.deps_tag }}-windows-x64.zip"
+          $depsUrl = $depsUrl -replace "deps-v", ""
+
+          # Extract version from deps_tag (deps-v1.0.0 -> 1.0.0)
+          $depsVersion = "${{ inputs.deps_tag }}" -replace "deps-v", ""
+          $depsUrl = "https://github.com/${{ github.repository }}/releases/download/${{ inputs.deps_tag }}/VapourBox-deps-$depsVersion-windows-x64.zip"
+
+          Write-Host "Downloading from: $depsUrl"
+
+          # Create deps directory
+          New-Item -ItemType Directory -Force -Path "deps/windows-x64" | Out-Null
+
+          # Download deps zip
+          $zipPath = "deps-windows.zip"
+          Invoke-WebRequest -Uri $depsUrl -OutFile $zipPath -UseBasicParsing
+
+          # Extract
+          Expand-Archive -Path $zipPath -DestinationPath "deps-temp" -Force
+
+          # Move contents (the zip contains a top-level folder)
+          $extractedDir = Get-ChildItem -Path "deps-temp" -Directory | Select-Object -First 1
+          if ($extractedDir) {
+            Copy-Item -Path "$($extractedDir.FullName)/*" -Destination "deps/windows-x64/" -Recurse -Force
+          }
+
+          # Cleanup
+          Remove-Item -Path $zipPath -Force
+          Remove-Item -Path "deps-temp" -Recurse -Force
+
+          Write-Host "Dependencies extracted to deps/windows-x64/"
+          Get-ChildItem -Path "deps/windows-x64/" -Depth 1
+
+      - name: Update version numbers
+        shell: pwsh
+        run: |
+          $version = "${{ inputs.version }}"
+          $depsTag = "${{ inputs.deps_tag }}"
+          $depsVersion = $depsTag -replace "deps-v", ""
+
+          # Update pubspec.yaml
+          $pubspec = Get-Content -Path "app/pubspec.yaml" -Raw
+          $pubspec = $pubspec -replace 'version: \d+\.\d+\.\d+\+\d+', "version: $version+1"
+          Set-Content -Path "app/pubspec.yaml" -Value $pubspec
+
+          # Update deps-version.json
+          $depsJson = Get-Content -Path "app/assets/deps-version.json" -Raw
+          $depsJson = $depsJson -replace '"version": "[^"]*"', "`"version`": `"$depsVersion`""
+          $depsJson = $depsJson -replace '"releaseTag": "[^"]*"', "`"releaseTag`": `"$depsTag`""
+          Set-Content -Path "app/assets/deps-version.json" -Value $depsJson
+
+          # Update Windows Runner.rc
+          $major, $minor, $patch = $version.Split('.')
+          $runnerRc = Get-Content -Path "app/windows/runner/Runner.rc" -Raw
+          $runnerRc = $runnerRc -replace 'FILEVERSION \d+,\d+,\d+,\d+', "FILEVERSION $major,$minor,$patch,0"
+          $runnerRc = $runnerRc -replace 'PRODUCTVERSION \d+,\d+,\d+,\d+', "PRODUCTVERSION $major,$minor,$patch,0"
+          $runnerRc = $runnerRc -replace '"FileVersion", "[^"]*"', "`"FileVersion`", `"$version.0`""
+          $runnerRc = $runnerRc -replace '"ProductVersion", "[^"]*"', "`"ProductVersion`", `"$version.0`""
+          Set-Content -Path "app/windows/runner/Runner.rc" -Value $runnerRc
+
+          # Update Cargo.toml
+          $cargoToml = Get-Content -Path "worker/Cargo.toml" -Raw
+          $cargoToml = $cargoToml -replace 'version = "[^"]*"', "version = `"$version`""
+          Set-Content -Path "worker/Cargo.toml" -Value $cargoToml
+
+      - name: Build Rust worker
+        shell: pwsh
+        run: |
+          cd worker
+          cargo build --release
+
+      - name: Build Flutter app
+        shell: pwsh
+        run: |
+          cd app
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+          flutter build windows --release
+
+      - name: Package release
+        shell: pwsh
+        run: |
+          $version = "${{ inputs.version }}"
+          $packageName = "VapourBox-$version-windows-x64"
+          $packageDir = "dist/$packageName"
+
+          # Create package directory
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+
+          # Copy Flutter build
+          Copy-Item -Path "app/build/windows/x64/runner/Release/*" -Destination $packageDir -Recurse
+
+          # Rename executable
+          if (Test-Path "$packageDir/vapourbox.exe") {
+            # Already named correctly
+          } elseif (Test-Path "$packageDir/VapourBox.exe") {
+            Rename-Item -Path "$packageDir/VapourBox.exe" -NewName "vapourbox.exe"
+          }
+
+          # Copy worker
+          Copy-Item -Path "worker/target/release/vapourbox-worker.exe" -Destination $packageDir
+
+          # Copy templates
+          New-Item -ItemType Directory -Force -Path "$packageDir/templates" | Out-Null
+          Copy-Item -Path "worker/templates/*" -Destination "$packageDir/templates/" -Recurse
+
+          # Copy licenses
+          if (Test-Path "licenses") {
+            New-Item -ItemType Directory -Force -Path "$packageDir/licenses" | Out-Null
+            Copy-Item -Path "licenses/*" -Destination "$packageDir/licenses/" -Recurse
+          }
+
+          # Create README
+          @"
+          VapourBox $version
+          ==================
+
+          A cross-platform video restoration application.
+
+          Usage:
+          1. Run vapourbox.exe
+          2. On first launch, dependencies will be downloaded automatically (~185 MB)
+          3. Drop a video file to process
+
+          Requirements:
+          - Windows 10/11 x64
+          - Internet connection for first launch
+
+          For more information, visit:
+          https://github.com/${{ github.repository }}
+          "@ | Set-Content -Path "$packageDir/README.txt"
+
+          # Create zip
+          Compress-Archive -Path $packageDir -DestinationPath "dist/$packageName.zip" -Force
+
+          Write-Host "Created: dist/$packageName.zip"
+          Get-ChildItem -Path "dist/"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VapourBox-${{ inputs.version }}-windows-x64
+          path: dist/VapourBox-${{ inputs.version }}-windows-x64.zip
+
+      - name: Upload to release
+        if: ${{ inputs.upload_to_release }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "v${{ inputs.version }}" "dist/VapourBox-${{ inputs.version }}-windows-x64.zip" --clobber || echo "Release may not exist yet"

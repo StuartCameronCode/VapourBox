@@ -1,0 +1,23 @@
+{
+  "version": "1.0.0",
+  "releaseTag": "deps-v1.0.0",
+  "releaseDate": "2025-01-15",
+  "platforms": {
+    "windows-x64": {
+      "filename": "VapourBox-deps-1.0.0-windows-x64.zip",
+      "sha256": null,
+      "size": null
+    },
+    "macos-arm64": {
+      "filename": "VapourBox-deps-1.0.0-macos-arm64.zip",
+      "sha256": null,
+      "size": null
+    },
+    "macos-x64": {
+      "filename": "VapourBox-deps-1.0.0-macos-x64.zip",
+      "sha256": null,
+      "size": null
+    }
+  },
+  "githubRepo": "StuartCameron/VapourBox"
+}

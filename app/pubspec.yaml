@@ -30,6 +30,18 @@ dependencies:
   # Window management
   window_manager: ^0.4.0
 
+  # HTTP client for dependency downloads
+  http: ^1.2.0
+
+  # Archive extraction
+  archive: ^3.6.0
+
+  # Cryptography for SHA256 verification
+  crypto: ^3.0.3
+
+  # Package info for version display
+  package_info_plus: ^8.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -39,10 +51,10 @@ dev_dependencies:
   test: ^1.25.0
   integration_test:
     sdk: flutter
-  crypto: ^3.0.3
 
 flutter:
   uses-material-design: true
   assets:
+    - assets/deps-version.json
     - assets/filters/
     - assets/filters/core/
