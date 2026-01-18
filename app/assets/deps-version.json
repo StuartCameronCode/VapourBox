@@ -10,8 +10,8 @@
     },
     "macos-arm64": {
       "filename": "VapourBox-deps-1.0.0-macos-arm64.zip",
-      "sha256": "bdb4555d6902dc1e7f427d7c9f242fe877874df65fcd7aa9fc4a2d98b9abfe11",
-      "size": 79111285
+      "sha256": "e19fc6121f215d2359ef4d353e24c5a2477ece0118fd0489a7fe2f2962f6dd2c",
+      "size": 98414352
     },
     "macos-x64": {
       "filename": "VapourBox-deps-1.0.0-macos-x64.zip",
