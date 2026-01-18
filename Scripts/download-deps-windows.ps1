@@ -253,6 +253,16 @@ $Plugins7z = @(
         Name = "fft3dfilter"
         Url = "https://github.com/myrsloik/VapourSynth-FFT3DFilter/releases/download/R2/FFT3DFilter-r2.7z"
         Check = "fft3dfilter.dll"
+    },
+    @{
+        Name = "addgrain"
+        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain/releases/download/r10/AddGrain-r10-win64.7z"
+        Check = "AddGrain.dll"
+    },
+    @{
+        Name = "tcanny"
+        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TCanny/releases/download/r14/TCanny-r14-win64.7z"
+        Check = "TCanny.dll"
     }
 )
 

@@ -734,6 +734,8 @@ All plugins go in `deps/windows-x64/vapoursynth/vs-plugins/`:
 - `RemoveGrainVS.dll` - Grain removal/repair (used by YAHR dehalo)
 - `CTMF.dll` - Constant Time Median Filter (used by YAHR dehalo)
 - `fft3dfilter.dll` - FFT-based denoising (used by QTGMC Very Slow/Slower presets)
+- `AddGrain.dll` - Film grain generation (from [HomeOfVapourSynthEvolution](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain))
+- `TCanny.dll` - Canny edge detection (from [HomeOfVapourSynthEvolution](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TCanny))
 
 ### Required Libraries (Windows)
 
