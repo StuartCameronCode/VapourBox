@@ -1,6 +1,19 @@
 # VapourBox
 
-Cross-platform video restoration and cleanup application powered by VapourSynth. Provides a simple drag-and-drop interface for restoring analog and interlaced media captures.
+A user-friendly wrapper for [VapourSynth](https://www.vapoursynth.com/) that makes video processing accessible to everyone. Convert interlaced footage, apply QTGMC deinterlacing, reduce noise, and fix common video problems—all through a simple drag-and-drop interface.
+
+No scripting required. No command line needed. Just drop your video and go.
+
+![VapourBox Screenshot](docs/images/screenshot.png)
+
+## Use Cases
+
+- **Convert interlaced video** to progressive with high-quality QTGMC deinterlacing
+- **Clean up noisy footage** with temporal and spatial noise reduction
+- **Fix compression artifacts** with deblocking and debanding filters
+- **Sharpen soft video** while preserving detail
+- **Archive DVDs** with proper deinterlacing and cleanup
+- **Restore VHS captures** with specialized filtering pipelines
 
 ## Supported Platforms
 
