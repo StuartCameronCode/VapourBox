@@ -31,7 +31,38 @@ impl DependencyLocator {
 
     /// Find the deps directory by searching various locations.
     fn find_deps_directory(exe_path: &Path) -> Result<PathBuf> {
-        // On macOS, first check Application Support (where downloaded deps go)
+        // Development only: search upward from executable for project deps
+        #[cfg(debug_assertions)]
+        {
+            let mut current = exe_path.parent();
+            while let Some(dir) = current {
+                // Check for deps directory with platform subdirectory
+                // This ensures we find the project deps, not Cargo's deps
+                let deps_dir = dir.join("deps");
+                if deps_dir.exists() {
+                    // Verify this has our expected structure (windows-x64 or macos-arm64, etc.)
+                    let has_platform_dir = deps_dir.join("windows-x64").exists()
+                        || deps_dir.join("macos-arm64").exists()
+                        || deps_dir.join("macos-x64").exists();
+                    if has_platform_dir {
+                        return Ok(deps_dir);
+                    }
+                }
+                current = dir.parent();
+            }
+        }
+
+        // Windows production: deps folder next to executable
+        #[cfg(target_os = "windows")]
+        {
+            let exe_dir = exe_path.parent().unwrap_or(Path::new("."));
+            let deps_dir = exe_dir.join("deps");
+            if deps_dir.join("windows-x64").exists() {
+                return Ok(deps_dir);
+            }
+        }
+
+        // macOS production: Application Support (where downloaded deps go)
         #[cfg(target_os = "macos")]
         {
             if let Some(home) = env::var_os("HOME") {
@@ -44,38 +75,8 @@ impl DependencyLocator {
                     || app_support_deps.join("macos-x64").exists() {
                     return Ok(app_support_deps);
                 }
-            }
-        }
-
-        // Search upward from executable
-        let mut current = exe_path.parent();
-
-        while let Some(dir) = current {
-            // Check for deps directory with platform subdirectory
-            // This ensures we find the project deps, not Cargo's deps
-            let deps_dir = dir.join("deps");
-            if deps_dir.exists() {
-                // Verify this has our expected structure (windows-x64 or macos-arm64, etc.)
-                let has_platform_dir = deps_dir.join("windows-x64").exists()
-                    || deps_dir.join("macos-arm64").exists()
-                    || deps_dir.join("macos-x64").exists();
-                if has_platform_dir {
-                    return Ok(deps_dir);
-                }
-            }
-
-            current = dir.parent();
-        }
-
-        // Fallback: Application Support on macOS, relative path otherwise
-        #[cfg(target_os = "macos")]
-        {
-            if let Some(home) = env::var_os("HOME") {
-                return Ok(PathBuf::from(home)
-                    .join("Library")
-                    .join("Application Support")
-                    .join("VapourBox")
-                    .join("deps"));
+                // Fallback to Application Support path (will be created when deps download)
+                return Ok(app_support_deps);
             }
         }
 

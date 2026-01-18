@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 import 'package:uuid/uuid.dart';
 
@@ -483,23 +484,28 @@ class PreviewGenerator {
     final platformDir = _getPlatformSuffix();
 
     // Check bundled locations (platform-specific subdirectory)
-    final bundledPaths = Platform.isWindows
-        ? [
-            '$exeDir\\deps\\$platformDir\\ffmpeg\\$name$ext',
-            '$exeDir\\deps\\$platformDir\\vapoursynth\\$name$ext',
-            // VSPipe is capitalized on Windows
-            '$exeDir\\deps\\$platformDir\\vapoursynth\\VSPipe$ext',
-          ]
-        : [
-            // Production: downloaded deps in Contents/MacOS/deps/
-            '$exeDir/deps/$platformDir/ffmpeg/$name',
-            '$exeDir/deps/$platformDir/vapoursynth/$name',
-            // Bundled in Helpers (legacy)
-            '$exeDir/../Helpers/$name',
-            // Development: go up from app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS to project root (9 levels)
-            '$exeDir/../../../../../../../../../deps/$platformDir/ffmpeg/$name',
-            '$exeDir/../../../../../../../../../deps/$platformDir/vapoursynth/$name',
-          ];
+    final home = Platform.environment['HOME'] ?? '';
+    final List<String> bundledPaths;
+
+    if (Platform.isWindows) {
+      bundledPaths = [
+        '$exeDir\\deps\\$platformDir\\ffmpeg\\$name$ext',
+        '$exeDir\\deps\\$platformDir\\vapoursynth\\$name$ext',
+        // VSPipe is capitalized on Windows
+        '$exeDir\\deps\\$platformDir\\vapoursynth\\VSPipe$ext',
+      ];
+    } else {
+      bundledPaths = [
+        // Development only: relative paths to project root
+        if (kDebugMode) ...[
+          '$exeDir/../../../../../../../../../deps/$platformDir/ffmpeg/$name',
+          '$exeDir/../../../../../../../../../deps/$platformDir/vapoursynth/$name',
+        ],
+        // Application Support (where downloaded deps go on macOS)
+        '$home/Library/Application Support/VapourBox/deps/$platformDir/ffmpeg/$name',
+        '$home/Library/Application Support/VapourBox/deps/$platformDir/vapoursynth/$name',
+      ];
+    }
 
     for (final p in bundledPaths) {
       if (await File(p).exists()) {

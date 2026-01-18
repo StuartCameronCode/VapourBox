@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
@@ -187,7 +188,20 @@ class DependencyManager {
       // Fall back to production path (will trigger download)
       return prodDeps;
     } else if (Platform.isMacOS) {
-      // First check Application Support (where downloaded deps go)
+      // Development only: check relative paths to project root
+      if (kDebugMode) {
+        // From app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS up 9 levels
+        final devDepsArm = Directory(path.join(appDir, '..', '..', '..', '..', '..', '..', '..', '..', '..', 'deps', 'macos-arm64'));
+        if (await devDepsArm.exists()) {
+          return Directory(await devDepsArm.resolveSymbolicLinks());
+        }
+        final devDepsX64 = Directory(path.join(appDir, '..', '..', '..', '..', '..', '..', '..', '..', '..', 'deps', 'macos-x64'));
+        if (await devDepsX64.exists()) {
+          return Directory(await devDepsX64.resolveSymbolicLinks());
+        }
+      }
+
+      // Production: check Application Support (where downloaded deps go)
       final home = Platform.environment['HOME'];
       if (home != null) {
         final appSupportDeps = Directory(path.join(
@@ -196,17 +210,6 @@ class DependencyManager {
         if (await appSupportDeps.exists()) {
           return appSupportDeps;
         }
-      }
-
-      // Development: go up to project root and find deps/macos-arm64 or macos-x64
-      // From app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS up 9 levels
-      final devDepsArm = Directory(path.join(appDir, '..', '..', '..', '..', '..', '..', '..', '..', '..', 'deps', 'macos-arm64'));
-      if (await devDepsArm.exists()) {
-        return Directory(await devDepsArm.resolveSymbolicLinks());
-      }
-      final devDepsX64 = Directory(path.join(appDir, '..', '..', '..', '..', '..', '..', '..', '..', '..', 'deps', 'macos-x64'));
-      if (await devDepsX64.exists()) {
-        return Directory(await devDepsX64.resolveSymbolicLinks());
       }
 
       // Fall back to Application Support (will trigger download)
