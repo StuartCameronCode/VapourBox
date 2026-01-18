@@ -111,9 +111,9 @@ jobs:
           $runnerRc = $runnerRc -replace '"ProductVersion", "[^"]*"', "`"ProductVersion`", `"$version.0`""
           Set-Content -Path "app/windows/runner/Runner.rc" -Value $runnerRc
 
-          # Update Cargo.toml
+          # Update Cargo.toml - only update package version (line 3, after [package])
           $cargoToml = Get-Content -Path "worker/Cargo.toml" -Raw
-          $cargoToml = $cargoToml -replace 'version = "[^"]*"', "version = `"$version`""
+          $cargoToml = $cargoToml -replace '(\[package\][^\[]*?version\s*=\s*)"[^"]*"', "`$1`"$version`""
           Set-Content -Path "worker/Cargo.toml" -Value $cargoToml
 
       - name: Build Rust worker
