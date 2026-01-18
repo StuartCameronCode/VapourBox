@@ -187,12 +187,15 @@ class DependencyManager {
       // Fall back to production path (will trigger download)
       return prodDeps;
     } else if (Platform.isMacOS) {
-      // Production: In .app bundle: Contents/Frameworks
-      final contentsDir = path.dirname(path.dirname(appDir));
-      final frameworksDir = path.join(contentsDir, 'Frameworks');
-
-      if (await Directory(frameworksDir).exists()) {
-        return Directory(frameworksDir);
+      // First check Application Support (where downloaded deps go)
+      final home = Platform.environment['HOME'];
+      if (home != null) {
+        final appSupportDeps = Directory(path.join(
+          home, 'Library', 'Application Support', 'VapourBox', 'deps', platformId
+        ));
+        if (await appSupportDeps.exists()) {
+          return appSupportDeps;
+        }
       }
 
       // Development: go up to project root and find deps/macos-arm64 or macos-x64
@@ -206,8 +209,11 @@ class DependencyManager {
         return Directory(await devDepsX64.resolveSymbolicLinks());
       }
 
-      // Fall back to production-style path (will trigger download)
-      return Directory(path.join(appDir, 'deps', platformId));
+      // Fall back to Application Support (will trigger download)
+      final home2 = Platform.environment['HOME'] ?? '/tmp';
+      return Directory(path.join(
+        home2, 'Library', 'Application Support', 'VapourBox', 'deps', platformId
+      ));
     }
 
     throw UnsupportedError('Unsupported platform');

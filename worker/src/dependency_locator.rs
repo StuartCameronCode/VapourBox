@@ -29,8 +29,25 @@ impl DependencyLocator {
         Ok(Self { base_path, platform })
     }
 
-    /// Find the deps directory by searching upward from the executable.
+    /// Find the deps directory by searching various locations.
     fn find_deps_directory(exe_path: &Path) -> Result<PathBuf> {
+        // On macOS, first check Application Support (where downloaded deps go)
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(home) = env::var_os("HOME") {
+                let app_support_deps = PathBuf::from(home)
+                    .join("Library")
+                    .join("Application Support")
+                    .join("VapourBox")
+                    .join("deps");
+                if app_support_deps.join("macos-arm64").exists()
+                    || app_support_deps.join("macos-x64").exists() {
+                    return Ok(app_support_deps);
+                }
+            }
+        }
+
+        // Search upward from executable
         let mut current = exe_path.parent();
 
         while let Some(dir) = current {
@@ -47,19 +64,21 @@ impl DependencyLocator {
                 }
             }
 
-            // On macOS, check in Contents/ for app bundle
-            #[cfg(target_os = "macos")]
-            {
-                let contents_deps = dir.join("Contents").join("deps");
-                if contents_deps.exists() {
-                    return Ok(contents_deps);
-                }
-            }
-
             current = dir.parent();
         }
 
-        // Fallback to relative path
+        // Fallback: Application Support on macOS, relative path otherwise
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(home) = env::var_os("HOME") {
+                return Ok(PathBuf::from(home)
+                    .join("Library")
+                    .join("Application Support")
+                    .join("VapourBox")
+                    .join("deps"));
+            }
+        }
+
         Ok(PathBuf::from("deps"))
     }
 
