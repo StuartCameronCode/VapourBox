@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -52,7 +54,7 @@ class _SettingsDialogState extends State<SettingsDialog>
               child: Row(
                 children: [
                   Text(
-                    'Output Settings',
+                    'Settings',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const Spacer(),
@@ -68,8 +70,8 @@ class _SettingsDialogState extends State<SettingsDialog>
             TabBar(
               controller: _tabController,
               tabs: const [
-                Tab(text: 'Encoding'),
-                Tab(text: 'Input/Output'),
+                Tab(text: 'Input'),
+                Tab(text: 'Output'),
               ],
             ),
 
@@ -78,8 +80,8 @@ class _SettingsDialogState extends State<SettingsDialog>
               child: TabBarView(
                 controller: _tabController,
                 children: const [
-                  _EncodingSettingsTab(),
-                  _InputOutputSettingsTab(),
+                  _InputSettingsTab(),
+                  _OutputSettingsTab(),
                 ],
               ),
             ),
@@ -112,8 +114,149 @@ class _SettingsDialogState extends State<SettingsDialog>
   }
 }
 
-class _EncodingSettingsTab extends StatelessWidget {
-  const _EncodingSettingsTab();
+class _InputSettingsTab extends StatelessWidget {
+  const _InputSettingsTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<MainViewModel>(
+      builder: (context, viewModel, child) {
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            // Input File
+            _buildSection(
+              context,
+              title: 'Input File',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (viewModel.inputPath != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              viewModel.inputPath!,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(fontFamily: 'monospace'),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.folder_open),
+                            onPressed: () => _showInFolder(viewModel.inputPath!),
+                            tooltip: 'Show in folder',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ] else ...[
+                    Text(
+                      'No input file selected',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withValues(alpha: 0.6),
+                          ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Field Order
+            _buildSection(
+              context,
+              title: 'Field Order',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SwitchListTile(
+                    title: const Text('Auto-detect field order'),
+                    subtitle: const Text('Use detected field order from video'),
+                    value: viewModel.autoFieldOrder,
+                    onChanged: (value) {
+                      viewModel.setAutoFieldOrder(value);
+                    },
+                  ),
+                  if (!viewModel.autoFieldOrder) ...[
+                    const SizedBox(height: 8),
+                    SegmentedButton<FieldOrder>(
+                      segments: const [
+                        ButtonSegment(
+                          value: FieldOrder.topFieldFirst,
+                          label: Text('TFF (Top Field First)'),
+                        ),
+                        ButtonSegment(
+                          value: FieldOrder.bottomFieldFirst,
+                          label: Text('BFF (Bottom Field First)'),
+                        ),
+                      ],
+                      selected: {viewModel.manualFieldOrder},
+                      onSelectionChanged: (value) {
+                        viewModel.setManualFieldOrder(value.first);
+                      },
+                    ),
+                  ],
+                  if (viewModel.videoInfo?.fieldOrder != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Detected: ${viewModel.videoInfo!.fieldOrderDescription}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showInFolder(String path) {
+    if (Platform.isMacOS) {
+      Process.run('open', ['-R', path]);
+    } else if (Platform.isWindows) {
+      Process.run('explorer', ['/select,', path]);
+    }
+  }
+
+  Widget _buildSection(
+    BuildContext context, {
+    required String title,
+    required Widget child,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+        ),
+        const SizedBox(height: 12),
+        child,
+      ],
+    );
+  }
+}
+
+class _OutputSettingsTab extends StatelessWidget {
+  const _OutputSettingsTab();
 
   @override
   Widget build(BuildContext context) {
@@ -124,7 +267,7 @@ class _EncodingSettingsTab extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // Container Format (first so codec options can be filtered)
+            // Container Format
             _buildSection(
               context,
               title: 'Container Format',
@@ -146,6 +289,56 @@ class _EncodingSettingsTab extends StatelessWidget {
                   viewModel.updateEncodingSettings(
                       settings.copyWith(container: newContainer, codec: newCodec));
                 },
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Output path
+            _buildSection(
+              context,
+              title: 'Output File',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (viewModel.outputPath != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              viewModel.outputPath!,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(fontFamily: 'monospace'),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.folder_open),
+                            onPressed: () => _showInFolder(viewModel.outputPath!),
+                            tooltip: 'Show in folder',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ] else ...[
+                    Text(
+                      'Output path will be set when you select an input file',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withValues(alpha: 0.6),
+                          ),
+                    ),
+                  ],
+                ],
               ),
             ),
 
@@ -274,139 +467,12 @@ class _EncodingSettingsTab extends StatelessWidget {
     );
   }
 
-  Widget _buildSection(
-    BuildContext context, {
-    required String title,
-    required Widget child,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-        ),
-        const SizedBox(height: 12),
-        child,
-      ],
-    );
-  }
-}
-
-class _InputOutputSettingsTab extends StatelessWidget {
-  const _InputOutputSettingsTab();
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<MainViewModel>(
-      builder: (context, viewModel, child) {
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            // Field Order
-            _buildSection(
-              context,
-              title: 'Field Order',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SwitchListTile(
-                    title: const Text('Auto-detect field order'),
-                    subtitle: const Text('Use detected field order from video'),
-                    value: viewModel.autoFieldOrder,
-                    onChanged: (value) {
-                      viewModel.setAutoFieldOrder(value);
-                    },
-                  ),
-                  if (!viewModel.autoFieldOrder) ...[
-                    const SizedBox(height: 8),
-                    SegmentedButton<FieldOrder>(
-                      segments: const [
-                        ButtonSegment(
-                          value: FieldOrder.topFieldFirst,
-                          label: Text('TFF (Top Field First)'),
-                        ),
-                        ButtonSegment(
-                          value: FieldOrder.bottomFieldFirst,
-                          label: Text('BFF (Bottom Field First)'),
-                        ),
-                      ],
-                      selected: {viewModel.manualFieldOrder},
-                      onSelectionChanged: (value) {
-                        viewModel.setManualFieldOrder(value.first);
-                      },
-                    ),
-                  ],
-                  if (viewModel.videoInfo?.fieldOrder != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      'Detected: ${viewModel.videoInfo!.fieldOrderDescription}',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Output path
-            _buildSection(
-              context,
-              title: 'Output',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (viewModel.outputPath != null) ...[
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              viewModel.outputPath!,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(fontFamily: 'monospace'),
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.folder_open),
-                            onPressed: () {
-                              // Would open file picker to change output path
-                            },
-                            tooltip: 'Change output location',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ] else ...[
-                    Text(
-                      'Output path will be set when you select an input file',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withValues(alpha: 0.6),
-                          ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        );
-      },
-    );
+  void _showInFolder(String path) {
+    if (Platform.isMacOS) {
+      Process.run('open', ['-R', path]);
+    } else if (Platform.isWindows) {
+      Process.run('explorer', ['/select,', path]);
+    }
   }
 
   Widget _buildSection(

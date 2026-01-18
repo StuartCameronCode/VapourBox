@@ -1,6 +1,6 @@
 # VapourBox
 
-A user-friendly wrapper for [VapourSynth](https://www.vapoursynth.com/) that makes video processing accessible to everyone. Convert interlaced footage, apply QTGMC deinterlacing, reduce noise, and fix common video problems—all through a simple drag-and-drop interface.
+A user-friendly wrapper for [VapourSynth](https://www.vapoursynth.com/) that makes video processing accessible to everyone. Convert between video formats, apply QTGMC deinterlacing, reduce noise, and fix common video problems—all through a simple drag-and-drop interface.
 
 No scripting required. No command line needed. Just drop your video and go.
 
@@ -17,7 +17,7 @@ No scripting required. No command line needed. Just drop your video and go.
 
 ## Supported Platforms
 
-- **macOS** (Apple Silicon and Intel)
+- **macOS** (Apple Silicon)
 - **Windows 10/11** (x64)
 
 ## Features
