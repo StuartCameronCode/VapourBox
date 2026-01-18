@@ -30,8 +30,8 @@ dependencies:
   # Window management
   window_manager: ^0.4.0
 
-  # HTTP client for dependency downloads
-  http: ^1.2.0
+  # HTTP client for dependency downloads (uses native TLS for Windows cert support)
+  rhttp: ^0.9.0
 
   # Archive extraction
   archive: ^3.6.0

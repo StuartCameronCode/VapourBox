@@ -6,7 +6,7 @@ import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
+import 'package:rhttp/rhttp.dart';
 import 'package:path/path.dart' as path;
 
 /// Status of the dependency installation.
@@ -391,11 +391,24 @@ class DependencyManager {
     int? expectedSize,
     String? expectedSha256,
   }) async {
-    final client = http.Client();
-    try {
-      final request = http.Request('GET', Uri.parse(url));
-      final response = await client.send(request);
+    final digestSink = AccumulatorSink<Digest>();
+    final sha256Sink = sha256.startChunkedConversion(digestSink);
+    final totalBytes = expectedSize ?? 0;
 
+    try {
+      // Use rhttp streaming download with progress
+      final response = await Rhttp.getStream(
+        url,
+        onReceiveProgress: (bytesReceived, contentLength) {
+          _progressController.add(DownloadProgress(
+            bytesReceived: bytesReceived,
+            totalBytes: contentLength > 0 ? contentLength : totalBytes,
+            status: 'Downloading...',
+          ));
+        },
+      );
+
+      // Check status code
       if (response.statusCode != 200) {
         throw HttpException(
           'Download failed: HTTP ${response.statusCode}',
@@ -403,22 +416,12 @@ class DependencyManager {
         );
       }
 
-      final totalBytes = response.contentLength ?? expectedSize ?? 0;
-      var bytesReceived = 0;
+      // Stream to file while computing SHA256
       final sink = destination.openWrite();
-      final digestSink = AccumulatorSink<Digest>();
-      final sha256Sink = sha256.startChunkedConversion(digestSink);
 
-      await for (final chunk in response.stream) {
+      await for (final chunk in response.body) {
         sink.add(chunk);
         sha256Sink.add(chunk);
-        bytesReceived += chunk.length;
-
-        _progressController.add(DownloadProgress(
-          bytesReceived: bytesReceived,
-          totalBytes: totalBytes,
-          status: 'Downloading...',
-        ));
       }
 
       await sink.close();
@@ -434,8 +437,8 @@ class DependencyManager {
           );
         }
       }
-    } finally {
-      client.close();
+    } on RhttpException catch (e) {
+      throw HttpException('Download failed: $e', uri: Uri.parse(url));
     }
   }
 

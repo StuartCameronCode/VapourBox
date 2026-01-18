@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:rhttp/rhttp.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'models/filter_registry.dart';
@@ -11,6 +12,9 @@ import 'views/main_window.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize rhttp (required for Rust FFI on Windows)
+  await Rhttp.init();
 
   // Initialize window manager for desktop
   await windowManager.ensureInitialized();
