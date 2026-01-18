@@ -85,7 +85,8 @@ class PreviewGenerator {
             '$exeDir\\..\\..\\..\\..\\..\\..\\worker\\target\\debug\\vapourbox-worker$ext',
           ]
         : [
-            '$exeDir/../Helpers/vapourbox-worker',
+            // Production: worker is next to main executable in Contents/MacOS
+            '$exeDir/vapourbox-worker',
             // Development: go up from app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS to project root (9 levels)
             '$exeDir/../../../../../../../../../worker/target/release/vapourbox-worker',
             '$exeDir/../../../../../../../../../worker/target/debug/vapourbox-worker',
@@ -490,8 +491,11 @@ class PreviewGenerator {
             '$exeDir\\deps\\$platformDir\\vapoursynth\\VSPipe$ext',
           ]
         : [
+            // Production: downloaded deps in Contents/MacOS/deps/
+            '$exeDir/deps/$platformDir/ffmpeg/$name',
+            '$exeDir/deps/$platformDir/vapoursynth/$name',
+            // Bundled in Helpers (legacy)
             '$exeDir/../Helpers/$name',
-            '$exeDir/../Frameworks/bin/$name',
             // Development: go up from app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS to project root (9 levels)
             '$exeDir/../../../../../../../../../deps/$platformDir/ffmpeg/$name',
             '$exeDir/../../../../../../../../../deps/$platformDir/vapoursynth/$name',

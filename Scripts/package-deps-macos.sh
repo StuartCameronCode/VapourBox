@@ -74,6 +74,7 @@ package_arch() {
     mkdir -p "$PACKAGE_DIR/ffmpeg"
     mkdir -p "$PACKAGE_DIR/vapoursynth/plugins"
     mkdir -p "$PACKAGE_DIR/python-packages"
+    mkdir -p "$PACKAGE_DIR/python"
 
     echo "[3/4] Copying dependencies for $ARCH_NAME..."
 
@@ -91,6 +92,12 @@ package_arch() {
     # Copy plugins
     if [ -d "$DEPS_DIR/vapoursynth/plugins" ]; then
         cp -r "$DEPS_DIR/vapoursynth/plugins/"* "$PACKAGE_DIR/vapoursynth/plugins/" 2>/dev/null || true
+    fi
+
+    # Copy Python runtime
+    echo "    Copying Python..."
+    if [ -d "$DEPS_DIR/python" ]; then
+        cp -r "$DEPS_DIR/python/"* "$PACKAGE_DIR/python/"
     fi
 
     # Copy Python packages
@@ -123,8 +130,9 @@ EOF
     echo "[4/4] Creating zip archive for $ARCH_NAME..."
     local ZIP_FILE="$DIST_DIR/$PACKAGE_NAME.zip"
     rm -f "$ZIP_FILE"
-    cd "$DIST_DIR"
-    zip -r -q "$PACKAGE_NAME.zip" "$PACKAGE_NAME"
+    # Zip contents without wrapper directory (so extraction is flat)
+    cd "$PACKAGE_DIR"
+    zip -r -q "$ZIP_FILE" .
 
     # Calculate size and hash
     local ZIP_SIZE=$(stat -f%z "$ZIP_FILE" 2>/dev/null || stat -c%s "$ZIP_FILE" 2>/dev/null)

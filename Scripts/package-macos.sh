@@ -126,7 +126,7 @@ CONTENTS="$APP_BUNDLE/Contents"
 mkdir -p "$CONTENTS/Helpers"
 mkdir -p "$CONTENTS/Frameworks/VapourSynth"
 mkdir -p "$CONTENTS/Resources/PythonPackages"
-mkdir -p "$CONTENTS/Resources/Templates"
+mkdir -p "$CONTENTS/MacOS/templates"
 mkdir -p "$CONTENTS/Resources/NNEDI3"
 
 # Copy Rust worker
@@ -135,13 +135,13 @@ if [ ! -f "$WORKER_BIN" ]; then
     echo "ERROR: Worker executable not found at $WORKER_BIN"
     exit 1
 fi
-cp "$WORKER_BIN" "$CONTENTS/Helpers/vapourbox-worker"
-chmod +x "$CONTENTS/Helpers/vapourbox-worker"
+cp "$WORKER_BIN" "$CONTENTS/MacOS/vapourbox-worker"
+chmod +x "$CONTENTS/MacOS/vapourbox-worker"
 
-# Copy VapourSynth script templates
-cp "$PROJECT_ROOT/worker/templates/qtgmc_template.vpy" "$CONTENTS/Resources/Templates/"
-cp "$PROJECT_ROOT/worker/templates/pipeline_template.vpy" "$CONTENTS/Resources/Templates/"
-cp "$PROJECT_ROOT/worker/templates/preview_template.vpy" "$CONTENTS/Resources/Templates/"
+# Copy VapourSynth script templates (next to worker in MacOS/)
+cp "$PROJECT_ROOT/worker/templates/qtgmc_template.vpy" "$CONTENTS/MacOS/templates/"
+cp "$PROJECT_ROOT/worker/templates/pipeline_template.vpy" "$CONTENTS/MacOS/templates/"
+cp "$PROJECT_ROOT/worker/templates/preview_template.vpy" "$CONTENTS/MacOS/templates/"
 
 # Copy dependencies
 echo "[6/8] Copying dependencies..."
