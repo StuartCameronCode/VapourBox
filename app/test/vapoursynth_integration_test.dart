@@ -2,7 +2,7 @@
 // These tests run actual vspipe commands to ensure all filters function.
 //
 // Run with: flutter test test/vapoursynth_integration_test.dart
-// Note: Requires deps/macos-arm64 to be present with all plugins.
+// Note: Requires platform-specific deps to be present with all plugins.
 
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,11 +17,26 @@ void main() {
     // Find the deps directory relative to the test file
     final scriptDir = Directory.current.path;
 
+    // Determine platform-specific deps folder
+    final String depsPlatform;
+    final String vspipeExe;
+    if (Platform.isWindows) {
+      depsPlatform = 'windows-x64';
+      vspipeExe = 'VSPipe.exe';
+    } else if (Platform.isMacOS) {
+      // Check architecture
+      final archResult = await Process.run('uname', ['-m']);
+      final arch = archResult.stdout.toString().trim();
+      depsPlatform = arch == 'arm64' ? 'macos-arm64' : 'macos-x64';
+      vspipeExe = 'vspipe';
+    } else {
+      throw UnsupportedError('Unsupported platform: ${Platform.operatingSystem}');
+    }
+
     // Try different possible locations for deps
     final possibleDepsPaths = [
-      path.join(scriptDir, '..', 'deps', 'macos-arm64'),
-      path.join(scriptDir, 'deps', 'macos-arm64'),
-      '/Users/stuartcameron/GitHub/VapourBox/deps/macos-arm64',
+      path.join(scriptDir, '..', 'deps', depsPlatform),
+      path.join(scriptDir, 'deps', depsPlatform),
     ];
 
     for (final p in possibleDepsPaths) {
@@ -31,7 +46,9 @@ void main() {
       }
     }
 
-    vspipePath = path.join(depsDir, 'vapoursynth', 'vspipe');
+    vspipePath = Platform.isWindows
+        ? path.join(depsDir, 'vapoursynth', vspipeExe)
+        : path.join(depsDir, 'vapoursynth', vspipeExe);
 
     // Create a simple test video (Y4M format - raw YUV)
     testVideoPath = path.join(Directory.systemTemp.path, 'vapourbox_test.y4m');
@@ -58,7 +75,7 @@ void main() {
 import vapoursynth as vs
 core = vs.core
 
-# List all required plugins
+# List all required plugins (core set that works on both Windows and macOS)
 required = ['std', 'resize', 'bs', 'mv', 'znedi3', 'eedi3m', 'fmtc',
             'dfttest', 'neo_f3kdb', 'cas', 'dctf', 'deblock', 'rgvs',
             'ctmf', 'warp', 'misc', 'grain', 'tcanny']
@@ -310,12 +327,28 @@ Future<ProcessResult> _runVspipeScript(
         ? ['-p', scriptFile.path, '.'] // -p shows progress, . means discard output
         : ['-i', scriptFile.path, '-'];
 
+    // Build platform-specific environment
+    final depsDir = path.dirname(path.dirname(vspipePath));
+    final Map<String, String> environment;
+
+    if (Platform.isWindows) {
+      final vsDir = path.join(depsDir, 'vapoursynth');
+      environment = {
+        'PYTHONHOME': vsDir,
+        'PYTHONPATH': path.join(vsDir, 'Lib', 'site-packages'),
+        'VAPOURSYNTH_PLUGIN_PATH': path.join(vsDir, 'vs-plugins'),
+      };
+    } else {
+      // macOS - the vspipe wrapper script handles most env setup
+      environment = {
+        'PYTHONPATH': path.join(depsDir, 'python-packages'),
+      };
+    }
+
     final result = await Process.run(
       vspipePath,
       args,
-      environment: {
-        'PYTHONPATH': path.join(path.dirname(path.dirname(vspipePath)), 'python-packages'),
-      },
+      environment: environment,
     );
 
     return result;
