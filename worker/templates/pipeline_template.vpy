@@ -10,6 +10,10 @@ import sys
 
 core = vs.core
 
+# Configure cache size for optimal performance with temporal filters
+# 1GB default, can be adjusted based on system memory
+core.max_cache_size = 1024
+
 # Load input video using BestSource for frame-accurate seeking
 clip = core.bs.VideoSource(source=r"{{INPUT_PATH}}")
 

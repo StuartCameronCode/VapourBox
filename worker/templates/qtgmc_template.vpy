@@ -9,6 +9,9 @@ import sys
 
 core = vs.core
 
+# Configure cache size for optimal performance with temporal filters
+core.max_cache_size = 1024
+
 # Load input video using ffms2 for frame-accurate seeking
 clip = core.ffms2.Source(source=r"{{INPUT_PATH}}")
 

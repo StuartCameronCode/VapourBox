@@ -10,6 +10,9 @@ import os
 
 core = vs.core
 
+# Configure cache size for optimal performance with temporal filters
+core.max_cache_size = 1024
+
 # Load the temporary preview video clip (extracted with fast keyframe seeking)
 video_path = r"{{VIDEO_PATH}}"
 
