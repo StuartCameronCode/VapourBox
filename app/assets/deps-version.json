@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "releaseTag": "deps-v1.0.0",
-  "releaseDate": "2025-01-18",
+  "releaseDate": "2026-01-19",
   "platforms": {
     "windows-x64": {
       "filename": "VapourBox-deps-1.0.0-windows-x64.zip",
