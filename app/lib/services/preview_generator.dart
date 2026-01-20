@@ -274,6 +274,7 @@ class PreviewGenerator {
 
       // Run worker in preview mode
       // Use local variable to avoid race conditions when another preview request cancels this one
+      // Set workingDirectory to the worker's parent directory so relative deps paths resolve correctly
       final process = await Process.start(
         _workerPath!,
         [
@@ -281,6 +282,7 @@ class PreviewGenerator {
           '--preview',
           '--frame', frameNumber.toString(),
         ],
+        workingDirectory: path.dirname(_workerPath!),
       );
       _previewProcess = process;
 
