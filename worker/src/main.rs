@@ -70,6 +70,8 @@ fn main() -> ExitCode {
     match run_worker(&args, &reporter, cancelled) {
         Ok(output_path) => {
             reporter.send_complete(true, Some(&output_path));
+            // Small delay to ensure stdout is flushed and received by parent process
+            std::thread::sleep(std::time::Duration::from_millis(100));
             ExitCode::SUCCESS
         }
         Err(e) => {
