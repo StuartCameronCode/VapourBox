@@ -18,7 +18,9 @@ TYPE="${1:---app}"
 case "$TYPE" in
     --app)
         # Get latest app release (tags starting with 'v')
-        VERSION=$(gh release list --repo "$GITHUB_REPO" --limit 50 2>/dev/null | grep -E '^v[0-9]' | head -1 | awk '{print $1}' | sed 's/^v//')
+        # gh release list format: "TITLE<tab>STATUS<tab>TAG<tab>DATE"
+        # Extract tag column and find app version tags (v0.x.x)
+        VERSION=$(gh release list --repo "$GITHUB_REPO" --limit 50 2>/dev/null | awk -F'\t' '{print $3}' | grep -E '^v[0-9]' | head -1 | sed 's/^v//')
         if [ -z "$VERSION" ]; then
             VERSION="0.0.0"
         fi
@@ -26,7 +28,7 @@ case "$TYPE" in
         ;;
     --deps)
         # Get latest deps release (tags starting with 'deps-v')
-        VERSION=$(gh release list --repo "$GITHUB_REPO" --limit 50 2>/dev/null | grep -E '^deps-v[0-9]' | head -1 | awk '{print $1}' | sed 's/^deps-v//')
+        VERSION=$(gh release list --repo "$GITHUB_REPO" --limit 50 2>/dev/null | awk -F'\t' '{print $3}' | grep -E '^deps-v[0-9]' | head -1 | sed 's/^deps-v//')
         if [ -z "$VERSION" ]; then
             VERSION="0.0.0"
         fi
@@ -34,7 +36,7 @@ case "$TYPE" in
         ;;
     --next-app)
         # Get next app version (increment minor)
-        CURRENT=$(gh release list --repo "$GITHUB_REPO" --limit 50 2>/dev/null | grep -E '^v[0-9]' | head -1 | awk '{print $1}' | sed 's/^v//')
+        CURRENT=$(gh release list --repo "$GITHUB_REPO" --limit 50 2>/dev/null | awk -F'\t' '{print $3}' | grep -E '^v[0-9]' | head -1 | sed 's/^v//')
         if [ -z "$CURRENT" ]; then
             echo "0.1.0"
         else
@@ -48,7 +50,7 @@ case "$TYPE" in
         ;;
     --next-deps)
         # Get next deps version (increment minor)
-        CURRENT=$(gh release list --repo "$GITHUB_REPO" --limit 50 2>/dev/null | grep -E '^deps-v[0-9]' | head -1 | awk '{print $1}' | sed 's/^deps-v//')
+        CURRENT=$(gh release list --repo "$GITHUB_REPO" --limit 50 2>/dev/null | awk -F'\t' '{print $3}' | grep -E '^deps-v[0-9]' | head -1 | sed 's/^deps-v//')
         if [ -z "$CURRENT" ]; then
             echo "1.0.0"
         else
