@@ -113,7 +113,6 @@ cp "$WORKER_BIN" "$CONTENTS/MacOS/vapourbox-worker"
 chmod +x "$CONTENTS/MacOS/vapourbox-worker"
 
 # Copy VapourSynth script templates
-cp "$PROJECT_ROOT/worker/templates/qtgmc_template.vpy" "$CONTENTS/MacOS/templates/"
 cp "$PROJECT_ROOT/worker/templates/pipeline_template.vpy" "$CONTENTS/MacOS/templates/"
 cp "$PROJECT_ROOT/worker/templates/preview_template.vpy" "$CONTENTS/MacOS/templates/"
 

@@ -85,36 +85,29 @@ impl ScriptGenerator {
 
     /// Load the template from various locations.
     fn load_template() -> Result<String> {
-        Self::load_template_by_name("pipeline_template.vpy", "qtgmc_template.vpy")
+        Self::load_template_by_name("pipeline_template.vpy")
     }
 
     /// Load the preview template from various locations.
     fn load_preview_template() -> Result<String> {
-        Self::load_template_by_name("preview_template.vpy", "preview_template.vpy")
+        Self::load_template_by_name("preview_template.vpy")
     }
 
     /// Load a template by name from various locations.
-    fn load_template_by_name(primary_name: &str, fallback_name: &str) -> Result<String> {
-        // Try locations in order of preference
+    fn load_template_by_name(name: &str) -> Result<String> {
         let exe_path = env::current_exe()?;
         let exe_dir = exe_path.parent().unwrap_or(Path::new("."));
 
         let search_paths = [
-            // Next to executable
-            exe_dir.join("templates").join(primary_name),
-            exe_dir.join("Templates").join(primary_name),
-            exe_dir.join("templates").join(fallback_name),
-            exe_dir.join("Templates").join(fallback_name),
-            // In parent (for development: worker/target/release -> worker/templates)
-            exe_dir.join("..").join("..").join("templates").join(primary_name),
-            exe_dir.join("..").join("..").join("..").join("templates").join(primary_name),
-            exe_dir.join("..").join("..").join("templates").join(fallback_name),
-            exe_dir.join("..").join("..").join("..").join("templates").join(fallback_name),
+            // Next to executable (production)
+            exe_dir.join("templates").join(name),
+            exe_dir.join("Templates").join(name),
+            // In parent (development: worker/target/debug -> worker/templates)
+            exe_dir.join("..").join("..").join("templates").join(name),
+            exe_dir.join("..").join("..").join("..").join("templates").join(name),
             // Relative to current dir
-            PathBuf::from("templates").join(primary_name),
-            PathBuf::from("templates").join(fallback_name),
-            PathBuf::from("worker").join("templates").join(primary_name),
-            PathBuf::from("worker").join("templates").join(fallback_name),
+            PathBuf::from("templates").join(name),
+            PathBuf::from("worker").join("templates").join(name),
         ];
 
         for path in &search_paths {
@@ -126,13 +119,12 @@ impl ScriptGenerator {
             }
         }
 
-        // List searched paths in error message for debugging
         let searched: Vec<String> = search_paths.iter()
             .map(|p| p.display().to_string())
             .collect();
         anyhow::bail!(
             "Could not find template '{}'. Searched paths:\n  {}",
-            primary_name,
+            name,
             searched.join("\n  ")
         )
     }

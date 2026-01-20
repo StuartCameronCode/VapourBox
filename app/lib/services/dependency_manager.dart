@@ -176,13 +176,17 @@ class DependencyManager {
         return prodDeps;
       }
 
-      // Development: go up to project root and find deps/windows-x64
-      // From app/build/windows/x64/runner/Debug/ up 6 levels
-      final devDeps = Directory(path.join(appDir, '..', '..', '..', '..', '..', '..', 'deps', 'windows-x64'));
-      if (await devDeps.exists()) {
-        final resolved = Directory(await devDeps.resolveSymbolicLinks());
-        print('DependencyManager: Found dev deps at ${resolved.path}');
-        return resolved;
+      // Development only: search upward for project deps
+      // This is restricted to debug builds for security - release builds
+      // should only check known, trusted paths.
+      if (kDebugMode) {
+        // From app/build/windows/x64/runner/Debug/ up 6 levels to project root
+        final devDeps = Directory(path.join(appDir, '..', '..', '..', '..', '..', '..', 'deps', 'windows-x64'));
+        if (await devDeps.exists()) {
+          final resolved = Directory(await devDeps.resolveSymbolicLinks());
+          print('DependencyManager: Found dev deps at ${resolved.path}');
+          return resolved;
+        }
       }
 
       // Fall back to production path (will trigger download)
