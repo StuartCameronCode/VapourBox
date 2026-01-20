@@ -167,6 +167,23 @@ impl DependencyLocator {
         Ok(path)
     }
 
+    /// Get the path to ffprobe executable.
+    pub fn ffprobe_path(&self) -> Result<PathBuf> {
+        let exe_name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
+        let path = self.platform_dir().join("ffmpeg").join(exe_name);
+
+        if !path.exists() {
+            // Try system PATH as last resort
+            if let Ok(system_path) = which::which("ffprobe") {
+                return Ok(system_path);
+            }
+
+            bail!("ffprobe not found at {:?}", path);
+        }
+
+        Ok(path)
+    }
+
     /// Get the Python home directory, or None if Python is not bundled.
     pub fn python_home(&self) -> Option<PathBuf> {
         let platform_dir = self.platform_dir();

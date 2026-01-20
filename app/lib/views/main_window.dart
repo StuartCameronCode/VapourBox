@@ -4,8 +4,10 @@ import 'package:provider/provider.dart';
 
 import '../models/processing_preset.dart';
 import '../models/progress_info.dart';
+import '../services/audio_compatibility_service.dart';
 import '../viewmodels/main_viewmodel.dart';
 import 'about_dialog.dart' as about;
+import 'audio_compatibility_dialog.dart';
 import 'drop_zone.dart';
 import 'pass_list/pass_list_panel.dart';
 import 'pass_settings/pass_settings_container.dart';
@@ -188,7 +190,7 @@ class MainWindow extends StatelessWidget {
                 : const Icon(Icons.play_arrow),
             label: Text(viewModel.isProcessing ? 'Processing...' : 'Go'),
             onPressed: viewModel.canProcess
-                ? () => viewModel.startProcessing()
+                ? () => _startProcessingWithCompatibilityCheck(context, viewModel)
                 : viewModel.state.canCancel
                     ? () => viewModel.cancelProcessing()
                     : null,
@@ -620,5 +622,74 @@ class MainWindow extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Check audio compatibility and start processing.
+  /// Shows a dialog if the audio codec is incompatible with the container.
+  Future<void> _startProcessingWithCompatibilityCheck(
+    BuildContext context,
+    MainViewModel viewModel,
+  ) async {
+    // Only check if audio copy is enabled
+    if (!viewModel.encodingSettings.audioCopy) {
+      viewModel.startProcessing();
+      return;
+    }
+
+    // Check audio compatibility
+    final service = AudioCompatibilityService();
+    final compatibility = await service.checkCompatibility(
+      inputPath: viewModel.inputPath!,
+      outputContainer: viewModel.encodingSettings.container,
+      audioCopy: viewModel.encodingSettings.audioCopy,
+    );
+
+    // If compatible or no audio, proceed directly
+    if (compatibility.isCompatible) {
+      viewModel.startProcessing();
+      return;
+    }
+
+    // Show dialog for user to choose
+    if (!context.mounted) return;
+
+    final result = await AudioCompatibilityDialog.show(
+      context: context,
+      compatibility: compatibility,
+    );
+
+    if (result == null || result.choice == AudioCompatibilityChoice.cancel) {
+      // User cancelled
+      return;
+    }
+
+    switch (result.choice) {
+      case AudioCompatibilityChoice.reencode:
+        // Update settings to re-encode audio
+        viewModel.updateEncodingSettings(
+          viewModel.encodingSettings.copyWith(
+            audioCopy: false,
+            audioCodec: compatibility.suggestedCodec,
+          ),
+        );
+        break;
+
+      case AudioCompatibilityChoice.changeContainer:
+        // Update settings to use compatible container
+        if (result.newContainer != null) {
+          viewModel.updateEncodingSettings(
+            viewModel.encodingSettings.copyWith(
+              container: result.newContainer,
+            ),
+          );
+        }
+        break;
+
+      case AudioCompatibilityChoice.cancel:
+        return;
+    }
+
+    // Start processing with updated settings
+    viewModel.startProcessing();
   }
 }

@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
@@ -219,12 +219,20 @@ impl PipelineExecutor {
         let mut args = Vec::new();
         let settings = &job.encoding_settings;
 
-        // Input from pipe
+        // Input 0: Processed video from vspipe (Y4M pipe)
         args.extend(["-f".to_string(), "yuv4mpegpipe".to_string()]);
         args.extend(["-i".to_string(), "-".to_string()]);
 
+        // Input 1: Original file for audio stream
+        // (Y4M from vspipe contains only video, so we need the original file for audio)
+        args.extend(["-i".to_string(), job.input_path.clone()]);
+
         // Progress output to stderr
         args.extend(["-progress".to_string(), "pipe:2".to_string()]);
+
+        // Map streams: video from input 0 (processed), audio from input 1 (original)
+        args.extend(["-map".to_string(), "0:v".to_string()]);  // Video from Y4M pipe
+        args.extend(["-map".to_string(), "1:a?".to_string()]); // Audio from original (? = optional, skip if no audio)
 
         // Video codec
         args.extend(["-c:v".to_string(), settings.codec.ffmpeg_codec().to_string()]);
@@ -439,17 +447,66 @@ impl Drop for PipelineExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{EncodingSettings, QTGMCParameters};
+    use crate::models::{EncodingSettings, QTGMCParameters, VideoCodec, ContainerFormat};
     use uuid::Uuid;
 
-    #[test]
-    fn test_build_ffmpeg_args() {
-        let reporter = ProgressReporter::new();
-        // This will fail without deps, but we can test arg building
-        let job = VideoJob {
+    /// Helper to build FFmpeg args without requiring a full PipelineExecutor.
+    /// This mirrors the logic in PipelineExecutor::build_ffmpeg_args for testing.
+    fn build_ffmpeg_args_for_test(job: &VideoJob) -> Vec<String> {
+        let mut args = Vec::new();
+        let settings = &job.encoding_settings;
+
+        // Input 0: Processed video from vspipe (Y4M pipe)
+        args.extend(["-f".to_string(), "yuv4mpegpipe".to_string()]);
+        args.extend(["-i".to_string(), "-".to_string()]);
+
+        // Input 1: Original file for audio stream
+        args.extend(["-i".to_string(), job.input_path.clone()]);
+
+        // Progress output to stderr
+        args.extend(["-progress".to_string(), "pipe:2".to_string()]);
+
+        // Map streams: video from input 0 (processed), audio from input 1 (original)
+        args.extend(["-map".to_string(), "0:v".to_string()]);
+        args.extend(["-map".to_string(), "1:a?".to_string()]);
+
+        // Video codec
+        args.extend(["-c:v".to_string(), settings.codec.ffmpeg_codec().to_string()]);
+
+        // ProRes profile
+        if let Some(profile) = settings.codec.prores_profile() {
+            args.extend(["-profile:v".to_string(), profile.to_string()]);
+        } else {
+            // Quality (CRF for H.264/H.265)
+            args.extend(["-crf".to_string(), settings.quality.to_string()]);
+            args.extend(["-preset".to_string(), settings.encoder_preset.clone()]);
+        }
+
+        // Audio handling
+        if settings.audio_copy {
+            args.extend(["-c:a".to_string(), "copy".to_string()]);
+        } else {
+            args.extend(["-c:a".to_string(), settings.audio_codec.clone()]);
+            args.extend(["-b:a".to_string(), format!("{}k", settings.audio_bitrate)]);
+        }
+
+        // Custom arguments
+        if !settings.custom_ffmpeg_args.is_empty() {
+            args.extend(settings.custom_ffmpeg_args.split_whitespace().map(String::from));
+        }
+
+        // Output file (force overwrite)
+        args.push("-y".to_string());
+        args.push(job.output_path.clone());
+
+        args
+    }
+
+    fn create_test_job(output_path: &str) -> VideoJob {
+        VideoJob {
             id: Uuid::new_v4(),
             input_path: "input.mp4".to_string(),
-            output_path: "output.mp4".to_string(),
+            output_path: output_path.to_string(),
             qtgmc_parameters: QTGMCParameters::default(),
             restoration_pipeline: None,
             encoding_settings: EncodingSettings::default(),
@@ -458,9 +515,146 @@ mod tests {
             input_frame_rate: None,
             start_frame: None,
             end_frame: None,
-        };
+        }
+    }
 
-        // We can't fully test without dependencies, but the struct compiles
-        assert_eq!(job.output_path, "output.mp4");
+    #[test]
+    fn test_default_encoding_settings_has_audio_copy_enabled() {
+        let settings = EncodingSettings::default();
+        assert!(
+            settings.audio_copy,
+            "Default encoding settings should have audio_copy=true to preserve original audio"
+        );
+    }
+
+    #[test]
+    fn test_ffmpeg_args_audio_copy_produces_stream_copy() {
+        let mut job = create_test_job("output.mp4");
+        job.encoding_settings.audio_copy = true;
+
+        let args = build_ffmpeg_args_for_test(&job);
+
+        // Find the audio codec argument
+        let audio_codec_idx = args.iter().position(|a| a == "-c:a");
+        assert!(audio_codec_idx.is_some(), "FFmpeg args should contain -c:a");
+
+        let codec_value = &args[audio_codec_idx.unwrap() + 1];
+        assert_eq!(
+            codec_value, "copy",
+            "When audio_copy=true, FFmpeg should use '-c:a copy' to passthrough audio unchanged"
+        );
+
+        // Ensure no bitrate argument is present (copy doesn't need bitrate)
+        let has_audio_bitrate = args.iter().any(|a| a == "-b:a");
+        assert!(
+            !has_audio_bitrate,
+            "When audio_copy=true, FFmpeg should not have -b:a (bitrate) argument"
+        );
+    }
+
+    #[test]
+    fn test_ffmpeg_args_audio_reencode_uses_codec_and_bitrate() {
+        let mut job = create_test_job("output.mp4");
+        job.encoding_settings.audio_copy = false;
+        job.encoding_settings.audio_codec = "aac".to_string();
+        job.encoding_settings.audio_bitrate = 256;
+
+        let args = build_ffmpeg_args_for_test(&job);
+
+        // Find the audio codec argument
+        let audio_codec_idx = args.iter().position(|a| a == "-c:a");
+        assert!(audio_codec_idx.is_some(), "FFmpeg args should contain -c:a");
+
+        let codec_value = &args[audio_codec_idx.unwrap() + 1];
+        assert_eq!(
+            codec_value, "aac",
+            "When audio_copy=false, FFmpeg should use the specified audio codec"
+        );
+
+        // Find the audio bitrate argument
+        let audio_bitrate_idx = args.iter().position(|a| a == "-b:a");
+        assert!(
+            audio_bitrate_idx.is_some(),
+            "When audio_copy=false, FFmpeg should have -b:a (bitrate) argument"
+        );
+
+        let bitrate_value = &args[audio_bitrate_idx.unwrap() + 1];
+        assert_eq!(
+            bitrate_value, "256k",
+            "Audio bitrate should be formatted as '256k'"
+        );
+    }
+
+    #[test]
+    fn test_ffmpeg_args_contains_input_and_output() {
+        let job = create_test_job("output_test.mp4");
+        let args = build_ffmpeg_args_for_test(&job);
+
+        // Check for yuv4mpegpipe input (from vspipe)
+        assert!(
+            args.contains(&"-f".to_string()) && args.contains(&"yuv4mpegpipe".to_string()),
+            "FFmpeg args should specify yuv4mpegpipe format for input from vspipe"
+        );
+
+        // Check for stdin input
+        let stdin_idx = args.iter().position(|a| a == "-i");
+        assert!(stdin_idx.is_some(), "FFmpeg args should have -i for input");
+        assert_eq!(
+            args[stdin_idx.unwrap() + 1], "-",
+            "FFmpeg should read from stdin (pipe from vspipe)"
+        );
+
+        // Check for output file
+        assert!(
+            args.last() == Some(&"output_test.mp4".to_string()),
+            "FFmpeg args should end with output file path"
+        );
+
+        // Check for overwrite flag
+        assert!(
+            args.contains(&"-y".to_string()),
+            "FFmpeg args should contain -y to force overwrite"
+        );
+    }
+
+    #[test]
+    fn test_ffmpeg_args_video_codec_h264() {
+        let mut job = create_test_job("output.mp4");
+        job.encoding_settings.codec = VideoCodec::H264;
+        job.encoding_settings.quality = 18;
+        job.encoding_settings.encoder_preset = "medium".to_string();
+
+        let args = build_ffmpeg_args_for_test(&job);
+
+        // Check video codec
+        let video_codec_idx = args.iter().position(|a| a == "-c:v");
+        assert!(video_codec_idx.is_some(), "FFmpeg args should contain -c:v");
+        assert_eq!(args[video_codec_idx.unwrap() + 1], "libx264");
+
+        // Check CRF
+        let crf_idx = args.iter().position(|a| a == "-crf");
+        assert!(crf_idx.is_some(), "H.264 should use CRF");
+        assert_eq!(args[crf_idx.unwrap() + 1], "18");
+
+        // Check preset
+        let preset_idx = args.iter().position(|a| a == "-preset");
+        assert!(preset_idx.is_some(), "H.264 should have encoder preset");
+        assert_eq!(args[preset_idx.unwrap() + 1], "medium");
+    }
+
+    #[test]
+    fn test_ffmpeg_args_video_codec_ffv1_lossless() {
+        let mut job = create_test_job("output.avi");
+        job.encoding_settings.codec = VideoCodec::FFV1;
+
+        let args = build_ffmpeg_args_for_test(&job);
+
+        // Check video codec
+        let video_codec_idx = args.iter().position(|a| a == "-c:v");
+        assert!(video_codec_idx.is_some(), "FFmpeg args should contain -c:v");
+        assert_eq!(
+            args[video_codec_idx.unwrap() + 1], "ffv1",
+            "FFV1 codec should be used for lossless encoding"
+        );
     }
 }

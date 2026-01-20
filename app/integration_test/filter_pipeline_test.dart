@@ -52,6 +52,168 @@ class TestConfig {
 /// Global baseline frame hash for comparison (visual content only)
 String? _baselineFrameHash;
 
+// =============================================================================
+// AUDIO ANALYSIS HELPERS
+// =============================================================================
+
+/// Information about audio streams in a video file
+class AudioStreamInfo {
+  final bool hasAudio;
+  final String? codec;
+  final int? sampleRate;
+  final int? channels;
+  final String? bitrate;
+
+  AudioStreamInfo({
+    required this.hasAudio,
+    this.codec,
+    this.sampleRate,
+    this.channels,
+    this.bitrate,
+  });
+
+  @override
+  String toString() {
+    if (!hasAudio) return 'No audio';
+    return 'Audio: $codec, ${sampleRate}Hz, ${channels}ch, $bitrate';
+  }
+}
+
+/// Get information about audio streams in a video file using ffprobe
+Future<AudioStreamInfo> getAudioStreamInfo(String videoPath) async {
+  final ffprobePath = '${TestConfig.depsDir}/ffmpeg/ffprobe.exe';
+
+  final result = await Process.run(
+    ffprobePath,
+    [
+      '-v', 'error',
+      '-select_streams', 'a:0',
+      '-show_entries', 'stream=codec_name,sample_rate,channels,bit_rate',
+      '-of', 'json',
+      videoPath,
+    ],
+    environment: {
+      'PATH': '${TestConfig.depsDir}/ffmpeg;${Platform.environment['PATH']}',
+    },
+  );
+
+  if (result.exitCode != 0) {
+    throw Exception('ffprobe failed: ${result.stderr}');
+  }
+
+  final json = jsonDecode(result.stdout as String) as Map<String, dynamic>;
+  final streams = json['streams'] as List?;
+
+  if (streams == null || streams.isEmpty) {
+    return AudioStreamInfo(hasAudio: false);
+  }
+
+  final stream = streams[0] as Map<String, dynamic>;
+  return AudioStreamInfo(
+    hasAudio: true,
+    codec: stream['codec_name'] as String?,
+    sampleRate: int.tryParse(stream['sample_rate']?.toString() ?? ''),
+    channels: stream['channels'] as int?,
+    bitrate: stream['bit_rate'] as String?,
+  );
+}
+
+/// Extract raw audio from a video file as PCM WAV for binary comparison
+/// Returns the MD5 hash of the audio data, or null if no audio
+Future<String?> extractAudioHash(String videoPath) async {
+  final ffmpegPath = '${TestConfig.depsDir}/ffmpeg/ffmpeg.exe';
+  final tempDir = Directory.systemTemp;
+  final audioPath = '${tempDir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.wav';
+
+  try {
+    // Extract audio as raw PCM WAV (lossless extraction for comparison)
+    final result = await Process.run(
+      ffmpegPath,
+      [
+        '-i', videoPath,
+        '-vn',                    // No video
+        '-acodec', 'pcm_s16le',   // Convert to PCM for consistent comparison
+        '-ar', '48000',           // Resample to 48kHz for consistency
+        '-ac', '2',               // Stereo
+        '-y',
+        audioPath,
+      ],
+      environment: {
+        'PATH': '${TestConfig.depsDir}/ffmpeg;${Platform.environment['PATH']}',
+      },
+    );
+
+    // If no audio stream, ffmpeg will fail or produce empty file
+    final audioFile = File(audioPath);
+    if (!await audioFile.exists() || await audioFile.length() < 1000) {
+      // No audio or too small to be valid
+      if (await audioFile.exists()) await audioFile.delete();
+      return null;
+    }
+
+    // Compute hash of audio data
+    final bytes = await audioFile.readAsBytes();
+    final hash = md5.convert(bytes).toString();
+
+    // Cleanup
+    await audioFile.delete().catchError((_) => audioFile);
+
+    return hash;
+  } catch (e) {
+    // Cleanup on error
+    final audioFile = File(audioPath);
+    if (await audioFile.exists()) {
+      await audioFile.delete().catchError((_) => audioFile);
+    }
+    return null;
+  }
+}
+
+/// Extract raw audio bytes from a video for detailed comparison
+/// Returns raw audio data as Uint8List, or null if no audio
+Future<Uint8List?> extractAudioBytes(String videoPath) async {
+  final ffmpegPath = '${TestConfig.depsDir}/ffmpeg/ffmpeg.exe';
+  final tempDir = Directory.systemTemp;
+  final audioPath = '${tempDir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.raw';
+
+  try {
+    // Extract audio as raw PCM (no header, pure samples)
+    final result = await Process.run(
+      ffmpegPath,
+      [
+        '-i', videoPath,
+        '-vn',
+        '-f', 's16le',           // Raw PCM format
+        '-acodec', 'pcm_s16le',
+        '-ar', '48000',
+        '-ac', '2',
+        '-y',
+        audioPath,
+      ],
+      environment: {
+        'PATH': '${TestConfig.depsDir}/ffmpeg;${Platform.environment['PATH']}',
+      },
+    );
+
+    final audioFile = File(audioPath);
+    if (!await audioFile.exists() || await audioFile.length() < 1000) {
+      if (await audioFile.exists()) await audioFile.delete();
+      return null;
+    }
+
+    final bytes = await audioFile.readAsBytes();
+    await audioFile.delete().catchError((_) => audioFile);
+
+    return bytes;
+  } catch (e) {
+    final audioFile = File(audioPath);
+    if (await audioFile.exists()) {
+      await audioFile.delete().catchError((_) => audioFile);
+    }
+    return null;
+  }
+}
+
 /// Extracts a frame from a video and returns its hash (visual content only)
 Future<String> extractFrameHash(String videoPath, {int frameNumber = 5}) async {
   final tempDir = Directory.systemTemp;
@@ -2160,5 +2322,479 @@ void main() {
       expect(result.success, isTrue, reason: result.error);
       await verifyPreviewDiffersFromBaseline(result.previewHash, 'Resize 1080p Lanczos');
     }, timeout: const Timeout(Duration(minutes: 2)));
+  });
+
+  // ===========================================================================
+  // AUDIO PASSTHROUGH TESTS
+  // ===========================================================================
+  // These tests verify that processed video outputs audio correctly:
+  // - When audioCopy=true: audio should be identical to input (bitstream copy)
+  // - When audioCopy=false: audio should be re-encoded (different from input)
+  // - When using -an flag: output should have no audio stream
+  //
+  // The pipeline architecture:
+  //   Input video → vspipe (VIDEO ONLY, Y4M) → FFmpeg (adds audio from input)
+  // So VapourSynth never touches audio; FFmpeg handles it separately.
+  // ===========================================================================
+
+  group('Audio Passthrough', () {
+    // Store input audio hash for comparison
+    String? _inputAudioHash;
+
+    test('Setup: Verify input file has audio', () async {
+      print('\n${'=' * 60}');
+      print('AUDIO TEST SETUP: Checking input file');
+      print('=' * 60);
+
+      // Check input file has audio
+      final inputInfo = await getAudioStreamInfo(TestConfig.inputFile);
+      print('Input file: ${TestConfig.inputFile}');
+      print('Audio info: $inputInfo');
+
+      expect(
+        inputInfo.hasAudio,
+        isTrue,
+        reason: 'Test input file must have audio for audio passthrough tests. '
+            'Input: ${TestConfig.inputFile}',
+      );
+
+      // Store input audio hash for later comparison
+      _inputAudioHash = await extractAudioHash(TestConfig.inputFile);
+      print('Input audio hash: $_inputAudioHash');
+
+      expect(
+        _inputAudioHash,
+        isNotNull,
+        reason: 'Failed to extract audio hash from input file',
+      );
+    });
+
+    test('Audio Copy (audioCopy=true): Output audio matches input exactly', () async {
+      // This test verifies that when audioCopy=true (default), the output
+      // contains audio that is byte-for-byte identical to the input audio.
+      // This is the expected behavior for video restoration - preserve original audio.
+
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/test_audio_copy.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+          audioCopy: true, // Explicitly set (this is also the default)
+        ),
+      );
+
+      final result = await runFilterTest('Audio Copy Mode', job);
+      expect(result.success, isTrue, reason: result.error);
+
+      // Verify output has audio
+      final outputInfo = await getAudioStreamInfo(result.outputPath!);
+      print('  Output audio info: $outputInfo');
+
+      expect(
+        outputInfo.hasAudio,
+        isTrue,
+        reason: 'Output file must have audio when audioCopy=true',
+      );
+
+      // Extract and compare audio
+      final outputAudioHash = await extractAudioHash(result.outputPath!);
+      print('  Output audio hash: $outputAudioHash');
+      print('  Input audio hash:  $_inputAudioHash');
+
+      expect(
+        outputAudioHash,
+        isNotNull,
+        reason: 'Failed to extract audio from output file',
+      );
+
+      // When using stream copy (-c:a copy), the audio should be identical
+      // Note: Due to container differences, we compare normalized PCM audio
+      expect(
+        outputAudioHash,
+        equals(_inputAudioHash),
+        reason: 'Audio with audioCopy=true should match input exactly!\n'
+            'Input hash:  $_inputAudioHash\n'
+            'Output hash: $outputAudioHash\n'
+            'This means audio was modified when it should have been copied unchanged.',
+      );
+
+      print('  ✓ Audio passthrough verified: output audio matches input exactly');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('Audio Re-encode (audioCopy=false): Audio is re-encoded', () async {
+      // This test verifies that when audioCopy=false, the audio is re-encoded.
+      // The output should still have audio, but it will be different from input
+      // due to the re-encoding process.
+
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/test_audio_reencode.mp4',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.h264,
+          container: ContainerFormat.mp4,
+          audioCopy: false,      // Re-encode audio
+          audioCodec: 'aac',
+          audioBitrate: 128,     // Lower bitrate to make difference obvious
+        ),
+      );
+
+      final result = await runFilterTest('Audio Re-encode Mode', job);
+      expect(result.success, isTrue, reason: result.error);
+
+      // Verify output has audio
+      final outputInfo = await getAudioStreamInfo(result.outputPath!);
+      print('  Output audio info: $outputInfo');
+
+      expect(
+        outputInfo.hasAudio,
+        isTrue,
+        reason: 'Output file must have audio when audioCopy=false',
+      );
+
+      // Verify codec is AAC (re-encoded)
+      expect(
+        outputInfo.codec,
+        equals('aac'),
+        reason: 'Re-encoded audio should use AAC codec as specified',
+      );
+
+      // Extract and compare audio - should be DIFFERENT from input
+      final outputAudioHash = await extractAudioHash(result.outputPath!);
+      print('  Output audio hash: $outputAudioHash');
+      print('  Input audio hash:  $_inputAudioHash');
+
+      expect(
+        outputAudioHash,
+        isNotNull,
+        reason: 'Failed to extract audio from output file',
+      );
+
+      // Re-encoded audio should be different from original
+      // (unless original was already AAC 128kbps, which is unlikely)
+      expect(
+        outputAudioHash,
+        isNot(equals(_inputAudioHash)),
+        reason: 'Re-encoded audio should differ from input!\n'
+            'Input hash:  $_inputAudioHash\n'
+            'Output hash: $outputAudioHash\n'
+            'Audio appears unchanged despite audioCopy=false.',
+      );
+
+      print('  ✓ Audio re-encoding verified: output audio differs from input');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('Audio Disabled (customFfmpegArgs=-an): No audio in output', () async {
+      // This test verifies that using customFfmpegArgs='-an' removes audio
+      // from the output completely.
+
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/test_audio_disabled.mp4',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.h264,
+          container: ContainerFormat.mp4,
+          customFfmpegArgs: '-an', // No audio
+        ),
+      );
+
+      final result = await runFilterTest('Audio Disabled (-an)', job);
+      expect(result.success, isTrue, reason: result.error);
+
+      // Verify output has NO audio
+      final outputInfo = await getAudioStreamInfo(result.outputPath!);
+      print('  Output audio info: $outputInfo');
+
+      expect(
+        outputInfo.hasAudio,
+        isFalse,
+        reason: 'Output file should have NO audio when using -an flag',
+      );
+
+      // Also verify we can't extract audio
+      final outputAudioHash = await extractAudioHash(result.outputPath!);
+      expect(
+        outputAudioHash,
+        isNull,
+        reason: 'Should not be able to extract audio from file with no audio stream',
+      );
+
+      print('  ✓ Audio disabled verified: output has no audio stream');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('Audio Copy with Heavy Video Processing: Audio still unchanged', () async {
+      // This test verifies that even with heavy video processing enabled,
+      // audio remains unchanged when audioCopy=true.
+      // This confirms the architecture: VapourSynth processes video only,
+      // FFmpeg handles audio separately.
+
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/test_audio_with_filters.avi',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.medium,
+          tff: true,
+          fpsDivisor: 2,
+          sourceMatch: 1,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.medium,
+            tff: true,
+            fpsDivisor: 2,
+            sourceMatch: 1,
+          ),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.smDegrain,
+            smDegrainTr: 2,
+            smDegrainThSAD: 300,
+          ),
+          colorCorrection: ColorCorrectionParameters(
+            enabled: true,
+            brightness: 5.0,
+            contrast: 1.1,
+            saturation: 1.05,
+          ),
+          sharpen: SharpenParameters(
+            enabled: true,
+            method: SharpenMethod.cas,
+            casSharpness: 0.4,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+          audioCopy: true, // Keep audio unchanged despite video filters
+        ),
+      );
+
+      final result = await runFilterTest('Audio Copy with Heavy Filters', job);
+      expect(result.success, isTrue, reason: result.error);
+
+      // Verify output has audio
+      final outputInfo = await getAudioStreamInfo(result.outputPath!);
+      print('  Output audio info: $outputInfo');
+
+      expect(
+        outputInfo.hasAudio,
+        isTrue,
+        reason: 'Output must have audio even with heavy video processing',
+      );
+
+      // Extract and compare audio - should match input exactly
+      final outputAudioHash = await extractAudioHash(result.outputPath!);
+      print('  Output audio hash: $outputAudioHash');
+      print('  Input audio hash:  $_inputAudioHash');
+
+      expect(
+        outputAudioHash,
+        equals(_inputAudioHash),
+        reason: 'Audio should match input even with heavy video processing!\n'
+            'Input hash:  $_inputAudioHash\n'
+            'Output hash: $outputAudioHash\n'
+            'Video filters should not affect audio when audioCopy=true.',
+      );
+
+      print('  ✓ Audio unchanged despite heavy video processing');
+    }, timeout: const Timeout(Duration(minutes: 10)));
+
+    test('Different Containers: Audio copy works with compatible containers', () async {
+      // Test audio copy works with MKV (supports PCM)
+      // Note: The app now shows a warning dialog for incompatible codecs,
+      // rather than auto-converting. This test verifies compatible containers work.
+
+      // Test with MKV container (supports PCM)
+      final jobMkv = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/test_audio_copy_mkv.mkv',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.h264,
+          container: ContainerFormat.mkv,
+          audioCopy: true,
+        ),
+      );
+
+      final resultMkv = await runFilterTest('Audio Copy - MKV', jobMkv);
+      expect(resultMkv.success, isTrue, reason: resultMkv.error);
+
+      final mkvInfo = await getAudioStreamInfo(resultMkv.outputPath!);
+      print('  MKV audio info: $mkvInfo');
+      expect(mkvInfo.hasAudio, isTrue, reason: 'MKV output must have audio');
+
+      // MKV supports PCM, so audio should be copied unchanged
+      expect(
+        mkvInfo.codec,
+        equals('pcm_s16le'),
+        reason: 'MKV supports PCM, audio should be copied unchanged',
+      );
+
+      final mkvAudioHash = await extractAudioHash(resultMkv.outputPath!);
+      print('  MKV audio hash: $mkvAudioHash');
+
+      // MKV should match input (codec is compatible, so it's copied)
+      expect(
+        mkvAudioHash,
+        equals(_inputAudioHash),
+        reason: 'MKV audio should match input (PCM is compatible)',
+      );
+
+      print('  ✓ Audio copy verified for compatible container (MKV + PCM)');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('Re-encode to AAC when user chooses re-encode option', () async {
+      // When the user is warned about incompatible audio and chooses "Re-encode",
+      // the app sets audioCopy=false. This test simulates that choice.
+      // Input: AVI with PCM, Output: MP4 with AAC (user chose re-encode)
+
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile, // AVI with PCM
+        outputPath: '${TestConfig.outputDir}/test_audio_user_reencode.mp4',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.h264,
+          container: ContainerFormat.mp4,
+          audioCopy: false, // User chose to re-encode
+          audioCodec: 'aac',
+          audioBitrate: 128,
+        ),
+      );
+
+      final result = await runFilterTest('Audio Re-encode (User Choice)', job);
+      expect(result.success, isTrue, reason: result.error);
+
+      final info = await getAudioStreamInfo(result.outputPath!);
+      print('  Output audio info: $info');
+      expect(info.hasAudio, isTrue, reason: 'Output must have audio');
+      expect(info.codec, equals('aac'), reason: 'Audio should be AAC');
+
+      final outputHash = await extractAudioHash(result.outputPath!);
+      print('  Output audio hash: $outputHash');
+      print('  Input audio hash:  $_inputAudioHash');
+
+      // Re-encoded audio will differ from input
+      expect(
+        outputHash,
+        isNot(equals(_inputAudioHash)),
+        reason: 'Re-encoded audio should differ from input',
+      );
+
+      print('  ✓ User-initiated re-encode verified: PCM -> AAC for MP4');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('Change container when user chooses compatible format', () async {
+      // When the user is warned and chooses "Change container" to MKV,
+      // the audio can be copied unchanged. This simulates that choice.
+      // Input: AVI with PCM, Output: MKV with PCM (user changed container)
+
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile, // AVI with PCM
+        outputPath: '${TestConfig.outputDir}/test_audio_user_change_container.mkv',
+        qtgmcParameters: const QTGMCParameters(
+          preset: QTGMCPreset.fast,
+          tff: true,
+          fpsDivisor: 2,
+        ),
+        restorationPipeline: const RestorationPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.h264,
+          container: ContainerFormat.mkv, // User changed to compatible container
+          audioCopy: true, // Can now copy because MKV supports PCM
+        ),
+      );
+
+      final result = await runFilterTest('Audio Copy (User Changed Container)', job);
+      expect(result.success, isTrue, reason: result.error);
+
+      final info = await getAudioStreamInfo(result.outputPath!);
+      print('  Output audio info: $info');
+      expect(info.hasAudio, isTrue, reason: 'Output must have audio');
+      expect(info.codec, equals('pcm_s16le'), reason: 'Audio should be PCM (copied)');
+
+      final outputHash = await extractAudioHash(result.outputPath!);
+      print('  Output audio hash: $outputHash');
+      print('  Input audio hash:  $_inputAudioHash');
+
+      // Copied audio should match input exactly
+      expect(
+        outputHash,
+        equals(_inputAudioHash),
+        reason: 'Copied audio should match input exactly',
+      );
+
+      print('  ✓ User-initiated container change verified: PCM copied to MKV');
+    }, timeout: const Timeout(Duration(minutes: 5)));
   });
 }

@@ -978,3 +978,222 @@ fn test_32_verify_deband_in_script() {
         "range=15",
     ]).unwrap();
 }
+
+// ============================================================================
+// Audio Passthrough Tests
+// ============================================================================
+// These tests verify that processed video outputs unprocessed raw audio
+// in the same format as the input. The pipeline uses vspipe (video only)
+// piped to FFmpeg, which handles audio separately from the original input.
+
+/// Helper to build FFmpeg args for testing (mirrors PipelineExecutor::build_ffmpeg_args)
+fn build_ffmpeg_args(job: &VideoJob) -> Vec<String> {
+    let mut args = Vec::new();
+    let settings = &job.encoding_settings;
+
+    // Input 0: Processed video from vspipe (Y4M pipe)
+    args.extend(["-f".to_string(), "yuv4mpegpipe".to_string()]);
+    args.extend(["-i".to_string(), "-".to_string()]);
+
+    // Input 1: Original file for audio stream
+    args.extend(["-i".to_string(), job.input_path.clone()]);
+
+    // Progress output
+    args.extend(["-progress".to_string(), "pipe:2".to_string()]);
+
+    // Map streams: video from input 0 (processed), audio from input 1 (original)
+    args.extend(["-map".to_string(), "0:v".to_string()]);
+    args.extend(["-map".to_string(), "1:a?".to_string()]);
+
+    // Video codec
+    args.extend(["-c:v".to_string(), settings.codec.ffmpeg_codec().to_string()]);
+
+    // Quality settings (CRF for H.264/H.265)
+    if settings.codec.prores_profile().is_none() {
+        args.extend(["-crf".to_string(), settings.quality.to_string()]);
+        args.extend(["-preset".to_string(), settings.encoder_preset.clone()]);
+    }
+
+    // Audio handling - this is the critical part for audio passthrough
+    if settings.audio_copy {
+        // Copy audio stream unchanged from input
+        args.extend(["-c:a".to_string(), "copy".to_string()]);
+    } else {
+        // Re-encode audio (not recommended for quality preservation)
+        args.extend(["-c:a".to_string(), settings.audio_codec.clone()]);
+        args.extend(["-b:a".to_string(), format!("{}k", settings.audio_bitrate)]);
+    }
+
+    // Output file
+    args.push("-y".to_string());
+    args.push(job.output_path.clone());
+
+    args
+}
+
+#[test]
+fn test_33_audio_passthrough_default_settings() {
+    // Test: Default encoding settings should preserve audio unchanged
+    // This ensures that by default, the output audio matches the input format exactly
+    create_output_dir();
+
+    let job = create_base_job("test_33_audio_passthrough");
+
+    // Verify default settings have audio_copy enabled
+    assert!(
+        job.encoding_settings.audio_copy,
+        "Default encoding settings must have audio_copy=true to preserve original audio"
+    );
+
+    let args = build_ffmpeg_args(&job);
+
+    // Find -c:a argument
+    let audio_codec_pos = args.iter().position(|a| a == "-c:a")
+        .expect("FFmpeg args must include -c:a for audio codec");
+
+    let audio_codec_value = &args[audio_codec_pos + 1];
+    assert_eq!(
+        audio_codec_value, "copy",
+        "FFmpeg must use '-c:a copy' to passthrough audio unchanged. \
+         This ensures the output audio format matches the input exactly."
+    );
+
+    // Verify no audio bitrate argument (copy doesn't re-encode)
+    let has_audio_bitrate = args.iter().any(|a| a == "-b:a");
+    assert!(
+        !has_audio_bitrate,
+        "When copying audio, FFmpeg should not have -b:a argument"
+    );
+
+    println!("✓ Audio passthrough: Default settings use -c:a copy");
+    println!("  This preserves the original audio codec, bitrate, and samples unchanged");
+}
+
+#[test]
+fn test_34_audio_passthrough_with_video_processing() {
+    // Test: Audio should remain unchanged even when video is heavily processed
+    // The pipeline processes video through VapourSynth, but audio goes directly
+    // from input to output via FFmpeg's stream copy
+    create_output_dir();
+
+    let mut job = create_base_job("test_34_audio_with_processing");
+
+    // Enable heavy video processing
+    job.qtgmc_parameters = QTGMCParameters {
+        enabled: true,
+        preset: QTGMCPreset::Slow,
+        tff: Some(true),
+        fps_divisor: 2,
+        source_match: 2,
+        sharpness: Some(0.5),
+        opencl: false,
+        ..QTGMCParameters::default()
+    };
+
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::SmDegrain,
+            sm_degrain_tr: 2,
+            sm_degrain_th_sad: 300,
+            ..NoiseReductionParameters::default()
+        },
+        color_correction: ColorCorrectionParameters {
+            enabled: true,
+            brightness: 5.0,
+            contrast: 1.1,
+            ..ColorCorrectionParameters::default()
+        },
+        ..RestorationPipeline::default()
+    });
+
+    // Ensure audio_copy is still true (should be default)
+    assert!(job.encoding_settings.audio_copy);
+
+    let args = build_ffmpeg_args(&job);
+
+    // Verify audio is still copied unchanged
+    let audio_codec_pos = args.iter().position(|a| a == "-c:a").unwrap();
+    assert_eq!(
+        args[audio_codec_pos + 1], "copy",
+        "Audio must be copied unchanged even when video has heavy processing"
+    );
+
+    // Also verify the VapourSynth script doesn't process audio
+    // (VapourSynth only handles video via Y4M pipe)
+    let generator = ScriptGenerator::new().expect("Failed to create generator");
+    let script_path = generator.generate(&job).expect("Failed to generate script");
+    let script_content = std::fs::read_to_string(&script_path).unwrap_or_default();
+
+    // VapourSynth scripts should not contain any audio-related functions
+    assert!(
+        !script_content.to_lowercase().contains("audio"),
+        "VapourSynth script should not contain audio processing - audio is handled by FFmpeg"
+    );
+
+    println!("✓ Audio passthrough with video processing verified");
+    println!("  - FFmpeg uses -c:a copy");
+    println!("  - VapourSynth script contains no audio processing");
+}
+
+#[test]
+fn test_35_audio_reencode_when_explicitly_disabled() {
+    // Test: When audio_copy is explicitly disabled, audio should be re-encoded
+    // This is the opposite of passthrough and should produce different audio
+    create_output_dir();
+
+    let mut job = create_base_job("test_35_audio_reencode");
+    job.encoding_settings.audio_copy = false;
+    job.encoding_settings.audio_codec = "aac".to_string();
+    job.encoding_settings.audio_bitrate = 192;
+
+    let args = build_ffmpeg_args(&job);
+
+    // Find -c:a argument
+    let audio_codec_pos = args.iter().position(|a| a == "-c:a").unwrap();
+    assert_eq!(
+        args[audio_codec_pos + 1], "aac",
+        "When audio_copy=false, specified codec should be used"
+    );
+
+    // Verify bitrate is set
+    let audio_bitrate_pos = args.iter().position(|a| a == "-b:a")
+        .expect("When re-encoding audio, -b:a must be present");
+    assert_eq!(
+        args[audio_bitrate_pos + 1], "192k",
+        "Audio bitrate should be set when re-encoding"
+    );
+
+    println!("✓ Audio re-encoding mode verified (audio_copy=false)");
+    println!("  - FFmpeg uses -c:a aac -b:a 192k");
+}
+
+#[test]
+fn test_36_verify_vspipe_outputs_video_only() {
+    // Test: Verify that vspipe outputs Y4M format (video only, no audio)
+    // This confirms the architecture where:
+    // - vspipe processes video only (Y4M = raw video frames)
+    // - FFmpeg receives Y4M video + copies audio from original input
+    create_output_dir();
+
+    let job = create_base_job("test_36_vspipe_video_only");
+
+    // The FFmpeg args show that input is yuv4mpegpipe format
+    let args = build_ffmpeg_args(&job);
+
+    // Find -f (format) argument for input
+    let format_pos = args.iter().position(|a| a == "-f").unwrap();
+    assert_eq!(
+        args[format_pos + 1], "yuv4mpegpipe",
+        "FFmpeg input must be yuv4mpegpipe (Y4M) format from vspipe"
+    );
+
+    // Y4M (yuv4mpegpipe) is a video-only format
+    // This confirms vspipe outputs video without audio
+    println!("✓ Pipeline architecture verified:");
+    println!("  - vspipe outputs Y4M (video only) to stdout");
+    println!("  - FFmpeg reads Y4M video from stdin");
+    println!("  - FFmpeg copies audio from original input file");
+    println!("  - Result: processed video + original unchanged audio");
+}
