@@ -193,6 +193,82 @@ cd app
 dart run build_runner build
 ```
 
+---
+
+## Development vs Production Builds
+
+### Overview
+
+The worker and Flutter app have different behaviors in development vs production builds. This is primarily about how dependencies (VapourSynth, FFmpeg, plugins) are located.
+
+### Worker Build Types
+
+| Build | Command | Dependency Search | Use Case |
+|-------|---------|-------------------|----------|
+| **Debug** | `cargo build` | Searches upward from executable | Development |
+| **Release** | `cargo build --release` | Only checks known production paths | Production |
+
+**IMPORTANT**: During development, always use **debug** builds of the worker. The upward search for deps is restricted to debug builds for security reasons - release builds should only check known, trusted paths.
+
+### Dependency Search Strategy
+
+**Debug builds** (`#[cfg(debug_assertions)]`):
+1. Search upward from executable for `deps/` folder with platform subdirectory
+2. Fall back to production paths if not found
+
+**Release builds**:
+1. Windows: `<exe-dir>/deps/<platform>/`
+2. macOS: `~/Library/Application Support/VapourBox/deps/<platform>/`
+
+### Development Workflow
+
+1. **Build worker (debug)**:
+   ```bash
+   cd worker
+   cargo build
+   ```
+
+2. **Copy worker to Flutter build folder** (required after worker changes):
+   ```bash
+   # Windows
+   cp worker/target/debug/vapourbox-worker.exe app/build/windows/x64/runner/Debug/
+
+   # macOS
+   cp worker/target/debug/vapourbox-worker app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS/
+   ```
+
+3. **Run Flutter app**:
+   ```bash
+   cd app
+   flutter run
+   ```
+
+The Flutter app searches for the worker in these locations:
+- Next to the Flutter executable (where we copy it)
+- `worker/target/release/` (release build)
+- `worker/target/debug/` (debug build)
+
+### Production Packaging
+
+For release builds:
+
+1. **Build worker (release)**:
+   ```bash
+   cd worker
+   cargo build --release
+   ```
+
+2. **Package with deps bundled** (Windows) or deps downloaded to Application Support (macOS)
+
+See the packaging scripts in `Scripts/` for details.
+
+### Why Debug for Development?
+
+The upward search (`while let Some(dir) = current.parent()`) could be a security risk in production - a malicious `deps/` folder placed in a parent directory could inject compromised binaries. By restricting this to debug builds:
+
+- Development works seamlessly (deps found via upward search)
+- Production is secure (only trusted paths checked)
+
 ## Common Tasks
 
 ### Adding a New Filter (JSON Schema)

@@ -31,16 +31,17 @@ impl DependencyLocator {
 
     /// Find the deps directory by searching various locations.
     fn find_deps_directory(exe_path: &Path) -> Result<PathBuf> {
-        // Development only: search upward from executable for project deps
+        // Development only: search upward from executable for project deps.
+        // This is restricted to debug builds for security - release builds
+        // should only check known production paths.
         #[cfg(debug_assertions)]
         {
             let mut current = exe_path.parent();
             while let Some(dir) = current {
-                // Check for deps directory with platform subdirectory
-                // This ensures we find the project deps, not Cargo's deps
                 let deps_dir = dir.join("deps");
                 if deps_dir.exists() {
                     // Verify this has our expected structure (windows-x64 or macos-arm64, etc.)
+                    // to distinguish from Cargo's deps folder.
                     let has_platform_dir = deps_dir.join("windows-x64").exists()
                         || deps_dir.join("macos-arm64").exists()
                         || deps_dir.join("macos-x64").exists();
