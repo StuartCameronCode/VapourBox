@@ -16,6 +16,15 @@ class EncodingSettings {
   final String customFfmpegArgs;
   final ContainerFormat container;
 
+  /// Output directory. If null, uses the same directory as the input file.
+  final String? outputDirectory;
+
+  /// Filename pattern for output files. Supports placeholders:
+  /// - {input_filename} - Original filename without extension
+  /// - {date} - Current date (YYYY-MM-DD)
+  /// - {time} - Current time (HH-MM-SS)
+  final String filenamePattern;
+
   const EncodingSettings({
     this.codec = VideoCodec.h264,
     this.encoderPreset = 'medium',
@@ -24,7 +33,9 @@ class EncodingSettings {
     this.audioCodec = 'aac',
     this.audioBitrate = 192,
     this.customFfmpegArgs = '',
-    this.container = ContainerFormat.mp4,
+    this.container = ContainerFormat.mkv,
+    this.outputDirectory,
+    this.filenamePattern = '{input_filename}_processed',
   });
 
   factory EncodingSettings.fromJson(Map<String, dynamic> json) =>
@@ -53,6 +64,9 @@ class EncodingSettings {
     int? audioBitrate,
     String? customFfmpegArgs,
     ContainerFormat? container,
+    String? outputDirectory,
+    bool clearOutputDirectory = false,
+    String? filenamePattern,
   }) {
     return EncodingSettings(
       codec: codec ?? this.codec,
@@ -63,6 +77,20 @@ class EncodingSettings {
       audioBitrate: audioBitrate ?? this.audioBitrate,
       customFfmpegArgs: customFfmpegArgs ?? this.customFfmpegArgs,
       container: container ?? this.container,
+      outputDirectory: clearOutputDirectory ? null : (outputDirectory ?? this.outputDirectory),
+      filenamePattern: filenamePattern ?? this.filenamePattern,
     );
+  }
+
+  /// Generate the output filename from a pattern and input filename.
+  String generateOutputFilename(String inputFilename) {
+    final now = DateTime.now();
+    final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final timeStr = '${now.hour.toString().padLeft(2, '0')}-${now.minute.toString().padLeft(2, '0')}-${now.second.toString().padLeft(2, '0')}';
+
+    return filenamePattern
+        .replaceAll('{input_filename}', inputFilename)
+        .replaceAll('{date}', dateStr)
+        .replaceAll('{time}', timeStr);
   }
 }

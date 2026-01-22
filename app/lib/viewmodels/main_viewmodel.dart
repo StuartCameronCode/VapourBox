@@ -288,12 +288,8 @@ class MainViewModel extends ChangeNotifier {
     _isAnalyzing = true;
     notifyListeners();
 
-    // Generate default output path
-    final inputFile = File(filePath);
-    final dir = inputFile.parent.path;
-    final baseName = path.basenameWithoutExtension(filePath);
-    final ext = _getOutputExtension();
-    _outputPath = '$dir/${baseName}_deinterlaced$ext';
+    // Generate default output path using encoding settings
+    _outputPath = _generateOutputPath(filePath);
 
     // Analyze video
     try {
@@ -562,13 +558,8 @@ class MainViewModel extends ChangeNotifier {
   /// Updates encoding settings.
   void updateEncodingSettings(EncodingSettings settings) {
     _encodingSettings = settings;
-    // Update output extension if format changed
-    if (_outputPath != null) {
-      final dir = path.dirname(_outputPath!);
-      final baseName = path.basenameWithoutExtension(_outputPath!);
-      final ext = _getOutputExtension();
-      _outputPath = '$dir/$baseName$ext';
-    }
+    // Regenerate output path with new settings
+    _regenerateOutputPath();
     notifyListeners();
   }
 
@@ -730,6 +721,30 @@ class MainViewModel extends ChangeNotifier {
         return '.mov';
       case ContainerFormat.avi:
         return '.avi';
+    }
+  }
+
+  /// Generates the output path based on encoding settings and input path.
+  String _generateOutputPath(String inputPath) {
+    final inputFile = File(inputPath);
+    final inputBaseName = path.basenameWithoutExtension(inputPath);
+
+    // Use custom output directory or same as input
+    final outputDir = _encodingSettings.outputDirectory ?? inputFile.parent.path;
+
+    // Generate filename from pattern
+    final outputFilename = _encodingSettings.generateOutputFilename(inputBaseName);
+
+    // Add extension based on container
+    final ext = _getOutputExtension();
+
+    return '$outputDir/$outputFilename$ext';
+  }
+
+  /// Regenerates the output path when settings change.
+  void _regenerateOutputPath() {
+    if (_inputPath != null) {
+      _outputPath = _generateOutputPath(_inputPath!);
     }
   }
 

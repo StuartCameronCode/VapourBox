@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -255,8 +256,27 @@ class _InputSettingsTab extends StatelessWidget {
   }
 }
 
-class _OutputSettingsTab extends StatelessWidget {
+class _OutputSettingsTab extends StatefulWidget {
   const _OutputSettingsTab();
+
+  @override
+  State<_OutputSettingsTab> createState() => _OutputSettingsTabState();
+}
+
+class _OutputSettingsTabState extends State<_OutputSettingsTab> {
+  late TextEditingController _filenamePatternController;
+
+  @override
+  void initState() {
+    super.initState();
+    _filenamePatternController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _filenamePatternController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -264,9 +284,142 @@ class _OutputSettingsTab extends StatelessWidget {
       builder: (context, viewModel, child) {
         final settings = viewModel.encodingSettings;
 
+        // Update controller if value changed externally
+        if (_filenamePatternController.text != settings.filenamePattern) {
+          _filenamePatternController.text = settings.filenamePattern;
+        }
+
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // Output Directory
+            _buildSection(
+              context,
+              title: 'Output Directory',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            settings.outputDirectory ?? 'Same as input file',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                  fontFamily: 'monospace',
+                                  fontStyle: settings.outputDirectory == null
+                                      ? FontStyle.italic
+                                      : FontStyle.normal,
+                                ),
+                          ),
+                        ),
+                        if (settings.outputDirectory != null)
+                          IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              viewModel.updateEncodingSettings(
+                                settings.copyWith(clearOutputDirectory: true),
+                              );
+                            },
+                            tooltip: 'Use same directory as input',
+                          ),
+                        IconButton(
+                          icon: const Icon(Icons.folder_open),
+                          onPressed: () => _selectOutputDirectory(viewModel, settings),
+                          tooltip: 'Choose directory',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Filename Pattern
+            _buildSection(
+              context,
+              title: 'Output Filename Pattern',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: _filenamePatternController,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      hintText: '{input_filename}_processed',
+                    ),
+                    onChanged: (value) {
+                      if (value.isNotEmpty) {
+                        viewModel.updateEncodingSettings(
+                          settings.copyWith(filenamePattern: value),
+                        );
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Available placeholders:',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '{input_filename} - Original filename\n'
+                    '{date} - Current date (YYYY-MM-DD)\n'
+                    '{time} - Current time (HH-MM-SS)',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.6),
+                        ),
+                  ),
+                  if (viewModel.inputPath != null) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.preview,
+                            size: 16,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Preview: ${viewModel.outputPath ?? ""}',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    fontFamily: 'monospace',
+                                  ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
             // Container Format
             _buildSection(
               context,
@@ -465,6 +618,19 @@ class _OutputSettingsTab extends StatelessWidget {
         );
       },
     );
+  }
+
+  Future<void> _selectOutputDirectory(MainViewModel viewModel, EncodingSettings settings) async {
+    final result = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Select Output Directory',
+      initialDirectory: settings.outputDirectory,
+    );
+
+    if (result != null) {
+      viewModel.updateEncodingSettings(
+        settings.copyWith(outputDirectory: result),
+      );
+    }
   }
 
   void _showInFolder(String path) {
