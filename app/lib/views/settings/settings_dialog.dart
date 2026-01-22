@@ -125,56 +125,6 @@ class _InputSettingsTab extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // Input File
-            _buildSection(
-              context,
-              title: 'Input File',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (viewModel.inputPath != null) ...[
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              viewModel.inputPath!,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(fontFamily: 'monospace'),
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.folder_open),
-                            onPressed: () => _showInFolder(viewModel.inputPath!),
-                            tooltip: 'Show in folder',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ] else ...[
-                    Text(
-                      'No input file selected',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withValues(alpha: 0.6),
-                          ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
             // Field Order
             _buildSection(
               context,
@@ -225,14 +175,6 @@ class _InputSettingsTab extends StatelessWidget {
         );
       },
     );
-  }
-
-  void _showInFolder(String path) {
-    if (Platform.isMacOS) {
-      Process.run('open', ['-R', path]);
-    } else if (Platform.isWindows) {
-      Process.run('explorer', ['/select,', path]);
-    }
   }
 
   Widget _buildSection(

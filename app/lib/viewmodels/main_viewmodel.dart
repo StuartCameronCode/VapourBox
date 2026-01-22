@@ -11,6 +11,7 @@ import '../models/encoding_settings.dart';
 import '../models/parameter_converter.dart';
 import '../models/progress_info.dart';
 import '../models/qtgmc_parameters.dart';
+import '../models/queue_item.dart';
 import '../models/restoration_pipeline.dart';
 import '../models/video_job.dart';
 import '../models/processing_preset.dart';
@@ -25,11 +26,11 @@ class MainViewModel extends ChangeNotifier {
   final FieldOrderDetector _fieldOrderDetector = FieldOrderDetector();
   final PreviewGenerator _previewGenerator = PreviewGenerator();
 
-  // Input state
-  String? _inputPath;
-  String? _outputPath;
-  VideoInfo? _videoInfo;
-  bool _isAnalyzing = false;
+  // Queue state (replaces single-video state)
+  final List<QueueItem> _queue = [];
+  String? _selectedItemId;
+  bool _isQueueProcessing = false;
+  int _currentProcessingIndex = -1;
 
   // Processing state
   ProcessingState _state = ProcessingState.idle;
@@ -50,35 +51,37 @@ class MainViewModel extends ChangeNotifier {
   // Dynamic parameters for UI state (preserves null values for optional params)
   final Map<String, DynamicParameters> _dynamicParams = {};
 
-  // Preview state
-  List<Uint8List> _thumbnails = [];
-  Uint8List? _currentFrame;
-  Uint8List? _processedPreview;
-  double _scrubberPosition = 0.0;
+  // Preview generation state (shared across queue items)
   bool _isGeneratingPreview = false;
   CancelToken? _previewCancelToken;
   Timer? _previewDebounceTimer;
-
-  // Timeline zoom state
-  double _timelineZoom = 1.0; // 1.0 = full view, 2.0 = 2x zoom, etc.
-  double _timelineViewStart = 0.0; // 0.0 to 1.0, normalized start position
   Timer? _zoomDebounceTimer;
   bool _isLoadingZoomedThumbnails = false;
-
-  // In/out point markers (normalized 0.0-1.0)
-  double? _inPoint;
-  double? _outPoint;
 
   // Subscriptions
   StreamSubscription<ProgressInfo>? _progressSub;
   StreamSubscription<LogMessage>? _logSub;
   StreamSubscription<CompletionResult>? _completionSub;
 
-  // Getters
-  String? get inputPath => _inputPath;
-  String? get outputPath => _outputPath;
-  VideoInfo? get videoInfo => _videoInfo;
-  bool get isAnalyzing => _isAnalyzing;
+  // Queue getters
+  List<QueueItem> get queue => List.unmodifiable(_queue);
+  String? get selectedItemId => _selectedItemId;
+  QueueItem? get selectedItem =>
+      _selectedItemId != null ? _queue.where((q) => q.id == _selectedItemId).firstOrNull : null;
+  bool get isQueueProcessing => _isQueueProcessing;
+  int get currentProcessingIndex => _currentProcessingIndex;
+  int get queueReadyCount => _queue.where((q) => q.canProcess).length;
+  int get queueCompletedCount => _queue.where((q) => q.status == QueueItemStatus.completed).length;
+
+  // Computed getters that delegate to selected item
+  String? get inputPath => selectedItem?.inputPath;
+  String? get outputPath => selectedItem?.outputPath;
+  VideoInfo? get videoInfo => selectedItem?.videoInfo;
+  bool get isAnalyzing =>
+      selectedItem?.status == QueueItemStatus.analyzing ||
+      _queue.any((q) => q.status == QueueItemStatus.analyzing);
+
+  // State getters
   ProcessingState get state => _state;
   ProgressInfo? get currentProgress => _currentProgress;
   List<LogMessage> get logMessages => List.unmodifiable(_logMessages);
@@ -186,46 +189,44 @@ class MainViewModel extends ChangeNotifier {
     }
   }
 
-  // Preview getters
-  List<Uint8List> get thumbnails => _thumbnails;
-  Uint8List? get currentFrame => _currentFrame;
-  Uint8List? get processedPreview => _processedPreview;
-  double get scrubberPosition => _scrubberPosition;
+  // Preview getters (delegate to selected item)
+  List<Uint8List> get thumbnails => selectedItem?.thumbnails ?? [];
+  Uint8List? get currentFrame => selectedItem?.currentFrame;
+  Uint8List? get processedPreview => selectedItem?.processedPreview;
+  double get scrubberPosition => selectedItem?.scrubberPosition ?? 0.0;
   bool get isGeneratingPreview => _isGeneratingPreview;
   double get videoDuration => _previewGenerator.duration;
   List<String> get previewLog => _previewGenerator.previewLog;
   String? get previewError => _previewGenerator.lastError;
 
-  // Timeline zoom getters
-  double get timelineZoom => _timelineZoom;
-  double get timelineViewStart => _timelineViewStart;
-  double get timelineViewEnd =>
-      (_timelineViewStart + 1.0 / _timelineZoom).clamp(0.0, 1.0);
+  // Timeline zoom getters (delegate to selected item)
+  double get timelineZoom => selectedItem?.timelineZoom ?? 1.0;
+  double get timelineViewStart => selectedItem?.timelineViewStart ?? 0.0;
+  double get timelineViewEnd => selectedItem?.timelineViewEnd ?? 1.0;
   bool get isLoadingZoomedThumbnails => _isLoadingZoomedThumbnails;
-  double get visibleStartTime => _timelineViewStart * videoDuration;
+  double get visibleStartTime => timelineViewStart * videoDuration;
   double get visibleEndTime => timelineViewEnd * videoDuration;
 
-  // In/out point getters
-  double? get inPoint => _inPoint;
-  double? get outPoint => _outPoint;
-  double get effectiveInPoint => _inPoint ?? 0.0;
-  double get effectiveOutPoint => _outPoint ?? 1.0;
-  int? get inPointFrame =>
-      _inPoint != null ? (_inPoint! * (videoInfo?.frameCount ?? 0)).round() : null;
-  int? get outPointFrame =>
-      _outPoint != null ? (_outPoint! * (videoInfo?.frameCount ?? 0)).round() : null;
-  bool get hasInOutRange => _inPoint != null || _outPoint != null;
+  // In/out point getters (delegate to selected item)
+  double? get inPoint => selectedItem?.inPoint;
+  double? get outPoint => selectedItem?.outPoint;
+  double get effectiveInPoint => selectedItem?.effectiveInPoint ?? 0.0;
+  double get effectiveOutPoint => selectedItem?.effectiveOutPoint ?? 1.0;
+  int? get inPointFrame => selectedItem?.inPointFrame;
+  int? get outPointFrame => selectedItem?.outPointFrame;
+  bool get hasInOutRange => selectedItem?.hasInOutRange ?? false;
 
   bool get canProcess =>
-      _inputPath != null &&
-      _outputPath != null &&
+      _queue.isNotEmpty &&
+      queueReadyCount > 0 &&
       _state == ProcessingState.idle;
 
   bool get isProcessing => _state.isActive;
 
   FieldOrder get effectiveFieldOrder {
-    if (_autoFieldOrder && _videoInfo?.fieldOrder != null) {
-      return _videoInfo!.fieldOrder!;
+    final item = selectedItem;
+    if (_autoFieldOrder && item?.videoInfo?.fieldOrder != null) {
+      return item!.videoInfo!.fieldOrder!;
     }
     return _manualFieldOrder;
   }
@@ -262,93 +263,219 @@ class MainViewModel extends ChangeNotifier {
     });
 
     _completionSub = _workerManager.completionStream.listen((result) {
-      if (result.cancelled) {
-        _state = ProcessingState.idle;
-      } else if (result.success) {
-        _state = ProcessingState.completed;
+      if (_isQueueProcessing) {
+        // Queue processing mode
+        _handleQueueItemCompletion(result);
       } else {
-        _state = ProcessingState.failed;
-        _logMessages.add(LogMessage(
-          level: LogLevel.error,
-          message: result.errorMessage ?? 'Processing failed',
-        ));
+        // Single video processing mode (legacy)
+        if (result.cancelled) {
+          _state = ProcessingState.idle;
+        } else if (result.success) {
+          _state = ProcessingState.completed;
+        } else {
+          _state = ProcessingState.failed;
+          _logMessages.add(LogMessage(
+            level: LogLevel.error,
+            message: result.errorMessage ?? 'Processing failed',
+          ));
+        }
+        notifyListeners();
       }
-      notifyListeners();
     });
   }
 
-  /// Sets the input file and analyzes it.
-  Future<void> setInputFile(String filePath) async {
-    _inputPath = filePath;
-    _videoInfo = null;
-    _thumbnails = [];
-    _currentFrame = null;
-    _processedPreview = null;
-    _scrubberPosition = 0.0;
-    _isAnalyzing = true;
+  // ============================================================================
+  // QUEUE MANAGEMENT
+  // ============================================================================
+
+  /// Adds a single video to the queue.
+  Future<void> addToQueue(String filePath) async {
+    await addMultipleToQueue([filePath]);
+  }
+
+  /// Adds multiple videos to the queue.
+  Future<void> addMultipleToQueue(List<String> filePaths) async {
+    if (filePaths.isEmpty) return;
+
+    final newItems = <QueueItem>[];
+    for (final filePath in filePaths) {
+      // Skip if already in queue
+      if (_queue.any((q) => q.inputPath == filePath)) continue;
+
+      final outputPath = _generateOutputPath(filePath);
+      final item = QueueItem(
+        inputPath: filePath,
+        outputPath: outputPath,
+        status: QueueItemStatus.pending,
+      );
+      newItems.add(item);
+      _queue.add(item);
+    }
+
+    // Select first new item if nothing selected
+    if (_selectedItemId == null && newItems.isNotEmpty) {
+      _selectedItemId = newItems.first.id;
+    }
+
     notifyListeners();
 
-    // Generate default output path using encoding settings
-    _outputPath = _generateOutputPath(filePath);
+    // Analyze all new items
+    for (final item in newItems) {
+      await _analyzeQueueItem(item);
+    }
+  }
+
+  /// Analyzes a queue item (loads video info and thumbnails).
+  Future<void> _analyzeQueueItem(QueueItem item) async {
+    final index = _queue.indexWhere((q) => q.id == item.id);
+    if (index == -1) return;
+
+    _queue[index].status = QueueItemStatus.analyzing;
+    notifyListeners();
 
     // Analyze video
     try {
-      _videoInfo = await _fieldOrderDetector.getVideoInfo(filePath);
+      _queue[index].videoInfo = await _fieldOrderDetector.getVideoInfo(item.inputPath);
     } catch (e) {
       _logMessages.add(LogMessage(
         level: LogLevel.warning,
-        message: 'Failed to analyze video: $e',
+        message: 'Failed to analyze ${item.filename}: $e',
       ));
     }
 
-    // Load thumbnails for scrubber
-    try {
-      _thumbnails = await _previewGenerator.loadVideo(filePath);
-      // Get initial frame
-      _currentFrame = await _previewGenerator.getFrameAt(0);
-    } catch (e) {
-      _logMessages.add(LogMessage(
-        level: LogLevel.warning,
-        message: 'Failed to generate thumbnails: $e',
-      ));
+    // Load thumbnails if this is the selected item
+    if (_selectedItemId == item.id) {
+      try {
+        _queue[index].thumbnails = await _previewGenerator.loadVideo(item.inputPath);
+        _queue[index].currentFrame = await _previewGenerator.getFrameAt(0);
+      } catch (e) {
+        _logMessages.add(LogMessage(
+          level: LogLevel.warning,
+          message: 'Failed to generate thumbnails for ${item.filename}: $e',
+        ));
+      }
     }
 
-    _isAnalyzing = false;
+    _queue[index].status = QueueItemStatus.ready;
     notifyListeners();
 
-    // Generate initial processed preview
+    // Generate initial processed preview if selected
+    if (_selectedItemId == item.id) {
+      _requestPreviewUpdate();
+    }
+  }
+
+  /// Removes a video from the queue.
+  void removeFromQueue(String itemId) {
+    final index = _queue.indexWhere((q) => q.id == itemId);
+    if (index == -1) return;
+
+    // Don't remove if currently processing
+    if (_queue[index].status == QueueItemStatus.processing) return;
+
+    _queue.removeAt(index);
+
+    // Update selection if removed item was selected
+    if (_selectedItemId == itemId) {
+      if (_queue.isEmpty) {
+        _selectedItemId = null;
+        _cancelPreviewGeneration();
+      } else {
+        // Select next item or previous if at end
+        final newIndex = index.clamp(0, _queue.length - 1);
+        _selectedItemId = _queue[newIndex].id;
+        _loadSelectedItemPreview();
+      }
+    }
+
+    notifyListeners();
+  }
+
+  /// Selects a queue item for preview.
+  Future<void> selectQueueItem(String itemId) async {
+    if (_selectedItemId == itemId) return;
+
+    final item = _queue.where((q) => q.id == itemId).firstOrNull;
+    if (item == null) return;
+
+    _selectedItemId = itemId;
+    _cancelPreviewGeneration();
+    notifyListeners();
+
+    await _loadSelectedItemPreview();
+  }
+
+  /// Loads preview data for the selected item.
+  Future<void> _loadSelectedItemPreview() async {
+    final item = selectedItem;
+    if (item == null) return;
+
+    // Load thumbnails if not already loaded
+    if (item.thumbnails.isEmpty && item.status != QueueItemStatus.analyzing) {
+      try {
+        item.thumbnails = await _previewGenerator.loadVideo(item.inputPath);
+        item.currentFrame = await _previewGenerator.getFrameAt(
+          item.scrubberPosition * _previewGenerator.duration,
+        );
+        notifyListeners();
+      } catch (e) {
+        _logMessages.add(LogMessage(
+          level: LogLevel.warning,
+          message: 'Failed to load thumbnails: $e',
+        ));
+      }
+    } else if (item.thumbnails.isNotEmpty) {
+      // Reload video in preview generator to sync duration
+      try {
+        await _previewGenerator.loadVideo(item.inputPath);
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+
     _requestPreviewUpdate();
   }
 
-  /// Sets the output file path.
-  void setOutputPath(String filePath) {
-    _outputPath = filePath;
+  /// Clears all items from the queue.
+  void clearQueue() {
+    // Don't clear if processing
+    if (_isQueueProcessing) return;
+
+    _queue.clear();
+    _selectedItemId = null;
+    _cancelPreviewGeneration();
+    _state = ProcessingState.idle;
     notifyListeners();
   }
 
-  /// Clears the current input.
-  void clearInput() {
-    _inputPath = null;
-    _outputPath = null;
-    _videoInfo = null;
-    _currentProgress = null;
-    _logMessages.clear();
-    _state = ProcessingState.idle;
-    _thumbnails = [];
-    _currentFrame = null;
-    _processedPreview = null;
-    _scrubberPosition = 0.0;
-    _cancelPreviewGeneration();
+  /// Legacy method for compatibility - adds to queue instead.
+  Future<void> setInputFile(String filePath) async {
+    await addToQueue(filePath);
+  }
+
+  /// Sets the output file path for the selected item.
+  void setOutputPath(String filePath) {
+    final item = selectedItem;
+    if (item == null) return;
+    item.outputPath = filePath;
     notifyListeners();
+  }
+
+  /// Clears the current input (alias for clearQueue).
+  void clearInput() {
+    clearQueue();
   }
 
   /// Sets the scrubber position and updates the preview.
   Future<void> setScrubberPosition(double position) async {
-    _scrubberPosition = position.clamp(0.0, 1.0);
+    final item = selectedItem;
+    if (item == null) return;
+
+    item.scrubberPosition = position.clamp(0.0, 1.0);
 
     // Update current frame immediately
-    final timeSeconds = _scrubberPosition * _previewGenerator.duration;
-    _currentFrame = await _previewGenerator.getFrameAt(timeSeconds);
+    final timeSeconds = item.scrubberPosition * _previewGenerator.duration;
+    item.currentFrame = await _previewGenerator.getFrameAt(timeSeconds);
     notifyListeners();
 
     // Debounce the processed preview generation
@@ -357,14 +484,16 @@ class MainViewModel extends ChangeNotifier {
 
   /// Zooms in on the timeline, centering on the current scrubber position.
   void zoomIn() {
-    zoomInAt(_scrubberPosition);
+    zoomInAt(scrubberPosition);
   }
 
   /// Zooms in on the timeline, centering on the specified position.
   void zoomInAt(double centerPosition) {
-    if (_timelineZoom >= 16.0) return; // Max zoom 16x
+    final item = selectedItem;
+    if (item == null) return;
+    if (item.timelineZoom >= 16.0) return; // Max zoom 16x
 
-    _timelineZoom = (_timelineZoom * 1.5).clamp(1.0, 16.0);
+    item.timelineZoom = (item.timelineZoom * 1.5).clamp(1.0, 16.0);
 
     // Adjust view start to keep center position stable
     _adjustViewForZoomAt(centerPosition);
@@ -374,14 +503,16 @@ class MainViewModel extends ChangeNotifier {
 
   /// Zooms out on the timeline.
   void zoomOut() {
-    zoomOutAt(_scrubberPosition);
+    zoomOutAt(scrubberPosition);
   }
 
   /// Zooms out on the timeline, centering on the specified position.
   void zoomOutAt(double centerPosition) {
-    if (_timelineZoom <= 1.0) return;
+    final item = selectedItem;
+    if (item == null) return;
+    if (item.timelineZoom <= 1.0) return;
 
-    _timelineZoom = (_timelineZoom / 1.5).clamp(1.0, 16.0);
+    item.timelineZoom = (item.timelineZoom / 1.5).clamp(1.0, 16.0);
 
     // Adjust view start to keep center position stable
     _adjustViewForZoomAt(centerPosition);
@@ -391,74 +522,97 @@ class MainViewModel extends ChangeNotifier {
 
   /// Sets the timeline zoom level directly.
   void setTimelineZoom(double zoom) {
-    _timelineZoom = zoom.clamp(1.0, 16.0);
-    _adjustViewForZoomAt(_scrubberPosition);
+    final item = selectedItem;
+    if (item == null) return;
+
+    item.timelineZoom = zoom.clamp(1.0, 16.0);
+    _adjustViewForZoomAt(item.scrubberPosition);
     notifyListeners();
     _requestThumbnailRegeneration();
   }
 
   /// Pans the timeline view.
   void panTimeline(double delta) {
-    if (_timelineZoom <= 1.0) return;
+    final item = selectedItem;
+    if (item == null) return;
+    if (item.timelineZoom <= 1.0) return;
 
-    final maxStart = 1.0 - (1.0 / _timelineZoom);
-    _timelineViewStart = (_timelineViewStart + delta).clamp(0.0, maxStart);
+    final maxStart = 1.0 - (1.0 / item.timelineZoom);
+    item.timelineViewStart = (item.timelineViewStart + delta).clamp(0.0, maxStart);
     notifyListeners();
     _requestThumbnailRegeneration();
   }
 
   /// Adjusts the view start to keep the specified position stable during zoom.
   void _adjustViewForZoomAt(double centerPosition) {
+    final item = selectedItem;
+    if (item == null) return;
+
     // Calculate the visible range width
-    final newViewWidth = 1.0 / _timelineZoom;
+    final newViewWidth = 1.0 / item.timelineZoom;
     final maxStart = 1.0 - newViewWidth;
 
     // Try to center on the specified position
-    _timelineViewStart = (centerPosition - newViewWidth / 2).clamp(0.0, maxStart);
+    item.timelineViewStart = (centerPosition - newViewWidth / 2).clamp(0.0, maxStart);
   }
 
   /// Sets the in point to the current scrubber position.
   void setInPointToCurrent() {
-    _inPoint = _scrubberPosition;
+    final item = selectedItem;
+    if (item == null) return;
+
+    item.inPoint = item.scrubberPosition;
     // Ensure in point is before out point
-    if (_outPoint != null && _inPoint! > _outPoint!) {
-      _outPoint = null;
+    if (item.outPoint != null && item.inPoint! > item.outPoint!) {
+      item.outPoint = null;
     }
     notifyListeners();
   }
 
   /// Sets the out point to the current scrubber position.
   void setOutPointToCurrent() {
-    _outPoint = _scrubberPosition;
+    final item = selectedItem;
+    if (item == null) return;
+
+    item.outPoint = item.scrubberPosition;
     // Ensure out point is after in point
-    if (_inPoint != null && _outPoint! < _inPoint!) {
-      _inPoint = null;
+    if (item.inPoint != null && item.outPoint! < item.inPoint!) {
+      item.inPoint = null;
     }
     notifyListeners();
   }
 
   /// Sets the in point directly (normalized 0.0-1.0).
   void setInPoint(double position) {
-    _inPoint = position.clamp(0.0, 1.0);
-    if (_outPoint != null && _inPoint! > _outPoint!) {
-      _outPoint = null;
+    final item = selectedItem;
+    if (item == null) return;
+
+    item.inPoint = position.clamp(0.0, 1.0);
+    if (item.outPoint != null && item.inPoint! > item.outPoint!) {
+      item.outPoint = null;
     }
     notifyListeners();
   }
 
   /// Sets the out point directly (normalized 0.0-1.0).
   void setOutPoint(double position) {
-    _outPoint = position.clamp(0.0, 1.0);
-    if (_inPoint != null && _outPoint! < _inPoint!) {
-      _inPoint = null;
+    final item = selectedItem;
+    if (item == null) return;
+
+    item.outPoint = position.clamp(0.0, 1.0);
+    if (item.inPoint != null && item.outPoint! < item.inPoint!) {
+      item.inPoint = null;
     }
     notifyListeners();
   }
 
   /// Clears both in and out points.
   void clearInOutPoints() {
-    _inPoint = null;
-    _outPoint = null;
+    final item = selectedItem;
+    if (item == null) return;
+
+    item.inPoint = null;
+    item.outPoint = null;
     notifyListeners();
   }
 
@@ -472,14 +626,15 @@ class MainViewModel extends ChangeNotifier {
 
   /// Regenerates thumbnails for the current zoom level.
   Future<void> _regenerateThumbnailsForZoom() async {
-    if (_inputPath == null) return;
+    final item = selectedItem;
+    if (item == null) return;
 
     _isLoadingZoomedThumbnails = true;
     notifyListeners();
 
     try {
-      _thumbnails = await _previewGenerator.loadVideoRange(
-        videoPath: _inputPath!,
+      item.thumbnails = await _previewGenerator.loadVideoRange(
+        videoPath: item.inputPath,
         startTime: visibleStartTime,
         endTime: visibleEndTime,
         thumbnailCount: 20,
@@ -494,8 +649,11 @@ class MainViewModel extends ChangeNotifier {
 
   /// Resets the timeline zoom to 1x.
   void resetTimelineZoom() {
-    _timelineZoom = 1.0;
-    _timelineViewStart = 0.0;
+    final item = selectedItem;
+    if (item == null) return;
+
+    item.timelineZoom = 1.0;
+    item.timelineViewStart = 0.0;
     notifyListeners();
     _requestThumbnailRegeneration();
   }
@@ -510,7 +668,8 @@ class MainViewModel extends ChangeNotifier {
 
   /// Generates the processed preview at the current scrubber position.
   Future<void> _generateProcessedPreview() async {
-    if (_inputPath == null) return;
+    final item = selectedItem;
+    if (item == null) return;
 
     // Cancel any existing preview generation
     _cancelPreviewGeneration();
@@ -519,7 +678,7 @@ class MainViewModel extends ChangeNotifier {
     notifyListeners();
 
     _previewCancelToken = CancelToken();
-    final timeSeconds = _scrubberPosition * _previewGenerator.duration;
+    final timeSeconds = item.scrubberPosition * _previewGenerator.duration;
 
     try {
       final preview = await _previewGenerator.generateProcessedPreview(
@@ -530,7 +689,7 @@ class MainViewModel extends ChangeNotifier {
       );
 
       if (!(_previewCancelToken?.isCancelled ?? true)) {
-        _processedPreview = preview;
+        item.processedPreview = preview;
       }
     } catch (e) {
       // Ignore errors from cancelled previews
@@ -638,43 +797,74 @@ class MainViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Starts processing.
-  Future<void> startProcessing() async {
-    if (!canProcess) return;
+  // ============================================================================
+  // QUEUE PROCESSING
+  // ============================================================================
 
+  /// Starts processing all ready items in the queue.
+  Future<void> startQueueProcessing() async {
+    if (!canProcess || _isQueueProcessing) return;
+
+    _isQueueProcessing = true;
+    _currentProcessingIndex = -1;
+    _logMessages.clear();
+    notifyListeners();
+
+    await _processNextItem();
+  }
+
+  /// Processes the next ready item in the queue.
+  Future<void> _processNextItem() async {
+    // Find next ready item
+    final nextIndex = _queue.indexWhere((q) =>
+        q.status == QueueItemStatus.ready || q.status == QueueItemStatus.failed);
+
+    if (nextIndex == -1) {
+      // No more items to process
+      _isQueueProcessing = false;
+      _currentProcessingIndex = -1;
+      _state = ProcessingState.completed;
+      notifyListeners();
+      return;
+    }
+
+    _currentProcessingIndex = nextIndex;
+    final item = _queue[nextIndex];
+
+    // Mark as processing
+    item.status = QueueItemStatus.processing;
     _state = ProcessingState.preparingJob;
     _currentProgress = null;
-    _logMessages.clear();
     notifyListeners();
 
     // Calculate frame range from in/out points
     int? startFrame;
     int? endFrame;
-    if (_inPoint != null || _outPoint != null) {
-      final frameCount = _videoInfo?.frameCount ?? 0;
-      if (_inPoint != null) {
-        startFrame = (_inPoint! * frameCount).round();
+    if (item.inPoint != null || item.outPoint != null) {
+      final frameCount = item.videoInfo?.frameCount ?? 0;
+      if (item.inPoint != null) {
+        startFrame = (item.inPoint! * frameCount).round();
       }
-      if (_outPoint != null) {
-        endFrame = (_outPoint! * frameCount).round();
+      if (item.outPoint != null) {
+        endFrame = (item.outPoint! * frameCount).round();
       }
     }
 
     // Build job configuration
     final job = VideoJob(
-      id: const Uuid().v4(),
-      inputPath: _inputPath!,
-      outputPath: _outputPath!,
+      id: item.id,
+      inputPath: item.inputPath,
+      outputPath: item.outputPath,
       qtgmcParameters: _qtgmcParams.copyWith(
-        tff: effectiveFieldOrder == FieldOrder.topFieldFirst,
+        tff: _getEffectiveFieldOrder(item) == FieldOrder.topFieldFirst,
       ),
       restorationPipeline: _restorationPipeline.copyWith(
         deinterlace: _restorationPipeline.deinterlace.copyWith(
-          tff: effectiveFieldOrder == FieldOrder.topFieldFirst,
+          tff: _getEffectiveFieldOrder(item) == FieldOrder.topFieldFirst,
         ),
       ),
       encodingSettings: _encodingSettings,
-      totalFrames: _videoInfo?.frameCount,
+      totalFrames: item.videoInfo?.frameCount,
       startFrame: startFrame,
       endFrame: endFrame,
     );
@@ -685,13 +875,68 @@ class MainViewModel extends ChangeNotifier {
 
       await _workerManager.startJob(job);
     } catch (e) {
-      _state = ProcessingState.failed;
+      item.status = QueueItemStatus.failed;
+      item.errorMessage = 'Failed to start processing: $e';
       _logMessages.add(LogMessage(
         level: LogLevel.error,
-        message: 'Failed to start processing: $e',
+        message: 'Failed to start processing ${item.filename}: $e',
       ));
-      notifyListeners();
+      // Continue with next item
+      await _processNextItem();
     }
+  }
+
+  /// Handles completion of a queue item.
+  void _handleQueueItemCompletion(CompletionResult result) {
+    if (_currentProcessingIndex < 0 || _currentProcessingIndex >= _queue.length) {
+      return;
+    }
+
+    final item = _queue[_currentProcessingIndex];
+
+    if (result.cancelled) {
+      item.status = QueueItemStatus.cancelled;
+      _isQueueProcessing = false;
+      _currentProcessingIndex = -1;
+      _state = ProcessingState.idle;
+    } else if (result.success) {
+      item.status = QueueItemStatus.completed;
+      // Process next item
+      _processNextItem();
+      return; // Don't notify yet, _processNextItem will
+    } else {
+      item.status = QueueItemStatus.failed;
+      item.errorMessage = result.errorMessage ?? 'Processing failed';
+      _logMessages.add(LogMessage(
+        level: LogLevel.error,
+        message: '${item.filename}: ${item.errorMessage}',
+      ));
+      // Process next item
+      _processNextItem();
+      return; // Don't notify yet, _processNextItem will
+    }
+
+    notifyListeners();
+  }
+
+  /// Gets the effective field order for a queue item.
+  FieldOrder _getEffectiveFieldOrder(QueueItem item) {
+    if (_autoFieldOrder && item.videoInfo?.fieldOrder != null) {
+      return item.videoInfo!.fieldOrder!;
+    }
+    return _manualFieldOrder;
+  }
+
+  /// Cancels queue processing.
+  Future<void> cancelQueueProcessing() async {
+    if (!_isQueueProcessing) return;
+
+    await _workerManager.cancel();
+  }
+
+  /// Legacy method for compatibility - starts queue processing.
+  Future<void> startProcessing() async {
+    await startQueueProcessing();
   }
 
   /// Cancels the current job.
@@ -701,13 +946,29 @@ class MainViewModel extends ChangeNotifier {
     _state = ProcessingState.cancelling;
     notifyListeners();
 
-    await _workerManager.cancel();
+    if (_isQueueProcessing) {
+      await cancelQueueProcessing();
+    } else {
+      await _workerManager.cancel();
+    }
   }
 
   /// Resets after completion or failure.
   void reset() {
     _state = ProcessingState.idle;
     _currentProgress = null;
+    _isQueueProcessing = false;
+    _currentProcessingIndex = -1;
+
+    // Reset queue item statuses for failed/cancelled items to ready
+    for (final item in _queue) {
+      if (item.status == QueueItemStatus.failed ||
+          item.status == QueueItemStatus.cancelled) {
+        item.status = QueueItemStatus.ready;
+        item.errorMessage = null;
+      }
+    }
+
     notifyListeners();
   }
 
@@ -741,10 +1002,10 @@ class MainViewModel extends ChangeNotifier {
     return '$outputDir/$outputFilename$ext';
   }
 
-  /// Regenerates the output path when settings change.
+  /// Regenerates the output paths for all queue items when settings change.
   void _regenerateOutputPath() {
-    if (_inputPath != null) {
-      _outputPath = _generateOutputPath(_inputPath!);
+    for (final item in _queue) {
+      item.outputPath = _generateOutputPath(item.inputPath);
     }
   }
 

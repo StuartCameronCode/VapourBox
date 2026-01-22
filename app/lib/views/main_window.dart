@@ -13,10 +13,25 @@ import 'pass_list/pass_list_panel.dart';
 import 'pass_settings/pass_settings_container.dart';
 import 'preview_panel.dart';
 import 'progress_panel.dart';
+import 'queue_panel.dart';
 import 'settings/settings_dialog.dart';
 
 class MainWindow extends StatelessWidget {
   const MainWindow({super.key});
+
+  String _getGoButtonText(MainViewModel viewModel) {
+    if (viewModel.isQueueProcessing) {
+      final completed = viewModel.queueCompletedCount;
+      final total = viewModel.queue.length;
+      return 'Processing ${completed + 1}/$total...';
+    }
+
+    final readyCount = viewModel.queueReadyCount;
+    if (readyCount > 1) {
+      return 'Go ($readyCount)';
+    }
+    return 'Go';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +45,7 @@ class MainWindow extends StatelessWidget {
 
               // Main content area
               Expanded(
-                child: viewModel.inputPath == null
+                child: viewModel.queue.isEmpty
                     ? const DropZone()
                     : _buildMainContent(context, viewModel),
               ),
@@ -165,13 +180,13 @@ class MainWindow extends StatelessWidget {
 
           const SizedBox(width: 8),
 
-          // Clear button (if file loaded)
-          if (viewModel.inputPath != null)
+          // Clear button (if queue has items)
+          if (viewModel.queue.isNotEmpty)
             TextButton.icon(
               icon: const Icon(Icons.clear),
               label: const Text('Clear'),
               onPressed:
-                  viewModel.isProcessing ? null : () => viewModel.clearInput(),
+                  viewModel.isProcessing ? null : () => viewModel.clearQueue(),
             ),
 
           const SizedBox(width: 8),
@@ -188,7 +203,7 @@ class MainWindow extends StatelessWidget {
                     ),
                   )
                 : const Icon(Icons.play_arrow),
-            label: Text(viewModel.isProcessing ? 'Processing...' : 'Go'),
+            label: Text(_getGoButtonText(viewModel)),
             onPressed: viewModel.canProcess
                 ? () => _startProcessingWithCompatibilityCheck(context, viewModel)
                 : viewModel.state.canCancel
@@ -233,9 +248,15 @@ class MainWindow extends StatelessWidget {
   Widget _buildInfoPanel(BuildContext context, MainViewModel viewModel) {
     return Column(
       children: [
-        // Fixed header with video info and output settings
+        // Queue panel at top
+        SizedBox(
+          height: 180,
+          child: const QueuePanel(),
+        ),
+
+        // Output settings row
         Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(
@@ -243,25 +264,17 @@ class MainWindow extends StatelessWidget {
               ),
             ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
             children: [
-              _buildVideoInfoSection(context, viewModel),
-              const SizedBox(height: 12),
-              // Output summary row
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Output: ${viewModel.encodingSettings.codec.displayName} → ${viewModel.encodingSettings.container.name.toUpperCase()}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => _showSettings(context, viewModel),
-                    child: const Text('Edit'),
-                  ),
-                ],
+              Expanded(
+                child: Text(
+                  'Output: ${viewModel.encodingSettings.codec.displayName} → ${viewModel.encodingSettings.container.name.toUpperCase()}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              TextButton(
+                onPressed: () => _showSettings(context, viewModel),
+                child: const Text('Edit'),
               ),
             ],
           ),
@@ -289,81 +302,12 @@ class MainWindow extends StatelessWidget {
     );
   }
 
-  Widget _buildVideoInfoSection(BuildContext context, MainViewModel viewModel) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Input',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-        ),
-        const SizedBox(height: 8),
-        _buildInfoRow(
-            context, 'File', viewModel.inputPath?.split('/').last ?? ''),
-
-        if (viewModel.videoInfo != null) ...[
-          _buildInfoRow(context, 'Resolution', viewModel.videoInfo!.resolution),
-          _buildInfoRow(
-              context, 'Frame Rate', viewModel.videoInfo!.frameRateFormatted),
-          _buildInfoRow(
-              context, 'Duration', viewModel.videoInfo!.durationFormatted),
-          _buildInfoRow(context, 'Frames', '${viewModel.videoInfo!.frameCount}'),
-          _buildInfoRow(context, 'Field Order',
-              viewModel.videoInfo!.fieldOrderDescription),
-        ],
-
-        if (viewModel.isAnalyzing) ...[
-          const SizedBox(height: 8),
-          const Row(
-            children: [
-              SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-              SizedBox(width: 8),
-              Text('Analyzing...'),
-            ],
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildInfoRow(BuildContext context, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildStatusBar(BuildContext context, MainViewModel viewModel) {
     String statusText = 'Ready';
     bool isClickable = false;
 
     if (viewModel.isAnalyzing) {
-      statusText = 'Analyzing video...';
+      statusText = 'Analyzing videos...';
     } else if (viewModel.isGeneratingPreview) {
       statusText = 'Generating preview... (click for log)';
       isClickable = true;
@@ -372,14 +316,19 @@ class MainWindow extends StatelessWidget {
       isClickable = true;
     } else if (viewModel.isProcessing) {
       final progress = viewModel.currentProgress;
+      final queueInfo = viewModel.isQueueProcessing
+          ? ' (${viewModel.queueCompletedCount + 1}/${viewModel.queue.length})'
+          : '';
       if (progress != null) {
         statusText =
-            'Processing: ${progress.percentComplete}% - ${progress.fpsFormatted} - ETA: ${progress.etaFormatted}';
+            'Processing$queueInfo: ${progress.percentComplete}% - ${progress.fpsFormatted} - ETA: ${progress.etaFormatted}';
       } else {
-        statusText = 'Processing...';
+        statusText = 'Processing$queueInfo...';
       }
     } else if (viewModel.state == ProcessingState.completed) {
-      statusText = 'Complete!';
+      final completed = viewModel.queueCompletedCount;
+      final total = viewModel.queue.length;
+      statusText = total > 1 ? 'Complete! ($completed/$total processed)' : 'Complete!';
     } else if (viewModel.state == ProcessingState.failed) {
       statusText = 'Failed';
     }
@@ -427,9 +376,9 @@ class MainWindow extends StatelessWidget {
                 )
               : Text(statusText),
           const Spacer(),
-          if (viewModel.inputPath != null && viewModel.videoInfo != null)
+          if (viewModel.selectedItem != null && viewModel.selectedItem!.videoInfo != null)
             Text(
-              viewModel.videoInfo!.resolution,
+              viewModel.selectedItem!.videoInfo!.resolution,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                   ),

@@ -29,11 +29,16 @@ class _DropZoneState extends State<DropZone> {
       onDragDone: (details) {
         setState(() => _isDragging = false);
         if (details.files.isNotEmpty) {
-          final path = details.files.first.path;
-          if (_isVideoFile(path)) {
-            context.read<MainViewModel>().setInputFile(path);
+          // Filter to valid video files
+          final validPaths = details.files
+              .where((f) => _isVideoFile(f.path))
+              .map((f) => f.path)
+              .toList();
+
+          if (validPaths.isNotEmpty) {
+            context.read<MainViewModel>().addMultipleToQueue(validPaths);
           } else {
-            _showError(context, 'Please drop a video file');
+            _showError(context, 'Please drop video files');
           }
         }
       },
@@ -68,8 +73,8 @@ class _DropZoneState extends State<DropZone> {
                 const SizedBox(height: 16),
                 Text(
                   _isDragging
-                      ? 'Drop to load video'
-                      : 'Drop video file here',
+                      ? 'Drop to add videos'
+                      : 'Drop video files here',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         color: _isDragging
                             ? colorScheme.primary
@@ -115,12 +120,16 @@ class _DropZoneState extends State<DropZone> {
         'avi', 'mov', 'mp4', 'mkv', 'mxf', 'm2v', 'mpg', 'mpeg',
         'ts', 'vob', 'dv', 'mts', 'm2ts', 'wmv', 'webm', 'flv'
       ],
+      allowMultiple: true,
     );
 
     if (result != null && result.files.isNotEmpty) {
-      final path = result.files.first.path;
-      if (path != null && context.mounted) {
-        context.read<MainViewModel>().setInputFile(path);
+      final paths = result.files
+          .where((f) => f.path != null)
+          .map((f) => f.path!)
+          .toList();
+      if (paths.isNotEmpty && context.mounted) {
+        context.read<MainViewModel>().addMultipleToQueue(paths);
       }
     }
   }
