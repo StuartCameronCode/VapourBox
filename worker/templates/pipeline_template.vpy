@@ -17,6 +17,12 @@ core.max_cache_size = 1024
 # Load input video using BestSource for frame-accurate seeking
 clip = core.bs.VideoSource(source=r"{{INPUT_PATH}}")
 
+# Convert unusual chroma formats (e.g., 4:1:1 from NTSC DV) to 4:2:2 for filter compatibility
+# 4:1:1 (YUV411P) has subsampling_w=2, subsampling_h=0
+# Most filters expect 4:2:0 or 4:2:2; 4:2:2 is lossless when upconverting from 4:1:1
+if clip.format.subsampling_w > 1:  # 4:1:1 or more extreme horizontal subsampling
+    clip = core.resize.Bicubic(clip, format=vs.YUV422P8 if clip.format.bits_per_sample == 8 else vs.YUV422P16)
+
 # Frame trimming (if start/end frame specified)
 {{#FRAME_TRIM}}
 clip = clip[{{START_FRAME}}:{{END_FRAME}}]

@@ -19,6 +19,12 @@ video_path = r"{{VIDEO_PATH}}"
 # Load using BestSource (fast since the clip is only ~11 frames)
 clip = core.bs.VideoSource(source=video_path)
 
+# Convert unusual chroma formats (e.g., 4:1:1 from NTSC DV) to 4:2:2 for filter compatibility
+# 4:1:1 (YUV411P) has subsampling_w=2, subsampling_h=0
+# Most filters expect 4:2:0 or 4:2:2; 4:2:2 is lossless when upconverting from 4:1:1
+if clip.format.subsampling_w > 1:  # 4:1:1 or more extreme horizontal subsampling
+    clip = core.resize.Bicubic(clip, format=vs.YUV422P8 if clip.format.bits_per_sample == 8 else vs.YUV422P16)
+
 # Set frame rate properties that QTGMC expects (from original video)
 clip = core.std.AssumeFPS(clip, fpsnum={{FPS_NUM}}, fpsden={{FPS_DEN}})
 
