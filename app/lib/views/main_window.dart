@@ -1,14 +1,18 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/processing_preset.dart';
 import '../models/progress_info.dart';
+import '../models/queue_item.dart';
 import '../services/audio_compatibility_service.dart';
 import '../viewmodels/main_viewmodel.dart';
 import 'about_dialog.dart' as about;
 import 'audio_compatibility_dialog.dart';
 import 'drop_zone.dart';
+import 'overwrite_warning_dialog.dart';
 import 'pass_list/pass_list_panel.dart';
 import 'pass_settings/pass_settings_container.dart';
 import 'preview_panel.dart';
@@ -573,13 +577,26 @@ class MainWindow extends StatelessWidget {
     );
   }
 
-  /// Check audio compatibility and start processing.
-  /// Shows a dialog if the audio codec is incompatible with the container.
+  /// Check for overwrites and audio compatibility, then start processing.
+  /// Shows warning dialogs as needed before starting.
   Future<void> _startProcessingWithCompatibilityCheck(
     BuildContext context,
     MainViewModel viewModel,
   ) async {
-    // Only check if audio copy is enabled
+    // Check for existing output files that would be overwritten
+    final existingFiles = await _getExistingOutputFiles(viewModel.queue);
+    if (existingFiles.isNotEmpty) {
+      if (!context.mounted) return;
+      final shouldOverwrite = await OverwriteWarningDialog.show(
+        context: context,
+        existingFiles: existingFiles,
+      );
+      if (!shouldOverwrite) {
+        return; // User cancelled
+      }
+    }
+
+    // Only check audio compatibility if audio copy is enabled
     if (!viewModel.encodingSettings.audioCopy) {
       viewModel.startProcessing();
       return;
@@ -640,5 +657,20 @@ class MainWindow extends StatelessWidget {
 
     // Start processing with updated settings
     viewModel.startProcessing();
+  }
+
+  /// Returns list of output file paths that already exist.
+  Future<List<String>> _getExistingOutputFiles(List<QueueItem> queue) async {
+    final existingFiles = <String>[];
+    for (final item in queue) {
+      // Only check items that are ready to process
+      if (item.status == QueueItemStatus.ready ||
+          item.status == QueueItemStatus.failed) {
+        if (await File(item.outputPath).exists()) {
+          existingFiles.add(item.outputPath);
+        }
+      }
+    }
+    return existingFiles;
   }
 }
