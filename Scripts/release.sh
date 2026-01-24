@@ -71,7 +71,7 @@ done
 # Read GitHub repo from deps-version.json
 GITHUB_REPO=$(grep '"githubRepo"' "$PROJECT_ROOT/app/assets/deps-version.json" 2>/dev/null | sed 's/.*: *"\([^"]*\)".*/\1/')
 if [ -z "$GITHUB_REPO" ]; then
-    GITHUB_REPO="StuartCameron/VapourBox"
+    GITHUB_REPO="StuartCameronCode/VapourBox"
 fi
 
 echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"

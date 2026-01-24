@@ -6,9 +6,11 @@ import 'package:window_manager/window_manager.dart';
 import 'models/filter_registry.dart';
 import 'services/dependency_manager.dart';
 import 'services/preset_service.dart';
+import 'services/update_checker.dart';
 import 'viewmodels/main_viewmodel.dart';
 import 'views/dependency_download_dialog.dart';
 import 'views/main_window.dart';
+import 'views/update_available_dialog.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -111,10 +113,30 @@ class _AppStartupWrapperState extends State<AppStartupWrapper> {
         _isReady = true;
         _dependenciesOk = true;
       });
+
+      // Check for updates asynchronously (non-blocking)
+      _checkForUpdatesAsync();
     } catch (e) {
       setState(() {
         _errorMessage = e.toString();
       });
+    }
+  }
+
+  /// Check for updates in the background without blocking startup.
+  Future<void> _checkForUpdatesAsync() async {
+    // Wait for the next frame to ensure UI is fully built
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // Check if updates are enabled
+    final enabled = await UpdateChecker.instance.isEnabled();
+    if (!enabled) return;
+
+    // Check for updates
+    final updateInfo = await UpdateChecker.instance.checkForUpdates();
+    if (updateInfo != null && mounted) {
+      // Show update dialog
+      UpdateAvailableDialog.show(context, updateInfo);
     }
   }
 

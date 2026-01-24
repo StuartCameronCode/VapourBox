@@ -10,7 +10,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Read GitHub repo from deps-version.json
 GITHUB_REPO=$(grep '"githubRepo"' "$PROJECT_ROOT/app/assets/deps-version.json" | sed 's/.*: *"\([^"]*\)".*/\1/')
 if [ -z "$GITHUB_REPO" ]; then
-    GITHUB_REPO="StuartCameron/VapourBox"
+    GITHUB_REPO="StuartCameronCode/VapourBox"
 fi
 
 TYPE="${1:---app}"

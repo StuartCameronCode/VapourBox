@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/encoding_settings.dart';
 import '../../models/video_job.dart';
+import '../../services/update_checker.dart';
 import '../../viewmodels/main_viewmodel.dart';
 
 class SettingsDialog extends StatefulWidget {
@@ -22,7 +23,7 @@ class _SettingsDialogState extends State<SettingsDialog>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -73,6 +74,7 @@ class _SettingsDialogState extends State<SettingsDialog>
               tabs: const [
                 Tab(text: 'Input'),
                 Tab(text: 'Output'),
+                Tab(text: 'General'),
               ],
             ),
 
@@ -83,6 +85,7 @@ class _SettingsDialogState extends State<SettingsDialog>
                 children: const [
                   _InputSettingsTab(),
                   _OutputSettingsTab(),
+                  _GeneralSettingsTab(),
                 ],
               ),
             ),
@@ -581,6 +584,84 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     } else if (Platform.isWindows) {
       Process.run('explorer', ['/select,', path]);
     }
+  }
+
+  Widget _buildSection(
+    BuildContext context, {
+    required String title,
+    required Widget child,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+        ),
+        const SizedBox(height: 12),
+        child,
+      ],
+    );
+  }
+}
+
+class _GeneralSettingsTab extends StatefulWidget {
+  const _GeneralSettingsTab();
+
+  @override
+  State<_GeneralSettingsTab> createState() => _GeneralSettingsTabState();
+}
+
+class _GeneralSettingsTabState extends State<_GeneralSettingsTab> {
+  bool _checkForUpdates = true;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final enabled = await UpdateChecker.instance.isEnabled();
+    if (mounted) {
+      setState(() {
+        _checkForUpdates = enabled;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _setCheckForUpdates(bool value) async {
+    setState(() {
+      _checkForUpdates = value;
+    });
+    await UpdateChecker.instance.setEnabled(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _buildSection(
+          context,
+          title: 'Updates',
+          child: SwitchListTile(
+            title: const Text('Check for updates on startup'),
+            subtitle: const Text('Notify when a new version is available'),
+            value: _checkForUpdates,
+            onChanged: _setCheckForUpdates,
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildSection(

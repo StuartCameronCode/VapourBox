@@ -1168,7 +1168,7 @@ The app reads `releaseTag` from `deps-version.json` and constructs URLs as:
 https://github.com/{githubRepo}/releases/download/{releaseTag}/{filename}
 ```
 
-Example: `https://github.com/StuartCameron/VapourBox/releases/download/deps-v1.0.0/VapourBox-deps-1.0.0-windows-x64.zip`
+Example: `https://github.com/StuartCameronCode/VapourBox/releases/download/deps-v1.0.0/VapourBox-deps-1.0.0-windows-x64.zip`
 
 ### Key Files
 
@@ -1269,14 +1269,14 @@ Follow this checklist:
 6. **Create GitHub Releases**
 
    **If deps version changed** - create deps release first:
-   - Repository: `https://github.com/StuartCameron/VapourBox`
+   - Repository: `https://github.com/StuartCameronCode/VapourBox`
    - Tag: `deps-v{deps-version}` (e.g., `deps-v1.0.0`)
    - Title: `Dependencies v{deps-version}`
    - Attach deps zip files only
    - Note: This is a separate release from the app!
 
    **Always** - create app release:
-   - Repository: `https://github.com/StuartCameron/VapourBox`
+   - Repository: `https://github.com/StuartCameronCode/VapourBox`
    - Tag: `v{app-version}` (e.g., `v0.2.0`)
    - Title: `VapourBox v{app-version}`
    - Attach app zip files only (NOT deps!)
@@ -1313,7 +1313,7 @@ User: "Tested, all good"
 
 Claude: [Creates GitHub release for app only]
         "Released VapourBox v0.2.0:
-         https://github.com/StuartCameron/VapourBox/releases/tag/v0.2.0
+         https://github.com/StuartCameronCode/VapourBox/releases/tag/v0.2.0
 
          Uses dependencies from: deps-v1.0.0"
 ```

@@ -143,7 +143,7 @@ Contents
 - templates/          : VapourSynth script templates
 
 For more information, visit:
-https://github.com/StuartCameron/VapourBox
+https://github.com/StuartCameronCode/VapourBox
 "@
 Set-Content -Path "$PackageDir\README.txt" -Value $ReadmeContent
 

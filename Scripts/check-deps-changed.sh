@@ -27,7 +27,7 @@ DEPS_PATHS=(
 # Get the last deps release tag
 GITHUB_REPO=$(grep '"githubRepo"' "$PROJECT_ROOT/app/assets/deps-version.json" 2>/dev/null | sed 's/.*: *"\([^"]*\)".*/\1/')
 if [ -z "$GITHUB_REPO" ]; then
-    GITHUB_REPO="StuartCameron/VapourBox"
+    GITHUB_REPO="StuartCameronCode/VapourBox"
 fi
 
 LAST_DEPS_TAG=$(gh release list --repo "$GITHUB_REPO" --limit 50 2>/dev/null | grep -E '^deps-v[0-9]' | head -1 | awk '{print $1}')

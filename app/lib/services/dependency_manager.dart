@@ -75,7 +75,7 @@ class DepsVersionInfo {
       releaseTag: json['releaseTag'] as String? ?? 'deps-v${json['version']}',
       releaseDate: json['releaseDate'] as String?,
       platforms: platforms,
-      githubRepo: json['githubRepo'] as String? ?? 'StuartCameron/VapourBox',
+      githubRepo: json['githubRepo'] as String? ?? 'StuartCameronCode/VapourBox',
     );
   }
 

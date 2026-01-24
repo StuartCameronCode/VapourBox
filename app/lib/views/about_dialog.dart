@@ -14,7 +14,7 @@ class AboutDialog extends StatefulWidget {
 class _AboutDialogState extends State<AboutDialog> {
   String _version = '';
   String _depsVersion = '';
-  String _githubUrl = 'https://github.com/StuartCameron/VapourBox';
+  String _githubUrl = 'https://github.com/StuartCameronCode/VapourBox';
   static const String _authorUrl = 'https://stuart-cameron.com';
 
   @override
