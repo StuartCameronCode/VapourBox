@@ -146,6 +146,7 @@ class FieldOrderDetector {
       final duration = _parseDuration(format?['duration'] as String?);
       final frameCount = _parseFrameCount(videoStream['nb_frames'] as String?);
       final codec = videoStream['codec_name'] as String?;
+      final pixelFormat = videoStream['pix_fmt'] as String?;
       final fieldOrder = await detect(videoPath);
 
       return VideoInfo(
@@ -155,6 +156,7 @@ class FieldOrderDetector {
         duration: duration ?? 0,
         frameCount: frameCount ?? _estimateFrameCount(duration, frameRate),
         codec: codec ?? 'unknown',
+        pixelFormat: pixelFormat ?? 'unknown',
         fieldOrder: fieldOrder,
         hasAudio: audioStream != null,
       );
@@ -241,6 +243,7 @@ class VideoInfo {
   final double duration;
   final int frameCount;
   final String codec;
+  final String pixelFormat;
   final FieldOrder? fieldOrder;
   final bool hasAudio;
 
@@ -251,6 +254,7 @@ class VideoInfo {
     required this.duration,
     required this.frameCount,
     required this.codec,
+    required this.pixelFormat,
     this.fieldOrder,
     required this.hasAudio,
   });

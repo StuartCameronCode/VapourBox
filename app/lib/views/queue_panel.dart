@@ -247,6 +247,8 @@ class _QueuePanelState extends State<QueuePanel> {
               _InfoRow(label: 'Frame Rate', value: item.videoInfo!.frameRateFormatted),
               _InfoRow(label: 'Duration', value: item.videoInfo!.durationFormatted),
               _InfoRow(label: 'Frames', value: '${item.videoInfo!.frameCount}'),
+              _InfoRow(label: 'Codec', value: item.videoInfo!.codec),
+              _InfoRow(label: 'Pixel Format', value: item.videoInfo!.pixelFormat),
               _InfoRow(
                 label: 'Field Order',
                 value: item.videoInfo!.fieldOrderDescription,
