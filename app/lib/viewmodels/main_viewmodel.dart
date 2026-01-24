@@ -887,7 +887,7 @@ class MainViewModel extends ChangeNotifier {
   }
 
   /// Handles completion of a queue item.
-  void _handleQueueItemCompletion(CompletionResult result) {
+  Future<void> _handleQueueItemCompletion(CompletionResult result) async {
     if (_currentProcessingIndex < 0 || _currentProcessingIndex >= _queue.length) {
       return;
     }
@@ -902,7 +902,7 @@ class MainViewModel extends ChangeNotifier {
     } else if (result.success) {
       item.status = QueueItemStatus.completed;
       // Process next item
-      _processNextItem();
+      await _processNextItem();
       return; // Don't notify yet, _processNextItem will
     } else {
       item.status = QueueItemStatus.failed;
@@ -912,7 +912,7 @@ class MainViewModel extends ChangeNotifier {
         message: '${item.filename}: ${item.errorMessage}',
       ));
       // Process next item
-      _processNextItem();
+      await _processNextItem();
       return; // Don't notify yet, _processNextItem will
     }
 

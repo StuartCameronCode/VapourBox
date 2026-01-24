@@ -11,6 +11,9 @@ class WorkerManager {
   StreamSubscription<String>? _stdoutSubscription;
   StreamSubscription<String>? _stderrSubscription;
 
+  /// Pending completion result from stdout (emitted after process exits).
+  CompletionResult? _pendingCompletion;
+
   /// Stream of progress updates from the worker.
   final _progressController = StreamController<ProgressInfo>.broadcast();
   Stream<ProgressInfo> get progressStream => _progressController.stream;
@@ -67,17 +70,24 @@ class WorkerManager {
 
       // Wait for process to exit
       _process!.exitCode.then((exitCode) {
-        _cleanup();
-
         // Clean up config file
         configFile.delete().catchError((_) => configFile);
 
-        if (exitCode != 0 && !_completionController.isClosed) {
-          _completionController.add(CompletionResult(
-            success: false,
-            errorMessage: 'Worker exited with code $exitCode',
-          ));
+        // Emit completion result after process has fully exited
+        if (!_completionController.isClosed) {
+          if (_pendingCompletion != null) {
+            // Use the completion result from stdout
+            _completionController.add(_pendingCompletion!);
+          } else if (exitCode != 0) {
+            // Process exited with error before sending completion
+            _completionController.add(CompletionResult(
+              success: false,
+              errorMessage: 'Worker exited with code $exitCode',
+            ));
+          }
         }
+
+        _cleanup();
       });
     } catch (e) {
       await configFile.delete().catchError((_) => configFile);
@@ -138,10 +148,11 @@ class WorkerManager {
           message: message.message ?? 'Unknown error',
         ));
       } else if (message.isComplete) {
-        _completionController.add(CompletionResult(
+        // Store completion result - will be emitted after process exits
+        _pendingCompletion = CompletionResult(
           success: message.success ?? false,
           outputPath: message.outputPath,
-        ));
+        );
       }
     } catch (e) {
       // Not JSON, treat as log message
@@ -167,6 +178,7 @@ class WorkerManager {
     _stderrSubscription?.cancel();
     _stderrSubscription = null;
     _process = null;
+    _pendingCompletion = null;
   }
 
   Future<String?> _findWorker() async {
