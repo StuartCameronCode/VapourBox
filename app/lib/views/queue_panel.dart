@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -8,8 +9,15 @@ import '../models/queue_item.dart';
 import '../viewmodels/main_viewmodel.dart';
 
 /// Panel showing the queue of videos to process.
-class QueuePanel extends StatelessWidget {
+class QueuePanel extends StatefulWidget {
   const QueuePanel({super.key});
+
+  @override
+  State<QueuePanel> createState() => _QueuePanelState();
+}
+
+class _QueuePanelState extends State<QueuePanel> {
+  bool _isDragging = false;
 
   @override
   Widget build(BuildContext context) {
@@ -17,44 +25,77 @@ class QueuePanel extends StatelessWidget {
       builder: (context, viewModel, child) {
         final queue = viewModel.queue;
         final selectedId = viewModel.selectedItemId;
+        final colorScheme = Theme.of(context).colorScheme;
 
-        return Container(
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
+        return DropTarget(
+          onDragEntered: (details) => setState(() => _isDragging = true),
+          onDragExited: (details) => setState(() => _isDragging = false),
+          onDragDone: (details) {
+            setState(() => _isDragging = false);
+            if (details.files.isNotEmpty) {
+              final validPaths = details.files
+                  .where((f) => _isVideoFile(f.path))
+                  .map((f) => f.path)
+                  .toList();
+              if (validPaths.isNotEmpty) {
+                viewModel.addMultipleToQueue(validPaths);
+              }
+            }
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              color: _isDragging
+                  ? colorScheme.primary.withValues(alpha: 0.1)
+                  : null,
+              border: Border(
+                bottom: BorderSide(
+                  color: _isDragging
+                      ? colorScheme.primary
+                      : colorScheme.outline.withValues(alpha: 0.2),
+                  width: _isDragging ? 2 : 1,
+                ),
               ),
             ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header
-              _buildHeader(context, viewModel, queue.length),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header
+                _buildHeader(context, viewModel, queue.length),
 
-              // Queue list
-              Expanded(
-                child: queue.isEmpty
-                    ? _buildEmptyState(context)
-                    : ListView.builder(
-                        itemCount: queue.length,
-                        itemBuilder: (context, index) {
-                          final item = queue[index];
-                          return _QueueItemTile(
-                            item: item,
-                            isSelected: item.id == selectedId,
-                            onTap: () => viewModel.selectQueueItem(item.id),
-                            onRemove: () => viewModel.removeFromQueue(item.id),
-                            onInfo: () => _showVideoInfo(context, item),
-                          );
-                        },
-                      ),
-              ),
-            ],
+                // Queue list
+                Expanded(
+                  child: queue.isEmpty
+                      ? _buildEmptyState(context)
+                      : ListView.builder(
+                          itemCount: queue.length,
+                          itemBuilder: (context, index) {
+                            final item = queue[index];
+                            return _QueueItemTile(
+                              item: item,
+                              isSelected: item.id == selectedId,
+                              onTap: () => viewModel.selectQueueItem(item.id),
+                              onRemove: () => viewModel.removeFromQueue(item.id),
+                              onRequeue: () => viewModel.requeueItem(item.id),
+                              onInfo: () => _showVideoInfo(context, item),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
           ),
         );
       },
     );
+  }
+
+  bool _isVideoFile(String path) {
+    final extensions = [
+      '.avi', '.mov', '.mp4', '.mkv', '.mxf', '.m2v', '.mpg', '.mpeg',
+      '.ts', '.vob', '.dv', '.mts', '.m2ts', '.wmv', '.webm', '.flv'
+    ];
+    final lowerPath = path.toLowerCase();
+    return extensions.any((ext) => lowerPath.endsWith(ext));
   }
 
   Widget _buildHeader(BuildContext context, MainViewModel viewModel, int count) {
@@ -137,15 +178,19 @@ class QueuePanel extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.video_library_outlined,
+              _isDragging ? Icons.file_download : Icons.video_library_outlined,
               size: 32,
-              color: colorScheme.onSurface.withValues(alpha: 0.3),
+              color: _isDragging
+                  ? colorScheme.primary
+                  : colorScheme.onSurface.withValues(alpha: 0.3),
             ),
             const SizedBox(height: 8),
             Text(
-              'No videos in queue',
+              _isDragging ? 'Drop to add videos' : 'Drop videos here',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurface.withValues(alpha: 0.5),
+                    color: _isDragging
+                        ? colorScheme.primary
+                        : colorScheme.onSurface.withValues(alpha: 0.5),
                   ),
             ),
           ],
@@ -262,6 +307,7 @@ class _QueueItemTile extends StatelessWidget {
   final bool isSelected;
   final VoidCallback onTap;
   final VoidCallback onRemove;
+  final VoidCallback onRequeue;
   final VoidCallback onInfo;
 
   const _QueueItemTile({
@@ -269,6 +315,7 @@ class _QueueItemTile extends StatelessWidget {
     required this.isSelected,
     required this.onTap,
     required this.onRemove,
+    required this.onRequeue,
     required this.onInfo,
   });
 
@@ -369,6 +416,25 @@ class _QueueItemTile extends StatelessWidget {
                 padding: EdgeInsets.zero,
               ),
             ),
+
+            // Requeue button (for completed, failed, or cancelled items)
+            if (item.status == QueueItemStatus.completed ||
+                item.status == QueueItemStatus.failed ||
+                item.status == QueueItemStatus.cancelled)
+              IconButton(
+                icon: Icon(
+                  Icons.replay,
+                  size: 18,
+                  color: colorScheme.primary,
+                ),
+                onPressed: onRequeue,
+                tooltip: 'Reprocess',
+                visualDensity: VisualDensity.compact,
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(28, 28),
+                  padding: EdgeInsets.zero,
+                ),
+              ),
 
             // Remove button (only if not processing)
             if (item.canRemove)

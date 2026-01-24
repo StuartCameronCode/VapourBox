@@ -70,7 +70,10 @@ class MainViewModel extends ChangeNotifier {
       _selectedItemId != null ? _queue.where((q) => q.id == _selectedItemId).firstOrNull : null;
   bool get isQueueProcessing => _isQueueProcessing;
   int get currentProcessingIndex => _currentProcessingIndex;
-  int get queueReadyCount => _queue.where((q) => q.canProcess).length;
+  /// Count of items that will be processed when Go is clicked.
+  /// Includes ready, failed, completed, and cancelled items.
+  int get queueReadyCount =>
+      _queue.where((q) => q.canProcess || q.canReprocess).length;
   int get queueCompletedCount => _queue.where((q) => q.status == QueueItemStatus.completed).length;
 
   // Computed getters that delegate to selected item
@@ -448,6 +451,21 @@ class MainViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Requeues a completed, failed, or cancelled item for reprocessing.
+  void requeueItem(String itemId) {
+    final item = _queue.where((q) => q.id == itemId).firstOrNull;
+    if (item == null) return;
+
+    // Only allow requeueing items that have finished processing
+    if (item.status == QueueItemStatus.completed ||
+        item.status == QueueItemStatus.failed ||
+        item.status == QueueItemStatus.cancelled) {
+      item.status = QueueItemStatus.ready;
+      item.errorMessage = null;
+      notifyListeners();
+    }
+  }
+
   /// Legacy method for compatibility - adds to queue instead.
   Future<void> setInputFile(String filePath) async {
     await addToQueue(filePath);
@@ -805,6 +823,14 @@ class MainViewModel extends ChangeNotifier {
   Future<void> startQueueProcessing() async {
     if (!canProcess || _isQueueProcessing) return;
 
+    // Reset completed/cancelled items to ready so they get reprocessed
+    for (final item in _queue) {
+      if (item.canReprocess) {
+        item.status = QueueItemStatus.ready;
+        item.errorMessage = null;
+      }
+    }
+
     _isQueueProcessing = true;
     _currentProcessingIndex = -1;
     _logMessages.clear();
@@ -815,9 +841,8 @@ class MainViewModel extends ChangeNotifier {
 
   /// Processes the next ready item in the queue.
   Future<void> _processNextItem() async {
-    // Find next ready item
-    final nextIndex = _queue.indexWhere((q) =>
-        q.status == QueueItemStatus.ready || q.status == QueueItemStatus.failed);
+    // Find next item that can be processed (ready or failed only)
+    final nextIndex = _queue.indexWhere((q) => q.canProcess);
 
     if (nextIndex == -1) {
       // No more items to process

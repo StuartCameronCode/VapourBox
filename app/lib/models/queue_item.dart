@@ -114,6 +114,10 @@ class QueueItem {
   bool get canProcess =>
       status == QueueItemStatus.ready || status == QueueItemStatus.failed;
 
+  /// Returns true if the item can be reprocessed (already finished).
+  bool get canReprocess =>
+      status == QueueItemStatus.completed || status == QueueItemStatus.cancelled;
+
   /// Copies this item with optional new values.
   QueueItem copyWith({
     String? id,

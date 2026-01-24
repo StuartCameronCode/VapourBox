@@ -663,9 +663,8 @@ class MainWindow extends StatelessWidget {
   Future<List<String>> _getExistingOutputFiles(List<QueueItem> queue) async {
     final existingFiles = <String>[];
     for (final item in queue) {
-      // Only check items that are ready to process
-      if (item.status == QueueItemStatus.ready ||
-          item.status == QueueItemStatus.failed) {
+      // Check items that will be processed (ready, failed, completed, cancelled)
+      if (item.canProcess || item.canReprocess) {
         if (await File(item.outputPath).exists()) {
           existingFiles.add(item.outputPath);
         }
