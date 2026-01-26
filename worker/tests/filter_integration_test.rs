@@ -1015,13 +1015,21 @@ fn build_ffmpeg_args(job: &VideoJob) -> Vec<String> {
     }
 
     // Audio handling - this is the critical part for audio passthrough
-    if settings.audio_copy {
-        // Copy audio stream unchanged from input
-        args.extend(["-c:a".to_string(), "copy".to_string()]);
-    } else {
-        // Re-encode audio (not recommended for quality preservation)
-        args.extend(["-c:a".to_string(), settings.audio_codec.clone()]);
-        args.extend(["-b:a".to_string(), format!("{}k", settings.audio_bitrate)]);
+    match settings.audio_mode {
+        AudioMode::Passthrough => {
+            // Copy audio stream unchanged from input
+            args.extend(["-c:a".to_string(), "copy".to_string()]);
+        }
+        AudioMode::Convert => {
+            // Re-encode audio (not recommended for quality preservation)
+            args.extend(["-c:a".to_string(), settings.audio_codec.ffmpeg_name().to_string()]);
+            if !settings.audio_codec.is_lossless() {
+                args.extend(["-b:a".to_string(), format!("{}k", settings.audio_quality.bitrate())]);
+            }
+        }
+        AudioMode::None => {
+            args.push("-an".to_string());
+        }
     }
 
     // Output file
@@ -1039,10 +1047,11 @@ fn test_33_audio_passthrough_default_settings() {
 
     let job = create_base_job("test_33_audio_passthrough");
 
-    // Verify default settings have audio_copy enabled
-    assert!(
-        job.encoding_settings.audio_copy,
-        "Default encoding settings must have audio_copy=true to preserve original audio"
+    // Verify default settings have audio passthrough enabled
+    assert_eq!(
+        job.encoding_settings.audio_mode,
+        AudioMode::Passthrough,
+        "Default encoding settings must have audio_mode=Passthrough to preserve original audio"
     );
 
     let args = build_ffmpeg_args(&job);
@@ -1108,8 +1117,8 @@ fn test_34_audio_passthrough_with_video_processing() {
         ..RestorationPipeline::default()
     });
 
-    // Ensure audio_copy is still true (should be default)
-    assert!(job.encoding_settings.audio_copy);
+    // Ensure audio mode is still passthrough (should be default)
+    assert_eq!(job.encoding_settings.audio_mode, AudioMode::Passthrough);
 
     let args = build_ffmpeg_args(&job);
 
@@ -1139,14 +1148,14 @@ fn test_34_audio_passthrough_with_video_processing() {
 
 #[test]
 fn test_35_audio_reencode_when_explicitly_disabled() {
-    // Test: When audio_copy is explicitly disabled, audio should be re-encoded
+    // Test: When audio_mode is Convert, audio should be re-encoded
     // This is the opposite of passthrough and should produce different audio
     create_output_dir();
 
     let mut job = create_base_job("test_35_audio_reencode");
-    job.encoding_settings.audio_copy = false;
-    job.encoding_settings.audio_codec = "aac".to_string();
-    job.encoding_settings.audio_bitrate = 192;
+    job.encoding_settings.audio_mode = AudioMode::Convert;
+    job.encoding_settings.audio_codec = AudioCodec::Aac;
+    job.encoding_settings.audio_quality = AudioQuality::High;
 
     let args = build_ffmpeg_args(&job);
 
@@ -1154,7 +1163,7 @@ fn test_35_audio_reencode_when_explicitly_disabled() {
     let audio_codec_pos = args.iter().position(|a| a == "-c:a").unwrap();
     assert_eq!(
         args[audio_codec_pos + 1], "aac",
-        "When audio_copy=false, specified codec should be used"
+        "When audio_mode=Convert, specified codec should be used"
     );
 
     // Verify bitrate is set

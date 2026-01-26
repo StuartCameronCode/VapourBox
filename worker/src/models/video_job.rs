@@ -75,17 +75,21 @@ pub struct EncodingSettings {
     #[serde(default = "default_quality")]
     pub quality: i32,
 
-    /// Copy audio stream without re-encoding
-    #[serde(default = "default_true")]
-    pub audio_copy: bool,
+    /// Audio handling mode
+    #[serde(default)]
+    pub audio_mode: AudioMode,
 
-    /// Audio codec if not copying
-    #[serde(default = "default_audio_codec")]
-    pub audio_codec: String,
+    /// Audio codec for re-encoding (when audio_mode == Convert)
+    #[serde(default)]
+    pub audio_codec: AudioCodec,
 
-    /// Audio bitrate in kbps (if re-encoding)
-    #[serde(default = "default_audio_bitrate")]
-    pub audio_bitrate: i32,
+    /// Audio quality preset (when audio_mode == Convert and codec is lossy)
+    #[serde(default)]
+    pub audio_quality: AudioQuality,
+
+    /// Output chroma subsampling format
+    #[serde(default)]
+    pub chroma_subsampling: ChromaSubsampling,
 
     /// Additional FFmpeg arguments
     #[serde(default)]
@@ -104,16 +108,143 @@ fn default_quality() -> i32 {
     18
 }
 
-fn default_true() -> bool {
-    true
+/// Audio handling mode for output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AudioMode {
+    /// Copy audio stream without re-encoding.
+    #[default]
+    Passthrough,
+    /// Re-encode audio with selected codec and quality.
+    Convert,
+    /// No audio in output.
+    None,
 }
 
-fn default_audio_codec() -> String {
-    "aac".to_string()
+/// Audio codecs for re-encoding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum AudioCodec {
+    #[default]
+    #[serde(rename = "aac")]
+    Aac,
+    #[serde(rename = "libmp3lame")]
+    Mp3,
+    #[serde(rename = "ac3")]
+    Ac3,
+    #[serde(rename = "flac")]
+    Flac,
+    #[serde(rename = "libopus")]
+    Opus,
+    #[serde(rename = "pcm_s16le")]
+    Pcm,
 }
 
-fn default_audio_bitrate() -> i32 {
-    192
+impl AudioCodec {
+    /// Get the FFmpeg codec name.
+    pub fn ffmpeg_name(&self) -> &'static str {
+        match self {
+            AudioCodec::Aac => "aac",
+            AudioCodec::Mp3 => "libmp3lame",
+            AudioCodec::Ac3 => "ac3",
+            AudioCodec::Flac => "flac",
+            AudioCodec::Opus => "libopus",
+            AudioCodec::Pcm => "pcm_s16le",
+        }
+    }
+
+    /// Whether this is a lossless codec (no bitrate needed).
+    pub fn is_lossless(&self) -> bool {
+        matches!(self, AudioCodec::Flac | AudioCodec::Pcm)
+    }
+}
+
+/// Audio quality presets (bitrate in kbps).
+/// Serializes as integers to match Dart's json_serializable output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AudioQuality {
+    Low,
+    Medium,
+    #[default]
+    High,
+    VeryHigh,
+}
+
+impl AudioQuality {
+    /// Get the bitrate in kbps.
+    pub fn bitrate(&self) -> i32 {
+        match self {
+            AudioQuality::Low => 96,
+            AudioQuality::Medium => 128,
+            AudioQuality::High => 192,
+            AudioQuality::VeryHigh => 256,
+        }
+    }
+
+    fn from_int(value: i64) -> Option<Self> {
+        match value {
+            96 => Some(AudioQuality::Low),
+            128 => Some(AudioQuality::Medium),
+            192 => Some(AudioQuality::High),
+            256 => Some(AudioQuality::VeryHigh),
+            _ => None,
+        }
+    }
+}
+
+impl serde::Serialize for AudioQuality {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_i32(self.bitrate())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for AudioQuality {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct AudioQualityVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for AudioQualityVisitor {
+            type Value = AudioQuality;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("an integer (96, 128, 192, or 256)")
+            }
+
+            fn visit_i64<E>(self, value: i64) -> Result<AudioQuality, E>
+            where
+                E: serde::de::Error,
+            {
+                AudioQuality::from_int(value)
+                    .ok_or_else(|| E::custom(format!("unknown audio quality: {}", value)))
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<AudioQuality, E>
+            where
+                E: serde::de::Error,
+            {
+                self.visit_i64(value as i64)
+            }
+        }
+
+        deserializer.deserialize_any(AudioQualityVisitor)
+    }
+}
+
+/// Output chroma subsampling format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ChromaSubsampling {
+    /// Keep original format (no conversion).
+    #[default]
+    Original,
+    /// Convert to YUV420 for maximum compatibility.
+    Yuv420,
+    /// Convert to YUV422 for higher chroma quality.
+    Yuv422,
 }
 
 impl Default for EncodingSettings {
@@ -122,9 +253,10 @@ impl Default for EncodingSettings {
             codec: VideoCodec::default(),
             encoder_preset: default_encoder_preset(),
             quality: default_quality(),
-            audio_copy: true,
-            audio_codec: default_audio_codec(),
-            audio_bitrate: default_audio_bitrate(),
+            audio_mode: AudioMode::default(),
+            audio_codec: AudioCodec::default(),
+            audio_quality: AudioQuality::default(),
+            chroma_subsampling: ChromaSubsampling::default(),
             custom_ffmpeg_args: String::new(),
             container: ContainerFormat::default(),
         }

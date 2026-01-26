@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../models/encoding_settings.dart';
 import '../models/processing_preset.dart';
 import '../models/progress_info.dart';
 import '../models/queue_item.dart';
@@ -596,8 +597,8 @@ class MainWindow extends StatelessWidget {
       }
     }
 
-    // Only check audio compatibility if audio copy is enabled
-    if (!viewModel.encodingSettings.audioCopy) {
+    // Only check audio compatibility if audio passthrough is enabled
+    if (viewModel.encodingSettings.audioMode != AudioMode.passthrough) {
       viewModel.startProcessing();
       return;
     }
@@ -607,7 +608,7 @@ class MainWindow extends StatelessWidget {
     final compatibility = await service.checkCompatibility(
       inputPath: viewModel.inputPath!,
       outputContainer: viewModel.encodingSettings.container,
-      audioCopy: viewModel.encodingSettings.audioCopy,
+      audioMode: viewModel.encodingSettings.audioMode,
     );
 
     // If compatible or no audio, proceed directly
@@ -634,8 +635,11 @@ class MainWindow extends StatelessWidget {
         // Update settings to re-encode audio
         viewModel.updateEncodingSettings(
           viewModel.encodingSettings.copyWith(
-            audioCopy: false,
-            audioCodec: compatibility.suggestedCodec,
+            audioMode: AudioMode.convert,
+            audioCodec: AudioCodec.values.firstWhere(
+              (c) => c.value == compatibility.suggestedCodec,
+              orElse: () => AudioCodec.aac,
+            ),
           ),
         );
         break;

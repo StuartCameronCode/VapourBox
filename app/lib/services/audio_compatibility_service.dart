@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../models/encoding_settings.dart';
 import '../models/video_job.dart';
 
 /// Audio stream information from ffprobe.
@@ -162,12 +163,12 @@ class AudioCompatibilityService {
   Future<AudioCompatibilityResult> checkCompatibility({
     required String inputPath,
     required ContainerFormat outputContainer,
-    required bool audioCopy,
+    required AudioMode audioMode,
   }) async {
     final audioInfo = await getAudioInfo(inputPath);
 
-    // If no audio or not copying audio, always compatible
-    if (!audioInfo.hasAudio || !audioCopy) {
+    // If no audio, audio disabled, or re-encoding audio, always compatible
+    if (!audioInfo.hasAudio || audioMode != AudioMode.passthrough) {
       return AudioCompatibilityResult(
         audioInfo: audioInfo,
         container: outputContainer,

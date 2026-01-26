@@ -549,14 +549,146 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
             _buildSection(
               context,
               title: 'Audio',
-              child: SwitchListTile(
-                title: const Text('Copy audio stream'),
-                subtitle: const Text('Include original audio in output'),
-                value: settings.copyAudio,
-                onChanged: (value) {
-                  viewModel.updateEncodingSettings(
-                      settings.copyWith(copyAudio: value));
-                },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Audio Mode Selector
+                  SegmentedButton<AudioMode>(
+                    segments: AudioMode.values.map((mode) {
+                      return ButtonSegment(
+                        value: mode,
+                        label: Text(mode.displayName),
+                      );
+                    }).toList(),
+                    selected: {settings.audioMode},
+                    onSelectionChanged: (value) {
+                      viewModel.updateEncodingSettings(
+                        settings.copyWith(audioMode: value.first),
+                      );
+                    },
+                  ),
+
+                  // Show codec and quality options when Convert is selected
+                  if (settings.audioMode == AudioMode.convert) ...[
+                    const SizedBox(height: 16),
+
+                    // Audio Codec Dropdown
+                    DropdownButtonFormField<AudioCodec>(
+                      value: settings.audioCodec,
+                      decoration: const InputDecoration(
+                        labelText: 'Codec',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: AudioCodec.values.map((codec) {
+                        return DropdownMenuItem(
+                          value: codec,
+                          child: Text(codec.displayName),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          viewModel.updateEncodingSettings(
+                            settings.copyWith(audioCodec: value),
+                          );
+                        }
+                      },
+                    ),
+
+                    // Quality preset (only for lossy codecs)
+                    if (!settings.audioCodec.isLossless) ...[
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<AudioQuality>(
+                        value: settings.audioQuality,
+                        decoration: const InputDecoration(
+                          labelText: 'Quality',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: AudioQuality.values.map((quality) {
+                          return DropdownMenuItem(
+                            value: quality,
+                            child: Text(quality.displayName),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            viewModel.updateEncodingSettings(
+                              settings.copyWith(audioQuality: value),
+                            );
+                          }
+                        },
+                      ),
+                    ],
+
+                    // Lossless indicator
+                    if (settings.audioCodec.isLossless) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.info_outline,
+                              size: 20,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              'Lossless codec - no quality loss',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Color Format (Chroma Subsampling)
+            _buildSection(
+              context,
+              title: 'Color Format',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DropdownButtonFormField<ChromaSubsampling>(
+                    value: settings.chromaSubsampling,
+                    decoration: const InputDecoration(
+                      labelText: 'Chroma Subsampling',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: ChromaSubsampling.values.map((format) {
+                      return DropdownMenuItem(
+                        value: format,
+                        child: Text(format.displayName),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        viewModel.updateEncodingSettings(
+                          settings.copyWith(chromaSubsampling: value),
+                        );
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '4:2:0 is most compatible (web, mobile). 4:2:2 preserves more color detail.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.6),
+                        ),
+                  ),
+                ],
               ),
             ),
           ],

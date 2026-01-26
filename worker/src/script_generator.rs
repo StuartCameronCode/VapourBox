@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 
 use crate::models::{
     VideoJob, RestorationPipeline, NoiseReductionMethod, ResizeKernel, UpscaleMethod,
-    DehaloMethod, DeblockMethod, SharpenMethod,
+    DehaloMethod, DeblockMethod, SharpenMethod, ChromaSubsampling,
 };
 
 /// Generates VapourSynth scripts from templates.
@@ -633,6 +633,27 @@ impl ScriptGenerator {
             }
         } else {
             script = remove_block("{{#RESIZE}}", "{{/RESIZE}}", script);
+        }
+
+        // ====================================================================
+        // OUTPUT CHROMA SUBSAMPLING CONVERSION
+        // ====================================================================
+        match job.encoding_settings.chroma_subsampling {
+            ChromaSubsampling::Original => {
+                script = remove_block("{{#CHROMA_CONVERT}}", "{{/CHROMA_CONVERT}}", script);
+            }
+            ChromaSubsampling::Yuv420 => {
+                script = script.replace("{{#CHROMA_CONVERT}}", "");
+                script = script.replace("{{/CHROMA_CONVERT}}", "");
+                // Use YUV420P8 for 8-bit, YUV420P16 for higher bit depth
+                // We'll default to 8-bit since that's most common for deinterlaced content
+                script = script.replace("{{CHROMA_FORMAT}}", "vs.YUV420P8");
+            }
+            ChromaSubsampling::Yuv422 => {
+                script = script.replace("{{#CHROMA_CONVERT}}", "");
+                script = script.replace("{{/CHROMA_CONVERT}}", "");
+                script = script.replace("{{CHROMA_FORMAT}}", "vs.YUV422P8");
+            }
         }
 
         script

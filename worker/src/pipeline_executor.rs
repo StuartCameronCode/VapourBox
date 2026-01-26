@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 
 use crate::dependency_locator::DependencyLocator;
-use crate::models::{LogLevel, ProgressInfo, VideoJob};
+use crate::models::{AudioMode, LogLevel, ProgressInfo, VideoJob};
 use crate::progress_reporter::ProgressReporter;
 use crate::script_generator::{PreviewParams, ScriptGenerator};
 
@@ -230,9 +230,11 @@ impl PipelineExecutor {
         // Progress output to stderr
         args.extend(["-progress".to_string(), "pipe:2".to_string()]);
 
-        // Map streams: video from input 0 (processed), audio from input 1 (original)
+        // Map streams: video from input 0 (processed), audio from input 1 (original) if not disabled
         args.extend(["-map".to_string(), "0:v".to_string()]);  // Video from Y4M pipe
-        args.extend(["-map".to_string(), "1:a?".to_string()]); // Audio from original (? = optional, skip if no audio)
+        if settings.audio_mode != AudioMode::None {
+            args.extend(["-map".to_string(), "1:a?".to_string()]); // Audio from original (? = optional, skip if no audio)
+        }
 
         // Video codec
         args.extend(["-c:v".to_string(), settings.codec.ffmpeg_codec().to_string()]);
@@ -247,11 +249,20 @@ impl PipelineExecutor {
         }
 
         // Audio handling
-        if settings.audio_copy {
-            args.extend(["-c:a".to_string(), "copy".to_string()]);
-        } else {
-            args.extend(["-c:a".to_string(), settings.audio_codec.clone()]);
-            args.extend(["-b:a".to_string(), format!("{}k", settings.audio_bitrate)]);
+        match settings.audio_mode {
+            AudioMode::Passthrough => {
+                args.extend(["-c:a".to_string(), "copy".to_string()]);
+            }
+            AudioMode::Convert => {
+                args.extend(["-c:a".to_string(), settings.audio_codec.ffmpeg_name().to_string()]);
+                // Only add bitrate for lossy codecs
+                if !settings.audio_codec.is_lossless() {
+                    args.extend(["-b:a".to_string(), format!("{}k", settings.audio_quality.bitrate())]);
+                }
+            }
+            AudioMode::None => {
+                args.push("-an".to_string());
+            }
         }
 
         // Custom arguments
@@ -447,7 +458,7 @@ impl Drop for PipelineExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{EncodingSettings, QTGMCParameters, VideoCodec, ContainerFormat};
+    use crate::models::{AudioCodec, AudioQuality, EncodingSettings, QTGMCParameters, VideoCodec, ContainerFormat};
     use uuid::Uuid;
 
     /// Helper to build FFmpeg args without requiring a full PipelineExecutor.
@@ -466,9 +477,11 @@ mod tests {
         // Progress output to stderr
         args.extend(["-progress".to_string(), "pipe:2".to_string()]);
 
-        // Map streams: video from input 0 (processed), audio from input 1 (original)
+        // Map streams: video from input 0 (processed), audio from input 1 (original) if not disabled
         args.extend(["-map".to_string(), "0:v".to_string()]);
-        args.extend(["-map".to_string(), "1:a?".to_string()]);
+        if settings.audio_mode != AudioMode::None {
+            args.extend(["-map".to_string(), "1:a?".to_string()]);
+        }
 
         // Video codec
         args.extend(["-c:v".to_string(), settings.codec.ffmpeg_codec().to_string()]);
@@ -483,11 +496,20 @@ mod tests {
         }
 
         // Audio handling
-        if settings.audio_copy {
-            args.extend(["-c:a".to_string(), "copy".to_string()]);
-        } else {
-            args.extend(["-c:a".to_string(), settings.audio_codec.clone()]);
-            args.extend(["-b:a".to_string(), format!("{}k", settings.audio_bitrate)]);
+        match settings.audio_mode {
+            AudioMode::Passthrough => {
+                args.extend(["-c:a".to_string(), "copy".to_string()]);
+            }
+            AudioMode::Convert => {
+                args.extend(["-c:a".to_string(), settings.audio_codec.ffmpeg_name().to_string()]);
+                // Only add bitrate for lossy codecs
+                if !settings.audio_codec.is_lossless() {
+                    args.extend(["-b:a".to_string(), format!("{}k", settings.audio_quality.bitrate())]);
+                }
+            }
+            AudioMode::None => {
+                args.push("-an".to_string());
+            }
         }
 
         // Custom arguments
@@ -519,18 +541,19 @@ mod tests {
     }
 
     #[test]
-    fn test_default_encoding_settings_has_audio_copy_enabled() {
+    fn test_default_encoding_settings_has_audio_passthrough() {
         let settings = EncodingSettings::default();
-        assert!(
-            settings.audio_copy,
-            "Default encoding settings should have audio_copy=true to preserve original audio"
+        assert_eq!(
+            settings.audio_mode,
+            AudioMode::Passthrough,
+            "Default encoding settings should have audio_mode=Passthrough to preserve original audio"
         );
     }
 
     #[test]
-    fn test_ffmpeg_args_audio_copy_produces_stream_copy() {
+    fn test_ffmpeg_args_audio_passthrough_produces_stream_copy() {
         let mut job = create_test_job("output.mp4");
-        job.encoding_settings.audio_copy = true;
+        job.encoding_settings.audio_mode = AudioMode::Passthrough;
 
         let args = build_ffmpeg_args_for_test(&job);
 
@@ -541,23 +564,23 @@ mod tests {
         let codec_value = &args[audio_codec_idx.unwrap() + 1];
         assert_eq!(
             codec_value, "copy",
-            "When audio_copy=true, FFmpeg should use '-c:a copy' to passthrough audio unchanged"
+            "When audio_mode=Passthrough, FFmpeg should use '-c:a copy' to passthrough audio unchanged"
         );
 
         // Ensure no bitrate argument is present (copy doesn't need bitrate)
         let has_audio_bitrate = args.iter().any(|a| a == "-b:a");
         assert!(
             !has_audio_bitrate,
-            "When audio_copy=true, FFmpeg should not have -b:a (bitrate) argument"
+            "When audio_mode=Passthrough, FFmpeg should not have -b:a (bitrate) argument"
         );
     }
 
     #[test]
-    fn test_ffmpeg_args_audio_reencode_uses_codec_and_bitrate() {
+    fn test_ffmpeg_args_audio_convert_uses_codec_and_bitrate() {
         let mut job = create_test_job("output.mp4");
-        job.encoding_settings.audio_copy = false;
-        job.encoding_settings.audio_codec = "aac".to_string();
-        job.encoding_settings.audio_bitrate = 256;
+        job.encoding_settings.audio_mode = AudioMode::Convert;
+        job.encoding_settings.audio_codec = AudioCodec::Aac;
+        job.encoding_settings.audio_quality = AudioQuality::VeryHigh;
 
         let args = build_ffmpeg_args_for_test(&job);
 
@@ -568,20 +591,73 @@ mod tests {
         let codec_value = &args[audio_codec_idx.unwrap() + 1];
         assert_eq!(
             codec_value, "aac",
-            "When audio_copy=false, FFmpeg should use the specified audio codec"
+            "When audio_mode=Convert, FFmpeg should use the specified audio codec"
         );
 
         // Find the audio bitrate argument
         let audio_bitrate_idx = args.iter().position(|a| a == "-b:a");
         assert!(
             audio_bitrate_idx.is_some(),
-            "When audio_copy=false, FFmpeg should have -b:a (bitrate) argument"
+            "When audio_mode=Convert, FFmpeg should have -b:a (bitrate) argument"
         );
 
         let bitrate_value = &args[audio_bitrate_idx.unwrap() + 1];
         assert_eq!(
             bitrate_value, "256k",
             "Audio bitrate should be formatted as '256k'"
+        );
+    }
+
+    #[test]
+    fn test_ffmpeg_args_audio_convert_flac_no_bitrate() {
+        let mut job = create_test_job("output.mkv");
+        job.encoding_settings.audio_mode = AudioMode::Convert;
+        job.encoding_settings.audio_codec = AudioCodec::Flac;
+
+        let args = build_ffmpeg_args_for_test(&job);
+
+        // Find the audio codec argument
+        let audio_codec_idx = args.iter().position(|a| a == "-c:a");
+        assert!(audio_codec_idx.is_some(), "FFmpeg args should contain -c:a");
+
+        let codec_value = &args[audio_codec_idx.unwrap() + 1];
+        assert_eq!(
+            codec_value, "flac",
+            "When audio_codec=Flac, FFmpeg should use flac codec"
+        );
+
+        // Ensure no bitrate argument for lossless codec
+        let has_audio_bitrate = args.iter().any(|a| a == "-b:a");
+        assert!(
+            !has_audio_bitrate,
+            "Lossless codecs (FLAC) should not have -b:a (bitrate) argument"
+        );
+    }
+
+    #[test]
+    fn test_ffmpeg_args_audio_none_produces_no_audio() {
+        let mut job = create_test_job("output.mp4");
+        job.encoding_settings.audio_mode = AudioMode::None;
+
+        let args = build_ffmpeg_args_for_test(&job);
+
+        // Should have -an flag
+        assert!(
+            args.contains(&"-an".to_string()),
+            "When audio_mode=None, FFmpeg should have -an flag"
+        );
+
+        // Should not map audio stream
+        assert!(
+            !args.contains(&"1:a?".to_string()),
+            "When audio_mode=None, FFmpeg should not map audio stream"
+        );
+
+        // Should not have audio codec argument
+        let audio_codec_idx = args.iter().position(|a| a == "-c:a");
+        assert!(
+            audio_codec_idx.is_none(),
+            "When audio_mode=None, FFmpeg should not have -c:a argument"
         );
     }
 

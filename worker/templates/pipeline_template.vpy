@@ -660,6 +660,16 @@ clip = core.resize.Bilinear(clip, width=target_w, height=target_h)
 {{/RESIZE}}
 
 # ============================================================================
+# OUTPUT FORMAT CONVERSION
+# ============================================================================
+{{#CHROMA_CONVERT}}
+# Convert to target chroma subsampling
+target_format = {{CHROMA_FORMAT}}
+if clip.format.id != target_format:
+    clip = core.resize.Bicubic(clip, format=target_format)
+{{/CHROMA_CONVERT}}
+
+# ============================================================================
 # OUTPUT
 # ============================================================================
 clip.set_output()
