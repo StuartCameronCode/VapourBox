@@ -180,10 +180,35 @@ flutter build windows --release
 ```
 
 **macOS:**
+
+> **Important**: The macOS build requires special handling due to CocoaPods and Xcode's explicit module builds. The Podfile is configured for arm64 only, so builds must target arm64 exclusively.
+
 ```bash
 cd app
 flutter pub get
+
+# Standard flutter build may fail with "Unable to find module dependency" errors.
+# If it fails, use the manual xcodebuild process below.
 flutter build macos --release
+```
+
+**Manual xcodebuild (if flutter build fails):**
+```bash
+cd app/macos
+
+# Clean Pods and reinstall
+rm -rf Pods Podfile.lock
+pod install
+
+# Build Pods-Runner scheme first (this builds all CocoaPods dependencies)
+xcodebuild -workspace Runner.xcworkspace -scheme Pods-Runner -configuration Release build ONLY_ACTIVE_ARCH=NO
+
+# Then build Runner for arm64 only (MUST match Podfile ARCHS setting)
+xcodebuild -workspace Runner.xcworkspace -scheme Runner -configuration Release build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES
+
+# Copy to Flutter build location
+mkdir -p ../build/macos/Build/Products/Release
+cp -R ~/Library/Developer/Xcode/DerivedData/Runner-*/Build/Products/Release/vapourbox.app ../build/macos/Build/Products/Release/
 ```
 
 ### Generate Dart JSON Serialization
@@ -766,6 +791,11 @@ input.format.color_family != vs.YUV
 9. **Preset not loading**: Check JSON file in `~/.vapourbox/presets/`, verify structure matches `ProcessingPreset`
 10. **Timeline zoom issues**: Check `timelineZoom` and `timelineViewStart` bounds in `MainViewModel`
 11. **In/Out points not exporting**: Verify `startFrame`/`endFrame` in VideoJob JSON sent to worker
+12. **macOS build fails with "Unable to find module dependency"**: This occurs when Xcode's explicit module builds can't find CocoaPods Swift modules. Solution:
+    - First build the Pods-Runner scheme: `xcodebuild -workspace Runner.xcworkspace -scheme Pods-Runner -configuration Release build`
+    - Then build Runner for arm64 only: `xcodebuild -workspace Runner.xcworkspace -scheme Runner -configuration Release build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES`
+    - The Podfile is configured for arm64 only (`ENV['ARCHS'] = 'arm64'`), so multi-arch builds will fail
+13. **macOS CocoaPods warnings about base configuration**: These warnings can be ignored - the build will work despite them. The xcconfig includes are handled by Flutter.
 
 ## Windows-Specific Notes
 
