@@ -167,6 +167,15 @@ class EncodingSettings {
 
   /// Human-readable quality description.
   String get qualityDescription {
+    if (codec == VideoCodec.h264Videotoolbox || codec == VideoCodec.h265Videotoolbox) {
+      // VideoToolbox: CRF is remapped to q:v (inverted scale) in the worker.
+      // Show quality in user-friendly terms based on the CRF value.
+      if (quality <= 15) return 'Very High (Quality $quality)';
+      if (quality <= 20) return 'High (Quality $quality)';
+      if (quality <= 25) return 'Medium (Quality $quality)';
+      if (quality <= 30) return 'Low (Quality $quality)';
+      return 'Very Low (Quality $quality)';
+    }
     if (quality <= 15) return 'Very High (CRF $quality)';
     if (quality <= 20) return 'High (CRF $quality)';
     if (quality <= 25) return 'Medium (CRF $quality)';

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 
 use crate::dependency_locator::DependencyLocator;
-use crate::models::{AudioMode, LogLevel, ProgressInfo, VideoJob};
+use crate::models::{AudioMode, EncoderFamily, EncodingSettings, LogLevel, ProgressInfo, VideoJob};
 use crate::progress_reporter::ProgressReporter;
 use crate::script_generator::{PreviewParams, ScriptGenerator};
 
@@ -239,14 +239,8 @@ impl PipelineExecutor {
         // Video codec
         args.extend(["-c:v".to_string(), settings.codec.ffmpeg_codec().to_string()]);
 
-        // ProRes profile
-        if let Some(profile) = settings.codec.prores_profile() {
-            args.extend(["-profile:v".to_string(), profile.to_string()]);
-        } else {
-            // Quality (CRF for H.264/H.265)
-            args.extend(["-crf".to_string(), settings.quality.to_string()]);
-            args.extend(["-preset".to_string(), settings.encoder_preset.clone()]);
-        }
+        // Encoder-family-specific quality and preset args
+        Self::build_encoder_quality_args(&mut args, settings);
 
         // Audio handling
         match settings.audio_mode {
@@ -275,6 +269,44 @@ impl PipelineExecutor {
         args.push(job.output_path.clone());
 
         args
+    }
+
+    /// Build encoder-family-specific quality and preset arguments.
+    fn build_encoder_quality_args(args: &mut Vec<String>, settings: &EncodingSettings) {
+        if let Some(profile) = settings.codec.prores_profile() {
+            args.push("-profile:v".to_string());
+            args.push(profile.to_string());
+        } else {
+            match settings.codec.encoder_family() {
+                EncoderFamily::Software => {
+                    args.extend(["-crf".to_string(), settings.quality.to_string()]);
+                    args.extend(["-preset".to_string(), settings.encoder_preset.clone()]);
+                }
+                EncoderFamily::Nvenc => {
+                    args.extend(["-rc".to_string(), "constqp".to_string()]);
+                    args.extend(["-cq".to_string(), settings.quality.to_string()]);
+                    args.extend(["-preset".to_string(), settings.encoder_preset.clone()]);
+                }
+                EncoderFamily::Qsv => {
+                    args.extend(["-global_quality".to_string(), settings.quality.to_string()]);
+                    args.extend(["-preset".to_string(), settings.encoder_preset.clone()]);
+                }
+                EncoderFamily::Videotoolbox => {
+                    // VideoToolbox uses q:v with inverted scale (CRF 0-51 -> q:v 100-1)
+                    let vt_quality = ((51 - settings.quality) as f64 * 100.0 / 51.0).round().max(1.0) as i32;
+                    args.extend(["-q:v".to_string(), vt_quality.to_string()]);
+                }
+                EncoderFamily::Amf => {
+                    args.extend(["-rc".to_string(), "cqp".to_string()]);
+                    args.extend(["-qp_i".to_string(), settings.quality.to_string()]);
+                    args.extend(["-qp_p".to_string(), settings.quality.to_string()]);
+                    args.extend(["-quality".to_string(), settings.encoder_preset.clone()]);
+                }
+                EncoderFamily::Lossless | EncoderFamily::ProRes => {
+                    // No quality/preset args needed
+                }
+            }
+        }
     }
 
     /// Generate a preview frame as PNG to stdout.
@@ -458,7 +490,7 @@ impl Drop for PipelineExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{AudioCodec, AudioQuality, EncodingSettings, QTGMCParameters, VideoCodec, ContainerFormat};
+    use crate::models::{AudioCodec, AudioQuality, EncodingSettings, QTGMCParameters, VideoCodec};
     use uuid::Uuid;
 
     /// Helper to build FFmpeg args without requiring a full PipelineExecutor.
@@ -486,14 +518,8 @@ mod tests {
         // Video codec
         args.extend(["-c:v".to_string(), settings.codec.ffmpeg_codec().to_string()]);
 
-        // ProRes profile
-        if let Some(profile) = settings.codec.prores_profile() {
-            args.extend(["-profile:v".to_string(), profile.to_string()]);
-        } else {
-            // Quality (CRF for H.264/H.265)
-            args.extend(["-crf".to_string(), settings.quality.to_string()]);
-            args.extend(["-preset".to_string(), settings.encoder_preset.clone()]);
-        }
+        // Encoder-family-specific quality and preset args
+        PipelineExecutor::build_encoder_quality_args(&mut args, settings);
 
         // Audio handling
         match settings.audio_mode {
@@ -732,5 +758,109 @@ mod tests {
             args[video_codec_idx.unwrap() + 1], "ffv1",
             "FFV1 codec should be used for lossless encoding"
         );
+
+        // FFV1 should not have CRF or preset
+        assert!(!args.contains(&"-crf".to_string()), "FFV1 should not have -crf");
+        assert!(!args.contains(&"-preset".to_string()), "FFV1 should not have -preset");
+    }
+
+    #[test]
+    fn test_ffmpeg_args_nvenc_quality() {
+        let mut job = create_test_job("output.mp4");
+        job.encoding_settings.codec = VideoCodec::H264Nvenc;
+        job.encoding_settings.quality = 20;
+        job.encoding_settings.encoder_preset = "p4".to_string();
+
+        let args = build_ffmpeg_args_for_test(&job);
+
+        let video_codec_idx = args.iter().position(|a| a == "-c:v");
+        assert_eq!(args[video_codec_idx.unwrap() + 1], "h264_nvenc");
+
+        let rc_idx = args.iter().position(|a| a == "-rc");
+        assert!(rc_idx.is_some(), "NVENC should use -rc");
+        assert_eq!(args[rc_idx.unwrap() + 1], "constqp");
+
+        let cq_idx = args.iter().position(|a| a == "-cq");
+        assert!(cq_idx.is_some(), "NVENC should use -cq");
+        assert_eq!(args[cq_idx.unwrap() + 1], "20");
+
+        let preset_idx = args.iter().position(|a| a == "-preset");
+        assert!(preset_idx.is_some(), "NVENC should have -preset");
+        assert_eq!(args[preset_idx.unwrap() + 1], "p4");
+
+        // Should NOT have -crf
+        assert!(!args.contains(&"-crf".to_string()), "NVENC should not use -crf");
+    }
+
+    #[test]
+    fn test_ffmpeg_args_qsv_quality() {
+        let mut job = create_test_job("output.mp4");
+        job.encoding_settings.codec = VideoCodec::H264Qsv;
+        job.encoding_settings.quality = 22;
+        job.encoding_settings.encoder_preset = "medium".to_string();
+
+        let args = build_ffmpeg_args_for_test(&job);
+
+        let video_codec_idx = args.iter().position(|a| a == "-c:v");
+        assert_eq!(args[video_codec_idx.unwrap() + 1], "h264_qsv");
+
+        let gq_idx = args.iter().position(|a| a == "-global_quality");
+        assert!(gq_idx.is_some(), "QSV should use -global_quality");
+        assert_eq!(args[gq_idx.unwrap() + 1], "22");
+
+        assert!(!args.contains(&"-crf".to_string()), "QSV should not use -crf");
+    }
+
+    #[test]
+    fn test_ffmpeg_args_videotoolbox_quality() {
+        let mut job = create_test_job("output.mp4");
+        job.encoding_settings.codec = VideoCodec::H264Videotoolbox;
+        job.encoding_settings.quality = 18;
+
+        let args = build_ffmpeg_args_for_test(&job);
+
+        let video_codec_idx = args.iter().position(|a| a == "-c:v");
+        assert_eq!(args[video_codec_idx.unwrap() + 1], "h264_videotoolbox");
+
+        let qv_idx = args.iter().position(|a| a == "-q:v");
+        assert!(qv_idx.is_some(), "VideoToolbox should use -q:v");
+
+        // CRF 18 -> (51-18)*100/51 = 64.7 -> 65
+        let qv_value: i32 = args[qv_idx.unwrap() + 1].parse().unwrap();
+        assert!(qv_value > 0 && qv_value <= 100, "VideoToolbox q:v should be 1-100, got {}", qv_value);
+
+        assert!(!args.contains(&"-crf".to_string()), "VideoToolbox should not use -crf");
+        assert!(!args.contains(&"-preset".to_string()), "VideoToolbox should not use -preset");
+    }
+
+    #[test]
+    fn test_ffmpeg_args_amf_quality() {
+        let mut job = create_test_job("output.mp4");
+        job.encoding_settings.codec = VideoCodec::H264Amf;
+        job.encoding_settings.quality = 20;
+        job.encoding_settings.encoder_preset = "balanced".to_string();
+
+        let args = build_ffmpeg_args_for_test(&job);
+
+        let video_codec_idx = args.iter().position(|a| a == "-c:v");
+        assert_eq!(args[video_codec_idx.unwrap() + 1], "h264_amf");
+
+        let rc_idx = args.iter().position(|a| a == "-rc");
+        assert!(rc_idx.is_some(), "AMF should use -rc");
+        assert_eq!(args[rc_idx.unwrap() + 1], "cqp");
+
+        let qp_i_idx = args.iter().position(|a| a == "-qp_i");
+        assert!(qp_i_idx.is_some(), "AMF should use -qp_i");
+        assert_eq!(args[qp_i_idx.unwrap() + 1], "20");
+
+        let qp_p_idx = args.iter().position(|a| a == "-qp_p");
+        assert!(qp_p_idx.is_some(), "AMF should use -qp_p");
+        assert_eq!(args[qp_p_idx.unwrap() + 1], "20");
+
+        let quality_idx = args.iter().position(|a| a == "-quality");
+        assert!(quality_idx.is_some(), "AMF should use -quality");
+        assert_eq!(args[quality_idx.unwrap() + 1], "balanced");
+
+        assert!(!args.contains(&"-crf".to_string()), "AMF should not use -crf");
     }
 }

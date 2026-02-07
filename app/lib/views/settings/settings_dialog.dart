@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/encoding_settings.dart';
 import '../../models/video_job.dart';
+import '../../services/hardware_encoder_detector.dart';
 import '../../services/update_checker.dart';
 import '../../viewmodels/main_viewmodel.dart';
 
@@ -442,40 +443,46 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
 
             const SizedBox(height: 24),
 
-            // Video Codec (filtered by container)
+            // Video Codec (grouped by family, filtered by container and availability)
             _buildSection(
               context,
               title: 'Video Codec',
-              child: Column(
-                children: VideoCodec.values.map((codec) {
-                  final isSupported = codec.supportsContainer(settings.container);
-                  return RadioListTile<VideoCodec>(
-                    title: Text(
-                      codec.displayName,
-                      style: isSupported ? null : TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38),
-                      ),
-                    ),
-                    subtitle: Text(
-                      isSupported ? codec.description : 'Not supported in ${settings.container.name.toUpperCase()}',
-                      style: isSupported ? null : TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38),
-                      ),
-                    ),
-                    value: codec,
-                    groupValue: settings.codec,
-                    onChanged: isSupported ? (value) {
-                      if (value != null) {
-                        viewModel.updateEncodingSettings(
-                            settings.copyWith(codec: value));
-                      }
-                    } : null,
-                  );
-                }).toList(),
-              ),
+              child: _buildCodecList(context, viewModel, settings),
             ),
 
             const SizedBox(height: 24),
+
+            // Encoder Speed (for codecs that support presets)
+            if (settings.codec.availablePresets != null)
+              _buildSection(
+                context,
+                title: 'Encoder Speed',
+                child: DropdownButtonFormField<String>(
+                  value: settings.codec.availablePresets!.contains(settings.encoderPreset)
+                      ? settings.encoderPreset
+                      : settings.codec.defaultPreset,
+                  decoration: const InputDecoration(
+                    labelText: 'Preset',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: settings.codec.availablePresets!.map((preset) {
+                    return DropdownMenuItem(
+                      value: preset,
+                      child: Text(preset),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      viewModel.updateEncodingSettings(
+                        settings.copyWith(encoderPreset: value),
+                      );
+                    }
+                  },
+                ),
+              ),
+
+            if (settings.codec.availablePresets != null)
+              const SizedBox(height: 24),
 
             // Quality (not applicable for lossless codecs)
             if (!settings.codec.isFFV1)
@@ -694,6 +701,137 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildCodecList(BuildContext context, MainViewModel viewModel, EncodingSettings settings) {
+    final detector = HardwareEncoderDetector.instance;
+
+    // Group codecs by family
+    final softwareCodecs = <VideoCodec>[VideoCodec.h264, VideoCodec.h265];
+    final hardwareCodecs = <VideoCodec>[
+      VideoCodec.h264Nvenc, VideoCodec.h265Nvenc,
+      VideoCodec.h264Qsv, VideoCodec.h265Qsv,
+      VideoCodec.h264Videotoolbox, VideoCodec.h265Videotoolbox,
+      VideoCodec.h264Amf, VideoCodec.h265Amf,
+    ];
+    final proresCodecs = <VideoCodec>[
+      VideoCodec.proresProxy, VideoCodec.proresLT,
+      VideoCodec.prores422, VideoCodec.proresHQ,
+    ];
+    final losslessCodecs = <VideoCodec>[VideoCodec.ffv1];
+
+    // Filter hardware codecs: must be available AND supported by container
+    final availableHardware = hardwareCodecs
+        .where((c) => detector.isAvailable(c) && c.supportsContainer(settings.container))
+        .toList();
+
+    final children = <Widget>[];
+
+    // Software section
+    children.add(_buildCodecGroupLabel(context, 'Software'));
+    for (final codec in softwareCodecs) {
+      children.add(_buildCodecRadio(context, viewModel, settings, codec));
+    }
+
+    // Hardware section (only if any are available)
+    if (availableHardware.isNotEmpty) {
+      children.add(const SizedBox(height: 8));
+      children.add(_buildCodecGroupLabel(context, 'Hardware Accelerated'));
+      for (final codec in availableHardware) {
+        children.add(_buildCodecRadio(context, viewModel, settings, codec));
+      }
+    }
+
+    // ProRes section
+    final supportedProres = proresCodecs
+        .where((c) => c.supportsContainer(settings.container))
+        .toList();
+    if (supportedProres.isNotEmpty) {
+      children.add(const SizedBox(height: 8));
+      children.add(_buildCodecGroupLabel(context, 'ProRes'));
+      for (final codec in supportedProres) {
+        children.add(_buildCodecRadio(context, viewModel, settings, codec));
+      }
+    }
+
+    // Lossless section
+    final supportedLossless = losslessCodecs
+        .where((c) => c.supportsContainer(settings.container))
+        .toList();
+    if (supportedLossless.isNotEmpty) {
+      children.add(const SizedBox(height: 8));
+      children.add(_buildCodecGroupLabel(context, 'Lossless'));
+      for (final codec in supportedLossless) {
+        children.add(_buildCodecRadio(context, viewModel, settings, codec));
+      }
+    }
+
+    return Column(children: children);
+  }
+
+  Widget _buildCodecGroupLabel(BuildContext context, String label) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 16, top: 4, bottom: 4),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+            ),
+      ),
+    );
+  }
+
+  Widget _buildCodecRadio(BuildContext context, MainViewModel viewModel,
+      EncodingSettings settings, VideoCodec codec) {
+    final isSupported = codec.supportsContainer(settings.container);
+    return RadioListTile<VideoCodec>(
+      title: Text(
+        codec.displayName,
+        style: isSupported
+            ? null
+            : TextStyle(
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.38),
+              ),
+      ),
+      subtitle: Text(
+        isSupported
+            ? codec.description
+            : 'Not supported in ${settings.container.name.toUpperCase()}',
+        style: isSupported
+            ? null
+            : TextStyle(
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.38),
+              ),
+      ),
+      value: codec,
+      groupValue: settings.codec,
+      onChanged: isSupported
+          ? (value) {
+              if (value != null) {
+                // When switching encoder families, reset the preset to the new family's default
+                final oldFamily = settings.codec.encoderFamily;
+                final newFamily = value.encoderFamily;
+                if (oldFamily != newFamily) {
+                  viewModel.updateEncodingSettings(
+                    settings.copyWith(codec: value, encoderPreset: value.defaultPreset),
+                  );
+                } else {
+                  viewModel.updateEncodingSettings(
+                    settings.copyWith(codec: value),
+                  );
+                }
+              }
+            }
+          : null,
     );
   }
 

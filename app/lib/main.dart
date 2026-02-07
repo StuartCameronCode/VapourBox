@@ -5,6 +5,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'models/filter_registry.dart';
 import 'services/dependency_manager.dart';
+import 'services/hardware_encoder_detector.dart';
 import 'services/preset_service.dart';
 import 'services/update_checker.dart';
 import 'viewmodels/main_viewmodel.dart';
@@ -106,6 +107,7 @@ class _AppStartupWrapperState extends State<AppStartupWrapper> {
       }
 
       // Initialize other services
+      await HardwareEncoderDetector.instance.initialize();
       await FilterRegistry.instance.initialize();
       await PresetService.instance.initialize();
 

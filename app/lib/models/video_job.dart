@@ -88,8 +88,27 @@ class VideoJob {
 /// Supported video codecs.
 @JsonEnum(valueField: 'value')
 enum VideoCodec {
+  // Software encoders
   h264('libx264', 'H.264'),
   h265('libx265', 'H.265 (HEVC)'),
+
+  // NVIDIA NVENC
+  h264Nvenc('h264_nvenc', 'H.264 (NVENC)'),
+  h265Nvenc('hevc_nvenc', 'H.265 (NVENC)'),
+
+  // Intel QSV
+  h264Qsv('h264_qsv', 'H.264 (Intel QSV)'),
+  h265Qsv('hevc_qsv', 'H.265 (Intel QSV)'),
+
+  // Apple VideoToolbox
+  h264Videotoolbox('h264_videotoolbox', 'H.264 (VideoToolbox)'),
+  h265Videotoolbox('hevc_videotoolbox', 'H.265 (VideoToolbox)'),
+
+  // AMD AMF
+  h264Amf('h264_amf', 'H.264 (AMD AMF)'),
+  h265Amf('hevc_amf', 'H.265 (AMD AMF)'),
+
+  // Lossless / ProRes
   ffv1('ffv1', 'FFV1 (Lossless)'),
   proresProxy('prores_ks -profile:v 0', 'ProRes Proxy'),
   proresLT('prores_ks -profile:v 1', 'ProRes LT'),
@@ -107,6 +126,22 @@ enum VideoCodec {
         return 'Widely compatible, good compression';
       case VideoCodec.h265:
         return 'Better compression, less compatible';
+      case VideoCodec.h264Nvenc:
+        return 'NVIDIA GPU accelerated H.264';
+      case VideoCodec.h265Nvenc:
+        return 'NVIDIA GPU accelerated H.265';
+      case VideoCodec.h264Qsv:
+        return 'Intel GPU accelerated H.264';
+      case VideoCodec.h265Qsv:
+        return 'Intel GPU accelerated H.265';
+      case VideoCodec.h264Videotoolbox:
+        return 'Apple hardware accelerated H.264';
+      case VideoCodec.h265Videotoolbox:
+        return 'Apple hardware accelerated H.265';
+      case VideoCodec.h264Amf:
+        return 'AMD GPU accelerated H.264';
+      case VideoCodec.h265Amf:
+        return 'AMD GPU accelerated H.265';
       case VideoCodec.ffv1:
         return 'Lossless archival codec';
       case VideoCodec.proresProxy:
@@ -123,6 +158,31 @@ enum VideoCodec {
   bool get isProRes => value.startsWith('prores_ks');
   bool get isFFV1 => this == VideoCodec.ffv1;
 
+  /// Whether this codec produces H.264 output (software or hardware).
+  bool get isH264 => this == h264 || this == h264Nvenc || this == h264Qsv ||
+      this == h264Videotoolbox || this == h264Amf;
+
+  /// Whether this codec produces H.265 output (software or hardware).
+  bool get isH265 => this == h265 || this == h265Nvenc || this == h265Qsv ||
+      this == h265Videotoolbox || this == h265Amf;
+
+  /// Whether this is a hardware-accelerated encoder.
+  bool get isHardwareEncoder => this == h264Nvenc || this == h265Nvenc ||
+      this == h264Qsv || this == h265Qsv ||
+      this == h264Videotoolbox || this == h265Videotoolbox ||
+      this == h264Amf || this == h265Amf;
+
+  /// The encoder family name for display purposes.
+  String get encoderFamily {
+    if (this == h264Nvenc || this == h265Nvenc) return 'NVIDIA NVENC';
+    if (this == h264Qsv || this == h265Qsv) return 'Intel QSV';
+    if (this == h264Videotoolbox || this == h265Videotoolbox) return 'Apple VideoToolbox';
+    if (this == h264Amf || this == h265Amf) return 'AMD AMF';
+    if (isProRes) return 'ProRes';
+    if (isFFV1) return 'Lossless';
+    return 'Software';
+  }
+
   ContainerFormat get preferredContainer {
     if (isProRes) return ContainerFormat.mov;
     if (isFFV1) return ContainerFormat.avi;
@@ -133,22 +193,45 @@ enum VideoCodec {
   bool supportsContainer(ContainerFormat container) {
     switch (container) {
       case ContainerFormat.mp4:
-        // MP4 supports H.264, H.265 only
-        return this == VideoCodec.h264 || this == VideoCodec.h265;
+        // MP4 supports H.264, H.265 (software and hardware)
+        return isH264 || isH265;
       case ContainerFormat.mov:
         // MOV supports H.264, H.265, ProRes
-        return this == VideoCodec.h264 ||
-               this == VideoCodec.h265 ||
-               isProRes;
+        return isH264 || isH265 || isProRes;
       case ContainerFormat.mkv:
         // MKV supports H.264, H.265, FFV1
-        return this == VideoCodec.h264 ||
-               this == VideoCodec.h265 ||
-               this == VideoCodec.ffv1;
+        return isH264 || isH265 || isFFV1;
       case ContainerFormat.avi:
         // AVI supports FFV1, H.264 (uncommon)
-        return this == VideoCodec.ffv1 || this == VideoCodec.h264;
+        return isFFV1 || isH264;
     }
+  }
+
+  /// Available encoder presets for this codec family.
+  List<String>? get availablePresets {
+    if (this == h264 || this == h265) {
+      return ['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow', 'placebo'];
+    }
+    if (this == h264Nvenc || this == h265Nvenc) {
+      return ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
+    }
+    if (this == h264Qsv || this == h265Qsv) {
+      return ['veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow'];
+    }
+    if (this == h264Amf || this == h265Amf) {
+      return ['speed', 'balanced', 'quality'];
+    }
+    // VideoToolbox, ProRes, FFV1 don't have presets
+    return null;
+  }
+
+  /// Default encoder preset for this codec family.
+  String get defaultPreset {
+    if (this == h264 || this == h265) return 'medium';
+    if (this == h264Nvenc || this == h265Nvenc) return 'p4';
+    if (this == h264Qsv || this == h265Qsv) return 'medium';
+    if (this == h264Amf || this == h265Amf) return 'balanced';
+    return 'medium';
   }
 }
 

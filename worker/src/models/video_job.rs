@@ -266,6 +266,7 @@ impl Default for EncodingSettings {
 /// Supported video codecs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum VideoCodec {
+    // Software encoders
     #[default]
     #[serde(rename = "libx264")]
     H264,
@@ -273,6 +274,35 @@ pub enum VideoCodec {
     #[serde(rename = "libx265")]
     H265,
 
+    // NVIDIA NVENC
+    #[serde(rename = "h264_nvenc")]
+    H264Nvenc,
+
+    #[serde(rename = "hevc_nvenc")]
+    H265Nvenc,
+
+    // Intel QSV
+    #[serde(rename = "h264_qsv")]
+    H264Qsv,
+
+    #[serde(rename = "hevc_qsv")]
+    H265Qsv,
+
+    // Apple VideoToolbox
+    #[serde(rename = "h264_videotoolbox")]
+    H264Videotoolbox,
+
+    #[serde(rename = "hevc_videotoolbox")]
+    H265Videotoolbox,
+
+    // AMD AMF
+    #[serde(rename = "h264_amf")]
+    H264Amf,
+
+    #[serde(rename = "hevc_amf")]
+    H265Amf,
+
+    // Lossless / ProRes
     #[serde(rename = "ffv1")]
     FFV1,
 
@@ -289,12 +319,32 @@ pub enum VideoCodec {
     ProResHQ,
 }
 
+/// Encoder family for grouping quality/preset logic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncoderFamily {
+    Software,
+    Nvenc,
+    Qsv,
+    Videotoolbox,
+    Amf,
+    ProRes,
+    Lossless,
+}
+
 impl VideoCodec {
     /// Get the FFmpeg codec string.
     pub fn ffmpeg_codec(&self) -> &'static str {
         match self {
             VideoCodec::H264 => "libx264",
             VideoCodec::H265 => "libx265",
+            VideoCodec::H264Nvenc => "h264_nvenc",
+            VideoCodec::H265Nvenc => "hevc_nvenc",
+            VideoCodec::H264Qsv => "h264_qsv",
+            VideoCodec::H265Qsv => "hevc_qsv",
+            VideoCodec::H264Videotoolbox => "h264_videotoolbox",
+            VideoCodec::H265Videotoolbox => "hevc_videotoolbox",
+            VideoCodec::H264Amf => "h264_amf",
+            VideoCodec::H265Amf => "hevc_amf",
             VideoCodec::FFV1 => "ffv1",
             VideoCodec::ProResProxy => "prores_ks",
             VideoCodec::ProResLT => "prores_ks",
@@ -324,6 +374,36 @@ impl VideoCodec {
         matches!(self, VideoCodec::FFV1)
     }
 
+    /// Whether this codec produces H.264 output.
+    pub fn is_h264(&self) -> bool {
+        matches!(self, VideoCodec::H264 | VideoCodec::H264Nvenc | VideoCodec::H264Qsv |
+                       VideoCodec::H264Videotoolbox | VideoCodec::H264Amf)
+    }
+
+    /// Whether this codec produces H.265 output.
+    pub fn is_h265(&self) -> bool {
+        matches!(self, VideoCodec::H265 | VideoCodec::H265Nvenc | VideoCodec::H265Qsv |
+                       VideoCodec::H265Videotoolbox | VideoCodec::H265Amf)
+    }
+
+    /// Whether this is a hardware-accelerated encoder.
+    pub fn is_hardware(&self) -> bool {
+        !matches!(self.encoder_family(), EncoderFamily::Software | EncoderFamily::ProRes | EncoderFamily::Lossless)
+    }
+
+    /// Get the encoder family for this codec.
+    pub fn encoder_family(&self) -> EncoderFamily {
+        match self {
+            VideoCodec::H264 | VideoCodec::H265 => EncoderFamily::Software,
+            VideoCodec::H264Nvenc | VideoCodec::H265Nvenc => EncoderFamily::Nvenc,
+            VideoCodec::H264Qsv | VideoCodec::H265Qsv => EncoderFamily::Qsv,
+            VideoCodec::H264Videotoolbox | VideoCodec::H265Videotoolbox => EncoderFamily::Videotoolbox,
+            VideoCodec::H264Amf | VideoCodec::H265Amf => EncoderFamily::Amf,
+            VideoCodec::FFV1 => EncoderFamily::Lossless,
+            _ => EncoderFamily::ProRes,
+        }
+    }
+
     /// Get the preferred container format for this codec.
     pub fn preferred_container(&self) -> ContainerFormat {
         if self.is_prores() {
@@ -340,6 +420,14 @@ impl VideoCodec {
         match self {
             VideoCodec::H264 => "H.264",
             VideoCodec::H265 => "H.265 (HEVC)",
+            VideoCodec::H264Nvenc => "H.264 (NVENC)",
+            VideoCodec::H265Nvenc => "H.265 (NVENC)",
+            VideoCodec::H264Qsv => "H.264 (Intel QSV)",
+            VideoCodec::H265Qsv => "H.265 (Intel QSV)",
+            VideoCodec::H264Videotoolbox => "H.264 (VideoToolbox)",
+            VideoCodec::H265Videotoolbox => "H.265 (VideoToolbox)",
+            VideoCodec::H264Amf => "H.264 (AMD AMF)",
+            VideoCodec::H265Amf => "H.265 (AMD AMF)",
             VideoCodec::FFV1 => "FFV1 (Lossless)",
             VideoCodec::ProResProxy => "ProRes Proxy",
             VideoCodec::ProResLT => "ProRes LT",
@@ -431,6 +519,52 @@ mod tests {
             serde_json::to_string(&VideoCodec::ProResHQ).unwrap(),
             "\"prores_ks -profile:v 3\""
         );
+        assert_eq!(
+            serde_json::to_string(&VideoCodec::H264Nvenc).unwrap(),
+            "\"h264_nvenc\""
+        );
+        assert_eq!(
+            serde_json::to_string(&VideoCodec::H265Nvenc).unwrap(),
+            "\"hevc_nvenc\""
+        );
+        assert_eq!(
+            serde_json::to_string(&VideoCodec::H264Qsv).unwrap(),
+            "\"h264_qsv\""
+        );
+        assert_eq!(
+            serde_json::to_string(&VideoCodec::H264Videotoolbox).unwrap(),
+            "\"h264_videotoolbox\""
+        );
+        assert_eq!(
+            serde_json::to_string(&VideoCodec::H264Amf).unwrap(),
+            "\"h264_amf\""
+        );
+    }
+
+    #[test]
+    fn test_video_codec_encoder_family() {
+        assert_eq!(VideoCodec::H264.encoder_family(), EncoderFamily::Software);
+        assert_eq!(VideoCodec::H265.encoder_family(), EncoderFamily::Software);
+        assert_eq!(VideoCodec::H264Nvenc.encoder_family(), EncoderFamily::Nvenc);
+        assert_eq!(VideoCodec::H265Nvenc.encoder_family(), EncoderFamily::Nvenc);
+        assert_eq!(VideoCodec::H264Qsv.encoder_family(), EncoderFamily::Qsv);
+        assert_eq!(VideoCodec::H264Videotoolbox.encoder_family(), EncoderFamily::Videotoolbox);
+        assert_eq!(VideoCodec::H264Amf.encoder_family(), EncoderFamily::Amf);
+        assert_eq!(VideoCodec::FFV1.encoder_family(), EncoderFamily::Lossless);
+        assert_eq!(VideoCodec::ProResHQ.encoder_family(), EncoderFamily::ProRes);
+    }
+
+    #[test]
+    fn test_video_codec_is_hardware() {
+        assert!(!VideoCodec::H264.is_hardware());
+        assert!(!VideoCodec::H265.is_hardware());
+        assert!(VideoCodec::H264Nvenc.is_hardware());
+        assert!(VideoCodec::H265Nvenc.is_hardware());
+        assert!(VideoCodec::H264Qsv.is_hardware());
+        assert!(VideoCodec::H264Videotoolbox.is_hardware());
+        assert!(VideoCodec::H264Amf.is_hardware());
+        assert!(!VideoCodec::FFV1.is_hardware());
+        assert!(!VideoCodec::ProResHQ.is_hardware());
     }
 
     #[test]
