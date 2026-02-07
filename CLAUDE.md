@@ -273,7 +273,9 @@ The Flutter app searches for the worker in these locations:
 - `worker/target/release/` (release build)
 - `worker/target/debug/` (debug build)
 
-### Production Packaging
+### Production Packaging / Testing a Release Build
+
+**IMPORTANT**: Never manually assemble a release build by copying the worker binary into the .app bundle. The app bundle requires a specific structure with templates, licenses, and correct binary placement. Always use the packaging scripts — the app will silently crash on video drop if the bundle is incomplete.
 
 For release builds:
 
@@ -283,9 +285,27 @@ For release builds:
    cargo build --release
    ```
 
-2. **Package with deps bundled** (Windows) or deps downloaded to Application Support (macOS)
+2. **Build Flutter app** (may require manual xcodebuild on macOS — see Build Commands above)
 
-See the packaging scripts in `Scripts/` for details.
+3. **Package using the script** (this copies worker, templates, licenses, and signs the bundle):
+   ```bash
+   # macOS
+   ./Scripts/package-macos.sh --version X.Y.Z --skip-build   # if already built
+   ./Scripts/package-macos.sh --version X.Y.Z                 # full build + package
+
+   # Windows
+   .\Scripts\package-windows.ps1 -Version "X.Y.Z" [-SkipBuild]
+   ```
+
+4. **Run the packaged app** (not the raw xcodebuild output):
+   ```bash
+   # macOS
+   open dist/VapourBox.app
+   # or from terminal to see errors:
+   dist/VapourBox.app/Contents/MacOS/vapourbox
+   ```
+
+Do NOT run `app/build/macos/Build/Products/Release/vapourbox.app` directly for testing — it lacks templates and proper bundle structure.
 
 ### Why Debug for Development?
 
@@ -796,6 +816,7 @@ input.format.color_family != vs.YUV
     - Then build Runner for arm64 only: `xcodebuild -workspace Runner.xcworkspace -scheme Runner -configuration Release build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES`
     - The Podfile is configured for arm64 only (`ENV['ARCHS'] = 'arm64'`), so multi-arch builds will fail
 13. **macOS CocoaPods warnings about base configuration**: These warnings can be ignored - the build will work despite them. The xcconfig includes are handled by Flutter.
+14. **App crashes silently on video drop (release build)**: The app bundle is likely incomplete. Never manually copy just the worker binary — always use `Scripts/package-macos.sh` or `Scripts/package-windows.ps1` to create a proper bundle with templates, licenses, and correct structure. Release mode swallows exceptions silently, so run from the terminal (`dist/VapourBox.app/Contents/MacOS/vapourbox`) to see any output.
 
 ## Windows-Specific Notes
 
