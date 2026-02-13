@@ -145,7 +145,7 @@ class FilterRegistry {
 
       // Check VS plugins
       if (deps.vsPlugins != null) {
-        for (final plugin in deps.vsPlugins!) {
+        for (final _ in deps.vsPlugins!) {
           // This would need to be implemented based on platform
           // For now, we'll assume they're available
         }

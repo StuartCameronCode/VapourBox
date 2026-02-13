@@ -4,6 +4,7 @@ import 'dart:io';
 
 import '../models/progress_info.dart';
 import '../models/video_job.dart';
+import 'tool_locator.dart';
 
 /// Manages the worker process lifecycle and IPC.
 class WorkerManager {
@@ -37,7 +38,8 @@ class WorkerManager {
       throw StateError('Worker is already running');
     }
 
-    final workerPath = await _findWorker();
+    final toolLocator = ToolLocator.instance;
+    final workerPath = toolLocator.workerPath;
     if (workerPath == null) {
       throw Exception('Worker executable not found');
     }
@@ -52,7 +54,7 @@ class WorkerManager {
       _process = await Process.start(
         workerPath,
         ['--config', configFile.path],
-        environment: await _getEnvironment(),
+        environment: toolLocator.workerEnvironment,
         workingDirectory: File(workerPath).parent.path,
       );
 
@@ -179,153 +181,6 @@ class WorkerManager {
     _stderrSubscription = null;
     _process = null;
     _pendingCompletion = null;
-  }
-
-  Future<String?> _findWorker() async {
-    // Check bundled location first
-    final bundledPath = await _getBundledWorkerPath();
-    if (bundledPath != null && await File(bundledPath).exists()) {
-      return bundledPath;
-    }
-
-    // Development: check relative to executable
-    final exeDir = File(Platform.resolvedExecutable).parent.path;
-    final workerExe = 'vapourbox-worker${Platform.isWindows ? '.exe' : ''}';
-
-    List<String> devPaths;
-    if (Platform.isWindows) {
-      // Windows: app/build/windows/x64/runner/Debug/ - 6 levels to project root
-      devPaths = [
-        '$exeDir/$workerExe',
-        '$exeDir/../../../../../../worker/target/release/$workerExe',
-        '$exeDir/../../../../../../worker/target/debug/$workerExe',
-      ];
-    } else if (Platform.isMacOS) {
-      // macOS: app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS - 9 levels to project root
-      devPaths = [
-        '$exeDir/$workerExe',
-        '$exeDir/../../../../../../../../../worker/target/release/$workerExe',
-        '$exeDir/../../../../../../../../../worker/target/debug/$workerExe',
-      ];
-    } else {
-      devPaths = ['$exeDir/$workerExe'];
-    }
-
-    for (final path in devPaths) {
-      final file = File(path);
-      if (await file.exists()) {
-        return file.absolute.path;
-      }
-    }
-
-    return null;
-  }
-
-  Future<String?> _getBundledWorkerPath() async {
-    final exeDir = File(Platform.resolvedExecutable).parent.path;
-
-    if (Platform.isWindows) {
-      return '$exeDir\\vapourbox-worker.exe';
-    } else if (Platform.isMacOS) {
-      // In .app bundle: Contents/MacOS/vapourbox-worker
-      return '$exeDir/vapourbox-worker';
-    }
-
-    return null;
-  }
-
-  Future<Map<String, String>> _getEnvironment() async {
-    final env = Map<String, String>.from(Platform.environment);
-    final depsDir = await _findDepsDir();
-
-    if (depsDir == null) {
-      // No deps found, return unchanged environment
-      return env;
-    }
-
-    if (Platform.isWindows) {
-      // VapourSynth portable bundles Python 3.8
-      env['PYTHONHOME'] = '$depsDir\\vapoursynth';
-      env['PYTHONPATH'] = '$depsDir\\vapoursynth\\Lib\\site-packages';
-
-      // Add to PATH
-      final paths = [
-        '$depsDir\\vapoursynth',
-        '$depsDir\\ffmpeg',
-      ];
-      env['PATH'] = '${paths.join(';')};${env['PATH'] ?? ''}';
-
-      // VapourSynth plugin path
-      env['VAPOURSYNTH_PLUGIN_PATH'] = '$depsDir\\vapoursynth\\vs-plugins';
-    } else if (Platform.isMacOS) {
-      // Check if we have a bundled Python framework (production) or use Homebrew (development)
-      final bundledPython = Directory('$depsDir/python');
-      if (await bundledPython.exists()) {
-        env['PYTHONHOME'] = '$depsDir/python';
-      }
-      // Don't set PYTHONHOME for development - use system Python from Homebrew
-
-      // Python packages path
-      env['PYTHONPATH'] = '$depsDir/python-packages';
-
-      // VapourSynth plugins
-      env['VAPOURSYNTH_PLUGIN_PATH'] = '$depsDir/vapoursynth/plugins';
-
-      // Add to PATH
-      final paths = [
-        '$depsDir/vapoursynth',
-        '$depsDir/ffmpeg',
-      ];
-      // Only add bundled Python to PATH if it exists
-      if (await bundledPython.exists()) {
-        paths.insert(0, '$depsDir/python/bin');
-      }
-      env['PATH'] = '${paths.join(':')}:${env['PATH'] ?? ''}';
-
-      // Set DYLD_LIBRARY_PATH for VapourSynth libraries
-      env['DYLD_LIBRARY_PATH'] = '$depsDir/vapoursynth:${env['DYLD_LIBRARY_PATH'] ?? ''}';
-    }
-
-    return env;
-  }
-
-  Future<String?> _findDepsDir() async {
-    final exeDir = File(Platform.resolvedExecutable).parent.path;
-
-    if (Platform.isWindows) {
-      // Production: deps folder next to executable
-      final prodDeps = Directory('$exeDir\\deps');
-      if (await prodDeps.exists()) {
-        return prodDeps.path;
-      }
-
-      // Development: go up to project root and find deps/windows-x64
-      // From app/build/windows/x64/runner/Debug/ up 6 levels
-      final devDeps = Directory('$exeDir\\..\\..\\..\\..\\..\\..\\deps\\windows-x64');
-      if (await devDeps.exists()) {
-        return devDeps.absolute.path;
-      }
-    } else if (Platform.isMacOS) {
-      // Production: in app bundle Contents
-      final contentsDir = '$exeDir/..';
-      final prodPython = Directory('$contentsDir/Frameworks/Python.framework');
-      if (await prodPython.exists()) {
-        return contentsDir;
-      }
-
-      // Development: go up to project root and find deps/macos-arm64 or macos-x64
-      // From app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS up 9 levels
-      final devDepsArm = Directory('$exeDir/../../../../../../../../../deps/macos-arm64');
-      if (await devDepsArm.exists()) {
-        return devDepsArm.absolute.path;
-      }
-      final devDepsX64 = Directory('$exeDir/../../../../../../../../../deps/macos-x64');
-      if (await devDepsX64.exists()) {
-        return devDepsX64.absolute.path;
-      }
-    }
-
-    return null;
   }
 
   /// Disposes of resources.

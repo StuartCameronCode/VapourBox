@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../models/video_job.dart';
+import 'tool_locator.dart';
 
 /// Detects available hardware video encoders by probing the bundled FFmpeg.
 class HardwareEncoderDetector {
@@ -15,7 +16,7 @@ class HardwareEncoderDetector {
   Future<void> initialize() async {
     if (_initialized) return;
 
-    final ffmpegPath = _findFfmpegPath();
+    final ffmpegPath = ToolLocator.instance.ffmpegPath;
     if (ffmpegPath == null) {
       _initialized = true;
       return;
@@ -43,70 +44,24 @@ class HardwareEncoderDetector {
         }
       }
     } catch (e) {
-      // FFmpeg not available or failed - hardware encoders won't be shown
+      // FFmpeg not available or failed - hardware encoders won't be detected
     }
+
+    final detected = VideoCodec.values.where((c) => c.isHardwareEncoder && isDetected(c)).map((c) => c.value);
+    print('HardwareEncoderDetector: detected encoders: ${detected.isEmpty ? "none" : detected.join(", ")}');
 
     _initialized = true;
   }
 
-  /// Whether a codec is available on this system.
-  /// Software codecs, ProRes, and FFV1 are always available.
-  /// Hardware codecs require detection.
-  bool isAvailable(VideoCodec codec) {
+  /// Whether a hardware codec was reported by ffmpeg's `-encoders` list.
+  ///
+  /// Note: ffmpeg reports all encoders *compiled into* the binary, not just
+  /// those supported by the current hardware. A codec reported here may still
+  /// fail at runtime if the required GPU/driver is not present.
+  /// Returns true for non-hardware codecs (software, ProRes, FFV1).
+  bool isDetected(VideoCodec codec) {
     if (!codec.isHardwareEncoder) return true;
-
-    // Map Dart enum value to the FFmpeg encoder name used in -encoders output
-    const encoderNames = {
-      'h264_nvenc': 'h264_nvenc',
-      'hevc_nvenc': 'hevc_nvenc',
-      'h264_qsv': 'h264_qsv',
-      'hevc_qsv': 'hevc_qsv',
-      'h264_videotoolbox': 'h264_videotoolbox',
-      'hevc_videotoolbox': 'hevc_videotoolbox',
-      'h264_amf': 'h264_amf',
-      'hevc_amf': 'hevc_amf',
-    };
-
-    final encoderName = encoderNames[codec.value];
-    if (encoderName == null) return false;
-    return _availableEncoders.contains(encoderName);
+    return _availableEncoders.contains(codec.value);
   }
 
-  /// Get all available codecs (software + detected hardware).
-  List<VideoCodec> get availableCodecs {
-    return VideoCodec.values.where((c) => isAvailable(c)).toList();
-  }
-
-  /// Find the bundled FFmpeg path.
-  String? _findFfmpegPath() {
-    final exeDir = File(Platform.resolvedExecutable).parent.path;
-
-    String candidate;
-    if (Platform.isWindows) {
-      candidate = '$exeDir\\deps\\ffmpeg\\ffmpeg.exe';
-    } else if (Platform.isMacOS) {
-      candidate = '$exeDir/../Helpers/ffmpeg';
-    } else {
-      return null;
-    }
-
-    if (File(candidate).existsSync()) {
-      return candidate;
-    }
-
-    // Fallback: try system PATH
-    try {
-      final result = Process.runSync(
-        Platform.isWindows ? 'where' : 'which',
-        ['ffmpeg'],
-      );
-      if (result.exitCode == 0) {
-        return (result.stdout as String).trim().split('\n').first;
-      }
-    } catch (e) {
-      // Ignore
-    }
-
-    return null;
-  }
 }

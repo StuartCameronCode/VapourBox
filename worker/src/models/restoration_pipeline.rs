@@ -11,6 +11,7 @@ use super::{
 /// Defines the type of each restoration pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub enum PassType {
     Deinterlace,
     NoiseReduction,
@@ -23,6 +24,7 @@ pub enum PassType {
     CropResize,
 }
 
+#[allow(dead_code)]
 impl PassType {
     /// Get display name for the pass.
     pub fn display_name(&self) -> &'static str {
@@ -113,6 +115,7 @@ impl Default for RestorationPipeline {
     }
 }
 
+#[allow(dead_code)]
 impl RestorationPipeline {
     /// Create a pipeline from legacy QTGMC-only parameters.
     pub fn from_legacy(qtgmc_params: &QTGMCParameters) -> Self {

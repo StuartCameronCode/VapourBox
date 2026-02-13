@@ -132,7 +132,6 @@ impl ScriptGenerator {
     /// Substitute parameters in a script string.
     fn substitute_parameters(&self, template: &str, job: &VideoJob, pipeline: &RestorationPipeline) -> String {
         let mut script = template.to_string();
-        let params = &job.qtgmc_parameters;
 
         // Input path (escape backslashes for Python)
         let escaped_input = job.input_path.replace('\\', "\\\\");

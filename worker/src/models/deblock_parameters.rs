@@ -10,6 +10,7 @@ pub enum DeblockMethod {
     Deblock,
 }
 
+#[allow(dead_code)]
 impl DeblockMethod {
     pub fn as_str(&self) -> &'static str {
         match self {

@@ -3,7 +3,6 @@
 //! Run with: cargo test --test filter_integration_test -- --nocapture
 
 use std::path::PathBuf;
-use std::process::Command;
 use uuid::Uuid;
 
 // Import the worker's models

@@ -10,6 +10,7 @@ pub enum SharpenMethod {
     CAS,
 }
 
+#[allow(dead_code)]
 impl SharpenMethod {
     pub fn as_str(&self) -> &'static str {
         match self {

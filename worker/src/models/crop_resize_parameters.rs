@@ -15,6 +15,7 @@ pub enum ResizeKernel {
     Eedi3,
 }
 
+#[allow(dead_code)]
 impl ResizeKernel {
     /// Get the VapourSynth resize function name.
     pub fn vs_function(&self) -> &'static str {
@@ -148,6 +149,7 @@ impl Default for CropResizeParameters {
     }
 }
 
+#[allow(dead_code)]
 impl CropResizeParameters {
     /// Get total horizontal crop.
     pub fn total_horizontal_crop(&self) -> i32 {

@@ -331,6 +331,7 @@ pub enum EncoderFamily {
     Lossless,
 }
 
+#[allow(dead_code)]
 impl VideoCodec {
     /// Get the FFmpeg codec string.
     pub fn ffmpeg_codec(&self) -> &'static str {
@@ -448,6 +449,7 @@ pub enum ContainerFormat {
     Avi,
 }
 
+#[allow(dead_code)]
 impl ContainerFormat {
     /// File extension for this container.
     pub fn extension(&self) -> &'static str {
@@ -484,6 +486,7 @@ pub enum FieldOrder {
     Unknown,
 }
 
+#[allow(dead_code)]
 impl FieldOrder {
     /// Human-readable display name.
     pub fn display_name(&self) -> &'static str {

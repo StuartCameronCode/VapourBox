@@ -453,6 +453,7 @@ pub enum QTGMCPreset {
     Draft,
 }
 
+#[allow(dead_code)]
 impl QTGMCPreset {
     /// Get the preset string for VapourSynth.
     pub fn as_str(&self) -> &'static str {

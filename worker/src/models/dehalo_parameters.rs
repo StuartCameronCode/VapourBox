@@ -12,6 +12,7 @@ pub enum DehaloMethod {
     Yahr,
 }
 
+#[allow(dead_code)]
 impl DehaloMethod {
     pub fn as_str(&self) -> &'static str {
         match self {

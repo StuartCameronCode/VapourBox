@@ -12,6 +12,7 @@ pub struct DependencyLocator {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub enum Platform {
     MacOSArm64,
     MacOSX64,
@@ -169,6 +170,7 @@ impl DependencyLocator {
     }
 
     /// Get the path to ffprobe executable.
+    #[allow(dead_code)]
     pub fn ffprobe_path(&self) -> Result<PathBuf> {
         let exe_name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
         let path = self.platform_dir().join("ffmpeg").join(exe_name);

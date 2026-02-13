@@ -7,6 +7,7 @@ import 'models/filter_registry.dart';
 import 'services/dependency_manager.dart';
 import 'services/hardware_encoder_detector.dart';
 import 'services/preset_service.dart';
+import 'services/tool_locator.dart';
 import 'services/update_checker.dart';
 import 'viewmodels/main_viewmodel.dart';
 import 'views/dependency_download_dialog.dart';
@@ -78,7 +79,6 @@ class AppStartupWrapper extends StatefulWidget {
 
 class _AppStartupWrapperState extends State<AppStartupWrapper> {
   bool _isReady = false;
-  bool _dependenciesOk = false;
   String? _errorMessage;
 
   @override
@@ -106,6 +106,9 @@ class _AppStartupWrapperState extends State<AppStartupWrapper> {
         }
       }
 
+      // Initialize centralized tool locator (must come before services that use it)
+      await ToolLocator.instance.initialize();
+
       // Initialize other services
       await HardwareEncoderDetector.instance.initialize();
       await FilterRegistry.instance.initialize();
@@ -113,7 +116,6 @@ class _AppStartupWrapperState extends State<AppStartupWrapper> {
 
       setState(() {
         _isReady = true;
-        _dependenciesOk = true;
       });
 
       // Check for updates asynchronously (non-blocking)

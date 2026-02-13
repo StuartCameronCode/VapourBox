@@ -20,6 +20,7 @@ pub struct ProgressInfo {
     pub eta: f64,
 }
 
+#[allow(dead_code)]
 impl ProgressInfo {
     /// Create a new progress info.
     pub fn new(frame: i32, total_frames: i32, fps: f64, eta: f64) -> Self {
@@ -142,12 +143,14 @@ impl WorkerMessage {
 
 /// Log message from worker.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct LogMessage {
     pub level: LogLevel,
     pub message: String,
     pub timestamp: DateTime<Utc>,
 }
 
+#[allow(dead_code)]
 impl LogMessage {
     pub fn new(level: LogLevel, message: &str) -> Self {
         Self {
@@ -181,6 +184,7 @@ impl LogLevel {
 
 /// Processing state machine.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum ProcessingState {
     Idle,
     PreparingJob,
@@ -190,6 +194,7 @@ pub enum ProcessingState {
     Failed { error: String },
 }
 
+#[allow(dead_code)]
 impl ProcessingState {
     /// Check if processing is active.
     pub fn is_active(&self) -> bool {

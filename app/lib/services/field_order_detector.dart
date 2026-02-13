@@ -2,20 +2,18 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../models/video_job.dart';
+import 'tool_locator.dart';
 
 /// Detects field order (TFF/BFF) from video files using ffprobe.
 class FieldOrderDetector {
-  /// Path to ffprobe executable.
-  final String? ffprobePath;
-
-  FieldOrderDetector({this.ffprobePath});
+  FieldOrderDetector();
 
   /// Detects the field order of a video file.
   ///
   /// Returns [FieldOrder.topFieldFirst], [FieldOrder.bottomFieldFirst], or [FieldOrder.progressive]
   /// based on the video metadata. Returns null if detection fails.
   Future<FieldOrder?> detect(String videoPath) async {
-    final ffprobe = await _findFfprobe();
+    final ffprobe = ToolLocator.instance.ffprobePath;
     if (ffprobe == null) {
       return null;
     }
@@ -93,7 +91,7 @@ class FieldOrderDetector {
 
   /// Gets detailed video information for display.
   Future<VideoInfo?> getVideoInfo(String videoPath) async {
-    final ffprobe = await _findFfprobe();
+    final ffprobe = ToolLocator.instance.ffprobePath;
     if (ffprobe == null) {
       return null;
     }
@@ -163,46 +161,6 @@ class FieldOrderDetector {
     } catch (e) {
       return null;
     }
-  }
-
-  Future<String?> _findFfprobe() async {
-    // Use provided path if available
-    if (ffprobePath != null && await File(ffprobePath!).exists()) {
-      return ffprobePath;
-    }
-
-    // Check bundled location
-    final bundledPath = await _getBundledFfprobePath();
-    if (bundledPath != null && await File(bundledPath).exists()) {
-      return bundledPath;
-    }
-
-    // Try system PATH
-    try {
-      final result = await Process.run(
-        Platform.isWindows ? 'where' : 'which',
-        ['ffprobe'],
-      );
-      if (result.exitCode == 0) {
-        return (result.stdout as String).trim().split('\n').first;
-      }
-    } catch (e) {
-      // Ignore
-    }
-
-    return null;
-  }
-
-  Future<String?> _getBundledFfprobePath() async {
-    if (Platform.isWindows) {
-      final exeDir = File(Platform.resolvedExecutable).parent.path;
-      return '$exeDir\\deps\\ffmpeg\\ffprobe.exe';
-    } else if (Platform.isMacOS) {
-      final exeDir = File(Platform.resolvedExecutable).parent.path;
-      // In .app bundle: Contents/MacOS/../../Helpers/ffprobe
-      return '$exeDir/../Helpers/ffprobe';
-    }
-    return null;
   }
 
   double? _parseFrameRate(String? rateStr) {

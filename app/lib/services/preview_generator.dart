@@ -3,14 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 import 'package:uuid/uuid.dart';
 
 import '../models/encoding_settings.dart';
-import '../models/qtgmc_parameters.dart';
 import '../models/restoration_pipeline.dart';
 import '../models/video_job.dart';
+import 'tool_locator.dart';
 
 /// Service for generating video thumbnails and processed previews.
 class PreviewGenerator {
@@ -60,46 +59,15 @@ class PreviewGenerator {
 
   /// Initialize the preview generator with tool paths.
   Future<void> initialize() async {
-    _ffmpegPath = await _findTool('ffmpeg');
-    _ffprobePath = await _findTool('ffprobe');
-    _workerPath = await _findWorker();
+    final toolLocator = ToolLocator.instance;
+    _ffmpegPath = toolLocator.ffmpegPath;
+    _ffprobePath = toolLocator.ffprobePath;
+    _workerPath = toolLocator.workerPath;
 
     // Create temp directory for thumbnails and previews
     final systemTemp = Directory.systemTemp;
     _tempDir = '${systemTemp.path}/vapourbox_preview_${DateTime.now().millisecondsSinceEpoch}';
     await Directory(_tempDir!).create(recursive: true);
-  }
-
-  /// Find the worker executable.
-  Future<String?> _findWorker() async {
-    final exeDir = path.dirname(Platform.resolvedExecutable);
-    final ext = Platform.isWindows ? '.exe' : '';
-
-    // Check bundled locations - include both debug and release builds for development
-    // Windows: app/build/windows/x64/runner/Debug/ - 6 levels to project root
-    // macOS: app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS - 9 levels to project root
-    final bundledPaths = Platform.isWindows
-        ? [
-            '$exeDir\\vapourbox-worker$ext',
-            // Development: go up from app/build/windows/x64/runner/Debug to project root
-            '$exeDir\\..\\..\\..\\..\\..\\..\\worker\\target\\release\\vapourbox-worker$ext',
-            '$exeDir\\..\\..\\..\\..\\..\\..\\worker\\target\\debug\\vapourbox-worker$ext',
-          ]
-        : [
-            // Production: worker is next to main executable in Contents/MacOS
-            '$exeDir/vapourbox-worker',
-            // Development: go up from app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS to project root (9 levels)
-            '$exeDir/../../../../../../../../../worker/target/release/vapourbox-worker',
-            '$exeDir/../../../../../../../../../worker/target/debug/vapourbox-worker',
-          ];
-
-    for (final p in bundledPaths) {
-      if (await File(p).exists()) {
-        return p;
-      }
-    }
-
-    return null;
   }
 
   /// Load a video and extract thumbnails for the scrubber.
@@ -282,6 +250,7 @@ class PreviewGenerator {
           '--preview',
           '--frame', frameNumber.toString(),
         ],
+        environment: ToolLocator.instance.workerEnvironment,
         workingDirectory: path.dirname(_workerPath!),
       );
       _previewProcess = process;
@@ -480,67 +449,6 @@ class PreviewGenerator {
     return null;
   }
 
-  Future<String?> _findTool(String name) async {
-    final exeDir = File(Platform.resolvedExecutable).parent.path;
-    final ext = Platform.isWindows ? '.exe' : '';
-    final platformDir = _getPlatformSuffix();
-
-    // Check bundled locations (platform-specific subdirectory)
-    final home = Platform.environment['HOME'] ?? '';
-    final List<String> bundledPaths;
-
-    if (Platform.isWindows) {
-      bundledPaths = [
-        '$exeDir\\deps\\$platformDir\\ffmpeg\\$name$ext',
-        '$exeDir\\deps\\$platformDir\\vapoursynth\\$name$ext',
-        // VSPipe is capitalized on Windows
-        '$exeDir\\deps\\$platformDir\\vapoursynth\\VSPipe$ext',
-      ];
-    } else {
-      bundledPaths = [
-        // Development only: relative paths to project root
-        if (kDebugMode) ...[
-          '$exeDir/../../../../../../../../../deps/$platformDir/ffmpeg/$name',
-          '$exeDir/../../../../../../../../../deps/$platformDir/vapoursynth/$name',
-        ],
-        // Application Support (where downloaded deps go on macOS)
-        '$home/Library/Application Support/VapourBox/deps/$platformDir/ffmpeg/$name',
-        '$home/Library/Application Support/VapourBox/deps/$platformDir/vapoursynth/$name',
-      ];
-    }
-
-    for (final p in bundledPaths) {
-      if (await File(p).exists()) {
-        return p;
-      }
-    }
-
-    // Try system PATH
-    try {
-      final result = await Process.run(
-        Platform.isWindows ? 'where' : 'which',
-        [name],
-      );
-      if (result.exitCode == 0) {
-        return (result.stdout as String).trim().split('\n').first;
-      }
-    } catch (e) {
-      // Ignore
-    }
-
-    return null;
-  }
-
-  /// Get the platform suffix for the deps directory (e.g., "windows-x64", "macos-arm64").
-  String _getPlatformSuffix() {
-    if (Platform.isWindows) {
-      return 'windows-x64'; // TODO: detect ARM64 when Flutter supports it
-    } else if (Platform.isMacOS) {
-      // Detect ARM64 vs x64 on macOS
-      return Platform.version.contains('arm64') ? 'macos-arm64' : 'macos-x64';
-    }
-    return 'unknown';
-  }
 }
 
 /// Token for cancelling preview generation.

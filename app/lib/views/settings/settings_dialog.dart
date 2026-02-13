@@ -721,9 +721,9 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     ];
     final losslessCodecs = <VideoCodec>[VideoCodec.ffv1];
 
-    // Filter hardware codecs: must be available AND supported by container
-    final availableHardware = hardwareCodecs
-        .where((c) => detector.isAvailable(c) && c.supportsContainer(settings.container))
+    // Filter hardware codecs by container support only (show all, warn if undetected)
+    final supportedHardware = hardwareCodecs
+        .where((c) => c.supportsContainer(settings.container))
         .toList();
 
     final children = <Widget>[];
@@ -734,12 +734,13 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
       children.add(_buildCodecRadio(context, viewModel, settings, codec));
     }
 
-    // Hardware section (only if any are available)
-    if (availableHardware.isNotEmpty) {
+    // Hardware section
+    if (supportedHardware.isNotEmpty) {
       children.add(const SizedBox(height: 8));
       children.add(_buildCodecGroupLabel(context, 'Hardware Accelerated'));
-      for (final codec in availableHardware) {
-        children.add(_buildCodecRadio(context, viewModel, settings, codec));
+      for (final codec in supportedHardware) {
+        children.add(_buildCodecRadio(context, viewModel, settings, codec,
+            detected: detector.isDetected(codec)));
       }
     }
 
@@ -785,19 +786,32 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
   }
 
   Widget _buildCodecRadio(BuildContext context, MainViewModel viewModel,
-      EncodingSettings settings, VideoCodec codec) {
+      EncodingSettings settings, VideoCodec codec, {bool detected = true}) {
     final isSupported = codec.supportsContainer(settings.container);
+    final showWarning = !detected && isSupported;
     return RadioListTile<VideoCodec>(
-      title: Text(
-        codec.displayName,
-        style: isSupported
-            ? null
-            : TextStyle(
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.38),
-              ),
+      title: Row(
+        children: [
+          Text(
+            codec.displayName,
+            style: isSupported
+                ? null
+                : TextStyle(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.38),
+                  ),
+          ),
+          if (showWarning) ...[
+            const SizedBox(width: 6),
+            Tooltip(
+              message: 'May not be available on this system',
+              child: Icon(Icons.warning_amber_rounded,
+                  size: 16, color: Colors.orange[700]),
+            ),
+          ],
+        ],
       ),
       subtitle: Text(
         isSupported

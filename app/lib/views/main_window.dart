@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/encoding_settings.dart';
-import '../models/processing_preset.dart';
 import '../models/progress_info.dart';
 import '../models/queue_item.dart';
 import '../services/audio_compatibility_service.dart';

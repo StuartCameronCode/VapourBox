@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../models/encoding_settings.dart';
 import '../models/video_job.dart';
+import 'tool_locator.dart';
 
 /// Audio stream information from ffprobe.
 class AudioInfo {
@@ -58,10 +59,7 @@ class AudioCompatibilityResult {
 
 /// Service for checking audio codec compatibility with output containers.
 class AudioCompatibilityService {
-  /// Path to ffprobe executable.
-  final String? ffprobePath;
-
-  AudioCompatibilityService({this.ffprobePath});
+  AudioCompatibilityService();
 
   /// Audio codecs compatible with each container format.
   /// Based on common FFmpeg muxer support.
@@ -93,7 +91,7 @@ class AudioCompatibilityService {
 
   /// Get audio information from a video file.
   Future<AudioInfo> getAudioInfo(String videoPath) async {
-    final ffprobe = await _findFfprobe();
+    final ffprobe = ToolLocator.instance.ffprobePath;
     if (ffprobe == null) {
       return const AudioInfo();
     }
@@ -196,55 +194,6 @@ class AudioCompatibilityService {
       compatibleContainers: compatibleContainers,
       suggestedCodec: getSuggestedCodec(outputContainer),
     );
-  }
-
-  Future<String?> _findFfprobe() async {
-    // Use provided path if available
-    if (ffprobePath != null && await File(ffprobePath!).exists()) {
-      return ffprobePath;
-    }
-
-    // Check bundled location
-    final bundledPath = await _getBundledFfprobePath();
-    if (bundledPath != null && await File(bundledPath).exists()) {
-      return bundledPath;
-    }
-
-    // Try system PATH
-    try {
-      final result = await Process.run(
-        Platform.isWindows ? 'where' : 'which',
-        ['ffprobe'],
-      );
-      if (result.exitCode == 0) {
-        return (result.stdout as String).trim().split('\n').first;
-      }
-    } catch (e) {
-      // Ignore
-    }
-
-    return null;
-  }
-
-  Future<String?> _getBundledFfprobePath() async {
-    if (Platform.isWindows) {
-      final exeDir = File(Platform.resolvedExecutable).parent.path;
-      // Try production path first
-      final prodPath = '$exeDir\\deps\\ffmpeg\\ffprobe.exe';
-      if (await File(prodPath).exists()) {
-        return prodPath;
-      }
-      // Try development path
-      final devPath = '$exeDir\\..\\..\\..\\..\\..\\..\\deps\\windows-x64\\ffmpeg\\ffprobe.exe';
-      if (await File(devPath).exists()) {
-        return devPath;
-      }
-    } else if (Platform.isMacOS) {
-      final exeDir = File(Platform.resolvedExecutable).parent.path;
-      // In .app bundle: Contents/MacOS/../../Helpers/ffprobe
-      return '$exeDir/../Helpers/ffprobe';
-    }
-    return null;
   }
 
   int? _parseInt(dynamic value) {

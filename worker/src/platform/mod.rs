@@ -11,4 +11,5 @@ pub mod windows;
 pub use macos::*;
 
 #[cfg(target_os = "windows")]
+#[allow(unused_imports)]
 pub use windows::*;

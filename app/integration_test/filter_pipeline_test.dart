@@ -127,7 +127,7 @@ Future<String?> extractAudioHash(String videoPath) async {
 
   try {
     // Extract audio as raw PCM WAV (lossless extraction for comparison)
-    final result = await Process.run(
+    await Process.run(
       ffmpegPath,
       [
         '-i', videoPath,
@@ -178,7 +178,7 @@ Future<Uint8List?> extractAudioBytes(String videoPath) async {
 
   try {
     // Extract audio as raw PCM (no header, pure samples)
-    final result = await Process.run(
+    await Process.run(
       ffmpegPath,
       [
         '-i', videoPath,
