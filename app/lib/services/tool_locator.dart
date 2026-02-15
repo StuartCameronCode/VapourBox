@@ -58,9 +58,12 @@ class ToolLocator {
       final depsDirectory = await DependencyManager.instance.getDepsDirectory();
       if (await depsDirectory.exists()) {
         _depsDir = depsDirectory.path;
+        print('ToolLocator: deps directory: $_depsDir');
+      } else {
+        print('ToolLocator: deps directory does not exist: ${depsDirectory.path}');
       }
-    } catch (_) {
-      // Unsupported platform or other error
+    } catch (e) {
+      print('ToolLocator: failed to resolve deps directory: $e');
     }
 
     // Resolve tool paths
@@ -68,6 +71,10 @@ class ToolLocator {
     _ffprobePath = _resolveFfprobe();
     _workerPath = _resolveWorker();
     _workerEnvironment = await _buildWorkerEnvironment();
+
+    print('ToolLocator: ffmpeg=${_ffmpegPath != null ? "found" : "NOT FOUND"}');
+    print('ToolLocator: ffprobe=${_ffprobePath != null ? "found" : "NOT FOUND"}');
+    print('ToolLocator: worker=${_workerPath != null ? "found" : "NOT FOUND"}');
 
     _initialized = true;
   }
@@ -150,6 +157,7 @@ class ToolLocator {
       }
 
       env['PYTHONPATH'] = path.join(_depsDir!, 'python-packages');
+      env['PYTHONNOUSERSITE'] = '1';
       env['VAPOURSYNTH_PLUGIN_PATH'] = path.join(_depsDir!, 'vapoursynth', 'plugins');
 
       final paths = <String>[];
@@ -160,7 +168,16 @@ class ToolLocator {
       paths.add(path.join(_depsDir!, 'ffmpeg'));
       env['PATH'] = '${paths.join(':')}:${env['PATH'] ?? ''}';
 
-      env['DYLD_LIBRARY_PATH'] = '${path.join(_depsDir!, 'vapoursynth')}:${env['DYLD_LIBRARY_PATH'] ?? ''}';
+      // Include both vapoursynth and python/lib for DYLD_LIBRARY_PATH
+      // (matches Rust worker's build_environment)
+      final dyldPaths = [
+        path.join(_depsDir!, 'vapoursynth'),
+        path.join(_depsDir!, 'python', 'lib'),
+      ];
+      final existingDyld = env['DYLD_LIBRARY_PATH'] ?? '';
+      env['DYLD_LIBRARY_PATH'] = existingDyld.isEmpty
+          ? dyldPaths.join(':')
+          : '${dyldPaths.join(':')}:$existingDyld';
     }
 
     return env;

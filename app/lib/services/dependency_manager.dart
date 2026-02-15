@@ -484,9 +484,10 @@ class DependencyManager {
       }
     }
 
-    // On macOS, remove quarantine attribute to allow execution without Gatekeeper blocking
+    // On macOS, remove quarantine attribute and re-sign binaries for Gatekeeper
     if (Platform.isMacOS) {
       await _removeQuarantine(depsDir.path);
+      await _codesignBinaries(depsDir.path);
     }
   }
 
@@ -503,6 +504,41 @@ class DependencyManager {
     } catch (e) {
       // xattr should always be available on macOS, but don't fail if it isn't
       print('DependencyManager: Could not remove quarantine: $e');
+    }
+  }
+
+  /// Ad-hoc codesign all Mach-O binaries and dylibs after extraction.
+  /// On macOS Sequoia+, unsigned binaries may be blocked even after quarantine
+  /// removal. Re-signing ensures Gatekeeper allows execution.
+  Future<void> _codesignBinaries(String directoryPath) async {
+    try {
+      // Sign all dylibs and .so files (shared libraries)
+      final libResult = await Process.run('/bin/sh', [
+        '-c',
+        'find "\$1" -type f \\( -name "*.dylib" -o -name "*.so" \\) '
+            '-exec codesign --force --sign - {} \\; 2>&1',
+        '--',
+        directoryPath,
+      ]);
+      if (libResult.exitCode != 0) {
+        print('DependencyManager: codesign libs warning: ${libResult.stdout}');
+      }
+
+      // Sign known executable binaries
+      final executables = [
+        path.join(directoryPath, 'ffmpeg', 'ffmpeg'),
+        path.join(directoryPath, 'ffmpeg', 'ffprobe'),
+        path.join(directoryPath, 'vapoursynth', 'vspipe-bin'),
+      ];
+      for (final exe in executables) {
+        if (await File(exe).exists()) {
+          await Process.run('codesign', ['--force', '--sign', '-', exe]);
+        }
+      }
+
+      print('DependencyManager: Codesigned binaries in $directoryPath');
+    } catch (e) {
+      print('DependencyManager: Could not codesign binaries: $e');
     }
   }
 
