@@ -33,7 +33,7 @@ clip = core.std.SetFieldBased(clip, {{FIELD_BASED}})
 
 # Report frame info
 total_frames = clip.num_frames
-print(f"INPUT_INFO:frames={total_frames},fps_num={{FPS_NUM}},fps_den={{FPS_DEN}}", file=sys.stderr)
+print(f"INPUT_INFO:frames={total_frames},fps_num={{FPS_NUM}},fps_den={{FPS_DEN}}", file=sys.stderr, flush=True)
 
 # Import havsfunc for various filters (QTGMC, SMDegrain, chroma fixes)
 import havsfunc as haf

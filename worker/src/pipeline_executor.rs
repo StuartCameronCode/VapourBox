@@ -7,7 +7,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 
@@ -77,8 +77,10 @@ impl PipelineExecutor {
         let vspipe_stdout = vspipe.stdout.take().context("Failed to get vspipe stdout")?;
         let vspipe_stderr = vspipe.stderr.take().context("Failed to get vspipe stderr")?;
 
-        // Build FFmpeg arguments
-        let ffmpeg_args = self.build_ffmpeg_args(job);
+        // Build FFmpeg arguments, using a temp file for progress to avoid
+        // Windows pipe buffering which delays progress by ~10K frames.
+        let progress_file = std::env::temp_dir().join(format!("vb_progress_{}", job.id));
+        let ffmpeg_args = self.build_ffmpeg_args(job, &progress_file);
 
         // Start ffmpeg process
         let mut ffmpeg = Command::new(&ffmpeg_path)
@@ -119,68 +121,110 @@ impl PipelineExecutor {
             }
         });
 
-        // Parse ffmpeg stderr for progress
+        // Determine if deinterlacing produces double-rate output
+        let pipeline = job.effective_pipeline();
+        let is_double_rate = pipeline.deinterlace.enabled && pipeline.deinterlace.fps_divisor == 1;
+
+        // Capture ffmpeg stderr in a background thread (for error messages).
+        // Progress comes from the temp file, not stderr.
+        let ffmpeg_reporter = self.reporter.clone();
+        let ffmpeg_stderr_thread = thread::spawn(move || {
+            let reader = BufReader::new(ffmpeg_stderr);
+            let mut last_line = String::new();
+            for line in reader.lines().map_while(Result::ok) {
+                ffmpeg_reporter.send_log(LogLevel::Debug, &format!("ffmpeg stderr: {}", line));
+                last_line = line;
+            }
+            last_line
+        });
+
+        // Poll the progress file for updates instead of reading piped stderr.
+        // Windows buffers pipe writes (~64KB), delaying progress by thousands
+        // of frames. File reads always return the latest data immediately.
         let reporter = self.reporter.clone();
         let progress_interval = Duration::from_millis(500);
-        let mut last_progress_time = Instant::now();
         let mut current_frame = 0i32;
         let mut current_fps = 0.0f64;
+        let mut smoothed_fps = 0.0f64;
+        let mut vspipe_total: i32 = 0;
 
-        let ffmpeg_reader = BufReader::new(ffmpeg_stderr);
-        for line in ffmpeg_reader.lines().map_while(Result::ok) {
+        loop {
             // Check for cancellation
             if on_cancel() {
                 self.terminate();
+                let _ = fs::remove_file(&progress_file);
                 bail!("Job cancelled");
             }
 
-            // Parse ffmpeg progress output
-            // Format: frame=  123 fps= 45.0 ...
-            if line.starts_with("frame=") {
-                if let Some(frame_str) = line.split_whitespace().nth(0) {
-                    if let Some(frame_num) = frame_str.strip_prefix("frame=") {
-                        if let Ok(f) = frame_num.trim().parse::<i32>() {
+            // Parse the progress file for the latest values.
+            // Also check for "progress=end" which ffmpeg writes when done.
+            let mut ffmpeg_done = false;
+            if let Ok(content) = fs::read_to_string(&progress_file) {
+                for line in content.lines() {
+                    if let Some(val) = line.strip_prefix("frame=") {
+                        if let Ok(f) = val.trim().parse::<i32>() {
                             current_frame = f;
                         }
-                    }
-                }
-            }
-            if line.contains("fps=") {
-                for part in line.split_whitespace() {
-                    if let Some(fps_str) = part.strip_prefix("fps=") {
-                        if let Ok(f) = fps_str.trim().parse::<f64>() {
-                            current_fps = f;
+                    } else if let Some(val) = line.strip_prefix("fps=") {
+                        if let Ok(f) = val.trim().parse::<f64>() {
+                            if f > 0.0 {
+                                current_fps = f;
+                                if smoothed_fps <= 0.0 {
+                                    smoothed_fps = f;
+                                } else {
+                                    smoothed_fps = 0.15 * f + 0.85 * smoothed_fps;
+                                }
+                            }
                         }
+                    } else if line.starts_with("progress=end") {
+                        ffmpeg_done = true;
                     }
                 }
             }
 
-            // Send progress update (throttled)
-            if last_progress_time.elapsed() >= progress_interval {
-                let total = total_frames.load(Ordering::SeqCst);
-                let effective_total = if total > 0 {
-                    // Double frames for double-rate output
-                    if job.qtgmc_parameters.fps_divisor == 1 { total * 2 } else { total }
-                } else {
-                    job.total_frames.unwrap_or(0)
-                };
-
-                let eta = if current_fps > 0.0 && effective_total > current_frame {
-                    ((effective_total - current_frame) as f64) / current_fps
-                } else {
-                    0.0
-                };
-
-                let progress = ProgressInfo::new(current_frame, effective_total, current_fps, eta);
-                reporter.send_progress(&progress);
-                last_progress_time = Instant::now();
+            // Also check process exit as a fallback
+            if !ffmpeg_done {
+                ffmpeg_done = self
+                    .ffmpeg_process
+                    .as_mut()
+                    .and_then(|p| p.try_wait().ok().flatten())
+                    .is_some();
             }
+
+            // Send progress if we have meaningful data
+            if current_frame > 0 {
+                let reported = total_frames.load(Ordering::SeqCst);
+                if reported > 0 {
+                    vspipe_total = reported;
+                }
+
+                if vspipe_total > 0 {
+                    let mut effective_total = if is_double_rate { vspipe_total * 2 } else { vspipe_total };
+
+                    // Safety clamp: if current_frame exceeds total, metadata was wrong
+                    if current_frame > effective_total {
+                        effective_total = current_frame;
+                    }
+
+                    let eta = if smoothed_fps > 0.0 && effective_total > current_frame {
+                        ((effective_total - current_frame) as f64) / smoothed_fps
+                    } else {
+                        0.0
+                    };
+
+                    let progress = ProgressInfo::new(current_frame, effective_total, current_fps, eta);
+                    reporter.send_progress(&progress);
+                }
+            }
+
+            if ffmpeg_done {
+                break;
+            }
+
+            thread::sleep(progress_interval);
         }
 
-        // Wait for threads to finish
-        let _ = vspipe_thread.join();
-
-        // Wait for processes to exit
+        // Wait for processes to exit FIRST (closes their pipes, unblocking reader threads)
         let vspipe_status = self
             .vspipe_process
             .as_mut()
@@ -195,27 +239,44 @@ impl PipelineExecutor {
             .transpose()
             .context("Failed to wait for ffmpeg")?;
 
+        // Now safe to join threads (pipes are closed, readers will hit EOF)
+        let _ = vspipe_thread.join();
+        let _ = ffmpeg_stderr_thread.join();
+
+        // Clean up progress file
+        let _ = fs::remove_file(&progress_file);
+
         // Check exit codes
         if let Some(status) = vspipe_status {
             let code = status.code().unwrap_or(-1);
-            // Allow SIGTERM (130), SIGPIPE (141)
             if code != 0 && code != 130 && code != 141 {
                 bail!("vspipe exited with code {}", code);
             }
         }
 
-        if let Some(status) = ffmpeg_status {
+        let ffmpeg_ok = if let Some(status) = ffmpeg_status {
             let code = status.code().unwrap_or(-1);
             if code != 0 && code != 130 && code != 141 {
                 bail!("ffmpeg exited with code {}", code);
             }
+            true
+        } else {
+            false
+        };
+
+        // Send final 100% progress when job succeeds.
+        // The source metadata total can be wrong (e.g. AVI containers),
+        // so use the actual frame count ffmpeg processed as the definitive total.
+        if ffmpeg_ok && current_frame > 0 {
+            let final_progress = ProgressInfo::new(current_frame, current_frame, current_fps, 0.0);
+            reporter.send_progress(&final_progress);
         }
 
         Ok(())
     }
 
     /// Build FFmpeg command-line arguments.
-    fn build_ffmpeg_args(&self, job: &VideoJob) -> Vec<String> {
+    fn build_ffmpeg_args(&self, job: &VideoJob, progress_file: &Path) -> Vec<String> {
         let mut args = Vec::new();
         let settings = &job.encoding_settings;
 
@@ -227,8 +288,8 @@ impl PipelineExecutor {
         // (Y4M from vspipe contains only video, so we need the original file for audio)
         args.extend(["-i".to_string(), job.input_path.clone()]);
 
-        // Progress output to stderr
-        args.extend(["-progress".to_string(), "pipe:2".to_string()]);
+        // Progress output to a temp file (avoids Windows pipe buffering delay)
+        args.extend(["-progress".to_string(), progress_file.to_string_lossy().to_string()]);
 
         // Map streams: video from input 0 (processed), audio from input 1 (original) if not disabled
         args.extend(["-map".to_string(), "0:v".to_string()]);  // Video from Y4M pipe
@@ -520,8 +581,8 @@ mod tests {
         // Input 1: Original file for audio stream
         args.extend(["-i".to_string(), job.input_path.clone()]);
 
-        // Progress output to stderr
-        args.extend(["-progress".to_string(), "pipe:2".to_string()]);
+        // Progress output to temp file
+        args.extend(["-progress".to_string(), "/tmp/test_progress.txt".to_string()]);
 
         // Map streams: video from input 0 (processed), audio from input 1 (original) if not disabled
         args.extend(["-map".to_string(), "0:v".to_string()]);

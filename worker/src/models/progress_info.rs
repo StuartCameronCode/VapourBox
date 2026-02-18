@@ -42,7 +42,7 @@ impl ProgressInfo {
 
     /// Progress as a percentage (0 to 100).
     pub fn percent_complete(&self) -> i32 {
-        (self.progress() * 100.0) as i32
+        (self.progress() * 100.0).round() as i32
     }
 
     /// Formatted ETA string (e.g., "1h 23m 45s").
@@ -226,6 +226,25 @@ mod tests {
         assert_eq!(info.percent_complete(), 50);
         assert_eq!(info.eta_formatted(), "20s");
         assert_eq!(info.fps_formatted(), "25.0 fps");
+    }
+
+    #[test]
+    fn test_percent_complete_rounds_instead_of_truncating() {
+        // 995/1000 = 99.5% — should round to 100, not truncate to 99
+        let info = ProgressInfo::new(995, 1000, 25.0, 1.0);
+        assert_eq!(info.percent_complete(), 100);
+
+        // 994/1000 = 99.4% — should round to 99
+        let info = ProgressInfo::new(994, 1000, 25.0, 1.0);
+        assert_eq!(info.percent_complete(), 99);
+
+        // 1/1000 = 0.1% — should round to 0
+        let info = ProgressInfo::new(1, 1000, 25.0, 100.0);
+        assert_eq!(info.percent_complete(), 0);
+
+        // 5/1000 = 0.5% — should round to 1
+        let info = ProgressInfo::new(5, 1000, 25.0, 100.0);
+        assert_eq!(info.percent_complete(), 1);
     }
 
     #[test]

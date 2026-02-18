@@ -32,7 +32,7 @@ clip = clip[{{START_FRAME}}:{{END_FRAME}}]
 input_fps_num = clip.fps.numerator
 input_fps_den = clip.fps.denominator
 total_frames = clip.num_frames
-print(f"INPUT_INFO:frames={total_frames},fps_num={input_fps_num},fps_den={input_fps_den}", file=sys.stderr)
+print(f"INPUT_INFO:frames={total_frames},fps_num={input_fps_num},fps_den={input_fps_den}", file=sys.stderr, flush=True)
 
 # Import havsfunc for various filters (QTGMC, SMDegrain, chroma fixes)
 import havsfunc as haf

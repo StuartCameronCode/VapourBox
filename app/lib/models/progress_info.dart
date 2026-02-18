@@ -25,7 +25,7 @@ class ProgressInfo {
   double get progress => totalFrames > 0 ? frame / totalFrames : 0.0;
 
   /// Progress as a percentage (0 to 100).
-  int get percentComplete => (progress * 100).toInt();
+  int get percentComplete => (progress * 100).round();
 
   /// Formatted ETA string (e.g., "1h 23m 45s").
   String get etaFormatted {
