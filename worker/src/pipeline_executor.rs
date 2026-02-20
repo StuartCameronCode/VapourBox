@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 
 use crate::dependency_locator::DependencyLocator;
-use crate::models::{AudioMode, EncoderFamily, EncodingSettings, LogLevel, ProgressInfo, VideoJob};
+use crate::models::{AudioMode, EncoderFamily, EncodingSettings, LogLevel, ProgressInfo, VideoCodec, VideoJob};
 use crate::progress_reporter::ProgressReporter;
 use crate::script_generator::{PreviewParams, ScriptGenerator};
 
@@ -283,9 +283,23 @@ impl PipelineExecutor {
                     args.extend(["-preset".to_string(), settings.encoder_preset.clone()]);
                 }
                 EncoderFamily::Nvenc => {
-                    args.extend(["-rc".to_string(), "constqp".to_string()]);
+                    // VBR with constant quality (-cq) provides much better quality
+                    // than constqp mode. -b:v 0 removes bitrate ceiling so the
+                    // encoder allocates whatever bitrate the content needs.
+                    args.extend(["-rc".to_string(), "vbr".to_string()]);
                     args.extend(["-cq".to_string(), settings.quality.to_string()]);
+                    args.extend(["-b:v".to_string(), "0".to_string()]);
                     args.extend(["-preset".to_string(), settings.encoder_preset.clone()]);
+                    args.extend(["-tune".to_string(), "hq".to_string()]);
+                    args.extend(["-multipass".to_string(), "fullres".to_string()]);
+                    args.extend(["-rc-lookahead".to_string(), "32".to_string()]);
+                    args.extend(["-spatial-aq".to_string(), "1".to_string()]);
+                    args.extend(["-aq-strength".to_string(), "8".to_string()]);
+                    args.extend(["-b_ref_mode".to_string(), "middle".to_string()]);
+                    args.extend(["-bf".to_string(), "3".to_string()]);
+                    if matches!(settings.codec, VideoCodec::H264Nvenc) {
+                        args.extend(["-profile:v".to_string(), "high".to_string()]);
+                    }
                 }
                 EncoderFamily::Qsv => {
                     args.extend(["-global_quality".to_string(), settings.quality.to_string()]);
@@ -765,7 +779,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ffmpeg_args_nvenc_quality() {
+    fn test_ffmpeg_args_nvenc_h264_quality() {
         let mut job = create_test_job("output.mp4");
         job.encoding_settings.codec = VideoCodec::H264Nvenc;
         job.encoding_settings.quality = 20;
@@ -776,20 +790,57 @@ mod tests {
         let video_codec_idx = args.iter().position(|a| a == "-c:v");
         assert_eq!(args[video_codec_idx.unwrap() + 1], "h264_nvenc");
 
+        // VBR constant quality mode (not constqp)
         let rc_idx = args.iter().position(|a| a == "-rc");
         assert!(rc_idx.is_some(), "NVENC should use -rc");
-        assert_eq!(args[rc_idx.unwrap() + 1], "constqp");
+        assert_eq!(args[rc_idx.unwrap() + 1], "vbr");
 
         let cq_idx = args.iter().position(|a| a == "-cq");
         assert!(cq_idx.is_some(), "NVENC should use -cq");
         assert_eq!(args[cq_idx.unwrap() + 1], "20");
 
+        // No bitrate ceiling
+        let bv_idx = args.iter().position(|a| a == "-b:v");
+        assert!(bv_idx.is_some(), "NVENC should use -b:v 0");
+        assert_eq!(args[bv_idx.unwrap() + 1], "0");
+
         let preset_idx = args.iter().position(|a| a == "-preset");
         assert!(preset_idx.is_some(), "NVENC should have -preset");
         assert_eq!(args[preset_idx.unwrap() + 1], "p4");
 
+        // HQ tuning and quality options
+        assert!(args.contains(&"-tune".to_string()), "NVENC should have -tune");
+        assert!(args.contains(&"hq".to_string()), "NVENC should use -tune hq");
+        assert!(args.contains(&"-multipass".to_string()), "NVENC should have -multipass");
+        assert!(args.contains(&"-spatial-aq".to_string()), "NVENC should have -spatial-aq");
+        assert!(args.contains(&"-b_ref_mode".to_string()), "NVENC should have -b_ref_mode");
+
+        // H.264 should have high profile
+        assert!(args.contains(&"-profile:v".to_string()), "NVENC H.264 should have -profile:v");
+        assert!(args.contains(&"high".to_string()), "NVENC H.264 should use high profile");
+
         // Should NOT have -crf
         assert!(!args.contains(&"-crf".to_string()), "NVENC should not use -crf");
+    }
+
+    #[test]
+    fn test_ffmpeg_args_nvenc_hevc_no_profile() {
+        let mut job = create_test_job("output.mp4");
+        job.encoding_settings.codec = VideoCodec::H265Nvenc;
+        job.encoding_settings.quality = 24;
+        job.encoding_settings.encoder_preset = "p7".to_string();
+
+        let args = build_ffmpeg_args_for_test(&job);
+
+        let video_codec_idx = args.iter().position(|a| a == "-c:v");
+        assert_eq!(args[video_codec_idx.unwrap() + 1], "hevc_nvenc");
+
+        // HEVC NVENC should NOT have -profile:v high (that's H.264-specific)
+        assert!(!args.contains(&"-profile:v".to_string()), "NVENC HEVC should not have -profile:v");
+
+        // Should still have VBR quality mode
+        let rc_idx = args.iter().position(|a| a == "-rc");
+        assert_eq!(args[rc_idx.unwrap() + 1], "vbr");
     }
 
     #[test]

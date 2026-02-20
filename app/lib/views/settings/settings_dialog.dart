@@ -211,16 +211,19 @@ class _OutputSettingsTab extends StatefulWidget {
 
 class _OutputSettingsTabState extends State<_OutputSettingsTab> {
   late TextEditingController _filenamePatternController;
+  late TextEditingController _customFfmpegArgsController;
 
   @override
   void initState() {
     super.initState();
     _filenamePatternController = TextEditingController();
+    _customFfmpegArgsController = TextEditingController();
   }
 
   @override
   void dispose() {
     _filenamePatternController.dispose();
+    _customFfmpegArgsController.dispose();
     super.dispose();
   }
 
@@ -230,9 +233,12 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
       builder: (context, viewModel, child) {
         final settings = viewModel.encodingSettings;
 
-        // Update controller if value changed externally
+        // Update controllers if values changed externally
         if (_filenamePatternController.text != settings.filenamePattern) {
           _filenamePatternController.text = settings.filenamePattern;
+        }
+        if (_customFfmpegArgsController.text != settings.customFfmpegArgs) {
+          _customFfmpegArgsController.text = settings.customFfmpegArgs;
         }
 
         return ListView(
@@ -688,6 +694,42 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                   const SizedBox(height: 8),
                   Text(
                     '4:2:0 is most compatible (web, mobile). 4:2:2 preserves more color detail.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.6),
+                        ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Custom FFmpeg Arguments
+            _buildSection(
+              context,
+              title: 'Custom FFmpeg Arguments',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: _customFfmpegArgsController,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      hintText: 'e.g. -level 4.1 -refs 6',
+                    ),
+                    onChanged: (value) {
+                      viewModel.updateEncodingSettings(
+                        settings.copyWith(customFfmpegArgs: value),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Additional FFmpeg arguments appended to the encoding command. '
+                    'These are added after all other settings and can override them.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context)
                               .colorScheme

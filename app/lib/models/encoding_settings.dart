@@ -176,11 +176,13 @@ class EncodingSettings {
       if (quality <= 30) return 'Low (Quality $quality)';
       return 'Very Low (Quality $quality)';
     }
-    if (quality <= 15) return 'Very High (CRF $quality)';
-    if (quality <= 20) return 'High (CRF $quality)';
-    if (quality <= 25) return 'Medium (CRF $quality)';
-    if (quality <= 30) return 'Low (CRF $quality)';
-    return 'Very Low (CRF $quality)';
+    // NVENC uses CQ (constant quality) in VBR mode, not CRF
+    final label = codec.isNvenc ? 'CQ' : 'CRF';
+    if (quality <= 15) return 'Very High ($label $quality)';
+    if (quality <= 20) return 'High ($label $quality)';
+    if (quality <= 25) return 'Medium ($label $quality)';
+    if (quality <= 30) return 'Low ($label $quality)';
+    return 'Very Low ($label $quality)';
   }
 
   EncodingSettings copyWith({

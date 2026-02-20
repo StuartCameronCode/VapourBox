@@ -166,6 +166,9 @@ enum VideoCodec {
   bool get isH265 => this == h265 || this == h265Nvenc || this == h265Qsv ||
       this == h265Videotoolbox || this == h265Amf;
 
+  /// Whether this is an NVIDIA NVENC encoder.
+  bool get isNvenc => this == h264Nvenc || this == h265Nvenc;
+
   /// Whether this is a hardware-accelerated encoder.
   bool get isHardwareEncoder => this == h264Nvenc || this == h265Nvenc ||
       this == h264Qsv || this == h265Qsv ||
