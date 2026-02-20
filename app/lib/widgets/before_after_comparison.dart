@@ -57,6 +57,10 @@ class _BeforeAfterComparisonWidgetState
 
   // Trackpad pan-zoom gesture tracking
   double _panZoomStartScale = 1.0;
+  bool _isPanZooming = false;
+
+  // Middle-click drag panning
+  bool _isMiddleDragging = false;
 
   static const double _minScale = 1.0;
   static const double _maxScale = 10.0;
@@ -141,6 +145,7 @@ class _BeforeAfterComparisonWidgetState
 
   void _handlePanZoomStart(PointerPanZoomStartEvent event) {
     _panZoomStartScale = _scale;
+    _isPanZooming = true;
   }
 
   void _handlePanZoomUpdate(PointerPanZoomUpdateEvent event, Size size) {
@@ -188,6 +193,25 @@ class _BeforeAfterComparisonWidgetState
               onPointerPanZoomStart: _handlePanZoomStart,
               onPointerPanZoomUpdate: (event) =>
                   _handlePanZoomUpdate(event, size),
+              onPointerPanZoomEnd: (_) => _isPanZooming = false,
+              onPointerDown: (event) {
+                if (event.buttons == kMiddleMouseButton) {
+                  _isMiddleDragging = true;
+                }
+              },
+              onPointerMove: (event) {
+                if (_isMiddleDragging && _scale > 1.0) {
+                  setState(() {
+                    _offset = _clampOffset(
+                      _offset + event.delta,
+                      size,
+                    );
+                  });
+                }
+              },
+              onPointerUp: (event) {
+                _isMiddleDragging = false;
+              },
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -284,6 +308,7 @@ class _BeforeAfterComparisonWidgetState
                   Positioned.fill(
                     child: GestureDetector(
                       onHorizontalDragUpdate: (details) {
+                        if (_isPanZooming || _isMiddleDragging) return;
                         setState(() {
                           _dividerPosition +=
                               details.delta.dx / constraints.maxWidth;
