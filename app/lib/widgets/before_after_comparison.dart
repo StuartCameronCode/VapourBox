@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// A widget that displays a before/after comparison with a draggable divider.
 ///
@@ -110,10 +111,20 @@ class _BeforeAfterComparisonWidgetState
 
   void _handlePointerSignal(PointerSignalEvent event, Size size) {
     if (event is PointerScaleEvent) {
-      // Trackpad pinch-to-zoom
+      // Trackpad pinch-to-zoom (native trackpad)
       _zoomAtPoint(event.localPosition, event.scale, size);
     } else if (event is PointerScrollEvent) {
-      if (_scale > 1.0) {
+      final bool ctrlHeld =
+          HardwareKeyboard.instance.logicalKeysPressed.contains(
+                LogicalKeyboardKey.controlLeft) ||
+          HardwareKeyboard.instance.logicalKeysPressed.contains(
+                LogicalKeyboardKey.controlRight);
+
+      if (ctrlHeld) {
+        // Ctrl+scroll = zoom (Mac trackpad pinch via RDP sends this)
+        final double zoomFactor = event.scrollDelta.dy < 0 ? 1.1 : 0.9;
+        _zoomAtPoint(event.localPosition, zoomFactor, size);
+      } else if (_scale > 1.0) {
         // When zoomed in, scroll events pan the image
         setState(() {
           _offset = _clampOffset(
@@ -219,8 +230,8 @@ class _BeforeAfterComparisonWidgetState
                   Transform(
                     alignment: Alignment.center,
                     transform: Matrix4.identity()
-                      ..translateByDouble(_offset.dx, _offset.dy, 0, 1)
-                      ..scaleByDouble(_scale, _scale, 1, 1),
+                      ..translate(_offset.dx, _offset.dy)
+                      ..scale(_scale, _scale),
                     child: _buildImageLayer(
                       imageData: widget.afterImage,
                       isLoading: widget.isAfterLoading,
@@ -236,8 +247,8 @@ class _BeforeAfterComparisonWidgetState
                     child: Transform(
                       alignment: Alignment.center,
                       transform: Matrix4.identity()
-                        ..translateByDouble(_offset.dx, _offset.dy, 0, 1)
-                        ..scaleByDouble(_scale, _scale, 1, 1),
+                        ..translate(_offset.dx, _offset.dy)
+                        ..scale(_scale, _scale),
                       child: _buildImageLayer(
                         imageData: widget.beforeImage,
                         isLoading: widget.isBeforeLoading,
