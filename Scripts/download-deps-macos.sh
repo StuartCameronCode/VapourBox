@@ -354,6 +354,11 @@ if [ "$ARCH" = "arm64" ]; then
     install_name_tool -change "@rpath/libfftw3f_threads.3.dylib" "@loader_path/../../lib/libfftw3f_threads.3.dylib" "$PLUGINS_DIR/libdfttest.dylib"
     codesign -s - -f "$PLUGINS_DIR/libdfttest.dylib" 2>/dev/null
 
+    # VIVTC (inverse telecine - VFM + VDecimate)
+    curl -sL "$YUYGFGG_BASE/lib/libvivtc.dylib" -o "$PLUGINS_DIR/libvivtc.dylib"
+    install_name_tool -id "@loader_path/libvivtc.dylib" "$PLUGINS_DIR/libvivtc.dylib"
+    codesign -s - -f "$PLUGINS_DIR/libvivtc.dylib" 2>/dev/null
+
     echo "  Downloaded pre-built ARM64 plugins from yuygfgg"
 fi
 
@@ -540,6 +545,17 @@ build_plugin "addgrain" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain.git" \
     "libaddgrain.dylib" \
     "meson setup build --buildtype=release && ninja -C build"
+
+# VIVTC (inverse telecine - VFM + VDecimate)
+# On ARM64, we use the pre-built version from yuygfgg (downloaded above)
+if [ "$ARCH" != "arm64" ]; then
+    build_plugin "vivtc" \
+        "https://github.com/vapoursynth/vivtc.git" \
+        "libvivtc.dylib" \
+        "meson setup build --buildtype=release && ninja -C build"
+else
+    echo "  VIVTC: using pre-built ARM64 version from yuygfgg"
+fi
 
 # neo-f3kdb (debanding)
 # On ARM64, we use the pre-built version from yuygfgg (downloaded above)

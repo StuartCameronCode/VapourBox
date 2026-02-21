@@ -2,6 +2,33 @@ import 'package:json_annotation/json_annotation.dart';
 
 part 'qtgmc_parameters.g.dart';
 
+/// Deinterlace method selection.
+@JsonEnum()
+enum DeinterlaceMethod {
+  @JsonValue('qtgmc')
+  qtgmc,
+  @JsonValue('ivtc')
+  ivtc;
+
+  String get displayName {
+    switch (this) {
+      case DeinterlaceMethod.qtgmc:
+        return 'QTGMC';
+      case DeinterlaceMethod.ivtc:
+        return 'IVTC';
+    }
+  }
+
+  String get description {
+    switch (this) {
+      case DeinterlaceMethod.qtgmc:
+        return 'High-quality motion-compensated deinterlacing';
+      case DeinterlaceMethod.ivtc:
+        return 'Inverse telecine for DVD 3:2 pulldown sources';
+    }
+  }
+}
+
 /// QTGMC quality/speed presets.
 @JsonEnum()
 enum QTGMCPreset {
@@ -88,6 +115,9 @@ enum QTGMCPreset {
 class QTGMCParameters {
   /// Whether this pass is enabled.
   final bool enabled;
+
+  /// Deinterlace method: QTGMC or IVTC.
+  final DeinterlaceMethod method;
 
   // === Preset ===
   final QTGMCPreset preset;
@@ -188,8 +218,38 @@ class QTGMCParameters {
   final bool opencl;
   final int? device;
 
+  // === IVTC Parameters (VFM - field matching) ===
+  /// Field order for VFM: 0=BFF, 1=TFF
+  final int ivtcOrder;
+
+  /// VFM matching mode (0-5)
+  final int ivtcMode;
+
+  /// VFM combing threshold
+  final int? ivtcCthresh;
+
+  /// VFM max combed pixels in a block
+  final int? ivtcMi;
+
+  /// VFM block width for combing detection
+  final int? ivtcBlockX;
+
+  /// VFM block height for combing detection
+  final int? ivtcBlockY;
+
+  // === IVTC Parameters (VDecimate - duplicate removal) ===
+  /// Decimation cycle length (default 5 for 3:2 pulldown)
+  final int ivtcCycle;
+
+  /// VDecimate duplicate detection threshold
+  final double? ivtcDupthresh;
+
+  /// VDecimate scene change threshold
+  final double? ivtcScthresh;
+
   const QTGMCParameters({
     this.enabled = true,
+    this.method = DeinterlaceMethod.qtgmc,
     this.preset = QTGMCPreset.slower,
     this.inputType = 0,
     this.tff,
@@ -267,6 +327,15 @@ class QTGMCParameters {
     this.refineMotion = false,
     this.opencl = false,
     this.device,
+    this.ivtcOrder = 1,
+    this.ivtcMode = 1,
+    this.ivtcCthresh,
+    this.ivtcMi,
+    this.ivtcBlockX,
+    this.ivtcBlockY,
+    this.ivtcCycle = 5,
+    this.ivtcDupthresh,
+    this.ivtcScthresh,
   });
 
   factory QTGMCParameters.fromJson(Map<String, dynamic> json) =>
@@ -275,6 +344,7 @@ class QTGMCParameters {
 
   QTGMCParameters copyWith({
     bool? enabled,
+    DeinterlaceMethod? method,
     QTGMCPreset? preset,
     int? inputType,
     bool? tff,
@@ -352,9 +422,19 @@ class QTGMCParameters {
     bool? refineMotion,
     bool? opencl,
     int? device,
+    int? ivtcOrder,
+    int? ivtcMode,
+    int? ivtcCthresh,
+    int? ivtcMi,
+    int? ivtcBlockX,
+    int? ivtcBlockY,
+    int? ivtcCycle,
+    double? ivtcDupthresh,
+    double? ivtcScthresh,
   }) {
     return QTGMCParameters(
       enabled: enabled ?? this.enabled,
+      method: method ?? this.method,
       preset: preset ?? this.preset,
       inputType: inputType ?? this.inputType,
       tff: tff ?? this.tff,
@@ -432,6 +512,15 @@ class QTGMCParameters {
       refineMotion: refineMotion ?? this.refineMotion,
       opencl: opencl ?? this.opencl,
       device: device ?? this.device,
+      ivtcOrder: ivtcOrder ?? this.ivtcOrder,
+      ivtcMode: ivtcMode ?? this.ivtcMode,
+      ivtcCthresh: ivtcCthresh ?? this.ivtcCthresh,
+      ivtcMi: ivtcMi ?? this.ivtcMi,
+      ivtcBlockX: ivtcBlockX ?? this.ivtcBlockX,
+      ivtcBlockY: ivtcBlockY ?? this.ivtcBlockY,
+      ivtcCycle: ivtcCycle ?? this.ivtcCycle,
+      ivtcDupthresh: ivtcDupthresh ?? this.ivtcDupthresh,
+      ivtcScthresh: ivtcScthresh ?? this.ivtcScthresh,
     );
   }
 }

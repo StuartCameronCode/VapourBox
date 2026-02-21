@@ -145,6 +145,7 @@ class MainViewModel extends ChangeNotifier {
         _restorationPipeline = _restorationPipeline.copyWith(
           deinterlace: ParameterConverter.toQTGMC(params),
         );
+        _qtgmcParams = _restorationPipeline.deinterlace;
         break;
       case 'noise_reduction':
         _restorationPipeline = _restorationPipeline.copyWith(
@@ -341,6 +342,38 @@ class MainViewModel extends ChangeNotifier {
         level: LogLevel.warning,
         message: 'Failed to analyze ${item.filename}: $e',
       ));
+    }
+
+    // Auto-switch deinterlace method based on detected scan type
+    final videoInfo = _queue[index].videoInfo;
+    if (videoInfo != null) {
+      if (videoInfo.scanType == ScanType.telecine &&
+          _restorationPipeline.deinterlace.method == DeinterlaceMethod.qtgmc) {
+        // Auto-switch to IVTC for telecine sources
+        _restorationPipeline = _restorationPipeline.copyWith(
+          deinterlace: _restorationPipeline.deinterlace.copyWith(
+            method: DeinterlaceMethod.ivtc,
+          ),
+        );
+        _qtgmcParams = _restorationPipeline.deinterlace;
+        _logMessages.add(LogMessage(
+          level: LogLevel.info,
+          message: 'Telecine detected \u2014 switched to IVTC',
+        ));
+      } else if (videoInfo.scanType == ScanType.interlaced &&
+          _restorationPipeline.deinterlace.method == DeinterlaceMethod.ivtc) {
+        // Auto-switch back to QTGMC for interlaced sources
+        _restorationPipeline = _restorationPipeline.copyWith(
+          deinterlace: _restorationPipeline.deinterlace.copyWith(
+            method: DeinterlaceMethod.qtgmc,
+          ),
+        );
+        _qtgmcParams = _restorationPipeline.deinterlace;
+        _logMessages.add(LogMessage(
+          level: LogLevel.info,
+          message: 'Interlaced content detected \u2014 switched to QTGMC',
+        ));
+      }
     }
 
     // Load thumbnails if this is the selected item

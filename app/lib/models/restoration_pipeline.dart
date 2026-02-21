@@ -55,7 +55,7 @@ extension PassTypeExtension on PassType {
   String get description {
     switch (this) {
       case PassType.deinterlace:
-        return 'Remove interlacing artifacts using QTGMC';
+        return 'Deinterlace (QTGMC) or inverse telecine (IVTC)';
       case PassType.noiseReduction:
         return 'Reduce video noise and grain';
       case PassType.dehalo:
@@ -218,9 +218,9 @@ class RestorationPipeline {
   String getPassSummary(PassType pass) {
     switch (pass) {
       case PassType.deinterlace:
-        return deinterlace.enabled
-            ? deinterlace.preset.displayName
-            : 'Off';
+        if (!deinterlace.enabled) return 'Off';
+        if (deinterlace.method == DeinterlaceMethod.ivtc) return 'IVTC';
+        return deinterlace.preset.displayName;
       case PassType.noiseReduction:
         return noiseReduction.summary;
       case PassType.dehalo:

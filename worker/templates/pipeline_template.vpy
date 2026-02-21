@@ -45,9 +45,10 @@ clip = core.std.Crop(clip, left={{CROP_LEFT}}, right={{CROP_RIGHT}}, top={{CROP_
 {{/PRE_CROP}}
 
 # ============================================================================
-# PASS 2: DEINTERLACING (QTGMC)
+# PASS 2: DEINTERLACING
 # ============================================================================
 {{#DEINTERLACE}}
+{{#DEINT_QTGMC}}
 clip = haf.QTGMC(
     clip,
     Preset="{{PRESET}}",
@@ -265,6 +266,38 @@ clip = haf.QTGMC(
     device={{DEVICE}},
 {{/DEVICE}}
 )
+{{/DEINT_QTGMC}}
+{{#DEINT_IVTC}}
+# IVTC: Inverse Telecine (VFM field matching + VDecimate)
+clip = core.vivtc.VFM(clip, order={{IVTC_ORDER}},
+{{#IVTC_MODE}}
+    mode={{IVTC_MODE}},
+{{/IVTC_MODE}}
+{{#IVTC_CTHRESH}}
+    cthresh={{IVTC_CTHRESH}},
+{{/IVTC_CTHRESH}}
+{{#IVTC_MI}}
+    mi={{IVTC_MI}},
+{{/IVTC_MI}}
+{{#IVTC_BLOCK_X}}
+    blockx={{IVTC_BLOCK_X}},
+{{/IVTC_BLOCK_X}}
+{{#IVTC_BLOCK_Y}}
+    blocky={{IVTC_BLOCK_Y}},
+{{/IVTC_BLOCK_Y}}
+)
+clip = core.vivtc.VDecimate(clip,
+{{#IVTC_CYCLE}}
+    cycle={{IVTC_CYCLE}},
+{{/IVTC_CYCLE}}
+{{#IVTC_DUPTHRESH}}
+    dupthresh={{IVTC_DUPTHRESH}},
+{{/IVTC_DUPTHRESH}}
+{{#IVTC_SCTHRESH}}
+    scthresh={{IVTC_SCTHRESH}},
+{{/IVTC_SCTHRESH}}
+)
+{{/DEINT_IVTC}}
 {{/DEINTERLACE}}
 
 # ============================================================================

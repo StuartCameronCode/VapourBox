@@ -5,6 +5,17 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Deinterlace method selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum DeinterlaceMethod {
+    /// QTGMC high-quality motion-compensated deinterlacing.
+    #[default]
+    Qtgmc,
+    /// IVTC inverse telecine (VFM + VDecimate).
+    Ivtc,
+}
+
 /// All QTGMC parameters supported by the VapourSynth implementation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,6 +23,10 @@ pub struct QTGMCParameters {
     /// Whether this pass is enabled.
     #[serde(default = "default_true")]
     pub enabled: bool,
+
+    /// Deinterlace method: QTGMC or IVTC.
+    #[serde(default)]
+    pub method: DeinterlaceMethod,
 
     // === Preset ===
     /// Master quality/speed preset
@@ -331,6 +346,44 @@ pub struct QTGMCParameters {
     /// OpenCL device index
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device: Option<i32>,
+
+    // === IVTC Parameters (VFM - field matching) ===
+    /// Field order for VFM: 0=BFF, 1=TFF
+    #[serde(default = "default_ivtc_order")]
+    pub ivtc_order: i32,
+
+    /// VFM matching mode (0-5)
+    #[serde(default = "default_ivtc_mode")]
+    pub ivtc_mode: i32,
+
+    /// VFM combing threshold
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ivtc_cthresh: Option<i32>,
+
+    /// VFM max combed pixels in a block
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ivtc_mi: Option<i32>,
+
+    /// VFM block width for combing detection
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ivtc_block_x: Option<i32>,
+
+    /// VFM block height for combing detection
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ivtc_block_y: Option<i32>,
+
+    // === IVTC Parameters (VDecimate - duplicate removal) ===
+    /// Decimation cycle length (default 5 for 3:2 pulldown)
+    #[serde(default = "default_ivtc_cycle")]
+    pub ivtc_cycle: i32,
+
+    /// VDecimate duplicate detection threshold
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ivtc_dupthresh: Option<f64>,
+
+    /// VDecimate scene change threshold
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ivtc_scthresh: Option<f64>,
 }
 
 // Default value functions
@@ -346,11 +399,15 @@ fn default_noise_preset() -> String { "Fast".to_string() }
 fn default_match_enhance() -> f64 { 0.5 }
 fn default_str() -> f64 { 2.0 }
 fn default_amp() -> f64 { 0.0625 }
+fn default_ivtc_order() -> i32 { 1 }
+fn default_ivtc_mode() -> i32 { 1 }
+fn default_ivtc_cycle() -> i32 { 5 }
 
 impl Default for QTGMCParameters {
     fn default() -> Self {
         Self {
             enabled: true,
+            method: DeinterlaceMethod::default(),
             preset: QTGMCPreset::default(),
             input_type: 0,
             tff: None,
@@ -428,6 +485,15 @@ impl Default for QTGMCParameters {
             refine_motion: false,
             opencl: false,
             device: None,
+            ivtc_order: 1,
+            ivtc_mode: 1,
+            ivtc_cthresh: None,
+            ivtc_mi: None,
+            ivtc_block_x: None,
+            ivtc_block_y: None,
+            ivtc_cycle: 5,
+            ivtc_dupthresh: None,
+            ivtc_scthresh: None,
         }
     }
 }

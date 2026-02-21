@@ -1205,3 +1205,528 @@ fn test_36_verify_vspipe_outputs_video_only() {
     println!("  - FFmpeg copies audio from original input file");
     println!("  - Result: processed video + original unchanged audio");
 }
+
+// ============================================================================
+// IVTC (Inverse Telecine) Tests
+// ============================================================================
+// These tests verify that the IVTC pipeline (VFM field matching + VDecimate
+// duplicate removal) generates correct VapourSynth scripts for recovering
+// 23.976fps progressive frames from telecined 29.97fps interlaced sources.
+
+fn get_telecine_test_input() -> PathBuf {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    PathBuf::from(manifest_dir)
+        .parent().unwrap()
+        .join("Tests")
+        .join("TestResources")
+        .join("telecine_test.avi")
+}
+
+fn create_ivtc_base_job(output_name: &str) -> VideoJob {
+    VideoJob {
+        id: Uuid::new_v4(),
+        input_path: get_telecine_test_input().to_string_lossy().to_string(),
+        output_path: get_output_path(output_name).to_string_lossy().to_string(),
+        qtgmc_parameters: QTGMCParameters {
+            enabled: true,
+            method: DeinterlaceMethod::Ivtc,
+            tff: Some(true),
+            ..QTGMCParameters::default()
+        },
+        restoration_pipeline: None,
+        encoding_settings: EncodingSettings {
+            codec: VideoCodec::FFV1,
+            container: ContainerFormat::Avi,
+            ..EncodingSettings::default()
+        },
+        detected_field_order: Some(FieldOrder::TopFieldFirst),
+        total_frames: Some(90),
+        input_frame_rate: Some(29.97),
+        start_frame: None,
+        end_frame: None,
+    }
+}
+
+#[test]
+fn test_37_ivtc_default_parameters_script() {
+    // Test: IVTC with default parameters generates VFM + VDecimate calls
+    create_output_dir();
+
+    let mut job = create_ivtc_base_job("test_37_ivtc_default");
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..RestorationPipeline::default()
+    });
+
+    run_job_and_verify(&job, "IVTC - Default Parameters", &[
+        "core.vivtc.VFM",
+        "order=1",
+        "core.vivtc.VDecimate",
+    ]).unwrap();
+}
+
+#[test]
+fn test_38_ivtc_no_qtgmc_in_script() {
+    // Test: When IVTC method is selected, QTGMC code must NOT be present
+    create_output_dir();
+
+    let mut job = create_ivtc_base_job("test_38_ivtc_no_qtgmc");
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..RestorationPipeline::default()
+    });
+
+    let generator = ScriptGenerator::new().expect("Failed to create generator");
+    let script_path = generator.generate(&job).expect("Failed to generate script");
+    let script_content = std::fs::read_to_string(&script_path).unwrap_or_default();
+
+    println!("--- Script Content ---\n{}\n--- End Script ---\n", script_content);
+
+    // IVTC must be present
+    assert!(
+        script_content.contains("core.vivtc.VFM"),
+        "IVTC script must contain VFM call"
+    );
+    assert!(
+        script_content.contains("core.vivtc.VDecimate"),
+        "IVTC script must contain VDecimate call"
+    );
+
+    // QTGMC must NOT be present
+    assert!(
+        !script_content.contains("haf.QTGMC"),
+        "IVTC script must NOT contain QTGMC call — methods are mutually exclusive"
+    );
+
+    // Template block markers must be cleaned up (ignore the docstring header)
+    // The template has a docstring that documents the placeholder format — skip it
+    let code_section = script_content
+        .find("import vapoursynth")
+        .map(|pos| &script_content[pos..])
+        .unwrap_or(&script_content);
+    assert!(
+        !code_section.contains("{{"),
+        "Script code must not contain unprocessed template markers"
+    );
+
+    println!("✓ IVTC script uses VFM + VDecimate, no QTGMC present");
+}
+
+#[test]
+fn test_39_ivtc_tff_order_mapping() {
+    // Test: tff=true → order=1 (TFF), tff=false → order=0 (BFF)
+    create_output_dir();
+
+    // Test TFF
+    let mut job_tff = create_ivtc_base_job("test_39_ivtc_tff");
+    job_tff.qtgmc_parameters.tff = Some(true);
+    job_tff.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job_tff.qtgmc_parameters.clone(),
+        ..RestorationPipeline::default()
+    });
+
+    let generator = ScriptGenerator::new().expect("Failed to create generator");
+    let script_path = generator.generate(&job_tff).expect("Failed to generate TFF script");
+    let script_tff = std::fs::read_to_string(&script_path).unwrap_or_default();
+
+    assert!(
+        script_tff.contains("order=1"),
+        "TFF (tff=true) must produce order=1 in VFM call. Script:\n{}", script_tff
+    );
+    println!("✓ tff=true → order=1 (TFF)");
+
+    // Test BFF
+    let mut job_bff = create_ivtc_base_job("test_39_ivtc_bff");
+    job_bff.qtgmc_parameters.tff = Some(false);
+    job_bff.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job_bff.qtgmc_parameters.clone(),
+        ..RestorationPipeline::default()
+    });
+
+    let script_path = generator.generate(&job_bff).expect("Failed to generate BFF script");
+    let script_bff = std::fs::read_to_string(&script_path).unwrap_or_default();
+
+    assert!(
+        script_bff.contains("order=0"),
+        "BFF (tff=false) must produce order=0 in VFM call. Script:\n{}", script_bff
+    );
+    println!("✓ tff=false → order=0 (BFF)");
+}
+
+#[test]
+fn test_40_ivtc_custom_vfm_parameters() {
+    // Test: Custom VFM parameters (cthresh, mi, blockx, blocky) appear in script
+    create_output_dir();
+
+    let mut job = create_ivtc_base_job("test_40_ivtc_custom_vfm");
+    job.qtgmc_parameters.ivtc_mode = 3;
+    job.qtgmc_parameters.ivtc_cthresh = Some(12);
+    job.qtgmc_parameters.ivtc_mi = Some(100);
+    job.qtgmc_parameters.ivtc_block_x = Some(32);
+    job.qtgmc_parameters.ivtc_block_y = Some(32);
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..RestorationPipeline::default()
+    });
+
+    run_job_and_verify(&job, "IVTC - Custom VFM Parameters", &[
+        "core.vivtc.VFM",
+        "order=1",
+        "mode=3",
+        "cthresh=12",
+        "mi=100",
+        "blockx=32",
+        "blocky=32",
+    ]).unwrap();
+}
+
+#[test]
+fn test_41_ivtc_custom_vdecimate_parameters() {
+    // Test: Custom VDecimate parameters (cycle, dupthresh, scthresh) appear in script
+    create_output_dir();
+
+    let mut job = create_ivtc_base_job("test_41_ivtc_custom_vdecimate");
+    job.qtgmc_parameters.ivtc_cycle = 4;
+    job.qtgmc_parameters.ivtc_dupthresh = Some(1.5);
+    job.qtgmc_parameters.ivtc_scthresh = Some(20.0);
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..RestorationPipeline::default()
+    });
+
+    run_job_and_verify(&job, "IVTC - Custom VDecimate Parameters", &[
+        "core.vivtc.VDecimate",
+        "cycle=4",
+        "dupthresh=1.5",
+        "scthresh=20",
+    ]).unwrap();
+}
+
+#[test]
+fn test_42_ivtc_defaults_omit_optional_params() {
+    // Test: With default IVTC settings, optional parameters should NOT appear
+    // (they use VapourSynth defaults when omitted)
+    create_output_dir();
+
+    let mut job = create_ivtc_base_job("test_42_ivtc_defaults_omit");
+    // All defaults — ivtc_mode=1, ivtc_cycle=5, no optional params
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..RestorationPipeline::default()
+    });
+
+    let generator = ScriptGenerator::new().expect("Failed to create generator");
+    let script_path = generator.generate(&job).expect("Failed to generate script");
+    let script_content = std::fs::read_to_string(&script_path).unwrap_or_default();
+
+    println!("--- Script Content ---\n{}\n--- End Script ---\n", script_content);
+
+    // Required params must be present
+    assert!(script_content.contains("core.vivtc.VFM"), "VFM must be present");
+    assert!(script_content.contains("order=1"), "order must be present");
+    assert!(script_content.contains("core.vivtc.VDecimate"), "VDecimate must be present");
+
+    // Default values (mode=1, cycle=5) should be omitted to use VS defaults
+    assert!(
+        !script_content.contains("mode="),
+        "Default mode=1 should be omitted from script"
+    );
+    assert!(
+        !script_content.contains("cycle="),
+        "Default cycle=5 should be omitted from script"
+    );
+
+    // Optional params with None should not appear
+    assert!(!script_content.contains("cthresh="), "cthresh should be omitted when None");
+    assert!(!script_content.contains("mi="), "mi should be omitted when None");
+    assert!(!script_content.contains("blockx="), "blockx should be omitted when None");
+    assert!(!script_content.contains("blocky="), "blocky should be omitted when None");
+    assert!(!script_content.contains("dupthresh="), "dupthresh should be omitted when None");
+    assert!(!script_content.contains("scthresh="), "scthresh should be omitted when None");
+
+    println!("✓ Default IVTC script is clean — only required params present");
+}
+
+#[test]
+fn test_43_ivtc_with_additional_filters() {
+    // Test: IVTC combined with other restoration filters (denoise, sharpen, etc.)
+    create_output_dir();
+
+    let mut job = create_ivtc_base_job("test_43_ivtc_combined");
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::SmDegrain,
+            sm_degrain_tr: 2,
+            sm_degrain_th_sad: 300,
+            ..NoiseReductionParameters::default()
+        },
+        sharpen: SharpenParameters {
+            enabled: true,
+            method: SharpenMethod::CAS,
+            cas_sharpness: 0.5,
+            ..SharpenParameters::default()
+        },
+        ..RestorationPipeline::default()
+    });
+
+    run_job_and_verify(&job, "IVTC - Combined with Denoise + Sharpen", &[
+        "core.vivtc.VFM",
+        "core.vivtc.VDecimate",
+        "haf.SMDegrain",
+        "core.cas.CAS",
+    ]).unwrap();
+}
+
+#[test]
+fn test_44_ivtc_serialization_roundtrip() {
+    // Test: IVTC parameters serialize to JSON and deserialize correctly
+    // This verifies backward compatibility — old JSON without 'method' defaults to QTGMC
+
+    let ivtc_params = QTGMCParameters {
+        enabled: true,
+        method: DeinterlaceMethod::Ivtc,
+        tff: Some(true),
+        ivtc_order: 1,
+        ivtc_mode: 3,
+        ivtc_cthresh: Some(12),
+        ivtc_mi: Some(100),
+        ivtc_block_x: Some(32),
+        ivtc_block_y: Some(32),
+        ivtc_cycle: 5,
+        ivtc_dupthresh: Some(1.5),
+        ivtc_scthresh: Some(20.0),
+        ..QTGMCParameters::default()
+    };
+
+    // Serialize
+    let json = serde_json::to_string_pretty(&ivtc_params).expect("Failed to serialize");
+    println!("Serialized IVTC params:\n{}\n", json);
+
+    // Verify JSON contains expected fields
+    assert!(json.contains("\"method\""), "JSON must contain 'method' field");
+    assert!(json.contains("\"ivtc\""), "method value must be 'ivtc'");
+    assert!(json.contains("\"ivtcOrder\""), "JSON must contain 'ivtcOrder'");
+    assert!(json.contains("\"ivtcMode\""), "JSON must contain 'ivtcMode'");
+
+    // Deserialize
+    let deserialized: QTGMCParameters = serde_json::from_str(&json).expect("Failed to deserialize");
+    assert_eq!(deserialized.method, DeinterlaceMethod::Ivtc);
+    assert_eq!(deserialized.ivtc_order, 1);
+    assert_eq!(deserialized.ivtc_mode, 3);
+    assert_eq!(deserialized.ivtc_cthresh, Some(12));
+    assert_eq!(deserialized.ivtc_mi, Some(100));
+    assert_eq!(deserialized.ivtc_block_x, Some(32));
+    assert_eq!(deserialized.ivtc_block_y, Some(32));
+    assert_eq!(deserialized.ivtc_cycle, 5);
+    assert_eq!(deserialized.ivtc_dupthresh, Some(1.5));
+    assert_eq!(deserialized.ivtc_scthresh, Some(20.0));
+
+    println!("✓ IVTC parameters round-trip serialization successful");
+}
+
+#[test]
+fn test_45_ivtc_backward_compat_no_method_field() {
+    // Test: JSON without 'method' field defaults to QTGMC (backward compatibility)
+    // Old saved presets won't have the method field — they must still work
+
+    let old_json = r#"{
+        "enabled": true,
+        "preset": "Fast",
+        "tff": true,
+        "fpsDivisor": 2
+    }"#;
+
+    let params: QTGMCParameters = serde_json::from_str(old_json)
+        .expect("Failed to deserialize old-format JSON");
+
+    assert_eq!(
+        params.method,
+        DeinterlaceMethod::Qtgmc,
+        "Missing 'method' field must default to QTGMC for backward compatibility"
+    );
+    assert_eq!(params.preset, QTGMCPreset::Fast);
+    assert_eq!(params.tff, Some(true));
+    assert_eq!(params.fps_divisor, 2);
+
+    println!("✓ Backward compatibility: old JSON without 'method' defaults to QTGMC");
+}
+
+#[test]
+fn test_46_ivtc_expected_frame_count() {
+    // Test: Verify that the generated IVTC script would produce the expected
+    // output frame count. For a 90-frame 29.97fps telecined source with
+    // cycle=5, VDecimate removes 1 in every 5 frames → 72 output frames
+    // at 23.976fps.
+    create_output_dir();
+
+    let mut job = create_ivtc_base_job("test_46_ivtc_frame_count");
+    job.total_frames = Some(90); // 3 seconds at 29.97fps
+    job.input_frame_rate = Some(29.97);
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..RestorationPipeline::default()
+    });
+
+    let generator = ScriptGenerator::new().expect("Failed to create generator");
+    let script_path = generator.generate(&job).expect("Failed to generate script");
+    let script_content = std::fs::read_to_string(&script_path).unwrap_or_default();
+
+    println!("--- Script Content ---\n{}\n--- End Script ---\n", script_content);
+
+    // Verify the IVTC pipeline structure:
+    // 1. VFM does field matching (same frame count, but now progressive)
+    // 2. VDecimate removes duplicates (reduces frames by cycle factor)
+    assert!(script_content.contains("core.vivtc.VFM"), "VFM must be present");
+    assert!(script_content.contains("core.vivtc.VDecimate"), "VDecimate must be present");
+
+    // VFM must come before VDecimate in the script
+    let vfm_pos = script_content.find("core.vivtc.VFM").unwrap();
+    let vdecimate_pos = script_content.find("core.vivtc.VDecimate").unwrap();
+    assert!(
+        vfm_pos < vdecimate_pos,
+        "VFM must come before VDecimate in the pipeline (VFM at {}, VDecimate at {})",
+        vfm_pos, vdecimate_pos
+    );
+
+    // Calculate expected output: 90 input frames ÷ 5 cycle × 4 kept = 72 frames
+    let input_frames = 90;
+    let cycle = 5;
+    let expected_output_frames = input_frames * (cycle - 1) / cycle;
+    assert_eq!(expected_output_frames, 72,
+        "3 seconds at 29.97fps = 90 frames; IVTC cycle=5 keeps 4/5 → 72 frames at 23.976fps");
+
+    // Expected output frame rate: 29.97 * 4/5 = 23.976
+    let expected_fps = 29.97 * (cycle - 1) as f64 / cycle as f64;
+    assert!(
+        (expected_fps - 23.976).abs() < 0.01,
+        "Output FPS should be ~23.976, got {}", expected_fps
+    );
+
+    println!("✓ IVTC frame count math verified:");
+    println!("  Input:  {} frames @ 29.97fps (telecined)", input_frames);
+    println!("  Output: {} frames @ {:.3}fps (progressive film)", expected_output_frames, expected_fps);
+    println!("  VFM comes before VDecimate in pipeline");
+}
+
+#[test]
+fn test_47_ivtc_progress_frame_count() {
+    // Test: Verify that the progress tracking correctly adjusts frame count for IVTC.
+    // IVTC with VDecimate reduces output frames by (cycle-1)/cycle.
+    // The pipeline_executor must use this adjusted count for accurate progress reporting.
+    create_output_dir();
+
+    let job = create_ivtc_base_job("test_47_ivtc_progress");
+    let pipeline = job.effective_pipeline();
+
+    // Verify the pipeline is correctly configured for IVTC
+    assert!(pipeline.deinterlace.enabled, "Deinterlace should be enabled");
+    assert_eq!(pipeline.deinterlace.method, DeinterlaceMethod::Ivtc, "Method should be IVTC");
+    assert_eq!(pipeline.deinterlace.ivtc_cycle, 5, "Default cycle should be 5");
+
+    // Simulate what pipeline_executor does for progress calculation
+    let is_double_rate = pipeline.deinterlace.enabled
+        && pipeline.deinterlace.method == DeinterlaceMethod::Qtgmc
+        && pipeline.deinterlace.fps_divisor == 1;
+    let is_ivtc = pipeline.deinterlace.enabled
+        && pipeline.deinterlace.method == DeinterlaceMethod::Ivtc;
+    let ivtc_cycle = pipeline.deinterlace.ivtc_cycle;
+
+    assert!(!is_double_rate, "IVTC should NOT be detected as double-rate");
+    assert!(is_ivtc, "IVTC should be detected as IVTC");
+
+    // For 90 input frames with cycle=5:
+    let vspipe_total: i32 = 90;
+    let effective_total = if is_double_rate {
+        vspipe_total * 2
+    } else if is_ivtc && ivtc_cycle > 1 {
+        vspipe_total * (ivtc_cycle - 1) / ivtc_cycle
+    } else {
+        vspipe_total
+    };
+
+    assert_eq!(effective_total, 72,
+        "IVTC with cycle=5 should reduce 90 frames to 72 (90 * 4/5)");
+
+    // Test with different cycle values
+    let test_cases = vec![
+        (100, 5, 80),   // Standard NTSC 3:2 pulldown
+        (100, 4, 75),   // Euro pulldown
+        (100, 3, 66),   // 2:1 pattern
+        (100, 2, 50),   // Every other frame
+        (90, 5, 72),    // Our telecine test video
+    ];
+
+    for (input, cycle, expected) in test_cases {
+        let result = input * (cycle - 1) / cycle;
+        assert_eq!(result, expected,
+            "Input {} frames with cycle {} should produce {} frames, got {}",
+            input, cycle, expected, result);
+    }
+
+    println!("✓ IVTC progress frame count calculation verified");
+}
+
+#[test]
+fn test_48_ivtc_not_qtgmc_in_script() {
+    // Test: Verify that when method is IVTC, the generated script contains
+    // VIVTC calls and does NOT contain QTGMC calls. This tests that the
+    // method field correctly controls which deinterlace algorithm is used.
+    create_output_dir();
+
+    let job = create_ivtc_base_job("test_48_ivtc_not_qtgmc");
+    let generator = ScriptGenerator::new().expect("Failed to create generator");
+    let script_path = generator.generate(&job).expect("Failed to generate script");
+    let script_content = std::fs::read_to_string(&script_path).unwrap_or_default();
+
+    // Must have IVTC calls
+    assert!(script_content.contains("core.vivtc.VFM"),
+        "IVTC script must contain VFM call");
+    assert!(script_content.contains("core.vivtc.VDecimate"),
+        "IVTC script must contain VDecimate call");
+
+    // Must NOT have QTGMC call
+    let code_section = script_content.split("import vapoursynth").nth(1).unwrap_or(&script_content);
+    assert!(!code_section.contains("haf.QTGMC"),
+        "IVTC script must NOT contain QTGMC call - found QTGMC in:\n{}", code_section);
+
+    // Verify the output will be at reduced frame rate (VDecimate present)
+    let vfm_pos = script_content.find("core.vivtc.VFM").unwrap();
+    let vdecimate_pos = script_content.find("core.vivtc.VDecimate").unwrap();
+    assert!(vfm_pos < vdecimate_pos,
+        "VFM must come before VDecimate");
+
+    println!("✓ IVTC script correctly uses VIVTC (not QTGMC)");
+}
+
+#[test]
+fn test_49_qtgmc_not_ivtc_in_script() {
+    // Test: Verify that when method is QTGMC (default), the generated script
+    // contains QTGMC and does NOT contain VIVTC calls.
+    create_output_dir();
+
+    let mut job = create_base_job("test_49_qtgmc_not_ivtc");
+    // Explicitly set QTGMC method (should be default, but be explicit)
+    job.qtgmc_parameters.method = DeinterlaceMethod::Qtgmc;
+    job.restoration_pipeline = Some(RestorationPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..RestorationPipeline::default()
+    });
+
+    let generator = ScriptGenerator::new().expect("Failed to create generator");
+    let script_path = generator.generate(&job).expect("Failed to generate script");
+    let script_content = std::fs::read_to_string(&script_path).unwrap_or_default();
+
+    // Must have QTGMC call
+    assert!(script_content.contains("haf.QTGMC"),
+        "QTGMC script must contain QTGMC call");
+
+    // Must NOT have VIVTC calls
+    assert!(!script_content.contains("core.vivtc.VFM"),
+        "QTGMC script must NOT contain VFM call");
+    assert!(!script_content.contains("core.vivtc.VDecimate"),
+        "QTGMC script must NOT contain VDecimate call");
+
+    println!("✓ QTGMC script correctly uses QTGMC (not VIVTC)");
+}

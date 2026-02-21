@@ -863,6 +863,7 @@ All plugins go in `deps/windows-x64/vapoursynth/vs-plugins/`:
 - `fft3dfilter.dll` - FFT-based denoising (used by QTGMC Very Slow/Slower presets)
 - `AddGrain.dll` - Film grain generation (from [HomeOfVapourSynthEvolution](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain))
 - `TCanny.dll` - Canny edge detection (from [HomeOfVapourSynthEvolution](https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TCanny))
+- `VIVTC.dll` - Inverse telecine / field matching (from [vapoursynth/vivtc](https://github.com/vapoursynth/vivtc))
 
 ### Required Libraries (Windows)
 
@@ -993,6 +994,7 @@ All plugins are native arm64/x64 builds in `deps/macos-{arch}/vapoursynth/plugin
 - `librgvs.dylib` - RemoveGrain/Repair
 - `libctmf.dylib` - Constant Time Median Filter
 - `libfft3dfilter.dylib` - FFT-based denoising (QTGMC slower presets)
+- `libvivtc.dylib` - VIVTC (VFM field matching + VDecimate for IVTC)
 
 ### Required Libraries (macOS)
 

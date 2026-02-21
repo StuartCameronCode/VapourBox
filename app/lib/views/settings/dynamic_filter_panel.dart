@@ -315,6 +315,9 @@ class _DynamicFilterPanelCompactState extends State<DynamicFilterPanelCompact> {
       final presets = schema.parameterPresets;
       if (presets != null) {
         for (final entry in presets.entries) {
+          // Check visibleWhen on preset
+          if (!_isPresetVisible(entry.value)) continue;
+
           widgets.add(
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
@@ -339,6 +342,21 @@ class _DynamicFilterPanelCompactState extends State<DynamicFilterPanelCompact> {
         // In simple mode, skip advanced-only sections
         if (!_advancedMode && section.advancedOnly) continue;
 
+        // Collect visible parameter widgets for this section first
+        final sectionWidgets = <Widget>[];
+        for (final paramId in section.parameters) {
+          // In simple mode, skip parameters controlled by presets
+          if (!_advancedMode && presetControlledParams.contains(paramId)) continue;
+
+          final widget = _buildParameterWidget(context, paramId, showHidden: _advancedMode);
+          if (widget != null) {
+            sectionWidgets.add(widget);
+          }
+        }
+
+        // Skip sections with no visible parameters
+        if (sectionWidgets.isEmpty) continue;
+
         // In advanced mode with sections, show section headers
         if (_advancedMode && section.advancedOnly) {
           widgets.add(
@@ -354,15 +372,7 @@ class _DynamicFilterPanelCompactState extends State<DynamicFilterPanelCompact> {
           );
         }
 
-        for (final paramId in section.parameters) {
-          // In simple mode, skip parameters controlled by presets
-          if (!_advancedMode && presetControlledParams.contains(paramId)) continue;
-
-          final widget = _buildParameterWidget(context, paramId, showHidden: _advancedMode);
-          if (widget != null) {
-            widgets.add(widget);
-          }
-        }
+        widgets.addAll(sectionWidgets);
       }
     } else {
       // No sections defined, show all parameters from method
@@ -386,6 +396,9 @@ class _DynamicFilterPanelCompactState extends State<DynamicFilterPanelCompact> {
   Widget? _buildParameterWidget(BuildContext context, String paramId, {bool showHidden = false}) {
     final param = schema.parameters[paramId];
     if (param == null) return null;
+
+    // Always skip structural parameters — these are managed by the panel itself
+    if (paramId == 'enabled' || paramId == 'method') return null;
 
     // Skip hidden parameters (unless showHidden is true)
     if (!showHidden && param.ui?.hidden == true) return null;
@@ -434,6 +447,15 @@ class _DynamicFilterPanelCompactState extends State<DynamicFilterPanelCompact> {
     if (param?.ui?.visibleWhen == null) return true;
 
     final visibleWhen = param!.ui!.visibleWhen!;
+    return _checkVisibleWhen(visibleWhen);
+  }
+
+  bool _isPresetVisible(ParameterPreset preset) {
+    if (preset.visibleWhen == null) return true;
+    return _checkVisibleWhen(preset.visibleWhen!);
+  }
+
+  bool _checkVisibleWhen(Map<String, dynamic> visibleWhen) {
     for (final entry in visibleWhen.entries) {
       final expected = entry.value;
       final current = params.values[entry.key];

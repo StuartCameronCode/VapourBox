@@ -271,11 +271,15 @@ class ParameterPreset {
   /// Map of option display name to parameter values to apply.
   final Map<String, Map<String, dynamic>> options;
 
+  /// Condition for when this preset is visible.
+  final Map<String, dynamic>? visibleWhen;
+
   const ParameterPreset({
     required this.label,
     this.description,
     this.defaultOption,
     required this.options,
+    this.visibleWhen,
   });
 
   factory ParameterPreset.fromJson(Map<String, dynamic> json) =>

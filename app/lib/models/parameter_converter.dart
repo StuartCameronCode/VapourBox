@@ -14,11 +14,21 @@ import 'sharpen_parameters.dart';
 class ParameterConverter {
   /// Convert QTGMC parameters to dynamic format.
   static DynamicParameters fromQTGMC(QTGMCParameters params) {
+    String method;
+    switch (params.method) {
+      case DeinterlaceMethod.qtgmc:
+        method = 'qtgmc';
+        break;
+      case DeinterlaceMethod.ivtc:
+        method = 'ivtc';
+        break;
+    }
+
     return DynamicParameters(
       filterId: 'deinterlace',
       enabled: params.enabled,
       values: {
-        'method': 'qtgmc',
+        'method': method,
         'preset': params.preset.displayName,
         'tff': params.tff,
         'fpsDivisor': params.fpsDivisor,
@@ -96,6 +106,15 @@ class ParameterConverter {
         'refineMotion': params.refineMotion,
         'opencl': params.opencl,
         'device': params.device,
+        'ivtcOrder': params.ivtcOrder,
+        'ivtcMode': params.ivtcMode,
+        'ivtcCthresh': params.ivtcCthresh,
+        'ivtcMi': params.ivtcMi,
+        'ivtcBlockX': params.ivtcBlockX,
+        'ivtcBlockY': params.ivtcBlockY,
+        'ivtcCycle': params.ivtcCycle,
+        'ivtcDupthresh': params.ivtcDupthresh,
+        'ivtcScthresh': params.ivtcScthresh,
       },
     );
   }
@@ -331,8 +350,19 @@ class ParameterConverter {
   static QTGMCParameters toQTGMC(DynamicParameters params) {
     final v = params.values;
     final presetStr = v['preset'] as String? ?? 'Slower';
+    final methodStr = v['method'] as String? ?? 'qtgmc';
+    DeinterlaceMethod method;
+    switch (methodStr) {
+      case 'ivtc':
+        method = DeinterlaceMethod.ivtc;
+        break;
+      default:
+        method = DeinterlaceMethod.qtgmc;
+    }
+
     return QTGMCParameters(
       enabled: params.enabled,
+      method: method,
       preset: QTGMCPreset.values.firstWhere(
         (p) => p.displayName == presetStr || p.name == presetStr.toLowerCase(),
         orElse: () => QTGMCPreset.slower,
@@ -413,6 +443,15 @@ class ParameterConverter {
       refineMotion: v['refineMotion'] as bool? ?? false,
       opencl: v['opencl'] as bool? ?? false,
       device: v['device'] as int?,
+      ivtcOrder: v['ivtcOrder'] as int? ?? 1,
+      ivtcMode: v['ivtcMode'] as int? ?? 1,
+      ivtcCthresh: v['ivtcCthresh'] as int?,
+      ivtcMi: v['ivtcMi'] as int?,
+      ivtcBlockX: v['ivtcBlockX'] as int?,
+      ivtcBlockY: v['ivtcBlockY'] as int?,
+      ivtcCycle: v['ivtcCycle'] as int? ?? 5,
+      ivtcDupthresh: (v['ivtcDupthresh'] as num?)?.toDouble(),
+      ivtcScthresh: (v['ivtcScthresh'] as num?)?.toDouble(),
     );
   }
 

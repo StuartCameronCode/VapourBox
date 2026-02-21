@@ -1,6 +1,6 @@
 # VapourBox
 
-A user-friendly wrapper for [VapourSynth](https://www.vapoursynth.com/) that makes video processing accessible to everyone. Convert between video formats, apply QTGMC deinterlacing, reduce noise, and fix common video problems—all through a simple drag-and-drop interface.
+A user-friendly wrapper for [VapourSynth](https://www.vapoursynth.com/) that makes video processing accessible to everyone. Convert between video formats, apply QTGMC deinterlacing, perform IVTC (inverse telecine) for DVD sources, reduce noise, and fix common video problems—all through a simple drag-and-drop interface.
 
 No scripting required. No command line needed. Just drop your video and go.
 
@@ -9,10 +9,11 @@ No scripting required. No command line needed. Just drop your video and go.
 ## Use Cases
 
 - **Convert interlaced video** to progressive with high-quality QTGMC deinterlacing
+- **Recover film from DVDs** with IVTC (inverse telecine) — auto-detects 3:2 pulldown
 - **Clean up noisy footage** with temporal and spatial noise reduction
 - **Fix compression artifacts** with deblocking and debanding filters
 - **Sharpen soft video** while preserving detail
-- **Archive DVDs** with proper deinterlacing and cleanup
+- **Archive DVDs** with proper deinterlacing/IVTC and cleanup
 - **Restore VHS captures** with specialized filtering pipelines
 
 ## Supported Platforms
@@ -25,6 +26,7 @@ No scripting required. No command line needed. Just drop your video and go.
 - **Simple drag-and-drop interface** - Just drop your video file and go
 - **Multi-pass restoration pipeline** - Deinterlace, denoise, dehalo, deblock, deband, sharpen, color correction
 - **Full QTGMC configuration** - Access all 70+ QTGMC parameters
+- **IVTC (Inverse Telecine)** - Recover original 23.976 FPS film from telecined DVD sources with auto-detection
 - **Real-time preview** - Side-by-side before/after comparison with live updates
 - **Zoomable timeline** - Mouse wheel zoom centered on cursor, visual drag panning
 - **In/Out point markers** - Export only a portion of your video
@@ -508,6 +510,7 @@ The parameter is visible when the `method` parameter equals any of the listed va
 | neo_f3kdb | Latest | Debanding filter |
 | DFTTest | Latest | FFT-based denoising |
 | havsfunc | Latest | QTGMC implementation |
+| VIVTC | Latest | Inverse telecine (VFM + VDecimate) |
 | MiscFilters | Latest | Misc VapourSynth filters |
 
 ## License
@@ -523,6 +526,7 @@ Stuart Cameron - [stuart-cameron.com](https://stuart-cameron.com)
 ## Acknowledgments
 
 - **QTGMC** by Vit - The deinterlacing algorithm
+- **VIVTC** by Fredrik Mellbin - VFM field matching and VDecimate for inverse telecine
 - **VapourSynth** by Fredrik Mellbin - Video processing framework
 - **havsfunc** by HolyWu - QTGMC VapourSynth port
 - **FFmpeg** project - Video encoding

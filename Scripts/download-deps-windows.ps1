@@ -263,6 +263,11 @@ $Plugins7z = @(
         Name = "tcanny"
         Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TCanny/releases/download/r14/TCanny-r14-win64.7z"
         Check = "TCanny.dll"
+    },
+    @{
+        Name = "vivtc"
+        Url = "https://github.com/vapoursynth/vivtc/releases/download/R1/VIVTC-R1.7z"
+        Check = "VIVTC.dll"
     }
 )
 

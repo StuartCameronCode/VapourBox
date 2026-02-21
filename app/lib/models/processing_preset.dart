@@ -166,6 +166,29 @@ class ProcessingPreset {
     );
   }
 
+  /// Built-in preset: DVD IVTC.
+  static ProcessingPreset builtInDvdIvtc() {
+    return ProcessingPreset(
+      id: 'builtin-dvd-ivtc',
+      name: 'DVD IVTC',
+      description: 'Inverse telecine for NTSC DVD sources (29.97i \u2192 23.976p)',
+      pipeline: RestorationPipeline(
+        deinterlace: QTGMCParameters(
+          enabled: true,
+          method: DeinterlaceMethod.ivtc,
+          ivtcOrder: 1, // TFF (standard for DVD)
+          ivtcMode: 1,
+          ivtcCycle: 5,
+        ),
+      ),
+      encodingSettings: EncodingSettings(
+        encoderPreset: 'medium',
+        quality: 18,
+      ),
+      isBuiltIn: true,
+    );
+  }
+
   /// Get all built-in presets.
   static List<ProcessingPreset> builtInPresets() {
     return [
@@ -173,6 +196,7 @@ class ProcessingPreset {
       builtInBalanced(),
       builtInHighQuality(),
       builtInVhsRestoration(),
+      builtInDvdIvtc(),
     ];
   }
 }

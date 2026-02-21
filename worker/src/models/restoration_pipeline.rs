@@ -44,7 +44,7 @@ impl PassType {
     /// Get description for the pass.
     pub fn description(&self) -> &'static str {
         match self {
-            PassType::Deinterlace => "Remove interlacing artifacts using QTGMC",
+            PassType::Deinterlace => "Deinterlace (QTGMC) or inverse telecine (IVTC)",
             PassType::NoiseReduction => "Reduce video noise and grain",
             PassType::Dehalo => "Remove halo artifacts around edges",
             PassType::Deblock => "Remove compression block artifacts",

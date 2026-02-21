@@ -12,7 +12,7 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 
 use crate::dependency_locator::DependencyLocator;
-use crate::models::{AudioMode, EncoderFamily, EncodingSettings, LogLevel, ProgressInfo, VideoCodec, VideoJob};
+use crate::models::{AudioMode, DeinterlaceMethod, EncoderFamily, EncodingSettings, LogLevel, ProgressInfo, VideoCodec, VideoJob};
 use crate::progress_reporter::ProgressReporter;
 use crate::script_generator::{PreviewParams, ScriptGenerator};
 
@@ -121,9 +121,14 @@ impl PipelineExecutor {
             }
         });
 
-        // Determine if deinterlacing produces double-rate output
+        // Determine how deinterlacing affects output frame count
         let pipeline = job.effective_pipeline();
-        let is_double_rate = pipeline.deinterlace.enabled && pipeline.deinterlace.fps_divisor == 1;
+        let is_double_rate = pipeline.deinterlace.enabled
+            && pipeline.deinterlace.method == DeinterlaceMethod::Qtgmc
+            && pipeline.deinterlace.fps_divisor == 1;
+        let is_ivtc = pipeline.deinterlace.enabled
+            && pipeline.deinterlace.method == DeinterlaceMethod::Ivtc;
+        let ivtc_cycle = pipeline.deinterlace.ivtc_cycle;
 
         // Capture ffmpeg stderr in a background thread (for error messages).
         // Progress comes from the temp file, not stderr.
@@ -199,7 +204,14 @@ impl PipelineExecutor {
                 }
 
                 if vspipe_total > 0 {
-                    let mut effective_total = if is_double_rate { vspipe_total * 2 } else { vspipe_total };
+                    let mut effective_total = if is_double_rate {
+                        vspipe_total * 2
+                    } else if is_ivtc && ivtc_cycle > 1 {
+                        // IVTC VDecimate removes 1 frame per cycle
+                        vspipe_total * (ivtc_cycle - 1) / ivtc_cycle
+                    } else {
+                        vspipe_total
+                    };
 
                     // Safety clamp: if current_frame exceeds total, metadata was wrong
                     if current_frame > effective_total {
