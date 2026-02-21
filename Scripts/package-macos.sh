@@ -86,11 +86,11 @@ ENTITLEMENTS="$PROJECT_ROOT/packaging/macos/distribution.entitlements"
 
 # Determine total steps based on options
 if $NO_SIGN; then
-    TOTAL_STEPS=6
+    TOTAL_STEPS=5
 elif $NOTARIZE; then
-    TOTAL_STEPS=8
-else
     TOTAL_STEPS=7
+else
+    TOTAL_STEPS=6
 fi
 
 echo "=== Packaging VapourBox for macOS ($ARCH) ==="
@@ -368,31 +368,19 @@ if $NOTARIZE && ! $NO_SIGN; then
     echo "    Notarization complete"
 fi
 
-# Create zip containing the DMG
-STEP=$((STEP + 1))
-ZIP_FILE="$DIST_DIR/$DMG_NAME.zip"
-echo ""
-echo "[$STEP/$TOTAL_STEPS] Creating zip archive..."
-rm -f "$ZIP_FILE"
-cd "$DIST_DIR"
-zip -q "$ZIP_FILE" "$(basename "$DMG_FILE")"
-ZIP_SIZE=$(du -sh "$ZIP_FILE" | cut -f1)
-echo "    Zip file: $ZIP_FILE ($ZIP_SIZE)"
-
 echo ""
 echo "=== Packaging Complete ==="
 echo ""
 echo "  App bundle: $APP_BUNDLE ($APP_SIZE)"
 echo "  DMG:        $DMG_FILE ($DMG_SIZE)"
-echo "  Zip:        $ZIP_FILE ($ZIP_SIZE)"
 echo ""
 echo "Note: Dependencies (~94 MB) will be downloaded on first run."
 echo ""
 echo "To install:"
 echo "  Open $DMG_FILE and drag VapourBox to Applications"
 echo ""
-echo "To distribute, share the zip file:"
-echo "  $ZIP_FILE"
+echo "To distribute, share the DMG:"
+echo "  $DMG_FILE"
 
 if ! $NO_SIGN && ! $NOTARIZE; then
     echo ""
