@@ -99,9 +99,12 @@ impl ScriptGenerator {
         let exe_dir = exe_path.parent().unwrap_or(Path::new("."));
 
         let search_paths = [
-            // Next to executable (production)
+            // Next to executable (production: Contents/MacOS/)
             exe_dir.join("templates").join(name),
             exe_dir.join("Templates").join(name),
+            // In Resources (macOS app bundle: Contents/Resources/templates/)
+            exe_dir.join("..").join("Resources").join("templates").join(name),
+            exe_dir.join("..").join("Resources").join("Templates").join(name),
             // In parent (development: worker/target/debug -> worker/templates)
             exe_dir.join("..").join("..").join("templates").join(name),
             exe_dir.join("..").join("..").join("..").join("templates").join(name),

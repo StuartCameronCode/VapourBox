@@ -278,21 +278,10 @@ echo -e "${BLUE}[4/6] Building macOS app...${NC}"
 
 if $SKIP_BUILD; then
     echo "Skipping build (--skip-build)"
+    "$SCRIPT_DIR/package-macos.sh" --version "$APP_VERSION" --skip-build --notarize
 else
-    # Build Rust worker
-    echo "Building Rust worker..."
-    cd "$PROJECT_ROOT/worker"
-    cargo build --release
-
-    # Build Flutter app
-    echo "Building Flutter app..."
-    cd "$PROJECT_ROOT/app"
-    flutter pub get
-    flutter build macos --release
-
-    # Package macOS app
-    echo "Packaging macOS app..."
-    "$SCRIPT_DIR/package-macos.sh" --version "$APP_VERSION" --skip-build
+    # Build + package macOS app (package-macos.sh handles the two-step xcodebuild)
+    "$SCRIPT_DIR/package-macos.sh" --version "$APP_VERSION" --notarize
 fi
 
 echo ""
@@ -330,8 +319,12 @@ RELEASE_NOTES="## VapourBox $APP_VERSION
 
 ### Downloads
 - **Windows**: \`VapourBox-$APP_VERSION-windows-x64.zip\`
-- **macOS (Apple Silicon)**: \`VapourBox-$APP_VERSION-macos-arm64.zip\`
-- **macOS (Intel)**: \`VapourBox-$APP_VERSION-macos-x64.zip\`
+- **macOS (Apple Silicon)**: \`VapourBox-$APP_VERSION-macos-arm64.zip\` (contains signed & notarized DMG)
+- **macOS (Intel)**: \`VapourBox-$APP_VERSION-macos-x64.zip\` (contains signed & notarized DMG)
+
+### Installation
+- **Windows**: Extract zip and run \`vapourbox.exe\`
+- **macOS**: Open the DMG and drag VapourBox to Applications
 
 ### Dependencies
 Dependencies are automatically downloaded on first launch (~185 MB).
