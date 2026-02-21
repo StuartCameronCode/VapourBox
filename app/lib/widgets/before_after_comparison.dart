@@ -416,6 +416,7 @@ class _BeforeAfterComparisonWidgetState
         imageData,
         fit: BoxFit.contain,
         gaplessPlayback: true,
+        filterQuality: FilterQuality.none,
       );
     }
 
