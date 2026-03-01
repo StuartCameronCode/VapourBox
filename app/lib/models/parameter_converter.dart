@@ -22,6 +22,9 @@ class ParameterConverter {
       case DeinterlaceMethod.ivtc:
         method = 'ivtc';
         break;
+      case DeinterlaceMethod.softTelecine:
+        method = 'softTelecine';
+        break;
     }
 
     return DynamicParameters(
@@ -355,6 +358,9 @@ class ParameterConverter {
     switch (methodStr) {
       case 'ivtc':
         method = DeinterlaceMethod.ivtc;
+        break;
+      case 'softTelecine':
+        method = DeinterlaceMethod.softTelecine;
         break;
       default:
         method = DeinterlaceMethod.qtgmc;

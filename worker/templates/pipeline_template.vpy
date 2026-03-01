@@ -298,6 +298,11 @@ clip = core.vivtc.VDecimate(clip,
 {{/IVTC_SCTHRESH}}
 )
 {{/DEINT_IVTC}}
+{{#DEINT_SOFT_TELECINE}}
+# Soft Telecine: Relabel frame rate for DVD sources with soft telecine.
+# Source frames are already progressive but mislabeled as 29.97fps.
+clip = core.std.AssumeFPS(clip, fpsnum=24000, fpsden=1001)
+{{/DEINT_SOFT_TELECINE}}
 {{/DEINTERLACE}}
 
 # ============================================================================

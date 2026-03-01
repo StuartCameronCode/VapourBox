@@ -14,6 +14,8 @@ pub enum DeinterlaceMethod {
     Qtgmc,
     /// IVTC inverse telecine (VFM + VDecimate).
     Ivtc,
+    /// Soft telecine: relabel frame rate for DVD sources with soft telecine flags.
+    SoftTelecine,
 }
 
 /// All QTGMC parameters supported by the VapourSynth implementation.

@@ -361,7 +361,8 @@ class MainViewModel extends ChangeNotifier {
           message: 'Telecine detected \u2014 switched to IVTC',
         ));
       } else if (videoInfo.scanType == ScanType.interlaced &&
-          _restorationPipeline.deinterlace.method == DeinterlaceMethod.ivtc) {
+          (_restorationPipeline.deinterlace.method == DeinterlaceMethod.ivtc ||
+           _restorationPipeline.deinterlace.method == DeinterlaceMethod.softTelecine)) {
         // Auto-switch back to QTGMC for interlaced sources
         _restorationPipeline = _restorationPipeline.copyWith(
           deinterlace: _restorationPipeline.deinterlace.copyWith(

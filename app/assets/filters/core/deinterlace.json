@@ -123,6 +123,13 @@
         "ivtcDupthresh",
         "ivtcScthresh"
       ]
+    },
+    {
+      "id": "soft_telecine",
+      "name": "Soft Telecine",
+      "description": "Fix frame rate for DVD soft telecine sources misdetected as 29.97fps",
+      "function": "core.std.AssumeFPS",
+      "parameters": []
     }
   ],
   "parameters": {
@@ -138,7 +145,8 @@
       "default": "qtgmc",
       "options": [
         "qtgmc",
-        "ivtc"
+        "ivtc",
+        "soft_telecine"
       ],
       "ui": {
         "hidden": true

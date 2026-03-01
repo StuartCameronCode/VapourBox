@@ -332,6 +332,21 @@ impl PipelineExecutor {
             }
         }
 
+        // Timestamp normalization for modes that change frame rate.
+        // Fixes audio sync offset caused by mismatched initial PTS between the
+        // Y4M pipe (starts at 0) and audio from the original container.
+        // Safe/no-op when timestamps are already aligned.
+        let pipeline = job.effective_pipeline();
+        let is_framerate_change = pipeline.deinterlace.enabled
+            && matches!(
+                pipeline.deinterlace.method,
+                DeinterlaceMethod::Ivtc | DeinterlaceMethod::SoftTelecine
+            );
+        if is_framerate_change {
+            args.extend(["-avoid_negative_ts".to_string(), "make_zero".to_string()]);
+            args.push("-start_at_zero".to_string());
+        }
+
         // Custom arguments
         if !settings.custom_ffmpeg_args.is_empty() {
             args.extend(settings.custom_ffmpeg_args.split_whitespace().map(String::from));

@@ -8,7 +8,9 @@ enum DeinterlaceMethod {
   @JsonValue('qtgmc')
   qtgmc,
   @JsonValue('ivtc')
-  ivtc;
+  ivtc,
+  @JsonValue('softTelecine')
+  softTelecine;
 
   String get displayName {
     switch (this) {
@@ -16,6 +18,8 @@ enum DeinterlaceMethod {
         return 'QTGMC';
       case DeinterlaceMethod.ivtc:
         return 'IVTC';
+      case DeinterlaceMethod.softTelecine:
+        return 'Soft Telecine';
     }
   }
 
@@ -25,6 +29,8 @@ enum DeinterlaceMethod {
         return 'High-quality motion-compensated deinterlacing';
       case DeinterlaceMethod.ivtc:
         return 'Inverse telecine for DVD 3:2 pulldown sources';
+      case DeinterlaceMethod.softTelecine:
+        return 'Fix frame rate for DVD soft telecine sources';
     }
   }
 }

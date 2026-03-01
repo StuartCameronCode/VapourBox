@@ -189,10 +189,11 @@ impl ScriptGenerator {
 
             match params.method {
                 DeinterlaceMethod::Qtgmc => {
-                    // Enable QTGMC block, remove IVTC block
+                    // Enable QTGMC block, remove IVTC and Soft Telecine blocks
                     script = script.replace("{{#DEINT_QTGMC}}", "");
                     script = script.replace("{{/DEINT_QTGMC}}", "");
                     script = remove_block("{{#DEINT_IVTC}}", "{{/DEINT_IVTC}}", script);
+                    script = remove_block("{{#DEINT_SOFT_TELECINE}}", "{{/DEINT_SOFT_TELECINE}}", script);
 
                     // Preset (required)
                     script = script.replace("{{PRESET}}", params.preset.as_str());
@@ -289,10 +290,11 @@ impl ScriptGenerator {
                     script = process_optional_int("DEVICE", params.device, script);
                 }
                 DeinterlaceMethod::Ivtc => {
-                    // Enable IVTC block, remove QTGMC block
+                    // Enable IVTC block, remove QTGMC and Soft Telecine blocks
                     script = remove_block("{{#DEINT_QTGMC}}", "{{/DEINT_QTGMC}}", script);
                     script = script.replace("{{#DEINT_IVTC}}", "");
                     script = script.replace("{{/DEINT_IVTC}}", "");
+                    script = remove_block("{{#DEINT_SOFT_TELECINE}}", "{{/DEINT_SOFT_TELECINE}}", script);
 
                     // Derive IVTC_ORDER from tff field (TFF→1, BFF→0), falling back to ivtc_order
                     let order = match params.tff {
@@ -313,6 +315,13 @@ impl ScriptGenerator {
                     script = process_optional_int("IVTC_CYCLE", if params.ivtc_cycle != 5 { Some(params.ivtc_cycle) } else { None }, script);
                     script = process_optional_double("IVTC_DUPTHRESH", params.ivtc_dupthresh, script);
                     script = process_optional_double("IVTC_SCTHRESH", params.ivtc_scthresh, script);
+                }
+                DeinterlaceMethod::SoftTelecine => {
+                    // Enable Soft Telecine block, remove QTGMC and IVTC blocks
+                    script = remove_block("{{#DEINT_QTGMC}}", "{{/DEINT_QTGMC}}", script);
+                    script = remove_block("{{#DEINT_IVTC}}", "{{/DEINT_IVTC}}", script);
+                    script = script.replace("{{#DEINT_SOFT_TELECINE}}", "");
+                    script = script.replace("{{/DEINT_SOFT_TELECINE}}", "");
                 }
             }
         } else {
