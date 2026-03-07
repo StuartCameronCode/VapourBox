@@ -184,36 +184,44 @@ class MainWindow extends StatelessWidget {
 
           const SizedBox(width: 8),
 
-          // Clear button (if queue has items)
-          if (viewModel.queue.isNotEmpty)
-            TextButton.icon(
-              icon: const Icon(Icons.clear),
-              label: const Text('Clear'),
-              onPressed:
-                  viewModel.isProcessing ? null : () => viewModel.clearQueue(),
+          // Show Close button when completed/failed, otherwise Clear + Go
+          if (viewModel.state == ProcessingState.completed ||
+              viewModel.state == ProcessingState.failed) ...[
+            FilledButton.icon(
+              icon: const Icon(Icons.close),
+              label: const Text('Close'),
+              onPressed: () => viewModel.reset(),
             ),
+          ] else ...[
+            // Clear button (if queue has items)
+            if (viewModel.queue.isNotEmpty)
+              TextButton.icon(
+                icon: const Icon(Icons.clear),
+                label: const Text('Clear'),
+                onPressed:
+                    viewModel.isProcessing ? null : () => viewModel.clearQueue(),
+              ),
 
-          const SizedBox(width: 8),
+            const SizedBox(width: 8),
 
-          // Go button
-          FilledButton.icon(
-            icon: viewModel.isProcessing
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.play_arrow),
-            label: Text(_getGoButtonText(viewModel)),
-            onPressed: viewModel.canProcess
-                ? () => _startProcessingWithCompatibilityCheck(context, viewModel)
-                : viewModel.state.canCancel
-                    ? () => viewModel.cancelProcessing()
-                    : null,
-          ),
+            // Go button
+            FilledButton.icon(
+              icon: viewModel.isProcessing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.play_arrow),
+              label: Text(_getGoButtonText(viewModel)),
+              onPressed: viewModel.canProcess
+                  ? () => _startProcessingWithCompatibilityCheck(context, viewModel)
+                  : null,
+            ),
+          ],
         ],
       ),
     );

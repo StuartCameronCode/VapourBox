@@ -142,7 +142,7 @@ class ProgressPanel extends StatelessWidget {
                 FilledButton.icon(
                   icon: const Icon(Icons.refresh),
                   label: const Text('Try Again'),
-                  onPressed: () => viewModel.reset(),
+                  onPressed: () => viewModel.retryFailed(),
                 ),
               ],
 
@@ -152,7 +152,7 @@ class ProgressPanel extends StatelessWidget {
                 TextButton.icon(
                   icon: const Icon(Icons.cancel),
                   label: const Text('Cancel'),
-                  onPressed: () => viewModel.cancelProcessing(),
+                  onPressed: () => _confirmCancel(context, viewModel),
                 ),
               ],
 
@@ -367,6 +367,29 @@ class ProgressPanel extends StatelessWidget {
               fontFamily: 'monospace',
               color: textColor,
             ),
+      ),
+    );
+  }
+
+  void _confirmCancel(BuildContext context, MainViewModel viewModel) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancel Processing?'),
+        content: const Text('Are you sure you want to cancel? The current video will stop processing.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Continue Processing'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              viewModel.cancelProcessing();
+            },
+            child: const Text('Cancel'),
+          ),
+        ],
       ),
     );
   }

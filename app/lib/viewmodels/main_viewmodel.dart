@@ -891,14 +891,16 @@ class MainViewModel extends ChangeNotifier {
 
   /// Processes the next ready item in the queue.
   Future<void> _processNextItem() async {
-    // Find next item that can be processed (ready or failed only)
-    final nextIndex = _queue.indexWhere((q) => q.canProcess);
+    // Find next ready item (not failed — failed items require explicit retry)
+    final nextIndex = _queue.indexWhere((q) => q.status == QueueItemStatus.ready);
 
     if (nextIndex == -1) {
       // No more items to process
       _isQueueProcessing = false;
       _currentProcessingIndex = -1;
-      _state = ProcessingState.completed;
+      // Show failed state if any items failed, otherwise completed
+      final hasFailed = _queue.any((q) => q.status == QueueItemStatus.failed);
+      _state = hasFailed ? ProcessingState.failed : ProcessingState.completed;
       notifyListeners();
       return;
     }
@@ -1026,6 +1028,27 @@ class MainViewModel extends ChangeNotifier {
     } else {
       await _workerManager.cancel();
     }
+  }
+
+  /// Retries all failed items in the queue.
+  Future<void> retryFailed() async {
+    if (_isQueueProcessing) return;
+
+    // Reset failed items to ready
+    for (final item in _queue) {
+      if (item.status == QueueItemStatus.failed) {
+        item.status = QueueItemStatus.ready;
+        item.errorMessage = null;
+      }
+    }
+
+    _isQueueProcessing = true;
+    _currentProcessingIndex = -1;
+    _logMessages.clear();
+    _state = ProcessingState.preparingJob;
+    notifyListeners();
+
+    await _processNextItem();
   }
 
   /// Resets after completion or failure.
