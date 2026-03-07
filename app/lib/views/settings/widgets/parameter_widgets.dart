@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../../models/filter_schema.dart';
+import '../../../viewmodels/main_viewmodel.dart';
 
 /// Factory for creating parameter widgets based on schema definition.
 class ParameterWidgetFactory {
@@ -536,10 +538,10 @@ class PresetSelectorWidget extends StatelessWidget {
             }
           },
         ),
-        if (preset.description != null) ...[
+        ...[
           const SizedBox(height: 4),
           Text(
-            preset.description!,
+            _getDescription(context, currentOption),
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                 ),
@@ -547,5 +549,25 @@ class PresetSelectorWidget extends StatelessWidget {
         ],
       ],
     );
+  }
+
+  String _getDescription(BuildContext context, String currentOption) {
+    // For outputRate preset, show actual frame rates from the video
+    if (presetId == 'outputRate') {
+      final viewModel = Provider.of<MainViewModel>(context, listen: false);
+      final frameRate = viewModel.selectedItem?.videoInfo?.frameRate;
+      if (frameRate != null && frameRate > 0) {
+        final fpsDivisor = preset.options[currentOption]?['fpsDivisor'] as num? ?? 1;
+        final inputFmt = _formatRate(frameRate);
+        final outputFmt = _formatRate(fpsDivisor == 1 ? frameRate * 2 : frameRate);
+        return '${inputFmt}i \u2192 ${outputFmt}p';
+      }
+    }
+    return preset.description ?? '';
+  }
+
+  String _formatRate(double rate) {
+    if (rate == rate.roundToDouble()) return rate.toStringAsFixed(0);
+    return rate.toStringAsFixed(2);
   }
 }

@@ -80,9 +80,7 @@ class DeinterlaceSettingsPanel extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              params.fpsDivisor == 1
-                  ? '50i → 50p (smooth motion)'
-                  : '50i → 25p (smaller file)',
+              _getOutputRateDescription(viewModel, params.fpsDivisor),
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                   ),
@@ -146,6 +144,23 @@ class DeinterlaceSettingsPanel extends StatelessWidget {
         );
       },
     );
+  }
+
+  String _getOutputRateDescription(MainViewModel viewModel, int fpsDivisor) {
+    final frameRate = viewModel.selectedItem?.videoInfo?.frameRate;
+    if (frameRate != null && frameRate > 0) {
+      final inputRate = frameRate.toStringAsFixed(frameRate == frameRate.roundToDouble() ? 0 : 2);
+      if (fpsDivisor == 1) {
+        return '${inputRate}i → ${inputRate}p (smooth motion)';
+      } else {
+        final halfRate = (frameRate / 2);
+        final outputRate = halfRate.toStringAsFixed(halfRate == halfRate.roundToDouble() ? 0 : 2);
+        return '${inputRate}i → ${outputRate}p (smaller file)';
+      }
+    }
+    return fpsDivisor == 1
+        ? 'Double frame rate (smooth motion)'
+        : 'Single frame rate (smaller file)';
   }
 
   void _updateParams(MainViewModel viewModel, QTGMCParameters params) {

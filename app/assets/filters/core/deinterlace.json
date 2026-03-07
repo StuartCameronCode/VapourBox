@@ -1897,12 +1897,12 @@
     "outputRate": {
       "label": "Output Rate",
       "description": "Frame rate of the deinterlaced output",
-      "default": "Double Rate (50i→50p)",
+      "default": "Double Rate (smooth motion)",
       "options": {
-        "Double Rate (50i→50p)": {
+        "Double Rate (smooth motion)": {
           "fpsDivisor": 1
         },
-        "Single Rate (50i→25p)": {
+        "Single Rate (smaller file)": {
           "fpsDivisor": 2
         }
       },
