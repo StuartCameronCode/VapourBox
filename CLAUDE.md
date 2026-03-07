@@ -247,26 +247,22 @@ The worker and Flutter app have different behaviors in development vs production
 
 ### Development Workflow
 
-1. **Build worker (debug)**:
-   ```bash
-   cd worker
-   cargo build
-   ```
+**macOS: Always use the debug script to build and run:**
 
-2. **Copy worker to Flutter build folder** (required after worker changes):
-   ```bash
-   # Windows
-   cp worker/target/debug/vapourbox-worker.exe app/build/windows/x64/runner/Debug/
+```bash
+./Scripts/run-debug-macos.sh            # Full build (worker + app) and launch
+./Scripts/run-debug-macos.sh --skip-worker  # Rebuild app only (no worker changes)
+./Scripts/run-debug-macos.sh --skip-app     # Rebuild worker only (no app changes)
+./Scripts/run-debug-macos.sh --run-only     # Just copy and launch (no builds)
+```
 
-   # macOS
-   cp worker/target/debug/vapourbox-worker app/build/macos/Build/Products/Debug/vapourbox.app/Contents/MacOS/
-   ```
+This script handles the full workflow: builds the worker, builds the Flutter app via xcodebuild, copies the worker binary and templates into the app bundle, removes quarantine from deps, and launches the app.
 
-3. **Run Flutter app**:
-   ```bash
-   cd app
-   flutter run
-   ```
+**Windows (manual):**
+
+1. Build worker: `cd worker && cargo build`
+2. Copy worker: `cp worker/target/debug/vapourbox-worker.exe app/build/windows/x64/runner/Debug/`
+3. Run app: `cd app && flutter run`
 
 The Flutter app searches for the worker in these locations:
 - Next to the Flutter executable (where we copy it)
@@ -1032,6 +1028,7 @@ Uses `open -R <path>` to open Finder with the file selected.
 
 | Script | Purpose |
 |--------|---------|
+| `Scripts/run-debug-macos.sh` | Build and run macOS debug app (always use this) |
 | `Scripts/download-deps-windows.ps1` | Download all Windows dependencies |
 | `Scripts/download-deps-macos.sh` | Download all macOS dependencies |
 | `Scripts/package-windows.ps1` | Create standalone Windows zip |
