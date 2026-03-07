@@ -12,13 +12,11 @@ on:
         required: true
         type: string
       arch:
-        description: 'Architecture (arm64, x64, or both)'
+        description: 'Architecture'
         required: false
         type: choice
         options:
           - arm64
-          - x64
-          - both
         default: arm64
 
 jobs:
@@ -123,7 +121,11 @@ jobs:
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
 
-          # Two-step xcodebuild — flutter build macos fails with module dependency errors
+          # Try flutter build first — it generates ephemeral files needed by xcodebuild.
+          # It may fail with module dependency errors, which is OK.
+          flutter build macos --release || true
+
+          # Two-step xcodebuild — handles module dependency errors that flutter build can't
           cd macos
           rm -rf Pods Podfile.lock
           pod install
