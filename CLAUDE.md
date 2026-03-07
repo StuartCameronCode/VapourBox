@@ -1401,6 +1401,7 @@ The release system automates the entire process of creating releases for both ma
 | Script | Purpose |
 |--------|---------|
 | `Scripts/release.sh` | Main orchestrator - runs the full release process |
+| `Scripts/ci-build-and-release.sh` | Trigger CI builds, download artifacts, upload to draft release |
 | `Scripts/get-github-version.sh` | Fetch latest versions from GitHub releases |
 | `Scripts/update-version.sh` | Update version across all project files |
 | `Scripts/check-deps-changed.sh` | Detect if dependencies changed since last release |
@@ -1415,6 +1416,8 @@ The release system automates the entire process of creating releases for both ma
 |----------|---------|
 | `.github/workflows/build-windows.yml` | Build Windows app remotely |
 | `.github/workflows/build-macos.yml` | Build macOS app remotely |
+
+Both workflows produce build artifacts only — they do **not** upload directly to releases. Use `ci-build-and-release.sh` to trigger them, download artifacts, and upload to a draft release.
 
 ### Quick Start
 
@@ -1432,6 +1435,33 @@ This will:
 5. Build macOS app locally
 6. Trigger GitHub Actions for Windows build
 7. Create draft GitHub release
+
+### CI Build and Release
+
+To build both platforms via GitHub Actions and attach artifacts to a draft release:
+
+```bash
+# Full flow: trigger builds, wait, download artifacts, upload to draft release
+./Scripts/ci-build-and-release.sh --version 0.7.0
+
+# With custom deps tag and both macOS architectures
+./Scripts/ci-build-and-release.sh --version 0.7.0 --deps-tag deps-v1.1.0 --arch both
+
+# Just download latest artifacts and upload (don't trigger new builds)
+./Scripts/ci-build-and-release.sh --version 0.7.0 --skip-trigger
+```
+
+Prerequisites:
+- A draft release must already exist for the version tag (e.g., `v0.7.0`)
+- `gh` CLI installed and authenticated
+- Deps tag defaults to the value in `app/assets/deps-version.json`
+
+The script:
+1. Verifies the draft release exists
+2. Triggers Build Windows and Build macOS workflows
+3. Waits for both to complete (fails if either fails)
+4. Downloads artifacts to `dist/ci-artifacts/`
+5. Uploads `.zip` and `.dmg` files to the draft release
 
 ### Script Details
 
@@ -1538,29 +1568,35 @@ If you prefer manual control:
    ./Scripts/update-version.sh --app 0.2.0 --deps 1.1.0 --deps-tag deps-v1.1.0
    ```
 
-6. **Build apps:**
-   ```bash
-   # macOS
-   cd worker && cargo build --release
-   cd ../app && flutter pub get && flutter build macos --release
-   ./Scripts/package-macos.sh --version 0.2.0 --skip-build
-
-   # Windows (via GitHub Actions or on Windows machine)
-   gh workflow run build-windows.yml -f version=0.2.0 -f deps_tag=deps-v1.1.0
-   ```
-
-7. **Create app release:**
+6. **Create draft release:**
    ```bash
    gh release create v0.2.0 \
      --title "VapourBox 0.2.0" \
-     --draft \
-     dist/VapourBox-0.2.0-macos-*.zip
+     --draft
    ```
+
+7. **Build via CI and upload artifacts:**
+   ```bash
+   # Triggers both macOS and Windows builds, waits, downloads, uploads to draft
+   ./Scripts/ci-build-and-release.sh --version 0.2.0 --deps-tag deps-v1.1.0
+   ```
+
+   Or build locally (macOS only) and trigger Windows separately:
+   ```bash
+   # macOS local build
+   cd worker && cargo build --release
+   cd ../app && flutter pub get && flutter build macos --release
+   ./Scripts/package-macos.sh --version 0.2.0 --skip-build
+   gh release upload v0.2.0 dist/VapourBox-0.2.0-macos-arm64.dmg
+   ```
+
+8. **Publish:** Review the draft release and publish when ready.
 
 ### Cross-Platform Notes
 
-- **Flutter Windows on macOS**: Not possible natively. Use GitHub Actions or Windows machine.
-- **Flutter macOS on Windows**: Not possible natively. Use GitHub Actions or macOS machine.
+- **Flutter Windows on macOS**: Not possible natively. Use GitHub Actions.
+- **Flutter macOS on macOS CI**: Uses GitHub Actions free tier (200 mins/month for public repos).
 - **Deps packaging**: Windows deps can be zipped on macOS if `deps/windows-x64/` exists.
+- **CI builds are unsigned**: macOS DMGs from CI are ad-hoc signed. For distribution, sign locally or set up code signing secrets in CI.
 
 ---

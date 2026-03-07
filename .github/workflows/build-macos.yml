@@ -19,12 +19,7 @@ on:
           - arm64
           - x64
           - both
-        default: both
-      upload_to_release:
-        description: 'Upload to GitHub release'
-        required: false
-        type: boolean
-        default: true
+        default: arm64
 
 jobs:
   build:
@@ -37,14 +32,12 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.0'
           channel: 'stable'
           cache: true
 
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache Rust dependencies
@@ -90,6 +83,10 @@ jobs:
           echo "Dependencies extracted:"
           ls -la deps/
 
+      - name: Setup CocoaPods
+        run: |
+          gem install cocoapods
+
       - name: Update version numbers
         run: |
           VERSION="${{ inputs.version }}"
@@ -127,33 +124,44 @@ jobs:
           cd app
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
-          flutter build macos --release
+
+          # Two-step xcodebuild — flutter build macos fails with module dependency errors
+          cd macos
+          rm -rf Pods Podfile.lock
+          pod install
+
+          # Build Pods-Runner scheme first (all CocoaPods dependencies)
+          xcodebuild -workspace Runner.xcworkspace -scheme Pods-Runner \
+              -configuration Release build ONLY_ACTIVE_ARCH=NO \
+              -quiet
+
+          # Build Runner for arm64 only (must match Podfile ARCHS setting)
+          xcodebuild -workspace Runner.xcworkspace -scheme Runner \
+              -configuration Release build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+              -quiet
+
+          # Copy to Flutter build location
+          DERIVED_APP=$(find ~/Library/Developer/Xcode/DerivedData/Runner-*/Build/Products/Release/vapourbox.app -maxdepth 0 2>/dev/null | head -1)
+          if [ -z "$DERIVED_APP" ]; then
+              echo "ERROR: Could not find built app in DerivedData"
+              exit 1
+          fi
+          mkdir -p ../build/macos/Build/Products/Release
+          cp -R "$DERIVED_APP" ../build/macos/Build/Products/Release/
 
       - name: Package release (arm64)
         if: ${{ inputs.arch == 'arm64' || inputs.arch == 'both' }}
         run: |
-          VERSION="${{ inputs.version }}"
-          ./Scripts/package-macos.sh --version "$VERSION" --arch arm64 --skip-build
+          ./Scripts/package-macos.sh --version "${{ inputs.version }}" --arch arm64 --skip-build --no-sign
 
       - name: Package release (x64)
         if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
         run: |
-          VERSION="${{ inputs.version }}"
-          ./Scripts/package-macos.sh --version "$VERSION" --arch x64 --skip-build
+          ./Scripts/package-macos.sh --version "${{ inputs.version }}" --arch x64 --skip-build --no-sign
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: VapourBox-${{ inputs.version }}-macos
-          path: dist/VapourBox-${{ inputs.version }}-macos-*.zip
+          path: dist/VapourBox-${{ inputs.version }}-macos-*.dmg
 
-      - name: Upload to release
-        if: ${{ inputs.upload_to_release }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          for f in dist/VapourBox-${{ inputs.version }}-macos-*.zip; do
-            if [ -f "$f" ]; then
-              gh release upload "v${{ inputs.version }}" "$f" --clobber || echo "Release may not exist yet"
-            fi
-          done

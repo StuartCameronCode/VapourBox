@@ -11,11 +11,6 @@ on:
         description: 'Deps release tag (e.g., deps-v1.0.0)'
         required: true
         type: string
-      upload_to_release:
-        description: 'Upload to GitHub release'
-        required: false
-        type: boolean
-        default: true
 
 jobs:
   build:
@@ -194,9 +189,3 @@ jobs:
           name: VapourBox-${{ inputs.version }}-windows-x64
           path: dist/VapourBox-${{ inputs.version }}-windows-x64.zip
 
-      - name: Upload to release
-        if: ${{ inputs.upload_to_release }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload "v${{ inputs.version }}" "dist/VapourBox-${{ inputs.version }}-windows-x64.zip" --clobber || echo "Release may not exist yet"
