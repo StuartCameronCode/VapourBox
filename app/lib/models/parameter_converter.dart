@@ -23,7 +23,7 @@ class ParameterConverter {
         method = 'ivtc';
         break;
       case DeinterlaceMethod.softTelecine:
-        method = 'softTelecine';
+        method = 'soft_telecine';
         break;
     }
 
@@ -359,7 +359,7 @@ class ParameterConverter {
       case 'ivtc':
         method = DeinterlaceMethod.ivtc;
         break;
-      case 'softTelecine':
+      case 'soft_telecine':
         method = DeinterlaceMethod.softTelecine;
         break;
       default:

@@ -78,6 +78,7 @@ if [ -z "$DERIVED_APP" ]; then
 fi
 
 mkdir -p "$APP_DIR/build/macos/Build/Products/Debug"
+rm -rf "$DEBUG_APP"
 cp -R "$DERIVED_APP" "$DEBUG_APP"
 
 # Copy worker binary

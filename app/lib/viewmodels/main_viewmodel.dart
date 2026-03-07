@@ -347,33 +347,52 @@ class MainViewModel extends ChangeNotifier {
     // Auto-switch deinterlace method based on detected scan type
     final videoInfo = _queue[index].videoInfo;
     if (videoInfo != null) {
-      if (videoInfo.scanType == ScanType.telecine &&
-          _restorationPipeline.deinterlace.method == DeinterlaceMethod.qtgmc) {
-        // Auto-switch to IVTC for telecine sources
+      DeinterlaceMethod? targetMethod;
+      bool? targetEnabled;
+      String? logMsg;
+
+      switch (videoInfo.scanType) {
+        case ScanType.softTelecine:
+          targetMethod = DeinterlaceMethod.softTelecine;
+          targetEnabled = true;
+          logMsg = 'Soft telecine detected \u2014 switched to Soft Telecine';
+          break;
+        case ScanType.telecine:
+          targetMethod = DeinterlaceMethod.ivtc;
+          targetEnabled = true;
+          logMsg = 'Hard telecine detected \u2014 switched to IVTC';
+          break;
+        case ScanType.interlaced:
+          targetMethod = DeinterlaceMethod.qtgmc;
+          targetEnabled = true;
+          logMsg = 'Interlaced content detected \u2014 switched to QTGMC';
+          break;
+        case ScanType.progressive:
+          targetEnabled = false;
+          logMsg = 'Progressive content detected \u2014 deinterlacing disabled';
+          break;
+        case ScanType.unknown:
+          targetMethod = DeinterlaceMethod.qtgmc;
+          targetEnabled = true;
+          logMsg = 'Scan type unknown \u2014 defaulting to QTGMC';
+          break;
+      }
+
+      if (targetMethod != null || targetEnabled != null) {
         _restorationPipeline = _restorationPipeline.copyWith(
           deinterlace: _restorationPipeline.deinterlace.copyWith(
-            method: DeinterlaceMethod.ivtc,
+            method: targetMethod ?? _restorationPipeline.deinterlace.method,
+            enabled: targetEnabled ?? _restorationPipeline.deinterlace.enabled,
           ),
         );
         _qtgmcParams = _restorationPipeline.deinterlace;
+        // Sync dynamic params cache and notify UI immediately
+        _dynamicParams.remove('deinterlace');
         _logMessages.add(LogMessage(
           level: LogLevel.info,
-          message: 'Telecine detected \u2014 switched to IVTC',
+          message: logMsg!,
         ));
-      } else if (videoInfo.scanType == ScanType.interlaced &&
-          (_restorationPipeline.deinterlace.method == DeinterlaceMethod.ivtc ||
-           _restorationPipeline.deinterlace.method == DeinterlaceMethod.softTelecine)) {
-        // Auto-switch back to QTGMC for interlaced sources
-        _restorationPipeline = _restorationPipeline.copyWith(
-          deinterlace: _restorationPipeline.deinterlace.copyWith(
-            method: DeinterlaceMethod.qtgmc,
-          ),
-        );
-        _qtgmcParams = _restorationPipeline.deinterlace;
-        _logMessages.add(LogMessage(
-          level: LogLevel.info,
-          message: 'Interlaced content detected \u2014 switched to QTGMC',
-        ));
+        notifyListeners();
       }
     }
 

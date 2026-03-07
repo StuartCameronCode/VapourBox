@@ -253,6 +253,10 @@ class _QueuePanelState extends State<QueuePanel> {
                 label: 'Field Order',
                 value: item.videoInfo!.fieldOrderDescription,
               ),
+              _InfoRow(
+                label: 'Scan Type',
+                value: item.videoInfo!.scanType.displayName,
+              ),
             ],
             if (item.hasInOutRange)
               _InfoRow(label: 'Range', value: item.inOutRangeFormatted),
@@ -525,7 +529,7 @@ class _InfoRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 80,
+            width: 90,
             child: Text(
               label,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(

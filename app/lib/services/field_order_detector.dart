@@ -4,89 +4,23 @@ import 'dart:io';
 import '../models/video_job.dart';
 import 'tool_locator.dart';
 
-/// Detects field order (TFF/BFF) from video files using ffprobe.
+/// Detects field order and scan type from video files using ffmpeg idet filter
+/// and ffprobe frame analysis.
 class FieldOrderDetector {
   FieldOrderDetector();
 
-  /// Detects the field order of a video file.
+  /// Detects the field order of a video file using idet pixel analysis.
   ///
   /// Returns [FieldOrder.topFieldFirst], [FieldOrder.bottomFieldFirst], or [FieldOrder.progressive]
-  /// based on the video metadata. Returns null if detection fails.
+  /// based on actual frame content. Returns null if detection fails.
   Future<FieldOrder?> detect(String videoPath) async {
-    final ffprobe = ToolLocator.instance.ffprobePath;
-    if (ffprobe == null) {
-      return null;
+    final idet = await _runIdet(videoPath);
+    if (idet != null) {
+      return idet.fieldOrder;
     }
 
-    try {
-      // Run ffprobe to get stream information
-      final result = await Process.run(
-        ffprobe,
-        [
-          '-v', 'quiet',
-          '-print_format', 'json',
-          '-show_streams',
-          '-select_streams', 'v:0',
-          videoPath,
-        ],
-      );
-
-      if (result.exitCode != 0) {
-        return null;
-      }
-
-      final json = jsonDecode(result.stdout as String) as Map<String, dynamic>;
-      final streams = json['streams'] as List<dynamic>?;
-
-      if (streams == null || streams.isEmpty) {
-        return null;
-      }
-
-      final videoStream = streams[0] as Map<String, dynamic>;
-
-      // Check field_order tag
-      final fieldOrder = videoStream['field_order'] as String?;
-      if (fieldOrder != null) {
-        switch (fieldOrder.toLowerCase()) {
-          case 'tt':
-          case 'tb':
-            return FieldOrder.topFieldFirst;
-          case 'bb':
-          case 'bt':
-            return FieldOrder.bottomFieldFirst;
-          case 'progressive':
-            return FieldOrder.progressive;
-        }
-      }
-
-      // Fallback: check codec tags
-      final codecTagString = videoStream['codec_tag_string'] as String?;
-      if (codecTagString != null) {
-        // DV codec usually indicates interlaced content
-        if (codecTagString.toLowerCase().contains('dv')) {
-          // DV is typically bottom-field-first for NTSC, TFF for PAL
-          final frameRate = _parseFrameRate(videoStream['r_frame_rate'] as String?);
-          if (frameRate != null && frameRate < 26) {
-            // PAL (25fps) is typically TFF
-            return FieldOrder.topFieldFirst;
-          } else {
-            // NTSC (29.97fps) is typically BFF
-            return FieldOrder.bottomFieldFirst;
-          }
-        }
-      }
-
-      // Check if interlaced based on codec
-      final codecName = videoStream['codec_name'] as String?;
-      if (codecName != null && codecName.toLowerCase() == 'mpeg2video') {
-        // MPEG-2 often has interlaced content, default to TFF
-        return FieldOrder.topFieldFirst;
-      }
-
-      return null;
-    } catch (e) {
-      return null;
-    }
+    // Fall back to metadata-based detection
+    return _detectFieldOrderFromMetadata(videoPath);
   }
 
   /// Gets detailed video information for display.
@@ -145,11 +79,30 @@ class FieldOrderDetector {
       final frameCount = _parseFrameCount(videoStream['nb_frames'] as String?);
       final codec = videoStream['codec_name'] as String?;
       final pixelFormat = videoStream['pix_fmt'] as String?;
-      final fieldOrder = await detect(videoPath);
 
-      // Detect scan type (telecine vs interlaced vs progressive)
-      final scanType = await _detectScanType(
-        videoPath, videoStream, fieldOrder, frameRate,
+      // Get metadata field order for context
+      final metadataFieldOrder = videoStream['field_order'] as String?;
+
+      // Run idet and repeat_pict analysis in parallel
+      final results = await Future.wait([
+        _runIdet(videoPath),
+        _detectSoftTelecine(videoPath),
+      ]);
+      final idet = results[0] as _IdetResult?;
+      final hasSoftTelecine = results[1] as bool;
+
+      // Determine field order: prefer idet, fall back to metadata
+      FieldOrder? fieldOrder;
+      if (idet != null) {
+        fieldOrder = idet.fieldOrder;
+      }
+      fieldOrder ??= await _detectFieldOrderFromMetadata(videoPath);
+
+      // Determine scan type from idet + repeat_pict + metadata context
+      final scanType = _classifyScanType(
+        idet, hasSoftTelecine,
+        metadataFieldOrder: metadataFieldOrder,
+        frameRate: frameRate,
       );
 
       return VideoInfo(
@@ -169,54 +122,171 @@ class FieldOrderDetector {
     }
   }
 
-  /// Detect whether the video is telecine, interlaced, or progressive.
+  // ============================================================================
+  // IDET ANALYSIS
+  // ============================================================================
+
+  /// Runs the ffmpeg idet filter to analyze frame content.
   ///
-  /// Telecine detection uses ffprobe frame analysis to check for repeat_pict
-  /// flags that indicate soft telecine (3:2 pulldown). Also uses heuristics
-  /// based on codec type and frame rate.
-  Future<ScanType> _detectScanType(
-    String videoPath,
-    Map<String, dynamic> videoStream,
-    FieldOrder? fieldOrder,
-    double? frameRate,
-  ) async {
-    // Progressive content
-    if (fieldOrder == FieldOrder.progressive) {
-      return ScanType.progressive;
+  /// Analyzes up to 200 frames of actual pixel data to detect:
+  /// - Interlaced vs progressive content
+  /// - Field order (TFF/BFF)
+  /// - Repeated fields (indicates hard telecine)
+  Future<_IdetResult?> _runIdet(String videoPath) async {
+    final ffmpeg = ToolLocator.instance.ffmpegPath;
+    if (ffmpeg == null) return null;
+
+    try {
+      final result = await Process.run(
+        ffmpeg,
+        [
+          '-i', videoPath,
+          '-vf', 'idet',
+          '-frames:v', '200',
+          '-an',
+          '-f', 'rawvideo',
+          '-y',
+          if (Platform.isWindows) 'NUL' else '/dev/null',
+        ],
+      ).timeout(const Duration(seconds: 15), onTimeout: () {
+        return ProcessResult(0, 1, '', 'timeout');
+      });
+
+      // idet output goes to stderr
+      final stderr = result.stderr as String;
+      return _parseIdetOutput(stderr);
+    } catch (e) {
+      return null;
     }
+  }
 
-    final codec = videoStream['codec_name'] as String? ?? '';
-    final codecLower = codec.toLowerCase();
+  /// Parses the idet filter output from ffmpeg stderr.
+  ///
+  /// Example output:
+  /// [Parsed_idet_0 @ ...] Multi frame detection: TFF:168 BFF:0 Progressive:0 Undetermined:0
+  /// [Parsed_idet_0 @ ...] Repeated Fields: Neither:54 Top:18 Bottom:18
+  _IdetResult? _parseIdetOutput(String stderr) {
+    int tff = 0, bff = 0, progressive = 0, undetermined = 0;
+    int repeatedTop = 0, repeatedBottom = 0;
+    bool foundMulti = false;
+    bool foundRepeated = false;
 
-    // Check for soft telecine via frame analysis (repeat_pict flags)
-    final hasTelecine = await _detectSoftTelecine(videoPath);
-    if (hasTelecine) {
-      return ScanType.telecine;
-    }
-
-    // Heuristic: MPEG-2 at ~29.97fps with progressive field_order is likely telecine
-    if (codecLower == 'mpeg2video' && frameRate != null) {
-      final streamFieldOrder = videoStream['field_order'] as String? ?? '';
-      if (streamFieldOrder.toLowerCase() == 'progressive' &&
-          frameRate > 29.0 && frameRate < 30.0) {
-        return ScanType.telecine;
+    for (final line in stderr.split('\n')) {
+      // Use multi-frame detection (more reliable than single frame)
+      if (line.contains('Multi frame detection:')) {
+        final match = RegExp(
+          r'TFF:\s*(\d+)\s+BFF:\s*(\d+)\s+Progressive:\s*(\d+)\s+Undetermined:\s*(\d+)',
+        ).firstMatch(line);
+        if (match != null) {
+          tff = int.parse(match.group(1)!);
+          bff = int.parse(match.group(2)!);
+          progressive = int.parse(match.group(3)!);
+          undetermined = int.parse(match.group(4)!);
+          foundMulti = true;
+        }
+      } else if (line.contains('Repeated Fields:')) {
+        final match = RegExp(
+          r'Neither:\s*(\d+)\s+Top:\s*(\d+)\s+Bottom:\s*(\d+)',
+        ).firstMatch(line);
+        if (match != null) {
+          repeatedTop = int.parse(match.group(2)!);
+          repeatedBottom = int.parse(match.group(3)!);
+          foundRepeated = true;
+        }
       }
     }
 
-    // If we have a detected field order (TFF/BFF), it's interlaced
-    if (fieldOrder == FieldOrder.topFieldFirst ||
-        fieldOrder == FieldOrder.bottomFieldFirst) {
+    if (!foundMulti) return null;
+
+    return _IdetResult(
+      tff: tff,
+      bff: bff,
+      progressive: progressive,
+      undetermined: undetermined,
+      repeatedTop: repeatedTop,
+      repeatedBottom: repeatedBottom,
+    );
+  }
+
+  /// Classifies scan type from idet results, repeat_pict analysis,
+  /// and stream metadata context.
+  ///
+  /// Uses idet as primary signal, but cross-references with metadata
+  /// to avoid false positives (e.g., idet detecting combing artifacts
+  /// in progressive content as interlaced).
+  ScanType _classifyScanType(
+    _IdetResult? idet,
+    bool hasSoftTelecine, {
+    String? metadataFieldOrder,
+    double? frameRate,
+  }) {
+    if (idet == null) {
+      // No idet data — fall back to repeat_pict only
+      return hasSoftTelecine ? ScanType.softTelecine : ScanType.unknown;
+    }
+
+    final total = idet.tff + idet.bff + idet.progressive + idet.undetermined;
+    if (total == 0) {
+      return hasSoftTelecine ? ScanType.softTelecine : ScanType.unknown;
+    }
+
+    final interlacedCount = idet.tff + idet.bff;
+    final interlacedRatio = interlacedCount / total;
+    final progressiveRatio = idet.progressive / total;
+    final repeatedFields = idet.repeatedTop + idet.repeatedBottom;
+    final isMetadataProgressive =
+        metadataFieldOrder?.toLowerCase() == 'progressive';
+
+    // If metadata says progressive and frame rate is not a typical
+    // interlaced rate (~29.97 or ~25), trust metadata over idet.
+    // idet can report false interlaced on low-quality progressive content
+    // with motion artifacts or residual combing.
+    if (isMetadataProgressive && frameRate != null) {
+      final isInterlacedRate =
+          (frameRate > 24.5 && frameRate < 26.0) || // ~25fps PAL
+          (frameRate > 29.0 && frameRate < 30.5);    // ~29.97fps NTSC
+      if (!isInterlacedRate) {
+        if (hasSoftTelecine) return ScanType.softTelecine;
+        return ScanType.progressive;
+      }
+    }
+
+    // Hard telecine: interlaced frames with significant repeated fields
+    if (interlacedRatio > 0.5 && repeatedFields > 0) {
+      return ScanType.telecine;
+    }
+
+    // Interlaced: majority interlaced frames, no repeated fields
+    if (interlacedRatio > 0.5) {
+      // Cross-check: if metadata says progressive at ~29.97fps,
+      // this is likely soft telecine with combing artifacts, not true interlace
+      if (isMetadataProgressive) {
+        if (hasSoftTelecine) return ScanType.softTelecine;
+        return ScanType.progressive;
+      }
       return ScanType.interlaced;
     }
 
+    // Progressive frames dominant — check for soft telecine via repeat_pict
+    if (progressiveRatio > 0.5) {
+      if (hasSoftTelecine) return ScanType.softTelecine;
+      return ScanType.progressive;
+    }
+
+    // Ambiguous — mostly undetermined
+    if (hasSoftTelecine) return ScanType.softTelecine;
     return ScanType.unknown;
   }
+
+  // ============================================================================
+  // SOFT TELECINE DETECTION (repeat_pict)
+  // ============================================================================
 
   /// Check for soft telecine by analyzing frame repeat_pict flags.
   ///
   /// Soft telecine uses repeat_pict to indicate which fields should be
-  /// repeated to create 3:2 pulldown. A pattern of alternating 0 and 1
-  /// values in repeat_pict strongly indicates telecine.
+  /// repeated to create 3:2 or 2:2 pulldown. idet can't detect this because
+  /// the actual frames are progressive — only the repeat flags reveal it.
   Future<bool> _detectSoftTelecine(String videoPath) async {
     final ffprobe = ToolLocator.instance.ffprobePath;
     if (ffprobe == null) return false;
@@ -232,7 +302,6 @@ class FieldOrderDetector {
           '-read_intervals', '%+#30', // Sample first ~30 frames
           videoPath,
         ],
-        // Timeout to avoid hanging on large files
       ).timeout(const Duration(seconds: 15), onTimeout: () {
         return ProcessResult(0, 1, '', 'timeout');
       });
@@ -258,11 +327,12 @@ class FieldOrderDetector {
         }
       }
 
-      // In 3:2 pulldown, approximately 2 out of every 5 frames have repeat_pict=1
-      // So ~40% of frames should have repeat_pict > 0
+      // Soft telecine patterns:
+      // - 3:2 pulldown: ~40% of frames have repeat_pict > 0 (2 out of 5)
+      // - 2:2 pulldown: ~50% of frames have repeat_pict > 0 (every other)
       if (totalFrames >= 10) {
         final ratio = repeatCount / totalFrames;
-        if (ratio > 0.25 && ratio < 0.55) {
+        if (ratio > 0.25 && ratio < 0.65) {
           return true;
         }
       }
@@ -272,6 +342,79 @@ class FieldOrderDetector {
       return false;
     }
   }
+
+  // ============================================================================
+  // METADATA FALLBACK
+  // ============================================================================
+
+  /// Detects field order from stream metadata (fallback when idet unavailable).
+  Future<FieldOrder?> _detectFieldOrderFromMetadata(String videoPath) async {
+    final ffprobe = ToolLocator.instance.ffprobePath;
+    if (ffprobe == null) return null;
+
+    try {
+      final result = await Process.run(
+        ffprobe,
+        [
+          '-v', 'quiet',
+          '-print_format', 'json',
+          '-show_streams',
+          '-select_streams', 'v:0',
+          videoPath,
+        ],
+      );
+
+      if (result.exitCode != 0) return null;
+
+      final json = jsonDecode(result.stdout as String) as Map<String, dynamic>;
+      final streams = json['streams'] as List<dynamic>?;
+      if (streams == null || streams.isEmpty) return null;
+
+      final videoStream = streams[0] as Map<String, dynamic>;
+
+      // Check field_order tag
+      final fieldOrder = videoStream['field_order'] as String?;
+      if (fieldOrder != null) {
+        switch (fieldOrder.toLowerCase()) {
+          case 'tt':
+          case 'tb':
+            return FieldOrder.topFieldFirst;
+          case 'bb':
+          case 'bt':
+            return FieldOrder.bottomFieldFirst;
+          case 'progressive':
+            return FieldOrder.progressive;
+        }
+      }
+
+      // Fallback: check codec tags
+      final codecTagString = videoStream['codec_tag_string'] as String?;
+      if (codecTagString != null) {
+        if (codecTagString.toLowerCase().contains('dv')) {
+          final frameRate = _parseFrameRate(videoStream['r_frame_rate'] as String?);
+          if (frameRate != null && frameRate < 26) {
+            return FieldOrder.topFieldFirst;
+          } else {
+            return FieldOrder.bottomFieldFirst;
+          }
+        }
+      }
+
+      // Check if interlaced based on codec
+      final codecName = videoStream['codec_name'] as String?;
+      if (codecName != null && codecName.toLowerCase() == 'mpeg2video') {
+        return FieldOrder.topFieldFirst;
+      }
+
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // ============================================================================
+  // UTILITIES
+  // ============================================================================
 
   double? _parseFrameRate(String? rateStr) {
     if (rateStr == null) return null;
@@ -303,12 +446,53 @@ class FieldOrderDetector {
   }
 }
 
+/// Results from ffmpeg idet filter analysis.
+class _IdetResult {
+  final int tff;
+  final int bff;
+  final int progressive;
+  final int undetermined;
+  final int repeatedTop;
+  final int repeatedBottom;
+
+  const _IdetResult({
+    required this.tff,
+    required this.bff,
+    required this.progressive,
+    required this.undetermined,
+    required this.repeatedTop,
+    required this.repeatedBottom,
+  });
+
+  /// Determines field order from idet frame counts.
+  FieldOrder? get fieldOrder {
+    final total = tff + bff + progressive + undetermined;
+    if (total == 0) return null;
+
+    final interlacedCount = tff + bff;
+    if (interlacedCount > progressive) {
+      // Interlaced content — determine TFF vs BFF
+      if (tff > bff) return FieldOrder.topFieldFirst;
+      if (bff > tff) return FieldOrder.bottomFieldFirst;
+      return FieldOrder.topFieldFirst; // Default to TFF if equal
+    }
+
+    if (progressive > interlacedCount) {
+      return FieldOrder.progressive;
+    }
+
+    return null;
+  }
+}
+
 /// Detected scan type of the video content.
 enum ScanType {
   /// Standard interlaced content (e.g., 50i/60i broadcast).
   interlaced,
-  /// Telecined content (film with 3:2 pulldown, e.g., NTSC DVD).
+  /// Hard telecined content (interlaced fields with 3:2 pulldown, e.g., NTSC DVD).
   telecine,
+  /// Soft telecine: progressive frames with pulldown flags (real rate ~23.976fps).
+  softTelecine,
   /// Progressive content (no interlacing).
   progressive,
   /// Could not determine scan type.
@@ -319,7 +503,9 @@ enum ScanType {
       case ScanType.interlaced:
         return 'Interlaced';
       case ScanType.telecine:
-        return 'Telecine (3:2 pulldown)';
+        return 'Hard Telecine (3:2 pulldown)';
+      case ScanType.softTelecine:
+        return 'Soft Telecine';
       case ScanType.progressive:
         return 'Progressive';
       case ScanType.unknown:
@@ -356,7 +542,26 @@ class VideoInfo {
 
   String get resolution => '${width}x$height';
 
-  String get frameRateFormatted => '${frameRate.toStringAsFixed(2)} fps';
+  /// The actual content frame rate, which may differ from the container rate.
+  /// - Soft telecine: container is ~29.97fps, content is ~23.976fps
+  /// - Hard telecine: container is ~29.97fps, content is ~23.976fps (after IVTC)
+  /// - Progressive/interlaced: same as container rate
+  double get contentFrameRate {
+    if (scanType == ScanType.softTelecine || scanType == ScanType.telecine) {
+      // 3:2 pulldown: 4 content frames displayed as 5 container frames
+      // 29.97 * 4/5 = 23.976
+      return frameRate * 4.0 / 5.0;
+    }
+    return frameRate;
+  }
+
+  String get frameRateFormatted {
+    final content = contentFrameRate;
+    if ((content - frameRate).abs() > 0.5) {
+      return '${frameRate.toStringAsFixed(2)} fps (content ~${content.toStringAsFixed(2)} fps)';
+    }
+    return '${frameRate.toStringAsFixed(2)} fps';
+  }
 
   String get durationFormatted {
     final totalSecs = duration.toInt();
