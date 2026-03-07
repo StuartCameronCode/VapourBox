@@ -170,7 +170,14 @@ else
     echo "[$STEP/$TOTAL_STEPS] Skipping Rust build (--skip-build)"
     STEP=$((STEP + 1))
     echo "[$STEP/$TOTAL_STEPS] Skipping Flutter build (--skip-build)"
-    WORKER_BIN="$PROJECT_ROOT/worker/target/release/vapourbox-worker"
+    # Search for worker binary in arch-specific and default target directories
+    if [ "$ARCH" = "arm64" ] && [ -f "$PROJECT_ROOT/worker/target/aarch64-apple-darwin/release/vapourbox-worker" ]; then
+        WORKER_BIN="$PROJECT_ROOT/worker/target/aarch64-apple-darwin/release/vapourbox-worker"
+    elif [ "$ARCH" = "x64" ] && [ -f "$PROJECT_ROOT/worker/target/x86_64-apple-darwin/release/vapourbox-worker" ]; then
+        WORKER_BIN="$PROJECT_ROOT/worker/target/x86_64-apple-darwin/release/vapourbox-worker"
+    else
+        WORKER_BIN="$PROJECT_ROOT/worker/target/release/vapourbox-worker"
+    fi
 fi
 
 # Create app bundle structure
