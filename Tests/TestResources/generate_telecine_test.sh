@@ -20,7 +20,7 @@ OUTPUT_DIR="${1:-$SCRIPT_DIR}"
 # Intermediate progressive source (will be deleted)
 PROGRESSIVE_SRC="$OUTPUT_DIR/telecine_progressive_src.y4m"
 # Final telecined output
-TELECINE_OUT="$OUTPUT_DIR/telecine_test.avi"
+TELECINE_OUT="$OUTPUT_DIR/hard_telecine_test.avi"
 
 echo "=== Generating telecine test video ==="
 

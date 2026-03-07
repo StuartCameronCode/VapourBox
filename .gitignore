@@ -155,3 +155,4 @@ tmpclaude-*
 # Personal planning files
 licenseplan.md
 *.mkv
+!Tests/TestResources/soft_telecine_test.mkv

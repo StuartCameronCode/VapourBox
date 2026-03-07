@@ -36,10 +36,10 @@ void main() {
   });
 
   group('Scan Type Detection', () {
-    test('IVTC_Test_Clip.mkv is detected as soft telecine', () async {
-      final videoPath = path.join(testResourcesDir, 'IVTC_Test_Clip.mkv');
+    test('soft_telecine_test.mkv is detected as soft telecine', () async {
+      final videoPath = path.join(testResourcesDir, 'soft_telecine_test.mkv');
       if (!await File(videoPath).exists()) {
-        markTestSkipped('IVTC_Test_Clip.mkv not found');
+        markTestSkipped('soft_telecine_test.mkv not found');
         return;
       }
 
@@ -50,10 +50,10 @@ void main() {
               'soft telecine pulldown flags');
     });
 
-    test('telecine_test.avi is detected as hard telecine', () async {
-      final videoPath = path.join(testResourcesDir, 'telecine_test.avi');
+    test('hard_telecine_test.avi is detected as hard telecine', () async {
+      final videoPath = path.join(testResourcesDir, 'hard_telecine_test.avi');
       if (!await File(videoPath).exists()) {
-        markTestSkipped('telecine_test.avi not found');
+        markTestSkipped('hard_telecine_test.avi not found');
         return;
       }
 

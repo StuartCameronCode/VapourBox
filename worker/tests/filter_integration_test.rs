@@ -1219,7 +1219,7 @@ fn get_telecine_test_input() -> PathBuf {
         .parent().unwrap()
         .join("Tests")
         .join("TestResources")
-        .join("telecine_test.avi")
+        .join("hard_telecine_test.avi")
 }
 
 fn create_ivtc_base_job(output_name: &str) -> VideoJob {
