@@ -60,24 +60,22 @@ jobs:
 
           mkdir -p deps/macos-arm64 deps/macos-x64
 
-          # Download arm64 deps
+          # Download arm64 deps (zip contains flat structure, no wrapper folder)
           if [[ "${{ inputs.arch }}" == "arm64" || "${{ inputs.arch }}" == "both" ]]; then
             DEPS_URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.deps_tag }}/VapourBox-deps-${DEPS_VERSION}-macos-arm64.zip"
             echo "Downloading arm64 deps from: $DEPS_URL"
             curl -L -o deps-arm64.zip "$DEPS_URL"
-            unzip -o deps-arm64.zip -d deps-temp
-            mv deps-temp/VapourBox-deps-*/. deps/macos-arm64/ 2>/dev/null || mv deps-temp/*/* deps/macos-arm64/
-            rm -rf deps-arm64.zip deps-temp
+            unzip -o deps-arm64.zip -d deps/macos-arm64
+            rm -f deps-arm64.zip
           fi
 
-          # Download x64 deps
+          # Download x64 deps (zip contains flat structure, no wrapper folder)
           if [[ "${{ inputs.arch }}" == "x64" || "${{ inputs.arch }}" == "both" ]]; then
             DEPS_URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.deps_tag }}/VapourBox-deps-${DEPS_VERSION}-macos-x64.zip"
             echo "Downloading x64 deps from: $DEPS_URL"
             curl -L -o deps-x64.zip "$DEPS_URL"
-            unzip -o deps-x64.zip -d deps-temp
-            mv deps-temp/VapourBox-deps-*/. deps/macos-x64/ 2>/dev/null || mv deps-temp/*/* deps/macos-x64/
-            rm -rf deps-x64.zip deps-temp
+            unzip -o deps-x64.zip -d deps/macos-x64
+            rm -f deps-x64.zip
           fi
 
           echo "Dependencies extracted:"
