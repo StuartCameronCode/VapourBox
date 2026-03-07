@@ -192,6 +192,11 @@
         "label": "Field Order",
         "description": "Field order of the interlaced source. TFF (Top Field First) is most common for DVD/broadcast. BFF (Bottom Field First) is used by some DV camcorders and older captures. Auto-detected from source metadata when available.",
         "hidden": true,
+        "visibleWhen": {
+          "method": [
+            "qtgmc"
+          ]
+        },
         "booleanLabels": {
           "true": "Top Field First (TFF)",
           "false": "Bottom Field First (BFF)"
@@ -1877,6 +1882,9 @@
       "label": "Field Order",
       "description": "Which field comes first in the interlaced source",
       "default": "Top Field First",
+      "visibleWhen": {
+        "method": ["qtgmc"]
+      },
       "options": {
         "Top Field First": {
           "tff": true
