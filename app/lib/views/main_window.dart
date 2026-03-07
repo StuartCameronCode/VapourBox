@@ -8,6 +8,7 @@ import '../models/encoding_settings.dart';
 import '../models/progress_info.dart';
 import '../models/queue_item.dart';
 import '../services/audio_compatibility_service.dart';
+import '../services/preset_service.dart';
 import '../viewmodels/main_viewmodel.dart';
 import 'about_dialog.dart' as about;
 import 'audio_compatibility_dialog.dart';
@@ -105,6 +106,36 @@ class MainWindow extends StatelessWidget {
                 if (preset != null && !preset.isBuiltIn) {
                   await viewModel.deletePreset(preset);
                 }
+              } else if (value.startsWith('update:')) {
+                final presetId = value.substring(7);
+                final preset = viewModel.availablePresets.where((p) => p.id == presetId).firstOrNull;
+                if (preset != null && !preset.isBuiltIn && context.mounted) {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('Update Preset'),
+                      content: Text('Update "${preset.name}" with current settings?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('Update'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true) {
+                    await viewModel.updatePreset(preset);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Preset "${preset.name}" updated')),
+                      );
+                    }
+                  }
+                }
               }
             },
             itemBuilder: (context) {
@@ -143,6 +174,13 @@ class MainWindow extends StatelessWidget {
                                 title: Text(p.name),
                                 subtitle: p.description != null ? Text(p.description!, style: const TextStyle(fontSize: 11)) : null,
                               ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.sync, size: 18),
+                              tooltip: 'Update with current settings',
+                              onPressed: () {
+                                Navigator.pop(context, 'update:${p.id}');
+                              },
                             ),
                             IconButton(
                               icon: const Icon(Icons.delete, size: 18),
@@ -564,12 +602,38 @@ class MainWindow extends StatelessWidget {
               final name = nameController.text.trim();
               if (name.isEmpty) return;
 
-              await viewModel.saveAsPreset(
-                name,
-                description: descriptionController.text.trim().isNotEmpty
-                    ? descriptionController.text.trim()
-                    : null,
-              );
+              final description = descriptionController.text.trim().isNotEmpty
+                  ? descriptionController.text.trim()
+                  : null;
+
+              // Check for existing preset with same name
+              final existing = PresetService.instance.findByName(name);
+              if (existing != null && !existing.isBuiltIn && context.mounted) {
+                final overwrite = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Overwrite Preset'),
+                    content: Text('A preset named "$name" already exists. Overwrite it?'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('Overwrite'),
+                      ),
+                    ],
+                  ),
+                );
+                if (overwrite != true) return;
+                // Update existing preset
+                await viewModel.updatePreset(existing.copyWith(
+                  description: description,
+                ));
+              } else {
+                await viewModel.saveAsPreset(name, description: description);
+              }
 
               if (context.mounted) {
                 Navigator.pop(context);

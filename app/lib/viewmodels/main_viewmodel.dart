@@ -1140,6 +1140,16 @@ class MainViewModel extends ChangeNotifier {
     return preset;
   }
 
+  /// Update an existing user preset with current settings.
+  Future<void> updatePreset(ProcessingPreset existing) async {
+    final updated = existing.copyWith(
+      pipeline: _restorationPipeline,
+      encodingSettings: _encodingSettings,
+    );
+    await PresetService.instance.savePreset(updated);
+    notifyListeners();
+  }
+
   /// Delete a user preset.
   Future<void> deletePreset(ProcessingPreset preset) async {
     if (preset.isBuiltIn) return;
