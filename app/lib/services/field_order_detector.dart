@@ -85,7 +85,7 @@ class FieldOrderDetector {
 
       // Run idet and repeat_pict analysis in parallel
       final results = await Future.wait([
-        _runIdet(videoPath),
+        _runIdet(videoPath, duration: duration),
         _detectSoftTelecine(videoPath),
       ]);
       final idet = results[0] as _IdetResult?;
@@ -132,14 +132,21 @@ class FieldOrderDetector {
   /// - Interlaced vs progressive content
   /// - Field order (TFF/BFF)
   /// - Repeated fields (indicates hard telecine)
-  Future<_IdetResult?> _runIdet(String videoPath) async {
+  ///
+  /// When [duration] is known and > 4s, skips the first 2s to avoid
+  /// VHS leader/tracking instability.
+  Future<_IdetResult?> _runIdet(String videoPath, {double? duration}) async {
     final ffmpeg = ToolLocator.instance.ffmpegPath;
     if (ffmpeg == null) return null;
+
+    // Skip first 2s for longer videos to avoid VHS leader/tracking instability
+    final skipSeconds = (duration != null && duration > 4.0) ? 2 : 0;
 
     try {
       final result = await Process.run(
         ffmpeg,
         [
+          if (skipSeconds > 0) ...['-ss', '$skipSeconds'],
           '-i', videoPath,
           '-vf', 'idet',
           '-frames:v', '200',
@@ -251,8 +258,12 @@ class FieldOrderDetector {
       }
     }
 
-    // Hard telecine: interlaced frames with significant repeated fields
-    if (interlacedRatio > 0.5 && repeatedFields > 0) {
+    // Hard telecine: interlaced frames with significant repeated fields.
+    // True 3:2 pulldown shows ~40% repeated fields, 2:2 shows ~50%.
+    // Require at least 15% to avoid false positives from VHS tracking
+    // artifacts or other analog noise (especially at tape start).
+    final repeatedRatio = total > 0 ? repeatedFields / total : 0.0;
+    if (interlacedRatio > 0.5 && repeatedRatio > 0.15) {
       return ScanType.telecine;
     }
 
