@@ -1,6 +1,6 @@
 # VapourBox
 
-A user-friendly wrapper for [VapourSynth](https://www.vapoursynth.com/) that makes video processing accessible to everyone. Convert between video formats, apply QTGMC deinterlacing, perform IVTC (inverse telecine) for DVD sources, reduce noise, and fix common video problems—all through a simple drag-and-drop interface.
+A user-friendly wrapper for [VapourSynth](https://www.vapoursynth.com/) that makes video processing accessible to everyone. Convert between video formats, apply QTGMC deinterlacing, perform IVTC (inverse telecine) for DVD sources, reduce noise, generate subtitles, and fix common video problems — all through a simple drag-and-drop interface.
 
 No scripting required. No command line needed. Just drop your video and go.
 
@@ -13,505 +13,93 @@ No scripting required. No command line needed. Just drop your video and go.
 - **Clean up noisy footage** with temporal and spatial noise reduction
 - **Fix compression artifacts** with deblocking and debanding filters
 - **Sharpen soft video** while preserving detail
+- **Generate subtitles** from speech using Whisper AI
 - **Archive DVDs** with proper deinterlacing/IVTC and cleanup
 - **Restore VHS captures** with specialized filtering pipelines
 
-## Supported Platforms
+## Download
 
-- **macOS** (Apple Silicon)
-- **Windows 10/11** (x64)
+Get the latest release for your platform:
+
+**[Download VapourBox](https://github.com/StuartCameronCode/VapourBox/releases/latest)**
+
+| Platform | File |
+|----------|------|
+| macOS (Apple Silicon) | `VapourBox-x.x.x-macos-arm64.dmg` |
+| Windows 10/11 (x64) | `VapourBox-x.x.x-windows-x64.zip` |
+
+## Installation
+
+### macOS
+
+1. Download the `.dmg` file from the [releases page](https://github.com/StuartCameronCode/VapourBox/releases/latest)
+2. Open the DMG and drag **VapourBox** to your Applications folder
+3. On first launch, VapourBox will automatically download its processing dependencies (~180 MB)
+
+> **Note**: You may need to right-click and choose "Open" the first time, since the app is not notarized.
+
+### Windows
+
+1. Download the `.zip` file from the [releases page](https://github.com/StuartCameronCode/VapourBox/releases/latest)
+2. Extract to a folder of your choice (e.g., `C:\VapourBox`)
+3. Run `vapourbox.exe`
+4. On first launch, VapourBox will automatically download its processing dependencies (~195 MB)
 
 ## Features
 
-- **Simple drag-and-drop interface** - Just drop your video file and go
-- **Multi-pass restoration pipeline** - Deinterlace, denoise, dehalo, deblock, deband, sharpen, color correction
-- **Full QTGMC configuration** - Access all 70+ QTGMC parameters
-- **IVTC (Inverse Telecine)** - Recover original 23.976 FPS film from telecined DVD sources with auto-detection
-- **Real-time preview** - Side-by-side before/after comparison with live updates
-- **Zoomable timeline** - Mouse wheel zoom centered on cursor, visual drag panning
-- **In/Out point markers** - Export only a portion of your video
-- **Preset system** - Save and load filter configurations for reuse
-- **Custom filters** - Add your own VapourSynth filters via JSON schema
-- **Real-time progress** - Current FPS, estimated time remaining, detailed logs
-- **Standalone application** - All dependencies bundled
-- **Multiple output formats** - H.264, H.265, and ProRes encoding
-- **Auto field detection** - Automatically detects TFF/BFF with manual override
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      VapourBox                               │
-├─────────────────────────────────────────────────────────────┤
-│  Flutter App (UI)           │  Rust Worker (CLI)            │
-│  - Cross-platform GUI       │  - Receives job config JSON   │
-│  - Settings management      │  - Generates .vpy script      │
-│  - Process coordination     │  - Runs: vspipe | ffmpeg      │
-│  - Progress display         │  - Reports progress (stdout)  │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## Project Structure
-
-```
-VapourBox/
-├── app/                    # Flutter application (Dart)
-│   ├── lib/
-│   │   ├── models/         # Data models (VideoJob, FilterSchema, Presets)
-│   │   ├── viewmodels/     # State management
-│   │   ├── views/          # UI components
-│   │   ├── services/       # WorkerManager, PresetService, FilterLoader
-│   │   └── widgets/        # Reusable UI widgets
-│   ├── assets/filters/     # Built-in filter schemas (JSON)
-│   ├── macos/              # macOS platform config
-│   └── windows/            # Windows platform config
-│
-├── worker/                 # Rust worker crate
-│   ├── src/
-│   │   ├── models/         # Matching data models
-│   │   ├── script_generator.rs
-│   │   ├── pipeline_executor.rs
-│   │   └── progress_reporter.rs
-│   └── templates/
-│       └── pipeline_template.vpy
-│
-├── deps/                   # Platform-specific dependencies
-│   ├── macos-arm64/
-│   ├── macos-x64/
-│   └── windows-x64/
-│
-├── licenses/               # License files (GPL, LGPL, NOTICES)
-│
-├── scripts/                # Build and setup scripts
-│
-└── packaging/              # Platform installers
-```
-
-## Prerequisites
-
-### All Platforms
-- [Flutter SDK](https://flutter.dev/docs/get-started/install) (3.16+)
-- [Rust](https://rustup.rs/) (1.70+)
-
-### Windows
-- Visual Studio Build Tools with C++ workload
-- 7-Zip (for extracting dependencies)
-
-### macOS
-- Xcode Command Line Tools
-- Homebrew (for building dependencies only - not required at runtime)
-
-## Quick Start
-
-### 1. Clone the repository
-```bash
-git clone https://github.com/stuartcameron/VapourBox.git
-cd VapourBox
-```
-
-### 2. Download dependencies
-
-**Windows (PowerShell):**
-```powershell
-.\scripts\download-deps-windows.ps1
-```
-
-**macOS:**
-```bash
-./scripts/download-deps-macos.sh
-```
-
-### 3. Build the Rust worker
-```bash
-cd worker
-cargo build --release
-```
-
-### 4. Build the Flutter app
-
-**Windows:**
-```bash
-cd app
-flutter build windows --release
-```
-
-**macOS:**
-```bash
-cd app
-flutter build macos --release
-```
+- **Drag-and-drop interface** — drop video files to start, queue multiple files at once
+- **Auto-detection** — automatically identifies interlaced, telecined, and progressive content
+- **Multi-pass restoration pipeline** — chain filters in order: deinterlace, denoise, dehalo, deblock, deband, sharpen, color correction, chroma fixes, crop/resize
+- **QTGMC deinterlacing** — full access to all 70+ parameters, from Draft to Placebo quality
+- **IVTC (Inverse Telecine)** — recover original 23.976 FPS film from telecined DVD sources
+- **Soft telecine handling** — strip pulldown flags without re-encoding fields
+- **Whisper subtitle generation** — generate SRT subtitles from speech, embed into video, or both
+- **Real-time preview** — side-by-side before/after comparison with live filter updates
+- **Zoomable timeline** — mouse wheel zoom centered on cursor, drag to pan
+- **In/Out point markers** — export only a portion of your video
+- **Batch queue** — process multiple videos with the same settings
+- **Preset system** — built-in presets (Fast, Balanced, High Quality, VHS Restoration) plus save your own
+- **Multiple output formats** — H.264, H.265, ProRes, FFV1 lossless, with hardware encoding support (VideoToolbox, NVENC, QSV, AMF)
+- **Audio options** — passthrough, re-encode (AAC, Opus, FLAC), or strip audio
+- **Custom filters** — extend VapourBox with your own VapourSynth filters via [JSON schemas](docs/FILTER_SCHEMA.md)
+- **Aspect ratio preservation** — non-square pixel SAR (e.g., anamorphic DVD) carried through the pipeline
+- **Standalone** — all processing dependencies are bundled and auto-downloaded on first run
 
 ## Usage
 
 ### Basic Workflow
+
 1. Launch VapourBox
-2. Drag and drop a video file onto the drop zone
-3. Choose an output location (defaults to same folder with "_restored" suffix)
-4. Configure restoration passes as needed
-5. Click **Go** to start processing
+2. Drag and drop one or more video files
+3. Configure restoration passes as needed (or use a preset)
+4. Click **Go** to start processing
 
 ### Timeline Navigation
+
 - **Click** on thumbnails to jump to that position
 - **Drag** thumbnails to scrub through video
 - **Mouse wheel** to zoom in/out (centers on cursor position)
-- **Drag when zoomed** to pan left/right with visual feedback
-- **Minimap** below thumbnails shows current view position
+- **Drag when zoomed** to pan left/right
 
-### In/Out Point Markers
-- Click **Set In** to mark the start of export range
-- Click **Set Out** to mark the end of export range
-- Markers appear on the minimap with dimmed regions outside
-- Export will only process frames within the marked range
-- Click **Clear** (X button) to remove markers and export full video
+### In/Out Points
+
+- Click **Set In** / **Set Out** to mark the export range
+- Only frames within the range will be processed
+- Click **Clear** to remove markers and export the full video
 
 ### Presets
-- Click the **tuning icon** (🎛) in the toolbar
-- **Built-in presets**: Fast, Balanced, High Quality, VHS Restoration
-- **Save current settings**: Save your configuration for reuse
-- **User presets** stored in `~/.vapourbox/presets/`
 
-### Configuration
-Click **Settings** to access advanced parameters:
+- Click the tuning icon in the toolbar to open presets
+- **Built-in**: Fast, Balanced, High Quality, VHS Restoration
+- **Save** your current settings for reuse across sessions
 
-- **Preset**: Quick quality/speed selection (Placebo to Draft)
-- **Input/Output**: Field order (TFF/BFF), frame rate options
-- **Quality**: Temporal smoothing radius and repair settings
-- **Interpolation**: Edge interpolation method (NNEDI3, EEDI3, etc.)
-- **Motion Analysis**: Block size, search parameters
-- **Sharpening**: Output sharpening controls
-- **Noise Processing**: Denoising and grain handling
-- **Source Matching**: Higher fidelity source matching options
-- **Encoding**: Output codec, quality, and audio settings
+## Building from Source
 
-## Adding Custom Filters
+See [docs/BUILDING.md](docs/BUILDING.md) for build instructions, project structure, and development workflow.
 
-VapourBox supports user-defined filters via JSON schema files. Place your filter JSON files in `~/.vapourbox/filters/` and they will appear in the filter list.
+## Custom Filters
 
-See the **Custom Filters Guide** section below for detailed documentation.
-
-## Development
-
-### Running in development mode
-```bash
-# Run Flutter app
-cd app
-flutter run -d windows  # or -d macos
-```
-
-### Running tests
-```bash
-# Rust tests
-cd worker
-cargo test
-
-# Flutter tests
-cd app
-flutter test
-```
-
-## Packaging / Deployment
-
-### Windows
-
-Create a standalone zip file with all dependencies:
-
-```powershell
-# First, ensure dependencies are downloaded
-.\Scripts\download-deps-windows.ps1
-
-# Package the application
-.\Scripts\package-windows.ps1 -Version "1.0.0"
-```
-
-Output: `dist/VapourBox-1.0.0-windows-x64.zip`
-
-### macOS
-
-Create a standalone .app bundle with all dependencies:
-
-```bash
-# First, ensure dependencies are downloaded
-./Scripts/download-deps-macos.sh
-
-# Package the application
-./Scripts/package-macos.sh --version 1.0.0
-```
-
-Output: `dist/VapourBox.app` and `dist/VapourBox-1.0.0-macos-arm64.zip`
-
-### Package Contents
-
-The packaged application includes:
-- Flutter application executable (`vapourbox.exe`)
-- Rust worker executable (`vapourbox-worker.exe`)
-- VapourSynth (VSPipe) and plugins
-- FFmpeg
-- Python runtime and packages (havsfunc, mvsfunc)
-- VapourSynth script templates
-- License files (GPL, LGPL, NOTICES)
-
-### Packaging Options
-
-| Flag | Description |
-|------|-------------|
-| `-Version` | Set version number (default: "1.0.0") |
-| `-SkipBuild` | Skip Flutter and Rust compilation (use existing builds) |
-
----
-
-## Custom Filters Guide
-
-VapourBox uses a JSON schema system to define filters. This allows you to add new VapourSynth filters without modifying the application code.
-
-### Filter Location
-
-- **Built-in filters**: `app/assets/filters/core/`
-- **User filters**: `~/.vapourbox/filters/` (created on first run)
-
-### Filter Schema Structure
-
-```json
-{
-  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
-  "id": "my_filter",
-  "version": "1.0.0",
-  "name": "My Filter",
-  "description": "What this filter does",
-  "category": "enhancement",
-  "icon": "auto_fix_high",
-  "order": 100,
-
-  "dependencies": {
-    "plugins": ["havsfunc"],
-    "vs_plugins": ["MyPlugin.dll"]
-  },
-
-  "methods": [
-    {
-      "id": "method_a",
-      "name": "Method A",
-      "description": "First algorithm",
-      "function": "haf.SomeFunction",
-      "parameters": ["param1", "param2"]
-    }
-  ],
-
-  "parameters": {
-    "enabled": {
-      "type": "boolean",
-      "default": false,
-      "ui": { "hidden": true }
-    },
-    "method": {
-      "type": "enum",
-      "default": "method_a",
-      "options": ["method_a"],
-      "ui": { "hidden": true }
-    },
-    "param1": {
-      "type": "number",
-      "default": 1.0,
-      "min": 0.0,
-      "max": 10.0,
-      "step": 0.1,
-      "optional": true,
-      "vapoursynth": { "name": "strength" },
-      "ui": {
-        "label": "Strength",
-        "description": "Processing strength",
-        "widget": "slider",
-        "precision": 1
-      }
-    }
-  },
-
-  "ui": {
-    "sections": [
-      {
-        "title": "Settings",
-        "parameters": ["param1", "param2"],
-        "expanded": true
-      }
-    ]
-  }
-}
-```
-
-### Schema Reference
-
-#### Top-Level Fields
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | string | Yes | Unique identifier (lowercase, underscores) |
-| `version` | string | Yes | Semantic version (e.g., "1.0.0") |
-| `name` | string | Yes | Display name in UI |
-| `description` | string | Yes | Brief description |
-| `category` | string | Yes | Category: `restoration`, `enhancement`, `color`, `custom` |
-| `icon` | string | No | Material icon name |
-| `order` | integer | No | Sort order in filter list |
-| `dependencies` | object | No | Required plugins |
-| `methods` | array | Yes | Available processing methods |
-| `parameters` | object | Yes | Parameter definitions |
-| `ui` | object | No | UI layout configuration |
-
-#### Parameter Types
-
-| Type | Description | Additional Fields |
-|------|-------------|-------------------|
-| `boolean` | True/false toggle | - |
-| `integer` | Whole number | `min`, `max`, `step` |
-| `number` | Decimal number | `min`, `max`, `step` |
-| `string` | Text input | - |
-| `enum` | Selection from options | `options` (array) |
-
-#### Parameter Fields
-
-```json
-{
-  "type": "number",
-  "default": 1.0,
-  "min": 0.0,
-  "max": 10.0,
-  "step": 0.1,
-  "optional": true,
-  "vapoursynth": { "name": "vs_param_name" },
-  "ui": {
-    "label": "Display Name",
-    "description": "Tooltip text",
-    "widget": "slider",
-    "precision": 2,
-    "hidden": false,
-    "visibleWhen": { "method": ["method_a"] },
-    "booleanLabels": { "true": "Yes", "false": "No" }
-  }
-}
-```
-
-#### Optional Parameters
-
-When `"optional": true` is set, the parameter:
-- Shows a checkbox to enable/disable the parameter
-- When disabled, the parameter is not passed to VapourSynth (uses VS default)
-- When enabled, the user-specified value is used
-
-This is useful for parameters where you want the user to choose whether to override the VapourSynth default.
-
-#### Conditional Visibility
-
-Use `visibleWhen` to show parameters only when certain conditions are met:
-
-```json
-"visibleWhen": { "method": ["method_a", "method_b"] }
-```
-
-The parameter is visible when the `method` parameter equals any of the listed values.
-
-#### Widget Types
-
-| Widget | Best For |
-|--------|----------|
-| `slider` | Numeric values with min/max range |
-| `dropdown` | Enum selections |
-| `checkbox` | Boolean values |
-| `textfield` | Free-form text |
-| `number` | Numeric input without slider |
-
-### Example: Simple Sharpening Filter
-
-```json
-{
-  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
-  "id": "simple_sharpen",
-  "version": "1.0.0",
-  "name": "Simple Sharpen",
-  "description": "Basic unsharp mask sharpening",
-  "category": "enhancement",
-  "icon": "blur_on",
-  "order": 50,
-
-  "dependencies": {
-    "plugins": [],
-    "vs_plugins": []
-  },
-
-  "methods": [
-    {
-      "id": "unsharp",
-      "name": "Unsharp Mask",
-      "description": "Standard unsharp mask",
-      "function": "core.std.MakeDiff",
-      "parameters": ["strength"]
-    }
-  ],
-
-  "parameters": {
-    "enabled": {
-      "type": "boolean",
-      "default": false,
-      "ui": { "hidden": true }
-    },
-    "method": {
-      "type": "enum",
-      "default": "unsharp",
-      "options": ["unsharp"],
-      "ui": { "hidden": true }
-    },
-    "strength": {
-      "type": "number",
-      "default": 0.5,
-      "min": 0.0,
-      "max": 2.0,
-      "step": 0.1,
-      "vapoursynth": { "name": "strength" },
-      "ui": {
-        "label": "Strength",
-        "description": "Sharpening intensity",
-        "widget": "slider",
-        "precision": 1
-      }
-    }
-  },
-
-  "ui": {
-    "sections": [
-      {
-        "title": "Settings",
-        "parameters": ["strength"],
-        "expanded": true
-      }
-    ]
-  }
-}
-```
-
-### Testing Custom Filters
-
-1. Create your JSON file in `~/.vapourbox/filters/`
-2. Restart VapourBox (or it will auto-detect on next launch)
-3. Your filter appears in the filter list
-4. Enable it and configure parameters
-5. Check the preview to verify it works
-
----
-
-## Dependencies
-
-| Component | Version | Purpose |
-|-----------|---------|---------|
-| Python | 3.8 (Windows) / 3.12 (macOS, embedded) | VapourSynth runtime |
-| VapourSynth | R73 | Video processing framework |
-| FFmpeg | Latest | Video encoding |
-| BestSource | Latest | Frame-accurate video source |
-| mvtools | v24 | Motion estimation |
-| znedi3 | Latest | Neural network interpolation |
-| EEDI3m | r8 | Edge-directed interpolation |
-| fmtconv | r30 | Format conversion |
-| neo_f3kdb | Latest | Debanding filter |
-| DFTTest | Latest | FFT-based denoising |
-| havsfunc | Latest | QTGMC implementation |
-| VIVTC | Latest | Inverse telecine (VFM + VDecimate) |
-| MiscFilters | Latest | Misc VapourSynth filters |
+VapourBox supports user-defined VapourSynth filters via JSON schema files. See [docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md) for the full schema reference.
 
 ## License
 
@@ -525,15 +113,16 @@ Stuart Cameron - [stuart-cameron.com](https://stuart-cameron.com)
 
 ## Acknowledgments
 
-- **QTGMC** by Vit - The deinterlacing algorithm
-- **VIVTC** by Fredrik Mellbin - VFM field matching and VDecimate for inverse telecine
-- **VapourSynth** by Fredrik Mellbin - Video processing framework
-- **havsfunc** by HolyWu - QTGMC VapourSynth port
-- **FFmpeg** project - Video encoding
-- **Hybrid** by Selur - Inspiration for this project
+- **QTGMC** by Vit — the deinterlacing algorithm
+- **VIVTC** by Fredrik Mellbin — VFM field matching and VDecimate for inverse telecine
+- **VapourSynth** by Fredrik Mellbin — video processing framework
+- **havsfunc** by HolyWu — QTGMC VapourSynth port
+- **whisper.cpp** by Georgi Gerganov — speech recognition for subtitle generation
+- **FFmpeg** project — video encoding
+- **Hybrid** by Selur — inspiration for this project
 
 ### Pre-built Binary Sources
 
 macOS ARM64 plugins sourced from:
-- **[yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins)** - Pre-built ARM64 VapourSynth plugins for macOS (neo_f3kdb, dfttest, fftw libraries)
-- **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** - BestSource and other cross-platform VapourSynth plugins
+- **[yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins)** — pre-built ARM64 VapourSynth plugins for macOS
+- **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** — BestSource and other cross-platform VapourSynth plugins
