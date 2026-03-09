@@ -9,7 +9,7 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -19,12 +19,14 @@ mod dependency_locator;
 mod pipeline_executor;
 mod progress_reporter;
 mod script_generator;
+mod subtitle_generator;
 mod platform;
 
 use models::VideoJob;
 use pipeline_executor::PipelineExecutor;
 use progress_reporter::ProgressReporter;
 use script_generator::ScriptGenerator;
+use subtitle_generator::SubtitleGenerator;
 
 /// Command-line arguments
 #[derive(Parser, Debug)]
@@ -156,6 +158,12 @@ fn run_worker(
         models::LogLevel::Info,
         &format!("Processing: {}", job.input_path),
     );
+
+    // Subtitle-only mode: skip video processing, generate subtitles from input
+    if job.subtitle_only {
+        return run_subtitle_only(&job, reporter, cancelled);
+    }
+
     reporter.send_log(
         models::LogLevel::Debug,
         &format!("QTGMC params: opencl={}, tff={:?}, preset={}",
@@ -182,14 +190,6 @@ fn run_worker(
 
     let result = executor.execute(&script_path, &job, || cancelled.load(Ordering::SeqCst));
 
-    // Keep temp script for debugging
-    // if let Err(e) = std::fs::remove_file(&script_path) {
-    //     reporter.send_log(
-    //         models::LogLevel::Warning,
-    //         &format!("Failed to remove temp script: {}", e),
-    //     );
-    // }
-
     // Handle cancellation or errors
     result?;
 
@@ -205,5 +205,92 @@ fn run_worker(
     }
 
     reporter.send_log(models::LogLevel::Info, "Encoding complete!");
+
+    // Post-encode subtitle generation (warnings only — video already encoded)
+    if let Some(ref sub_settings) = job.subtitle_settings {
+        if sub_settings.enabled {
+            let _ = run_subtitle_generation(
+                &job.output_path, sub_settings, reporter, &cancelled, false, None,
+            );
+        }
+    }
+
     Ok(job.output_path.clone())
+}
+
+/// Subtitle-only mode: skip video processing, generate subtitles directly from input.
+fn run_subtitle_only(
+    job: &VideoJob,
+    reporter: &ProgressReporter,
+    cancelled: Arc<AtomicBool>,
+) -> Result<String> {
+    let sub_settings = job
+        .subtitle_settings
+        .as_ref()
+        .filter(|s| s.enabled)
+        .context("Subtitle-only mode requires subtitle settings")?;
+
+    reporter.send_log(models::LogLevel::Info, "Subtitle-only mode — skipping video processing");
+
+    run_subtitle_generation(
+        &job.input_path, sub_settings, reporter, &cancelled, true,
+        Some(&job.output_path),
+    )?;
+
+    if cancelled.load(Ordering::SeqCst) {
+        anyhow::bail!("Job cancelled");
+    }
+
+    // Return the output path (embed creates a new file there;
+    // SRT-only still returns input since no video was produced)
+    let output = Path::new(&job.output_path);
+    if output.exists() {
+        Ok(job.output_path.clone())
+    } else {
+        Ok(job.input_path.clone())
+    }
+}
+
+/// Run subtitle generation on a video file.
+///
+/// When `fail_on_error` is true (subtitle-only mode), errors propagate and
+/// fail the job. When false (post-encode), errors are logged as warnings
+/// and the job still succeeds.
+fn run_subtitle_generation(
+    video_path: &str,
+    settings: &models::SubtitleSettings,
+    reporter: &ProgressReporter,
+    cancelled: &Arc<AtomicBool>,
+    fail_on_error: bool,
+    output_path: Option<&str>,
+) -> Result<()> {
+    reporter.send_log(models::LogLevel::Info, "Generating subtitles...");
+
+    let result = dependency_locator::DependencyLocator::new().and_then(|deps| {
+        let sub_gen = SubtitleGenerator::new(reporter.clone(), deps);
+        sub_gen.generate(video_path, settings, || cancelled.load(Ordering::SeqCst), output_path)
+    });
+
+    match result {
+        Ok(Some(srt_path)) => {
+            reporter.send_log(
+                models::LogLevel::Info,
+                &format!("Subtitles saved to: {}", srt_path.display()),
+            );
+            Ok(())
+        }
+        Ok(None) => {
+            // Subtitle generation skipped (no audio) or embedded only
+            Ok(())
+        }
+        Err(e) => {
+            let msg = format!("Subtitle generation failed: {}", e);
+            if fail_on_error {
+                anyhow::bail!(msg);
+            } else {
+                reporter.send_log(models::LogLevel::Warning, &msg);
+                Ok(())
+            }
+        }
+    }
 }

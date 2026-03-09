@@ -665,6 +665,8 @@ mod tests {
             input_frame_rate: None,
             start_frame: None,
             end_frame: None,
+            subtitle_settings: None,
+            subtitle_only: false,
         }
     }
 

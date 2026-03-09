@@ -300,6 +300,79 @@ impl DependencyLocator {
         { paths.join(":") }
     }
 
+    /// Get the addons directory path.
+    pub fn addons_dir(&self) -> PathBuf {
+        // Addons are stored as a sibling of deps:
+        // Debug: search upward from exe for addons/ dir
+        // Release macOS: ~/Library/Application Support/VapourBox/addons/
+        // Release Windows: <exe-dir>/addons/
+        #[cfg(debug_assertions)]
+        {
+            if let Ok(exe_path) = env::current_exe() {
+                let mut current = exe_path.parent();
+                while let Some(dir) = current {
+                    let addons_dir = dir.join("addons");
+                    if addons_dir.exists() {
+                        return addons_dir;
+                    }
+                    current = dir.parent();
+                }
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(exe_path) = env::current_exe() {
+                let exe_dir = exe_path.parent().unwrap_or(Path::new("."));
+                return exe_dir.join("addons");
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(home) = env::var_os("HOME") {
+                return PathBuf::from(home)
+                    .join("Library")
+                    .join("Application Support")
+                    .join("VapourBox")
+                    .join("addons");
+            }
+        }
+
+        PathBuf::from("addons")
+    }
+
+    /// Get the path to the whisper-cli executable.
+    ///
+    /// macOS: addons/whisper/bin/whisper-cli (Homebrew bottle layout)
+    /// Windows: addons/whisper/whisper-cli.exe (flat zip layout)
+    pub fn whisper_path(&self) -> Result<PathBuf> {
+        let path = if cfg!(windows) {
+            self.addons_dir().join("whisper").join("whisper-cli.exe")
+        } else {
+            self.addons_dir().join("whisper").join("bin").join("whisper-cli")
+        };
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!("whisper-cli not found at {:?}", path)
+        }
+    }
+
+    /// Get the path to a whisper model file.
+    pub fn whisper_model_path(&self, model: &str) -> Result<PathBuf> {
+        let path = self
+            .addons_dir()
+            .join("whisper")
+            .join("models")
+            .join(format!("ggml-{}.bin", model));
+        if path.exists() {
+            Ok(path)
+        } else {
+            bail!("Whisper model '{}' not found at {:?}", model, path)
+        }
+    }
+
     /// Build environment variables for running vspipe/ffmpeg.
     pub fn build_environment(&self) -> std::collections::HashMap<String, String> {
         let mut env = std::collections::HashMap::new();

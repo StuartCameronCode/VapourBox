@@ -1,0 +1,45 @@
+{
+  "version": "1.0.0",
+  "binary": {
+    "version": "1.8.3",
+    "platforms": {
+      "macos-arm64": {
+        "url": "https://ghcr.io/v2/homebrew/core/whisper-cpp/blobs/sha256:315a2b2b47fc231ad88586dae9c1f2d4147222d0d6acd62a921eba6263c32c2d",
+        "format": "homebrew-bottle",
+        "executable": "whisper-cli",
+        "size": 3394735,
+        "sha256": "315a2b2b47fc231ad88586dae9c1f2d4147222d0d6acd62a921eba6263c32c2d"
+      },
+      "macos-x64": {
+        "url": "https://ghcr.io/v2/homebrew/core/whisper-cpp/blobs/sha256:e6c2f78cbc5d6b311dfe24d8c5d4ffc68a634465c5e35ed11746068583d273c4",
+        "format": "homebrew-bottle",
+        "executable": "whisper-cli",
+        "size": 3500000,
+        "sha256": "e6c2f78cbc5d6b311dfe24d8c5d4ffc68a634465c5e35ed11746068583d273c4"
+      },
+      "windows-x64": {
+        "url": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.3/whisper-bin-x64.zip",
+        "format": "zip",
+        "executable": "whisper-cli.exe",
+        "size": 3968674
+      }
+    }
+  },
+  "models": {
+    "small": {
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
+      "filename": "ggml-small.bin",
+      "size": 466616853
+    },
+    "medium": {
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
+      "filename": "ggml-medium.bin",
+      "size": 1533763059
+    },
+    "large-v3-turbo": {
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+      "filename": "ggml-large-v3-turbo.bin",
+      "size": 1623277662
+    }
+  }
+}

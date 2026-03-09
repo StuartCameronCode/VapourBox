@@ -9,6 +9,7 @@ import 'noise_reduction_parameters.dart';
 import 'qtgmc_parameters.dart';
 import 'restoration_pipeline.dart';
 import 'sharpen_parameters.dart';
+import 'subtitle_parameters.dart';
 
 /// Converts typed parameter classes to DynamicParameters for schema-based processing.
 class ParameterConverter {
@@ -328,6 +329,20 @@ class ParameterConverter {
     );
   }
 
+  /// Convert subtitle parameters to dynamic format.
+  static DynamicParameters fromSubtitles(SubtitleParameters params) {
+    return DynamicParameters(
+      filterId: 'subtitles',
+      enabled: params.enabled,
+      values: {
+        'method': 'whisper',
+        'model': params.model.value,
+        'output': params.output.value,
+        'language': params.language ?? 'auto',
+      },
+    );
+  }
+
   /// Convert a full restoration pipeline to a dynamic pipeline.
   static DynamicPipeline fromPipeline(RestorationPipeline pipeline) {
     return DynamicPipeline(
@@ -341,6 +356,7 @@ class ParameterConverter {
         'color_correction': fromColorCorrection(pipeline.colorCorrection),
         'chroma_fixes': fromChromaFixes(pipeline.chromaFixes),
         'crop_resize': fromCropResize(pipeline.cropResize),
+        'subtitles': fromSubtitles(pipeline.subtitles),
       },
     );
   }
@@ -656,6 +672,27 @@ class ParameterConverter {
     );
   }
 
+  /// Convert dynamic parameters to subtitle parameters.
+  static SubtitleParameters toSubtitles(DynamicParameters params) {
+    final v = params.values;
+    final modelStr = v['model'] as String? ?? 'medium';
+    final outputStr = v['output'] as String? ?? 'srt_file';
+    final languageStr = v['language'] as String? ?? 'auto';
+
+    return SubtitleParameters(
+      enabled: params.enabled,
+      model: WhisperModel.values.firstWhere(
+        (m) => m.value == modelStr,
+        orElse: () => WhisperModel.medium,
+      ),
+      output: SubtitleOutput.values.firstWhere(
+        (o) => o.value == outputStr,
+        orElse: () => SubtitleOutput.srtFile,
+      ),
+      language: languageStr == 'auto' ? null : languageStr,
+    );
+  }
+
   /// Convert a dynamic pipeline to a restoration pipeline.
   static RestorationPipeline toPipeline(DynamicPipeline dynamic) {
     return RestorationPipeline(
@@ -686,6 +723,9 @@ class ParameterConverter {
       cropResize: dynamic.get('crop_resize') != null
           ? toCropResize(dynamic.get('crop_resize')!)
           : const CropResizeParameters(),
+      subtitles: dynamic.get('subtitles') != null
+          ? toSubtitles(dynamic.get('subtitles')!)
+          : const SubtitleParameters(),
     );
   }
 }

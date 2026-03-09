@@ -134,6 +134,8 @@ class MainViewModel extends ChangeNotifier {
         return ParameterConverter.fromChromaFixes(_restorationPipeline.chromaFixes);
       case 'crop_resize':
         return ParameterConverter.fromCropResize(_restorationPipeline.cropResize);
+      case 'subtitles':
+        return ParameterConverter.fromSubtitles(_restorationPipeline.subtitles);
       default:
         return DynamicParameters(filterId: filterId);
     }
@@ -185,6 +187,11 @@ class MainViewModel extends ChangeNotifier {
       case 'crop_resize':
         _restorationPipeline = _restorationPipeline.copyWith(
           cropResize: ParameterConverter.toCropResize(params),
+        );
+        break;
+      case 'subtitles':
+        _restorationPipeline = _restorationPipeline.copyWith(
+          subtitles: ParameterConverter.toSubtitles(params),
         );
         break;
     }
@@ -850,6 +857,8 @@ class MainViewModel extends ChangeNotifier {
         return 'chroma_fixes';
       case PassType.cropResize:
         return 'crop_resize';
+      case PassType.subtitles:
+        return 'subtitles';
     }
   }
 
@@ -927,6 +936,10 @@ class MainViewModel extends ChangeNotifier {
       }
     }
 
+    // Subtitle-only mode: no video processing passes enabled, only subtitles
+    final isSubtitleOnly = _restorationPipeline.subtitles.enabled &&
+        _restorationPipeline.enabledPasses.isEmpty;
+
     // Build job configuration
     final job = VideoJob(
       id: item.id,
@@ -944,6 +957,11 @@ class MainViewModel extends ChangeNotifier {
       totalFrames: item.videoInfo?.frameCount,
       startFrame: startFrame,
       endFrame: endFrame,
+      subtitleSettings: _restorationPipeline.subtitles.enabled
+          ? SubtitleSettingsDto.fromSubtitleParameters(
+              _restorationPipeline.subtitles)
+          : null,
+      subtitleOnly: isSubtitleOnly,
     );
 
     try {

@@ -15,6 +15,9 @@ class WorkerManager {
   /// Pending completion result from stdout (emitted after process exits).
   CompletionResult? _pendingCompletion;
 
+  /// Last error message received (used to populate CompletionResult).
+  String? _lastErrorMessage;
+
   /// Stream of progress updates from the worker.
   final _progressController = StreamController<ProgressInfo>.broadcast();
   Stream<ProgressInfo> get progressStream => _progressController.stream;
@@ -145,15 +148,17 @@ class WorkerManager {
           message: message.message ?? '',
         ));
       } else if (message.isError) {
+        _lastErrorMessage = message.message ?? 'Unknown error';
         _logController.add(LogMessage(
           level: LogLevel.error,
-          message: message.message ?? 'Unknown error',
+          message: _lastErrorMessage!,
         ));
       } else if (message.isComplete) {
         // Store completion result - will be emitted after process exits
         _pendingCompletion = CompletionResult(
           success: message.success ?? false,
           outputPath: message.outputPath,
+          errorMessage: (message.success != true) ? _lastErrorMessage : null,
         );
       }
     } catch (e) {
@@ -181,6 +186,7 @@ class WorkerManager {
     _stderrSubscription = null;
     _process = null;
     _pendingCompletion = null;
+    _lastErrorMessage = null;
   }
 
   /// Disposes of resources.

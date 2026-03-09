@@ -126,6 +126,8 @@ class PassListItem extends StatelessWidget {
         return Icons.tune;
       case PassType.cropResize:
         return Icons.crop;
+      case PassType.subtitles:
+        return Icons.subtitles;
     }
   }
 }

@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/restoration_pipeline.dart';
+import '../../services/whisper_addon_manager.dart';
 import '../../viewmodels/main_viewmodel.dart';
+import '../whisper_download_dialog.dart';
 import 'pass_list_item.dart';
 
 /// Panel showing the list of restoration passes that can be enabled/disabled.
@@ -118,6 +120,16 @@ class PassListPanel extends StatelessWidget {
               onTap: () => viewModel.selectPass(PassType.cropResize),
             ),
 
+            PassListItem(
+              passType: PassType.subtitles,
+              title: 'Subtitles',
+              subtitle: pipeline.subtitles.summary,
+              isEnabled: pipeline.subtitles.enabled,
+              isSelected: viewModel.selectedPass == PassType.subtitles,
+              onToggle: (enabled) => _handleSubtitlesToggle(context, viewModel, enabled),
+              onTap: () => viewModel.selectPass(PassType.subtitles),
+            ),
+
             const SizedBox(height: 16),
 
             // Pass count summary
@@ -131,6 +143,31 @@ class PassListPanel extends StatelessWidget {
         );
       },
     );
+  }
+
+  Future<void> _handleSubtitlesToggle(
+    BuildContext context,
+    MainViewModel viewModel,
+    bool enabled,
+  ) async {
+    if (enabled) {
+      final isInstalled = await WhisperAddonManager.instance.isInstalled;
+      final modelId = viewModel.restorationPipeline.subtitles.model.value;
+      final modelInstalled =
+          await WhisperAddonManager.instance.isModelInstalled(modelId);
+
+      if (!isInstalled || !modelInstalled) {
+        if (!context.mounted) return;
+        final confirmed =
+            await WhisperConfirmDialog.show(context, modelId: modelId);
+        if (!confirmed) return;
+        if (!context.mounted) return;
+        final downloaded =
+            await WhisperDownloadDialog.show(context, modelId: modelId);
+        if (!downloaded) return;
+      }
+    }
+    viewModel.togglePass(PassType.subtitles, enabled);
   }
 
   String _getDeinterlaceSummary(RestorationPipeline pipeline) {

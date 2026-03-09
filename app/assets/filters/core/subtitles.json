@@ -1,0 +1,71 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "subtitles",
+  "version": "1.0.0",
+  "name": "Subtitles",
+  "description": "Generate subtitles from speech using Whisper AI",
+  "category": "enhancement",
+  "icon": "subtitles",
+  "order": 100,
+  "methods": [
+    {
+      "id": "whisper",
+      "name": "Whisper",
+      "description": "OpenAI Whisper speech-to-text",
+      "function": "whisper",
+      "parameters": ["model", "output", "language"]
+    }
+  ],
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": { "hidden": true }
+    },
+    "method": {
+      "type": "enum",
+      "default": "whisper",
+      "options": ["whisper"],
+      "ui": { "hidden": true }
+    },
+    "model": {
+      "type": "enum",
+      "default": "medium",
+      "options": ["small", "medium", "large-v3-turbo"],
+      "ui": {
+        "label": "Model",
+        "description": "Small (466 MB), Medium (1.5 GB), High (1.6 GB). Larger = more accurate but slower",
+        "widget": "dropdown"
+      }
+    },
+    "output": {
+      "type": "enum",
+      "default": "srt_file",
+      "options": ["srt_file", "embed", "both"],
+      "ui": {
+        "label": "Output",
+        "description": "SRT writes alongside video; Embed muxes into container (MKV/MP4)",
+        "widget": "dropdown"
+      }
+    },
+    "language": {
+      "type": "enum",
+      "default": "auto",
+      "options": ["auto", "en", "es", "fr", "de", "it", "pt", "ja", "zh", "ko"],
+      "ui": {
+        "label": "Language",
+        "description": "Hint for speech recognition language",
+        "widget": "dropdown"
+      }
+    }
+  },
+  "ui": {
+    "sections": [
+      {
+        "title": "Whisper Settings",
+        "parameters": ["model", "output", "language"],
+        "expanded": true
+      }
+    ]
+  }
+}

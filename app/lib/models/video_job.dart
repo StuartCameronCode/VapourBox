@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import 'qtgmc_parameters.dart';
 import 'encoding_settings.dart';
 import 'restoration_pipeline.dart';
+import 'subtitle_parameters.dart';
 
 part 'video_job.g.dart';
 
@@ -31,6 +32,12 @@ class VideoJob {
   /// End frame for partial export (inclusive). Null means export to end.
   final int? endFrame;
 
+  /// Subtitle generation settings (runs post-encode).
+  final SubtitleSettingsDto? subtitleSettings;
+
+  /// When true, skip video processing and only generate subtitles from input.
+  final bool subtitleOnly;
+
   VideoJob({
     String? id,
     required this.inputPath,
@@ -43,6 +50,8 @@ class VideoJob {
     this.inputFrameRate,
     this.startFrame,
     this.endFrame,
+    this.subtitleSettings,
+    this.subtitleOnly = false,
   })  : id = id ?? const Uuid().v4(),
         qtgmcParameters = qtgmcParameters ?? QTGMCParameters(),
         encodingSettings = encodingSettings ?? EncodingSettings();
@@ -68,6 +77,8 @@ class VideoJob {
     double? inputFrameRate,
     int? startFrame,
     int? endFrame,
+    SubtitleSettingsDto? subtitleSettings,
+    bool? subtitleOnly,
   }) {
     return VideoJob(
       id: id ?? this.id,
@@ -81,8 +92,39 @@ class VideoJob {
       inputFrameRate: inputFrameRate ?? this.inputFrameRate,
       startFrame: startFrame ?? this.startFrame,
       endFrame: endFrame ?? this.endFrame,
+      subtitleSettings: subtitleSettings ?? this.subtitleSettings,
+      subtitleOnly: subtitleOnly ?? this.subtitleOnly,
     );
   }
+}
+
+/// DTO for subtitle settings sent to the worker.
+@JsonSerializable()
+class SubtitleSettingsDto {
+  final bool enabled;
+  final String model;
+  final String output;
+  final String? language;
+
+  const SubtitleSettingsDto({
+    required this.enabled,
+    this.model = 'base',
+    this.output = 'srt_file',
+    this.language,
+  });
+
+  factory SubtitleSettingsDto.fromSubtitleParameters(SubtitleParameters params) {
+    return SubtitleSettingsDto(
+      enabled: params.enabled,
+      model: params.model.value,
+      output: params.output.value,
+      language: params.language,
+    );
+  }
+
+  factory SubtitleSettingsDto.fromJson(Map<String, dynamic> json) =>
+      _$SubtitleSettingsDtoFromJson(json);
+  Map<String, dynamic> toJson() => _$SubtitleSettingsDtoToJson(this);
 }
 
 /// Supported video codecs.

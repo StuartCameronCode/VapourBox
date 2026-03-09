@@ -11,6 +11,7 @@ import 'noise_reduction_parameters.dart';
 import 'parameter_converter.dart';
 import 'qtgmc_parameters.dart';
 import 'sharpen_parameters.dart';
+import 'subtitle_parameters.dart';
 
 part 'restoration_pipeline.g.dart';
 
@@ -25,6 +26,7 @@ enum PassType {
   colorCorrection,
   chromaFixes,
   cropResize,
+  subtitles,
 }
 
 /// Extension to provide display names for pass types.
@@ -49,6 +51,8 @@ extension PassTypeExtension on PassType {
         return 'Chroma Fixes';
       case PassType.cropResize:
         return 'Crop / Resize';
+      case PassType.subtitles:
+        return 'Subtitles';
     }
   }
 
@@ -72,6 +76,8 @@ extension PassTypeExtension on PassType {
         return 'Fix chroma bleeding and crawl artifacts';
       case PassType.cropResize:
         return 'Crop borders and resize output';
+      case PassType.subtitles:
+        return 'Generate subtitles using Whisper AI';
     }
   }
 }
@@ -107,6 +113,9 @@ class RestorationPipeline {
   /// Crop and resize pass parameters.
   final CropResizeParameters cropResize;
 
+  /// Subtitle generation pass parameters (Whisper AI).
+  final SubtitleParameters subtitles;
+
   const RestorationPipeline({
     this.deinterlace = const QTGMCParameters(),
     this.noiseReduction = const NoiseReductionParameters(),
@@ -117,6 +126,7 @@ class RestorationPipeline {
     this.colorCorrection = const ColorCorrectionParameters(),
     this.chromaFixes = const ChromaFixParameters(),
     this.cropResize = const CropResizeParameters(),
+    this.subtitles = const SubtitleParameters(),
   });
 
   /// Create a pipeline from legacy QTGMC-only parameters.
@@ -132,6 +142,7 @@ class RestorationPipeline {
       colorCorrection: const ColorCorrectionParameters(enabled: false),
       chromaFixes: const ChromaFixParameters(enabled: false),
       cropResize: const CropResizeParameters(enabled: false),
+      subtitles: const SubtitleParameters(enabled: false),
     );
   }
 
@@ -187,6 +198,7 @@ class RestorationPipeline {
     if (colorCorrection.enabled) count++;
     if (chromaFixes.enabled) count++;
     if (cropResize.enabled) count++;
+    if (subtitles.enabled) count++;
     return count;
   }
 
@@ -211,6 +223,8 @@ class RestorationPipeline {
         return chromaFixes.enabled;
       case PassType.cropResize:
         return cropResize.enabled;
+      case PassType.subtitles:
+        return subtitles.enabled;
     }
   }
 
@@ -237,6 +251,8 @@ class RestorationPipeline {
         return chromaFixes.summary;
       case PassType.cropResize:
         return cropResize.summary;
+      case PassType.subtitles:
+        return subtitles.summary;
     }
   }
 
@@ -250,6 +266,7 @@ class RestorationPipeline {
     ColorCorrectionParameters? colorCorrection,
     ChromaFixParameters? chromaFixes,
     CropResizeParameters? cropResize,
+    SubtitleParameters? subtitles,
   }) {
     return RestorationPipeline(
       deinterlace: deinterlace ?? this.deinterlace,
@@ -261,6 +278,7 @@ class RestorationPipeline {
       colorCorrection: colorCorrection ?? this.colorCorrection,
       chromaFixes: chromaFixes ?? this.chromaFixes,
       cropResize: cropResize ?? this.cropResize,
+      subtitles: subtitles ?? this.subtitles,
     );
   }
 
@@ -302,6 +320,10 @@ class RestorationPipeline {
       case PassType.cropResize:
         return copyWith(
           cropResize: cropResize.copyWith(enabled: enabled),
+        );
+      case PassType.subtitles:
+        return copyWith(
+          subtitles: subtitles.copyWith(enabled: enabled),
         );
     }
   }

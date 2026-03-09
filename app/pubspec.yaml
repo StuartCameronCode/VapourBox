@@ -56,5 +56,6 @@ flutter:
   uses-material-design: true
   assets:
     - assets/deps-version.json
+    - assets/whisper-addon.json
     - assets/filters/
     - assets/filters/core/

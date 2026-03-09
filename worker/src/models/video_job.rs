@@ -47,6 +47,14 @@ pub struct VideoJob {
     /// End frame for partial export (inclusive). None means export to end.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_frame: Option<i32>,
+
+    /// Subtitle generation settings (runs post-encode).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtitle_settings: Option<SubtitleSettings>,
+
+    /// When true, skip video processing and only generate subtitles from input.
+    #[serde(default)]
+    pub subtitle_only: bool,
 }
 
 impl VideoJob {
@@ -57,6 +65,36 @@ impl VideoJob {
             .clone()
             .unwrap_or_else(|| RestorationPipeline::from_legacy(&self.qtgmc_parameters))
     }
+}
+
+/// Subtitle generation settings using Whisper AI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubtitleSettings {
+    pub enabled: bool,
+
+    #[serde(default = "default_whisper_model")]
+    pub model: String,
+
+    #[serde(default)]
+    pub output: SubtitleOutput,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+}
+
+fn default_whisper_model() -> String {
+    "medium".to_string()
+}
+
+/// Subtitle output mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SubtitleOutput {
+    #[default]
+    SrtFile,
+    Embed,
+    Both,
 }
 
 /// Video encoding settings for FFmpeg output.

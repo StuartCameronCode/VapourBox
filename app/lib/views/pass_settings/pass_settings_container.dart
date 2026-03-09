@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../models/dynamic_parameters.dart';
 import '../../models/filter_registry.dart';
 import '../../models/restoration_pipeline.dart';
+import '../../services/whisper_addon_manager.dart';
 import '../../viewmodels/main_viewmodel.dart';
 import '../settings/dynamic_filter_panel.dart';
+import '../whisper_download_dialog.dart';
 
 /// Container widget that shows the settings panel for the currently selected pass.
 ///
@@ -33,6 +36,8 @@ class PassSettingsContainer extends StatelessWidget {
         return 'chroma_fixes';
       case PassType.cropResize:
         return 'crop_resize';
+      case PassType.subtitles:
+        return 'subtitles';
     }
   }
 
@@ -60,13 +65,43 @@ class PassSettingsContainer extends StatelessWidget {
               schema: schema,
               params: params,
               onChanged: (newParams) {
-                viewModel.updateDynamicParams(filterId, newParams);
+                _handleParamChange(context, viewModel, filterId, params, newParams);
               },
             ),
           ),
         );
       },
     );
+  }
+
+  /// Handle parameter changes, with special model-download check for subtitles.
+  void _handleParamChange(
+    BuildContext context,
+    MainViewModel viewModel,
+    String filterId,
+    DynamicParameters oldParams,
+    DynamicParameters newParams,
+  ) async {
+    // When the subtitles model changes while subtitles is enabled,
+    // check if the new model is downloaded.
+    if (filterId == 'subtitles' &&
+        newParams.enabled &&
+        oldParams.values['model'] != newParams.values['model']) {
+      final newModelId = newParams.values['model'] as String? ?? 'medium';
+      final modelInstalled =
+          await WhisperAddonManager.instance.isModelInstalled(newModelId);
+      if (!modelInstalled) {
+        if (!context.mounted) return;
+        final confirmed =
+            await WhisperConfirmDialog.show(context, modelId: newModelId);
+        if (!confirmed) return;
+        if (!context.mounted) return;
+        final downloaded =
+            await WhisperDownloadDialog.show(context, modelId: newModelId);
+        if (!downloaded) return;
+      }
+    }
+    viewModel.updateDynamicParams(filterId, newParams);
   }
 
   Widget _buildFallbackPanel(BuildContext context, PassType passType) {
