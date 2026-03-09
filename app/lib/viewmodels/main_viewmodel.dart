@@ -10,6 +10,7 @@ import '../models/progress_info.dart';
 import '../models/qtgmc_parameters.dart';
 import '../models/queue_item.dart';
 import '../models/restoration_pipeline.dart';
+import '../models/subtitle_parameters.dart';
 import '../models/video_job.dart';
 import '../models/processing_preset.dart';
 import '../services/field_order_detector.dart';
@@ -47,6 +48,9 @@ class MainViewModel extends ChangeNotifier {
 
   // Dynamic parameters for UI state (preserves null values for optional params)
   final Map<String, DynamicParameters> _dynamicParams = {};
+
+  // Track whether the last completed job was subtitle-only
+  bool _lastJobSubtitleOnly = false;
 
   // Preview generation state (shared across queue items)
   bool _isGeneratingPreview = false;
@@ -93,6 +97,12 @@ class MainViewModel extends ChangeNotifier {
   PassType get selectedPass => _selectedPass;
   bool get advancedMode => _advancedMode;
 
+  /// Label for completion message — context-aware based on last job type.
+  String get completionLabel {
+    if (_lastJobSubtitleOnly) return 'Subtitles saved to:';
+    return 'Output saved to:';
+  }
+
   /// Get dynamic parameters for a filter (UI state).
   /// Returns cached params if available, otherwise converts from typed model.
   DynamicParameters getDynamicParams(String filterId) {
@@ -110,6 +120,10 @@ class MainViewModel extends ChangeNotifier {
     _dynamicParams[filterId] = params;
     // Also update the typed model in the pipeline
     _updatePipelineFromDynamic(filterId, params);
+    // Subtitle output mode changes can affect output file extension
+    if (filterId == 'subtitles') {
+      _regenerateOutputPath();
+    }
     notifyListeners();
     _requestPreviewUpdate();
   }
@@ -832,6 +846,8 @@ class MainViewModel extends ChangeNotifier {
     if (_dynamicParams.containsKey(filterId)) {
       _dynamicParams[filterId] = _dynamicParams[filterId]!.withEnabled(enabled);
     }
+    // Regenerate output paths (subtitle-only changes the extension)
+    _regenerateOutputPath();
     notifyListeners();
     _requestPreviewUpdate();
   }
@@ -939,6 +955,8 @@ class MainViewModel extends ChangeNotifier {
     // Subtitle-only mode: no video processing passes enabled, only subtitles
     final isSubtitleOnly = _restorationPipeline.subtitles.enabled &&
         _restorationPipeline.enabledPasses.isEmpty;
+    _lastJobSubtitleOnly = isSubtitleOnly &&
+        _restorationPipeline.subtitles.output == SubtitleOutput.srtFile;
 
     // Build job configuration
     final job = VideoJob(
@@ -1111,6 +1129,13 @@ class MainViewModel extends ChangeNotifier {
 
     // Generate filename from pattern
     final outputFilename = _encodingSettings.generateOutputFilename(inputBaseName);
+
+    // Subtitle-only with SRT output: use .srt extension
+    final isSubtitleOnly = _restorationPipeline.subtitles.enabled &&
+        _restorationPipeline.videoPassCount == 0;
+    if (isSubtitleOnly && _restorationPipeline.subtitles.output == SubtitleOutput.srtFile) {
+      return '$outputDir/$outputFilename.srt';
+    }
 
     // Add extension based on container
     final ext = _getOutputExtension();

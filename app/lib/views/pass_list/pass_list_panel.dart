@@ -120,6 +120,18 @@ class PassListPanel extends StatelessWidget {
               onTap: () => viewModel.selectPass(PassType.cropResize),
             ),
 
+            // Post-Processing section
+            const Divider(height: 24),
+            Padding(
+              padding: const EdgeInsets.only(left: 16, bottom: 4),
+              child: Text(
+                'Post-Processing',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                ),
+              ),
+            ),
+
             PassListItem(
               passType: PassType.subtitles,
               title: 'Subtitles',
@@ -134,7 +146,7 @@ class PassListPanel extends StatelessWidget {
 
             // Pass count summary
             Text(
-              '${pipeline.enabledPassCount} pass${pipeline.enabledPassCount == 1 ? '' : 'es'} enabled',
+              _getPassSummary(pipeline),
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                   ),
@@ -168,6 +180,21 @@ class PassListPanel extends StatelessWidget {
       }
     }
     viewModel.togglePass(PassType.subtitles, enabled);
+  }
+
+  String _getPassSummary(RestorationPipeline pipeline) {
+    final videoCount = pipeline.videoPassCount;
+    final hasSubtitles = pipeline.subtitles.enabled;
+
+    if (videoCount > 0 && hasSubtitles) {
+      return '$videoCount video pass${videoCount == 1 ? '' : 'es'}, subtitles enabled';
+    } else if (videoCount > 0) {
+      return '$videoCount pass${videoCount == 1 ? '' : 'es'} enabled';
+    } else if (hasSubtitles) {
+      return 'Subtitle generation only';
+    } else {
+      return 'Format conversion only';
+    }
   }
 
   String _getDeinterlaceSummary(RestorationPipeline pipeline) {

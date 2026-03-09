@@ -69,7 +69,7 @@ class ProgressPanel extends StatelessWidget {
               if (state == ProcessingState.completed) ...[
                 const SizedBox(height: 16),
                 Text(
-                  'Output saved to:',
+                  viewModel.completionLabel,
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 8),

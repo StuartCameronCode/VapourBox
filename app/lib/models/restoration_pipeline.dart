@@ -186,7 +186,7 @@ class RestorationPipeline {
     return passes;
   }
 
-  /// Get count of enabled passes.
+  /// Get count of enabled passes (includes subtitles).
   int get enabledPassCount {
     var count = 0;
     if (deinterlace.enabled) count++;
@@ -199,6 +199,21 @@ class RestorationPipeline {
     if (chromaFixes.enabled) count++;
     if (cropResize.enabled) count++;
     if (subtitles.enabled) count++;
+    return count;
+  }
+
+  /// Get count of enabled video processing passes (excludes subtitles).
+  int get videoPassCount {
+    var count = 0;
+    if (deinterlace.enabled) count++;
+    if (noiseReduction.enabled) count++;
+    if (dehalo.enabled) count++;
+    if (deblock.enabled) count++;
+    if (deband.enabled) count++;
+    if (sharpen.enabled) count++;
+    if (colorCorrection.enabled) count++;
+    if (chromaFixes.enabled) count++;
+    if (cropResize.enabled) count++;
     return count;
   }
 
