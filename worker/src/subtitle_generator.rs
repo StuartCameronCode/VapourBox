@@ -347,7 +347,8 @@ impl SubtitleGenerator {
         // When modifying in place, write to a temp file then rename.
         // When writing to a new file, write directly to the target.
         let output_path = if in_place {
-            target_video.with_extension("tmp_sub_embed.mp4")
+            let orig_ext = target_video.extension().unwrap_or_default().to_string_lossy();
+            target_video.with_extension(format!("tmp_sub_embed.{}", orig_ext))
         } else {
             target_video.to_path_buf()
         };

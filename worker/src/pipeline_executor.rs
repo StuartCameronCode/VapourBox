@@ -361,7 +361,9 @@ impl PipelineExecutor {
         let resize_active = pipeline.crop_resize.enabled && pipeline.crop_resize.resize_enabled;
         if !resize_active {
             if let Some(sar) = input_sar {
-                args.extend(["-vf".to_string(), format!("setsar={}", sar)]);
+                // Use '/' as ratio separator — ':' is the ffmpeg filter option separator
+                let sar_filter = sar.replace(':', "/");
+                args.extend(["-vf".to_string(), format!("setsar={}", sar_filter)]);
             }
         }
 
