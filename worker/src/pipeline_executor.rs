@@ -77,10 +77,16 @@ impl PipelineExecutor {
         let vspipe_stdout = vspipe.stdout.take().context("Failed to get vspipe stdout")?;
         let vspipe_stderr = vspipe.stderr.take().context("Failed to get vspipe stderr")?;
 
+        // Use SAR from job (detected during import) or probe as fallback
+        let input_sar = job.input_sar.clone().or_else(|| self.probe_sar(&job.input_path));
+        if let Some(ref sar) = input_sar {
+            self.reporter.send_log(LogLevel::Debug, &format!("Input SAR: {}", sar));
+        }
+
         // Build FFmpeg arguments, using a temp file for progress to avoid
         // Windows pipe buffering which delays progress by ~10K frames.
         let progress_file = std::env::temp_dir().join(format!("vb_progress_{}", job.id));
-        let ffmpeg_args = self.build_ffmpeg_args(job, &progress_file);
+        let ffmpeg_args = self.build_ffmpeg_args(job, &progress_file, input_sar.as_deref());
 
         // Start ffmpeg process
         let mut ffmpeg = Command::new(&ffmpeg_path)
@@ -287,8 +293,42 @@ impl PipelineExecutor {
         Ok(())
     }
 
+    /// Probe the input file's sample aspect ratio (SAR) using ffprobe.
+    /// Returns "N:M" string (e.g. "10:11") or None if SAR is 1:1 or unavailable.
+    fn probe_sar(&self, input_path: &str) -> Option<String> {
+        let ffprobe_path = self.deps.ffprobe_path().ok()?;
+        let env = self.deps.build_environment();
+
+        let output = Command::new(&ffprobe_path)
+            .args([
+                "-v", "quiet",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=sample_aspect_ratio",
+                "-of", "csv=p=0",
+                input_path,
+            ])
+            .envs(&env)
+            .output()
+            .ok()?;
+
+        let sar = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        // Ignore missing, unknown, or square pixel SAR
+        if sar.is_empty() || sar == "N/A" || sar == "1:1" {
+            return None;
+        }
+
+        // Validate format is "N:M"
+        let parts: Vec<&str> = sar.split(':').collect();
+        if parts.len() == 2 && parts[0].parse::<u32>().is_ok() && parts[1].parse::<u32>().is_ok() {
+            Some(sar)
+        } else {
+            None
+        }
+    }
+
     /// Build FFmpeg command-line arguments.
-    fn build_ffmpeg_args(&self, job: &VideoJob, progress_file: &Path) -> Vec<String> {
+    fn build_ffmpeg_args(&self, job: &VideoJob, progress_file: &Path, input_sar: Option<&str>) -> Vec<String> {
         let mut args = Vec::new();
         let settings = &job.encoding_settings;
 
@@ -315,6 +355,16 @@ impl PipelineExecutor {
         // Encoder-family-specific quality and preset args
         Self::build_encoder_quality_args(&mut args, settings);
 
+        // Preserve input sample aspect ratio (SAR) when no resize is applied.
+        // The Y4M pipe from vspipe strips SAR metadata, so we must re-apply it.
+        let pipeline = job.effective_pipeline();
+        let resize_active = pipeline.crop_resize.enabled && pipeline.crop_resize.resize_enabled;
+        if !resize_active {
+            if let Some(sar) = input_sar {
+                args.extend(["-vf".to_string(), format!("setsar={}", sar)]);
+            }
+        }
+
         // Audio handling
         match settings.audio_mode {
             AudioMode::Passthrough => {
@@ -336,7 +386,6 @@ impl PipelineExecutor {
         // Fixes audio sync offset caused by mismatched initial PTS between the
         // Y4M pipe (starts at 0) and audio from the original container.
         // Safe/no-op when timestamps are already aligned.
-        let pipeline = job.effective_pipeline();
         let is_framerate_change = pipeline.deinterlace.enabled
             && matches!(
                 pipeline.deinterlace.method,
@@ -667,6 +716,7 @@ mod tests {
             end_frame: None,
             subtitle_settings: None,
             subtitle_only: false,
+            input_sar: None,
         }
     }
 

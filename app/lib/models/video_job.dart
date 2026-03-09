@@ -38,6 +38,9 @@ class VideoJob {
   /// When true, skip video processing and only generate subtitles from input.
   final bool subtitleOnly;
 
+  /// Input sample aspect ratio (e.g. "10:11"). Null means 1:1 (square pixels).
+  final String? inputSar;
+
   VideoJob({
     String? id,
     required this.inputPath,
@@ -52,6 +55,7 @@ class VideoJob {
     this.endFrame,
     this.subtitleSettings,
     this.subtitleOnly = false,
+    this.inputSar,
   })  : id = id ?? const Uuid().v4(),
         qtgmcParameters = qtgmcParameters ?? QTGMCParameters(),
         encodingSettings = encodingSettings ?? EncodingSettings();
@@ -79,6 +83,7 @@ class VideoJob {
     int? endFrame,
     SubtitleSettingsDto? subtitleSettings,
     bool? subtitleOnly,
+    String? inputSar,
   }) {
     return VideoJob(
       id: id ?? this.id,
@@ -94,6 +99,7 @@ class VideoJob {
       endFrame: endFrame ?? this.endFrame,
       subtitleSettings: subtitleSettings ?? this.subtitleSettings,
       subtitleOnly: subtitleOnly ?? this.subtitleOnly,
+      inputSar: inputSar ?? this.inputSar,
     );
   }
 }

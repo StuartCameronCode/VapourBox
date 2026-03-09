@@ -980,6 +980,7 @@ class MainViewModel extends ChangeNotifier {
               _restorationPipeline.subtitles)
           : null,
       subtitleOnly: isSubtitleOnly,
+      inputSar: item.videoInfo?.sar,
     );
 
     try {

@@ -55,6 +55,10 @@ pub struct VideoJob {
     /// When true, skip video processing and only generate subtitles from input.
     #[serde(default)]
     pub subtitle_only: bool,
+
+    /// Input sample aspect ratio (e.g. "10:11"). None means 1:1 (square pixels).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_sar: Option<String>,
 }
 
 impl VideoJob {

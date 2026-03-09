@@ -80,6 +80,10 @@ class FieldOrderDetector {
       final codec = videoStream['codec_name'] as String?;
       final pixelFormat = videoStream['pix_fmt'] as String?;
 
+      // Extract sample aspect ratio (SAR) — null if square pixels or unavailable
+      final rawSar = videoStream['sample_aspect_ratio'] as String?;
+      final sar = (rawSar != null && rawSar != 'N/A' && rawSar != '1:1') ? rawSar : null;
+
       // Get metadata field order for context
       final metadataFieldOrder = videoStream['field_order'] as String?;
 
@@ -116,6 +120,7 @@ class FieldOrderDetector {
         fieldOrder: fieldOrder,
         scanType: scanType,
         hasAudio: audioStream != null,
+        sar: sar,
       );
     } catch (e) {
       return null;
@@ -537,6 +542,8 @@ class VideoInfo {
   final FieldOrder? fieldOrder;
   final ScanType scanType;
   final bool hasAudio;
+  /// Sample aspect ratio from the input (e.g. "10:11"), null if 1:1 or unknown.
+  final String? sar;
 
   const VideoInfo({
     required this.width,
@@ -549,6 +556,7 @@ class VideoInfo {
     this.fieldOrder,
     this.scanType = ScanType.unknown,
     required this.hasAudio,
+    this.sar,
   });
 
   String get resolution => '${width}x$height';
