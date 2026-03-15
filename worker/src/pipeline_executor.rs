@@ -12,7 +12,7 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 
 use crate::dependency_locator::DependencyLocator;
-use crate::models::{AudioMode, DeinterlaceMethod, EncoderFamily, EncodingSettings, LogLevel, ProgressInfo, VideoCodec, VideoJob};
+use crate::models::{AudioMode, ContainerFormat, DeinterlaceMethod, EncoderFamily, EncodingSettings, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
 use crate::progress_reporter::ProgressReporter;
 use crate::script_generator::{PreviewParams, ScriptGenerator};
 
@@ -86,7 +86,8 @@ impl PipelineExecutor {
         // Build FFmpeg arguments, using a temp file for progress to avoid
         // Windows pipe buffering which delays progress by ~10K frames.
         let progress_file = std::env::temp_dir().join(format!("vb_progress_{}", job.id));
-        let ffmpeg_args = self.build_ffmpeg_args(job, &progress_file, input_sar.as_deref());
+        let existing_comment = self.probe_comment(&job.input_path);
+        let ffmpeg_args = self.build_ffmpeg_args(job, &progress_file, input_sar.as_deref(), existing_comment.as_deref());
 
         // Start ffmpeg process
         let mut ffmpeg = Command::new(&ffmpeg_path)
@@ -293,6 +294,26 @@ impl PipelineExecutor {
         Ok(())
     }
 
+    /// Probe the input file's comment metadata using ffprobe.
+    fn probe_comment(&self, input_path: &str) -> Option<String> {
+        let ffprobe_path = self.deps.ffprobe_path().ok()?;
+        let env = self.deps.build_environment();
+
+        let output = Command::new(&ffprobe_path)
+            .args([
+                "-v", "quiet",
+                "-show_entries", "format_tags=comment",
+                "-of", "csv=p=0",
+                input_path,
+            ])
+            .envs(&env)
+            .output()
+            .ok()?;
+
+        let comment = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if comment.is_empty() { None } else { Some(comment) }
+    }
+
     /// Probe the input file's sample aspect ratio (SAR) using ffprobe.
     /// Returns "N:M" string (e.g. "10:11") or None if SAR is 1:1 or unavailable.
     fn probe_sar(&self, input_path: &str) -> Option<String> {
@@ -328,7 +349,7 @@ impl PipelineExecutor {
     }
 
     /// Build FFmpeg command-line arguments.
-    fn build_ffmpeg_args(&self, job: &VideoJob, progress_file: &Path, input_sar: Option<&str>) -> Vec<String> {
+    fn build_ffmpeg_args(&self, job: &VideoJob, progress_file: &Path, input_sar: Option<&str>, existing_comment: Option<&str>) -> Vec<String> {
         let mut args = Vec::new();
         let settings = &job.encoding_settings;
 
@@ -343,10 +364,27 @@ impl PipelineExecutor {
         // Progress output to a temp file (avoids Windows pipe buffering delay)
         args.extend(["-progress".to_string(), progress_file.to_string_lossy().to_string()]);
 
-        // Map streams: video from input 0 (processed), audio from input 1 (original) if not disabled
+        // Map streams: video from input 0 (processed), audio and subtitles from input 1 (original)
         args.extend(["-map".to_string(), "0:v".to_string()]);  // Video from Y4M pipe
         if settings.audio_mode != AudioMode::None {
-            args.extend(["-map".to_string(), "1:a?".to_string()]); // Audio from original (? = optional, skip if no audio)
+            args.extend(["-map".to_string(), "1:a?".to_string()]); // Audio from original (? = optional)
+        }
+
+        // Preserve existing subtitle streams from source (? = optional, no error if none)
+        let subtitle_embed_pending = job.subtitle_settings.as_ref()
+            .is_some_and(|s| s.enabled && !matches!(s.output, SubtitleOutput::SrtFile));
+        match settings.container {
+            ContainerFormat::Mkv => {
+                args.extend(["-map".to_string(), "1:s?".to_string()]);
+                args.extend(["-c:s".to_string(), "copy".to_string()]);
+            }
+            ContainerFormat::Mp4 | ContainerFormat::Mov if !subtitle_embed_pending => {
+                // Transcode text subs to mov_text; image-based subs (PGS) will be
+                // skipped by ffmpeg if they can't be converted.
+                args.extend(["-map".to_string(), "1:s?".to_string()]);
+                args.extend(["-c:s".to_string(), "mov_text".to_string()]);
+            }
+            _ => {} // AVI and others: skip subtitle mapping
         }
 
         // Video codec
@@ -397,6 +435,14 @@ impl PipelineExecutor {
             args.extend(["-avoid_negative_ts".to_string(), "make_zero".to_string()]);
             args.push("-start_at_zero".to_string());
         }
+
+        // Embed VapourBox version in output metadata, preserving any existing comment
+        let version = env!("CARGO_PKG_VERSION");
+        let comment = match existing_comment {
+            Some(existing) => format!("VapourBox {} | {}", version, existing),
+            None => format!("VapourBox {}", version),
+        };
+        args.extend(["-metadata".to_string(), format!("comment={}", comment)]);
 
         // Custom arguments
         if !settings.custom_ffmpeg_args.is_empty() {

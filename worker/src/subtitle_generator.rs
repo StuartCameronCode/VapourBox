@@ -156,6 +156,26 @@ impl SubtitleGenerator {
         Ok(!output.stdout.is_empty())
     }
 
+    /// Probe the source file's comment metadata.
+    fn probe_comment(&self, video_path: &str) -> Option<String> {
+        let ffprobe_path = self.deps.ffprobe_path().ok()?;
+        let env = self.deps.build_environment();
+
+        let output = Command::new(&ffprobe_path)
+            .args([
+                "-v", "quiet",
+                "-show_entries", "format_tags=comment",
+                "-of", "csv=p=0",
+                video_path,
+            ])
+            .envs(&env)
+            .output()
+            .ok()?;
+
+        let comment = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if comment.is_empty() { None } else { Some(comment) }
+    }
+
     /// Extract audio from video to 16kHz mono WAV.
     fn extract_audio<F>(&self, video_path: &str, on_cancel: &F) -> Result<PathBuf>
     where
@@ -354,6 +374,15 @@ impl SubtitleGenerator {
         };
         let output_str = output_path.to_string_lossy().to_string();
 
+        // Build comment metadata, preserving any existing comment from source
+        let version = env!("CARGO_PKG_VERSION");
+        let existing_comment = self.probe_comment(source_video);
+        let comment = match existing_comment {
+            Some(ref existing) => format!("VapourBox {} | {}", version, existing),
+            None => format!("VapourBox {}", version),
+        };
+        let comment_arg = format!("comment={}", comment);
+
         let mut child = Command::new(&ffmpeg_path)
             .args([
                 "-i",
@@ -364,6 +393,8 @@ impl SubtitleGenerator {
                 "copy",
                 "-c:s",
                 sub_codec,
+                "-metadata",
+                &comment_arg,
                 "-y",
                 &output_str,
             ])
