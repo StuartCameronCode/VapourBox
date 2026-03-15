@@ -409,6 +409,8 @@ class MainViewModel extends ChangeNotifier {
         _qtgmcParams = _restorationPipeline.deinterlace;
         // Sync dynamic params cache and notify UI immediately
         _dynamicParams.remove('deinterlace');
+        // Deinterlace toggle changes subtitle-only detection and output extension
+        _regenerateOutputPath();
         _logMessages.add(LogMessage(
           level: LogLevel.info,
           message: logMsg!,
@@ -832,6 +834,8 @@ class MainViewModel extends ChangeNotifier {
     _restorationPipeline = pipeline;
     // Keep qtgmcParams in sync with deinterlace settings
     _qtgmcParams = pipeline.deinterlace;
+    // Pipeline changes affect subtitle-only detection and output extension
+    _regenerateOutputPath();
     notifyListeners();
     _requestPreviewUpdate();
   }
@@ -957,6 +961,9 @@ class MainViewModel extends ChangeNotifier {
         _restorationPipeline.enabledPasses.isEmpty;
     _lastJobSubtitleOnly = isSubtitleOnly &&
         _restorationPipeline.subtitles.output == SubtitleOutput.srtFile;
+
+    // Ensure output path matches current settings (guards against stale extensions)
+    item.outputPath = _generateOutputPath(item.inputPath);
 
     // Build job configuration
     final job = VideoJob(

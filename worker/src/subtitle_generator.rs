@@ -247,7 +247,7 @@ impl SubtitleGenerator {
 
         let mut child = Command::new(whisper_path)
             .args(&args)
-            .stdout(Stdio::piped())
+            .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
             .context("Failed to start whisper-cli")?;
