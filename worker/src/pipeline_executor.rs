@@ -599,8 +599,8 @@ impl PipelineExecutor {
 
     /// Generate a preview frame as PNG to stdout.
     ///
-    /// This extracts frames around the target time using ffmpeg (fast keyframe seek),
-    /// then processes them through VapourSynth with the filter pipeline.
+    /// Decodes frames around the target time with FFmpeg, pipes raw data through
+    /// VapourSynth for filtering, then encodes the middle frame as PNG.
     pub fn generate_preview(&self, job: &VideoJob, time_seconds: f64) -> Result<()> {
         use std::io::Write;
 
@@ -608,53 +608,18 @@ impl PipelineExecutor {
         let vspipe_path = self.deps.vspipe_path()?;
         let env = self.deps.build_environment();
 
-        // Create temp directory for extracted frames
-        let temp_dir = std::env::temp_dir().join(format!("vapourbox_preview_{}", job.id));
-        fs::create_dir_all(&temp_dir)
-            .with_context(|| format!("Failed to create temp dir: {:?}", temp_dir))?;
-
         // Number of frames to extract (need enough for QTGMC temporal processing)
-        let num_frames = 11; // Extract 11 frames, use middle one
+        let num_frames = 11; // Decode 11 frames, VapourSynth uses middle one
         let frame_rate = job.input_frame_rate.unwrap_or(29.97);
         let frame_duration = 1.0 / frame_rate;
+        let pix_fmt = job.input_pixel_format.as_deref().unwrap_or("yuv420p");
+        let width = job.input_width.unwrap_or(720);
+        let height = job.input_height.unwrap_or(480);
 
-        // Calculate start time (go back half the frames)
+        // Calculate start time (go back half the frames for temporal context)
         let start_time = (time_seconds - (num_frames as f64 / 2.0) * frame_duration).max(0.0);
 
-        eprintln!("Extracting {} frames starting at {:.3}s", num_frames, start_time);
-
-        // Extract frames to a temporary lossless video file (FFV1)
-        // Using a video file instead of images because ffms2 is available but imwri is not
-        let temp_video_path = temp_dir.join("preview_clip.mkv");
-        let extract_result = Command::new(&ffmpeg_path)
-            .args([
-                "-ss", &format!("{:.3}", start_time),
-                "-i", &job.input_path,
-                "-vframes", &num_frames.to_string(),
-                "-c:v", "ffv1",
-                "-level", "1",
-                "-an",
-                temp_video_path.to_string_lossy().as_ref(),
-            ])
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .output()
-            .with_context(|| "Failed to run ffmpeg for frame extraction")?;
-
-        if !extract_result.status.success() {
-            let stderr = String::from_utf8_lossy(&extract_result.stderr);
-            // Clean up
-            let _ = fs::remove_dir_all(&temp_dir);
-            bail!("Failed to extract frames: {}", stderr);
-        }
-
-        // Verify the file was created
-        if !temp_video_path.exists() {
-            let _ = fs::remove_dir_all(&temp_dir);
-            bail!("Failed to create preview clip");
-        }
-
-        eprintln!("Extracted frames to {:?}", temp_video_path);
+        eprintln!("Decoding {} frames starting at {:.3}s ({}x{} {})", num_frames, start_time, width, height, pix_fmt);
 
         // Determine field order for interlaced content
         let field_based = if job.qtgmc_parameters.tff == Some(true) {
@@ -663,12 +628,17 @@ impl PipelineExecutor {
             1 // BFF
         };
 
-        // Generate preview script using the script generator
+        // FPS as rational
         let script_generator = ScriptGenerator::new()?;
+        let (fps_num, fps_den) = script_generator.frame_rate_to_rational(frame_rate);
+
         let preview_params = PreviewParams {
-            video_path: temp_video_path.to_string_lossy().to_string(),
-            fps_num: (frame_rate * 1000.0) as i32,
-            fps_den: 1000,
+            width,
+            height,
+            pix_fmt: pix_fmt.to_string(),
+            num_frames,
+            fps_num,
+            fps_den,
             field_based,
         };
 
@@ -676,7 +646,47 @@ impl PipelineExecutor {
 
         eprintln!("Generated preview script: {:?}", script_path);
 
-        // Run vspipe on the preview script (outputs single frame)
+        // Decode frames to a temp raw file (avoids rawvideo muxer pipe issues on Windows)
+        // For 11 frames this is tiny (~9MB) and near-instant with keyframe seeking
+        let temp_dir = std::env::temp_dir().join(format!("vapourbox_preview_{}", job.id));
+        fs::create_dir_all(&temp_dir)
+            .with_context(|| format!("Failed to create temp dir: {:?}", temp_dir))?;
+        let raw_path = temp_dir.join("frames.raw");
+
+        let extract_result = Command::new(&ffmpeg_path)
+            .args([
+                "-ss", &format!("{:.6}", start_time),
+                "-i", &job.input_path,
+                "-map", "0:v:0",
+                "-frames:v", &num_frames.to_string(),
+                "-f", "rawvideo",
+                "-pix_fmt", pix_fmt,
+                "-v", "error",
+                "-y",
+                raw_path.to_string_lossy().as_ref(),
+            ])
+            .envs(&env)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .with_context(|| "Failed to run ffmpeg for frame extraction")?;
+
+        if !extract_result.status.success() {
+            let stderr = String::from_utf8_lossy(&extract_result.stderr);
+            let _ = fs::remove_dir_all(&temp_dir);
+            bail!("Failed to decode frames: {}", stderr);
+        }
+
+        if !raw_path.exists() {
+            let _ = fs::remove_dir_all(&temp_dir);
+            bail!("Failed to create raw frame file");
+        }
+
+        // Pipe raw frames from file to vspipe stdin
+        let raw_file = fs::File::open(&raw_path)
+            .with_context(|| format!("Failed to open raw file: {:?}", raw_path))?;
+
+        // Start vspipe — reads raw frames from file via stdin, outputs Y4M
         let mut vspipe = Command::new(&vspipe_path)
             .args([
                 "-c", "y4m",
@@ -684,6 +694,7 @@ impl PipelineExecutor {
                 "-",
             ])
             .envs(&env)
+            .stdin(raw_file)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -692,23 +703,23 @@ impl PipelineExecutor {
         let vspipe_stdout = vspipe.stdout.take().context("Failed to get vspipe stdout")?;
         let vspipe_stderr = vspipe.stderr.take();
 
-        // Start ffmpeg to encode as PNG to stdout
-        let ffmpeg = Command::new(&ffmpeg_path)
+        // Start encoder FFmpeg — converts Y4M to PNG
+        let ffmpeg_enc = Command::new(&ffmpeg_path)
             .args([
                 "-f", "yuv4mpegpipe",
-                "-i", "-",
+                "-i", "pipe:0",
                 "-vframes", "1",
                 "-vf", "scale=in_range=tv:out_range=pc",
                 "-f", "image2pipe",
                 "-vcodec", "png",
-                "-",
+                "pipe:1",
             ])
             .envs(&env)
             .stdin(vspipe_stdout)
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .with_context(|| format!("Failed to start ffmpeg: {:?}", ffmpeg_path))?;
+            .with_context(|| format!("Failed to start ffmpeg encoder: {:?}", ffmpeg_path))?;
 
         // Read vspipe stderr in background for error messages
         let stderr_thread = if let Some(stderr) = vspipe_stderr {
@@ -728,11 +739,9 @@ impl PipelineExecutor {
             None
         };
 
-        // Wait for vspipe to finish
+        // Wait for processes
         let vspipe_status = vspipe.wait().context("Failed to wait for vspipe")?;
-
-        // Read PNG output from ffmpeg
-        let output = ffmpeg.wait_with_output().context("Failed to wait for ffmpeg")?;
+        let output = ffmpeg_enc.wait_with_output().context("Failed to wait for ffmpeg")?;
 
         // Clean up temp files
         let _ = fs::remove_dir_all(&temp_dir);
@@ -748,7 +757,7 @@ impl PipelineExecutor {
         }
 
         if !output.status.success() {
-            bail!("ffmpeg exited with code {}", output.status.code().unwrap_or(-1));
+            bail!("ffmpeg encoder exited with code {}", output.status.code().unwrap_or(-1));
         }
 
         // Write PNG to stdout

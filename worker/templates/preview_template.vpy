@@ -1,6 +1,6 @@
 """
 VapourBox Preview Template
-Loads a short extracted video clip for fast preview generation.
+Reads raw frames piped from FFmpeg for fast preview generation.
 Uses the same filter pipeline as the main template.
 """
 
@@ -13,20 +13,21 @@ core = vs.core
 # Configure cache size for optimal performance with temporal filters
 core.max_cache_size = 1024
 
-# Load the temporary preview video clip (extracted with fast keyframe seeking)
-video_path = r"{{VIDEO_PATH}}"
+# Load raw frames piped from FFmpeg via stdin
+sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
+from pipe_source import create_pipe_clip
 
-# Load using FFMS2 (fast packet-level indexing)
-clip = core.ffms2.Source(source=video_path)
+clip = create_pipe_clip(
+    width={{INPUT_WIDTH}}, height={{INPUT_HEIGHT}},
+    num_frames={{TOTAL_FRAMES}}, fps_num={{FPS_NUM}},
+    fps_den={{FPS_DEN}}, pix_fmt="{{INPUT_PIX_FMT}}",
+)
 
 # Convert unusual chroma formats (e.g., 4:1:1 from NTSC DV) to 4:2:2 for filter compatibility
 # 4:1:1 (YUV411P) has subsampling_w=2, subsampling_h=0
 # Most filters expect 4:2:0 or 4:2:2; 4:2:2 is lossless when upconverting from 4:1:1
 if clip.format.subsampling_w > 1:  # 4:1:1 or more extreme horizontal subsampling
     clip = core.resize.Bicubic(clip, format=vs.YUV422P8 if clip.format.bits_per_sample == 8 else vs.YUV422P16)
-
-# Set frame rate properties that QTGMC expects (from original video)
-clip = core.std.AssumeFPS(clip, fpsnum={{FPS_NUM}}, fpsden={{FPS_DEN}})
 
 # Mark as interlaced for QTGMC (field-based)
 clip = core.std.SetFieldBased(clip, {{FIELD_BASED}})

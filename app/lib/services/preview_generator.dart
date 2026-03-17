@@ -35,6 +35,11 @@ class PreviewGenerator {
   /// Total frame count.
   int _totalFrames = 0;
 
+  /// Video dimensions and pixel format (for pipe source).
+  int _videoWidth = 0;
+  int _videoHeight = 0;
+  String _pixelFormat = 'yuv420p';
+
   /// Log messages from preview generation (stderr output).
   final List<String> _previewLog = [];
 
@@ -192,6 +197,7 @@ class PreviewGenerator {
     required double timeSeconds,
     required RestorationPipeline pipeline,
     required FieldOrder fieldOrder,
+    required EncodingSettings encodingSettings,
     CancelToken? cancelToken,
   }) async {
     if (_currentVideoPath == null || _workerPath == null) {
@@ -221,12 +227,13 @@ class PreviewGenerator {
         outputPath: '$_tempDir/preview_output.avi', // Not used in preview mode
         qtgmcParameters: deinterlaceWithTff,
         restorationPipeline: pipelineWithTff,
-        encodingSettings: const EncodingSettings(
-          codec: VideoCodec.ffv1,
-          container: ContainerFormat.avi,
-        ),
+        encodingSettings: encodingSettings,
         detectedFieldOrder: fieldOrder,
         inputFrameRate: _frameRate,
+        totalFrames: _totalFrames,
+        inputWidth: _videoWidth,
+        inputHeight: _videoHeight,
+        inputPixelFormat: _pixelFormat,
       );
 
       // Write job config to file
@@ -397,6 +404,11 @@ class PreviewGenerator {
     // Parse frame count
     _totalFrames = int.tryParse(videoStream['nb_frames']?.toString() ?? '') ??
         (_duration * _frameRate).round();
+
+    // Parse video dimensions and pixel format
+    _videoWidth = videoStream['width'] as int? ?? 0;
+    _videoHeight = videoStream['height'] as int? ?? 0;
+    _pixelFormat = videoStream['pix_fmt'] as String? ?? 'yuv420p';
   }
 
   Future<List<Uint8List>> _extractThumbnails(String videoPath, int count) async {

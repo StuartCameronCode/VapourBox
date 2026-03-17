@@ -21,11 +21,17 @@ pub struct ScriptGenerator {
 
 /// Parameters for preview script generation.
 pub struct PreviewParams {
-    /// Path to the temporary preview video clip
-    pub video_path: String,
-    /// Original video FPS numerator
+    /// Input video width
+    pub width: i32,
+    /// Input video height
+    pub height: i32,
+    /// FFmpeg pixel format string (e.g. "yuv420p")
+    pub pix_fmt: String,
+    /// Number of frames being piped
+    pub num_frames: i32,
+    /// FPS numerator
     pub fps_num: i32,
-    /// Original video FPS denominator
+    /// FPS denominator
     pub fps_den: i32,
     /// Field order: 1 = BFF, 2 = TFF
     pub field_based: i32,
@@ -55,7 +61,7 @@ impl ScriptGenerator {
         Ok(script_path)
     }
 
-    /// Generate a preview .vpy script that loads from extracted frames.
+    /// Generate a preview .vpy script that reads raw frames from stdin pipe.
     /// Returns the path to the generated script.
     pub fn generate_preview(&self, job: &VideoJob, preview_params: &PreviewParams) -> Result<PathBuf> {
         let pipeline = job.effective_pipeline();
@@ -63,9 +69,16 @@ impl ScriptGenerator {
         // Start with preview template and substitute preview-specific params
         let mut script = self.preview_template.clone();
 
-        // Escape backslashes for Python
-        let escaped_video_path = preview_params.video_path.replace('\\', "\\\\");
-        script = script.replace("{{VIDEO_PATH}}", &escaped_video_path);
+        // Pipe source directory (same as main pipeline)
+        let pipe_source_dir = self.pipe_source_dir().unwrap_or_else(|_| env::temp_dir());
+        let dir_str = pipe_source_dir.to_string_lossy().to_string();
+        script = script.replace("{{PIPE_SOURCE_DIR}}", &dir_str);
+
+        // Input video properties
+        script = script.replace("{{INPUT_WIDTH}}", &preview_params.width.to_string());
+        script = script.replace("{{INPUT_HEIGHT}}", &preview_params.height.to_string());
+        script = script.replace("{{INPUT_PIX_FMT}}", &preview_params.pix_fmt);
+        script = script.replace("{{TOTAL_FRAMES}}", &preview_params.num_frames.to_string());
         script = script.replace("{{FPS_NUM}}", &preview_params.fps_num.to_string());
         script = script.replace("{{FPS_DEN}}", &preview_params.fps_den.to_string());
         script = script.replace("{{FIELD_BASED}}", &preview_params.field_based.to_string());
@@ -213,7 +226,7 @@ impl ScriptGenerator {
     }
 
     /// Convert a floating-point frame rate to a rational number (num/den).
-    fn frame_rate_to_rational(&self, fps: f64) -> (i32, i32) {
+    pub fn frame_rate_to_rational(&self, fps: f64) -> (i32, i32) {
         // Common frame rates
         let common = [
             (23.976, 24000, 1001),

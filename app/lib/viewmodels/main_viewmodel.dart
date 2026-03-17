@@ -776,6 +776,7 @@ class MainViewModel extends ChangeNotifier {
         timeSeconds: timeSeconds,
         pipeline: _restorationPipeline,
         fieldOrder: effectiveFieldOrder,
+        encodingSettings: _encodingSettings,
         cancelToken: _previewCancelToken,
       );
 
