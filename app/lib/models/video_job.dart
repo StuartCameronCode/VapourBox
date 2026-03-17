@@ -41,6 +41,11 @@ class VideoJob {
   /// Input sample aspect ratio (e.g. "10:11"). Null means 1:1 (square pixels).
   final String? inputSar;
 
+  /// Input video dimensions and pixel format (for pipe source).
+  final int? inputWidth;
+  final int? inputHeight;
+  final String? inputPixelFormat;
+
   VideoJob({
     String? id,
     required this.inputPath,
@@ -56,6 +61,9 @@ class VideoJob {
     this.subtitleSettings,
     this.subtitleOnly = false,
     this.inputSar,
+    this.inputWidth,
+    this.inputHeight,
+    this.inputPixelFormat,
   })  : id = id ?? const Uuid().v4(),
         qtgmcParameters = qtgmcParameters ?? QTGMCParameters(),
         encodingSettings = encodingSettings ?? EncodingSettings();
@@ -84,6 +92,9 @@ class VideoJob {
     SubtitleSettingsDto? subtitleSettings,
     bool? subtitleOnly,
     String? inputSar,
+    int? inputWidth,
+    int? inputHeight,
+    String? inputPixelFormat,
   }) {
     return VideoJob(
       id: id ?? this.id,
@@ -100,6 +111,9 @@ class VideoJob {
       subtitleSettings: subtitleSettings ?? this.subtitleSettings,
       subtitleOnly: subtitleOnly ?? this.subtitleOnly,
       inputSar: inputSar ?? this.inputSar,
+      inputWidth: inputWidth ?? this.inputWidth,
+      inputHeight: inputHeight ?? this.inputHeight,
+      inputPixelFormat: inputPixelFormat ?? this.inputPixelFormat,
     );
   }
 }

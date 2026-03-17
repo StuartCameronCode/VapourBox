@@ -177,7 +177,7 @@ VapourBox bundles all runtime dependencies. No external installations are requir
 | VapourSynth | R73 | Video processing framework |
 | FFmpeg | Latest | Video encoding/decoding |
 | havsfunc | Latest | QTGMC implementation |
-| BestSource | Latest | Frame-accurate video source |
+| FFMS2 | 5.0 | Source filter for preview |
 | mvtools | v24 | Motion estimation |
 | znedi3 | Latest | Neural network interpolation |
 | EEDI3m | r8 | Edge-directed interpolation |

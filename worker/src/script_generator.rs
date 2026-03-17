@@ -133,42 +133,108 @@ impl ScriptGenerator {
     }
 
     /// Substitute parameters in a script string.
-    fn substitute_parameters(&self, template: &str, job: &VideoJob, pipeline: &RestorationPipeline, input_path: &str) -> String {
+    fn substitute_parameters(&self, template: &str, job: &VideoJob, pipeline: &RestorationPipeline, _input_path: &str) -> String {
         let mut script = template.to_string();
 
-        // Input path (escape backslashes for Python)
-        let escaped_input = input_path.replace('\\', "\\\\");
-        script = script.replace("{{INPUT_PATH}}", &escaped_input);
+        // Pipe source parameters — FFmpeg decodes, pipes raw frames to VapourSynth via stdin
+        let pipe_source_dir = self.pipe_source_dir().unwrap_or_else(|_| env::temp_dir());
+        // Template uses r"..." raw string, so backslashes are literal — no escaping needed
+        let dir_str = pipe_source_dir.to_string_lossy().to_string();
+        script = script.replace("{{PIPE_SOURCE_DIR}}", &dir_str);
 
-        // FFMS2 cache file — store locally so NAS sources get fast subsequent opens.
-        // Use a stable hash of the original input path so the cache persists across jobs.
-        let cache_dir = env::temp_dir().join("vapourbox_ffms2");
-        let _ = std::fs::create_dir_all(&cache_dir);
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut hasher = DefaultHasher::new();
-        job.input_path.hash(&mut hasher);
-        let cache_file = cache_dir.join(format!("{:016x}.ffindex", hasher.finish()));
-        let escaped_cache = cache_file.to_string_lossy().replace('\\', "\\\\");
-        script = script.replace("{{CACHE_FILE}}", &escaped_cache);
+        // Input video properties (from ffprobe, passed via job)
+        script = script.replace("{{INPUT_WIDTH}}", &job.input_width.unwrap_or(720).to_string());
+        script = script.replace("{{INPUT_HEIGHT}}", &job.input_height.unwrap_or(480).to_string());
+        script = script.replace("{{INPUT_PIX_FMT}}", job.input_pixel_format.as_deref().unwrap_or("yuv420p"));
 
-        // Frame trimming (start/end frame range)
-        if job.start_frame.is_some() || job.end_frame.is_some() {
-            script = script.replace("{{#FRAME_TRIM}}", "");
-            script = script.replace("{{/FRAME_TRIM}}", "");
-            let start = job.start_frame.unwrap_or(0);
-            let end = job.end_frame.map(|e| e + 1).unwrap_or(-1); // Python slice end is exclusive, -1 means to end
-            script = script.replace("{{START_FRAME}}", &start.to_string());
-            if end == -1 {
-                script = script.replace("{{END_FRAME}}", "None");
-            } else {
-                script = script.replace("{{END_FRAME}}", &end.to_string());
+        // Total frames — use job value or fallback
+        let total_frames = job.total_frames.unwrap_or(1);
+        script = script.replace("{{TOTAL_FRAMES}}", &total_frames.to_string());
+
+        // FPS as rational number
+        let (fps_num, fps_den) = self.frame_rate_to_rational(job.input_frame_rate.unwrap_or(29.97));
+        script = script.replace("{{INPUT_FPS_NUM}}", &fps_num.to_string());
+        script = script.replace("{{INPUT_FPS_DEN}}", &fps_den.to_string());
+
+        // Field order — set from detected field order or TFF parameter
+        let field_based = match job.detected_field_order {
+            Some(crate::models::FieldOrder::TopFieldFirst) => Some(2),
+            Some(crate::models::FieldOrder::BottomFieldFirst) => Some(1),
+            _ => {
+                // Fall back to QTGMC TFF parameter
+                if pipeline.deinterlace.enabled {
+                    Some(if pipeline.deinterlace.tff.unwrap_or(true) { 2 } else { 1 })
+                } else {
+                    None
+                }
             }
+        };
+        if let Some(fb) = field_based {
+            script = script.replace("{{#SET_FIELD_BASED}}", "");
+            script = script.replace("{{/SET_FIELD_BASED}}", "");
+            script = script.replace("{{FIELD_BASED}}", &fb.to_string());
         } else {
-            script = remove_block("{{#FRAME_TRIM}}", "{{/FRAME_TRIM}}", script);
+            script = remove_block("{{#SET_FIELD_BASED}}", "{{/SET_FIELD_BASED}}", script);
         }
 
         self.substitute_parameters_on(&script, job, pipeline)
+    }
+
+    /// Get the directory where pipe_source.py lives (same search as templates).
+    fn pipe_source_dir(&self) -> Result<PathBuf> {
+        let exe_path = env::current_exe()?;
+        let exe_dir = exe_path.parent().unwrap_or(Path::new("."));
+
+        let search_paths = [
+            exe_dir.join("templates"),
+            exe_dir.join("Templates"),
+            exe_dir.join("..").join("Resources").join("templates"),
+            exe_dir.join("..").join("Resources").join("Templates"),
+            exe_dir.join("..").join("..").join("templates"),
+            exe_dir.join("..").join("..").join("..").join("templates"),
+            PathBuf::from("templates"),
+            PathBuf::from("worker").join("templates"),
+        ];
+
+        for path in &search_paths {
+            if path.join("pipe_source.py").exists() {
+                // Use canonicalize for a clean absolute path, but strip the \\?\ prefix
+                // that Windows adds — Python can't handle extended-length path syntax.
+                let canonical = fs::canonicalize(path)?;
+                let path_str = canonical.to_string_lossy();
+                if path_str.starts_with(r"\\?\") {
+                    return Ok(PathBuf::from(&path_str[4..]));
+                }
+                return Ok(canonical);
+            }
+        }
+
+        anyhow::bail!("Could not find pipe_source.py in template search paths")
+    }
+
+    /// Convert a floating-point frame rate to a rational number (num/den).
+    fn frame_rate_to_rational(&self, fps: f64) -> (i32, i32) {
+        // Common frame rates
+        let common = [
+            (23.976, 24000, 1001),
+            (24.0, 24, 1),
+            (25.0, 25, 1),
+            (29.97, 30000, 1001),
+            (30.0, 30, 1),
+            (50.0, 50, 1),
+            (59.94, 60000, 1001),
+            (60.0, 60, 1),
+        ];
+
+        for (rate, num, den) in common {
+            if (fps - rate).abs() < 0.01 {
+                return (num, den);
+            }
+        }
+
+        // Fallback: multiply by 1000 and simplify
+        let num = (fps * 1000.0).round() as i32;
+        (num, 1000)
     }
 
     /// Substitute pipeline parameters on an already-prepared script.

@@ -59,6 +59,18 @@ pub struct VideoJob {
     /// Input sample aspect ratio (e.g. "10:11"). None means 1:1 (square pixels).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_sar: Option<String>,
+
+    /// Input video width in pixels (for pipe source).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_width: Option<i32>,
+
+    /// Input video height in pixels (for pipe source).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_height: Option<i32>,
+
+    /// Input pixel format string (e.g. "yuv420p", "yuv422p"). For pipe source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_pixel_format: Option<String>,
 }
 
 impl VideoJob {

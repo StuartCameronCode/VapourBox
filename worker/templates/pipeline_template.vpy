@@ -14,20 +14,31 @@ core = vs.core
 # 1GB default, can be adjusted based on system memory
 core.max_cache_size = 1024
 
-# Load input video using FFMS2 (fast packet-level indexing, no full decode)
-# Cache index locally for instant subsequent opens of the same file
-clip = core.ffms2.Source(source=r"{{INPUT_PATH}}", cachefile=r"{{CACHE_FILE}}")
+# Load input video from stdin pipe (FFmpeg decodes → raw frames → VapourSynth)
+# This eliminates FFMS2 indexing which blocks on large/NAS files.
+import os
+sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
+from pipe_source import create_pipe_clip
+
+clip = create_pipe_clip(
+    width={{INPUT_WIDTH}},
+    height={{INPUT_HEIGHT}},
+    num_frames={{TOTAL_FRAMES}},
+    fps_num={{INPUT_FPS_NUM}},
+    fps_den={{INPUT_FPS_DEN}},
+    pix_fmt="{{INPUT_PIX_FMT}}",
+)
+
+# Mark field order for interlaced content (pipe source loses container metadata)
+{{#SET_FIELD_BASED}}
+clip = core.std.SetFieldBased(clip, {{FIELD_BASED}})
+{{/SET_FIELD_BASED}}
 
 # Convert unusual chroma formats (e.g., 4:1:1 from NTSC DV) to 4:2:2 for filter compatibility
 # 4:1:1 (YUV411P) has subsampling_w=2, subsampling_h=0
 # Most filters expect 4:2:0 or 4:2:2; 4:2:2 is lossless when upconverting from 4:1:1
 if clip.format.subsampling_w > 1:  # 4:1:1 or more extreme horizontal subsampling
     clip = core.resize.Bicubic(clip, format=vs.YUV422P8 if clip.format.bits_per_sample == 8 else vs.YUV422P16)
-
-# Frame trimming (if start/end frame specified)
-{{#FRAME_TRIM}}
-clip = clip[{{START_FRAME}}:{{END_FRAME}}]
-{{/FRAME_TRIM}}
 
 # Get input properties for progress tracking
 input_fps_num = clip.fps.numerator

@@ -56,6 +56,9 @@ fn create_base_job(output_name: &str) -> VideoJob {
         subtitle_settings: None,
         subtitle_only: false,
         input_sar: None,
+        input_width: None,
+        input_height: None,
+        input_pixel_format: None,
     }
 }
 
@@ -1250,6 +1253,9 @@ fn create_ivtc_base_job(output_name: &str) -> VideoJob {
         subtitle_settings: None,
         subtitle_only: false,
         input_sar: None,
+        input_width: None,
+        input_height: None,
+        input_pixel_format: None,
     }
 }
 

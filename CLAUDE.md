@@ -842,7 +842,7 @@ The worker sets these via `DependencyLocator`:
 ### Required Plugins (Windows)
 
 All plugins go in `deps/windows-x64/vapoursynth/vs-plugins/`:
-- `BestSource.dll` - Frame-accurate video source (from [Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build))
+- `ffms2.dll` - Source filter for preview (from [FFMS/ffms2](https://github.com/FFMS/ffms2))
 - `libmvtools.dll` - Motion estimation
 - `EEDI3m.dll` - Edge-directed interpolation
 - `libvs_znedi3.dll` + `nnedi3_weights.bin` - Neural network interpolation
@@ -975,7 +975,7 @@ This runs `xattr -cr` to recursively remove the `com.apple.quarantine` extended 
 ### Required Plugins (macOS)
 
 All plugins are native arm64/x64 builds in `deps/macos-{arch}/vapoursynth/plugins/`:
-- `libBestSource.dylib` - Frame-accurate video source (from [Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build))
+- `libffms2.dylib` - Source filter for preview (from [FFMS/ffms2](https://github.com/FFMS/ffms2))
 - `libmvtools.dylib` - Motion estimation
 - `libeedi3m.dylib` - Edge-directed interpolation
 - `libznedi3.dylib` + `nnedi3_weights.bin` - Neural network interpolation

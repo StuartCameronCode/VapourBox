@@ -16,10 +16,11 @@ use crate::models::{AudioMode, ContainerFormat, DeinterlaceMethod, EncoderFamily
 use crate::progress_reporter::ProgressReporter;
 use crate::script_generator::{PreviewParams, ScriptGenerator};
 
-/// Executes the vspipe | ffmpeg pipeline.
+/// Executes the ffmpeg (decode) | vspipe | ffmpeg (encode) pipeline.
 pub struct PipelineExecutor {
     reporter: ProgressReporter,
     deps: DependencyLocator,
+    decoder_process: Option<Child>,
     vspipe_process: Option<Child>,
     ffmpeg_process: Option<Child>,
 }
@@ -31,6 +32,7 @@ impl PipelineExecutor {
         Ok(Self {
             reporter,
             deps,
+            decoder_process: None,
             vspipe_process: None,
             ffmpeg_process: None,
         })
@@ -64,10 +66,69 @@ impl PipelineExecutor {
             &format!("VAPOURSYNTH_PLUGIN_PATH: {:?}", env.get("VAPOURSYNTH_PLUGIN_PATH")),
         );
 
-        // Start vspipe process
+        // Determine input pixel format for the decoder
+        let pix_fmt = job.input_pixel_format.as_deref().unwrap_or("yuv420p");
+
+        // Build decoder FFmpeg arguments
+        // Frame trimming is handled here (faster than VapourSynth trimming since FFmpeg
+        // can seek using the container index)
+        let mut decoder_args: Vec<String> = Vec::new();
+
+        // Seek to start frame if specified (time-based, before -i for fast seek)
+        if let Some(start) = job.start_frame {
+            if start > 0 {
+                let fps = job.input_frame_rate.unwrap_or(29.97);
+                let start_time = start as f64 / fps;
+                decoder_args.push("-ss".to_string());
+                decoder_args.push(format!("{:.6}", start_time));
+            }
+        }
+
+        decoder_args.extend([
+            "-i".to_string(), job.input_path.clone(),
+            "-map".to_string(), "0:v:0".to_string(), // only first video stream
+            "-f".to_string(), "rawvideo".to_string(),
+            "-pix_fmt".to_string(), pix_fmt.to_string(),
+            "-v".to_string(), "error".to_string(),
+        ]);
+
+        // Limit frame count if trimming
+        if let (Some(start), Some(end)) = (job.start_frame, job.end_frame) {
+            let count = end - start + 1;
+            if count > 0 {
+                decoder_args.push("-frames:v".to_string());
+                decoder_args.push(count.to_string());
+            }
+        } else if let Some(end) = job.end_frame {
+            let count = end + 1;
+            decoder_args.push("-frames:v".to_string());
+            decoder_args.push(count.to_string());
+        }
+
+        decoder_args.push("pipe:1".to_string()); // stdout via FFmpeg pipe protocol
+
+        self.reporter.send_log(
+            LogLevel::Debug,
+            &format!("Decoder args: {:?}", decoder_args),
+        );
+
+        // Start decoder FFmpeg process
+        let mut decoder = Command::new(&ffmpeg_path)
+            .args(&decoder_args)
+            .envs(&env)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .with_context(|| format!("Failed to start decoder ffmpeg: {:?}", ffmpeg_path))?;
+
+        let decoder_stdout = decoder.stdout.take().context("Failed to get decoder stdout")?;
+        let decoder_stderr = decoder.stderr.take().context("Failed to get decoder stderr")?;
+
+        // Start vspipe with stdin from decoder
         let mut vspipe = Command::new(&vspipe_path)
             .args(["-c", "y4m", script_path.to_string_lossy().as_ref(), "-"])
             .envs(&env)
+            .stdin(decoder_stdout) // pipe decoder output → vspipe stdin
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -101,8 +162,21 @@ impl PipelineExecutor {
 
         let ffmpeg_stderr = ffmpeg.stderr.take().context("Failed to get ffmpeg stderr")?;
 
+        self.decoder_process = Some(decoder);
         self.vspipe_process = Some(vspipe);
         self.ffmpeg_process = Some(ffmpeg);
+
+        // Monitor decoder stderr for errors (in background thread)
+        let decoder_reporter = self.reporter.clone();
+        let decoder_stderr_thread = thread::spawn(move || {
+            let reader = BufReader::new(decoder_stderr);
+            let mut last_line = String::new();
+            for line in reader.lines().map_while(Result::ok) {
+                decoder_reporter.send_log(LogLevel::Debug, &format!("decoder stderr: {}", line));
+                last_line = line;
+            }
+            last_line
+        });
 
         // Parse vspipe stderr for input info (in background thread)
         let total_frames = Arc::new(AtomicI32::new(0));
@@ -244,6 +318,13 @@ impl PipelineExecutor {
         }
 
         // Wait for processes to exit FIRST (closes their pipes, unblocking reader threads)
+        let decoder_status = self
+            .decoder_process
+            .as_mut()
+            .map(|p| p.wait())
+            .transpose()
+            .context("Failed to wait for decoder ffmpeg")?;
+
         let vspipe_status = self
             .vspipe_process
             .as_mut()
@@ -259,6 +340,7 @@ impl PipelineExecutor {
             .context("Failed to wait for ffmpeg")?;
 
         // Now safe to join threads (pipes are closed, readers will hit EOF)
+        let _ = decoder_stderr_thread.join();
         let _ = vspipe_thread.join();
         let _ = ffmpeg_stderr_thread.join();
 
@@ -266,6 +348,13 @@ impl PipelineExecutor {
         let _ = fs::remove_file(&progress_file);
 
         // Check exit codes
+        if let Some(status) = decoder_status {
+            let code = status.code().unwrap_or(-1);
+            if code != 0 && code != 130 && code != 141 {
+                bail!("Decoder ffmpeg exited with code {}", code);
+            }
+        }
+
         if let Some(status) = vspipe_status {
             let code = status.code().unwrap_or(-1);
             if code != 0 && code != 130 && code != 141 {
@@ -669,8 +758,11 @@ impl PipelineExecutor {
         Ok(())
     }
 
-    /// Terminate both processes.
+    /// Terminate all processes.
     fn terminate(&mut self) {
+        if let Some(ref mut decoder) = self.decoder_process {
+            let _ = decoder.kill();
+        }
         if let Some(ref mut vspipe) = self.vspipe_process {
             let _ = vspipe.kill();
         }
@@ -765,6 +857,9 @@ mod tests {
             subtitle_settings: None,
             subtitle_only: false,
             input_sar: None,
+            input_width: None,
+            input_height: None,
+            input_pixel_format: None,
         }
     }
 

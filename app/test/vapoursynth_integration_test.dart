@@ -97,13 +97,13 @@ else:
     });
   });
 
-  group('BestSource Video Loading', () {
-    test('loads video with BestSource', () async {
+  group('FFMS2 Video Loading', () {
+    test('loads video with FFMS2', () async {
       final script = '''
 import vapoursynth as vs
 core = vs.core
 
-clip = core.bs.VideoSource(source=r"$testVideoPath")
+clip = core.ffms2.Source(source=r"$testVideoPath")
 print(f"Loaded: {clip.width}x{clip.height}, {clip.num_frames} frames")
 
 # Output a single frame to verify it works

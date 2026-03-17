@@ -7,7 +7,7 @@
 # - yuygfgg/Macos_vapoursynth_plugins (https://github.com/yuygfgg/Macos_vapoursynth_plugins)
 #   - neo_f3kdb, dfttest, fftw libraries
 # - Stefan-Olt/vs-plugin-build (https://github.com/Stefan-Olt/vs-plugin-build)
-#   - BestSource
+#   - FFMS2
 #
 # Prerequisites:
 # - Homebrew (for build tools only, not runtime)
@@ -392,33 +392,6 @@ if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libffms2.dylib" ]; then
     echo "  Downloaded FFMS2"
 else
     echo "  FFMS2 already exists, skipping"
-fi
-
-# ============================================================================
-# Download BestSource (kept as fallback source filter)
-# ============================================================================
-echo ""
-echo "=== Downloading BestSource ==="
-
-BESTSOURCE_URL="https://github.com/Stefan-Olt/vs-plugin-build/releases/download/rel/BestSource-R8-macos-arm64.zip"
-if [ "$ARCH" = "x86_64" ]; then
-    BESTSOURCE_URL="https://github.com/Stefan-Olt/vs-plugin-build/releases/download/rel/BestSource-R8-macos-x86_64.zip"
-fi
-
-if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libBestSource.dylib" ]; then
-    curl -sL "$BESTSOURCE_URL" -o "$BUILD_DIR/bestsource.zip"
-    unzip -q -o "$BUILD_DIR/bestsource.zip" -d "$BUILD_DIR/bestsource"
-
-    # Find and copy the dylib
-    find "$BUILD_DIR/bestsource" -name "*.dylib" -exec cp {} "$PLUGINS_DIR/libBestSource.dylib" \;
-
-    # Fix paths and sign
-    install_name_tool -id "@loader_path/libBestSource.dylib" "$PLUGINS_DIR/libBestSource.dylib" 2>/dev/null || true
-    codesign -s - -f "$PLUGINS_DIR/libBestSource.dylib" 2>/dev/null
-
-    echo "  Downloaded BestSource"
-else
-    echo "  BestSource already exists, skipping"
 fi
 
 # ============================================================================

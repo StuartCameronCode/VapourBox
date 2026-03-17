@@ -979,7 +979,12 @@ class MainViewModel extends ChangeNotifier {
         ),
       ),
       encodingSettings: _encodingSettings,
+      detectedFieldOrder: _getEffectiveFieldOrder(item),
       totalFrames: item.videoInfo?.frameCount,
+      inputFrameRate: item.videoInfo?.frameRate,
+      inputWidth: item.videoInfo?.width,
+      inputHeight: item.videoInfo?.height,
+      inputPixelFormat: item.videoInfo?.pixelFormat,
       startFrame: startFrame,
       endFrame: endFrame,
       subtitleSettings: _restorationPipeline.subtitles.enabled

@@ -7,13 +7,11 @@
     - VapourSynth R73 (portable, includes Python 3.8)
     - Python 3.8 embeddable (for VSScript)
     - FFmpeg (latest GPL build)
-    - VapourSynth plugins (BestSource, mvtools, nnedi3cl, znedi3, eedi3m, fmtconv, miscfilters, dfttest, neo_f3kdb, cas, fft3dfilter)
+    - VapourSynth plugins (FFMS2, mvtools, nnedi3cl, znedi3, eedi3m, fmtconv, miscfilters, dfttest, neo_f3kdb, cas, fft3dfilter)
     - FFTW library (required by dfttest)
     - Python packages (havsfunc, mvsfunc, adjust)
     - NNEDI3 weights
     - Patches havsfunc for API compatibility (mvtools, DFTTest, YCOCG)
-
-    BestSource is from Stefan-Olt/vs-plugin-build (https://github.com/Stefan-Olt/vs-plugin-build)
 
 .PARAMETER TargetDir
     The target directory for dependencies. Default: deps/windows-x64
@@ -203,11 +201,6 @@ $Plugins7z = @(
         Name = "FFMS2"
         Url = "https://github.com/FFMS/ffms2/releases/download/5.0/ffms2-5.0-msvc.7z"
         Check = "ffms2.dll"
-    },
-    @{
-        Name = "BestSource"
-        Url = "https://github.com/Stefan-Olt/vs-plugin-build/releases/download/rel/BestSource-R8-win64.7z"
-        Check = "BestSource.dll"
     },
     @{
         Name = "miscfilters"
