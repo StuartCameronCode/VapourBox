@@ -188,10 +188,7 @@ fn run_worker(
     reporter.send_log(models::LogLevel::Info, "Starting encoding pipeline...");
     let mut executor = PipelineExecutor::new(reporter.clone())?;
 
-    let result = executor.execute(&script_path, &job, || cancelled.load(Ordering::SeqCst));
-
-    // Handle cancellation or errors
-    result?;
+    executor.execute(&script_path, &job, || cancelled.load(Ordering::SeqCst))?;
 
     // If cancelled, remove partial output
     if cancelled.load(Ordering::SeqCst) {

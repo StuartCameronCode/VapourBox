@@ -14,8 +14,9 @@ core = vs.core
 # 1GB default, can be adjusted based on system memory
 core.max_cache_size = 1024
 
-# Load input video using BestSource for frame-accurate seeking
-clip = core.bs.VideoSource(source=r"{{INPUT_PATH}}")
+# Load input video using FFMS2 (fast packet-level indexing, no full decode)
+# Cache index locally for instant subsequent opens of the same file
+clip = core.ffms2.Source(source=r"{{INPUT_PATH}}", cachefile=r"{{CACHE_FILE}}")
 
 # Convert unusual chroma formats (e.g., 4:1:1 from NTSC DV) to 4:2:2 for filter compatibility
 # 4:1:1 (YUV411P) has subsampling_w=2, subsampling_h=0

@@ -200,6 +200,11 @@ $Plugins7z = @(
         Check = "EEDI3m.dll"
     },
     @{
+        Name = "FFMS2"
+        Url = "https://github.com/FFMS/ffms2/releases/download/5.0/ffms2-5.0-msvc.7z"
+        Check = "ffms2.dll"
+    },
+    @{
         Name = "BestSource"
         Url = "https://github.com/Stefan-Olt/vs-plugin-build/releases/download/rel/BestSource-R8-win64.7z"
         Check = "BestSource.dll"

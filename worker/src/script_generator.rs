@@ -40,10 +40,10 @@ impl ScriptGenerator {
     }
 
     /// Generate a .vpy script file for the given job.
-    /// Returns the path to the generated script.
     pub fn generate(&self, job: &VideoJob) -> Result<PathBuf> {
         let pipeline = job.effective_pipeline();
-        let script = self.substitute_parameters(&self.template, job, &pipeline);
+
+        let script = self.substitute_parameters(&self.template, job, &pipeline, &job.input_path);
 
         // Write to temp file
         let temp_dir = env::temp_dir();
@@ -133,12 +133,24 @@ impl ScriptGenerator {
     }
 
     /// Substitute parameters in a script string.
-    fn substitute_parameters(&self, template: &str, job: &VideoJob, pipeline: &RestorationPipeline) -> String {
+    fn substitute_parameters(&self, template: &str, job: &VideoJob, pipeline: &RestorationPipeline, input_path: &str) -> String {
         let mut script = template.to_string();
 
         // Input path (escape backslashes for Python)
-        let escaped_input = job.input_path.replace('\\', "\\\\");
+        let escaped_input = input_path.replace('\\', "\\\\");
         script = script.replace("{{INPUT_PATH}}", &escaped_input);
+
+        // FFMS2 cache file — store locally so NAS sources get fast subsequent opens.
+        // Use a stable hash of the original input path so the cache persists across jobs.
+        let cache_dir = env::temp_dir().join("vapourbox_ffms2");
+        let _ = std::fs::create_dir_all(&cache_dir);
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        job.input_path.hash(&mut hasher);
+        let cache_file = cache_dir.join(format!("{:016x}.ffindex", hasher.finish()));
+        let escaped_cache = cache_file.to_string_lossy().replace('\\', "\\\\");
+        script = script.replace("{{CACHE_FILE}}", &escaped_cache);
 
         // Frame trimming (start/end frame range)
         if job.start_frame.is_some() || job.end_frame.is_some() {

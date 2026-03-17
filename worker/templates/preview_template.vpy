@@ -16,8 +16,8 @@ core.max_cache_size = 1024
 # Load the temporary preview video clip (extracted with fast keyframe seeking)
 video_path = r"{{VIDEO_PATH}}"
 
-# Load using BestSource (fast since the clip is only ~11 frames)
-clip = core.bs.VideoSource(source=video_path)
+# Load using FFMS2 (fast packet-level indexing)
+clip = core.ffms2.Source(source=video_path)
 
 # Convert unusual chroma formats (e.g., 4:1:1 from NTSC DV) to 4:2:2 for filter compatibility
 # 4:1:1 (YUV411P) has subsampling_w=2, subsampling_h=0

@@ -363,7 +363,39 @@ if [ "$ARCH" = "arm64" ]; then
 fi
 
 # ============================================================================
-# Download BestSource (frame-accurate source filter)
+# Download FFMS2 (fast source filter — packet-level indexing, no full decode)
+# ============================================================================
+echo ""
+echo "=== Downloading FFMS2 ==="
+
+FFMS2_TAG="ffms2-257712fe8f3f103bfc94d236e8efb02dd18f1bcd"
+FFMS2_URL="https://github.com/Stefan-Olt/vs-plugin-build/releases/download/$FFMS2_TAG/FFmpegSource2-5.0-darwin-aarch64.zip"
+if [ "$ARCH" = "x86_64" ]; then
+    FFMS2_TAG="ffms2-fb5016322ab87a120fcc750c6571e4cf5c9e1a5e"
+    FFMS2_URL="https://github.com/Stefan-Olt/vs-plugin-build/releases/download/$FFMS2_TAG/FFmpegSource2-5.0-darwin-x86_64.zip"
+fi
+
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libffms2.dylib" ]; then
+    curl -sL "$FFMS2_URL" -o "$BUILD_DIR/ffms2.zip"
+    unzip -q -o "$BUILD_DIR/ffms2.zip" -d "$BUILD_DIR/ffms2"
+
+    # Find and copy the dylib
+    find "$BUILD_DIR/ffms2" -name "*.dylib" -exec cp {} "$PLUGINS_DIR/libffms2.dylib" \;
+
+    # Remove unused X11 dependency (transitive from FFmpeg build, not actually used)
+    install_name_tool -change "/opt/homebrew/opt/libx11/lib/libX11.6.dylib" "/usr/lib/libSystem.B.dylib" "$PLUGINS_DIR/libffms2.dylib" 2>/dev/null || true
+
+    # Fix paths and sign
+    install_name_tool -id "@loader_path/libffms2.dylib" "$PLUGINS_DIR/libffms2.dylib" 2>/dev/null || true
+    codesign -s - -f "$PLUGINS_DIR/libffms2.dylib" 2>/dev/null
+
+    echo "  Downloaded FFMS2"
+else
+    echo "  FFMS2 already exists, skipping"
+fi
+
+# ============================================================================
+# Download BestSource (kept as fallback source filter)
 # ============================================================================
 echo ""
 echo "=== Downloading BestSource ==="
