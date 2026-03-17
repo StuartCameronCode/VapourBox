@@ -125,4 +125,4 @@ Stuart Cameron - [stuart-cameron.com](https://stuart-cameron.com)
 
 macOS ARM64 plugins sourced from:
 - **[yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins)** — pre-built ARM64 VapourSynth plugins for macOS
-- **[FFMS/ffms2](https://github.com/FFMS/ffms2)** — FFMS2 source filter (used for preview)
+- **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** — Cross-platform VapourSynth plugins

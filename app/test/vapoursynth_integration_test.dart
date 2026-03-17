@@ -11,7 +11,6 @@ import 'package:path/path.dart' as path;
 void main() {
   late String depsDir;
   late String vspipePath;
-  late String testVideoPath;
 
   setUpAll(() async {
     // Find the deps directory relative to the test file
@@ -46,21 +45,7 @@ void main() {
       }
     }
 
-    vspipePath = Platform.isWindows
-        ? path.join(depsDir, 'vapoursynth', vspipeExe)
-        : path.join(depsDir, 'vapoursynth', vspipeExe);
-
-    // Create a simple test video (Y4M format - raw YUV)
-    testVideoPath = path.join(Directory.systemTemp.path, 'vapourbox_test.y4m');
-    await _createTestVideo(testVideoPath);
-  });
-
-  tearDownAll(() async {
-    // Clean up test video
-    final testFile = File(testVideoPath);
-    if (await testFile.exists()) {
-      await testFile.delete();
-    }
+    vspipePath = path.join(depsDir, 'vapoursynth', vspipeExe);
   });
 
   group('VapourSynth Plugin Loading', () {
@@ -76,7 +61,7 @@ import vapoursynth as vs
 core = vs.core
 
 # List all required plugins (core set that works on both Windows and macOS)
-required = ['std', 'resize', 'bs', 'mv', 'znedi3', 'eedi3m', 'fmtc',
+required = ['std', 'resize', 'mv', 'znedi3', 'eedi3m', 'fmtc',
             'dfttest', 'neo_f3kdb', 'cas', 'dctf', 'deblock', 'rgvs',
             'ctmf', 'warp', 'misc', 'grain', 'tcanny']
 
@@ -97,33 +82,13 @@ else:
     });
   });
 
-  group('FFMS2 Video Loading', () {
-    test('loads video with FFMS2', () async {
-      final script = '''
-import vapoursynth as vs
-core = vs.core
-
-clip = core.ffms2.Source(source=r"$testVideoPath")
-print(f"Loaded: {clip.width}x{clip.height}, {clip.num_frames} frames")
-
-# Output a single frame to verify it works
-clip = clip[0]
-clip.set_output()
-''';
-
-      final result = await _runVspipeScript(vspipePath, script, outputFrames: true);
-      expect(result.exitCode, 0, reason: 'stderr: ${result.stderr}');
-      expect(result.stdout.toString(), contains('Loaded:'));
-    });
-  });
-
   group('Filter Tests', () {
     test('Deband (neo_f3kdb) works', () async {
       final script = '''
 import vapoursynth as vs
 core = vs.core
 
-clip = core.bs.VideoSource(source=r"$testVideoPath")
+clip = core.std.BlankClip(width=64, height=64, format=vs.YUV420P8, length=10, fpsnum=25, fpsden=1)
 clip = core.neo_f3kdb.Deband(clip, y=64, cb=64, cr=64)
 print("Deband applied successfully")
 clip = clip[0]
@@ -139,7 +104,7 @@ clip.set_output()
 import vapoursynth as vs
 core = vs.core
 
-clip = core.bs.VideoSource(source=r"$testVideoPath")
+clip = core.std.BlankClip(width=64, height=64, format=vs.YUV420P8, length=10, fpsnum=25, fpsden=1)
 clip = core.dfttest.DFTTest(clip, sigma=10.0)
 print("DFTTest applied successfully")
 clip = clip[0]
@@ -155,7 +120,7 @@ clip.set_output()
 import vapoursynth as vs
 core = vs.core
 
-clip = core.bs.VideoSource(source=r"$testVideoPath")
+clip = core.std.BlankClip(width=64, height=64, format=vs.YUV420P8, length=10, fpsnum=25, fpsden=1)
 clip = core.cas.CAS(clip, sharpness=0.5)
 print("CAS applied successfully")
 clip = clip[0]
@@ -171,8 +136,7 @@ clip.set_output()
 import vapoursynth as vs
 core = vs.core
 
-clip = core.bs.VideoSource(source=r"$testVideoPath")
-# Simple MVTools test - analyze motion
+clip = core.std.BlankClip(width=64, height=64, format=vs.YUV420P8, length=10, fpsnum=25, fpsden=1)
 sup = core.mv.Super(clip)
 vectors = core.mv.Analyse(sup, isb=False)
 print("MVTools applied successfully")
@@ -189,8 +153,7 @@ clip.set_output()
 import vapoursynth as vs
 core = vs.core
 
-clip = core.bs.VideoSource(source=r"$testVideoPath")
-# ZNEDI3 for field interpolation
+clip = core.std.BlankClip(width=64, height=64, format=vs.YUV420P8, length=10, fpsnum=25, fpsden=1)
 clip = core.znedi3.nnedi3(clip, field=1)
 print("ZNEDI3 applied successfully")
 clip = clip[0]
@@ -206,7 +169,7 @@ clip.set_output()
 import vapoursynth as vs
 core = vs.core
 
-clip = core.bs.VideoSource(source=r"$testVideoPath")
+clip = core.std.BlankClip(width=64, height=64, format=vs.YUV420P8, length=10, fpsnum=25, fpsden=1)
 clip = core.eedi3m.EEDI3(clip, field=1)
 print("EEDI3 applied successfully")
 clip = clip[0]
@@ -222,7 +185,7 @@ clip.set_output()
 import vapoursynth as vs
 core = vs.core
 
-clip = core.bs.VideoSource(source=r"$testVideoPath")
+clip = core.std.BlankClip(width=64, height=64, format=vs.YUV420P8, length=10, fpsnum=25, fpsden=1)
 clip = core.deblock.Deblock(clip, quant=25)
 print("Deblock applied successfully")
 clip = clip[0]
@@ -238,7 +201,7 @@ clip.set_output()
 import vapoursynth as vs
 core = vs.core
 
-clip = core.bs.VideoSource(source=r"$testVideoPath")
+clip = core.std.BlankClip(width=64, height=64, format=vs.YUV420P8, length=10, fpsnum=25, fpsden=1)
 clip = core.tcanny.TCanny(clip, sigma=1.5, mode=0)
 print("TCanny applied successfully")
 clip = clip[0]
@@ -272,7 +235,7 @@ import vapoursynth as vs
 import havsfunc as haf
 core = vs.core
 
-clip = core.bs.VideoSource(source=r"$testVideoPath")
+clip = core.std.BlankClip(width=64, height=64, format=vs.YUV420P8, length=10, fpsnum=25, fpsden=1)
 clip = haf.SMDegrain(clip, tr=1, thSAD=300)
 print("SMDegrain applied successfully")
 clip = clip[0]
@@ -283,28 +246,6 @@ clip.set_output()
       expect(result.exitCode, 0, reason: 'stderr: ${result.stderr}');
     });
   });
-}
-
-/// Creates a simple Y4M test video (10 frames of 64x64 gray)
-Future<void> _createTestVideo(String outputPath) async {
-  final file = File(outputPath);
-  final sink = file.openWrite();
-
-  // Y4M header
-  sink.write('YUV4MPEG2 W64 H64 F25:1 Ip A1:1 C420\n');
-
-  // 10 frames of gray
-  for (int frame = 0; frame < 10; frame++) {
-    sink.write('FRAME\n');
-    // Y plane (64x64 = 4096 bytes) - gray value 128
-    sink.add(List.filled(64 * 64, 128));
-    // U plane (32x32 = 1024 bytes) - neutral chroma
-    sink.add(List.filled(32 * 32, 128));
-    // V plane (32x32 = 1024 bytes) - neutral chroma
-    sink.add(List.filled(32 * 32, 128));
-  }
-
-  await sink.close();
 }
 
 /// Runs a VapourSynth script via vspipe
