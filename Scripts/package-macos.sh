@@ -213,6 +213,7 @@ chmod +x "$CONTENTS/MacOS/vapourbox-worker"
 # everything in MacOS/ to be signed Mach-O binaries)
 cp "$PROJECT_ROOT/worker/templates/pipeline_template.vpy" "$CONTENTS/Resources/templates/"
 cp "$PROJECT_ROOT/worker/templates/preview_template.vpy" "$CONTENTS/Resources/templates/"
+cp "$PROJECT_ROOT/worker/templates/pipe_source.py" "$CONTENTS/Resources/templates/"
 
 # Copy licenses
 cp -r "$PROJECT_ROOT/licenses/"* "$CONTENTS/Resources/licenses/"

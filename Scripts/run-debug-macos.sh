@@ -84,9 +84,10 @@ cp -R "$DERIVED_APP" "$DEBUG_APP"
 # Copy worker binary
 cp "$WORKER_DIR/target/debug/vapourbox-worker" "$DEBUG_APP/Contents/MacOS/"
 
-# Copy templates
+# Copy templates (includes pipe_source.py used by VapourSynth scripts)
 mkdir -p "$DEBUG_APP/Contents/MacOS/templates"
 cp "$WORKER_DIR/templates/"*.vpy "$DEBUG_APP/Contents/MacOS/templates/"
+cp "$WORKER_DIR/templates/pipe_source.py" "$DEBUG_APP/Contents/MacOS/templates/"
 
 # Remove quarantine from deps if present
 if xattr "$PROJECT_ROOT/deps/macos-arm64/ffmpeg/ffmpeg" 2>/dev/null | grep -q quarantine; then
