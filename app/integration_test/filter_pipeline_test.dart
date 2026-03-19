@@ -23,7 +23,7 @@ import '../lib/models/dehalo_parameters.dart';
 import '../lib/models/encoding_settings.dart';
 import '../lib/models/noise_reduction_parameters.dart';
 import '../lib/models/qtgmc_parameters.dart';
-import '../lib/models/restoration_pipeline.dart';
+import '../lib/models/processing_pipeline.dart';
 import '../lib/models/sharpen_parameters.dart';
 import '../lib/models/video_job.dart';
 
@@ -604,7 +604,7 @@ VideoJob createTestJob(String outputName, {String extension = 'avi'}) {
       tff: true,
       fpsDivisor: 2,
     ),
-    restorationPipeline: const RestorationPipeline(
+    processingPipeline: const ProcessingPipeline(
       deinterlace: QTGMCParameters(
         preset: QTGMCPreset.fast,
         tff: true,
@@ -660,7 +660,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -694,7 +694,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -742,7 +742,7 @@ void main() {
           tff: true,
           fpsDivisor: 1, // Double rate
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.medium,
             tff: true,
@@ -767,7 +767,7 @@ void main() {
           fpsDivisor: 2,
           sourceMatch: 1,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.slow,
             tff: true,
@@ -790,7 +790,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           noiseReduction: const NoiseReductionParameters(
             enabled: true,
@@ -816,7 +816,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           noiseReduction: const NoiseReductionParameters(
             enabled: true,
@@ -841,7 +841,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           noiseReduction: const NoiseReductionParameters(
             enabled: true,
@@ -865,7 +865,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           colorCorrection: const ColorCorrectionParameters(
             enabled: true,
@@ -886,7 +886,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           colorCorrection: const ColorCorrectionParameters(
             enabled: true,
@@ -906,7 +906,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           colorCorrection: const ColorCorrectionParameters(
             enabled: true,
@@ -932,7 +932,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           chromaFixes: const ChromaFixParameters(
             enabled: true,
@@ -956,7 +956,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           chromaFixes: const ChromaFixParameters(
             enabled: true,
@@ -979,7 +979,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           chromaFixes: const ChromaFixParameters(
             enabled: true,
@@ -1004,7 +1004,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           dehalo: const DehaloParameters(
             enabled: true,
@@ -1029,7 +1029,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           dehalo: const DehaloParameters(
             enabled: true,
@@ -1056,7 +1056,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           dehalo: const DehaloParameters(
             enabled: true,
@@ -1081,7 +1081,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           deblock: const DeblockParameters(
             enabled: true,
@@ -1106,7 +1106,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           deblock: const DeblockParameters(
             enabled: true,
@@ -1130,7 +1130,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           deband: const DebandParameters(
             enabled: true,
@@ -1158,7 +1158,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           deband: const DebandParameters(
             enabled: true,
@@ -1188,7 +1188,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           sharpen: const SharpenParameters(
             enabled: true,
@@ -1213,7 +1213,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           sharpen: const SharpenParameters(
             enabled: true,
@@ -1237,7 +1237,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           cropResize: const CropResizeParameters(
             enabled: true,
@@ -1261,7 +1261,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           cropResize: const CropResizeParameters(
             enabled: true,
@@ -1284,7 +1284,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: RestorationPipeline(
+        processingPipeline: ProcessingPipeline(
           deinterlace: job.qtgmcParameters,
           cropResize: const CropResizeParameters(
             enabled: true,
@@ -1309,7 +1309,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: job.restorationPipeline,
+        processingPipeline: job.processingPipeline,
         encodingSettings: const EncodingSettings(
           codec: VideoCodec.ffv1,
           container: ContainerFormat.avi,
@@ -1326,7 +1326,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: job.restorationPipeline,
+        processingPipeline: job.processingPipeline,
         encodingSettings: const EncodingSettings(
           codec: VideoCodec.h264,
           container: ContainerFormat.mp4,
@@ -1344,7 +1344,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: job.restorationPipeline,
+        processingPipeline: job.processingPipeline,
         encodingSettings: const EncodingSettings(
           codec: VideoCodec.h265,
           container: ContainerFormat.mp4,
@@ -1362,7 +1362,7 @@ void main() {
         inputPath: job.inputPath,
         outputPath: job.outputPath,
         qtgmcParameters: job.qtgmcParameters,
-        restorationPipeline: job.restorationPipeline,
+        processingPipeline: job.processingPipeline,
         encodingSettings: const EncodingSettings(
           codec: VideoCodec.proresHQ,
           container: ContainerFormat.mov,
@@ -1386,7 +1386,7 @@ void main() {
           fpsDivisor: 2,
           sourceMatch: 1,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.medium,
             tff: true,
@@ -1478,7 +1478,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -1509,7 +1509,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -1544,7 +1544,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -1578,7 +1578,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -1614,7 +1614,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -1650,7 +1650,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -1682,7 +1682,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -1713,7 +1713,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -1751,7 +1751,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -1786,7 +1786,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -1820,7 +1820,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -1857,7 +1857,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -1891,7 +1891,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -1923,7 +1923,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -1958,7 +1958,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -1991,7 +1991,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -2027,7 +2027,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -2081,7 +2081,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -2118,7 +2118,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -2154,7 +2154,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -2189,7 +2189,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -2230,7 +2230,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -2265,7 +2265,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -2299,7 +2299,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -2372,7 +2372,7 @@ void main() {
     test('Audio Copy (audioCopy=true): Output audio matches input exactly', () async {
       // This test verifies that when audioCopy=true (default), the output
       // contains audio that is byte-for-byte identical to the input audio.
-      // This is the expected behavior for video restoration - preserve original audio.
+      // This is the expected behavior for video processing - preserve original audio.
 
       final job = VideoJob(
         id: const Uuid().v4(),
@@ -2383,7 +2383,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -2449,7 +2449,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -2523,7 +2523,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -2577,7 +2577,7 @@ void main() {
           fpsDivisor: 2,
           sourceMatch: 1,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.medium,
             tff: true,
@@ -2654,7 +2654,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -2709,7 +2709,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -2761,7 +2761,7 @@ void main() {
           tff: true,
           fpsDivisor: 2,
         ),
-        restorationPipeline: const RestorationPipeline(
+        processingPipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,

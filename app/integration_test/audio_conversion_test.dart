@@ -15,7 +15,7 @@ import 'package:uuid/uuid.dart';
 
 import '../lib/models/encoding_settings.dart';
 import '../lib/models/qtgmc_parameters.dart';
-import '../lib/models/restoration_pipeline.dart';
+import '../lib/models/processing_pipeline.dart';
 import '../lib/models/video_job.dart';
 
 /// Test configuration
@@ -325,7 +325,7 @@ VideoJob createAudioTestJob(String outputPath, EncodingSettings settings) {
       tff: true,
       fpsDivisor: 2,
     ),
-    restorationPipeline: const RestorationPipeline(
+    processingPipeline: const ProcessingPipeline(
       deinterlace: QTGMCParameters(
         preset: QTGMCPreset.superFast,
         tff: true,

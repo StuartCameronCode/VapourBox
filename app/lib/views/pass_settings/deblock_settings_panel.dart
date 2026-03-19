@@ -12,7 +12,7 @@ class DeblockSettingsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<MainViewModel>(
       builder: (context, viewModel, child) {
-        final params = viewModel.restorationPipeline.deblock;
+        final params = viewModel.processingPipeline.deblock;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -162,8 +162,8 @@ class DeblockSettingsPanel extends StatelessWidget {
   }
 
   void _updateParams(MainViewModel viewModel, DeblockParameters params) {
-    viewModel.updateRestorationPipeline(
-      viewModel.restorationPipeline.copyWith(deblock: params),
+    viewModel.updateProcessingPipeline(
+      viewModel.processingPipeline.copyWith(deblock: params),
     );
   }
 }

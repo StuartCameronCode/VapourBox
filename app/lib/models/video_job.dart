@@ -3,7 +3,7 @@ import 'package:uuid/uuid.dart';
 
 import 'qtgmc_parameters.dart';
 import 'encoding_settings.dart';
-import 'restoration_pipeline.dart';
+import 'processing_pipeline.dart';
 import 'subtitle_parameters.dart';
 
 part 'video_job.g.dart';
@@ -18,8 +18,8 @@ class VideoJob {
   /// Legacy QTGMC-only parameters (for backwards compatibility).
   final QTGMCParameters qtgmcParameters;
 
-  /// Full restoration pipeline (new multi-pass system).
-  final RestorationPipeline? restorationPipeline;
+  /// Full processing pipeline (new multi-pass system).
+  final ProcessingPipeline? processingPipeline;
 
   final EncodingSettings encodingSettings;
   final FieldOrder? detectedFieldOrder;
@@ -51,7 +51,7 @@ class VideoJob {
     required this.inputPath,
     required this.outputPath,
     QTGMCParameters? qtgmcParameters,
-    this.restorationPipeline,
+    this.processingPipeline,
     EncodingSettings? encodingSettings,
     this.detectedFieldOrder,
     this.totalFrames,
@@ -68,10 +68,10 @@ class VideoJob {
         qtgmcParameters = qtgmcParameters ?? QTGMCParameters(),
         encodingSettings = encodingSettings ?? EncodingSettings();
 
-  /// Get the effective restoration pipeline.
-  /// Uses restorationPipeline if set, otherwise creates one from legacy qtgmcParameters.
-  RestorationPipeline get effectivePipeline =>
-      restorationPipeline ?? RestorationPipeline.fromLegacy(qtgmcParameters);
+  /// Get the effective processing pipeline.
+  /// Uses processingPipeline if set, otherwise creates one from legacy qtgmcParameters.
+  ProcessingPipeline get effectivePipeline =>
+      processingPipeline ?? ProcessingPipeline.fromLegacy(qtgmcParameters);
 
   factory VideoJob.fromJson(Map<String, dynamic> json) =>
       _$VideoJobFromJson(json);
@@ -82,7 +82,7 @@ class VideoJob {
     String? inputPath,
     String? outputPath,
     QTGMCParameters? qtgmcParameters,
-    RestorationPipeline? restorationPipeline,
+    ProcessingPipeline? processingPipeline,
     EncodingSettings? encodingSettings,
     FieldOrder? detectedFieldOrder,
     int? totalFrames,
@@ -101,7 +101,7 @@ class VideoJob {
       inputPath: inputPath ?? this.inputPath,
       outputPath: outputPath ?? this.outputPath,
       qtgmcParameters: qtgmcParameters ?? this.qtgmcParameters,
-      restorationPipeline: restorationPipeline ?? this.restorationPipeline,
+      processingPipeline: processingPipeline ?? this.processingPipeline,
       encodingSettings: encodingSettings ?? this.encodingSettings,
       detectedFieldOrder: detectedFieldOrder ?? this.detectedFieldOrder,
       totalFrames: totalFrames ?? this.totalFrames,

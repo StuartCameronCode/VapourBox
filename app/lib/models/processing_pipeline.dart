@@ -13,9 +13,9 @@ import 'qtgmc_parameters.dart';
 import 'sharpen_parameters.dart';
 import 'subtitle_parameters.dart';
 
-part 'restoration_pipeline.g.dart';
+part 'processing_pipeline.g.dart';
 
-/// Defines the type of each restoration pass.
+/// Defines the type of each processing pass.
 enum PassType {
   deinterlace,
   noiseReduction,
@@ -82,10 +82,10 @@ extension PassTypeExtension on PassType {
   }
 }
 
-/// Container for all restoration pass parameters.
-/// Defines the complete video restoration pipeline.
+/// Container for all processing pass parameters.
+/// Defines the complete video processing pipeline.
 @JsonSerializable(explicitToJson: true)
-class RestorationPipeline {
+class ProcessingPipeline {
   /// Deinterlacing pass parameters (QTGMC).
   final QTGMCParameters deinterlace;
 
@@ -116,7 +116,7 @@ class RestorationPipeline {
   /// Subtitle generation pass parameters (Whisper AI).
   final SubtitleParameters subtitles;
 
-  const RestorationPipeline({
+  const ProcessingPipeline({
     this.deinterlace = const QTGMCParameters(),
     this.noiseReduction = const NoiseReductionParameters(),
     this.dehalo = const DehaloParameters(),
@@ -130,8 +130,8 @@ class RestorationPipeline {
   });
 
   /// Create a pipeline from legacy QTGMC-only parameters.
-  factory RestorationPipeline.fromLegacy(QTGMCParameters qtgmcParams) {
-    return RestorationPipeline(
+  factory ProcessingPipeline.fromLegacy(QTGMCParameters qtgmcParams) {
+    return ProcessingPipeline(
       deinterlace: qtgmcParams,
       // Other passes disabled by default when migrating from legacy
       noiseReduction: const NoiseReductionParameters(enabled: false),
@@ -271,7 +271,7 @@ class RestorationPipeline {
     }
   }
 
-  RestorationPipeline copyWith({
+  ProcessingPipeline copyWith({
     QTGMCParameters? deinterlace,
     NoiseReductionParameters? noiseReduction,
     DehaloParameters? dehalo,
@@ -283,7 +283,7 @@ class RestorationPipeline {
     CropResizeParameters? cropResize,
     SubtitleParameters? subtitles,
   }) {
-    return RestorationPipeline(
+    return ProcessingPipeline(
       deinterlace: deinterlace ?? this.deinterlace,
       noiseReduction: noiseReduction ?? this.noiseReduction,
       dehalo: dehalo ?? this.dehalo,
@@ -298,7 +298,7 @@ class RestorationPipeline {
   }
 
   /// Toggle a pass on or off.
-  RestorationPipeline togglePass(PassType pass, bool enabled) {
+  ProcessingPipeline togglePass(PassType pass, bool enabled) {
     switch (pass) {
       case PassType.deinterlace:
         return copyWith(
@@ -348,8 +348,8 @@ class RestorationPipeline {
     return ParameterConverter.fromPipeline(this);
   }
 
-  factory RestorationPipeline.fromJson(Map<String, dynamic> json) =>
-      _$RestorationPipelineFromJson(json);
+  factory ProcessingPipeline.fromJson(Map<String, dynamic> json) =>
+      _$ProcessingPipelineFromJson(json);
 
-  Map<String, dynamic> toJson() => _$RestorationPipelineToJson(this);
+  Map<String, dynamic> toJson() => _$ProcessingPipelineToJson(this);
 }

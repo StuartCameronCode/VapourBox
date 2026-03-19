@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../models/restoration_pipeline.dart';
+import '../../models/processing_pipeline.dart';
 import '../../services/whisper_addon_manager.dart';
 import '../../viewmodels/main_viewmodel.dart';
 import '../whisper_download_dialog.dart';
 import 'pass_list_item.dart';
 
-/// Panel showing the list of restoration passes that can be enabled/disabled.
+/// Panel showing the list of processing passes that can be enabled/disabled.
 class PassListPanel extends StatelessWidget {
   const PassListPanel({super.key});
 
@@ -15,14 +15,14 @@ class PassListPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<MainViewModel>(
       builder: (context, viewModel, child) {
-        final pipeline = viewModel.restorationPipeline;
+        final pipeline = viewModel.processingPipeline;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Pass list header
             Text(
-              'Restoration Pipeline',
+              'Video Pipeline',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -164,7 +164,7 @@ class PassListPanel extends StatelessWidget {
   ) async {
     if (enabled) {
       final isInstalled = await WhisperAddonManager.instance.isInstalled;
-      final modelId = viewModel.restorationPipeline.subtitles.model.value;
+      final modelId = viewModel.processingPipeline.subtitles.model.value;
       final modelInstalled =
           await WhisperAddonManager.instance.isModelInstalled(modelId);
 
@@ -182,7 +182,7 @@ class PassListPanel extends StatelessWidget {
     viewModel.togglePass(PassType.subtitles, enabled);
   }
 
-  String _getPassSummary(RestorationPipeline pipeline) {
+  String _getPassSummary(ProcessingPipeline pipeline) {
     final videoCount = pipeline.videoPassCount;
     final hasSubtitles = pipeline.subtitles.enabled;
 
@@ -197,7 +197,7 @@ class PassListPanel extends StatelessWidget {
     }
   }
 
-  String _getDeinterlaceSummary(RestorationPipeline pipeline) {
+  String _getDeinterlaceSummary(ProcessingPipeline pipeline) {
     if (!pipeline.deinterlace.enabled) return 'Off';
     return pipeline.deinterlace.preset.displayName;
   }

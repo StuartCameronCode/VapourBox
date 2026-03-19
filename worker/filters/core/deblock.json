@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "name": "Deblock",
   "description": "Remove blocking artifacts from compressed video",
-  "category": "restoration",
+  "category": "cleanup",
   "icon": "grid_off",
   "order": 3,
 

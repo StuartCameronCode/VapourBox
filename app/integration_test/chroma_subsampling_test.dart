@@ -14,7 +14,7 @@ import 'package:uuid/uuid.dart';
 
 import '../lib/models/encoding_settings.dart';
 import '../lib/models/qtgmc_parameters.dart';
-import '../lib/models/restoration_pipeline.dart';
+import '../lib/models/processing_pipeline.dart';
 import '../lib/models/video_job.dart';
 
 /// Test configuration
@@ -286,7 +286,7 @@ VideoJob createChromaTestJob(String outputPath, ChromaSubsampling chromaSubsampl
       tff: true,
       fpsDivisor: 2,
     ),
-    restorationPipeline: const RestorationPipeline(
+    processingPipeline: const ProcessingPipeline(
       deinterlace: QTGMCParameters(
         preset: QTGMCPreset.superFast,
         tff: true,
@@ -622,7 +622,7 @@ void main() {
             tff: true,
             fpsDivisor: 2,
           ),
-          restorationPipeline: const RestorationPipeline(
+          processingPipeline: const ProcessingPipeline(
             deinterlace: QTGMCParameters(
               preset: QTGMCPreset.superFast,
               tff: true,
@@ -658,7 +658,7 @@ void main() {
             tff: true,
             fpsDivisor: 2,
           ),
-          restorationPipeline: const RestorationPipeline(
+          processingPipeline: const ProcessingPipeline(
             deinterlace: QTGMCParameters(
               preset: QTGMCPreset.superFast,
               tff: true,
@@ -696,7 +696,7 @@ extension VideoJobCopyWith on VideoJob {
     String? inputPath,
     String? outputPath,
     QTGMCParameters? qtgmcParameters,
-    RestorationPipeline? restorationPipeline,
+    ProcessingPipeline? processingPipeline,
     EncodingSettings? encodingSettings,
     int? startFrame,
     int? endFrame,
@@ -706,7 +706,7 @@ extension VideoJobCopyWith on VideoJob {
       inputPath: inputPath ?? this.inputPath,
       outputPath: outputPath ?? this.outputPath,
       qtgmcParameters: qtgmcParameters ?? this.qtgmcParameters,
-      restorationPipeline: restorationPipeline ?? this.restorationPipeline,
+      processingPipeline: processingPipeline ?? this.processingPipeline,
       encodingSettings: encodingSettings ?? this.encodingSettings,
       startFrame: startFrame ?? this.startFrame,
       endFrame: endFrame ?? this.endFrame,

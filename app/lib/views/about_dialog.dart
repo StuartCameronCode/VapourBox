@@ -80,7 +80,7 @@ class _AboutDialogState extends State<AboutDialog> {
                       ),
                     const SizedBox(height: 12),
                     Text(
-                      'Video restoration and cleanup powered by VapourSynth',
+                      'Video processing and cleanup powered by VapourSynth',
                       style: Theme.of(context).textTheme.bodyMedium,
                       textAlign: TextAlign.center,
                     ),

@@ -1,6 +1,6 @@
 //! VapourBox Worker Library
 //!
-//! Provides video restoration functionality using VapourSynth.
+//! Provides video processing functionality using VapourSynth.
 
 pub mod models;
 pub mod dependency_locator;

@@ -162,7 +162,7 @@ jobs:
           VapourBox $version
           ==================
 
-          A cross-platform video restoration application.
+          A cross-platform video processing application.
 
           Usage:
           1. Run vapourbox.exe

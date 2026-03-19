@@ -12,7 +12,7 @@ class CropResizeSettingsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<MainViewModel>(
       builder: (context, viewModel, child) {
-        final params = viewModel.restorationPipeline.cropResize;
+        final params = viewModel.processingPipeline.cropResize;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -367,8 +367,8 @@ class CropResizeSettingsPanel extends StatelessWidget {
   }
 
   void _updateParams(MainViewModel viewModel, CropResizeParameters params) {
-    viewModel.updateRestorationPipeline(
-      viewModel.restorationPipeline.copyWith(cropResize: params),
+    viewModel.updateProcessingPipeline(
+      viewModel.processingPipeline.copyWith(cropResize: params),
     );
   }
 }

@@ -12,7 +12,7 @@ class ColorCorrectionSettingsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<MainViewModel>(
       builder: (context, viewModel, child) {
-        final params = viewModel.restorationPipeline.colorCorrection;
+        final params = viewModel.processingPipeline.colorCorrection;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -247,8 +247,8 @@ class ColorCorrectionSettingsPanel extends StatelessWidget {
   }
 
   void _updateParams(MainViewModel viewModel, ColorCorrectionParameters params) {
-    viewModel.updateRestorationPipeline(
-      viewModel.restorationPipeline.copyWith(colorCorrection: params),
+    viewModel.updateProcessingPipeline(
+      viewModel.processingPipeline.copyWith(colorCorrection: params),
     );
   }
 }

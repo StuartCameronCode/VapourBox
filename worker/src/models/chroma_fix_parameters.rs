@@ -1,4 +1,4 @@
-//! Chroma fix parameters for video restoration.
+//! Chroma fix parameters for video processing.
 
 use serde::{Deserialize, Serialize};
 

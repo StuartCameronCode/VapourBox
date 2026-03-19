@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::{QTGMCParameters, RestorationPipeline};
+use super::{QTGMCParameters, ProcessingPipeline};
 
 /// Represents a complete video processing job.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,9 +21,9 @@ pub struct VideoJob {
     /// Legacy QTGMC deinterlacing parameters (for backwards compatibility)
     pub qtgmc_parameters: QTGMCParameters,
 
-    /// Full restoration pipeline (new multi-pass system)
+    /// Full processing pipeline (new multi-pass system)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub restoration_pipeline: Option<RestorationPipeline>,
+    pub processing_pipeline: Option<ProcessingPipeline>,
 
     /// FFmpeg encoding settings
     pub encoding_settings: EncodingSettings,
@@ -74,12 +74,12 @@ pub struct VideoJob {
 }
 
 impl VideoJob {
-    /// Get the effective restoration pipeline.
-    /// Uses restoration_pipeline if set, otherwise creates one from legacy qtgmc_parameters.
-    pub fn effective_pipeline(&self) -> RestorationPipeline {
-        self.restoration_pipeline
+    /// Get the effective processing pipeline.
+    /// Uses processing_pipeline if set, otherwise creates one from legacy qtgmc_parameters.
+    pub fn effective_pipeline(&self) -> ProcessingPipeline {
+        self.processing_pipeline
             .clone()
-            .unwrap_or_else(|| RestorationPipeline::from_legacy(&self.qtgmc_parameters))
+            .unwrap_or_else(|| ProcessingPipeline::from_legacy(&self.qtgmc_parameters))
     }
 }
 

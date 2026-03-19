@@ -7,7 +7,7 @@ import 'package:path/path.dart' as path;
 import 'package:uuid/uuid.dart';
 
 import '../models/encoding_settings.dart';
-import '../models/restoration_pipeline.dart';
+import '../models/processing_pipeline.dart';
 import '../models/video_job.dart';
 import 'tool_locator.dart';
 
@@ -190,12 +190,12 @@ class PreviewGenerator {
 
   /// Generate a processed preview frame at the specified time.
   ///
-  /// This runs the full restoration pipeline via the worker and returns
+  /// This runs the full processing pipeline via the worker and returns
   /// the processed frame. Uses the same code path as actual video processing
   /// to ensure preview matches the final output.
   Future<Uint8List?> generateProcessedPreview({
     required double timeSeconds,
-    required RestorationPipeline pipeline,
+    required ProcessingPipeline pipeline,
     required FieldOrder fieldOrder,
     required EncodingSettings encodingSettings,
     CancelToken? cancelToken,
@@ -226,7 +226,7 @@ class PreviewGenerator {
         inputPath: _currentVideoPath!,
         outputPath: '$_tempDir/preview_output.avi', // Not used in preview mode
         qtgmcParameters: deinterlaceWithTff,
-        restorationPipeline: pipelineWithTff,
+        processingPipeline: pipelineWithTff,
         encodingSettings: encodingSettings,
         detectedFieldOrder: fieldOrder,
         inputFrameRate: _frameRate,

@@ -12,7 +12,7 @@ class DehaloSettingsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<MainViewModel>(
       builder: (context, viewModel, child) {
-        final params = viewModel.restorationPipeline.dehalo;
+        final params = viewModel.processingPipeline.dehalo;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -197,8 +197,8 @@ class DehaloSettingsPanel extends StatelessWidget {
   }
 
   void _updateParams(MainViewModel viewModel, DehaloParameters params) {
-    viewModel.updateRestorationPipeline(
-      viewModel.restorationPipeline.copyWith(dehalo: params),
+    viewModel.updateProcessingPipeline(
+      viewModel.processingPipeline.copyWith(dehalo: params),
     );
   }
 }

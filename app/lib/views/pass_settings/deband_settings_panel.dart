@@ -12,7 +12,7 @@ class DebandSettingsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<MainViewModel>(
       builder: (context, viewModel, child) {
-        final params = viewModel.restorationPipeline.deband;
+        final params = viewModel.processingPipeline.deband;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -167,8 +167,8 @@ class DebandSettingsPanel extends StatelessWidget {
   }
 
   void _updateParams(MainViewModel viewModel, DebandParameters params) {
-    viewModel.updateRestorationPipeline(
-      viewModel.restorationPipeline.copyWith(deband: params),
+    viewModel.updateProcessingPipeline(
+      viewModel.processingPipeline.copyWith(deband: params),
     );
   }
 }

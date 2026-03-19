@@ -49,7 +49,7 @@ Get the latest release for your platform:
 
 - **Drag-and-drop interface** — drop video files to start, queue multiple files at once
 - **Auto-detection** — automatically identifies interlaced, telecined, and progressive content
-- **Multi-pass restoration pipeline** — chain filters in order: deinterlace, denoise, dehalo, deblock, deband, sharpen, color correction, chroma fixes, crop/resize
+- **Multi-pass video processing pipeline** — chain filters in order: deinterlace, denoise, dehalo, deblock, deband, sharpen, color correction, chroma fixes, crop/resize
 - **QTGMC deinterlacing** — full access to all 70+ parameters, from Draft to Placebo quality
 - **IVTC (Inverse Telecine)** — recover original 23.976 FPS film from telecined DVD sources
 - **Soft telecine handling** — strip pulldown flags without re-encoding fields
@@ -58,7 +58,7 @@ Get the latest release for your platform:
 - **Zoomable timeline** — mouse wheel zoom centered on cursor, drag to pan
 - **In/Out point markers** — export only a portion of your video
 - **Batch queue** — process multiple videos with the same settings
-- **Preset system** — built-in presets (Fast, Balanced, High Quality, VHS Restoration) plus save your own
+- **Preset system** — built-in presets (Fast, Balanced, High Quality, VHS Cleanup) plus save your own
 - **Multiple output formats** — H.264, H.265, ProRes, FFV1 lossless, with hardware encoding support (VideoToolbox, NVENC, QSV, AMF)
 - **Audio options** — passthrough, re-encode (AAC, Opus, FLAC), or strip audio
 - **Custom filters** — extend VapourBox with your own VapourSynth filters via [JSON schemas](docs/FILTER_SCHEMA.md)
@@ -71,7 +71,7 @@ Get the latest release for your platform:
 
 1. Launch VapourBox
 2. Drag and drop one or more video files
-3. Configure restoration passes as needed (or use a preset)
+3. Configure processing passes as needed (or use a preset)
 4. Click **Go** to start processing
 
 ### Timeline Navigation
@@ -90,7 +90,7 @@ Get the latest release for your platform:
 ### Presets
 
 - Click the tuning icon in the toolbar to open presets
-- **Built-in**: Fast, Balanced, High Quality, VHS Restoration
+- **Built-in**: Fast, Balanced, High Quality, VHS Cleanup
 - **Save** your current settings for reuse across sessions
 
 ## Building from Source

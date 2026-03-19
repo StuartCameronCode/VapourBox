@@ -12,7 +12,7 @@ class SharpenSettingsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<MainViewModel>(
       builder: (context, viewModel, child) {
-        final params = viewModel.restorationPipeline.sharpen;
+        final params = viewModel.processingPipeline.sharpen;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -174,8 +174,8 @@ class SharpenSettingsPanel extends StatelessWidget {
   }
 
   void _updateParams(MainViewModel viewModel, SharpenParameters params) {
-    viewModel.updateRestorationPipeline(
-      viewModel.restorationPipeline.copyWith(sharpen: params),
+    viewModel.updateProcessingPipeline(
+      viewModel.processingPipeline.copyWith(sharpen: params),
     );
   }
 }

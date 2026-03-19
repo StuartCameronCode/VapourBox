@@ -2,7 +2,7 @@
 name = "vapourbox-worker"
 version = "0.9.0"
 edition = "2021"
-description = "Video restoration worker using VapourSynth"
+description = "Video processing worker using VapourSynth"
 authors = ["Stuart Cameron"]
 license = "GPL-3.0"
 

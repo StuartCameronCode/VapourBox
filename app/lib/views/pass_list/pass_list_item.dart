@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../models/restoration_pipeline.dart';
+import '../../models/processing_pipeline.dart';
 
-/// A single item in the pass list showing a restoration pass.
+/// A single item in the pass list showing a processing pass.
 class PassListItem extends StatelessWidget {
   final PassType passType;
   final String title;

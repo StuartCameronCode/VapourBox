@@ -12,7 +12,7 @@ class ChromaFixSettingsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<MainViewModel>(
       builder: (context, viewModel, child) {
-        final params = viewModel.restorationPipeline.chromaFixes;
+        final params = viewModel.processingPipeline.chromaFixes;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -248,8 +248,8 @@ class ChromaFixSettingsPanel extends StatelessWidget {
   }
 
   void _updateParams(MainViewModel viewModel, ChromaFixParameters params) {
-    viewModel.updateRestorationPipeline(
-      viewModel.restorationPipeline.copyWith(chromaFixes: params),
+    viewModel.updateProcessingPipeline(
+      viewModel.processingPipeline.copyWith(chromaFixes: params),
     );
   }
 }

@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "name": "Chroma Fixes",
   "description": "Fix chroma bleeding, rainbows, and dot crawl",
-  "category": "restoration",
+  "category": "cleanup",
   "icon": "palette",
   "order": 8,
 

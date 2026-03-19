@@ -1,4 +1,4 @@
-//! Noise reduction parameters for video restoration.
+//! Noise reduction parameters for video processing.
 
 use serde::{Deserialize, Serialize};
 

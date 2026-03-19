@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/dynamic_parameters.dart';
 import '../../models/filter_registry.dart';
-import '../../models/restoration_pipeline.dart';
+import '../../models/processing_pipeline.dart';
 import '../../services/whisper_addon_manager.dart';
 import '../../viewmodels/main_viewmodel.dart';
 import '../settings/dynamic_filter_panel.dart';

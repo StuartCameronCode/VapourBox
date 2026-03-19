@@ -1,4 +1,4 @@
-//! Color correction parameters for video restoration.
+//! Color correction parameters for video processing.
 
 use serde::{Deserialize, Serialize};
 

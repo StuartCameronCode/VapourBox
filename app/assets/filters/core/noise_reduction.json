@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "name": "Noise Reduction",
   "description": "Remove video noise and grain",
-  "category": "restoration",
+  "category": "cleanup",
   "icon": "grain",
   "order": 2,
 

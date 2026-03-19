@@ -1,4 +1,4 @@
-//! Crop and resize parameters for video restoration.
+//! Crop and resize parameters for video processing.
 
 use serde::{Deserialize, Serialize};
 

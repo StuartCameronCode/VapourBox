@@ -348,7 +348,7 @@ class FilterSchema {
   /// Description of what this filter does.
   final String? description;
 
-  /// Category for grouping (e.g., "restoration", "enhancement").
+  /// Category for grouping (e.g., "cleanup", "enhancement").
   final String? category;
 
   /// Icon name (Material icon).

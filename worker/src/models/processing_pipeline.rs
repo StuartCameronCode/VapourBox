@@ -1,4 +1,4 @@
-//! Restoration pipeline containing all video restoration passes.
+//! Processing pipeline containing all video processing passes.
 
 use serde::{Deserialize, Serialize};
 
@@ -8,7 +8,7 @@ use super::{
     NoiseReductionParameters, QTGMCParameters,
 };
 
-/// Defines the type of each restoration pass.
+/// Defines the type of each processing pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
@@ -57,11 +57,11 @@ impl PassType {
     }
 }
 
-/// Container for all restoration pass parameters.
-/// Defines the complete video restoration pipeline.
+/// Container for all processing pass parameters.
+/// Defines the complete video processing pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RestorationPipeline {
+pub struct ProcessingPipeline {
     /// Deinterlacing pass parameters (QTGMC).
     #[serde(default)]
     pub deinterlace: QTGMCParameters,
@@ -99,7 +99,7 @@ pub struct RestorationPipeline {
     pub crop_resize: CropResizeParameters,
 }
 
-impl Default for RestorationPipeline {
+impl Default for ProcessingPipeline {
     fn default() -> Self {
         Self {
             deinterlace: QTGMCParameters::default(),
@@ -116,7 +116,7 @@ impl Default for RestorationPipeline {
 }
 
 #[allow(dead_code)]
-impl RestorationPipeline {
+impl ProcessingPipeline {
     /// Create a pipeline from legacy QTGMC-only parameters.
     pub fn from_legacy(qtgmc_params: &QTGMCParameters) -> Self {
         Self {
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn test_default_pipeline() {
-        let pipeline = RestorationPipeline::default();
+        let pipeline = ProcessingPipeline::default();
         assert!(!pipeline.noise_reduction.enabled);
         assert!(!pipeline.color_correction.enabled);
         assert!(!pipeline.chroma_fixes.enabled);
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn test_enabled_passes() {
-        let mut pipeline = RestorationPipeline::default();
+        let mut pipeline = ProcessingPipeline::default();
         pipeline.noise_reduction.enabled = true;
         pipeline.color_correction.enabled = true;
 
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_serialization() {
-        let pipeline = RestorationPipeline::default();
+        let pipeline = ProcessingPipeline::default();
         let json = serde_json::to_string(&pipeline).unwrap();
         assert!(json.contains("\"noiseReduction\""));
         assert!(json.contains("\"colorCorrection\""));

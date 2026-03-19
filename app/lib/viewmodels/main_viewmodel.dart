@@ -9,7 +9,7 @@ import '../models/parameter_converter.dart';
 import '../models/progress_info.dart';
 import '../models/qtgmc_parameters.dart';
 import '../models/queue_item.dart';
-import '../models/restoration_pipeline.dart';
+import '../models/processing_pipeline.dart';
 import '../models/subtitle_parameters.dart';
 import '../models/video_job.dart';
 import '../models/processing_preset.dart';
@@ -41,8 +41,8 @@ class MainViewModel extends ChangeNotifier {
   bool _autoFieldOrder = true;
   FieldOrder _manualFieldOrder = FieldOrder.topFieldFirst;
 
-  // Restoration pipeline
-  RestorationPipeline _restorationPipeline = const RestorationPipeline();
+  // Processing pipeline
+  ProcessingPipeline _processingPipeline = const ProcessingPipeline();
   PassType _selectedPass = PassType.deinterlace;
   bool _advancedMode = false;
 
@@ -93,7 +93,7 @@ class MainViewModel extends ChangeNotifier {
   EncodingSettings get encodingSettings => _encodingSettings;
   bool get autoFieldOrder => _autoFieldOrder;
   FieldOrder get manualFieldOrder => _manualFieldOrder;
-  RestorationPipeline get restorationPipeline => _restorationPipeline;
+  ProcessingPipeline get processingPipeline => _processingPipeline;
   PassType get selectedPass => _selectedPass;
   bool get advancedMode => _advancedMode;
 
@@ -131,25 +131,25 @@ class MainViewModel extends ChangeNotifier {
   DynamicParameters _convertToParams(String filterId) {
     switch (filterId) {
       case 'deinterlace':
-        return ParameterConverter.fromQTGMC(_restorationPipeline.deinterlace);
+        return ParameterConverter.fromQTGMC(_processingPipeline.deinterlace);
       case 'noise_reduction':
-        return ParameterConverter.fromNoiseReduction(_restorationPipeline.noiseReduction);
+        return ParameterConverter.fromNoiseReduction(_processingPipeline.noiseReduction);
       case 'dehalo':
-        return ParameterConverter.fromDehalo(_restorationPipeline.dehalo);
+        return ParameterConverter.fromDehalo(_processingPipeline.dehalo);
       case 'deblock':
-        return ParameterConverter.fromDeblock(_restorationPipeline.deblock);
+        return ParameterConverter.fromDeblock(_processingPipeline.deblock);
       case 'deband':
-        return ParameterConverter.fromDeband(_restorationPipeline.deband);
+        return ParameterConverter.fromDeband(_processingPipeline.deband);
       case 'sharpen':
-        return ParameterConverter.fromSharpen(_restorationPipeline.sharpen);
+        return ParameterConverter.fromSharpen(_processingPipeline.sharpen);
       case 'color_correction':
-        return ParameterConverter.fromColorCorrection(_restorationPipeline.colorCorrection);
+        return ParameterConverter.fromColorCorrection(_processingPipeline.colorCorrection);
       case 'chroma_fixes':
-        return ParameterConverter.fromChromaFixes(_restorationPipeline.chromaFixes);
+        return ParameterConverter.fromChromaFixes(_processingPipeline.chromaFixes);
       case 'crop_resize':
-        return ParameterConverter.fromCropResize(_restorationPipeline.cropResize);
+        return ParameterConverter.fromCropResize(_processingPipeline.cropResize);
       case 'subtitles':
-        return ParameterConverter.fromSubtitles(_restorationPipeline.subtitles);
+        return ParameterConverter.fromSubtitles(_processingPipeline.subtitles);
       default:
         return DynamicParameters(filterId: filterId);
     }
@@ -158,53 +158,53 @@ class MainViewModel extends ChangeNotifier {
   void _updatePipelineFromDynamic(String filterId, DynamicParameters params) {
     switch (filterId) {
       case 'deinterlace':
-        _restorationPipeline = _restorationPipeline.copyWith(
+        _processingPipeline = _processingPipeline.copyWith(
           deinterlace: ParameterConverter.toQTGMC(params),
         );
-        _qtgmcParams = _restorationPipeline.deinterlace;
+        _qtgmcParams = _processingPipeline.deinterlace;
         break;
       case 'noise_reduction':
-        _restorationPipeline = _restorationPipeline.copyWith(
+        _processingPipeline = _processingPipeline.copyWith(
           noiseReduction: ParameterConverter.toNoiseReduction(params),
         );
         break;
       case 'dehalo':
-        _restorationPipeline = _restorationPipeline.copyWith(
+        _processingPipeline = _processingPipeline.copyWith(
           dehalo: ParameterConverter.toDehalo(params),
         );
         break;
       case 'deblock':
-        _restorationPipeline = _restorationPipeline.copyWith(
+        _processingPipeline = _processingPipeline.copyWith(
           deblock: ParameterConverter.toDeblock(params),
         );
         break;
       case 'deband':
-        _restorationPipeline = _restorationPipeline.copyWith(
+        _processingPipeline = _processingPipeline.copyWith(
           deband: ParameterConverter.toDeband(params),
         );
         break;
       case 'sharpen':
-        _restorationPipeline = _restorationPipeline.copyWith(
+        _processingPipeline = _processingPipeline.copyWith(
           sharpen: ParameterConverter.toSharpen(params),
         );
         break;
       case 'color_correction':
-        _restorationPipeline = _restorationPipeline.copyWith(
+        _processingPipeline = _processingPipeline.copyWith(
           colorCorrection: ParameterConverter.toColorCorrection(params),
         );
         break;
       case 'chroma_fixes':
-        _restorationPipeline = _restorationPipeline.copyWith(
+        _processingPipeline = _processingPipeline.copyWith(
           chromaFixes: ParameterConverter.toChromaFixes(params),
         );
         break;
       case 'crop_resize':
-        _restorationPipeline = _restorationPipeline.copyWith(
+        _processingPipeline = _processingPipeline.copyWith(
           cropResize: ParameterConverter.toCropResize(params),
         );
         break;
       case 'subtitles':
-        _restorationPipeline = _restorationPipeline.copyWith(
+        _processingPipeline = _processingPipeline.copyWith(
           subtitles: ParameterConverter.toSubtitles(params),
         );
         break;
@@ -400,13 +400,13 @@ class MainViewModel extends ChangeNotifier {
       }
 
       if (targetMethod != null || targetEnabled != null) {
-        _restorationPipeline = _restorationPipeline.copyWith(
-          deinterlace: _restorationPipeline.deinterlace.copyWith(
-            method: targetMethod ?? _restorationPipeline.deinterlace.method,
-            enabled: targetEnabled ?? _restorationPipeline.deinterlace.enabled,
+        _processingPipeline = _processingPipeline.copyWith(
+          deinterlace: _processingPipeline.deinterlace.copyWith(
+            method: targetMethod ?? _processingPipeline.deinterlace.method,
+            enabled: targetEnabled ?? _processingPipeline.deinterlace.enabled,
           ),
         );
-        _qtgmcParams = _restorationPipeline.deinterlace;
+        _qtgmcParams = _processingPipeline.deinterlace;
         // Sync dynamic params cache and notify UI immediately
         _dynamicParams.remove('deinterlace');
         // Deinterlace toggle changes subtitle-only detection and output extension
@@ -774,7 +774,7 @@ class MainViewModel extends ChangeNotifier {
     try {
       final preview = await _previewGenerator.generateProcessedPreview(
         timeSeconds: timeSeconds,
-        pipeline: _restorationPipeline,
+        pipeline: _processingPipeline,
         fieldOrder: effectiveFieldOrder,
         encodingSettings: _encodingSettings,
         cancelToken: _previewCancelToken,
@@ -830,9 +830,9 @@ class MainViewModel extends ChangeNotifier {
     _requestPreviewUpdate();
   }
 
-  /// Updates the restoration pipeline.
-  void updateRestorationPipeline(RestorationPipeline pipeline) {
-    _restorationPipeline = pipeline;
+  /// Updates the processing pipeline.
+  void updateProcessingPipeline(ProcessingPipeline pipeline) {
+    _processingPipeline = pipeline;
     // Keep qtgmcParams in sync with deinterlace settings
     _qtgmcParams = pipeline.deinterlace;
     // Pipeline changes affect subtitle-only detection and output extension
@@ -843,9 +843,9 @@ class MainViewModel extends ChangeNotifier {
 
   /// Toggles a pass on or off.
   void togglePass(PassType pass, bool enabled) {
-    _restorationPipeline = _restorationPipeline.togglePass(pass, enabled);
+    _processingPipeline = _processingPipeline.togglePass(pass, enabled);
     // Keep qtgmcParams in sync
-    _qtgmcParams = _restorationPipeline.deinterlace;
+    _qtgmcParams = _processingPipeline.deinterlace;
     // Sync dynamic params cache with new enabled state
     final filterId = _passTypeToFilterId(pass);
     if (_dynamicParams.containsKey(filterId)) {
@@ -958,10 +958,10 @@ class MainViewModel extends ChangeNotifier {
     }
 
     // Subtitle-only mode: no video processing passes enabled, only subtitles
-    final isSubtitleOnly = _restorationPipeline.subtitles.enabled &&
-        _restorationPipeline.enabledPasses.isEmpty;
+    final isSubtitleOnly = _processingPipeline.subtitles.enabled &&
+        _processingPipeline.enabledPasses.isEmpty;
     _lastJobSubtitleOnly = isSubtitleOnly &&
-        _restorationPipeline.subtitles.output == SubtitleOutput.srtFile;
+        _processingPipeline.subtitles.output == SubtitleOutput.srtFile;
 
     // Ensure output path matches current settings (guards against stale extensions)
     item.outputPath = _generateOutputPath(item.inputPath);
@@ -974,8 +974,8 @@ class MainViewModel extends ChangeNotifier {
       qtgmcParameters: _qtgmcParams.copyWith(
         tff: _getEffectiveFieldOrder(item) == FieldOrder.topFieldFirst,
       ),
-      restorationPipeline: _restorationPipeline.copyWith(
-        deinterlace: _restorationPipeline.deinterlace.copyWith(
+      processingPipeline: _processingPipeline.copyWith(
+        deinterlace: _processingPipeline.deinterlace.copyWith(
           tff: _getEffectiveFieldOrder(item) == FieldOrder.topFieldFirst,
         ),
       ),
@@ -988,9 +988,9 @@ class MainViewModel extends ChangeNotifier {
       inputPixelFormat: item.videoInfo?.pixelFormat,
       startFrame: startFrame,
       endFrame: endFrame,
-      subtitleSettings: _restorationPipeline.subtitles.enabled
+      subtitleSettings: _processingPipeline.subtitles.enabled
           ? SubtitleSettingsDto.fromSubtitleParameters(
-              _restorationPipeline.subtitles)
+              _processingPipeline.subtitles)
           : null,
       subtitleOnly: isSubtitleOnly,
       inputSar: item.videoInfo?.sar,
@@ -1145,9 +1145,9 @@ class MainViewModel extends ChangeNotifier {
     final outputFilename = _encodingSettings.generateOutputFilename(inputBaseName);
 
     // Subtitle-only with SRT output: use .srt extension
-    final isSubtitleOnly = _restorationPipeline.subtitles.enabled &&
-        _restorationPipeline.videoPassCount == 0;
-    if (isSubtitleOnly && _restorationPipeline.subtitles.output == SubtitleOutput.srtFile) {
+    final isSubtitleOnly = _processingPipeline.subtitles.enabled &&
+        _processingPipeline.videoPassCount == 0;
+    if (isSubtitleOnly && _processingPipeline.subtitles.output == SubtitleOutput.srtFile) {
       return '$outputDir/$outputFilename.srt';
     }
 
@@ -1173,7 +1173,7 @@ class MainViewModel extends ChangeNotifier {
 
   /// Load a preset, applying its settings.
   void loadPreset(ProcessingPreset preset) {
-    _restorationPipeline = preset.pipeline;
+    _processingPipeline = preset.pipeline;
     _qtgmcParams = preset.pipeline.deinterlace;
     _encodingSettings = preset.encodingSettings;
 
@@ -1189,7 +1189,7 @@ class MainViewModel extends ChangeNotifier {
     final preset = ProcessingPreset(
       name: name,
       description: description,
-      pipeline: _restorationPipeline,
+      pipeline: _processingPipeline,
       encodingSettings: _encodingSettings,
     );
 
@@ -1200,7 +1200,7 @@ class MainViewModel extends ChangeNotifier {
   /// Update an existing user preset with current settings.
   Future<void> updatePreset(ProcessingPreset existing) async {
     final updated = existing.copyWith(
-      pipeline: _restorationPipeline,
+      pipeline: _processingPipeline,
       encodingSettings: _encodingSettings,
     );
     await PresetService.instance.savePreset(updated);

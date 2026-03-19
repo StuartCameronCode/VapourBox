@@ -1,5 +1,5 @@
 name: vapourbox
-description: "Video restoration and cleanup powered by VapourSynth"
+description: "Video processing and cleanup powered by VapourSynth"
 publish_to: 'none'
 version: 0.9.0+16
 

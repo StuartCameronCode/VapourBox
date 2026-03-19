@@ -12,7 +12,7 @@ Both files should stay synchronized - README.md is for humans, CLAUDE.md is for 
 
 ## Project Overview
 
-VapourBox is a **cross-platform** (macOS + Windows) video restoration application using VapourSynth. It provides a simple drag-and-drop interface for deinterlacing, denoising, sharpening, and other video restoration tasks as an alternative to more complex tools like Hybrid.
+VapourBox is a **cross-platform** (macOS + Windows) video processing application using VapourSynth. It provides a simple drag-and-drop interface for deinterlacing, denoising, sharpening, and other video processing tasks as an alternative to more complex tools like Hybrid.
 
 **Technology Stack:**
 - **UI**: Flutter (Dart) - cross-platform desktop app
@@ -114,7 +114,7 @@ VapourBox/
 ### Rust Worker
 | File | Purpose |
 |------|---------|
-| `worker/src/models/video_job.rs` | Job config, EncodingSettings, restoration passes |
+| `worker/src/models/video_job.rs` | Job config, EncodingSettings, processing passes |
 | `worker/src/models/qtgmc_parameters.rs` | All 70+ QTGMC parameters (serde) |
 | `worker/src/script_generator.rs` | Template substitution for .vpy |
 | `worker/src/pipeline_executor.rs` | vspipe \| ffmpeg execution |
@@ -446,7 +446,7 @@ VapourBox uses a JSON schema system for defining filters. This allows adding new
 | `version` | string | Yes | Semantic version (e.g., "1.0.0") |
 | `name` | string | Yes | Display name in UI |
 | `description` | string | Yes | Brief description |
-| `category` | string | Yes | `restoration`, `enhancement`, `color`, `custom` |
+| `category` | string | Yes | `cleanup`, `enhancement`, `color`, `custom` |
 | `icon` | string | No | Material icon name |
 | `order` | integer | No | Sort order in filter list |
 | `dependencies` | object | No | Required plugins |
@@ -607,7 +607,7 @@ class ProcessingPreset {
   final String id;
   final String name;
   final String? description;
-  final RestorationPipeline pipeline;      // All filter settings
+  final ProcessingPipeline pipeline;      // All filter settings
   final EncodingSettings encodingSettings; // Output codec settings
   final DateTime createdAt;
   final bool isBuiltIn;
@@ -620,7 +620,7 @@ Located in `PresetService._createBuiltInPresets()`:
 - **Fast**: Quick processing, Draft quality
 - **Balanced**: Good quality/speed tradeoff
 - **High Quality**: Best quality, slower
-- **VHS Restoration**: Specialized for VHS sources
+- **VHS Cleanup**: Specialized for VHS sources
 
 ### Preset Storage
 
@@ -636,7 +636,7 @@ ProcessingPreset(
   id: 'my_preset',
   name: 'My Preset',
   description: 'What this preset does',
-  pipeline: RestorationPipeline(
+  pipeline: ProcessingPipeline(
     deinterlace: DeinterlacePass(enabled: true, ...),
     denoise: DenoisePass(enabled: true, ...),
     // ... other passes

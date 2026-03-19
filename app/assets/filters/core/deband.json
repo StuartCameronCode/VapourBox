@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "name": "Deband",
   "description": "Remove banding artifacts using f3kdb",
-  "category": "restoration",
+  "category": "cleanup",
   "icon": "gradient",
   "order": 5,
 

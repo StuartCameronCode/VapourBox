@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "name": "Dehalo",
   "description": "Remove halo artifacts around edges",
-  "category": "restoration",
+  "category": "cleanup",
   "icon": "blur_off",
   "order": 4,
 

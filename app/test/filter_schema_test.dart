@@ -12,7 +12,7 @@ void main() {
   "version": "1.0.0",
   "name": "Dehalo",
   "description": "Remove halo artifacts",
-  "category": "restoration",
+  "category": "cleanup",
   "order": 4,
   "dependencies": {
     "plugins": ["havsfunc"],
@@ -77,7 +77,7 @@ void main() {
       expect(schema.id, 'dehalo');
       expect(schema.version, '1.0.0');
       expect(schema.name, 'Dehalo');
-      expect(schema.category, 'restoration');
+      expect(schema.category, 'cleanup');
       expect(schema.order, 4);
       expect(schema.methods.length, 1);
       expect(schema.methods.first.id, 'dehalo_alpha');

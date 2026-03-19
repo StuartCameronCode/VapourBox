@@ -15,7 +15,7 @@ import 'package:uuid/uuid.dart';
 
 import '../lib/models/encoding_settings.dart';
 import '../lib/models/qtgmc_parameters.dart';
-import '../lib/models/restoration_pipeline.dart';
+import '../lib/models/processing_pipeline.dart';
 import '../lib/models/video_job.dart';
 
 /// Test configuration
@@ -231,7 +231,7 @@ Future<FilterTestResult> runFilterTest(String testName, VideoJob job, {
     print('\n${'=' * 60}');
     print('INTERLACE TEST: $testName');
     print('Output: ${job.outputPath}');
-    final deinterlaceEnabled = job.restorationPipeline?.deinterlace != null;
+    final deinterlaceEnabled = job.processingPipeline?.deinterlace != null;
     print('Deinterlacing: ${deinterlaceEnabled ? "ENABLED" : "DISABLED"}');
     print('=' * 60);
 
@@ -354,7 +354,7 @@ VideoJob createDeinterlaceJob(String outputPath) {
       tff: true,
       fpsDivisor: 2,
     ),
-    restorationPipeline: const RestorationPipeline(
+    processingPipeline: const ProcessingPipeline(
       deinterlace: QTGMCParameters(
         preset: QTGMCPreset.superFast,
         tff: true,
@@ -384,7 +384,7 @@ VideoJob createPassthroughJob(String outputPath) {
       fpsDivisor: 2,
     ),
     // Deinterlace disabled - video passes through without deinterlacing
-    restorationPipeline: const RestorationPipeline(
+    processingPipeline: const ProcessingPipeline(
       deinterlace: QTGMCParameters(
         enabled: false, // Disable deinterlacing
         tff: true,
@@ -528,7 +528,7 @@ void main() {
             tff: true,
             fpsDivisor: 2,
           ),
-          restorationPipeline: const RestorationPipeline(
+          processingPipeline: const ProcessingPipeline(
             deinterlace: QTGMCParameters(
               preset: QTGMCPreset.fast,
               tff: true,
@@ -570,7 +570,7 @@ void main() {
             tff: false, // Bottom field first
             fpsDivisor: 2,
           ),
-          restorationPipeline: const RestorationPipeline(
+          processingPipeline: const ProcessingPipeline(
             deinterlace: QTGMCParameters(
               preset: QTGMCPreset.superFast,
               tff: false, // Bottom field first
@@ -685,7 +685,7 @@ void main() {
             tff: true,
             fpsDivisor: 2,
           ),
-          restorationPipeline: const RestorationPipeline(
+          processingPipeline: const ProcessingPipeline(
             deinterlace: QTGMCParameters(
               preset: QTGMCPreset.superFast,
               tff: true,
@@ -723,7 +723,7 @@ void main() {
             tff: true,
             fpsDivisor: 2,
           ),
-          restorationPipeline: const RestorationPipeline(
+          processingPipeline: const ProcessingPipeline(
             deinterlace: QTGMCParameters(
               preset: QTGMCPreset.superFast,
               tff: true,
@@ -766,7 +766,7 @@ void main() {
             tff: true,
             fpsDivisor: 1, // Double-rate: 50i -> 50p
           ),
-          restorationPipeline: const RestorationPipeline(
+          processingPipeline: const ProcessingPipeline(
             deinterlace: QTGMCParameters(
               preset: QTGMCPreset.superFast,
               tff: true,

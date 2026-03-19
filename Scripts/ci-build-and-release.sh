@@ -51,7 +51,7 @@ fi
 
 # Read deps tag from deps-version.json if not provided
 if [ -z "$DEPS_TAG" ]; then
-    DEPS_TAG=$(python3 -c "import json; print(json.load(open('$PROJECT_ROOT/app/assets/deps-version.json'))['releaseTag'])")
+    DEPS_TAG=$(grep -o '"releaseTag"[[:space:]]*:[[:space:]]*"[^"]*"' "$PROJECT_ROOT/app/assets/deps-version.json" | head -1 | sed 's/.*"releaseTag"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
     echo -e "${BLUE}Using deps tag from deps-version.json: ${DEPS_TAG}${NC}"
 fi
 
@@ -74,15 +74,16 @@ if [ -z "$DRAFT_RELEASE" ]; then
     echo "Create a draft release first: gh release create $RELEASE_TAG --draft --title \"VapourBox $VERSION\""
     exit 1
 fi
-IS_DRAFT=$(echo "$DRAFT_RELEASE" | python3 -c "import json,sys; print(json.load(sys.stdin)['isDraft'])")
-if [ "$IS_DRAFT" != "True" ]; then
+IS_DRAFT=$(echo "$DRAFT_RELEASE" | gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' 2>/dev/null || echo "false")
+if [ "$IS_DRAFT" != "true" ]; then
     echo -e "${YELLOW}WARNING: Release ${RELEASE_TAG} is not a draft. Continue? (y/N)${NC}"
     read -r CONFIRM
     if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
         exit 1
     fi
 fi
-echo -e "${GREEN}  Found release: $(echo "$DRAFT_RELEASE" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])")${NC}"
+RELEASE_NAME=$(gh release view "$RELEASE_TAG" --json name --jq '.name' 2>/dev/null || echo "$RELEASE_TAG")
+echo -e "${GREEN}  Found release: ${RELEASE_NAME}${NC}"
 
 if ! $SKIP_TRIGGER; then
     # Trigger both workflows

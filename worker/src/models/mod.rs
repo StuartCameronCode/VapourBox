@@ -12,7 +12,7 @@ mod dehalo_parameters;
 mod deblock_parameters;
 mod deband_parameters;
 mod sharpen_parameters;
-mod restoration_pipeline;
+mod processing_pipeline;
 
 pub use video_job::*;
 pub use qtgmc_parameters::*;
@@ -25,4 +25,4 @@ pub use dehalo_parameters::*;
 pub use deblock_parameters::*;
 pub use deband_parameters::*;
 pub use sharpen_parameters::*;
-pub use restoration_pipeline::*;
+pub use processing_pipeline::*;

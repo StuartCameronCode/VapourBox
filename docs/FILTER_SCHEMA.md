@@ -24,7 +24,7 @@ VapourBox uses JSON schemas to define video processing filters. Each filter sche
   "version": "1.0.0",
   "name": "My Filter",
   "description": "What this filter does",
-  "category": "restoration",
+  "category": "cleanup",
   "icon": "auto_fix_high",
   "order": 10,
 
@@ -49,7 +49,7 @@ VapourBox uses JSON schemas to define video processing filters. Each filter sche
 | `version` | string | Yes | Semantic version (e.g., "1.0.0") |
 | `name` | string | Yes | Display name |
 | `description` | string | Yes | Brief description |
-| `category` | string | Yes | Category: `deinterlace`, `restoration`, `enhancement`, `transform`, `custom` |
+| `category` | string | Yes | Category: `deinterlace`, `cleanup`, `enhancement`, `transform`, `custom` |
 | `icon` | string | No | Material icon name |
 | `order` | integer | No | Sort order in UI (lower = first) |
 

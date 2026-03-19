@@ -121,7 +121,7 @@ $ReadmeContent = @"
 VapourBox v$Version for Windows
 ===============================
 
-Video restoration and cleanup powered by VapourSynth.
+Video processing and cleanup powered by VapourSynth.
 By Stuart Cameron - https://stuart-cameron.com
 
 Getting Started
@@ -129,7 +129,7 @@ Getting Started
 1. Double-click "Launch VapourBox.bat" or "vapourbox.exe"
 2. On first launch, required components will be downloaded automatically
 3. Drag and drop a video file onto the window
-4. Configure restoration passes as needed
+4. Configure processing passes as needed
 5. Click "Go" to start processing
 
 Requirements

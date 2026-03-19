@@ -12,7 +12,7 @@ class NoiseReductionSettingsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<MainViewModel>(
       builder: (context, viewModel, child) {
-        final params = viewModel.restorationPipeline.noiseReduction;
+        final params = viewModel.processingPipeline.noiseReduction;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -282,8 +282,8 @@ class NoiseReductionSettingsPanel extends StatelessWidget {
   }
 
   void _updateParams(MainViewModel viewModel, NoiseReductionParameters params) {
-    viewModel.updateRestorationPipeline(
-      viewModel.restorationPipeline.copyWith(noiseReduction: params),
+    viewModel.updateProcessingPipeline(
+      viewModel.processingPipeline.copyWith(noiseReduction: params),
     );
   }
 }

@@ -1,12 +1,12 @@
 import 'package:json_annotation/json_annotation.dart';
 import 'package:uuid/uuid.dart';
 
-import 'color_correction_parameters.dart';
+import 'dehalo_parameters.dart';
 import 'encoding_settings.dart';
 import 'noise_reduction_parameters.dart';
 import 'qtgmc_parameters.dart';
-import 'restoration_pipeline.dart';
-import 'sharpen_parameters.dart';
+import 'processing_pipeline.dart';
+import 'video_job.dart';
 
 part 'processing_preset.g.dart';
 
@@ -22,8 +22,8 @@ class ProcessingPreset {
   /// Optional description of what this preset is for.
   final String? description;
 
-  /// The restoration pipeline settings.
-  final RestorationPipeline pipeline;
+  /// The processing pipeline settings.
+  final ProcessingPipeline pipeline;
 
   /// The encoding settings.
   final EncodingSettings encodingSettings;
@@ -53,7 +53,7 @@ class ProcessingPreset {
     String? id,
     String? name,
     String? description,
-    RestorationPipeline? pipeline,
+    ProcessingPipeline? pipeline,
     EncodingSettings? encodingSettings,
     DateTime? createdAt,
     bool? isBuiltIn,
@@ -75,7 +75,7 @@ class ProcessingPreset {
       id: 'builtin-fast',
       name: 'Fast',
       description: 'Quick processing with lower quality settings',
-      pipeline: RestorationPipeline(
+      pipeline: ProcessingPipeline(
         deinterlace: QTGMCParameters(
           enabled: true,
           preset: QTGMCPreset.faster,
@@ -95,7 +95,7 @@ class ProcessingPreset {
       id: 'builtin-balanced',
       name: 'Balanced',
       description: 'Good balance between quality and processing speed',
-      pipeline: RestorationPipeline(
+      pipeline: ProcessingPipeline(
         deinterlace: QTGMCParameters(
           enabled: true,
           preset: QTGMCPreset.slow,
@@ -115,7 +115,7 @@ class ProcessingPreset {
       id: 'builtin-high-quality',
       name: 'High Quality',
       description: 'Maximum quality with slower processing',
-      pipeline: RestorationPipeline(
+      pipeline: ProcessingPipeline(
         deinterlace: QTGMCParameters(
           enabled: true,
           preset: QTGMCPreset.slower,
@@ -131,36 +131,38 @@ class ProcessingPreset {
     );
   }
 
-  /// Built-in preset: VHS Restoration.
-  static ProcessingPreset builtInVhsRestoration() {
+  /// Built-in preset: VHS Cleanup.
+  static ProcessingPreset builtInVhsCleanup() {
     return ProcessingPreset(
-      id: 'builtin-vhs-restoration',
-      name: 'VHS Restoration',
-      description: 'Optimized for VHS tape restoration',
-      pipeline: RestorationPipeline(
+      id: 'builtin-vhs-cleanup',
+      name: 'VHS Cleanup',
+      description: 'Optimized for VHS tape cleanup',
+      pipeline: ProcessingPipeline(
         deinterlace: QTGMCParameters(
           enabled: true,
-          preset: QTGMCPreset.slow,
         ),
         noiseReduction: NoiseReductionParameters(
           enabled: true,
+          preset: NoiseReductionPreset.custom,
           method: NoiseReductionMethod.smDegrain,
           smDegrainTr: 2,
-          smDegrainThSAD: 400,
+          smDegrainThSAD: 300,
+          smDegrainThSADC: 150,
+          smDegrainRefine: true,
+          smDegrainPrefilter: 2,
         ),
-        sharpen: SharpenParameters(
+        dehalo: DehaloParameters(
           enabled: true,
-          method: SharpenMethod.lsfmod,
-          strength: 75,
-        ),
-        colorCorrection: ColorCorrectionParameters(
-          enabled: true,
-          saturation: 1.1,
+          method: DehaloMethod.dehaloAlpha,
+          rx: 3.0,
+          ry: 3.0,
         ),
       ),
       encodingSettings: EncodingSettings(
-        encoderPreset: 'slow',
-        quality: 17,
+        codec: VideoCodec.ffv1,
+        container: ContainerFormat.mkv,
+        encoderPreset: 'medium',
+        quality: 18,
       ),
       isBuiltIn: true,
     );
@@ -172,7 +174,7 @@ class ProcessingPreset {
       id: 'builtin-dvd-ivtc',
       name: 'DVD IVTC',
       description: 'Inverse telecine for NTSC DVD sources (29.97i \u2192 23.976p)',
-      pipeline: RestorationPipeline(
+      pipeline: ProcessingPipeline(
         deinterlace: QTGMCParameters(
           enabled: true,
           method: DeinterlaceMethod.ivtc,
@@ -195,7 +197,7 @@ class ProcessingPreset {
       builtInFast(),
       builtInBalanced(),
       builtInHighQuality(),
-      builtInVhsRestoration(),
+      builtInVhsCleanup(),
       builtInDvdIvtc(),
     ];
   }
