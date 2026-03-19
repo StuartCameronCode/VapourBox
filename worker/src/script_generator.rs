@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use crate::models::{
-    VideoJob, RestorationPipeline, NoiseReductionMethod, ResizeKernel, UpscaleMethod,
+    VideoJob, ProcessingPipeline, NoiseReductionMethod, ResizeKernel, UpscaleMethod,
     DehaloMethod, DeblockMethod, SharpenMethod, ChromaSubsampling, DeinterlaceMethod,
 };
 
@@ -146,7 +146,7 @@ impl ScriptGenerator {
     }
 
     /// Substitute parameters in a script string.
-    fn substitute_parameters(&self, template: &str, job: &VideoJob, pipeline: &RestorationPipeline, _input_path: &str) -> String {
+    fn substitute_parameters(&self, template: &str, job: &VideoJob, pipeline: &ProcessingPipeline, _input_path: &str) -> String {
         let mut script = template.to_string();
 
         // Pipe source parameters — FFmpeg decodes, pipes raw frames to VapourSynth via stdin
@@ -251,7 +251,7 @@ impl ScriptGenerator {
     }
 
     /// Substitute pipeline parameters on an already-prepared script.
-    fn substitute_parameters_on(&self, script: &str, job: &VideoJob, pipeline: &RestorationPipeline) -> String {
+    fn substitute_parameters_on(&self, script: &str, job: &VideoJob, pipeline: &ProcessingPipeline) -> String {
         let mut script = script.to_string();
         let params = &pipeline.deinterlace;
 
@@ -291,25 +291,25 @@ impl ScriptGenerator {
 
                     // Process optional QTGMC parameters
                     script = process_optional_bool("TFF", params.tff, script);
-                    script = process_optional_int("INPUT_TYPE", if params.input_type != 0 { Some(params.input_type) } else { None }, script);
-                    script = process_optional_int("FPS_DIVISOR", if params.fps_divisor != 1 { Some(params.fps_divisor) } else { None }, script);
+                    script = process_optional_int("INPUT_TYPE", params.input_type, script);
+                    script = process_optional_int("FPS_DIVISOR", params.fps_divisor, script);
 
                     // Quality parameters
                     script = process_optional_int("TR0", params.tr0, script);
                     script = process_optional_int("TR1", params.tr1, script);
                     script = process_optional_int("TR2", params.tr2, script);
                     script = process_optional_int("REP0", params.rep0, script);
-                    script = process_optional_int("REP1", if params.rep1 != 0 { Some(params.rep1) } else { None }, script);
+                    script = process_optional_int("REP1", params.rep1, script);
                     script = process_optional_int("REP2", params.rep2, script);
-                    script = process_optional_bool("REP_CHROMA", if !params.rep_chroma { Some(false) } else { None }, script);
+                    script = process_optional_bool("REP_CHROMA", params.rep_chroma, script);
 
                     // Interpolation
                     script = process_optional_string("EDI_MODE", params.edi_mode.as_deref(), script);
                     script = process_optional_int("NN_SIZE", params.nn_size, script);
                     script = process_optional_int("NN_NEURONS", params.nn_neurons, script);
-                    script = process_optional_int("EDI_QUAL", if params.edi_qual != 1 { Some(params.edi_qual) } else { None }, script);
+                    script = process_optional_int("EDI_QUAL", params.edi_qual, script);
                     script = process_optional_int("EDI_MAX_D", params.edi_max_d, script);
-                    script = process_optional_string("CHROMA_EDI", if params.chroma_edi.is_empty() { None } else { Some(&params.chroma_edi) }, script);
+                    script = process_optional_string("CHROMA_EDI", params.chroma_edi.as_deref(), script);
 
                     // Motion analysis
                     script = process_optional_int("BLOCK_SIZE", params.block_size, script);
@@ -318,29 +318,29 @@ impl ScriptGenerator {
                     script = process_optional_int("SEARCH_PARAM", params.search_param, script);
                     script = process_optional_int("PEL_SEARCH", params.pel_search, script);
                     script = process_optional_bool("CHROMA_MOTION", params.chroma_motion, script);
-                    script = process_optional_bool("TRUE_MOTION", if params.true_motion { Some(true) } else { None }, script);
+                    script = process_optional_bool("TRUE_MOTION", params.true_motion, script);
                     script = process_optional_int("LAMBDA", params.lambda, script);
                     script = process_optional_int("LSAD", params.lsad, script);
                     script = process_optional_int("P_NEW", params.p_new, script);
                     script = process_optional_int("P_LEVEL", params.p_level, script);
-                    script = process_optional_bool("GLOBAL_MOTION", if !params.global_motion { Some(false) } else { None }, script);
-                    script = process_optional_int("DCT", if params.dct != 0 { Some(params.dct) } else { None }, script);
+                    script = process_optional_bool("GLOBAL_MOTION", params.global_motion, script);
+                    script = process_optional_int("DCT", params.dct, script);
                     script = process_optional_int("SUB_PEL", params.sub_pel, script);
-                    script = process_optional_int("SUB_PEL_INTERP", if params.sub_pel_interp != 2 { Some(params.sub_pel_interp) } else { None }, script);
+                    script = process_optional_int("SUB_PEL_INTERP", params.sub_pel_interp, script);
 
                     // Thresholds
-                    script = process_optional_int("TH_SAD1", if params.th_sad1 != 640 { Some(params.th_sad1) } else { None }, script);
-                    script = process_optional_int("TH_SAD2", if params.th_sad2 != 256 { Some(params.th_sad2) } else { None }, script);
-                    script = process_optional_int("TH_SCD1", if params.th_scd1 != 180 { Some(params.th_scd1) } else { None }, script);
-                    script = process_optional_int("TH_SCD2", if params.th_scd2 != 98 { Some(params.th_scd2) } else { None }, script);
+                    script = process_optional_int("TH_SAD1", params.th_sad1, script);
+                    script = process_optional_int("TH_SAD2", params.th_sad2, script);
+                    script = process_optional_int("TH_SCD1", params.th_scd1, script);
+                    script = process_optional_int("TH_SCD2", params.th_scd2, script);
 
                     // Sharpening
                     script = process_optional_double("SHARPNESS", params.sharpness, script);
                     script = process_optional_int("S_MODE", params.s_mode, script);
                     script = process_optional_int("SL_MODE", params.sl_mode, script);
                     script = process_optional_int("SL_RAD", params.sl_rad, script);
-                    script = process_optional_int("S_OVS", if params.s_ovs != 0 { Some(params.s_ovs) } else { None }, script);
-                    script = process_optional_double("SV_THIN", if params.sv_thin != 0.0 { Some(params.sv_thin) } else { None }, script);
+                    script = process_optional_int("S_OVS", params.s_ovs, script);
+                    script = process_optional_double("SV_THIN", params.sv_thin, script);
                     script = process_optional_int("SBB", params.sbb, script);
                     script = process_optional_int("SRCH_CLIP_PP", params.srch_clip_pp, script);
 
@@ -348,36 +348,36 @@ impl ScriptGenerator {
                     script = process_optional_int("NOISE_PROCESS", params.noise_process, script);
                     script = process_optional_double("EZ_DENOISE", params.ez_denoise, script);
                     script = process_optional_double("EZ_KEEP_GRAIN", params.ez_keep_grain, script);
-                    script = process_optional_string("NOISE_PRESET", if params.noise_preset != "Fast" { Some(&params.noise_preset) } else { None }, script);
+                    script = process_optional_string("NOISE_PRESET", params.noise_preset.as_deref(), script);
                     script = process_optional_string("DENOISER", params.denoiser.as_deref(), script);
-                    script = process_optional_int("FFT_THREADS", if params.fft_threads != 1 { Some(params.fft_threads) } else { None }, script);
+                    script = process_optional_int("FFT_THREADS", params.fft_threads, script);
                     script = process_optional_bool("DENOISE_MC", params.denoise_mc, script);
                     script = process_optional_int("NOISE_TR", params.noise_tr, script);
                     script = process_optional_double("SIGMA", params.sigma, script);
-                    script = process_optional_bool("CHROMA_NOISE", if params.chroma_noise { Some(true) } else { None }, script);
-                    script = process_optional_double("SHOW_NOISE", if params.show_noise != 0.0 { Some(params.show_noise) } else { None }, script);
+                    script = process_optional_bool("CHROMA_NOISE", params.chroma_noise, script);
+                    script = process_optional_double("SHOW_NOISE", params.show_noise, script);
                     script = process_optional_double("GRAIN_RESTORE", params.grain_restore, script);
                     script = process_optional_double("NOISE_RESTORE", params.noise_restore, script);
                     script = process_optional_string("NOISE_DEINT", params.noise_deint.as_deref(), script);
                     script = process_optional_bool("STABILIZE_NOISE", params.stabilize_noise, script);
 
                     // Source matching
-                    script = process_optional_int("SOURCE_MATCH", if params.source_match != 0 { Some(params.source_match) } else { None }, script);
+                    script = process_optional_int("SOURCE_MATCH", params.source_match, script);
                     script = process_optional_string("MATCH_PRESET", params.match_preset.as_deref(), script);
                     script = process_optional_string("MATCH_EDI", params.match_edi.as_deref(), script);
                     script = process_optional_string("MATCH_PRESET2", params.match_preset2.as_deref(), script);
                     script = process_optional_string("MATCH_EDI2", params.match_edi2.as_deref(), script);
-                    script = process_optional_int("MATCH_TR2", if params.match_tr2 != 1 { Some(params.match_tr2) } else { None }, script);
-                    script = process_optional_double("MATCH_ENHANCE", if (params.match_enhance - 0.5).abs() > 0.001 { Some(params.match_enhance) } else { None }, script);
-                    script = process_optional_int("LOSSLESS", if params.lossless != 0 { Some(params.lossless) } else { None }, script);
+                    script = process_optional_int("MATCH_TR2", params.match_tr2, script);
+                    script = process_optional_double("MATCH_ENHANCE", params.match_enhance, script);
+                    script = process_optional_int("LOSSLESS", params.lossless, script);
 
                     // Advanced
-                    script = process_optional_bool("BORDER", if params.border { Some(true) } else { None }, script);
+                    script = process_optional_bool("BORDER", params.border, script);
                     script = process_optional_bool("PRECISE", params.precise, script);
-                    script = process_optional_int("FORCE_TR", if params.force_tr != 0 { Some(params.force_tr) } else { None }, script);
+                    script = process_optional_int("FORCE_TR", params.force_tr, script);
 
                     // GPU
-                    script = process_optional_bool("OPENCL", Some(params.opencl), script);
+                    script = process_optional_bool("OPENCL", params.opencl, script);
                     script = process_optional_int("DEVICE", params.device, script);
                 }
                 DeinterlaceMethod::Ivtc => {
@@ -391,19 +391,19 @@ impl ScriptGenerator {
                     let order = match params.tff {
                         Some(true) => 1,
                         Some(false) => 0,
-                        None => params.ivtc_order,
+                        None => params.ivtc_order.unwrap_or(1),
                     };
                     script = script.replace("{{IVTC_ORDER}}", &order.to_string());
 
                     // VFM parameters
-                    script = process_optional_int("IVTC_MODE", if params.ivtc_mode != 1 { Some(params.ivtc_mode) } else { None }, script);
+                    script = process_optional_int("IVTC_MODE", params.ivtc_mode, script);
                     script = process_optional_int("IVTC_CTHRESH", params.ivtc_cthresh, script);
                     script = process_optional_int("IVTC_MI", params.ivtc_mi, script);
                     script = process_optional_int("IVTC_BLOCK_X", params.ivtc_block_x, script);
                     script = process_optional_int("IVTC_BLOCK_Y", params.ivtc_block_y, script);
 
                     // VDecimate parameters
-                    script = process_optional_int("IVTC_CYCLE", if params.ivtc_cycle != 5 { Some(params.ivtc_cycle) } else { None }, script);
+                    script = process_optional_int("IVTC_CYCLE", params.ivtc_cycle, script);
                     script = process_optional_double("IVTC_DUPTHRESH", params.ivtc_dupthresh, script);
                     script = process_optional_double("IVTC_SCTHRESH", params.ivtc_scthresh, script);
                 }

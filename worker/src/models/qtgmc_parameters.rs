@@ -37,16 +37,16 @@ pub struct QTGMCParameters {
 
     // === Input/Output ===
     /// Input type: 0=interlaced, 1=progressive, 2=progressive with combing
-    #[serde(default)]
-    pub input_type: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_type: Option<i32>,
 
     /// Top-field-first. None = auto-detect
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tff: Option<bool>,
 
     /// Output frame rate divisor. 1=double-rate (50i->50p), 2=single-rate (50i->25p)
-    #[serde(default = "default_fps_divisor")]
-    pub fps_divisor: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fps_divisor: Option<i32>,
 
     // === Quality (Temporal Radius) ===
     /// Temporal radius for pre-filtering (0-2)
@@ -66,16 +66,16 @@ pub struct QTGMCParameters {
     pub rep0: Option<i32>,
 
     /// Repair mode after TR1 smoothing (0-4)
-    #[serde(default)]
-    pub rep1: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rep1: Option<i32>,
 
     /// Repair mode after TR2 smoothing (0-4)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rep2: Option<i32>,
 
     /// Include chroma in repair
-    #[serde(default = "default_true")]
-    pub rep_chroma: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rep_chroma: Option<bool>,
 
     // === Interpolation ===
     /// Edge interpolation mode
@@ -91,16 +91,16 @@ pub struct QTGMCParameters {
     pub nn_neurons: Option<i32>,
 
     /// NNEDI3 interpolation quality (1-2)
-    #[serde(default = "default_one")]
-    pub edi_qual: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edi_qual: Option<i32>,
 
     /// EEDI3 maximum search distance
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edi_max_d: Option<i32>,
 
     /// Chroma interpolation method
-    #[serde(default)]
-    pub chroma_edi: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chroma_edi: Option<String>,
 
     // === Motion Analysis ===
     /// Motion analysis block size
@@ -128,8 +128,8 @@ pub struct QTGMCParameters {
     pub chroma_motion: Option<bool>,
 
     /// Use true motion estimation
-    #[serde(default)]
-    pub true_motion: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub true_motion: Option<bool>,
 
     /// Motion vector cost weighting
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -148,37 +148,37 @@ pub struct QTGMCParameters {
     pub p_level: Option<i32>,
 
     /// Use global motion analysis
-    #[serde(default = "default_true")]
-    pub global_motion: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub global_motion: Option<bool>,
 
     /// DCT mode for motion analysis (0-10)
-    #[serde(default)]
-    pub dct: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dct: Option<i32>,
 
     /// Sub-pixel accuracy (1=full, 2=half, 4=quarter)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sub_pel: Option<i32>,
 
     /// Sub-pixel interpolation method (1-2)
-    #[serde(default = "default_two")]
-    pub sub_pel_interp: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sub_pel_interp: Option<i32>,
 
     // === Motion Thresholds ===
     /// SAD threshold for TR1 temporal smoothing
-    #[serde(default = "default_th_sad1")]
-    pub th_sad1: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub th_sad1: Option<i32>,
 
     /// SAD threshold for TR2 temporal smoothing
-    #[serde(default = "default_th_sad2")]
-    pub th_sad2: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub th_sad2: Option<i32>,
 
     /// Scene change detection threshold 1
-    #[serde(default = "default_th_scd1")]
-    pub th_scd1: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub th_scd1: Option<i32>,
 
     /// Scene change detection threshold 2
-    #[serde(default = "default_th_scd2")]
-    pub th_scd2: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub th_scd2: Option<i32>,
 
     // === Sharpening ===
     /// Output sharpness (0.0-2.0)
@@ -198,12 +198,12 @@ pub struct QTGMCParameters {
     pub sl_rad: Option<i32>,
 
     /// Sharpening overshoot
-    #[serde(default)]
-    pub s_ovs: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub s_ovs: Option<i32>,
 
     /// Thin line sharpening (0.0-1.0)
-    #[serde(default)]
-    pub sv_thin: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sv_thin: Option<f64>,
 
     /// Sharpening back-blend (0-3)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -227,16 +227,16 @@ pub struct QTGMCParameters {
     pub ez_keep_grain: Option<f64>,
 
     /// Noise estimation preset
-    #[serde(default = "default_noise_preset")]
-    pub noise_preset: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub noise_preset: Option<String>,
 
     /// Denoiser plugin
     #[serde(skip_serializing_if = "Option::is_none")]
     pub denoiser: Option<String>,
 
     /// FFT denoiser thread count
-    #[serde(default = "default_one")]
-    pub fft_threads: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fft_threads: Option<i32>,
 
     /// Motion-compensated denoising
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -251,12 +251,12 @@ pub struct QTGMCParameters {
     pub sigma: Option<f64>,
 
     /// Apply denoising to chroma
-    #[serde(default)]
-    pub chroma_noise: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chroma_noise: Option<bool>,
 
     /// Show noise (for debugging)
-    #[serde(default)]
-    pub show_noise: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_noise: Option<f64>,
 
     /// Grain restoration amount
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -276,8 +276,8 @@ pub struct QTGMCParameters {
 
     // === Source Matching ===
     /// Source matching mode: 0=off, 1=simple, 2=refined, 3=double
-    #[serde(default)]
-    pub source_match: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_match: Option<i32>,
 
     /// Interpolation preset for source match pass 1
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -296,54 +296,54 @@ pub struct QTGMCParameters {
     pub match_edi2: Option<String>,
 
     /// Temporal radius for source match output
-    #[serde(default = "default_one")]
-    pub match_tr2: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub match_tr2: Option<i32>,
 
     /// Source match enhancement
-    #[serde(default = "default_match_enhance")]
-    pub match_enhance: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub match_enhance: Option<f64>,
 
     /// Lossless mode: 0=off, 1=lossless, 2=fake lossless
-    #[serde(default)]
-    pub lossless: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lossless: Option<i32>,
 
     // === Advanced ===
     /// Add borders to help edge interpolation
-    #[serde(default)]
-    pub border: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border: Option<bool>,
 
     /// Use precise mode
     #[serde(skip_serializing_if = "Option::is_none")]
     pub precise: Option<bool>,
 
     /// Force minimum temporal radius for motion vectors
-    #[serde(default)]
-    pub force_tr: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub force_tr: Option<i32>,
 
     /// Pre-filter brightening strength
-    #[serde(default = "default_str")]
-    pub str: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub str: Option<f64>,
 
     /// Amplitude
-    #[serde(default = "default_amp")]
-    pub amp: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub amp: Option<f64>,
 
     /// Fast motion analysis
-    #[serde(default)]
-    pub fast_ma: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast_ma: Option<bool>,
 
     /// Extended pel search
-    #[serde(default)]
-    pub e_search_p: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e_search_p: Option<bool>,
 
     /// Refine motion estimation
-    #[serde(default)]
-    pub refine_motion: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refine_motion: Option<bool>,
 
     // === GPU Acceleration ===
     /// Use OpenCL acceleration
-    #[serde(default)]
-    pub opencl: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opencl: Option<bool>,
 
     /// OpenCL device index
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -351,12 +351,12 @@ pub struct QTGMCParameters {
 
     // === IVTC Parameters (VFM - field matching) ===
     /// Field order for VFM: 0=BFF, 1=TFF
-    #[serde(default = "default_ivtc_order")]
-    pub ivtc_order: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ivtc_order: Option<i32>,
 
     /// VFM matching mode (0-5)
-    #[serde(default = "default_ivtc_mode")]
-    pub ivtc_mode: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ivtc_mode: Option<i32>,
 
     /// VFM combing threshold
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -376,8 +376,8 @@ pub struct QTGMCParameters {
 
     // === IVTC Parameters (VDecimate - duplicate removal) ===
     /// Decimation cycle length (default 5 for 3:2 pulldown)
-    #[serde(default = "default_ivtc_cycle")]
-    pub ivtc_cycle: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ivtc_cycle: Option<i32>,
 
     /// VDecimate duplicate detection threshold
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -389,21 +389,7 @@ pub struct QTGMCParameters {
 }
 
 // Default value functions
-fn default_fps_divisor() -> i32 { 1 }
 fn default_true() -> bool { true }
-fn default_one() -> i32 { 1 }
-fn default_two() -> i32 { 2 }
-fn default_th_sad1() -> i32 { 640 }
-fn default_th_sad2() -> i32 { 256 }
-fn default_th_scd1() -> i32 { 180 }
-fn default_th_scd2() -> i32 { 98 }
-fn default_noise_preset() -> String { "Fast".to_string() }
-fn default_match_enhance() -> f64 { 0.5 }
-fn default_str() -> f64 { 2.0 }
-fn default_amp() -> f64 { 0.0625 }
-fn default_ivtc_order() -> i32 { 1 }
-fn default_ivtc_mode() -> i32 { 1 }
-fn default_ivtc_cycle() -> i32 { 5 }
 
 impl Default for QTGMCParameters {
     fn default() -> Self {
@@ -411,89 +397,89 @@ impl Default for QTGMCParameters {
             enabled: true,
             method: DeinterlaceMethod::default(),
             preset: QTGMCPreset::default(),
-            input_type: 0,
+            input_type: None,
             tff: None,
-            fps_divisor: 1,
+            fps_divisor: None,
             tr0: None,
             tr1: None,
             tr2: None,
             rep0: None,
-            rep1: 0,
+            rep1: None,
             rep2: None,
-            rep_chroma: true,
+            rep_chroma: None,
             edi_mode: None,
             nn_size: None,
             nn_neurons: None,
-            edi_qual: 1,
+            edi_qual: None,
             edi_max_d: None,
-            chroma_edi: String::new(),
+            chroma_edi: None,
             block_size: None,
             overlap: None,
             search: None,
             search_param: None,
             pel_search: None,
             chroma_motion: None,
-            true_motion: false,
+            true_motion: None,
             lambda: None,
             lsad: None,
             p_new: None,
             p_level: None,
-            global_motion: true,
-            dct: 0,
+            global_motion: None,
+            dct: None,
             sub_pel: None,
-            sub_pel_interp: 2,
-            th_sad1: 640,
-            th_sad2: 256,
-            th_scd1: 180,
-            th_scd2: 98,
+            sub_pel_interp: None,
+            th_sad1: None,
+            th_sad2: None,
+            th_scd1: None,
+            th_scd2: None,
             sharpness: None,
             s_mode: None,
             sl_mode: None,
             sl_rad: None,
-            s_ovs: 0,
-            sv_thin: 0.0,
+            s_ovs: None,
+            sv_thin: None,
             sbb: None,
             srch_clip_pp: None,
             noise_process: None,
             ez_denoise: None,
             ez_keep_grain: None,
-            noise_preset: "Fast".to_string(),
+            noise_preset: None,
             denoiser: None,
-            fft_threads: 1,
+            fft_threads: None,
             denoise_mc: None,
             noise_tr: None,
             sigma: None,
-            chroma_noise: false,
-            show_noise: 0.0,
+            chroma_noise: None,
+            show_noise: None,
             grain_restore: None,
             noise_restore: None,
             noise_deint: None,
             stabilize_noise: None,
-            source_match: 0,
+            source_match: None,
             match_preset: None,
             match_edi: None,
             match_preset2: None,
             match_edi2: None,
-            match_tr2: 1,
-            match_enhance: 0.5,
-            lossless: 0,
-            border: false,
+            match_tr2: None,
+            match_enhance: None,
+            lossless: None,
+            border: None,
             precise: None,
-            force_tr: 0,
-            str: 2.0,
-            amp: 0.0625,
-            fast_ma: false,
-            e_search_p: false,
-            refine_motion: false,
-            opencl: false,
+            force_tr: None,
+            str: None,
+            amp: None,
+            fast_ma: None,
+            e_search_p: None,
+            refine_motion: None,
+            opencl: None,
             device: None,
-            ivtc_order: 1,
-            ivtc_mode: 1,
+            ivtc_order: None,
+            ivtc_mode: None,
             ivtc_cthresh: None,
             ivtc_mi: None,
             ivtc_block_x: None,
             ivtc_block_y: None,
-            ivtc_cycle: 5,
+            ivtc_cycle: None,
             ivtc_dupthresh: None,
             ivtc_scthresh: None,
         }
@@ -578,7 +564,7 @@ mod tests {
     fn test_default_parameters() {
         let params = QTGMCParameters::default();
         assert_eq!(params.preset, QTGMCPreset::Slower);
-        assert_eq!(params.fps_divisor, 1);
+        assert_eq!(params.fps_divisor, None);
         assert!(params.tff.is_none());
     }
 }

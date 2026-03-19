@@ -8,7 +8,7 @@ import 'package:vapourbox/models/dehalo_parameters.dart';
 import 'package:vapourbox/models/noise_reduction_parameters.dart';
 import 'package:vapourbox/models/parameter_converter.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
-import 'package:vapourbox/models/restoration_pipeline.dart';
+import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/sharpen_parameters.dart';
 
 void main() {
@@ -22,7 +22,7 @@ void main() {
         expect(dynamic.enabled, true);
         expect(dynamic.values['method'], 'qtgmc');
         expect(dynamic.values['preset'], 'Slower');
-        expect(dynamic.values['fpsDivisor'], 1);
+        expect(dynamic.values['fpsDivisor'], isNull);
       });
 
       test('converts custom parameters', () {
@@ -352,8 +352,8 @@ void main() {
     });
 
     group('fromPipeline', () {
-      test('converts full restoration pipeline', () {
-        const pipeline = RestorationPipeline(
+      test('converts full processing pipeline', () {
+        const pipeline = ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.fast,
             tff: true,
@@ -393,7 +393,7 @@ void main() {
       });
 
       test('pipeline.toDynamicPipeline() works', () {
-        const pipeline = RestorationPipeline(
+        const pipeline = ProcessingPipeline(
           deinterlace: QTGMCParameters(
             preset: QTGMCPreset.medium,
           ),

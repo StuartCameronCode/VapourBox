@@ -206,10 +206,10 @@ impl PipelineExecutor {
         let pipeline = job.effective_pipeline();
         let is_double_rate = pipeline.deinterlace.enabled
             && pipeline.deinterlace.method == DeinterlaceMethod::Qtgmc
-            && pipeline.deinterlace.fps_divisor == 1;
+            && pipeline.deinterlace.fps_divisor.unwrap_or(1) == 1;
         let is_ivtc = pipeline.deinterlace.enabled
             && pipeline.deinterlace.method == DeinterlaceMethod::Ivtc;
-        let ivtc_cycle = pipeline.deinterlace.ivtc_cycle;
+        let ivtc_cycle = pipeline.deinterlace.ivtc_cycle.unwrap_or(5);
 
         // Capture ffmpeg stderr in a background thread (for error messages).
         // Progress comes from the temp file, not stderr.
@@ -856,7 +856,7 @@ mod tests {
             input_path: "input.mp4".to_string(),
             output_path: output_path.to_string(),
             qtgmc_parameters: QTGMCParameters::default(),
-            restoration_pipeline: None,
+            processing_pipeline: None,
             encoding_settings: EncodingSettings::default(),
             detected_field_order: None,
             total_frames: None,

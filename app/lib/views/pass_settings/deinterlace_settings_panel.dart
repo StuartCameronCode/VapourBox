@@ -12,7 +12,7 @@ class DeinterlaceSettingsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<MainViewModel>(
       builder: (context, viewModel, child) {
-        final params = viewModel.restorationPipeline.deinterlace;
+        final params = viewModel.processingPipeline.deinterlace;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -73,14 +73,14 @@ class DeinterlaceSettingsPanel extends StatelessWidget {
                 ButtonSegment(value: 1, label: Text('Double Rate')),
                 ButtonSegment(value: 2, label: Text('Single Rate')),
               ],
-              selected: {params.fpsDivisor},
+              selected: {params.fpsDivisor ?? 1},
               onSelectionChanged: (value) {
                 _updateParams(viewModel, params.copyWith(fpsDivisor: value.first));
               },
             ),
             const SizedBox(height: 4),
             Text(
-              _getOutputRateDescription(viewModel, params.fpsDivisor),
+              _getOutputRateDescription(viewModel, params.fpsDivisor ?? 1),
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                   ),
@@ -92,7 +92,7 @@ class DeinterlaceSettingsPanel extends StatelessWidget {
             SwitchListTile(
               title: const Text('OpenCL Acceleration'),
               subtitle: const Text('Use GPU for NNEDI3'),
-              value: params.opencl,
+              value: params.opencl ?? false,
               contentPadding: EdgeInsets.zero,
               onChanged: (value) {
                 _updateParams(viewModel, params.copyWith(opencl: value));
@@ -118,7 +118,7 @@ class DeinterlaceSettingsPanel extends StatelessWidget {
                     ButtonSegment(value: 2, label: Text('Refined')),
                     ButtonSegment(value: 3, label: Text('Full')),
                   ],
-                  selected: {params.sourceMatch},
+                  selected: {params.sourceMatch ?? 0},
                   onSelectionChanged: (value) {
                     _updateParams(viewModel, params.copyWith(sourceMatch: value.first));
                   },
@@ -164,8 +164,8 @@ class DeinterlaceSettingsPanel extends StatelessWidget {
   }
 
   void _updateParams(MainViewModel viewModel, QTGMCParameters params) {
-    viewModel.updateRestorationPipeline(
-      viewModel.restorationPipeline.copyWith(deinterlace: params),
+    viewModel.updateProcessingPipeline(
+      viewModel.processingPipeline.copyWith(deinterlace: params),
     );
   }
 }

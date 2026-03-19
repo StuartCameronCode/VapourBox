@@ -129,26 +129,26 @@ class QTGMCParameters {
   final QTGMCPreset preset;
 
   // === Input/Output ===
-  final int inputType;
+  final int? inputType;
   final bool? tff;
-  final int fpsDivisor;
+  final int? fpsDivisor;
 
   // === Quality (Temporal Radius) ===
   final int? tr0;
   final int? tr1;
   final int? tr2;
   final int? rep0;
-  final int rep1;
+  final int? rep1;
   final int? rep2;
-  final bool repChroma;
+  final bool? repChroma;
 
   // === Interpolation ===
   final String? ediMode;
   final int? nnSize;
   final int? nnNeurons;
-  final int ediQual;
+  final int? ediQual;
   final int? ediMaxD;
-  final String chromaEdi;
+  final String? chromaEdi;
 
   // === Motion Analysis ===
   final int? blockSize;
@@ -157,29 +157,29 @@ class QTGMCParameters {
   final int? searchParam;
   final int? pelSearch;
   final bool? chromaMotion;
-  final bool trueMotion;
+  final bool? trueMotion;
   final int? lambda;
   final int? lsad;
   final int? pNew;
   final int? pLevel;
-  final bool globalMotion;
-  final int dct;
+  final bool? globalMotion;
+  final int? dct;
   final int? subPel;
-  final int subPelInterp;
+  final int? subPelInterp;
 
   // === Motion Thresholds ===
-  final int thSad1;
-  final int thSad2;
-  final int thScd1;
-  final int thScd2;
+  final int? thSad1;
+  final int? thSad2;
+  final int? thScd1;
+  final int? thScd2;
 
   // === Sharpening ===
   final double? sharpness;
   final int? sMode;
   final int? slMode;
   final int? slRad;
-  final int sOvs;
-  final double svThin;
+  final int? sOvs;
+  final double? svThin;
   final int? sbb;
   final int? srchClipPp;
 
@@ -187,49 +187,49 @@ class QTGMCParameters {
   final int? noiseProcess;
   final double? ezDenoise;
   final double? ezKeepGrain;
-  final String noisePreset;
+  final String? noisePreset;
   final String? denoiser;
-  final int fftThreads;
+  final int? fftThreads;
   final bool? denoiseMc;
   final int? noiseTr;
   final double? sigma;
-  final bool chromaNoise;
-  final double showNoise;
+  final bool? chromaNoise;
+  final double? showNoise;
   final double? grainRestore;
   final double? noiseRestore;
   final String? noiseDeint;
   final bool? stabilizeNoise;
 
   // === Source Matching ===
-  final int sourceMatch;
+  final int? sourceMatch;
   final String? matchPreset;
   final String? matchEdi;
   final String? matchPreset2;
   final String? matchEdi2;
-  final int matchTr2;
-  final double matchEnhance;
-  final int lossless;
+  final int? matchTr2;
+  final double? matchEnhance;
+  final int? lossless;
 
   // === Advanced ===
-  final bool border;
+  final bool? border;
   final bool? precise;
-  final int forceTr;
-  final double str;
-  final double amp;
-  final bool fastMa;
-  final bool eSearchP;
-  final bool refineMotion;
+  final int? forceTr;
+  final double? str;
+  final double? amp;
+  final bool? fastMa;
+  final bool? eSearchP;
+  final bool? refineMotion;
 
   // === GPU Acceleration ===
-  final bool opencl;
+  final bool? opencl;
   final int? device;
 
   // === IVTC Parameters (VFM - field matching) ===
   /// Field order for VFM: 0=BFF, 1=TFF
-  final int ivtcOrder;
+  final int? ivtcOrder;
 
   /// VFM matching mode (0-5)
-  final int ivtcMode;
+  final int? ivtcMode;
 
   /// VFM combing threshold
   final int? ivtcCthresh;
@@ -245,7 +245,7 @@ class QTGMCParameters {
 
   // === IVTC Parameters (VDecimate - duplicate removal) ===
   /// Decimation cycle length (default 5 for 3:2 pulldown)
-  final int ivtcCycle;
+  final int? ivtcCycle;
 
   /// VDecimate duplicate detection threshold
   final double? ivtcDupthresh;
@@ -257,89 +257,89 @@ class QTGMCParameters {
     this.enabled = true,
     this.method = DeinterlaceMethod.qtgmc,
     this.preset = QTGMCPreset.slower,
-    this.inputType = 0,
+    this.inputType,
     this.tff,
-    this.fpsDivisor = 1,
+    this.fpsDivisor,
     this.tr0,
     this.tr1,
     this.tr2,
     this.rep0,
-    this.rep1 = 0,
+    this.rep1,
     this.rep2,
-    this.repChroma = true,
+    this.repChroma,
     this.ediMode,
     this.nnSize,
     this.nnNeurons,
-    this.ediQual = 1,
+    this.ediQual,
     this.ediMaxD,
-    this.chromaEdi = '',
+    this.chromaEdi,
     this.blockSize,
     this.overlap,
     this.search,
     this.searchParam,
     this.pelSearch,
     this.chromaMotion,
-    this.trueMotion = false,
+    this.trueMotion,
     this.lambda,
     this.lsad,
     this.pNew,
     this.pLevel,
-    this.globalMotion = true,
-    this.dct = 0,
+    this.globalMotion,
+    this.dct,
     this.subPel,
-    this.subPelInterp = 2,
-    this.thSad1 = 640,
-    this.thSad2 = 256,
-    this.thScd1 = 180,
-    this.thScd2 = 98,
+    this.subPelInterp,
+    this.thSad1,
+    this.thSad2,
+    this.thScd1,
+    this.thScd2,
     this.sharpness,
     this.sMode,
     this.slMode,
     this.slRad,
-    this.sOvs = 0,
-    this.svThin = 0.0,
+    this.sOvs,
+    this.svThin,
     this.sbb,
     this.srchClipPp,
     this.noiseProcess,
     this.ezDenoise,
     this.ezKeepGrain,
-    this.noisePreset = 'Fast',
+    this.noisePreset,
     this.denoiser,
-    this.fftThreads = 1,
+    this.fftThreads,
     this.denoiseMc,
     this.noiseTr,
     this.sigma,
-    this.chromaNoise = false,
-    this.showNoise = 0.0,
+    this.chromaNoise,
+    this.showNoise,
     this.grainRestore,
     this.noiseRestore,
     this.noiseDeint,
     this.stabilizeNoise,
-    this.sourceMatch = 0,
+    this.sourceMatch,
     this.matchPreset,
     this.matchEdi,
     this.matchPreset2,
     this.matchEdi2,
-    this.matchTr2 = 1,
-    this.matchEnhance = 0.5,
-    this.lossless = 0,
-    this.border = false,
+    this.matchTr2,
+    this.matchEnhance,
+    this.lossless,
+    this.border,
     this.precise,
-    this.forceTr = 0,
-    this.str = 2.0,
-    this.amp = 0.0625,
-    this.fastMa = false,
-    this.eSearchP = false,
-    this.refineMotion = false,
-    this.opencl = false,
+    this.forceTr,
+    this.str,
+    this.amp,
+    this.fastMa,
+    this.eSearchP,
+    this.refineMotion,
+    this.opencl,
     this.device,
-    this.ivtcOrder = 1,
-    this.ivtcMode = 1,
+    this.ivtcOrder,
+    this.ivtcMode,
     this.ivtcCthresh,
     this.ivtcMi,
     this.ivtcBlockX,
     this.ivtcBlockY,
-    this.ivtcCycle = 5,
+    this.ivtcCycle,
     this.ivtcDupthresh,
     this.ivtcScthresh,
   });

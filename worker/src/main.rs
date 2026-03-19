@@ -1,4 +1,4 @@
-//! VapourBox Worker - CLI video restoration tool
+//! VapourBox Worker - CLI video processing tool
 //!
 //! This worker process receives a job configuration file via --config argument,
 //! generates a VapourSynth script, and runs the vspipe | ffmpeg pipeline.
@@ -31,7 +31,7 @@ use subtitle_generator::SubtitleGenerator;
 /// Command-line arguments
 #[derive(Parser, Debug)]
 #[command(name = "vapourbox-worker")]
-#[command(about = "Video restoration worker using VapourSynth")]
+#[command(about = "Video processing worker using VapourSynth")]
 #[command(version)]
 struct Args {
     /// Path to the job configuration JSON file
@@ -166,7 +166,7 @@ fn run_worker(
 
     reporter.send_log(
         models::LogLevel::Debug,
-        &format!("QTGMC params: opencl={}, tff={:?}, preset={}",
+        &format!("QTGMC params: opencl={:?}, tff={:?}, preset={}",
             job.qtgmc_parameters.opencl,
             job.qtgmc_parameters.tff,
             job.qtgmc_parameters.preset.as_str()),

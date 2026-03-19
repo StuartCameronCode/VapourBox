@@ -6,7 +6,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
-import 'package:vapourbox/models/restoration_pipeline.dart';
+import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/video_job.dart';
 
 void main() {
@@ -17,7 +17,7 @@ void main() {
         inputPath: '/path/to/input.avi',
         outputPath: '/path/to/output.mp4',
         qtgmcParameters: const QTGMCParameters(),
-        restorationPipeline: const RestorationPipeline(),
+        processingPipeline: const ProcessingPipeline(),
         encodingSettings: const EncodingSettings(),
       );
 
@@ -31,7 +31,7 @@ void main() {
 
       expect(params.enabled, true);
       expect(params.preset, QTGMCPreset.slower);
-      expect(params.fpsDivisor, 1);
+      expect(params.fpsDivisor, isNull);
     });
 
     test('QTGMCPreset has display names', () {
@@ -43,8 +43,8 @@ void main() {
       expect(QTGMCPreset.draft.displayName, 'Draft');
     });
 
-    test('RestorationPipeline tracks enabled passes', () {
-      const pipeline = RestorationPipeline(
+    test('ProcessingPipeline tracks enabled passes', () {
+      const pipeline = ProcessingPipeline(
         deinterlace: QTGMCParameters(enabled: true),
       );
 
@@ -53,8 +53,8 @@ void main() {
       expect(pipeline.isPassEnabled(PassType.deband), false);
     });
 
-    test('RestorationPipeline counts enabled passes', () {
-      const pipeline = RestorationPipeline(
+    test('ProcessingPipeline counts enabled passes', () {
+      const pipeline = ProcessingPipeline(
         deinterlace: QTGMCParameters(enabled: true),
       );
 
@@ -80,7 +80,7 @@ void main() {
         inputPath: '/input.avi',
         outputPath: '/output.mp4',
         qtgmcParameters: const QTGMCParameters(),
-        restorationPipeline: const RestorationPipeline(),
+        processingPipeline: const ProcessingPipeline(),
         encodingSettings: const EncodingSettings(),
       );
 

@@ -7,7 +7,7 @@ import 'dehalo_parameters.dart';
 import 'dynamic_parameters.dart';
 import 'noise_reduction_parameters.dart';
 import 'qtgmc_parameters.dart';
-import 'restoration_pipeline.dart';
+import 'processing_pipeline.dart';
 import 'sharpen_parameters.dart';
 import 'subtitle_parameters.dart';
 
@@ -343,8 +343,8 @@ class ParameterConverter {
     );
   }
 
-  /// Convert a full restoration pipeline to a dynamic pipeline.
-  static DynamicPipeline fromPipeline(RestorationPipeline pipeline) {
+  /// Convert a full processing pipeline to a dynamic pipeline.
+  static DynamicPipeline fromPipeline(ProcessingPipeline pipeline) {
     return DynamicPipeline(
       filters: {
         'deinterlace': fromQTGMC(pipeline.deinterlace),
@@ -390,54 +390,54 @@ class ParameterConverter {
         orElse: () => QTGMCPreset.slower,
       ),
       tff: v['tff'] as bool?,
-      fpsDivisor: v['fpsDivisor'] as int? ?? 1,
-      inputType: v['inputType'] as int? ?? 0,
+      fpsDivisor: v['fpsDivisor'] as int?,
+      inputType: v['inputType'] as int?,
       tr0: v['tr0'] as int?,
       tr1: v['tr1'] as int?,
       tr2: v['tr2'] as int?,
       rep0: v['rep0'] as int?,
-      rep1: v['rep1'] as int? ?? 0,
+      rep1: v['rep1'] as int?,
       rep2: v['rep2'] as int?,
-      repChroma: v['repChroma'] as bool? ?? true,
+      repChroma: v['repChroma'] as bool?,
       ediMode: v['ediMode'] as String?,
-      ediQual: v['ediQual'] as int? ?? 1,
+      ediQual: v['ediQual'] as int?,
       nnSize: v['nnSize'] as int?,
       nnNeurons: v['nnNeurons'] as int?,
       ediMaxD: v['ediMaxD'] as int?,
-      chromaEdi: v['chromaEdi'] as String? ?? '',
+      chromaEdi: v['chromaEdi'] as String?,
       sharpness: (v['sharpness'] as num?)?.toDouble(),
       sMode: v['sMode'] as int?,
       slMode: v['slMode'] as int?,
       slRad: v['slRad'] as int?,
-      sOvs: v['sOvs'] as int? ?? 0,
-      svThin: (v['svThin'] as num?)?.toDouble() ?? 0.0,
+      sOvs: v['sOvs'] as int?,
+      svThin: (v['svThin'] as num?)?.toDouble(),
       sbb: v['sbb'] as int?,
       srchClipPp: v['srchClipPp'] as int?,
-      sourceMatch: v['sourceMatch'] as int? ?? 0,
+      sourceMatch: v['sourceMatch'] as int?,
       matchPreset: v['matchPreset'] as String?,
       matchEdi: v['matchEdi'] as String?,
       matchPreset2: v['matchPreset2'] as String?,
       matchEdi2: v['matchEdi2'] as String?,
-      matchTr2: v['matchTr2'] as int? ?? 1,
-      matchEnhance: (v['matchEnhance'] as num?)?.toDouble() ?? 0.5,
-      lossless: v['lossless'] as int? ?? 0,
+      matchTr2: v['matchTr2'] as int?,
+      matchEnhance: (v['matchEnhance'] as num?)?.toDouble(),
+      lossless: v['lossless'] as int?,
       noiseProcess: v['noiseProcess'] as int?,
       ezDenoise: (v['ezDenoise'] as num?)?.toDouble(),
       ezKeepGrain: (v['ezKeepGrain'] as num?)?.toDouble(),
-      noisePreset: v['noisePreset'] as String? ?? 'Fast',
+      noisePreset: v['noisePreset'] as String?,
       denoiser: v['denoiser'] as String?,
-      fftThreads: v['fftThreads'] as int? ?? 1,
+      fftThreads: v['fftThreads'] as int?,
       denoiseMc: v['denoiseMc'] as bool?,
       noiseTr: v['noiseTr'] as int?,
       sigma: (v['sigma'] as num?)?.toDouble(),
-      chromaNoise: v['chromaNoise'] as bool? ?? false,
-      showNoise: (v['showNoise'] as num?)?.toDouble() ?? 0.0,
+      chromaNoise: v['chromaNoise'] as bool?,
+      showNoise: (v['showNoise'] as num?)?.toDouble(),
       grainRestore: (v['grainRestore'] as num?)?.toDouble(),
       noiseRestore: (v['noiseRestore'] as num?)?.toDouble(),
       noiseDeint: v['noiseDeint'] as String?,
       stabilizeNoise: v['stabilizeNoise'] as bool?,
       chromaMotion: v['chromaMotion'] as bool?,
-      trueMotion: v['trueMotion'] as bool? ?? false,
+      trueMotion: v['trueMotion'] as bool?,
       blockSize: v['blockSize'] as int?,
       overlap: v['overlap'] as int?,
       search: v['search'] as int?,
@@ -447,31 +447,31 @@ class ParameterConverter {
       lsad: v['lsad'] as int?,
       pNew: v['pNew'] as int?,
       pLevel: v['pLevel'] as int?,
-      globalMotion: v['globalMotion'] as bool? ?? true,
-      dct: v['dct'] as int? ?? 0,
+      globalMotion: v['globalMotion'] as bool?,
+      dct: v['dct'] as int?,
       subPel: v['subPel'] as int?,
-      subPelInterp: v['subPelInterp'] as int? ?? 2,
-      thSad1: v['thSad1'] as int? ?? 640,
-      thSad2: v['thSad2'] as int? ?? 256,
-      thScd1: v['thScd1'] as int? ?? 180,
-      thScd2: v['thScd2'] as int? ?? 98,
-      border: v['border'] as bool? ?? false,
+      subPelInterp: v['subPelInterp'] as int?,
+      thSad1: v['thSad1'] as int?,
+      thSad2: v['thSad2'] as int?,
+      thScd1: v['thScd1'] as int?,
+      thScd2: v['thScd2'] as int?,
+      border: v['border'] as bool?,
       precise: v['precise'] as bool?,
-      forceTr: v['forceTr'] as int? ?? 0,
-      str: (v['str'] as num?)?.toDouble() ?? 2.0,
-      amp: (v['amp'] as num?)?.toDouble() ?? 0.0625,
-      fastMa: v['fastMa'] as bool? ?? false,
-      eSearchP: v['eSearchP'] as bool? ?? false,
-      refineMotion: v['refineMotion'] as bool? ?? false,
-      opencl: v['opencl'] as bool? ?? false,
+      forceTr: v['forceTr'] as int?,
+      str: (v['str'] as num?)?.toDouble(),
+      amp: (v['amp'] as num?)?.toDouble(),
+      fastMa: v['fastMa'] as bool?,
+      eSearchP: v['eSearchP'] as bool?,
+      refineMotion: v['refineMotion'] as bool?,
+      opencl: v['opencl'] as bool?,
       device: v['device'] as int?,
-      ivtcOrder: v['ivtcOrder'] as int? ?? 1,
-      ivtcMode: v['ivtcMode'] as int? ?? 1,
+      ivtcOrder: v['ivtcOrder'] as int?,
+      ivtcMode: v['ivtcMode'] as int?,
       ivtcCthresh: v['ivtcCthresh'] as int?,
       ivtcMi: v['ivtcMi'] as int?,
       ivtcBlockX: v['ivtcBlockX'] as int?,
       ivtcBlockY: v['ivtcBlockY'] as int?,
-      ivtcCycle: v['ivtcCycle'] as int? ?? 5,
+      ivtcCycle: v['ivtcCycle'] as int?,
       ivtcDupthresh: (v['ivtcDupthresh'] as num?)?.toDouble(),
       ivtcScthresh: (v['ivtcScthresh'] as num?)?.toDouble(),
     );
@@ -693,9 +693,9 @@ class ParameterConverter {
     );
   }
 
-  /// Convert a dynamic pipeline to a restoration pipeline.
-  static RestorationPipeline toPipeline(DynamicPipeline dynamic) {
-    return RestorationPipeline(
+  /// Convert a dynamic pipeline to a processing pipeline.
+  static ProcessingPipeline toPipeline(DynamicPipeline dynamic) {
+    return ProcessingPipeline(
       deinterlace: dynamic.get('deinterlace') != null
           ? toQTGMC(dynamic.get('deinterlace')!)
           : const QTGMCParameters(),

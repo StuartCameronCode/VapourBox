@@ -42,7 +42,7 @@ fn create_base_job(output_name: &str) -> VideoJob {
         input_path: get_test_input().to_string_lossy().to_string(),
         output_path: get_output_path(output_name).to_string_lossy().to_string(),
         qtgmc_parameters: QTGMCParameters::default(),
-        restoration_pipeline: None,
+        processing_pipeline: None,
         encoding_settings: EncodingSettings {
             codec: VideoCodec::FFV1,
             container: ContainerFormat::Avi,
@@ -98,13 +98,13 @@ fn test_01_deinterlace_only_fast() {
         enabled: true,
         preset: QTGMCPreset::Fast,
         tff: Some(true),
-        fps_divisor: 2,
-        opencl: false,
+        fps_divisor: Some(2),
+        opencl: Some(false),
         ..QTGMCParameters::default()
     };
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Deinterlace Only (Fast preset)").unwrap();
@@ -119,14 +119,14 @@ fn test_02_deinterlace_only_medium() {
         enabled: true,
         preset: QTGMCPreset::Medium,
         tff: Some(true),
-        fps_divisor: 1, // Double rate
-        source_match: 1,
-        opencl: false,
+        fps_divisor: Some(1), // Double rate
+        source_match: Some(1),
+        opencl: Some(false),
         ..QTGMCParameters::default()
     };
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Deinterlace Only (Medium preset, double rate)").unwrap();
@@ -141,15 +141,15 @@ fn test_03_deinterlace_only_slow() {
         enabled: true,
         preset: QTGMCPreset::Slow,
         tff: Some(true),
-        fps_divisor: 2,
-        source_match: 2,
+        fps_divisor: Some(2),
+        source_match: Some(2),
         sharpness: Some(0.5),
-        opencl: false,
+        opencl: Some(false),
         ..QTGMCParameters::default()
     };
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Deinterlace Only (Slow preset, source match)").unwrap();
@@ -164,7 +164,7 @@ fn test_04_noise_reduction_smdegrain_light() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         noise_reduction: NoiseReductionParameters {
             enabled: true,
@@ -177,7 +177,7 @@ fn test_04_noise_reduction_smdegrain_light() {
             sm_degrain_prefilter: 2,
             ..NoiseReductionParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Noise Reduction - SMDegrain Light").unwrap();
@@ -192,7 +192,7 @@ fn test_05_noise_reduction_smdegrain_heavy() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         noise_reduction: NoiseReductionParameters {
             enabled: true,
@@ -205,7 +205,7 @@ fn test_05_noise_reduction_smdegrain_heavy() {
             sm_degrain_prefilter: 3,
             ..NoiseReductionParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Noise Reduction - SMDegrain Heavy").unwrap();
@@ -220,7 +220,7 @@ fn test_06_noise_reduction_mctemporal() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         noise_reduction: NoiseReductionParameters {
             enabled: true,
@@ -230,7 +230,7 @@ fn test_06_noise_reduction_mctemporal() {
             mc_temporal_radius: 2,
             ..NoiseReductionParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Noise Reduction - MCTemporalDenoise").unwrap();
@@ -245,7 +245,7 @@ fn test_07_color_correction_brightness_contrast() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         color_correction: ColorCorrectionParameters {
             enabled: true,
@@ -255,7 +255,7 @@ fn test_07_color_correction_brightness_contrast() {
             hue: 0.0,
             ..ColorCorrectionParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Color Correction - Brightness/Contrast").unwrap();
@@ -270,7 +270,7 @@ fn test_08_color_correction_saturation() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         color_correction: ColorCorrectionParameters {
             enabled: true,
@@ -280,7 +280,7 @@ fn test_08_color_correction_saturation() {
             hue: 0.0,
             ..ColorCorrectionParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Color Correction - Saturation Boost").unwrap();
@@ -295,7 +295,7 @@ fn test_09_color_correction_levels() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         color_correction: ColorCorrectionParameters {
             enabled: true,
@@ -307,7 +307,7 @@ fn test_09_color_correction_levels() {
             gamma: 1.0,
             ..ColorCorrectionParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Color Correction - Levels (TV to PC range)").unwrap();
@@ -322,7 +322,7 @@ fn test_10_chroma_fix_bleeding() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         chroma_fixes: ChromaFixParameters {
             enabled: true,
@@ -333,7 +333,7 @@ fn test_10_chroma_fix_bleeding() {
             chroma_bleed_strength: 1.0,
             ..ChromaFixParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Chroma Fix - Bleeding Fix").unwrap();
@@ -348,7 +348,7 @@ fn test_11_chroma_fix_decrawl() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         chroma_fixes: ChromaFixParameters {
             enabled: true,
@@ -358,7 +358,7 @@ fn test_11_chroma_fix_decrawl() {
             de_crawl_max_diff: 50,
             ..ChromaFixParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Chroma Fix - DeCrawl").unwrap();
@@ -373,7 +373,7 @@ fn test_12_chroma_fix_vinverse() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         chroma_fixes: ChromaFixParameters {
             enabled: true,
@@ -383,7 +383,7 @@ fn test_12_chroma_fix_vinverse() {
             vinverse_scl: 12,
             ..ChromaFixParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Chroma Fix - Vinverse").unwrap();
@@ -398,7 +398,7 @@ fn test_13_crop_overscan() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         crop_resize: CropResizeParameters {
             enabled: true,
@@ -409,7 +409,7 @@ fn test_13_crop_overscan() {
             crop_bottom: 8,
             ..CropResizeParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Crop - Remove Overscan (8px each side)").unwrap();
@@ -424,7 +424,7 @@ fn test_14_resize_720p() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         crop_resize: CropResizeParameters {
             enabled: true,
@@ -435,7 +435,7 @@ fn test_14_resize_720p() {
             maintain_aspect: true,
             ..CropResizeParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Resize - 720p Spline36").unwrap();
@@ -450,7 +450,7 @@ fn test_15_resize_lanczos() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         crop_resize: CropResizeParameters {
             enabled: true,
@@ -461,7 +461,7 @@ fn test_15_resize_lanczos() {
             maintain_aspect: true,
             ..CropResizeParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Resize - 1080p Lanczos").unwrap();
@@ -476,7 +476,7 @@ fn test_16_upscale_nnedi3_2x() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         crop_resize: CropResizeParameters {
             enabled: true,
@@ -485,7 +485,7 @@ fn test_16_upscale_nnedi3_2x() {
             upscale_factor: 2,
             ..CropResizeParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Upscale - NNEDI3 2x").unwrap();
@@ -502,9 +502,9 @@ fn test_17_codec_ffv1() {
     job.encoding_settings.codec = VideoCodec::FFV1;
     job.encoding_settings.container = ContainerFormat::Avi;
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Codec - FFV1 (Lossless)").unwrap();
@@ -523,9 +523,9 @@ fn test_18_codec_h264() {
     job.encoding_settings.container = ContainerFormat::Mp4;
     job.encoding_settings.quality = 18;
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Codec - H.264 CRF 18").unwrap();
@@ -544,9 +544,9 @@ fn test_19_codec_h265() {
     job.encoding_settings.container = ContainerFormat::Mp4;
     job.encoding_settings.quality = 20;
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Codec - H.265 CRF 20").unwrap();
@@ -561,14 +561,14 @@ fn test_20_combined_all_filters() {
         enabled: true,
         preset: QTGMCPreset::Medium,
         tff: Some(true),
-        fps_divisor: 2,
-        source_match: 1,
+        fps_divisor: Some(2),
+        source_match: Some(1),
         sharpness: Some(0.3),
-        opencl: false,
+        opencl: Some(false),
         ..QTGMCParameters::default()
     };
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         noise_reduction: NoiseReductionParameters {
             enabled: true,
@@ -632,7 +632,7 @@ fn test_21_sharpen_lsfmod() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         sharpen: SharpenParameters {
             enabled: true,
@@ -643,7 +643,7 @@ fn test_21_sharpen_lsfmod() {
             soft_edge: 0,
             cas_sharpness: 0.5,
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Sharpen - LSFmod").unwrap();
@@ -658,7 +658,7 @@ fn test_22_sharpen_cas() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         sharpen: SharpenParameters {
             enabled: true,
@@ -669,7 +669,7 @@ fn test_22_sharpen_cas() {
             soft_edge: 0,
             cas_sharpness: 0.7,
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Sharpen - CAS").unwrap();
@@ -684,7 +684,7 @@ fn test_23_dehalo_alpha() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         dehalo: DehaloParameters {
             enabled: true,
@@ -695,7 +695,7 @@ fn test_23_dehalo_alpha() {
             bright_str: 1.0,
             ..DehaloParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Dehalo - DeHalo_alpha").unwrap();
@@ -710,7 +710,7 @@ fn test_24_dehalo_yahr() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         dehalo: DehaloParameters {
             enabled: true,
@@ -719,7 +719,7 @@ fn test_24_dehalo_yahr() {
             yahr_depth: 32,
             ..DehaloParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Dehalo - YAHR").unwrap();
@@ -734,7 +734,7 @@ fn test_25_deblock_qed() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         deblock: DeblockParameters {
             enabled: true,
@@ -743,7 +743,7 @@ fn test_25_deblock_qed() {
             quant2: 26,
             ..DeblockParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Deblock - Deblock_QED").unwrap();
@@ -758,7 +758,7 @@ fn test_26_deblock_simple() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         deblock: DeblockParameters {
             enabled: true,
@@ -767,7 +767,7 @@ fn test_26_deblock_simple() {
             quant2: 25,
             ..DeblockParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Deblock - Simple").unwrap();
@@ -782,7 +782,7 @@ fn test_27_deband() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         deband: DebandParameters {
             enabled: true,
@@ -795,7 +795,7 @@ fn test_27_deband() {
             dynamic_grain: true,
             output_depth: 8,
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Deband - f3kdb").unwrap();
@@ -843,7 +843,7 @@ fn test_28_verify_sharpen_lsfmod_in_script() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         sharpen: SharpenParameters {
             enabled: true,
@@ -854,7 +854,7 @@ fn test_28_verify_sharpen_lsfmod_in_script() {
             soft_edge: 0,
             cas_sharpness: 0.5,
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job_and_verify(&job, "Verify Sharpen LSFmod in Script", &[
@@ -874,7 +874,7 @@ fn test_29_verify_sharpen_cas_in_script() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         sharpen: SharpenParameters {
             enabled: true,
@@ -885,7 +885,7 @@ fn test_29_verify_sharpen_cas_in_script() {
             soft_edge: 0,
             cas_sharpness: 0.7,
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job_and_verify(&job, "Verify Sharpen CAS in Script", &[
@@ -903,7 +903,7 @@ fn test_30_verify_dehalo_in_script() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         dehalo: DehaloParameters {
             enabled: true,
@@ -914,7 +914,7 @@ fn test_30_verify_dehalo_in_script() {
             bright_str: 1.2,
             ..DehaloParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job_and_verify(&job, "Verify Dehalo in Script", &[
@@ -933,7 +933,7 @@ fn test_31_verify_deblock_in_script() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         deblock: DeblockParameters {
             enabled: true,
@@ -942,7 +942,7 @@ fn test_31_verify_deblock_in_script() {
             quant2: 26,
             ..DeblockParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job_and_verify(&job, "Verify Deblock in Script", &[
@@ -961,7 +961,7 @@ fn test_32_verify_deband_in_script() {
     job.qtgmc_parameters.preset = QTGMCPreset::Fast;
     job.qtgmc_parameters.tff = Some(true);
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         deband: DebandParameters {
             enabled: true,
@@ -974,7 +974,7 @@ fn test_32_verify_deband_in_script() {
             dynamic_grain: true,
             output_depth: 8,
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job_and_verify(&job, "Verify Deband in Script", &[
@@ -1097,14 +1097,14 @@ fn test_34_audio_passthrough_with_video_processing() {
         enabled: true,
         preset: QTGMCPreset::Slow,
         tff: Some(true),
-        fps_divisor: 2,
-        source_match: 2,
+        fps_divisor: Some(2),
+        source_match: Some(2),
         sharpness: Some(0.5),
-        opencl: false,
+        opencl: Some(false),
         ..QTGMCParameters::default()
     };
 
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         noise_reduction: NoiseReductionParameters {
             enabled: true,
@@ -1119,7 +1119,7 @@ fn test_34_audio_passthrough_with_video_processing() {
             contrast: 1.1,
             ..ColorCorrectionParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     // Ensure audio mode is still passthrough (should be default)
@@ -1239,7 +1239,7 @@ fn create_ivtc_base_job(output_name: &str) -> VideoJob {
             tff: Some(true),
             ..QTGMCParameters::default()
         },
-        restoration_pipeline: None,
+        processing_pipeline: None,
         encoding_settings: EncodingSettings {
             codec: VideoCodec::FFV1,
             container: ContainerFormat::Avi,
@@ -1265,9 +1265,9 @@ fn test_37_ivtc_default_parameters_script() {
     create_output_dir();
 
     let mut job = create_ivtc_base_job("test_37_ivtc_default");
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job_and_verify(&job, "IVTC - Default Parameters", &[
@@ -1283,9 +1283,9 @@ fn test_38_ivtc_no_qtgmc_in_script() {
     create_output_dir();
 
     let mut job = create_ivtc_base_job("test_38_ivtc_no_qtgmc");
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     let generator = ScriptGenerator::new().expect("Failed to create generator");
@@ -1332,9 +1332,9 @@ fn test_39_ivtc_tff_order_mapping() {
     // Test TFF
     let mut job_tff = create_ivtc_base_job("test_39_ivtc_tff");
     job_tff.qtgmc_parameters.tff = Some(true);
-    job_tff.restoration_pipeline = Some(RestorationPipeline {
+    job_tff.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job_tff.qtgmc_parameters.clone(),
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     let generator = ScriptGenerator::new().expect("Failed to create generator");
@@ -1350,9 +1350,9 @@ fn test_39_ivtc_tff_order_mapping() {
     // Test BFF
     let mut job_bff = create_ivtc_base_job("test_39_ivtc_bff");
     job_bff.qtgmc_parameters.tff = Some(false);
-    job_bff.restoration_pipeline = Some(RestorationPipeline {
+    job_bff.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job_bff.qtgmc_parameters.clone(),
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     let script_path = generator.generate(&job_bff).expect("Failed to generate BFF script");
@@ -1371,14 +1371,14 @@ fn test_40_ivtc_custom_vfm_parameters() {
     create_output_dir();
 
     let mut job = create_ivtc_base_job("test_40_ivtc_custom_vfm");
-    job.qtgmc_parameters.ivtc_mode = 3;
+    job.qtgmc_parameters.ivtc_mode = Some(3);
     job.qtgmc_parameters.ivtc_cthresh = Some(12);
     job.qtgmc_parameters.ivtc_mi = Some(100);
     job.qtgmc_parameters.ivtc_block_x = Some(32);
     job.qtgmc_parameters.ivtc_block_y = Some(32);
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job_and_verify(&job, "IVTC - Custom VFM Parameters", &[
@@ -1398,12 +1398,12 @@ fn test_41_ivtc_custom_vdecimate_parameters() {
     create_output_dir();
 
     let mut job = create_ivtc_base_job("test_41_ivtc_custom_vdecimate");
-    job.qtgmc_parameters.ivtc_cycle = 4;
+    job.qtgmc_parameters.ivtc_cycle = Some(4);
     job.qtgmc_parameters.ivtc_dupthresh = Some(1.5);
     job.qtgmc_parameters.ivtc_scthresh = Some(20.0);
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job_and_verify(&job, "IVTC - Custom VDecimate Parameters", &[
@@ -1422,9 +1422,9 @@ fn test_42_ivtc_defaults_omit_optional_params() {
 
     let mut job = create_ivtc_base_job("test_42_ivtc_defaults_omit");
     // All defaults — ivtc_mode=1, ivtc_cycle=5, no optional params
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     let generator = ScriptGenerator::new().expect("Failed to create generator");
@@ -1461,11 +1461,11 @@ fn test_42_ivtc_defaults_omit_optional_params() {
 
 #[test]
 fn test_43_ivtc_with_additional_filters() {
-    // Test: IVTC combined with other restoration filters (denoise, sharpen, etc.)
+    // Test: IVTC combined with other processing filters (denoise, sharpen, etc.)
     create_output_dir();
 
     let mut job = create_ivtc_base_job("test_43_ivtc_combined");
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         noise_reduction: NoiseReductionParameters {
             enabled: true,
@@ -1480,7 +1480,7 @@ fn test_43_ivtc_with_additional_filters() {
             cas_sharpness: 0.5,
             ..SharpenParameters::default()
         },
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     run_job_and_verify(&job, "IVTC - Combined with Denoise + Sharpen", &[
@@ -1500,13 +1500,13 @@ fn test_44_ivtc_serialization_roundtrip() {
         enabled: true,
         method: DeinterlaceMethod::Ivtc,
         tff: Some(true),
-        ivtc_order: 1,
-        ivtc_mode: 3,
+        ivtc_order: Some(1),
+        ivtc_mode: Some(3),
         ivtc_cthresh: Some(12),
         ivtc_mi: Some(100),
         ivtc_block_x: Some(32),
         ivtc_block_y: Some(32),
-        ivtc_cycle: 5,
+        ivtc_cycle: Some(5),
         ivtc_dupthresh: Some(1.5),
         ivtc_scthresh: Some(20.0),
         ..QTGMCParameters::default()
@@ -1525,13 +1525,13 @@ fn test_44_ivtc_serialization_roundtrip() {
     // Deserialize
     let deserialized: QTGMCParameters = serde_json::from_str(&json).expect("Failed to deserialize");
     assert_eq!(deserialized.method, DeinterlaceMethod::Ivtc);
-    assert_eq!(deserialized.ivtc_order, 1);
-    assert_eq!(deserialized.ivtc_mode, 3);
+    assert_eq!(deserialized.ivtc_order, Some(1));
+    assert_eq!(deserialized.ivtc_mode, Some(3));
     assert_eq!(deserialized.ivtc_cthresh, Some(12));
     assert_eq!(deserialized.ivtc_mi, Some(100));
     assert_eq!(deserialized.ivtc_block_x, Some(32));
     assert_eq!(deserialized.ivtc_block_y, Some(32));
-    assert_eq!(deserialized.ivtc_cycle, 5);
+    assert_eq!(deserialized.ivtc_cycle, Some(5));
     assert_eq!(deserialized.ivtc_dupthresh, Some(1.5));
     assert_eq!(deserialized.ivtc_scthresh, Some(20.0));
 
@@ -1560,7 +1560,7 @@ fn test_45_ivtc_backward_compat_no_method_field() {
     );
     assert_eq!(params.preset, QTGMCPreset::Fast);
     assert_eq!(params.tff, Some(true));
-    assert_eq!(params.fps_divisor, 2);
+    assert_eq!(params.fps_divisor, Some(2));
 
     println!("✓ Backward compatibility: old JSON without 'method' defaults to QTGMC");
 }
@@ -1576,9 +1576,9 @@ fn test_46_ivtc_expected_frame_count() {
     let mut job = create_ivtc_base_job("test_46_ivtc_frame_count");
     job.total_frames = Some(90); // 3 seconds at 29.97fps
     job.input_frame_rate = Some(29.97);
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     let generator = ScriptGenerator::new().expect("Failed to create generator");
@@ -1635,15 +1635,15 @@ fn test_47_ivtc_progress_frame_count() {
     // Verify the pipeline is correctly configured for IVTC
     assert!(pipeline.deinterlace.enabled, "Deinterlace should be enabled");
     assert_eq!(pipeline.deinterlace.method, DeinterlaceMethod::Ivtc, "Method should be IVTC");
-    assert_eq!(pipeline.deinterlace.ivtc_cycle, 5, "Default cycle should be 5");
+    assert_eq!(pipeline.deinterlace.ivtc_cycle.unwrap_or(5), 5, "Default cycle should be 5");
 
     // Simulate what pipeline_executor does for progress calculation
     let is_double_rate = pipeline.deinterlace.enabled
         && pipeline.deinterlace.method == DeinterlaceMethod::Qtgmc
-        && pipeline.deinterlace.fps_divisor == 1;
+        && pipeline.deinterlace.fps_divisor.unwrap_or(1) == 1;
     let is_ivtc = pipeline.deinterlace.enabled
         && pipeline.deinterlace.method == DeinterlaceMethod::Ivtc;
-    let ivtc_cycle = pipeline.deinterlace.ivtc_cycle;
+    let ivtc_cycle = pipeline.deinterlace.ivtc_cycle.unwrap_or(5);
 
     assert!(!is_double_rate, "IVTC should NOT be detected as double-rate");
     assert!(is_ivtc, "IVTC should be detected as IVTC");
@@ -1721,9 +1721,9 @@ fn test_49_qtgmc_not_ivtc_in_script() {
     let mut job = create_base_job("test_49_qtgmc_not_ivtc");
     // Explicitly set QTGMC method (should be default, but be explicit)
     job.qtgmc_parameters.method = DeinterlaceMethod::Qtgmc;
-    job.restoration_pipeline = Some(RestorationPipeline {
+    job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
-        ..RestorationPipeline::default()
+        ..ProcessingPipeline::default()
     });
 
     let generator = ScriptGenerator::new().expect("Failed to create generator");
