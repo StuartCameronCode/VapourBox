@@ -138,6 +138,16 @@ impl DependencyLocator {
 
         #[cfg(not(target_os = "windows"))]
         {
+            // Prefer vspipe-bin directly over the wrapper script.
+            // The wrapper is a bash script that spawns vspipe-bin as a child;
+            // killing the wrapper leaves vspipe-bin orphaned (zombie on cancel).
+            // By calling vspipe-bin directly, kill() works as expected.
+            // The environment setup that the wrapper does is handled by
+            // build_environment() instead.
+            let bin_path = vs_dir.join("vspipe-bin");
+            if bin_path.exists() {
+                return Ok(bin_path);
+            }
             let path = vs_dir.join("vspipe");
             if path.exists() {
                 return Ok(path);
@@ -420,6 +430,19 @@ impl DependencyLocator {
                 format!("{}:{}:{}", vs_lib_path.to_string_lossy(), python_lib_path.to_string_lossy(), existing_dyld)
             };
             env.insert("DYLD_LIBRARY_PATH".to_string(), new_dyld);
+
+            // Generate VapourSynth config so vspipe-bin finds bundled plugins
+            // and ignores system plugins (which could conflict).
+            // This replaces the config generation in the vspipe wrapper script,
+            // allowing us to call vspipe-bin directly (so kill() works).
+            let plugins_dir = vs_lib_path.join("plugins");
+            let conf_path = vs_lib_path.join("vapoursynth.auto.conf");
+            let conf_content = format!(
+                "UserPluginDir={}\nAutoloadUserPluginDir=true\nAutoloadSystemPluginDir=false\n",
+                plugins_dir.to_string_lossy()
+            );
+            let _ = std::fs::write(&conf_path, &conf_content);
+            env.insert("VAPOURSYNTH_CONF_PATH".to_string(), conf_path.to_string_lossy().to_string());
         }
 
         env
