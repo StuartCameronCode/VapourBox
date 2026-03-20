@@ -947,6 +947,7 @@ class MainViewModel extends ChangeNotifier {
     // Calculate frame range from in/out points
     int? startFrame;
     int? endFrame;
+    int? trimmedFrameCount;
     if (item.inPoint != null || item.outPoint != null) {
       final frameCount = item.videoInfo?.frameCount ?? 0;
       if (item.inPoint != null) {
@@ -955,6 +956,11 @@ class MainViewModel extends ChangeNotifier {
       if (item.outPoint != null) {
         endFrame = (item.outPoint! * frameCount).round();
       }
+      // Use trimmed frame count so pipe_source creates the correct clip length
+      // and progress tracking shows accurate percentages
+      final effectiveStart = startFrame ?? 0;
+      final effectiveEnd = endFrame ?? (frameCount - 1);
+      trimmedFrameCount = effectiveEnd - effectiveStart + 1;
     }
 
     // Subtitle-only mode: no video processing passes enabled, only subtitles
@@ -981,7 +987,7 @@ class MainViewModel extends ChangeNotifier {
       ),
       encodingSettings: _encodingSettings,
       detectedFieldOrder: _getEffectiveFieldOrder(item),
-      totalFrames: item.videoInfo?.frameCount,
+      totalFrames: trimmedFrameCount ?? item.videoInfo?.frameCount,
       inputFrameRate: item.videoInfo?.frameRate,
       inputWidth: item.videoInfo?.width,
       inputHeight: item.videoInfo?.height,
