@@ -92,7 +92,11 @@ impl PipelineExecutor {
             "-v".to_string(), "error".to_string(),
         ]);
 
-        // Limit frame count if trimming
+        // Limit decoder frame count to match what pipe_source expects.
+        // Without this, the decoder can send more frames than TOTAL_FRAMES
+        // (e.g. MPEG-2 telecine produces duplicate frames), causing a broken
+        // pipe when vspipe closes stdin before the decoder finishes.
+        // For trimmed exports, limit to the trimmed range instead.
         if let (Some(start), Some(end)) = (job.start_frame, job.end_frame) {
             let count = end - start + 1;
             if count > 0 {
@@ -103,6 +107,9 @@ impl PipelineExecutor {
             let count = end + 1;
             decoder_args.push("-frames:v".to_string());
             decoder_args.push(count.to_string());
+        } else if let Some(total) = job.total_frames {
+            decoder_args.push("-frames:v".to_string());
+            decoder_args.push(total.to_string());
         }
 
         decoder_args.push("pipe:1".to_string()); // stdout via FFmpeg pipe protocol
@@ -208,7 +215,8 @@ impl PipelineExecutor {
             && pipeline.deinterlace.method == DeinterlaceMethod::Qtgmc
             && pipeline.deinterlace.fps_divisor.unwrap_or(1) == 1;
         let is_ivtc = pipeline.deinterlace.enabled
-            && pipeline.deinterlace.method == DeinterlaceMethod::Ivtc;
+            && matches!(pipeline.deinterlace.method,
+                DeinterlaceMethod::Ivtc | DeinterlaceMethod::SoftTelecine);
         let ivtc_cycle = pipeline.deinterlace.ivtc_cycle.unwrap_or(5);
 
         // Capture ffmpeg stderr in a background thread (for error messages).
@@ -233,6 +241,7 @@ impl PipelineExecutor {
         let mut current_fps = 0.0f64;
         let mut smoothed_fps = 0.0f64;
         let mut vspipe_total: i32 = 0;
+        let mut max_effective_total: i32 = 0;
 
         loop {
             // Check for cancellation
@@ -294,9 +303,16 @@ impl PipelineExecutor {
                         vspipe_total
                     };
 
+                    // Prevent the total from ever decreasing (avoids progress bar jumping backward)
+                    if effective_total > max_effective_total {
+                        max_effective_total = effective_total;
+                    }
+                    effective_total = max_effective_total;
+
                     // Safety clamp: if current_frame exceeds total, metadata was wrong
                     if current_frame > effective_total {
                         effective_total = current_frame;
+                        max_effective_total = current_frame;
                     }
 
                     let eta = if smoothed_fps > 0.0 && effective_total > current_frame {
@@ -347,10 +363,13 @@ impl PipelineExecutor {
         // Clean up progress file
         let _ = fs::remove_file(&progress_file);
 
-        // Check exit codes
+        // Check exit codes.
+        // Decoder may exit with broken pipe (141=SIGPIPE on Linux, 224=EPIPE on macOS)
+        // when vspipe finishes reading before the decoder sends all frames (e.g. IVTC
+        // VDecimate reads fewer frames than available). This is expected and harmless.
         if let Some(status) = decoder_status {
             let code = status.code().unwrap_or(-1);
-            if code != 0 && code != 130 && code != 141 {
+            if code != 0 && code != 130 && code != 141 && code != 224 {
                 bail!("Decoder ffmpeg exited with code {}", code);
             }
         }

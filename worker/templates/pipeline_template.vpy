@@ -311,9 +311,11 @@ clip = core.vivtc.VDecimate(clip,
 )
 {{/DEINT_IVTC}}
 {{#DEINT_SOFT_TELECINE}}
-# Soft Telecine: Relabel frame rate for DVD sources with soft telecine.
-# Source frames are already progressive but mislabeled as 29.97fps.
-clip = core.std.AssumeFPS(clip, fpsnum=24000, fpsden=1001)
+# Soft Telecine: Remove duplicate frames from 3:2 pulldown.
+# Source frames are progressive but the container includes pulldown duplicates
+# at ~29.97fps. VDecimate identifies and removes the duplicates, producing
+# ~23.976fps output with only unique frames.
+clip = core.vivtc.VDecimate(clip)
 {{/DEINT_SOFT_TELECINE}}
 {{/DEINTERLACE}}
 

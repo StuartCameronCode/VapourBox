@@ -9,12 +9,14 @@ class ProgressInfo {
   final int totalFrames;
   final double fps;
   final double eta;
+  final String? phase;
 
   const ProgressInfo({
     required this.frame,
     required this.totalFrames,
     required this.fps,
     required this.eta,
+    this.phase,
   });
 
   factory ProgressInfo.fromJson(Map<String, dynamic> json) =>
@@ -26,6 +28,18 @@ class ProgressInfo {
 
   /// Progress as a percentage (0 to 100).
   int get percentComplete => (progress * 100).round();
+
+  /// True when totalFrames is 0, signaling indeterminate progress.
+  bool get isIndeterminate => totalFrames <= 0;
+
+  /// True during encoding phase (no phase label).
+  bool get isEncodingPhase => phase == null;
+
+  /// True during subtitle generation phase.
+  bool get isSubtitlePhase => phase == 'subtitles';
+
+  /// True during subtitle embedding phase.
+  bool get isEmbeddingPhase => phase == 'embedding';
 
   /// Formatted ETA string (e.g., "1h 23m 45s").
   String get etaFormatted {
@@ -60,6 +74,7 @@ class WorkerMessage {
   final int? totalFrames;
   final double? fps;
   final double? eta;
+  final String? phase;
   final String? level;
   final String? message;
   final bool? success;
@@ -71,6 +86,7 @@ class WorkerMessage {
     this.totalFrames,
     this.fps,
     this.eta,
+    this.phase,
     this.level,
     this.message,
     this.success,
@@ -93,6 +109,7 @@ class WorkerMessage {
       totalFrames: totalFrames ?? 0,
       fps: fps ?? 0.0,
       eta: eta ?? 0.0,
+      phase: phase,
     );
   }
 }

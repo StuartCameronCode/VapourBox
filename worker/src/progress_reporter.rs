@@ -31,6 +31,12 @@ impl ProgressReporter {
         self.send_message(&message);
     }
 
+    /// Send a progress update with a phase label (e.g. "subtitles", "embedding").
+    pub fn send_progress_phase(&self, progress: &ProgressInfo, phase: &str) {
+        let message = WorkerMessage::progress_with_phase(progress, phase);
+        self.send_message(&message);
+    }
+
     /// Send a log message.
     pub fn send_log(&self, level: LogLevel, message: &str) {
         let msg = WorkerMessage::log(level, message);

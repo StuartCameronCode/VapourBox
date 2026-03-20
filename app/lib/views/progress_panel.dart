@@ -30,7 +30,7 @@ class ProgressPanel extends StatelessWidget {
 
               // Status text
               Text(
-                _getStatusText(state),
+                _getStatusText(state, progress),
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
 
@@ -42,7 +42,9 @@ class ProgressPanel extends StatelessWidget {
                 SizedBox(
                   width: 400,
                   child: LinearProgressIndicator(
-                    value: progress?.progress,
+                    value: (progress != null && progress.isIndeterminate)
+                        ? null
+                        : progress?.progress,
                     minHeight: 8,
                     borderRadius: BorderRadius.circular(4),
                   ),
@@ -215,11 +217,15 @@ class ProgressPanel extends StatelessWidget {
     }
   }
 
-  String _getStatusText(ProcessingState state) {
+  String _getStatusText(ProcessingState state, ProgressInfo? progress) {
     switch (state) {
       case ProcessingState.preparingJob:
         return 'Preparing job...';
       case ProcessingState.processing:
+        if (progress != null) {
+          if (progress.isSubtitlePhase) return 'Generating Subtitles';
+          if (progress.isEmbeddingPhase) return 'Embedding Subtitles';
+        }
         return 'Processing';
       case ProcessingState.cancelling:
         return 'Cancelling...';
@@ -233,6 +239,35 @@ class ProgressPanel extends StatelessWidget {
   }
 
   Widget _buildProgressDetails(BuildContext context, ProgressInfo progress) {
+    // Subtitle generation phase: show percentage only
+    if (progress.isSubtitlePhase) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _buildDetailChip(
+            context,
+            icon: Icons.subtitles,
+            value: 'Generating subtitles... ${progress.percentComplete}%',
+          ),
+        ],
+      );
+    }
+
+    // Embedding phase: show text only (indeterminate)
+    if (progress.isEmbeddingPhase) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _buildDetailChip(
+            context,
+            icon: Icons.subtitles,
+            value: 'Embedding subtitles...',
+          ),
+        ],
+      );
+    }
+
+    // Encoding phase: full details
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [

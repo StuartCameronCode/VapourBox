@@ -75,6 +75,7 @@ class _PipeReader:
         self._next = 0
         self._lock = threading.Lock()
         self._eof = False
+        self._last_frame = None  # last successfully read frame data
 
     def _read_one(self):
         """Read one frame from stdin. Returns bytes or None on EOF."""
@@ -97,6 +98,7 @@ class _PipeReader:
             data = self._read_one()
             if data is None:
                 return
+            self._last_frame = data
             self._cache[self._next] = data
             self._next += 1
             # Evict old frames
@@ -111,7 +113,12 @@ class _PipeReader:
             data = self._cache.get(n)
 
         if data is None:
-            return fout  # EOF: return blank frame
+            # EOF: repeat last real frame so VDecimate can identify it as a
+            # duplicate and drop it (blank frames would be kept, extending the
+            # video duration when TOTAL_FRAMES overshoots the actual count).
+            data = self._last_frame
+        if data is None:
+            return fout  # no frames read at all: return blank
 
         offset = 0
         for p in range(fout.format.num_planes):

@@ -9,7 +9,7 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 
 use crate::dependency_locator::DependencyLocator;
-use crate::models::{LogLevel, SubtitleOutput, SubtitleSettings};
+use crate::models::{LogLevel, ProgressInfo, SubtitleOutput, SubtitleSettings};
 use crate::progress_reporter::ProgressReporter;
 
 /// Generates subtitles from video audio using whisper.cpp.
@@ -280,12 +280,18 @@ impl SubtitleGenerator {
                 for line in reader.lines().map_while(Result::ok) {
                     // whisper.cpp outputs "whisper_full_with_state: progress = XX%"
                     if line.contains("progress =") {
-                        if let Some(pct) = line.split("progress =").nth(1) {
-                            let pct = pct.trim().trim_end_matches('%').trim();
+                        if let Some(pct_str) = line.split("progress =").nth(1) {
+                            let pct_str = pct_str.trim().trim_end_matches('%').trim();
                             reporter.send_log(
                                 LogLevel::Info,
-                                &format!("Whisper progress: {}%", pct),
+                                &format!("Whisper progress: {}%", pct_str),
                             );
+                            if let Ok(pct) = pct_str.parse::<i32>() {
+                                reporter.send_progress_phase(
+                                    &ProgressInfo::new(pct, 100, 0.0, 0.0),
+                                    "subtitles",
+                                );
+                            }
                         }
                     }
                 }
@@ -360,6 +366,11 @@ impl SubtitleGenerator {
         };
 
         self.reporter.send_log(LogLevel::Info, "Embedding subtitles into video...");
+        // Signal indeterminate embedding phase (totalFrames=0 means indeterminate)
+        self.reporter.send_progress_phase(
+            &ProgressInfo::new(0, 0, 0.0, 0.0),
+            "embedding",
+        );
 
         let source = Path::new(source_video);
         let in_place = source == target_video;
@@ -404,7 +415,8 @@ impl SubtitleGenerator {
             .spawn()
             .context("Failed to start ffmpeg for subtitle embedding")?;
 
-        // Wait with cancellation polling
+        // Wait with cancellation polling, sending periodic heartbeats
+        let mut heartbeat_counter = 0u32;
         loop {
             if on_cancel() {
                 let _ = child.kill();
@@ -419,7 +431,17 @@ impl SubtitleGenerator {
                     }
                     break;
                 }
-                None => thread::sleep(Duration::from_millis(500)),
+                None => {
+                    thread::sleep(Duration::from_millis(500));
+                    heartbeat_counter += 1;
+                    // Send heartbeat every ~2s to keep UI alive
+                    if heartbeat_counter % 4 == 0 {
+                        self.reporter.send_progress_phase(
+                            &ProgressInfo::new(0, 0, 0.0, 0.0),
+                            "embedding",
+                        );
+                    }
+                }
             }
         }
 

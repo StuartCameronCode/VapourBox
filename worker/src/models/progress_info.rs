@@ -85,6 +85,8 @@ pub enum WorkerMessage {
         total_frames: i32,
         fps: f64,
         eta: f64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        phase: Option<String>,
     },
 
     /// Log message
@@ -114,6 +116,18 @@ impl WorkerMessage {
             total_frames: info.total_frames,
             fps: info.fps,
             eta: info.eta,
+            phase: None,
+        }
+    }
+
+    /// Create a progress message with a phase label.
+    pub fn progress_with_phase(info: &ProgressInfo, phase: &str) -> Self {
+        WorkerMessage::Progress {
+            frame: info.frame,
+            total_frames: info.total_frames,
+            fps: info.fps,
+            eta: info.eta,
+            phase: Some(phase.to_string()),
         }
     }
 
@@ -253,6 +267,18 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("\"type\":\"progress\""));
         assert!(json.contains("\"frame\":100"));
+        // phase should be omitted when None
+        assert!(!json.contains("\"phase\""));
+    }
+
+    #[test]
+    fn test_worker_message_with_phase() {
+        let msg = WorkerMessage::progress_with_phase(
+            &ProgressInfo::new(50, 100, 0.0, 0.0),
+            "subtitles",
+        );
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"phase\":\"subtitles\""));
     }
 
     #[test]
