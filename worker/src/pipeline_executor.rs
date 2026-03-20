@@ -467,6 +467,16 @@ impl PipelineExecutor {
 
         // Input 1: Original file for audio stream
         // (Y4M from vspipe contains only video, so we need the original file for audio)
+        // When trimming, seek the audio input to the same start point so ffmpeg
+        // doesn't read the entire audio track (which hangs for small segments of
+        // large files).
+        if let Some(start) = job.start_frame {
+            if start > 0 {
+                let fps = job.input_frame_rate.unwrap_or(29.97);
+                let start_time = start as f64 / fps;
+                args.extend(["-ss".to_string(), format!("{:.6}", start_time)]);
+            }
+        }
         args.extend(["-i".to_string(), job.input_path.clone()]);
 
         // Progress output to a temp file (avoids Windows pipe buffering delay)
@@ -542,6 +552,14 @@ impl PipelineExecutor {
         if is_framerate_change {
             args.extend(["-avoid_negative_ts".to_string(), "make_zero".to_string()]);
             args.push("-start_at_zero".to_string());
+        }
+
+        // When trimming, stop when the shortest stream (the trimmed video) ends.
+        // Without this, ffmpeg reads the full audio track even if only a small
+        // video segment was exported.
+        let is_trimmed = job.start_frame.is_some() || job.end_frame.is_some();
+        if is_trimmed {
+            args.push("-shortest".to_string());
         }
 
         // Embed VapourBox version in output metadata, preserving any existing comment
