@@ -21,7 +21,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14  # M1 runner for arm64 support
+    runs-on: macos-15  # M1 runner for arm64 support, Xcode 16+
 
     steps:
       - name: Checkout repository
