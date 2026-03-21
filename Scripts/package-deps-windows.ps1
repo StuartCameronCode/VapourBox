@@ -90,6 +90,13 @@ foreach ($dir in $DevDirs) {
 # Remove temporary files
 Get-ChildItem -Path "$PackageDir\vapoursynth" -Recurse -Filter "tmpclaude-*" | Remove-Item -Force
 
+# Copy support libraries (dvdread, etc.)
+$LibDir = Join-Path $DepsDir "lib"
+if (Test-Path $LibDir) {
+    Write-Host "    Copying support libraries..." -ForegroundColor Gray
+    Copy-Item -Recurse -Force $LibDir "$PackageDir\lib"
+}
+
 # Copy FFmpeg
 Write-Host "[4/5] Copying FFmpeg..." -ForegroundColor Yellow
 Copy-Item (Join-Path $DepsDir "ffmpeg\ffmpeg.exe") "$PackageDir\ffmpeg\"

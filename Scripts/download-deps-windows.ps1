@@ -370,6 +370,55 @@ if (-not (Test-Path $FFTWPath)) {
 }
 
 # =============================================================================
+# 4c. libdvdread (required for DVD disc import)
+# =============================================================================
+Write-Host ""
+Write-Host "[4c/8] Downloading libdvdread..." -ForegroundColor Yellow
+
+$LibDir = "$FullTargetDir\lib"
+if (-not (Test-Path $LibDir)) {
+    New-Item -ItemType Directory -Force -Path $LibDir | Out-Null
+}
+
+$DvdReadPath = "$LibDir\dvdread.dll"
+if (-not (Test-Path $DvdReadPath)) {
+    Write-Host "  Downloading libdvdread 6.1.3 (ShiftMediaProject MSVC build)..." -ForegroundColor Gray
+    $DvdReadZip = Join-Path $TempDir "libdvdread.zip"
+    $DvdReadUrl = "https://github.com/ShiftMediaProject/libdvdread/releases/download/6.1.3-1/libdvdread_6.1.3-1_msvc17.zip"
+
+    try {
+        Download-File -Url $DvdReadUrl -OutFile $DvdReadZip
+        $DvdReadExtractDir = Join-Path $TempDir "libdvdread-extract"
+        Expand-Archive -Path $DvdReadZip -DestinationPath $DvdReadExtractDir -Force
+
+        # Find the x64 shared DLL
+        $DvdReadDll = Get-ChildItem -Path $DvdReadExtractDir -Recurse -Filter "dvdread.dll" |
+            Where-Object { $_.FullName -match "x64" -and $_.FullName -match "shared" } |
+            Select-Object -First 1
+        if (-not $DvdReadDll) {
+            # Fallback: any x64 DLL
+            $DvdReadDll = Get-ChildItem -Path $DvdReadExtractDir -Recurse -Filter "dvdread.dll" |
+                Where-Object { $_.FullName -match "x64" } |
+                Select-Object -First 1
+        }
+        if ($DvdReadDll) {
+            Copy-Item $DvdReadDll.FullName $DvdReadPath -Force
+            Write-Host "    Copied: dvdread.dll" -ForegroundColor Gray
+        } else {
+            Write-Host "    WARNING: dvdread.dll not found in archive" -ForegroundColor Yellow
+        }
+
+        Remove-Item $DvdReadZip -Force -ErrorAction SilentlyContinue
+        Remove-Item $DvdReadExtractDir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "  libdvdread installed (CSS decryption via optional libdvdcss-2.dll)" -ForegroundColor Green
+    } catch {
+        Write-Host "    Failed: $_" -ForegroundColor Red
+    }
+} else {
+    Write-Host "  libdvdread already installed" -ForegroundColor Gray
+}
+
+# =============================================================================
 # 5. Python Packages (havsfunc, mvsfunc, adjust)
 # =============================================================================
 Write-Host ""
