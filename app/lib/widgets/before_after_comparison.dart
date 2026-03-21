@@ -28,6 +28,10 @@ class BeforeAfterComparisonWidget extends StatefulWidget {
   /// Whether the after image is loading.
   final bool isAfterLoading;
 
+  /// Display aspect ratio for SAR correction (e.g. 16/9 for anamorphic DVD).
+  /// When null, the image's native pixel aspect ratio is used (square pixels).
+  final double? displayAspectRatio;
+
   const BeforeAfterComparisonWidget({
     super.key,
     this.beforeImage,
@@ -35,6 +39,7 @@ class BeforeAfterComparisonWidget extends StatefulWidget {
     this.initialDividerPosition = 0.5,
     this.isBeforeLoading = false,
     this.isAfterLoading = false,
+    this.displayAspectRatio,
   });
 
   @override
@@ -412,6 +417,28 @@ class _BeforeAfterComparisonWidgetState
     required String label,
   }) {
     if (imageData != null) {
+      // For non-square pixels (anamorphic DVD etc.), the image's pixel
+      // dimensions don't match the intended display aspect ratio.
+      // FittedBox scales its child uniformly to fit the parent while
+      // preserving the SizedBox's aspect ratio — works even under the
+      // tight constraints from StackFit.expand.
+      if (widget.displayAspectRatio != null) {
+        return FittedBox(
+          fit: BoxFit.contain,
+          child: SizedBox(
+            width: widget.displayAspectRatio! * 1000,
+            height: 1000,
+            child: Image.memory(
+              imageData,
+              fit: BoxFit.fill,
+              gaplessPlayback: true,
+              filterQuality: FilterQuality.none,
+            ),
+          ),
+        );
+      }
+
+      // Square pixels: contain maintains the image's native aspect ratio.
       return Image.memory(
         imageData,
         fit: BoxFit.contain,
