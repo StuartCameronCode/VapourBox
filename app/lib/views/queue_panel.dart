@@ -236,34 +236,39 @@ class _QueuePanelState extends State<QueuePanel> {
             ),
           ],
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _InfoRow(label: 'File', value: item.filename),
-            _InfoRow(label: 'Path', value: item.inputPath),
-            if (item.videoInfo != null) ...[
-              _InfoRow(label: 'Resolution', value: item.videoInfo!.resolution),
-              _InfoRow(label: 'Frame Rate', value: item.videoInfo!.frameRateFormatted),
-              _InfoRow(label: 'Duration', value: item.videoInfo!.durationFormatted),
-              _InfoRow(label: 'Frames', value: '${item.videoInfo!.frameCount}'),
-              _InfoRow(label: 'Codec', value: item.videoInfo!.codec),
-              _InfoRow(label: 'Pixel Format', value: item.videoInfo!.pixelFormat),
-              _InfoRow(
-                label: 'Field Order',
-                value: item.videoInfo!.fieldOrderDescription,
-              ),
-              _InfoRow(
-                label: 'Scan Type',
-                value: item.videoInfo!.scanType.displayName,
-              ),
-            ],
-            if (item.hasInOutRange)
-              _InfoRow(label: 'Range', value: item.inOutRangeFormatted),
-            _InfoRow(label: 'Status', value: _statusText(item.status)),
-            if (item.errorMessage != null)
-              _InfoRow(label: 'Error', value: item.errorMessage!),
-          ],
+        content: SizedBox(
+          width: 500,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _InfoRow(label: 'File', value: item.filename),
+                _InfoRow(label: 'Path', value: item.inputPath),
+                if (item.videoInfo != null) ...[
+                  _InfoRow(label: 'Resolution', value: item.videoInfo!.resolution),
+                  _InfoRow(label: 'Frame Rate', value: item.videoInfo!.frameRateFormatted),
+                  _InfoRow(label: 'Duration', value: item.videoInfo!.durationFormatted),
+                  _InfoRow(label: 'Frames', value: '${item.videoInfo!.frameCount}'),
+                  _InfoRow(label: 'Codec', value: item.videoInfo!.codec),
+                  _InfoRow(label: 'Pixel Format', value: item.videoInfo!.pixelFormat),
+                  _InfoRow(
+                    label: 'Field Order',
+                    value: item.videoInfo!.fieldOrderDescription,
+                  ),
+                  _InfoRow(
+                    label: 'Scan Type',
+                    value: item.videoInfo!.scanType.displayName,
+                  ),
+                ],
+                if (item.hasInOutRange)
+                  _InfoRow(label: 'Range', value: item.inOutRangeFormatted),
+                _InfoRow(label: 'Status', value: _statusText(item.status)),
+                if (item.errorMessage != null)
+                  _InfoRow(label: 'Error', value: item.errorMessage!),
+              ],
+            ),
+          ),
         ),
         actions: [
           TextButton.icon(
