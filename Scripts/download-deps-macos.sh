@@ -717,17 +717,37 @@ if 'vs.YCOCG' in content:
 # Patch 4: EEDI3CL fallback — modern eedi3m plugin removed EEDI3CL (OpenCL).
 # When opencl=True, havsfunc tries core.eedi3m.EEDI3CL which doesn't exist.
 # Fall back to CPU EEDI3 so opencl mode works (NNEDI3CL still uses GPU).
-old_eedi3cl = "        myEEDI3 = core.eedi3m.EEDI3CL\n"
-if old_eedi3cl in content:
+# Two locations: santiag_stronger (12-space indent) and QTGMC_Interpolate (8-space indent).
+# Must patch deeper indent first to avoid substring matches with .replace().
+patched_eedi3cl = False
+
+# 4a: santiag_stronger (12-space indent, uses mdis=mdis)
+old_santiag = "            myEEDI3 = core.eedi3m.EEDI3CL\n"
+if old_santiag in content:
     content = content.replace(
-        old_eedi3cl,
+        old_santiag,
+        "            has_eedi3cl = hasattr(core, 'eedi3m') and hasattr(core.eedi3m, 'EEDI3CL')\n"
+        "            myEEDI3 = core.eedi3m.EEDI3CL if has_eedi3cl else (core.eedi3m.EEDI3 if hasattr(core, 'eedi3m') else core.eedi3.eedi3)\n"
+    )
+    old_santiag_args = "            eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=mdis, vcheck=vcheck, device=device)\n"
+    new_santiag_args = "            eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=mdis, vcheck=vcheck, device=device) if has_eedi3cl else dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=mdis, vcheck=vcheck)\n"
+    content = content.replace(old_santiag_args, new_santiag_args)
+    patched_eedi3cl = True
+
+# 4b: QTGMC_Interpolate (8-space indent, uses mdis=EdiMaxD)
+old_qtgmc = "        myEEDI3 = core.eedi3m.EEDI3CL\n"
+if old_qtgmc in content:
+    content = content.replace(
+        old_qtgmc,
         "        has_eedi3cl = hasattr(core, 'eedi3m') and hasattr(core.eedi3m, 'EEDI3CL')\n"
         "        myEEDI3 = core.eedi3m.EEDI3CL if has_eedi3cl else (core.eedi3m.EEDI3 if hasattr(core, 'eedi3m') else core.eedi3.eedi3)\n"
     )
-    # Fix eedi3_args to not pass device= when falling back to CPU EEDI3
-    old_eedi3_args = "        eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck, device=device)\n"
-    new_eedi3_args = "        eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck, device=device) if has_eedi3cl else dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck)\n"
-    content = content.replace(old_eedi3_args, new_eedi3_args)
+    old_qtgmc_args = "        eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck, device=device)\n"
+    new_qtgmc_args = "        eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck, device=device) if has_eedi3cl else dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck)\n"
+    content = content.replace(old_qtgmc_args, new_qtgmc_args)
+    patched_eedi3cl = True
+
+if patched_eedi3cl:
     patches.append('EEDI3CL fallback')
 
 if patches:

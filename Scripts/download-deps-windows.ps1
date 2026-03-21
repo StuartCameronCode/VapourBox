@@ -540,15 +540,37 @@ def _fix_mv_args(args):
     # Patch 4: EEDI3CL fallback — modern eedi3m plugin removed EEDI3CL (OpenCL).
     # When opencl=True, havsfunc tries core.eedi3m.EEDI3CL which doesn't exist.
     # Fall back to CPU EEDI3 so opencl mode works (NNEDI3CL still uses GPU).
-    $OldEedi3cl = "        myEEDI3 = core.eedi3m.EEDI3CL`n"
-    if ($Content.Contains($OldEedi3cl)) {
-        Write-Host "  Applying EEDI3CL fallback patch..." -ForegroundColor Gray
-        $NewEedi3cl = "        has_eedi3cl = hasattr(core, 'eedi3m') and hasattr(core.eedi3m, 'EEDI3CL')`n        myEEDI3 = core.eedi3m.EEDI3CL if has_eedi3cl else (core.eedi3m.EEDI3 if hasattr(core, 'eedi3m') else core.eedi3.eedi3)`n"
-        $Content = $Content.Replace($OldEedi3cl, $NewEedi3cl)
+    # Two locations: santiag_stronger (12-space indent) and QTGMC_Interpolate (8-space indent).
+    # Must patch deeper indent first to avoid substring matches with .Replace().
+    $PatchedEedi3cl = $false
 
-        $OldArgs = "        eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck, device=device)`n"
-        $NewArgs = "        eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck, device=device) if has_eedi3cl else dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck)`n"
-        $Content = $Content.Replace($OldArgs, $NewArgs)
+    # 4a: santiag_stronger (12-space indent, uses mdis=mdis)
+    $OldSantiag = "            myEEDI3 = core.eedi3m.EEDI3CL`n"
+    if ($Content.Contains($OldSantiag)) {
+        Write-Host "  Applying EEDI3CL fallback patch (santiag_stronger)..." -ForegroundColor Gray
+        $NewSantiag = "            has_eedi3cl = hasattr(core, 'eedi3m') and hasattr(core.eedi3m, 'EEDI3CL')`n            myEEDI3 = core.eedi3m.EEDI3CL if has_eedi3cl else (core.eedi3m.EEDI3 if hasattr(core, 'eedi3m') else core.eedi3.eedi3)`n"
+        $Content = $Content.Replace($OldSantiag, $NewSantiag)
+
+        $OldSantiagArgs = "            eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=mdis, vcheck=vcheck, device=device)`n"
+        $NewSantiagArgs = "            eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=mdis, vcheck=vcheck, device=device) if has_eedi3cl else dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=mdis, vcheck=vcheck)`n"
+        $Content = $Content.Replace($OldSantiagArgs, $NewSantiagArgs)
+        $PatchedEedi3cl = $true
+    }
+
+    # 4b: QTGMC_Interpolate (8-space indent, uses mdis=EdiMaxD)
+    $OldQtgmc = "        myEEDI3 = core.eedi3m.EEDI3CL`n"
+    if ($Content.Contains($OldQtgmc)) {
+        Write-Host "  Applying EEDI3CL fallback patch (QTGMC_Interpolate)..." -ForegroundColor Gray
+        $NewQtgmc = "        has_eedi3cl = hasattr(core, 'eedi3m') and hasattr(core.eedi3m, 'EEDI3CL')`n        myEEDI3 = core.eedi3m.EEDI3CL if has_eedi3cl else (core.eedi3m.EEDI3 if hasattr(core, 'eedi3m') else core.eedi3.eedi3)`n"
+        $Content = $Content.Replace($OldQtgmc, $NewQtgmc)
+
+        $OldQtgmcArgs = "        eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck, device=device)`n"
+        $NewQtgmcArgs = "        eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck, device=device) if has_eedi3cl else dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck)`n"
+        $Content = $Content.Replace($OldQtgmcArgs, $NewQtgmcArgs)
+        $PatchedEedi3cl = $true
+    }
+
+    if ($PatchedEedi3cl) {
         $PatchesApplied += "EEDI3CL fallback"
     }
 
