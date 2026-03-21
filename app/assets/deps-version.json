@@ -1,20 +1,20 @@
 {
-  "version": "1.1.0",
-  "releaseTag": "deps-v1.1.0",
-  "releaseDate": "2026-02-22",
+  "version": "1.2.0",
+  "releaseTag": "deps-v1.2.0",
+  "releaseDate": "2026-03-21",
   "platforms": {
     "windows-x64": {
-      "filename": "VapourBox-deps-1.1.0-windows-x64.zip",
-      "sha256": "8eceed5ed6f2cc9c17a7ec3bb67af1167b323949e958005c29a526493b858ff3",
-      "size": 185461783
+      "filename": "VapourBox-deps-1.2.0-windows-x64.zip",
+      "sha256": null,
+      "size": null
     },
     "macos-arm64": {
-      "filename": "VapourBox-deps-1.1.0-macos-arm64.zip",
-      "sha256": "d446267883951fde59fbca320b36b235118c764a7b04a68c0240b493c32a9ff9",
-      "size": 98431286
+      "filename": "VapourBox-deps-1.2.0-macos-arm64.zip",
+      "sha256": "cc0c86ed0f4ca21652a62f24f164d7d2978e726331df4b73d3e7e61b14675f3f",
+      "size": 98912636
     },
     "macos-x64": {
-      "filename": "VapourBox-deps-1.1.0-macos-x64.zip",
+      "filename": "VapourBox-deps-1.2.0-macos-x64.zip",
       "sha256": null,
       "size": null
     }

@@ -73,6 +73,7 @@ package_arch() {
     rm -rf "$PACKAGE_DIR"
     mkdir -p "$PACKAGE_DIR/ffmpeg"
     mkdir -p "$PACKAGE_DIR/vapoursynth/plugins"
+    mkdir -p "$PACKAGE_DIR/lib"
     mkdir -p "$PACKAGE_DIR/python-packages"
     mkdir -p "$PACKAGE_DIR/python"
 
@@ -92,6 +93,12 @@ package_arch() {
     # Copy plugins
     if [ -d "$DEPS_DIR/vapoursynth/plugins" ]; then
         cp -r "$DEPS_DIR/vapoursynth/plugins/"* "$PACKAGE_DIR/vapoursynth/plugins/" 2>/dev/null || true
+    fi
+
+    # Copy support libraries (fftw, boost, etc.)
+    echo "    Copying support libraries..."
+    if [ -d "$DEPS_DIR/lib" ]; then
+        cp -r "$DEPS_DIR/lib/"* "$PACKAGE_DIR/lib/" 2>/dev/null || true
     fi
 
     # Copy Python runtime
@@ -126,6 +133,7 @@ EOF
     find "$PACKAGE_DIR" -name "*.pyc" -delete 2>/dev/null || true
     find "$PACKAGE_DIR" -name ".DS_Store" -delete 2>/dev/null || true
     find "$PACKAGE_DIR" -name "tmpclaude-*" -delete 2>/dev/null || true
+    find "$PACKAGE_DIR" -name "*.auto.conf" -delete 2>/dev/null || true
 
     echo "[4/4] Creating zip archive for $ARCH_NAME..."
     local ZIP_FILE="$DIST_DIR/$PACKAGE_NAME.zip"

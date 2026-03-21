@@ -64,7 +64,7 @@ echo "Force rebuild: $FORCE"
 echo ""
 
 # Create directories
-mkdir -p "$DEPS_DIR"/{vapoursynth,ffmpeg,python,python-packages,resources/NNEDI3CL}
+mkdir -p "$DEPS_DIR"/{vapoursynth,ffmpeg,python,python-packages,lib,resources/NNEDI3CL}
 mkdir -p "$PLUGINS_DIR"
 mkdir -p "$BUILD_DIR"
 
@@ -342,6 +342,16 @@ if [ "$ARCH" = "arm64" ]; then
     # Sign libraries
     codesign -s - -f "$LIB_DIR/libfftw3f.3.dylib" 2>/dev/null
     codesign -s - -f "$LIB_DIR/libfftw3f_threads.3.dylib" 2>/dev/null
+
+    # Boost libraries (required by NNEDI3CL)
+    echo "  Copying Boost libraries for NNEDI3CL..."
+    cp "$BREW_PREFIX/lib/libboost_filesystem.dylib" "$LIB_DIR/"
+    cp "$BREW_PREFIX/lib/libboost_atomic.dylib" "$LIB_DIR/"
+    install_name_tool -id "@loader_path/libboost_filesystem.dylib" "$LIB_DIR/libboost_filesystem.dylib"
+    install_name_tool -id "@loader_path/libboost_atomic.dylib" "$LIB_DIR/libboost_atomic.dylib"
+    install_name_tool -change "$BREW_PREFIX/opt/boost/lib/libboost_atomic.dylib" "@loader_path/libboost_atomic.dylib" "$LIB_DIR/libboost_filesystem.dylib"
+    codesign -s - -f "$LIB_DIR/libboost_filesystem.dylib" 2>/dev/null
+    codesign -s - -f "$LIB_DIR/libboost_atomic.dylib" 2>/dev/null
 
     # neo_f3kdb (optimized ARM64 build)
     curl -sL "$YUYGFGG_BASE/lib/libneo-f3kdb.dylib" -o "$PLUGINS_DIR/libneo-f3kdb.dylib"
@@ -703,6 +713,22 @@ if 'vs.YCOCG' in content:
         "'LUTDeCrawl: This is not an 8-10 bit YUV clip'"
     )
     patches.append('YCOCG')
+
+# Patch 4: EEDI3CL fallback — modern eedi3m plugin removed EEDI3CL (OpenCL).
+# When opencl=True, havsfunc tries core.eedi3m.EEDI3CL which doesn't exist.
+# Fall back to CPU EEDI3 so opencl mode works (NNEDI3CL still uses GPU).
+old_eedi3cl = "        myEEDI3 = core.eedi3m.EEDI3CL\n"
+if old_eedi3cl in content:
+    content = content.replace(
+        old_eedi3cl,
+        "        has_eedi3cl = hasattr(core, 'eedi3m') and hasattr(core.eedi3m, 'EEDI3CL')\n"
+        "        myEEDI3 = core.eedi3m.EEDI3CL if has_eedi3cl else (core.eedi3m.EEDI3 if hasattr(core, 'eedi3m') else core.eedi3.eedi3)\n"
+    )
+    # Fix eedi3_args to not pass device= when falling back to CPU EEDI3
+    old_eedi3_args = "        eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck, device=device)\n"
+    new_eedi3_args = "        eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck, device=device) if has_eedi3cl else dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck)\n"
+    content = content.replace(old_eedi3_args, new_eedi3_args)
+    patches.append('EEDI3CL fallback')
 
 if patches:
     with open(havsfunc_path, 'w') as f:

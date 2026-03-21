@@ -376,8 +376,33 @@ impl ScriptGenerator {
                     script = process_optional_bool("PRECISE", params.precise, script);
                     script = process_optional_int("FORCE_TR", params.force_tr, script);
 
-                    // GPU
-                    script = process_optional_bool("OPENCL", params.opencl, script);
+                    // GPU — default to OpenCL on macOS where ZNEDI3/NNEDI3
+                    // lack NEON optimisations and run pure scalar C.
+                    // Only auto-enable when EdiMode is compatible (unset or "nnedi3")
+                    // because our eedi3m plugin lacks EEDI3CL.
+                    let opencl;
+                    #[cfg(target_os = "macos")]
+                    {
+                        let edi_ok = match params.edi_mode.as_deref() {
+                            None | Some("nnedi3") => true,
+                            _ => false,
+                        };
+                        // Treat Some(false) as unset — the Dart UI serializes null
+                        // as false, so only explicit Some(true) means user opted in.
+                        let user_set = params.opencl.unwrap_or(false);
+                        opencl = if user_set {
+                            Some(true)
+                        } else if edi_ok {
+                            Some(true)
+                        } else {
+                            params.opencl
+                        };
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        opencl = params.opencl;
+                    }
+                    script = process_optional_bool("OPENCL", opencl, script);
                     script = process_optional_int("DEVICE", params.device, script);
                 }
                 DeinterlaceMethod::Ivtc => {
