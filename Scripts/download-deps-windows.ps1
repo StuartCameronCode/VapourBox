@@ -11,7 +11,7 @@
     - FFTW library (required by dfttest)
     - Python packages (havsfunc, mvsfunc, adjust)
     - NNEDI3 weights
-    - Patches havsfunc for API compatibility (mvtools, DFTTest, YCOCG)
+    - Patches havsfunc for API compatibility (mvtools, DFTTest, YCOCG, EEDI3CL fallback)
 
 .PARAMETER TargetDir
     The target directory for dependencies. Default: deps/windows-x64
@@ -486,6 +486,21 @@ def _fix_mv_args(args):
         $Content = $Content -replace "input\.format\.color_family not in \[vs\.YUV, vs\.YCOCG\]", "input.format.color_family != vs.YUV"
         $Content = $Content -replace "'LUTDeCrawl: This is not an 8-10 bit YUV or YCoCg clip'", "'LUTDeCrawl: This is not an 8-10 bit YUV clip'"
         $PatchesApplied += "YCOCG removal"
+    }
+
+    # Patch 4: EEDI3CL fallback — modern eedi3m plugin removed EEDI3CL (OpenCL).
+    # When opencl=True, havsfunc tries core.eedi3m.EEDI3CL which doesn't exist.
+    # Fall back to CPU EEDI3 so opencl mode works (NNEDI3CL still uses GPU).
+    $OldEedi3cl = "        myEEDI3 = core.eedi3m.EEDI3CL`n"
+    if ($Content.Contains($OldEedi3cl)) {
+        Write-Host "  Applying EEDI3CL fallback patch..." -ForegroundColor Gray
+        $NewEedi3cl = "        has_eedi3cl = hasattr(core, 'eedi3m') and hasattr(core.eedi3m, 'EEDI3CL')`n        myEEDI3 = core.eedi3m.EEDI3CL if has_eedi3cl else (core.eedi3m.EEDI3 if hasattr(core, 'eedi3m') else core.eedi3.eedi3)`n"
+        $Content = $Content.Replace($OldEedi3cl, $NewEedi3cl)
+
+        $OldArgs = "        eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck, device=device)`n"
+        $NewArgs = "        eedi3_args = dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck, device=device) if has_eedi3cl else dict(alpha=alpha, beta=beta, gamma=gamma, nrad=nrad, mdis=EdiMaxD, vcheck=vcheck)`n"
+        $Content = $Content.Replace($OldArgs, $NewArgs)
+        $PatchesApplied += "EEDI3CL fallback"
     }
 
     if ($PatchesApplied.Count -gt 0) {

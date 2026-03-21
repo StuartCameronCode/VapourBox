@@ -100,6 +100,9 @@ deps/windows-x64/*.bin
 deps/macos-*/*.dylib
 deps/macos-*/*.bin
 
+# VapourSynth auto-generated config files
+deps/**/*.auto.conf
+
 # =============================================================================
 # Build Outputs
 # =============================================================================
