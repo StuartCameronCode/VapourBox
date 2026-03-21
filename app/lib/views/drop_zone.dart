@@ -1,9 +1,14 @@
+import 'dart:io';
+
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/dvd_info.dart';
+import '../services/disc_detector.dart';
 import '../viewmodels/main_viewmodel.dart';
+import 'dvd_title_picker.dart';
 
 class DropZone extends StatefulWidget {
   const DropZone({super.key});
@@ -29,17 +34,10 @@ class _DropZoneState extends State<DropZone> {
       onDragDone: (details) {
         setState(() => _isDragging = false);
         if (details.files.isNotEmpty) {
-          // Filter to valid video files
-          final validPaths = details.files
-              .where((f) => _isVideoFile(f.path))
-              .map((f) => f.path)
-              .toList();
-
-          if (validPaths.isNotEmpty) {
-            context.read<MainViewModel>().addMultipleToQueue(validPaths);
-          } else {
-            _showError(context, 'Please drop video files');
-          }
+          _handleDroppedPaths(
+            context,
+            details.files.map((f) => f.path).toList(),
+          );
         }
       },
       child: GestureDetector(
@@ -74,7 +72,7 @@ class _DropZoneState extends State<DropZone> {
                 Text(
                   _isDragging
                       ? 'Drop to add videos'
-                      : 'Drop video files here',
+                      : 'Drop video files or folders here',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         color: _isDragging
                             ? colorScheme.primary
@@ -89,16 +87,33 @@ class _DropZoneState extends State<DropZone> {
                       ),
                 ),
                 const SizedBox(height: 24),
-                FilledButton.icon(
-                  icon: const Icon(Icons.folder_open),
-                  label: const Text('Browse Files'),
-                  onPressed: () => _pickFile(context),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    FilledButton.icon(
+                      icon: const Icon(Icons.folder_open),
+                      label: const Text('Browse Files'),
+                      onPressed: () => _pickFile(context),
+                    ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.folder),
+                      label: const Text('Open Folder'),
+                      onPressed: () => _pickFolder(context),
+                    ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.album),
+                      label: const Text('Open DVD'),
+                      onPressed: () => _openDvd(context),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 32),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 48),
                   child: Text(
-                    'Supported formats: AVI, MOV, MP4, MKV, MXF, and other common video formats',
+                    'Supported: Video files, folders of videos, DVD discs, and VIDEO_TS folders',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: colorScheme.onSurface.withValues(alpha: 0.4),
@@ -111,6 +126,47 @@ class _DropZoneState extends State<DropZone> {
         ),
       ),
     );
+  }
+
+  /// Handle dropped paths (could be files or directories).
+  Future<void> _handleDroppedPaths(BuildContext context, List<String> paths) async {
+    final viewModel = context.read<MainViewModel>();
+    final videoFiles = <String>[];
+
+    for (final p in paths) {
+      final entity = FileSystemEntity.typeSync(p);
+
+      if (entity == FileSystemEntityType.directory) {
+        // It's a directory — try to add as folder (may trigger DVD flow)
+        try {
+          await viewModel.addFolder(p);
+        } on DvdFolderDetected catch (e) {
+          if (context.mounted) {
+            await _showDvdPicker(context, e.mountPoint);
+          }
+        } catch (e) {
+          if (context.mounted) {
+            _showError(context, 'Failed to open folder: $e');
+          }
+        }
+      } else if (_isVideoFile(p)) {
+        videoFiles.add(p);
+      }
+    }
+
+    // Add any video files that were dropped
+    if (videoFiles.isNotEmpty) {
+      viewModel.addMultipleToQueue(videoFiles);
+    } else if (paths.isNotEmpty && videoFiles.isEmpty) {
+      // Only show error if we had paths but found no videos
+      // (don't show if folders were successfully processed)
+      final hadDirectories = paths.any(
+        (p) => FileSystemEntity.typeSync(p) == FileSystemEntityType.directory,
+      );
+      if (!hadDirectories && context.mounted) {
+        _showError(context, 'Please drop video files or folders');
+      }
+    }
   }
 
   Future<void> _pickFile(BuildContext context) async {
@@ -131,6 +187,139 @@ class _DropZoneState extends State<DropZone> {
       if (paths.isNotEmpty && context.mounted) {
         context.read<MainViewModel>().addMultipleToQueue(paths);
       }
+    }
+  }
+
+  Future<void> _pickFolder(BuildContext context) async {
+    final folderPath = await FilePicker.platform.getDirectoryPath();
+    if (folderPath == null || !context.mounted) return;
+
+    final viewModel = context.read<MainViewModel>();
+    try {
+      await viewModel.addFolder(folderPath);
+    } on DvdFolderDetected catch (e) {
+      if (context.mounted) {
+        await _showDvdPicker(context, e.mountPoint);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        _showError(context, 'Failed to open folder: $e');
+      }
+    }
+  }
+
+  Future<void> _openDvd(BuildContext context) async {
+    final viewModel = context.read<MainViewModel>();
+
+    // Detect available discs
+    final discs = await viewModel.detectDiscs();
+
+    if (!context.mounted) return;
+
+    if (discs.isEmpty) {
+      _showError(context, 'No DVD discs detected');
+      return;
+    }
+
+    if (discs.length == 1) {
+      // Single disc — go directly to title picker
+      await _showDvdPicker(context, discs.first.mountPoint);
+    } else {
+      // Multiple discs — let user choose
+      final disc = await showDialog<DvdDisc>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Select DVD'),
+          content: SizedBox(
+            width: 300,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: discs.length,
+              itemBuilder: (context, index) {
+                final disc = discs[index];
+                return ListTile(
+                  leading: const Icon(Icons.album),
+                  title: Text(disc.volumeLabel),
+                  subtitle: Text(disc.mountPoint),
+                  onTap: () => Navigator.pop(context, disc),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+
+      if (disc != null && context.mounted) {
+        await _showDvdPicker(context, disc.mountPoint);
+      }
+    }
+  }
+
+  /// Show the DVD title picker and add selected title to queue.
+  Future<void> _showDvdPicker(BuildContext context, String mountPoint) async {
+    final viewModel = context.read<MainViewModel>();
+
+    // Show loading indicator
+    DvdInfo? dvdInfo;
+    String? error;
+
+    if (!context.mounted) return;
+
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('Reading DVD structure...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      dvdInfo = await viewModel.getDvdInfo(mountPoint);
+    } catch (e) {
+      error = e.toString();
+    }
+
+    // Close loading dialog
+    if (context.mounted) {
+      Navigator.of(context).pop();
+    }
+
+    if (error != null) {
+      if (context.mounted) {
+        _showError(context, 'Failed to read DVD: $error');
+      }
+      return;
+    }
+
+    if (dvdInfo == null || !context.mounted) return;
+
+    // Show title picker
+    final result = await DvdTitlePicker.show(
+      context: context,
+      dvdInfo: dvdInfo,
+    );
+
+    if (result != null && context.mounted) {
+      // Extract and add to queue
+      viewModel.addDvdTitle(
+        dvdInfo: dvdInfo,
+        titleIndex: result.titleIndex,
+        startChapter: result.startChapter,
+        endChapter: result.endChapter,
+      );
     }
   }
 

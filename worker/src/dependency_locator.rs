@@ -352,6 +352,21 @@ impl DependencyLocator {
         PathBuf::from("addons")
     }
 
+    /// Get the path to the libdvdread shared library.
+    pub fn dvdread_library_path(&self) -> PathBuf {
+        let platform_dir = self.platform_dir();
+
+        #[cfg(target_os = "macos")]
+        {
+            platform_dir.join("lib").join("libdvdread.dylib")
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            platform_dir.join("lib").join("dvdread.dll")
+        }
+    }
+
     /// Get the path to the whisper-cli executable.
     ///
     /// macOS: addons/whisper/bin/whisper-cli (Homebrew bottle layout)

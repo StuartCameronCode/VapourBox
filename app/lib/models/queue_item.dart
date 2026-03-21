@@ -7,6 +7,7 @@ import '../services/field_order_detector.dart';
 /// Status of a queue item.
 enum QueueItemStatus {
   pending,
+  extracting,
   analyzing,
   ready,
   processing,
@@ -15,12 +16,43 @@ enum QueueItemStatus {
   cancelled,
 }
 
+/// Source information for items that came from a DVD.
+class DvdSourceInfo {
+  final String volumeLabel;
+  final int titleIndex;
+  final int? startChapter;
+  final int? endChapter;
+  final String tempFilePath;
+
+  const DvdSourceInfo({
+    required this.volumeLabel,
+    required this.titleIndex,
+    this.startChapter,
+    this.endChapter,
+    required this.tempFilePath,
+  });
+
+  /// Display name for the queue (e.g., "MY_DVD - Title 1").
+  String get displayName {
+    final chapters = startChapter != null
+        ? ' Ch. $startChapter-$endChapter'
+        : '';
+    return '$volumeLabel - Title $titleIndex$chapters';
+  }
+}
+
 /// Represents a video in the processing queue with its own state.
 class QueueItem {
   final String id;
   final String inputPath;
   String outputPath;
   VideoInfo? videoInfo;
+
+  /// Optional DVD source info (for display and temp file cleanup).
+  DvdSourceInfo? dvdSourceInfo;
+
+  /// Extraction progress (0.0 to 1.0), used during DVD extraction.
+  double extractionProgress;
 
   // Per-video in/out markers (normalized 0.0-1.0)
   double? inPoint;
@@ -43,6 +75,8 @@ class QueueItem {
     required this.inputPath,
     required this.outputPath,
     this.videoInfo,
+    this.dvdSourceInfo,
+    this.extractionProgress = 0.0,
     this.inPoint,
     this.outPoint,
     List<Uint8List>? thumbnails,
@@ -56,8 +90,9 @@ class QueueItem {
   })  : id = id ?? const Uuid().v4(),
         thumbnails = thumbnails ?? [];
 
-  /// Returns the filename from the input path.
+  /// Returns the filename from the input path, or DVD display name if from a DVD.
   String get filename {
+    if (dvdSourceInfo != null) return dvdSourceInfo!.displayName;
     final parts = inputPath.replaceAll('\\', '/').split('/');
     return parts.isNotEmpty ? parts.last : inputPath;
   }
@@ -107,8 +142,10 @@ class QueueItem {
   double get timelineViewEnd =>
       (timelineViewStart + 1.0 / timelineZoom).clamp(0.0, 1.0);
 
-  /// Returns true if the item can be removed (not currently processing).
-  bool get canRemove => status != QueueItemStatus.processing;
+  /// Returns true if the item can be removed (not currently processing or extracting).
+  bool get canRemove =>
+      status != QueueItemStatus.processing &&
+      status != QueueItemStatus.extracting;
 
   /// Returns true if the item is ready to be processed.
   bool get canProcess =>

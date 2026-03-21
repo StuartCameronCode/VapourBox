@@ -35,6 +35,9 @@ class ProgressInfo {
   /// True during encoding phase (no phase label).
   bool get isEncodingPhase => phase == null;
 
+  /// True during DVD extraction phase.
+  bool get isExtractingPhase => phase == 'extracting';
+
   /// True during subtitle generation phase.
   bool get isSubtitlePhase => phase == 'subtitles';
 

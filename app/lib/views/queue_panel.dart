@@ -292,6 +292,8 @@ class _QueuePanelState extends State<QueuePanel> {
     switch (status) {
       case QueueItemStatus.pending:
         return 'Pending';
+      case QueueItemStatus.extracting:
+        return 'Extracting DVD...';
       case QueueItemStatus.analyzing:
         return 'Analyzing...';
       case QueueItemStatus.ready:
@@ -371,6 +373,14 @@ class _QueueItemTile extends StatelessWidget {
                   // Details row
                   Row(
                     children: [
+                      if (item.status == QueueItemStatus.extracting) ...[
+                        Text(
+                          'Extracting DVD... ${(item.extractionProgress * 100).round()}%',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: colorScheme.tertiary,
+                              ),
+                        ),
+                      ] else ...[
                       if (item.resolution.isNotEmpty) ...[
                         Text(
                           item.resolution,
@@ -405,6 +415,7 @@ class _QueueItemTile extends StatelessWidget {
                           ),
                         ),
                       ],
+                      ], // end else (non-extracting details)
                     ],
                   ),
                 ],
@@ -471,6 +482,16 @@ class _QueueItemTile extends StatelessWidget {
           Icons.schedule,
           size: 18,
           color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+        );
+      case QueueItemStatus.extracting:
+        return SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            value: item.extractionProgress > 0 ? item.extractionProgress : null,
+            color: Theme.of(context).colorScheme.tertiary,
+          ),
         );
       case QueueItemStatus.analyzing:
         return const SizedBox(

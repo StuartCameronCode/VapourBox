@@ -223,6 +223,7 @@ class ProgressPanel extends StatelessWidget {
         return 'Preparing job...';
       case ProcessingState.processing:
         if (progress != null) {
+          if (progress.isExtractingPhase) return 'Extracting DVD Title';
           if (progress.isSubtitlePhase) return 'Generating Subtitles';
           if (progress.isEmbeddingPhase) return 'Embedding Subtitles';
         }
@@ -239,6 +240,20 @@ class ProgressPanel extends StatelessWidget {
   }
 
   Widget _buildProgressDetails(BuildContext context, ProgressInfo progress) {
+    // DVD extraction phase: show percentage
+    if (progress.isExtractingPhase) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _buildDetailChip(
+            context,
+            icon: Icons.album,
+            value: 'Extracting DVD title... ${progress.percentComplete}%',
+          ),
+        ],
+      );
+    }
+
     // Subtitle generation phase: show percentage only
     if (progress.isSubtitlePhase) {
       return Row(

@@ -6,6 +6,10 @@
 //!
 //! Preview mode: Use --preview --frame N to generate a single processed frame
 //! as PNG output to stdout (binary).
+//!
+//! DVD modes:
+//!   --dvd-info <path>: Enumerate DVD titles, output JSON to stdout
+//!   --dvd-extract <path> --title N [--chapters S-E] --output <path>: Extract DVD title
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -16,6 +20,7 @@ use std::sync::Arc;
 
 mod models;
 mod dependency_locator;
+mod dvd_reader;
 mod pipeline_executor;
 mod progress_reporter;
 mod script_generator;
@@ -36,7 +41,7 @@ use subtitle_generator::SubtitleGenerator;
 struct Args {
     /// Path to the job configuration JSON file
     #[arg(long)]
-    config: PathBuf,
+    config: Option<PathBuf>,
 
     /// Preview mode: generate a single processed frame as PNG to stdout
     #[arg(long)]
@@ -45,14 +50,50 @@ struct Args {
     /// Frame number to extract in preview mode (required with --preview)
     #[arg(long)]
     frame: Option<i32>,
+
+    /// DVD info mode: enumerate titles from a DVD mount point or VIDEO_TS folder
+    #[arg(long)]
+    dvd_info: Option<String>,
+
+    /// DVD extract mode: extract a title from a DVD
+    #[arg(long)]
+    dvd_extract: Option<String>,
+
+    /// Title number to extract (required with --dvd-extract)
+    #[arg(long)]
+    title: Option<u32>,
+
+    /// Chapter range to extract (e.g., "1-5", optional with --dvd-extract)
+    #[arg(long)]
+    chapters: Option<String>,
+
+    /// Output file path (required with --dvd-extract)
+    #[arg(long)]
+    output: Option<PathBuf>,
 }
 
 fn main() -> ExitCode {
     let args = Args::parse();
 
+    // DVD info mode: enumerate titles, output JSON to stdout
+    if let Some(ref dvd_path) = args.dvd_info {
+        return run_dvd_info(dvd_path);
+    }
+
+    // DVD extract mode: extract title to file
+    if let Some(ref dvd_path) = args.dvd_extract {
+        return run_dvd_extract(&args, dvd_path);
+    }
+
     // Preview mode outputs raw PNG to stdout - no JSON messages
     if args.preview {
         return run_preview_mode(&args);
+    }
+
+    // Normal processing mode requires --config
+    if args.config.is_none() {
+        eprintln!("Error: --config is required for processing mode");
+        return ExitCode::from(1);
     }
 
     let reporter = ProgressReporter::new();
@@ -69,7 +110,7 @@ fn main() -> ExitCode {
         return ExitCode::from(1);
     }
 
-    match run_worker(&args, &reporter, cancelled) {
+    match run_worker(args.config.as_ref().unwrap(), &reporter, cancelled) {
         Ok(output_path) => {
             reporter.send_complete(true, Some(&output_path));
             // Small delay to ensure stdout is flushed and received by parent process
@@ -91,6 +132,86 @@ fn main() -> ExitCode {
     }
 }
 
+/// Run DVD info mode: enumerate titles and output JSON to stdout.
+fn run_dvd_info(dvd_path: &str) -> ExitCode {
+    match dvd_reader::enumerate_titles(dvd_path) {
+        Ok(info) => {
+            match serde_json::to_string_pretty(&info) {
+                Ok(json) => {
+                    println!("{}", json);
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("Error serializing DVD info: {}", e);
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Err(e) => {
+            // Output error as JSON for the Flutter app to parse
+            let error_msg = format!("{:#}", e);
+            let error_json = serde_json::json!({
+                "type": "error",
+                "message": error_msg,
+            });
+            println!("{}", error_json);
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// Run DVD extract mode: extract a title to an MPEG-PS file.
+fn run_dvd_extract(args: &Args, dvd_path: &str) -> ExitCode {
+    let title = match args.title {
+        Some(t) => t,
+        None => {
+            eprintln!("Error: --title is required with --dvd-extract");
+            return ExitCode::from(1);
+        }
+    };
+
+    let output = match args.output {
+        Some(ref p) => p.clone(),
+        None => {
+            eprintln!("Error: --output is required with --dvd-extract");
+            return ExitCode::from(1);
+        }
+    };
+
+    // Parse chapter range (e.g., "1-5")
+    let (start_chapter, end_chapter) = if let Some(ref ch) = args.chapters {
+        let parts: Vec<&str> = ch.split('-').collect();
+        match parts.len() {
+            1 => {
+                let ch: u32 = parts[0].parse().unwrap_or(1);
+                (Some(ch), Some(ch))
+            }
+            2 => {
+                let start: u32 = parts[0].parse().unwrap_or(1);
+                let end: u32 = parts[1].parse().unwrap_or(start);
+                (Some(start), Some(end))
+            }
+            _ => (None, None),
+        }
+    } else {
+        (None, None)
+    };
+
+    let reporter = ProgressReporter::new();
+
+    match dvd_reader::extract_title(dvd_path, title, start_chapter, end_chapter, &output, &reporter) {
+        Ok(()) => {
+            reporter.send_complete(true, Some(&output.to_string_lossy()));
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            reporter.send_error(&format!("{:#}", e));
+            reporter.send_complete(false, None);
+            ExitCode::from(1)
+        }
+    }
+}
+
 /// Run in preview mode - generate single frame PNG to stdout
 fn run_preview_mode(args: &Args) -> ExitCode {
     let frame = match args.frame {
@@ -101,8 +222,16 @@ fn run_preview_mode(args: &Args) -> ExitCode {
         }
     };
 
+    let config_path = match args.config {
+        Some(ref p) => p,
+        None => {
+            eprintln!("Error: --config is required with --preview");
+            return ExitCode::from(1);
+        }
+    };
+
     // Load job configuration
-    let config_content = match std::fs::read_to_string(&args.config) {
+    let config_content = match std::fs::read_to_string(config_path) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error reading config: {}", e);
@@ -143,14 +272,14 @@ fn run_preview_mode(args: &Args) -> ExitCode {
 }
 
 fn run_worker(
-    args: &Args,
+    config_path: &PathBuf,
     reporter: &ProgressReporter,
     cancelled: Arc<AtomicBool>,
 ) -> Result<String> {
     // Load job configuration
     reporter.send_log(models::LogLevel::Info, "Loading job configuration...");
-    let config_content = std::fs::read_to_string(&args.config)
-        .with_context(|| format!("Failed to read config file: {:?}", args.config))?;
+    let config_content = std::fs::read_to_string(config_path)
+        .with_context(|| format!("Failed to read config file: {:?}", config_path))?;
     let job: VideoJob = serde_json::from_str(&config_content)
         .with_context(|| "Failed to parse job configuration")?;
 

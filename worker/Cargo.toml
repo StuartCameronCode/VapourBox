@@ -24,6 +24,7 @@ anyhow = "1.0"
 ctrlc = "3.4"
 which = "7.0"
 chrono = { version = "0.4", features = ["serde"] }
+libloading = "0.8"
 
 # Platform-specific dependencies
 [target.'cfg(unix)'.dependencies]

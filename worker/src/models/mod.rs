@@ -13,6 +13,7 @@ mod deblock_parameters;
 mod deband_parameters;
 mod sharpen_parameters;
 mod processing_pipeline;
+mod dvd_info;
 
 pub use video_job::*;
 pub use qtgmc_parameters::*;
@@ -26,3 +27,4 @@ pub use deblock_parameters::*;
 pub use deband_parameters::*;
 pub use sharpen_parameters::*;
 pub use processing_pipeline::*;
+pub use dvd_info::*;

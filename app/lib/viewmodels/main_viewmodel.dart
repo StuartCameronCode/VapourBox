@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 
+import '../models/dvd_info.dart';
 import '../models/dynamic_parameters.dart';
 import '../models/encoding_settings.dart';
 import '../models/parameter_converter.dart';
@@ -13,6 +14,8 @@ import '../models/processing_pipeline.dart';
 import '../models/subtitle_parameters.dart';
 import '../models/video_job.dart';
 import '../models/processing_preset.dart';
+import '../services/disc_detector.dart';
+import '../services/dvd_service.dart';
 import '../services/field_order_detector.dart';
 import '../services/preset_service.dart';
 import '../services/preview_generator.dart';
@@ -23,6 +26,8 @@ class MainViewModel extends ChangeNotifier {
   final WorkerManager _workerManager = WorkerManager();
   final FieldOrderDetector _fieldOrderDetector = FieldOrderDetector();
   final PreviewGenerator _previewGenerator = PreviewGenerator();
+  final DvdService _dvdService = DvdService();
+  final DiscDetector _discDetector = DiscDetector();
 
   // Queue state (replaces single-video state)
   final List<QueueItem> _queue = [];
@@ -81,6 +86,8 @@ class MainViewModel extends ChangeNotifier {
   String? get inputPath => selectedItem?.inputPath;
   String? get outputPath => selectedItem?.outputPath;
   VideoInfo? get videoInfo => selectedItem?.videoInfo;
+  bool get isExtracting =>
+      _queue.any((q) => q.status == QueueItemStatus.extracting);
   bool get isAnalyzing =>
       selectedItem?.status == QueueItemStatus.analyzing ||
       _queue.any((q) => q.status == QueueItemStatus.analyzing);
@@ -449,6 +456,9 @@ class MainViewModel extends ChangeNotifier {
     // Don't remove if currently processing
     if (_queue[index].status == QueueItemStatus.processing) return;
 
+    // Clean up DVD temp file when item leaves the queue
+    _cleanupDvdTempFile(_queue[index]);
+
     _queue.removeAt(index);
 
     // Update selection if removed item was selected
@@ -516,6 +526,9 @@ class MainViewModel extends ChangeNotifier {
   void clearQueue() {
     // Don't clear if processing
     if (_isQueueProcessing) return;
+
+    // Clean up DVD temp files before clearing
+    _cleanupDvdTempFiles();
 
     _queue.clear();
     _selectedItemId = null;
@@ -1171,6 +1184,207 @@ class MainViewModel extends ChangeNotifier {
   }
 
   // ============================================================================
+  // DVD AND FOLDER IMPORT
+  // ============================================================================
+
+  /// Detect mounted DVD discs.
+  Future<List<DvdDisc>> detectDiscs() async {
+    return _discDetector.detectDiscs();
+  }
+
+  /// Open a DVD disc: enumerate titles, show picker, extract, add to queue.
+  /// Returns the DvdInfo for the caller to show the title picker.
+  Future<DvdInfo> getDvdInfo(String mountPoint) async {
+    return _dvdService.getTitleInfo(mountPoint);
+  }
+
+  /// Extract a DVD title and add the extracted file to the queue.
+  Future<void> addDvdTitle({
+    required DvdInfo dvdInfo,
+    required int titleIndex,
+    int? startChapter,
+    int? endChapter,
+  }) async {
+    // Create temp file for the extraction
+    final tempDir = Directory.systemTemp;
+    final tempFile = File(
+      '${tempDir.path}/vapourbox_dvd_${dvdInfo.volumeLabel}_t${titleIndex}_${DateTime.now().millisecondsSinceEpoch}.mpg',
+    );
+
+    final dvdSourceInfo = DvdSourceInfo(
+      volumeLabel: dvdInfo.volumeLabel,
+      titleIndex: titleIndex,
+      startChapter: startChapter,
+      endChapter: endChapter,
+      tempFilePath: tempFile.path,
+    );
+
+    // Create queue item with "extracting" status
+    final outputPath = _generateOutputPath(tempFile.path);
+    final item = QueueItem(
+      inputPath: tempFile.path,
+      outputPath: outputPath,
+      dvdSourceInfo: dvdSourceInfo,
+      status: QueueItemStatus.pending,
+    );
+    _queue.add(item);
+
+    _selectedItemId ??= item.id;
+
+    notifyListeners();
+
+    // Extract the title
+    item.status = QueueItemStatus.extracting;
+    item.extractionProgress = 0.0;
+    _logMessages.add(LogMessage(
+      level: LogLevel.info,
+      message: 'Extracting ${dvdSourceInfo.displayName}...',
+    ));
+    notifyListeners();
+
+    final extractionLog = <String>[];
+
+    try {
+      await for (final progress in _dvdService.extractTitle(
+        mountPoint: dvdInfo.devicePath,
+        titleIndex: titleIndex,
+        startChapter: startChapter,
+        endChapter: endChapter,
+        outputPath: tempFile.path,
+      )) {
+        if (progress.isLog) {
+          // Forward worker log messages to both the app log and the extraction log
+          final level = LogLevel.fromString(progress.logLevel ?? 'info');
+          _logMessages.add(LogMessage(
+            level: level,
+            message: progress.logMessage ?? '',
+          ));
+          extractionLog.add('[${progress.logLevel}] ${progress.logMessage}');
+          notifyListeners();
+          continue;
+        }
+
+        if (progress.isError) {
+          extractionLog.add('[error] ${progress.error}');
+          item.status = QueueItemStatus.failed;
+          item.errorMessage = _buildExtractionErrorMessage(
+            progress.error ?? 'Extraction failed',
+            extractionLog,
+          );
+          _logMessages.add(LogMessage(
+            level: LogLevel.error,
+            message: 'DVD extraction failed: ${progress.error}',
+          ));
+          notifyListeners();
+          return;
+        }
+
+        // Update extraction progress on the queue item
+        item.extractionProgress = progress.progress;
+        notifyListeners();
+      }
+
+      _logMessages.add(LogMessage(
+        level: LogLevel.info,
+        message: 'Extraction complete: ${dvdSourceInfo.displayName}',
+      ));
+
+      // Now analyze the extracted file
+      await _analyzeQueueItem(item);
+    } catch (e) {
+      extractionLog.add('[exception] $e');
+      item.status = QueueItemStatus.failed;
+      item.errorMessage = _buildExtractionErrorMessage(
+        'Extraction failed: $e',
+        extractionLog,
+      );
+      _logMessages.add(LogMessage(
+        level: LogLevel.error,
+        message: 'DVD extraction failed: $e',
+      ));
+      notifyListeners();
+    }
+  }
+
+  /// Add a folder: if it's a VIDEO_TS folder, treat as DVD; otherwise scan for videos.
+  Future<void> addFolder(String folderPath) async {
+    // Check if this is a DVD folder (contains VIDEO_TS)
+    final dvdMountPoint = await DiscDetector.findVideoTsParent(folderPath);
+    if (dvdMountPoint != null) {
+      // Route to DVD enumeration flow — caller should show title picker
+      // We throw a special exception that the UI can catch to show the DVD picker
+      throw DvdFolderDetected(mountPoint: dvdMountPoint);
+    }
+
+    // Generic folder: scan for video files
+    final videoPaths = await _scanFolderForVideos(folderPath);
+    if (videoPaths.isEmpty) {
+      _logMessages.add(LogMessage(
+        level: LogLevel.warning,
+        message: 'No video files found in folder',
+      ));
+      notifyListeners();
+      return;
+    }
+
+    await addMultipleToQueue(videoPaths);
+  }
+
+  /// Recursively scan a folder for video files.
+  Future<List<String>> _scanFolderForVideos(String folderPath) async {
+    final videoExtensions = {
+      '.avi', '.mov', '.mp4', '.mkv', '.mxf', '.m2v', '.mpg', '.mpeg',
+      '.ts', '.vob', '.dv', '.mts', '.m2ts', '.wmv', '.webm', '.flv',
+    };
+
+    final videoPaths = <String>[];
+    final dir = Directory(folderPath);
+
+    if (!await dir.exists()) return videoPaths;
+
+    await for (final entity in dir.list(recursive: true, followLinks: false)) {
+      if (entity is File) {
+        final ext = path.extension(entity.path).toLowerCase();
+        if (videoExtensions.contains(ext)) {
+          videoPaths.add(entity.path);
+        }
+      }
+    }
+
+    // Sort by name for consistent ordering
+    videoPaths.sort();
+    return videoPaths;
+  }
+
+  /// Build a detailed error message that includes the extraction log trail.
+  String _buildExtractionErrorMessage(String summary, List<String> log) {
+    if (log.isEmpty) return summary;
+    return '$summary\n\nExtraction log:\n${log.join('\n')}';
+  }
+
+  /// Delete the extracted temp file for a single DVD queue item.
+  void _cleanupDvdTempFile(QueueItem item) {
+    if (item.dvdSourceInfo == null) return;
+    final tempFile = File(item.dvdSourceInfo!.tempFilePath);
+    if (tempFile.existsSync()) {
+      try {
+        tempFile.deleteSync();
+      } catch (_) {
+        // Ignore cleanup errors
+      }
+    }
+  }
+
+  /// Clean up any remaining DVD temp files (called on dispose).
+  void _cleanupDvdTempFiles() {
+    for (final item in _queue) {
+      if (item.dvdSourceInfo != null) {
+        _cleanupDvdTempFile(item);
+      }
+    }
+  }
+
+  // ============================================================================
   // PRESET MANAGEMENT
   // ============================================================================
 
@@ -1229,6 +1443,17 @@ class MainViewModel extends ChangeNotifier {
     _zoomDebounceTimer?.cancel();
     _workerManager.dispose();
     _previewGenerator.dispose();
+    _cleanupDvdTempFiles();
     super.dispose();
   }
+}
+
+/// Exception thrown when a dropped folder turns out to be a DVD (VIDEO_TS).
+/// The UI catches this to show the DVD title picker instead.
+class DvdFolderDetected implements Exception {
+  final String mountPoint;
+  const DvdFolderDetected({required this.mountPoint});
+
+  @override
+  String toString() => 'DvdFolderDetected: $mountPoint';
 }

@@ -10,9 +10,11 @@ import '../models/queue_item.dart';
 import '../services/audio_compatibility_service.dart';
 import '../services/preset_service.dart';
 import '../viewmodels/main_viewmodel.dart';
+import '../services/disc_detector.dart';
 import 'about_dialog.dart' as about;
 import 'audio_compatibility_dialog.dart';
 import 'drop_zone.dart';
+import 'dvd_title_picker.dart';
 import 'overwrite_warning_dialog.dart';
 import 'pass_list/pass_list_panel.dart';
 import 'pass_settings/pass_settings_container.dart';
@@ -206,6 +208,15 @@ class MainWindow extends StatelessWidget {
             },
           ),
 
+          // Open Disc button
+          IconButton(
+            icon: const Icon(Icons.album),
+            tooltip: 'Open DVD',
+            onPressed: viewModel.isProcessing
+                ? null
+                : () => _openDvd(context, viewModel),
+          ),
+
           // About button
           IconButton(
             icon: const Icon(Icons.info_outline),
@@ -356,7 +367,13 @@ class MainWindow extends StatelessWidget {
     String statusText = 'Ready';
     bool isClickable = false;
 
-    if (viewModel.isAnalyzing) {
+    if (viewModel.isExtracting) {
+      final extracting = viewModel.queue.where(
+        (q) => q.status == QueueItemStatus.extracting,
+      ).first;
+      final pct = (extracting.extractionProgress * 100).round();
+      statusText = 'Extracting DVD title... $pct%';
+    } else if (viewModel.isAnalyzing) {
       statusText = 'Analyzing videos...';
     } else if (viewModel.isGeneratingPreview) {
       statusText = 'Generating preview... (click for log)';
@@ -395,7 +412,7 @@ class MainWindow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          if (viewModel.isProcessing || viewModel.isGeneratingPreview) ...[
+          if (viewModel.isProcessing || viewModel.isGeneratingPreview || viewModel.isExtracting) ...[
             const SizedBox(
               width: 16,
               height: 16,
@@ -553,6 +570,104 @@ class MainWindow extends StatelessWidget {
         child: const SettingsDialog(),
       ),
     );
+  }
+
+  Future<void> _openDvd(BuildContext context, MainViewModel viewModel) async {
+    final discs = await viewModel.detectDiscs();
+
+    if (!context.mounted) return;
+
+    if (discs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('No DVD discs detected'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+      return;
+    }
+
+    String mountPoint;
+    if (discs.length == 1) {
+      mountPoint = discs.first.mountPoint;
+    } else {
+      final disc = await showDialog<DvdDisc>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Select DVD'),
+          content: SizedBox(
+            width: 300,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: discs.length,
+              itemBuilder: (context, index) {
+                final disc = discs[index];
+                return ListTile(
+                  leading: const Icon(Icons.album),
+                  title: Text(disc.volumeLabel),
+                  subtitle: Text(disc.mountPoint),
+                  onTap: () => Navigator.pop(context, disc),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+      if (disc == null || !context.mounted) return;
+      mountPoint = disc.mountPoint;
+    }
+
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('Reading DVD structure...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final dvdInfo = await viewModel.getDvdInfo(mountPoint);
+
+      if (!context.mounted) return;
+      Navigator.of(context).pop(); // Close loading dialog
+
+      final result = await DvdTitlePicker.show(
+        context: context,
+        dvdInfo: dvdInfo,
+      );
+
+      if (result != null) {
+        viewModel.addDvdTitle(
+          dvdInfo: dvdInfo,
+          titleIndex: result.titleIndex,
+          startChapter: result.startChapter,
+          endChapter: result.endChapter,
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to read DVD: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
   }
 
   void _showAbout(BuildContext context) {
