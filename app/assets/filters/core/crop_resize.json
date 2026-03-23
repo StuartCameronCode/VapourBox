@@ -113,7 +113,7 @@
     },
     "targetWidth": {
       "type": "integer",
-      "default": null,
+      "default": 1920,
       "min": 320,
       "max": 7680,
       "step": 2,
@@ -128,7 +128,7 @@
     },
     "targetHeight": {
       "type": "integer",
-      "default": null,
+      "default": 1080,
       "min": 240,
       "max": 4320,
       "step": 2,

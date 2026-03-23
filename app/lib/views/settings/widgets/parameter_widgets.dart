@@ -57,17 +57,20 @@ class ParameterWidgetFactory {
   /// Build a widget, wrapping in OptionalParameterWidget if param is optional.
   /// Optional parameters show a checkbox to enable/disable them.
   /// When disabled (value is null), the parameter is not passed to VapourSynth.
+  /// [lastValue] is the user's last chosen value, restored when re-enabling.
   static Widget buildOptional({
     required String paramId,
     required ParameterDefinition param,
     required dynamic value,
     required ValueChanged<dynamic> onChanged,
+    dynamic lastValue,
   }) {
     if (param.optional == true) {
       return _OptionalParameterWidget(
         paramId: paramId,
         param: param,
         value: value,
+        lastValue: lastValue,
         onChanged: onChanged,
       );
     }
@@ -105,16 +108,36 @@ class _OptionalParameterWidget extends StatelessWidget {
   final String paramId;
   final ParameterDefinition param;
   final dynamic value; // null = disabled
+  final dynamic lastValue; // last user-chosen value (for re-enabling)
   final ValueChanged<dynamic> onChanged;
 
   const _OptionalParameterWidget({
     required this.paramId,
     required this.param,
     required this.value,
+    this.lastValue,
     required this.onChanged,
   });
 
   bool get isEnabled => value != null;
+
+  /// Get a non-null default value for enabling this parameter.
+  /// Falls back to a type-appropriate value if defaultValue is null.
+  dynamic get _enableValue {
+    if (param.defaultValue != null) return param.defaultValue;
+    switch (param.type) {
+      case ParameterType.boolean:
+        return false;
+      case ParameterType.integer:
+        return param.min?.toInt() ?? 0;
+      case ParameterType.number:
+        return param.min ?? 0.0;
+      case ParameterType.string:
+        return '';
+      case ParameterType.enumType:
+        return param.options?.first ?? '';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -135,10 +158,10 @@ class _OptionalParameterWidget extends StatelessWidget {
               visualDensity: VisualDensity.compact,
               onChanged: (checked) {
                 if (checked == true) {
-                  // Enable with default value
-                  onChanged(param.defaultValue);
+                  // Re-enable: restore last user value, or fall back to default
+                  onChanged(lastValue ?? _enableValue);
                 } else {
-                  // Disable (null)
+                  // Disable (null) — last value preserved by DynamicParameters
                   onChanged(null);
                 }
               },
@@ -161,8 +184,8 @@ class _OptionalParameterWidget extends StatelessWidget {
   }
 
   Widget _buildInnerWidget(BuildContext context, String label) {
-    // Use the actual value if enabled, otherwise use default for display
-    final displayValue = value ?? param.defaultValue;
+    // Use the actual value if enabled, otherwise use fallback for display
+    final displayValue = value ?? _enableValue;
 
     return ParameterWidgetFactory.build(
       paramId: paramId,

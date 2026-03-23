@@ -241,7 +241,7 @@
     },
     "tr0": {
       "type": "integer",
-      "default": null,
+      "default": 2,
       "optional": true,
       "min": 0,
       "max": 3,
@@ -261,7 +261,7 @@
     },
     "tr1": {
       "type": "integer",
-      "default": null,
+      "default": 2,
       "optional": true,
       "min": 0,
       "max": 3,
@@ -281,7 +281,7 @@
     },
     "tr2": {
       "type": "integer",
-      "default": null,
+      "default": 1,
       "optional": true,
       "min": 0,
       "max": 3,
@@ -301,7 +301,7 @@
     },
     "rep0": {
       "type": "integer",
-      "default": null,
+      "default": 4,
       "optional": true,
       "min": 0,
       "max": 4,
@@ -340,7 +340,7 @@
     },
     "rep2": {
       "type": "integer",
-      "default": null,
+      "default": 4,
       "optional": true,
       "min": 0,
       "max": 4,
@@ -376,7 +376,7 @@
     },
     "ediMode": {
       "type": "enum",
-      "default": null,
+      "default": "NNEDI3",
       "optional": true,
       "options": [
         "NNEDI3",
@@ -400,7 +400,7 @@
     },
     "nnSize": {
       "type": "integer",
-      "default": null,
+      "default": 1,
       "optional": true,
       "min": 0,
       "max": 6,
@@ -420,7 +420,7 @@
     },
     "nnNeurons": {
       "type": "integer",
-      "default": null,
+      "default": 1,
       "optional": true,
       "min": 0,
       "max": 4,
@@ -459,7 +459,7 @@
     },
     "ediMaxD": {
       "type": "integer",
-      "default": null,
+      "default": 8,
       "optional": true,
       "min": 1,
       "max": 24,
@@ -502,7 +502,7 @@
     },
     "blockSize": {
       "type": "integer",
-      "default": null,
+      "default": 16,
       "optional": true,
       "min": 4,
       "max": 32,
@@ -522,7 +522,7 @@
     },
     "overlap": {
       "type": "integer",
-      "default": null,
+      "default": 8,
       "optional": true,
       "min": 0,
       "max": 16,
@@ -542,7 +542,7 @@
     },
     "search": {
       "type": "integer",
-      "default": null,
+      "default": 4,
       "optional": true,
       "min": 0,
       "max": 5,
@@ -562,7 +562,7 @@
     },
     "searchParam": {
       "type": "integer",
-      "default": null,
+      "default": 2,
       "optional": true,
       "min": 0,
       "max": 128,
@@ -582,7 +582,7 @@
     },
     "pelSearch": {
       "type": "integer",
-      "default": null,
+      "default": 2,
       "optional": true,
       "min": 1,
       "max": 4,
@@ -602,7 +602,7 @@
     },
     "chromaMotion": {
       "type": "boolean",
-      "default": null,
+      "default": true,
       "optional": true,
       "vapoursynth": {
         "name": "ChromaMotion"
@@ -635,7 +635,7 @@
     },
     "lambda": {
       "type": "integer",
-      "default": null,
+      "default": 400,
       "optional": true,
       "min": 0,
       "max": 2000,
@@ -655,7 +655,7 @@
     },
     "lsad": {
       "type": "integer",
-      "default": null,
+      "default": 400,
       "optional": true,
       "min": 0,
       "max": 2000,
@@ -675,7 +675,7 @@
     },
     "pNew": {
       "type": "integer",
-      "default": null,
+      "default": 25,
       "optional": true,
       "min": 0,
       "max": 100,
@@ -695,7 +695,7 @@
     },
     "pLevel": {
       "type": "integer",
-      "default": null,
+      "default": 0,
       "optional": true,
       "min": 0,
       "max": 2,
@@ -750,7 +750,7 @@
     },
     "subPel": {
       "type": "integer",
-      "default": null,
+      "default": 2,
       "optional": true,
       "min": 1,
       "max": 4,
@@ -865,7 +865,7 @@
     },
     "sharpness": {
       "type": "number",
-      "default": null,
+      "default": 1.0,
       "optional": true,
       "min": 0.0,
       "max": 2.0,
@@ -887,7 +887,7 @@
     },
     "sMode": {
       "type": "integer",
-      "default": null,
+      "default": 2,
       "optional": true,
       "min": 0,
       "max": 2,
@@ -907,7 +907,7 @@
     },
     "slMode": {
       "type": "integer",
-      "default": null,
+      "default": 2,
       "optional": true,
       "min": 0,
       "max": 4,
@@ -927,7 +927,7 @@
     },
     "slRad": {
       "type": "integer",
-      "default": null,
+      "default": 1,
       "optional": true,
       "min": 0,
       "max": 6,
@@ -987,7 +987,7 @@
     },
     "sbb": {
       "type": "integer",
-      "default": null,
+      "default": 1,
       "optional": true,
       "min": 0,
       "max": 3,
@@ -1007,7 +1007,7 @@
     },
     "srchClipPp": {
       "type": "integer",
-      "default": null,
+      "default": 3,
       "optional": true,
       "min": 0,
       "max": 3,
@@ -1027,7 +1027,7 @@
     },
     "noiseProcess": {
       "type": "integer",
-      "default": null,
+      "default": 0,
       "optional": true,
       "min": 0,
       "max": 2,
@@ -1047,7 +1047,7 @@
     },
     "ezDenoise": {
       "type": "number",
-      "default": null,
+      "default": 0.0,
       "optional": true,
       "min": 0.0,
       "max": 5.0,
@@ -1069,7 +1069,7 @@
     },
     "ezKeepGrain": {
       "type": "number",
-      "default": null,
+      "default": 0.0,
       "optional": true,
       "min": 0.0,
       "max": 1.0,
@@ -1115,7 +1115,7 @@
     },
     "denoiser": {
       "type": "enum",
-      "default": null,
+      "default": "dfttest",
       "optional": true,
       "options": [
         "",
@@ -1158,7 +1158,7 @@
     },
     "denoiseMc": {
       "type": "boolean",
-      "default": null,
+      "default": false,
       "optional": true,
       "vapoursynth": {
         "name": "DenoiseMC"
@@ -1175,7 +1175,7 @@
     },
     "noiseTr": {
       "type": "integer",
-      "default": null,
+      "default": 1,
       "optional": true,
       "min": 0,
       "max": 3,
@@ -1195,7 +1195,7 @@
     },
     "sigma": {
       "type": "number",
-      "default": null,
+      "default": 2.0,
       "optional": true,
       "min": 0.0,
       "max": 20.0,
@@ -1254,7 +1254,7 @@
     },
     "grainRestore": {
       "type": "number",
-      "default": null,
+      "default": 0.0,
       "optional": true,
       "min": 0.0,
       "max": 1.0,
@@ -1276,7 +1276,7 @@
     },
     "noiseRestore": {
       "type": "number",
-      "default": null,
+      "default": 0.0,
       "optional": true,
       "min": 0.0,
       "max": 1.0,
@@ -1298,7 +1298,7 @@
     },
     "noiseDeint": {
       "type": "enum",
-      "default": null,
+      "default": "",
       "optional": true,
       "options": [
         "",
@@ -1321,7 +1321,7 @@
     },
     "stabilizeNoise": {
       "type": "boolean",
-      "default": null,
+      "default": false,
       "optional": true,
       "vapoursynth": {
         "name": "StabilizeNoise"
@@ -1357,7 +1357,7 @@
     },
     "matchPreset": {
       "type": "enum",
-      "default": null,
+      "default": "Fast",
       "optional": true,
       "options": [
         "",
@@ -1388,7 +1388,7 @@
     },
     "matchEdi": {
       "type": "enum",
-      "default": null,
+      "default": "NNEDI3",
       "optional": true,
       "options": [
         "",
@@ -1412,7 +1412,7 @@
     },
     "matchPreset2": {
       "type": "enum",
-      "default": null,
+      "default": "Very Fast",
       "optional": true,
       "options": [
         "",
@@ -1443,7 +1443,7 @@
     },
     "matchEdi2": {
       "type": "enum",
-      "default": null,
+      "default": "NNEDI3",
       "optional": true,
       "options": [
         "",
@@ -1542,7 +1542,7 @@
     },
     "precise": {
       "type": "boolean",
-      "default": null,
+      "default": false,
       "optional": true,
       "vapoursynth": {
         "name": "Precise"
@@ -1684,7 +1684,7 @@
     },
     "device": {
       "type": "integer",
-      "default": null,
+      "default": 0,
       "optional": true,
       "min": 0,
       "max": 10,
@@ -1834,7 +1834,7 @@
     },
     "ivtcDupthresh": {
       "type": "number",
-      "default": null,
+      "default": 1.1,
       "optional": true,
       "min": 0.0,
       "max": 100.0,
@@ -1856,7 +1856,7 @@
     },
     "ivtcScthresh": {
       "type": "number",
-      "default": null,
+      "default": 15.0,
       "optional": true,
       "min": 0.0,
       "max": 100.0,

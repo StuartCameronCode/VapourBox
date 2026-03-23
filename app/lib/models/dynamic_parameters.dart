@@ -24,11 +24,17 @@ class DynamicParameters {
   @JsonKey(defaultValue: {})
   final Set<String> enabledOptionalParams;
 
+  /// Last non-null values for optional parameters, preserved when disabled.
+  /// Used to restore the user's chosen value when re-enabling a parameter.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  final Map<String, dynamic> lastOptionalValues;
+
   const DynamicParameters({
     required this.filterId,
     this.enabled = false,
     this.values = const {},
     this.enabledOptionalParams = const {},
+    this.lastOptionalValues = const {},
   });
 
   /// Create with default values from a schema.
@@ -96,34 +102,48 @@ class DynamicParameters {
       enabled: enabled,
       values: values,
       enabledOptionalParams: enabledOptionalParams,
+      lastOptionalValues: lastOptionalValues,
     );
   }
 
   /// Create a copy with a single parameter updated.
   /// If value is null, the optional param is disabled; otherwise enabled.
+  /// When disabling, the last non-null value is preserved for re-enabling.
   DynamicParameters withValue(String key, dynamic value) {
     final newEnabledOptional = Set<String>.from(enabledOptionalParams);
+    final newLastOptional = Map<String, dynamic>.from(lastOptionalValues);
     if (value != null) {
       newEnabledOptional.add(key);
     } else {
       newEnabledOptional.remove(key);
+      // Preserve the last non-null value for re-enabling
+      final oldValue = values[key];
+      if (oldValue != null) {
+        newLastOptional[key] = oldValue;
+      }
     }
     return DynamicParameters(
       filterId: filterId,
       enabled: enabled,
       values: {...values, key: value},
       enabledOptionalParams: newEnabledOptional,
+      lastOptionalValues: newLastOptional,
     );
   }
 
   /// Create a copy with multiple parameters updated.
   DynamicParameters withValues(Map<String, dynamic> newValues) {
     final newEnabledOptional = Set<String>.from(enabledOptionalParams);
+    final newLastOptional = Map<String, dynamic>.from(lastOptionalValues);
     for (final entry in newValues.entries) {
       if (entry.value != null) {
         newEnabledOptional.add(entry.key);
       } else {
         newEnabledOptional.remove(entry.key);
+        final oldValue = values[entry.key];
+        if (oldValue != null) {
+          newLastOptional[entry.key] = oldValue;
+        }
       }
     }
     return DynamicParameters(
@@ -131,6 +151,7 @@ class DynamicParameters {
       enabled: enabled,
       values: {...values, ...newValues},
       enabledOptionalParams: newEnabledOptional,
+      lastOptionalValues: newLastOptional,
     );
   }
 

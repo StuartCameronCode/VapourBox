@@ -140,6 +140,7 @@ class DynamicFilterPanel extends StatelessWidget {
         paramId: paramId,
         param: param,
         value: value,
+        lastValue: param.optional == true ? params.lastOptionalValues[paramId] : null,
         onChanged: (newValue) {
           onChanged(params.withValue(paramId, newValue));
         },
