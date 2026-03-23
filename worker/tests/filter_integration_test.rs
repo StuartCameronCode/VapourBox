@@ -380,7 +380,6 @@ fn test_12_chroma_fix_vinverse() {
             apply_vinverse: true,
             vinverse_sstr: 2.7,
             vinverse_amnt: 255,
-            vinverse_scl: 12,
             ..ChromaFixParameters::default()
         },
         ..ProcessingPipeline::default()
@@ -601,7 +600,6 @@ fn test_20_combined_all_filters() {
             apply_vinverse: true,
             vinverse_sstr: 2.0,
             vinverse_amnt: 200,
-            vinverse_scl: 12,
             ..ChromaFixParameters::default()
         },
         crop_resize: CropResizeParameters {

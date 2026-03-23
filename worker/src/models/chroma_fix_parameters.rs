@@ -46,7 +46,7 @@ pub struct ChromaFixParameters {
     pub chroma_bleed_c_blur: f64,
 
     /// Fix strength (0.0 to 1.0).
-    #[serde(default = "default_one_f64")]
+    #[serde(default = "default_chroma_bleed_strength")]
     pub chroma_bleed_strength: f64,
 
     // --- LUTDeCrawl Parameters ---
@@ -80,20 +80,15 @@ pub struct ChromaFixParameters {
     /// Amount parameter for Vinverse (0-255).
     #[serde(default = "default_255")]
     pub vinverse_amnt: i32,
-
-    /// Scale parameter for Vinverse.
-    #[serde(default = "default_vinverse_scl")]
-    pub vinverse_scl: i32,
 }
 
 fn default_chroma_bleed_offset() -> i32 { 4 }
 fn default_chroma_bleed_blur() -> f64 { 0.7 }
-fn default_one_f64() -> f64 { 1.0 }
+fn default_chroma_bleed_strength() -> f64 { 0.8 }
 fn default_de_crawl_thresh() -> i32 { 10 }
 fn default_de_crawl_max_diff() -> i32 { 50 }
 fn default_vinverse_sstr() -> f64 { 2.7 }
 fn default_255() -> i32 { 255 }
-fn default_vinverse_scl() -> i32 { 12 }
 
 impl Default for ChromaFixParameters {
     fn default() -> Self {
@@ -104,7 +99,7 @@ impl Default for ChromaFixParameters {
             chroma_bleed_cx: default_chroma_bleed_offset(),
             chroma_bleed_cy: default_chroma_bleed_offset(),
             chroma_bleed_c_blur: default_chroma_bleed_blur(),
-            chroma_bleed_strength: default_one_f64(),
+            chroma_bleed_strength: default_chroma_bleed_strength(),
             apply_de_crawl: false,
             de_crawl_y_thresh: default_de_crawl_thresh(),
             de_crawl_c_thresh: default_de_crawl_thresh(),
@@ -112,7 +107,6 @@ impl Default for ChromaFixParameters {
             apply_vinverse: false,
             vinverse_sstr: default_vinverse_sstr(),
             vinverse_amnt: default_255(),
-            vinverse_scl: default_vinverse_scl(),
         }
     }
 }

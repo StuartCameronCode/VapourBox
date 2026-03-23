@@ -301,7 +301,6 @@ class ParameterConverter {
         'applyVinverse': params.applyVinverse,
         'vinverseSstr': params.vinverseSstr,
         'vinverseAmnt': params.vinverseAmnt,
-        'vinverseScl': params.vinverseScl,
       },
     );
   }
@@ -641,7 +640,6 @@ class ParameterConverter {
       applyVinverse: v['applyVinverse'] as bool? ?? false,
       vinverseSstr: (v['vinverseSstr'] as num?)?.toDouble() ?? 2.7,
       vinverseAmnt: v['vinverseAmnt'] as int? ?? 255,
-      vinverseScl: v['vinverseScl'] as int? ?? 12,
     );
   }
 

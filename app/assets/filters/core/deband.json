@@ -30,7 +30,7 @@
     },
     "range": {
       "type": "integer",
-      "default": 20,
+      "default": 15,
       "min": 1,
       "max": 31,
       "step": 1,
@@ -44,7 +44,7 @@
     },
     "y": {
       "type": "integer",
-      "default": 48,
+      "default": 64,
       "min": 0,
       "max": 127,
       "step": 1,
@@ -58,7 +58,7 @@
     },
     "cb": {
       "type": "integer",
-      "default": 48,
+      "default": 64,
       "min": 0,
       "max": 127,
       "step": 1,
@@ -72,7 +72,7 @@
     },
     "cr": {
       "type": "integer",
-      "default": 48,
+      "default": 64,
       "min": 0,
       "max": 127,
       "step": 1,
@@ -86,7 +86,7 @@
     },
     "grainY": {
       "type": "integer",
-      "default": 12,
+      "default": 0,
       "min": 0,
       "max": 127,
       "step": 1,
@@ -100,7 +100,7 @@
     },
     "grainC": {
       "type": "integer",
-      "default": 8,
+      "default": 0,
       "min": 0,
       "max": 127,
       "step": 1,
@@ -114,7 +114,7 @@
     },
     "dynamicGrain": {
       "type": "boolean",
-      "default": true,
+      "default": false,
       "optional": true,
       "vapoursynth": { "name": "dynamic_grain" },
       "ui": {

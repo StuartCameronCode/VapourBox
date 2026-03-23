@@ -68,9 +68,6 @@ class ChromaFixParameters {
   /// Amount parameter for Vinverse (0-255).
   final int vinverseAmnt;
 
-  /// Scale parameter for Vinverse.
-  final int vinverseScl;
-
   const ChromaFixParameters({
     this.enabled = false,
     this.preset = ChromaFixPreset.off,
@@ -79,7 +76,7 @@ class ChromaFixParameters {
     this.chromaBleedCx = 4,
     this.chromaBleedCy = 4,
     this.chromaBleedCBlur = 0.7,
-    this.chromaBleedStrength = 1.0,
+    this.chromaBleedStrength = 0.8,
     // LUTDeCrawl defaults
     this.applyDeCrawl = false,
     this.deCrawlYThresh = 10,
@@ -89,7 +86,6 @@ class ChromaFixParameters {
     this.applyVinverse = false,
     this.vinverseSstr = 2.7,
     this.vinverseAmnt = 255,
-    this.vinverseScl = 12,
   });
 
   /// Create parameters from a preset.
@@ -151,7 +147,6 @@ class ChromaFixParameters {
     bool? applyVinverse,
     double? vinverseSstr,
     int? vinverseAmnt,
-    int? vinverseScl,
   }) {
     return ChromaFixParameters(
       enabled: enabled ?? this.enabled,
@@ -168,7 +163,6 @@ class ChromaFixParameters {
       applyVinverse: applyVinverse ?? this.applyVinverse,
       vinverseSstr: vinverseSstr ?? this.vinverseSstr,
       vinverseAmnt: vinverseAmnt ?? this.vinverseAmnt,
-      vinverseScl: vinverseScl ?? this.vinverseScl,
     );
   }
 

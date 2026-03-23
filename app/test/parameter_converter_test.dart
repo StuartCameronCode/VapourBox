@@ -275,7 +275,6 @@ void main() {
           applyVinverse: true,
           vinverseSstr: 2.5,
           vinverseAmnt: 200,
-          vinverseScl: 15,
         );
         final dynamic = ParameterConverter.fromChromaFixes(params);
 
