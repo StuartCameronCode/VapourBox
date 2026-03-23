@@ -507,7 +507,7 @@
       "min": 4,
       "max": 32,
       "vapoursynth": {
-        "name": "BlockSize"
+        "name": "Blocksize"
       },
       "ui": {
         "label": "Block Size",
@@ -992,7 +992,7 @@
       "min": 0,
       "max": 3,
       "vapoursynth": {
-        "name": "SBB"
+        "name": "Sbb"
       },
       "ui": {
         "label": "SBB",
@@ -1689,7 +1689,7 @@
       "min": 0,
       "max": 10,
       "vapoursynth": {
-        "name": "Device"
+        "name": "device"
       },
       "ui": {
         "label": "Device",
