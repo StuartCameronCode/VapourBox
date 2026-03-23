@@ -375,6 +375,11 @@ impl ScriptGenerator {
                     script = process_optional_bool("BORDER", params.border, script);
                     script = process_optional_bool("PRECISE", params.precise, script);
                     script = process_optional_int("FORCE_TR", params.force_tr, script);
+                    script = process_optional_double("STR", params.str, script);
+                    script = process_optional_double("AMP", params.amp, script);
+                    script = process_optional_bool("FAST_MA", params.fast_ma, script);
+                    script = process_optional_bool("E_SEARCH_P", params.e_search_p, script);
+                    script = process_optional_bool("REFINE_MOTION", params.refine_motion, script);
 
                     // GPU — default to OpenCL on macOS where ZNEDI3/NNEDI3
                     // lack NEON optimisations and run pure scalar C.

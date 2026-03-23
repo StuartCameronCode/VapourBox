@@ -271,6 +271,21 @@ clip = haf.QTGMC(
 {{#FORCE_TR}}
     ForceTR={{FORCE_TR}},
 {{/FORCE_TR}}
+{{#STR}}
+    Str={{STR}},
+{{/STR}}
+{{#AMP}}
+    Amp={{AMP}},
+{{/AMP}}
+{{#FAST_MA}}
+    FastMA={{FAST_MA}},
+{{/FAST_MA}}
+{{#E_SEARCH_P}}
+    ESearchP={{E_SEARCH_P}},
+{{/E_SEARCH_P}}
+{{#REFINE_MOTION}}
+    RefineMotion={{REFINE_MOTION}},
+{{/REFINE_MOTION}}
 {{#OPENCL}}
     opencl={{OPENCL}},
 {{/OPENCL}}
