@@ -369,6 +369,9 @@ clip = haf.SMDegrain(
 # MCTemporalDenoise noise reduction
 clip = haf.MCTemporalDenoise(
     clip,
+{{#NR_SETTINGS}}
+    settings="{{NR_SETTINGS}}",
+{{/NR_SETTINGS}}
 {{#NR_SIGMA}}
     sigma={{NR_SIGMA}},
 {{/NR_SIGMA}}

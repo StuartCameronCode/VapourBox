@@ -48,14 +48,6 @@ class DeblockParameters {
   /// Analyze planes offset 2.
   final int aOffset2;
 
-  // --- Deblock parameters ---
-
-  /// Block size (4 or 8).
-  final int blockSize;
-
-  /// Overlap amount (0-half of blockSize).
-  final int overlap;
-
   const DeblockParameters({
     this.enabled = false,
     this.method = DeblockMethod.deblockQed,
@@ -63,8 +55,6 @@ class DeblockParameters {
     this.quant2 = 26,
     this.aOffset1 = 1,
     this.aOffset2 = 1,
-    this.blockSize = 8,
-    this.overlap = 4,
   });
 
   DeblockParameters copyWith({
@@ -74,8 +64,6 @@ class DeblockParameters {
     int? quant2,
     int? aOffset1,
     int? aOffset2,
-    int? blockSize,
-    int? overlap,
   }) {
     return DeblockParameters(
       enabled: enabled ?? this.enabled,
@@ -84,8 +72,6 @@ class DeblockParameters {
       quant2: quant2 ?? this.quant2,
       aOffset1: aOffset1 ?? this.aOffset1,
       aOffset2: aOffset2 ?? this.aOffset2,
-      blockSize: blockSize ?? this.blockSize,
-      overlap: overlap ?? this.overlap,
     );
   }
 
@@ -95,7 +81,7 @@ class DeblockParameters {
     if (method == DeblockMethod.deblockQed) {
       return 'QED ($quant1/$quant2)';
     } else {
-      return 'Deblock (${blockSize}x$blockSize)';
+      return 'Deblock ($quant1)';
     }
   }
 

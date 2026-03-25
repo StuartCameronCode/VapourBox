@@ -163,6 +163,38 @@
         "widget": "slider",
         "visibleWhen": { "method": ["mc_temporal_denoise"] }
       }
+    },
+    "qtgmcEzDenoise": {
+      "type": "number",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 5.0,
+      "step": 0.1,
+      "optional": true,
+      "vapoursynth": { "name": "EZDenoise" },
+      "ui": {
+        "label": "EZ Denoise",
+        "description": "QTGMC easy denoise strength (0 = off, 2-4 for VHS)",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": { "method": ["qtgmc_builtin"] }
+      }
+    },
+    "qtgmcEzKeepGrain": {
+      "type": "number",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.1,
+      "optional": true,
+      "vapoursynth": { "name": "EZKeepGrain" },
+      "ui": {
+        "label": "EZ Keep Grain",
+        "description": "Amount of grain to preserve (0 = remove all)",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": { "method": ["qtgmc_builtin"] }
+      }
     }
   },
 
@@ -176,6 +208,11 @@
       {
         "title": "MCTemporalDenoise Settings",
         "parameters": ["mcTemporalProfile", "mcTemporalSigma", "mcTemporalRadius"],
+        "expanded": true
+      },
+      {
+        "title": "QTGMC Built-in Settings",
+        "parameters": ["qtgmcEzDenoise", "qtgmcEzKeepGrain"],
         "expanded": true
       }
     ]

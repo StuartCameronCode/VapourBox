@@ -345,9 +345,21 @@ impl ScriptGenerator {
                     script = process_optional_int("SRCH_CLIP_PP", params.srch_clip_pp, script);
 
                     // Noise processing
+                    // When noise reduction is set to QTGMC built-in, use the noise
+                    // reduction model's values (which the user set in the NR panel)
+                    // instead of the QTGMC model's values.
+                    let nr = &pipeline.noise_reduction;
+                    let (ez_denoise, ez_keep_grain) = if nr.enabled
+                        && nr.method == NoiseReductionMethod::QtgmcBuiltin
+                        && (nr.qtgmc_ez_denoise > 0.0 || nr.qtgmc_ez_keep_grain > 0.0)
+                    {
+                        (Some(nr.qtgmc_ez_denoise), Some(nr.qtgmc_ez_keep_grain))
+                    } else {
+                        (params.ez_denoise, params.ez_keep_grain)
+                    };
                     script = process_optional_int("NOISE_PROCESS", params.noise_process, script);
-                    script = process_optional_double("EZ_DENOISE", params.ez_denoise, script);
-                    script = process_optional_double("EZ_KEEP_GRAIN", params.ez_keep_grain, script);
+                    script = process_optional_double("EZ_DENOISE", ez_denoise, script);
+                    script = process_optional_double("EZ_KEEP_GRAIN", ez_keep_grain, script);
                     script = process_optional_string("NOISE_PRESET", params.noise_preset.as_deref(), script);
                     script = process_optional_string("DENOISER", params.denoiser.as_deref(), script);
                     script = process_optional_int("FFT_THREADS", params.fft_threads, script);
@@ -477,6 +489,7 @@ impl ScriptGenerator {
                     script = script.replace("{{/NR_MCTD}}", "");
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
 
+                    script = process_optional_string("NR_SETTINGS", Some(&nr.mc_temporal_profile), script);
                     script = process_optional_double("NR_SIGMA", Some(nr.mc_temporal_sigma), script);
                     script = process_optional_int("NR_RADIUS", Some(nr.mc_temporal_radius), script);
                 }

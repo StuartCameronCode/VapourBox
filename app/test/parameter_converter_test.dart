@@ -113,14 +113,12 @@ void main() {
         const params = DeblockParameters(
           enabled: true,
           method: DeblockMethod.deblock,
-          blockSize: 8,
-          overlap: 4,
+          quant1: 20,
         );
         final dynamic = ParameterConverter.fromDeblock(params);
 
         expect(dynamic.values['method'], 'deblock');
-        expect(dynamic.values['blockSize'], 8);
-        expect(dynamic.values['overlap'], 4);
+        expect(dynamic.values['quant1'], 20);
       });
     });
 

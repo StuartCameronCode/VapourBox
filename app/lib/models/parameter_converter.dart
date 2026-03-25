@@ -210,8 +210,6 @@ class ParameterConverter {
         'quant2': params.quant2,
         'aOffset1': params.aOffset1,
         'aOffset2': params.aOffset2,
-        'blockSize': params.blockSize,
-        'overlap': params.overlap,
       },
     );
   }
@@ -559,8 +557,6 @@ class ParameterConverter {
       quant2: v['quant2'] as int? ?? 26,
       aOffset1: v['aOffset1'] as int? ?? 1,
       aOffset2: v['aOffset2'] as int? ?? 1,
-      blockSize: v['blockSize'] as int? ?? 8,
-      overlap: v['overlap'] as int? ?? 4,
     );
   }
 
