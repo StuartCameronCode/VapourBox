@@ -91,7 +91,7 @@ class NoiseReductionParameters {
     // MCTemporalDenoise defaults
     this.mcTemporalSigma = 4.0,
     this.mcTemporalRadius = 2,
-    this.mcTemporalProfile = 'fast',
+    this.mcTemporalProfile = 'medium',
     // QTGMC built-in defaults
     this.qtgmcEzDenoise = 0.0,
     this.qtgmcEzKeepGrain = 0.0,

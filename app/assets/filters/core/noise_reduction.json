@@ -19,14 +19,14 @@
       "name": "SMDegrain",
       "description": "Motion-compensated denoising - excellent quality",
       "function": "haf.SMDegrain",
-      "parameters": ["smDegrainTr", "smDegrainThSad", "smDegrainThSadc", "smDegrainRefine", "smDegrainPrefilter"]
+      "parameters": ["smDegrainTr", "smDegrainThSAD", "smDegrainThSADC", "smDegrainRefine", "smDegrainPrefilter"]
     },
     {
-      "id": "mctemporal",
+      "id": "mc_temporal_denoise",
       "name": "MCTemporalDenoise",
       "description": "Advanced temporal denoising - best for heavy noise",
       "function": "haf.MCTemporalDenoise",
-      "parameters": ["mcTemporalSettings", "mcTemporalSigma"]
+      "parameters": ["mcTemporalProfile", "mcTemporalSigma", "mcTemporalRadius"]
     },
     {
       "id": "qtgmc_builtin",
@@ -46,7 +46,7 @@
     "method": {
       "type": "enum",
       "default": "smdegrain",
-      "options": ["smdegrain", "mctemporal", "qtgmc_builtin"],
+      "options": ["smdegrain", "mc_temporal_denoise", "qtgmc_builtin"],
       "ui": { "hidden": true }
     },
     "smDegrainTr": {
@@ -64,7 +64,7 @@
         "visibleWhen": { "method": ["smdegrain"] }
       }
     },
-    "smDegrainThSad": {
+    "smDegrainThSAD": {
       "type": "integer",
       "default": 300,
       "min": 0,
@@ -79,7 +79,7 @@
         "visibleWhen": { "method": ["smdegrain"] }
       }
     },
-    "smDegrainThSadc": {
+    "smDegrainThSADC": {
       "type": "integer",
       "default": 150,
       "min": 0,
@@ -96,7 +96,7 @@
     },
     "smDegrainRefine": {
       "type": "boolean",
-      "default": false,
+      "default": true,
       "optional": true,
       "vapoursynth": { "name": "RefineMotion" },
       "ui": {
@@ -107,7 +107,7 @@
     },
     "smDegrainPrefilter": {
       "type": "integer",
-      "default": -1,
+      "default": 2,
       "min": -1,
       "max": 3,
       "step": 1,
@@ -120,9 +120,9 @@
         "visibleWhen": { "method": ["smdegrain"] }
       }
     },
-    "mcTemporalSettings": {
+    "mcTemporalProfile": {
       "type": "enum",
-      "default": "high",
+      "default": "medium",
       "options": ["very high", "high", "medium", "low", "very low"],
       "optional": true,
       "vapoursynth": { "name": "settings" },
@@ -130,7 +130,7 @@
         "label": "Settings",
         "description": "Quality preset",
         "widget": "dropdown",
-        "visibleWhen": { "method": ["mctemporal"] }
+        "visibleWhen": { "method": ["mc_temporal_denoise"] }
       }
     },
     "mcTemporalSigma": {
@@ -146,7 +146,22 @@
         "description": "Noise sigma estimate",
         "widget": "slider",
         "precision": 1,
-        "visibleWhen": { "method": ["mctemporal"] }
+        "visibleWhen": { "method": ["mc_temporal_denoise"] }
+      }
+    },
+    "mcTemporalRadius": {
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 4,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": { "name": "radius" },
+      "ui": {
+        "label": "Temporal Radius",
+        "description": "Number of frames to use for temporal denoising",
+        "widget": "slider",
+        "visibleWhen": { "method": ["mc_temporal_denoise"] }
       }
     }
   },
@@ -155,12 +170,12 @@
     "sections": [
       {
         "title": "SMDegrain Settings",
-        "parameters": ["smDegrainTr", "smDegrainThSad", "smDegrainThSadc", "smDegrainRefine", "smDegrainPrefilter"],
+        "parameters": ["smDegrainTr", "smDegrainThSAD", "smDegrainThSADC", "smDegrainRefine", "smDegrainPrefilter"],
         "expanded": true
       },
       {
         "title": "MCTemporalDenoise Settings",
-        "parameters": ["mcTemporalSettings", "mcTemporalSigma"],
+        "parameters": ["mcTemporalProfile", "mcTemporalSigma", "mcTemporalRadius"],
         "expanded": true
       }
     ]

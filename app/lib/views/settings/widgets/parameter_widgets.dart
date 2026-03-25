@@ -276,6 +276,11 @@ class _DropdownParameterWidget extends StatelessWidget {
     final options = param.options ?? [];
     final stringValue = value?.toString() ?? param.defaultValue?.toString() ?? '';
     final label = param.ui?.label ?? _formatParamName(paramId);
+    // Case-insensitive match: find the canonical option that matches the value
+    final matchedOption = options.cast<String?>().firstWhere(
+      (o) => o?.toLowerCase() == stringValue.toLowerCase(),
+      orElse: () => null,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -283,7 +288,7 @@ class _DropdownParameterWidget extends StatelessWidget {
         Text(label, style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          value: options.contains(stringValue) ? stringValue : options.firstOrNull,
+          value: matchedOption ?? options.firstOrNull,
           isExpanded: true,
           decoration: const InputDecoration(
             border: OutlineInputBorder(),

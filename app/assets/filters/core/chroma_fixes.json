@@ -25,7 +25,7 @@
       "name": "Vinverse",
       "description": "Remove combing/interlacing artifacts from chroma",
       "function": "haf.Vinverse",
-      "parameters": ["vinverseSstr", "vinverseAmnt", "vinverseScl"]
+      "parameters": ["vinverseSstr", "vinverseAmnt"]
     },
     {
       "id": "lut_decrawl",
@@ -87,7 +87,7 @@
       "max": 2.0,
       "step": 0.1,
       "optional": true,
-      "vapoursynth": { "name": "cblur" },
+      "vapoursynth": { "name": "thr" },
       "ui": {
         "label": "Chroma Blur",
         "description": "Chroma blur strength",

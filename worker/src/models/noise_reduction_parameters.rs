@@ -94,7 +94,7 @@ fn default_true() -> bool { true }
 fn default_sm_degrain_prefilter() -> i32 { 2 }
 fn default_mc_temporal_sigma() -> f64 { 4.0 }
 fn default_mc_temporal_radius() -> i32 { 2 }
-fn default_mc_temporal_profile() -> String { "fast".to_string() }
+fn default_mc_temporal_profile() -> String { "medium".to_string() }
 
 impl Default for NoiseReductionParameters {
     fn default() -> Self {

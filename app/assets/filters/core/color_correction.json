@@ -88,7 +88,17 @@
         "precision": 0
       }
     },
-    "levelsEnabled": {
+    "coring": {
+      "type": "boolean",
+      "default": false,
+      "optional": true,
+      "vapoursynth": { "name": "coring" },
+      "ui": {
+        "label": "Coring",
+        "description": "Clamp output to TV range (16-235)"
+      }
+    },
+    "applyLevels": {
       "type": "boolean",
       "default": false,
       "ui": {
@@ -96,9 +106,9 @@
         "description": "Enable input/output level adjustments"
       }
     },
-    "inputBlack": {
+    "inputLow": {
       "type": "integer",
-      "default": 16,
+      "default": 0,
       "min": 0,
       "max": 255,
       "step": 1,
@@ -108,12 +118,12 @@
         "label": "Input Black",
         "description": "Input black level",
         "widget": "slider",
-        "visibleWhen": { "levelsEnabled": true }
+        "visibleWhen": { "applyLevels": true }
       }
     },
-    "inputWhite": {
+    "inputHigh": {
       "type": "integer",
-      "default": 235,
+      "default": 255,
       "min": 0,
       "max": 255,
       "step": 1,
@@ -123,12 +133,12 @@
         "label": "Input White",
         "description": "Input white level",
         "widget": "slider",
-        "visibleWhen": { "levelsEnabled": true }
+        "visibleWhen": { "applyLevels": true }
       }
     },
-    "outputBlack": {
+    "outputLow": {
       "type": "integer",
-      "default": 16,
+      "default": 0,
       "min": 0,
       "max": 255,
       "step": 1,
@@ -138,12 +148,12 @@
         "label": "Output Black",
         "description": "Output black level",
         "widget": "slider",
-        "visibleWhen": { "levelsEnabled": true }
+        "visibleWhen": { "applyLevels": true }
       }
     },
-    "outputWhite": {
+    "outputHigh": {
       "type": "integer",
-      "default": 235,
+      "default": 255,
       "min": 0,
       "max": 255,
       "step": 1,
@@ -153,7 +163,7 @@
         "label": "Output White",
         "description": "Output white level",
         "widget": "slider",
-        "visibleWhen": { "levelsEnabled": true }
+        "visibleWhen": { "applyLevels": true }
       }
     },
     "gamma": {
@@ -169,7 +179,7 @@
         "description": "Gamma correction",
         "widget": "slider",
         "precision": 1,
-        "visibleWhen": { "levelsEnabled": true }
+        "visibleWhen": { "applyLevels": true }
       }
     }
   },
@@ -178,12 +188,12 @@
     "sections": [
       {
         "title": "Basic Adjustments",
-        "parameters": ["brightness", "contrast", "saturation", "hue"],
+        "parameters": ["brightness", "contrast", "saturation", "hue", "coring"],
         "expanded": true
       },
       {
         "title": "Levels",
-        "parameters": ["levelsEnabled", "inputBlack", "inputWhite", "outputBlack", "outputWhite", "gamma"],
+        "parameters": ["applyLevels", "inputLow", "inputHigh", "outputLow", "outputHigh", "gamma"],
         "expanded": false
       }
     ]

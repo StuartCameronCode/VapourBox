@@ -25,7 +25,7 @@
       "name": "NNEDI3 2x Upscale",
       "description": "High-quality 2x upscale using neural network interpolation",
       "function": "core.znedi3.nnedi3",
-      "parameters": ["upscaleTarget"]
+      "parameters": ["upscaleFactor"]
     }
   ],
 
@@ -143,8 +143,8 @@
     },
     "kernel": {
       "type": "enum",
-      "default": "Spline36",
-      "options": ["Bilinear", "Bicubic", "Point", "Lanczos", "Spline16", "Spline36", "Spline64"],
+      "default": "spline36",
+      "options": ["bilinear", "bicubic", "lanczos", "spline36"],
       "optional": true,
       "vapoursynth": { "name": "kernel" },
       "ui": {
@@ -163,7 +163,7 @@
         "visibleWhen": { "resizeEnabled": true }
       }
     },
-    "upscaleEnabled": {
+    "useIntegerUpscale": {
       "type": "boolean",
       "default": false,
       "ui": {
@@ -173,26 +173,28 @@
     },
     "upscaleMethod": {
       "type": "enum",
-      "default": "nnedi3_2x",
-      "options": ["nnedi3_2x", "nnedi3_4x"],
+      "default": "nnedi3Rpow2",
+      "options": ["nnedi3Rpow2", "eedi3Rpow2", "spline36"],
       "optional": true,
       "ui": {
         "label": "Upscale Method",
         "description": "Upscaling method and factor",
         "widget": "dropdown",
-        "visibleWhen": { "upscaleEnabled": true }
+        "visibleWhen": { "useIntegerUpscale": true }
       }
     },
-    "upscaleTarget": {
-      "type": "enum",
-      "default": "1080p",
-      "options": ["720p", "1080p", "1440p", "4K"],
+    "upscaleFactor": {
+      "type": "integer",
+      "default": 2,
+      "min": 2,
+      "max": 4,
+      "step": 2,
       "optional": true,
       "ui": {
-        "label": "Target Resolution",
-        "description": "Target upscale resolution",
-        "widget": "dropdown",
-        "visibleWhen": { "upscaleEnabled": true }
+        "label": "Upscale Factor",
+        "description": "Integer upscale multiplier (2x or 4x)",
+        "widget": "slider",
+        "visibleWhen": { "useIntegerUpscale": true }
       }
     }
   },
@@ -237,7 +239,7 @@
       },
       {
         "title": "Upscale (NNEDI3)",
-        "parameters": ["upscaleEnabled", "upscaleMethod", "upscaleTarget"],
+        "parameters": ["useIntegerUpscale", "upscaleMethod", "upscaleFactor"],
         "expanded": false,
         "advancedOnly": true
       }

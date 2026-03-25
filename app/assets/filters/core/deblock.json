@@ -78,7 +78,7 @@
       "max": 4,
       "step": 1,
       "optional": true,
-      "vapoursynth": { "name": "aOffset1" },
+      "vapoursynth": { "name": "aOff1" },
       "ui": {
         "label": "Alpha Offset 1",
         "description": "Luma alpha offset for edge detection",
@@ -93,7 +93,7 @@
       "max": 4,
       "step": 1,
       "optional": true,
-      "vapoursynth": { "name": "aOffset2" },
+      "vapoursynth": { "name": "aOff2" },
       "ui": {
         "label": "Alpha Offset 2",
         "description": "Chroma alpha offset for edge detection",
