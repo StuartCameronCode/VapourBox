@@ -982,6 +982,10 @@ void main() {
           model.mcTemporalRadius);
       expect(schema.parameters['mcTemporalProfile']!.defaultValue,
           model.mcTemporalProfile);
+      expect(schema.parameters['qtgmcEzDenoise']!.defaultValue,
+          model.qtgmcEzDenoise);
+      expect(schema.parameters['qtgmcEzKeepGrain']!.defaultValue,
+          model.qtgmcEzKeepGrain);
     });
 
     test('chroma_fixes: schema defaults match model defaults', () {
@@ -1010,6 +1014,7 @@ void main() {
       expect(schema.parameters['contrast']!.defaultValue, model.contrast);
       expect(schema.parameters['saturation']!.defaultValue, model.saturation);
       expect(schema.parameters['hue']!.defaultValue, model.hue);
+      expect(schema.parameters['coring']!.defaultValue, model.coring);
       expect(schema.parameters['gamma']!.defaultValue, model.gamma);
       expect(schema.parameters['applyLevels']!.defaultValue, model.applyLevels);
       expect(schema.parameters['inputLow']!.defaultValue, model.inputLow);
