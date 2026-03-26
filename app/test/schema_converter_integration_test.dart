@@ -454,6 +454,203 @@ void main() {
   group('Round-trip preservation', () {
     /// Convert typed → dynamic → typed and verify values survive.
 
+    test('deinterlace QTGMC round-trip preserves all values', () {
+      const original = QTGMCParameters(
+        enabled: true,
+        method: DeinterlaceMethod.qtgmc,
+        preset: QTGMCPreset.verySlow,
+        tff: false,
+        fpsDivisor: 2,
+        inputType: 1,
+        tr0: 3,
+        tr1: 2,
+        tr2: 1,
+        rep0: 3,
+        rep1: 1,
+        rep2: 3,
+        repChroma: false,
+        ediMode: 'EEDI3+NNEDI3',
+        ediQual: 2,
+        nnSize: 3,
+        nnNeurons: 2,
+        ediMaxD: 12,
+        chromaEdi: 'Bob',
+        sharpness: 0.8,
+        sMode: 1,
+        slMode: 3,
+        slRad: 2,
+        sOvs: 10,
+        svThin: 0.5,
+        sbb: 2,
+        srchClipPp: 2,
+        sourceMatch: 2,
+        matchPreset: 'Slow',
+        matchEdi: 'EEDI3',
+        matchPreset2: 'Fast',
+        matchEdi2: 'NNEDI3',
+        matchTr2: 2,
+        matchEnhance: 0.3,
+        lossless: 1,
+        noiseProcess: 1,
+        ezDenoise: 1.5,
+        ezKeepGrain: 0.4,
+        noisePreset: 'Slow',
+        denoiser: 'fft3dfilter',
+        fftThreads: 4,
+        denoiseMc: true,
+        noiseTr: 2,
+        sigma: 5.0,
+        chromaNoise: true,
+        showNoise: 0.5,
+        grainRestore: 0.3,
+        noiseRestore: 0.2,
+        noiseDeint: 'Bob',
+        stabilizeNoise: true,
+        chromaMotion: false,
+        trueMotion: true,
+        blockSize: 8,
+        overlap: 4,
+        search: 3,
+        searchParam: 5,
+        pelSearch: 2,
+        lambda: 500,
+        lsad: 600,
+        pNew: 30,
+        pLevel: 1,
+        globalMotion: false,
+        dct: 1,
+        subPel: 4,
+        subPelInterp: 1,
+        thSad1: 700,
+        thSad2: 300,
+        thScd1: 200,
+        thScd2: 120,
+        border: true,
+        precise: true,
+        forceTr: 2,
+        str: 3.0,
+        amp: 0.125,
+        fastMa: true,
+        eSearchP: true,
+        refineMotion: true,
+        opencl: true,
+        device: 1,
+      );
+
+      final dynamic = ParameterConverter.fromQTGMC(original);
+      final restored = ParameterConverter.toQTGMC(dynamic);
+
+      expect(restored.enabled, original.enabled);
+      expect(restored.method, original.method);
+      expect(restored.preset, original.preset);
+      expect(restored.tff, original.tff);
+      expect(restored.fpsDivisor, original.fpsDivisor);
+      expect(restored.inputType, original.inputType);
+      expect(restored.tr0, original.tr0);
+      expect(restored.tr1, original.tr1);
+      expect(restored.tr2, original.tr2);
+      expect(restored.rep0, original.rep0);
+      expect(restored.rep1, original.rep1);
+      expect(restored.rep2, original.rep2);
+      expect(restored.repChroma, original.repChroma);
+      expect(restored.ediMode, original.ediMode);
+      expect(restored.ediQual, original.ediQual);
+      expect(restored.nnSize, original.nnSize);
+      expect(restored.nnNeurons, original.nnNeurons);
+      expect(restored.ediMaxD, original.ediMaxD);
+      expect(restored.chromaEdi, original.chromaEdi);
+      expect(restored.sharpness, original.sharpness);
+      expect(restored.sMode, original.sMode);
+      expect(restored.slMode, original.slMode);
+      expect(restored.slRad, original.slRad);
+      expect(restored.sOvs, original.sOvs);
+      expect(restored.svThin, original.svThin);
+      expect(restored.sbb, original.sbb);
+      expect(restored.srchClipPp, original.srchClipPp);
+      expect(restored.sourceMatch, original.sourceMatch);
+      expect(restored.matchPreset, original.matchPreset);
+      expect(restored.matchEdi, original.matchEdi);
+      expect(restored.matchPreset2, original.matchPreset2);
+      expect(restored.matchEdi2, original.matchEdi2);
+      expect(restored.matchTr2, original.matchTr2);
+      expect(restored.matchEnhance, original.matchEnhance);
+      expect(restored.lossless, original.lossless);
+      expect(restored.noiseProcess, original.noiseProcess);
+      expect(restored.ezDenoise, original.ezDenoise);
+      expect(restored.ezKeepGrain, original.ezKeepGrain);
+      expect(restored.noisePreset, original.noisePreset);
+      expect(restored.denoiser, original.denoiser);
+      expect(restored.fftThreads, original.fftThreads);
+      expect(restored.denoiseMc, original.denoiseMc);
+      expect(restored.noiseTr, original.noiseTr);
+      expect(restored.sigma, original.sigma);
+      expect(restored.chromaNoise, original.chromaNoise);
+      expect(restored.showNoise, original.showNoise);
+      expect(restored.grainRestore, original.grainRestore);
+      expect(restored.noiseRestore, original.noiseRestore);
+      expect(restored.noiseDeint, original.noiseDeint);
+      expect(restored.stabilizeNoise, original.stabilizeNoise);
+      expect(restored.chromaMotion, original.chromaMotion);
+      expect(restored.trueMotion, original.trueMotion);
+      expect(restored.blockSize, original.blockSize);
+      expect(restored.overlap, original.overlap);
+      expect(restored.search, original.search);
+      expect(restored.searchParam, original.searchParam);
+      expect(restored.pelSearch, original.pelSearch);
+      expect(restored.lambda, original.lambda);
+      expect(restored.lsad, original.lsad);
+      expect(restored.pNew, original.pNew);
+      expect(restored.pLevel, original.pLevel);
+      expect(restored.globalMotion, original.globalMotion);
+      expect(restored.dct, original.dct);
+      expect(restored.subPel, original.subPel);
+      expect(restored.subPelInterp, original.subPelInterp);
+      expect(restored.thSad1, original.thSad1);
+      expect(restored.thSad2, original.thSad2);
+      expect(restored.thScd1, original.thScd1);
+      expect(restored.thScd2, original.thScd2);
+      expect(restored.border, original.border);
+      expect(restored.precise, original.precise);
+      expect(restored.forceTr, original.forceTr);
+      expect(restored.str, original.str);
+      expect(restored.amp, original.amp);
+      expect(restored.fastMa, original.fastMa);
+      expect(restored.eSearchP, original.eSearchP);
+      expect(restored.refineMotion, original.refineMotion);
+      expect(restored.opencl, original.opencl);
+      expect(restored.device, original.device);
+    });
+
+    test('deinterlace IVTC round-trip preserves all values', () {
+      const original = QTGMCParameters(
+        enabled: true,
+        method: DeinterlaceMethod.ivtc,
+        ivtcOrder: 0,
+        ivtcMode: 3,
+        ivtcCthresh: 12,
+        ivtcMi: 100,
+        ivtcBlockX: 32,
+        ivtcBlockY: 32,
+        ivtcCycle: 5,
+        ivtcDupthresh: 1.5,
+        ivtcScthresh: 15.0,
+      );
+
+      final dynamic = ParameterConverter.fromQTGMC(original);
+      final restored = ParameterConverter.toQTGMC(dynamic);
+
+      expect(restored.method, original.method);
+      expect(restored.ivtcOrder, original.ivtcOrder);
+      expect(restored.ivtcMode, original.ivtcMode);
+      expect(restored.ivtcCthresh, original.ivtcCthresh);
+      expect(restored.ivtcMi, original.ivtcMi);
+      expect(restored.ivtcBlockX, original.ivtcBlockX);
+      expect(restored.ivtcBlockY, original.ivtcBlockY);
+      expect(restored.ivtcCycle, original.ivtcCycle);
+      expect(restored.ivtcDupthresh, original.ivtcDupthresh);
+      expect(restored.ivtcScthresh, original.ivtcScthresh);
+    });
+
     test('noise_reduction round-trip preserves all values', () {
       const original = NoiseReductionParameters(
         enabled: true,
@@ -493,6 +690,22 @@ void main() {
       expect(restored.mcTemporalSigma, original.mcTemporalSigma);
       expect(restored.mcTemporalRadius, original.mcTemporalRadius);
       expect(restored.mcTemporalProfile, original.mcTemporalProfile);
+    });
+
+    test('noise_reduction QTGMC built-in round-trip preserves values', () {
+      const original = NoiseReductionParameters(
+        enabled: true,
+        method: NoiseReductionMethod.qtgmcBuiltin,
+        qtgmcEzDenoise: 2.5,
+        qtgmcEzKeepGrain: 0.3,
+      );
+
+      final dynamic = ParameterConverter.fromNoiseReduction(original);
+      final restored = ParameterConverter.toNoiseReduction(dynamic);
+
+      expect(restored.method, original.method);
+      expect(restored.qtgmcEzDenoise, original.qtgmcEzDenoise);
+      expect(restored.qtgmcEzKeepGrain, original.qtgmcEzKeepGrain);
     });
 
     test('dehalo round-trip preserves all values', () {
@@ -816,6 +1029,184 @@ void main() {
           model.upscaleMethod.name);
       expect(
           schema.parameters['upscaleFactor']!.defaultValue, model.upscaleFactor);
+    });
+
+    test('deblock: schema defaults match model defaults', () {
+      final schema = loadSchema('deblock.json');
+      const model = DeblockParameters();
+
+      expect(schema.parameters['quant1']!.defaultValue, model.quant1);
+      expect(schema.parameters['quant2']!.defaultValue, model.quant2);
+      expect(schema.parameters['aOffset1']!.defaultValue, model.aOffset1);
+      expect(schema.parameters['aOffset2']!.defaultValue, model.aOffset2);
+    });
+  });
+
+  group('Converter fallback defaults match model defaults', () {
+    /// Verify that the ?? fallback values in toX() methods match the
+    /// Dart model constructor defaults. This catches bugs where the
+    /// converter silently uses a different default than the model when
+    /// a value is missing from dynamic params.
+
+    test('toDeband fallbacks match model defaults', () {
+      // Convert with empty values to trigger all fallbacks
+      final empty = DynamicParameters(filterId: 'deband', enabled: true);
+      final result = ParameterConverter.toDeband(empty);
+      const model = DebandParameters();
+
+      expect(result.range, model.range, reason: 'range fallback mismatch');
+      expect(result.y, model.y, reason: 'y fallback mismatch');
+      expect(result.cb, model.cb, reason: 'cb fallback mismatch');
+      expect(result.cr, model.cr, reason: 'cr fallback mismatch');
+      expect(result.grainY, model.grainY, reason: 'grainY fallback mismatch');
+      expect(result.grainC, model.grainC, reason: 'grainC fallback mismatch');
+      expect(result.dynamicGrain, model.dynamicGrain,
+          reason: 'dynamicGrain fallback mismatch');
+      expect(result.outputDepth, model.outputDepth,
+          reason: 'outputDepth fallback mismatch');
+    });
+
+    test('toDehalo fallbacks match model defaults', () {
+      final empty = DynamicParameters(filterId: 'dehalo', enabled: true);
+      final result = ParameterConverter.toDehalo(empty);
+      const model = DehaloParameters();
+
+      expect(result.rx, model.rx, reason: 'rx fallback mismatch');
+      expect(result.ry, model.ry, reason: 'ry fallback mismatch');
+      expect(result.darkStr, model.darkStr,
+          reason: 'darkStr fallback mismatch');
+      expect(result.brightStr, model.brightStr,
+          reason: 'brightStr fallback mismatch');
+      expect(result.lowThreshold, model.lowThreshold,
+          reason: 'lowThreshold fallback mismatch');
+      expect(result.highThreshold, model.highThreshold,
+          reason: 'highThreshold fallback mismatch');
+      expect(result.yahrBlur, model.yahrBlur,
+          reason: 'yahrBlur fallback mismatch');
+      expect(result.yahrDepth, model.yahrDepth,
+          reason: 'yahrDepth fallback mismatch');
+    });
+
+    test('toDeblock fallbacks match model defaults', () {
+      final empty = DynamicParameters(filterId: 'deblock', enabled: true);
+      final result = ParameterConverter.toDeblock(empty);
+      const model = DeblockParameters();
+
+      expect(result.quant1, model.quant1, reason: 'quant1 fallback mismatch');
+      expect(result.quant2, model.quant2, reason: 'quant2 fallback mismatch');
+      expect(result.aOffset1, model.aOffset1,
+          reason: 'aOffset1 fallback mismatch');
+      expect(result.aOffset2, model.aOffset2,
+          reason: 'aOffset2 fallback mismatch');
+    });
+
+    test('toSharpen fallbacks match model defaults', () {
+      final empty = DynamicParameters(filterId: 'sharpen', enabled: true);
+      final result = ParameterConverter.toSharpen(empty);
+      const model = SharpenParameters();
+
+      expect(result.strength, model.strength,
+          reason: 'strength fallback mismatch');
+      expect(result.overshoot, model.overshoot,
+          reason: 'overshoot fallback mismatch');
+      expect(result.undershoot, model.undershoot,
+          reason: 'undershoot fallback mismatch');
+      expect(result.softEdge, model.softEdge,
+          reason: 'softEdge fallback mismatch');
+      expect(result.casSharpness, model.casSharpness,
+          reason: 'casSharpness fallback mismatch');
+    });
+
+    test('toColorCorrection fallbacks match model defaults', () {
+      final empty =
+          DynamicParameters(filterId: 'color_correction', enabled: true);
+      final result = ParameterConverter.toColorCorrection(empty);
+      const model = ColorCorrectionParameters();
+
+      expect(result.brightness, model.brightness,
+          reason: 'brightness fallback mismatch');
+      expect(result.contrast, model.contrast,
+          reason: 'contrast fallback mismatch');
+      expect(result.hue, model.hue, reason: 'hue fallback mismatch');
+      expect(result.saturation, model.saturation,
+          reason: 'saturation fallback mismatch');
+      expect(result.coring, model.coring, reason: 'coring fallback mismatch');
+      expect(result.applyLevels, model.applyLevels,
+          reason: 'applyLevels fallback mismatch');
+      expect(result.inputLow, model.inputLow,
+          reason: 'inputLow fallback mismatch');
+      expect(result.inputHigh, model.inputHigh,
+          reason: 'inputHigh fallback mismatch');
+      expect(result.outputLow, model.outputLow,
+          reason: 'outputLow fallback mismatch');
+      expect(result.outputHigh, model.outputHigh,
+          reason: 'outputHigh fallback mismatch');
+      expect(result.gamma, model.gamma, reason: 'gamma fallback mismatch');
+    });
+
+    test('toChromaFixes fallbacks match model defaults', () {
+      final empty = DynamicParameters(filterId: 'chroma_fixes', enabled: true);
+      final result = ParameterConverter.toChromaFixes(empty);
+      const model = ChromaFixParameters();
+
+      expect(result.chromaBleedCx, model.chromaBleedCx,
+          reason: 'chromaBleedCx fallback mismatch');
+      expect(result.chromaBleedCy, model.chromaBleedCy,
+          reason: 'chromaBleedCy fallback mismatch');
+      expect(result.chromaBleedCBlur, model.chromaBleedCBlur,
+          reason: 'chromaBleedCBlur fallback mismatch');
+      expect(result.chromaBleedStrength, model.chromaBleedStrength,
+          reason: 'chromaBleedStrength fallback mismatch');
+      expect(result.vinverseSstr, model.vinverseSstr,
+          reason: 'vinverseSstr fallback mismatch');
+      expect(result.vinverseAmnt, model.vinverseAmnt,
+          reason: 'vinverseAmnt fallback mismatch');
+    });
+
+    test('toNoiseReduction fallbacks match model defaults', () {
+      final empty =
+          DynamicParameters(filterId: 'noise_reduction', enabled: true);
+      final result = ParameterConverter.toNoiseReduction(empty);
+      const model = NoiseReductionParameters();
+
+      expect(result.smDegrainTr, model.smDegrainTr,
+          reason: 'smDegrainTr fallback mismatch');
+      expect(result.smDegrainThSAD, model.smDegrainThSAD,
+          reason: 'smDegrainThSAD fallback mismatch');
+      expect(result.smDegrainThSADC, model.smDegrainThSADC,
+          reason: 'smDegrainThSADC fallback mismatch');
+      expect(result.smDegrainRefine, model.smDegrainRefine,
+          reason: 'smDegrainRefine fallback mismatch');
+      expect(result.smDegrainPrefilter, model.smDegrainPrefilter,
+          reason: 'smDegrainPrefilter fallback mismatch');
+      expect(result.mcTemporalSigma, model.mcTemporalSigma,
+          reason: 'mcTemporalSigma fallback mismatch');
+      expect(result.mcTemporalRadius, model.mcTemporalRadius,
+          reason: 'mcTemporalRadius fallback mismatch');
+      expect(result.mcTemporalProfile, model.mcTemporalProfile,
+          reason: 'mcTemporalProfile fallback mismatch');
+      expect(result.qtgmcEzDenoise, model.qtgmcEzDenoise,
+          reason: 'qtgmcEzDenoise fallback mismatch');
+      expect(result.qtgmcEzKeepGrain, model.qtgmcEzKeepGrain,
+          reason: 'qtgmcEzKeepGrain fallback mismatch');
+    });
+
+    test('toCropResize fallbacks match model defaults', () {
+      final empty = DynamicParameters(filterId: 'crop_resize', enabled: true);
+      final result = ParameterConverter.toCropResize(empty);
+      const model = CropResizeParameters();
+
+      expect(result.cropEnabled, model.cropEnabled,
+          reason: 'cropEnabled fallback mismatch');
+      expect(result.kernel, model.kernel, reason: 'kernel fallback mismatch');
+      expect(result.maintainAspect, model.maintainAspect,
+          reason: 'maintainAspect fallback mismatch');
+      expect(result.useIntegerUpscale, model.useIntegerUpscale,
+          reason: 'useIntegerUpscale fallback mismatch');
+      expect(result.upscaleMethod, model.upscaleMethod,
+          reason: 'upscaleMethod fallback mismatch');
+      expect(result.upscaleFactor, model.upscaleFactor,
+          reason: 'upscaleFactor fallback mismatch');
     });
   });
 }

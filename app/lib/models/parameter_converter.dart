@@ -502,8 +502,8 @@ class ParameterConverter {
       mcTemporalSigma: (v['mcTemporalSigma'] as num?)?.toDouble() ?? 4.0,
       mcTemporalRadius: v['mcTemporalRadius'] as int? ?? 2,
       mcTemporalProfile: v['mcTemporalProfile'] as String? ?? 'medium',
-      qtgmcEzDenoise: (v['qtgmcEzDenoise'] as num?)?.toDouble() ?? 2.0,
-      qtgmcEzKeepGrain: (v['qtgmcEzKeepGrain'] as num?)?.toDouble() ?? 0.2,
+      qtgmcEzDenoise: (v['qtgmcEzDenoise'] as num?)?.toDouble() ?? 0.0,
+      qtgmcEzKeepGrain: (v['qtgmcEzKeepGrain'] as num?)?.toDouble() ?? 0.0,
     );
   }
 
@@ -566,9 +566,9 @@ class ParameterConverter {
     return DebandParameters(
       enabled: params.enabled,
       range: v['range'] as int? ?? 15,
-      y: v['y'] as int? ?? 64,
-      cb: v['cb'] as int? ?? 64,
-      cr: v['cr'] as int? ?? 64,
+      y: v['y'] as int? ?? 32,
+      cb: v['cb'] as int? ?? 32,
+      cr: v['cr'] as int? ?? 32,
       grainY: v['grainY'] as int? ?? 24,
       grainC: v['grainC'] as int? ?? 24,
       dynamicGrain: v['dynamicGrain'] as bool? ?? true,
@@ -609,7 +609,7 @@ class ParameterConverter {
       contrast: (v['contrast'] as num?)?.toDouble() ?? 1.0,
       hue: (v['hue'] as num?)?.toDouble() ?? 0.0,
       saturation: (v['saturation'] as num?)?.toDouble() ?? 1.0,
-      coring: v['coring'] as bool? ?? true,
+      coring: v['coring'] as bool? ?? false,
       applyLevels: v['applyLevels'] as bool? ?? false,
       inputLow: v['inputLow'] as int? ?? 0,
       inputHigh: v['inputHigh'] as int? ?? 255,
