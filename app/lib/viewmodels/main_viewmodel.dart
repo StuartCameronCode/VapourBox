@@ -139,6 +139,8 @@ class MainViewModel extends ChangeNotifier {
     switch (filterId) {
       case 'deinterlace':
         return ParameterConverter.fromQTGMC(_processingPipeline.deinterlace);
+      case 'descratch':
+        return ParameterConverter.fromDeScratch(_processingPipeline.descratch);
       case 'noise_reduction':
         return ParameterConverter.fromNoiseReduction(_processingPipeline.noiseReduction);
       case 'dehalo':
@@ -169,6 +171,11 @@ class MainViewModel extends ChangeNotifier {
           deinterlace: ParameterConverter.toQTGMC(params),
         );
         _qtgmcParams = _processingPipeline.deinterlace;
+        break;
+      case 'descratch':
+        _processingPipeline = _processingPipeline.copyWith(
+          descratch: ParameterConverter.toDeScratch(params),
+        );
         break;
       case 'noise_reduction':
         _processingPipeline = _processingPipeline.copyWith(
@@ -875,6 +882,8 @@ class MainViewModel extends ChangeNotifier {
     switch (pass) {
       case PassType.deinterlace:
         return 'deinterlace';
+      case PassType.descratch:
+        return 'descratch';
       case PassType.noiseReduction:
         return 'noise_reduction';
       case PassType.dehalo:

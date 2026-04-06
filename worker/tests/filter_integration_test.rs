@@ -569,6 +569,7 @@ fn test_20_combined_all_filters() {
 
     job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
+        descratch: DeScratchParameters::default(),
         noise_reduction: NoiseReductionParameters {
             enabled: true,
             method: NoiseReductionMethod::SmDegrain,
@@ -1767,5 +1768,34 @@ fn test_50_chroma_shift() {
         "resize.Spline36",
         "2.5",
         "-0.75",
+    ]).unwrap();
+}
+
+#[test]
+fn test_51_descratch() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_51_descratch");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+    job.qtgmc_parameters.tff = Some(true);
+
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        descratch: DeScratchParameters {
+            enabled: true,
+            mindif: 8,
+            mode_y: 3,
+            keep: 80,
+            ..DeScratchParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "DeScratch", &[
+        "descratch.DeScratch",
+        "mindif=8",
+        "modey=3",
+        "keep=80",
     ]).unwrap();
 }

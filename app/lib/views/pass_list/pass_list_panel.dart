@@ -41,6 +41,16 @@ class PassListPanel extends StatelessWidget {
             ),
 
             PassListItem(
+              passType: PassType.descratch,
+              title: 'DeScratch',
+              subtitle: pipeline.descratch.summary,
+              isEnabled: pipeline.descratch.enabled,
+              isSelected: viewModel.selectedPass == PassType.descratch,
+              onToggle: (enabled) => viewModel.togglePass(PassType.descratch, enabled),
+              onTap: () => viewModel.selectPass(PassType.descratch),
+            ),
+
+            PassListItem(
               passType: PassType.noiseReduction,
               title: 'Noise Reduction',
               subtitle: pipeline.noiseReduction.summary,

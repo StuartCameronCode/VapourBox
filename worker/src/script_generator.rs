@@ -81,7 +81,14 @@ impl ScriptGenerator {
         script = script.replace("{{TOTAL_FRAMES}}", &preview_params.num_frames.to_string());
         script = script.replace("{{FPS_NUM}}", &preview_params.fps_num.to_string());
         script = script.replace("{{FPS_DEN}}", &preview_params.fps_den.to_string());
-        script = script.replace("{{FIELD_BASED}}", &preview_params.field_based.to_string());
+        // Field-based: only set when deinterlacing is enabled
+        if pipeline.deinterlace.enabled {
+            script = script.replace("{{#SET_FIELD_BASED}}", "");
+            script = script.replace("{{/SET_FIELD_BASED}}", "");
+            script = script.replace("{{FIELD_BASED}}", &preview_params.field_based.to_string());
+        } else {
+            script = remove_block("{{#SET_FIELD_BASED}}", "{{/SET_FIELD_BASED}}", script);
+        }
 
         // Now apply the same pipeline substitutions
         script = self.substitute_parameters_on(&script, job, &pipeline);
@@ -459,6 +466,33 @@ impl ScriptGenerator {
             }
         } else {
             script = remove_block("{{#DEINTERLACE}}", "{{/DEINTERLACE}}", script);
+        }
+
+        // ====================================================================
+        // DESCRATCH PASS
+        // ====================================================================
+        let descratch = &pipeline.descratch;
+        if descratch.enabled {
+            script = script.replace("{{#DESCRATCH}}", "");
+            script = script.replace("{{/DESCRATCH}}", "");
+
+            script = process_optional_int("DESCRATCH_MINDIF", Some(descratch.mindif), script);
+            script = process_optional_int("DESCRATCH_ASYM", Some(descratch.asym), script);
+            script = process_optional_int("DESCRATCH_MAXGAP", Some(descratch.maxgap), script);
+            script = process_optional_int("DESCRATCH_MAXWIDTH", Some(descratch.maxwidth), script);
+            script = process_optional_int("DESCRATCH_MINWIDTH", Some(descratch.minwidth), script);
+            script = process_optional_int("DESCRATCH_MINLEN", Some(descratch.minlen), script);
+            script = process_optional_int("DESCRATCH_MAXLEN", Some(descratch.maxlen), script);
+            script = process_optional_int("DESCRATCH_MAXANGLE", Some(descratch.maxangle), script);
+            script = process_optional_int("DESCRATCH_BLURLEN", Some(descratch.blurlen), script);
+            script = process_optional_int("DESCRATCH_KEEP", Some(descratch.keep), script);
+            script = process_optional_int("DESCRATCH_BORDER", Some(descratch.border), script);
+            script = process_optional_int("DESCRATCH_MODEY", Some(descratch.mode_y), script);
+            script = process_optional_int("DESCRATCH_MODEU", Some(descratch.mode_u), script);
+            script = process_optional_int("DESCRATCH_MODEV", Some(descratch.mode_v), script);
+            script = process_optional_int("DESCRATCH_MINDIFUV", Some(descratch.mindif_uv), script);
+        } else {
+            script = remove_block("{{#DESCRATCH}}", "{{/DESCRATCH}}", script);
         }
 
         // ====================================================================

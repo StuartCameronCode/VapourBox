@@ -110,6 +110,8 @@ class PassListItem extends StatelessWidget {
     switch (pass) {
       case PassType.deinterlace:
         return Icons.view_stream;
+      case PassType.descratch:
+        return Icons.healing;
       case PassType.noiseReduction:
         return Icons.grain;
       case PassType.dehalo:

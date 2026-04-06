@@ -29,8 +29,10 @@ clip = create_pipe_clip(
 if clip.format.subsampling_w > 1:  # 4:1:1 or more extreme horizontal subsampling
     clip = core.resize.Bicubic(clip, format=vs.YUV422P8 if clip.format.bits_per_sample == 8 else vs.YUV422P16)
 
-# Mark as interlaced for QTGMC (field-based)
+# Mark field order for interlaced content (pipe source loses container metadata)
+{{#SET_FIELD_BASED}}
 clip = core.std.SetFieldBased(clip, {{FIELD_BASED}})
+{{/SET_FIELD_BASED}}
 
 # Report frame info
 total_frames = clip.num_frames
@@ -292,7 +294,69 @@ clip = core.vivtc.VFM(clip, order={{IVTC_ORDER}},
 {{/DEINTERLACE}}
 
 # ============================================================================
-# PASS 3: NOISE REDUCTION
+# PASS 3: DESCRATCH (scratch removal)
+# ============================================================================
+{{#DESCRATCH}}
+# DeScratch - remove vertical scratches from film
+# DeScratch only supports 8-bit YUV (YV12/YV16/YV24) - convert if needed
+_descratch_orig_format = clip.format
+if clip.format.bits_per_sample != 8:
+    clip = core.resize.Bilinear(clip, format=clip.format.replace(bits_per_sample=8, sample_type=vs.INTEGER))
+clip = core.descratch.DeScratch(
+    clip,
+{{#DESCRATCH_MINDIF}}
+    mindif={{DESCRATCH_MINDIF}},
+{{/DESCRATCH_MINDIF}}
+{{#DESCRATCH_ASYM}}
+    asym={{DESCRATCH_ASYM}},
+{{/DESCRATCH_ASYM}}
+{{#DESCRATCH_MAXGAP}}
+    maxgap={{DESCRATCH_MAXGAP}},
+{{/DESCRATCH_MAXGAP}}
+{{#DESCRATCH_MAXWIDTH}}
+    maxwidth={{DESCRATCH_MAXWIDTH}},
+{{/DESCRATCH_MAXWIDTH}}
+{{#DESCRATCH_MINWIDTH}}
+    minwidth={{DESCRATCH_MINWIDTH}},
+{{/DESCRATCH_MINWIDTH}}
+{{#DESCRATCH_MINLEN}}
+    minlen={{DESCRATCH_MINLEN}},
+{{/DESCRATCH_MINLEN}}
+{{#DESCRATCH_MAXLEN}}
+    maxlen={{DESCRATCH_MAXLEN}},
+{{/DESCRATCH_MAXLEN}}
+{{#DESCRATCH_MAXANGLE}}
+    maxangle={{DESCRATCH_MAXANGLE}},
+{{/DESCRATCH_MAXANGLE}}
+{{#DESCRATCH_BLURLEN}}
+    blurlen={{DESCRATCH_BLURLEN}},
+{{/DESCRATCH_BLURLEN}}
+{{#DESCRATCH_KEEP}}
+    keep={{DESCRATCH_KEEP}},
+{{/DESCRATCH_KEEP}}
+{{#DESCRATCH_BORDER}}
+    border={{DESCRATCH_BORDER}},
+{{/DESCRATCH_BORDER}}
+{{#DESCRATCH_MODEY}}
+    modey={{DESCRATCH_MODEY}},
+{{/DESCRATCH_MODEY}}
+{{#DESCRATCH_MODEU}}
+    modeu={{DESCRATCH_MODEU}},
+{{/DESCRATCH_MODEU}}
+{{#DESCRATCH_MODEV}}
+    modev={{DESCRATCH_MODEV}},
+{{/DESCRATCH_MODEV}}
+{{#DESCRATCH_MINDIFUV}}
+    mindifuv={{DESCRATCH_MINDIFUV}},
+{{/DESCRATCH_MINDIFUV}}
+)
+# Restore original bit depth if we converted down
+if _descratch_orig_format.bits_per_sample != 8:
+    clip = core.resize.Bilinear(clip, format=_descratch_orig_format)
+{{/DESCRATCH}}
+
+# ============================================================================
+# PASS 4: NOISE REDUCTION
 # ============================================================================
 {{#NOISE_REDUCTION}}
 import mvsfunc as mvf

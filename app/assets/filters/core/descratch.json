@@ -1,0 +1,271 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "descratch",
+  "version": "1.0.0",
+  "name": "DeScratch",
+  "description": "Remove vertical scratches from scanned film",
+  "category": "cleanup",
+  "icon": "healing",
+  "order": 2,
+
+  "dependencies": {
+    "vs_plugins": ["libdescratch.dll"]
+  },
+
+  "methods": [
+    {
+      "id": "descratch",
+      "name": "DeScratch",
+      "description": "Detect and remove vertical line scratches from film scans",
+      "function": "core.descratch.DeScratch",
+      "parameters": ["mindif", "asym", "maxgap", "maxwidth", "minwidth", "minlen", "maxlen", "maxangle", "blurlen", "keep", "border", "modeY", "modeU", "modeV", "mindifUV"]
+    }
+  ],
+
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": { "hidden": true }
+    },
+    "mindif": {
+      "type": "integer",
+      "default": 5,
+      "min": 1,
+      "max": 255,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": { "name": "mindif" },
+      "ui": {
+        "label": "Min Difference",
+        "description": "Minimum luma difference from neighbors to detect a scratch (lower = more sensitive)",
+        "widget": "slider"
+      }
+    },
+    "asym": {
+      "type": "integer",
+      "default": 10,
+      "min": 0,
+      "max": 255,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": { "name": "asym" },
+      "ui": {
+        "label": "Asymmetry",
+        "description": "Maximum asymmetry of neighbor pixels",
+        "widget": "slider"
+      }
+    },
+    "maxgap": {
+      "type": "integer",
+      "default": 3,
+      "min": 0,
+      "max": 255,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": { "name": "maxgap" },
+      "ui": {
+        "label": "Max Gap",
+        "description": "Maximum vertical gap to close in detected scratches",
+        "widget": "slider"
+      }
+    },
+    "maxwidth": {
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 15,
+      "step": 2,
+      "optional": true,
+      "vapoursynth": { "name": "maxwidth" },
+      "ui": {
+        "label": "Max Width",
+        "description": "Maximum scratch width in pixels (odd values only)",
+        "widget": "slider"
+      }
+    },
+    "minwidth": {
+      "type": "integer",
+      "default": 1,
+      "min": 1,
+      "max": 15,
+      "step": 2,
+      "optional": true,
+      "vapoursynth": { "name": "minwidth" },
+      "ui": {
+        "label": "Min Width",
+        "description": "Minimum scratch width in pixels (odd values only)",
+        "widget": "slider",
+        "advanced": true
+      }
+    },
+    "minlen": {
+      "type": "integer",
+      "default": 100,
+      "min": 1,
+      "max": 4096,
+      "step": 10,
+      "optional": true,
+      "vapoursynth": { "name": "minlen" },
+      "ui": {
+        "label": "Min Length",
+        "description": "Minimum scratch length in pixels",
+        "widget": "slider"
+      }
+    },
+    "maxlen": {
+      "type": "integer",
+      "default": 2048,
+      "min": 1,
+      "max": 4096,
+      "step": 10,
+      "optional": true,
+      "vapoursynth": { "name": "maxlen" },
+      "ui": {
+        "label": "Max Length",
+        "description": "Maximum scratch length in pixels",
+        "widget": "slider",
+        "advanced": true
+      }
+    },
+    "maxangle": {
+      "type": "integer",
+      "default": 5,
+      "min": 0,
+      "max": 90,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": { "name": "maxangle" },
+      "ui": {
+        "label": "Max Angle",
+        "description": "Maximum angle from vertical in degrees",
+        "widget": "slider"
+      }
+    },
+    "blurlen": {
+      "type": "integer",
+      "default": 15,
+      "min": 1,
+      "max": 200,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": { "name": "blurlen" },
+      "ui": {
+        "label": "Blur Radius",
+        "description": "Vertical blur radius for analysis",
+        "widget": "slider",
+        "advanced": true
+      }
+    },
+    "keep": {
+      "type": "integer",
+      "default": 100,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "optional": true,
+      "vapoursynth": { "name": "keep" },
+      "ui": {
+        "label": "Keep Detail",
+        "description": "Percent of scratch detail to preserve (0 = full removal, 100 = transparent scratch fix)",
+        "widget": "slider"
+      }
+    },
+    "border": {
+      "type": "integer",
+      "default": 2,
+      "min": 0,
+      "max": 15,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": { "name": "border" },
+      "ui": {
+        "label": "Border",
+        "description": "Border thickness for smooth transition at scratch edges",
+        "widget": "slider",
+        "advanced": true
+      }
+    },
+    "modeY": {
+      "type": "enum",
+      "default": "1",
+      "options": ["0", "1", "2", "3"],
+      "optional": true,
+      "vapoursynth": { "name": "modey" },
+      "ui": {
+        "label": "Luma Mode",
+        "description": "0=Off, 1=Dark scratches, 2=Bright scratches, 3=Both",
+        "widget": "dropdown",
+        "optionLabels": { "0": "Off", "1": "Dark scratches", "2": "Bright scratches", "3": "Both" }
+      }
+    },
+    "modeU": {
+      "type": "enum",
+      "default": "0",
+      "options": ["0", "1", "2", "3"],
+      "optional": true,
+      "vapoursynth": { "name": "modeu" },
+      "ui": {
+        "label": "Chroma U Mode",
+        "description": "0=Off, 1=Dark, 2=Bright, 3=Both",
+        "widget": "dropdown",
+        "optionLabels": { "0": "Off", "1": "Dark", "2": "Bright", "3": "Both" },
+        "advanced": true
+      }
+    },
+    "modeV": {
+      "type": "enum",
+      "default": "0",
+      "options": ["0", "1", "2", "3"],
+      "optional": true,
+      "vapoursynth": { "name": "modev" },
+      "ui": {
+        "label": "Chroma V Mode",
+        "description": "0=Off, 1=Dark, 2=Bright, 3=Both",
+        "widget": "dropdown",
+        "optionLabels": { "0": "Off", "1": "Dark", "2": "Bright", "3": "Both" },
+        "advanced": true
+      }
+    },
+    "mindifUV": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 255,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": { "name": "mindifuv" },
+      "ui": {
+        "label": "Min Chroma Difference",
+        "description": "Minimum chroma difference (0 = use luma mindif value)",
+        "widget": "slider",
+        "advanced": true
+      }
+    }
+  },
+
+  "ui": {
+    "sections": [
+      {
+        "title": "Detection",
+        "parameters": ["mindif", "asym", "maxgap", "maxwidth", "minwidth", "minlen", "maxlen", "maxangle", "blurlen"],
+        "expanded": true
+      },
+      {
+        "title": "Processing",
+        "parameters": ["keep", "border"],
+        "expanded": true
+      },
+      {
+        "title": "Plane Modes",
+        "parameters": ["modeY", "modeU", "modeV", "mindifUV"],
+        "expanded": false
+      }
+    ]
+  },
+
+  "codeTemplate": {
+    "imports": [],
+    "generate": "method"
+  }
+}

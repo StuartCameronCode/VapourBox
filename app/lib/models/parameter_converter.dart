@@ -3,6 +3,7 @@ import 'color_correction_parameters.dart';
 import 'crop_resize_parameters.dart';
 import 'deband_parameters.dart';
 import 'deblock_parameters.dart';
+import 'descratch_parameters.dart';
 import 'dehalo_parameters.dart';
 import 'dynamic_parameters.dart';
 import 'noise_reduction_parameters.dart';
@@ -214,6 +215,33 @@ class ParameterConverter {
     );
   }
 
+  /// Convert descratch parameters to dynamic format.
+  /// All parameters are optional and default to off (not passed to VapourSynth).
+  static DynamicParameters fromDeScratch(DeScratchParameters params) {
+    return DynamicParameters(
+      filterId: 'descratch',
+      enabled: params.enabled,
+      values: {},
+      lastOptionalValues: {
+        'mindif': params.mindif,
+        'asym': params.asym,
+        'maxgap': params.maxgap,
+        'maxwidth': params.maxwidth,
+        'minwidth': params.minwidth,
+        'minlen': params.minlen,
+        'maxlen': params.maxlen,
+        'maxangle': params.maxangle,
+        'blurlen': params.blurlen,
+        'keep': params.keep,
+        'border': params.border,
+        'modeY': params.modeY,
+        'modeU': params.modeU,
+        'modeV': params.modeV,
+        'mindifUV': params.mindifUV,
+      },
+    );
+  }
+
   /// Convert deband parameters to dynamic format.
   static DynamicParameters fromDeband(DebandParameters params) {
     return DynamicParameters(
@@ -348,6 +376,7 @@ class ParameterConverter {
     return DynamicPipeline(
       filters: {
         'deinterlace': fromQTGMC(pipeline.deinterlace),
+        'descratch': fromDeScratch(pipeline.descratch),
         'noise_reduction': fromNoiseReduction(pipeline.noiseReduction),
         'dehalo': fromDehalo(pipeline.dehalo),
         'deblock': fromDeblock(pipeline.deblock),
@@ -563,6 +592,29 @@ class ParameterConverter {
     );
   }
 
+  /// Convert dynamic parameters to descratch parameters.
+  static DeScratchParameters toDeScratch(DynamicParameters params) {
+    final v = params.values;
+    return DeScratchParameters(
+      enabled: params.enabled,
+      mindif: v['mindif'] as int? ?? 5,
+      asym: v['asym'] as int? ?? 10,
+      maxgap: v['maxgap'] as int? ?? 3,
+      maxwidth: v['maxwidth'] as int? ?? 3,
+      minwidth: v['minwidth'] as int? ?? 1,
+      minlen: v['minlen'] as int? ?? 100,
+      maxlen: v['maxlen'] as int? ?? 2048,
+      maxangle: v['maxangle'] as int? ?? 5,
+      blurlen: v['blurlen'] as int? ?? 15,
+      keep: v['keep'] as int? ?? 100,
+      border: v['border'] as int? ?? 2,
+      modeY: v['modeY'] as int? ?? 1,
+      modeU: v['modeU'] as int? ?? 0,
+      modeV: v['modeV'] as int? ?? 0,
+      mindifUV: v['mindifUV'] as int? ?? 0,
+    );
+  }
+
   /// Convert dynamic parameters to deband parameters.
   static DebandParameters toDeband(DynamicParameters params) {
     final v = params.values;
@@ -708,6 +760,9 @@ class ParameterConverter {
       deblock: dynamic.get('deblock') != null
           ? toDeblock(dynamic.get('deblock')!)
           : const DeblockParameters(),
+      descratch: dynamic.get('descratch') != null
+          ? toDeScratch(dynamic.get('descratch')!)
+          : const DeScratchParameters(),
       deband: dynamic.get('deband') != null
           ? toDeband(dynamic.get('deband')!)
           : const DebandParameters(),

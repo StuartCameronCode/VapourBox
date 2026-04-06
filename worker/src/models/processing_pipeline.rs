@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
-    DebandParameters, DeblockParameters, DehaloParameters, SharpenParameters,
-    NoiseReductionParameters, QTGMCParameters,
+    DebandParameters, DeblockParameters, DehaloParameters, DeScratchParameters,
+    SharpenParameters, NoiseReductionParameters, QTGMCParameters,
 };
 
 /// Defines the type of each processing pass.
@@ -14,6 +14,7 @@ use super::{
 #[allow(dead_code)]
 pub enum PassType {
     Deinterlace,
+    DeScratch,
     NoiseReduction,
     Dehalo,
     Deblock,
@@ -30,6 +31,7 @@ impl PassType {
     pub fn display_name(&self) -> &'static str {
         match self {
             PassType::Deinterlace => "Deinterlace",
+            PassType::DeScratch => "DeScratch",
             PassType::NoiseReduction => "Noise Reduction",
             PassType::Dehalo => "Dehalo",
             PassType::Deblock => "Deblock",
@@ -45,6 +47,7 @@ impl PassType {
     pub fn description(&self) -> &'static str {
         match self {
             PassType::Deinterlace => "Deinterlace (QTGMC) or inverse telecine (IVTC)",
+            PassType::DeScratch => "Remove vertical scratches from scanned film",
             PassType::NoiseReduction => "Reduce video noise and grain",
             PassType::Dehalo => "Remove halo artifacts around edges",
             PassType::Deblock => "Remove compression block artifacts",
@@ -65,6 +68,10 @@ pub struct ProcessingPipeline {
     /// Deinterlacing pass parameters (QTGMC).
     #[serde(default)]
     pub deinterlace: QTGMCParameters,
+
+    /// DeScratch pass parameters (scratch removal).
+    #[serde(default)]
+    pub descratch: DeScratchParameters,
 
     /// Noise reduction pass parameters.
     #[serde(default)]
@@ -103,6 +110,7 @@ impl Default for ProcessingPipeline {
     fn default() -> Self {
         Self {
             deinterlace: QTGMCParameters::default(),
+            descratch: DeScratchParameters::default(),
             noise_reduction: NoiseReductionParameters::default(),
             dehalo: DehaloParameters::default(),
             deblock: DeblockParameters::default(),
@@ -121,6 +129,7 @@ impl ProcessingPipeline {
     pub fn from_legacy(qtgmc_params: &QTGMCParameters) -> Self {
         Self {
             deinterlace: qtgmc_params.clone(),
+            descratch: DeScratchParameters { enabled: false, ..Default::default() },
             noise_reduction: NoiseReductionParameters { enabled: false, ..Default::default() },
             dehalo: DehaloParameters { enabled: false, ..Default::default() },
             deblock: DeblockParameters { enabled: false, ..Default::default() },
@@ -142,6 +151,9 @@ impl ProcessingPipeline {
         }
         if self.deinterlace_enabled() {
             passes.push(PassType::Deinterlace);
+        }
+        if self.descratch.enabled {
+            passes.push(PassType::DeScratch);
         }
         if self.noise_reduction.enabled {
             passes.push(PassType::NoiseReduction);
@@ -183,6 +195,7 @@ impl ProcessingPipeline {
     pub fn enabled_pass_count(&self) -> usize {
         let mut count = 0;
         if self.deinterlace.enabled { count += 1; }
+        if self.descratch.enabled { count += 1; }
         if self.noise_reduction.enabled { count += 1; }
         if self.dehalo.enabled { count += 1; }
         if self.deblock.enabled { count += 1; }
@@ -198,6 +211,7 @@ impl ProcessingPipeline {
     pub fn is_pass_enabled(&self, pass: PassType) -> bool {
         match pass {
             PassType::Deinterlace => self.deinterlace_enabled(),
+            PassType::DeScratch => self.descratch.enabled,
             PassType::NoiseReduction => self.noise_reduction.enabled,
             PassType::Dehalo => self.dehalo.enabled,
             PassType::Deblock => self.deblock.enabled,

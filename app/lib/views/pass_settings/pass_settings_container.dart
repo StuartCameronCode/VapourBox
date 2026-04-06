@@ -20,6 +20,8 @@ class PassSettingsContainer extends StatelessWidget {
     switch (passType) {
       case PassType.deinterlace:
         return 'deinterlace';
+      case PassType.descratch:
+        return 'descratch';
       case PassType.noiseReduction:
         return 'noise_reduction';
       case PassType.dehalo:
