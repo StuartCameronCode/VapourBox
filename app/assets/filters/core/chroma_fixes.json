@@ -18,7 +18,7 @@
       "name": "Chroma Fixes",
       "description": "Fix chroma bleeding, dot crawl, and combing artifacts (enable individually below)",
       "function": "custom",
-      "parameters": ["applyChromaBleedingFix", "chromaBleedCx", "chromaBleedCy", "chromaBleedCBlur", "chromaBleedStrength", "applyDeCrawl", "deCrawlYThresh", "deCrawlCThresh", "deCrawlMaxDiff", "applyVinverse", "vinverseSstr", "vinverseAmnt"]
+      "parameters": ["applyChromaShift", "chromaShiftH", "chromaShiftV", "applyChromaBleedingFix", "chromaBleedCx", "chromaBleedCy", "chromaBleedCBlur", "chromaBleedStrength", "applyDeCrawl", "deCrawlYThresh", "deCrawlCThresh", "deCrawlMaxDiff", "applyVinverse", "vinverseSstr", "vinverseAmnt"]
     }
   ],
 
@@ -27,6 +27,44 @@
       "type": "boolean",
       "default": false,
       "ui": { "hidden": true }
+    },
+    "applyChromaShift": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Adjust Y/C Delay",
+        "description": "Shift chroma planes to correct Y/C timing delay (common on VHS and analog sources)"
+      }
+    },
+    "chromaShiftH": {
+      "type": "number",
+      "default": 0.0,
+      "min": -8.0,
+      "max": 8.0,
+      "step": 0.25,
+      "vapoursynth": { "name": "src_left" },
+      "ui": {
+        "label": "Horizontal Shift",
+        "description": "Shift chroma left/right in pixels (negative = left, positive = right)",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": { "applyChromaShift": true }
+      }
+    },
+    "chromaShiftV": {
+      "type": "number",
+      "default": 0.0,
+      "min": -4.0,
+      "max": 4.0,
+      "step": 0.25,
+      "vapoursynth": { "name": "src_top" },
+      "ui": {
+        "label": "Vertical Shift",
+        "description": "Shift chroma up/down in pixels (negative = up, positive = down)",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": { "applyChromaShift": true }
+      }
     },
     "applyChromaBleedingFix": {
       "type": "boolean",
@@ -194,6 +232,11 @@
 
   "ui": {
     "sections": [
+      {
+        "title": "Y/C Delay (Chroma Shift)",
+        "parameters": ["applyChromaShift", "chromaShiftH", "chromaShiftV"],
+        "expanded": true
+      },
       {
         "title": "Chroma Bleeding Fix",
         "parameters": ["applyChromaBleedingFix", "chromaBleedCx", "chromaBleedCy", "chromaBleedCBlur", "chromaBleedStrength"],

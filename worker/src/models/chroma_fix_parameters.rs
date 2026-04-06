@@ -27,6 +27,20 @@ pub struct ChromaFixParameters {
     #[serde(default)]
     pub preset: ChromaFixPreset,
 
+    // --- Chroma Shift (Y/C Delay) Parameters ---
+
+    /// Whether to apply chroma shift (Y/C delay correction).
+    #[serde(default)]
+    pub apply_chroma_shift: bool,
+
+    /// Horizontal chroma shift in luma pixels (negative = left, positive = right).
+    #[serde(default)]
+    pub chroma_shift_h: f64,
+
+    /// Vertical chroma shift in luma pixels (negative = up, positive = down).
+    #[serde(default)]
+    pub chroma_shift_v: f64,
+
     // --- FixChromaBleedingMod Parameters ---
 
     /// Whether to apply chroma bleeding fix.
@@ -95,6 +109,9 @@ impl Default for ChromaFixParameters {
         Self {
             enabled: false,
             preset: ChromaFixPreset::default(),
+            apply_chroma_shift: false,
+            chroma_shift_h: 0.0,
+            chroma_shift_v: 0.0,
             apply_chroma_bleeding_fix: false,
             chroma_bleed_cx: default_chroma_bleed_offset(),
             chroma_bleed_cy: default_chroma_bleed_offset(),
@@ -120,6 +137,9 @@ mod tests {
         let params = ChromaFixParameters::default();
         assert!(!params.enabled);
         assert_eq!(params.preset, ChromaFixPreset::Off);
+        assert!(!params.apply_chroma_shift);
+        assert_eq!(params.chroma_shift_h, 0.0);
+        assert_eq!(params.chroma_shift_v, 0.0);
         assert!(!params.apply_chroma_bleeding_fix);
         assert!(!params.apply_de_crawl);
         assert!(!params.apply_vinverse);

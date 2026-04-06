@@ -638,6 +638,16 @@ impl ScriptGenerator {
             script = script.replace("{{#CHROMA_FIXES}}", "");
             script = script.replace("{{/CHROMA_FIXES}}", "");
 
+            // Chroma Shift (Y/C Delay)
+            if chroma.apply_chroma_shift && (chroma.chroma_shift_h != 0.0 || chroma.chroma_shift_v != 0.0) {
+                script = script.replace("{{#CHROMA_SHIFT}}", "");
+                script = script.replace("{{/CHROMA_SHIFT}}", "");
+                script = process_optional_double("CHROMA_SHIFT_H", Some(chroma.chroma_shift_h), script);
+                script = process_optional_double("CHROMA_SHIFT_V", Some(chroma.chroma_shift_v), script);
+            } else {
+                script = remove_block("{{#CHROMA_SHIFT}}", "{{/CHROMA_SHIFT}}", script);
+            }
+
             // FixChromaBleedingMod
             if chroma.apply_chroma_bleeding_fix {
                 script = script.replace("{{#CHROMA_FIX_BLEEDING}}", "");

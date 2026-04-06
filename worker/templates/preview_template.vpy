@@ -521,6 +521,22 @@ clip = core.cas.CAS(
 # ============================================================================
 {{#CHROMA_FIXES}}
 
+{{#CHROMA_SHIFT}}
+# Chroma Shift (Y/C Delay) - shift chroma planes to correct timing misalignment
+_shift_h = {{CHROMA_SHIFT_H}}
+_shift_v = {{CHROMA_SHIFT_V}}
+_sub_w = clip.format.subsampling_w
+_sub_h = clip.format.subsampling_h
+_chroma_h = _shift_h / (1 << _sub_w) if _sub_w > 0 else _shift_h
+_chroma_v = _shift_v / (1 << _sub_h) if _sub_h > 0 else _shift_v
+_y = core.std.ShufflePlanes(clip, 0, vs.GRAY)
+_u = core.std.ShufflePlanes(clip, 1, vs.GRAY)
+_v = core.std.ShufflePlanes(clip, 2, vs.GRAY)
+_u = core.resize.Spline36(_u, src_left=_chroma_h, src_top=_chroma_v)
+_v = core.resize.Spline36(_v, src_left=_chroma_h, src_top=_chroma_v)
+clip = core.std.ShufflePlanes([_y, _u, _v], [0, 0, 0], vs.YUV)
+{{/CHROMA_SHIFT}}
+
 {{#CHROMA_FIX_BLEEDING}}
 # FixChromaBleedingMod - fix color bleeding from analog sources
 clip = haf.FixChromaBleedingMod(

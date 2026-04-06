@@ -1740,3 +1740,32 @@ fn test_49_qtgmc_not_ivtc_in_script() {
 
     println!("✓ QTGMC script correctly uses QTGMC (not VIVTC)");
 }
+
+#[test]
+fn test_50_chroma_shift() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_50_chroma_shift");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+    job.qtgmc_parameters.tff = Some(true);
+
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        chroma_fixes: ChromaFixParameters {
+            enabled: true,
+            apply_chroma_shift: true,
+            chroma_shift_h: 2.5,
+            chroma_shift_v: -0.75,
+            ..ChromaFixParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "Chroma Shift (Y/C Delay)", &[
+        "ShufflePlanes",
+        "resize.Spline36",
+        "2.5",
+        "-0.75",
+    ]).unwrap();
+}

@@ -287,6 +287,9 @@ class ParameterConverter {
       filterId: 'chroma_fixes',
       enabled: params.enabled,
       values: {
+        'applyChromaShift': params.applyChromaShift,
+        'chromaShiftH': params.chromaShiftH,
+        'chromaShiftV': params.chromaShiftV,
         'applyChromaBleedingFix': params.applyChromaBleedingFix,
         'chromaBleedCx': params.chromaBleedCx,
         'chromaBleedCy': params.chromaBleedCy,
@@ -624,6 +627,9 @@ class ParameterConverter {
     final v = params.values;
     return ChromaFixParameters(
       enabled: params.enabled,
+      applyChromaShift: v['applyChromaShift'] as bool? ?? false,
+      chromaShiftH: (v['chromaShiftH'] as num?)?.toDouble() ?? 0.0,
+      chromaShiftV: (v['chromaShiftV'] as num?)?.toDouble() ?? 0.0,
       applyChromaBleedingFix: v['applyChromaBleedingFix'] as bool? ?? false,
       chromaBleedCx: v['chromaBleedCx'] as int? ?? 4,
       chromaBleedCy: v['chromaBleedCy'] as int? ?? 4,

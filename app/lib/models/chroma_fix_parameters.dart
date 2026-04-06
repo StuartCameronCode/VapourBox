@@ -26,6 +26,17 @@ class ChromaFixParameters {
   /// Preset level for simple mode.
   final ChromaFixPreset preset;
 
+  // --- Chroma Shift (Y/C Delay) Parameters ---
+
+  /// Whether to apply chroma shift (Y/C delay correction).
+  final bool applyChromaShift;
+
+  /// Horizontal chroma shift in luma pixels (negative = left, positive = right).
+  final double chromaShiftH;
+
+  /// Vertical chroma shift in luma pixels (negative = up, positive = down).
+  final double chromaShiftV;
+
   // --- FixChromaBleedingMod Parameters ---
 
   /// Whether to apply chroma bleeding fix.
@@ -71,6 +82,10 @@ class ChromaFixParameters {
   const ChromaFixParameters({
     this.enabled = false,
     this.preset = ChromaFixPreset.off,
+    // Chroma Shift defaults
+    this.applyChromaShift = false,
+    this.chromaShiftH = 0.0,
+    this.chromaShiftV = 0.0,
     // FixChromaBleedingMod defaults
     this.applyChromaBleedingFix = false,
     this.chromaBleedCx = 4,
@@ -135,6 +150,9 @@ class ChromaFixParameters {
   ChromaFixParameters copyWith({
     bool? enabled,
     ChromaFixPreset? preset,
+    bool? applyChromaShift,
+    double? chromaShiftH,
+    double? chromaShiftV,
     bool? applyChromaBleedingFix,
     int? chromaBleedCx,
     int? chromaBleedCy,
@@ -151,6 +169,9 @@ class ChromaFixParameters {
     return ChromaFixParameters(
       enabled: enabled ?? this.enabled,
       preset: preset ?? this.preset,
+      applyChromaShift: applyChromaShift ?? this.applyChromaShift,
+      chromaShiftH: chromaShiftH ?? this.chromaShiftH,
+      chromaShiftV: chromaShiftV ?? this.chromaShiftV,
       applyChromaBleedingFix: applyChromaBleedingFix ?? this.applyChromaBleedingFix,
       chromaBleedCx: chromaBleedCx ?? this.chromaBleedCx,
       chromaBleedCy: chromaBleedCy ?? this.chromaBleedCy,
@@ -182,6 +203,7 @@ class ChromaFixParameters {
       }
     }
     final fixes = <String>[];
+    if (applyChromaShift) fixes.add('Shift');
     if (applyChromaBleedingFix) fixes.add('Bleed');
     if (applyDeCrawl) fixes.add('Crawl');
     if (applyVinverse) fixes.add('Vinv');

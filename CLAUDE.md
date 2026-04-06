@@ -320,7 +320,8 @@ The upward search (`while let Some(dir) = current.parent()`) could be a security
 4. Add `parameters` object with `enabled` and `method` (hidden), plus filter-specific params
 5. Configure `ui.sections` to organize parameters in the UI
 6. For built-in filters: add to `pubspec.yaml` assets if new directory
-7. Restart app to load the filter
+7. **Add integration test** in `worker/tests/filter_integration_test.rs` (see below)
+8. Restart app to load the filter
 
 See **Filter Schema System** section below for full schema reference and examples.
 
@@ -340,6 +341,47 @@ See **Preset System** section below for details.
 3. Add to `worker/templates/pipeline_template.vpy` using `{{#PARAM}}...{{/PARAM}}` syntax
 4. Add to `worker/src/script_generator.rs` substitution logic
 5. Add UI control in Flutter settings view
+6. **Add integration test** in `worker/tests/filter_integration_test.rs` (see below)
+
+### Integration Tests for Filter Changes (Required)
+
+**Every filter addition or parameter change must include an integration test** in `worker/tests/filter_integration_test.rs`. Tests are numbered sequentially (e.g., `test_50_chroma_shift`).
+
+Two test patterns are used:
+
+1. **`run_job`** — verifies the full pipeline compiles and generates a valid script:
+   ```rust
+   #[test]
+   fn test_50_chroma_shift() {
+       create_output_dir();
+       let mut job = create_base_job("test_50_chroma_shift");
+       job.qtgmc_parameters.enabled = true;
+       job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+       job.qtgmc_parameters.tff = Some(true);
+       job.processing_pipeline = Some(ProcessingPipeline {
+           deinterlace: job.qtgmc_parameters.clone(),
+           chroma_fixes: ChromaFixParameters {
+               enabled: true,
+               apply_chroma_shift: true,
+               chroma_shift_h: 2.5,
+               ..ChromaFixParameters::default()
+           },
+           ..ProcessingPipeline::default()
+       });
+       run_job(&job, "Chroma Shift").unwrap();
+   }
+   ```
+
+2. **`run_job_and_verify`** — additionally checks the generated `.vpy` script contains expected strings:
+   ```rust
+   run_job_and_verify(&job, "Chroma Shift", &[
+       "ShufflePlanes",
+       "resize.Spline36",
+       "2.5",
+   ]).unwrap();
+   ```
+
+Use `run_job_and_verify` when you want to confirm specific VapourSynth function calls or parameter values appear in the generated script.
 
 ### Modifying Worker Communication
 
