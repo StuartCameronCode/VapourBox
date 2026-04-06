@@ -1,0 +1,111 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "spotless",
+  "version": "1.0.0",
+  "name": "SpotLess",
+  "description": "Remove dust, dirt, and temporal spots from film",
+  "category": "cleanup",
+  "icon": "auto_fix_high",
+  "order": 3,
+
+  "dependencies": {
+    "vs_plugins": ["libtemporalmedian.dll", "libmvtools.dll"]
+  },
+
+  "methods": [
+    {
+      "id": "spotless",
+      "name": "SpotLess",
+      "description": "Motion-compensated temporal median for spot/dirt removal (live-action only)",
+      "function": "custom",
+      "parameters": ["chroma", "rec", "blksize", "overlap", "pel"]
+    }
+  ],
+
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": { "hidden": true }
+    },
+    "chroma": {
+      "type": "boolean",
+      "default": true,
+      "optional": true,
+      "ui": {
+        "label": "Process Chroma",
+        "description": "Include chroma planes in spot removal (disable to avoid ghost artifacts)"
+      }
+    },
+    "rec": {
+      "type": "boolean",
+      "default": false,
+      "optional": true,
+      "ui": {
+        "label": "Recalculate Vectors",
+        "description": "Refine motion vectors at finer block size for more precision (slower)"
+      }
+    },
+    "blksize": {
+      "type": "integer",
+      "default": 16,
+      "min": 4,
+      "max": 64,
+      "step": 4,
+      "optional": true,
+      "ui": {
+        "label": "Block Size",
+        "description": "Block size for motion analysis (auto: 32 for 4K, 16 for HD, 8 for SD)",
+        "widget": "slider",
+        "advanced": true
+      }
+    },
+    "overlap": {
+      "type": "integer",
+      "default": 8,
+      "min": 0,
+      "max": 32,
+      "step": 2,
+      "optional": true,
+      "ui": {
+        "label": "Overlap",
+        "description": "Block overlap for motion analysis (default: half of block size)",
+        "widget": "slider",
+        "advanced": true
+      }
+    },
+    "pel": {
+      "type": "enum",
+      "default": "2",
+      "options": ["1", "2", "4"],
+      "optional": true,
+      "ui": {
+        "label": "Sub-pixel Accuracy",
+        "description": "Motion estimation precision (1=pixel, 2=half-pixel, 4=quarter-pixel)",
+        "widget": "dropdown",
+        "optionLabels": { "1": "1 (pixel)", "2": "2 (half-pixel)", "4": "4 (quarter-pixel)" },
+        "advanced": true
+      }
+    }
+  },
+
+  "ui": {
+    "sections": [
+      {
+        "title": "Settings",
+        "parameters": ["chroma", "rec"],
+        "expanded": true
+      },
+      {
+        "title": "Motion Analysis",
+        "parameters": ["blksize", "overlap", "pel"],
+        "expanded": false
+      }
+    ]
+  },
+
+  "codeTemplate": {
+    "imports": [],
+    "generate": "custom"
+  }
+}

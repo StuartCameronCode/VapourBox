@@ -6,6 +6,7 @@ import 'crop_resize_parameters.dart';
 import 'deband_parameters.dart';
 import 'deblock_parameters.dart';
 import 'descratch_parameters.dart';
+import 'spotless_parameters.dart';
 import 'dehalo_parameters.dart';
 import 'dynamic_parameters.dart';
 import 'noise_reduction_parameters.dart';
@@ -20,6 +21,7 @@ part 'processing_pipeline.g.dart';
 enum PassType {
   deinterlace,
   descratch,
+  spotless,
   noiseReduction,
   dehalo,
   deblock,
@@ -39,6 +41,8 @@ extension PassTypeExtension on PassType {
         return 'Deinterlace';
       case PassType.descratch:
         return 'DeScratch';
+      case PassType.spotless:
+        return 'SpotLess';
       case PassType.noiseReduction:
         return 'Noise Reduction';
       case PassType.dehalo:
@@ -66,6 +70,8 @@ extension PassTypeExtension on PassType {
         return 'Deinterlace (QTGMC) or inverse telecine (IVTC)';
       case PassType.descratch:
         return 'Remove vertical scratches from scanned film';
+      case PassType.spotless:
+        return 'Remove dust, dirt, and temporal spots from film';
       case PassType.noiseReduction:
         return 'Reduce video noise and grain';
       case PassType.dehalo:
@@ -98,6 +104,9 @@ class ProcessingPipeline {
   /// DeScratch pass parameters (scratch removal).
   final DeScratchParameters descratch;
 
+  /// SpotLess pass parameters (spot/dirt removal).
+  final SpotLessParameters spotless;
+
   /// Noise reduction pass parameters.
   final NoiseReductionParameters noiseReduction;
 
@@ -128,6 +137,7 @@ class ProcessingPipeline {
   const ProcessingPipeline({
     this.deinterlace = const QTGMCParameters(),
     this.descratch = const DeScratchParameters(),
+    this.spotless = const SpotLessParameters(),
     this.noiseReduction = const NoiseReductionParameters(),
     this.dehalo = const DehaloParameters(),
     this.deblock = const DeblockParameters(),
@@ -145,6 +155,7 @@ class ProcessingPipeline {
       deinterlace: qtgmcParams,
       // Other passes disabled by default when migrating from legacy
       descratch: const DeScratchParameters(enabled: false),
+      spotless: const SpotLessParameters(enabled: false),
       noiseReduction: const NoiseReductionParameters(enabled: false),
       dehalo: const DehaloParameters(enabled: false),
       deblock: const DeblockParameters(enabled: false),
@@ -169,6 +180,9 @@ class ProcessingPipeline {
     }
     if (descratch.enabled) {
       passes.add(PassType.descratch);
+    }
+    if (spotless.enabled) {
+      passes.add(PassType.spotless);
     }
     if (noiseReduction.enabled) {
       passes.add(PassType.noiseReduction);
@@ -205,6 +219,7 @@ class ProcessingPipeline {
     var count = 0;
     if (deinterlace.enabled) count++;
     if (descratch.enabled) count++;
+    if (spotless.enabled) count++;
     if (noiseReduction.enabled) count++;
     if (dehalo.enabled) count++;
     if (deblock.enabled) count++;
@@ -222,6 +237,7 @@ class ProcessingPipeline {
     var count = 0;
     if (deinterlace.enabled) count++;
     if (descratch.enabled) count++;
+    if (spotless.enabled) count++;
     if (noiseReduction.enabled) count++;
     if (dehalo.enabled) count++;
     if (deblock.enabled) count++;
@@ -240,6 +256,8 @@ class ProcessingPipeline {
         return deinterlace.enabled;
       case PassType.descratch:
         return descratch.enabled;
+      case PassType.spotless:
+        return spotless.enabled;
       case PassType.noiseReduction:
         return noiseReduction.enabled;
       case PassType.dehalo:
@@ -270,6 +288,8 @@ class ProcessingPipeline {
         return deinterlace.preset.displayName;
       case PassType.descratch:
         return descratch.summary;
+      case PassType.spotless:
+        return spotless.summary;
       case PassType.noiseReduction:
         return noiseReduction.summary;
       case PassType.dehalo:
@@ -294,6 +314,7 @@ class ProcessingPipeline {
   ProcessingPipeline copyWith({
     QTGMCParameters? deinterlace,
     DeScratchParameters? descratch,
+    SpotLessParameters? spotless,
     NoiseReductionParameters? noiseReduction,
     DehaloParameters? dehalo,
     DeblockParameters? deblock,
@@ -307,6 +328,7 @@ class ProcessingPipeline {
     return ProcessingPipeline(
       deinterlace: deinterlace ?? this.deinterlace,
       descratch: descratch ?? this.descratch,
+      spotless: spotless ?? this.spotless,
       noiseReduction: noiseReduction ?? this.noiseReduction,
       dehalo: dehalo ?? this.dehalo,
       deblock: deblock ?? this.deblock,
@@ -329,6 +351,10 @@ class ProcessingPipeline {
       case PassType.descratch:
         return copyWith(
           descratch: descratch.copyWith(enabled: enabled),
+        );
+      case PassType.spotless:
+        return copyWith(
+          spotless: spotless.copyWith(enabled: enabled),
         );
       case PassType.noiseReduction:
         return copyWith(

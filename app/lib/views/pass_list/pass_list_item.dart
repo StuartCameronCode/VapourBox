@@ -112,6 +112,8 @@ class PassListItem extends StatelessWidget {
         return Icons.view_stream;
       case PassType.descratch:
         return Icons.healing;
+      case PassType.spotless:
+        return Icons.auto_fix_high;
       case PassType.noiseReduction:
         return Icons.grain;
       case PassType.dehalo:

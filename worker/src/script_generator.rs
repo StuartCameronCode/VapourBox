@@ -496,6 +496,23 @@ impl ScriptGenerator {
         }
 
         // ====================================================================
+        // SPOTLESS PASS
+        // ====================================================================
+        let spotless = &pipeline.spotless;
+        if spotless.enabled {
+            script = script.replace("{{#SPOTLESS}}", "");
+            script = script.replace("{{/SPOTLESS}}", "");
+
+            script = process_optional_bool("SPOTLESS_CHROMA", Some(spotless.chroma), script);
+            script = process_optional_bool("SPOTLESS_REC", Some(spotless.rec), script);
+            script = process_optional_int("SPOTLESS_BLKSIZE", Some(spotless.blksize), script);
+            script = process_optional_int("SPOTLESS_OVERLAP", Some(spotless.overlap), script);
+            script = process_optional_int("SPOTLESS_PEL", Some(spotless.pel), script);
+        } else {
+            script = remove_block("{{#SPOTLESS}}", "{{/SPOTLESS}}", script);
+        }
+
+        // ====================================================================
         // NOISE REDUCTION PASS
         // ====================================================================
         let nr = &pipeline.noise_reduction;

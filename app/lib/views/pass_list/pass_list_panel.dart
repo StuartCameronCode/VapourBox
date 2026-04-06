@@ -51,6 +51,16 @@ class PassListPanel extends StatelessWidget {
             ),
 
             PassListItem(
+              passType: PassType.spotless,
+              title: 'SpotLess',
+              subtitle: pipeline.spotless.summary,
+              isEnabled: pipeline.spotless.enabled,
+              isSelected: viewModel.selectedPass == PassType.spotless,
+              onToggle: (enabled) => viewModel.togglePass(PassType.spotless, enabled),
+              onTap: () => viewModel.selectPass(PassType.spotless),
+            ),
+
+            PassListItem(
               passType: PassType.noiseReduction,
               title: 'Noise Reduction',
               subtitle: pipeline.noiseReduction.summary,

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
     DebandParameters, DeblockParameters, DehaloParameters, DeScratchParameters,
-    SharpenParameters, NoiseReductionParameters, QTGMCParameters,
+    SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters,
 };
 
 /// Defines the type of each processing pass.
@@ -15,6 +15,7 @@ use super::{
 pub enum PassType {
     Deinterlace,
     DeScratch,
+    SpotLess,
     NoiseReduction,
     Dehalo,
     Deblock,
@@ -32,6 +33,7 @@ impl PassType {
         match self {
             PassType::Deinterlace => "Deinterlace",
             PassType::DeScratch => "DeScratch",
+            PassType::SpotLess => "SpotLess",
             PassType::NoiseReduction => "Noise Reduction",
             PassType::Dehalo => "Dehalo",
             PassType::Deblock => "Deblock",
@@ -48,6 +50,7 @@ impl PassType {
         match self {
             PassType::Deinterlace => "Deinterlace (QTGMC) or inverse telecine (IVTC)",
             PassType::DeScratch => "Remove vertical scratches from scanned film",
+            PassType::SpotLess => "Remove dust, dirt, and temporal spots from film",
             PassType::NoiseReduction => "Reduce video noise and grain",
             PassType::Dehalo => "Remove halo artifacts around edges",
             PassType::Deblock => "Remove compression block artifacts",
@@ -72,6 +75,10 @@ pub struct ProcessingPipeline {
     /// DeScratch pass parameters (scratch removal).
     #[serde(default)]
     pub descratch: DeScratchParameters,
+
+    /// SpotLess pass parameters (spot/dirt removal).
+    #[serde(default)]
+    pub spotless: SpotLessParameters,
 
     /// Noise reduction pass parameters.
     #[serde(default)]
@@ -111,6 +118,7 @@ impl Default for ProcessingPipeline {
         Self {
             deinterlace: QTGMCParameters::default(),
             descratch: DeScratchParameters::default(),
+            spotless: SpotLessParameters::default(),
             noise_reduction: NoiseReductionParameters::default(),
             dehalo: DehaloParameters::default(),
             deblock: DeblockParameters::default(),
@@ -130,6 +138,7 @@ impl ProcessingPipeline {
         Self {
             deinterlace: qtgmc_params.clone(),
             descratch: DeScratchParameters { enabled: false, ..Default::default() },
+            spotless: SpotLessParameters { enabled: false, ..Default::default() },
             noise_reduction: NoiseReductionParameters { enabled: false, ..Default::default() },
             dehalo: DehaloParameters { enabled: false, ..Default::default() },
             deblock: DeblockParameters { enabled: false, ..Default::default() },
@@ -154,6 +163,9 @@ impl ProcessingPipeline {
         }
         if self.descratch.enabled {
             passes.push(PassType::DeScratch);
+        }
+        if self.spotless.enabled {
+            passes.push(PassType::SpotLess);
         }
         if self.noise_reduction.enabled {
             passes.push(PassType::NoiseReduction);
@@ -196,6 +208,7 @@ impl ProcessingPipeline {
         let mut count = 0;
         if self.deinterlace.enabled { count += 1; }
         if self.descratch.enabled { count += 1; }
+        if self.spotless.enabled { count += 1; }
         if self.noise_reduction.enabled { count += 1; }
         if self.dehalo.enabled { count += 1; }
         if self.deblock.enabled { count += 1; }
@@ -212,6 +225,7 @@ impl ProcessingPipeline {
         match pass {
             PassType::Deinterlace => self.deinterlace_enabled(),
             PassType::DeScratch => self.descratch.enabled,
+            PassType::SpotLess => self.spotless.enabled,
             PassType::NoiseReduction => self.noise_reduction.enabled,
             PassType::Dehalo => self.dehalo.enabled,
             PassType::Deblock => self.deblock.enabled,

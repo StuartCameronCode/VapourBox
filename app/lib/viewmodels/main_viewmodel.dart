@@ -141,6 +141,8 @@ class MainViewModel extends ChangeNotifier {
         return ParameterConverter.fromQTGMC(_processingPipeline.deinterlace);
       case 'descratch':
         return ParameterConverter.fromDeScratch(_processingPipeline.descratch);
+      case 'spotless':
+        return ParameterConverter.fromSpotLess(_processingPipeline.spotless);
       case 'noise_reduction':
         return ParameterConverter.fromNoiseReduction(_processingPipeline.noiseReduction);
       case 'dehalo':
@@ -175,6 +177,11 @@ class MainViewModel extends ChangeNotifier {
       case 'descratch':
         _processingPipeline = _processingPipeline.copyWith(
           descratch: ParameterConverter.toDeScratch(params),
+        );
+        break;
+      case 'spotless':
+        _processingPipeline = _processingPipeline.copyWith(
+          spotless: ParameterConverter.toSpotLess(params),
         );
         break;
       case 'noise_reduction':
@@ -884,6 +891,8 @@ class MainViewModel extends ChangeNotifier {
         return 'deinterlace';
       case PassType.descratch:
         return 'descratch';
+      case PassType.spotless:
+        return 'spotless';
       case PassType.noiseReduction:
         return 'noise_reduction';
       case PassType.dehalo:

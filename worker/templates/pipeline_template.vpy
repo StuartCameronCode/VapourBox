@@ -397,7 +397,34 @@ if _descratch_orig_format.bits_per_sample != 8:
 {{/DESCRATCH}}
 
 # ============================================================================
-# PASS 4: NOISE REDUCTION
+# PASS 4: SPOTLESS (temporal spot/dirt removal)
+# ============================================================================
+{{#SPOTLESS}}
+import sys as _spotless_sys
+_spotless_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
+from spotless import SpotLess as _SpotLess
+clip = _SpotLess(
+    clip,
+{{#SPOTLESS_CHROMA}}
+    chroma={{SPOTLESS_CHROMA}},
+{{/SPOTLESS_CHROMA}}
+{{#SPOTLESS_REC}}
+    rec={{SPOTLESS_REC}},
+{{/SPOTLESS_REC}}
+{{#SPOTLESS_BLKSIZE}}
+    blksize={{SPOTLESS_BLKSIZE}},
+{{/SPOTLESS_BLKSIZE}}
+{{#SPOTLESS_OVERLAP}}
+    overlap={{SPOTLESS_OVERLAP}},
+{{/SPOTLESS_OVERLAP}}
+{{#SPOTLESS_PEL}}
+    pel={{SPOTLESS_PEL}},
+{{/SPOTLESS_PEL}}
+)
+{{/SPOTLESS}}
+
+# ============================================================================
+# PASS 5: NOISE REDUCTION
 # ============================================================================
 {{#NOISE_REDUCTION}}
 import mvsfunc as mvf

@@ -570,6 +570,7 @@ fn test_20_combined_all_filters() {
     job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         descratch: DeScratchParameters::default(),
+        spotless: SpotLessParameters::default(),
         noise_reduction: NoiseReductionParameters {
             enabled: true,
             method: NoiseReductionMethod::SmDegrain,
@@ -1797,5 +1798,35 @@ fn test_51_descratch() {
         "mindif=8",
         "modey=3",
         "keep=80",
+    ]).unwrap();
+}
+
+#[test]
+fn test_52_spotless() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_52_spotless");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+    job.qtgmc_parameters.tff = Some(true);
+
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        spotless: SpotLessParameters {
+            enabled: true,
+            chroma: true,
+            rec: false,
+            blksize: 16,
+            overlap: 8,
+            pel: 2,
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "SpotLess", &[
+        "from spotless import SpotLess",
+        "chroma=True",
+        "blksize=16",
+        "pel=2",
     ]).unwrap();
 }

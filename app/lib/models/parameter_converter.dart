@@ -4,6 +4,7 @@ import 'crop_resize_parameters.dart';
 import 'deband_parameters.dart';
 import 'deblock_parameters.dart';
 import 'descratch_parameters.dart';
+import 'spotless_parameters.dart';
 import 'dehalo_parameters.dart';
 import 'dynamic_parameters.dart';
 import 'noise_reduction_parameters.dart';
@@ -242,6 +243,23 @@ class ParameterConverter {
     );
   }
 
+  /// Convert spotless parameters to dynamic format.
+  /// All parameters are optional and default to off (not passed to VapourSynth).
+  static DynamicParameters fromSpotLess(SpotLessParameters params) {
+    return DynamicParameters(
+      filterId: 'spotless',
+      enabled: params.enabled,
+      values: {},
+      lastOptionalValues: {
+        'chroma': params.chroma,
+        'rec': params.rec,
+        'blksize': params.blksize,
+        'overlap': params.overlap,
+        'pel': params.pel,
+      },
+    );
+  }
+
   /// Convert deband parameters to dynamic format.
   static DynamicParameters fromDeband(DebandParameters params) {
     return DynamicParameters(
@@ -377,6 +395,7 @@ class ParameterConverter {
       filters: {
         'deinterlace': fromQTGMC(pipeline.deinterlace),
         'descratch': fromDeScratch(pipeline.descratch),
+        'spotless': fromSpotLess(pipeline.spotless),
         'noise_reduction': fromNoiseReduction(pipeline.noiseReduction),
         'dehalo': fromDehalo(pipeline.dehalo),
         'deblock': fromDeblock(pipeline.deblock),
@@ -615,6 +634,19 @@ class ParameterConverter {
     );
   }
 
+  /// Convert dynamic parameters to spotless parameters.
+  static SpotLessParameters toSpotLess(DynamicParameters params) {
+    final v = params.values;
+    return SpotLessParameters(
+      enabled: params.enabled,
+      chroma: v['chroma'] as bool? ?? true,
+      rec: v['rec'] as bool? ?? false,
+      blksize: v['blksize'] as int? ?? 16,
+      overlap: v['overlap'] as int? ?? 8,
+      pel: v['pel'] as int? ?? 2,
+    );
+  }
+
   /// Convert dynamic parameters to deband parameters.
   static DebandParameters toDeband(DynamicParameters params) {
     final v = params.values;
@@ -763,6 +795,9 @@ class ParameterConverter {
       descratch: dynamic.get('descratch') != null
           ? toDeScratch(dynamic.get('descratch')!)
           : const DeScratchParameters(),
+      spotless: dynamic.get('spotless') != null
+          ? toSpotLess(dynamic.get('spotless')!)
+          : const SpotLessParameters(),
       deband: dynamic.get('deband') != null
           ? toDeband(dynamic.get('deband')!)
           : const DebandParameters(),
