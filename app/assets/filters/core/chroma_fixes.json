@@ -14,25 +14,11 @@
 
   "methods": [
     {
-      "id": "fix_chroma_bleeding",
-      "name": "Fix Chroma Bleeding",
-      "description": "Reduce color bleeding from adjacent areas",
-      "function": "haf.FixChromaBleedingMod",
-      "parameters": ["chromaBleedCx", "chromaBleedCy", "chromaBleedCBlur", "chromaBleedStrength"]
-    },
-    {
-      "id": "vinverse",
-      "name": "Vinverse",
-      "description": "Remove combing/interlacing artifacts from chroma",
-      "function": "haf.Vinverse",
-      "parameters": ["vinverseSstr", "vinverseAmnt"]
-    },
-    {
-      "id": "lut_decrawl",
-      "name": "LUT DeCrawl",
-      "description": "Remove dot crawl artifacts from composite video",
-      "function": "haf.LUTDeCrawl",
-      "parameters": ["deCrawlYThresh", "deCrawlCThresh", "deCrawlMaxDiff"]
+      "id": "chroma_fixes",
+      "name": "Chroma Fixes",
+      "description": "Fix chroma bleeding, dot crawl, and combing artifacts (enable individually below)",
+      "function": "custom",
+      "parameters": ["applyChromaBleedingFix", "chromaBleedCx", "chromaBleedCy", "chromaBleedCBlur", "chromaBleedStrength", "applyDeCrawl", "deCrawlYThresh", "deCrawlCThresh", "deCrawlMaxDiff", "applyVinverse", "vinverseSstr", "vinverseAmnt"]
     }
   ],
 
