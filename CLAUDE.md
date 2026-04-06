@@ -208,18 +208,56 @@ Do NOT run `app/build/macos/Build/Products/Release/vapourbox.app` directly — i
 
 ## Common Tasks
 
-### Adding a New Filter (JSON Schema)
+### Adding a New Filter (Full Pipeline Checklist)
 
-1. Create JSON file in `app/assets/filters/core/` (or `~/.vapourbox/filters/` for user filters)
-2. Define required fields: `id`, `version`, `name`, `description`, `category`
-3. Add `methods` array with at least one method
-4. Add `parameters` object with `enabled` and `method` (hidden), plus filter-specific params
-5. Configure `ui.sections` to organize parameters in the UI
-6. For built-in filters: add to `pubspec.yaml` assets if new directory
-7. **Add integration test** in `worker/tests/filter_integration_test.rs` (see below)
-8. Restart app to load the filter
+Adding a filter touches many files. Missing any step causes silent failures (filter not appearing, parameters not saved, preview errors). Follow this checklist completely:
 
-See existing filters in `app/assets/filters/core/` for schema reference.
+**1. Filter Schema & Registration**
+- Create JSON file in `app/assets/filters/core/<filter_id>.json`
+- **Add to `app/assets/filters/manifest.json`** — filters won't load without this
+- See existing filters in `app/assets/filters/core/` for schema reference
+
+**2. Rust Model & Pipeline**
+- Create `worker/src/models/<filter>_parameters.rs` with serde `rename_all = "camelCase"`
+- Register in `worker/src/models/mod.rs` (both `mod` and `pub use`)
+- Add field to `ProcessingPipeline` struct in `worker/src/models/processing_pipeline.rs`
+- Add to `PassType` enum + `display_name()` + `description()` + `Default` + `from_legacy()` + `enabled_passes()` + `enabled_pass_count()` + `is_pass_enabled()`
+
+**3. VapourSynth Templates & Script Generator**
+- Add template block to `worker/templates/pipeline_template.vpy`
+- Add template block to `worker/templates/preview_template.vpy`
+- Add pass handling in `worker/src/script_generator.rs`
+
+**4. Dart Model & Pipeline**
+- Create `app/lib/models/<filter>_parameters.dart` with `@JsonSerializable()`
+- Run `dart run build_runner build` to generate `.g.dart`
+- Add to `app/lib/models/processing_pipeline.dart`: import, `PassType` enum, `displayName`, `description`, field, constructor, `fromLegacy`, `enabledPasses`, `enabledPassCount`, `videoPassCount`, `isPassEnabled`, `getPassSummary`, `copyWith`, `togglePass`
+
+**5. Parameter Converter (ALL THREE locations)**
+- Add `fromX()` and `toX()` in `app/lib/models/parameter_converter.dart`
+- Add to `fromPipeline()` map
+- Add to `toPipeline()` construction
+
+**6. UI Wiring (ALL FOUR locations — missing any causes silent failures)**
+- `app/lib/views/pass_list/pass_list_panel.dart` — add `PassListItem` entry
+- `app/lib/views/pass_list/pass_list_item.dart` — add icon in `_getIconForPass()`
+- `app/lib/views/pass_settings/pass_settings_container.dart` — add case in `_getFilterId()`
+- `app/lib/viewmodels/main_viewmodel.dart` — add case in BOTH `_convertToParams()` AND `_updatePipelineFromDynamic()`
+
+**7. Optional Parameter Defaults**
+- If parameters should default to OFF (not passed to VapourSynth), the `fromX()` converter must put values in `lastOptionalValues` instead of `values`. Otherwise the UI shows all optional params as enabled.
+- Example: `DynamicParameters(filterId: 'x', enabled: true, values: {}, lastOptionalValues: {'param1': 5})`
+
+**8. VapourSynth Compatibility Guards**
+- If the plugin only supports 8-bit, add bit-depth conversion guard in templates
+- If the plugin fails on field-based clips, note this — the preview template conditionally sets field-based via `{{#SET_FIELD_BASED}}` (only when deinterlacing is enabled)
+
+**9. Integration Test** — required (see below)
+
+**10. Plugin Binaries**
+- Windows: add to `deps/windows-x64/vapoursynth/vs-plugins/`
+- macOS: compile for arm64, codesign, add to `deps/macos-arm64/vapoursynth/plugins/`
+- Also copy to installed deps at `~/Library/Application Support/VapourBox/deps/` for testing
 
 ### Adding a New Built-in Preset
 
