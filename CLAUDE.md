@@ -486,8 +486,9 @@ Prerequisites: draft release must exist for the tag, `gh` CLI authenticated.
 1. **Confirm version** — ask user, update `pubspec.yaml`
 2. **Check deps** — run `check-deps-changed.sh`; if changed, bump version in `deps-version.json`
 3. **Build & package** — use packaging scripts (or `release.sh` for full automation)
-4. **Test** — fresh install + upgrade test
-5. **Create GitHub releases** — deps release first (if changed, tag `deps-vX.Y.Z`), then app release (tag `vX.Y.Z`)
+4. **Update `app/assets/deps-version.json`** — after packaging each platform's deps zip, update its `sha256` and `size` fields with the values printed by the packaging script. **Both platforms must have valid (non-null) sha256 and size before release.** The app uses these values to verify downloaded deps at runtime.
+5. **Test** — fresh install + upgrade test
+6. **Create GitHub releases** — deps release first (if changed, tag `deps-vX.Y.Z`), then app release (tag `vX.Y.Z`)
 
 ### Cross-Platform Notes
 
