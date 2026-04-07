@@ -1223,10 +1223,12 @@ class MainViewModel extends ChangeNotifier {
     int? startChapter,
     int? endChapter,
   }) async {
-    // Create temp file for the extraction
+    // Create temp file for the extraction.
+    // Sanitize volume label to remove characters illegal in filenames (e.g., ":" from "D:\").
+    final safeLabel = dvdInfo.volumeLabel.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
     final tempDir = Directory.systemTemp;
     final tempFile = File(
-      '${tempDir.path}/vapourbox_dvd_${dvdInfo.volumeLabel}_t${titleIndex}_${DateTime.now().millisecondsSinceEpoch}.mpg',
+      '${tempDir.path}/vapourbox_dvd_${safeLabel}_t${titleIndex}_${DateTime.now().millisecondsSinceEpoch}.mpg',
     );
 
     final dvdSourceInfo = DvdSourceInfo(

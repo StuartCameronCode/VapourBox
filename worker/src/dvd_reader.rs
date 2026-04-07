@@ -286,11 +286,18 @@ fn find_ifo_file(video_ts_dir: &Path, filename: &str) -> Result<PathBuf> {
 pub fn enumerate_titles(device_path: &str) -> Result<DvdInfo> {
     let video_ts_dir = find_video_ts_dir(device_path)?;
 
-    // Derive volume label from path
+    // Derive volume label from path.
+    // On Windows, Path::file_name() returns None for root paths like "D:\",
+    // so fall back to the drive letter (strip trailing `:\`).
     let volume_label = Path::new(device_path)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| device_path.to_string());
+        .unwrap_or_else(|| {
+            device_path
+                .trim_end_matches(['\\', '/'])
+                .trim_end_matches(':')
+                .to_string()
+        });
 
     // Read VIDEO_TS.IFO
     let vmg_ifo_path = find_ifo_file(&video_ts_dir, "VIDEO_TS.IFO")?;
