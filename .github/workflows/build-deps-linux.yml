@@ -12,6 +12,9 @@ on:
         required: false
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   build-deps:
     runs-on: ubuntu-22.04
