@@ -37,7 +37,7 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
-    if: ${{ inputs.arch == 'both' || inputs.arch == matrix.arch }}
+    if: inputs.arch == 'both' || inputs.arch == matrix.arch
 
     steps:
       - name: Checkout repository
