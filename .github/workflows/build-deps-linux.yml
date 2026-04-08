@@ -11,37 +11,15 @@ on:
         description: 'Upload to this release tag (e.g., deps-v1.3.0). Leave empty to skip upload.'
         required: false
         type: string
-      arch:
-        description: 'Architecture'
-        required: false
-        type: choice
-        options:
-          - x64
-          - arm64
-          - both
-        default: both
 
 permissions:
   contents: write
 
 jobs:
-  build-deps:
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            arch: x64
-          - os: ubuntu-22.04-arm
-            arch: arm64
-      fail-fast: false
-
-    runs-on: ${{ matrix.os }}
-
-    if: inputs.arch == 'both' || inputs.arch == matrix.arch
-
+  build-x64:
+    runs-on: ubuntu-22.04
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install build dependencies
         run: |
@@ -50,30 +28,58 @@ jobs:
             ninja-build cmake nasm patchelf autoconf automake libtool \
             cython3 pkg-config gcc g++ python3-pip \
             libfftw3-dev libboost-filesystem-dev libboost-atomic-dev \
-            ocl-icd-opencl-dev opencl-headers libdvdread-dev \
-            unzip
-          # Ubuntu 22.04 ships meson 0.61 but VapourSynth needs >= 0.63
+            ocl-icd-opencl-dev opencl-headers libdvdread-dev unzip
           pip3 install meson
 
       - name: Build dependencies
-        run: |
-          ./Scripts/download-deps-linux.sh --force
+        run: ./Scripts/download-deps-linux.sh --force
 
       - name: Package dependencies
-        run: |
-          ./Scripts/package-deps-linux.sh --version "${{ inputs.version }}" --arch ${{ matrix.arch }}
+        run: ./Scripts/package-deps-linux.sh --version "${{ inputs.version }}" --arch x64
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: VapourBox-deps-${{ inputs.version }}-linux-${{ matrix.arch }}
-          path: dist/VapourBox-deps-${{ inputs.version }}-linux-${{ matrix.arch }}.zip
+          name: VapourBox-deps-${{ inputs.version }}-linux-x64
+          path: dist/VapourBox-deps-${{ inputs.version }}-linux-x64.zip
 
       - name: Upload to release
-        if: ${{ inputs.release_tag != '' }}
+        if: inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ inputs.release_tag }}" \
-            "dist/VapourBox-deps-${{ inputs.version }}-linux-${{ matrix.arch }}.zip" \
-            --clobber
+            "dist/VapourBox-deps-${{ inputs.version }}-linux-x64.zip" --clobber
+
+  build-arm64:
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build cmake nasm patchelf autoconf automake libtool \
+            cython3 pkg-config gcc g++ python3-pip \
+            libfftw3-dev libboost-filesystem-dev libboost-atomic-dev \
+            ocl-icd-opencl-dev opencl-headers libdvdread-dev unzip
+          pip3 install meson
+
+      - name: Build dependencies
+        run: ./Scripts/download-deps-linux.sh --force
+
+      - name: Package dependencies
+        run: ./Scripts/package-deps-linux.sh --version "${{ inputs.version }}" --arch arm64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VapourBox-deps-${{ inputs.version }}-linux-arm64
+          path: dist/VapourBox-deps-${{ inputs.version }}-linux-arm64.zip
+
+      - name: Upload to release
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ inputs.release_tag }}" \
+            "dist/VapourBox-deps-${{ inputs.version }}-linux-arm64.zip" --clobber
