@@ -20,13 +20,13 @@
     },
     "linux-x64": {
       "filename": "VapourBox-deps-1.3.0-linux-x64.zip",
-      "sha256": null,
-      "size": null
+      "sha256": "5d351e6ccae1e03d4d77d90ef333c13baaaf59a2aa740b529bf017e738c753d6",
+      "size": 143708426
     },
     "linux-arm64": {
       "filename": "VapourBox-deps-1.3.0-linux-arm64.zip",
-      "sha256": "dd6d80570213729f2453cde6da7ae8b71f96bb6dc403ce3d85b5d392aa1115a4",
-      "size": 123969837
+      "sha256": "3d698f9f42154b94b3f2038e67ed20d54db718d09b80afe461b601b63eab98bd",
+      "size": 123871879
     }
   },
   "githubRepo": "StuartCameronCode/VapourBox"
