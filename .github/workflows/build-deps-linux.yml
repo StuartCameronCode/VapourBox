@@ -24,11 +24,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            meson ninja-build cmake nasm patchelf autoconf automake libtool \
-            cython3 pkg-config gcc g++ \
+            ninja-build cmake nasm patchelf autoconf automake libtool \
+            cython3 pkg-config gcc g++ python3-pip \
             libfftw3-dev libboost-filesystem-dev libboost-atomic-dev \
             ocl-icd-opencl-dev opencl-headers libdvdread-dev \
             unzip
+          # Ubuntu 22.04 ships meson 0.61 but VapourSynth needs >= 0.63
+          pip3 install meson
 
       - name: Build dependencies
         run: |
