@@ -674,9 +674,32 @@ impl DvdReadLib {
             }
         }
 
+        #[cfg(target_os = "linux")]
+        {
+            let paths = [
+                "/usr/lib/x86_64-linux-gnu/libdvdread.so",  // Debian/Ubuntu
+                "/usr/lib64/libdvdread.so",                  // Fedora/RHEL
+                "/usr/lib/libdvdread.so",                    // Arch
+                "/usr/local/lib/libdvdread.so",
+            ];
+            for path in &paths {
+                let p = Path::new(path);
+                if p.exists() {
+                    if let Ok(lib) = Self::load(p) {
+                        return Ok(lib);
+                    }
+                }
+            }
+            // Try generic name (searches LD_LIBRARY_PATH)
+            if let Ok(lib) = Self::load(Path::new("libdvdread.so")) {
+                return Ok(lib);
+            }
+        }
+
         bail!(
             "libdvdread not found. DVD extraction requires libdvdread.\n\
              macOS: brew install libdvdread\n\
+             Linux: sudo apt install libdvdread-dev (Debian/Ubuntu) or sudo dnf install libdvdread-devel (Fedora)\n\
              Windows: place dvdread.dll in the application directory"
         )
     }

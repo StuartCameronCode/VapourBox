@@ -12,7 +12,7 @@ Both files should stay synchronized - README.md is for humans, CLAUDE.md is for 
 
 ## Project Overview
 
-VapourBox is a **cross-platform** (macOS + Windows) video processing application using VapourSynth. It provides a simple drag-and-drop interface for deinterlacing, denoising, sharpening, and other video processing tasks as an alternative to more complex tools like Hybrid.
+VapourBox is a **cross-platform** (macOS + Windows + Linux) video processing application using VapourSynth. It provides a simple drag-and-drop interface for deinterlacing, denoising, sharpening, and other video processing tasks as an alternative to more complex tools like Hybrid.
 
 **Technology Stack:**
 - **UI**: Flutter (Dart) - cross-platform desktop app
@@ -56,7 +56,8 @@ VapourBox/
 │   ├── assets/filters/         # Built-in filter schemas (JSON)
 │   │   └── core/               # Core filters (deinterlace, denoise, etc.)
 │   ├── macos/                  # macOS platform config
-│   └── windows/                # Windows platform config
+│   ├── windows/                # Windows platform config
+│   └── linux/                  # Linux platform config
 │
 ├── worker/                     # Rust worker crate
 │   ├── src/
@@ -72,7 +73,9 @@ VapourBox/
 ├── deps/                       # Platform-specific dependencies
 │   ├── macos-arm64/            # Python 3.12, VS, FFmpeg, plugins
 │   ├── macos-x64/
-│   └── windows-x64/            # VSPipe, Python 3.8, FFmpeg, plugins
+│   ├── windows-x64/            # VSPipe, Python 3.8, FFmpeg, plugins
+│   ├── linux-x64/              # Python 3.12, VS, FFmpeg, plugins
+│   └── linux-arm64/
 │
 ├── licenses/                   # GPL, LGPL, NOTICES
 ├── Scripts/                    # Build, package, and release scripts
@@ -109,12 +112,13 @@ VapourBox/
 - Rust 1.70+
 - Windows: Visual Studio Build Tools with C++ workload
 - macOS: Xcode Command Line Tools
+- Linux: `clang cmake git ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev`
 
 ### Download Dependencies
 
 ```bash
 # macOS arm64 (native, on Apple Silicon)
-./scripts/download-deps-macos.sh
+./Scripts/download-deps-macos.sh
 
 # macOS x64 (native, on an Intel Mac): same script — uname -m reports x86_64 so
 # it targets deps/macos-x64. FFmpeg comes pre-built from evermeet.cx, most
@@ -125,7 +129,10 @@ VapourBox/
 #   arch -x86_64 /bin/bash -lc 'PATH=/usr/local/bin:$PATH ./Scripts/download-deps-macos.sh --force'
 
 # Windows (PowerShell)
-.\scripts\download-deps-windows.ps1
+.\Scripts\download-deps-windows.ps1
+
+# Linux
+./Scripts/download-deps-linux.sh
 ```
 
 Both macOS architectures are produced in CI by `build-deps-macos.yml` (arm64 on
@@ -161,6 +168,11 @@ xcodebuild -workspace Runner.xcworkspace -scheme Pods-Runner -configuration Rele
 xcodebuild -workspace Runner.xcworkspace -scheme Runner -configuration Release build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES
 mkdir -p ../build/macos/Build/Products/Release
 cp -R ~/Library/Developer/Xcode/DerivedData/Runner-*/Build/Products/Release/vapourbox.app ../build/macos/Build/Products/Release/
+```
+
+**Linux:**
+```bash
+cd app && flutter pub get && flutter build linux --release
 ```
 
 ### Generate Dart JSON Serialization
@@ -200,6 +212,15 @@ dart run build_runner build
 2. Copy worker: `cp worker/target/debug/vapourbox-worker.exe app/build/windows/x64/runner/Debug/`
 3. Run app: `cd app && flutter run`
 
+**Linux: Use the debug script:**
+
+```bash
+./Scripts/run-debug-linux.sh            # Full build (worker + app) and launch
+./Scripts/run-debug-linux.sh --skip-worker  # Rebuild app only
+./Scripts/run-debug-linux.sh --skip-app     # Rebuild worker only
+./Scripts/run-debug-linux.sh --run-only     # Just copy and launch
+```
+
 ### Production Packaging
 
 **IMPORTANT**: Never manually assemble a release build. Always use packaging scripts — the app will silently crash on video drop if the bundle is incomplete.
@@ -211,8 +232,14 @@ dart run build_runner build
 # Windows
 .\Scripts\package-windows.ps1 -Version "X.Y.Z" [-SkipBuild]
 
+# Linux
+./Scripts/package-linux.sh --version X.Y.Z [--skip-build]
+
 # Test packaged app from terminal to see errors:
+# macOS:
 dist/VapourBox.app/Contents/MacOS/vapourbox
+# Linux:
+dist/VapourBox-X.Y.Z-linux-x64/vapourbox
 ```
 
 Do NOT run `app/build/macos/Build/Products/Release/vapourbox.app` directly — it lacks templates and proper bundle structure.
@@ -454,7 +481,17 @@ The `download-deps-windows.ps1` and `download-deps-macos.sh` scripts apply these
 - Show in Folder: `open -R <path>`
 - **Apple Silicon app build for x64**: the `app/macos/Podfile` reads `VAPOURBOX_ARCHS` (default `arm64`); set it to `x86_64` and pass `ARCHS=x86_64` to xcodebuild to cross-compile the Intel Runner.
 
-Plugin lists for both platforms: see `deps/` directories or download scripts.
+### Linux
+
+- Bundled deps in `~/.local/share/VapourBox/deps/linux-{x64,arm64}/` (or `$XDG_DATA_HOME`)
+- Worker sets: `PYTHONHOME`, `PYTHONPATH`, `VAPOURSYNTH_CONF_PATH`, `LD_LIBRARY_PATH`
+- `patchelf` used for RPATH fixup (equivalent to macOS `install_name_tool`)
+- GPU/OpenCL: requires user-installed GPU driver; nnedi3cl degrades gracefully without it
+- Show in Folder: `xdg-open <directory>`
+- Debug builds: use `./Scripts/run-debug-linux.sh`
+- No code signing or quarantine removal needed
+
+Plugin lists for all platforms: see `deps/` directories or download scripts.
 
 ---
 
@@ -501,15 +538,19 @@ Prerequisites: draft release must exist for the tag, `gh` CLI authenticated.
 | `Scripts/check-deps-changed.sh` | Detect if deps changed since last release (exit 0=changed, 1=unchanged) |
 | `Scripts/package-macos.sh` | Package macOS app |
 | `Scripts/package-windows.ps1` | Package Windows app |
+| `Scripts/package-linux.sh` | Package Linux app |
 | `Scripts/package-deps-macos.sh` | Package macOS deps |
 | `Scripts/package-deps-windows.ps1` | Package Windows deps |
+| `Scripts/package-deps-linux.sh` | Package Linux deps |
+| `Scripts/download-deps-linux.sh` | Build Linux deps from source |
+| `Scripts/run-debug-linux.sh` | Dev build + run for Linux |
 
 ### Release Checklist
 
 1. **Confirm version** — ask user, update `pubspec.yaml`
 2. **Check deps** — run `check-deps-changed.sh`; if changed, bump version in `deps-version.json`
 3. **Build & package** — use packaging scripts (or `release.sh` for full automation)
-4. **Update `app/assets/deps-version.json`** — after packaging each platform's deps zip, update its `sha256` and `size` fields with the values printed by the packaging script. **Both platforms must have valid (non-null) sha256 and size before release.** The app uses these values to verify downloaded deps at runtime.
+4. **Update `app/assets/deps-version.json`** — after packaging each platform's deps zip, update its `sha256` and `size` fields with the values printed by the packaging script. **All platforms must have valid (non-null) sha256 and size before release.** The app uses these values to verify downloaded deps at runtime.
 5. **Test** — fresh install + upgrade test
 6. **Create GitHub releases** — deps release first (if changed, tag `deps-vX.Y.Z`), then app release (tag `vX.Y.Z`)
 
@@ -550,8 +591,10 @@ Create the app-specific password at appleid.apple.com → Sign-In and Security �
 ### Cross-Platform Notes
 
 - Flutter Windows can't build on macOS — use GitHub Actions
+- Flutter Linux can't build on macOS — use GitHub Actions or a Linux VM
 - Windows deps can be zipped on macOS if `deps/windows-x64/` exists
-- The macOS CI build (`build-macos.yml`) signs with the Developer ID cert and notarizes — see "macOS Code Signing & Notarization" below. Windows CI builds remain unsigned.
+- Linux deps must be built on Linux (`./Scripts/download-deps-linux.sh`)
+- The macOS CI build (`build-macos.yml`) signs with the Developer ID cert and notarizes — see "macOS Code Signing & Notarization" below. Windows and Linux CI builds remain unsigned.
 - macOS ships as a **universal** (arm64+x86_64) app by default. `build-macos.yml` takes an `arch` input (`universal` | `both` | `arm64` | `x64`, default `universal`) and fans out via a matrix. Universal = lipo'd worker + Runner built with `ARCHS="arm64 x86_64"`; `both` = two separate single-arch DMGs. The x64 slice cross-compiles on the `macos-15` (arm64) runner.
 - Deps are **not** bundled — the app downloads `macos-arm64` or `macos-x64` deps at runtime per `uname`, so a universal app needs **both** deps bundles published. macOS deps are built by `build-deps-macos.yml` (arm64 on `macos-15`, x64 natively on `macos-15-intel`).
 - `app/macos/Podfile` reads `VAPOURBOX_ARCHS` (default `arm64`; set to `x86_64` or `arm64 x86_64`); `package-macos.sh --arch universal` sets this and lipo's the worker.

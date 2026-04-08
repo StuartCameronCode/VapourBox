@@ -36,6 +36,11 @@ class WhisperAddonManager {
       final arch = result.stdout.toString().trim();
       return arch == 'arm64' ? 'macos-arm64' : 'macos-x64';
     }
+    if (Platform.isLinux) {
+      final result = Process.runSync('uname', ['-m']);
+      final arch = result.stdout.toString().trim();
+      return arch == 'aarch64' ? 'linux-arm64' : 'linux-x64';
+    }
     throw UnsupportedError('Unsupported platform');
   }
 
@@ -87,6 +92,26 @@ class WhisperAddonManager {
       return Directory(path.join(
         home, 'Library', 'Application Support', 'VapourBox', 'addons',
       ));
+    } else if (Platform.isLinux) {
+      if (kDebugMode) {
+        // Development: search upward for project addons
+        var current = Directory(appDir);
+        for (var i = 0; i < 10; i++) {
+          final addonsDir = Directory(path.join(current.path, 'addons'));
+          if (await addonsDir.exists()) {
+            return addonsDir;
+          }
+          final parent = current.parent;
+          if (parent.path == current.path) break;
+          current = parent;
+        }
+      }
+
+      // Production: XDG_DATA_HOME or ~/.local/share
+      final xdgDataHome = Platform.environment['XDG_DATA_HOME'];
+      final home = Platform.environment['HOME'] ?? '/tmp';
+      final dataDir = xdgDataHome ?? path.join(home, '.local', 'share');
+      return Directory(path.join(dataDir, 'VapourBox', 'addons'));
     }
 
     throw UnsupportedError('Unsupported platform');

@@ -17,6 +17,16 @@
       "filename": "VapourBox-deps-1.3.0-macos-x64.zip",
       "sha256": "a326b662e34bb737269f6792b4b1b8518d8512bb05046cf430632a0213202abf",
       "size": 106078101
+    },
+    "linux-x64": {
+      "filename": "VapourBox-deps-1.3.0-linux-x64.zip",
+      "sha256": null,
+      "size": null
+    },
+    "linux-arm64": {
+      "filename": "VapourBox-deps-1.3.0-linux-arm64.zip",
+      "sha256": null,
+      "size": null
     }
   },
   "githubRepo": "StuartCameronCode/VapourBox"

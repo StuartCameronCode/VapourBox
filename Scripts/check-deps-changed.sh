@@ -20,8 +20,11 @@ DEPS_PATHS=(
     "deps/windows-x64/ffmpeg"
     "deps/macos-arm64"
     "deps/macos-x64"
+    "deps/linux-x64"
+    "deps/linux-arm64"
     "Scripts/download-deps-windows.ps1"
     "Scripts/download-deps-macos.sh"
+    "Scripts/download-deps-linux.sh"
 )
 
 # Get the last deps release tag

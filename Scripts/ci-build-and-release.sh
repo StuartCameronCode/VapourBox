@@ -101,6 +101,12 @@ if ! $SKIP_TRIGGER; then
         -f deps_tag="$DEPS_TAG" \
         -f arch="$ARCH"
 
+    echo "  Triggering Build Linux..."
+    gh workflow run "Build Linux" \
+        -f version="$VERSION" \
+        -f deps_tag="$DEPS_TAG" \
+        -f arch="both"
+
     # Wait for runs to appear (they take a moment to register)
     echo "  Waiting for runs to register..."
     sleep 10
@@ -111,12 +117,14 @@ if ! $SKIP_TRIGGER; then
 
     WIN_RUN_ID=$(gh run list --workflow "Build Windows" --limit 1 --json databaseId --jq '.[0].databaseId')
     MAC_RUN_ID=$(gh run list --workflow "Build macOS" --limit 1 --json databaseId --jq '.[0].databaseId')
+    LINUX_RUN_ID=$(gh run list --workflow "Build Linux" --limit 1 --json databaseId --jq '.[0].databaseId')
 
     echo "  Windows run: $WIN_RUN_ID"
     echo "  macOS run:   $MAC_RUN_ID"
+    echo "  Linux run:   $LINUX_RUN_ID"
     echo ""
 
-    # Wait for both to complete
+    # Wait for all to complete
     FAILED=false
 
     echo "  Waiting for Windows build..."
@@ -135,19 +143,30 @@ if ! $SKIP_TRIGGER; then
         FAILED=true
     fi
 
+    echo "  Waiting for Linux build..."
+    if gh run watch "$LINUX_RUN_ID" --exit-status; then
+        echo -e "  ${GREEN}Linux build succeeded${NC}"
+    else
+        echo -e "  ${RED}Linux build failed${NC}"
+        FAILED=true
+    fi
+
     if $FAILED; then
         echo ""
         echo -e "${RED}One or more builds failed. Check the runs:${NC}"
         echo "  Windows: gh run view $WIN_RUN_ID --web"
         echo "  macOS:   gh run view $MAC_RUN_ID --web"
+        echo "  Linux:   gh run view $LINUX_RUN_ID --web"
         exit 1
     fi
 else
     echo -e "${YELLOW}Skipping workflow trigger (--skip-trigger)${NC}"
     WIN_RUN_ID=$(gh run list --workflow "Build Windows" --limit 1 --json databaseId --jq '.[0].databaseId')
     MAC_RUN_ID=$(gh run list --workflow "Build macOS" --limit 1 --json databaseId --jq '.[0].databaseId')
+    LINUX_RUN_ID=$(gh run list --workflow "Build Linux" --limit 1 --json databaseId --jq '.[0].databaseId')
     echo "  Using latest Windows run: $WIN_RUN_ID"
     echo "  Using latest macOS run:   $MAC_RUN_ID"
+    echo "  Using latest Linux run:   $LINUX_RUN_ID"
 fi
 
 # Download artifacts
@@ -162,8 +181,11 @@ gh run download "$WIN_RUN_ID" --dir "$DOWNLOAD_DIR"
 echo "  Downloading macOS artifact..."
 gh run download "$MAC_RUN_ID" --dir "$DOWNLOAD_DIR"
 
+echo "  Downloading Linux artifact..."
+gh run download "$LINUX_RUN_ID" --dir "$DOWNLOAD_DIR"
+
 echo "  Downloaded artifacts:"
-find "$DOWNLOAD_DIR" -type f -name "*.zip" -o -name "*.dmg" | while read -r f; do
+find "$DOWNLOAD_DIR" -type f \( -name "*.zip" -o -name "*.dmg" -o -name "*.tar.gz" \) | while read -r f; do
     SIZE=$(du -sh "$f" | cut -f1)
     echo "    $(basename "$f") ($SIZE)"
 done
@@ -173,7 +195,7 @@ echo ""
 echo -e "${BLUE}[4/4] Uploading to release ${RELEASE_TAG}...${NC}"
 
 UPLOAD_COUNT=0
-find "$DOWNLOAD_DIR" -type f \( -name "*.zip" -o -name "*.dmg" \) | while read -r f; do
+find "$DOWNLOAD_DIR" -type f \( -name "*.zip" -o -name "*.dmg" -o -name "*.tar.gz" \) | while read -r f; do
     BASENAME=$(basename "$f")
     echo "  Uploading $BASENAME..."
     gh release upload "$RELEASE_TAG" "$f" --clobber

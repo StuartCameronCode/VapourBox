@@ -18,6 +18,8 @@ pub enum Platform {
     MacOSX64,
     WindowsX64,
     WindowsArm64,
+    LinuxX64,
+    LinuxArm64,
 }
 
 impl DependencyLocator {
@@ -45,7 +47,9 @@ impl DependencyLocator {
                     // to distinguish from Cargo's deps folder.
                     let has_platform_dir = deps_dir.join("windows-x64").exists()
                         || deps_dir.join("macos-arm64").exists()
-                        || deps_dir.join("macos-x64").exists();
+                        || deps_dir.join("macos-x64").exists()
+                        || deps_dir.join("linux-x64").exists()
+                        || deps_dir.join("linux-arm64").exists();
                     if has_platform_dir {
                         return Ok(deps_dir);
                     }
@@ -82,6 +86,29 @@ impl DependencyLocator {
             }
         }
 
+        // Linux production: XDG_DATA_HOME or ~/.local/share (where downloaded deps go)
+        #[cfg(target_os = "linux")]
+        {
+            let data_dir = if let Ok(xdg) = env::var("XDG_DATA_HOME") {
+                PathBuf::from(xdg).join("VapourBox").join("deps")
+            } else if let Some(home) = env::var_os("HOME") {
+                PathBuf::from(home)
+                    .join(".local")
+                    .join("share")
+                    .join("VapourBox")
+                    .join("deps")
+            } else {
+                PathBuf::from("deps")
+            };
+            if data_dir.join("linux-x64").exists()
+                || data_dir.join("linux-arm64").exists() {
+                return Ok(data_dir);
+            }
+            // Fallback to XDG path (will be created when deps download)
+            return Ok(data_dir);
+        }
+
+        #[allow(unreachable_code)]
         Ok(PathBuf::from("deps"))
     }
 
@@ -99,7 +126,13 @@ impl DependencyLocator {
         #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
         return Platform::WindowsArm64;
 
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        return Platform::LinuxX64;
+
+        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        return Platform::LinuxArm64;
+
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
         compile_error!("Unsupported platform");
     }
 
@@ -110,6 +143,8 @@ impl DependencyLocator {
             Platform::MacOSX64 => "macos-x64",
             Platform::WindowsX64 => "windows-x64",
             Platform::WindowsArm64 => "windows-arm64",
+            Platform::LinuxX64 => "linux-x64",
+            Platform::LinuxArm64 => "linux-arm64",
         }
     }
 
@@ -222,6 +257,16 @@ impl DependencyLocator {
             // Windows: Python 3.8 is bundled inside VapourSynth portable
             Some(platform_dir.join("vapoursynth"))
         }
+
+        #[cfg(target_os = "linux")]
+        {
+            // Linux: python-build-standalone, same layout as macOS
+            let python_dir = platform_dir.join("python");
+            if python_dir.join("bin").join("python3.12").exists() {
+                return Some(python_dir);
+            }
+            None
+        }
     }
 
     /// Get the Python path (site-packages and custom packages).
@@ -241,6 +286,16 @@ impl DependencyLocator {
                 // Legacy support for other Python versions
                 paths.push(python_home.join("lib").join("python3.14").join("site-packages").to_string_lossy().to_string());
                 paths.push(python_home.join("lib").join("python3.11").join("site-packages").to_string_lossy().to_string());
+            }
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            // Linux: same layout as macOS
+            paths.push(platform_dir.join("python-packages").to_string_lossy().to_string());
+
+            if let Some(python_home) = self.python_home() {
+                paths.push(python_home.join("lib").join("python3.12").join("site-packages").to_string_lossy().to_string());
             }
         }
 
@@ -301,6 +356,14 @@ impl DependencyLocator {
             }
         }
 
+        #[cfg(target_os = "linux")]
+        {
+            // Add bundled Python bin if available (same as macOS)
+            if let Some(python_home) = self.python_home() {
+                paths.push(python_home.join("bin").to_string_lossy().to_string());
+            }
+        }
+
         // On Windows, Python is bundled inside vapoursynth directory (already in path)
 
         #[cfg(target_os = "windows")]
@@ -349,6 +412,20 @@ impl DependencyLocator {
             }
         }
 
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(xdg) = env::var("XDG_DATA_HOME") {
+                return PathBuf::from(xdg).join("VapourBox").join("addons");
+            }
+            if let Some(home) = env::var_os("HOME") {
+                return PathBuf::from(home)
+                    .join(".local")
+                    .join("share")
+                    .join("VapourBox")
+                    .join("addons");
+            }
+        }
+
         PathBuf::from("addons")
     }
 
@@ -364,6 +441,11 @@ impl DependencyLocator {
         #[cfg(target_os = "windows")]
         {
             platform_dir.join("lib").join("dvdread.dll")
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            platform_dir.join("lib").join("libdvdread.so")
         }
     }
 
@@ -450,6 +532,42 @@ impl DependencyLocator {
             // and ignores system plugins (which could conflict).
             // This replaces the config generation in the vspipe wrapper script,
             // allowing us to call vspipe-bin directly (so kill() works).
+            let plugins_dir = vs_lib_path.join("plugins");
+            let conf_path = vs_lib_path.join("vapoursynth.auto.conf");
+            let conf_content = format!(
+                "UserPluginDir={}\nAutoloadUserPluginDir=true\nAutoloadSystemPluginDir=false\n",
+                plugins_dir.to_string_lossy()
+            );
+            let _ = std::fs::write(&conf_path, &conf_content);
+            env.insert("VAPOURSYNTH_CONF_PATH".to_string(), conf_path.to_string_lossy().to_string());
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            // Linux library path for VapourSynth and Python
+            let vs_lib_path = self.platform_dir().join("vapoursynth");
+            let python_lib_path = self.platform_dir().join("python").join("lib");
+            let extra_lib_path = self.platform_dir().join("lib");
+            let existing_ld = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();
+            let new_ld = if existing_ld.is_empty() {
+                format!(
+                    "{}:{}:{}",
+                    vs_lib_path.to_string_lossy(),
+                    python_lib_path.to_string_lossy(),
+                    extra_lib_path.to_string_lossy()
+                )
+            } else {
+                format!(
+                    "{}:{}:{}:{}",
+                    vs_lib_path.to_string_lossy(),
+                    python_lib_path.to_string_lossy(),
+                    extra_lib_path.to_string_lossy(),
+                    existing_ld
+                )
+            };
+            env.insert("LD_LIBRARY_PATH".to_string(), new_ld);
+
+            // Generate VapourSynth config (same as macOS)
             let plugins_dir = vs_lib_path.join("plugins");
             let conf_path = vs_lib_path.join("vapoursynth.auto.conf");
             let conf_content = format!(
