@@ -571,10 +571,11 @@ build_plugin "nnedi3cl" \
     "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
 
 # EEDI3m (edge-directed interpolation)
+# Patch: add missing <cstddef> include for std::max_align_t (GCC 13+)
 build_plugin "eedi3m" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3.git" \
     "libeedi3m.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "sed -i '1i #include <cstddef>' EEDI3/EEDI3.cpp && $PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
 
 # fmtconv (format conversion)
 echo ""
