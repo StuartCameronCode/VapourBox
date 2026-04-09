@@ -9,7 +9,34 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
+
 use anyhow::{bail, Context, Result};
+
+/// Format an exit status for error messages, including signal info on Unix.
+fn format_exit_status(status: &std::process::ExitStatus) -> String {
+    if let Some(code) = status.code() {
+        return format!("exit code {}", code);
+    }
+    #[cfg(unix)]
+    {
+        if let Some(sig) = status.signal() {
+            let name = match sig {
+                1 => "SIGHUP",
+                2 => "SIGINT",
+                6 => "SIGABRT",
+                9 => "SIGKILL",
+                11 => "SIGSEGV",
+                13 => "SIGPIPE",
+                15 => "SIGTERM",
+                _ => "unknown",
+            };
+            return format!("signal {} ({})", sig, name);
+        }
+    }
+    "unknown status".to_string()
+}
 
 use crate::dependency_locator::DependencyLocator;
 use crate::models::{AudioMode, ContainerFormat, DeinterlaceMethod, EncoderFamily, EncodingSettings, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
@@ -370,21 +397,21 @@ impl PipelineExecutor {
         if let Some(status) = decoder_status {
             let code = status.code().unwrap_or(-1);
             if code != 0 && code != 130 && code != 141 && code != 224 {
-                bail!("Decoder ffmpeg exited with code {}", code);
+                bail!("Decoder ffmpeg exited with {}", format_exit_status(&status));
             }
         }
 
         if let Some(status) = vspipe_status {
             let code = status.code().unwrap_or(-1);
             if code != 0 && code != 130 && code != 141 {
-                bail!("vspipe exited with code {}", code);
+                bail!("vspipe exited with {}", format_exit_status(&status));
             }
         }
 
         let ffmpeg_ok = if let Some(status) = ffmpeg_status {
             let code = status.code().unwrap_or(-1);
             if code != 0 && code != 130 && code != 141 {
-                bail!("ffmpeg exited with code {}", code);
+                bail!("ffmpeg exited with {}", format_exit_status(&status));
             }
             true
         } else {
@@ -877,11 +904,11 @@ impl PipelineExecutor {
             if !errors.is_empty() {
                 bail!("vspipe failed: {}", errors.join("\n"));
             }
-            bail!("vspipe exited with code {}", vspipe_status.code().unwrap_or(-1));
+            bail!("vspipe exited with {}", format_exit_status(&vspipe_status));
         }
 
         if !output.status.success() {
-            bail!("ffmpeg encoder exited with code {}", output.status.code().unwrap_or(-1));
+            bail!("ffmpeg encoder exited with {}", format_exit_status(&output.status));
         }
 
         // Write PNG to stdout

@@ -33,11 +33,13 @@ impl DependencyLocator {
     }
 
     /// Find the deps directory by searching various locations.
-    fn find_deps_directory(exe_path: &Path) -> Result<PathBuf> {
-        // Development only: search upward from executable for project deps.
+    fn find_deps_directory(#[allow(unused)] exe_path: &Path) -> Result<PathBuf> {
+        // Development only (macOS/Windows): search upward from executable for project deps.
         // This is restricted to debug builds for security - release builds
         // should only check known production paths.
-        #[cfg(debug_assertions)]
+        // Linux always uses the production path since deps are built/downloaded
+        // separately and installed to ~/.local/share/VapourBox/deps/.
+        #[cfg(all(debug_assertions, not(target_os = "linux")))]
         {
             let mut current = exe_path.parent();
             while let Some(dir) = current {
@@ -47,9 +49,7 @@ impl DependencyLocator {
                     // to distinguish from Cargo's deps folder.
                     let has_platform_dir = deps_dir.join("windows-x64").exists()
                         || deps_dir.join("macos-arm64").exists()
-                        || deps_dir.join("macos-x64").exists()
-                        || deps_dir.join("linux-x64").exists()
-                        || deps_dir.join("linux-arm64").exists();
+                        || deps_dir.join("macos-x64").exists();
                     if has_platform_dir {
                         return Ok(deps_dir);
                     }
