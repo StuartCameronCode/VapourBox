@@ -132,10 +132,15 @@ jobs:
             libgtk-3-dev liblzma-dev libstdc++-12-dev
 
       - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          cache: true
+        run: |
+          git clone https://github.com/flutter/flutter.git -b stable --depth 1 "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Flutter precache
+        run: |
+          export PATH="$HOME/flutter/bin:$PATH"
+          flutter precache --linux
+          flutter --version
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
