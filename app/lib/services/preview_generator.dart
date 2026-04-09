@@ -213,6 +213,7 @@ class PreviewGenerator {
     // We no longer double for FPSDivisor=1 because we're seeking in the source
     final frameNumber = (timeSeconds * _frameRate).round();
     final configPath = '$_tempDir/preview_config_${DateTime.now().millisecondsSinceEpoch}.json';
+    Process? process;
 
     try {
       // Set TFF based on field order for QTGMC
@@ -250,7 +251,7 @@ class PreviewGenerator {
       // Run worker in preview mode
       // Use local variable to avoid race conditions when another preview request cancels this one
       // Set workingDirectory to the worker's parent directory so relative deps paths resolve correctly
-      final process = await Process.start(
+      process = await Process.start(
         _workerPath!,
         [
           '--config', configPath,
@@ -299,7 +300,9 @@ class PreviewGenerator {
 
       // Wait for process to complete (use local variable to avoid race conditions)
       final exitCode = await process.exitCode;
-      _previewProcess = null;
+      if (_previewProcess == process) {
+        _previewProcess = null;
+      }
 
       // Log the result
       _previewLog.add('[${DateTime.now().toIso8601String()}] Process exited with code $exitCode, output size: ${pngBytes.length} bytes');
@@ -321,7 +324,9 @@ class PreviewGenerator {
       _lastError = 'Preview generation error: $e';
       _previewLog.add('[ERROR] $e');
     } finally {
-      _previewProcess = null;
+      if (_previewProcess == process) {
+        _previewProcess = null;
+      }
       // Clean up config file on error
       try {
         await File(configPath).delete();
