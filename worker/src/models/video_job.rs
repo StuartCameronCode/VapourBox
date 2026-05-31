@@ -360,6 +360,12 @@ pub enum VideoCodec {
     #[serde(rename = "ffv1")]
     FFV1,
 
+    #[serde(rename = "huffyuv")]
+    Huffyuv,
+
+    #[serde(rename = "ffvhuff")]
+    Ffvhuff,
+
     #[serde(rename = "prores_ks -profile:v 0")]
     ProResProxy,
 
@@ -401,6 +407,8 @@ impl VideoCodec {
             VideoCodec::H264Amf => "h264_amf",
             VideoCodec::H265Amf => "hevc_amf",
             VideoCodec::FFV1 => "ffv1",
+            VideoCodec::Huffyuv => "huffyuv",
+            VideoCodec::Ffvhuff => "ffvhuff",
             VideoCodec::ProResProxy => "prores_ks",
             VideoCodec::ProResLT => "prores_ks",
             VideoCodec::ProRes422 => "prores_ks",
@@ -429,6 +437,21 @@ impl VideoCodec {
         matches!(self, VideoCodec::FFV1)
     }
 
+    /// Check if this is a lossless codec (FFV1, HuffYUV, FFVHuff).
+    pub fn is_lossless(&self) -> bool {
+        matches!(self.encoder_family(), EncoderFamily::Lossless)
+    }
+
+    /// FFmpeg output pixel format to force for this codec, if it cannot accept
+    /// the pipeline's native format. Classic HuffYUV only supports yuv422p (not
+    /// yuv420p), so force conversion; ffvhuff and the others accept yuv420p.
+    pub fn forced_pix_fmt(&self) -> Option<&'static str> {
+        match self {
+            VideoCodec::Huffyuv => Some("yuv422p"),
+            _ => None,
+        }
+    }
+
     /// Whether this codec produces H.264 output.
     pub fn is_h264(&self) -> bool {
         matches!(self, VideoCodec::H264 | VideoCodec::H264Nvenc | VideoCodec::H264Qsv |
@@ -454,7 +477,7 @@ impl VideoCodec {
             VideoCodec::H264Qsv | VideoCodec::H265Qsv => EncoderFamily::Qsv,
             VideoCodec::H264Videotoolbox | VideoCodec::H265Videotoolbox => EncoderFamily::Videotoolbox,
             VideoCodec::H264Amf | VideoCodec::H265Amf => EncoderFamily::Amf,
-            VideoCodec::FFV1 => EncoderFamily::Lossless,
+            VideoCodec::FFV1 | VideoCodec::Huffyuv | VideoCodec::Ffvhuff => EncoderFamily::Lossless,
             _ => EncoderFamily::ProRes,
         }
     }
@@ -463,7 +486,7 @@ impl VideoCodec {
     pub fn preferred_container(&self) -> ContainerFormat {
         if self.is_prores() {
             ContainerFormat::Mov
-        } else if self.is_ffv1() {
+        } else if self.is_lossless() {
             ContainerFormat::Avi
         } else {
             ContainerFormat::Mp4
@@ -484,6 +507,8 @@ impl VideoCodec {
             VideoCodec::H264Amf => "H.264 (AMD AMF)",
             VideoCodec::H265Amf => "H.265 (AMD AMF)",
             VideoCodec::FFV1 => "FFV1 (Lossless)",
+            VideoCodec::Huffyuv => "HuffYUV (Lossless)",
+            VideoCodec::Ffvhuff => "FFVHuff (Lossless)",
             VideoCodec::ProResProxy => "ProRes Proxy",
             VideoCodec::ProResLT => "ProRes LT",
             VideoCodec::ProRes422 => "ProRes 422",

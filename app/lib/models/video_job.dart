@@ -172,6 +172,8 @@ enum VideoCodec {
 
   // Lossless / ProRes
   ffv1('ffv1', 'FFV1 (Lossless)'),
+  huffyuv('huffyuv', 'HuffYUV (Lossless)'),
+  ffvhuff('ffvhuff', 'FFVHuff (Lossless)'),
   proresProxy('prores_ks -profile:v 0', 'ProRes Proxy'),
   proresLT('prores_ks -profile:v 1', 'ProRes LT'),
   prores422('prores_ks -profile:v 2', 'ProRes 422'),
@@ -206,6 +208,10 @@ enum VideoCodec {
         return 'AMD GPU accelerated H.265';
       case VideoCodec.ffv1:
         return 'Lossless archival codec';
+      case VideoCodec.huffyuv:
+        return 'Fast lossless intermediate (YUV 4:2:2)';
+      case VideoCodec.ffvhuff:
+        return 'Fast lossless intermediate (flexible formats)';
       case VideoCodec.proresProxy:
         return 'Lightweight proxy editing';
       case VideoCodec.proresLT:
@@ -219,6 +225,10 @@ enum VideoCodec {
 
   bool get isProRes => value.startsWith('prores_ks');
   bool get isFFV1 => this == VideoCodec.ffv1;
+
+  /// Whether this is a lossless codec (FFV1, HuffYUV, FFVHuff).
+  bool get isLossless =>
+      this == VideoCodec.ffv1 || this == VideoCodec.huffyuv || this == VideoCodec.ffvhuff;
 
   /// Whether this codec produces H.264 output (software or hardware).
   bool get isH264 => this == h264 || this == h264Nvenc || this == h264Qsv ||
@@ -244,13 +254,13 @@ enum VideoCodec {
     if (this == h264Videotoolbox || this == h265Videotoolbox) return 'Apple VideoToolbox';
     if (this == h264Amf || this == h265Amf) return 'AMD AMF';
     if (isProRes) return 'ProRes';
-    if (isFFV1) return 'Lossless';
+    if (isLossless) return 'Lossless';
     return 'Software';
   }
 
   ContainerFormat get preferredContainer {
     if (isProRes) return ContainerFormat.mov;
-    if (isFFV1) return ContainerFormat.avi;
+    if (isLossless) return ContainerFormat.avi;
     return ContainerFormat.mp4;
   }
 
@@ -264,11 +274,11 @@ enum VideoCodec {
         // MOV supports H.264, H.265, ProRes
         return isH264 || isH265 || isProRes;
       case ContainerFormat.mkv:
-        // MKV supports H.264, H.265, FFV1
-        return isH264 || isH265 || isFFV1;
+        // MKV supports H.264, H.265, and lossless (FFV1/HuffYUV/FFVHuff)
+        return isH264 || isH265 || isLossless;
       case ContainerFormat.avi:
-        // AVI supports FFV1, H.264 (uncommon)
-        return isFFV1 || isH264;
+        // AVI supports lossless (FFV1/HuffYUV/FFVHuff), H.264 (uncommon)
+        return isLossless || isH264;
     }
   }
 

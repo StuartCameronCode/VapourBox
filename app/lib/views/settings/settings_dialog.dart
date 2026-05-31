@@ -491,7 +491,7 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
               const SizedBox(height: 24),
 
             // Quality (not applicable for lossless codecs)
-            if (!settings.codec.isFFV1)
+            if (!settings.codec.isLossless)
               _buildSection(
                 context,
                 title: 'Quality',
@@ -527,7 +527,7 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
               ),
 
             // Note for lossless codec
-            if (settings.codec.isFFV1)
+            if (settings.codec.isLossless)
               _buildSection(
                 context,
                 title: 'Quality',
@@ -547,7 +547,7 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          'FFV1 is a lossless codec. No quality setting is needed.',
+                          'This is a lossless codec. No quality setting is needed.',
                           style: Theme.of(context).textTheme.bodyMedium,
                         ),
                       ),
@@ -761,7 +761,9 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
       VideoCodec.proresProxy, VideoCodec.proresLT,
       VideoCodec.prores422, VideoCodec.proresHQ,
     ];
-    final losslessCodecs = <VideoCodec>[VideoCodec.ffv1];
+    final losslessCodecs = <VideoCodec>[
+      VideoCodec.ffv1, VideoCodec.huffyuv, VideoCodec.ffvhuff,
+    ];
 
     // Filter hardware codecs by container support only (show all, warn if undetected)
     final supportedHardware = hardwareCodecs

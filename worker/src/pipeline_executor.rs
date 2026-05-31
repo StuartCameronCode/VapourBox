@@ -581,6 +581,12 @@ impl PipelineExecutor {
         // Encoder-family-specific quality and preset args
         Self::build_encoder_quality_args(&mut args, settings);
 
+        // Force a compatible output pixel format for codecs that can't accept the
+        // pipeline's native format (e.g. classic HuffYUV requires yuv422p).
+        if let Some(pix_fmt) = settings.codec.forced_pix_fmt() {
+            args.extend(["-pix_fmt".to_string(), pix_fmt.to_string()]);
+        }
+
         // Preserve input sample aspect ratio (SAR) when no resize is applied.
         // The Y4M pipe from vspipe strips SAR metadata, so we must re-apply it.
         let pipeline = job.effective_pipeline();
@@ -939,6 +945,11 @@ mod tests {
         // Encoder-family-specific quality and preset args
         PipelineExecutor::build_encoder_quality_args(&mut args, settings);
 
+        // Force a compatible output pixel format (e.g. HuffYUV requires yuv422p)
+        if let Some(pix_fmt) = settings.codec.forced_pix_fmt() {
+            args.extend(["-pix_fmt".to_string(), pix_fmt.to_string()]);
+        }
+
         // Audio handling
         match settings.audio_mode {
             AudioMode::Passthrough => {
@@ -1209,6 +1220,41 @@ mod tests {
         // FFV1 should not have CRF or preset
         assert!(!args.contains(&"-crf".to_string()), "FFV1 should not have -crf");
         assert!(!args.contains(&"-preset".to_string()), "FFV1 should not have -preset");
+    }
+
+    #[test]
+    fn test_ffmpeg_args_video_codec_huffyuv_forces_yuv422p() {
+        let mut job = create_test_job("output.avi");
+        job.encoding_settings.codec = VideoCodec::Huffyuv;
+
+        let args = build_ffmpeg_args_for_test(&job);
+
+        let video_codec_idx = args.iter().position(|a| a == "-c:v").unwrap();
+        assert_eq!(args[video_codec_idx + 1], "huffyuv");
+
+        // Classic HuffYUV only supports yuv422p, so the pixel format must be forced
+        let pix_fmt_idx = args.iter().position(|a| a == "-pix_fmt");
+        assert!(pix_fmt_idx.is_some(), "HuffYUV should force -pix_fmt");
+        assert_eq!(args[pix_fmt_idx.unwrap() + 1], "yuv422p");
+
+        // Lossless: no CRF or preset
+        assert!(!args.contains(&"-crf".to_string()), "HuffYUV should not have -crf");
+        assert!(!args.contains(&"-preset".to_string()), "HuffYUV should not have -preset");
+    }
+
+    #[test]
+    fn test_ffmpeg_args_video_codec_ffvhuff_no_forced_pix_fmt() {
+        let mut job = create_test_job("output.mkv");
+        job.encoding_settings.codec = VideoCodec::Ffvhuff;
+
+        let args = build_ffmpeg_args_for_test(&job);
+
+        let video_codec_idx = args.iter().position(|a| a == "-c:v").unwrap();
+        assert_eq!(args[video_codec_idx + 1], "ffvhuff");
+
+        // ffvhuff accepts yuv420p natively — no forced pixel format
+        assert!(!args.contains(&"-pix_fmt".to_string()), "ffvhuff should not force -pix_fmt");
+        assert!(!args.contains(&"-crf".to_string()), "ffvhuff should not have -crf");
     }
 
     #[test]
