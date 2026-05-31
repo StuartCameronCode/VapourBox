@@ -368,9 +368,21 @@ if $NOTARIZE && ! $NO_SIGN; then
     echo "[$STEP/$TOTAL_STEPS] Notarizing with Apple..."
     echo "    Submitting to notary service (this may take several minutes)..."
 
-    xcrun notarytool submit "$DMG_FILE" \
-        --keychain-profile "$KEYCHAIN_PROFILE" \
-        --wait
+    # CI uses credentials passed via env vars (no local keychain profile exists on
+    # the runner); locally we fall back to a stored notarytool keychain profile.
+    if [ -n "$NOTARY_APPLE_ID" ] && [ -n "$NOTARY_PASSWORD" ]; then
+        echo "    Using Apple ID credentials from environment ($NOTARY_APPLE_ID)"
+        xcrun notarytool submit "$DMG_FILE" \
+            --apple-id "$NOTARY_APPLE_ID" \
+            --password "$NOTARY_PASSWORD" \
+            --team-id "${NOTARY_TEAM_ID:-$TEAM_ID}" \
+            --wait
+    else
+        echo "    Using notarytool keychain profile: $KEYCHAIN_PROFILE"
+        xcrun notarytool submit "$DMG_FILE" \
+            --keychain-profile "$KEYCHAIN_PROFILE" \
+            --wait
+    fi
 
     echo "    Stapling notarization ticket..."
     xcrun stapler staple "$DMG_FILE"

@@ -490,11 +490,45 @@ Prerequisites: draft release must exist for the tag, `gh` CLI authenticated.
 5. **Test** — fresh install + upgrade test
 6. **Create GitHub releases** — deps release first (if changed, tag `deps-vX.Y.Z`), then app release (tag `vX.Y.Z`)
 
+### macOS Code Signing & Notarization
+
+The macOS app is signed with a **Developer ID Application** certificate and notarized by Apple so it launches without Gatekeeper warnings. Signing happens **in CI** (`build-macos.yml`) — the runner imports the cert into a temporary keychain, then `package-macos.sh --notarize` signs every Mach-O inner-out (dylibs → frameworks → `.so` → worker → app), signs the DMG, submits to the notary service, and staples the ticket. `ci-build-and-release.sh` just downloads the finished signed/notarized DMG and uploads it — no local signing step.
+
+`package-macos.sh` also works locally: with a Developer ID cert in your keychain it signs, and `--notarize` uses a stored `notarytool` keychain profile (default name `VapourBox`). In CI there is no keychain profile, so it falls back to `NOTARY_APPLE_ID` / `NOTARY_PASSWORD` / `NOTARY_TEAM_ID` env vars. Use `--no-sign` for ad-hoc local test builds.
+
+**Required GitHub repo secrets** (Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+|--------|-------|
+| `MACOS_CERTIFICATE` | Base64 of the exported Developer ID Application `.p12` |
+| `MACOS_CERTIFICATE_PASSWORD` | Password set when exporting the `.p12` |
+| `MACOS_KEYCHAIN_PASSWORD` | Any random string (temp keychain password) |
+| `MACOS_NOTARY_APPLE_ID` | Apple ID email for notarization |
+| `MACOS_NOTARY_PASSWORD` | App-specific password from appleid.apple.com |
+| `MACOS_NOTARY_TEAM_ID` | `PMXZ63S6YG` |
+
+**One-time setup** (export the cert and load secrets via `gh`):
+
+```bash
+# 1. Export the Developer ID Application cert + private key from Keychain Access
+#    (right-click the identity → Export → .p12, set a password) to ~/devid.p12
+# 2. Base64-encode and store all secrets:
+gh secret set MACOS_CERTIFICATE < <(base64 -i ~/devid.p12)
+gh secret set MACOS_CERTIFICATE_PASSWORD   # paste the .p12 export password
+gh secret set MACOS_KEYCHAIN_PASSWORD      # paste any random string
+gh secret set MACOS_NOTARY_APPLE_ID        # paste your Apple ID email
+gh secret set MACOS_NOTARY_PASSWORD        # paste app-specific password
+gh secret set MACOS_NOTARY_TEAM_ID         # paste PMXZ63S6YG
+rm ~/devid.p12
+```
+
+Create the app-specific password at appleid.apple.com → Sign-In and Security → App-Specific Passwords. The Developer ID cert expires **2027-02-01**; re-export and update `MACOS_CERTIFICATE` before then.
+
 ### Cross-Platform Notes
 
 - Flutter Windows can't build on macOS — use GitHub Actions
 - Windows deps can be zipped on macOS if `deps/windows-x64/` exists
-- CI builds are ad-hoc signed; sign locally for distribution
+- The macOS CI build (`build-macos.yml`) signs with the Developer ID cert and notarizes — see "macOS Code Signing & Notarization" below. Windows CI builds remain unsigned.
 
 ### Dependency Version History
 

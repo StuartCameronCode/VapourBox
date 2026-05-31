@@ -149,15 +149,62 @@ jobs:
           mkdir -p ../build/macos/Build/Products/Release
           cp -R "$DERIVED_APP" ../build/macos/Build/Products/Release/
 
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/developer-id.p12"
+
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+
+          # Create a dedicated, unlocked keychain just for this build
+          security create-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import the Developer ID Application cert + private key
+          security import "$CERT_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+
+          # Allow codesign to use the key without an interactive prompt
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$MACOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Make this keychain the default + only one in the search list so
+          # package-macos.sh's `security find-identity` resolves the identity
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          rm -f "$CERT_PATH"
+
+          echo "Signing identities available:"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
       - name: Package release (arm64)
         if: ${{ inputs.arch == 'arm64' || inputs.arch == 'both' }}
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+          NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
         run: |
-          ./Scripts/package-macos.sh --version "${{ inputs.version }}" --arch arm64 --skip-build --no-sign
+          ./Scripts/package-macos.sh --version "${{ inputs.version }}" --arch arm64 --skip-build --notarize
 
       - name: Package release (x64)
         if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+          NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
         run: |
-          ./Scripts/package-macos.sh --version "${{ inputs.version }}" --arch x64 --skip-build --no-sign
+          ./Scripts/package-macos.sh --version "${{ inputs.version }}" --arch x64 --skip-build --notarize
+
+      - name: Clean up signing keychain
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

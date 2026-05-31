@@ -39,7 +39,7 @@ Get the latest release for your platform:
 2. Open the DMG and drag **VapourBox** to your Applications folder
 3. On first launch, VapourBox will automatically download its processing dependencies (~180 MB)
 
-> **Note**: You may need to right-click and choose "Open" the first time, since the app is not notarized.
+> **Note**: VapourBox is signed with an Apple Developer ID and notarized, so it opens normally — just drag it to Applications and launch.
 
 ### Windows
 
