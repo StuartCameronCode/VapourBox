@@ -90,8 +90,11 @@ cp "$WORKER_DIR/templates/"*.vpy "$DEBUG_APP/Contents/MacOS/templates/"
 cp "$WORKER_DIR/templates/pipe_source.py" "$DEBUG_APP/Contents/MacOS/templates/"
 cp "$WORKER_DIR/templates/spotless.py" "$DEBUG_APP/Contents/MacOS/templates/"
 
-# Remove quarantine from deps if present
-if xattr "$PROJECT_ROOT/deps/macos-arm64/ffmpeg/ffmpeg" 2>/dev/null | grep -q quarantine; then
+# Always strip quarantine from deps. macOS SIGKILLs quarantined binaries
+# (ffmpeg/ffprobe/vspipe) on exec, which surfaces as opaque "Failed to run
+# ffmpeg" / 0x0 dimensions. xattr -cr is cheap and idempotent, so run it
+# unconditionally rather than gating on a single file's current state.
+if [ -d "$PROJECT_ROOT/deps/macos-arm64/" ]; then
   echo "    Removing quarantine from deps..."
   xattr -cr "$PROJECT_ROOT/deps/macos-arm64/" 2>/dev/null || true
 fi
