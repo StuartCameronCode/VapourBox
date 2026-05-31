@@ -723,6 +723,17 @@ impl PipelineExecutor {
         let width = job.input_width.unwrap_or(720);
         let height = job.input_height.unwrap_or(480);
 
+        // Guard against zero dimensions. A failed/missing analysis stores 0x0,
+        // which otherwise reaches VapourSynth as a cryptic "BlankClip: invalid
+        // width". Surface an actionable error instead. (0 only occurs for an
+        // explicit Some(0); None already falls back to the defaults above.)
+        if width == 0 || height == 0 {
+            bail!(
+                "Invalid video dimensions ({}x{}). The file may not have been analyzed correctly \u{2014} try removing it from the queue and re-adding it.",
+                width, height
+            );
+        }
+
         // Calculate start time (go back half the frames for temporal context)
         let start_time = (time_seconds - (num_frames as f64 / 2.0) * frame_duration).max(0.0);
 
