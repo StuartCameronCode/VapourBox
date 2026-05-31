@@ -1185,13 +1185,15 @@ class MainViewModel extends ChangeNotifier {
     final isSubtitleOnly = _processingPipeline.subtitles.enabled &&
         _processingPipeline.videoPassCount == 0;
     if (isSubtitleOnly && _processingPipeline.subtitles.output == SubtitleOutput.srtFile) {
-      return '$outputDir/$outputFilename.srt';
+      return path.join(outputDir, '$outputFilename.srt');
     }
 
     // Add extension based on container
     final ext = _getOutputExtension();
 
-    return '$outputDir/$outputFilename$ext';
+    // Use path.join so the separator matches the platform (backslash on Windows)
+    // instead of producing mixed separators like "D:\dir/file.mov".
+    return path.join(outputDir, '$outputFilename$ext');
   }
 
   /// Regenerates the output paths for all queue items when settings change.

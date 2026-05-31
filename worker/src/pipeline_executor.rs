@@ -456,6 +456,61 @@ impl PipelineExecutor {
         }
     }
 
+    /// Probe the input file's subtitle stream codec names in subtitle-relative
+    /// order (so index N corresponds to the `s:N` stream specifier).
+    /// Returns None if ffprobe is unavailable or fails; Some(empty) if there are
+    /// no subtitle streams.
+    fn probe_subtitle_codecs(&self, input_path: &str) -> Option<Vec<String>> {
+        let ffprobe_path = self.deps.ffprobe_path().ok()?;
+        let env = self.deps.build_environment();
+
+        let output = Command::new(&ffprobe_path)
+            .args([
+                "-v", "quiet",
+                "-select_streams", "s",
+                "-show_entries", "stream=codec_name",
+                "-of", "csv=p=0",
+                input_path,
+            ])
+            .envs(&env)
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        Some(
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect(),
+        )
+    }
+
+    /// Whether a subtitle codec is text-based and can therefore be transcoded to
+    /// mov_text for MP4/MOV output. Image-based subtitles (hdmv_pgs_subtitle,
+    /// dvd_subtitle, dvb_subtitle, xsub) cannot and are excluded. Uses an
+    /// allowlist so unknown codecs are excluded (skipped) rather than risking a
+    /// hard encode failure.
+    fn is_text_subtitle(codec_name: &str) -> bool {
+        matches!(
+            codec_name,
+            "subrip"
+                | "srt"
+                | "ass"
+                | "ssa"
+                | "mov_text"
+                | "text"
+                | "webvtt"
+                | "subviewer"
+                | "subviewer1"
+                | "microdvd"
+                | "stl"
+        )
+    }
+
     /// Build FFmpeg command-line arguments.
     fn build_ffmpeg_args(&self, job: &VideoJob, progress_file: &Path, input_sar: Option<&str>, existing_comment: Option<&str>) -> Vec<String> {
         let mut args = Vec::new();
@@ -497,10 +552,25 @@ impl PipelineExecutor {
                 args.extend(["-c:s".to_string(), "copy".to_string()]);
             }
             ContainerFormat::Mp4 | ContainerFormat::Mov if !subtitle_embed_pending => {
-                // Transcode text subs to mov_text; image-based subs (PGS) will be
-                // skipped by ffmpeg if they can't be converted.
-                args.extend(["-map".to_string(), "1:s?".to_string()]);
-                args.extend(["-c:s".to_string(), "mov_text".to_string()]);
+                // mov_text only holds text subtitles. Image-based subs (PGS/VobSub
+                // from DVD/Blu-ray rips) cannot be transcoded to mov_text — ffmpeg
+                // does NOT skip them, it aborts the whole encode with
+                // "Subtitle encoding currently only possible from text to text..."
+                // (exit -22). So probe the source and map only text-based streams.
+                if let Some(codecs) = self.probe_subtitle_codecs(&job.input_path) {
+                    let mut mapped_any = false;
+                    for (rel_idx, codec) in codecs.iter().enumerate() {
+                        if Self::is_text_subtitle(codec) {
+                            args.extend(["-map".to_string(), format!("1:s:{}", rel_idx)]);
+                            mapped_any = true;
+                        }
+                    }
+                    if mapped_any {
+                        args.extend(["-c:s".to_string(), "mov_text".to_string()]);
+                    }
+                }
+                // If probing fails, map no subtitles — a missing subtitle track must
+                // never fail the encode.
             }
             _ => {} // AVI and others: skip subtitle mapping
         }
@@ -907,6 +977,29 @@ mod tests {
             input_height: None,
             input_pixel_format: None,
         }
+    }
+
+    #[test]
+    fn test_is_text_subtitle_excludes_image_based() {
+        // Image-based subtitles (DVD/Blu-ray rips) must be excluded — these are
+        // what made ffmpeg abort with exit -22 on MOV/MP4 output (issue #6).
+        for codec in ["hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle", "xsub"] {
+            assert!(
+                !PipelineExecutor::is_text_subtitle(codec),
+                "{codec} is image-based and must not be mapped to mov_text"
+            );
+        }
+
+        // Text-based subtitles can be transcoded to mov_text.
+        for codec in ["subrip", "srt", "ass", "ssa", "mov_text", "webvtt"] {
+            assert!(
+                PipelineExecutor::is_text_subtitle(codec),
+                "{codec} is text-based and should be mapped to mov_text"
+            );
+        }
+
+        // Unknown codecs are excluded (allowlist) to avoid a hard encode failure.
+        assert!(!PipelineExecutor::is_text_subtitle("some_future_codec"));
     }
 
     #[test]
