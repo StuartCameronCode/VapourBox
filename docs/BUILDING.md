@@ -70,10 +70,33 @@ VapourBox/
 .\Scripts\download-deps-windows.ps1
 ```
 
-**macOS:**
+**macOS (arm64, native):**
 ```bash
 ./Scripts/download-deps-macos.sh
 ```
+
+**macOS (x64):** GitHub's Intel `macos-13` runner was retired (Dec 2025), so the
+x64 dependency bundle is built on an Apple Silicon machine through Rosetta 2 with
+an Intel Homebrew prefix. `uname -m` then reports `x86_64`, so the script targets
+`deps/macos-x64`, and every build tool (Homebrew, meson, ninja, clang, the
+embedded Python) emits x86_64. FFmpeg is sourced pre-built from
+[evermeet.cx](https://evermeet.cx/ffmpeg/) (static x86_64); `tmedian` and
+`bestsource` come pre-built from
+[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build); the
+rest build from source.
+
+```bash
+# One-time: install Rosetta 2 and an Intel Homebrew at /usr/local
+softwareupdate --install-rosetta --agree-to-license
+arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Build the x64 deps
+arch -x86_64 /bin/bash -lc 'PATH=/usr/local/bin:$PATH ./Scripts/download-deps-macos.sh --force'
+```
+
+In CI, both architectures are produced by the **Build macOS Deps**
+(`build-deps-macos.yml`) workflow — the arm64 job runs natively on `macos-15`,
+the x64 job runs the same script under Rosetta.
 
 ## Development Builds
 
@@ -146,9 +169,19 @@ Output: `dist/VapourBox-1.0.0-windows-x64.zip`
 
 ### macOS
 ```bash
-./Scripts/package-macos.sh --version 1.0.0 [--skip-build]
+./Scripts/package-macos.sh --version 1.0.0 [--arch arm64|x64|universal] [--skip-build]
 ```
-Output: `dist/VapourBox.app` and `dist/VapourBox-1.0.0-macos-arm64.dmg`
+`--arch` defaults to the host architecture. **`universal`** produces a fat
+arm64+x86_64 bundle (the Rust worker is built for both targets and combined with
+`lipo`; the Flutter Runner is built with `ARCHS="arm64 x86_64"`). Output:
+`dist/VapourBox.app` and `dist/VapourBox-1.0.0-macos-<arch>.dmg`.
+
+In CI the **Build macOS** (`build-macos.yml`) workflow takes
+`arch: universal | both | arm64 | x64` (default **universal** — one DMG for all
+Macs; `both` emits two separate single-arch DMGs). The processing dependencies
+are **not** bundled — a universal app downloads the arch-appropriate deps
+(`macos-arm64` or `macos-x64`) on first run, so both deps bundles must be
+published for a universal release.
 
 ### Testing a Packaged Build
 

@@ -28,8 +28,10 @@ Get the latest release for your platform:
 
 | Platform | File |
 |----------|------|
-| macOS (Apple Silicon) | `VapourBox-x.x.x-macos-arm64.dmg` |
+| macOS (Universal — Apple Silicon & Intel) | `VapourBox-x.x.x-macos-universal.dmg` |
 | Windows 10/11 (x64) | `VapourBox-x.x.x-windows-x64.zip` |
+
+> The macOS DMG is a universal binary that runs natively on both Apple Silicon and Intel Macs; the correct processing dependencies are downloaded for your CPU on first launch.
 
 ## Installation
 
@@ -169,6 +171,7 @@ Stuart Cameron - [stuart-cameron.com](https://stuart-cameron.com)
 
 ### Pre-built Binary Sources
 
-macOS ARM64 plugins sourced from:
+macOS plugins and binaries sourced from:
 - **[yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins)** — pre-built ARM64 VapourSynth plugins for macOS
-- **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** — Cross-platform VapourSynth plugins
+- **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** — cross-platform VapourSynth plugins (arm64 + x86_64; used for `tmedian` and `bestsource`)
+- **[evermeet.cx](https://evermeet.cx/ffmpeg/)** — static x86_64 FFmpeg/FFprobe builds for the Intel macOS bundle
