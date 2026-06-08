@@ -965,7 +965,7 @@ echo "=== Patching havsfunc ==="
 
 HAVSFUNC="$PYTHON_PACKAGES_DIR/havsfunc.py"
 if [ -f "$HAVSFUNC" ]; then
-    python3 << 'EOF'
+    HAVSFUNC_PATH="$HAVSFUNC" python3 << 'EOF'
 import re
 import sys
 import os
