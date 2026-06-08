@@ -91,6 +91,7 @@ jobs:
             gh release create "${{ inputs.release_tag }}" \
               --title "${{ inputs.release_tag }}" \
               --notes "whisper.cpp ${{ inputs.whisper_version }} whisper-cli binaries for Linux (built by build-whisper.yml)." \
+              --latest=false \
               || true
           gh release upload "${{ inputs.release_tag }}" whisper-cli-linux-x64.tar.gz --clobber
 
@@ -145,5 +146,6 @@ jobs:
             gh release create "${{ inputs.release_tag }}" \
               --title "${{ inputs.release_tag }}" \
               --notes "whisper.cpp ${{ inputs.whisper_version }} whisper-cli binaries for Linux (built by build-whisper.yml)." \
+              --latest=false \
               || true
           gh release upload "${{ inputs.release_tag }}" whisper-cli-linux-arm64.tar.gz --clobber

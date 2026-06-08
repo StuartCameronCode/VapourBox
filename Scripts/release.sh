@@ -259,6 +259,7 @@ These dependencies are automatically downloaded by the app on first launch."
         --repo "$GITHUB_REPO" \
         --title "Dependencies $DEPS_VERSION" \
         --notes "$DEPS_NOTES" \
+        --latest=false \
         "$PROJECT_ROOT/dist/VapourBox-deps-$DEPS_VERSION-"*.zip 2>/dev/null || {
             echo -e "${YELLOW}Uploading assets to existing release...${NC}"
             for f in "$PROJECT_ROOT/dist/VapourBox-deps-$DEPS_VERSION-"*.zip; do
