@@ -410,25 +410,74 @@ The most important parameters:
 
 ## Testing
 
+VapourBox has **three distinct test suites**. Know which is which before adding
+or changing tests — they live in different places and run differently.
+
+### 1. Rust worker tests — `worker/tests/`, run by `cargo test`
+
 ```bash
-# Rust tests
 cd worker && cargo test
+cd worker && cargo test --test subtitle_integration_test -- --nocapture
+```
 
-# Flutter tests
+- `filter_integration_test.rs` — **every filter/parameter change must add a
+  numbered test here** (see "Adding a New Filter"). It generates `.vpy` scripts
+  and, via `run_job`, runs the `vspipe | ffmpeg` pipeline, so it needs `deps/`.
+- `subtitle_integration_test.rs` — runs `whisper-cli` on
+  `Tests/TestResources/small_clip.mp4`; needs the whisper add-on + ffmpeg.
+- In **debug** builds `DependencyLocator` finds repo-root `deps/`/`addons/` by
+  searching upward — **except Linux**, which only reads
+  `~/.local/share/VapourBox/` (no upward search), so CI symlinks those there.
+
+### 2. Flutter `test/` suite — `app/test/`, run by `flutter test`  ← the CI gate
+
+```bash
 cd app && flutter test
+```
 
-# Test worker standalone
+Headless Dart-VM tests. A mix of pure unit tests (`dynamic_parameters`,
+`filter_schema`, `parameter_converter`, `widget_test`, `scan_type_detection`)
+and integration-style tests that shell out to the bundled binaries
+(`vapoursynth_integration_test`, `schema_converter_integration_test`); the latter
+need the per-arch `deps/` and (for whisper) `addons/`. **This is the Flutter
+suite CI runs** — put new shell-out Dart tests here so CI covers them.
+
+### 3. Flutter `integration_test/` suite — `app/integration_test/`, NOT in CI
+
+```bash
+cd app && flutter test integration_test   # separate invocation; needs a display/device
+```
+
+- Flutter routes **anything** under `integration_test/` through the device
+  launcher (even plain `package:test` files), so it can't be combined with the
+  `test/` suite in one `flutter test` call and won't run on a headless CI runner
+  without a display (e.g. `xvfb`). These are **local/manual** tests.
+- **Not maintained by CI, so they drift.** As of this writing
+  `filter_pipeline_test.dart` is stale and does not compile — it references a
+  removed API (`EncodingSettings.audioCopy`, now the `AudioMode` enum;
+  `ChromaFixParameters.vinverseScl`, now `vinverseSstr`/`vinverseAmnt`). Fix or
+  delete before relying on it; prefer adding shell-out tests to suite #2 instead.
+
+```bash
+# Run the worker standalone (no test harness)
 cd worker && cargo run --release -- --config test_job.json
 ```
 
-**CI test gate** (`.github/workflows/ci-test.yml`): runs on push to `main` + PRs. It
-pulls the published deps bundle and the whisper add-on (binary + small model),
-then runs the full Rust + Flutter suites — including the subtitle integration
-test — on macOS **arm64** (`macos-15`) and **x64** (`macos-15-intel`) and Windows x64. The
-subtitle test needs `addons/whisper/{bin/whisper-cli,models/ggml-small.bin}` and
-ffmpeg from `deps/`; the scan-type/vapoursynth Flutter tests need the per-arch
-`deps/` dir. The `small_clip.mp4` + telecine/interlaced fixtures are committed
-under `Tests/TestResources/`.
+### CI test gate (`.github/workflows/ci-test.yml`)
+
+Runs on push to `main` + PRs (skipped for doc-only changes via `paths-ignore`).
+Each job pulls the published deps bundle + the whisper add-on, then runs
+**suite #1 (`cargo test`) and suite #2 (`flutter test`)** — including the subtitle
+integration test. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
+(`macos-15-intel`), **Windows x64**, **Linux x64** (`ubuntu-22.04`). Notes:
+
+- whisper-cli is provisioned from the **same source the app uses at runtime**
+  (`app/assets/whisper-addon.json`): macOS via a Homebrew bottle, Windows/Linux
+  by downloading the published release zip/tarball (Linux from `whisper-vX.Y.Z`,
+  built by `build-whisper.yml`).
+- Fixtures (`small_clip.mp4`, telecine/interlaced clips) are committed under
+  `Tests/TestResources/`.
+- Suite #3 (`integration_test/`) is **not** part of this gate (see above).
 
 ## Code Style
 
