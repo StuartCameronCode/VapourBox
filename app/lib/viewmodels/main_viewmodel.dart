@@ -61,6 +61,7 @@ class MainViewModel extends ChangeNotifier {
   bool _isGeneratingPreview = false;
   CancelToken? _previewCancelToken;
   Timer? _previewDebounceTimer;
+  int _previewGeneration = 0;
   Timer? _zoomDebounceTimer;
   bool _isLoadingZoomedThumbnails = false;
 
@@ -785,6 +786,11 @@ class MainViewModel extends ChangeNotifier {
   }
 
   /// Generates the processed preview at the current scrubber position.
+  ///
+  /// Uses a generation counter to handle concurrent calls safely. The timer
+  /// callback cannot await this async method, so multiple calls can overlap
+  /// when filters are toggled rapidly. Only the most recent generation is
+  /// allowed to update shared state (_isGeneratingPreview, processedPreview).
   Future<void> _generateProcessedPreview() async {
     final item = selectedItem;
     if (item == null) return;
@@ -792,10 +798,13 @@ class MainViewModel extends ChangeNotifier {
     // Cancel any existing preview generation
     _cancelPreviewGeneration();
 
+    final generation = ++_previewGeneration;
+
     _isGeneratingPreview = true;
     notifyListeners();
 
-    _previewCancelToken = CancelToken();
+    final cancelToken = CancelToken();
+    _previewCancelToken = cancelToken;
     final timeSeconds = item.scrubberPosition * _previewGenerator.duration;
 
     try {
@@ -804,18 +813,22 @@ class MainViewModel extends ChangeNotifier {
         pipeline: _processingPipeline,
         fieldOrder: effectiveFieldOrder,
         encodingSettings: _encodingSettings,
-        cancelToken: _previewCancelToken,
+        cancelToken: cancelToken,
       );
 
-      if (!(_previewCancelToken?.isCancelled ?? true)) {
+      if (generation == _previewGeneration && !cancelToken.isCancelled) {
         item.processedPreview = preview;
       }
     } catch (e) {
       // Ignore errors from cancelled previews
     }
 
-    _isGeneratingPreview = false;
-    notifyListeners();
+    // Only clear the generating flag if this is still the latest generation.
+    // Otherwise a newer call is in flight and owns the flag.
+    if (generation == _previewGeneration) {
+      _isGeneratingPreview = false;
+      notifyListeners();
+    }
   }
 
   /// Cancels any ongoing preview generation.

@@ -230,6 +230,11 @@ EOF
         echo "Created: dist/VapourBox-deps-$DEPS_VERSION-windows-x64.zip"
     fi
 
+    # Package Linux deps (if deps exist)
+    if [ -d "$PROJECT_ROOT/deps/linux-x64" ] || [ -d "$PROJECT_ROOT/deps/linux-arm64" ]; then
+        "$SCRIPT_DIR/package-deps-linux.sh" --version "$DEPS_VERSION" --arch both || true
+    fi
+
     echo ""
     echo -e "${BLUE}[2/6] Creating deps release on GitHub...${NC}"
 
@@ -285,7 +290,7 @@ else
 fi
 
 echo ""
-echo -e "${BLUE}[5/6] Triggering Windows build...${NC}"
+echo -e "${BLUE}[5/6] Triggering Windows and Linux builds...${NC}"
 
 # Check if GitHub Actions workflow exists
 if [ -f "$PROJECT_ROOT/.github/workflows/build-windows.yml" ]; then
@@ -300,6 +305,18 @@ if [ -f "$PROJECT_ROOT/.github/workflows/build-windows.yml" ]; then
 else
     echo -e "${YELLOW}No Windows build workflow found at .github/workflows/build-windows.yml${NC}"
     echo -e "${YELLOW}Build Windows manually using: ./Scripts/package-windows.ps1 -Version $APP_VERSION${NC}"
+fi
+
+if [ -f "$PROJECT_ROOT/.github/workflows/build-linux.yml" ]; then
+    echo "Triggering GitHub Actions workflow for Linux build..."
+    gh workflow run build-linux.yml \
+        --repo "$GITHUB_REPO" \
+        --ref "main" \
+        -f version="$APP_VERSION" \
+        -f deps_tag="$DEPS_TAG" \
+        -f arch="both" || {
+            echo -e "${YELLOW}Could not trigger Linux workflow.${NC}"
+        }
 fi
 
 echo ""
@@ -321,10 +338,13 @@ RELEASE_NOTES="## VapourBox $APP_VERSION
 - **Windows**: \`VapourBox-$APP_VERSION-windows-x64.zip\`
 - **macOS (Apple Silicon)**: \`VapourBox-$APP_VERSION-macos-arm64.zip\` (contains signed & notarized DMG)
 - **macOS (Intel)**: \`VapourBox-$APP_VERSION-macos-x64.zip\` (contains signed & notarized DMG)
+- **Linux (x64)**: \`VapourBox-$APP_VERSION-linux-x64.tar.gz\`
+- **Linux (arm64)**: \`VapourBox-$APP_VERSION-linux-arm64.tar.gz\`
 
 ### Installation
 - **Windows**: Extract zip and run \`vapourbox.exe\`
 - **macOS**: Open the DMG and drag VapourBox to Applications
+- **Linux**: Extract tarball and run \`./vapourbox\`
 
 ### Dependencies
 Dependencies are automatically downloaded on first launch (~185 MB).
@@ -332,7 +352,8 @@ Using dependency version: $DEPS_TAG
 
 ### Requirements
 - Windows 10/11 x64
-- macOS 12+ (Monterey or later)"
+- macOS 12+ (Monterey or later)
+- Linux x86_64 or aarch64 (Ubuntu 22.04+, Fedora 38+, or similar)"
 
 if [ ${#RELEASE_ASSETS[@]} -gt 0 ]; then
     gh release create "v$APP_VERSION" \
@@ -355,8 +376,8 @@ echo -e "${GREEN}║                    Release Complete!                       
 echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo "Next steps:"
-echo "  1. Wait for Windows build to complete (if using GitHub Actions)"
-echo "  2. Upload Windows zip to the draft release"
+echo "  1. Wait for Windows and Linux builds to complete (if using GitHub Actions)"
+echo "  2. Upload Windows zip and Linux tarballs to the draft release"
 echo "  3. Test the release builds"
 echo "  4. Edit release notes"
 echo "  5. Publish the release"

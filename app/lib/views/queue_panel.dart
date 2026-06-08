@@ -290,6 +290,9 @@ class _QueuePanelState extends State<QueuePanel> {
       Process.run('open', ['-R', path]);
     } else if (Platform.isWindows) {
       Process.run('explorer', ['/select,', path]);
+    } else if (Platform.isLinux) {
+      final parent = File(path).parent.path;
+      Process.run('xdg-open', [parent]);
     }
   }
 

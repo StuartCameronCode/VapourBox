@@ -50,7 +50,6 @@ app/windows/flutter/generated_plugins.cmake
 # Platform-specific (unsupported platforms)
 app/android/
 app/ios/
-app/linux/
 app/web/
 
 # =============================================================================

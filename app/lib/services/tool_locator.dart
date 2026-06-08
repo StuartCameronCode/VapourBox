@@ -120,6 +120,12 @@ class ToolLocator {
           path.join(exeDir, '..', '..', '..', '..', '..', '..', '..', '..', '..', 'worker', 'target', 'release', workerExe),
           path.join(exeDir, '..', '..', '..', '..', '..', '..', '..', '..', '..', 'worker', 'target', 'debug', workerExe),
         ];
+      } else if (Platform.isLinux) {
+        // app/build/linux/x64/debug/bundle/ — 6 levels up
+        devPaths = [
+          path.join(exeDir, '..', '..', '..', '..', '..', '..', 'worker', 'target', 'release', workerExe),
+          path.join(exeDir, '..', '..', '..', '..', '..', '..', 'worker', 'target', 'debug', workerExe),
+        ];
       } else {
         devPaths = [];
       }
@@ -178,6 +184,34 @@ class ToolLocator {
       env['DYLD_LIBRARY_PATH'] = existingDyld.isEmpty
           ? dyldPaths.join(':')
           : '${dyldPaths.join(':')}:$existingDyld';
+    } else if (Platform.isLinux) {
+      final bundledPython = Directory(path.join(_depsDir!, 'python'));
+      if (await bundledPython.exists()) {
+        env['PYTHONHOME'] = path.join(_depsDir!, 'python');
+      }
+
+      env['PYTHONPATH'] = path.join(_depsDir!, 'python-packages');
+      env['PYTHONNOUSERSITE'] = '1';
+      env['VAPOURSYNTH_PLUGIN_PATH'] = path.join(_depsDir!, 'vapoursynth', 'plugins');
+
+      final paths = <String>[];
+      if (await bundledPython.exists()) {
+        paths.add(path.join(_depsDir!, 'python', 'bin'));
+      }
+      paths.add(path.join(_depsDir!, 'vapoursynth'));
+      paths.add(path.join(_depsDir!, 'ffmpeg'));
+      env['PATH'] = '${paths.join(':')}:${env['PATH'] ?? ''}';
+
+      // LD_LIBRARY_PATH for VapourSynth, Python, and extra libs
+      final ldPaths = [
+        path.join(_depsDir!, 'vapoursynth'),
+        path.join(_depsDir!, 'python', 'lib'),
+        path.join(_depsDir!, 'lib'),
+      ];
+      final existingLd = env['LD_LIBRARY_PATH'] ?? '';
+      env['LD_LIBRARY_PATH'] = existingLd.isEmpty
+          ? ldPaths.join(':')
+          : '${ldPaths.join(':')}:$existingLd';
     }
 
     return env;

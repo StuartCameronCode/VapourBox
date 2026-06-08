@@ -36,6 +36,11 @@ class WhisperAddonManager {
       final arch = result.stdout.toString().trim();
       return arch == 'arm64' ? 'macos-arm64' : 'macos-x64';
     }
+    if (Platform.isLinux) {
+      final result = Process.runSync('uname', ['-m']);
+      final arch = result.stdout.toString().trim();
+      return arch == 'aarch64' ? 'linux-arm64' : 'linux-x64';
+    }
     throw UnsupportedError('Unsupported platform');
   }
 
@@ -87,6 +92,26 @@ class WhisperAddonManager {
       return Directory(path.join(
         home, 'Library', 'Application Support', 'VapourBox', 'addons',
       ));
+    } else if (Platform.isLinux) {
+      if (kDebugMode) {
+        // Development: search upward for project addons
+        var current = Directory(appDir);
+        for (var i = 0; i < 10; i++) {
+          final addonsDir = Directory(path.join(current.path, 'addons'));
+          if (await addonsDir.exists()) {
+            return addonsDir;
+          }
+          final parent = current.parent;
+          if (parent.path == current.path) break;
+          current = parent;
+        }
+      }
+
+      // Production: XDG_DATA_HOME or ~/.local/share
+      final xdgDataHome = Platform.environment['XDG_DATA_HOME'];
+      final home = Platform.environment['HOME'] ?? '/tmp';
+      final dataDir = xdgDataHome ?? path.join(home, '.local', 'share');
+      return Directory(path.join(dataDir, 'VapourBox', 'addons'));
     }
 
     throw UnsupportedError('Unsupported platform');
@@ -139,7 +164,9 @@ class WhisperAddonManager {
 
     final tempDir = await Directory.systemTemp.createTemp('vapourbox_whisper_');
     final tempFile = File(path.join(tempDir.path,
-        format == 'homebrew-bottle' ? 'whisper.tar.gz' : 'whisper.zip'));
+        (format == 'homebrew-bottle' || format == 'tar')
+            ? 'whisper.tar.gz'
+            : 'whisper.zip'));
 
     try {
       // ghcr.io requires a bearer token (public, anonymous access)
@@ -155,6 +182,8 @@ class WhisperAddonManager {
 
       if (format == 'homebrew-bottle') {
         await _extractHomebrewBottle(tempFile, whisperDir, exeName);
+      } else if (format == 'tar') {
+        await _extractTar(tempFile, whisperDir, exeName);
       } else {
         await _extractZip(tempFile, whisperDir, exeName);
       }
@@ -203,6 +232,33 @@ class WhisperAddonManager {
     ]);
     if (result.exitCode != 0) {
       throw StateError('Failed to extract bottle: ${result.stderr}');
+    }
+
+    // Set executable permissions on extracted binaries
+    final binDir = Directory(path.join(whisperDir.path, 'bin'));
+    if (await binDir.exists()) {
+      await for (final entity in binDir.list()) {
+        if (entity is File) {
+          await Process.run('chmod', ['+x', entity.path]);
+        }
+      }
+    }
+  }
+
+  /// Extract a plain gzipped tar (Linux binary release).
+  ///
+  /// The tarball is laid out as `bin/whisper-cli` (a fully static binary, no
+  /// `lib/` needed), matching the non-Windows whisperBinaryPath of
+  /// `whisper/bin/whisper-cli`. Unlike the Homebrew bottle, no path components
+  /// are stripped.
+  Future<void> _extractTar(
+      File tarGz, Directory whisperDir, String exeName) async {
+    final result = await Process.run('tar', [
+      'xzf', tarGz.path,
+      '-C', whisperDir.path,
+    ]);
+    if (result.exitCode != 0) {
+      throw StateError('Failed to extract tarball: ${result.stderr}');
     }
 
     // Set executable permissions on extracted binaries

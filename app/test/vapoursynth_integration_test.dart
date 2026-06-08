@@ -35,6 +35,12 @@ void main() {
       depsPlatform = arch == 'arm64' ? 'macos-arm64' : 'macos-x64';
       vspipeExe = 'vspipe';
       ffmpegExe = 'ffmpeg';
+    } else if (Platform.isLinux) {
+      final archResult = await Process.run('uname', ['-m']);
+      final arch = archResult.stdout.toString().trim();
+      depsPlatform = arch == 'aarch64' ? 'linux-arm64' : 'linux-x64';
+      vspipeExe = 'vspipe';
+      ffmpegExe = 'ffmpeg';
     } else {
       throw UnsupportedError(
           'Unsupported platform: ${Platform.operatingSystem}');
@@ -377,7 +383,7 @@ Future<ProcessResult> _runVspipeScript(
         'VAPOURSYNTH_PLUGIN_PATH': path.join(vsDir, 'vs-plugins'),
       };
     } else {
-      // macOS - the vspipe wrapper script handles most env setup
+      // macOS/Linux - the vspipe wrapper script handles most env setup
       environment = {
         'PYTHONPATH': path.join(depsDir, 'python-packages'),
       };

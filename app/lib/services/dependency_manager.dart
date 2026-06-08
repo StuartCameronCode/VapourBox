@@ -161,6 +161,11 @@ class DependencyManager {
       final arch = result.stdout.toString().trim();
       return arch == 'arm64' ? 'macos-arm64' : 'macos-x64';
     }
+    if (Platform.isLinux) {
+      final result = Process.runSync('uname', ['-m']);
+      final arch = result.stdout.toString().trim();
+      return arch == 'aarch64' ? 'linux-arm64' : 'linux-x64';
+    }
     throw UnsupportedError('Unsupported platform');
   }
 
@@ -232,6 +237,29 @@ class DependencyManager {
       return Directory(path.join(
         home2, 'Library', 'Application Support', 'VapourBox', 'deps', platformId
       ));
+    } else if (Platform.isLinux) {
+      // Development only: check relative paths to project root
+      if (kDebugMode) {
+        // From app/build/linux/x64/debug/bundle/ up 6 levels
+        final devDeps = Directory(path.join(appDir, '..', '..', '..', '..', '..', '..', 'deps', platformId));
+        if (await devDeps.exists()) {
+          return Directory(await devDeps.resolveSymbolicLinks());
+        }
+      }
+
+      // Production: check XDG_DATA_HOME or ~/.local/share
+      final xdgDataHome = Platform.environment['XDG_DATA_HOME'];
+      final home = Platform.environment['HOME'] ?? '/tmp';
+      final dataDir = xdgDataHome != null
+          ? path.join(xdgDataHome, 'VapourBox', 'deps', platformId)
+          : path.join(home, '.local', 'share', 'VapourBox', 'deps', platformId);
+      final linuxDeps = Directory(dataDir);
+      if (await linuxDeps.exists()) {
+        return linuxDeps;
+      }
+
+      // Fall back to XDG path (will trigger download)
+      return linuxDeps;
     }
 
     throw UnsupportedError('Unsupported platform');
@@ -326,7 +354,7 @@ class DependencyManager {
         'vapoursynth/vs-plugins',
         'ffmpeg/ffmpeg.exe',
       ];
-    } else if (Platform.isMacOS) {
+    } else if (Platform.isMacOS || Platform.isLinux) {
       return [
         'vapoursynth/vspipe',
         'vapoursynth/plugins',

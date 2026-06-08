@@ -3,7 +3,7 @@ name: CI Tests
 # Pulls the published dependency bundle + the whisper add-on (binary + small
 # model) and runs the full Rust and Flutter test suites, including the subtitle
 # integration test. macOS is tested natively on both arm64 (macos-15) and x64
-# (macos-15-intel); Windows on x64.
+# (macos-15-intel); Windows on x64; Linux on x64 (ubuntu-22.04).
 
 on:
   push:
@@ -161,6 +161,95 @@ jobs:
           cp "$(dirname "$CLI")"/*.exe addons/whisper/ 2>/dev/null || true
           cp "$(dirname "$CLI")"/*.dll addons/whisper/ 2>/dev/null || true
           ls addons/whisper/
+
+      - name: Rust tests
+        run: cd worker && cargo test -- --nocapture
+
+      - name: Generate Dart serialization
+        run: |
+          cd app
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Flutter tests
+        run: cd app && flutter test
+
+  linux:
+    runs-on: ubuntu-22.04  # matches the deps-build runner (glibc compatibility)
+    env:
+      # Dart ToolLocator/DependencyManager honour this; the Rust locator does
+      # not (it uses the XDG path), so we also symlink it below.
+      VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/linux-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev unzip
+
+      - name: Resolve deps tag
+        id: deps
+        run: |
+          TAG=$(python3 -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Download dependencies (linux-x64)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER="${{ steps.deps.outputs.ver }}"
+          ZIP="VapourBox-deps-${VER}-linux-x64.zip"
+          mkdir -p deps/linux-x64
+          gh release download "${{ steps.deps.outputs.tag }}" --pattern "$ZIP" --dir . --clobber
+          unzip -q -o "$ZIP" -d deps/linux-x64
+          rm -f "$ZIP"
+
+      - name: Cache whisper model
+        uses: actions/cache@v4
+        with:
+          path: .whisper-cache
+          key: whisper-ggml-small-v1
+
+      - name: Provision whisper add-on
+        run: |
+          mkdir -p .whisper-cache addons/whisper/models addons/whisper/bin
+          if [ ! -f .whisper-cache/ggml-small.bin ]; then
+            echo "Downloading whisper small model..."
+            curl -L -o .whisper-cache/ggml-small.bin "$WHISPER_MODEL_URL"
+          fi
+          cp .whisper-cache/ggml-small.bin addons/whisper/models/ggml-small.bin
+          # No prebuilt Linux whisper-cli is published (macOS uses a Homebrew
+          # bottle, Windows a release zip), so build whisper.cpp from source.
+          # Static build (BUILD_SHARED_LIBS=OFF) => a self-contained whisper-cli
+          # with no lib/ dir to manage; GGML_NATIVE=OFF for runner portability.
+          git clone --depth 1 -b v1.8.3 https://github.com/ggml-org/whisper.cpp /tmp/whisper.cpp
+          cmake -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF
+          cmake --build /tmp/whisper.cpp/build --config Release -j"$(nproc)"
+          cp "$(find /tmp/whisper.cpp/build -name whisper-cli -type f | head -1)" addons/whisper/bin/whisper-cli
+          chmod +x addons/whisper/bin/whisper-cli
+          ls -la addons/whisper/bin addons/whisper/models
+
+      - name: Stage deps/addons at XDG path for the Rust locator
+        # The Rust DependencyLocator on Linux only looks under
+        # ~/.local/share/VapourBox (no debug upward-search); the Dart tests use
+        # the repo-root copy. Symlink so a single checkout satisfies both.
+        run: |
+          mkdir -p "$HOME/.local/share/VapourBox"
+          ln -sfn "${{ github.workspace }}/deps" "$HOME/.local/share/VapourBox/deps"
+          ln -sfn "${{ github.workspace }}/addons" "$HOME/.local/share/VapourBox/addons"
 
       - name: Rust tests
         run: cd worker && cargo test -- --nocapture

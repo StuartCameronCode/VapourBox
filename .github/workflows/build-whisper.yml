@@ -1,0 +1,143 @@
+name: Build Whisper
+
+# Builds whisper.cpp's whisper-cli for Linux (x64 + arm64) and publishes the
+# binaries to a release. whisper.cpp ships no Linux binary (macOS uses a
+# Homebrew bottle, Windows a release zip), so VapourBox self-hosts the Linux
+# whisper-cli that the app downloads at runtime — see assets/whisper-addon.json.
+#
+# The binary is built fully static (no libgomp/libstdc++/libgcc runtime deps)
+# so it runs on any glibc >= 2.35 distro (Ubuntu 22.04+), matching the deps.
+#
+# Mirrors build-deps-{macos,linux}.yml: workflow_dispatch with version /
+# release_tag / arch inputs and per-arch jobs that build, package, upload an
+# artifact, and (optionally) upload to a release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      whisper_version:
+        description: 'whisper.cpp tag to build (e.g., v1.8.3)'
+        required: true
+        type: string
+        default: v1.8.3
+      release_tag:
+        description: 'Upload to this release tag (e.g., whisper-v1.8.3). Leave empty to skip upload.'
+        required: false
+        type: string
+      arch:
+        description: 'Architecture to build'
+        required: false
+        type: choice
+        options:
+          - both
+          - x64
+          - arm64
+        default: both
+
+permissions:
+  contents: write
+
+jobs:
+  build-x64:
+    if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential git
+
+      - name: Build whisper-cli (static)
+        run: |
+          git clone --depth 1 -b "${{ inputs.whisper_version }}" \
+            https://github.com/ggml-org/whisper.cpp /tmp/whisper.cpp
+          cmake -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DGGML_NATIVE=OFF \
+            -DGGML_OPENMP=OFF \
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
+          cmake --build /tmp/whisper.cpp/build --config Release -j"$(nproc)"
+
+      - name: Package tarball
+        run: |
+          mkdir -p out/bin
+          cp "$(find /tmp/whisper.cpp/build -name whisper-cli -type f | head -1)" out/bin/whisper-cli
+          chmod +x out/bin/whisper-cli
+          echo "=== whisper-cli runtime deps (should be glibc only) ==="
+          ldd out/bin/whisper-cli || true
+          tar -C out -czf whisper-cli-linux-x64.tar.gz bin
+          echo "=== artifact ==="
+          ls -l whisper-cli-linux-x64.tar.gz
+          echo "size=$(stat -c%s whisper-cli-linux-x64.tar.gz)"
+          echo "sha256=$(sha256sum whisper-cli-linux-x64.tar.gz | cut -d' ' -f1)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whisper-cli-linux-x64
+          path: whisper-cli-linux-x64.tar.gz
+
+      - name: Upload to release
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Create the release if it does not exist (|| true tolerates a race
+          # with the sibling arch job creating it concurrently).
+          gh release view "${{ inputs.release_tag }}" >/dev/null 2>&1 || \
+            gh release create "${{ inputs.release_tag }}" \
+              --title "${{ inputs.release_tag }}" \
+              --notes "whisper.cpp ${{ inputs.whisper_version }} whisper-cli binaries for Linux (built by build-whisper.yml)." \
+              || true
+          gh release upload "${{ inputs.release_tag }}" whisper-cli-linux-x64.tar.gz --clobber
+
+  build-arm64:
+    if: ${{ inputs.arch == 'arm64' || inputs.arch == 'both' }}
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential git
+
+      - name: Build whisper-cli (static)
+        run: |
+          git clone --depth 1 -b "${{ inputs.whisper_version }}" \
+            https://github.com/ggml-org/whisper.cpp /tmp/whisper.cpp
+          cmake -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DGGML_NATIVE=OFF \
+            -DGGML_OPENMP=OFF \
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
+          cmake --build /tmp/whisper.cpp/build --config Release -j"$(nproc)"
+
+      - name: Package tarball
+        run: |
+          mkdir -p out/bin
+          cp "$(find /tmp/whisper.cpp/build -name whisper-cli -type f | head -1)" out/bin/whisper-cli
+          chmod +x out/bin/whisper-cli
+          echo "=== whisper-cli runtime deps (should be glibc only) ==="
+          ldd out/bin/whisper-cli || true
+          tar -C out -czf whisper-cli-linux-arm64.tar.gz bin
+          echo "=== artifact ==="
+          ls -l whisper-cli-linux-arm64.tar.gz
+          echo "size=$(stat -c%s whisper-cli-linux-arm64.tar.gz)"
+          echo "sha256=$(sha256sum whisper-cli-linux-arm64.tar.gz | cut -d' ' -f1)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whisper-cli-linux-arm64
+          path: whisper-cli-linux-arm64.tar.gz
+
+      - name: Upload to release
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${{ inputs.release_tag }}" >/dev/null 2>&1 || \
+            gh release create "${{ inputs.release_tag }}" \
+              --title "${{ inputs.release_tag }}" \
+              --notes "whisper.cpp ${{ inputs.whisper_version }} whisper-cli binaries for Linux (built by build-whisper.yml)." \
+              || true
+          gh release upload "${{ inputs.release_tag }}" whisper-cli-linux-arm64.tar.gz --clobber

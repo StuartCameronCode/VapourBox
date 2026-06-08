@@ -30,6 +30,8 @@ Get the latest release for your platform:
 |----------|------|
 | macOS (Universal — Apple Silicon & Intel) | `VapourBox-x.x.x-macos-universal.dmg` |
 | Windows 10/11 (x64) | `VapourBox-x.x.x-windows-x64.zip` |
+| Linux (x64) | `VapourBox-x.x.x-linux-x64.tar.gz` |
+| Linux (arm64) | `VapourBox-x.x.x-linux-arm64.tar.gz` |
 
 > The macOS DMG is a universal binary that runs natively on both Apple Silicon and Intel Macs; the correct processing dependencies are downloaded for your CPU on first launch.
 
@@ -49,6 +51,15 @@ Get the latest release for your platform:
 2. Extract to a folder of your choice (e.g., `C:\VapourBox`)
 3. Run `vapourbox.exe`
 4. On first launch, VapourBox will automatically download its processing dependencies (~195 MB)
+
+### Linux
+
+1. Download the `.tar.gz` file for your architecture from the [releases page](https://github.com/StuartCameronCode/VapourBox/releases/latest)
+2. Extract: `tar -xzf VapourBox-x.x.x-linux-x64.tar.gz`
+3. Run: `cd VapourBox-x.x.x-linux-x64 && ./vapourbox`
+4. On first launch, VapourBox will automatically download its processing dependencies (~100 MB)
+
+> **GPU acceleration**: For GPU-accelerated deinterlacing (NNEDI3CL), install your GPU's OpenCL driver. Without it, VapourBox falls back to CPU-based processing automatically.
 
 ## Features
 
@@ -118,6 +129,17 @@ brew install libdvdcss
 **Windows:**
 
 Download `libdvdcss-2.dll` from [VideoLAN](https://www.videolan.org/developers/libdvdcss.html) and place it in the VapourBox application directory (next to `vapourbox.exe`).
+
+**Linux:**
+
+```bash
+# Debian/Ubuntu
+sudo apt install libdvdcss2
+# Fedora (RPM Fusion required)
+sudo dnf install libdvdcss
+# Arch
+sudo pacman -S libdvdcss
+```
 
 Unencrypted DVDs (home recordings, some independent releases) work without libdvdcss.
 

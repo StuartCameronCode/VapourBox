@@ -17,6 +17,16 @@
       "filename": "VapourBox-deps-1.3.0-macos-x64.zip",
       "sha256": "a326b662e34bb737269f6792b4b1b8518d8512bb05046cf430632a0213202abf",
       "size": 106078101
+    },
+    "linux-x64": {
+      "filename": "VapourBox-deps-1.3.0-linux-x64.zip",
+      "sha256": "431b9728b237f86b6160ef4e5a1b04bd789e3d59f91961132e2163fe7cc01797",
+      "size": 143784868
+    },
+    "linux-arm64": {
+      "filename": "VapourBox-deps-1.3.0-linux-arm64.zip",
+      "sha256": "c21eb5e135c4fa6e1aa60befb577322b8cdf5ff63bc13681946e41f060b1cd36",
+      "size": 123911771
     }
   },
   "githubRepo": "StuartCameronCode/VapourBox"

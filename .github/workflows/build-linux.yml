@@ -1,0 +1,218 @@
+name: Build Linux
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 0.9.0)'
+        required: true
+        type: string
+      deps_tag:
+        description: 'Deps release tag (e.g., deps-v1.3.0)'
+        required: true
+        type: string
+      arch:
+        description: 'Architecture'
+        required: false
+        type: choice
+        options:
+          - x64
+          - arm64
+          - both
+        default: x64
+
+jobs:
+  build-x64:
+    if: ${{ inputs.arch == 'both' || inputs.arch == 'x64' }}
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake git ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            worker/target/
+          key: ${{ runner.os }}-x64-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-x64-cargo-
+
+      - name: Download Linux dependencies
+        run: |
+          DEPS_VERSION="${{ inputs.deps_tag }}"
+          DEPS_VERSION="${DEPS_VERSION#deps-v}"
+
+          mkdir -p deps/linux-x64
+
+          DEPS_URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.deps_tag }}/VapourBox-deps-${DEPS_VERSION}-linux-x64.zip"
+          echo "Downloading deps from: $DEPS_URL"
+          curl -L -o deps.zip "$DEPS_URL"
+          unzip -o deps.zip -d deps/linux-x64
+          rm -f deps.zip
+
+          echo "Dependencies extracted:"
+          ls -la deps/
+
+      - name: Update version numbers
+        run: |
+          VERSION="${{ inputs.version }}"
+          DEPS_TAG="${{ inputs.deps_tag }}"
+          DEPS_VERSION="${DEPS_TAG#deps-v}"
+
+          # Update pubspec.yaml
+          sed -i "s/^version: .*/version: ${VERSION}+1/" app/pubspec.yaml
+
+          # Update deps-version.json
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${DEPS_VERSION}\"/" app/assets/deps-version.json
+          sed -i "s/\"releaseTag\": \"[^\"]*\"/\"releaseTag\": \"${DEPS_TAG}\"/" app/assets/deps-version.json
+
+          # Update Cargo.toml
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" worker/Cargo.toml
+
+      - name: Build Rust worker
+        run: |
+          cd worker
+          cargo build --release --target x86_64-unknown-linux-gnu
+          # Copy to default release location for package script
+          mkdir -p target/release
+          cp target/x86_64-unknown-linux-gnu/release/vapourbox-worker target/release/ || true
+
+      - name: Build Flutter app
+        run: |
+          cd app
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+          flutter build linux --release
+
+      - name: Package release
+        run: |
+          ./Scripts/package-linux.sh --version "${{ inputs.version }}" --arch x64 --skip-build
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: VapourBox-${{ inputs.version }}-linux-x64
+          path: dist/VapourBox-${{ inputs.version }}-linux-x64.tar.gz
+
+  build-arm64:
+    if: ${{ inputs.arch == 'both' || inputs.arch == 'arm64' }}
+    runs-on: ubuntu-22.04-arm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake git ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev
+
+      - name: Setup Flutter
+        run: |
+          git clone https://github.com/flutter/flutter.git -b stable --depth 1 "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Flutter precache
+        run: |
+          export PATH="$HOME/flutter/bin:$PATH"
+          flutter precache --linux
+          flutter --version
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            worker/target/
+          key: ${{ runner.os }}-arm64-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-arm64-cargo-
+
+      - name: Download Linux dependencies
+        run: |
+          DEPS_VERSION="${{ inputs.deps_tag }}"
+          DEPS_VERSION="${DEPS_VERSION#deps-v}"
+
+          mkdir -p deps/linux-arm64
+
+          DEPS_URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.deps_tag }}/VapourBox-deps-${DEPS_VERSION}-linux-arm64.zip"
+          echo "Downloading deps from: $DEPS_URL"
+          curl -L -o deps.zip "$DEPS_URL"
+          unzip -o deps.zip -d deps/linux-arm64
+          rm -f deps.zip
+
+          echo "Dependencies extracted:"
+          ls -la deps/
+
+      - name: Update version numbers
+        run: |
+          VERSION="${{ inputs.version }}"
+          DEPS_TAG="${{ inputs.deps_tag }}"
+          DEPS_VERSION="${DEPS_TAG#deps-v}"
+
+          # Update pubspec.yaml
+          sed -i "s/^version: .*/version: ${VERSION}+1/" app/pubspec.yaml
+
+          # Update deps-version.json
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${DEPS_VERSION}\"/" app/assets/deps-version.json
+          sed -i "s/\"releaseTag\": \"[^\"]*\"/\"releaseTag\": \"${DEPS_TAG}\"/" app/assets/deps-version.json
+
+          # Update Cargo.toml
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" worker/Cargo.toml
+
+      - name: Build Rust worker
+        run: |
+          cd worker
+          cargo build --release --target aarch64-unknown-linux-gnu
+          # Copy to default release location for package script
+          mkdir -p target/release
+          cp target/aarch64-unknown-linux-gnu/release/vapourbox-worker target/release/ || true
+
+      - name: Build Flutter app
+        run: |
+          cd app
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+          flutter build linux --release
+
+      - name: Package release
+        run: |
+          ./Scripts/package-linux.sh --version "${{ inputs.version }}" --arch arm64 --skip-build
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: VapourBox-${{ inputs.version }}-linux-arm64
+          path: dist/VapourBox-${{ inputs.version }}-linux-arm64.tar.gz

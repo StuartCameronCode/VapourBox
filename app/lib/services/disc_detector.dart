@@ -22,6 +22,8 @@ class DiscDetector {
       return _detectMacOS();
     } else if (Platform.isWindows) {
       return _detectWindows();
+    } else if (Platform.isLinux) {
+      return _detectLinux();
     }
     return [];
   }
@@ -65,6 +67,42 @@ class DiscDetector {
         }
       } catch (_) {
         // Drive not accessible, skip
+      }
+    }
+
+    return discs;
+  }
+
+  Future<List<DvdDisc>> _detectLinux() async {
+    final discs = <DvdDisc>[];
+    final user = Platform.environment['USER'] ?? '';
+
+    // Scan common Linux mount points for VIDEO_TS directories
+    final mountDirs = <String>[
+      '/media/$user',       // Ubuntu auto-mount
+      '/run/media/$user',   // systemd auto-mount (Fedora/Arch)
+      '/mnt',               // Manual mounts
+    ];
+
+    for (final mountDir in mountDirs) {
+      final dir = Directory(mountDir);
+      if (!await dir.exists()) continue;
+
+      try {
+        await for (final entity in dir.list()) {
+          if (entity is Directory) {
+            final videoTsDir = Directory('${entity.path}/VIDEO_TS');
+            if (await videoTsDir.exists()) {
+              final label = entity.path.split('/').last;
+              discs.add(DvdDisc(
+                mountPoint: entity.path,
+                volumeLabel: label,
+              ));
+            }
+          }
+        }
+      } catch (_) {
+        // Directory not accessible, skip
       }
     }
 
