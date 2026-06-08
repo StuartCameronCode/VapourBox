@@ -81,6 +81,9 @@ jobs:
         if: inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          # These jobs do not check out the repo, so gh has no git remote to
+          # infer the repo from — set it explicitly.
+          GH_REPO: ${{ github.repository }}
         run: |
           # Create the release if it does not exist (|| true tolerates a race
           # with the sibling arch job creating it concurrently).

@@ -230,15 +230,14 @@ jobs:
             curl -L -o .whisper-cache/ggml-small.bin "$WHISPER_MODEL_URL"
           fi
           cp .whisper-cache/ggml-small.bin addons/whisper/models/ggml-small.bin
-          # No prebuilt Linux whisper-cli is published (macOS uses a Homebrew
-          # bottle, Windows a release zip), so build whisper.cpp from source.
-          # Static build (BUILD_SHARED_LIBS=OFF) => a self-contained whisper-cli
-          # with no lib/ dir to manage; GGML_NATIVE=OFF for runner portability.
-          git clone --depth 1 -b v1.8.3 https://github.com/ggml-org/whisper.cpp /tmp/whisper.cpp
-          cmake -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build \
-            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF
-          cmake --build /tmp/whisper.cpp/build --config Release -j"$(nproc)"
-          cp "$(find /tmp/whisper.cpp/build -name whisper-cli -type f | head -1)" addons/whisper/bin/whisper-cli
+          # Download the same published whisper-cli the app fetches at runtime
+          # (the linux-x64 source in whisper-addon.json), so the test exercises
+          # the real add-on artifact + tar layout instead of building from
+          # source. Mirrors the Windows job, which curls its release zip.
+          WHISPER_URL=$(python3 -c "import json;print(json.load(open('app/assets/whisper-addon.json'))['binary']['platforms']['linux-x64']['url'])")
+          echo "whisper-cli: $WHISPER_URL"
+          curl -L -o /tmp/whisper-cli.tar.gz "$WHISPER_URL"
+          tar xzf /tmp/whisper-cli.tar.gz -C addons/whisper  # => addons/whisper/bin/whisper-cli
           chmod +x addons/whisper/bin/whisper-cli
           ls -la addons/whisper/bin addons/whisper/models
 
