@@ -711,6 +711,46 @@ build_plugin "knlmeanscl" \
     "libknlmeanscl.so" \
     "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
 
+# TemporalMedian (core.tmedian.TemporalMedian - used by the SpotLess filter)
+build_plugin "tmedian" \
+    "https://github.com/dubhater/vapoursynth-temporalmedian.git" \
+    "libtmedian.so" \
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+
+# DeScratch (core.descratch.DeScratch - vertical scratch removal)
+# Built from source: the repo carries the VapourSynth + AviSynthPlus headers as
+# submodules, so a recursive clone is required (build_plugin can't fetch those).
+echo ""
+echo "=== Building DeScratch ==="
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libdescratch.so" ]; then
+    rm -rf descratch
+    if git clone --depth 1 --recurse-submodules --shallow-submodules \
+        https://github.com/vapoursynth/descratch.git descratch; then
+        cd descratch
+        if meson setup build --buildtype=release && ninja -C build; then
+            lib_path=$(find build -name "*.so" -type f 2>/dev/null | head -1)
+            if [ -n "$lib_path" ]; then
+                cp "$lib_path" "$PLUGINS_DIR/libdescratch.so"
+                patchelf --set-rpath '$ORIGIN:$ORIGIN/../../lib' "$PLUGINS_DIR/libdescratch.so" 2>/dev/null || true
+                echo "  Built DeScratch -> libdescratch.so"
+                BUILT_PLUGINS+=("descratch")
+            else
+                echo "  Warning: No .so found for DeScratch"
+                FAILED_PLUGINS+=("descratch")
+            fi
+        else
+            echo "  Failed to build DeScratch"
+            FAILED_PLUGINS+=("descratch")
+        fi
+        cd "$BUILD_DIR"
+    else
+        echo "  Failed to clone DeScratch"
+        FAILED_PLUGINS+=("descratch")
+    fi
+else
+    echo "  DeScratch already exists, skipping"
+fi
+
 # ============================================================================
 # Download NNEDI3 weights
 # ============================================================================
