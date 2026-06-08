@@ -98,11 +98,21 @@ BREW_DEPS=(
 )
 
 for dep in "${BREW_DEPS[@]}"; do
-    if ! brew list "$dep" &>/dev/null; then
-        echo "Installing $dep..."
-        brew install "$dep"
-    else
+    if brew list "$dep" &>/dev/null; then
         echo "  $dep already installed"
+        continue
+    fi
+    echo "Installing $dep..."
+    # Tolerate `brew link` conflicts: a build tool (e.g. meson) can pull in
+    # python as a dependency that fails to symlink into /usr/local/bin because
+    # the CI runner already has a Python.framework linked there. brew then exits
+    # non-zero even though the formula installed fine, which would abort `set -e`.
+    # We don't use brew's python (an embedded python-build-standalone is used),
+    # so verify the formula actually installed rather than trusting the exit code.
+    brew install "$dep" || true
+    if ! brew list "$dep" &>/dev/null; then
+        echo "ERROR: failed to install Homebrew dependency: $dep" >&2
+        exit 1
     fi
 done
 
