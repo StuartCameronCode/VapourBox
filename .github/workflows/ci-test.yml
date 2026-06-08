@@ -1,0 +1,207 @@
+name: CI Tests
+
+# Pulls the published dependency bundle + the whisper add-on (binary + small
+# model) and runs the full Rust and Flutter test suites, including the subtitle
+# integration test. macOS is tested on both arm64 (native) and x64 (via Rosetta
+# 2); Windows on x64.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', 'licenses/**']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'licenses/**']
+  workflow_dispatch:
+
+concurrency:
+  group: ci-test-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WHISPER_MODEL_URL: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
+
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
+    runs-on: macos-15  # arm64; x64 runs translated through Rosetta 2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve deps tag
+        id: deps
+        run: |
+          TAG=$(python3 -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Install Rosetta + Intel Homebrew (x64)
+        if: matrix.arch == 'x64'
+        run: |
+          softwareupdate --install-rosetta --agree-to-license
+          arch -x86_64 /bin/bash -c \
+            "NONINTERACTIVE=1 $(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+      - name: Download dependencies (${{ matrix.arch }})
+        run: |
+          VER="${{ steps.deps.outputs.ver }}"
+          mkdir -p deps/macos-${{ matrix.arch }}
+          URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.deps.outputs.tag }}/VapourBox-deps-${VER}-macos-${{ matrix.arch }}.zip"
+          echo "Downloading $URL"
+          curl -L -o deps.zip "$URL"
+          unzip -q -o deps.zip -d deps/macos-${{ matrix.arch }}
+          rm -f deps.zip
+          xattr -cr deps/macos-${{ matrix.arch }} 2>/dev/null || true
+
+      # The whisper small model (~466 MB) is architecture-independent; cache it.
+      - name: Cache whisper model
+        uses: actions/cache@v4
+        with:
+          path: .whisper-cache
+          key: whisper-ggml-small-v1
+
+      # The x86_64 Flutter SDK (for running Dart tests under Rosetta) is large; cache it.
+      - name: Cache x64 Flutter SDK
+        if: matrix.arch == 'x64'
+        uses: actions/cache@v4
+        with:
+          path: .flutter-x64
+          key: flutter-x64-sdk-v1
+
+      - name: Provision whisper add-on (${{ matrix.arch }})
+        run: |
+          mkdir -p .whisper-cache addons/whisper/models
+          if [ ! -f .whisper-cache/ggml-small.bin ]; then
+            echo "Downloading whisper small model..."
+            curl -L -o .whisper-cache/ggml-small.bin "$WHISPER_MODEL_URL"
+          fi
+          cp .whisper-cache/ggml-small.bin addons/whisper/models/ggml-small.bin
+
+          # whisper-cli comes from the same Homebrew bottle the app downloads.
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            brew install whisper-cpp
+            BP="$(brew --prefix)"
+          else
+            arch -x86_64 /usr/local/bin/brew install whisper-cpp
+            BP="/usr/local"
+          fi
+          ln -sfn "$BP/opt/whisper-cpp/bin" addons/whisper/bin
+          ln -sfn "$BP/opt/whisper-cpp/lib" addons/whisper/lib
+          echo "whisper-cli: $(addons/whisper/bin/whisper-cli --help 2>&1 | head -1 || echo 'present')"
+
+      - name: Rust tests (${{ matrix.arch }})
+        run: |
+          cd worker
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            cargo test --release -- --nocapture
+          else
+            cargo test --release --target x86_64-apple-darwin -- --nocapture
+          fi
+
+      - name: Generate Dart serialization
+        run: |
+          cd app
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Flutter tests (arm64, native)
+        if: matrix.arch == 'arm64'
+        run: cd app && flutter test
+
+      - name: Flutter tests (x64, via Rosetta)
+        if: matrix.arch == 'x64'
+        run: |
+          FV=$(flutter --version 2>/dev/null | grep -oE "Flutter [0-9]+\.[0-9]+\.[0-9]+" | head -1 | awk '{print $2}')
+          echo "Matching x86_64 Flutter SDK version: $FV"
+          if [ ! -x ".flutter-x64/flutter/bin/flutter" ]; then
+            rm -rf .flutter-x64 && mkdir -p .flutter-x64
+            curl -L -o /tmp/flutter-x64.zip \
+              "https://storage.googleapis.com/flutter_infra_release/releases/stable/macos/flutter_macos_${FV}-stable.zip"
+            unzip -q /tmp/flutter-x64.zip -d .flutter-x64
+          fi
+          FX="$PWD/.flutter-x64/flutter/bin/flutter"
+          cd app
+          arch -x86_64 "$FX" pub get
+          arch -x86_64 "$FX" test
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve deps tag
+        id: deps
+        shell: bash
+        run: |
+          TAG=$(python -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Download dependencies (windows-x64)
+        shell: bash
+        run: |
+          VER="${{ steps.deps.outputs.ver }}"
+          mkdir -p deps/windows-x64
+          URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.deps.outputs.tag }}/VapourBox-deps-${VER}-windows-x64.zip"
+          curl -L -o deps.zip "$URL"
+          unzip -q -o deps.zip -d deps/windows-x64
+          rm -f deps.zip
+
+      - name: Cache whisper model
+        uses: actions/cache@v4
+        with:
+          path: .whisper-cache
+          key: whisper-ggml-small-v1
+
+      - name: Provision whisper add-on
+        shell: bash
+        run: |
+          mkdir -p .whisper-cache addons/whisper/models
+          if [ ! -f .whisper-cache/ggml-small.bin ]; then
+            curl -L -o .whisper-cache/ggml-small.bin "$WHISPER_MODEL_URL"
+          fi
+          cp .whisper-cache/ggml-small.bin addons/whisper/models/ggml-small.bin
+          curl -L -o /tmp/whisper-win.zip \
+            "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.3/whisper-bin-x64.zip"
+          unzip -q -o /tmp/whisper-win.zip -d /tmp/whisper-win
+          # Flatten: DependencyLocator expects addons/whisper/whisper-cli.exe
+          CLI=$(find /tmp/whisper-win -name "whisper-cli.exe" | head -1)
+          cp "$(dirname "$CLI")"/*.exe addons/whisper/ 2>/dev/null || true
+          cp "$(dirname "$CLI")"/*.dll addons/whisper/ 2>/dev/null || true
+          ls addons/whisper/
+
+      - name: Rust tests
+        run: |
+          cd worker
+          cargo test --release -- --nocapture
+
+      - name: Generate Dart serialization
+        run: |
+          cd app
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Flutter tests
+        run: cd app && flutter test

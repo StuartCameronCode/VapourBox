@@ -394,6 +394,15 @@ cd app && flutter test
 cd worker && cargo run --release -- --config test_job.json
 ```
 
+**CI test gate** (`.github/workflows/ci-test.yml`): runs on push to `main` + PRs. It
+pulls the published deps bundle and the whisper add-on (binary + small model),
+then runs the full Rust + Flutter suites — including the subtitle integration
+test — on macOS **arm64 and x64** (x64 via Rosetta 2) and Windows x64. The
+subtitle test needs `addons/whisper/{bin/whisper-cli,models/ggml-small.bin}` and
+ffmpeg from `deps/`; the scan-type/vapoursynth Flutter tests need the per-arch
+`deps/` dir. The `small_clip.mp4` + telecine/interlaced fixtures are committed
+under `Tests/TestResources/`.
+
 ## Code Style
 
 ### Rust
