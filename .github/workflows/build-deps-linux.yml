@@ -11,12 +11,22 @@ on:
         description: 'Upload to this release tag (e.g., deps-v1.3.0). Leave empty to skip upload.'
         required: false
         type: string
+      arch:
+        description: 'Architecture to build'
+        required: false
+        type: choice
+        options:
+          - both
+          - x64
+          - arm64
+        default: both
 
 permissions:
   contents: write
 
 jobs:
   build-x64:
+    if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -51,6 +61,7 @@ jobs:
             "dist/VapourBox-deps-${{ inputs.version }}-linux-x64.zip" --clobber
 
   build-arm64:
+    if: ${{ inputs.arch == 'arm64' || inputs.arch == 'both' }}
     runs-on: ubuntu-22.04-arm
     steps:
       - uses: actions/checkout@v4
