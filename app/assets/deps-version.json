@@ -15,8 +15,8 @@
     },
     "macos-x64": {
       "filename": "VapourBox-deps-1.3.0-macos-x64.zip",
-      "sha256": "31f7bd8bdbb54a054ce1f772b0cf38fc5f2f833b68e67ad8d27f397f2c15e427",
-      "size": 106006273
+      "sha256": "a326b662e34bb737269f6792b4b1b8518d8512bb05046cf430632a0213202abf",
+      "size": 106078101
     }
   },
   "githubRepo": "StuartCameronCode/VapourBox"
