@@ -56,14 +56,15 @@ jobs:
             "NONINTERACTIVE=1 $(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
       - name: Download dependencies (${{ matrix.arch }})
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VER="${{ steps.deps.outputs.ver }}"
+          ZIP="VapourBox-deps-${VER}-macos-${{ matrix.arch }}.zip"
           mkdir -p deps/macos-${{ matrix.arch }}
-          URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.deps.outputs.tag }}/VapourBox-deps-${VER}-macos-${{ matrix.arch }}.zip"
-          echo "Downloading $URL"
-          curl -L -o deps.zip "$URL"
-          unzip -q -o deps.zip -d deps/macos-${{ matrix.arch }}
-          rm -f deps.zip
+          gh release download "${{ steps.deps.outputs.tag }}" --pattern "$ZIP" --dir . --clobber
+          unzip -q -o "$ZIP" -d deps/macos-${{ matrix.arch }}
+          rm -f "$ZIP"
           xattr -cr deps/macos-${{ matrix.arch }} 2>/dev/null || true
 
       # The whisper small model (~466 MB) is architecture-independent; cache it.
@@ -104,11 +105,13 @@ jobs:
 
       - name: Rust tests (${{ matrix.arch }})
         run: |
+          # Debug build: DependencyLocator's upward search then finds the
+          # repo-root deps/ and addons/ (release mode looks under ~/Library).
           cd worker
           if [ "${{ matrix.arch }}" = "arm64" ]; then
-            cargo test --release -- --nocapture
+            cargo test -- --nocapture
           else
-            cargo test --release --target x86_64-apple-darwin -- --nocapture
+            cargo test --target x86_64-apple-darwin -- --nocapture
           fi
 
       - name: Generate Dart serialization
@@ -161,13 +164,15 @@ jobs:
 
       - name: Download dependencies (windows-x64)
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VER="${{ steps.deps.outputs.ver }}"
+          ZIP="VapourBox-deps-${VER}-windows-x64.zip"
           mkdir -p deps/windows-x64
-          URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.deps.outputs.tag }}/VapourBox-deps-${VER}-windows-x64.zip"
-          curl -L -o deps.zip "$URL"
-          unzip -q -o deps.zip -d deps/windows-x64
-          rm -f deps.zip
+          gh release download "${{ steps.deps.outputs.tag }}" --pattern "$ZIP" --dir . --clobber
+          unzip -q -o "$ZIP" -d deps/windows-x64
+          rm -f "$ZIP"
 
       - name: Cache whisper model
         uses: actions/cache@v4
@@ -195,7 +200,7 @@ jobs:
       - name: Rust tests
         run: |
           cd worker
-          cargo test --release -- --nocapture
+          cargo test -- --nocapture
 
       - name: Generate Dart serialization
         run: |
