@@ -137,6 +137,9 @@ jobs:
         if: inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          # These jobs do not check out the repo, so gh has no git remote to
+          # infer the repo from — set it explicitly.
+          GH_REPO: ${{ github.repository }}
         run: |
           gh release view "${{ inputs.release_tag }}" >/dev/null 2>&1 || \
             gh release create "${{ inputs.release_tag }}" \
