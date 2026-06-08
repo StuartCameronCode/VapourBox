@@ -494,6 +494,150 @@ build_plugin() {
     cd "$BUILD_DIR"
 }
 
+# Download a single pre-built plugin dylib from a Stefan-Olt/vs-plugin-build
+# release asset URL, fix its install name and sign it. Non-fatal on failure.
+download_prebuilt_plugin() {
+    local label="$1"
+    local out_name="$2"
+    local url="$3"
+
+    if [ "$FORCE" = false ] && [ -f "$PLUGINS_DIR/$out_name" ]; then
+        echo "  $label already exists, skipping"
+        return 0
+    fi
+
+    local tmp="$BUILD_DIR/prebuilt-$out_name"
+    rm -rf "$tmp"; mkdir -p "$tmp"
+    if curl -sL "$url" -o "$tmp/plugin.zip" && unzip -q -o "$tmp/plugin.zip" -d "$tmp"; then
+        local found
+        found=$(find "$tmp" -name "*.dylib" -type f 2>/dev/null | head -1)
+        if [ -n "$found" ]; then
+            cp "$found" "$PLUGINS_DIR/$out_name"
+            install_name_tool -id "@loader_path/$out_name" "$PLUGINS_DIR/$out_name" 2>/dev/null || true
+            codesign -s - -f "$PLUGINS_DIR/$out_name" 2>/dev/null || true
+            echo "  Downloaded pre-built $label"
+            return 0
+        fi
+    fi
+    echo "  Warning: failed to fetch pre-built $label"
+    FAILED_PLUGINS+=("$label")
+    return 1
+}
+
+STEFANOLT="https://github.com/Stefan-Olt/vs-plugin-build/releases/download/vsplugin"
+
+if [ "$ARCH" = "x86_64" ]; then
+    # ========================================================================
+    # x86_64 plugins: download pre-built darwin-x86_64 binaries from
+    # Stefan-Olt/vs-plugin-build for everything it ships, and build the four it
+    # does NOT ship (neo-f3kdb, nnedi3cl, vivtc, descratch) from source. The
+    # clean CI runner has no full VapourSynth dev install, so the from-source
+    # path used on arm64 doesn't work here; pre-built is the robust route.
+    # Pinned URLs are immutable release assets - to refresh, re-resolve the
+    # latest darwin-x86_64 asset for each plugin id.
+    # ========================================================================
+    echo ""
+    echo "=== Downloading pre-built x86_64 plugins (Stefan-Olt/vs-plugin-build) ==="
+    download_prebuilt_plugin "MVTools"       "libmvtools.dylib"     "$STEFANOLT/com.nodame.mvtools/v24/darwin-x86_64/2024-09-30T17.08.24%2B00.00Z/MVTools-v24-darwin-x86_64.zip"
+    download_prebuilt_plugin "ZNEDI3"        "libznedi3.dylib"      "$STEFANOLT/xxx.abc.znedi3/3bd542a/darwin-x86_64/2026-01-10T23.47.38%2B00.00Z/ZNEDI3-3bd542a-darwin-x86_64.zip"
+    download_prebuilt_plugin "EEDI3m"        "libeedi3m.dylib"      "$STEFANOLT/com.holywu.eedi3/r8/darwin-x86_64/2026-01-15T20.48.25%2B00.00Z/EEDI3m-r8-darwin-x86_64.zip"
+    download_prebuilt_plugin "fmtconv"       "libfmtconv.dylib"     "$STEFANOLT/fmtconv/git-18a9cecb/darwin-x86_64/2024-10-10T14.48.08%2B00.00Z/fmtconv-git-18a9cecb-darwin-x86_64.zip"
+    download_prebuilt_plugin "DFTTest"       "libdfttest.dylib"     "$STEFANOLT/com.holywu.dfttest/git-89034df/darwin-x86_64/2024-10-09T23.03.28%2B00.00Z/DFTTest-git-89034df-darwin-x86_64.zip"
+    download_prebuilt_plugin "MiscFilters"   "libmiscfilters.dylib" "$STEFANOLT/com.vapoursynth.misc/git-07e0589/darwin-x86_64/2024-10-09T22.52.15%2B00.00Z/Miscfilters-git-07e0589-darwin-x86_64.zip"
+    download_prebuilt_plugin "RemoveGrain"   "libremovegrain.dylib" "$STEFANOLT/com.vapoursynth.removegrainvs/git-89ca38a/darwin-x86_64/2024-10-09T22.52.26%2B00.00Z/RemoveGrain-git-89ca38a-darwin-x86_64.zip"
+    download_prebuilt_plugin "AddGrain"      "libaddgrain.dylib"    "$STEFANOLT/com.holywu.addgrain/r10/darwin-x86_64/2024-09-30T20.56.34%2B00.00Z/AddGrain-r10-darwin-x86_64.zip"
+    download_prebuilt_plugin "CAS"           "libcas.dylib"         "$STEFANOLT/com.holywu.cas/r2/darwin-x86_64/2024-10-01T19.44.56%2B00.00Z/CAS-r2-darwin-x86_64.zip"
+    download_prebuilt_plugin "DCTFilter"     "libdctfilter.dylib"   "$STEFANOLT/com.holywu.dctfilter/r2.1/darwin-x86_64/2024-10-09T17.32.30%2B00.00Z/DCTFilter-r2.1-darwin-x86_64.zip"
+    download_prebuilt_plugin "Deblock"       "libdeblock.dylib"     "$STEFANOLT/com.holywu.deblock/r7.1/darwin-x86_64/2026-01-06T23.51.04%2B00.00Z/Deblock-r7.1-darwin-x86_64.zip"
+    download_prebuilt_plugin "AWarpSharp2"   "libawarpsharp2.dylib" "$STEFANOLT/com.nodame.awarpsharp2/v4/darwin-x86_64/2024-07-22T18.51.03Z/AWarpSharp2-v4-darwin-x86_64.zip"
+    download_prebuilt_plugin "CTMF"          "libctmf.dylib"        "$STEFANOLT/com.holywu.ctmf/r5/darwin-x86_64/2024-09-30T20.54.04%2B00.00Z/CTMF-r5-darwin-x86_64.zip"
+    download_prebuilt_plugin "TCanny"        "libtcanny.dylib"      "$STEFANOLT/com.holywu.tcanny/r14/darwin-x86_64/2024-09-30T21.00.45%2B00.00Z/TCanny-r14-darwin-x86_64.zip"
+    download_prebuilt_plugin "TemporalMedian" "libtmedian.dylib"    "$STEFANOLT/com.nodame.temporalmedian/v1/darwin-x86_64/2024-09-30T21.01.26%2B00.00Z/TemporalMedian-v1-darwin-x86_64.zip"
+    download_prebuilt_plugin "BestSource"    "libbestsource.dylib"  "$STEFANOLT/com.vapoursynth.bestsource/R16/darwin-x86_64/2026-01-10T19.07.30%2B00.00Z/BestSource-R16-darwin-x86_64.zip"
+
+    # ---- The four plugins Stefan-Olt does not ship: build from source ----
+    cd "$BUILD_DIR"
+    VS_PC_DIR="$VS_INSTALL_DIR/lib/pkgconfig"
+    VS_INC_DIR="$(dirname "$(find "$VS_INSTALL_DIR/include" -name 'VapourSynth4.h' 2>/dev/null | head -1)")"
+
+    # neo-f3kdb (cmake; uses its bundled VapourSynth headers, VCL2 submodule)
+    if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libneo-f3kdb.dylib" ]; then
+        echo ""; echo "=== Building neo-f3kdb (x86_64) ==="
+        rm -rf f3kdb
+        if git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb.git f3kdb \
+           && cmake -S f3kdb -B f3kdb/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+           && cmake --build f3kdb/build --config Release; then
+            lib=$(find f3kdb/build -name "*.dylib" -type f | head -1)
+            if [ -n "$lib" ]; then cp "$lib" "$PLUGINS_DIR/libneo-f3kdb.dylib"; echo "  Built neo-f3kdb"; else echo "  no dylib"; FAILED_PLUGINS+=("neo-f3kdb"); fi
+        else
+            echo "  Failed to build neo-f3kdb"; FAILED_PLUGINS+=("neo-f3kdb")
+        fi
+        cd "$BUILD_DIR"
+    fi
+
+    # nnedi3cl (meson; finds VapourSynth via pkg-config, boost via Homebrew)
+    if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libnnedi3cl.dylib" ]; then
+        echo ""; echo "=== Building NNEDI3CL (x86_64) ==="
+        rm -rf nnedi3cl
+        if git clone --depth 1 https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL.git nnedi3cl \
+           && PKG_CONFIG_PATH="$VS_PC_DIR:${PKG_CONFIG_PATH:-}" BOOST_ROOT="$BREW_PREFIX" \
+              meson setup nnedi3cl/build nnedi3cl --buildtype=release \
+           && ninja -C nnedi3cl/build; then
+            lib=$(find nnedi3cl/build -name "*.dylib" -type f | head -1)
+            if [ -n "$lib" ]; then cp "$lib" "$PLUGINS_DIR/libnnedi3cl.dylib"; echo "  Built NNEDI3CL"; else echo "  no dylib"; FAILED_PLUGINS+=("nnedi3cl"); fi
+        else
+            echo "  Failed to build NNEDI3CL"; FAILED_PLUGINS+=("nnedi3cl")
+        fi
+        cd "$BUILD_DIR"
+    fi
+
+    # vivtc (meson; replace its python get_include() probe with our VS headers)
+    if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libvivtc.dylib" ]; then
+        echo ""; echo "=== Building VIVTC (x86_64) ==="
+        rm -rf vivtc
+        if git clone --depth 1 https://github.com/vapoursynth/vivtc.git vivtc; then
+            VS_INC_DIR="$VS_INC_DIR" python3 - vivtc/meson.build <<'PYEOF'
+import os, re, sys
+path = sys.argv[1]
+inc = os.environ["VS_INC_DIR"]
+s = open(path).read()
+s = re.sub(r"run_command\(.*?\)\.stdout\(\)\.strip\(\)",
+           repr(inc), s, flags=re.S)
+open(path, "w").write(s)
+PYEOF
+            if meson setup vivtc/build vivtc --buildtype=release && ninja -C vivtc/build; then
+                lib=$(find vivtc/build -name "*.dylib" -type f | head -1)
+                if [ -n "$lib" ]; then cp "$lib" "$PLUGINS_DIR/libvivtc.dylib"; echo "  Built VIVTC"; else echo "  no dylib"; FAILED_PLUGINS+=("vivtc"); fi
+            else
+                echo "  Failed to build VIVTC"; FAILED_PLUGINS+=("vivtc")
+            fi
+        else
+            echo "  Failed to clone VIVTC"; FAILED_PLUGINS+=("vivtc")
+        fi
+        cd "$BUILD_DIR"
+    fi
+
+    # descratch (meson; uses VapourSynth headers from its own submodule)
+    if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libdescratch.dylib" ]; then
+        echo ""; echo "=== Building DeScratch (x86_64) ==="
+        rm -rf descratch
+        if git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/vapoursynth/descratch.git descratch \
+           && meson setup descratch/build descratch --buildtype=release \
+           && ninja -C descratch/build; then
+            lib=$(find descratch/build -name "*.dylib" -type f | head -1)
+            if [ -n "$lib" ]; then
+                cp "$lib" "$PLUGINS_DIR/libdescratch.dylib"
+                install_name_tool -id "@loader_path/libdescratch.dylib" "$PLUGINS_DIR/libdescratch.dylib" 2>/dev/null || true
+                echo "  Built DeScratch"
+            else
+                echo "  no dylib"; FAILED_PLUGINS+=("descratch")
+            fi
+        else
+            echo "  Failed to build DeScratch"; FAILED_PLUGINS+=("descratch")
+        fi
+        cd "$BUILD_DIR"
+    fi
+else
 # MVTools (essential for QTGMC motion compensation)
 build_plugin "mvtools" \
     "https://github.com/dubhater/vapoursynth-mvtools.git" \
@@ -767,6 +911,7 @@ else
     BESTSOURCE_URL="$STEFANOLT/com.vapoursynth.bestsource/R16/darwin-x86_64/2026-01-10T19.07.30%2B00.00Z/BestSource-R16-darwin-x86_64.zip"
 fi
 download_prebuilt_plugin "BestSource" "libbestsource.dylib" "$BESTSOURCE_URL"
+fi  # end plugin arch split (x86_64 pre-built / arm64 from-source)
 
 # ============================================================================
 # Download NNEDI3 weights
