@@ -43,6 +43,13 @@ else
     exit 1
 fi
 
+# NOTE: To build x64 deps on an Apple Silicon Mac (or the macos-15 arm64 CI
+# runner), run this script translated through Rosetta 2 with an Intel Homebrew
+# prefix first in PATH, e.g.:
+#   arch -x86_64 /bin/bash -lc 'PATH=/usr/local/bin:$PATH ./Scripts/download-deps-macos.sh --force'
+# Under Rosetta `uname -m` reports x86_64, so $ARCH/$PLATFORM_DIR and every build
+# tool (brew, meson, ninja, clang, embedded python) emit x86_64.
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DEPS_DIR="$PROJECT_ROOT/deps/$PLATFORM_DIR"
@@ -81,7 +88,12 @@ BREW_DEPS=(
     cmake meson ninja nasm autoconf automake libtool pkg-config cython
     # Libraries needed to build (will be copied, not linked at runtime from homebrew)
     zimg
-    # FFmpeg (will be copied)
+    # Support libraries bundled into deps/.../lib (copied, not linked from homebrew):
+    #   fftw       -> libfftw3f.3 + libfftw3f_threads.3 (dfttest)
+    #   boost      -> libboost_filesystem + libboost_atomic (nnedi3cl)
+    #   libdvdread -> libdvdread (DVD title extraction in the worker)
+    fftw boost libdvdread
+    # FFmpeg (arm64 copies this; x64 uses evermeet.cx static builds instead)
     ffmpeg
 )
 
@@ -306,14 +318,29 @@ else
 fi
 
 # ============================================================================
-# Copy FFmpeg
+# FFmpeg
 # ============================================================================
 echo ""
-echo "=== Copying FFmpeg ==="
-cp "$BREW_PREFIX/bin/ffmpeg" "$DEPS_DIR/ffmpeg/"
-cp "$BREW_PREFIX/bin/ffprobe" "$DEPS_DIR/ffmpeg/"
-chmod +x "$DEPS_DIR/ffmpeg/ffmpeg" "$DEPS_DIR/ffmpeg/ffprobe"
-echo "  Copied FFmpeg"
+echo "=== Installing FFmpeg ==="
+if [ "$ARCH" = "x86_64" ]; then
+    # evermeet.cx ships static x86_64 ffmpeg/ffprobe that link only system
+    # frameworks (verified self-contained), so no dylib wrangling is needed.
+    # This is the canonical pre-built source for Intel macOS ffmpeg.
+    echo "  Downloading static x86_64 FFmpeg from evermeet.cx..."
+    curl -sL "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip" -o "$BUILD_DIR/ffmpeg.zip"
+    curl -sL "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip" -o "$BUILD_DIR/ffprobe.zip"
+    unzip -q -o "$BUILD_DIR/ffmpeg.zip" -d "$DEPS_DIR/ffmpeg/"
+    unzip -q -o "$BUILD_DIR/ffprobe.zip" -d "$DEPS_DIR/ffmpeg/"
+    chmod +x "$DEPS_DIR/ffmpeg/ffmpeg" "$DEPS_DIR/ffmpeg/ffprobe"
+    codesign -s - -f "$DEPS_DIR/ffmpeg/ffmpeg" 2>/dev/null || true
+    codesign -s - -f "$DEPS_DIR/ffmpeg/ffprobe" 2>/dev/null || true
+    echo "  Installed evermeet.cx FFmpeg"
+else
+    cp "$BREW_PREFIX/bin/ffmpeg" "$DEPS_DIR/ffmpeg/"
+    cp "$BREW_PREFIX/bin/ffprobe" "$DEPS_DIR/ffmpeg/"
+    chmod +x "$DEPS_DIR/ffmpeg/ffmpeg" "$DEPS_DIR/ffmpeg/ffprobe"
+    echo "  Copied FFmpeg from Homebrew"
+fi
 
 # ============================================================================
 # Download pre-built plugins from yuygfgg/Macos_vapoursynth_plugins (ARM64)
@@ -370,6 +397,40 @@ if [ "$ARCH" = "arm64" ]; then
     codesign -s - -f "$PLUGINS_DIR/libvivtc.dylib" 2>/dev/null
 
     echo "  Downloaded pre-built ARM64 plugins from yuygfgg"
+else
+    # x86_64: no yuygfgg equivalent. Source the support libraries from the
+    # (Intel) Homebrew prefix; neo-f3kdb / dfttest / vivtc are built from source
+    # below (see the "$ARCH" != "arm64" branches).
+    echo "  Sourcing x86_64 support libraries from Homebrew ($BREW_PREFIX)..."
+
+    # FFTW (required for dfttest, which is built from source on x86_64)
+    cp "$BREW_PREFIX/lib/libfftw3f.3.dylib" "$LIB_DIR/libfftw3f.3.dylib"
+    cp "$BREW_PREFIX/lib/libfftw3f_threads.3.dylib" "$LIB_DIR/libfftw3f_threads.3.dylib"
+    install_name_tool -id "@loader_path/libfftw3f.3.dylib" "$LIB_DIR/libfftw3f.3.dylib"
+    install_name_tool -id "@loader_path/libfftw3f_threads.3.dylib" "$LIB_DIR/libfftw3f_threads.3.dylib"
+    install_name_tool -change "$BREW_PREFIX/opt/fftw/lib/libfftw3f.3.dylib" "@loader_path/libfftw3f.3.dylib" "$LIB_DIR/libfftw3f_threads.3.dylib" 2>/dev/null || true
+    codesign -s - -f "$LIB_DIR/libfftw3f.3.dylib" 2>/dev/null
+    codesign -s - -f "$LIB_DIR/libfftw3f_threads.3.dylib" 2>/dev/null
+
+    # Boost (required by NNEDI3CL)
+    cp "$BREW_PREFIX/lib/libboost_filesystem.dylib" "$LIB_DIR/"
+    cp "$BREW_PREFIX/lib/libboost_atomic.dylib" "$LIB_DIR/"
+    install_name_tool -id "@loader_path/libboost_filesystem.dylib" "$LIB_DIR/libboost_filesystem.dylib"
+    install_name_tool -id "@loader_path/libboost_atomic.dylib" "$LIB_DIR/libboost_atomic.dylib"
+    install_name_tool -change "$BREW_PREFIX/opt/boost/lib/libboost_atomic.dylib" "@loader_path/libboost_atomic.dylib" "$LIB_DIR/libboost_filesystem.dylib" 2>/dev/null || true
+    codesign -s - -f "$LIB_DIR/libboost_filesystem.dylib" 2>/dev/null
+    codesign -s - -f "$LIB_DIR/libboost_atomic.dylib" 2>/dev/null
+
+    echo "  Sourced x86_64 support libraries"
+fi
+
+# libdvdread (DVD title extraction in the worker) - sourced from Homebrew for
+# both architectures. The worker dynamically loads it from deps/.../lib.
+if [ ! -f "$LIB_DIR/libdvdread.dylib" ] && [ -f "$BREW_PREFIX/lib/libdvdread.dylib" ]; then
+    echo "  Copying libdvdread..."
+    cp "$BREW_PREFIX/lib/libdvdread.dylib" "$LIB_DIR/libdvdread.dylib"
+    install_name_tool -id "@loader_path/libdvdread.dylib" "$LIB_DIR/libdvdread.dylib" 2>/dev/null || true
+    codesign -s - -f "$LIB_DIR/libdvdread.dylib" 2>/dev/null
 fi
 
 # ============================================================================
@@ -608,6 +669,94 @@ build_plugin "knlmeanscl" \
     "https://github.com/Khanattila/KNLMeansCL.git" \
     "libknlmeanscl.dylib" \
     "meson setup build --buildtype=release && ninja -C build"
+
+# DeScratch (vertical scratch removal - core.descratch.DeScratch)
+# Built from source: not available pre-built from Stefan-Olt. The repo carries
+# the VapourSynth headers as a submodule, so a recursive clone is required.
+echo ""
+echo "=== Building DeScratch ==="
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libdescratch.dylib" ]; then
+    rm -rf descratch
+    if git clone --depth 1 --recurse-submodules --shallow-submodules \
+        https://github.com/vapoursynth/descratch.git descratch; then
+        cd descratch
+        if meson setup build --buildtype=release && ninja -C build; then
+            lib_path=$(find build -name "*.dylib" -type f 2>/dev/null | head -1)
+            if [ -n "$lib_path" ]; then
+                cp "$lib_path" "$PLUGINS_DIR/libdescratch.dylib"
+                install_name_tool -id "@loader_path/libdescratch.dylib" "$PLUGINS_DIR/libdescratch.dylib" 2>/dev/null || true
+                echo "  Built DeScratch"
+            else
+                echo "  Warning: No .dylib found for DeScratch"
+                FAILED_PLUGINS+=("descratch")
+            fi
+        else
+            echo "  Failed to build DeScratch"
+            FAILED_PLUGINS+=("descratch")
+        fi
+        cd "$BUILD_DIR"
+    else
+        echo "  Failed to clone DeScratch"
+        FAILED_PLUGINS+=("descratch")
+    fi
+else
+    echo "  DeScratch already exists, skipping"
+fi
+
+# ============================================================================
+# Pre-built plugins from Stefan-Olt/vs-plugin-build (both architectures)
+# These are not built from source here; Stefan-Olt ships self-contained
+# darwin-aarch64 and darwin-x86_64 dylibs. Release assets are immutable, so the
+# pinned URLs below are stable - bump the version/timestamp to update.
+# ============================================================================
+echo ""
+echo "=== Downloading pre-built plugins (Stefan-Olt/vs-plugin-build) ==="
+
+download_prebuilt_plugin() {
+    local label="$1"
+    local out_name="$2"
+    local url="$3"
+
+    if [ "$FORCE" = false ] && [ -f "$PLUGINS_DIR/$out_name" ]; then
+        echo "  $label already exists, skipping"
+        return 0
+    fi
+
+    local tmp="$BUILD_DIR/prebuilt-$out_name"
+    rm -rf "$tmp"; mkdir -p "$tmp"
+    if curl -sL "$url" -o "$tmp/plugin.zip" && unzip -q -o "$tmp/plugin.zip" -d "$tmp"; then
+        local found
+        found=$(find "$tmp" -name "*.dylib" -type f 2>/dev/null | head -1)
+        if [ -n "$found" ]; then
+            cp "$found" "$PLUGINS_DIR/$out_name"
+            install_name_tool -id "@loader_path/$out_name" "$PLUGINS_DIR/$out_name" 2>/dev/null || true
+            codesign -s - -f "$PLUGINS_DIR/$out_name" 2>/dev/null || true
+            echo "  Downloaded pre-built $label"
+            return 0
+        fi
+    fi
+    echo "  Warning: failed to fetch pre-built $label"
+    FAILED_PLUGINS+=("$label")
+    return 1
+}
+
+STEFANOLT="https://github.com/Stefan-Olt/vs-plugin-build/releases/download/vsplugin"
+
+# TemporalMedian (core.tmedian.TemporalMedian - used by SpotLess)
+if [ "$ARCH" = "arm64" ]; then
+    TMEDIAN_URL="$STEFANOLT/com.nodame.temporalmedian/v1/darwin-aarch64/2024-09-30T20.56.40%2B00.00Z/TemporalMedian-v1-darwin-aarch64.zip"
+else
+    TMEDIAN_URL="$STEFANOLT/com.nodame.temporalmedian/v1/darwin-x86_64/2024-09-30T21.01.26%2B00.00Z/TemporalMedian-v1-darwin-x86_64.zip"
+fi
+download_prebuilt_plugin "TemporalMedian" "libtmedian.dylib" "$TMEDIAN_URL"
+
+# BestSource (core.bs - source loader, bundled for parity)
+if [ "$ARCH" = "arm64" ]; then
+    BESTSOURCE_URL="$STEFANOLT/com.vapoursynth.bestsource/R16/darwin-aarch64/2026-01-10T18.55.40%2B00.00Z/BestSource-R16-darwin-aarch64.zip"
+else
+    BESTSOURCE_URL="$STEFANOLT/com.vapoursynth.bestsource/R16/darwin-x86_64/2026-01-10T19.07.30%2B00.00Z/BestSource-R16-darwin-x86_64.zip"
+fi
+download_prebuilt_plugin "BestSource" "libbestsource.dylib" "$BESTSOURCE_URL"
 
 # ============================================================================
 # Download NNEDI3 weights

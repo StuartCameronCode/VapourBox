@@ -13,7 +13,8 @@
 #
 # Options:
 #   --version X.Y.Z          Set version number (default: 1.0.0)
-#   --arch arm64|x64          Target architecture (default: auto-detect)
+#   --arch arm64|x64|universal  Target architecture (default: auto-detect host;
+#                               'universal' builds a fat arm64+x86_64 bundle)
 #   --skip-build              Skip Flutter and Rust compilation
 #   --team-id ID              Apple Developer Team ID (default: PMXZ63S6YG)
 #   --notarize                Submit to Apple notary service after signing
@@ -116,15 +117,24 @@ fi
 # Build Rust worker
 STEP=1
 if [ "$SKIP_BUILD" = false ]; then
-    echo "[$STEP/$TOTAL_STEPS] Building Rust worker..."
+    echo "[$STEP/$TOTAL_STEPS] Building Rust worker ($ARCH)..."
     cd "$PROJECT_ROOT/worker"
-    if [ "$ARCH" = "arm64" ]; then
-        cargo build --release --target aarch64-apple-darwin
-        WORKER_BIN="$PROJECT_ROOT/worker/target/aarch64-apple-darwin/release/vapourbox-worker"
-    else
-        cargo build --release --target x86_64-apple-darwin
-        WORKER_BIN="$PROJECT_ROOT/worker/target/x86_64-apple-darwin/release/vapourbox-worker"
-    fi
+    ARM_WORKER="$PROJECT_ROOT/worker/target/aarch64-apple-darwin/release/vapourbox-worker"
+    X64_WORKER="$PROJECT_ROOT/worker/target/x86_64-apple-darwin/release/vapourbox-worker"
+    case "$ARCH" in
+        arm64)
+            cargo build --release --target aarch64-apple-darwin
+            WORKER_BIN="$ARM_WORKER" ;;
+        x64)
+            cargo build --release --target x86_64-apple-darwin
+            WORKER_BIN="$X64_WORKER" ;;
+        universal)
+            cargo build --release --target aarch64-apple-darwin
+            cargo build --release --target x86_64-apple-darwin
+            mkdir -p "$PROJECT_ROOT/worker/target/universal/release"
+            WORKER_BIN="$PROJECT_ROOT/worker/target/universal/release/vapourbox-worker"
+            lipo -create -output "$WORKER_BIN" "$ARM_WORKER" "$X64_WORKER" ;;
+    esac
     # Fallback to default target if specific target not found
     if [ ! -f "$WORKER_BIN" ]; then
         cargo build --release
@@ -134,7 +144,16 @@ if [ "$SKIP_BUILD" = false ]; then
 
     # Build Flutter app (two-step xcodebuild — flutter build macos fails with module dependency errors)
     STEP=$((STEP + 1))
-    echo "[$STEP/$TOTAL_STEPS] Building Flutter app..."
+    echo "[$STEP/$TOTAL_STEPS] Building Flutter app ($ARCH)..."
+
+    # Map target arch to the Xcode ARCHS value (drives the Podfile too).
+    case "$ARCH" in
+        arm64)     XCODE_ARCHS="arm64" ;;
+        x64)       XCODE_ARCHS="x86_64" ;;
+        universal) XCODE_ARCHS="arm64 x86_64" ;;
+    esac
+    export VAPOURBOX_ARCHS="$XCODE_ARCHS"
+
     cd "$PROJECT_ROOT/app"
     flutter pub get
 
@@ -148,12 +167,14 @@ if [ "$SKIP_BUILD" = false ]; then
     echo "    Building Pods-Runner scheme..."
     xcodebuild -workspace Runner.xcworkspace -scheme Pods-Runner \
         -configuration Release build ONLY_ACTIVE_ARCH=NO \
+        ARCHS="$XCODE_ARCHS" \
         -quiet
 
-    # Step 2: Build Runner for arm64 only (must match Podfile ARCHS setting)
-    echo "    Building Runner scheme (arm64)..."
+    # Step 2: Build Runner for the target arch (must match Podfile ARCHS setting)
+    echo "    Building Runner scheme ($XCODE_ARCHS)..."
     xcodebuild -workspace Runner.xcworkspace -scheme Runner \
-        -configuration Release build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+        -configuration Release build ONLY_ACTIVE_ARCH=NO \
+        ARCHS="$XCODE_ARCHS" \
         -quiet
 
     # Copy to Flutter build location
@@ -170,11 +191,14 @@ else
     echo "[$STEP/$TOTAL_STEPS] Skipping Rust build (--skip-build)"
     STEP=$((STEP + 1))
     echo "[$STEP/$TOTAL_STEPS] Skipping Flutter build (--skip-build)"
-    # Search for worker binary in arch-specific and default target directories
+    # Search for worker binary in arch-specific and default target directories.
+    # For universal, the CI worker-build step lipo's both slices into target/universal/.
     if [ "$ARCH" = "arm64" ] && [ -f "$PROJECT_ROOT/worker/target/aarch64-apple-darwin/release/vapourbox-worker" ]; then
         WORKER_BIN="$PROJECT_ROOT/worker/target/aarch64-apple-darwin/release/vapourbox-worker"
     elif [ "$ARCH" = "x64" ] && [ -f "$PROJECT_ROOT/worker/target/x86_64-apple-darwin/release/vapourbox-worker" ]; then
         WORKER_BIN="$PROJECT_ROOT/worker/target/x86_64-apple-darwin/release/vapourbox-worker"
+    elif [ "$ARCH" = "universal" ] && [ -f "$PROJECT_ROOT/worker/target/universal/release/vapourbox-worker" ]; then
+        WORKER_BIN="$PROJECT_ROOT/worker/target/universal/release/vapourbox-worker"
     else
         WORKER_BIN="$PROJECT_ROOT/worker/target/release/vapourbox-worker"
     fi

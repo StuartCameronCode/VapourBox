@@ -12,20 +12,53 @@ on:
         required: true
         type: string
       arch:
-        description: 'Architecture'
+        description: 'Architecture (universal = one fat arm64+x86_64 DMG; both = two separate DMGs)'
         required: false
         type: choice
         options:
+          - universal
+          - both
           - arm64
-        default: arm64
+          - x64
+        default: universal
 
 jobs:
+  # Expand the arch choice into a matrix the build job fans out over.
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        run: |
+          case "${{ inputs.arch }}" in
+            universal) echo 'matrix=["universal"]' >> "$GITHUB_OUTPUT" ;;
+            arm64)     echo 'matrix=["arm64"]'     >> "$GITHUB_OUTPUT" ;;
+            x64)       echo 'matrix=["x64"]'       >> "$GITHUB_OUTPUT" ;;
+            both)      echo 'matrix=["arm64","x64"]' >> "$GITHUB_OUTPUT" ;;
+            *)         echo 'matrix=["universal"]' >> "$GITHUB_OUTPUT" ;;
+          esac
+
   build:
-    runs-on: macos-15  # M1 runner for arm64 support, Xcode 16+
+    needs: setup
+    runs-on: macos-15  # Apple Silicon; x64 cross-compiles via ARCHS=x86_64
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.setup.outputs.matrix) }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Resolve arch variables
+        id: arch
+        run: |
+          case "${{ matrix.arch }}" in
+            arm64)     echo "xcode_archs=arm64" >> "$GITHUB_OUTPUT" ;;
+            x64)       echo "xcode_archs=x86_64" >> "$GITHUB_OUTPUT" ;;
+            universal) echo "xcode_archs=arm64 x86_64" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -47,41 +80,29 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             worker/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.arch }}-
             ${{ runner.os }}-cargo-
 
-      - name: Download macOS dependencies
+      # Per-arch deps are downloaded at runtime by the app (not bundled), so this
+      # only runs for single-arch builds to validate the matching zip exists.
+      # Universal apps download the arch-appropriate deps on first run.
+      - name: Download macOS dependencies (${{ matrix.arch }})
+        if: ${{ matrix.arch != 'universal' }}
         run: |
           DEPS_VERSION="${{ inputs.deps_tag }}"
           DEPS_VERSION="${DEPS_VERSION#deps-v}"
 
-          mkdir -p deps/macos-arm64 deps/macos-x64
-
-          # Download arm64 deps (zip contains flat structure, no wrapper folder)
-          if [[ "${{ inputs.arch }}" == "arm64" || "${{ inputs.arch }}" == "both" ]]; then
-            DEPS_URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.deps_tag }}/VapourBox-deps-${DEPS_VERSION}-macos-arm64.zip"
-            echo "Downloading arm64 deps from: $DEPS_URL"
-            curl -L -o deps-arm64.zip "$DEPS_URL"
-            unzip -o deps-arm64.zip -d deps/macos-arm64
-            rm -f deps-arm64.zip
-          fi
-
-          # Download x64 deps (zip contains flat structure, no wrapper folder)
-          if [[ "${{ inputs.arch }}" == "x64" || "${{ inputs.arch }}" == "both" ]]; then
-            DEPS_URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.deps_tag }}/VapourBox-deps-${DEPS_VERSION}-macos-x64.zip"
-            echo "Downloading x64 deps from: $DEPS_URL"
-            curl -L -o deps-x64.zip "$DEPS_URL"
-            unzip -o deps-x64.zip -d deps/macos-x64
-            rm -f deps-x64.zip
-          fi
-
-          echo "Dependencies extracted:"
-          ls -la deps/
+          mkdir -p deps/macos-${{ matrix.arch }}
+          DEPS_URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.deps_tag }}/VapourBox-deps-${DEPS_VERSION}-macos-${{ matrix.arch }}.zip"
+          echo "Downloading ${{ matrix.arch }} deps from: $DEPS_URL"
+          curl -L -o deps.zip "$DEPS_URL"
+          unzip -o deps.zip -d deps/macos-${{ matrix.arch }}
+          rm -f deps.zip
 
       - name: Setup CocoaPods
-        run: |
-          gem install cocoapods
+        run: gem install cocoapods
 
       - name: Update version numbers
         run: |
@@ -103,19 +124,28 @@ jobs:
           # Update Cargo.toml
           sed -i '' "s/^version = \".*\"/version = \"${VERSION}\"/" worker/Cargo.toml
 
-      - name: Build Rust worker (arm64)
-        if: ${{ inputs.arch == 'arm64' || inputs.arch == 'both' }}
+      - name: Build Rust worker (${{ matrix.arch }})
         run: |
           cd worker
-          cargo build --release --target aarch64-apple-darwin
+          case "${{ matrix.arch }}" in
+            arm64)
+              cargo build --release --target aarch64-apple-darwin ;;
+            x64)
+              cargo build --release --target x86_64-apple-darwin ;;
+            universal)
+              cargo build --release --target aarch64-apple-darwin
+              cargo build --release --target x86_64-apple-darwin
+              mkdir -p target/universal/release
+              lipo -create -output target/universal/release/vapourbox-worker \
+                target/aarch64-apple-darwin/release/vapourbox-worker \
+                target/x86_64-apple-darwin/release/vapourbox-worker
+              lipo -info target/universal/release/vapourbox-worker ;;
+          esac
 
-      - name: Build Rust worker (x64)
-        if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
-        run: |
-          cd worker
-          cargo build --release --target x86_64-apple-darwin
-
-      - name: Build Flutter app
+      - name: Build Flutter app (${{ matrix.arch }})
+        env:
+          # Drives app/macos/Podfile to build Pods for the target arch.
+          VAPOURBOX_ARCHS: ${{ steps.arch.outputs.xcode_archs }}
         run: |
           cd app
           flutter pub get
@@ -130,14 +160,17 @@ jobs:
           rm -rf Pods Podfile.lock
           pod install
 
-          # Build Pods-Runner scheme first (all CocoaPods dependencies)
+          # Build Pods-Runner scheme first (all CocoaPods dependencies).
+          # ARCHS is quoted so the universal value "arm64 x86_64" stays one arg.
           xcodebuild -workspace Runner.xcworkspace -scheme Pods-Runner \
               -configuration Release build ONLY_ACTIVE_ARCH=NO \
+              ARCHS="${{ steps.arch.outputs.xcode_archs }}" \
               -quiet
 
-          # Build Runner for arm64 only (must match Podfile ARCHS setting)
+          # Build Runner for the target arch (must match Podfile ARCHS setting)
           xcodebuild -workspace Runner.xcworkspace -scheme Runner \
-              -configuration Release build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+              -configuration Release build ONLY_ACTIVE_ARCH=NO \
+              ARCHS="${{ steps.arch.outputs.xcode_archs }}" \
               -quiet
 
           # Copy to Flutter build location
@@ -183,32 +216,21 @@ jobs:
           echo "Signing identities available:"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
-      - name: Package release (arm64)
-        if: ${{ inputs.arch == 'arm64' || inputs.arch == 'both' }}
+      - name: Package release (${{ matrix.arch }})
         env:
           NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
           NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
           NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
         run: |
-          ./Scripts/package-macos.sh --version "${{ inputs.version }}" --arch arm64 --skip-build --notarize
-
-      - name: Package release (x64)
-        if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
-        env:
-          NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
-          NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
-          NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
-        run: |
-          ./Scripts/package-macos.sh --version "${{ inputs.version }}" --arch x64 --skip-build --notarize
+          ./Scripts/package-macos.sh --version "${{ inputs.version }}" --arch ${{ matrix.arch }} --skip-build --notarize
 
       - name: Clean up signing keychain
         if: always()
         run: |
           security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
 
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VapourBox-${{ inputs.version }}-macos
-          path: dist/VapourBox-${{ inputs.version }}-macos-*.dmg
-
+          name: VapourBox-${{ inputs.version }}-macos-${{ matrix.arch }}
+          path: dist/VapourBox-${{ inputs.version }}-macos-${{ matrix.arch }}.dmg
