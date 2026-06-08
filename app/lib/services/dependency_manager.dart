@@ -166,6 +166,17 @@ class DependencyManager {
 
   /// Get the dependencies directory path.
   Future<Directory> getDepsDirectory() async {
+    // Explicit override (used by `flutter test` in CI, where the executable is
+    // the test runner, not the app bundle). Points directly at a platform deps
+    // dir, e.g. /path/to/deps/macos-arm64.
+    final override = Platform.environment['VAPOURBOX_DEPS_DIR'];
+    if (override != null && override.isNotEmpty) {
+      final overrideDir = Directory(override);
+      if (await overrideDir.exists()) {
+        return overrideDir;
+      }
+    }
+
     final executablePath = Platform.resolvedExecutable;
     final appDir = path.dirname(executablePath);
 

@@ -27,6 +27,10 @@ jobs:
       matrix:
         arch: [arm64, x64]
     runs-on: macos-15  # arm64; x64 runs translated through Rosetta 2
+    env:
+      # Point the Flutter ToolLocator/DependencyManager at the repo-root deps
+      # (Platform.resolvedExecutable is the test runner under `flutter test`).
+      VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/macos-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
 
@@ -142,6 +146,8 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    env:
+      VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/windows-x64
     steps:
       - uses: actions/checkout@v4
 
@@ -171,7 +177,9 @@ jobs:
           ZIP="VapourBox-deps-${VER}-windows-x64.zip"
           mkdir -p deps/windows-x64
           gh release download "${{ steps.deps.outputs.tag }}" --pattern "$ZIP" --dir . --clobber
-          unzip -q -o "$ZIP" -d deps/windows-x64
+          # The Windows deps zip uses backslash separators; 7-Zip handles that
+          # (info-zip `unzip` warns and exits non-zero, tripping `set -e`).
+          7z x "$ZIP" -o"deps/windows-x64" -y >/dev/null
           rm -f "$ZIP"
 
       - name: Cache whisper model
@@ -190,7 +198,7 @@ jobs:
           cp .whisper-cache/ggml-small.bin addons/whisper/models/ggml-small.bin
           curl -L -o /tmp/whisper-win.zip \
             "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.3/whisper-bin-x64.zip"
-          unzip -q -o /tmp/whisper-win.zip -d /tmp/whisper-win
+          7z x /tmp/whisper-win.zip -o/tmp/whisper-win -y >/dev/null
           # Flatten: DependencyLocator expects addons/whisper/whisper-cli.exe
           CLI=$(find /tmp/whisper-win -name "whisper-cli.exe" | head -1)
           cp "$(dirname "$CLI")"/*.exe addons/whisper/ 2>/dev/null || true
