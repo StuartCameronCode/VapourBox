@@ -164,7 +164,9 @@ class WhisperAddonManager {
 
     final tempDir = await Directory.systemTemp.createTemp('vapourbox_whisper_');
     final tempFile = File(path.join(tempDir.path,
-        format == 'homebrew-bottle' ? 'whisper.tar.gz' : 'whisper.zip'));
+        (format == 'homebrew-bottle' || format == 'tar')
+            ? 'whisper.tar.gz'
+            : 'whisper.zip'));
 
     try {
       // ghcr.io requires a bearer token (public, anonymous access)
@@ -180,6 +182,8 @@ class WhisperAddonManager {
 
       if (format == 'homebrew-bottle') {
         await _extractHomebrewBottle(tempFile, whisperDir, exeName);
+      } else if (format == 'tar') {
+        await _extractTar(tempFile, whisperDir, exeName);
       } else {
         await _extractZip(tempFile, whisperDir, exeName);
       }
@@ -228,6 +232,33 @@ class WhisperAddonManager {
     ]);
     if (result.exitCode != 0) {
       throw StateError('Failed to extract bottle: ${result.stderr}');
+    }
+
+    // Set executable permissions on extracted binaries
+    final binDir = Directory(path.join(whisperDir.path, 'bin'));
+    if (await binDir.exists()) {
+      await for (final entity in binDir.list()) {
+        if (entity is File) {
+          await Process.run('chmod', ['+x', entity.path]);
+        }
+      }
+    }
+  }
+
+  /// Extract a plain gzipped tar (Linux binary release).
+  ///
+  /// The tarball is laid out as `bin/whisper-cli` (a fully static binary, no
+  /// `lib/` needed), matching the non-Windows whisperBinaryPath of
+  /// `whisper/bin/whisper-cli`. Unlike the Homebrew bottle, no path components
+  /// are stripped.
+  Future<void> _extractTar(
+      File tarGz, Directory whisperDir, String exeName) async {
+    final result = await Process.run('tar', [
+      'xzf', tarGz.path,
+      '-C', whisperDir.path,
+    ]);
+    if (result.exitCode != 0) {
+      throw StateError('Failed to extract tarball: ${result.stderr}');
     }
 
     // Set executable permissions on extracted binaries
