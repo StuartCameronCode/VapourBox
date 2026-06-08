@@ -27,15 +27,15 @@
         "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/whisper-v1.8.3/whisper-cli-linux-x64.tar.gz",
         "format": "tar",
         "executable": "whisper-cli",
-        "size": 1573360,
-        "sha256": "4ea12345281a210937ce900984721d650adf834e308d03e520c506923ec4c8e6"
+        "size": 1573364,
+        "sha256": "8678d9a1478b2e5ac456ce4385dac486beba9983ae111731d485af68120d85a8"
       },
       "linux-arm64": {
         "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/whisper-v1.8.3/whisper-cli-linux-arm64.tar.gz",
         "format": "tar",
         "executable": "whisper-cli",
-        "size": 1527325,
-        "sha256": "2ffb99a5432bb6153b2a6e29ce7034465358f2fb5b98dad99c69663f6305c1c4"
+        "size": 1527334,
+        "sha256": "aa9b2a6ebd58f76154ccf9352cf97ab75e3e545037742a8667246a1311d6918c"
       }
     }
   },
