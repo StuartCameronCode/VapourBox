@@ -2,8 +2,8 @@ name: CI Tests
 
 # Pulls the published dependency bundle + the whisper add-on (binary + small
 # model) and runs the full Rust and Flutter test suites, including the subtitle
-# integration test. macOS is tested on both arm64 (native) and x64 (via Rosetta
-# 2); Windows on x64.
+# integration test. macOS is tested natively on both arm64 (macos-15) and x64
+# (macos-15-intel); Windows on x64.
 
 on:
   push:
@@ -25,8 +25,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [arm64, x64]
-    runs-on: macos-15  # arm64; x64 runs translated through Rosetta 2
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x64
+            runner: macos-15-intel  # last native Intel image, available until ~Aug 2027
+    runs-on: ${{ matrix.runner }}
     env:
       # Point the Flutter ToolLocator/DependencyManager at the repo-root deps
       # (Platform.resolvedExecutable is the test runner under `flutter test`).
@@ -49,15 +53,6 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
-
-      - name: Install Rosetta + Intel Homebrew (x64)
-        if: matrix.arch == 'x64'
-        run: |
-          softwareupdate --install-rosetta --agree-to-license
-          arch -x86_64 /bin/bash -c \
-            "NONINTERACTIVE=1 $(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
       - name: Download dependencies (${{ matrix.arch }})
         env:
@@ -78,15 +73,7 @@ jobs:
           path: .whisper-cache
           key: whisper-ggml-small-v1
 
-      # The x86_64 Flutter SDK (for running Dart tests under Rosetta) is large; cache it.
-      - name: Cache x64 Flutter SDK
-        if: matrix.arch == 'x64'
-        uses: actions/cache@v4
-        with:
-          path: .flutter-x64
-          key: flutter-x64-sdk-v1
-
-      - name: Provision whisper add-on (${{ matrix.arch }})
+      - name: Provision whisper add-on
         run: |
           mkdir -p .whisper-cache addons/whisper/models
           if [ ! -f .whisper-cache/ggml-small.bin ]; then
@@ -94,29 +81,16 @@ jobs:
             curl -L -o .whisper-cache/ggml-small.bin "$WHISPER_MODEL_URL"
           fi
           cp .whisper-cache/ggml-small.bin addons/whisper/models/ggml-small.bin
-
           # whisper-cli comes from the same Homebrew bottle the app downloads.
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            brew install whisper-cpp
-            BP="$(brew --prefix)"
-          else
-            arch -x86_64 /usr/local/bin/brew install whisper-cpp
-            BP="/usr/local"
-          fi
+          brew install whisper-cpp
+          BP="$(brew --prefix)"
           ln -sfn "$BP/opt/whisper-cpp/bin" addons/whisper/bin
           ln -sfn "$BP/opt/whisper-cpp/lib" addons/whisper/lib
-          echo "whisper-cli: $(addons/whisper/bin/whisper-cli --help 2>&1 | head -1 || echo 'present')"
 
-      - name: Rust tests (${{ matrix.arch }})
-        run: |
-          # Debug build: DependencyLocator's upward search then finds the
-          # repo-root deps/ and addons/ (release mode looks under ~/Library).
-          cd worker
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            cargo test -- --nocapture
-          else
-            cargo test --target x86_64-apple-darwin -- --nocapture
-          fi
+      - name: Rust tests
+        # Debug build: DependencyLocator's upward search then finds the repo-root
+        # deps/ and addons/ (release mode looks under ~/Library).
+        run: cd worker && cargo test -- --nocapture
 
       - name: Generate Dart serialization
         run: |
@@ -124,25 +98,8 @@ jobs:
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
 
-      - name: Flutter tests (arm64, native)
-        if: matrix.arch == 'arm64'
+      - name: Flutter tests
         run: cd app && flutter test
-
-      - name: Flutter tests (x64, via Rosetta)
-        if: matrix.arch == 'x64'
-        run: |
-          FV=$(flutter --version 2>/dev/null | grep -oE "Flutter [0-9]+\.[0-9]+\.[0-9]+" | head -1 | awk '{print $2}')
-          echo "Matching x86_64 Flutter SDK version: $FV"
-          if [ ! -x ".flutter-x64/flutter/bin/flutter" ]; then
-            rm -rf .flutter-x64 && mkdir -p .flutter-x64
-            curl -L -o /tmp/flutter-x64.zip \
-              "https://storage.googleapis.com/flutter_infra_release/releases/stable/macos/flutter_macos_${FV}-stable.zip"
-            unzip -q /tmp/flutter-x64.zip -d .flutter-x64
-          fi
-          FX="$PWD/.flutter-x64/flutter/bin/flutter"
-          cd app
-          arch -x86_64 "$FX" pub get
-          arch -x86_64 "$FX" test
 
   windows:
     runs-on: windows-latest
@@ -206,9 +163,7 @@ jobs:
           ls addons/whisper/
 
       - name: Rust tests
-        run: |
-          cd worker
-          cargo test -- --nocapture
+        run: cd worker && cargo test -- --nocapture
 
       - name: Generate Dart serialization
         run: |

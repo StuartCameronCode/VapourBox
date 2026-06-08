@@ -2,12 +2,10 @@ name: Build macOS Deps
 
 # Builds the VapourSynth/FFmpeg/Python dependency bundles for macOS.
 #
-# Both jobs run on the macos-15 (Apple Silicon) image:
-#   - arm64 builds natively.
-#   - x64 builds through Rosetta 2 with an Intel Homebrew prefix (/usr/local),
-#     because the Intel macos-13 runner was retired in December 2025. Under
-#     `arch -x86_64` the build tools, embedded Python and clang all emit x86_64.
-#     FFmpeg comes pre-built from evermeet.cx; see Scripts/download-deps-macos.sh.
+#   - arm64 builds natively on macos-15 (Apple Silicon).
+#   - x64 builds natively on macos-15-intel (the last native Intel image,
+#     available until ~Aug 2027). FFmpeg comes pre-built from evermeet.cx and
+#     most plugins from Stefan-Olt; see Scripts/download-deps-macos.sh.
 
 on:
   workflow_dispatch:
@@ -61,27 +59,12 @@ jobs:
 
   build-x64:
     if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
-    runs-on: macos-15
+    runs-on: macos-15-intel  # native Intel image (last one, available until ~Aug 2027)
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rosetta 2
-        run: softwareupdate --install-rosetta --agree-to-license
-
-      - name: Install Intel Homebrew (/usr/local) under Rosetta
-        run: |
-          # Install the x86_64 Homebrew prefix so brew-provided libraries
-          # (zimg, fftw, boost, libdvdread, ...) are Intel binaries.
-          arch -x86_64 /bin/bash -c \
-            "NONINTERACTIVE=1 $(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          /usr/local/bin/brew --version
-
-      - name: Build dependencies (x64, via Rosetta)
-        run: |
-          # Run the whole build translated as x86_64 with Intel Homebrew first
-          # in PATH. uname -m then reports x86_64, so the script targets macos-x64.
-          arch -x86_64 /bin/bash -lc \
-            'PATH=/usr/local/bin:$PATH ./Scripts/download-deps-macos.sh --force'
+      - name: Build dependencies (x64, native)
+        run: ./Scripts/download-deps-macos.sh --force
 
       - name: Package dependencies
         run: ./Scripts/package-deps-macos.sh --version "${{ inputs.version }}" --arch x64

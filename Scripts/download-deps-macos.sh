@@ -43,12 +43,11 @@ else
     exit 1
 fi
 
-# NOTE: To build x64 deps on an Apple Silicon Mac (or the macos-15 arm64 CI
-# runner), run this script translated through Rosetta 2 with an Intel Homebrew
-# prefix first in PATH, e.g.:
+# NOTE: x64 deps are built natively on an Intel Mac / the macos-15-intel CI
+# runner (uname -m reports x86_64 -> macos-x64). To build x64 deps on an Apple
+# Silicon Mac instead, run this script translated through Rosetta 2 with an
+# Intel Homebrew prefix first in PATH, e.g.:
 #   arch -x86_64 /bin/bash -lc 'PATH=/usr/local/bin:$PATH ./Scripts/download-deps-macos.sh --force'
-# Under Rosetta `uname -m` reports x86_64, so $ARCH/$PLATFORM_DIR and every build
-# tool (brew, meson, ninja, clang, embedded python) emit x86_64.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"

@@ -113,23 +113,23 @@ VapourBox/
 ### Download Dependencies
 
 ```bash
-# macOS arm64 (native)
+# macOS arm64 (native, on Apple Silicon)
 ./scripts/download-deps-macos.sh
 
-# macOS x64 — built on Apple Silicon via Rosetta 2 + Intel Homebrew (macos-13
-# Intel runner was retired Dec 2025). uname -m reports x86_64 under Rosetta, so
-# the script targets deps/macos-x64. FFmpeg comes pre-built from evermeet.cx;
-# tmedian/bestsource from Stefan-Olt; the rest build from source.
-softwareupdate --install-rosetta --agree-to-license
-arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"  # Intel brew at /usr/local
-arch -x86_64 /bin/bash -lc 'PATH=/usr/local/bin:$PATH ./Scripts/download-deps-macos.sh --force'
+# macOS x64 (native, on an Intel Mac): same script — uname -m reports x86_64 so
+# it targets deps/macos-x64. FFmpeg comes pre-built from evermeet.cx, most
+# plugins from Stefan-Olt; descratch/neo-f3kdb/nnedi3cl/vivtc build from source.
+./scripts/download-deps-macos.sh
+# To build x64 deps on Apple Silicon instead, run it under Rosetta 2 with an
+# Intel Homebrew prefix first in PATH:
+#   arch -x86_64 /bin/bash -lc 'PATH=/usr/local/bin:$PATH ./Scripts/download-deps-macos.sh --force'
 
 # Windows (PowerShell)
 .\scripts\download-deps-windows.ps1
 ```
 
-Both macOS architectures are produced in CI by `build-deps-macos.yml` (arm64 job
-native on `macos-15`; x64 job runs the same script under Rosetta).
+Both macOS architectures are produced in CI by `build-deps-macos.yml` (arm64 on
+`macos-15`, x64 natively on `macos-15-intel`).
 
 ### Build Rust Worker
 
@@ -397,7 +397,7 @@ cd worker && cargo run --release -- --config test_job.json
 **CI test gate** (`.github/workflows/ci-test.yml`): runs on push to `main` + PRs. It
 pulls the published deps bundle and the whisper add-on (binary + small model),
 then runs the full Rust + Flutter suites — including the subtitle integration
-test — on macOS **arm64 and x64** (x64 via Rosetta 2) and Windows x64. The
+test — on macOS **arm64** (`macos-15`) and **x64** (`macos-15-intel`) and Windows x64. The
 subtitle test needs `addons/whisper/{bin/whisper-cli,models/ggml-small.bin}` and
 ffmpeg from `deps/`; the scan-type/vapoursynth Flutter tests need the per-arch
 `deps/` dir. The `small_clip.mp4` + telecine/interlaced fixtures are committed
@@ -444,7 +444,7 @@ The `download-deps-windows.ps1` and `download-deps-macos.sh` scripts apply these
 
 ### macOS
 
-- Two arches: `deps/macos-arm64` (native build) and `deps/macos-x64` (built via Rosetta 2 — see Download Dependencies). The Flutter `DependencyLocator` and Rust runtime pick the arch at runtime via `uname`.
+- Two arches: `deps/macos-arm64` and `deps/macos-x64`, each built natively (arm64 on Apple Silicon, x64 on an Intel Mac / `macos-15-intel`; Rosetta 2 is an optional fallback for building x64 on Apple Silicon — see Download Dependencies). The Flutter `DependencyLocator` and Rust runtime pick the arch at runtime via `uname`.
 - Fully self-contained deps (no Homebrew at runtime): Python 3.12 (python-build-standalone), VS built from source
 - Worker sets: `PYTHONHOME`, `PYTHONPATH`, `VAPOURSYNTH_CONF_PATH`, `DYLD_LIBRARY_PATH`
 - `vspipe` is a wrapper script that generates config dynamically (needed because `VAPOURSYNTH_PLUGIN_PATH` is additive, not a replacement)
@@ -553,7 +553,7 @@ Create the app-specific password at appleid.apple.com → Sign-In and Security �
 - Windows deps can be zipped on macOS if `deps/windows-x64/` exists
 - The macOS CI build (`build-macos.yml`) signs with the Developer ID cert and notarizes — see "macOS Code Signing & Notarization" below. Windows CI builds remain unsigned.
 - macOS ships as a **universal** (arm64+x86_64) app by default. `build-macos.yml` takes an `arch` input (`universal` | `both` | `arm64` | `x64`, default `universal`) and fans out via a matrix. Universal = lipo'd worker + Runner built with `ARCHS="arm64 x86_64"`; `both` = two separate single-arch DMGs. The x64 slice cross-compiles on the `macos-15` (arm64) runner.
-- Deps are **not** bundled — the app downloads `macos-arm64` or `macos-x64` deps at runtime per `uname`, so a universal app needs **both** deps bundles published. macOS deps are built by `build-deps-macos.yml` (x64 via Rosetta 2 — the Intel `macos-13` runner was retired Dec 2025).
+- Deps are **not** bundled — the app downloads `macos-arm64` or `macos-x64` deps at runtime per `uname`, so a universal app needs **both** deps bundles published. macOS deps are built by `build-deps-macos.yml` (arm64 on `macos-15`, x64 natively on `macos-15-intel`).
 - `app/macos/Podfile` reads `VAPOURBOX_ARCHS` (default `arm64`; set to `x86_64` or `arm64 x86_64`); `package-macos.sh --arch universal` sets this and lipo's the worker.
 - After publishing a new x64 deps zip, fill in `app/assets/deps-version.json` → `macos-x64.sha256`/`.size` (printed by `package-deps-macos.sh`); both platforms must be non-null before release.
 
