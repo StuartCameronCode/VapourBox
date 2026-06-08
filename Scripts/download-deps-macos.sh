@@ -92,7 +92,8 @@ BREW_DEPS=(
     #   fftw       -> libfftw3f.3 + libfftw3f_threads.3 (dfttest)
     #   boost      -> libboost_filesystem + libboost_atomic (nnedi3cl)
     #   libdvdread -> libdvdread (DVD title extraction in the worker)
-    fftw boost libdvdread
+    #   xz         -> liblzma.5 (linked by Stefan-Olt's x86_64 bestsource)
+    fftw boost libdvdread xz
     # FFmpeg (arm64 copies this; x64 uses evermeet.cx static builds instead)
     ffmpeg
 )
@@ -555,6 +556,19 @@ if [ "$ARCH" = "x86_64" ]; then
     download_prebuilt_plugin "TemporalMedian" "libtmedian.dylib"    "$STEFANOLT/com.nodame.temporalmedian/v1/darwin-x86_64/2024-09-30T21.01.26%2B00.00Z/TemporalMedian-v1-darwin-x86_64.zip"
     download_prebuilt_plugin "BestSource"    "libbestsource.dylib"  "$STEFANOLT/com.vapoursynth.bestsource/R16/darwin-x86_64/2026-01-10T19.07.30%2B00.00Z/BestSource-R16-darwin-x86_64.zip"
 
+    # Stefan-Olt's x86_64 BestSource dynamically links liblzma; bundle it from
+    # Homebrew (xz) and repoint the reference at the bundled copy in lib/.
+    if [ -f "$PLUGINS_DIR/libbestsource.dylib" ]; then
+        if [ ! -f "$LIB_DIR/liblzma.5.dylib" ] && [ -f "$BREW_PREFIX/opt/xz/lib/liblzma.5.dylib" ]; then
+            cp "$BREW_PREFIX/opt/xz/lib/liblzma.5.dylib" "$LIB_DIR/liblzma.5.dylib"
+            install_name_tool -id "@loader_path/liblzma.5.dylib" "$LIB_DIR/liblzma.5.dylib" 2>/dev/null || true
+            codesign -s - -f "$LIB_DIR/liblzma.5.dylib" 2>/dev/null || true
+        fi
+        install_name_tool -change "$BREW_PREFIX/opt/xz/lib/liblzma.5.dylib" \
+            "@loader_path/../../lib/liblzma.5.dylib" "$PLUGINS_DIR/libbestsource.dylib" 2>/dev/null || true
+        codesign -s - -f "$PLUGINS_DIR/libbestsource.dylib" 2>/dev/null || true
+    fi
+
     # ---- The four plugins Stefan-Olt does not ship: build from source ----
     cd "$BUILD_DIR"
     VS_PC_DIR="$VS_INSTALL_DIR/lib/pkgconfig"
@@ -584,7 +598,14 @@ if [ "$ARCH" = "x86_64" ]; then
               meson setup nnedi3cl/build nnedi3cl --buildtype=release \
            && ninja -C nnedi3cl/build; then
             lib=$(find nnedi3cl/build -name "*.dylib" -type f | head -1)
-            if [ -n "$lib" ]; then cp "$lib" "$PLUGINS_DIR/libnnedi3cl.dylib"; echo "  Built NNEDI3CL"; else echo "  no dylib"; FAILED_PLUGINS+=("nnedi3cl"); fi
+            if [ -n "$lib" ]; then
+                cp "$lib" "$PLUGINS_DIR/libnnedi3cl.dylib"
+                # Repoint its Homebrew boost reference at the bundled copy in lib/.
+                install_name_tool -change "$BREW_PREFIX/opt/boost/lib/libboost_filesystem.dylib" \
+                    "@loader_path/../../lib/libboost_filesystem.dylib" "$PLUGINS_DIR/libnnedi3cl.dylib" 2>/dev/null || true
+                codesign -s - -f "$PLUGINS_DIR/libnnedi3cl.dylib" 2>/dev/null || true
+                echo "  Built NNEDI3CL"
+            else echo "  no dylib"; FAILED_PLUGINS+=("nnedi3cl"); fi
         else
             echo "  Failed to build NNEDI3CL"; FAILED_PLUGINS+=("nnedi3cl")
         fi
@@ -1139,6 +1160,25 @@ for plugin in "$PLUGINS_DIR"/*.dylib; do
         fi
     fi
 done
+
+echo ""
+echo "Plugin external dylib references (must be @loader_path/system only):"
+UNBUNDLED_REFS=0
+for plugin in "$PLUGINS_DIR"/*.dylib; do
+    [ -f "$plugin" ] || continue
+    refs=$(otool -L "$plugin" 2>/dev/null | tail -n +2 | grep -vE "/usr/lib/|/System/|@loader_path|@rpath" | awk '{print $1}')
+    if [ -n "$refs" ]; then
+        echo "  ✗ $(basename "$plugin") references unbundled libs:"
+        echo "$refs" | sed 's/^/      /'
+        UNBUNDLED_REFS=1
+    fi
+done
+if [ "$UNBUNDLED_REFS" = 0 ]; then
+    echo "  ✓ all plugins reference only bundled (@loader_path) or system libraries"
+else
+    echo "  WARNING: plugins above reference absolute paths that won't exist on users' machines."
+    echo "  Bundle the lib into deps/.../lib and repoint with install_name_tool."
+fi
 
 echo ""
 echo "vspipe architecture:"
