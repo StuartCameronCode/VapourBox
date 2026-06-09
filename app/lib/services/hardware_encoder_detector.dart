@@ -1,27 +1,84 @@
+import 'dart:async';
 import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 
 import '../models/video_job.dart';
 import 'tool_locator.dart';
 
-/// Detects available hardware video encoders by probing the bundled FFmpeg.
-class HardwareEncoderDetector {
+/// Per-codec availability state.
+enum EncoderProbeState {
+  /// A functional probe is still running for this encoder.
+  probing,
+
+  /// The encoder initialized successfully on this machine.
+  available,
+
+  /// The encoder is not compiled into this build, or the probe failed
+  /// (e.g. no GPU/driver present).
+  unavailable,
+}
+
+/// Detects which video encoders are actually usable on this machine.
+///
+/// Two stages:
+///  1. `ffmpeg -encoders` — cheap; tells us which encoders are *compiled into*
+///     the bundled ffmpeg. This says nothing about the GPU/driver at runtime.
+///  2. A concurrent *functional probe* per compiled-in hardware encoder — a
+///     throwaway one-frame encode. Exit 0 means the encoder really initialized
+///     (driver + device present); non-zero means it can't run here. ffmpeg does
+///     the driver detection; we just read pass/fail.
+///
+/// Probes run concurrently and update state as each finishes; the detector is a
+/// [ChangeNotifier] so the UI can show a busy indicator while a codec is still
+/// being queried and resolve it live.
+class HardwareEncoderDetector extends ChangeNotifier {
   HardwareEncoderDetector._();
 
   static final HardwareEncoderDetector instance = HardwareEncoderDetector._();
 
-  final Set<String> _availableEncoders = {};
+  final Set<String> _compiledIn = {};
+  final Map<VideoCodec, EncoderProbeState> _state = {};
   bool _initialized = false;
 
-  /// Initialize by probing FFmpeg for available encoders.
+  /// Whether the encoder is compiled into the bundled ffmpeg. Always true for
+  /// non-hardware codecs (software, ProRes, lossless).
+  bool isCompiledIn(VideoCodec codec) =>
+      !codec.isHardwareEncoder || _compiledIn.contains(codec.value);
+
+  /// Current probe state for a codec. Non-hardware codecs are always available.
+  /// Hardware codecs default to [EncoderProbeState.probing] until resolved.
+  EncoderProbeState probeState(VideoCodec codec) {
+    if (!codec.isHardwareEncoder) return EncoderProbeState.available;
+    return _state[codec] ?? EncoderProbeState.probing;
+  }
+
+  bool isProbing(VideoCodec codec) =>
+      probeState(codec) == EncoderProbeState.probing;
+
+  /// Whether the codec is usable on this machine right now (non-hardware codecs,
+  /// or hardware codecs whose functional probe succeeded).
+  bool isAvailable(VideoCodec codec) =>
+      probeState(codec) == EncoderProbeState.available;
+
+  /// Probe the bundled ffmpeg for available encoders. Idempotent.
   Future<void> initialize() async {
     if (_initialized) return;
+    _initialized = true;
+
+    final hwCodecs =
+        VideoCodec.values.where((c) => c.isHardwareEncoder).toList();
 
     final ffmpegPath = ToolLocator.instance.ffmpegPath;
     if (ffmpegPath == null) {
-      _initialized = true;
+      for (final c in hwCodecs) {
+        _state[c] = EncoderProbeState.unavailable;
+      }
+      notifyListeners();
       return;
     }
 
+    // Stage 1: which encoders are compiled into the binary.
     try {
       final result = await Process.run(
         ffmpegPath,
@@ -29,39 +86,63 @@ class HardwareEncoderDetector {
         stdoutEncoding: const SystemEncoding(),
         stderrEncoding: const SystemEncoding(),
       );
-
       if (result.exitCode == 0) {
-        final output = result.stdout as String;
-        for (final line in output.split('\n')) {
+        for (final line in (result.stdout as String).split('\n')) {
           final trimmed = line.trim();
-          // Encoder lines start with a flags field like "V....D" followed by the encoder name
+          // Encoder lines start with a flags field like "V....D" then the name.
           if (trimmed.startsWith('V')) {
             final parts = trimmed.split(RegExp(r'\s+'));
-            if (parts.length >= 2) {
-              _availableEncoders.add(parts[1]);
-            }
+            if (parts.length >= 2) _compiledIn.add(parts[1]);
           }
         }
       }
-    } catch (e) {
-      // FFmpeg not available or failed - hardware encoders won't be detected
+    } catch (_) {
+      // ffmpeg missing/failed — _compiledIn stays empty, everything hw is out.
     }
 
-    final detected = VideoCodec.values.where((c) => c.isHardwareEncoder && isDetected(c)).map((c) => c.value);
-    print('HardwareEncoderDetector: detected encoders: ${detected.isEmpty ? "none" : detected.join(", ")}');
+    // Stage 2: a compiled-in hardware encoder still needs a working device.
+    final toProbe = <VideoCodec>[];
+    for (final codec in hwCodecs) {
+      if (_compiledIn.contains(codec.value)) {
+        _state[codec] = EncoderProbeState.probing;
+        toProbe.add(codec);
+      } else {
+        _state[codec] = EncoderProbeState.unavailable;
+      }
+    }
+    notifyListeners();
 
-    _initialized = true;
+    // Run the functional probes concurrently; each resolves independently.
+    for (final codec in toProbe) {
+      unawaited(_probe(ffmpegPath, codec));
+    }
   }
 
-  /// Whether a hardware codec was reported by ffmpeg's `-encoders` list.
-  ///
-  /// Note: ffmpeg reports all encoders *compiled into* the binary, not just
-  /// those supported by the current hardware. A codec reported here may still
-  /// fail at runtime if the required GPU/driver is not present.
-  /// Returns true for non-hardware codecs (software, ProRes, FFV1).
-  bool isDetected(VideoCodec codec) {
-    if (!codec.isHardwareEncoder) return true;
-    return _availableEncoders.contains(codec.value);
+  Future<void> _probe(String ffmpegPath, VideoCodec codec) async {
+    var ok = false;
+    try {
+      final result = await Process.run(
+        ffmpegPath,
+        [
+          '-hide_banner', '-loglevel', 'error',
+          '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=5:d=1',
+          '-frames:v', '1',
+          '-c:v', codec.value,
+          '-f', 'null', '-',
+        ],
+        stdoutEncoding: const SystemEncoding(),
+        stderrEncoding: const SystemEncoding(),
+      );
+      ok = result.exitCode == 0;
+    } catch (_) {
+      ok = false;
+    }
+    _state[codec] =
+        ok ? EncoderProbeState.available : EncoderProbeState.unavailable;
+    if (kDebugMode) {
+      print('HardwareEncoderDetector: ${codec.value} -> '
+          '${ok ? "available" : "unavailable"}');
+    }
+    notifyListeners();
   }
-
 }

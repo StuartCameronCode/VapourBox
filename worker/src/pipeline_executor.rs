@@ -38,8 +38,24 @@ fn format_exit_status(status: &std::process::ExitStatus) -> String {
     "unknown status".to_string()
 }
 
+/// True if the process was terminated by SIGPIPE (Unix only; always false
+/// elsewhere). A vspipe SIGPIPE means the downstream consumer (ffmpeg) closed
+/// the pipe — usually because ffmpeg itself failed, so the ffmpeg error is the
+/// one worth reporting.
+fn is_sigpipe(status: &std::process::ExitStatus) -> bool {
+    #[cfg(unix)]
+    {
+        status.signal() == Some(13)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = status;
+        false
+    }
+}
+
 use crate::dependency_locator::DependencyLocator;
-use crate::models::{AudioMode, ContainerFormat, DeinterlaceMethod, EncoderFamily, EncodingSettings, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
+use crate::models::{AudioMode, ContainerFormat, DeinterlaceMethod, EncoderFamily, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
 use crate::progress_reporter::ProgressReporter;
 use crate::script_generator::{PreviewParams, ScriptGenerator};
 
@@ -251,12 +267,20 @@ impl PipelineExecutor {
         let ffmpeg_reporter = self.reporter.clone();
         let ffmpeg_stderr_thread = thread::spawn(move || {
             let reader = BufReader::new(ffmpeg_stderr);
-            let mut last_line = String::new();
+            // Keep the last few non-empty lines so a failed ffmpeg can report a
+            // useful error (e.g. "Unknown encoder 'h264_qsv'"), not just its
+            // final — often blank — stderr line.
+            let mut tail: std::collections::VecDeque<String> = std::collections::VecDeque::new();
             for line in reader.lines().map_while(Result::ok) {
                 ffmpeg_reporter.send_log(LogLevel::Debug, &format!("ffmpeg stderr: {}", line));
-                last_line = line;
+                if !line.trim().is_empty() {
+                    tail.push_back(line);
+                    if tail.len() > 12 {
+                        tail.pop_front();
+                    }
+                }
             }
-            last_line
+            tail.into_iter().collect::<Vec<_>>().join("\n")
         });
 
         // Poll the progress file for updates instead of reading piped stderr.
@@ -385,38 +409,52 @@ impl PipelineExecutor {
         // Now safe to join threads (pipes are closed, readers will hit EOF)
         let _ = decoder_stderr_thread.join();
         let _ = vspipe_thread.join();
-        let _ = ffmpeg_stderr_thread.join();
+        let ffmpeg_stderr_tail = ffmpeg_stderr_thread.join().unwrap_or_default();
 
         // Clean up progress file
         let _ = fs::remove_file(&progress_file);
 
         // Check exit codes.
-        // Decoder may exit with broken pipe (141=SIGPIPE on Linux, 224=EPIPE on macOS)
-        // when vspipe finishes reading before the decoder sends all frames (e.g. IVTC
-        // VDecimate reads fewer frames than available). This is expected and harmless.
+        //
+        // ffmpeg is checked FIRST on purpose: when the encoder ffmpeg fails
+        // (e.g. an unavailable hardware encoder), vspipe dies with SIGPIPE as a
+        // *symptom* of the closed pipe. Reporting ffmpeg's error — with its
+        // stderr tail — surfaces the real cause instead of the misleading
+        // "vspipe exited with signal 13 (SIGPIPE)".
+        let ffmpeg_ok = if let Some(status) = ffmpeg_status {
+            let code = status.code().unwrap_or(-1);
+            if code != 0 && code != 130 && code != 141 {
+                let tail = ffmpeg_stderr_tail.trim();
+                if tail.is_empty() {
+                    bail!("ffmpeg exited with {}", format_exit_status(&status));
+                }
+                bail!("ffmpeg exited with {}:\n{}", format_exit_status(&status), tail);
+            }
+            true
+        } else {
+            false
+        };
+
+        // vspipe: a SIGPIPE here means ffmpeg closed the pipe early. If ffmpeg
+        // failed we've already reported the real cause above; if ffmpeg was fine
+        // (e.g. IVTC VDecimate finishing early) it's harmless. Only surface a
+        // genuine vspipe failure — a real exit code, or a non-SIGPIPE signal.
+        if let Some(status) = vspipe_status {
+            let ok = matches!(status.code(), Some(0) | Some(130) | Some(141));
+            if !ok && !is_sigpipe(&status) {
+                bail!("vspipe exited with {}", format_exit_status(&status));
+            }
+        }
+
+        // Decoder may exit with broken pipe (141=SIGPIPE on Linux, 224=EPIPE on
+        // macOS) when vspipe finishes reading before the decoder sends all frames
+        // (e.g. IVTC VDecimate reads fewer frames than available). Harmless.
         if let Some(status) = decoder_status {
             let code = status.code().unwrap_or(-1);
             if code != 0 && code != 130 && code != 141 && code != 224 {
                 bail!("Decoder ffmpeg exited with {}", format_exit_status(&status));
             }
         }
-
-        if let Some(status) = vspipe_status {
-            let code = status.code().unwrap_or(-1);
-            if code != 0 && code != 130 && code != 141 {
-                bail!("vspipe exited with {}", format_exit_status(&status));
-            }
-        }
-
-        let ffmpeg_ok = if let Some(status) = ffmpeg_status {
-            let code = status.code().unwrap_or(-1);
-            if code != 0 && code != 130 && code != 141 {
-                bail!("ffmpeg exited with {}", format_exit_status(&status));
-            }
-            true
-        } else {
-            false
-        };
 
         // Send final 100% progress when job succeeds.
         // The source metadata total can be wrong (e.g. AVI containers),
@@ -606,7 +644,7 @@ impl PipelineExecutor {
         args.extend(["-c:v".to_string(), settings.codec.ffmpeg_codec().to_string()]);
 
         // Encoder-family-specific quality and preset args
-        Self::build_encoder_quality_args(&mut args, settings);
+        Self::build_encoder_quality_args(&mut args, job);
 
         // Force a compatible output pixel format for codecs that can't accept the
         // pipeline's native format (e.g. classic HuffYUV requires yuv422p).
@@ -685,8 +723,28 @@ impl PipelineExecutor {
         args
     }
 
+    /// Best-effort average bitrate (kbps) for Intel-Mac VideoToolbox, which has
+    /// no constant-quality (-q:v) mode. Maps the CRF-like quality (0-51, lower =
+    /// better) to bits-per-pixel, then bitrate = width*height*fps*bpp. HEVC
+    /// targets ~60% of H.264's bitrate for comparable quality. Floored at 500 kbps.
+    #[cfg(not(target_arch = "aarch64"))]
+    fn videotoolbox_bitrate_kbps(job: &VideoJob) -> u32 {
+        let settings = &job.encoding_settings;
+        let w = job.input_width.unwrap_or(720).max(1) as f64;
+        let h = job.input_height.unwrap_or(480).max(1) as f64;
+        let fps = job.input_frame_rate.unwrap_or(29.97).max(1.0);
+        let q = settings.quality.clamp(0, 51) as f64;
+        let mut bpp = 0.20 - (0.18 * q / 51.0); // q=0 -> 0.20, q=51 -> 0.02
+        if matches!(settings.codec, VideoCodec::H265Videotoolbox) {
+            bpp *= 0.6;
+        }
+        let bps = w * h * fps * bpp;
+        ((bps / 1000.0).round() as u32).max(500)
+    }
+
     /// Build encoder-family-specific quality and preset arguments.
-    fn build_encoder_quality_args(args: &mut Vec<String>, settings: &EncodingSettings) {
+    fn build_encoder_quality_args(args: &mut Vec<String>, job: &VideoJob) {
+        let settings = &job.encoding_settings;
         if let Some(profile) = settings.codec.prores_profile() {
             args.push("-profile:v".to_string());
             args.push(profile.to_string());
@@ -720,9 +778,24 @@ impl PipelineExecutor {
                     args.extend(["-preset".to_string(), settings.encoder_preset.clone()]);
                 }
                 EncoderFamily::Videotoolbox => {
-                    // VideoToolbox uses q:v with inverted scale (CRF 0-51 -> q:v 100-1)
-                    let vt_quality = ((51 - settings.quality) as f64 * 100.0 / 51.0).round().max(1.0) as i32;
-                    args.extend(["-q:v".to_string(), vt_quality.to_string()]);
+                    // VideoToolbox's constant-quality mode (-q:v) is only
+                    // supported on Apple Silicon. On Intel Macs the encoder has
+                    // no qscale and fails to open with -q:v ("qscale not
+                    // available for encoder. Use -b:v bitrate instead"), so use
+                    // an average bitrate there. target_arch is per-slice in the
+                    // universal binary (x86_64 == Intel, aarch64 == Apple Silicon).
+                    #[cfg(target_arch = "aarch64")]
+                    {
+                        // CRF 0-51 -> q:v 100-1 (inverted scale)
+                        let vt_quality =
+                            ((51 - settings.quality) as f64 * 100.0 / 51.0).round().max(1.0) as i32;
+                        args.extend(["-q:v".to_string(), vt_quality.to_string()]);
+                    }
+                    #[cfg(not(target_arch = "aarch64"))]
+                    {
+                        let kbps = Self::videotoolbox_bitrate_kbps(job);
+                        args.extend(["-b:v".to_string(), format!("{}k", kbps)]);
+                    }
                 }
                 EncoderFamily::Amf => {
                     args.extend(["-rc".to_string(), "cqp".to_string()]);
@@ -970,7 +1043,7 @@ mod tests {
         args.extend(["-c:v".to_string(), settings.codec.ffmpeg_codec().to_string()]);
 
         // Encoder-family-specific quality and preset args
-        PipelineExecutor::build_encoder_quality_args(&mut args, settings);
+        PipelineExecutor::build_encoder_quality_args(&mut args, job);
 
         // Force a compatible output pixel format (e.g. HuffYUV requires yuv422p)
         if let Some(pix_fmt) = settings.codec.forced_pix_fmt() {
@@ -1379,12 +1452,25 @@ mod tests {
         let video_codec_idx = args.iter().position(|a| a == "-c:v");
         assert_eq!(args[video_codec_idx.unwrap() + 1], "h264_videotoolbox");
 
-        let qv_idx = args.iter().position(|a| a == "-q:v");
-        assert!(qv_idx.is_some(), "VideoToolbox should use -q:v");
-
-        // CRF 18 -> (51-18)*100/51 = 64.7 -> 65
-        let qv_value: i32 = args[qv_idx.unwrap() + 1].parse().unwrap();
-        assert!(qv_value > 0 && qv_value <= 100, "VideoToolbox q:v should be 1-100, got {}", qv_value);
+        // VideoToolbox quality control is arch-specific: constant-quality (-q:v)
+        // on Apple Silicon, average bitrate (-b:v) on Intel (which has no qscale).
+        #[cfg(target_arch = "aarch64")]
+        {
+            let qv_idx = args.iter().position(|a| a == "-q:v");
+            assert!(qv_idx.is_some(), "Apple Silicon VideoToolbox should use -q:v");
+            // CRF 18 -> (51-18)*100/51 = 64.7 -> 65
+            let qv_value: i32 = args[qv_idx.unwrap() + 1].parse().unwrap();
+            assert!(qv_value > 0 && qv_value <= 100, "VideoToolbox q:v should be 1-100, got {}", qv_value);
+        }
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            assert!(!args.contains(&"-q:v".to_string()),
+                "Intel VideoToolbox must not use -q:v (qscale unsupported)");
+            let bv_idx = args.iter().position(|a| a == "-b:v");
+            assert!(bv_idx.is_some(), "Intel VideoToolbox should use -b:v");
+            assert!(args[bv_idx.unwrap() + 1].ends_with('k'),
+                "Intel VideoToolbox -b:v should be a kbps value, got {}", args[bv_idx.unwrap() + 1]);
+        }
 
         assert!(!args.contains(&"-crf".to_string()), "VideoToolbox should not use -crf");
         assert!(!args.contains(&"-preset".to_string()), "VideoToolbox should not use -preset");

@@ -79,13 +79,23 @@ class DepsVersionInfo {
     );
   }
 
+  /// The deps version expected for a platform. Platforms may override the
+  /// global version (e.g. when only one platform's deps change), so the app
+  /// can re-fetch just that platform without disturbing the others.
+  String versionFor(String platform) => platforms[platform]?.version ?? version;
+
+  /// The release tag a platform's zip lives under (per-platform override, else
+  /// the global tag).
+  String releaseTagFor(String platform) =>
+      platforms[platform]?.releaseTag ?? releaseTag;
+
   /// Get the download URL for a specific platform's deps zip.
   String getDownloadUrl(String platform) {
     final platformInfo = platforms[platform];
     if (platformInfo == null) {
       throw StateError('No dependency info for platform: $platform');
     }
-    return 'https://github.com/$githubRepo/releases/download/$releaseTag/${platformInfo.filename}';
+    return 'https://github.com/$githubRepo/releases/download/${releaseTagFor(platform)}/${platformInfo.filename}';
   }
 }
 
@@ -95,10 +105,19 @@ class PlatformDepsInfo {
   final String? sha256;
   final int? size;
 
+  /// Optional per-platform version override. When set, this platform's deps are
+  /// versioned independently of the global `version` (see [DepsVersionInfo.versionFor]).
+  final String? version;
+
+  /// Optional per-platform release tag override (the release the zip lives in).
+  final String? releaseTag;
+
   PlatformDepsInfo({
     required this.filename,
     this.sha256,
     this.size,
+    this.version,
+    this.releaseTag,
   });
 
   factory PlatformDepsInfo.fromJson(Map<String, dynamic> json) {
@@ -106,6 +125,8 @@ class PlatformDepsInfo {
       filename: json['filename'] as String,
       sha256: json['sha256'] as String?,
       size: json['size'] as int?,
+      version: json['version'] as String?,
+      releaseTag: json['releaseTag'] as String?,
     );
   }
 }
@@ -320,10 +341,11 @@ class DependencyManager {
         return DependencyStatus.missing;
       }
 
-      // Check version match
-      if (installed.version != expected.version) {
+      // Check version match (per-platform: a platform may pin its own version)
+      final expectedVersion = expected.versionFor(platformId);
+      if (installed.version != expectedVersion) {
         print(
-            'DependencyManager: Version mismatch - installed: ${installed.version}, expected: ${expected.version}');
+            'DependencyManager: Version mismatch - installed: ${installed.version}, expected: $expectedVersion');
         return DependencyStatus.outdated;
       }
 
@@ -409,8 +431,8 @@ class DependencyManager {
 
       await _extractZip(tempFile);
 
-      // Write version file
-      await _writeInstalledVersion(expected.version);
+      // Write version file (per-platform version, so the next check matches)
+      await _writeInstalledVersion(expected.versionFor(platformId));
 
       _progressController.add(DownloadProgress(
         bytesReceived: platformInfo.size ?? 0,
