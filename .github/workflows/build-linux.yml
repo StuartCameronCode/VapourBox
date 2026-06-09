@@ -85,9 +85,7 @@ jobs:
           # Update pubspec.yaml
           sed -i "s/^version: .*/version: ${VERSION}+1/" app/pubspec.yaml
 
-          # Update deps-version.json
-          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${DEPS_VERSION}\"/" app/assets/deps-version.json
-          sed -i "s/\"releaseTag\": \"[^\"]*\"/\"releaseTag\": \"${DEPS_TAG}\"/" app/assets/deps-version.json
+          # deps-version.json is committed and per-platform-versioned — leave as-is.
 
           # Update Cargo.toml
           sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" worker/Cargo.toml
@@ -185,9 +183,7 @@ jobs:
           # Update pubspec.yaml
           sed -i "s/^version: .*/version: ${VERSION}+1/" app/pubspec.yaml
 
-          # Update deps-version.json
-          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${DEPS_VERSION}\"/" app/assets/deps-version.json
-          sed -i "s/\"releaseTag\": \"[^\"]*\"/\"releaseTag\": \"${DEPS_TAG}\"/" app/assets/deps-version.json
+          # deps-version.json is committed and per-platform-versioned — leave as-is.
 
           # Update Cargo.toml
           sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" worker/Cargo.toml

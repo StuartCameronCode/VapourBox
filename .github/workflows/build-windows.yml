@@ -90,11 +90,7 @@ jobs:
           $pubspec = $pubspec -replace 'version: \d+\.\d+\.\d+\+\d+', "version: $version+1"
           Set-Content -Path "app/pubspec.yaml" -Value $pubspec
 
-          # Update deps-version.json
-          $depsJson = Get-Content -Path "app/assets/deps-version.json" -Raw
-          $depsJson = $depsJson -replace '"version": "[^"]*"', "`"version`": `"$depsVersion`""
-          $depsJson = $depsJson -replace '"releaseTag": "[^"]*"', "`"releaseTag`": `"$depsTag`""
-          Set-Content -Path "app/assets/deps-version.json" -Value $depsJson
+          # deps-version.json is committed and per-platform-versioned — leave as-is.
 
           # Update Windows Runner.rc
           $major, $minor, $patch = $version.Split('.')
