@@ -401,6 +401,17 @@ if [ "$ARCH" = "arm64" ]; then
     install_name_tool -change "@rpath/libfftw3f_threads.3.dylib" "@loader_path/../../lib/libfftw3f_threads.3.dylib" "$PLUGINS_DIR/libdfttest.dylib"
     codesign -s - -f "$PLUGINS_DIR/libdfttest.dylib" 2>/dev/null
 
+    # TTempSmooth (core.ttmpsm.TTempSmooth - used by havsfunc MCTemporalDenoise)
+    curl -sL "$YUYGFGG_BASE/lib/libttempsmooth.dylib" -o "$PLUGINS_DIR/libttempsmooth.dylib"
+    install_name_tool -id "@loader_path/libttempsmooth.dylib" "$PLUGINS_DIR/libttempsmooth.dylib" 2>/dev/null || true
+    codesign -s - -f "$PLUGINS_DIR/libttempsmooth.dylib" 2>/dev/null
+
+    # FFT3DFilter (also used by MCTemporalDenoise; links FFTW like dfttest)
+    curl -sL "$YUYGFGG_BASE/lib/libfft3dfilter.dylib" -o "$PLUGINS_DIR/libfft3dfilter.dylib"
+    install_name_tool -change "@rpath/libfftw3f.3.dylib" "@loader_path/../../lib/libfftw3f.3.dylib" "$PLUGINS_DIR/libfft3dfilter.dylib" 2>/dev/null || true
+    install_name_tool -change "@rpath/libfftw3f_threads.3.dylib" "@loader_path/../../lib/libfftw3f_threads.3.dylib" "$PLUGINS_DIR/libfft3dfilter.dylib" 2>/dev/null || true
+    codesign -s - -f "$PLUGINS_DIR/libfft3dfilter.dylib" 2>/dev/null
+
     # VIVTC (inverse telecine - VFM + VDecimate)
     curl -sL "$YUYGFGG_BASE/lib/libvivtc.dylib" -o "$PLUGINS_DIR/libvivtc.dylib"
     install_name_tool -id "@loader_path/libvivtc.dylib" "$PLUGINS_DIR/libvivtc.dylib"
@@ -654,6 +665,53 @@ PYEOF
             fi
         else
             echo "  Failed to build DeScratch"; FAILED_PLUGINS+=("descratch")
+        fi
+        cd "$BUILD_DIR"
+    fi
+
+    # ttmpsm (TTempSmooth - meson; finds VapourSynth via pkg-config, no extra deps)
+    # Used by havsfunc MCTemporalDenoise.
+    if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libttempsmooth.dylib" ]; then
+        echo ""; echo "=== Building TTempSmooth (x86_64) ==="
+        rm -rf ttempsmooth
+        if git clone --depth 1 https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TTempSmooth.git ttempsmooth \
+           && PKG_CONFIG_PATH="$VS_PC_DIR:${PKG_CONFIG_PATH:-}" \
+              meson setup ttempsmooth/build ttempsmooth --buildtype=release \
+           && ninja -C ttempsmooth/build; then
+            lib=$(find ttempsmooth/build -name "*.dylib" -type f | head -1)
+            if [ -n "$lib" ]; then
+                cp "$lib" "$PLUGINS_DIR/libttempsmooth.dylib"
+                install_name_tool -id "@loader_path/libttempsmooth.dylib" "$PLUGINS_DIR/libttempsmooth.dylib" 2>/dev/null || true
+                codesign -s - -f "$PLUGINS_DIR/libttempsmooth.dylib" 2>/dev/null || true
+                echo "  Built TTempSmooth"
+            else echo "  no dylib"; FAILED_PLUGINS+=("ttempsmooth"); fi
+        else
+            echo "  Failed to build TTempSmooth"; FAILED_PLUGINS+=("ttempsmooth")
+        fi
+        cd "$BUILD_DIR"
+    fi
+
+    # fft3dfilter (meson; links Homebrew FFTW, repoint at the bundled lib/ copy).
+    # Also used by havsfunc MCTemporalDenoise.
+    if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfft3dfilter.dylib" ]; then
+        echo ""; echo "=== Building FFT3DFilter (x86_64) ==="
+        rm -rf fft3dfilter
+        if git clone --depth 1 https://github.com/myrsloik/VapourSynth-FFT3DFilter.git fft3dfilter \
+           && PKG_CONFIG_PATH="$VS_PC_DIR:$BREW_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}" \
+              meson setup fft3dfilter/build fft3dfilter --buildtype=release \
+           && ninja -C fft3dfilter/build; then
+            lib=$(find fft3dfilter/build -name "*.dylib" -type f | head -1)
+            if [ -n "$lib" ]; then
+                cp "$lib" "$PLUGINS_DIR/libfft3dfilter.dylib"
+                install_name_tool -change "$BREW_PREFIX/opt/fftw/lib/libfftw3f.3.dylib" \
+                    "@loader_path/../../lib/libfftw3f.3.dylib" "$PLUGINS_DIR/libfft3dfilter.dylib" 2>/dev/null || true
+                install_name_tool -change "$BREW_PREFIX/opt/fftw/lib/libfftw3f_threads.3.dylib" \
+                    "@loader_path/../../lib/libfftw3f_threads.3.dylib" "$PLUGINS_DIR/libfft3dfilter.dylib" 2>/dev/null || true
+                codesign -s - -f "$PLUGINS_DIR/libfft3dfilter.dylib" 2>/dev/null || true
+                echo "  Built FFT3DFilter"
+            else echo "  no dylib"; FAILED_PLUGINS+=("fft3dfilter"); fi
+        else
+            echo "  Failed to build FFT3DFilter"; FAILED_PLUGINS+=("fft3dfilter")
         fi
         cd "$BUILD_DIR"
     fi

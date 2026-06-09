@@ -208,6 +208,12 @@ $Plugins7z = @(
         Check = "DFTTest.dll"
     },
     @{
+        # core.ttmpsm.TTempSmooth - used by havsfunc MCTemporalDenoise
+        Name = "ttempsmooth"
+        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TTempSmooth/releases/download/r4.1/TTempSmooth-r4.1-win64.7z"
+        Check = "TTempSmooth.dll"
+    },
+    @{
         Name = "neo_f3kdb"
         Url = "https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb/releases/download/r10/neo_f3kdb_r10.7z"
         Check = "neo-f3kdb.dll"

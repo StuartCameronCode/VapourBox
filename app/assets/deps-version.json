@@ -1,36 +1,32 @@
 {
-  "version": "1.3.0",
-  "releaseTag": "deps-v1.3.0",
-  "releaseDate": "2026-04-07",
+  "version": "1.4.0",
+  "releaseTag": "deps-v1.4.0",
+  "releaseDate": "2026-06-09",
   "platforms": {
     "windows-x64": {
-      "filename": "VapourBox-deps-1.3.0-windows-x64.zip",
-      "sha256": "b404bc4434b47116dc8acb152c139327c7d59fa9eee4e30a8d8b1a1f09b0799d",
-      "size": 172721085
+      "filename": "VapourBox-deps-1.4.0-windows-x64.zip",
+      "sha256": null,
+      "size": null
     },
     "macos-arm64": {
-      "filename": "VapourBox-deps-1.3.0-macos-arm64.zip",
-      "sha256": "959ce05ad67449ca2b680add0092a3a117c9a3f78e3f474e80d6bc49d6a110d3",
-      "size": 98931909
+      "filename": "VapourBox-deps-1.4.0-macos-arm64.zip",
+      "sha256": null,
+      "size": null
     },
     "macos-x64": {
-      "filename": "VapourBox-deps-1.3.0-macos-x64.zip",
-      "sha256": "a326b662e34bb737269f6792b4b1b8518d8512bb05046cf430632a0213202abf",
-      "size": 106078101
+      "filename": "VapourBox-deps-1.4.0-macos-x64.zip",
+      "sha256": null,
+      "size": null
     },
     "linux-x64": {
-      "version": "1.4.0",
-      "releaseTag": "deps-v1.4.0",
       "filename": "VapourBox-deps-1.4.0-linux-x64.zip",
-      "sha256": "2c3e7cf458d5443fe827242e5bd8ce12a47db57aa19f1d51af248ad80f1a519c",
-      "size": 191028656
+      "sha256": null,
+      "size": null
     },
     "linux-arm64": {
-      "version": "1.4.0",
-      "releaseTag": "deps-v1.4.0",
       "filename": "VapourBox-deps-1.4.0-linux-arm64.zip",
-      "sha256": "45986e0d70acd0b93a59aecfd6a493716ccfe963608194e1cfaabc948680fbd8",
-      "size": 169664443
+      "sha256": null,
+      "size": null
     }
   },
   "githubRepo": "StuartCameronCode/VapourBox"
