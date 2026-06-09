@@ -617,6 +617,12 @@ build_plugin "dfttest" \
     "libdfttest.so" \
     "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
 
+# TTempSmooth (core.ttmpsm.TTempSmooth - used by havsfunc MCTemporalDenoise)
+build_plugin "ttempsmooth" \
+    "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TTempSmooth.git" \
+    "libttempsmooth.so" \
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+
 # FFT3DFilter
 build_plugin "fft3dfilter" \
     "https://github.com/myrsloik/VapourSynth-FFT3DFilter.git" \
