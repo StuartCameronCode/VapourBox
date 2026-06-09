@@ -218,10 +218,19 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     super.initState();
     _filenamePatternController = TextEditingController();
     _customFfmpegArgsController = TextEditingController();
+    // Kick off (idempotent) encoder detection and rebuild as probes resolve so
+    // the codec list can show/clear a busy indicator per encoder live.
+    HardwareEncoderDetector.instance.addListener(_onEncoderDetectionChanged);
+    HardwareEncoderDetector.instance.initialize();
+  }
+
+  void _onEncoderDetectionChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    HardwareEncoderDetector.instance.removeListener(_onEncoderDetectionChanged);
     _filenamePatternController.dispose();
     _customFfmpegArgsController.dispose();
     super.dispose();
@@ -767,8 +776,6 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
   }
 
   Widget _buildCodecList(BuildContext context, MainViewModel viewModel, EncodingSettings settings) {
-    final detector = HardwareEncoderDetector.instance;
-
     // Group codecs by family
     final softwareCodecs = <VideoCodec>[VideoCodec.h264, VideoCodec.h265];
     final hardwareCodecs = <VideoCodec>[
@@ -806,8 +813,7 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
       children.add(const SizedBox(height: 8));
       children.add(_buildCodecGroupLabel(context, 'Hardware Accelerated'));
       for (final codec in supportedHardware) {
-        children.add(_buildCodecRadio(context, viewModel, settings, codec,
-            detected: detector.isDetected(codec)));
+        children.add(_buildCodecRadio(context, viewModel, settings, codec));
       }
     }
 
@@ -853,18 +859,50 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
   }
 
   Widget _buildCodecRadio(BuildContext context, MainViewModel viewModel,
-      EncodingSettings settings, VideoCodec codec, {bool detected = true}) {
+      EncodingSettings settings, VideoCodec codec) {
+    final detector = HardwareEncoderDetector.instance;
     final isSupported = codec.supportsContainer(settings.container);
-    // A hardware encoder that ffmpeg didn't report (not compiled into this
-    // build) can't work, so treat it as unavailable: disabled, not just warned.
-    final notInBuild = !detected && isSupported;
-    final isAvailable = isSupported && detected;
-    final unavailableReason = !isSupported
+    final isHw = codec.isHardwareEncoder;
+    final compiledIn = detector.isCompiledIn(codec);
+    // Still querying whether this (compiled-in) hardware encoder works here.
+    final probing = isSupported && isHw && compiledIn && detector.isProbing(codec);
+    // Usable = container-supported AND (non-hardware, or its probe succeeded).
+    final isAvailable = isSupported && detector.isAvailable(codec);
+
+    final String? unavailableReason = !isSupported
         ? 'Not supported in ${settings.container.name.toUpperCase()}'
-        : (notInBuild ? 'Not available in this build' : null);
+        : !compiledIn
+            ? 'Not available in this build'
+            : probing
+                ? 'Checking availability…'
+                : !isAvailable
+                    ? 'Not available on this system'
+                    : null;
+
     final disabledStyle = TextStyle(
       color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38),
     );
+
+    // Trailing affordance: spinner while probing, block icon when unavailable.
+    Widget? indicator;
+    if (probing) {
+      indicator = const Tooltip(
+        message: 'Checking availability…',
+        child: SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    } else if (isSupported && isHw && !isAvailable) {
+      indicator = Tooltip(
+        message: compiledIn
+            ? 'Not available on this system'
+            : 'Not available in this build',
+        child: Icon(Icons.block, size: 16, color: Colors.orange[700]),
+      );
+    }
+
     return RadioListTile<VideoCodec>(
       title: Row(
         children: [
@@ -872,13 +910,9 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
             codec.displayName,
             style: isAvailable ? null : disabledStyle,
           ),
-          if (notInBuild) ...[
-            const SizedBox(width: 6),
-            Tooltip(
-              message: 'Not available in this build',
-              child: Icon(Icons.block,
-                  size: 16, color: Colors.orange[700]),
-            ),
+          if (indicator != null) ...[
+            const SizedBox(width: 8),
+            indicator,
           ],
         ],
       ),
