@@ -746,6 +746,26 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     );
   }
 
+  /// Whether a hardware encoder is relevant to the current platform's GPU APIs:
+  /// VideoToolbox is macOS-only; QSV/NVENC/AMF apply to Windows and Linux.
+  /// (Software/ProRes/lossless codecs are platform-agnostic.)
+  bool _isHwCodecForPlatform(VideoCodec codec) {
+    const videotoolbox = {
+      VideoCodec.h264Videotoolbox,
+      VideoCodec.h265Videotoolbox,
+    };
+    const qsvNvencAmf = {
+      VideoCodec.h264Qsv, VideoCodec.h265Qsv,
+      VideoCodec.h264Nvenc, VideoCodec.h265Nvenc,
+      VideoCodec.h264Amf, VideoCodec.h265Amf,
+    };
+    if (videotoolbox.contains(codec)) return Platform.isMacOS;
+    if (qsvNvencAmf.contains(codec)) {
+      return Platform.isWindows || Platform.isLinux;
+    }
+    return true;
+  }
+
   Widget _buildCodecList(BuildContext context, MainViewModel viewModel, EncodingSettings settings) {
     final detector = HardwareEncoderDetector.instance;
 
@@ -765,9 +785,12 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
       VideoCodec.ffv1, VideoCodec.huffyuv, VideoCodec.ffvhuff,
     ];
 
-    // Filter hardware codecs by container support only (show all, warn if undetected)
+    // Show only hardware encoders relevant to this platform (and supported by
+    // the container). Whether each is actually usable on the machine is then
+    // reflected by the per-encoder detection in _buildCodecRadio.
     final supportedHardware = hardwareCodecs
-        .where((c) => c.supportsContainer(settings.container))
+        .where((c) =>
+            c.supportsContainer(settings.container) && _isHwCodecForPlatform(c))
         .toList();
 
     final children = <Widget>[];

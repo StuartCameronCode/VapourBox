@@ -314,22 +314,30 @@ echo ""
 echo "=== Downloading FFmpeg ==="
 
 if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/ffmpeg/ffmpeg" ]; then
+    # BtbN static GPL builds include hardware encoders (x64: QSV/NVENC/AMF/VAAPI;
+    # arm64: NVENC/AMF/V4L2M2M) yet run software-only on machines without a GPU or
+    # driver — the vendor runtimes (libvpl/libnvidia-encode/libva) are dlopen'd
+    # lazily, so libx264/libx265 always work and absent hw encoders fail
+    # gracefully at init. (The previous John Van Sickle build had no hw accel.)
+    BTBN_BASE="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest"
     if [ "$ARCH" = "x86_64" ]; then
-        FFMPEG_URL="https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+        FFMPEG_URL="$BTBN_BASE/ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz"
     else
-        FFMPEG_URL="https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz"
+        FFMPEG_URL="$BTBN_BASE/ffmpeg-n7.1-latest-linuxarm64-gpl-7.1.tar.xz"
     fi
 
-    echo "  Downloading static FFmpeg..."
+    echo "  Downloading static FFmpeg (BtbN, hardware-enabled)..."
     curl -L -o "$BUILD_DIR/ffmpeg.tar.xz" "$FFMPEG_URL"
 
     echo "  Extracting..."
     tar -xJf "$BUILD_DIR/ffmpeg.tar.xz" -C "$BUILD_DIR"
-    FFMPEG_DIR=$(find "$BUILD_DIR" -maxdepth 1 -name "ffmpeg-*-static" -type d | head -1)
-    if [ -z "$FFMPEG_DIR" ]; then
-        echo "  ERROR: Could not find extracted FFmpeg directory"
+    # BtbN tarballs lay the binaries out under <dirname>/bin/
+    FFMPEG_BIN=$(find "$BUILD_DIR" -maxdepth 3 -path "*/bin/ffmpeg" -type f | head -1)
+    if [ -z "$FFMPEG_BIN" ]; then
+        echo "  ERROR: Could not find extracted FFmpeg binary"
         exit 1
     fi
+    FFMPEG_DIR=$(dirname "$FFMPEG_BIN")
 
     cp "$FFMPEG_DIR/ffmpeg" "$DEPS_DIR/ffmpeg/"
     cp "$FFMPEG_DIR/ffprobe" "$DEPS_DIR/ffmpeg/"
