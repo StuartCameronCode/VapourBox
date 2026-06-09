@@ -832,47 +832,40 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
   Widget _buildCodecRadio(BuildContext context, MainViewModel viewModel,
       EncodingSettings settings, VideoCodec codec, {bool detected = true}) {
     final isSupported = codec.supportsContainer(settings.container);
-    final showWarning = !detected && isSupported;
+    // A hardware encoder that ffmpeg didn't report (not compiled into this
+    // build) can't work, so treat it as unavailable: disabled, not just warned.
+    final notInBuild = !detected && isSupported;
+    final isAvailable = isSupported && detected;
+    final unavailableReason = !isSupported
+        ? 'Not supported in ${settings.container.name.toUpperCase()}'
+        : (notInBuild ? 'Not available in this build' : null);
+    final disabledStyle = TextStyle(
+      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38),
+    );
     return RadioListTile<VideoCodec>(
       title: Row(
         children: [
           Text(
             codec.displayName,
-            style: isSupported
-                ? null
-                : TextStyle(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.38),
-                  ),
+            style: isAvailable ? null : disabledStyle,
           ),
-          if (showWarning) ...[
+          if (notInBuild) ...[
             const SizedBox(width: 6),
             Tooltip(
-              message: 'May not be available on this system',
-              child: Icon(Icons.warning_amber_rounded,
+              message: 'Not available in this build',
+              child: Icon(Icons.block,
                   size: 16, color: Colors.orange[700]),
             ),
           ],
         ],
       ),
       subtitle: Text(
-        isSupported
-            ? codec.description
-            : 'Not supported in ${settings.container.name.toUpperCase()}',
-        style: isSupported
-            ? null
-            : TextStyle(
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.38),
-              ),
+        isAvailable ? codec.description : unavailableReason!,
+        style: isAvailable ? null : disabledStyle,
       ),
       value: codec,
       groupValue: settings.codec,
-      onChanged: isSupported
+      onChanged: isAvailable
           ? (value) {
               if (value != null) {
                 // When switching encoder families, reset the preset to the new family's default

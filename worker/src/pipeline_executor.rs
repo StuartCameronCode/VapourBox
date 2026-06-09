@@ -38,6 +38,22 @@ fn format_exit_status(status: &std::process::ExitStatus) -> String {
     "unknown status".to_string()
 }
 
+/// True if the process was terminated by SIGPIPE (Unix only; always false
+/// elsewhere). A vspipe SIGPIPE means the downstream consumer (ffmpeg) closed
+/// the pipe — usually because ffmpeg itself failed, so the ffmpeg error is the
+/// one worth reporting.
+fn is_sigpipe(status: &std::process::ExitStatus) -> bool {
+    #[cfg(unix)]
+    {
+        status.signal() == Some(13)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = status;
+        false
+    }
+}
+
 use crate::dependency_locator::DependencyLocator;
 use crate::models::{AudioMode, ContainerFormat, DeinterlaceMethod, EncoderFamily, EncodingSettings, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
 use crate::progress_reporter::ProgressReporter;
@@ -251,12 +267,20 @@ impl PipelineExecutor {
         let ffmpeg_reporter = self.reporter.clone();
         let ffmpeg_stderr_thread = thread::spawn(move || {
             let reader = BufReader::new(ffmpeg_stderr);
-            let mut last_line = String::new();
+            // Keep the last few non-empty lines so a failed ffmpeg can report a
+            // useful error (e.g. "Unknown encoder 'h264_qsv'"), not just its
+            // final — often blank — stderr line.
+            let mut tail: std::collections::VecDeque<String> = std::collections::VecDeque::new();
             for line in reader.lines().map_while(Result::ok) {
                 ffmpeg_reporter.send_log(LogLevel::Debug, &format!("ffmpeg stderr: {}", line));
-                last_line = line;
+                if !line.trim().is_empty() {
+                    tail.push_back(line);
+                    if tail.len() > 12 {
+                        tail.pop_front();
+                    }
+                }
             }
-            last_line
+            tail.into_iter().collect::<Vec<_>>().join("\n")
         });
 
         // Poll the progress file for updates instead of reading piped stderr.
@@ -385,38 +409,52 @@ impl PipelineExecutor {
         // Now safe to join threads (pipes are closed, readers will hit EOF)
         let _ = decoder_stderr_thread.join();
         let _ = vspipe_thread.join();
-        let _ = ffmpeg_stderr_thread.join();
+        let ffmpeg_stderr_tail = ffmpeg_stderr_thread.join().unwrap_or_default();
 
         // Clean up progress file
         let _ = fs::remove_file(&progress_file);
 
         // Check exit codes.
-        // Decoder may exit with broken pipe (141=SIGPIPE on Linux, 224=EPIPE on macOS)
-        // when vspipe finishes reading before the decoder sends all frames (e.g. IVTC
-        // VDecimate reads fewer frames than available). This is expected and harmless.
+        //
+        // ffmpeg is checked FIRST on purpose: when the encoder ffmpeg fails
+        // (e.g. an unavailable hardware encoder), vspipe dies with SIGPIPE as a
+        // *symptom* of the closed pipe. Reporting ffmpeg's error — with its
+        // stderr tail — surfaces the real cause instead of the misleading
+        // "vspipe exited with signal 13 (SIGPIPE)".
+        let ffmpeg_ok = if let Some(status) = ffmpeg_status {
+            let code = status.code().unwrap_or(-1);
+            if code != 0 && code != 130 && code != 141 {
+                let tail = ffmpeg_stderr_tail.trim();
+                if tail.is_empty() {
+                    bail!("ffmpeg exited with {}", format_exit_status(&status));
+                }
+                bail!("ffmpeg exited with {}:\n{}", format_exit_status(&status), tail);
+            }
+            true
+        } else {
+            false
+        };
+
+        // vspipe: a SIGPIPE here means ffmpeg closed the pipe early. If ffmpeg
+        // failed we've already reported the real cause above; if ffmpeg was fine
+        // (e.g. IVTC VDecimate finishing early) it's harmless. Only surface a
+        // genuine vspipe failure — a real exit code, or a non-SIGPIPE signal.
+        if let Some(status) = vspipe_status {
+            let ok = matches!(status.code(), Some(0) | Some(130) | Some(141));
+            if !ok && !is_sigpipe(&status) {
+                bail!("vspipe exited with {}", format_exit_status(&status));
+            }
+        }
+
+        // Decoder may exit with broken pipe (141=SIGPIPE on Linux, 224=EPIPE on
+        // macOS) when vspipe finishes reading before the decoder sends all frames
+        // (e.g. IVTC VDecimate reads fewer frames than available). Harmless.
         if let Some(status) = decoder_status {
             let code = status.code().unwrap_or(-1);
             if code != 0 && code != 130 && code != 141 && code != 224 {
                 bail!("Decoder ffmpeg exited with {}", format_exit_status(&status));
             }
         }
-
-        if let Some(status) = vspipe_status {
-            let code = status.code().unwrap_or(-1);
-            if code != 0 && code != 130 && code != 141 {
-                bail!("vspipe exited with {}", format_exit_status(&status));
-            }
-        }
-
-        let ffmpeg_ok = if let Some(status) = ffmpeg_status {
-            let code = status.code().unwrap_or(-1);
-            if code != 0 && code != 130 && code != 141 {
-                bail!("ffmpeg exited with {}", format_exit_status(&status));
-            }
-            true
-        } else {
-            false
-        };
 
         // Send final 100% progress when job succeeds.
         // The source metadata total can be wrong (e.g. AVI containers),
