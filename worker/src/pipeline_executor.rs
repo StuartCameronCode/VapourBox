@@ -111,6 +111,10 @@ impl PipelineExecutor {
 
         // Determine input pixel format for the decoder
         let pix_fmt = job.input_pixel_format.as_deref().unwrap_or("yuv420p");
+        // Declared frame size — must match the dimensions pipe_source uses in
+        // the template (see script_generator), so the raw stream stays aligned.
+        let width = job.input_width.unwrap_or(720);
+        let height = job.input_height.unwrap_or(480);
 
         // Build decoder FFmpeg arguments
         // Frame trimming is handled here (faster than VapourSynth trimming since FFmpeg
@@ -130,6 +134,11 @@ impl PipelineExecutor {
         decoder_args.extend([
             "-i".to_string(), job.input_path.clone(),
             "-map".to_string(), "0:v:0".to_string(), // only first video stream
+            // Force the declared dimensions. Some sources decode to a different
+            // size than ffprobe reports (e.g. a clean aperture: 720x576 coded ->
+            // 702x576 decoded), which otherwise desyncs the raw frame stream from
+            // what pipe_source expects -> garbage output.
+            "-s".to_string(), format!("{}x{}", width, height),
             "-f".to_string(), "rawvideo".to_string(),
             "-pix_fmt".to_string(), pix_fmt.to_string(),
             "-v".to_string(), "error".to_string(),
@@ -883,6 +892,11 @@ impl PipelineExecutor {
                 "-i", &job.input_path,
                 "-map", "0:v:0",
                 "-frames:v", &num_frames.to_string(),
+                // Force the declared dimensions. Some sources decode to a
+                // different size than ffprobe reports (e.g. a clean aperture:
+                // 720x576 coded -> 702x576 decoded), which otherwise desyncs the
+                // raw frame stream from what pipe_source expects -> garbage.
+                "-s", &format!("{}x{}", width, height),
                 "-f", "rawvideo",
                 "-pix_fmt", pix_fmt,
                 "-v", "error",
