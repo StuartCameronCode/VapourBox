@@ -22,15 +22,15 @@
       "version": "1.4.0",
       "releaseTag": "deps-v1.4.0",
       "filename": "VapourBox-deps-1.4.0-linux-x64.zip",
-      "sha256": null,
-      "size": null
+      "sha256": "2c3e7cf458d5443fe827242e5bd8ce12a47db57aa19f1d51af248ad80f1a519c",
+      "size": 191028656
     },
     "linux-arm64": {
       "version": "1.4.0",
       "releaseTag": "deps-v1.4.0",
       "filename": "VapourBox-deps-1.4.0-linux-arm64.zip",
-      "sha256": null,
-      "size": null
+      "sha256": "45986e0d70acd0b93a59aecfd6a493716ccfe963608194e1cfaabc948680fbd8",
+      "size": 169664443
     }
   },
   "githubRepo": "StuartCameronCode/VapourBox"
