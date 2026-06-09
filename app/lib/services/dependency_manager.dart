@@ -422,10 +422,12 @@ class DependencyManager {
         expectedSha256: platformInfo.sha256,
       );
 
-      // Extract
+      // Extract. _extractZip emits per-file extraction progress; this initial
+      // event (0/0 -> indeterminate) covers the synchronous decode that precedes
+      // the first file write.
       _progressController.add(DownloadProgress(
-        bytesReceived: platformInfo.size ?? 0,
-        totalBytes: platformInfo.size ?? 0,
+        bytesReceived: 0,
+        totalBytes: 0,
         status: 'Extracting...',
       ));
 
@@ -528,6 +530,28 @@ class DependencyManager {
     final bytes = await zipFile.readAsBytes();
     final archive = ZipDecoder().decodeBytes(bytes);
 
+    // Total uncompressed size, for extraction progress. Extraction (many file
+    // writes + chmod) is slow on Linux, so report progress rather than leaving
+    // the dialog frozen on "Extracting...".
+    var totalBytes = 0;
+    for (final file in archive) {
+      if (file.isFile) totalBytes += file.size;
+    }
+
+    var extracted = 0;
+    var lastEmitted = -1;
+    const emitEvery = 2 * 1024 * 1024; // throttle UI updates to ~every 2 MB
+
+    void emitExtractProgress() {
+      _progressController.add(DownloadProgress(
+        bytesReceived: extracted,
+        totalBytes: totalBytes,
+        status: 'Extracting...',
+      ));
+    }
+
+    emitExtractProgress();
+
     for (final file in archive) {
       final filePath = path.join(depsDir.path, file.name);
 
@@ -540,10 +564,20 @@ class DependencyManager {
         if (!Platform.isWindows && _isExecutable(file.name)) {
           await Process.run('chmod', ['+x', filePath]);
         }
+
+        extracted += file.size;
+        if (extracted - lastEmitted >= emitEvery) {
+          lastEmitted = extracted;
+          emitExtractProgress();
+        }
       } else {
         await Directory(filePath).create(recursive: true);
       }
     }
+
+    // Final 100% extraction tick.
+    extracted = totalBytes;
+    emitExtractProgress();
 
     // On macOS, remove quarantine attribute and re-sign binaries for Gatekeeper
     if (Platform.isMacOS) {

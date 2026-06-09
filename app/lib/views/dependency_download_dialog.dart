@@ -155,22 +155,26 @@ class _DependencyDownloadDialogState extends State<DependencyDownloadDialog> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(_progress!.status),
-                    Text(_progress!.progressPercent),
+                    if (_progress!.totalBytes > 0) Text(_progress!.progressPercent),
                   ],
                 ),
                 const SizedBox(height: 8),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
+                  // Indeterminate (animated) when we don't yet have a fraction —
+                  // e.g. connecting, or the zip-decode step before extraction
+                  // byte progress starts — otherwise a determinate bar.
                   child: LinearProgressIndicator(
-                    value: _progress!.progress,
+                    value: _progress!.progress > 0 ? _progress!.progress : null,
                     minHeight: 8,
                   ),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  '${_formatBytes(_progress!.bytesReceived)} / ${_formatBytes(_progress!.totalBytes)}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+                if (_progress!.totalBytes > 0)
+                  Text(
+                    '${_formatBytes(_progress!.bytesReceived)} / ${_formatBytes(_progress!.totalBytes)}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
               ] else ...[
                 const LinearProgressIndicator(),
                 const SizedBox(height: 8),
