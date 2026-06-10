@@ -91,7 +91,12 @@ $PythonZip = Join-Path $TempDir "python38.zip"
 $PythonUrl = "https://www.python.org/ftp/python/3.8.10/python-3.8.10-embed-amd64.zip"
 $VSDir = "$FullTargetDir\vapoursynth"
 
-if (-not (Test-Path "$VSDir\python38.dll")) {
+# NOTE: guard on BOTH python38.dll AND python38.zip. python38.zip is the Python
+# 3.8 standard library (contains the `encodings` module). It is *.zip-gitignored,
+# so a checked-out deps/windows-x64 tree has python38.dll committed but NOT
+# python38.zip. Guarding on python38.dll alone made CI skip this block and ship a
+# bundle with no stdlib -> "ModuleNotFoundError: No module named 'encodings'".
+if (-not (Test-Path "$VSDir\python38.dll") -or -not (Test-Path "$VSDir\python38.zip")) {
     Download-File -Url $PythonUrl -OutFile $PythonZip
 
     $PythonTempDir = Join-Path $TempDir "python38-extract"
