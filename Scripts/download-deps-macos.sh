@@ -486,7 +486,27 @@ build_plugin() {
 
     cd "$name"
 
-    if eval "$build_cmd"; then
+    # Some plugins' meson.build locates the VapourSynth headers by running
+    # `import vapoursynth as vs; print(vs.get_include())` in the host python
+    # (e.g. mvtools, bm3d, eedi3m). On a clean build machine the host python has
+    # no `vapoursynth` module (the runtime VS module is built against our
+    # embedded python, not the host's), so that probe fails. Replace it with the
+    # from-source VS include dir - same trick already used for vivtc below.
+    if [ -n "$VS_INC_DIR" ] && [ -f meson.build ] && grep -q "import vapoursynth" meson.build; then
+        VS_INC_DIR="$VS_INC_DIR" python3 - meson.build <<'PYEOF'
+import os, re, sys
+path = sys.argv[1]
+inc = os.environ["VS_INC_DIR"]
+s = open(path).read()
+s = re.sub(r"run_command\(.*?\)\.stdout\(\)\.strip\(\)", repr(inc), s, flags=re.S)
+open(path, "w").write(s)
+PYEOF
+    fi
+
+    # Expose the from-source VapourSynth to pkg-config so plugins that use
+    # `dependency('vapoursynth')` (removegrain, cas, ...) resolve against our
+    # R73 build rather than failing or finding a mismatched system install.
+    if PKG_CONFIG_PATH="${VS_PC_DIR:-}:${PKG_CONFIG_PATH:-}" eval "$build_cmd"; then
         # Find the built library
         local lib_path=$(find . -name "*.dylib" -type f 2>/dev/null | head -1)
         if [ -n "$lib_path" ]; then
@@ -537,6 +557,13 @@ download_prebuilt_plugin() {
 
 STEFANOLT="https://github.com/Stefan-Olt/vs-plugin-build/releases/download/vsplugin"
 
+# pkg-config dir + header dir of the from-source VapourSynth install. Used by the
+# plugin builds on BOTH arches (see build_plugin and the x86_64 source builds):
+# the host python has no `vapoursynth` module on a clean runner, so meson plugins
+# can't probe it the usual way and must be pointed at these explicitly.
+VS_PC_DIR="$VS_INSTALL_DIR/lib/pkgconfig"
+VS_INC_DIR="$(dirname "$(find "$VS_INSTALL_DIR/include" -name 'VapourSynth4.h' 2>/dev/null | head -1)")"
+
 if [ "$ARCH" = "x86_64" ]; then
     # ========================================================================
     # x86_64 plugins: download pre-built darwin-x86_64 binaries from
@@ -581,8 +608,6 @@ if [ "$ARCH" = "x86_64" ]; then
 
     # ---- The four plugins Stefan-Olt does not ship: build from source ----
     cd "$BUILD_DIR"
-    VS_PC_DIR="$VS_INSTALL_DIR/lib/pkgconfig"
-    VS_INC_DIR="$(dirname "$(find "$VS_INSTALL_DIR/include" -name 'VapourSynth4.h' 2>/dev/null | head -1)")"
 
     # neo-f3kdb (cmake; uses its bundled VapourSynth headers, VCL2 submodule)
     if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libneo-f3kdb.dylib" ]; then
@@ -727,7 +752,10 @@ echo ""
 echo "=== Building ZNEDI3 ==="
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libznedi3.dylib" ]; then
     rm -rf znedi3
-    git clone --depth 1 https://github.com/sekrit-twc/znedi3.git znedi3
+    # --recurse-submodules: znedi3 carries graphengine + vsxx (which bundles the
+    # VapourSynth headers) as submodules. Without them the build fails with
+    # "'znedi3.h' file not found" / missing vsxx4_pluginmain.o.
+    git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/sekrit-twc/znedi3.git znedi3
     cd znedi3
     # ZNEDI3 has its own makefile - need to disable x86 optimizations on arm64
     if [ "$ARCH" = "arm64" ]; then
@@ -752,10 +780,13 @@ else
 fi
 
 # NNEDI3 (CPU version)
+# Its Makefile.am hardcodes `-mfpu=neon` for the NEON path, which clang rejects
+# on arm64 ('unsupported option -mfpu='). NEON is baseline on aarch64, so the
+# flag isn't needed - strip it before autogen regenerates the Makefiles.
 build_plugin "nnedi3" \
     "https://github.com/dubhater/vapoursynth-nnedi3.git" \
     "libnnedi3.dylib" \
-    "./autogen.sh && ./configure && make -j\$(sysctl -n hw.ncpu) && cp .libs/libnnedi3.dylib . 2>/dev/null || cp src/.libs/libnnedi3.dylib . 2>/dev/null"
+    "sed -i '' 's/ -mfpu=neon//' Makefile.am && ./autogen.sh && ./configure && make -j\$(sysctl -n hw.ncpu)"
 
 # NNEDI3CL (OpenCL version)
 build_plugin "nnedi3cl" \
@@ -799,10 +830,16 @@ else
 fi
 
 # FFT3DFilter
-build_plugin "fft3dfilter" \
-    "https://github.com/myrsloik/VapourSynth-FFT3DFilter.git" \
-    "libfft3dfilter.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
+# On ARM64 we use the pre-built version from yuygfgg (downloaded above); its
+# from-source build needs fftw3f_threads which isn't reliably discoverable here.
+if [ "$ARCH" != "arm64" ]; then
+    build_plugin "fft3dfilter" \
+        "https://github.com/myrsloik/VapourSynth-FFT3DFilter.git" \
+        "libfft3dfilter.dylib" \
+        "meson setup build --buildtype=release && ninja -C build"
+else
+    echo "  FFT3DFilter: using pre-built ARM64 version from yuygfgg"
+fi
 
 # MiscFilters
 build_plugin "miscfilters" \
@@ -1140,6 +1177,40 @@ else:
     print("  Already patched")
 EOF
 fi
+
+# ============================================================================
+# Repoint plugin support-lib references at the bundled copies in lib/
+# ============================================================================
+# Source-built plugins (mvtools, bm3d, dctfilter, nnedi3cl, ...) link Homebrew's
+# fftw/boost by absolute path (e.g. /opt/homebrew/opt/fftw/lib/libfftw3f.3.dylib).
+# Those paths don't exist on users' machines, so the plugin would fail to load.
+# The libs are already bundled in $LIB_DIR; rewrite every such reference at the
+# bundled copy. Also normalize each plugin's own install id to @loader_path so
+# the bundle is fully relocatable.
+echo ""
+echo "=== Repointing plugin support-lib references to bundled lib/ ==="
+SUPPORT_LIBS=(libfftw3f.3.dylib libfftw3f_threads.3.dylib libboost_filesystem.dylib libboost_atomic.dylib liblzma.5.dylib libdvdread.dylib)
+for plugin in "$PLUGINS_DIR"/*.dylib; do
+    [ -f "$plugin" ] || continue
+    plugin_base=$(basename "$plugin")
+    changed=false
+    # Normalize the plugin's own install id.
+    install_name_tool -id "@loader_path/$plugin_base" "$plugin" 2>/dev/null && changed=true
+    # Repoint any dependency that matches a bundled support lib by basename.
+    while IFS= read -r ref; do
+        ref_base=$(basename "$ref")
+        case "$ref_base" in "$plugin_base") continue ;; esac
+        for sl in "${SUPPORT_LIBS[@]}"; do
+            if [ "$ref_base" = "$sl" ] && [ -f "$LIB_DIR/$sl" ] && [[ "$ref" != @loader_path/* ]]; then
+                install_name_tool -change "$ref" "@loader_path/../../lib/$sl" "$plugin" 2>/dev/null && changed=true
+            fi
+        done
+    done < <(otool -L "$plugin" | tail -n +2 | awk '{print $1}')
+    if [ "$changed" = true ]; then
+        codesign -s - -f "$plugin" 2>/dev/null || true
+        echo "  Repointed $plugin_base"
+    fi
+done
 
 # ============================================================================
 # Sign all binaries and libraries (required for macOS code signing)
