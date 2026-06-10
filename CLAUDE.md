@@ -641,8 +641,9 @@ Create the app-specific password at appleid.apple.com → Sign-In and Security �
 
 - Flutter Windows can't build on macOS — use GitHub Actions
 - Flutter Linux can't build on macOS — use GitHub Actions or a Linux VM
-- Windows deps can be zipped on macOS if `deps/windows-x64/` exists
-- Linux deps must be built on Linux (`./Scripts/download-deps-linux.sh`)
+- Deps for every platform are built in CI by their own workflow: `build-deps-macos.yml` (arm64 + x64), `build-deps-linux.yml` (x64 + arm64), `build-deps-windows.yml` (x64, on `windows-latest` — everything is fetched from upstream release URLs by `download-deps-windows.ps1`, so no local checkout is needed). All take `version` + optional `release_tag` (leave empty to skip the release upload).
+- Windows deps can also be zipped on macOS if `deps/windows-x64/` exists (`Scripts/package-deps-windows.ps1` via pwsh), but the CI workflow is the canonical path.
+- Linux deps must be built on Linux (`./Scripts/download-deps-linux.sh`) or via `build-deps-linux.yml`
 - The macOS CI build (`build-macos.yml`) signs with the Developer ID cert and notarizes — see "macOS Code Signing & Notarization" below. Windows and Linux CI builds remain unsigned.
 - macOS ships as a **universal** (arm64+x86_64) app by default. `build-macos.yml` takes an `arch` input (`universal` | `both` | `arm64` | `x64`, default `universal`) and fans out via a matrix. Universal = lipo'd worker + Runner built with `ARCHS="arm64 x86_64"`; `both` = two separate single-arch DMGs. The x64 slice cross-compiles on the `macos-15` (arm64) runner.
 - Deps are **not** bundled — the app downloads `macos-arm64` or `macos-x64` deps at runtime per `uname`, so a universal app needs **both** deps bundles published. macOS deps are built by `build-deps-macos.yml` (arm64 on `macos-15`, x64 natively on `macos-15-intel`).

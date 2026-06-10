@@ -1,0 +1,49 @@
+name: Build Windows Deps
+
+# Builds the VapourSynth/FFmpeg/Python dependency bundle for Windows x64.
+# Mirrors build-deps-macos.yml / build-deps-linux.yml. Everything is fetched
+# from upstream release URLs by download-deps-windows.ps1 (7-Zip is preinstalled
+# on the windows-latest runner), so no local deps checkout is needed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Deps version (e.g., 1.4.0)'
+        required: true
+        type: string
+      release_tag:
+        description: 'Upload to this release tag (e.g., deps-v1.4.0). Leave empty to skip upload.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build dependencies
+        shell: pwsh
+        run: ./Scripts/download-deps-windows.ps1
+
+      - name: Package dependencies
+        shell: pwsh
+        run: ./Scripts/package-deps-windows.ps1 -Version "${{ inputs.version }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VapourBox-deps-${{ inputs.version }}-windows-x64
+          path: dist/VapourBox-deps-${{ inputs.version }}-windows-x64.zip
+
+      - name: Upload to release
+        if: inputs.release_tag != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ inputs.release_tag }}" `
+            "dist/VapourBox-deps-${{ inputs.version }}-windows-x64.zip" --clobber
