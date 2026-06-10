@@ -5,8 +5,8 @@
   "platforms": {
     "windows-x64": {
       "filename": "VapourBox-deps-1.4.0-windows-x64.zip",
-      "sha256": "23012522566db0066085b7f6f76fbd961e348ced9d5c60a4ed0044383d0032e5",
-      "size": 177361536
+      "sha256": "991500320d30b41b75e1663b7dbc9768b3a20cc2b04e05bef29adcd34805adfb",
+      "size": 179859498
     },
     "macos-arm64": {
       "filename": "VapourBox-deps-1.4.0-macos-arm64.zip",
