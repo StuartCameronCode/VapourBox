@@ -524,7 +524,7 @@ The `download-deps-windows.ps1` and `download-deps-macos.sh` scripts apply these
 - Fully self-contained deps (no Homebrew at runtime): Python 3.12 (python-build-standalone), VS built from source
 - Worker sets: `PYTHONHOME`, `PYTHONPATH`, `VAPOURSYNTH_CONF_PATH`, `DYLD_LIBRARY_PATH`
 - `vspipe` is a wrapper script that generates config dynamically (needed because `VAPOURSYNTH_PLUGIN_PATH` is additive, not a replacement)
-- **x64 FFmpeg** is sourced pre-built from evermeet.cx (static x86_64, links only system frameworks); arm64 FFmpeg comes from Homebrew. **x64 plugins** build from source under Rosetta, except `tmedian`/`bestsource` which come pre-built from Stefan-Olt/vs-plugin-build.
+- **FFmpeg** is sourced pre-built as a static binary that links only system frameworks: **x64** from evermeet.cx, **arm64** from martin-riedl.de (Homebrew's arm64 ffmpeg is dynamically linked to ~17 Homebrew dylibs and is NOT self-contained, so it can't be bundled). **x64 plugins** build from source under Rosetta, except `tmedian`/`bestsource` which come pre-built from Stefan-Olt/vs-plugin-build.
 - **Code signing**: After `install_name_tool` modifications, binaries must be re-signed: `codesign -s - -f <binary>` (exit code 137 = SIGKILL means invalid signature)
 - Quarantine removal: `xattr -cr` on deps after download
 - Show in Folder: `open -R <path>`

@@ -93,7 +93,8 @@ BREW_DEPS=(
     #   libdvdread -> libdvdread (DVD title extraction in the worker)
     #   xz         -> liblzma.5 (linked by Stefan-Olt's x86_64 bestsource)
     fftw boost libdvdread xz
-    # FFmpeg (arm64 copies this; x64 uses evermeet.cx static builds instead)
+    # FFmpeg (build-time convenience only; at runtime both arches ship static
+    # ffmpeg downloaded from evermeet.cx (x64) / martin-riedl.de (arm64))
     ffmpeg
 )
 
@@ -346,10 +347,21 @@ if [ "$ARCH" = "x86_64" ]; then
     codesign -s - -f "$DEPS_DIR/ffmpeg/ffprobe" 2>/dev/null || true
     echo "  Installed evermeet.cx FFmpeg"
 else
-    cp "$BREW_PREFIX/bin/ffmpeg" "$DEPS_DIR/ffmpeg/"
-    cp "$BREW_PREFIX/bin/ffprobe" "$DEPS_DIR/ffmpeg/"
+    # arm64: Homebrew's ffmpeg is dynamically linked against ~17 Homebrew dylibs
+    # (/opt/homebrew/Cellar/ffmpeg/.../lib*, x264, x265, dav1d, openssl, ...), so
+    # copying just the binary yields a bundle that won't run on users' Macs.
+    # Use the static arm64 build from martin-riedl.de (links only system
+    # frameworks, ~60 MB) - the same source the 1.3.0 deps shipped, and the
+    # arm64 analogue of the evermeet.cx static build used for x64 above.
+    echo "  Downloading static arm64 FFmpeg from martin-riedl.de..."
+    curl -sL "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip" -o "$BUILD_DIR/ffmpeg.zip"
+    curl -sL "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffprobe.zip" -o "$BUILD_DIR/ffprobe.zip"
+    unzip -q -o "$BUILD_DIR/ffmpeg.zip" -d "$DEPS_DIR/ffmpeg/"
+    unzip -q -o "$BUILD_DIR/ffprobe.zip" -d "$DEPS_DIR/ffmpeg/"
     chmod +x "$DEPS_DIR/ffmpeg/ffmpeg" "$DEPS_DIR/ffmpeg/ffprobe"
-    echo "  Copied FFmpeg from Homebrew"
+    codesign -s - -f "$DEPS_DIR/ffmpeg/ffmpeg" 2>/dev/null || true
+    codesign -s - -f "$DEPS_DIR/ffmpeg/ffprobe" 2>/dev/null || true
+    echo "  Installed static arm64 FFmpeg from martin-riedl.de"
 fi
 
 # ============================================================================
