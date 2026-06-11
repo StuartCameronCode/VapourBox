@@ -44,6 +44,18 @@ if (-not (Test-Path (Join-Path $DepsDir "ffmpeg\ffmpeg.exe"))) {
     exit 1
 }
 
+# python38.zip is the Python 3.8 stdlib (contains the `encodings` module). It is
+# *.zip-gitignored, so it is easy to ship a bundle without it when building from a
+# checked-out deps tree. Without it the app crashes at runtime with:
+#   ModuleNotFoundError: No module named 'encodings'
+$Python38Zip = Join-Path $DepsDir "vapoursynth\python38.zip"
+if (-not (Test-Path $Python38Zip) -or (Get-Item $Python38Zip).Length -lt 1MB) {
+    Write-Host "ERROR: vapoursynth\python38.zip (Python 3.8 stdlib) missing or too small" -ForegroundColor Red
+    Write-Host "The packaged bundle would crash with: ModuleNotFoundError: No module named 'encodings'" -ForegroundColor Red
+    Write-Host "Run '.\Scripts\download-deps-windows.ps1' to fetch it, then re-package" -ForegroundColor Red
+    exit 1
+}
+
 Write-Host "    Prerequisites OK" -ForegroundColor Green
 
 # Create package directory
