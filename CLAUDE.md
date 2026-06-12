@@ -300,9 +300,14 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 **9. Integration Test** — required (see below)
 
 **10. Plugin Binaries**
-- Windows: add to `deps/windows-x64/vapoursynth/vs-plugins/`
-- macOS: compile for arm64, codesign, add to `deps/macos-arm64/vapoursynth/plugins/`
-- Also copy to installed deps at `~/Library/Application Support/VapourBox/deps/` for testing
+- Add a download/build block to each `Scripts/download-deps-*` script (deps
+  binaries are **not** committed — the scripts are the source of truth).
+- **Add the plugin filename to `Scripts/deps-expected-plugins.json`** for every
+  platform that ships it. The `package-deps-*` scripts assert this list is
+  present before zipping and fail the build if any are missing, so a dead
+  download URL becomes a red build instead of a silently-incomplete bundle.
+- For local testing, run the download script to populate `deps/` (e.g.
+  `deps/windows-x64/vapoursynth/vs-plugins/`, `deps/macos-arm64/vapoursynth/plugins/`).
 
 ### Adding a New Built-in Preset
 
