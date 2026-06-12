@@ -53,54 +53,18 @@ app/ios/
 app/web/
 
 # =============================================================================
-# Dependencies - Ignore generated/downloaded files, keep essential bundles
+# Dependencies - NOT tracked
 # =============================================================================
+# Bundled dependency binaries are reproduced by Scripts/download-deps-*.{sh,ps1}
+# and published as deps-vX.Y.Z releases; CI (build-deps-*.yml) is the source of
+# truth. Run the appropriate download script once locally before building or
+# running. See CLAUDE.md "Download Dependencies".
+deps/
 
 # Python cache files (anywhere)
 **/__pycache__/
 *.pyc
 *.pyo
-
-# Downloaded archives
-deps/**/*.7z
-deps/**/*.zip
-deps/**/*.tar.gz
-
-# Temp/staging directories
-deps/**/python38-temp/
-deps/**/python-temp/
-deps/**/eedi3-temp/
-deps/**/python/
-deps/**/resources/
-
-# Documentation (not needed for bundling)
-deps/**/doc/
-
-# SDK and development files
-deps/**/sdk/
-deps/**/wheel/
-
-# Test scripts in deps
-deps/**/*.ps1
-
-# Misc files not needed for bundling
-deps/**/*.rst
-deps/**/MANIFEST.in
-deps/**/vsgenstubs*
-deps/**/vsrepo.py
-deps/**/7z.dll
-deps/**/cython/
-deps/**/vsscript/
-
-# Loose files in deps root (downloaded/extracted)
-deps/**/python-packages/
-deps/windows-x64/*.dll
-deps/windows-x64/*.bin
-deps/macos-*/*.dylib
-deps/macos-*/*.bin
-
-# VapourSynth auto-generated config files
-deps/**/*.auto.conf
 
 # =============================================================================
 # Build Outputs

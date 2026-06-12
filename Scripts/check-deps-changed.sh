@@ -1,6 +1,7 @@
 #!/bin/bash
 # Check if dependencies have changed since last release
-# Compares content hashes of deps directories and download scripts
+# Deps binaries are not committed; the download scripts reproduce them and are
+# the source of truth, so this detects changes to those scripts since the release.
 # Usage: ./Scripts/check-deps-changed.sh [--verbose]
 # Exit code: 0 = changed, 1 = unchanged, 2 = error
 
@@ -14,14 +15,10 @@ if [ "$1" = "--verbose" ]; then
     VERBOSE=true
 fi
 
-# Files/directories to check for changes
+# Files to check for changes.
+# Deps binaries are no longer committed (reproduced by the download scripts, which
+# are the source of truth), so "deps changed" == "a download script changed".
 DEPS_PATHS=(
-    "deps/windows-x64/vapoursynth"
-    "deps/windows-x64/ffmpeg"
-    "deps/macos-arm64"
-    "deps/macos-x64"
-    "deps/linux-x64"
-    "deps/linux-arm64"
     "Scripts/download-deps-windows.ps1"
     "Scripts/download-deps-macos.sh"
     "Scripts/download-deps-linux.sh"
@@ -80,16 +77,6 @@ for path in "${DEPS_PATHS[@]}"; do
         fi
     fi
 done
-
-# Also check for new untracked files in deps
-UNTRACKED=$(git ls-files --others --exclude-standard -- deps/ 2>/dev/null | head -5)
-if [ -n "$UNTRACKED" ]; then
-    if $VERBOSE; then
-        echo "  New untracked files in deps/"
-        echo "$UNTRACKED" | sed 's/^/    /'
-    fi
-    CHANGES_FOUND=true
-fi
 
 if $CHANGES_FOUND; then
     echo "CHANGED: Dependencies modified since $LAST_DEPS_TAG"

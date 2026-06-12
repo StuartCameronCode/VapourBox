@@ -7,7 +7,7 @@
     - VapourSynth R73 (portable, includes Python 3.8)
     - Python 3.8 embeddable (for VSScript)
     - FFmpeg (latest GPL build)
-    - VapourSynth plugins (mvtools, nnedi3cl, znedi3, eedi3m, fmtconv, miscfilters, dfttest, neo_f3kdb, cas, fft3dfilter)
+    - VapourSynth plugins (mvtools, nnedi3cl, znedi3, eedi3m, fmtconv, miscfilters, dfttest, neo_f3kdb, cas, fft3dfilter, descratch, temporalmedian)
     - FFTW library (required by dfttest)
     - Python packages (havsfunc, mvsfunc, adjust)
     - NNEDI3 weights
@@ -272,6 +272,19 @@ $Plugins7z = @(
         Name = "vivtc"
         Url = "https://github.com/vapoursynth/vivtc/releases/download/R1/VIVTC-R1.7z"
         Check = "VIVTC.dll"
+    },
+    @{
+        # core.descratch.DeScratch - vertical scratch removal (pipeline Pass 3).
+        # Same upstream repo macOS builds from; R3 is the latest tag with a win64 asset.
+        Name = "descratch"
+        Url = "https://github.com/vapoursynth/descratch/releases/download/R3/descratch-r3.7z"
+        Check = "DeScratch.dll"
+    },
+    @{
+        # core.tmedian.TemporalMedian - used by the SpotLess filter (spotless.py).
+        Name = "temporalmedian"
+        Url = "https://github.com/dubhater/vapoursynth-temporalmedian/releases/download/v1/vapoursynth-temporalmedian-v1-win64.7z"
+        Check = "libtemporalmedian.dll"
     }
 )
 

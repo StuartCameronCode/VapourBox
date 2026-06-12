@@ -1,9 +1,10 @@
 name: Build Windows Deps
 
 # Builds the VapourSynth/FFmpeg/Python dependency bundle for Windows x64.
-# Mirrors build-deps-macos.yml / build-deps-linux.yml. Everything is fetched
-# from upstream release URLs by download-deps-windows.ps1 (7-Zip is preinstalled
-# on the windows-latest runner), so no local deps checkout is needed.
+# Mirrors build-deps-macos.yml / build-deps-linux.yml. Every plugin (incl.
+# DeScratch and TemporalMedian) is fetched from upstream release URLs by
+# download-deps-windows.ps1 (7-Zip is preinstalled on the windows-latest runner).
+# No deps binaries are committed; the script reproduces the bundle from scratch.
 
 on:
   workflow_dispatch:
