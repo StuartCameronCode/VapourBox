@@ -1302,22 +1302,43 @@ for plugin in "$PLUGINS_DIR"/*.dylib; do
 done
 
 echo ""
-echo "Plugin external dylib references (must be @loader_path/system only):"
+echo "Plugin external dylib references (must resolve on users' machines):"
 UNBUNDLED_REFS=0
 for plugin in "$PLUGINS_DIR"/*.dylib; do
     [ -f "$plugin" ] || continue
-    refs=$(otool -L "$plugin" 2>/dev/null | tail -n +2 | grep -vE "/usr/lib/|/System/|@loader_path|@rpath" | awk '{print $1}')
-    if [ -n "$refs" ]; then
-        echo "  ✗ $(basename "$plugin") references unbundled libs:"
-        echo "$refs" | sed 's/^/      /'
-        UNBUNDLED_REFS=1
-    fi
+    plugin_base=$(basename "$plugin")
+    while IFS= read -r ref; do
+        ref_base=$(basename "$ref")
+        # A bundled support lib MUST be referenced via @loader_path (i.e. it was
+        # repointed at deps/macos-*/lib by the repoint pass above). If it's still
+        # @rpath or an absolute Homebrew path it won't resolve on a user machine
+        # without Homebrew -- this is exactly the FFT3DFilter -> libfftw3f.3.dylib
+        # failure from issue #28, which @rpath refs would otherwise slip past.
+        for sl in "${SUPPORT_LIBS[@]}"; do
+            if [ "$ref_base" = "$sl" ] && [[ "$ref" != @loader_path/* ]]; then
+                echo "  ✗ $plugin_base: bundled support lib not repointed to @loader_path: $ref"
+                UNBUNDLED_REFS=1
+            fi
+        done
+        # Any other absolute, non-system dependency is also unbundled.
+        case "$ref" in
+            /usr/lib/*|/System/*|@loader_path/*|@rpath/*|@executable_path/*) ;;
+            /*)
+                echo "  ✗ $plugin_base references unbundled lib: $ref"
+                UNBUNDLED_REFS=1
+                ;;
+        esac
+    done < <(otool -L "$plugin" 2>/dev/null | tail -n +2 | awk '{print $1}')
 done
 if [ "$UNBUNDLED_REFS" = 0 ]; then
     echo "  ✓ all plugins reference only bundled (@loader_path) or system libraries"
 else
-    echo "  WARNING: plugins above reference absolute paths that won't exist on users' machines."
-    echo "  Bundle the lib into deps/.../lib and repoint with install_name_tool."
+    echo ""
+    echo "ERROR: plugin(s) above reference libraries that won't exist on users'"
+    echo "machines. Repoint them to @loader_path/../../lib (see the 'Repointing"
+    echo "plugin support-lib references' pass) or bundle the lib into deps/macos-*/lib."
+    echo "Failing the build to prevent shipping a broken bundle (see issue #28)."
+    exit 1
 fi
 
 echo ""
