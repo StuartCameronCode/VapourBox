@@ -560,7 +560,9 @@ Plugin lists for all platforms: see `deps/` directories or download scripts.
 
 Dependencies are versioned separately from the app via `app/assets/deps-version.json` and distributed as separate GitHub releases (tag: `deps-vX.Y.Z`). The app auto-downloads deps on launch if missing or outdated.
 
-**Key files**: `app/assets/deps-version.json` (expected version), `app/lib/services/dependency_manager.dart` (check/download/extract), `app/lib/views/dependency_download_dialog.dart` (progress UI).
+`deps-version.json` is a **slim pointer** — `{version, releaseTag, githubRepo}` (plus optional per-platform `version`/`releaseTag` overrides). The zip filename is derived (`VapourBox-deps-<version>-<platform>.zip`), and integrity metadata is **not** stored here. Instead each `package-deps-*` script writes a **sidecar** `<zip>.sha256.json` (`{filename, sha256, size, version}`) that is uploaded next to the zip; at download time the app fetches `<zipURL>.sha256.json`, verifies the zip's sha256 (corruption check; download is HTTPS), and installs. If the sidecar can't be fetched it installs without the hash check (best-effort). **Net effect: a new deps release only needs a `version`/`releaseTag` bump — no re-filling sha256/size.**
+
+**Key files**: `app/assets/deps-version.json` (slim pointer), `app/lib/services/dependency_manager.dart` (check/download/verify/extract — `getManifestUrl`/`_fetchExpectedSha256`), `app/lib/views/dependency_download_dialog.dart` (progress UI).
 
 App and deps use **separate release tags** so unchanged deps aren't re-uploaded on every app release. Download URLs are constructed from `releaseTag` in `deps-version.json`.
 
@@ -609,9 +611,9 @@ Prerequisites: draft release must exist for the tag, `gh` CLI authenticated.
 ### Release Checklist
 
 1. **Confirm version** — ask user, update `pubspec.yaml`
-2. **Check deps** — run `check-deps-changed.sh`; if changed, bump version in `deps-version.json`
-3. **Build & package** — use packaging scripts (or `release.sh` for full automation)
-4. **Update `app/assets/deps-version.json`** — after packaging each platform's deps zip, update its `sha256` and `size` fields with the values printed by the packaging script. **All platforms must have valid (non-null) sha256 and size before release.** The app uses these values to verify downloaded deps at runtime.
+2. **Check deps** — run `check-deps-changed.sh`; if changed, bump `version`/`releaseTag` in `deps-version.json` (that's the only deps edit needed — no sha256/size to fill).
+3. **Build & package** — use packaging scripts (or `release.sh` for full automation). Each `package-deps-*` writes the zip **and** its `<zip>.sha256.json` sidecar.
+4. **Upload deps assets** — upload each platform's zip **and its `.sha256.json` sidecar** to the deps release. The app fetches the sidecar at download time to verify integrity, so there is **nothing to paste back into `deps-version.json`** (it's a slim `version`/`releaseTag` pointer). The build-deps workflows upload both automatically.
 5. **Test** — fresh install + upgrade test
 6. **Create GitHub releases** — deps release first (if changed, tag `deps-vX.Y.Z`), then app release (tag `vX.Y.Z`)
 
@@ -660,7 +662,7 @@ Create the app-specific password at appleid.apple.com → Sign-In and Security �
 - macOS ships as a **universal** (arm64+x86_64) app by default. `build-macos.yml` takes an `arch` input (`universal` | `both` | `arm64` | `x64`, default `universal`) and fans out via a matrix. Universal = lipo'd worker + Runner built with `ARCHS="arm64 x86_64"`; `both` = two separate single-arch DMGs. The x64 slice cross-compiles on the `macos-15` (arm64) runner.
 - Deps are **not** bundled — the app downloads `macos-arm64` or `macos-x64` deps at runtime per `uname`, so a universal app needs **both** deps bundles published. macOS deps are built by `build-deps-macos.yml` (arm64 on `macos-15`, x64 natively on `macos-15-intel`).
 - `app/macos/Podfile` reads `VAPOURBOX_ARCHS` (default `arm64`; set to `x86_64` or `arm64 x86_64`); `package-macos.sh --arch universal` sets this and lipo's the worker.
-- After publishing a new x64 deps zip, fill in `app/assets/deps-version.json` → `macos-x64.sha256`/`.size` (printed by `package-deps-macos.sh`); both platforms must be non-null before release.
+- Publishing a new x64 deps zip needs no `deps-version.json` edit — upload the zip and its `.sha256.json` sidecar (the app verifies via the sidecar at download time).
 
 ### Dependency Version History
 

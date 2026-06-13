@@ -2,32 +2,5 @@
   "version": "1.5.0",
   "releaseTag": "deps-v1.5.0",
   "releaseDate": "2026-06-12",
-  "platforms": {
-    "windows-x64": {
-      "filename": "VapourBox-deps-1.5.0-windows-x64.zip",
-      "sha256": "caac13a92e447792362c1071e64adc153a3041c97ed545e27bb1dfaf5432f326",
-      "size": 179320420
-    },
-    "macos-arm64": {
-      "filename": "VapourBox-deps-1.5.0-macos-arm64.zip",
-      "sha256": "70577203ce398f1fd943cc330000a57c08f6e891d8556b681d7e643d7349ed40",
-      "size": 100567406
-    },
-    "macos-x64": {
-      "filename": "VapourBox-deps-1.5.0-macos-x64.zip",
-      "sha256": "a8112d66ac8bb66e07eafbaa9ab211db7eeb44fea611c70137aed013cc7a077a",
-      "size": 106195723
-    },
-    "linux-x64": {
-      "filename": "VapourBox-deps-1.5.0-linux-x64.zip",
-      "sha256": "61a2f19d91a1f8b7fc7c7f852cb3cf8089b96044b8559fe8f0e4c64e80059058",
-      "size": 191114984
-    },
-    "linux-arm64": {
-      "filename": "VapourBox-deps-1.5.0-linux-arm64.zip",
-      "sha256": "eb1671f40b8bd344e0cbb35f1e5ba8a2383d0b85bb97d8ed92b8c1ba10f54f8b",
-      "size": 169779604
-    }
-  },
   "githubRepo": "StuartCameronCode/VapourBox"
 }

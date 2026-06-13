@@ -166,23 +166,33 @@ PY
     local ZIP_SIZE_MB=$(echo "scale=1; $ZIP_SIZE / 1048576" | bc)
     local SHA256=$(sha256sum "$ZIP_FILE" | cut -d' ' -f1)
 
+    # Integrity sidecar: uploaded next to the zip. The app fetches this to verify
+    # the download, so sha256/size no longer need baking into deps-version.json
+    # (no re-fill on every rebuild). The .sha256.json suffix lets the app derive
+    # the sidecar URL from the zip URL.
+    local SIDECAR_FILE="$ZIP_FILE.sha256.json"
+    cat > "$SIDECAR_FILE" <<EOF
+{
+  "filename": "$PACKAGE_NAME.zip",
+  "sha256": "$SHA256",
+  "size": $ZIP_SIZE,
+  "version": "$VERSION"
+}
+EOF
+
     echo ""
     echo "=== $ARCH_NAME Package Complete ==="
     echo "Zip file: $ZIP_FILE"
     echo "Size: ${ZIP_SIZE_MB} MB"
     echo "SHA256: $SHA256"
+    echo "Sidecar: $SIDECAR_FILE"
     echo ""
 
     # Cleanup
     rm -rf "$PACKAGE_DIR"
 
-    # Output JSON snippet
-    echo "Update deps-version.json with:"
-    echo "  \"linux-$ARCH_NAME\": {"
-    echo "    \"filename\": \"$PACKAGE_NAME.zip\","
-    echo "    \"sha256\": \"$SHA256\","
-    echo "    \"size\": $ZIP_SIZE"
-    echo "  }"
+    echo "Upload BOTH the zip and its .sha256.json to release deps-v$VERSION."
+    echo "deps-version.json only needs version/releaseTag (no sha256/size)."
     echo ""
 }
 

@@ -47,7 +47,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: VapourBox-deps-${{ inputs.version }}-macos-arm64
-          path: dist/VapourBox-deps-${{ inputs.version }}-macos-arm64.zip
+          path: |
+            dist/VapourBox-deps-${{ inputs.version }}-macos-arm64.zip
+            dist/VapourBox-deps-${{ inputs.version }}-macos-arm64.zip.sha256.json
 
       - name: Upload to release
         if: inputs.release_tag != ''
@@ -55,7 +57,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ inputs.release_tag }}" \
-            "dist/VapourBox-deps-${{ inputs.version }}-macos-arm64.zip" --clobber
+            "dist/VapourBox-deps-${{ inputs.version }}-macos-arm64.zip" \
+            "dist/VapourBox-deps-${{ inputs.version }}-macos-arm64.zip.sha256.json" --clobber
 
   build-x64:
     if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
@@ -72,7 +75,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: VapourBox-deps-${{ inputs.version }}-macos-x64
-          path: dist/VapourBox-deps-${{ inputs.version }}-macos-x64.zip
+          path: |
+            dist/VapourBox-deps-${{ inputs.version }}-macos-x64.zip
+            dist/VapourBox-deps-${{ inputs.version }}-macos-x64.zip.sha256.json
 
       - name: Upload to release
         if: inputs.release_tag != ''
@@ -80,4 +85,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ inputs.release_tag }}" \
-            "dist/VapourBox-deps-${{ inputs.version }}-macos-x64.zip" --clobber
+            "dist/VapourBox-deps-${{ inputs.version }}-macos-x64.zip" \
+            "dist/VapourBox-deps-${{ inputs.version }}-macos-x64.zip.sha256.json" --clobber

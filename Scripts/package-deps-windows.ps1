@@ -151,26 +151,28 @@ $ZipSize = (Get-Item $ZipFile).Length
 $ZipSizeMB = [math]::Round($ZipSize / 1MB, 1)
 $Sha256 = (Get-FileHash -Path $ZipFile -Algorithm SHA256).Hash.ToLower()
 
+# Integrity sidecar: uploaded next to the zip. The app fetches this to verify
+# the download, so sha256/size no longer need to be baked into deps-version.json
+# (and re-filled on every rebuild). Keep this next to the zip with a .sha256.json
+# suffix so the app can derive its URL from the zip URL.
+$SidecarFile = "$ZipFile.sha256.json"
+[ordered]@{
+    filename = "$PackageName.zip"
+    sha256   = $Sha256
+    size     = $ZipSize
+    version  = $Version
+} | ConvertTo-Json | Set-Content -Path $SidecarFile -Encoding utf8
+
 Write-Host ""
 Write-Host "=== Packaging Complete ===" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Zip file: $ZipFile" -ForegroundColor Green
 Write-Host "Size: $ZipSizeMB MB"
 Write-Host "SHA256: $Sha256"
+Write-Host "Sidecar: $SidecarFile" -ForegroundColor Green
 Write-Host ""
-Write-Host "Update deps-version.json with:" -ForegroundColor Yellow
-Write-Host @"
-{
-  "version": "$Version",
-  "platforms": {
-    "windows-x64": {
-      "filename": "$PackageName.zip",
-      "sha256": "$Sha256",
-      "size": $ZipSize
-    }
-  }
-}
-"@
+Write-Host "Upload BOTH the zip and its .sha256.json to the release." -ForegroundColor Yellow
+Write-Host "deps-version.json only needs version/releaseTag (no sha256/size)." -ForegroundColor Yellow
 Write-Host ""
 
 # Cleanup package directory (keep just the zip)

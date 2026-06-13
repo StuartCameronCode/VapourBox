@@ -185,7 +185,7 @@ echo "  Downloading Linux artifact..."
 gh run download "$LINUX_RUN_ID" --dir "$DOWNLOAD_DIR"
 
 echo "  Downloaded artifacts:"
-find "$DOWNLOAD_DIR" -type f \( -name "*.zip" -o -name "*.dmg" -o -name "*.tar.gz" \) | while read -r f; do
+find "$DOWNLOAD_DIR" -type f \( -name "*.zip" -o -name "*.dmg" -o -name "*.tar.gz" -o -name "*.sha256.json" \) | while read -r f; do
     SIZE=$(du -sh "$f" | cut -f1)
     echo "    $(basename "$f") ($SIZE)"
 done
@@ -195,7 +195,7 @@ echo ""
 echo -e "${BLUE}[4/4] Uploading to release ${RELEASE_TAG}...${NC}"
 
 UPLOAD_COUNT=0
-find "$DOWNLOAD_DIR" -type f \( -name "*.zip" -o -name "*.dmg" -o -name "*.tar.gz" \) | while read -r f; do
+find "$DOWNLOAD_DIR" -type f \( -name "*.zip" -o -name "*.dmg" -o -name "*.tar.gz" -o -name "*.sha256.json" \) | while read -r f; do
     BASENAME=$(basename "$f")
     echo "  Uploading $BASENAME..."
     gh release upload "$RELEASE_TAG" "$f" --clobber
