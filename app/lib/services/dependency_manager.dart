@@ -89,21 +89,31 @@ class DepsVersionInfo {
   String releaseTagFor(String platform) =>
       platforms[platform]?.releaseTag ?? releaseTag;
 
+  /// The zip filename for a platform. Derived from version + platform unless a
+  /// per-platform override supplies one explicitly (legacy/committed pointer).
+  String filenameFor(String platform) =>
+      platforms[platform]?.filename ??
+      'VapourBox-deps-${versionFor(platform)}-$platform.zip';
+
   /// Get the download URL for a specific platform's deps zip.
-  String getDownloadUrl(String platform) {
-    final platformInfo = platforms[platform];
-    if (platformInfo == null) {
-      throw StateError('No dependency info for platform: $platform');
-    }
-    return 'https://github.com/$githubRepo/releases/download/${releaseTagFor(platform)}/${platformInfo.filename}';
-  }
+  String getDownloadUrl(String platform) =>
+      'https://github.com/$githubRepo/releases/download/${releaseTagFor(platform)}/${filenameFor(platform)}';
+
+  /// URL of the integrity sidecar uploaded next to the zip (same release). It
+  /// carries the expected sha256/size, so those don't need to be baked into the
+  /// app and re-filled on every deps rebuild.
+  String getManifestUrl(String platform) =>
+      '${getDownloadUrl(platform)}.sha256.json';
 }
 
-/// Platform-specific dependency info.
+/// Optional per-platform overrides in the (slim) deps-version pointer.
+///
+/// The committed `deps-version.json` is now just `{version, releaseTag,
+/// githubRepo}` — filename is derived and the sha256/size live in the release
+/// sidecar. This block only exists when a platform pins its own version/tag (or
+/// an explicit filename); any of these may be absent.
 class PlatformDepsInfo {
-  final String filename;
-  final String? sha256;
-  final int? size;
+  final String? filename;
 
   /// Optional per-platform version override. When set, this platform's deps are
   /// versioned independently of the global `version` (see [DepsVersionInfo.versionFor]).
@@ -113,18 +123,14 @@ class PlatformDepsInfo {
   final String? releaseTag;
 
   PlatformDepsInfo({
-    required this.filename,
-    this.sha256,
-    this.size,
+    this.filename,
     this.version,
     this.releaseTag,
   });
 
   factory PlatformDepsInfo.fromJson(Map<String, dynamic> json) {
     return PlatformDepsInfo(
-      filename: json['filename'] as String,
-      sha256: json['sha256'] as String?,
-      size: json['size'] as int?,
+      filename: json['filename'] as String?,
       version: json['version'] as String?,
       releaseTag: json['releaseTag'] as String?,
     );
@@ -392,34 +398,35 @@ class DependencyManager {
   /// installation is done or fails.
   Future<void> downloadAndInstall() async {
     final expected = await getExpectedVersion();
-    final platformInfo = expected.platforms[platformId];
 
-    if (platformInfo == null) {
-      throw StateError('No dependency info for platform: $platformId');
-    }
-
-    // Construct download URL from release tag
+    // Construct download URL from release tag (filename is derived).
     final downloadUrl = expected.getDownloadUrl(platformId);
+    final filename = expected.filenameFor(platformId);
 
     print('DependencyManager: Downloading from $downloadUrl');
 
     _progressController.add(DownloadProgress(
       bytesReceived: 0,
-      totalBytes: platformInfo.size ?? 0,
+      totalBytes: 0,
       status: 'Connecting...',
     ));
 
+    // Fetch the integrity sidecar (sha256) uploaded next to the zip. Verification
+    // is best-effort: if the sidecar is missing/unreadable we still install (the
+    // download is over HTTPS), matching prior behaviour when no hash was set.
+    final expectedSha256 =
+        await _fetchExpectedSha256(expected.getManifestUrl(platformId));
+
     // Create temp file for download
     final tempDir = await Directory.systemTemp.createTemp('vapourbox_deps_');
-    final tempFile = File(path.join(tempDir.path, platformInfo.filename));
+    final tempFile = File(path.join(tempDir.path, filename));
 
     try {
       // Download with progress
       await _downloadFile(
         downloadUrl,
         tempFile,
-        expectedSize: platformInfo.size,
-        expectedSha256: platformInfo.sha256,
+        expectedSha256: expectedSha256,
       );
 
       // Extract. _extractZip emits per-file extraction progress; this initial
@@ -431,14 +438,16 @@ class DependencyManager {
         status: 'Extracting...',
       ));
 
+      final downloadedBytes = await tempFile.length();
+
       await _extractZip(tempFile);
 
       // Write version file (per-platform version, so the next check matches)
       await _writeInstalledVersion(expected.versionFor(platformId));
 
       _progressController.add(DownloadProgress(
-        bytesReceived: platformInfo.size ?? 0,
-        totalBytes: platformInfo.size ?? 0,
+        bytesReceived: downloadedBytes,
+        totalBytes: downloadedBytes,
         status: 'Complete',
       ));
 
@@ -448,6 +457,37 @@ class DependencyManager {
       try {
         await tempDir.delete(recursive: true);
       } catch (_) {}
+    }
+  }
+
+  /// Fetch the expected sha256 from the integrity sidecar uploaded next to the
+  /// zip. Returns null if the sidecar can't be fetched or parsed, in which case
+  /// the caller installs without hash verification (best-effort, HTTPS-trusted).
+  Future<String?> _fetchExpectedSha256(String url) async {
+    try {
+      final client = await RhttpClient.create(
+        settings: const ClientSettings(throwOnStatusCode: false),
+      );
+      try {
+        final response = await client.get(url);
+        if (response.statusCode != 200) {
+          print(
+              'DependencyManager: manifest fetch HTTP ${response.statusCode} ($url) - skipping hash check');
+          return null;
+        }
+        final json = jsonDecode(response.body) as Map<String, dynamic>;
+        final sha = json['sha256'] as String?;
+        if (sha == null || sha.isEmpty) {
+          print('DependencyManager: manifest has no sha256 - skipping hash check');
+          return null;
+        }
+        return sha;
+      } finally {
+        client.dispose();
+      }
+    } catch (e) {
+      print('DependencyManager: manifest fetch/parse failed ($e) - skipping hash check');
+      return null;
     }
   }
 

@@ -7,7 +7,7 @@
     - VapourSynth R73 (portable, includes Python 3.8)
     - Python 3.8 embeddable (for VSScript)
     - FFmpeg (latest GPL build)
-    - VapourSynth plugins (mvtools, nnedi3cl, znedi3, eedi3m, fmtconv, miscfilters, dfttest, neo_f3kdb, cas, fft3dfilter)
+    - VapourSynth plugins (mvtools, nnedi3cl, znedi3, eedi3m, fmtconv, miscfilters, dfttest, neo_f3kdb, cas, fft3dfilter, descratch, temporalmedian)
     - FFTW library (required by dfttest)
     - Python packages (havsfunc, mvsfunc, adjust)
     - NNEDI3 weights
@@ -272,14 +272,29 @@ $Plugins7z = @(
         Name = "vivtc"
         Url = "https://github.com/vapoursynth/vivtc/releases/download/R1/VIVTC-R1.7z"
         Check = "VIVTC.dll"
+    },
+    @{
+        # core.descratch.DeScratch - vertical scratch removal (pipeline Pass 3).
+        # Same upstream repo macOS builds from; R3 is the latest tag with a win64 asset.
+        Name = "descratch"
+        Url = "https://github.com/vapoursynth/descratch/releases/download/R3/descratch-r3.7z"
+        Check = "DeScratch.dll"
+    },
+    @{
+        # core.tmedian.TemporalMedian - used by the SpotLess filter (spotless.py).
+        Name = "temporalmedian"
+        Url = "https://github.com/dubhater/vapoursynth-temporalmedian/releases/download/v1/vapoursynth-temporalmedian-v1-win64.7z"
+        Check = "libtemporalmedian.dll"
     }
 )
 
-# Plugins with zip format
+# Plugins with zip format. NOTE: fmtconv-r30.zip ships BOTH win32/fmtconv.dll and
+# win64/fmtconv.dll under arch subfolders, so the copy loop below must pick win64
+# (copying both would let win32 clobber the 64-bit DLL depending on file order).
 $PluginsZip = @(
     @{
         Name = "fmtconv"
-        Url = "https://github.com/EleonoreMizo/fmtconv/releases/download/r30/fmtconv-r30-win-x64.zip"
+        Url = "https://github.com/EleonoreMizo/fmtconv/releases/download/r30/fmtconv-r30.zip"
         Check = "fmtconv.dll"
     }
 )
@@ -332,7 +347,12 @@ foreach ($Plugin in $PluginsZip) {
             Download-File -Url $Plugin.Url -OutFile $ArchiveFile
             Expand-Archive -Path $ArchiveFile -DestinationPath $ExtractDir -Force
 
-            Get-ChildItem -Path $ExtractDir -Recurse -Filter "*.dll" | ForEach-Object {
+            # Prefer 64-bit DLLs when the archive ships per-arch folders (e.g.
+            # fmtconv: win32/ + win64/) so a 32-bit DLL never clobbers the x64 one.
+            $Dlls = Get-ChildItem -Path $ExtractDir -Recurse -Filter "*.dll"
+            $Win64 = $Dlls | Where-Object { $_.DirectoryName -match '(?i)win64|x64|amd64|x86_64' }
+            if ($Win64) { $Dlls = $Win64 }
+            $Dlls | ForEach-Object {
                 Copy-Item $_.FullName $PluginsDir -Force
                 Write-Host "    Copied: $($_.Name)" -ForegroundColor Gray
             }

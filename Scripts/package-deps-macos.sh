@@ -47,6 +47,10 @@ echo ""
 
 mkdir -p "$DIST_DIR"
 
+# Set when any arch is missing required plugins; checked after packaging so the
+# script exits non-zero (and "both" mode reports every failing arch).
+PACKAGE_INCOMPLETE=""
+
 package_arch() {
     local ARCH_NAME=$1
     local DEPS_DIR="$PROJECT_ROOT/deps/macos-$ARCH_NAME"
@@ -135,6 +139,28 @@ EOF
     find "$PACKAGE_DIR" -name "tmpclaude-*" -delete 2>/dev/null || true
     find "$PACKAGE_DIR" -name "*.auto.conf" -delete 2>/dev/null || true
 
+    # Completeness guard: every required plugin must be present before we zip,
+    # so a silently-failed build/download can't ship an incomplete bundle.
+    # Contract: Scripts/deps-expected-plugins.json.
+    echo "    Verifying required plugins for $ARCH_NAME..."
+    local MANIFEST="$PROJECT_ROOT/Scripts/deps-expected-plugins.json"
+    local MISSING
+    MISSING=$(python3 - "$MANIFEST" "macos-$ARCH_NAME" "$PACKAGE_DIR/vapoursynth/plugins" <<'PY'
+import json, os, sys
+manifest, key, plugin_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+expected = json.load(open(manifest)).get(key, [])
+print("\n".join(f for f in expected if not os.path.isfile(os.path.join(plugin_dir, f))))
+PY
+)
+    if [ -n "$MISSING" ]; then
+        echo "ERROR: macos-$ARCH_NAME bundle is missing required plugins:" >&2
+        echo "$MISSING" | sed 's/^/  - /' >&2
+        echo "A plugin build/download likely failed - check the download-deps-macos.sh output." >&2
+        PACKAGE_INCOMPLETE="$PACKAGE_INCOMPLETE macos-$ARCH_NAME"
+        return 1
+    fi
+    echo "    All required plugins present for $ARCH_NAME"
+
     echo "[4/4] Creating zip archive for $ARCH_NAME..."
     local ZIP_FILE="$DIST_DIR/$PACKAGE_NAME.zip"
     rm -f "$ZIP_FILE"
@@ -147,23 +173,33 @@ EOF
     local ZIP_SIZE_MB=$(echo "scale=1; $ZIP_SIZE / 1048576" | bc)
     local SHA256=$(shasum -a 256 "$ZIP_FILE" | cut -d' ' -f1)
 
+    # Integrity sidecar: uploaded next to the zip. The app fetches this to verify
+    # the download, so sha256/size no longer need baking into deps-version.json
+    # (no re-fill on every rebuild). The .sha256.json suffix lets the app derive
+    # the sidecar URL from the zip URL.
+    local SIDECAR_FILE="$ZIP_FILE.sha256.json"
+    cat > "$SIDECAR_FILE" <<EOF
+{
+  "filename": "$PACKAGE_NAME.zip",
+  "sha256": "$SHA256",
+  "size": $ZIP_SIZE,
+  "version": "$VERSION"
+}
+EOF
+
     echo ""
     echo "=== $ARCH_NAME Package Complete ==="
     echo "Zip file: $ZIP_FILE"
     echo "Size: ${ZIP_SIZE_MB} MB"
     echo "SHA256: $SHA256"
+    echo "Sidecar: $SIDECAR_FILE"
     echo ""
 
     # Cleanup
     rm -rf "$PACKAGE_DIR"
 
-    # Output JSON snippet
-    echo "Update deps-version.json with:"
-    echo "  \"macos-$ARCH_NAME\": {"
-    echo "    \"filename\": \"$PACKAGE_NAME.zip\","
-    echo "    \"sha256\": \"$SHA256\","
-    echo "    \"size\": $ZIP_SIZE"
-    echo "  }"
+    echo "Upload BOTH the zip and its .sha256.json to release deps-v$VERSION."
+    echo "deps-version.json only needs version/releaseTag (no sha256/size)."
     echo ""
 }
 
@@ -188,5 +224,11 @@ case "$ARCH" in
         exit 1
         ;;
 esac
+
+if [ -n "$PACKAGE_INCOMPLETE" ]; then
+    echo "" >&2
+    echo "ERROR: incomplete bundle(s):$PACKAGE_INCOMPLETE — missing required plugins (see above). Failing." >&2
+    exit 1
+fi
 
 echo "Done. Upload zip files to GitHub release deps-v$VERSION"

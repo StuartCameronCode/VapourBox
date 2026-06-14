@@ -228,6 +228,21 @@ EOF
         zip -r -q "VapourBox-deps-$DEPS_VERSION-windows-x64.zip" "VapourBox-deps-$DEPS_VERSION-windows-x64"
         rm -rf "$WINDOWS_PACKAGE_DIR"
         echo "Created: dist/VapourBox-deps-$DEPS_VERSION-windows-x64.zip"
+
+        # Integrity sidecar (matches package-deps-windows.ps1 output) so the app
+        # can verify the download. This manual path bypasses the PowerShell
+        # packager, so write the sidecar here too.
+        WIN_ZIP="$PROJECT_ROOT/dist/VapourBox-deps-$DEPS_VERSION-windows-x64.zip"
+        WIN_SHA=$(shasum -a 256 "$WIN_ZIP" | cut -d' ' -f1)
+        WIN_SIZE=$(stat -f%z "$WIN_ZIP" 2>/dev/null || stat -c%s "$WIN_ZIP")
+        cat > "$WIN_ZIP.sha256.json" << EOF
+{
+  "filename": "VapourBox-deps-$DEPS_VERSION-windows-x64.zip",
+  "sha256": "$WIN_SHA",
+  "size": $WIN_SIZE,
+  "version": "$DEPS_VERSION"
+}
+EOF
     fi
 
     # Package Linux deps (if deps exist)
@@ -260,9 +275,11 @@ These dependencies are automatically downloaded by the app on first launch."
         --title "Dependencies $DEPS_VERSION" \
         --notes "$DEPS_NOTES" \
         --latest=false \
-        "$PROJECT_ROOT/dist/VapourBox-deps-$DEPS_VERSION-"*.zip 2>/dev/null || {
+        "$PROJECT_ROOT/dist/VapourBox-deps-$DEPS_VERSION-"*.zip \
+        "$PROJECT_ROOT/dist/VapourBox-deps-$DEPS_VERSION-"*.zip.sha256.json 2>/dev/null || {
             echo -e "${YELLOW}Uploading assets to existing release...${NC}"
-            for f in "$PROJECT_ROOT/dist/VapourBox-deps-$DEPS_VERSION-"*.zip; do
+            for f in "$PROJECT_ROOT/dist/VapourBox-deps-$DEPS_VERSION-"*.zip \
+                     "$PROJECT_ROOT/dist/VapourBox-deps-$DEPS_VERSION-"*.zip.sha256.json; do
                 [ -f "$f" ] && gh release upload "$DEPS_TAG" "$f" --repo "$GITHUB_REPO" --clobber
             done
         }

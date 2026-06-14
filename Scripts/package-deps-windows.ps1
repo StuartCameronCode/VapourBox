@@ -122,6 +122,22 @@ $VersionInfo = @{
 } | ConvertTo-Json -Depth 10
 Set-Content -Path "$PackageDir\version.json" -Value $VersionInfo
 
+# Completeness guard: every required plugin must be present in the staged bundle
+# before we zip. A silently-failed download (e.g. a dead upstream URL) would
+# otherwise ship an incomplete bundle. Contract: Scripts/deps-expected-plugins.json.
+Write-Host "[4b/5] Verifying required plugins..." -ForegroundColor Yellow
+$ManifestPath = Join-Path $ProjectRoot "Scripts\deps-expected-plugins.json"
+$ExpectedPlugins = (Get-Content $ManifestPath -Raw | ConvertFrom-Json)."windows-x64"
+$StagedPluginDir = Join-Path "$PackageDir\vapoursynth" "vs-plugins"
+$MissingPlugins = @($ExpectedPlugins | Where-Object { -not (Test-Path (Join-Path $StagedPluginDir $_)) })
+if ($MissingPlugins.Count -gt 0) {
+    Write-Host "ERROR: bundle is missing $($MissingPlugins.Count) required plugin(s):" -ForegroundColor Red
+    $MissingPlugins | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
+    Write-Host "A plugin download likely failed - check the download-deps-windows.ps1 output above." -ForegroundColor Red
+    exit 1
+}
+Write-Host "    All $($ExpectedPlugins.Count) required plugins present" -ForegroundColor Green
+
 # Create zip file
 Write-Host "[5/5] Creating zip archive..." -ForegroundColor Yellow
 $ZipFile = Join-Path $DistDir "$PackageName.zip"
@@ -135,26 +151,28 @@ $ZipSize = (Get-Item $ZipFile).Length
 $ZipSizeMB = [math]::Round($ZipSize / 1MB, 1)
 $Sha256 = (Get-FileHash -Path $ZipFile -Algorithm SHA256).Hash.ToLower()
 
+# Integrity sidecar: uploaded next to the zip. The app fetches this to verify
+# the download, so sha256/size no longer need to be baked into deps-version.json
+# (and re-filled on every rebuild). Keep this next to the zip with a .sha256.json
+# suffix so the app can derive its URL from the zip URL.
+$SidecarFile = "$ZipFile.sha256.json"
+[ordered]@{
+    filename = "$PackageName.zip"
+    sha256   = $Sha256
+    size     = $ZipSize
+    version  = $Version
+} | ConvertTo-Json | Set-Content -Path $SidecarFile -Encoding utf8
+
 Write-Host ""
 Write-Host "=== Packaging Complete ===" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Zip file: $ZipFile" -ForegroundColor Green
 Write-Host "Size: $ZipSizeMB MB"
 Write-Host "SHA256: $Sha256"
+Write-Host "Sidecar: $SidecarFile" -ForegroundColor Green
 Write-Host ""
-Write-Host "Update deps-version.json with:" -ForegroundColor Yellow
-Write-Host @"
-{
-  "version": "$Version",
-  "platforms": {
-    "windows-x64": {
-      "filename": "$PackageName.zip",
-      "sha256": "$Sha256",
-      "size": $ZipSize
-    }
-  }
-}
-"@
+Write-Host "Upload BOTH the zip and its .sha256.json to the release." -ForegroundColor Yellow
+Write-Host "deps-version.json only needs version/releaseTag (no sha256/size)." -ForegroundColor Yellow
 Write-Host ""
 
 # Cleanup package directory (keep just the zip)
