@@ -152,6 +152,13 @@ pub struct EncodingSettings {
     /// Output container format
     #[serde(default)]
     pub container: ContainerFormat,
+
+    /// Target video bitrate in kbps. Used by Intel-Mac VideoToolbox (which has no
+    /// constant-quality mode), where the UI exposes a native bitrate control
+    /// instead of the CRF slider. `None` falls back to a resolution-derived
+    /// estimate; ignored by all other encoder families.
+    #[serde(default)]
+    pub video_bitrate_kbps: Option<u32>,
 }
 
 fn default_encoder_preset() -> String {
@@ -313,6 +320,7 @@ impl Default for EncodingSettings {
             chroma_subsampling: ChromaSubsampling::default(),
             custom_ffmpeg_args: String::new(),
             container: ContainerFormat::default(),
+            video_bitrate_kbps: None,
         }
     }
 }
