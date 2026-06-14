@@ -661,6 +661,17 @@ impl PipelineExecutor {
             args.extend(["-pix_fmt".to_string(), pix_fmt.to_string()]);
         }
 
+        // MP4/MOV container fixups. QuickTime and other Apple players reject HEVC
+        // with the default `hev1` sample-entry; force `hvc1` so the output is
+        // playable. Also move the moov atom to the front (+faststart) for better
+        // playback/seeking. Both are no-ops for MKV/AVI.
+        if matches!(settings.container, ContainerFormat::Mp4 | ContainerFormat::Mov) {
+            if settings.codec.is_h265() {
+                args.extend(["-tag:v".to_string(), "hvc1".to_string()]);
+            }
+            args.extend(["-movflags".to_string(), "+faststart".to_string()]);
+        }
+
         // Preserve input sample aspect ratio (SAR) when no resize is applied.
         // The Y4M pipe from vspipe strips SAR metadata, so we must re-apply it.
         let pipeline = job.effective_pipeline();
@@ -802,7 +813,13 @@ impl PipelineExecutor {
                     }
                     #[cfg(not(target_arch = "aarch64"))]
                     {
-                        let kbps = Self::videotoolbox_bitrate_kbps(job);
+                        // Native Intel-VideoToolbox control: an explicit target
+                        // bitrate set in the UI. Fall back to the resolution-derived
+                        // estimate only when the UI didn't provide one.
+                        let kbps = settings
+                            .video_bitrate_kbps
+                            .filter(|&k| k > 0)
+                            .unwrap_or_else(|| Self::videotoolbox_bitrate_kbps(job));
                         args.extend(["-b:v".to_string(), format!("{}k", kbps)]);
                     }
                 }
@@ -1064,6 +1081,15 @@ mod tests {
             args.extend(["-pix_fmt".to_string(), pix_fmt.to_string()]);
         }
 
+        // MP4/MOV container fixups (mirrors build_ffmpeg_args): hvc1 tag for HEVC
+        // so Apple players accept it, plus +faststart.
+        if matches!(settings.container, ContainerFormat::Mp4 | ContainerFormat::Mov) {
+            if settings.codec.is_h265() {
+                args.extend(["-tag:v".to_string(), "hvc1".to_string()]);
+            }
+            args.extend(["-movflags".to_string(), "+faststart".to_string()]);
+        }
+
         // Audio handling
         match settings.audio_mode {
             AudioMode::Passthrough => {
@@ -1136,6 +1162,65 @@ mod tests {
 
         // Unknown codecs are excluded (allowlist) to avoid a hard encode failure.
         assert!(!PipelineExecutor::is_text_subtitle("some_future_codec"));
+    }
+
+    /// True if `args` contains the consecutive pair [flag, value].
+    fn has_arg_pair(args: &[String], flag: &str, value: &str) -> bool {
+        args.windows(2).any(|w| w[0] == flag && w[1] == value)
+    }
+
+    #[test]
+    fn test_hevc_mp4_tagged_hvc1_for_quicktime() {
+        // Issue #19: HEVC in MP4/MOV must use the hvc1 sample-entry tag or Apple
+        // players (QuickTime) reject the file.
+        let mut job = create_test_job("out.mp4");
+        job.encoding_settings.codec = VideoCodec::H265;
+        job.encoding_settings.container = ContainerFormat::Mp4;
+        let args = build_ffmpeg_args_for_test(&job);
+        assert!(has_arg_pair(&args, "-tag:v", "hvc1"), "HEVC/MP4 must set -tag:v hvc1: {args:?}");
+        assert!(has_arg_pair(&args, "-movflags", "+faststart"), "MP4 should set +faststart");
+    }
+
+    #[test]
+    fn test_hevc_mov_tagged_hvc1() {
+        let mut job = create_test_job("out.mov");
+        job.encoding_settings.codec = VideoCodec::H265Videotoolbox;
+        job.encoding_settings.container = ContainerFormat::Mov;
+        let args = build_ffmpeg_args_for_test(&job);
+        assert!(has_arg_pair(&args, "-tag:v", "hvc1"), "HEVC/MOV must set -tag:v hvc1");
+    }
+
+    #[test]
+    fn test_h264_mp4_not_tagged_hvc1() {
+        let mut job = create_test_job("out.mp4");
+        job.encoding_settings.codec = VideoCodec::H264;
+        job.encoding_settings.container = ContainerFormat::Mp4;
+        let args = build_ffmpeg_args_for_test(&job);
+        assert!(!has_arg_pair(&args, "-tag:v", "hvc1"), "H.264 must not be tagged hvc1");
+        assert!(has_arg_pair(&args, "-movflags", "+faststart"));
+    }
+
+    #[test]
+    fn test_hevc_mkv_no_hvc1_or_faststart() {
+        let mut job = create_test_job("out.mkv");
+        job.encoding_settings.codec = VideoCodec::H265;
+        job.encoding_settings.container = ContainerFormat::Mkv;
+        let args = build_ffmpeg_args_for_test(&job);
+        assert!(!has_arg_pair(&args, "-tag:v", "hvc1"), "MKV doesn't use hvc1");
+        assert!(!has_arg_pair(&args, "-movflags", "+faststart"), "faststart is MP4/MOV-only");
+    }
+
+    // Intel-only: VideoToolbox uses an explicit target bitrate (no constant-quality
+    // mode). On Apple Silicon the encoder uses -q:v, so this assertion is x86_64-only.
+    #[cfg(not(target_arch = "aarch64"))]
+    #[test]
+    fn test_videotoolbox_intel_uses_explicit_bitrate() {
+        let mut job = create_test_job("out.mp4");
+        job.encoding_settings.codec = VideoCodec::H265Videotoolbox;
+        job.encoding_settings.container = ContainerFormat::Mp4;
+        job.encoding_settings.video_bitrate_kbps = Some(20000);
+        let args = build_ffmpeg_args_for_test(&job);
+        assert!(has_arg_pair(&args, "-b:v", "20000k"), "Intel VT must use the chosen bitrate: {args:?}");
     }
 
     #[test]

@@ -79,6 +79,11 @@ class EncodingSettings {
   final String encoderPreset;
   final int quality;
 
+  /// Target video bitrate in kbps. Used by Intel-Mac VideoToolbox (which has no
+  /// constant-quality mode), where the UI exposes a native bitrate control
+  /// instead of the CRF slider. Null for all other encoders.
+  final int? videoBitrateKbps;
+
   /// Audio handling mode.
   final AudioMode audioMode;
 
@@ -107,6 +112,7 @@ class EncodingSettings {
     this.codec = VideoCodec.h264,
     this.encoderPreset = 'medium',
     this.quality = 18,
+    this.videoBitrateKbps,
     this.audioMode = AudioMode.passthrough,
     this.audioCodec = AudioCodec.aac,
     this.audioQuality = AudioQuality.high,
@@ -189,6 +195,7 @@ class EncodingSettings {
     VideoCodec? codec,
     String? encoderPreset,
     int? quality,
+    int? videoBitrateKbps,
     AudioMode? audioMode,
     AudioCodec? audioCodec,
     AudioQuality? audioQuality,
@@ -211,6 +218,7 @@ class EncodingSettings {
       codec: codec ?? this.codec,
       encoderPreset: encoderPreset ?? this.encoderPreset,
       quality: quality ?? this.quality,
+      videoBitrateKbps: videoBitrateKbps ?? this.videoBitrateKbps,
       audioMode: effectiveAudioMode,
       audioCodec: audioCodec ?? this.audioCodec,
       audioQuality: audioQuality ?? this.audioQuality,

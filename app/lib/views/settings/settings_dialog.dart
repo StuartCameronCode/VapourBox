@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/encoding_settings.dart';
 import '../../models/video_job.dart';
+import '../../services/dependency_manager.dart';
 import '../../services/hardware_encoder_detector.dart';
 import '../../services/update_checker.dart';
 import '../../viewmodels/main_viewmodel.dart';
@@ -214,11 +215,29 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
   late TextEditingController _filenamePatternController;
   late TextEditingController _customFfmpegArgsController;
 
+  // Intel-Mac VideoToolbox uses a native target-bitrate control (no -q:v mode).
+  final TextEditingController _vtBitrateController = TextEditingController();
+  final FocusNode _vtBitrateFocus = FocusNode();
+  late final bool _isIntelMac;
+
+  /// Default target bitrate (kbps) applied when an Intel-VT codec is selected.
+  static const int _kDefaultVtBitrateKbps = 20000;
+
+  /// Bitrate preset shortcuts (label -> Mb/s) for Intel VideoToolbox.
+  static const Map<String, int> _kVtBitratePresetsMbps = {
+    'Low': 5,
+    'Medium': 10,
+    'High': 20,
+    'Very High': 40,
+  };
+
   @override
   void initState() {
     super.initState();
     _filenamePatternController = TextEditingController();
     _customFfmpegArgsController = TextEditingController();
+    _isIntelMac = Platform.isMacOS &&
+        DependencyManager.instance.platformId == 'macos-x64';
     // Kick off (idempotent) encoder detection and rebuild as probes resolve so
     // the codec list can show/clear a busy indicator per encoder live.
     HardwareEncoderDetector.instance.addListener(_onEncoderDetectionChanged);
@@ -229,11 +248,18 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     if (mounted) setState(() {});
   }
 
+  /// Whether the codec is a VideoToolbox (macOS hardware) encoder.
+  bool _isVideotoolbox(VideoCodec codec) =>
+      codec == VideoCodec.h264Videotoolbox ||
+      codec == VideoCodec.h265Videotoolbox;
+
   @override
   void dispose() {
     HardwareEncoderDetector.instance.removeListener(_onEncoderDetectionChanged);
     _filenamePatternController.dispose();
     _customFfmpegArgsController.dispose();
+    _vtBitrateController.dispose();
+    _vtBitrateFocus.dispose();
     super.dispose();
   }
 
@@ -500,40 +526,16 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
             if (settings.codec.availablePresets != null)
               const SizedBox(height: 24),
 
-            // Quality (not applicable for lossless codecs)
+            // Quality (not applicable for lossless codecs). Intel VideoToolbox has
+            // no constant-quality mode, so it gets a native target-bitrate control
+            // instead of the CRF slider.
             if (!settings.codec.isLossless)
               _buildSection(
                 context,
                 title: 'Quality',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Slider(
-                      value: settings.quality.toDouble(),
-                      min: 0,
-                      max: 51,
-                      divisions: 51,
-                      label: settings.qualityDescription,
-                      onChanged: (value) {
-                        viewModel.updateEncodingSettings(
-                            settings.copyWith(quality: value.round()));
-                      },
-                    ),
-                    Text(
-                      settings.qualityDescription,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    Text(
-                      'Lower values = higher quality, larger file',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withValues(alpha: 0.6),
-                          ),
-                    ),
-                  ],
-                ),
+                child: (_isIntelMac && _isVideotoolbox(settings.codec))
+                    ? _buildVideotoolboxBitrate(context, viewModel, settings)
+                    : _buildCrfQuality(context, viewModel, settings),
               ),
 
             // Note for lossless codec
@@ -859,6 +861,105 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     );
   }
 
+  /// The standard CRF/quality slider (software, NVENC, QSV, AMF, Apple-Silicon VT).
+  Widget _buildCrfQuality(
+      BuildContext context, MainViewModel viewModel, EncodingSettings settings) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Slider(
+          value: settings.quality.toDouble(),
+          min: 0,
+          max: 51,
+          divisions: 51,
+          label: settings.qualityDescription,
+          onChanged: (value) {
+            viewModel.updateEncodingSettings(
+                settings.copyWith(quality: value.round()));
+          },
+        ),
+        Text(
+          settings.qualityDescription,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        Text(
+          'Lower values = higher quality, larger file',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color:
+                    Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+        ),
+      ],
+    );
+  }
+
+  /// Native Intel-VideoToolbox control: target average bitrate (preset chips +
+  /// an editable Mb/s field). Intel VT has no constant-quality (-q:v) mode.
+  Widget _buildVideotoolboxBitrate(
+      BuildContext context, MainViewModel viewModel, EncodingSettings settings) {
+    final currentKbps = settings.videoBitrateKbps ?? _kDefaultVtBitrateKbps;
+    // Sync the field when the value changes via a preset chip or codec switch,
+    // but never clobber what the user is actively typing.
+    final mbpsText =
+        (currentKbps / 1000).toString().replaceAll(RegExp(r'\.0$'), '');
+    if (!_vtBitrateFocus.hasFocus && _vtBitrateController.text != mbpsText) {
+      _vtBitrateController.text = mbpsText;
+    }
+
+    void setKbps(int kbps) {
+      viewModel
+          .updateEncodingSettings(settings.copyWith(videoBitrateKbps: kbps));
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: _kVtBitratePresetsMbps.entries.map((e) {
+            final kbps = e.value * 1000;
+            return ChoiceChip(
+              label: Text('${e.key} (${e.value} Mb/s)'),
+              selected: currentKbps == kbps,
+              onSelected: (_) => setKbps(kbps),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: 220,
+          child: TextField(
+            controller: _vtBitrateController,
+            focusNode: _vtBitrateFocus,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Target bitrate',
+              suffixText: 'Mb/s',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (value) {
+              final mbps = double.tryParse(value.trim());
+              if (mbps != null && mbps > 0) {
+                setKbps((mbps * 1000).round());
+              }
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'VideoToolbox on Intel Macs encodes to a target average bitrate '
+          '(no constant-quality mode). Higher = better quality, larger file.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color:
+                    Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildCodecRadio(BuildContext context, MainViewModel viewModel,
       EncodingSettings settings, VideoCodec codec) {
     final detector = HardwareEncoderDetector.instance;
@@ -964,16 +1065,26 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
       onChanged: clickable
           ? (value) {
               if (value != null) {
+                // Seed a default target bitrate when switching to an Intel-VT
+                // codec so the worker uses it instead of the low fallback estimate.
+                final vtBitrate = (_isIntelMac &&
+                        _isVideotoolbox(value) &&
+                        settings.videoBitrateKbps == null)
+                    ? _kDefaultVtBitrateKbps
+                    : settings.videoBitrateKbps;
                 // When switching encoder families, reset the preset to the new family's default
                 final oldFamily = settings.codec.encoderFamily;
                 final newFamily = value.encoderFamily;
                 if (oldFamily != newFamily) {
                   viewModel.updateEncodingSettings(
-                    settings.copyWith(codec: value, encoderPreset: value.defaultPreset),
+                    settings.copyWith(
+                        codec: value,
+                        encoderPreset: value.defaultPreset,
+                        videoBitrateKbps: vtBitrate),
                   );
                 } else {
                   viewModel.updateEncodingSettings(
-                    settings.copyWith(codec: value),
+                    settings.copyWith(codec: value, videoBitrateKbps: vtBitrate),
                   );
                 }
               }

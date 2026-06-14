@@ -158,9 +158,11 @@ class ProgressPanel extends StatelessWidget {
                 ),
               ],
 
-              // Log viewer
+              // Log viewer — keep it (and the Copy Log button) visible after a
+              // successful finish too, not just while processing/on failure.
               if (viewModel.logMessages.isNotEmpty &&
                   (state == ProcessingState.processing ||
+                      state == ProcessingState.completed ||
                       state == ProcessingState.failed)) ...[
                 const SizedBox(height: 32),
                 _buildLogViewer(context, viewModel),
