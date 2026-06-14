@@ -313,6 +313,36 @@ impl DependencyLocator {
         String::new()
     }
 
+    /// Count the decodable video frames in `input` via ffprobe. Returns None if
+    /// ffprobe is unavailable or the count can't be determined. Uses
+    /// `-count_frames` (decodes) for an accurate count that matches what the
+    /// decoder will actually pipe — header `nb_frames` is often wrong for AVI /
+    /// lossless codecs (e.g. our lagarith test clip reports 79 but decodes 75).
+    pub fn probe_frame_count(&self, input: &str) -> Option<i32> {
+        let ffprobe = self.ffprobe_path().ok()?;
+        let out = Command::new(&ffprobe)
+            .args([
+                "-v", "error",
+                "-select_streams", "v:0",
+                "-count_frames",
+                "-show_entries", "stream=nb_read_frames",
+                "-of", "default=nokey=1:noprint_wrappers=1",
+                input,
+            ])
+            .envs(self.build_environment())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse::<i32>()
+            .ok()
+            .filter(|&n| n > 0)
+    }
+
     /// Get the path to ffmpeg executable.
     pub fn ffmpeg_path(&self) -> Result<PathBuf> {
         let exe_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
