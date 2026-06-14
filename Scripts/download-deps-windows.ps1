@@ -343,8 +343,15 @@ foreach ($Plugin in $Plugins7z) {
             Download-File -Url $Plugin.Url -OutFile $ArchiveFile
             & $7zPath x $ArchiveFile -o"$ExtractDir" -y | Out-Null
 
-            # Copy all DLL and bin files
-            Get-ChildItem -Path $ExtractDir -Recurse -Filter "*.dll" | ForEach-Object {
+            # Prefer 64-bit DLLs when the archive ships per-arch folders (e.g.
+            # neo_f3kdb_r10.7z ships x86\ + x64\). Get-ChildItem -Recurse copies
+            # last-write-wins, and x86 sorts after x64, so without this the 32-bit
+            # DLL clobbers the x64 one and fails to load with GetLastError 193
+            # (ERROR_BAD_EXE_FORMAT). Same logic as the zip loop below.
+            $Dlls = Get-ChildItem -Path $ExtractDir -Recurse -Filter "*.dll"
+            $Win64 = $Dlls | Where-Object { $_.DirectoryName -match '(?i)win64|x64|amd64|x86_64' }
+            if ($Win64) { $Dlls = $Win64 }
+            $Dlls | ForEach-Object {
                 Copy-Item $_.FullName $PluginsDir -Force
                 Write-Host "    Copied: $($_.Name)" -ForegroundColor Gray
             }
@@ -396,6 +403,27 @@ foreach ($Plugin in $PluginsZip) {
 }
 
 Write-Host "  Plugins installed" -ForegroundColor Green
+
+# Verify every plugin DLL is 64-bit. A 32-bit DLL (e.g. when an archive ships
+# x86\ + x64\ and the wrong one is picked) loads with GetLastError 193
+# (ERROR_BAD_EXE_FORMAT) at VapourSynth autoload time — only a *warning*, so the
+# VSPipe smoke test below won't catch it. Read the PE header machine field
+# (0x8664 = AMD64, 0x14C = i386) and fail the build on any non-AMD64 DLL.
+Write-Host "  Verifying plugin architectures (must be x64)..." -ForegroundColor Gray
+$BadArch = @()
+Get-ChildItem -Path $PluginsDir -Filter "*.dll" | ForEach-Object {
+    $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
+    # e_lfanew at 0x3C points to the PE signature; machine is 4 bytes past it.
+    $peOffset = [System.BitConverter]::ToInt32($bytes, 0x3C)
+    $machine = [System.BitConverter]::ToUInt16($bytes, $peOffset + 4)
+    if ($machine -ne 0x8664) {
+        $BadArch += ("{0} (machine 0x{1:X})" -f $_.Name, $machine)
+    }
+}
+if ($BadArch.Count -gt 0) {
+    throw "Non-x64 plugin DLL(s) detected - bundle would fail to load them: $($BadArch -join ', ')"
+}
+Write-Host "  All plugin DLLs are x64" -ForegroundColor Green
 
 # =============================================================================
 # 4b. FFTW Library (required by DFTTest)
