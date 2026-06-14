@@ -280,7 +280,7 @@ fn run_worker(
     reporter.send_log(models::LogLevel::Info, "Loading job configuration...");
     let config_content = std::fs::read_to_string(config_path)
         .with_context(|| format!("Failed to read config file: {:?}", config_path))?;
-    let job: VideoJob = serde_json::from_str(&config_content)
+    let mut job: VideoJob = serde_json::from_str(&config_content)
         .with_context(|| "Failed to parse job configuration")?;
 
     reporter.send_log(
@@ -301,13 +301,37 @@ fn run_worker(
             job.qtgmc_parameters.preset.as_str()),
     );
 
+    // Resolve deps once for the pre-generation probes below.
+    let deps = dependency_locator::DependencyLocator::new().ok();
+
+    // Resolve the frame count if the caller didn't supply one. The Flutter app
+    // probes and sets total_frames; direct callers (tests, CLI) may omit it, and
+    // the script's pipe_source needs an exact length (it builds a fixed-size
+    // clip). Without this the worker defaults to 1 frame and the whole output is
+    // a single frame. total_frames must be the *post-trim* count the decoder
+    // will actually pipe (trimming is decoder-side: -ss + -frames:v), matching
+    // the decoder's own range logic in pipeline_executor.
+    if job.total_frames.is_none() {
+        if let Some(full) = deps.as_ref().and_then(|d| d.probe_frame_count(&job.input_path)) {
+            let effective = match (job.start_frame, job.end_frame) {
+                (Some(s), Some(e)) => (e - s + 1).max(0),
+                (None, Some(e)) => e + 1,
+                (Some(s), None) => (full - s).max(0),
+                (None, None) => full,
+            };
+            reporter.send_log(
+                models::LogLevel::Debug,
+                &format!("Probed input frame count: {} (effective after trim: {})", full, effective),
+            );
+            job.total_frames = Some(effective);
+        }
+    }
+
     // Generate VapourSynth script
     reporter.send_log(models::LogLevel::Info, "Generating VapourSynth script...");
     // Detect OpenCL availability so QTGMC falls back to CPU NNEDI3 on machines
     // without a usable OpenCL device (headless CI, VMs, remote desktop).
-    let opencl_available = dependency_locator::DependencyLocator::new()
-        .map(|d| d.opencl_available())
-        .unwrap_or(true);
+    let opencl_available = deps.as_ref().map(|d| d.opencl_available()).unwrap_or(true);
     let script_generator = ScriptGenerator::new()?.with_opencl_available(opencl_available);
     let script_path = script_generator
         .generate(&job)

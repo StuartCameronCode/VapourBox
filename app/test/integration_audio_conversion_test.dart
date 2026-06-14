@@ -109,15 +109,19 @@ Future<AudioStreamInfo> getAudioStreamInfo(String videoPath) async {
 Future<String?> extractAudioHash(String videoPath) async {
   final ffmpegPath = WorkerHarness.ffmpegPath;
   final tempDir = Directory.systemTemp;
-  final audioPath = '${tempDir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.wav';
+  final audioPath = '${tempDir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.raw';
 
   try {
-    // Extract audio as raw PCM WAV (lossless extraction for comparison)
+    // Extract headerless raw PCM (s16le), NOT a WAV. A WAV header varies by
+    // source container metadata even when the samples are identical, which makes
+    // a passthrough copy hash differently from its source. Raw PCM hashes the
+    // audio content only.
     await Process.run(
       ffmpegPath,
       [
         '-i', videoPath,
         '-vn',                    // No video
+        '-f', 's16le',            // Headerless raw PCM container
         '-acodec', 'pcm_s16le',   // Convert to PCM for consistent comparison
         '-ar', '48000',           // Resample to 48kHz for consistency
         '-ac', '2',               // Stereo
