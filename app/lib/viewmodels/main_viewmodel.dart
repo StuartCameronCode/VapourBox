@@ -51,6 +51,12 @@ class MainViewModel extends ChangeNotifier {
   PassType _selectedPass = PassType.deinterlace;
   bool _advancedMode = false;
 
+  // Scan-type auto-configuration of the deinterlace pipeline runs ONCE, for the
+  // first file analyzed into an (otherwise empty) queue. Re-running it for every
+  // subsequently dropped file would silently overwrite settings the user has
+  // already configured for the queue (issue #12). Reset when the queue empties.
+  bool _scanTypeAutoApplied = false;
+
   // Dynamic parameters for UI state (preserves null values for optional params)
   final Map<String, DynamicParameters> _dynamicParams = {};
 
@@ -387,9 +393,12 @@ class MainViewModel extends ChangeNotifier {
       ));
     }
 
-    // Auto-switch deinterlace method based on detected scan type
+    // Auto-switch deinterlace method based on detected scan type. Only do this
+    // ONCE (for the first analyzed file) so that dropping additional files does
+    // not silently overwrite the pipeline the user has already configured for
+    // the queue (issue #12).
     final videoInfo = _queue[index].videoInfo;
-    if (videoInfo != null) {
+    if (videoInfo != null && !_scanTypeAutoApplied) {
       DeinterlaceMethod? targetMethod;
       bool? targetEnabled;
       String? logMsg;
@@ -429,6 +438,9 @@ class MainViewModel extends ChangeNotifier {
           ),
         );
         _qtgmcParams = _processingPipeline.deinterlace;
+        // Auto-config has now been applied; later dropped files won't re-trigger
+        // it and clobber the user's configuration (issue #12).
+        _scanTypeAutoApplied = true;
         // Sync dynamic params cache and notify UI immediately
         _dynamicParams.remove('deinterlace');
         // Deinterlace toggle changes subtitle-only detection and output extension
@@ -475,6 +487,11 @@ class MainViewModel extends ChangeNotifier {
     _cleanupDvdTempFile(_queue[index]);
 
     _queue.removeAt(index);
+
+    // Empty queue: allow scan-type auto-config to run again for the next file.
+    if (_queue.isEmpty) {
+      _scanTypeAutoApplied = false;
+    }
 
     // Update selection if removed item was selected
     if (_selectedItemId == itemId) {
@@ -549,6 +566,8 @@ class MainViewModel extends ChangeNotifier {
     _selectedItemId = null;
     _cancelPreviewGeneration();
     _state = ProcessingState.idle;
+    // Empty queue: allow scan-type auto-config to run again for the next file.
+    _scanTypeAutoApplied = false;
     notifyListeners();
   }
 
@@ -848,10 +867,37 @@ class MainViewModel extends ChangeNotifier {
 
   /// Updates encoding settings.
   void updateEncodingSettings(EncodingSettings settings) {
+    final previous = _encodingSettings;
     _encodingSettings = settings;
+    // Log audio setting changes so a recurrence of the "audio reverted to copy"
+    // class of bug (issue #12) is diagnosable from a user's log.
+    if (previous.audioMode != settings.audioMode ||
+        previous.audioCodec != settings.audioCodec ||
+        previous.audioQuality != settings.audioQuality) {
+      _logMessages.add(LogMessage(
+        level: LogLevel.info,
+        message: 'Audio settings changed: '
+            '${_audioSettingsSummary(previous)} -> '
+            '${_audioSettingsSummary(settings)}',
+      ));
+    }
     // Regenerate output path with new settings
     _regenerateOutputPath();
     notifyListeners();
+  }
+
+  /// Human-readable one-line summary of the audio portion of [s], for logging.
+  String _audioSettingsSummary(EncodingSettings s) {
+    switch (s.audioMode) {
+      case AudioMode.passthrough:
+        return 'passthrough (copy original)';
+      case AudioMode.none:
+        return 'none (no audio)';
+      case AudioMode.convert:
+        final bitrate =
+            s.audioCodec.isLossless ? '' : ' @ ${s.audioQuality.bitrate}kbps';
+        return 'convert -> ${s.audioCodec.displayName}$bitrate';
+    }
   }
 
   /// Sets auto field order detection mode.
@@ -1045,6 +1091,15 @@ class MainViewModel extends ChangeNotifier {
       subtitleOnly: isSubtitleOnly,
       inputSar: item.videoInfo?.sar,
     );
+
+    // Record the audio config each file is actually encoded with. If a file's
+    // audio unexpectedly reverts to copy (issue #12), this line pins down which
+    // file and what settings were used, directly from the user's log.
+    _logMessages.add(LogMessage(
+      level: LogLevel.info,
+      message: 'Encoding ${item.filename} audio: '
+          '${_audioSettingsSummary(_encodingSettings)}',
+    ));
 
     try {
       _state = ProcessingState.processing;
@@ -1434,6 +1489,14 @@ class MainViewModel extends ChangeNotifier {
 
     // Clear dynamic params cache to force refresh
     _dynamicParams.clear();
+
+    // Preset application replaces audio settings wholesale; log the result so
+    // an unexpected audio config is traceable from the log (issue #12).
+    _logMessages.add(LogMessage(
+      level: LogLevel.info,
+      message: 'Preset "${preset.name}" applied; audio now: '
+          '${_audioSettingsSummary(_encodingSettings)}',
+    ));
 
     notifyListeners();
     _requestPreviewUpdate();
