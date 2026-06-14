@@ -303,7 +303,12 @@ fn run_worker(
 
     // Generate VapourSynth script
     reporter.send_log(models::LogLevel::Info, "Generating VapourSynth script...");
-    let script_generator = ScriptGenerator::new()?;
+    // Detect OpenCL availability so QTGMC falls back to CPU NNEDI3 on machines
+    // without a usable OpenCL device (headless CI, VMs, remote desktop).
+    let opencl_available = dependency_locator::DependencyLocator::new()
+        .map(|d| d.opencl_available())
+        .unwrap_or(true);
+    let script_generator = ScriptGenerator::new()?.with_opencl_available(opencl_available);
     let script_path = script_generator
         .generate(&job)
         .with_context(|| "Failed to generate VapourSynth script")?;

@@ -17,6 +17,11 @@ use crate::models::{
 pub struct ScriptGenerator {
     template: String,
     preview_template: String,
+    /// Whether a usable OpenCL device is available. When false, the GPU
+    /// NNEDI3CL path is never emitted (QTGMC falls back to CPU NNEDI3), so the
+    /// script runs on headless/VM/remote-desktop machines without a GPU.
+    /// Defaults to true; callers set it from `DependencyLocator::opencl_available()`.
+    opencl_available: bool,
 }
 
 /// Parameters for preview script generation.
@@ -42,7 +47,14 @@ impl ScriptGenerator {
     pub fn new() -> Result<Self> {
         let template = Self::load_template()?;
         let preview_template = Self::load_preview_template()?;
-        Ok(Self { template, preview_template })
+        Ok(Self { template, preview_template, opencl_available: true })
+    }
+
+    /// Set whether OpenCL is available (probe result from `DependencyLocator`).
+    /// When false, the GPU NNEDI3CL path is suppressed and QTGMC uses CPU NNEDI3.
+    pub fn with_opencl_available(mut self, available: bool) -> Self {
+        self.opencl_available = available;
+        self
     }
 
     /// Generate a .vpy script file for the given job.
@@ -404,7 +416,7 @@ impl ScriptGenerator {
                     // lack NEON optimisations and run pure scalar C.
                     // Only auto-enable when EdiMode is compatible (unset or "nnedi3")
                     // because our eedi3m plugin lacks EEDI3CL.
-                    let opencl;
+                    let desired_opencl;
                     #[cfg(target_os = "macos")]
                     {
                         let edi_ok = match params.edi_mode.as_deref() {
@@ -414,7 +426,7 @@ impl ScriptGenerator {
                         // Treat Some(false) as unset — the Dart UI serializes null
                         // as false, so only explicit Some(true) means user opted in.
                         let user_set = params.opencl.unwrap_or(false);
-                        opencl = if user_set {
+                        desired_opencl = if user_set {
                             Some(true)
                         } else if edi_ok {
                             Some(true)
@@ -424,7 +436,25 @@ impl ScriptGenerator {
                     }
                     #[cfg(not(target_os = "macos"))]
                     {
-                        opencl = params.opencl;
+                        desired_opencl = params.opencl;
+                    }
+                    // Gate auto-enabled OpenCL on detected availability: if we'd
+                    // enable the GPU NNEDI3CL path but no usable OpenCL device
+                    // exists (headless CI, VM, remote desktop), fall back to CPU
+                    // NNEDI3 so the script doesn't fail with "NNEDI3CL: Invalid
+                    // Value". A user who *explicitly* enabled OpenCL overrides the
+                    // probe — their choice wins (it will error if no device, by
+                    // design). The Dart UI serializes an unset toggle as false, so
+                    // only Some(true) counts as an explicit opt-in.
+                    let user_forced_opencl = params.opencl == Some(true);
+                    let opencl =
+                        gate_opencl(desired_opencl, self.opencl_available, user_forced_opencl);
+                    if !user_forced_opencl && desired_opencl == Some(true) && opencl == Some(false) {
+                        eprintln!(
+                            "OpenCL auto-enabled but no usable device detected — \
+                             falling back to CPU NNEDI3 (set the OpenCL option to \
+                             force it)"
+                        );
                     }
                     script = process_optional_bool("OPENCL", opencl, script);
                     script = process_optional_int("DEVICE", params.device, script);
@@ -942,6 +972,24 @@ fn process_optional_double(name: &str, value: Option<f64>, mut script: String) -
 }
 
 /// Process an optional boolean parameter.
+/// Resolve the final OpenCL setting.
+///
+/// `desired` is what we'd otherwise use (macOS auto-enable or the user's choice).
+/// When `user_forced` is true the user explicitly opted in, so we honor `desired`
+/// as-is (their choice overrides the probe — it errors if no device, by design).
+/// Otherwise, if OpenCL would be on (`Some(true)`) but no usable device is
+/// detected, we downgrade to `Some(false)` (CPU NNEDI3). All other cases pass
+/// through unchanged.
+fn gate_opencl(desired: Option<bool>, opencl_available: bool, user_forced: bool) -> Option<bool> {
+    if user_forced {
+        return desired;
+    }
+    match desired {
+        Some(true) if !opencl_available => Some(false),
+        other => other,
+    }
+}
+
 fn process_optional_bool(name: &str, value: Option<bool>, mut script: String) -> String {
     let start_tag = format!("{{{{#{}}}}}", name);
     let end_tag = format!("{{{{/{}}}}}", name);
@@ -1015,5 +1063,26 @@ mod tests {
         let input = "prefix{{#NUM}}value={{NUM}},{{/NUM}}suffix";
         let result = process_optional_int("NUM", None, input.to_string());
         assert_eq!(result, "prefixsuffix");
+    }
+
+    #[test]
+    fn test_gate_opencl_disables_auto_when_unavailable() {
+        // Auto-enabled OpenCL with no device → CPU fallback.
+        assert_eq!(gate_opencl(Some(true), false, false), Some(false));
+    }
+
+    #[test]
+    fn test_gate_opencl_user_forced_overrides_probe() {
+        // User explicitly enabled OpenCL → honored even if the probe found nothing.
+        assert_eq!(gate_opencl(Some(true), false, true), Some(true));
+        assert_eq!(gate_opencl(Some(true), true, true), Some(true));
+    }
+
+    #[test]
+    fn test_gate_opencl_passthrough() {
+        assert_eq!(gate_opencl(Some(true), true, false), Some(true));
+        assert_eq!(gate_opencl(Some(false), false, false), Some(false));
+        assert_eq!(gate_opencl(None, false, false), None);
+        assert_eq!(gate_opencl(None, true, false), None);
     }
 }
