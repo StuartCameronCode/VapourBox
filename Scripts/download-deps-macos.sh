@@ -1038,6 +1038,21 @@ else
     BESTSOURCE_URL="$STEFANOLT/com.vapoursynth.bestsource/R16/darwin-x86_64/2026-01-10T19.07.30%2B00.00Z/BestSource-R16-darwin-x86_64.zip"
 fi
 download_prebuilt_plugin "BestSource" "libbestsource.dylib" "$BESTSOURCE_URL"
+
+# Stefan-Olt's aarch64 BestSource links the *system* /usr/lib/liblzma.5.dylib
+# (the x86_64 build links Homebrew's xz copy, handled in the x86_64 branch above).
+# Bundle liblzma from Homebrew (xz) and repoint the reference at the bundled copy
+# so the issue #28 guard stays strict and we don't depend on the system lib.
+if [ "$ARCH" = "arm64" ] && [ -f "$PLUGINS_DIR/libbestsource.dylib" ]; then
+    if [ ! -f "$LIB_DIR/liblzma.5.dylib" ] && [ -f "$BREW_PREFIX/opt/xz/lib/liblzma.5.dylib" ]; then
+        cp "$BREW_PREFIX/opt/xz/lib/liblzma.5.dylib" "$LIB_DIR/liblzma.5.dylib"
+        install_name_tool -id "@loader_path/liblzma.5.dylib" "$LIB_DIR/liblzma.5.dylib" 2>/dev/null || true
+        codesign -s - -f "$LIB_DIR/liblzma.5.dylib" 2>/dev/null || true
+    fi
+    install_name_tool -change "/usr/lib/liblzma.5.dylib" \
+        "@loader_path/../../lib/liblzma.5.dylib" "$PLUGINS_DIR/libbestsource.dylib" 2>/dev/null || true
+    codesign -s - -f "$PLUGINS_DIR/libbestsource.dylib" 2>/dev/null || true
+fi
 fi  # end plugin arch split (x86_64 pre-built / arm64 from-source)
 
 # ============================================================================
