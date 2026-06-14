@@ -2,41 +2,36 @@
 /// These tests verify that all audio modes (passthrough, convert, none) and
 /// all audio codecs (AAC, MP3, AC-3, FLAC, Opus, PCM) work correctly.
 ///
-/// Run with: flutter test integration_test/audio_conversion_test.dart
-/// Or: dart test integration_test/audio_conversion_test.dart --chain-stack-traces
+/// Run headless via CI: flutter test test/integration_audio_conversion_test.dart
+/// Heavy (full-encode) — tagged so it runs in the nightly workflow, not the push gate.
+@Tags(['heavy'])
+library;
+
+// ignore_for_file: avoid_print — these tests print diagnostics to the test log.
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:uuid/uuid.dart';
 
-import '../lib/models/encoding_settings.dart';
-import '../lib/models/qtgmc_parameters.dart';
-import '../lib/models/processing_pipeline.dart';
-import '../lib/models/video_job.dart';
+import 'package:vapourbox/models/encoding_settings.dart';
+import 'package:vapourbox/models/qtgmc_parameters.dart';
+import 'package:vapourbox/models/processing_pipeline.dart';
+import 'package:vapourbox/models/video_job.dart';
 
-/// Test configuration
+import 'support/worker_harness.dart';
+
+/// Thin shim over [WorkerHarness] so the test bodies keep their `TestConfig.*`
+/// call sites while paths/env resolve cross-platform.
 class TestConfig {
-  static final String projectRoot = _findProjectRoot();
-  static String get inputFile => '$projectRoot/Tests/TestResources/interlaced_test.avi';
-  static String get outputDir => '$projectRoot/Tests/TestOutput/audio';
-  static String get workerPath => '$projectRoot/worker/target/release/vapourbox-worker.exe';
-  static String get depsDir => '$projectRoot/deps/windows-x64';
-
-  static String _findProjectRoot() {
-    var dir = Directory.current;
-    while (!File('${dir.path}/CLAUDE.md').existsSync()) {
-      final parent = dir.parent;
-      if (parent.path == dir.path) {
-        throw StateError('Could not find project root (looking for CLAUDE.md)');
-      }
-      dir = parent;
-    }
-    return dir.path.replaceAll('\\', '/');
-  }
+  static String get projectRoot => WorkerHarness.repoRoot;
+  static String get inputFile => WorkerHarness.inputFile;
+  static String get outputDir => '${WorkerHarness.outputDir}/audio';
+  static String get workerPath => WorkerHarness.workerPath;
+  static String get depsDir => WorkerHarness.depsDir;
 }
 
 // =============================================================================
@@ -71,7 +66,7 @@ class AudioStreamInfo {
 
 /// Get detailed information about audio streams in a video file using ffprobe
 Future<AudioStreamInfo> getAudioStreamInfo(String videoPath) async {
-  final ffprobePath = '${TestConfig.depsDir}/ffmpeg/ffprobe.exe';
+  final ffprobePath = WorkerHarness.ffprobePath;
 
   final result = await Process.run(
     ffprobePath,
@@ -83,7 +78,7 @@ Future<AudioStreamInfo> getAudioStreamInfo(String videoPath) async {
       videoPath,
     ],
     environment: {
-      'PATH': '${TestConfig.depsDir}/ffmpeg;${Platform.environment['PATH']}',
+      'PATH': '${WorkerHarness.depsDir}/ffmpeg${Platform.isWindows ? ';' : ':'}${Platform.environment['PATH']}',
     },
   );
 
@@ -112,7 +107,7 @@ Future<AudioStreamInfo> getAudioStreamInfo(String videoPath) async {
 /// Extract raw audio from a video file as PCM WAV for binary comparison
 /// Returns the MD5 hash of the audio data, or null if no audio
 Future<String?> extractAudioHash(String videoPath) async {
-  final ffmpegPath = '${TestConfig.depsDir}/ffmpeg/ffmpeg.exe';
+  final ffmpegPath = WorkerHarness.ffmpegPath;
   final tempDir = Directory.systemTemp;
   final audioPath = '${tempDir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.wav';
 
@@ -130,7 +125,7 @@ Future<String?> extractAudioHash(String videoPath) async {
         audioPath,
       ],
       environment: {
-        'PATH': '${TestConfig.depsDir}/ffmpeg;${Platform.environment['PATH']}',
+        'PATH': '${WorkerHarness.depsDir}/ffmpeg${Platform.isWindows ? ';' : ':'}${Platform.environment['PATH']}',
       },
     );
 
@@ -189,14 +184,8 @@ Future<FilterTestResult> runFilterTest(String testName, VideoJob job, {
   final configFile = File('${Directory.systemTemp.path}/job_${job.id}.json');
   await configFile.writeAsString(jsonEncode(job.toJson()));
 
-  // Set up environment
-  final env = Map<String, String>.from(Platform.environment);
-  final depsDir = TestConfig.depsDir;
-
-  env['PYTHONHOME'] = '$depsDir/vapoursynth';
-  env['PYTHONPATH'] = '$depsDir/vapoursynth/Lib/site-packages';
-  env['PATH'] = '$depsDir/vapoursynth;$depsDir/ffmpeg;${env['PATH']}';
-  env['VAPOURSYNTH_PLUGIN_PATH'] = '$depsDir/vapoursynth/vs-plugins';
+  // Cross-platform worker environment sourced from the shared harness.
+  final env = WorkerHarness.workerEnv;
 
   try {
     print('\n${'=' * 60}');
@@ -339,33 +328,8 @@ VideoJob createAudioTestJob(String outputPath, EncodingSettings settings) {
 void main() {
   // Ensure output directory exists
   setUpAll(() async {
-    final outputDir = Directory(TestConfig.outputDir);
-    if (!await outputDir.exists()) {
-      await outputDir.create(recursive: true);
-    }
-
-    // Verify worker exists
-    final workerFile = File(TestConfig.workerPath);
-    if (!await workerFile.exists()) {
-      throw StateError(
-        'Worker not found at ${TestConfig.workerPath}\n'
-        'Run: cd worker && cargo build --release'
-      );
-    }
-
-    // Verify input file exists
-    final inputFile = File(TestConfig.inputFile);
-    if (!await inputFile.exists()) {
-      throw StateError(
-        'Test input file not found at ${TestConfig.inputFile}'
-      );
-    }
-
-    print('Test configuration:');
-    print('  Project root: ${TestConfig.projectRoot}');
-    print('  Input file: ${TestConfig.inputFile}');
-    print('  Output dir: ${TestConfig.outputDir}');
-    print('  Worker: ${TestConfig.workerPath}');
+    await WorkerHarness.ensureReady();
+    await Directory(TestConfig.outputDir).create(recursive: true);
   });
 
   // Store input audio hash for comparison

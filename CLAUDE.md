@@ -297,7 +297,13 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 - If the plugin only supports 8-bit, add bit-depth conversion guard in templates
 - If the plugin fails on field-based clips, note this — the preview template conditionally sets field-based via `{{#SET_FIELD_BASED}}` (only when deinterlacing is enabled)
 
-**9. Integration Test** — required (see below)
+**9. Integration Tests** — required, BOTH suites (see "Integration Tests for Filter Changes" below):
+- Add a numbered Rust test in `worker/tests/filter_integration_test.rs`.
+- Update the Flutter integration tests in `app/test/integration_*_test.dart`: add
+  script-generation param coverage to `integration_filter_parameters_test.dart`
+  (assert the new pass's call + key params appear in the generated `.vpy`), and a
+  full-encode smoke test for the new pass in `integration_new_passes_test.dart`
+  (or another `@Tags(['heavy'])` file). These now run in CI.
 
 **10. Plugin Binaries**
 - Add a download/build block to each `Scripts/download-deps-*` script (deps
@@ -326,7 +332,26 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 
 ### Integration Tests for Filter Changes (Required)
 
-**Every filter addition or parameter change must include an integration test** in `worker/tests/filter_integration_test.rs`. Tests are numbered sequentially (e.g., `test_50_chroma_shift`).
+**Every filter addition or parameter change must update BOTH integration suites — they both run in CI:**
+
+1. **Rust** — a numbered test in `worker/tests/filter_integration_test.rs` (patterns below).
+2. **Flutter** — `app/test/integration_*_test.dart`:
+   - Add script-generation coverage to `integration_filter_parameters_test.dart`
+     (or `integration_qtgmc_parameters_test.dart` for QTGMC): enable the pass with
+     explicit non-default values and assert its VapourSynth call + those params
+     appear in the generated `.vpy` (see the `descratch`/`spotless` tests for the
+     pattern). These are script-only (no encode) and run in the **per-push gate**.
+   - Add a full-encode smoke test in `integration_new_passes_test.dart` (or another
+     `@Tags(['heavy'])` file): run the worker end-to-end and assert a valid output
+     (e.g. via `WorkerHarness.firstStream`). `heavy` tests run in **nightly.yml**,
+     not the push gate.
+
+All Flutter integration tests share `app/test/support/worker_harness.dart`, which
+resolves the worker + deps cross-platform and **downloads the pinned deps release
+if `deps/<platform>` is absent** (honoring `$VAPOURBOX_DEPS_DIR`). Call
+`await WorkerHarness.ensureReady()` in `setUpAll`.
+
+**Rust patterns** — every filter/parameter change must include a numbered test in `worker/tests/filter_integration_test.rs` (e.g., `test_50_chroma_shift`).
 
 Two test patterns are used:
 
@@ -444,31 +469,31 @@ cd worker && cargo test --test subtitle_integration_test -- --nocapture
 ### 2. Flutter `test/` suite — `app/test/`, run by `flutter test`  ← the CI gate
 
 ```bash
-cd app && flutter test
+cd app && flutter test --exclude-tags heavy   # what the push gate runs
+cd app && flutter test                          # everything, incl. heavy (local)
 ```
 
-Headless Dart-VM tests. A mix of pure unit tests (`dynamic_parameters`,
-`filter_schema`, `parameter_converter`, `widget_test`, `scan_type_detection`)
-and integration-style tests that shell out to the bundled binaries
-(`vapoursynth_integration_test`, `schema_converter_integration_test`); the latter
-need the per-arch `deps/` and (for whisper) `addons/`. **This is the Flutter
-suite CI runs** — put new shell-out Dart tests here so CI covers them.
+Headless Dart-VM tests. Three groups:
+- **Pure unit tests** — `dynamic_parameters`, `filter_schema`,
+  `parameter_converter`, `widget_test`, `scan_type_detection`.
+- **Shell-out tests** — `vapoursynth_integration_test`,
+  `schema_converter_integration_test`; need the per-arch `deps/` and (for whisper)
+  `addons/`.
+- **Integration tests** — `integration_*_test.dart` (formerly the standalone
+  `integration_test/` suite, now headless + cross-platform). They spawn the
+  worker end-to-end via `app/test/support/worker_harness.dart`. The encode-heavy
+  ones are `@Tags(['heavy'])`: the **push gate** runs `--exclude-tags heavy`
+  (script-only: `integration_filter_parameters_test`,
+  `integration_qtgmc_parameters_test`); **nightly.yml** runs `--tags heavy`
+  (`integration_filter_pipeline`, `_audio_conversion`, `_chroma_subsampling`,
+  `_interlacing_status`, `_video_trimming`, `_new_passes`).
 
-### 3. Flutter `integration_test/` suite — `app/integration_test/`, NOT in CI
-
-```bash
-cd app && flutter test integration_test   # separate invocation; needs a display/device
-```
-
-- Flutter routes **anything** under `integration_test/` through the device
-  launcher (even plain `package:test` files), so it can't be combined with the
-  `test/` suite in one `flutter test` call and won't run on a headless CI runner
-  without a display (e.g. `xvfb`). These are **local/manual** tests.
-- **Not maintained by CI, so they drift.** As of this writing
-  `filter_pipeline_test.dart` is stale and does not compile — it references a
-  removed API (`EncodingSettings.audioCopy`, now the `AudioMode` enum;
-  `ChromaFixParameters.vinverseScl`, now `vinverseSstr`/`vinverseAmnt`). Fix or
-  delete before relying on it; prefer adding shell-out tests to suite #2 instead.
+The harness honors `$VAPOURBOX_DEPS_DIR`, else uses repo-root `deps/<platform>`,
+else **downloads the deps release pinned in `app/assets/deps-version.json`**
+(opt out with `$VAPOURBOX_SKIP_DEPS_DOWNLOAD=1`). The worker binary is found under
+`worker/target/{release,debug}` (CI's `cargo test`/`cargo build` produces debug).
+Subtitle heavy tests skip when the whisper add-on is absent. Put new shell-out or
+integration Dart tests here so CI covers them; tag full-encode tests `heavy`.
 
 ```bash
 # Run the worker standalone (no test harness)
@@ -479,8 +504,9 @@ cd worker && cargo run --release -- --config test_job.json
 
 Runs on push to `main` + PRs (skipped for doc-only changes via `paths-ignore`).
 Each job pulls the published deps bundle + the whisper add-on, then runs
-**suite #1 (`cargo test`) and suite #2 (`flutter test`)** — including the subtitle
-integration test. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
+**suite #1 (`cargo test`) and suite #2 (`flutter test --exclude-tags heavy`)** —
+including the subtitle integration test, excluding the heavy full-encode
+integration tests. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
 (`macos-15-intel`), **Windows x64**, **Linux x64** (`ubuntu-22.04`). Notes:
 
 - whisper-cli is provisioned from the **same source the app uses at runtime**
@@ -489,7 +515,9 @@ integration test. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
   built by `build-whisper.yml`).
 - Fixtures (`small_clip.mp4`, telecine/interlaced clips) are committed under
   `Tests/TestResources/`.
-- Suite #3 (`integration_test/`) is **not** part of this gate (see above).
+- The heavy full-encode integration tests (`@Tags(['heavy'])`) are **not** in this
+  gate — they run in `.github/workflows/nightly.yml` (cron + `workflow_dispatch`)
+  via `flutter test --tags heavy` on the same 4-platform matrix.
 
 ## Code Style
 

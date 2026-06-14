@@ -1,0 +1,9 @@
+# Test tag declarations for `flutter test`.
+#
+# The `heavy` tag marks full-encode integration tests (test/integration_*_test.dart
+# that run the worker end-to-end through vspipe | ffmpeg). They are slow, so the
+# per-push CI gate runs `flutter test --exclude-tags heavy` and the nightly
+# workflow runs `flutter test --tags heavy`. Run them locally with either filter.
+tags:
+  heavy:
+    # Full-encode integration tests — run nightly, excluded from the push gate.

@@ -7,49 +7,41 @@
 /// 4. Validate that every enabled parameter appears in the generated .vpy script
 ///    with the correct value matching what was set via the schema
 ///
-/// Run with: dart test integration_test/qtgmc_parameters_test.dart --chain-stack-traces
+/// Run headless via CI: flutter test test/integration_qtgmc_parameters_test.dart
+/// Script-only (no encode) — runs in the per-push CI gate.
+library;
+
+// ignore_for_file: avoid_print — these tests print diagnostics to the test log.
 
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:uuid/uuid.dart';
 
-import '../lib/models/dynamic_parameters.dart';
-import '../lib/models/encoding_settings.dart';
-import '../lib/models/filter_schema.dart';
-import '../lib/models/parameter_converter.dart';
-import '../lib/models/processing_pipeline.dart';
-import '../lib/models/qtgmc_parameters.dart';
-import '../lib/models/video_job.dart';
+import 'package:vapourbox/models/dynamic_parameters.dart';
+import 'package:vapourbox/models/encoding_settings.dart';
+import 'package:vapourbox/models/filter_schema.dart';
+import 'package:vapourbox/models/parameter_converter.dart';
+import 'package:vapourbox/models/processing_pipeline.dart';
+import 'package:vapourbox/models/qtgmc_parameters.dart';
+import 'package:vapourbox/models/video_job.dart';
+
+import 'support/worker_harness.dart';
 
 // =============================================================================
 // TEST CONFIGURATION
 // =============================================================================
 
+/// Thin shim over [WorkerHarness] so the test bodies keep their `TestConfig.*`
+/// call sites while paths/env resolve cross-platform.
 class TestConfig {
-  static final String projectRoot = _findProjectRoot();
-  static String get inputFile =>
-      '$projectRoot/Tests/TestResources/interlaced_test.avi';
-  static String get outputDir =>
-      '$projectRoot/Tests/TestOutput/qtgmc_params';
-  static String get workerPath =>
-      '$projectRoot/worker/target/release/vapourbox-worker.exe';
-  static String get depsDir => '$projectRoot/deps/windows-x64';
-  static String get ffmpegPath => '$depsDir/ffmpeg/ffmpeg.exe';
-
-  static String _findProjectRoot() {
-    var dir = Directory.current;
-    while (!File('${dir.path}/CLAUDE.md').existsSync()) {
-      final parent = dir.parent;
-      if (parent.path == dir.path) {
-        throw StateError(
-            'Could not find project root (looking for CLAUDE.md)');
-      }
-      dir = parent;
-    }
-    return dir.path.replaceAll('\\', '/');
-  }
+  static String get projectRoot => WorkerHarness.repoRoot;
+  static String get inputFile => WorkerHarness.inputFile;
+  static String get outputDir => '${WorkerHarness.outputDir}/qtgmc_params';
+  static String get workerPath => WorkerHarness.workerPath;
+  static String get depsDir => WorkerHarness.depsDir;
+  static String get ffmpegPath => WorkerHarness.ffmpegPath;
 }
 
 // =============================================================================
@@ -65,7 +57,7 @@ Future<DetectedScanType> detectScanType(String videoPath) async {
     ['-i', videoPath, '-vf', 'idet=half_life=0', '-frames:v', '200',
      '-an', '-f', 'null', '-'],
     environment: {
-      'PATH': '${TestConfig.depsDir}/ffmpeg;${Platform.environment['PATH']}',
+      'PATH': '${WorkerHarness.depsDir}/ffmpeg${Platform.isWindows ? ';' : ':'}${Platform.environment['PATH']}',
     },
   );
 
@@ -103,12 +95,7 @@ Future<String> generateScriptViaWorker(VideoJob job) async {
       File('${Directory.systemTemp.path}/vapourbox_job_${job.id}.json');
   await configFile.writeAsString(jsonEncode(job.toJson()));
 
-  final env = Map<String, String>.from(Platform.environment);
-  final d = TestConfig.depsDir;
-  env['PYTHONHOME'] = '$d/vapoursynth';
-  env['PYTHONPATH'] = '$d/vapoursynth/Lib/site-packages';
-  env['PATH'] = '$d/vapoursynth;$d/ffmpeg;${env['PATH']}';
-  env['VAPOURSYNTH_PLUGIN_PATH'] = '$d/vapoursynth/vs-plugins';
+  final env = WorkerHarness.workerEnv;
 
   final process = await Process.start(
     TestConfig.workerPath,
@@ -219,19 +206,7 @@ void main() {
   late MethodDefinition qtgmcMethod;
 
   setUpAll(() async {
-    // Verify prerequisites
-    for (final check in <String, String>{
-      'Worker': TestConfig.workerPath,
-      'Input': TestConfig.inputFile,
-    }.entries) {
-      if (!await File(check.value).exists()) {
-        throw StateError('${check.key} not found at ${check.value}');
-      }
-    }
-    if (!await Directory(TestConfig.depsDir).exists()) {
-      throw StateError('Deps not found at ${TestConfig.depsDir}');
-    }
-
+    await WorkerHarness.ensureReady();
     await Directory(TestConfig.outputDir).create(recursive: true);
 
     // Load the deinterlace filter schema (same JSON the UI loads at runtime)
@@ -537,6 +512,13 @@ void main() {
         }
       }
 
+      // On macOS the worker auto-enables OpenCL when EdiMode is nnedi3-compatible
+      // (ZNEDI3/NNEDI3 lack NEON on Apple Silicon — see script_generator.rs), so
+      // `opencl=True` legitimately appears even in basic mode. Not a leak there.
+      if (Platform.isMacOS) {
+        unexpectedVsNames.remove('opencl');
+      }
+
       // The always-present params are those with explicit non-null values
       // in the base QTGMCParameters: Preset, TFF, FPSDivisor.
       // (InputType defaults to 0 but is stored as a non-optional int with
@@ -608,7 +590,10 @@ void main() {
         print('    $sectionLabel: ${entry.key} = ${entry.value}'
             '${isOptional ? ' [OPTIONAL]' : ''}');
 
-        // Every param in the script should be non-optional
+        // macOS auto-enables opencl (see above); it is optional but expected.
+        if (Platform.isMacOS && entry.key == 'opencl') continue;
+
+        // Every other param in the script should be non-optional
         expect(isOptional, isFalse,
             reason: '${entry.key} is optional and should not be in the '
                 'basic-mode script');

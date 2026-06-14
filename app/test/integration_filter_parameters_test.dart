@@ -1,44 +1,45 @@
 // Integration test: schema-driven parameter validation for non-deinterlace filters.
-// Run with: dart test integration_test/filter_parameters_test.dart --chain-stack-traces
+// Run headless via CI: flutter test test/integration_filter_parameters_test.dart
+// Script-only (no encode) — runs in the per-push CI gate.
+library;
+
+// ignore_for_file: avoid_print — these tests print diagnostics to the test log.
+
 import 'dart:convert';
 import 'dart:io';
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:uuid/uuid.dart';
 
-import '../lib/models/chroma_fix_parameters.dart';
-import '../lib/models/color_correction_parameters.dart';
-import '../lib/models/deband_parameters.dart';
-import '../lib/models/deblock_parameters.dart';
-import '../lib/models/dehalo_parameters.dart';
-import '../lib/models/dynamic_parameters.dart';
-import '../lib/models/encoding_settings.dart';
-import '../lib/models/filter_schema.dart';
-import '../lib/models/noise_reduction_parameters.dart';
-import '../lib/models/parameter_converter.dart';
-import '../lib/models/processing_pipeline.dart';
-import '../lib/models/qtgmc_parameters.dart';
-import '../lib/models/sharpen_parameters.dart';
-import '../lib/models/video_job.dart';
+import 'package:vapourbox/models/chroma_fix_parameters.dart';
+import 'package:vapourbox/models/color_correction_parameters.dart';
+import 'package:vapourbox/models/deband_parameters.dart';
+import 'package:vapourbox/models/deblock_parameters.dart';
+import 'package:vapourbox/models/dehalo_parameters.dart';
+import 'package:vapourbox/models/descratch_parameters.dart';
+import 'package:vapourbox/models/dynamic_parameters.dart';
+import 'package:vapourbox/models/encoding_settings.dart';
+import 'package:vapourbox/models/filter_schema.dart';
+import 'package:vapourbox/models/noise_reduction_parameters.dart';
+import 'package:vapourbox/models/parameter_converter.dart';
+import 'package:vapourbox/models/processing_pipeline.dart';
+import 'package:vapourbox/models/qtgmc_parameters.dart';
+import 'package:vapourbox/models/sharpen_parameters.dart';
+import 'package:vapourbox/models/spotless_parameters.dart';
+import 'package:vapourbox/models/video_job.dart';
+
+import 'support/worker_harness.dart';
 
 // =============================================================================
 // TEST CONFIGURATION
 // =============================================================================
+/// Thin shim over [WorkerHarness] so the test bodies keep their `TestConfig.*`
+/// call sites while paths/env resolve cross-platform.
 class TestConfig {
-  static final String projectRoot = _findProjectRoot();
-  static String get inputFile => '$projectRoot/Tests/TestResources/interlaced_test.avi';
-  static String get outputDir => '$projectRoot/Tests/TestOutput/filter_params';
-  static String get workerPath => '$projectRoot/worker/target/release/vapourbox-worker.exe';
-  static String get depsDir => '$projectRoot/deps/windows-x64';
-
-  static String _findProjectRoot() {
-    var dir = Directory.current;
-    while (!File('${dir.path}/CLAUDE.md').existsSync()) {
-      final parent = dir.parent;
-      if (parent.path == dir.path) throw StateError('Could not find project root');
-      dir = parent;
-    }
-    return dir.path.replaceAll('\\', '/');
-  }
+  static String get projectRoot => WorkerHarness.repoRoot;
+  static String get inputFile => WorkerHarness.inputFile;
+  static String get outputDir => '${WorkerHarness.outputDir}/filter_params';
+  static String get workerPath => WorkerHarness.workerPath;
+  static String get depsDir => WorkerHarness.depsDir;
 }
 
 // =============================================================================
@@ -48,12 +49,7 @@ Future<String> generateScriptViaWorker(VideoJob job) async {
   final configFile = File('${Directory.systemTemp.path}/vapourbox_job_${job.id}.json');
   await configFile.writeAsString(jsonEncode(job.toJson()));
 
-  final env = Map<String, String>.from(Platform.environment);
-  final d = TestConfig.depsDir;
-  env['PYTHONHOME'] = '$d/vapoursynth';
-  env['PYTHONPATH'] = '$d/vapoursynth/Lib/site-packages';
-  env['PATH'] = '$d/vapoursynth;$d/ffmpeg;${env['PATH']}';
-  env['VAPOURSYNTH_PLUGIN_PATH'] = '$d/vapoursynth/vs-plugins';
+  final env = WorkerHarness.workerEnv;
 
   final process = await Process.start(TestConfig.workerPath, ['--config', configFile.path],
       environment: env, workingDirectory: File(TestConfig.workerPath).parent.path);
@@ -162,12 +158,16 @@ VideoJob buildJob({
   SharpenParameters? sharpen,
   ChromaFixParameters? chromaFixes,
   ColorCorrectionParameters? colorCorrection,
+  DeScratchParameters? descratch,
+  SpotLessParameters? spotless,
 }) => VideoJob(
   id: const Uuid().v4(),
   inputPath: TestConfig.inputFile,
   outputPath: '${TestConfig.outputDir}/$testName.mkv',
   processingPipeline: ProcessingPipeline(
     deinterlace: const QTGMCParameters(enabled: false),
+    descratch: descratch ?? const DeScratchParameters(),
+    spotless: spotless ?? const SpotLessParameters(),
     noiseReduction: noiseReduction ?? const NoiseReductionParameters(),
     dehalo: dehalo ?? const DehaloParameters(),
     deblock: deblock ?? const DeblockParameters(),
@@ -194,12 +194,7 @@ String _nrKey(String id) => switch (id) {
 // =============================================================================
 void main() {
   setUpAll(() async {
-    for (final e in {'Worker': TestConfig.workerPath, 'Input': TestConfig.inputFile}.entries) {
-      if (!await File(e.value).exists()) throw StateError('${e.key} not found at ${e.value}');
-    }
-    if (!await Directory(TestConfig.depsDir).exists()) {
-      throw StateError('Deps not found at ${TestConfig.depsDir}');
-    }
+    await WorkerHarness.ensureReady();
     await Directory(TestConfig.outputDir).create(recursive: true);
     print('Project root: ${TestConfig.projectRoot}');
   });
@@ -394,6 +389,51 @@ void main() {
       expect(levels['min_out'], '5'); expect(levels['max_out'], '250');
       expect(levels['gamma'], '0.9');
 
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // --- DESCRATCH (core.descratch.DeScratch) ---
+    test('descratch: DeScratch params', () async {
+      loadSchema('descratch'); // confirm schema parses
+      // Explicit non-default values so each one is distinguishable in the script.
+      final typed = const DeScratchParameters(
+        enabled: true, mindif: 6, asym: 8, maxgap: 4, maxwidth: 5,
+        blurlen: 12, modeY: 1, modeU: 1,
+      );
+      final job = buildJob(testName: 'descratch', descratch: typed);
+      print('  Generating DeScratch script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.descratch.DeScratch('));
+      final actual = parseFilterParams(script, 'core.descratch.DeScratch(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['mindif'], '6');
+      expect(actual['asym'], '8');
+      expect(actual['maxgap'], '4');
+      expect(actual['maxwidth'], '5');
+      expect(actual['blurlen'], '12');
+      expect(actual['modey'], '1');
+      expect(actual['modeu'], '1');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // --- SPOTLESS (_SpotLess) ---
+    test('spotless: SpotLess params', () async {
+      loadSchema('spotless'); // confirm schema parses
+      // chroma/blksize/overlap/pel set to non-defaults; rec toggled on.
+      final typed = const SpotLessParameters(
+        enabled: true, chroma: false, rec: true, blksize: 8, overlap: 4, pel: 1,
+      );
+      final job = buildJob(testName: 'spotless', spotless: typed);
+      print('  Generating SpotLess script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('_SpotLess('));
+      final actual = parseFilterParams(script, '_SpotLess(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['chroma'], 'False');
+      expect(actual['rec'], 'True');
+      expect(actual['blksize'], '8');
+      expect(actual['overlap'], '4');
+      expect(actual['pel'], '1');
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
   });
