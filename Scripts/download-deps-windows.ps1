@@ -135,6 +135,34 @@ if (Test-Path $WheelPath) {
     if (Test-Path "$VSDir\Lib\site-packages\vapoursynth.cp38-win_amd64.pyd") {
         Copy-Item "$VSDir\Lib\site-packages\vapoursynth.cp38-win_amd64.pyd" "$VSDir\Lib\site-packages\vapoursynth.pyd" -Force
     }
+
+    # Relocate the wheel's *.data/data/ payload. Expand-Archive mirrors the zip
+    # verbatim, but pip treats a wheel's <name>.data/data/ tree as rooted at the
+    # install *prefix* (here the VS portable dir), not site-packages. For this
+    # wheel that payload is the core vapoursynth.dll, which lands buried at
+    # vapoursynth-73.data\data\Lib\site-packages\vapoursynth.dll. The
+    # vapoursynth.pyd loads vapoursynth.dll at import time and Python 3.8 only
+    # finds it next to the .pyd, so without relocating it VSScript fails with
+    # "Failed to initialize VSScript" for *every* script (preview and pipeline).
+    $WheelDataDir = Get-ChildItem "$VSDir\Lib\site-packages" -Directory -Filter "vapoursynth-*.data" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($WheelDataDir) {
+        $DataRoot = Join-Path $WheelDataDir.FullName "data"
+        if (Test-Path $DataRoot) {
+            Get-ChildItem $DataRoot -Recurse -File | ForEach-Object {
+                $Rel = $_.FullName.Substring($DataRoot.Length).TrimStart('\')
+                $Dest = Join-Path $VSDir $Rel
+                New-Item -ItemType Directory -Force -Path (Split-Path $Dest -Parent) | Out-Null
+                Copy-Item $_.FullName $Dest -Force
+                Write-Host "    Relocated wheel data: $Rel" -ForegroundColor Gray
+            }
+        }
+        Remove-Item $WheelDataDir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    # Sanity check: the core DLL must sit next to the .pyd or VSScript won't init.
+    if (-not (Test-Path "$VSDir\Lib\site-packages\vapoursynth.dll")) {
+        throw "VapourSynth core DLL missing at Lib\site-packages\vapoursynth.dll after wheel install - VSScript will fail to initialize."
+    }
     Write-Host "  VapourSynth wheel installed" -ForegroundColor Green
 }
 
@@ -629,6 +657,33 @@ if (-not (Test-Path $WeightsPath)) {
     Write-Host "  NNEDI3 weights installed" -ForegroundColor Green
 } else {
     Write-Host "  NNEDI3 weights already installed" -ForegroundColor Gray
+}
+
+# =============================================================================
+# 7.5 VSScript smoke test
+# =============================================================================
+# Run VSPipe --version with the same environment the worker uses. This forces
+# VSScript to spin up its embedded Python and import vapoursynth, which fails
+# ("Failed to initialize VSScript") if the core vapoursynth.dll isn't sitting
+# next to vapoursynth.pyd, python is mis-wired, etc. Catching it here turns a
+# silently-broken bundle into a red build instead of a runtime failure that
+# only the preview integration test would surface.
+Write-Host ""
+Write-Host "[7.5/8] Verifying VSScript initializes..." -ForegroundColor Yellow
+$VSPipeExe = "$VSDir\VSPipe.exe"
+if (Test-Path $VSPipeExe) {
+    $env:PYTHONNOUSERSITE = "1"
+    $env:PYTHONHOME = $VSDir
+    $env:PYTHONPATH = "$VSDir\Lib\site-packages"
+    $env:VAPOURSYNTH_PLUGIN_PATH = $PluginsDir
+    $env:PATH = "$FullTargetDir\ffmpeg;$VSDir;$env:PATH"
+    $VsVersion = & $VSPipeExe --version 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0 -or $VsVersion -notmatch "Core R") {
+        throw "VSScript smoke test failed (exit $LASTEXITCODE). VSPipe --version output:`n$VsVersion"
+    }
+    Write-Host "  VSScript OK: $(($VsVersion -split "`n" | Where-Object { $_ -match 'Core R' } | Select-Object -First 1).Trim())" -ForegroundColor Green
+} else {
+    throw "VSPipe.exe not found at $VSPipeExe"
 }
 
 # =============================================================================
