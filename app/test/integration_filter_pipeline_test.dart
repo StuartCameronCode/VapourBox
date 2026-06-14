@@ -2,8 +2,12 @@
 /// These tests spawn the actual worker process and run video processing.
 /// Each filter test verifies the output differs from a baseline (no filters).
 ///
-/// Run with: flutter test integration_test/filter_pipeline_test.dart
-/// Or: dart test integration_test/filter_pipeline_test.dart --chain-stack-traces
+/// Run headless via CI: flutter test test/integration_filter_pipeline_test.dart
+/// Heavy (full-encode) — tagged so it runs in the nightly workflow, not the push gate.
+@Tags(['heavy'])
+library;
+
+// ignore_for_file: avoid_print — these tests print diagnostics to the test log.
 
 import 'dart:async';
 import 'dart:convert';
@@ -11,42 +15,34 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:uuid/uuid.dart';
 
-import '../lib/models/chroma_fix_parameters.dart';
-import '../lib/models/color_correction_parameters.dart';
-import '../lib/models/crop_resize_parameters.dart';
-import '../lib/models/deband_parameters.dart';
-import '../lib/models/deblock_parameters.dart';
-import '../lib/models/dehalo_parameters.dart';
-import '../lib/models/encoding_settings.dart';
-import '../lib/models/noise_reduction_parameters.dart';
-import '../lib/models/qtgmc_parameters.dart';
-import '../lib/models/processing_pipeline.dart';
-import '../lib/models/sharpen_parameters.dart';
-import '../lib/models/video_job.dart';
+import 'package:vapourbox/models/chroma_fix_parameters.dart';
+import 'package:vapourbox/models/color_correction_parameters.dart';
+import 'package:vapourbox/models/crop_resize_parameters.dart';
+import 'package:vapourbox/models/deband_parameters.dart';
+import 'package:vapourbox/models/deblock_parameters.dart';
+import 'package:vapourbox/models/dehalo_parameters.dart';
+import 'package:vapourbox/models/encoding_settings.dart';
+import 'package:vapourbox/models/noise_reduction_parameters.dart';
+import 'package:vapourbox/models/qtgmc_parameters.dart';
+import 'package:vapourbox/models/processing_pipeline.dart';
+import 'package:vapourbox/models/sharpen_parameters.dart';
+import 'package:vapourbox/models/video_job.dart';
 
-/// Test configuration
+import 'support/worker_harness.dart';
+
+/// Thin shim over [WorkerHarness] so the test bodies below keep their original
+/// `TestConfig.*` call sites while paths/env resolve cross-platform.
 class TestConfig {
-  static final String projectRoot = _findProjectRoot();
-  static String get inputFile => '$projectRoot/Tests/TestResources/interlaced_test.avi';
-  static String get outputDir => '$projectRoot/Tests/TestOutput';
-  static String get workerPath => '$projectRoot/worker/target/release/vapourbox-worker.exe';
-  static String get depsDir => '$projectRoot/deps/windows-x64';
-  static String get baselineFile => '$outputDir/baseline_deinterlace_only.avi';
-
-  static String _findProjectRoot() {
-    var dir = Directory.current;
-    while (!File('${dir.path}/CLAUDE.md').existsSync()) {
-      final parent = dir.parent;
-      if (parent.path == dir.path) {
-        throw StateError('Could not find project root (looking for CLAUDE.md)');
-      }
-      dir = parent;
-    }
-    return dir.path.replaceAll('\\', '/');
-  }
+  static String get projectRoot => WorkerHarness.repoRoot;
+  static String get inputFile => WorkerHarness.inputFile;
+  static String get outputDir => WorkerHarness.outputDir;
+  static String get workerPath => WorkerHarness.workerPath;
+  static String get depsDir => WorkerHarness.depsDir;
+  static String get baselineFile =>
+      '${WorkerHarness.outputDir}/baseline_deinterlace_only.avi';
 }
 
 /// Global baseline frame hash for comparison (visual content only)
@@ -81,7 +77,7 @@ class AudioStreamInfo {
 
 /// Get information about audio streams in a video file using ffprobe
 Future<AudioStreamInfo> getAudioStreamInfo(String videoPath) async {
-  final ffprobePath = '${TestConfig.depsDir}/ffmpeg/ffprobe.exe';
+  final ffprobePath = WorkerHarness.ffprobePath;
 
   final result = await Process.run(
     ffprobePath,
@@ -92,9 +88,7 @@ Future<AudioStreamInfo> getAudioStreamInfo(String videoPath) async {
       '-of', 'json',
       videoPath,
     ],
-    environment: {
-      'PATH': '${TestConfig.depsDir}/ffmpeg;${Platform.environment['PATH']}',
-    },
+    environment: WorkerHarness.ffmpegEnv,
   );
 
   if (result.exitCode != 0) {
@@ -121,17 +115,21 @@ Future<AudioStreamInfo> getAudioStreamInfo(String videoPath) async {
 /// Extract raw audio from a video file as PCM WAV for binary comparison
 /// Returns the MD5 hash of the audio data, or null if no audio
 Future<String?> extractAudioHash(String videoPath) async {
-  final ffmpegPath = '${TestConfig.depsDir}/ffmpeg/ffmpeg.exe';
+  final ffmpegPath = WorkerHarness.ffmpegPath;
   final tempDir = Directory.systemTemp;
-  final audioPath = '${tempDir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.wav';
+  final audioPath = '${tempDir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.raw';
 
   try {
-    // Extract audio as raw PCM WAV (lossless extraction for comparison)
+    // Extract audio as headerless raw PCM (s16le) — NOT a WAV. A WAV header
+    // varies by source container metadata (RIFF size / INFO chunk) even when the
+    // samples are identical, which makes a passthrough copy hash differently from
+    // its source. Raw PCM hashes the audio content only.
     await Process.run(
       ffmpegPath,
       [
         '-i', videoPath,
         '-vn',                    // No video
+        '-f', 's16le',            // Headerless raw PCM container
         '-acodec', 'pcm_s16le',   // Convert to PCM for consistent comparison
         '-ar', '48000',           // Resample to 48kHz for consistency
         '-ac', '2',               // Stereo
@@ -139,7 +137,7 @@ Future<String?> extractAudioHash(String videoPath) async {
         audioPath,
       ],
       environment: {
-        'PATH': '${TestConfig.depsDir}/ffmpeg;${Platform.environment['PATH']}',
+        'PATH': '${WorkerHarness.depsDir}/ffmpeg${Platform.isWindows ? ';' : ':'}${Platform.environment['PATH']}',
       },
     );
 
@@ -172,7 +170,7 @@ Future<String?> extractAudioHash(String videoPath) async {
 /// Extract raw audio bytes from a video for detailed comparison
 /// Returns raw audio data as Uint8List, or null if no audio
 Future<Uint8List?> extractAudioBytes(String videoPath) async {
-  final ffmpegPath = '${TestConfig.depsDir}/ffmpeg/ffmpeg.exe';
+  final ffmpegPath = WorkerHarness.ffmpegPath;
   final tempDir = Directory.systemTemp;
   final audioPath = '${tempDir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.raw';
 
@@ -191,7 +189,7 @@ Future<Uint8List?> extractAudioBytes(String videoPath) async {
         audioPath,
       ],
       environment: {
-        'PATH': '${TestConfig.depsDir}/ffmpeg;${Platform.environment['PATH']}',
+        'PATH': '${WorkerHarness.depsDir}/ffmpeg${Platform.isWindows ? ';' : ':'}${Platform.environment['PATH']}',
       },
     );
 
@@ -218,7 +216,7 @@ Future<Uint8List?> extractAudioBytes(String videoPath) async {
 Future<String> extractFrameHash(String videoPath, {int frameNumber = 5}) async {
   final tempDir = Directory.systemTemp;
   final framePath = '${tempDir.path}/frame_${DateTime.now().millisecondsSinceEpoch}.png';
-  final ffmpegPath = '${TestConfig.depsDir}/ffmpeg/ffmpeg.exe';
+  final ffmpegPath = WorkerHarness.ffmpegPath;
 
   try {
     // Extract a specific frame as PNG (lossless, no metadata variation)
@@ -232,7 +230,7 @@ Future<String> extractFrameHash(String videoPath, {int frameNumber = 5}) async {
         framePath,
       ],
       environment: {
-        'PATH': '${TestConfig.depsDir}/ffmpeg;${Platform.environment['PATH']}',
+        'PATH': '${WorkerHarness.depsDir}/ffmpeg${Platform.isWindows ? ';' : ':'}${Platform.environment['PATH']}',
       },
     );
 
@@ -324,14 +322,8 @@ Future<PreviewTestResult> runPreviewTest(
   final configFile = File('${Directory.systemTemp.path}/preview_${job.id}.json');
   await configFile.writeAsString(jsonEncode(job.toJson()));
 
-  // Set up environment
-  final env = Map<String, String>.from(Platform.environment);
-  final depsDir = TestConfig.depsDir;
-
-  env['PYTHONHOME'] = '$depsDir/vapoursynth';
-  env['PYTHONPATH'] = '$depsDir/vapoursynth/Lib/site-packages';
-  env['PATH'] = '$depsDir/vapoursynth;$depsDir/ffmpeg;${env['PATH']}';
-  env['VAPOURSYNTH_PLUGIN_PATH'] = '$depsDir/vapoursynth/vs-plugins';
+  // Cross-platform worker environment sourced from the shared harness.
+  final env = WorkerHarness.workerEnv;
 
   try {
     print('\n${'=' * 60}');
@@ -470,14 +462,8 @@ Future<FilterTestResult> runFilterTest(
   final configFile = File('${Directory.systemTemp.path}/test_${job.id}.json');
   await configFile.writeAsString(jsonEncode(job.toJson()));
 
-  // Set up environment
-  final env = Map<String, String>.from(Platform.environment);
-  final depsDir = TestConfig.depsDir;
-
-  env['PYTHONHOME'] = '$depsDir/vapoursynth';
-  env['PYTHONPATH'] = '$depsDir/vapoursynth/Lib/site-packages';
-  env['PATH'] = '$depsDir/vapoursynth;$depsDir/ffmpeg;${env['PATH']}';
-  env['VAPOURSYNTH_PLUGIN_PATH'] = '$depsDir/vapoursynth/vs-plugins';
+  // Cross-platform worker environment sourced from the shared harness.
+  final env = WorkerHarness.workerEnv;
 
   try {
     print('\n${'=' * 60}');
@@ -621,31 +607,10 @@ VideoJob createTestJob(String outputName, {String extension = 'avi'}) {
 void main() {
   // Ensure output directory exists
   setUpAll(() async {
-    final outputDir = Directory(TestConfig.outputDir);
-    if (!await outputDir.exists()) {
-      await outputDir.create(recursive: true);
-    }
-
-    // Verify prerequisites
-    final workerFile = File(TestConfig.workerPath);
-    if (!await workerFile.exists()) {
-      fail('Worker not found at ${TestConfig.workerPath}. Run: cd worker && cargo build --release');
-    }
-
-    final inputFile = File(TestConfig.inputFile);
-    if (!await inputFile.exists()) {
-      fail('Test input not found at ${TestConfig.inputFile}');
-    }
-
-    final depsDir = Directory(TestConfig.depsDir);
-    if (!await depsDir.exists()) {
-      fail('Dependencies not found at ${TestConfig.depsDir}. Run download-deps-windows.ps1');
-    }
-
-    print('Project root: ${TestConfig.projectRoot}');
-    print('Input file: ${TestConfig.inputFile}');
-    print('Output dir: ${TestConfig.outputDir}');
-    print('Worker: ${TestConfig.workerPath}');
+    // Resolves deps (downloading the pinned release if absent), locates the
+    // worker + input fixture, and creates the output dir. Throws with an
+    // actionable message if anything required can't be obtained.
+    await WorkerHarness.ensureReady();
   });
 
   // BASELINE TEST - Must run first to establish comparison reference
@@ -985,9 +950,7 @@ void main() {
             enabled: true,
             applyVinverse: true,
             vinverseSstr: 2.0,
-            vinverseAmnt: 200,
-            vinverseScl: 12,
-          ),
+            vinverseAmnt: 200,          ),
         ),
         encodingSettings: job.encodingSettings,
       );
@@ -1445,9 +1408,7 @@ void main() {
             chromaBleedStrength: 0.8,
             applyVinverse: true,
             vinverseSstr: 2.0,
-            vinverseAmnt: 200,
-            vinverseScl: 12,
-          ),
+            vinverseAmnt: 200,          ),
           cropResize: CropResizeParameters(
             enabled: true,
             resizeEnabled: true,
@@ -1830,9 +1791,7 @@ void main() {
             enabled: true,
             applyVinverse: true,
             vinverseSstr: 2.0,
-            vinverseAmnt: 200,
-            vinverseScl: 12,
-          ),
+            vinverseAmnt: 200,          ),
         ),
         encodingSettings: const EncodingSettings(
           codec: VideoCodec.ffv1,
@@ -2339,7 +2298,7 @@ void main() {
 
   group('Audio Passthrough', () {
     // Store input audio hash for comparison
-    String? _inputAudioHash;
+    String? inputAudioHash;
 
     test('Setup: Verify input file has audio', () async {
       print('\n${'=' * 60}');
@@ -2359,11 +2318,11 @@ void main() {
       );
 
       // Store input audio hash for later comparison
-      _inputAudioHash = await extractAudioHash(TestConfig.inputFile);
-      print('Input audio hash: $_inputAudioHash');
+      inputAudioHash = await extractAudioHash(TestConfig.inputFile);
+      print('Input audio hash: $inputAudioHash');
 
       expect(
-        _inputAudioHash,
+        inputAudioHash,
         isNotNull,
         reason: 'Failed to extract audio hash from input file',
       );
@@ -2393,7 +2352,7 @@ void main() {
         encodingSettings: const EncodingSettings(
           codec: VideoCodec.ffv1,
           container: ContainerFormat.avi,
-          audioCopy: true, // Explicitly set (this is also the default)
+          audioMode: AudioMode.passthrough, // Explicitly set (also the default)
         ),
       );
 
@@ -2413,7 +2372,7 @@ void main() {
       // Extract and compare audio
       final outputAudioHash = await extractAudioHash(result.outputPath!);
       print('  Output audio hash: $outputAudioHash');
-      print('  Input audio hash:  $_inputAudioHash');
+      print('  Input audio hash:  $inputAudioHash');
 
       expect(
         outputAudioHash,
@@ -2425,9 +2384,9 @@ void main() {
       // Note: Due to container differences, we compare normalized PCM audio
       expect(
         outputAudioHash,
-        equals(_inputAudioHash),
+        equals(inputAudioHash),
         reason: 'Audio with audioCopy=true should match input exactly!\n'
-            'Input hash:  $_inputAudioHash\n'
+            'Input hash:  $inputAudioHash\n'
             'Output hash: $outputAudioHash\n'
             'This means audio was modified when it should have been copied unchanged.',
       );
@@ -2459,9 +2418,9 @@ void main() {
         encodingSettings: const EncodingSettings(
           codec: VideoCodec.h264,
           container: ContainerFormat.mp4,
-          audioCopy: false,      // Re-encode audio
-          audioCodec: 'aac',
-          audioBitrate: 128,     // Lower bitrate to make difference obvious
+          audioMode: AudioMode.convert, // Re-encode audio
+          audioCodec: AudioCodec.aac,
+          audioQuality: AudioQuality.medium, // 128 kbps — lower to make the difference obvious
         ),
       );
 
@@ -2488,7 +2447,7 @@ void main() {
       // Extract and compare audio - should be DIFFERENT from input
       final outputAudioHash = await extractAudioHash(result.outputPath!);
       print('  Output audio hash: $outputAudioHash');
-      print('  Input audio hash:  $_inputAudioHash');
+      print('  Input audio hash:  $inputAudioHash');
 
       expect(
         outputAudioHash,
@@ -2500,9 +2459,9 @@ void main() {
       // (unless original was already AAC 128kbps, which is unlikely)
       expect(
         outputAudioHash,
-        isNot(equals(_inputAudioHash)),
+        isNot(equals(inputAudioHash)),
         reason: 'Re-encoded audio should differ from input!\n'
-            'Input hash:  $_inputAudioHash\n'
+            'Input hash:  $inputAudioHash\n'
             'Output hash: $outputAudioHash\n'
             'Audio appears unchanged despite audioCopy=false.',
       );
@@ -2605,7 +2564,7 @@ void main() {
         encodingSettings: const EncodingSettings(
           codec: VideoCodec.ffv1,
           container: ContainerFormat.avi,
-          audioCopy: true, // Keep audio unchanged despite video filters
+          audioMode: AudioMode.passthrough, // Keep audio unchanged despite video filters
         ),
       );
 
@@ -2625,13 +2584,13 @@ void main() {
       // Extract and compare audio - should match input exactly
       final outputAudioHash = await extractAudioHash(result.outputPath!);
       print('  Output audio hash: $outputAudioHash');
-      print('  Input audio hash:  $_inputAudioHash');
+      print('  Input audio hash:  $inputAudioHash');
 
       expect(
         outputAudioHash,
-        equals(_inputAudioHash),
+        equals(inputAudioHash),
         reason: 'Audio should match input even with heavy video processing!\n'
-            'Input hash:  $_inputAudioHash\n'
+            'Input hash:  $inputAudioHash\n'
             'Output hash: $outputAudioHash\n'
             'Video filters should not affect audio when audioCopy=true.',
       );
@@ -2664,7 +2623,7 @@ void main() {
         encodingSettings: const EncodingSettings(
           codec: VideoCodec.h264,
           container: ContainerFormat.mkv,
-          audioCopy: true,
+          audioMode: AudioMode.passthrough,
         ),
       );
 
@@ -2688,7 +2647,7 @@ void main() {
       // MKV should match input (codec is compatible, so it's copied)
       expect(
         mkvAudioHash,
-        equals(_inputAudioHash),
+        equals(inputAudioHash),
         reason: 'MKV audio should match input (PCM is compatible)',
       );
 
@@ -2719,9 +2678,9 @@ void main() {
         encodingSettings: const EncodingSettings(
           codec: VideoCodec.h264,
           container: ContainerFormat.mp4,
-          audioCopy: false, // User chose to re-encode
-          audioCodec: 'aac',
-          audioBitrate: 128,
+          audioMode: AudioMode.convert, // User chose to re-encode
+          audioCodec: AudioCodec.aac,
+          audioQuality: AudioQuality.medium, // 128 kbps
         ),
       );
 
@@ -2735,12 +2694,12 @@ void main() {
 
       final outputHash = await extractAudioHash(result.outputPath!);
       print('  Output audio hash: $outputHash');
-      print('  Input audio hash:  $_inputAudioHash');
+      print('  Input audio hash:  $inputAudioHash');
 
       // Re-encoded audio will differ from input
       expect(
         outputHash,
-        isNot(equals(_inputAudioHash)),
+        isNot(equals(inputAudioHash)),
         reason: 'Re-encoded audio should differ from input',
       );
 
@@ -2771,7 +2730,7 @@ void main() {
         encodingSettings: const EncodingSettings(
           codec: VideoCodec.h264,
           container: ContainerFormat.mkv, // User changed to compatible container
-          audioCopy: true, // Can now copy because MKV supports PCM
+          audioMode: AudioMode.passthrough, // Can now copy because MKV supports PCM
         ),
       );
 
@@ -2785,12 +2744,12 @@ void main() {
 
       final outputHash = await extractAudioHash(result.outputPath!);
       print('  Output audio hash: $outputHash');
-      print('  Input audio hash:  $_inputAudioHash');
+      print('  Input audio hash:  $inputAudioHash');
 
       // Copied audio should match input exactly
       expect(
         outputHash,
-        equals(_inputAudioHash),
+        equals(inputAudioHash),
         reason: 'Copied audio should match input exactly',
       );
 

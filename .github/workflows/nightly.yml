@@ -1,21 +1,18 @@
-name: CI Tests
+name: Nightly Integration Tests
 
-# Pulls the published dependency bundle + the whisper add-on (binary + small
-# model) and runs the Rust test suite plus the Flutter tests, EXCLUDING the
-# heavy full-encode integration tests (those run in nightly.yml via
-# `--tags heavy`). macOS is tested natively on both arm64 (macos-15) and x64
-# (macos-15-intel); Windows on x64; Linux on x64 (ubuntu-22.04).
+# Runs the heavy, full-encode Flutter integration tests (tagged `heavy`) that are
+# excluded from the per-push CI gate (ci-test.yml). These run the worker
+# end-to-end through `vspipe | ffmpeg` for every pipeline pass and verify real
+# output properties (codecs, field order, audio streams, pixel format, trimming,
+# subtitles). Same 4-platform matrix and deps/whisper provisioning as ci-test.yml.
 
 on:
-  push:
-    branches: [main]
-    paths-ignore: ['**.md', 'docs/**', 'licenses/**']
-  pull_request:
-    paths-ignore: ['**.md', 'docs/**', 'licenses/**']
+  schedule:
+    - cron: '0 7 * * *'  # 07:00 UTC daily
   workflow_dispatch:
 
 concurrency:
-  group: ci-test-${{ github.ref }}
+  group: nightly-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -33,8 +30,6 @@ jobs:
             runner: macos-15-intel  # last native Intel image, available until ~Aug 2027
     runs-on: ${{ matrix.runner }}
     env:
-      # Point the Flutter ToolLocator/DependencyManager at the repo-root deps
-      # (Platform.resolvedExecutable is the test runner under `flutter test`).
       VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/macos-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
@@ -67,7 +62,6 @@ jobs:
           rm -f "$ZIP"
           xattr -cr deps/macos-${{ matrix.arch }} 2>/dev/null || true
 
-      # The whisper small model (~466 MB) is architecture-independent; cache it.
       - name: Cache whisper model
         uses: actions/cache@v4
         with:
@@ -78,20 +72,16 @@ jobs:
         run: |
           mkdir -p .whisper-cache addons/whisper/models
           if [ ! -f .whisper-cache/ggml-small.bin ]; then
-            echo "Downloading whisper small model..."
             curl -L -o .whisper-cache/ggml-small.bin "$WHISPER_MODEL_URL"
           fi
           cp .whisper-cache/ggml-small.bin addons/whisper/models/ggml-small.bin
-          # whisper-cli comes from the same Homebrew bottle the app downloads.
           brew install whisper-cpp
           BP="$(brew --prefix)"
           ln -sfn "$BP/opt/whisper-cpp/bin" addons/whisper/bin
           ln -sfn "$BP/opt/whisper-cpp/lib" addons/whisper/lib
 
-      - name: Rust tests
-        # Debug build: DependencyLocator's upward search then finds the repo-root
-        # deps/ and addons/ (release mode looks under ~/Library).
-        run: cd worker && cargo test -- --nocapture
+      - name: Build worker (debug)
+        run: cd worker && cargo build
 
       - name: Generate Dart serialization
         run: |
@@ -99,10 +89,8 @@ jobs:
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
 
-      - name: Flutter tests
-        # Excludes @Tags(['heavy']) — the full-encode integration tests, which
-        # run in nightly.yml. The script-only integration tests + unit tests run here.
-        run: cd app && flutter test --exclude-tags heavy
+      - name: Heavy integration tests
+        run: cd app && flutter test --tags heavy
 
   windows:
     runs-on: windows-latest
@@ -137,8 +125,6 @@ jobs:
           ZIP="VapourBox-deps-${VER}-windows-x64.zip"
           mkdir -p deps/windows-x64
           gh release download "${{ steps.deps.outputs.tag }}" --pattern "$ZIP" --dir . --clobber
-          # The Windows deps zip uses backslash separators; 7-Zip handles that
-          # (info-zip `unzip` warns and exits non-zero, tripping `set -e`).
           7z x "$ZIP" -o"deps/windows-x64" -y >/dev/null
           rm -f "$ZIP"
 
@@ -159,14 +145,12 @@ jobs:
           curl -L -o /tmp/whisper-win.zip \
             "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.3/whisper-bin-x64.zip"
           7z x /tmp/whisper-win.zip -o/tmp/whisper-win -y >/dev/null
-          # Flatten: DependencyLocator expects addons/whisper/whisper-cli.exe
           CLI=$(find /tmp/whisper-win -name "whisper-cli.exe" | head -1)
           cp "$(dirname "$CLI")"/*.exe addons/whisper/ 2>/dev/null || true
           cp "$(dirname "$CLI")"/*.dll addons/whisper/ 2>/dev/null || true
-          ls addons/whisper/
 
-      - name: Rust tests
-        run: cd worker && cargo test -- --nocapture
+      - name: Build worker (debug)
+        run: cd worker && cargo build
 
       - name: Generate Dart serialization
         run: |
@@ -174,16 +158,12 @@ jobs:
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
 
-      - name: Flutter tests
-        # Excludes @Tags(['heavy']) — the full-encode integration tests, which
-        # run in nightly.yml. The script-only integration tests + unit tests run here.
-        run: cd app && flutter test --exclude-tags heavy
+      - name: Heavy integration tests
+        run: cd app && flutter test --tags heavy
 
   linux:
-    runs-on: ubuntu-22.04  # matches the deps-build runner (glibc compatibility)
+    runs-on: ubuntu-22.04
     env:
-      # Dart ToolLocator/DependencyManager honour this; the Rust locator does
-      # not (it uses the XDG path), so we also symlink it below.
       VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/linux-x64
     steps:
       - uses: actions/checkout@v4
@@ -231,32 +211,22 @@ jobs:
         run: |
           mkdir -p .whisper-cache addons/whisper/models addons/whisper/bin
           if [ ! -f .whisper-cache/ggml-small.bin ]; then
-            echo "Downloading whisper small model..."
             curl -L -o .whisper-cache/ggml-small.bin "$WHISPER_MODEL_URL"
           fi
           cp .whisper-cache/ggml-small.bin addons/whisper/models/ggml-small.bin
-          # Download the same published whisper-cli the app fetches at runtime
-          # (the linux-x64 source in whisper-addon.json), so the test exercises
-          # the real add-on artifact + tar layout instead of building from
-          # source. Mirrors the Windows job, which curls its release zip.
           WHISPER_URL=$(python3 -c "import json;print(json.load(open('app/assets/whisper-addon.json'))['binary']['platforms']['linux-x64']['url'])")
-          echo "whisper-cli: $WHISPER_URL"
           curl -L -o /tmp/whisper-cli.tar.gz "$WHISPER_URL"
-          tar xzf /tmp/whisper-cli.tar.gz -C addons/whisper  # => addons/whisper/bin/whisper-cli
+          tar xzf /tmp/whisper-cli.tar.gz -C addons/whisper
           chmod +x addons/whisper/bin/whisper-cli
-          ls -la addons/whisper/bin addons/whisper/models
 
       - name: Stage deps/addons at XDG path for the Rust locator
-        # The Rust DependencyLocator on Linux only looks under
-        # ~/.local/share/VapourBox (no debug upward-search); the Dart tests use
-        # the repo-root copy. Symlink so a single checkout satisfies both.
         run: |
           mkdir -p "$HOME/.local/share/VapourBox"
           ln -sfn "${{ github.workspace }}/deps" "$HOME/.local/share/VapourBox/deps"
           ln -sfn "${{ github.workspace }}/addons" "$HOME/.local/share/VapourBox/addons"
 
-      - name: Rust tests
-        run: cd worker && cargo test -- --nocapture
+      - name: Build worker (debug)
+        run: cd worker && cargo build
 
       - name: Generate Dart serialization
         run: |
@@ -264,7 +234,5 @@ jobs:
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
 
-      - name: Flutter tests
-        # Excludes @Tags(['heavy']) — the full-encode integration tests, which
-        # run in nightly.yml. The script-only integration tests + unit tests run here.
-        run: cd app && flutter test --exclude-tags heavy
+      - name: Heavy integration tests
+        run: cd app && flutter test --tags heavy
