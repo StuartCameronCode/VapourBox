@@ -1345,6 +1345,12 @@ for dylib in "$PLUGINS_DIR"/*.dylib "$LIB_DIR"/*.dylib; do
     while IFS= read -r ref; do
         ref_base=$(basename "$ref")
         case "$ref_base" in "$dylib_base") continue ;; esac
+        # libdvdcss is the one *intentional* external reference: it is
+        # deliberately NOT bundled (legal -- the user installs it themselves,
+        # e.g. via Homebrew), and libdvdread weak-links it for optional CSS
+        # decryption. Skip it so the guard stays strict for the issue #28 class
+        # without flagging this by-design dependency.
+        case "$ref_base" in libdvdcss*) continue ;; esac
         # A bundled support lib MUST be referenced via @loader_path (i.e. it was
         # repointed at deps/macos-*/lib by the repoint passes above). If it's
         # still @rpath or an absolute Homebrew path it won't resolve on a user
