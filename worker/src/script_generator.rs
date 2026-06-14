@@ -438,15 +438,22 @@ impl ScriptGenerator {
                     {
                         desired_opencl = params.opencl;
                     }
-                    // Gate on detected OpenCL availability: if we'd enable the GPU
-                    // NNEDI3CL path but no usable OpenCL device exists (headless
-                    // CI, VM, remote desktop), fall back to CPU NNEDI3 so the
-                    // script doesn't fail with "NNEDI3CL: Invalid Value".
-                    let opencl = gate_opencl(desired_opencl, self.opencl_available);
-                    if desired_opencl == Some(true) && opencl == Some(false) {
+                    // Gate auto-enabled OpenCL on detected availability: if we'd
+                    // enable the GPU NNEDI3CL path but no usable OpenCL device
+                    // exists (headless CI, VM, remote desktop), fall back to CPU
+                    // NNEDI3 so the script doesn't fail with "NNEDI3CL: Invalid
+                    // Value". A user who *explicitly* enabled OpenCL overrides the
+                    // probe — their choice wins (it will error if no device, by
+                    // design). The Dart UI serializes an unset toggle as false, so
+                    // only Some(true) counts as an explicit opt-in.
+                    let user_forced_opencl = params.opencl == Some(true);
+                    let opencl =
+                        gate_opencl(desired_opencl, self.opencl_available, user_forced_opencl);
+                    if !user_forced_opencl && desired_opencl == Some(true) && opencl == Some(false) {
                         eprintln!(
-                            "OpenCL requested but no usable device detected — \
-                             falling back to CPU NNEDI3"
+                            "OpenCL auto-enabled but no usable device detected — \
+                             falling back to CPU NNEDI3 (set the OpenCL option to \
+                             force it)"
                         );
                     }
                     script = process_optional_bool("OPENCL", opencl, script);
@@ -965,11 +972,18 @@ fn process_optional_double(name: &str, value: Option<f64>, mut script: String) -
 }
 
 /// Process an optional boolean parameter.
-/// Suppress the GPU NNEDI3CL path when no usable OpenCL device is available.
-/// `desired` is the OpenCL setting we'd otherwise use (macOS auto-enable or the
-/// user's choice); when it's `Some(true)` but `opencl_available` is false we
-/// downgrade to `Some(false)` (CPU NNEDI3). All other cases pass through.
-fn gate_opencl(desired: Option<bool>, opencl_available: bool) -> Option<bool> {
+/// Resolve the final OpenCL setting.
+///
+/// `desired` is what we'd otherwise use (macOS auto-enable or the user's choice).
+/// When `user_forced` is true the user explicitly opted in, so we honor `desired`
+/// as-is (their choice overrides the probe — it errors if no device, by design).
+/// Otherwise, if OpenCL would be on (`Some(true)`) but no usable device is
+/// detected, we downgrade to `Some(false)` (CPU NNEDI3). All other cases pass
+/// through unchanged.
+fn gate_opencl(desired: Option<bool>, opencl_available: bool, user_forced: bool) -> Option<bool> {
+    if user_forced {
+        return desired;
+    }
     match desired {
         Some(true) if !opencl_available => Some(false),
         other => other,
@@ -1052,17 +1066,23 @@ mod tests {
     }
 
     #[test]
-    fn test_gate_opencl_disables_when_unavailable() {
-        // The only case that changes: enabling OpenCL with no device → CPU.
-        assert_eq!(gate_opencl(Some(true), false), Some(false));
+    fn test_gate_opencl_disables_auto_when_unavailable() {
+        // Auto-enabled OpenCL with no device → CPU fallback.
+        assert_eq!(gate_opencl(Some(true), false, false), Some(false));
+    }
+
+    #[test]
+    fn test_gate_opencl_user_forced_overrides_probe() {
+        // User explicitly enabled OpenCL → honored even if the probe found nothing.
+        assert_eq!(gate_opencl(Some(true), false, true), Some(true));
+        assert_eq!(gate_opencl(Some(true), true, true), Some(true));
     }
 
     #[test]
     fn test_gate_opencl_passthrough() {
-        assert_eq!(gate_opencl(Some(true), true), Some(true));
-        assert_eq!(gate_opencl(Some(false), false), Some(false));
-        assert_eq!(gate_opencl(Some(false), true), Some(false));
-        assert_eq!(gate_opencl(None, false), None);
-        assert_eq!(gate_opencl(None, true), None);
+        assert_eq!(gate_opencl(Some(true), true, false), Some(true));
+        assert_eq!(gate_opencl(Some(false), false, false), Some(false));
+        assert_eq!(gate_opencl(None, false, false), None);
+        assert_eq!(gate_opencl(None, true, false), None);
     }
 }
