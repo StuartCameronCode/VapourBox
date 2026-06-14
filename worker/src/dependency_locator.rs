@@ -2,6 +2,8 @@
 
 use std::env;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 
 use anyhow::{bail, Context, Result};
 
@@ -195,6 +197,120 @@ impl DependencyLocator {
         }
 
         bail!("vspipe not found in {:?}", vs_dir);
+    }
+
+    /// Whether a usable OpenCL device is available for the GPU NNEDI3CL path.
+    ///
+    /// Headless/VM/remote-desktop environments often have no OpenCL device, so
+    /// NNEDI3CL fails at runtime ("Invalid Value"). We detect this by actually
+    /// running NNEDI3CL through vspipe once, and cache the result keyed by the
+    /// system **boot time** — GPU availability can change across boots (and we
+    /// don't want to pay the probe on every interactive preview), but re-probing
+    /// each boot keeps it current without a stale forever-cache. The
+    /// `VAPOURBOX_DISABLE_OPENCL=1` env var forces a negative result (escape
+    /// hatch for the remote-desktop-into-a-running-machine case, and for CI).
+    pub fn opencl_available(&self) -> bool {
+        static CACHE: OnceLock<bool> = OnceLock::new();
+        *CACHE.get_or_init(|| self.compute_opencl_available())
+    }
+
+    fn compute_opencl_available(&self) -> bool {
+        if env::var("VAPOURBOX_DISABLE_OPENCL")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+        {
+            return false;
+        }
+
+        let boot = Self::boot_token();
+        let cache_file = self.platform_dir().join("opencl-probe.json");
+
+        // Reuse a cached result only if it was recorded during this boot.
+        if !boot.is_empty() {
+            if let Ok(txt) = std::fs::read_to_string(&cache_file) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&txt) {
+                    let cached_boot = json.get("boot").and_then(|v| v.as_str());
+                    let cached = json.get("opencl").and_then(|v| v.as_bool());
+                    if cached_boot == Some(boot.as_str()) {
+                        if let Some(b) = cached {
+                            return b;
+                        }
+                    }
+                }
+            }
+        }
+
+        let result = self.probe_opencl();
+        let _ = std::fs::write(
+            &cache_file,
+            serde_json::json!({ "boot": boot, "opencl": result }).to_string(),
+        );
+        result
+    }
+
+    /// Run NNEDI3CL through vspipe on a tiny clip; success ⇒ OpenCL usable.
+    fn probe_opencl(&self) -> bool {
+        let vspipe = match self.vspipe_path() {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+        let script = "import vapoursynth as vs\n\
+                      core = vs.core\n\
+                      clip = core.std.BlankClip(width=256, height=256, format=vs.YUV420P8, length=1)\n\
+                      clip = core.nnedi3cl.NNEDI3CL(clip, field=1)\n\
+                      clip.set_output()\n";
+        let tmp = env::temp_dir().join(format!("vapourbox_opencl_probe_{}.vpy", std::process::id()));
+        if std::fs::write(&tmp, script).is_err() {
+            return false;
+        }
+        // `-e 0` processes frame 0 only, which forces NNEDI3CL to init OpenCL.
+        let out = Command::new(&vspipe)
+            .args(["-e", "0", tmp.to_string_lossy().as_ref(), "-"])
+            .envs(self.build_environment())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .output();
+        let _ = std::fs::remove_file(&tmp);
+        matches!(out, Ok(o) if o.status.success())
+    }
+
+    /// A token that is stable within a boot and changes across reboots. Empty
+    /// if it can't be determined (then we don't reuse the disk cache).
+    fn boot_token() -> String {
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(out) = Command::new("sysctl").args(["-n", "kern.boottime"]).output() {
+                if out.status.success() {
+                    return String::from_utf8_lossy(&out.stdout).trim().to_string();
+                }
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(stat) = std::fs::read_to_string("/proc/stat") {
+                for line in stat.lines() {
+                    if let Some(rest) = line.strip_prefix("btime ") {
+                        return rest.trim().to_string();
+                    }
+                }
+            }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(out) = Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToFileTimeUtc()",
+                ])
+                .output()
+            {
+                if out.status.success() {
+                    return String::from_utf8_lossy(&out.stdout).trim().to_string();
+                }
+            }
+        }
+        String::new()
     }
 
     /// Get the path to ffmpeg executable.
