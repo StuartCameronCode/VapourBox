@@ -626,6 +626,26 @@ impl DependencyLocator {
         }
     }
 
+    /// Write the VapourSynth autoload config to a PER-PROCESS path and return it.
+    ///
+    /// `build_environment` runs on every worker invocation, and `flutter test`
+    /// runs test files concurrently, so writing a shared, fixed-name conf let an
+    /// overlapping vspipe read it mid-truncation — `UserPluginDir` came back
+    /// empty and plugin autoload silently skipped everything (the intermittent
+    /// "No attribute with the name fmtc exists" on the nightly). A per-process
+    /// file (named by PID) is written fully by this process and touched by no
+    /// other, eliminating the race. Verified by reproduction: a shared conf
+    /// failed ~1/120 concurrent runs; per-process was 0/360.
+    fn write_runtime_conf(plugins_dir: &Path) -> Option<PathBuf> {
+        let content = format!(
+            "UserPluginDir={}\nAutoloadUserPluginDir=true\nAutoloadSystemPluginDir=false\n",
+            plugins_dir.to_string_lossy()
+        );
+        let conf_path = env::temp_dir().join(format!("vapourbox-vs-{}.conf", std::process::id()));
+        std::fs::write(&conf_path, content).ok()?;
+        Some(conf_path)
+    }
+
     /// Build environment variables for running vspipe/ffmpeg.
     pub fn build_environment(&self) -> std::collections::HashMap<String, String> {
         let mut env = std::collections::HashMap::new();
@@ -679,13 +699,9 @@ impl DependencyLocator {
             // This replaces the config generation in the vspipe wrapper script,
             // allowing us to call vspipe-bin directly (so kill() works).
             let plugins_dir = vs_lib_path.join("plugins");
-            let conf_path = vs_lib_path.join("vapoursynth.auto.conf");
-            let conf_content = format!(
-                "UserPluginDir={}\nAutoloadUserPluginDir=true\nAutoloadSystemPluginDir=false\n",
-                plugins_dir.to_string_lossy()
-            );
-            let _ = std::fs::write(&conf_path, &conf_content);
-            env.insert("VAPOURSYNTH_CONF_PATH".to_string(), conf_path.to_string_lossy().to_string());
+            if let Some(conf_path) = Self::write_runtime_conf(&plugins_dir) {
+                env.insert("VAPOURSYNTH_CONF_PATH".to_string(), conf_path.to_string_lossy().to_string());
+            }
         }
 
         #[cfg(target_os = "linux")]
@@ -715,13 +731,9 @@ impl DependencyLocator {
 
             // Generate VapourSynth config (same as macOS)
             let plugins_dir = vs_lib_path.join("plugins");
-            let conf_path = vs_lib_path.join("vapoursynth.auto.conf");
-            let conf_content = format!(
-                "UserPluginDir={}\nAutoloadUserPluginDir=true\nAutoloadSystemPluginDir=false\n",
-                plugins_dir.to_string_lossy()
-            );
-            let _ = std::fs::write(&conf_path, &conf_content);
-            env.insert("VAPOURSYNTH_CONF_PATH".to_string(), conf_path.to_string_lossy().to_string());
+            if let Some(conf_path) = Self::write_runtime_conf(&plugins_dir) {
+                env.insert("VAPOURSYNTH_CONF_PATH".to_string(), conf_path.to_string_lossy().to_string());
+            }
         }
 
         env
