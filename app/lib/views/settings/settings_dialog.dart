@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/encoding_settings.dart';
@@ -866,24 +867,32 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     final compiledIn = detector.isCompiledIn(codec);
     // Still querying whether this (compiled-in) hardware encoder works here.
     final probing = isSupported && isHw && compiledIn && detector.isProbing(codec);
-    // Usable = container-supported AND (non-hardware, or its probe succeeded).
-    final isAvailable = isSupported && detector.isAvailable(codec);
+    // The functional probe failed, but ffmpeg DID return the encoder. We keep it
+    // selectable and surface the captured error as a warning rather than blocking
+    // it — the synthetic probe can fail for encoders that still work in practice
+    // (see issue #28-adjacent reports of h264_videotoolbox being hidden).
+    final probeFailed = isSupported &&
+        isHw &&
+        compiledIn &&
+        !probing &&
+        !detector.isAvailable(codec);
+    final probeError = detector.probeError(codec);
 
-    final String? unavailableReason = !isSupported
+    // Any encoder ffmpeg returns (compiled-in) and the container supports is
+    // selectable. Only a missing build or an incompatible container blocks it.
+    final String? blockedReason = !isSupported
         ? 'Not supported in ${settings.container.name.toUpperCase()}'
-        : !compiledIn
+        : (isHw && !compiledIn)
             ? 'Not available in this build'
-            : probing
-                ? 'Checking availability…'
-                : !isAvailable
-                    ? 'Not available on this system'
-                    : null;
+            : null;
+    final clickable = blockedReason == null;
 
     final disabledStyle = TextStyle(
       color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38),
     );
 
-    // Trailing affordance: spinner while probing, block icon when unavailable.
+    // Trailing affordance: spinner while probing; warning + info button when the
+    // probe failed (still selectable); block icon only when genuinely blocked.
     Widget? indicator;
     if (probing) {
       indicator = const Tooltip(
@@ -894,21 +903,51 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
           child: CircularProgressIndicator(strokeWidth: 2),
         ),
       );
-    } else if (isSupported && isHw && !isAvailable) {
+    } else if (probeFailed) {
+      indicator = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Tooltip(
+            message: 'Availability check failed — this encoder may not work on '
+                'this system. Tap the info icon for details.',
+            child: Icon(Icons.warning_amber_rounded,
+                size: 16, color: Colors.orange[700]),
+          ),
+          IconButton(
+            icon: const Icon(Icons.info_outline, size: 16),
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.only(left: 6),
+            constraints: const BoxConstraints(),
+            tooltip: 'Show availability check error',
+            onPressed: () => _showCodecProbeError(context, codec, probeError),
+          ),
+        ],
+      );
+    } else if (!clickable && isHw) {
       indicator = Tooltip(
-        message: compiledIn
-            ? 'Not available on this system'
-            : 'Not available in this build',
+        message: blockedReason,
         child: Icon(Icons.block, size: 16, color: Colors.orange[700]),
       );
+    }
+
+    final String subtitleText;
+    if (!clickable) {
+      subtitleText = blockedReason;
+    } else if (probeFailed) {
+      subtitleText =
+          'Availability check failed — selectable, but may not encode on this system.';
+    } else {
+      subtitleText = codec.description;
     }
 
     return RadioListTile<VideoCodec>(
       title: Row(
         children: [
-          Text(
-            codec.displayName,
-            style: isAvailable ? null : disabledStyle,
+          Flexible(
+            child: Text(
+              codec.displayName,
+              style: clickable ? null : disabledStyle,
+            ),
           ),
           if (indicator != null) ...[
             const SizedBox(width: 8),
@@ -917,12 +956,12 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
         ],
       ),
       subtitle: Text(
-        isAvailable ? codec.description : unavailableReason!,
-        style: isAvailable ? null : disabledStyle,
+        subtitleText,
+        style: clickable ? null : disabledStyle,
       ),
       value: codec,
       groupValue: settings.codec,
-      onChanged: isAvailable
+      onChanged: clickable
           ? (value) {
               if (value != null) {
                 // When switching encoder families, reset the preset to the new family's default
@@ -940,6 +979,40 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
               }
             }
           : null,
+    );
+  }
+
+  /// Show the captured ffmpeg error from a failed encoder availability probe.
+  Future<void> _showCodecProbeError(
+      BuildContext context, VideoCodec codec, String? error) async {
+    final text = (error == null || error.isEmpty)
+        ? 'No error output was captured for this encoder.'
+        : error;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('${codec.displayName} — availability check'),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              text,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            icon: const Icon(Icons.copy, size: 16),
+            label: const Text('Copy'),
+            onPressed: () => Clipboard.setData(ClipboardData(text: text)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 

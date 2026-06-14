@@ -39,6 +39,9 @@ class HardwareEncoderDetector extends ChangeNotifier {
 
   final Set<String> _compiledIn = {};
   final Map<VideoCodec, EncoderProbeState> _state = {};
+  // Error output captured from a failed functional probe, kept so the UI can
+  // surface *why* an encoder check failed (the encoder stays selectable).
+  final Map<VideoCodec, String> _probeErrors = {};
   bool _initialized = false;
 
   /// Whether the encoder is compiled into the bundled ffmpeg. Always true for
@@ -60,6 +63,10 @@ class HardwareEncoderDetector extends ChangeNotifier {
   /// or hardware codecs whose functional probe succeeded).
   bool isAvailable(VideoCodec codec) =>
       probeState(codec) == EncoderProbeState.available;
+
+  /// The error output from this codec's functional probe, if it failed. Null
+  /// when the probe passed (or hasn't run). Shown via the per-codec info button.
+  String? probeError(VideoCodec codec) => _probeErrors[codec];
 
   /// Probe the bundled ffmpeg for available encoders. Idempotent.
   Future<void> initialize() async {
@@ -119,26 +126,46 @@ class HardwareEncoderDetector extends ChangeNotifier {
   }
 
   Future<void> _probe(String ffmpegPath, VideoCodec codec) async {
+    final args = <String>[
+      '-hide_banner', '-loglevel', 'error',
+      '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=5:d=1',
+      '-frames:v', '1',
+      '-c:v', codec.value,
+      '-f', 'null', '-',
+    ];
     var ok = false;
+    String? errorLog;
     try {
       final result = await Process.run(
         ffmpegPath,
-        [
-          '-hide_banner', '-loglevel', 'error',
-          '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=5:d=1',
-          '-frames:v', '1',
-          '-c:v', codec.value,
-          '-f', 'null', '-',
-        ],
+        args,
         stdoutEncoding: const SystemEncoding(),
         stderrEncoding: const SystemEncoding(),
       );
       ok = result.exitCode == 0;
-    } catch (_) {
+      if (!ok) {
+        final err = (result.stderr as String).trim();
+        final out = (result.stdout as String).trim();
+        final detail =
+            err.isNotEmpty ? err : (out.isNotEmpty ? out : '(no output captured)');
+        errorLog = 'Probe command:\n'
+            '  ffmpeg ${args.join(' ')}\n\n'
+            'Exit code: ${result.exitCode}\n\n'
+            '$detail';
+      }
+    } catch (e) {
       ok = false;
+      errorLog = 'Probe command:\n'
+          '  ffmpeg ${args.join(' ')}\n\n'
+          'Failed to run probe: $e';
     }
     _state[codec] =
         ok ? EncoderProbeState.available : EncoderProbeState.unavailable;
+    if (errorLog != null) {
+      _probeErrors[codec] = errorLog;
+    } else {
+      _probeErrors.remove(codec);
+    }
     if (kDebugMode) {
       print('HardwareEncoderDetector: ${codec.value} -> '
           '${ok ? "available" : "unavailable"}');
