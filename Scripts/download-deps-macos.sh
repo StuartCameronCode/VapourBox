@@ -1224,6 +1224,36 @@ for plugin in "$PLUGINS_DIR"/*.dylib; do
     fi
 done
 
+# The support libs in lib/ also link *each other* (e.g. libfftw3f_threads ->
+# libfftw3f, libboost_filesystem -> libboost_atomic). Homebrew copies record
+# those by absolute path -- and crucially by the *Cellar* path
+# (/usr/local/Cellar/fftw/3.3.11/lib/libfftw3f.3.dylib), not the opt symlink, so
+# a hardcoded `-change $BREW_PREFIX/opt/...` silently no-ops. Repoint sibling
+# references by basename (path-agnostic) to @loader_path so the bundle resolves
+# without Homebrew. This is the transitive half of issue #28: the FFT3DFilter
+# plugin pointed at the bundled libfftw3f_threads, but that lib still pointed at
+# Homebrew's libfftw3f.
+for lib in "$LIB_DIR"/*.dylib; do
+    [ -f "$lib" ] || continue
+    lib_base=$(basename "$lib")
+    changed=false
+    install_name_tool -id "@loader_path/$lib_base" "$lib" 2>/dev/null && changed=true
+    while IFS= read -r ref; do
+        ref_base=$(basename "$ref")
+        case "$ref_base" in "$lib_base") continue ;; esac
+        for sl in "${SUPPORT_LIBS[@]}"; do
+            # sibling lib in the same dir -> @loader_path/<name>
+            if [ "$ref_base" = "$sl" ] && [ -f "$LIB_DIR/$sl" ] && [[ "$ref" != @loader_path/* ]]; then
+                install_name_tool -change "$ref" "@loader_path/$sl" "$lib" 2>/dev/null && changed=true
+            fi
+        done
+    done < <(otool -L "$lib" | tail -n +2 | awk '{print $1}')
+    if [ "$changed" = true ]; then
+        codesign -s - -f "$lib" 2>/dev/null || true
+        echo "  Repointed lib/$lib_base"
+    fi
+done
+
 # ============================================================================
 # Sign all binaries and libraries (required for macOS code signing)
 # ============================================================================
@@ -1302,21 +1332,28 @@ for plugin in "$PLUGINS_DIR"/*.dylib; do
 done
 
 echo ""
-echo "Plugin external dylib references (must resolve on users' machines):"
+echo "Plugin + support-lib external dylib references (must resolve on users' machines):"
 UNBUNDLED_REFS=0
-for plugin in "$PLUGINS_DIR"/*.dylib; do
-    [ -f "$plugin" ] || continue
-    plugin_base=$(basename "$plugin")
+# Check both the plugins AND the support libs they depend on. Issue #28 recurred
+# because the guard only inspected plugins: libfft3dfilter pointed correctly at
+# the bundled libfftw3f_threads, but *that* lib still pointed at Homebrew's
+# libfftw3f one level deeper, so the broken bundle shipped. Scanning lib/ too
+# catches the transitive reference.
+for dylib in "$PLUGINS_DIR"/*.dylib "$LIB_DIR"/*.dylib; do
+    [ -f "$dylib" ] || continue
+    dylib_base=$(basename "$dylib")
     while IFS= read -r ref; do
         ref_base=$(basename "$ref")
+        case "$ref_base" in "$dylib_base") continue ;; esac
         # A bundled support lib MUST be referenced via @loader_path (i.e. it was
-        # repointed at deps/macos-*/lib by the repoint pass above). If it's still
-        # @rpath or an absolute Homebrew path it won't resolve on a user machine
-        # without Homebrew -- this is exactly the FFT3DFilter -> libfftw3f.3.dylib
-        # failure from issue #28, which @rpath refs would otherwise slip past.
+        # repointed at deps/macos-*/lib by the repoint passes above). If it's
+        # still @rpath or an absolute Homebrew path it won't resolve on a user
+        # machine without Homebrew -- this is exactly the FFT3DFilter ->
+        # libfftw3f_threads -> libfftw3f.3.dylib chain from issue #28, which
+        # @rpath / absolute Cellar refs would otherwise slip past.
         for sl in "${SUPPORT_LIBS[@]}"; do
             if [ "$ref_base" = "$sl" ] && [[ "$ref" != @loader_path/* ]]; then
-                echo "  ✗ $plugin_base: bundled support lib not repointed to @loader_path: $ref"
+                echo "  ✗ $dylib_base: bundled support lib not repointed to @loader_path: $ref"
                 UNBUNDLED_REFS=1
             fi
         done
@@ -1324,11 +1361,11 @@ for plugin in "$PLUGINS_DIR"/*.dylib; do
         case "$ref" in
             /usr/lib/*|/System/*|@loader_path/*|@rpath/*|@executable_path/*) ;;
             /*)
-                echo "  ✗ $plugin_base references unbundled lib: $ref"
+                echo "  ✗ $dylib_base references unbundled lib: $ref"
                 UNBUNDLED_REFS=1
                 ;;
         esac
-    done < <(otool -L "$plugin" 2>/dev/null | tail -n +2 | awk '{print $1}')
+    done < <(otool -L "$dylib" 2>/dev/null | tail -n +2 | awk '{print $1}')
 done
 if [ "$UNBUNDLED_REFS" = 0 ]; then
     echo "  ✓ all plugins reference only bundled (@loader_path) or system libraries"
