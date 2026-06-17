@@ -14,6 +14,21 @@ use std::os::unix::process::ExitStatusExt;
 
 use anyhow::{bail, Context, Result};
 
+/// Marker embedded in the error when vspipe skips VapourSynth plugin autoload
+/// (a required plugin namespace fails to register). Under heavy parallel CI
+/// load this happens intermittently; the worker detects this marker and retries
+/// the encode with a fresh vspipe, which re-runs autoload and almost always
+/// succeeds. Kept as a stable substring so `main` can match it on the error.
+pub const PLUGIN_AUTOLOAD_MARKER: &str = "[plugin-autoload-failed]";
+
+/// True if a vspipe stderr line is VapourSynth's plugin-autoload-skip signature
+/// (e.g. "There is no attribute or namespace named fmtc. Did you mistype a
+/// plugin namespace or forget to install a plugin?").
+fn is_autoload_skip_line(line: &str) -> bool {
+    line.contains("Did you mistype a plugin namespace")
+        || line.contains("forget to install a plugin")
+}
+
 /// Format an exit status for error messages, including signal info on Unix.
 fn format_exit_status(status: &std::process::ExitStatus) -> String {
     if let Some(code) = status.code() {
@@ -244,9 +259,16 @@ impl PipelineExecutor {
 
         let vspipe_thread = thread::spawn(move || {
             let reader = BufReader::new(vspipe_stderr);
+            let mut autoload_failed = false;
             for line in reader.lines().map_while(Result::ok) {
                 // Log all stderr for debugging
                 reporter_clone.send_log(LogLevel::Debug, &format!("vspipe stderr: {}", line));
+
+                // Detect the plugin-autoload-skip signature so the worker can
+                // retry the encode (intermittent under heavy parallel load).
+                if is_autoload_skip_line(&line) {
+                    autoload_failed = true;
+                }
 
                 if line.starts_with("INPUT_INFO:") {
                     // Parse: INPUT_INFO:frames=1234,fps_num=25,fps_den=1
@@ -259,6 +281,7 @@ impl PipelineExecutor {
                     }
                 }
             }
+            autoload_failed
         });
 
         // Determine how deinterlacing affects output frame count
@@ -417,11 +440,23 @@ impl PipelineExecutor {
 
         // Now safe to join threads (pipes are closed, readers will hit EOF)
         let _ = decoder_stderr_thread.join();
-        let _ = vspipe_thread.join();
+        let vspipe_autoload_failed = vspipe_thread.join().unwrap_or(false);
         let ffmpeg_stderr_tail = ffmpeg_stderr_thread.join().unwrap_or_default();
 
         // Clean up progress file
         let _ = fs::remove_file(&progress_file);
+
+        // A plugin-autoload skip in vspipe is the ROOT cause of any downstream
+        // ffmpeg failure (ffmpeg gets no input and exits non-zero). Surface it
+        // first, with the retry marker, so the worker re-runs the encode with a
+        // fresh vspipe instead of reporting the misleading ffmpeg error. Don't
+        // treat it as failure if the job was cancelled.
+        if vspipe_autoload_failed && !on_cancel() {
+            bail!(
+                "{} vspipe failed to autoload a required VapourSynth plugin",
+                PLUGIN_AUTOLOAD_MARKER
+            );
+        }
 
         // Check exit codes.
         //
@@ -1049,6 +1084,23 @@ mod tests {
     use super::*;
     use crate::models::{AudioCodec, AudioQuality, EncodingSettings, QTGMCParameters, VideoCodec};
     use uuid::Uuid;
+
+    #[test]
+    fn test_is_autoload_skip_line() {
+        // The two real VapourSynth phrasings seen in the wild (missing namespace
+        // vs missing attribute) both end with this guidance.
+        assert!(is_autoload_skip_line(
+            "Python exception: There is no attribute or namespace named fmtc. \
+             Did you mistype a plugin namespace or forget to install a plugin?"
+        ));
+        assert!(is_autoload_skip_line(
+            "AttributeError: No attribute with the name knlm exists. \
+             Did you mistype a plugin namespace or forget to install a plugin?"
+        ));
+        // Unrelated stderr must not trip the retry.
+        assert!(!is_autoload_skip_line("vspipe stderr: Output 0 done"));
+        assert!(!is_autoload_skip_line("INPUT_INFO:frames=100,fps_num=25,fps_den=1"));
+    }
 
     /// Helper to build FFmpeg args without requiring a full PipelineExecutor.
     /// This mirrors the logic in PipelineExecutor::build_ffmpeg_args for testing.

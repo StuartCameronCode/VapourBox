@@ -376,11 +376,38 @@ fn run_worker(
         &format!("Script written to: {:?}", script_path),
     );
 
-    // Execute pipeline
+    // Execute pipeline.
+    //
+    // Retry on the rare VapourSynth plugin-autoload skip (a needed plugin
+    // namespace fails to register, surfacing as e.g. "no attribute or namespace
+    // named fmtc"). It's intermittent under heavy parallel load; a fresh vspipe
+    // re-runs autoload and almost always succeeds, so retry with a new process
+    // rather than failing the job. Only this specific marker triggers a retry —
+    // genuine errors propagate immediately.
     reporter.send_log(models::LogLevel::Info, "Starting encoding pipeline...");
-    let mut executor = PipelineExecutor::new(reporter.clone())?;
-
-    executor.execute(&script_path, &job, || cancelled.load(Ordering::SeqCst))?;
+    const MAX_PIPELINE_ATTEMPTS: u32 = 3;
+    let mut attempt = 1;
+    loop {
+        let mut executor = PipelineExecutor::new(reporter.clone())?;
+        match executor.execute(&script_path, &job, || cancelled.load(Ordering::SeqCst)) {
+            Ok(()) => break,
+            Err(e)
+                if attempt < MAX_PIPELINE_ATTEMPTS
+                    && !cancelled.load(Ordering::SeqCst)
+                    && e.to_string().contains(pipeline_executor::PLUGIN_AUTOLOAD_MARKER) =>
+            {
+                reporter.send_log(
+                    models::LogLevel::Warning,
+                    &format!(
+                        "VapourSynth plugin autoload failed (attempt {}/{}); retrying encode",
+                        attempt, MAX_PIPELINE_ATTEMPTS
+                    ),
+                );
+                attempt += 1;
+            }
+            Err(e) => return Err(e),
+        }
+    }
 
     // If cancelled, remove partial output
     if cancelled.load(Ordering::SeqCst) {
