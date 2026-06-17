@@ -22,6 +22,12 @@ pub struct ScriptGenerator {
     /// script runs on headless/VM/remote-desktop machines without a GPU.
     /// Defaults to true; callers set it from `DependencyLocator::opencl_available()`.
     opencl_available: bool,
+    /// Whether the `knlm.KNLMeansCL` denoiser can actually run here (plugin
+    /// present AND a usable OpenCL device). When false, a `Denoiser="knlmeanscl"`
+    /// selection is downgraded to `"dfttest"` so the job doesn't crash with
+    /// `knlm.KNLMeansCL: CL_INVALID_VALUE` / a missing-namespace error. Defaults
+    /// to true; callers set it from `DependencyLocator::knlm_available()`.
+    knlm_available: bool,
 }
 
 /// Parameters for preview script generation.
@@ -47,13 +53,21 @@ impl ScriptGenerator {
     pub fn new() -> Result<Self> {
         let template = Self::load_template()?;
         let preview_template = Self::load_preview_template()?;
-        Ok(Self { template, preview_template, opencl_available: true })
+        Ok(Self { template, preview_template, opencl_available: true, knlm_available: true })
     }
 
     /// Set whether OpenCL is available (probe result from `DependencyLocator`).
     /// When false, the GPU NNEDI3CL path is suppressed and QTGMC uses CPU NNEDI3.
     pub fn with_opencl_available(mut self, available: bool) -> Self {
         self.opencl_available = available;
+        self
+    }
+
+    /// Set whether the knlmeanscl denoiser is usable (probe result from
+    /// `DependencyLocator`). When false, a `Denoiser="knlmeanscl"` selection is
+    /// downgraded to `"dfttest"` so QTGMC denoising doesn't crash.
+    pub fn with_knlm_available(mut self, available: bool) -> Self {
+        self.knlm_available = available;
         self
     }
 
@@ -380,7 +394,22 @@ impl ScriptGenerator {
                     script = process_optional_double("EZ_DENOISE", ez_denoise, script);
                     script = process_optional_double("EZ_KEEP_GRAIN", ez_keep_grain, script);
                     script = process_optional_string("NOISE_PRESET", params.noise_preset.as_deref(), script);
-                    script = process_optional_string("DENOISER", params.denoiser.as_deref(), script);
+                    // Gate the knlmeanscl denoiser on actual availability: if it's
+                    // selected but KNLMeansCL can't run here (plugin missing or no
+                    // usable OpenCL device), fall back to dfttest so the job
+                    // doesn't crash with a missing-namespace / CL_INVALID_VALUE
+                    // error. Any other denoiser passes through unchanged.
+                    let denoiser = gate_knlm_denoiser(params.denoiser.as_deref(), self.knlm_available);
+                    if params.denoiser.as_deref() == Some("knlmeanscl")
+                        && denoiser.as_deref() == Some("dfttest")
+                    {
+                        eprintln!(
+                            "knlmeanscl denoiser selected but KNLMeansCL is unavailable \
+                             here (plugin missing or no usable OpenCL device) — falling \
+                             back to dfttest"
+                        );
+                    }
+                    script = process_optional_string("DENOISER", denoiser.as_deref(), script);
                     script = process_optional_int("FFT_THREADS", params.fft_threads, script);
                     script = process_optional_bool("DENOISE_MC", params.denoise_mc, script);
                     script = process_optional_int("NOISE_TR", params.noise_tr, script);
@@ -990,6 +1019,18 @@ fn gate_opencl(desired: Option<bool>, opencl_available: bool, user_forced: bool)
     }
 }
 
+/// Resolve the final QTGMC denoiser, downgrading the OpenCL-only `knlmeanscl`
+/// to `dfttest` when KNLMeansCL can't run here. Every other value (including
+/// `None` ⇒ QTGMC's own default, and the empty string) passes through unchanged.
+/// Returned as an owned `Option<String>` because the fallback replaces the
+/// borrowed input with a new literal.
+fn gate_knlm_denoiser(desired: Option<&str>, knlm_available: bool) -> Option<String> {
+    match desired {
+        Some("knlmeanscl") if !knlm_available => Some("dfttest".to_string()),
+        other => other.map(|s| s.to_string()),
+    }
+}
+
 fn process_optional_bool(name: &str, value: Option<bool>, mut script: String) -> String {
     let start_tag = format!("{{{{#{}}}}}", name);
     let end_tag = format!("{{{{/{}}}}}", name);
@@ -1084,5 +1125,34 @@ mod tests {
         assert_eq!(gate_opencl(Some(false), false, false), Some(false));
         assert_eq!(gate_opencl(None, false, false), None);
         assert_eq!(gate_opencl(None, true, false), None);
+    }
+
+    #[test]
+    fn test_gate_knlm_denoiser_falls_back_when_unavailable() {
+        // knlmeanscl selected but unusable → dfttest.
+        assert_eq!(
+            gate_knlm_denoiser(Some("knlmeanscl"), false),
+            Some("dfttest".to_string())
+        );
+    }
+
+    #[test]
+    fn test_gate_knlm_denoiser_passthrough() {
+        // knlmeanscl kept when usable.
+        assert_eq!(
+            gate_knlm_denoiser(Some("knlmeanscl"), true),
+            Some("knlmeanscl".to_string())
+        );
+        // Other denoisers untouched regardless of knlm availability.
+        assert_eq!(
+            gate_knlm_denoiser(Some("dfttest"), false),
+            Some("dfttest".to_string())
+        );
+        assert_eq!(
+            gate_knlm_denoiser(Some("fft3dfilter"), false),
+            Some("fft3dfilter".to_string())
+        );
+        // Unset → QTGMC's own default (no override).
+        assert_eq!(gate_knlm_denoiser(None, false), None);
     }
 }

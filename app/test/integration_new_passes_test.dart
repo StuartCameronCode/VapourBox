@@ -113,5 +113,29 @@ void main() {
         skip: WorkerHarness.whisperAvailable
             ? false
             : 'whisper add-on not present (set VAPOURBOX_ADDONS_DIR or install the add-on)');
+
+    // Issue #37: QTGMC with EZ Denoise + the knlmeanscl denoiser must never
+    // crash the job. KNLMeansCL is OpenCL-only; on a headless CI runner (no
+    // usable OpenCL device) the worker's knlm probe fails and the denoiser is
+    // downgraded to dfttest, so the encode still succeeds. Before the fix this
+    // crashed with a missing-namespace error (x64/Windows) or CL_INVALID_VALUE
+    // (where the plugin is present but no GPU). We assert valid output — i.e.
+    // the job completes via knlmeanscl OR the dfttest fallback, never crashing.
+    test('knlmeanscl denoiser never crashes (runs or falls back to dfttest)', () async {
+      final job = _baseJob(
+        'knlmeanscl_fallback',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(
+            preset: QTGMCPreset.fast,
+            tff: true,
+            fpsDivisor: 2,
+            ezDenoise: 1.5,
+            denoiser: 'knlmeanscl',
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'knlmeanscl_fallback');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 5)));
   });
 }

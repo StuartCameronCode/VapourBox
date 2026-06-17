@@ -63,6 +63,17 @@ class MainViewModel extends ChangeNotifier {
   // Track whether the last completed job was subtitle-only
   bool _lastJobSubtitleOnly = false;
 
+  // GPU capabilities probed once at startup via the worker. null = not yet
+  // probed; true/false = result. `_openclAvailable` gates the QTGMC OpenCL
+  // (NNEDI3CL) warning; `_knlmAvailable` gates the knlmeanscl-denoiser warning
+  // (a distinct capability — KNLMeansCL can fail where NNEDI3CL succeeds).
+  bool? _openclAvailable;
+  bool? _knlmAvailable;
+
+  // Set in dispose() so the async OpenCL probe doesn't notifyListeners() after
+  // teardown (the top-level view model normally lives for the app's lifetime).
+  bool _disposed = false;
+
   // Preview generation state (shared across queue items)
   bool _isGeneratingPreview = false;
   CancelToken? _previewCancelToken;
@@ -110,6 +121,14 @@ class MainViewModel extends ChangeNotifier {
   ProcessingPipeline get processingPipeline => _processingPipeline;
   PassType get selectedPass => _selectedPass;
   bool get advancedMode => _advancedMode;
+
+  /// Whether a usable OpenCL device was detected (gates the QTGMC OpenCL
+  /// warning). null while the probe is still running.
+  bool? get openclAvailable => _openclAvailable;
+
+  /// Whether the knlmeanscl denoiser is usable here (gates its warning). null
+  /// while the probe is still running.
+  bool? get knlmAvailable => _knlmAvailable;
 
   /// Label for completion message — context-aware based on last job type.
   String get completionLabel {
@@ -284,6 +303,17 @@ class MainViewModel extends ChangeNotifier {
   MainViewModel() {
     _setupSubscriptions();
     _initializePreviewGenerator();
+    _probeGpuCapabilities();
+  }
+
+  /// Probe GPU capabilities once at startup so the UI can warn when an
+  /// OpenCL-only option is selected on a machine without a usable device.
+  Future<void> _probeGpuCapabilities() async {
+    final caps = await WorkerManager.probeGpuCapabilities();
+    if (_disposed) return;
+    _openclAvailable = caps.opencl;
+    _knlmAvailable = caps.knlm;
+    notifyListeners();
   }
 
   Future<void> _initializePreviewGenerator() async {
@@ -1534,6 +1564,7 @@ class MainViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _progressSub?.cancel();
     _logSub?.cancel();
     _completionSub?.cancel();

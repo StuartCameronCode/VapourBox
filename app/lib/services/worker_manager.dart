@@ -101,6 +101,50 @@ class WorkerManager {
     }
   }
 
+  /// Probe GPU capabilities by running the worker with `--probe-opencl` and
+  /// parsing its JSON output (`{"opencl": bool, "knlm": bool}`).
+  ///
+  /// - `opencl`: a usable OpenCL device for the QTGMC NNEDI3CL path.
+  /// - `knlm`: the knlmeanscl denoiser specifically (a DISTINCT probe —
+  ///   KNLMeansCL can fail where NNEDI3CL succeeds).
+  ///
+  /// Both default to `false` if the worker can't be found, fails, or doesn't
+  /// report the field — callers treat that as "warn the user", the safe default.
+  static Future<({bool opencl, bool knlm})> probeGpuCapabilities() async {
+    final toolLocator = ToolLocator.instance;
+    final workerPath = toolLocator.workerPath;
+    if (workerPath == null) return (opencl: false, knlm: false);
+
+    try {
+      final result = await Process.run(
+        workerPath,
+        ['--probe-opencl'],
+        environment: toolLocator.workerEnvironment,
+        workingDirectory: File(workerPath).parent.path,
+      );
+      if (result.exitCode != 0) return (opencl: false, knlm: false);
+      // The worker prints a single JSON line; tolerate extra log lines.
+      for (final line in const LineSplitter().convert(result.stdout.toString())) {
+        final trimmed = line.trim();
+        if (trimmed.isEmpty) continue;
+        try {
+          final decoded = jsonDecode(trimmed);
+          if (decoded is Map && decoded['opencl'] is bool) {
+            return (
+              opencl: decoded['opencl'] as bool,
+              knlm: decoded['knlm'] == true,
+            );
+          }
+        } catch (_) {
+          // Not the JSON line; keep scanning.
+        }
+      }
+      return (opencl: false, knlm: false);
+    } catch (_) {
+      return (opencl: false, knlm: false);
+    }
+  }
+
   /// Cancels the current job.
   Future<void> cancel() async {
     if (_process == null) return;

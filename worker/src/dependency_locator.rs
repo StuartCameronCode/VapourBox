@@ -248,6 +248,80 @@ impl DependencyLocator {
         result
     }
 
+    /// Whether the `knlm.KNLMeansCL` denoiser can actually run here.
+    ///
+    /// This is a SEPARATE capability from [`opencl_available`]: KNLMeansCL needs
+    /// both the plugin to be bundled AND a usable OpenCL device, and it
+    /// enumerates devices differently from NNEDI3CL — empirically NNEDI3CL can
+    /// succeed while KNLMeansCL fails with `CL_INVALID_VALUE` on the same machine
+    /// (e.g. Apple Silicon). So we probe KNLMeansCL directly rather than reusing
+    /// the NNEDI3CL probe. Cached by boot time like [`opencl_available`].
+    pub fn knlm_available(&self) -> bool {
+        static CACHE: OnceLock<bool> = OnceLock::new();
+        *CACHE.get_or_init(|| self.compute_knlm_available())
+    }
+
+    fn compute_knlm_available(&self) -> bool {
+        // KNLMeansCL is OpenCL-only, so the disable switch applies here too.
+        if env::var("VAPOURBOX_DISABLE_OPENCL")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+        {
+            return false;
+        }
+
+        let boot = Self::boot_token();
+        let cache_file = self.platform_dir().join("knlm-probe.json");
+
+        if !boot.is_empty() {
+            if let Ok(txt) = std::fs::read_to_string(&cache_file) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&txt) {
+                    let cached_boot = json.get("boot").and_then(|v| v.as_str());
+                    let cached = json.get("knlm").and_then(|v| v.as_bool());
+                    if cached_boot == Some(boot.as_str()) {
+                        if let Some(b) = cached {
+                            return b;
+                        }
+                    }
+                }
+            }
+        }
+
+        let result = self.probe_knlm();
+        let _ = std::fs::write(
+            &cache_file,
+            serde_json::json!({ "boot": boot, "knlm": result }).to_string(),
+        );
+        result
+    }
+
+    /// Run KNLMeansCL through vspipe on a tiny clip; success ⇒ knlmeanscl usable
+    /// (plugin present AND a usable OpenCL device).
+    fn probe_knlm(&self) -> bool {
+        let vspipe = match self.vspipe_path() {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+        let script = "import vapoursynth as vs\n\
+                      core = vs.core\n\
+                      clip = core.std.BlankClip(width=256, height=256, format=vs.YUV420P8, length=1)\n\
+                      clip = core.knlm.KNLMeansCL(clip, d=0, h=1.0)\n\
+                      clip.set_output()\n";
+        let tmp = env::temp_dir().join(format!("vapourbox_knlm_probe_{}.vpy", std::process::id()));
+        if std::fs::write(&tmp, script).is_err() {
+            return false;
+        }
+        // `-e 0` processes frame 0 only, which forces KNLMeansCL to init OpenCL.
+        let out = Command::new(&vspipe)
+            .args(["-e", "0", tmp.to_string_lossy().as_ref(), "-"])
+            .envs(self.build_environment())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .output();
+        let _ = std::fs::remove_file(&tmp);
+        matches!(out, Ok(o) if o.status.success())
+    }
+
     /// Run NNEDI3CL through vspipe on a tiny clip; success ⇒ OpenCL usable.
     fn probe_opencl(&self) -> bool {
         let vspipe = match self.vspipe_path() {

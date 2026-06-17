@@ -324,6 +324,15 @@ $PluginsZip = @(
         Name = "fmtconv"
         Url = "https://github.com/EleonoreMizo/fmtconv/releases/download/r30/fmtconv-r30.zip"
         Check = "fmtconv.dll"
+    },
+    @{
+        # core.knlm.KNLMeansCL - OpenCL denoiser used by QTGMC when its Denoiser
+        # is set to "knlmeanscl". The release zip ships a 32-bit DLL at the root
+        # AND x64\KNLMeansCL.dll; the $Win64 filter below picks the x64 one (and
+        # the PE-arch verifier rejects the 32-bit one if it ever slipped through).
+        Name = "knlmeanscl"
+        Url = "https://github.com/Khanattila/KNLMeansCL/releases/download/v1.1.1/KNLMeansCL-v1.1.1.zip"
+        Check = "KNLMeansCL.dll"
     }
 )
 

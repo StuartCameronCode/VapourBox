@@ -1830,3 +1830,74 @@ fn test_52_spotless() {
         "pel=2",
     ]).unwrap();
 }
+
+/// Regression for issue #37: QTGMC with EZ Denoise > 0 and the knlmeanscl
+/// denoiser must emit `Denoiser="knlmeanscl"` into the script. This is the
+/// exact combination that crashed when KNLMeansCL wasn't bundled on macOS x64 /
+/// Windows; the plugin is now shipped on every platform (see
+/// Scripts/deps-expected-plugins.json), so the generated call must resolve.
+#[test]
+fn test_53_qtgmc_knlmeanscl_denoiser() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_53_qtgmc_knlmeanscl_denoiser");
+    job.qtgmc_parameters = QTGMCParameters {
+        enabled: true,
+        preset: QTGMCPreset::Fast,
+        tff: Some(true),
+        opencl: Some(false),
+        ez_denoise: Some(1.5),
+        denoiser: Some("knlmeanscl".to_string()),
+        ..QTGMCParameters::default()
+    };
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "QTGMC knlmeanscl denoiser", &[
+        "Denoiser=\"knlmeanscl\"",
+        "EZDenoise=1.5",
+    ]).unwrap();
+}
+
+/// Issue #37 fallback: when KNLMeansCL is NOT usable here (plugin missing or no
+/// usable OpenCL device), a `knlmeanscl` selection must be downgraded to
+/// `dfttest` in the generated script so the job runs instead of crashing.
+#[test]
+fn test_54_qtgmc_knlmeanscl_falls_back_to_dfttest() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_54_qtgmc_knlmeanscl_fallback");
+    job.qtgmc_parameters = QTGMCParameters {
+        enabled: true,
+        preset: QTGMCPreset::Fast,
+        tff: Some(true),
+        opencl: Some(false),
+        ez_denoise: Some(1.5),
+        denoiser: Some("knlmeanscl".to_string()),
+        ..QTGMCParameters::default()
+    };
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+
+    // Generate with knlm marked unavailable — the gate should rewrite the denoiser.
+    let generator = ScriptGenerator::new()
+        .expect("create generator")
+        .with_knlm_available(false);
+    let script_path = generator.generate(&job).expect("generate script");
+    let script = std::fs::read_to_string(&script_path).expect("read script");
+
+    assert!(
+        script.contains("Denoiser=\"dfttest\""),
+        "expected fallback to dfttest, script was:\n{}",
+        script
+    );
+    assert!(
+        !script.contains("knlmeanscl"),
+        "knlmeanscl should not appear after fallback, script was:\n{}",
+        script
+    );
+}

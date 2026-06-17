@@ -879,8 +879,9 @@ impl PipelineExecutor {
         };
 
         // FPS as rational
-        let script_generator =
-            ScriptGenerator::new()?.with_opencl_available(self.deps.opencl_available());
+        let script_generator = ScriptGenerator::new()?
+            .with_opencl_available(self.deps.opencl_available())
+            .with_knlm_available(self.deps.knlm_available());
         let (fps_num, fps_den) = script_generator.frame_rate_to_rational(frame_rate);
 
         let preview_params = PreviewParams {

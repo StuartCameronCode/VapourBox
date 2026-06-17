@@ -65,16 +65,82 @@ class PassSettingsContainer extends StatelessWidget {
           duration: const Duration(milliseconds: 200),
           child: SingleChildScrollView(
             key: ValueKey(filterId),
-            child: DynamicFilterPanelCompact(
-              schema: schema,
-              params: params,
-              onChanged: (newParams) {
-                _handleParamChange(context, viewModel, filterId, params, newParams);
-              },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildOpenCLWarning(context, viewModel, filterId, params),
+                DynamicFilterPanelCompact(
+                  schema: schema,
+                  params: params,
+                  onChanged: (newParams) {
+                    _handleParamChange(context, viewModel, filterId, params, newParams);
+                  },
+                ),
+              ],
             ),
           ),
         );
       },
+    );
+  }
+
+  /// Warning shown when the deinterlace pass uses an OpenCL-only option that
+  /// won't run on this machine: the "knlmeanscl" denoiser (gated on the
+  /// knlmeanscl-specific probe) or the QTGMC OpenCL toggle (gated on the
+  /// NNEDI3CL probe). These are distinct capabilities — KNLMeansCL can fail
+  /// where NNEDI3CL succeeds — so each uses its own probe result. The worker
+  /// falls back automatically in both cases; this just tells the user why.
+  /// Returns an empty widget when not applicable (incl. while probing).
+  Widget _buildOpenCLWarning(
+    BuildContext context,
+    MainViewModel viewModel,
+    String filterId,
+    DynamicParameters params,
+  ) {
+    if (filterId != 'deinterlace') return const SizedBox.shrink();
+
+    // knlmeanscl uses its own probe; the QTGMC OpenCL toggle uses the OpenCL
+    // (NNEDI3CL) probe. `== false` excludes the still-probing null state.
+    final knlmUnavailable =
+        params.values['denoiser'] == 'knlmeanscl' && viewModel.knlmAvailable == false;
+    final openclUnavailable =
+        params.values['opencl'] == true && viewModel.openclAvailable == false;
+    if (!knlmUnavailable && !openclUnavailable) return const SizedBox.shrink();
+
+    final message = knlmUnavailable
+        ? 'No usable OpenCL device for KNLMeansCL detected. The "knlmeanscl" '
+            'denoiser will automatically fall back to dfttest on this machine.'
+        : 'No OpenCL device detected. OpenCL acceleration will fall back to '
+            'CPU NNEDI3.';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.errorContainer,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.warning_amber_rounded,
+              size: 20,
+              color: Theme.of(context).colorScheme.onErrorContainer,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                    ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

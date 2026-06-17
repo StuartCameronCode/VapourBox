@@ -70,6 +70,12 @@ struct Args {
     /// Output file path (required with --dvd-extract)
     #[arg(long)]
     output: Option<PathBuf>,
+
+    /// Probe mode: report whether a usable OpenCL device is available as JSON
+    /// (`{"opencl": true|false}`) to stdout and exit. Used by the app to warn
+    /// when OpenCL-only options (knlmeanscl denoiser, QTGMC OpenCL) won't work.
+    #[arg(long)]
+    probe_opencl: bool,
 }
 
 fn main() -> ExitCode {
@@ -83,6 +89,11 @@ fn main() -> ExitCode {
     // DVD extract mode: extract title to file
     if let Some(ref dvd_path) = args.dvd_extract {
         return run_dvd_extract(&args, dvd_path);
+    }
+
+    // OpenCL probe mode: emit availability as JSON and exit (no progress stream).
+    if args.probe_opencl {
+        return run_probe_opencl();
     }
 
     // Preview mode outputs raw PNG to stdout - no JSON messages
@@ -130,6 +141,24 @@ fn main() -> ExitCode {
             }
         }
     }
+}
+
+/// Probe whether a usable OpenCL device is available and print the result as
+/// JSON to stdout. The app calls this once and uses it to warn when an
+/// OpenCL-only option (knlmeanscl denoiser, QTGMC OpenCL) is selected on a
+/// machine with no usable device. Falls back to `false` if deps can't be
+/// located (no probe possible ⇒ assume unavailable, so the app warns rather
+/// than letting the job fail with a cryptic VapourSynth error).
+fn run_probe_opencl() -> ExitCode {
+    // Report both capabilities: `opencl` gates the QTGMC OpenCL/NNEDI3CL path,
+    // `knlm` gates the knlmeanscl denoiser (a distinct probe — KNLMeansCL can
+    // fail where NNEDI3CL succeeds). Both fall back to false if deps can't be
+    // located, so the app warns rather than letting a job fail cryptically.
+    let (opencl, knlm) = dependency_locator::DependencyLocator::new()
+        .map(|deps| (deps.opencl_available(), deps.knlm_available()))
+        .unwrap_or((false, false));
+    println!("{}", serde_json::json!({ "opencl": opencl, "knlm": knlm }));
+    ExitCode::SUCCESS
 }
 
 /// Run DVD info mode: enumerate titles and output JSON to stdout.
@@ -332,7 +361,12 @@ fn run_worker(
     // Detect OpenCL availability so QTGMC falls back to CPU NNEDI3 on machines
     // without a usable OpenCL device (headless CI, VMs, remote desktop).
     let opencl_available = deps.as_ref().map(|d| d.opencl_available()).unwrap_or(true);
-    let script_generator = ScriptGenerator::new()?.with_opencl_available(opencl_available);
+    // Detect knlmeanscl availability separately (plugin + usable OpenCL device);
+    // when unavailable the knlmeanscl denoiser is downgraded to dfttest.
+    let knlm_available = deps.as_ref().map(|d| d.knlm_available()).unwrap_or(true);
+    let script_generator = ScriptGenerator::new()?
+        .with_opencl_available(opencl_available)
+        .with_knlm_available(knlm_available);
     let script_path = script_generator
         .generate(&job)
         .with_context(|| "Failed to generate VapourSynth script")?;

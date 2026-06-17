@@ -752,6 +752,38 @@ PYEOF
         fi
         cd "$BUILD_DIR"
     fi
+
+    # KNLMeansCL (OpenCL denoiser - core.knlm.KNLMeansCL). Used by QTGMC when its
+    # Denoiser is set to "knlmeanscl" (havsfunc). Stefan-Olt doesn't ship an
+    # x86_64 build, so build from source like the arm64 path does. Its meson.build
+    # needs BOTH the VapourSynth headers (via pkg-config) AND Boost
+    # filesystem/system (via Homebrew, same as the nnedi3cl build), so set
+    # BOOST_ROOT and defensively repoint any Homebrew boost reference at the
+    # bundled copy in lib/ (the arm64 build links boost statically and ends up
+    # with no boost dylib reference; the repoints below are no-ops in that case).
+    if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libknlmeanscl.dylib" ]; then
+        echo ""; echo "=== Building KNLMeansCL (x86_64) ==="
+        rm -rf knlmeanscl
+        if git clone --depth 1 https://github.com/Khanattila/KNLMeansCL.git knlmeanscl \
+           && PKG_CONFIG_PATH="$VS_PC_DIR:${PKG_CONFIG_PATH:-}" BOOST_ROOT="$BREW_PREFIX" \
+              meson setup knlmeanscl/build knlmeanscl --buildtype=release \
+           && ninja -C knlmeanscl/build; then
+            lib=$(find knlmeanscl/build -name "*.dylib" -type f | head -1)
+            if [ -n "$lib" ]; then
+                cp "$lib" "$PLUGINS_DIR/libknlmeanscl.dylib"
+                install_name_tool -id "@loader_path/libknlmeanscl.dylib" "$PLUGINS_DIR/libknlmeanscl.dylib" 2>/dev/null || true
+                install_name_tool -change "$BREW_PREFIX/opt/boost/lib/libboost_filesystem.dylib" \
+                    "@loader_path/../../lib/libboost_filesystem.dylib" "$PLUGINS_DIR/libknlmeanscl.dylib" 2>/dev/null || true
+                install_name_tool -change "$BREW_PREFIX/opt/boost/lib/libboost_atomic.dylib" \
+                    "@loader_path/../../lib/libboost_atomic.dylib" "$PLUGINS_DIR/libknlmeanscl.dylib" 2>/dev/null || true
+                codesign -s - -f "$PLUGINS_DIR/libknlmeanscl.dylib" 2>/dev/null || true
+                echo "  Built KNLMeansCL"
+            else echo "  no dylib"; FAILED_PLUGINS+=("knlmeanscl"); fi
+        else
+            echo "  Failed to build KNLMeansCL"; FAILED_PLUGINS+=("knlmeanscl")
+        fi
+        cd "$BUILD_DIR"
+    fi
 else
 # MVTools (essential for QTGMC motion compensation)
 build_plugin "mvtools" \
