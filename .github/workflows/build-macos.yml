@@ -21,6 +21,11 @@ on:
           - arm64
           - x64
         default: universal
+      notarize:
+        description: 'Notarize with Apple (needs valid developer agreements; off = signed-only, fine for local testing)'
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   # Expand the arch choice into a matrix the build job fans out over.
@@ -225,7 +230,9 @@ jobs:
           NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
           NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
         run: |
-          ./Scripts/package-macos.sh --version "${{ inputs.version }}" --arch ${{ matrix.arch }} --skip-build --notarize
+          ARGS=(--version "${{ inputs.version }}" --arch ${{ matrix.arch }} --skip-build)
+          if [ "${{ inputs.notarize }}" = "true" ]; then ARGS+=(--notarize); fi
+          ./Scripts/package-macos.sh "${ARGS[@]}"
 
       - name: Clean up signing keychain
         if: always()
