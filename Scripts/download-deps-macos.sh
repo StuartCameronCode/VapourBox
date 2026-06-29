@@ -43,42 +43,13 @@ else
     exit 1
 fi
 
-# NOTE: x64 deps are built natively on an Intel Mac / the macos-15-intel CI
-# runner (uname -m reports x86_64 -> macos-x64). To build x64 deps on an Apple
+# NOTE: x64 deps are built natively on an Intel Mac / the macos-13 CI runner
+# (uname -m reports x86_64 -> macos-x64). macos-13 (Ventura) is used so brew
+# pours Ventura bottles and clang targets macOS 13, keeping the bundle loadable
+# on 13+ (issue #39). To build x64 deps on an Apple
 # Silicon Mac instead, run this script translated through Rosetta 2 with an
 # Intel Homebrew prefix first in PATH, e.g.:
 #   arch -x86_64 /bin/bash -lc 'PATH=/usr/local/bin:$PATH ./Scripts/download-deps-macos.sh --force'
-
-# ============================================================================
-# Minimum macOS deployment target (issue #39) — x64 / Intel only
-# ============================================================================
-# These deps are compiled on the newest available runner (macos-15 / Sequoia).
-# Without pinning a deployment target, clang/meson/cmake default to the host SDK
-# (minos 15.0) and the binaries link against libc++ / libSystem symbols that do
-# not exist on older macOS. That is exactly the "dyld: Symbol not found" crash
-# loading vspipe-bin reported on Monterey 12.7.6.
-#
-# We only commit to back-deploying the **Intel (x64)** bundle, since that is what
-# the Monterey-era machines in the field run. Apple Silicon (arm64) is left
-# unchanged: its hardware floor is Big Sur 11, those Macs get modern macOS, and
-# there is no old arm64 runner to source older Homebrew bottles from anyway.
-#
-# Exporting MACOSX_DEPLOYMENT_TARGET makes every from-source build (clang's
-# -mmacosx-version-min, meson's auto-detection, and CMake's CMAKE_OSX_DEPLOYMENT_TARGET
-# fallback) target this floor. Override with $MACOS_MIN_VERSION if needed.
-# NOTE: this does NOT retarget prebuilt artifacts the script merely copies
-# (Homebrew bottles, evermeet ffmpeg, python-build-standalone, Stefan-Olt plugins) —
-# the minos verification guard near the end of this script reports those.
-if [ "$ARCH" = "x86_64" ]; then
-    MACOS_MIN_VERSION="${MACOS_MIN_VERSION:-12.0}"   # Monterey
-    export MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION"
-    # CMake honors the env var as a fallback, but some plugin CMakeLists set their
-    # own target; pass it explicitly on the cmake lines too (see neo-f3kdb).
-    export CMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION"
-    echo "Minimum macOS deployment target (x64): $MACOS_MIN_VERSION (override via \$MACOS_MIN_VERSION)"
-else
-    echo "arm64 build: not pinning a deployment target (Intel-only back-deploy)"
-fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -202,57 +173,6 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.dylib" ];
     git clone --depth 1 https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR"
 
     cd "$VS_BUILD_DIR"
-
-    # ------------------------------------------------------------------------
-    # Back-deploy patch for Monterey (issue #39) — x64 only
-    # ------------------------------------------------------------------------
-    # vspipe's doubleToString() (in src/vspipe/vsjson.cpp and src/vspipe/vspipe.cpp)
-    # uses std::to_chars(double), whose libc++ implementation was introduced in
-    # macOS 13.3. Built against a 12.0 deployment target the SDK rejects it
-    # ('to_chars is unavailable: introduced in macOS 13.3'); shipped from a 15.0
-    # build it links a libc++ symbol absent on Monterey -> the "dyld: Symbol not
-    # found" crash in #39. Rewrite it to emit the shortest round-tripping fixed
-    # string via snprintf, which back-deploys cleanly. x64 only so the arm64
-    # bundle stays byte-for-byte unchanged.
-    if [ "$ARCH" = "x86_64" ]; then
-        echo "  Patching vspipe doubleToString for Monterey back-deploy (issue #39)..."
-        for vs_src in src/vspipe/vsjson.cpp src/vspipe/vspipe.cpp; do
-            VS_SRC="$vs_src" python3 - <<'PYEOF'
-import os, sys
-path = os.environ["VS_SRC"]
-with open(path) as f:
-    content = f.read()
-
-old = ("    auto res = std::to_chars(buffer, buffer + sizeof(buffer), v, std::chars_format::fixed);\n"
-       "    return std::string(buffer, res.ptr - buffer);")
-new = ("    // issue #39: std::to_chars(double) needs macOS 13.3+ libc++. Emit the\n"
-       "    // shortest fixed-notation string that round-trips, via snprintf, so\n"
-       "    // vspipe loads on Monterey 12.x.\n"
-       "    for (int prec = 0; prec <= 17; ++prec) {\n"
-       "        std::snprintf(buffer, sizeof(buffer), \"%.*f\", prec, v);\n"
-       "        if (std::strtod(buffer, nullptr) == v)\n"
-       "            return std::string(buffer);\n"
-       "    }\n"
-       "    std::snprintf(buffer, sizeof(buffer), \"%.17f\", v);\n"
-       "    return std::string(buffer);")
-
-if old not in content:
-    if "issue #39" in content:
-        print(f"    {path}: already patched")
-        sys.exit(0)
-    print(f"    ERROR: expected to_chars pattern not found in {path}", file=sys.stderr)
-    sys.exit(1)
-
-content = content.replace(old, new)
-# Ensure the headers snprintf/strtod need are present (idempotent).
-content = content.replace("#include <charconv>\n",
-                          "#include <charconv>\n#include <cstdio>\n#include <cstdlib>\n", 1)
-with open(path, "w") as f:
-    f.write(content)
-print(f"    Patched {path}")
-PYEOF
-        done
-    fi
 
     # Install Cython in our embedded Python for building
     echo "  Installing Cython in embedded Python..."
@@ -708,7 +628,7 @@ if [ "$ARCH" = "x86_64" ]; then
         echo ""; echo "=== Building neo-f3kdb (x86_64) ==="
         rm -rf f3kdb
         if git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb.git f3kdb \
-           && cmake -S f3kdb -B f3kdb/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION" \
+           && cmake -S f3kdb -B f3kdb/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=x86_64 \
            && cmake --build f3kdb/build --config Release; then
             lib=$(find f3kdb/build -name "*.dylib" -type f | head -1)
             if [ -n "$lib" ]; then cp "$lib" "$PLUGINS_DIR/libneo-f3kdb.dylib"; echo "  Built neo-f3kdb"; else echo "  no dylib"; FAILED_PLUGINS+=("neo-f3kdb"); fi
@@ -1005,7 +925,7 @@ if [ "$ARCH" != "arm64" ]; then
         rm -rf f3kdb
         git clone --depth 1 https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb.git f3kdb
         cd f3kdb
-        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="$ARCH" -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION"
+        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="$ARCH"
         cmake --build build --config Release
         find build -name "*.dylib" | head -1 | xargs -I {} cp {} "$PLUGINS_DIR/libneo-f3kdb.dylib"
         cd "$BUILD_DIR"
@@ -1512,70 +1432,6 @@ else
     echo "Failing the build to prevent shipping a broken bundle (see issue #28)."
     exit 1
 fi
-
-# ----------------------------------------------------------------------------
-# Minimum-OS (minos) verification — x64 only (issue #39)
-# ----------------------------------------------------------------------------
-# Only the Intel bundle commits to back-deploying (to Monterey); the arm64 bundle
-# is built on/for current macOS, so skip the check there to avoid spurious noise.
-if [ "$ARCH" = "x86_64" ]; then
-echo ""
-echo "Minimum-OS (minos) of every bundled Mach-O (target $MACOS_MIN_VERSION, issue #39):"
-# Print the macOS deployment target baked into a Mach-O, reading whichever load
-# command it carries: LC_BUILD_VERSION (newer toolchains, "minos X.Y") or
-# LC_VERSION_MIN_MACOSX (older, "version X.Y"). Empty for non-Mach-O files.
-macho_minos() {
-    otool -l "$1" 2>/dev/null | awk '
-        /LC_BUILD_VERSION/      { inbuild=1; next }
-        inbuild && /minos/      { print $2; exit }
-        /LC_VERSION_MIN_MACOSX/ { inmin=1; next }
-        inmin && /version/      { print $2; exit }
-    '
-}
-# true if version $1 is strictly newer than $2 (e.g. 15.0 > 11.0)
-version_gt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]; }
-
-TOO_NEW=0
-while IFS= read -r macho; do
-    [ -f "$macho" ] || continue
-    file "$macho" 2>/dev/null | grep -q 'Mach-O' || continue
-    minos=$(macho_minos "$macho")
-    [ -n "$minos" ] || continue
-    rel=${macho#"$DEPS_DIR"/}
-    if version_gt "$minos" "$MACOS_MIN_VERSION"; then
-        echo "  ✗ $rel: minos $minos > target $MACOS_MIN_VERSION"
-        TOO_NEW=$((TOO_NEW + 1))
-    fi
-done < <(find "$DEPS_DIR" \( -name '*.dylib' -o -name '*.so' -o -name 'vspipe-bin' -o -name 'ffmpeg' -o -name 'ffprobe' \) -type f)
-
-if [ "$TOO_NEW" = 0 ]; then
-    echo "  ✓ every bundled binary targets macOS $MACOS_MIN_VERSION or older"
-else
-    echo ""
-    echo "WARNING: $TOO_NEW binary(ies) above were built for a newer macOS than the"
-    echo "target ($MACOS_MIN_VERSION) and will fail to load on older systems with a"
-    echo "'dyld: Symbol not found' error (issue #39)."
-    echo ""
-    echo "The MACOSX_DEPLOYMENT_TARGET export fixes everything built from source here."
-    echo "Anything still flagged is a *prebuilt* artifact this script only copies, so"
-    echo "it needs its own fix:"
-    echo "  - Homebrew bottles (zimg/fftw/boost/libdvdread/xz): the macos-15 runner"
-    echo "    installs Sequoia bottles. Build these from source with the target set,"
-    echo "    or fetch older-OS bottles."
-    echo "  - ffmpeg (evermeet.cx / martin-riedl.de) and Python (python-build-standalone):"
-    echo "    pick a download whose minos is <= $MACOS_MIN_VERSION."
-    echo "  - Stefan-Olt / yuygfgg prebuilt plugins: rebuild from source if too new."
-    echo ""
-    # Opt-in hard fail once the prebuilt gaps above are closed, mirroring the
-    # issue #28 guard. Default to warning so the first CI run still completes and
-    # reports the full minos picture (including prebuilts we can't retarget by
-    # env var); flip STRICT_MIN_OS=1 in the workflow once everything is <= target.
-    if [ "${STRICT_MIN_OS:-0}" = "1" ]; then
-        echo "STRICT_MIN_OS=1 set — failing the build."
-        exit 1
-    fi
-fi
-fi  # end x86_64-only minos verification
 
 echo ""
 echo "vspipe architecture:"
