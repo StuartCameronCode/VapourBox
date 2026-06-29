@@ -62,11 +62,15 @@ jobs:
 
   build-x64:
     if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
-    runs-on: macos-15-intel  # native Intel image (last one, available until ~Aug 2027)
+    runs-on: macos-15-intel  # only hosted Intel image (macos-13 retired; last one until ~Aug 2027)
     steps:
       - uses: actions/checkout@v4
 
       - name: Build dependencies (x64, native)
+        # STRICT_MIN_OS=1: fail the build if any bundled Mach-O targets newer than
+        # the macOS 12 floor (issue #39) instead of silently shipping it.
+        env:
+          STRICT_MIN_OS: "1"
         run: ./Scripts/download-deps-macos.sh --force
 
       - name: Package dependencies
