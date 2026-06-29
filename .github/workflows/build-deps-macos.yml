@@ -3,11 +3,9 @@ name: Build macOS Deps
 # Builds the VapourSynth/FFmpeg/Python dependency bundles for macOS.
 #
 #   - arm64 builds natively on macos-15 (Apple Silicon).
-#   - x64 builds natively on macos-13 (Ventura, Intel). Building on the oldest
-#     available Intel image makes brew install pour Ventura bottles and clang
-#     default to a macOS 13 deployment target, so the whole x64 bundle loads on
-#     macOS 13+ (issue #39). FFmpeg comes pre-built from evermeet.cx and most
-#     plugins from Stefan-Olt; see Scripts/download-deps-macos.sh.
+#   - x64 builds natively on macos-15-intel (the last native Intel image,
+#     available until ~Aug 2027). FFmpeg comes pre-built from evermeet.cx and
+#     most plugins from Stefan-Olt; see Scripts/download-deps-macos.sh.
 
 on:
   workflow_dispatch:
@@ -64,7 +62,7 @@ jobs:
 
   build-x64:
     if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
-    runs-on: macos-13  # oldest Intel image -> Ventura bottles + macOS 13 minos (issue #39)
+    runs-on: macos-15-intel  # native Intel image (last one, available until ~Aug 2027)
     steps:
       - uses: actions/checkout@v4
 

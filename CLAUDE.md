@@ -143,8 +143,7 @@ VapourBox/
 ```
 
 Both macOS architectures are produced in CI by `build-deps-macos.yml` (arm64 on
-`macos-15`, x64 natively on `macos-13` — the oldest Intel image, so brew pours
-Ventura bottles and the bundle loads on macOS 13+; see issue #39).
+`macos-15`, x64 natively on `macos-15-intel`).
 
 ### Build Rust Worker
 
@@ -561,7 +560,7 @@ The `download-deps-windows.ps1` and `download-deps-macos.sh` scripts apply these
 
 ### macOS
 
-- Two arches: `deps/macos-arm64` and `deps/macos-x64`, each built natively (arm64 on Apple Silicon, x64 on an Intel Mac / the `macos-13` CI runner — Ventura, so the x64 bundle targets macOS 13+, see issue #39; Rosetta 2 is an optional fallback for building x64 on Apple Silicon — see Download Dependencies). The Flutter `DependencyLocator` and Rust runtime pick the arch at runtime via `uname`.
+- Two arches: `deps/macos-arm64` and `deps/macos-x64`, each built natively (arm64 on Apple Silicon, x64 on an Intel Mac / `macos-15-intel`; Rosetta 2 is an optional fallback for building x64 on Apple Silicon — see Download Dependencies). The Flutter `DependencyLocator` and Rust runtime pick the arch at runtime via `uname`.
 - Fully self-contained deps (no Homebrew at runtime): Python 3.12 (python-build-standalone), VS built from source
 - Worker sets: `PYTHONHOME`, `PYTHONPATH`, `VAPOURSYNTH_CONF_PATH`, `DYLD_LIBRARY_PATH`
 - `vspipe` is a wrapper script that generates config dynamically (needed because `VAPOURSYNTH_PLUGIN_PATH` is additive, not a replacement)
@@ -689,7 +688,7 @@ Create the app-specific password at appleid.apple.com → Sign-In and Security �
 - Linux deps must be built on Linux (`./Scripts/download-deps-linux.sh`) or via `build-deps-linux.yml`
 - The macOS CI build (`build-macos.yml`) signs with the Developer ID cert and notarizes — see "macOS Code Signing & Notarization" below. Windows and Linux CI builds remain unsigned.
 - macOS ships as a **universal** (arm64+x86_64) app by default. `build-macos.yml` takes an `arch` input (`universal` | `both` | `arm64` | `x64`, default `universal`) and fans out via a matrix. Universal = lipo'd worker + Runner built with `ARCHS="arm64 x86_64"`; `both` = two separate single-arch DMGs. The x64 slice cross-compiles on the `macos-15` (arm64) runner.
-- Deps are **not** bundled — the app downloads `macos-arm64` or `macos-x64` deps at runtime per `uname`, so a universal app needs **both** deps bundles published. macOS deps are built by `build-deps-macos.yml` (arm64 on `macos-15`, x64 natively on `macos-13` — Ventura, targeting macOS 13+, see issue #39).
+- Deps are **not** bundled — the app downloads `macos-arm64` or `macos-x64` deps at runtime per `uname`, so a universal app needs **both** deps bundles published. macOS deps are built by `build-deps-macos.yml` (arm64 on `macos-15`, x64 natively on `macos-15-intel`).
 - `app/macos/Podfile` reads `VAPOURBOX_ARCHS` (default `arm64`; set to `x86_64` or `arm64 x86_64`); `package-macos.sh --arch universal` sets this and lipo's the worker.
 - Publishing a new x64 deps zip needs no `deps-version.json` edit — upload the zip and its `.sha256.json` sidecar (the app verifies via the sidecar at download time).
 

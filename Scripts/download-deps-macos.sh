@@ -43,10 +43,8 @@ else
     exit 1
 fi
 
-# NOTE: x64 deps are built natively on an Intel Mac / the macos-13 CI runner
-# (uname -m reports x86_64 -> macos-x64). macos-13 (Ventura) is used so brew
-# pours Ventura bottles and clang targets macOS 13, keeping the bundle loadable
-# on 13+ (issue #39). To build x64 deps on an Apple
+# NOTE: x64 deps are built natively on an Intel Mac / the macos-15-intel CI
+# runner (uname -m reports x86_64 -> macos-x64). To build x64 deps on an Apple
 # Silicon Mac instead, run this script translated through Rosetta 2 with an
 # Intel Homebrew prefix first in PATH, e.g.:
 #   arch -x86_64 /bin/bash -lc 'PATH=/usr/local/bin:$PATH ./Scripts/download-deps-macos.sh --force'
