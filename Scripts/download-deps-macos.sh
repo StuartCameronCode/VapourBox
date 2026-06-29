@@ -203,6 +203,57 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.dylib" ];
 
     cd "$VS_BUILD_DIR"
 
+    # ------------------------------------------------------------------------
+    # Back-deploy patch for Monterey (issue #39) — x64 only
+    # ------------------------------------------------------------------------
+    # vspipe's doubleToString() (in src/vspipe/vsjson.cpp and src/vspipe/vspipe.cpp)
+    # uses std::to_chars(double), whose libc++ implementation was introduced in
+    # macOS 13.3. Built against a 12.0 deployment target the SDK rejects it
+    # ('to_chars is unavailable: introduced in macOS 13.3'); shipped from a 15.0
+    # build it links a libc++ symbol absent on Monterey -> the "dyld: Symbol not
+    # found" crash in #39. Rewrite it to emit the shortest round-tripping fixed
+    # string via snprintf, which back-deploys cleanly. x64 only so the arm64
+    # bundle stays byte-for-byte unchanged.
+    if [ "$ARCH" = "x86_64" ]; then
+        echo "  Patching vspipe doubleToString for Monterey back-deploy (issue #39)..."
+        for vs_src in src/vspipe/vsjson.cpp src/vspipe/vspipe.cpp; do
+            VS_SRC="$vs_src" python3 - <<'PYEOF'
+import os, sys
+path = os.environ["VS_SRC"]
+with open(path) as f:
+    content = f.read()
+
+old = ("    auto res = std::to_chars(buffer, buffer + sizeof(buffer), v, std::chars_format::fixed);\n"
+       "    return std::string(buffer, res.ptr - buffer);")
+new = ("    // issue #39: std::to_chars(double) needs macOS 13.3+ libc++. Emit the\n"
+       "    // shortest fixed-notation string that round-trips, via snprintf, so\n"
+       "    // vspipe loads on Monterey 12.x.\n"
+       "    for (int prec = 0; prec <= 17; ++prec) {\n"
+       "        std::snprintf(buffer, sizeof(buffer), \"%.*f\", prec, v);\n"
+       "        if (std::strtod(buffer, nullptr) == v)\n"
+       "            return std::string(buffer);\n"
+       "    }\n"
+       "    std::snprintf(buffer, sizeof(buffer), \"%.17f\", v);\n"
+       "    return std::string(buffer);")
+
+if old not in content:
+    if "issue #39" in content:
+        print(f"    {path}: already patched")
+        sys.exit(0)
+    print(f"    ERROR: expected to_chars pattern not found in {path}", file=sys.stderr)
+    sys.exit(1)
+
+content = content.replace(old, new)
+# Ensure the headers snprintf/strtod need are present (idempotent).
+content = content.replace("#include <charconv>\n",
+                          "#include <charconv>\n#include <cstdio>\n#include <cstdlib>\n", 1)
+with open(path, "w") as f:
+    f.write(content)
+print(f"    Patched {path}")
+PYEOF
+        done
+    fi
+
     # Install Cython in our embedded Python for building
     echo "  Installing Cython in embedded Python..."
     "$PYTHON_BIN" -m pip install --quiet cython
