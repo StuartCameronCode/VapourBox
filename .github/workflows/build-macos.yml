@@ -42,6 +42,11 @@ jobs:
   build:
     needs: setup
     runs-on: macos-15  # Apple Silicon; x64 cross-compiles via ARCHS=x86_64
+    # Pin the macOS deployment target to 12.0 (issue #39): rustc reads this for
+    # the worker, and it matches the Xcode project / Podfile so the app shell and
+    # worker load on Monterey — consistent with the 12.0-targeted x64 deps.
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
     strategy:
       fail-fast: false
       matrix:
