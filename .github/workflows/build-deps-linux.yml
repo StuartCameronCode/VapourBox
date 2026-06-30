@@ -29,7 +29,7 @@ jobs:
     if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install build dependencies
         run: |
@@ -47,7 +47,7 @@ jobs:
       - name: Package dependencies
         run: ./Scripts/package-deps-linux.sh --version "${{ inputs.version }}" --arch x64
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: VapourBox-deps-${{ inputs.version }}-linux-x64
           path: |
@@ -67,7 +67,7 @@ jobs:
     if: ${{ inputs.arch == 'arm64' || inputs.arch == 'both' }}
     runs-on: ubuntu-22.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install build dependencies
         run: |
@@ -85,7 +85,7 @@ jobs:
       - name: Package dependencies
         run: ./Scripts/package-deps-linux.sh --version "${{ inputs.version }}" --arch arm64
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: VapourBox-deps-${{ inputs.version }}-linux-arm64
           path: |
