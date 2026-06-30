@@ -72,7 +72,7 @@ jobs:
           echo "size=$(stat -c%s whisper-cli-linux-x64.tar.gz)"
           echo "sha256=$(sha256sum whisper-cli-linux-x64.tar.gz | cut -d' ' -f1)"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: whisper-cli-linux-x64
           path: whisper-cli-linux-x64.tar.gz
@@ -129,7 +129,7 @@ jobs:
           echo "size=$(stat -c%s whisper-cli-linux-arm64.tar.gz)"
           echo "sha256=$(sha256sum whisper-cli-linux-arm64.tar.gz | cut -d' ' -f1)"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: whisper-cli-linux-arm64
           path: whisper-cli-linux-arm64.tar.gz

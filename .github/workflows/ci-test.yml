@@ -37,7 +37,7 @@ jobs:
       # (Platform.resolvedExecutable is the test runner under `flutter test`).
       VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/macos-${{ matrix.arch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Resolve deps tag
         id: deps
@@ -69,7 +69,7 @@ jobs:
 
       # The whisper small model (~466 MB) is architecture-independent; cache it.
       - name: Cache whisper model
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .whisper-cache
           key: whisper-ggml-small-v1
@@ -109,7 +109,7 @@ jobs:
     env:
       VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/windows-x64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Resolve deps tag
         id: deps
@@ -143,7 +143,7 @@ jobs:
           rm -f "$ZIP"
 
       - name: Cache whisper model
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .whisper-cache
           key: whisper-ggml-small-v1
@@ -186,7 +186,7 @@ jobs:
       # not (it uses the XDG path), so we also symlink it below.
       VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/linux-x64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install system dependencies
         run: |
@@ -222,7 +222,7 @@ jobs:
           rm -f "$ZIP"
 
       - name: Cache whisper model
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .whisper-cache
           key: whisper-ggml-small-v1

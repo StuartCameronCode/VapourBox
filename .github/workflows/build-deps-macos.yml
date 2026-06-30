@@ -36,7 +36,7 @@ jobs:
     if: ${{ inputs.arch == 'arm64' || inputs.arch == 'both' }}
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build dependencies (arm64, native)
         run: ./Scripts/download-deps-macos.sh --force
@@ -44,7 +44,7 @@ jobs:
       - name: Package dependencies
         run: ./Scripts/package-deps-macos.sh --version "${{ inputs.version }}" --arch arm64
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: VapourBox-deps-${{ inputs.version }}-macos-arm64
           path: |
@@ -64,7 +64,7 @@ jobs:
     if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
     runs-on: macos-15-intel  # only hosted Intel image (macos-13 retired; last one until ~Aug 2027)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build dependencies (x64, native)
         # STRICT_MIN_OS=1: fail the build if any bundled Mach-O targets newer than
@@ -76,7 +76,7 @@ jobs:
       - name: Package dependencies
         run: ./Scripts/package-deps-macos.sh --version "${{ inputs.version }}" --arch x64
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: VapourBox-deps-${{ inputs.version }}-macos-x64
           path: |
