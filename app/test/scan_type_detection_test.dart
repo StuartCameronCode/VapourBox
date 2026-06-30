@@ -7,6 +7,7 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
+import 'package:vapourbox/models/video_job.dart';
 import 'package:vapourbox/services/field_order_detector.dart';
 import 'package:vapourbox/services/tool_locator.dart';
 
@@ -33,6 +34,35 @@ void main() {
     }
 
     detector = FieldOrderDetector();
+  });
+
+  group('selectFrameRate (issue #13)', () {
+    test('field-coded interlaced PAL (r=50, avg=25) → picture rate 25', () {
+      // DVB-T PAL rip stored as separated fields reports r_frame_rate as the
+      // field rate. Must resolve to 25 so QTGMC double-rate targets 50p, not 100.
+      expect(FieldOrderDetector.selectFrameRate(50.0, 25.0), 25.0);
+    });
+
+    test('field-coded interlaced NTSC (r=59.94, avg=29.97) → 29.97', () {
+      expect(FieldOrderDetector.selectFrameRate(59.94, 29.97), 29.97);
+    });
+
+    test('true 50p progressive (r=50, avg=50) keeps 50', () {
+      expect(FieldOrderDetector.selectFrameRate(50.0, 50.0), 50.0);
+    });
+
+    test('frame-coded 25fps (r=25, avg=25) keeps 25', () {
+      expect(FieldOrderDetector.selectFrameRate(25.0, 25.0), 25.0);
+    });
+
+    test('missing/invalid avg falls back to r', () {
+      expect(FieldOrderDetector.selectFrameRate(25.0, null), 25.0);
+      expect(FieldOrderDetector.selectFrameRate(50.0, 0.0), 50.0);
+    });
+
+    test('missing r falls back to avg', () {
+      expect(FieldOrderDetector.selectFrameRate(null, 25.0), 25.0);
+    });
   });
 
   group('Scan Type Detection', () {
@@ -63,6 +93,31 @@ void main() {
       expect(info!.scanType, ScanType.telecine,
           reason: 'idet shows TFF interlaced frames with repeated fields '
               '— hard telecine requiring IVTC');
+    });
+
+    test(
+        'pal-dvbt-fieldcoded-25i.ts reports 25fps picture rate, not 50 (issue #13)',
+        () async {
+      // DVB-T2 PAL rip, H.264 interlaced stored as separated fields. ffprobe
+      // reports r_frame_rate=50/1 (field rate) but avg_frame_rate=25/1
+      // (picture rate). VapourBox must use 25 — otherwise QTGMC double-rate
+      // targets 100fps and the pipe-source clip is built at the wrong rate.
+      final videoPath =
+          path.join(testResourcesDir, 'pal-dvbt-fieldcoded-25i.ts');
+      if (!await File(videoPath).exists()) {
+        markTestSkipped('pal-dvbt-fieldcoded-25i.ts not found');
+        return;
+      }
+
+      final info = await detector.getVideoInfo(videoPath);
+      expect(info, isNotNull);
+      expect(info!.frameRate, closeTo(25.0, 0.01),
+          reason: 'field-coded interlaced source must resolve to the 25fps '
+              'picture rate, not the 50fps field rate (issue #13)');
+      expect(info.scanType, ScanType.interlaced,
+          reason: 'idet shows TFF interlaced frames without repeated fields');
+      expect(info.fieldOrder, FieldOrder.topFieldFirst,
+          reason: 'field_order=tt → top field first');
     });
 
     test('interlaced_test.avi is detected as interlaced', () async {

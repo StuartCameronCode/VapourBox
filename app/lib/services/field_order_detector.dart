@@ -74,7 +74,10 @@ class FieldOrderDetector {
 
       final width = videoStream['width'] as int?;
       final height = videoStream['height'] as int?;
-      final frameRate = _parseFrameRate(videoStream['r_frame_rate'] as String?);
+      final frameRate = selectFrameRate(
+        _parseFrameRate(videoStream['r_frame_rate'] as String?),
+        _parseFrameRate(videoStream['avg_frame_rate'] as String?),
+      );
       final duration = _parseDuration(format?['duration'] as String?);
       final frameCount = _parseFrameCount(videoStream['nb_frames'] as String?);
       final codec = videoStream['codec_name'] as String?;
@@ -431,6 +434,31 @@ class FieldOrderDetector {
   // ============================================================================
   // UTILITIES
   // ============================================================================
+
+  /// Picks the true picture frame rate from the container's `r_frame_rate`
+  /// (the stream's base/tick rate) and `avg_frame_rate` (the average displayed
+  /// rate).
+  ///
+  /// Field-coded interlaced H.264 — e.g. a DVB-T PAL rip stored as "separated
+  /// fields" — reports `r_frame_rate` as the *field* rate (50 for 25fps PAL,
+  /// 59.94 for 29.97fps NTSC) while `avg_frame_rate` reports the real picture
+  /// rate (25 / 29.97). Trusting the field rate makes VapourBox think the
+  /// source is 50p, so QTGMC "Double Rate" deinterlacing targets 100fps and
+  /// the pipe-source clip is built at the wrong rate (issue #13).
+  ///
+  /// When `avg` is roughly half of `r` (the field-coded signature), trust
+  /// `avg`. Otherwise keep `r` — it's the reliable rate for CFR progressive
+  /// and frame-coded interlaced content, and `avg` can be 0/0 or skewed by
+  /// VFR/duration rounding.
+  static double? selectFrameRate(double? rFrameRate, double? avgFrameRate) {
+    if (rFrameRate == null || rFrameRate <= 0) return avgFrameRate;
+    if (avgFrameRate == null || avgFrameRate <= 0) return rFrameRate;
+    final ratio = rFrameRate / avgFrameRate;
+    if (ratio > 1.8 && ratio < 2.2) {
+      return avgFrameRate;
+    }
+    return rFrameRate;
+  }
 
   double? _parseFrameRate(String? rateStr) {
     if (rateStr == null) return null;
