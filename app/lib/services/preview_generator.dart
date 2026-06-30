@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../models/encoding_settings.dart';
 import '../models/processing_pipeline.dart';
 import '../models/video_job.dart';
+import 'field_order_detector.dart';
 import 'tool_locator.dart';
 
 /// Service for generating video thumbnails and processed previews.
@@ -393,17 +394,14 @@ class PreviewGenerator {
     // Parse duration
     _duration = double.tryParse(format?['duration']?.toString() ?? '') ?? 0;
 
-    // Parse frame rate
-    final rFrameRate = videoStream['r_frame_rate'] as String?;
-    if (rFrameRate != null) {
-      final parts = rFrameRate.split('/');
-      if (parts.length == 2) {
-        final num = double.tryParse(parts[0]);
-        final den = double.tryParse(parts[1]);
-        if (num != null && den != null && den != 0) {
-          _frameRate = num / den;
-        }
-      }
+    // Parse frame rate. Prefer the picture rate (avg_frame_rate) over the
+    // field/base rate (r_frame_rate) for field-coded interlaced sources — see
+    // FieldOrderDetector.selectFrameRate (issue #13).
+    final rFrameRate = _parseRational(videoStream['r_frame_rate'] as String?);
+    final avgFrameRate = _parseRational(videoStream['avg_frame_rate'] as String?);
+    final selected = FieldOrderDetector.selectFrameRate(rFrameRate, avgFrameRate);
+    if (selected != null && selected > 0) {
+      _frameRate = selected;
     }
 
     // Parse frame count
@@ -414,6 +412,22 @@ class PreviewGenerator {
     _videoWidth = videoStream['width'] as int? ?? 0;
     _videoHeight = videoStream['height'] as int? ?? 0;
     _pixelFormat = videoStream['pix_fmt'] as String? ?? 'yuv420p';
+  }
+
+  /// Parses an ffprobe rational frame-rate string (e.g. "25/1") to a double.
+  /// Returns null for null/"0/0"/unparseable input.
+  double? _parseRational(String? rateStr) {
+    if (rateStr == null) return null;
+    final parts = rateStr.split('/');
+    if (parts.length == 2) {
+      final num = double.tryParse(parts[0]);
+      final den = double.tryParse(parts[1]);
+      if (num != null && den != null && den != 0) {
+        return num / den;
+      }
+      return null;
+    }
+    return double.tryParse(rateStr);
   }
 
   Future<List<Uint8List>> _extractThumbnails(String videoPath, int count) async {
