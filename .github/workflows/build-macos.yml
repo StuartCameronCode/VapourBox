@@ -21,6 +21,11 @@ on:
           - arm64
           - x64
         default: universal
+      notarize:
+        description: 'Notarize with Apple (needs valid developer agreements; off = signed-only, fine for local testing)'
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   # Expand the arch choice into a matrix the build job fans out over.
@@ -42,6 +47,11 @@ jobs:
   build:
     needs: setup
     runs-on: macos-15  # Apple Silicon; x64 cross-compiles via ARCHS=x86_64
+    # Pin the macOS deployment target to 12.0 (issue #39): rustc reads this for
+    # the worker, and it matches the Xcode project / Podfile so the app shell and
+    # worker load on Monterey — consistent with the 12.0-targeted x64 deps.
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
     strategy:
       fail-fast: false
       matrix:
@@ -220,7 +230,9 @@ jobs:
           NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
           NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
         run: |
-          ./Scripts/package-macos.sh --version "${{ inputs.version }}" --arch ${{ matrix.arch }} --skip-build --notarize
+          ARGS=(--version "${{ inputs.version }}" --arch ${{ matrix.arch }} --skip-build)
+          if [ "${{ inputs.notarize }}" = "true" ]; then ARGS+=(--notarize); fi
+          ./Scripts/package-macos.sh "${ARGS[@]}"
 
       - name: Clean up signing keychain
         if: always()

@@ -10,6 +10,16 @@ on:
   schedule:
     - cron: '0 7 * * *'  # 07:00 UTC daily
   workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Which platforms to run (manual dispatch only)'
+        type: choice
+        options:
+          - all
+          - macos
+          - windows
+          - linux
+        default: all
 
 concurrency:
   group: nightly-${{ github.ref }}
@@ -20,6 +30,7 @@ env:
 
 jobs:
   macos:
+    if: ${{ github.event_name == 'schedule' || inputs.platform == 'all' || inputs.platform == 'macos' }}
     strategy:
       fail-fast: false
       matrix:
@@ -93,6 +104,7 @@ jobs:
         run: cd app && flutter test --tags heavy
 
   windows:
+    if: ${{ github.event_name == 'schedule' || inputs.platform == 'all' || inputs.platform == 'windows' }}
     runs-on: windows-latest
     env:
       VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/windows-x64
@@ -162,6 +174,7 @@ jobs:
         run: cd app && flutter test --tags heavy
 
   linux:
+    if: ${{ github.event_name == 'schedule' || inputs.platform == 'all' || inputs.platform == 'linux' }}
     runs-on: ubuntu-22.04
     env:
       VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/linux-x64
