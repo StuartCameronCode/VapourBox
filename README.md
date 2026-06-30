@@ -26,20 +26,23 @@ Get the latest release for your platform:
 
 **[Download VapourBox](https://github.com/StuartCameronCode/VapourBox/releases/latest)**
 
-| Platform | File |
-|----------|------|
-| macOS (Universal — Apple Silicon & Intel) | `VapourBox-x.x.x-macos-universal.dmg` |
-| Windows 10/11 (x64) | `VapourBox-x.x.x-windows-x64.zip` |
-| Linux (x64) | `VapourBox-x.x.x-linux-x64.tar.gz` |
-| Linux (arm64) | `VapourBox-x.x.x-linux-arm64.tar.gz` |
+| Platform | Minimum OS | File |
+|----------|------------|------|
+| macOS (Apple Silicon) | macOS 15 Sequoia | `VapourBox-x.x.x-macos-arm64.dmg` |
+| macOS (Intel) | macOS 12 Monterey | `VapourBox-x.x.x-macos-x64.dmg` |
+| Windows (x64) | Windows 10/11 | `VapourBox-x.x.x-windows-x64.zip` |
+| Linux (x64) | — | `VapourBox-x.x.x-linux-x64.tar.gz` |
+| Linux (arm64) | — | `VapourBox-x.x.x-linux-arm64.tar.gz` |
 
-> The macOS DMG is a universal binary that runs natively on both Apple Silicon and Intel Macs; the correct processing dependencies are downloaded for your CPU on first launch.
+> **Pick the macOS DMG that matches your Mac's CPU** (Apple menu → About This Mac). Apple Silicon Macs use the `arm64` DMG; Intel Macs use the `x64` DMG. The matching processing dependencies are downloaded automatically on first launch.
+>
+> The minimum macOS differs by CPU: the Intel build supports **macOS 12 (Monterey) and later**, while the Apple Silicon build requires **macOS 15 (Sequoia) or later**.
 
 ## Installation
 
 ### macOS
 
-1. Download the `.dmg` file from the [releases page](https://github.com/StuartCameronCode/VapourBox/releases/latest)
+1. Download the `.dmg` for your Mac's CPU from the [releases page](https://github.com/StuartCameronCode/VapourBox/releases/latest) — `arm64` for Apple Silicon (macOS 15+), `x64` for Intel (macOS 12+)
 2. Open the DMG and drag **VapourBox** to your Applications folder
 3. On first launch, VapourBox will automatically download its processing dependencies (~180 MB)
 
@@ -197,3 +200,5 @@ macOS plugins and binaries sourced from:
 - **[yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins)** — pre-built ARM64 VapourSynth plugins for macOS
 - **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** — cross-platform VapourSynth plugins (arm64 + x86_64; used for `tmedian` and `bestsource`)
 - **[evermeet.cx](https://evermeet.cx/ffmpeg/)** — static x86_64 FFmpeg/FFprobe builds for the Intel macOS bundle
+
+The Intel (x64) bundle additionally builds its support libraries (zimg, fftw, libdvdread, xz, boost) from source targeting **macOS 12**, so it runs on Monterey; the Apple Silicon (arm64) bundle is built for the current macOS and targets **macOS 15**.
