@@ -25,7 +25,7 @@ jobs:
   build-x64:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build dependencies
         shell: pwsh
@@ -35,7 +35,7 @@ jobs:
         shell: pwsh
         run: ./Scripts/package-deps-windows.ps1 -Version "${{ inputs.version }}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: VapourBox-deps-${{ inputs.version }}-windows-x64
           path: |

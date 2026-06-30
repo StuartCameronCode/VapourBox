@@ -59,7 +59,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Resolve arch variables
         id: arch
@@ -82,7 +82,7 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -240,7 +240,7 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: VapourBox-${{ inputs.version }}-macos-${{ matrix.arch }}
           path: dist/VapourBox-${{ inputs.version }}-macos-${{ matrix.arch }}.dmg
