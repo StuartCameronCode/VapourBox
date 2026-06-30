@@ -69,14 +69,16 @@ fi
 # NOTE: this does NOT retarget prebuilt artifacts the script merely copies
 # (Homebrew bottles, evermeet ffmpeg, python-build-standalone, Stefan-Olt plugins) —
 # the minos verification guard near the end of this script reports those.
-# Both arches now target Monterey 12.0 (arm64 floor is Big Sur 11.0, so 12.0 is
-# valid). This is the arm64 source-build test — see the support-lib build below.
-MACOS_MIN_VERSION="${MACOS_MIN_VERSION:-12.0}"   # Monterey
-export MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION"
-# CMake honors the env var as a fallback, but some plugin CMakeLists set their
-# own target; pass it explicitly on the cmake lines too (see neo-f3kdb).
-export CMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION"
-echo "Minimum macOS deployment target ($ARCH): $MACOS_MIN_VERSION (override via \$MACOS_MIN_VERSION)"
+if [ "$ARCH" = "x86_64" ]; then
+    MACOS_MIN_VERSION="${MACOS_MIN_VERSION:-12.0}"   # Monterey
+    export MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION"
+    # CMake honors the env var as a fallback, but some plugin CMakeLists set their
+    # own target; pass it explicitly on the cmake lines too (see neo-f3kdb).
+    export CMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION"
+    echo "Minimum macOS deployment target (x64): $MACOS_MIN_VERSION (override via \$MACOS_MIN_VERSION)"
+else
+    echo "arm64 build: not pinning a deployment target (Intel-only back-deploy)"
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -157,10 +159,9 @@ done
 #   boost (filesystem,atomic) - ABI-sensitive, so the OpenCL plugins
 #                              (nnedi3cl/knlmeanscl) are ALSO compiled against
 #                              this build via BOOST_ROOT="$SRCLIB" below.
-# Now runs for BOTH arches (arm64 Monterey source-build test). The recipes
-# compile natively for whichever arch the runner is, inheriting the 12.0 target.
+# arm64 is untouched (no deployment-target pin -> this whole block is skipped).
 SRCLIB="$BUILD_DIR/srclib"
-if [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "arm64" ]; then
+if [ "$ARCH" = "x86_64" ]; then
     echo ""
     echo "=== Building support libraries from source (target $MACOS_MIN_VERSION) ==="
     NPROC=$(sysctl -n hw.ncpu)
@@ -289,9 +290,9 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.dylib" ];
     # ('to_chars is unavailable: introduced in macOS 13.3'); shipped from a 15.0
     # build it links a libc++ symbol absent on Monterey -> the "dyld: Symbol not
     # found" crash in #39. Rewrite it to emit the shortest round-tripping fixed
-    # string via snprintf, which back-deploys cleanly. Both arches now (arm64
-    # Monterey test) since both target 12.0 (< 13.3, so to_chars is unavailable).
-    if [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "arm64" ]; then
+    # string via snprintf, which back-deploys cleanly. x64 only so the arm64
+    # bundle stays byte-for-byte unchanged.
+    if [ "$ARCH" = "x86_64" ]; then
         echo "  Patching vspipe doubleToString for Monterey back-deploy (issue #39)..."
         for vs_src in src/vspipe/vsjson.cpp src/vspipe/vspipe.cpp; do
             VS_SRC="$vs_src" python3 - <<'PYEOF'
@@ -1404,7 +1405,7 @@ fi
 # Done here -- after all plugin builds, before the repoint passes -- so the
 # existing @loader_path rewiring and signing apply to them uniformly. The
 # OpenCL plugins were already compiled against this same boost (BOOST_ROOT).
-if [ -d "$SRCLIB/lib" ]; then  # both arches now (gated on the source build having run)
+if [ "$ARCH" = "x86_64" ] && [ -d "$SRCLIB/lib" ]; then
     echo ""
     echo "=== Replacing Homebrew support libs with source builds (target $MACOS_MIN_VERSION) ==="
     # zimg sits next to libvapoursynth and isn't covered by the repoint passes,
@@ -1628,10 +1629,9 @@ fi
 # ----------------------------------------------------------------------------
 # Minimum-OS (minos) verification — x64 only (issue #39)
 # ----------------------------------------------------------------------------
-# Both arches are checked now (arm64 Monterey test). STRICT_MIN_OS=1 (set per-job
-# in the workflow) turns a >target finding into a hard failure; without it the
-# pass just reports, which is how the arm64 recon run surfaces what's still >12.
-if [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "arm64" ]; then
+# Only the Intel bundle commits to back-deploying (to Monterey); the arm64 bundle
+# is built on/for current macOS, so skip the check there to avoid spurious noise.
+if [ "$ARCH" = "x86_64" ]; then
 echo ""
 echo "Minimum-OS (minos) of every bundled Mach-O (target $MACOS_MIN_VERSION, issue #39):"
 # Print the macOS deployment target baked into a Mach-O, reading whichever load
