@@ -658,13 +658,18 @@ build_plugin() {
 
     cd "$name"
 
-    # Some plugins' meson.build locates the VapourSynth headers by running
-    # `import vapoursynth as vs; print(vs.get_include())` in the host python
-    # (e.g. mvtools, bm3d, eedi3m). On a clean build machine the host python has
-    # no `vapoursynth` module (the runtime VS module is built against our
-    # embedded python, not the host's), so that probe fails. Replace it with the
-    # from-source VS include dir - same trick already used for vivtc below.
-    if [ -n "$VS_INC_DIR" ] && [ -f meson.build ] && grep -q "import vapoursynth" meson.build; then
+    # Some plugins' meson.build locates the VapourSynth headers via a run_command
+    # the clean build machine can't satisfy, in one of two forms:
+    #   (a) `import vapoursynth as vs; print(vs.get_include())` in the host python
+    #       (e.g. mvtools, bm3d, eedi3m) - the host python has no `vapoursynth`
+    #       module (the runtime VS module is built against our embedded python).
+    #   (b) `run_command('vapoursynth', 'get-include', ...)` - invokes the
+    #       `vapoursynth` console script, which isn't on PATH here (e.g. CAS, which
+    #       upstream switched to this form). Both end in `.stdout().strip()`.
+    # Replace either probe with the from-source VS include dir (same trick used
+    # for vivtc below). Match the program form too, not just "import vapoursynth".
+    if [ -n "$VS_INC_DIR" ] && [ -f meson.build ] \
+       && grep -qE "import vapoursynth|run_command\('vapoursynth'" meson.build; then
         VS_INC_DIR="$VS_INC_DIR" python3 - meson.build <<'PYEOF'
 import os, re, sys
 path = sys.argv[1]
