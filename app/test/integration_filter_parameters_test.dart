@@ -151,6 +151,7 @@ void validateParams({
 
 VideoJob buildJob({
   required String testName,
+  QTGMCParameters? deinterlace,
   NoiseReductionParameters? noiseReduction,
   DehaloParameters? dehalo,
   DeblockParameters? deblock,
@@ -165,7 +166,7 @@ VideoJob buildJob({
   inputPath: TestConfig.inputFile,
   outputPath: '${TestConfig.outputDir}/$testName.mkv',
   processingPipeline: ProcessingPipeline(
-    deinterlace: const QTGMCParameters(enabled: false),
+    deinterlace: deinterlace ?? const QTGMCParameters(enabled: false),
     descratch: descratch ?? const DeScratchParameters(),
     spotless: spotless ?? const SpotLessParameters(),
     noiseReduction: noiseReduction ?? const NoiseReductionParameters(),
@@ -434,6 +435,26 @@ void main() {
       expect(actual['blksize'], '8');
       expect(actual['overlap'], '4');
       expect(actual['pel'], '1');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // --- IVTC (core.vivtc.VFM + VDecimate) high-bit-depth guard ---
+    // VFM only accepts 8-bit YUV/GRAY, so IVTC on a 10-bit source (e.g. ProRes
+    // 422, yuv422p10le) must run field matching on an 8-bit metrics copy while
+    // emitting full-depth pixels via clip2. Assert that wiring is in the script.
+    test('ivtc: VFM/VDecimate 8-bit guard + clip2', () async {
+      final job = buildJob(
+        testName: 'ivtc_guard',
+        deinterlace: const QTGMCParameters(
+          enabled: true, method: DeinterlaceMethod.ivtc, tff: true,
+        ),
+      );
+      print('  Generating IVTC script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('bits_per_sample == 8'));
+      expect(script, contains('core.vivtc.VFM(_ivtc_metrics'));
+      expect(script, contains('clip2=_ivtc_src'));
+      expect(script, contains('core.vivtc.VDecimate(clip'));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
   });
