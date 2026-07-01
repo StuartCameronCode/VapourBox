@@ -90,6 +90,7 @@ VapourBox/
 |------|---------|
 | `worker/src/models/video_job.rs` | Job config, EncodingSettings, processing passes |
 | `worker/src/models/qtgmc_parameters.rs` | All 70+ QTGMC parameters (serde) |
+| `worker/src/models/processing_pipeline.rs` | Pipeline passes + `FrameMap` (source↔output frame mapping: `output_count` drives the progress total, `invert`/`total_radius` drive frame-accurate preview) |
 | `worker/src/script_generator.rs` | Template substitution for .vpy |
 | `worker/src/pipeline_executor.rs` | vspipe \| ffmpeg execution |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |

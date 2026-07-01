@@ -150,28 +150,35 @@ class PreviewGenerator {
     return thumbnails;
   }
 
-  /// Get a single frame at a specific time position.
-  Future<Uint8List?> getFrameAt(double timeSeconds) async {
+  /// Get the unprocessed source frame at an exact frame index.
+  ///
+  /// Frame-accurate: seeks to the midpoint of the interval *before* the target
+  /// frame ((index - 0.5)/fps) so the first decoded frame (PTS >= seek time) is
+  /// exactly `frameIndex`. This matches the worker's preview seek, so the
+  /// before/after comparison always shows the same source frame.
+  Future<Uint8List?> getFrameAtIndex(int frameIndex) async {
     if (_currentVideoPath == null || _ffmpegPath == null) return null;
 
-    final frameIndex = (timeSeconds * _frameRate).round();
+    final frame = frameIndex < 0 ? 0 : frameIndex;
 
     // Check cache
-    if (_thumbnailCache.containsKey(frameIndex)) {
-      return _thumbnailCache[frameIndex];
+    if (_thumbnailCache.containsKey(frame)) {
+      return _thumbnailCache[frame];
     }
 
     // Extract frame
-    final outputPath = '$_tempDir/frame_${frameIndex}.jpg';
+    final outputPath = '$_tempDir/frame_$frame.jpg';
+    final seekTime = ((frame - 0.5) / _frameRate);
+    final ss = seekTime < 0 ? 0.0 : seekTime;
 
     try {
       final result = await Process.run(
         _ffmpegPath!,
         [
           '-y',
-          '-ss', timeSeconds.toStringAsFixed(3),
+          '-ss', ss.toStringAsFixed(6),
           '-i', _currentVideoPath!,
-          '-vframes', '1',
+          '-frames:v', '1',
           '-q:v', '2',
           outputPath,
         ],
@@ -179,7 +186,7 @@ class PreviewGenerator {
 
       if (result.exitCode == 0 && await File(outputPath).exists()) {
         final bytes = await File(outputPath).readAsBytes();
-        _thumbnailCache[frameIndex] = bytes;
+        _thumbnailCache[frame] = bytes;
         return bytes;
       }
     } catch (e) {
@@ -195,7 +202,7 @@ class PreviewGenerator {
   /// the processed frame. Uses the same code path as actual video processing
   /// to ensure preview matches the final output.
   Future<Uint8List?> generateProcessedPreview({
-    required double timeSeconds,
+    required int frameNumber,
     required ProcessingPipeline pipeline,
     required FieldOrder fieldOrder,
     required EncodingSettings encodingSettings,
@@ -205,14 +212,25 @@ class PreviewGenerator {
       return null;
     }
 
+    // Dimensions come from the ffprobe pass in loadVideo(). If they aren't
+    // populated yet (probe still running — e.g. a slow first-run Gatekeeper
+    // assessment of freshly-downloaded ffprobe — or the probe failed), skip
+    // rather than spawning the worker with a 0x0 job, which fails with a
+    // misleading "Invalid video dimensions" error. The preview is requested
+    // again once the video is probed, so this self-heals.
+    if (_videoWidth <= 0 || _videoHeight <= 0) {
+      return null;
+    }
+
     // Cancel any existing preview generation
     await cancelPreviewGeneration();
 
     if (cancelToken?.isCancelled ?? false) return null;
 
-    // Calculate frame number in the SOURCE video (not output)
-    // We no longer double for FPSDivisor=1 because we're seeking in the source
-    final frameNumber = (timeSeconds * _frameRate).round();
+    // `frameNumber` is the SOURCE frame index, passed straight to the worker
+    // (no time round-trip). The worker decodes a window centred on it and emits
+    // the exact output frame it maps to — see generate_preview in the worker.
+    final frame = frameNumber < 0 ? 0 : frameNumber;
     final configPath = '$_tempDir/preview_config_${DateTime.now().millisecondsSinceEpoch}.json';
     Process? process;
 
@@ -247,7 +265,7 @@ class PreviewGenerator {
       // Clear log for this preview generation
       _previewLog.clear();
       _lastError = null;
-      _previewLog.add('[${DateTime.now().toIso8601String()}] Starting preview generation for frame $frameNumber');
+      _previewLog.add('[${DateTime.now().toIso8601String()}] Starting preview generation for frame $frame');
 
       // Run worker in preview mode
       // Use local variable to avoid race conditions when another preview request cancels this one
@@ -257,7 +275,7 @@ class PreviewGenerator {
         [
           '--config', configPath,
           '--preview',
-          '--frame', frameNumber.toString(),
+          '--frame', frame.toString(),
         ],
         environment: ToolLocator.instance.workerEnvironment,
         workingDirectory: path.dirname(_workerPath!),

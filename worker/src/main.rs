@@ -276,11 +276,10 @@ fn run_preview_mode(args: &Args) -> ExitCode {
         }
     };
 
-    // Calculate time from frame number
-    let frame_rate = job.input_frame_rate.unwrap_or(29.97);
-    let time_seconds = frame as f64 / frame_rate;
-
-    eprintln!("Preview: frame {} at {:.3}s (fps: {:.2})", frame, time_seconds, frame_rate);
+    // The frame index is passed straight through to the worker — no
+    // time-conversion round-trip — so the rendered frame is exactly the one the
+    // caller asked for (see generate_preview's frame-accurate windowing).
+    eprintln!("Preview: source frame {} (fps: {:.2})", frame, job.input_frame_rate.unwrap_or(29.97));
 
     // Execute preview (extracts frames with ffmpeg, processes with VapourSynth)
     let executor = match PipelineExecutor::new(ProgressReporter::new()) {
@@ -291,7 +290,7 @@ fn run_preview_mode(args: &Args) -> ExitCode {
         }
     };
 
-    match executor.generate_preview(&job, time_seconds) {
+    match executor.generate_preview(&job, frame) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("Error generating preview: {}", e);

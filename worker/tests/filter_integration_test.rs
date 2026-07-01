@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 // Import the worker's models
 use vapourbox_worker::models::*;
-use vapourbox_worker::script_generator::ScriptGenerator;
+use vapourbox_worker::script_generator::{PreviewParams, ScriptGenerator};
 
 fn get_test_input() -> PathBuf {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
@@ -1900,4 +1900,80 @@ fn test_54_qtgmc_knlmeanscl_falls_back_to_dfttest() {
         "knlmeanscl should not appear after fallback, script was:\n{}",
         script
     );
+}
+
+#[test]
+fn test_55_preview_selects_exact_frame() {
+    // Frame-accurate preview: the generated preview script must emit the exact
+    // output index the worker computed for the requested frame, NOT the old
+    // "middle of the decoded window" heuristic.
+    create_output_dir();
+
+    let mut job = create_base_job("test_55_preview_frame");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.tff = Some(true);
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+
+    let generator = ScriptGenerator::new().expect("create generator");
+    let params = PreviewParams {
+        width: 720,
+        height: 576,
+        pix_fmt: "yuv420p".to_string(),
+        num_frames: 11,
+        fps_num: 25,
+        fps_den: 1,
+        field_based: 2,
+        output_index: 7,
+    };
+    let script_path = generator
+        .generate_preview(&job, &params)
+        .expect("generate preview script");
+    let script = std::fs::read_to_string(&script_path).expect("read preview script");
+
+    assert!(
+        script.contains("min(7, clip.num_frames - 1)"),
+        "preview must select the exact computed output index, script was:\n{}",
+        script
+    );
+    assert!(
+        !script.contains("num_frames // 2"),
+        "preview must not fall back to the old middle-frame heuristic"
+    );
+    let _ = std::fs::remove_file(&script_path);
+}
+
+#[test]
+fn test_56_frame_count_mapping() {
+    // The progress reporter derives the output frame total from output_count();
+    // verify the composed map reproduces the deinterlace count transforms.
+    let mut p = ProcessingPipeline::default();
+    p.deinterlace.enabled = true;
+    p.deinterlace.method = DeinterlaceMethod::Qtgmc;
+
+    // Double-rate QTGMC (FPSDivisor=1, and the unset default) doubles frames.
+    p.deinterlace.fps_divisor = Some(1);
+    assert_eq!(p.output_count(1000), 2000);
+    p.deinterlace.fps_divisor = None;
+    assert_eq!(p.output_count(1000), 2000);
+
+    // Single-rate QTGMC leaves the count unchanged.
+    p.deinterlace.fps_divisor = Some(2);
+    assert_eq!(p.output_count(1000), 1000);
+
+    // IVTC cycle 5 keeps 4 of every 5 frames (30→24).
+    p.deinterlace.method = DeinterlaceMethod::Ivtc;
+    p.deinterlace.fps_divisor = None;
+    p.deinterlace.ivtc_cycle = Some(5);
+    assert_eq!(p.output_count(1000), 800);
+
+    // A double-rate output frame inverts back to its source frame, exactly.
+    p.deinterlace.method = DeinterlaceMethod::Qtgmc;
+    p.deinterlace.fps_divisor = Some(1);
+    p.deinterlace.ivtc_cycle = None;
+    let span = p.invert(20);
+    assert_eq!(span.start, 10);
+    assert!(span.exact);
 }
