@@ -791,8 +791,11 @@ clip = core.resize.Bilinear(clip, width=target_w, height=target_h)
 {{/RESIZE}}
 
 # ============================================================================
-# OUTPUT - select the middle frame for preview
+# OUTPUT - select the exact target frame for preview.
+# The worker decodes a window of source frames around the requested frame and
+# passes the deterministic output index it maps to (after any frame-rate change
+# such as QTGMC double-rate). Clamp defensively in case the decode came up short.
 # ============================================================================
-middle_frame = clip.num_frames // 2
-clip = clip[middle_frame]
+target_frame = max(0, min({{PREVIEW_OUTPUT_INDEX}}, clip.num_frames - 1))
+clip = clip[target_frame]
 clip.set_output()

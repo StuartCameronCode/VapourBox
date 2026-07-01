@@ -4,9 +4,109 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
-    DebandParameters, DeblockParameters, DehaloParameters, DeScratchParameters,
+    DebandParameters, DeblockParameters, DehaloParameters, DeinterlaceMethod, DeScratchParameters,
     SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters,
 };
+
+/// Minimum temporal context (frames on each side of the target) a windowed
+/// preview decodes, regardless of which filters are enabled. Motion-compensated
+/// filters (QTGMC) need neighbours; this floor preserves the old fixed 11-frame
+/// (5-per-side) window so preview quality never regresses when a pipeline's
+/// declared radius is small.
+pub const MIN_PREVIEW_RADIUS: u32 = 5;
+
+/// A span of *source* (input-side) frames, with whether the mapping that
+/// produced it is frame-exact. `exact = false` means the span is the best
+/// available estimate (data-dependent decimation, or a synthesized/interpolated
+/// output frame with no single source origin) and a consumer should treat the
+/// result as approximate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct SourceSpan {
+    pub start: u64,
+    pub end: u64,
+    pub exact: bool,
+}
+
+/// How one pass relates its *input* clip to its *output* clip on the frame
+/// timeline. Two operations matter to the rest of the system: a forward count
+/// (the progress total) and an inverse window (which source frames produce a
+/// given output frame, for preview/seek). See `ProcessingPipeline::output_count`
+/// / `invert` for how these compose across a pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum FrameMap {
+    /// Count and index unchanged. `radius` = temporal neighbours the filter
+    /// reads to compute one frame (denoise, sharpen, single-rate QTGMC…).
+    Identity { radius: u32 },
+
+    /// Each input frame fans out to `factor` contiguous output frames.
+    /// QTGMC FPSDivisor=1 → factor 2 (one output frame per field). Exact.
+    Fanout { factor: u32, radius: u32 },
+
+    /// Drop frames on a fixed cycle: keep `keep` of every `cycle`
+    /// (VDecimate / IVTC, cycle 5 keep 4 → 30→24). The count is exact, but
+    /// *which* frame is dropped is data-dependent, so the inverse is approximate.
+    Decimate { cycle: u32, keep: u32 },
+
+    /// Rational retime of the timeline (frame-rate conversion / interpolation).
+    /// `synthesizes` = output frames may have no single source origin (motion
+    /// interpolation) → inverse is a blended, inexact range.
+    Retime { num: u32, den: u32, synthesizes: bool, radius: u32 },
+}
+
+#[allow(dead_code)]
+impl FrameMap {
+    /// Output frame count given an input frame count. (Progress / total.)
+    pub fn output_count(&self, n_in: u64) -> u64 {
+        match *self {
+            FrameMap::Identity { .. } => n_in,
+            FrameMap::Fanout { factor, .. } => n_in * factor as u64,
+            FrameMap::Decimate { cycle, keep } => n_in * keep as u64 / cycle as u64,
+            FrameMap::Retime { num, den, .. } => n_in * num as u64 / den as u64,
+        }
+    }
+
+    /// Map an output frame index back to the input-side source frames that
+    /// produce it. (Preview / seek.)
+    pub fn inverse(&self, m: u64) -> SourceSpan {
+        match *self {
+            FrameMap::Identity { .. } => SourceSpan { start: m, end: m, exact: true },
+
+            // output frames [k*factor .. k*factor+factor) all come from source k
+            FrameMap::Fanout { factor, .. } => {
+                let s = m / factor as u64;
+                SourceSpan { start: s, end: s, exact: true }
+            }
+
+            // best-effort: assume kept frames are evenly spaced within each cycle.
+            // Off by ≤1 from the true kept frame, and the dropped one is a
+            // near-duplicate, so visually negligible — but mark it inexact.
+            FrameMap::Decimate { cycle, keep } => {
+                let c = m / keep as u64;
+                let i = m % keep as u64;
+                let s = c * cycle as u64 + i * cycle as u64 / keep as u64;
+                SourceSpan { start: s, end: s, exact: false }
+            }
+
+            FrameMap::Retime { num, den, synthesizes, .. } => {
+                let lo = m * den as u64 / num as u64;
+                let hi = (m * den as u64 + num as u64 - 1) / num as u64; // ceil
+                SourceSpan { start: lo, end: hi.max(lo), exact: !synthesizes }
+            }
+        }
+    }
+
+    /// Temporal neighbours (each side) the filter reads to compute one frame.
+    pub fn radius(&self) -> u32 {
+        match *self {
+            FrameMap::Identity { radius }
+            | FrameMap::Fanout { radius, .. }
+            | FrameMap::Retime { radius, .. } => radius,
+            FrameMap::Decimate { .. } => 0,
+        }
+    }
+}
 
 /// Defines the type of each processing pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -220,6 +320,84 @@ impl ProcessingPipeline {
         count
     }
 
+    /// The frame-timeline map each enabled pass imposes, in application order.
+    /// Only the deinterlace pass changes the count today; the rest are identity
+    /// (with a small temporal radius for context-sensitive filters).
+    pub fn frame_maps(&self) -> Vec<FrameMap> {
+        self.enabled_passes()
+            .into_iter()
+            .map(|p| self.frame_map_for(p))
+            .collect()
+    }
+
+    /// The `FrameMap` for a single pass, derived from its parameters.
+    fn frame_map_for(&self, pass: PassType) -> FrameMap {
+        match pass {
+            PassType::Deinterlace => self.deinterlace_frame_map(),
+            // Temporal filters need neighbours for a correct windowed preview,
+            // but don't change the frame count.
+            PassType::NoiseReduction => FrameMap::Identity { radius: 3 },
+            PassType::SpotLess => FrameMap::Identity { radius: 2 },
+            PassType::DeScratch => FrameMap::Identity { radius: 1 },
+            // Purely spatial passes.
+            _ => FrameMap::Identity { radius: 0 },
+        }
+    }
+
+    /// Frame mapping for the deinterlace pass. QTGMC double-rate (FPSDivisor=1,
+    /// the default when unset) doubles the frame count; IVTC/soft-telecine
+    /// decimate on a cycle. Mirrors the count logic the progress reporter and
+    /// VapourSynth pipeline actually produce.
+    fn deinterlace_frame_map(&self) -> FrameMap {
+        let d = &self.deinterlace;
+        match d.method {
+            DeinterlaceMethod::Qtgmc => {
+                if d.fps_divisor.unwrap_or(1) == 1 {
+                    FrameMap::Fanout { factor: 2, radius: 3 }
+                } else {
+                    FrameMap::Identity { radius: 3 }
+                }
+            }
+            DeinterlaceMethod::Ivtc | DeinterlaceMethod::SoftTelecine => {
+                let cycle = d.ivtc_cycle.unwrap_or(5).max(2) as u32;
+                FrameMap::Decimate { cycle, keep: cycle - 1 }
+            }
+        }
+    }
+
+    /// Total output frame count for a given source frame count, composing every
+    /// enabled pass's forward map. Replaces ad-hoc double-rate / IVTC scaling.
+    pub fn output_count(&self, source_frames: u64) -> u64 {
+        self.frame_maps()
+            .iter()
+            .fold(source_frames, |n, m| m.output_count(n))
+    }
+
+    /// Map a final output frame index back to the source frame span that
+    /// produces it, composing every enabled pass's inverse in reverse order.
+    pub fn invert(&self, output_frame: u64) -> SourceSpan {
+        self.frame_maps().iter().rev().fold(
+            SourceSpan { start: output_frame, end: output_frame, exact: true },
+            |span, m| {
+                let a = m.inverse(span.start);
+                let b = m.inverse(span.end);
+                SourceSpan {
+                    start: a.start,
+                    end: b.end.max(a.start),
+                    exact: span.exact && a.exact && b.exact,
+                }
+            },
+        )
+    }
+
+    /// Conservative temporal padding (frames each side) a windowed preview
+    /// should decode so every enabled filter has the context it needs. Floored
+    /// at `MIN_PREVIEW_RADIUS` so motion-compensated filters never starve.
+    pub fn total_radius(&self) -> u32 {
+        let declared: u32 = self.frame_maps().iter().map(|m| m.radius()).sum();
+        declared.max(MIN_PREVIEW_RADIUS)
+    }
+
     /// Check if a specific pass is enabled.
     pub fn is_pass_enabled(&self, pass: PassType) -> bool {
         match pass {
@@ -270,5 +448,78 @@ mod tests {
         let json = serde_json::to_string(&pipeline).unwrap();
         assert!(json.contains("\"noiseReduction\""));
         assert!(json.contains("\"colorCorrection\""));
+    }
+
+    // ---- FrameMap descriptor ----
+
+    #[test]
+    fn test_framemap_output_count() {
+        assert_eq!(FrameMap::Identity { radius: 0 }.output_count(100), 100);
+        assert_eq!(FrameMap::Fanout { factor: 2, radius: 0 }.output_count(100), 200);
+        // cycle 5, keep 4 → 30fps→24fps
+        assert_eq!(FrameMap::Decimate { cycle: 5, keep: 4 }.output_count(100), 80);
+        // 24→25 retime
+        assert_eq!(FrameMap::Retime { num: 25, den: 24, synthesizes: false, radius: 0 }.output_count(240), 250);
+    }
+
+    #[test]
+    fn test_framemap_inverse() {
+        assert_eq!(FrameMap::Identity { radius: 0 }.inverse(42),
+            SourceSpan { start: 42, end: 42, exact: true });
+        // double-rate: output 10 and 11 both come from source 5
+        assert_eq!(FrameMap::Fanout { factor: 2, radius: 0 }.inverse(10),
+            SourceSpan { start: 5, end: 5, exact: true });
+        assert_eq!(FrameMap::Fanout { factor: 2, radius: 0 }.inverse(11),
+            SourceSpan { start: 5, end: 5, exact: true });
+        // decimation inverse is approximate (data-dependent drop)
+        assert!(!FrameMap::Decimate { cycle: 5, keep: 4 }.inverse(8).exact);
+        // interpolation: synthesized frames are inexact, blended span
+        let s = FrameMap::Retime { num: 2, den: 1, synthesizes: true, radius: 0 }.inverse(7);
+        assert!(!s.exact);
+    }
+
+    #[test]
+    fn test_pipeline_output_count_matches_old_ladder() {
+        // Single-rate QTGMC (FPSDivisor=2): unchanged count.
+        let mut p = ProcessingPipeline::default();
+        p.deinterlace.enabled = true;
+        p.deinterlace.method = DeinterlaceMethod::Qtgmc;
+        p.deinterlace.fps_divisor = Some(2);
+        assert_eq!(p.output_count(1000), 1000);
+
+        // Double-rate QTGMC (FPSDivisor=1, and the unset default): ×2.
+        p.deinterlace.fps_divisor = Some(1);
+        assert_eq!(p.output_count(1000), 2000);
+        p.deinterlace.fps_divisor = None;
+        assert_eq!(p.output_count(1000), 2000);
+
+        // IVTC cycle 5: ×(cycle-1)/cycle, matching vspipe_total*(cycle-1)/cycle.
+        p.deinterlace.method = DeinterlaceMethod::Ivtc;
+        p.deinterlace.fps_divisor = None;
+        p.deinterlace.ivtc_cycle = Some(5);
+        assert_eq!(p.output_count(1000), 800);
+
+        // Disabled deinterlace: identity.
+        p.deinterlace.enabled = false;
+        assert_eq!(p.output_count(1000), 1000);
+    }
+
+    #[test]
+    fn test_pipeline_invert_double_rate() {
+        let mut p = ProcessingPipeline::default();
+        p.deinterlace.enabled = true;
+        p.deinterlace.method = DeinterlaceMethod::Qtgmc;
+        p.deinterlace.fps_divisor = Some(1); // double-rate
+        // output frame 20 ← source frame 10
+        let span = p.invert(20);
+        assert_eq!(span.start, 10);
+        assert!(span.exact);
+    }
+
+    #[test]
+    fn test_total_radius_floored() {
+        // Even an all-identity pipeline gets the minimum preview window.
+        let p = ProcessingPipeline::default();
+        assert!(p.total_radius() >= MIN_PREVIEW_RADIUS);
     }
 }
