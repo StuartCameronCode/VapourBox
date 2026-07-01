@@ -1977,3 +1977,26 @@ fn test_56_frame_count_mapping() {
     assert_eq!(span.start, 10);
     assert!(span.exact);
 }
+
+#[test]
+fn test_57_ivtc_high_bit_depth_guard() {
+    // VFM only accepts 8-bit YUV/GRAY, so IVTC on a higher bit-depth source
+    // (e.g. 10-bit ProRes 422, yuv422p10le) must run field matching on an 8-bit
+    // metrics copy while emitting full-depth pixels via clip2. Verify the guard
+    // and clip2 wiring appear in the generated script. (The telecine fixture is
+    // 8-bit, so this also confirms the guarded path still runs end-to-end.)
+    create_output_dir();
+
+    let mut job = create_ivtc_base_job("test_57_ivtc_high_bit_depth_guard");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "IVTC - High Bit Depth Guard", &[
+        "bits_per_sample == 8",
+        "core.vivtc.VFM(_ivtc_metrics",
+        "clip2=_ivtc_src",
+        "core.vivtc.VDecimate(clip",
+    ]).unwrap();
+}
