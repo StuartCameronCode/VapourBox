@@ -657,9 +657,19 @@ Notes:
   **"Build macOS"** (`-f arch=`), **"Build Linux"** (`-f arch=both`), each with
   `-f version=` and `-f deps_tag=`, then `gh run watch`es each, downloads every
   run's artifacts, and `gh release upload --clobber`s them to `vX.Y.Z`.
-- Re-run just the upload against existing green runs with `--skip-trigger`.
-- macOS DMGs are signed + notarized inside `build-macos.yml`; Windows/Linux are
-  unsigned. See "macOS Code Signing & Notarization" for the required secrets.
+- Re-run just the upload against existing green runs with `--skip-trigger`
+  (it takes the latest run per workflow, does **not** re-watch, and downloads +
+  uploads immediately — so only run it once all three builds have completed).
+- **`gh run watch` false-failure gotcha**: the watch step can exit non-zero on a
+  transient `HTTP 401: Bad credentials` while fetching annotations, and `set -e`
+  then aborts the script with "macOS build failed" even though the build is
+  still running fine. Confirm the real state with
+  `gh run view <id> --json status,conclusion` before assuming a build failed; if
+  the builds are actually green, just re-run with `--skip-trigger` to finish the
+  upload.
+- macOS DMGs are signed + notarized inside `build-macos.yml` (notarization adds
+  several minutes after the build); Windows/Linux are unsigned. See "macOS Code
+  Signing & Notarization" for the required secrets.
 
 ### Release Scripts
 
