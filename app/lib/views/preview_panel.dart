@@ -102,6 +102,35 @@ class _PreviewPanelState extends State<PreviewPanel> {
                     _formatTime(viewModel.scrubberPosition * viewModel.videoDuration),
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
+                  // Frame-accurate seek controls: step back/forward one frame
+                  // and a readout of the exact source frame being previewed.
+                  if (viewModel.totalFrames > 0) ...[
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.chevron_left, size: 18),
+                      tooltip: 'Previous frame',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                      padding: EdgeInsets.zero,
+                      onPressed: viewModel.currentFrameIndex > 0
+                          ? () => viewModel.stepFrame(-1)
+                          : null,
+                    ),
+                    Text(
+                      'f ${viewModel.currentFrameIndex} / ${viewModel.totalFrames - 1}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.chevron_right, size: 18),
+                      tooltip: 'Next frame',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                      padding: EdgeInsets.zero,
+                      onPressed: viewModel.currentFrameIndex < viewModel.totalFrames - 1
+                          ? () => viewModel.stepFrame(1)
+                          : null,
+                    ),
+                  ],
                   const SizedBox(width: 8),
                   // In point button
                   Tooltip(

@@ -69,6 +69,25 @@ fn is_sigpipe(status: &std::process::ExitStatus) -> bool {
     }
 }
 
+/// Decode window for a frame-accurate preview of source frame `target`, given
+/// a temporal `radius`. Returns `(first, local, num_frames)`:
+/// - `first`: first source frame to decode (clamped so it never goes below 0),
+/// - `local`: the target's index *within* the decoded window,
+/// - `num_frames`: how many source frames to decode — the window is
+///   `[first ..= target + radius]`.
+///
+/// Pulled out as a pure function so the clamp-at-start behaviour (which the old
+/// "middle of 11 frames" heuristic got wrong near the head of the clip) is unit
+/// testable without ffmpeg.
+fn preview_window(target: i32, radius: i32) -> (i32, i32, i32) {
+    let target = target.max(0);
+    let radius = radius.max(0);
+    let first = (target - radius).max(0);
+    let local = target - first;
+    let num_frames = local + radius + 1;
+    (first, local, num_frames)
+}
+
 use crate::dependency_locator::DependencyLocator;
 use crate::models::{AudioMode, ContainerFormat, DeinterlaceMethod, EncoderFamily, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
 use crate::progress_reporter::ProgressReporter;
@@ -136,13 +155,16 @@ impl PipelineExecutor {
         // can seek using the container index)
         let mut decoder_args: Vec<String> = Vec::new();
 
-        // Seek to start frame if specified (time-based, before -i for fast seek)
+        // Seek to the start frame if specified (before -i for an accurate,
+        // fast decode-seek). Target the midpoint of the interval *before*
+        // `start` so the first kept frame (PTS >= seek time) is exactly `start`,
+        // not start±1 — the boundary `start/fps` is ambiguous under PTS rounding.
         if let Some(start) = job.start_frame {
             if start > 0 {
                 let fps = job.input_frame_rate.unwrap_or(29.97);
-                let start_time = start as f64 / fps;
+                let seek_time = ((start as f64 - 0.5) / fps).max(0.0);
                 decoder_args.push("-ss".to_string());
-                decoder_args.push(format!("{:.6}", start_time));
+                decoder_args.push(format!("{:.6}", seek_time));
             }
         }
 
@@ -284,15 +306,10 @@ impl PipelineExecutor {
             autoload_failed
         });
 
-        // Determine how deinterlacing affects output frame count
+        // How the pipeline remaps the frame count (double-rate QTGMC ×2, IVTC
+        // decimation ×(cycle-1)/cycle, …). vspipe reports the *source* count via
+        // INPUT_INFO; output_count() turns it into the encoder's output count.
         let pipeline = job.effective_pipeline();
-        let is_double_rate = pipeline.deinterlace.enabled
-            && pipeline.deinterlace.method == DeinterlaceMethod::Qtgmc
-            && pipeline.deinterlace.fps_divisor.unwrap_or(1) == 1;
-        let is_ivtc = pipeline.deinterlace.enabled
-            && matches!(pipeline.deinterlace.method,
-                DeinterlaceMethod::Ivtc | DeinterlaceMethod::SoftTelecine);
-        let ivtc_cycle = pipeline.deinterlace.ivtc_cycle.unwrap_or(5);
 
         // Capture ffmpeg stderr in a background thread (for error messages).
         // Progress comes from the temp file, not stderr.
@@ -377,14 +394,7 @@ impl PipelineExecutor {
                 }
 
                 if vspipe_total > 0 {
-                    let mut effective_total = if is_double_rate {
-                        vspipe_total * 2
-                    } else if is_ivtc && ivtc_cycle > 1 {
-                        // IVTC VDecimate removes 1 frame per cycle
-                        vspipe_total * (ivtc_cycle - 1) / ivtc_cycle
-                    } else {
-                        vspipe_total
-                    };
+                    let mut effective_total = pipeline.output_count(vspipe_total as u64) as i32;
 
                     // Prevent the total from ever decreasing (avoids progress bar jumping backward)
                     if effective_total > max_effective_total {
@@ -871,21 +881,23 @@ impl PipelineExecutor {
         }
     }
 
-    /// Generate a preview frame as PNG to stdout.
+    /// Generate a preview of a specific source frame as PNG to stdout.
     ///
-    /// Decodes frames around the target time with FFmpeg, pipes raw data through
-    /// VapourSynth for filtering, then encodes the middle frame as PNG.
-    pub fn generate_preview(&self, job: &VideoJob, time_seconds: f64) -> Result<()> {
+    /// Frame-accurate: decodes a window of source frames centred on
+    /// `frame_index`, pipes the raw data through the full VapourSynth pipeline,
+    /// then emits the exact output frame that `frame_index` maps to (accounting
+    /// for any frame-rate change such as QTGMC double-rate). The requested frame
+    /// is echoed back on stderr as `PREVIEW_INFO:frame=N` so the caller can
+    /// label the result truthfully.
+    pub fn generate_preview(&self, job: &VideoJob, frame_index: i32) -> Result<()> {
         use std::io::Write;
 
         let ffmpeg_path = self.deps.ffmpeg_path()?;
         let vspipe_path = self.deps.vspipe_path()?;
         let env = self.deps.build_environment();
 
-        // Number of frames to extract (need enough for QTGMC temporal processing)
-        let num_frames = 11; // Decode 11 frames, VapourSynth uses middle one
+        let target = frame_index.max(0);
         let frame_rate = job.input_frame_rate.unwrap_or(29.97);
-        let frame_duration = 1.0 / frame_rate;
         let pix_fmt = job.input_pixel_format.as_deref().unwrap_or("yuv420p");
         let width = job.input_width.unwrap_or(720);
         let height = job.input_height.unwrap_or(480);
@@ -901,10 +913,28 @@ impl PipelineExecutor {
             );
         }
 
-        // Calculate start time (go back half the frames for temporal context)
-        let start_time = (time_seconds - (num_frames as f64 / 2.0) * frame_duration).max(0.0);
+        // Decode a window [first .. target+radius] of source frames so every
+        // temporal filter has context, then emit exactly the target frame.
+        let pipeline = job.effective_pipeline();
+        let radius = pipeline.total_radius() as i32;
+        let (first, local, num_frames) = preview_window(target, radius);
 
-        eprintln!("Decoding {} frames starting at {:.3}s ({}x{} {})", num_frames, start_time, width, height, pix_fmt);
+        // Seek so the FIRST decoded frame is exactly `first`. With `-ss` before
+        // `-i` ffmpeg does an accurate (decode-and-discard) seek that keeps the
+        // first frame whose PTS >= the seek time. Targeting the midpoint of the
+        // interval *before* `first` (i.e. (first - 0.5)/fps) lands squarely on
+        // `first` for CFR sources, avoiding the ±1-frame ambiguity of seeking to
+        // the frame boundary itself.
+        let seek_time = ((first as f64 - 0.5) / frame_rate).max(0.0);
+
+        // Output frame index the target source frame maps to after the pipeline
+        // (e.g. ×2 for QTGMC double-rate). The template clamps defensively.
+        let output_index = pipeline.output_count(local as u64) as i32;
+
+        eprintln!(
+            "Preview: source frame {} (window {}..{}, local {}, output index {}) seek {:.6}s ({}x{} {})",
+            target, first, target + radius, local, output_index, seek_time, width, height, pix_fmt
+        );
 
         // Determine field order for interlaced content
         let field_based = if job.qtgmc_parameters.tff == Some(true) {
@@ -927,6 +957,7 @@ impl PipelineExecutor {
             fps_num,
             fps_den,
             field_based,
+            output_index,
         };
 
         let script_path = script_generator.generate_preview(job, &preview_params)?;
@@ -942,7 +973,7 @@ impl PipelineExecutor {
 
         let extract_result = Command::new(&ffmpeg_path)
             .args([
-                "-ss", &format!("{:.6}", start_time),
+                "-ss", &format!("{:.6}", seek_time),
                 "-i", &job.input_path,
                 "-map", "0:v:0",
                 "-frames:v", &num_frames.to_string(),
@@ -1052,6 +1083,10 @@ impl PipelineExecutor {
             bail!("ffmpeg encoder exited with {}", format_exit_status(&output.status));
         }
 
+        // Echo the frame we actually rendered so the caller can label it (the
+        // PNG itself is the only thing on stdout, so this goes to stderr).
+        eprintln!("PREVIEW_INFO:frame={}", target);
+
         // Write PNG to stdout
         std::io::stdout().write_all(&output.stdout)?;
         std::io::stdout().flush()?;
@@ -1084,6 +1119,29 @@ mod tests {
     use super::*;
     use crate::models::{AudioCodec, AudioQuality, EncodingSettings, QTGMCParameters, VideoCodec};
     use uuid::Uuid;
+
+    #[test]
+    fn test_preview_window_centered() {
+        // Mid-clip: window is symmetric, target sits at `radius` within it.
+        assert_eq!(preview_window(100, 5), (95, 5, 11));
+    }
+
+    #[test]
+    fn test_preview_window_clamped_near_start() {
+        // Near the head the window can't extend below frame 0, so `first`
+        // clamps and the target's local index shrinks accordingly — the case
+        // the old "middle of 11" heuristic rendered as the wrong frame.
+        assert_eq!(preview_window(2, 5), (0, 2, 8));
+        assert_eq!(preview_window(0, 5), (0, 0, 6));
+    }
+
+    #[test]
+    fn test_preview_window_zero_radius() {
+        // Degenerate radius still yields a single-frame window at the target.
+        assert_eq!(preview_window(42, 0), (42, 0, 1));
+        // Negative inputs are clamped, never panicking.
+        assert_eq!(preview_window(-3, 5), (0, 0, 6));
+    }
 
     #[test]
     fn test_is_autoload_skip_line() {

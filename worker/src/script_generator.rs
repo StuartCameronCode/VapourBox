@@ -46,6 +46,9 @@ pub struct PreviewParams {
     pub fps_den: i32,
     /// Field order: 1 = BFF, 2 = TFF
     pub field_based: i32,
+    /// Output frame index to emit as the preview (after the pipeline runs on
+    /// the decoded window). Accounts for any frame-rate change in the pipeline.
+    pub output_index: i32,
 }
 
 impl ScriptGenerator {
@@ -107,6 +110,7 @@ impl ScriptGenerator {
         script = script.replace("{{TOTAL_FRAMES}}", &preview_params.num_frames.to_string());
         script = script.replace("{{FPS_NUM}}", &preview_params.fps_num.to_string());
         script = script.replace("{{FPS_DEN}}", &preview_params.fps_den.to_string());
+        script = script.replace("{{PREVIEW_OUTPUT_INDEX}}", &preview_params.output_index.to_string());
         // Field-based: only set when deinterlacing is enabled
         if pipeline.deinterlace.enabled {
             script = script.replace("{{#SET_FIELD_BASED}}", "");

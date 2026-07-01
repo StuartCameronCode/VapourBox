@@ -17,6 +17,7 @@ import '../models/processing_preset.dart';
 import '../services/disc_detector.dart';
 import '../services/dvd_service.dart';
 import '../services/field_order_detector.dart';
+import '../services/frame_math.dart';
 import '../services/preset_service.dart';
 import '../services/preview_generator.dart';
 import '../services/worker_manager.dart';
@@ -268,6 +269,32 @@ class MainViewModel extends ChangeNotifier {
   List<String> get previewLog => _previewGenerator.previewLog;
   String? get previewError => _previewGenerator.lastError;
 
+  /// Total number of source frames in the loaded video (0 if not loaded).
+  int get totalFrames => _previewGenerator.totalFrames;
+
+  /// The integer source frame the scrubber currently points at. This is the
+  /// authoritative unit for the preview and step/jump controls — the normalized
+  /// scrubberPosition is just the gesture representation.
+  int get currentFrameIndex => _frameForPosition(scrubberPosition);
+
+  /// Convert a normalized scrubber position (0.0-1.0) to a source frame index.
+  int _frameForPosition(double position) =>
+      FrameMath.frameForPosition(position, _previewGenerator.totalFrames);
+
+  /// Convert a source frame index to a normalized scrubber position (0.0-1.0).
+  double _positionForFrame(int frame) =>
+      FrameMath.positionForFrame(frame, _previewGenerator.totalFrames);
+
+  /// Seek to an exact source frame, clamped to the video's range.
+  Future<void> seekToFrame(int frame) async {
+    final total = _previewGenerator.totalFrames;
+    final clamped = total > 0 ? frame.clamp(0, total - 1) : 0;
+    await setScrubberPosition(_positionForFrame(clamped));
+  }
+
+  /// Step the scrubber by a signed number of frames (e.g. -1 / +1).
+  Future<void> stepFrame(int delta) => seekToFrame(currentFrameIndex + delta);
+
   // Timeline zoom getters (delegate to selected item)
   double get timelineZoom => selectedItem?.timelineZoom ?? 1.0;
   double get timelineViewStart => selectedItem?.timelineViewStart ?? 0.0;
@@ -487,7 +514,7 @@ class MainViewModel extends ChangeNotifier {
     if (_selectedItemId == item.id) {
       try {
         _queue[index].thumbnails = await _previewGenerator.loadVideo(item.inputPath);
-        _queue[index].currentFrame = await _previewGenerator.getFrameAt(0);
+        _queue[index].currentFrame = await _previewGenerator.getFrameAtIndex(0);
       } catch (e) {
         _logMessages.add(LogMessage(
           level: LogLevel.warning,
@@ -562,8 +589,8 @@ class MainViewModel extends ChangeNotifier {
     if (item.thumbnails.isEmpty && item.status != QueueItemStatus.analyzing) {
       try {
         item.thumbnails = await _previewGenerator.loadVideo(item.inputPath);
-        item.currentFrame = await _previewGenerator.getFrameAt(
-          item.scrubberPosition * _previewGenerator.duration,
+        item.currentFrame = await _previewGenerator.getFrameAtIndex(
+          _frameForPosition(item.scrubberPosition),
         );
         notifyListeners();
       } catch (e) {
@@ -641,9 +668,11 @@ class MainViewModel extends ChangeNotifier {
 
     item.scrubberPosition = position.clamp(0.0, 1.0);
 
-    // Update current frame immediately
-    final timeSeconds = item.scrubberPosition * _previewGenerator.duration;
-    item.currentFrame = await _previewGenerator.getFrameAt(timeSeconds);
+    // Update the unprocessed source frame immediately, seeking to the exact
+    // frame the scrubber maps to (same index the processed preview uses, so the
+    // before/after comparison stays aligned).
+    item.currentFrame =
+        await _previewGenerator.getFrameAtIndex(_frameForPosition(item.scrubberPosition));
     notifyListeners();
 
     // Debounce the processed preview generation
@@ -854,11 +883,11 @@ class MainViewModel extends ChangeNotifier {
 
     final cancelToken = CancelToken();
     _previewCancelToken = cancelToken;
-    final timeSeconds = item.scrubberPosition * _previewGenerator.duration;
+    final frameNumber = _frameForPosition(item.scrubberPosition);
 
     try {
       final preview = await _previewGenerator.generateProcessedPreview(
-        timeSeconds: timeSeconds,
+        frameNumber: frameNumber,
         pipeline: _processingPipeline,
         fieldOrder: effectiveFieldOrder,
         encodingSettings: _encodingSettings,
