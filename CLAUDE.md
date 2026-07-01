@@ -620,6 +620,47 @@ This prompts for version, checks deps changes, builds, packages, and creates dra
 
 Prerequisites: draft release must exist for the tag, `gh` CLI authenticated.
 
+### Triggering a Release (concrete step-by-step)
+
+This is the exact flow to cut an app release built entirely in CI (no local
+build). Deps are separate — only touch them if they changed (see step 2).
+
+```bash
+# 1. Bump the app version everywhere (pubspec + build number, worker/Cargo.toml,
+#    Windows Runner.rc, macOS Info.plist). The build number auto-increments.
+./Scripts/update-version.sh --app 0.9.10
+#    Deps unchanged? skip. Deps changed? also pass --deps X.Y.Z --deps-tag deps-vX.Y.Z
+#    (check first: ./Scripts/check-deps-changed.sh)
+
+# 2. Commit and push to main (the Build workflows run from main via workflow_dispatch).
+git add -A && git commit -m "chore: bump app version to 0.9.10" && git push origin main
+
+# 3. Create the DRAFT release for the tag, pointing at the pushed commit.
+#    The tag (vX.Y.Z) is created when the release is published.
+gh release create v0.9.10 --draft --target main --title "VapourBox 0.9.10" --notes "..."
+
+# 4. Trigger the three platform Build workflows, wait for them, then download the
+#    artifacts and upload them to the draft. deps-tag is auto-read from
+#    deps-version.json. Default macOS arch is universal (arm64+x86_64).
+#    LONG-RUNNING (~20–40 min of `gh run watch`) — run it detached/in background.
+./Scripts/ci-build-and-release.sh --version 0.9.10 --arch universal
+
+# 5. Review the draft, then publish when ready.
+gh release view v0.9.10 --web
+gh release edit v0.9.10 --draft=false
+```
+
+Notes:
+- **Order matters**: the draft release (step 3) must exist *before* running
+  `ci-build-and-release.sh` (step 4) — the script aborts if it can't find it.
+- `ci-build-and-release.sh` triggers the workflows named **"Build Windows"**,
+  **"Build macOS"** (`-f arch=`), **"Build Linux"** (`-f arch=both`), each with
+  `-f version=` and `-f deps_tag=`, then `gh run watch`es each, downloads every
+  run's artifacts, and `gh release upload --clobber`s them to `vX.Y.Z`.
+- Re-run just the upload against existing green runs with `--skip-trigger`.
+- macOS DMGs are signed + notarized inside `build-macos.yml`; Windows/Linux are
+  unsigned. See "macOS Code Signing & Notarization" for the required secrets.
+
 ### Release Scripts
 
 | Script | Purpose |
