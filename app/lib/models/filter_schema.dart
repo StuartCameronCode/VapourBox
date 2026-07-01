@@ -357,6 +357,12 @@ class FilterSchema {
   /// Sort order in filter list.
   final int order;
 
+  /// Highest per-component bit depth this filter processes natively. When set
+  /// and the source exceeds it, the worker down-converts to this depth for the
+  /// pass (a lossy round-trip), so the UI warns of reduced precision. Null (the
+  /// default) means the filter handles the source's bit depth without loss.
+  final int? maxBitDepth;
+
   /// Dependencies required by this filter.
   final FilterDependencies? dependencies;
 
@@ -391,6 +397,7 @@ class FilterSchema {
     this.category,
     this.icon,
     this.order = 0,
+    this.maxBitDepth,
     this.dependencies,
     required this.methods,
     required this.parameters,

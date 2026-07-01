@@ -3,9 +3,12 @@ import 'package:provider/provider.dart';
 
 import '../../models/dynamic_parameters.dart';
 import '../../models/filter_registry.dart';
+import '../../models/filter_schema.dart';
 import '../../models/processing_pipeline.dart';
 import '../../services/whisper_addon_manager.dart';
+import '../../utils/pixel_format.dart';
 import '../../viewmodels/main_viewmodel.dart';
+import '../../widgets/warning_banner.dart';
 import '../settings/dynamic_filter_panel.dart';
 import '../whisper_download_dialog.dart';
 
@@ -69,6 +72,7 @@ class PassSettingsContainer extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _buildOpenCLWarning(context, viewModel, filterId, params),
+                _buildBitDepthWarning(context, viewModel, schema, params),
                 DynamicFilterPanelCompact(
                   schema: schema,
                   params: params,
@@ -113,35 +117,28 @@ class PassSettingsContainer extends StatelessWidget {
         : 'No OpenCL device detected. OpenCL acceleration will fall back to '
             'CPU NNEDI3.';
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.errorContainer,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              Icons.warning_amber_rounded,
-              size: 20,
-              color: Theme.of(context).colorScheme.onErrorContainer,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                message,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onErrorContainer,
-                    ),
-              ),
-            ),
-          ],
-        ),
-      ),
+    return WarningBanner(message: message);
+  }
+
+  /// Warning shown when an enabled filter can't process the source's bit depth
+  /// natively (schema `maxBitDepth`), so the worker down-converts to that depth
+  /// for the pass and restores it afterward — a lossy round-trip. E.g. DeScratch
+  /// is 8-bit only, so a 10-bit source loses precision through that pass.
+  /// Returns an empty widget when the pass is off or the source fits natively.
+  Widget _buildBitDepthWarning(
+    BuildContext context,
+    MainViewModel viewModel,
+    FilterSchema schema,
+    DynamicParameters params,
+  ) {
+    final message = filterBitDepthWarning(
+      filterName: schema.name,
+      enabled: params.enabled,
+      maxBitDepth: schema.maxBitDepth,
+      pixelFormat: viewModel.videoInfo?.pixelFormat,
     );
+    if (message == null) return const SizedBox.shrink();
+    return WarningBanner(message: message);
   }
 
   /// Handle parameter changes, with special model-download check for subtitles.
