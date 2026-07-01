@@ -273,7 +273,12 @@ clip = haf.QTGMC(
 {{/DEINT_QTGMC}}
 {{#DEINT_IVTC}}
 # IVTC Preview: VFM field matching only (no VDecimate for single-frame preview)
-clip = core.vivtc.VFM(clip, order={{IVTC_ORDER}},
+# VFM only accepts 8-bit YUV/GRAY. For higher bit-depth sources (e.g. 10-bit
+# ProRes 422, yuv422p10le) run the field matching on an 8-bit copy but take the
+# output pixels from the full-depth clip via clip2, so no precision is lost.
+_ivtc_src = clip
+_ivtc_metrics = clip if clip.format.bits_per_sample == 8 else core.resize.Bilinear(clip, format=clip.format.replace(bits_per_sample=8, sample_type=vs.INTEGER))
+clip = core.vivtc.VFM(_ivtc_metrics, order={{IVTC_ORDER}},
 {{#IVTC_MODE}}
     mode={{IVTC_MODE}},
 {{/IVTC_MODE}}
@@ -289,7 +294,7 @@ clip = core.vivtc.VFM(clip, order={{IVTC_ORDER}},
 {{#IVTC_BLOCK_Y}}
     blocky={{IVTC_BLOCK_Y}},
 {{/IVTC_BLOCK_Y}}
-)
+    clip2=_ivtc_src)
 {{/DEINT_IVTC}}
 {{/DEINTERLACE}}
 
