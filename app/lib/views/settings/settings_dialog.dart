@@ -10,7 +10,9 @@ import '../../models/video_job.dart';
 import '../../services/dependency_manager.dart';
 import '../../services/hardware_encoder_detector.dart';
 import '../../services/update_checker.dart';
+import '../../utils/pixel_format.dart';
 import '../../viewmodels/main_viewmodel.dart';
+import '../../widgets/warning_banner.dart';
 
 class SettingsDialog extends StatefulWidget {
   const SettingsDialog({super.key});
@@ -713,6 +715,7 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                               .withValues(alpha: 0.6),
                         ),
                   ),
+                  ..._buildChromaBitDepthWarning(viewModel, settings),
                 ],
               ),
             ),
@@ -756,6 +759,23 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
         );
       },
     );
+  }
+
+  /// Warning shown when converting chroma subsampling would also drop a
+  /// higher-bit-depth source to 8-bit on output. A chroma-subsampling
+  /// conversion forces an 8-bit output format (YUV420P8/YUV422P8), whereas
+  /// "Original" preserves the source format and its bit depth. Returns an empty
+  /// list when nothing needs saying (source is 8-bit, unknown, or "Original").
+  List<Widget> _buildChromaBitDepthWarning(
+    MainViewModel viewModel,
+    EncodingSettings settings,
+  ) {
+    final message = chromaConversionBitDepthWarning(
+      converting: settings.chromaSubsampling != ChromaSubsampling.original,
+      pixelFormat: viewModel.videoInfo?.pixelFormat,
+    );
+    if (message == null) return const [];
+    return [const SizedBox(height: 12), WarningBanner(message: message)];
   }
 
   /// Whether a hardware encoder is relevant to the current platform's GPU APIs:
