@@ -12,15 +12,14 @@ on:
         required: true
         type: string
       arch:
-        description: 'Architecture (universal = one fat arm64+x86_64 DMG; both = two separate DMGs)'
+        description: 'Architecture (both = two separate per-arch DMGs; or build a single arch)'
         required: false
         type: choice
         options:
-          - universal
           - both
           - arm64
           - x64
-        default: universal
+        default: both
       notarize:
         description: 'Notarize with Apple (needs valid developer agreements; off = signed-only, fine for local testing)'
         required: false
@@ -37,21 +36,15 @@ jobs:
       - id: set
         run: |
           case "${{ inputs.arch }}" in
-            universal) echo 'matrix=["universal"]' >> "$GITHUB_OUTPUT" ;;
             arm64)     echo 'matrix=["arm64"]'     >> "$GITHUB_OUTPUT" ;;
             x64)       echo 'matrix=["x64"]'       >> "$GITHUB_OUTPUT" ;;
             both)      echo 'matrix=["arm64","x64"]' >> "$GITHUB_OUTPUT" ;;
-            *)         echo 'matrix=["universal"]' >> "$GITHUB_OUTPUT" ;;
+            *)         echo 'matrix=["arm64","x64"]' >> "$GITHUB_OUTPUT" ;;
           esac
 
   build:
     needs: setup
     runs-on: macos-15  # Apple Silicon; x64 cross-compiles via ARCHS=x86_64
-    # Pin the macOS deployment target to 12.0 (issue #39): rustc reads this for
-    # the worker, and it matches the Xcode project / Podfile so the app shell and
-    # worker load on Monterey — consistent with the 12.0-targeted x64 deps.
-    env:
-      MACOSX_DEPLOYMENT_TARGET: "12.0"
     strategy:
       fail-fast: false
       matrix:
@@ -61,13 +54,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      # Resolve the Xcode ARCHS value and the per-arch macOS deployment target.
+      # x64/Intel targets 12.0 (Monterey, issue #39) — its bundled deps are
+      # source-built to load there. arm64 targets 15.0 to match its minos-15
+      # prebuilt deps (it has no old hardware floor and no old runner). The
+      # target flows to rustc (worker) and xcodebuild/CocoaPods (app) below.
       - name: Resolve arch variables
         id: arch
         run: |
           case "${{ matrix.arch }}" in
-            arm64)     echo "xcode_archs=arm64" >> "$GITHUB_OUTPUT" ;;
-            x64)       echo "xcode_archs=x86_64" >> "$GITHUB_OUTPUT" ;;
-            universal) echo "xcode_archs=arm64 x86_64" >> "$GITHUB_OUTPUT" ;;
+            arm64) echo "xcode_archs=arm64"  >> "$GITHUB_OUTPUT"; echo "deploy_target=15.0" >> "$GITHUB_OUTPUT" ;;
+            x64)   echo "xcode_archs=x86_64" >> "$GITHUB_OUTPUT"; echo "deploy_target=12.0" >> "$GITHUB_OUTPUT" ;;
           esac
 
       - name: Setup Flutter
@@ -95,11 +92,9 @@ jobs:
             ${{ runner.os }}-cargo-${{ matrix.arch }}-
             ${{ runner.os }}-cargo-
 
-      # Per-arch deps are downloaded at runtime by the app (not bundled), so this
-      # only runs for single-arch builds to validate the matching zip exists.
-      # Universal apps download the arch-appropriate deps on first run.
+      # Per-arch deps are downloaded at runtime by the app (not bundled); this
+      # validates the matching zip exists for the arch being built.
       - name: Download macOS dependencies (${{ matrix.arch }})
-        if: ${{ matrix.arch != 'universal' }}
         run: |
           DEPS_VERSION="${{ inputs.deps_tag }}"
           DEPS_VERSION="${DEPS_VERSION#deps-v}"
@@ -133,6 +128,9 @@ jobs:
           sed -i '' "s/^version = \".*\"/version = \"${VERSION}\"/" worker/Cargo.toml
 
       - name: Build Rust worker (${{ matrix.arch }})
+        env:
+          # rustc stamps the Mach-O minos from this (per-arch: arm64 15, x64 12).
+          MACOSX_DEPLOYMENT_TARGET: ${{ steps.arch.outputs.deploy_target }}
         run: |
           cd worker
           case "${{ matrix.arch }}" in
@@ -140,20 +138,14 @@ jobs:
               cargo build --release --target aarch64-apple-darwin ;;
             x64)
               cargo build --release --target x86_64-apple-darwin ;;
-            universal)
-              cargo build --release --target aarch64-apple-darwin
-              cargo build --release --target x86_64-apple-darwin
-              mkdir -p target/universal/release
-              lipo -create -output target/universal/release/vapourbox-worker \
-                target/aarch64-apple-darwin/release/vapourbox-worker \
-                target/x86_64-apple-darwin/release/vapourbox-worker
-              lipo -info target/universal/release/vapourbox-worker ;;
           esac
 
       - name: Build Flutter app (${{ matrix.arch }})
         env:
-          # Drives app/macos/Podfile to build Pods for the target arch.
+          # Drives app/macos/Podfile to build Pods for the target arch and target.
           VAPOURBOX_ARCHS: ${{ steps.arch.outputs.xcode_archs }}
+          VAPOURBOX_DEPLOYMENT_TARGET: ${{ steps.arch.outputs.deploy_target }}
+          MACOSX_DEPLOYMENT_TARGET: ${{ steps.arch.outputs.deploy_target }}
         run: |
           cd app
           flutter pub get
@@ -169,16 +161,19 @@ jobs:
           pod install
 
           # Build Pods-Runner scheme first (all CocoaPods dependencies).
-          # ARCHS is quoted so the universal value "arm64 x86_64" stays one arg.
+          # MACOSX_DEPLOYMENT_TARGET overrides the xcodeproj's 12.0 baseline so
+          # the arm64 slice is stamped 15.0 (x64 stays 12.0).
           xcodebuild -workspace Runner.xcworkspace -scheme Pods-Runner \
               -configuration Release build ONLY_ACTIVE_ARCH=NO \
               ARCHS="${{ steps.arch.outputs.xcode_archs }}" \
+              MACOSX_DEPLOYMENT_TARGET="${{ steps.arch.outputs.deploy_target }}" \
               -quiet
 
           # Build Runner for the target arch (must match Podfile ARCHS setting)
           xcodebuild -workspace Runner.xcworkspace -scheme Runner \
               -configuration Release build ONLY_ACTIVE_ARCH=NO \
               ARCHS="${{ steps.arch.outputs.xcode_archs }}" \
+              MACOSX_DEPLOYMENT_TARGET="${{ steps.arch.outputs.deploy_target }}" \
               -quiet
 
           # Copy to Flutter build location

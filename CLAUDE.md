@@ -566,7 +566,7 @@ The `download-deps-windows.ps1` and `download-deps-macos.sh` scripts apply these
 - Worker sets: `PYTHONHOME`, `PYTHONPATH`, `VAPOURSYNTH_CONF_PATH`, `DYLD_LIBRARY_PATH`
 - `vspipe` is a wrapper script that generates config dynamically (needed because `VAPOURSYNTH_PLUGIN_PATH` is additive, not a replacement)
 - **FFmpeg** is sourced pre-built as a static binary that links only system frameworks: **x64** from evermeet.cx, **arm64** from martin-riedl.de (Homebrew's arm64 ffmpeg is dynamically linked to ~17 Homebrew dylibs and is NOT self-contained, so it can't be bundled). **x64 plugins** build from source under Rosetta, except `tmedian`/`bestsource` which come pre-built from Stefan-Olt/vs-plugin-build.
-- **x64 minimum macOS = 12.0 (Monterey), issue #39**: the only hosted Intel runner is `macos-15-intel` (`macos-13` was retired), so Homebrew bottles come out `minos 14/15` and won't load on 12. The x64 build therefore exports `MACOSX_DEPLOYMENT_TARGET=12.0` and **builds the bundled support libs from source** (zimg, fftw, libdvdread, xz, boost) so they target 12; the OpenCL plugins (`nnedi3cl`/`knlmeanscl`) are compiled against that source boost (`BOOST_ROOT="$SRCLIB"`) for ABI match. vspipe's `doubleToString` is patched off `std::to_chars` (needs 13.3+ libc++). A `minos` verification pass at the end fails the build under `STRICT_MIN_OS=1` (set in `build-deps-macos.yml`) if any bundled Mach-O exceeds 12.0. **arm64 is unchanged (still `minos 15`)** — it has no old runner and the prebuilt arm64 plugins are >12; the app/worker deployment target is pinned to 12.0 for both arches (`build-macos.yml`, Runner.xcodeproj, Podfile).
+- **x64 minimum macOS = 12.0 (Monterey), issue #39**: the only hosted Intel runner is `macos-15-intel` (`macos-13` was retired), so Homebrew bottles come out `minos 14/15` and won't load on 12. The x64 build therefore exports `MACOSX_DEPLOYMENT_TARGET=12.0` and **builds the bundled support libs from source** (zimg, fftw, libdvdread, xz, boost) so they target 12; the OpenCL plugins (`nnedi3cl`/`knlmeanscl`) are compiled against that source boost (`BOOST_ROOT="$SRCLIB"`) for ABI match. vspipe's `doubleToString` is patched off `std::to_chars` (needs 13.3+ libc++). A `minos` verification pass at the end fails the build under `STRICT_MIN_OS=1` (set in `build-deps-macos.yml`) if any bundled Mach-O exceeds 12.0. **arm64 is unchanged (still `minos 15`)** — it has no old runner and the prebuilt arm64 plugins are >12. The app/worker deployment target is **per-arch**: the x64 build targets **12.0** and the arm64 build targets **15.0** (matching its minos-15 deps). `build-macos.yml` resolves the target per matrix arch and threads it to rustc (`MACOSX_DEPLOYMENT_TARGET`) and xcodebuild (which overrides the `Runner.xcodeproj` 12.0 baseline); the `Podfile` reads `VAPOURBOX_DEPLOYMENT_TARGET` (default 12.0). `package-macos.sh` sets the same per-arch target for local builds.
 - **Code signing**: After `install_name_tool` modifications, binaries must be re-signed: `codesign -s - -f <binary>` (exit code 137 = SIGKILL means invalid signature)
 - Quarantine removal: `xattr -cr` on deps after download
 - Show in Folder: `open -R <path>`
@@ -641,9 +641,9 @@ gh release create v0.9.10 --draft --target main --title "VapourBox 0.9.10" --not
 
 # 4. Trigger the three platform Build workflows, wait for them, then download the
 #    artifacts and upload them to the draft. deps-tag is auto-read from
-#    deps-version.json. Default macOS arch is universal (arm64+x86_64).
+#    deps-version.json. macOS defaults to arch=both → separate arm64 + x64 DMGs.
 #    LONG-RUNNING (~20–40 min of `gh run watch`) — run it detached/in background.
-./Scripts/ci-build-and-release.sh --version 0.9.10 --arch universal
+./Scripts/ci-build-and-release.sh --version 0.9.10
 
 # 5. Review the draft, then publish when ready.
 gh release view v0.9.10 --web
@@ -740,9 +740,9 @@ Create the app-specific password at appleid.apple.com → Sign-In and Security �
 - Windows deps can also be zipped on macOS if `deps/windows-x64/` exists (`Scripts/package-deps-windows.ps1` via pwsh), but the CI workflow is the canonical path.
 - Linux deps must be built on Linux (`./Scripts/download-deps-linux.sh`) or via `build-deps-linux.yml`
 - The macOS CI build (`build-macos.yml`) signs with the Developer ID cert and notarizes — see "macOS Code Signing & Notarization" below. Windows and Linux CI builds remain unsigned.
-- macOS ships as a **universal** (arm64+x86_64) app by default. `build-macos.yml` takes an `arch` input (`universal` | `both` | `arm64` | `x64`, default `universal`) and fans out via a matrix. Universal = lipo'd worker + Runner built with `ARCHS="arm64 x86_64"`; `both` = two separate single-arch DMGs. The x64 slice cross-compiles on the `macos-15` (arm64) runner.
-- Deps are **not** bundled — the app downloads `macos-arm64` or `macos-x64` deps at runtime per `uname`, so a universal app needs **both** deps bundles published. macOS deps are built by `build-deps-macos.yml` (arm64 on `macos-15`, x64 natively on `macos-15-intel`).
-- `app/macos/Podfile` reads `VAPOURBOX_ARCHS` (default `arm64`; set to `x86_64` or `arm64 x86_64`); `package-macos.sh --arch universal` sets this and lipo's the worker.
+- macOS ships as **two separate per-arch DMGs** (arm64 + x64), not a universal binary. `build-macos.yml` takes an `arch` input (`both` | `arm64` | `x64`, default `both`) and fans out via a matrix, one DMG per arch. Each arch uses its own deployment target — **arm64 → 15.0, x64 → 12.0** (see the x64/#39 note above). The x64 slice cross-compiles on the `macos-15` (arm64) runner.
+- Deps are **not** bundled — the app downloads `macos-arm64` or `macos-x64` deps at runtime per `uname`, so both deps bundles must be published. macOS deps are built by `build-deps-macos.yml` (arm64 on `macos-15`, x64 natively on `macos-15-intel`).
+- `app/macos/Podfile` reads `VAPOURBOX_ARCHS` (default `arm64`; set to `x86_64` for the Intel build) and `VAPOURBOX_DEPLOYMENT_TARGET` (default `12.0`; the arm64 build sets `15.0`).
 - Publishing a new x64 deps zip needs no `deps-version.json` edit — upload the zip and its `.sha256.json` sidecar (the app verifies via the sidecar at download time).
 
 ### Dependency Version History

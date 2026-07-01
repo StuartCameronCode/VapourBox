@@ -1,4 +1,8 @@
-platform :osx, '12.0'
+# Deployment target: defaults to 12.0 (Monterey, the Intel/x64 floor). The
+# arm64 build overrides this to 15.0 via VAPOURBOX_DEPLOYMENT_TARGET to match
+# its minos-15 prebuilt deps. Keep in sync with MACOSX_DEPLOYMENT_TARGET passed
+# to xcodebuild and the Xcode project baseline.
+platform :osx, (ENV['VAPOURBOX_DEPLOYMENT_TARGET'] || '12.0')
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -40,10 +44,9 @@ target 'Runner' do
 end
 
 post_install do |installer|
-  # Build for the requested architecture(s). VAPOURBOX_ARCHS may be 'arm64',
-  # 'x86_64', or 'arm64 x86_64' (universal). Exclude whatever isn't being built
-  # so xcodebuild doesn't try to produce slices we lack dependencies for;
-  # a universal build excludes nothing.
+  # Build for the requested architecture. VAPOURBOX_ARCHS is 'arm64' or
+  # 'x86_64'. Exclude whatever isn't being built so xcodebuild doesn't try to
+  # produce a slice we lack dependencies for.
   build_archs = ENV['VAPOURBOX_ARCHS'] || 'arm64'
   excluded_arch = (['arm64', 'x86_64'] - build_archs.split(' ')).join(' ')
   installer.pods_project.targets.each do |target|

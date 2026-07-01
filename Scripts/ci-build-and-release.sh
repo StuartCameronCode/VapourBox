@@ -10,7 +10,7 @@
 # Options:
 #   --version X.Y.Z       App version (required)
 #   --deps-tag TAG        Deps release tag (default: from deps-version.json)
-#   --arch ARCH           macOS arch: universal, both, arm64, x64 (default: universal)
+#   --arch ARCH           macOS arch: both, arm64, x64 (default: both — two per-arch DMGs)
 #   --skip-trigger        Skip triggering workflows (just download + upload)
 
 set -e
@@ -26,7 +26,7 @@ NC='\033[0m'
 
 VERSION=""
 DEPS_TAG=""
-ARCH="universal"
+ARCH="both"
 SKIP_TRIGGER=false
 
 while [[ $# -gt 0 ]]; do
@@ -36,7 +36,7 @@ while [[ $# -gt 0 ]]; do
         --arch) ARCH="$2"; shift 2 ;;
         --skip-trigger) SKIP_TRIGGER=true; shift ;;
         -h|--help)
-            echo "Usage: $0 --version X.Y.Z [--deps-tag TAG] [--arch universal|both|arm64|x64] [--skip-trigger]"
+            echo "Usage: $0 --version X.Y.Z [--deps-tag TAG] [--arch both|arm64|x64] [--skip-trigger]"
             exit 0
             ;;
         *) echo "Unknown option: $1"; exit 1 ;;
