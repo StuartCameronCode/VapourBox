@@ -52,7 +52,8 @@ pub struct QTGMCParameters {
     /// Upsample 4:2:0 chroma to 4:2:2 with field-aware resampling before
     /// deinterlacing, and restore the source format afterwards. Interlaced
     /// 4:2:0 stores chroma per field, so interpolating it at 4:2:0 mixes the
-    /// two fields' chroma. `None` = enabled.
+    /// two fields' chroma. Costs roughly 30% throughput (measured 35 -> 24 fps),
+    /// so `None` = disabled and the quality/speed trade-off is the user's call.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chroma_upsample_fix: Option<bool>,
 
@@ -413,9 +414,11 @@ const SUPPORTED_CHROMA_EDI: [&str; 2] = ["nnedi3", "bob"];
 
 impl QTGMCParameters {
     /// Whether to upsample 4:2:0 chroma to 4:2:2 around the deinterlace pass.
-    /// Defaults to enabled — it is a no-op for sources that are not 4:2:0.
+    /// Defaults to disabled: it is the more correct way to handle interlaced
+    /// 4:2:0 chroma, but it costs roughly 30% throughput, so it is offered as
+    /// an option rather than imposed.
     pub fn chroma_upsample_fix_enabled(&self) -> bool {
-        self.chroma_upsample_fix.unwrap_or(true)
+        self.chroma_upsample_fix.unwrap_or(false)
     }
 
     /// Whether to run the deinterlace pass at 16-bit. Defaults to disabled

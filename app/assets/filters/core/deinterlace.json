@@ -243,10 +243,10 @@
     },
     "chromaUpsampleFix": {
       "type": "boolean",
-      "default": true,
+      "default": false,
       "ui": {
         "label": "Interlaced chroma fix",
-        "description": "Interlaced 4:2:0 stores chroma per field. Convert to 4:2:2 with field-aware resampling before deinterlacing and back afterwards. No effect on 4:2:2 or 4:4:4 sources.",
+        "description": "Interlaced 4:2:0 stores chroma per field. Convert to 4:2:2 with field-aware resampling before deinterlacing and back afterwards. Reduces faint chroma striping in flat colour areas, at roughly 30% slower processing. No effect on 4:2:2 or 4:4:4 sources.",
         "widget": "checkbox",
         "visibleWhen": {
           "method": [

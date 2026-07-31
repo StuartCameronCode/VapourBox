@@ -1912,6 +1912,9 @@ fn test_55_preview_selects_exact_frame() {
     let mut job = create_base_job("test_55_preview_frame");
     job.qtgmc_parameters.enabled = true;
     job.qtgmc_parameters.tff = Some(true);
+    // Opt into the chroma upsample so the preview/encode parity assertions
+    // below have something to compare.
+    job.qtgmc_parameters.chroma_upsample_fix = Some(true);
     job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         ..ProcessingPipeline::default()
@@ -2013,11 +2016,10 @@ fn test_57_ivtc_high_bit_depth_guard() {
 
 #[test]
 fn test_58_deinterlace_working_format_default() {
-    // Issue #49: interlaced 4:2:0 stores chroma per field, so QTGMC must not
-    // interpolate it at 4:2:0. By default the pass converts to 4:2:2 with
-    // field-aware resampling (zimg honours _FieldBased) and restores the source
-    // format afterwards. 16-bit is off by default, so the bit depth must be
-    // left alone.
+    // Both working-format options are opt-in: the 4:2:2 chroma upsample costs
+    // roughly 30% throughput and 16-bit roughly doubles it, so neither is
+    // imposed. The default script must therefore be exactly what it was before
+    // the working-format block existed.
     create_output_dir();
 
     let mut job = create_base_job("test_58_deint_working_format_default");
@@ -2032,26 +2034,60 @@ fn test_58_deinterlace_working_format_default() {
         ..ProcessingPipeline::default()
     });
 
-    run_job_and_verify(&job, "Deinterlace Working Format (default)", &[
+    let generator = ScriptGenerator::new().unwrap();
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    for marker in [
+        "_deint_src_format",
+        "_deint_ss_h",
+        "_deint_bits",
+        "DEINT_WORKING_FORMAT",
+    ] {
+        assert!(!script.contains(marker), "expected no '{}' by default", marker);
+    }
+    assert!(script.contains("haf.QTGMC("), "QTGMC call should still be generated");
+}
+
+#[test]
+fn test_58b_deinterlace_chroma_upsample_opt_in() {
+    // Issue #49: interlaced 4:2:0 stores chroma per field, so interpolating it
+    // at 4:2:0 mixes the two fields' chroma. When the option is enabled the
+    // pass converts to 4:2:2 (field-aware, since zimg honours _FieldBased) and
+    // restores the source format afterwards, without touching the bit depth.
+    create_output_dir();
+
+    let mut job = create_base_job("test_58b_deint_chroma_upsample");
+    job.qtgmc_parameters = QTGMCParameters {
+        enabled: true,
+        preset: QTGMCPreset::Fast,
+        tff: Some(true),
+        chroma_upsample_fix: Some(true),
+        ..QTGMCParameters::default()
+    };
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "Deinterlace Chroma Upsample (opt-in)", &[
         "_deint_src_format = clip.format",
         "_deint_ss_h = 0",
         "subsampling_h=_deint_ss_h",
         "dither_type=\"error_diffusion\"",
     ]).unwrap();
 
-    // 16-bit is opt-in, so the bit-depth line must not be emitted.
+    // Enabling the chroma fix must not drag 16-bit along with it.
     let generator = ScriptGenerator::new().unwrap();
     let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
     assert!(
         !script.contains("_deint_bits = max(_deint_bits, 16)"),
-        "16-bit processing should be off by default"
+        "16-bit processing should stay off unless separately enabled"
     );
 }
 
 #[test]
 fn test_59_deinterlace_high_precision() {
-    // With both working-format options on, the pass converts to 4:2:2/16-bit
-    // and dithers back to the source format.
+    // 16-bit on its own: the bit depth is raised and dithered back, and the
+    // chroma subsampling is left alone because the two options are independent.
     create_output_dir();
 
     let mut job = create_base_job("test_59_deint_high_precision");
@@ -2068,6 +2104,39 @@ fn test_59_deinterlace_high_precision() {
     });
 
     run_job_and_verify(&job, "Deinterlace Working Format (16-bit)", &[
+        "_deint_src_format = clip.format",
+        "_deint_bits = max(_deint_bits, 16)",
+        "dither_type=\"error_diffusion\"",
+    ]).unwrap();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    assert!(
+        !script.contains("_deint_ss_h = 0"),
+        "16-bit must not enable the chroma upsample as a side effect"
+    );
+}
+
+#[test]
+fn test_59b_deinterlace_both_working_format_options() {
+    // Both on: 4:2:2 and 16-bit, restored to the source format afterwards.
+    create_output_dir();
+
+    let mut job = create_base_job("test_59b_deint_both_options");
+    job.qtgmc_parameters = QTGMCParameters {
+        enabled: true,
+        preset: QTGMCPreset::Fast,
+        tff: Some(true),
+        chroma_upsample_fix: Some(true),
+        high_precision: Some(true),
+        ..QTGMCParameters::default()
+    };
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "Deinterlace Working Format (4:2:2 + 16-bit)", &[
         "_deint_ss_h = 0",
         "_deint_bits = max(_deint_bits, 16)",
         "dither_type=\"error_diffusion\"",

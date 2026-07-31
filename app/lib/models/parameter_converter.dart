@@ -40,7 +40,7 @@ class ParameterConverter {
         'fpsDivisor': params.fpsDivisor,
         // Null means "not set" in the model; surface the effective default so
         // the checkbox always reflects what the worker will actually do.
-        'chromaUpsampleFix': params.chromaUpsampleFix ?? true,
+        'chromaUpsampleFix': params.chromaUpsampleFix ?? false,
         'highPrecision': params.highPrecision ?? false,
         'inputType': params.inputType,
         'tr0': params.tr0,

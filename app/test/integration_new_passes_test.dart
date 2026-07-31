@@ -223,11 +223,12 @@ void main() {
                   .toJson(),
               label: 'deint_wf_off'));
 
+      // Both options are opt-in, so the chroma variant must ask for it.
       final chroma = await runAndGetPixFmt(
-          'deint_wf_default',
+          'deint_wf_chroma',
           await WorkerHarness.runJob(
-              job420('deint_wf_default').toJson(),
-              label: 'deint_wf_default'));
+              job420('deint_wf_chroma', chromaUpsampleFix: true).toJson(),
+              label: 'deint_wf_chroma'));
 
       final bits = await runAndGetPixFmt(
           'deint_wf_16bit',

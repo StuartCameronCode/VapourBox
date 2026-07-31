@@ -135,7 +135,8 @@ class QTGMCParameters {
 
   // === Working Format (issue #49) ===
   /// Upsample 4:2:0 chroma to 4:2:2 (field-aware) before deinterlacing and
-  /// restore the source format afterwards. Null = enabled.
+  /// restore the source format afterwards. Costs roughly 30% throughput, so
+  /// null = disabled.
   final bool? chromaUpsampleFix;
 
   /// Run the deinterlace pass at 16-bit and dither back. Null = disabled.

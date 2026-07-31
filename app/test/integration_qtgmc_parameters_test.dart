@@ -648,33 +648,49 @@ void main() {
       );
     }
 
-    test('4:2:0 chroma is upsampled field-aware by default, 16-bit is opt-in',
-        () async {
+    test('both working-format options are opt-in by default', () async {
+      // The 4:2:2 upsample costs ~30% throughput and 16-bit roughly doubles it,
+      // so the default script must be what it was before the block existed.
       final script = await generateScriptViaWorker(buildJob('deint_wf_default'));
 
+      expect(script, contains('haf.QTGMC('));
+      for (final marker in ['_deint_src_format', '_deint_ss_h', '_deint_bits']) {
+        expect(script, isNot(contains(marker)),
+            reason: 'working-format conversion should be opt-in');
+      }
+
+      print('  PASS: no working-format conversion by default');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('chroma upsample is emitted when enabled, without 16-bit', () async {
       // Interlaced 4:2:0 stores chroma per field, so the pass converts to
       // 4:2:2 before QTGMC and restores the source format afterwards.
+      final script = await generateScriptViaWorker(
+          buildJob('deint_wf_chroma', chromaUpsampleFix: true));
+
       expect(script, contains('_deint_src_format = clip.format'));
       expect(script, contains('_deint_ss_h = 0'));
       expect(script, contains('subsampling_h=_deint_ss_h'));
       expect(script, contains('dither_type="error_diffusion"'));
 
-      // 16-bit costs roughly 2x, so it must stay opt-in.
+      // The two options are independent.
       expect(script, isNot(contains('_deint_bits = max(_deint_bits, 16)')),
-          reason: '16-bit processing should be off unless requested');
+          reason: 'the chroma fix must not enable 16-bit as a side effect');
 
-      print('  PASS: chroma upsample on by default, 16-bit off');
+      print('  PASS: chroma upsample emitted on its own');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
-    test('16-bit processing is emitted when enabled', () async {
+    test('16-bit processing is emitted when enabled, without chroma upsample',
+        () async {
       final script = await generateScriptViaWorker(
           buildJob('deint_wf_16bit', highPrecision: true));
 
-      expect(script, contains('_deint_ss_h = 0'));
       expect(script, contains('_deint_bits = max(_deint_bits, 16)'));
       expect(script, contains('dither_type="error_diffusion"'));
+      expect(script, isNot(contains('_deint_ss_h = 0')),
+          reason: '16-bit must not enable the chroma upsample as a side effect');
 
-      print('  PASS: 16-bit working format emitted');
+      print('  PASS: 16-bit working format emitted on its own');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
     test('both options off generates no working-format conversion', () async {

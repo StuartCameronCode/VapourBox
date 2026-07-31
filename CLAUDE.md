@@ -467,15 +467,21 @@ Two QTGMC options wrap the deinterlace pass in a format conversion, restoring
 the source format immediately afterwards (`{{#DEINT_WORKING_FORMAT}}` /
 `{{#DEINT_RESTORE_FORMAT}}` in both templates):
 
-- **`chromaUpsampleFix`** (default **on**): interlaced 4:2:0 stores chroma per
+Both are **opt-in** — they trade throughput for quality, so the choice is the
+user's:
+
+- **`chromaUpsampleFix`** (default **off**): interlaced 4:2:0 stores chroma per
   field, so convert to 4:2:2 before deinterlacing — field-aware, because zimg
-  honours `_FieldBased`. No-op on 4:2:2/4:4:4 sources.
+  honours `_FieldBased`. Costs roughly 30% throughput (measured 35 → 24 fps).
+  No-op on 4:2:2/4:4:4 sources.
 - **`highPrecision`** (default **off**): run the pass at 16-bit and dither back,
   avoiding accumulated 8-bit rounding across QTGMC's many merge/expr steps.
   Roughly doubles time and memory.
 
-With both off, the generated script is byte-for-byte what it was before the
-block existed (asserted by `test_60_deinterlace_working_format_disabled`).
+The two are independent — enabling one must not pull in the other. With both
+off (the default) the generated script is byte-for-byte what it was before the
+block existed, asserted by `test_58_deinterlace_working_format_default` and
+`test_60_deinterlace_working_format_disabled`.
 
 **`ChromaEdi` is validated, not passed through.** havsfunc implements only
 `''`, `'nnedi3'` and `'bob'`; any other non-empty value disables chroma EDI
