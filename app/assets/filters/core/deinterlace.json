@@ -32,6 +32,8 @@
         "tff",
         "inputType",
         "fpsDivisor",
+        "chromaUpsampleFix",
+        "highPrecision",
         "tr0",
         "tr1",
         "tr2",
@@ -232,6 +234,34 @@
       },
       "ui": {
         "hidden": true,
+        "visibleWhen": {
+          "method": [
+            "qtgmc"
+          ]
+        }
+      }
+    },
+    "chromaUpsampleFix": {
+      "type": "boolean",
+      "default": true,
+      "ui": {
+        "label": "Interlaced chroma fix",
+        "description": "Interlaced 4:2:0 stores chroma per field. Convert to 4:2:2 with field-aware resampling before deinterlacing and back afterwards. No effect on 4:2:2 or 4:4:4 sources.",
+        "widget": "checkbox",
+        "visibleWhen": {
+          "method": [
+            "qtgmc"
+          ]
+        }
+      }
+    },
+    "highPrecision": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "16-bit processing",
+        "description": "Run the deinterlace pass at 16-bit and dither back at the end, avoiding accumulated 8-bit rounding. Roughly doubles processing time.",
+        "widget": "checkbox",
         "visibleWhen": {
           "method": [
             "qtgmc"
@@ -487,8 +517,7 @@
       "options": [
         "",
         "NNEDI3",
-        "Bob",
-        "Blend"
+        "Bob"
       ],
       "vapoursynth": {
         "name": "ChromaEdi"
@@ -2057,7 +2086,9 @@
       {
         "title": "Input",
         "parameters": [
-          "inputType"
+          "inputType",
+          "chromaUpsampleFix",
+          "highPrecision"
         ],
         "expanded": false,
         "advancedOnly": true

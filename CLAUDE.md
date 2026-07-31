@@ -296,7 +296,7 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 
 **8. VapourSynth Compatibility Guards**
 - If the plugin only supports 8-bit, add bit-depth conversion guard in templates
-- If the plugin fails on field-based clips, note this — the preview template conditionally sets field-based via `{{#SET_FIELD_BASED}}` (only when deinterlacing is enabled)
+- If the plugin fails on field-based clips, note this — both templates set field-based via `{{#SET_FIELD_BASED}}`, emitted whenever `ScriptGenerator::field_based_for` returns a value (see "Field Order" below)
 
 **9. Integration Tests** — required, BOTH suites (see "Integration Tests for Filter Changes" below):
 - Add a numbered Rust test in `worker/tests/filter_integration_test.rs`.
@@ -445,6 +445,43 @@ The most important parameters:
 - **EdiMode**: Interpolation method (NNEDI3, EEDI3+NNEDI3, etc.)
 - **SourceMatch**: Higher fidelity mode (0=off, 1-3=increasingly accurate)
 - **FPSDivisor**: 1=double-rate (50i→50p), 2=single-rate (50i→25p)
+
+### Field Order (issue #49) — read before touching `_FieldBased` or `TFF`
+
+`std.SeparateFields` **ignores its `tff` argument whenever the `_FieldBased`
+frame property is set** — the property wins, so QTGMC's `TFF=` parameter is
+inert on a marked clip. Both must therefore come from one value:
+`ScriptGenerator::field_based_for` is that single derivation, used by the encode
+path *and* the preview path. Deriving them separately lets autodetection
+silently override the user's field-order choice and lets the preview deinterlace
+differently from the final render.
+
+- Deinterlacing enabled → `_FieldBased` comes from `pipeline.deinterlace.tff`.
+- Deinterlacing disabled → falls back to `job.detected_field_order`, so
+  field-aware chroma resampling in a later `resize` is still correct
+  (zimg **does** honour `_FieldBased`).
+
+### Deinterlace Working Format (issue #49)
+
+Two QTGMC options wrap the deinterlace pass in a format conversion, restoring
+the source format immediately afterwards (`{{#DEINT_WORKING_FORMAT}}` /
+`{{#DEINT_RESTORE_FORMAT}}` in both templates):
+
+- **`chromaUpsampleFix`** (default **on**): interlaced 4:2:0 stores chroma per
+  field, so convert to 4:2:2 before deinterlacing — field-aware, because zimg
+  honours `_FieldBased`. No-op on 4:2:2/4:4:4 sources.
+- **`highPrecision`** (default **off**): run the pass at 16-bit and dither back,
+  avoiding accumulated 8-bit rounding across QTGMC's many merge/expr steps.
+  Roughly doubles time and memory.
+
+With both off, the generated script is byte-for-byte what it was before the
+block existed (asserted by `test_60_deinterlace_working_format_disabled`).
+
+**`ChromaEdi` is validated, not passed through.** havsfunc implements only
+`''`, `'nnedi3'` and `'bob'`; any other non-empty value disables chroma EDI
+(`planes=[0]`) and then returns the luma-only interpolation without ever
+restoring chroma, badly corrupting it. `QTGMCParameters::normalized_chroma_edi`
+drops unsupported values — don't bypass it.
 
 ## Testing
 

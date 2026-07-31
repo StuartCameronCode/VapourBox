@@ -936,12 +936,9 @@ impl PipelineExecutor {
             target, first, target + radius, local, output_index, seek_time, width, height, pix_fmt
         );
 
-        // Determine field order for interlaced content
-        let field_based = if job.qtgmc_parameters.tff == Some(true) {
-            2 // TFF
-        } else {
-            1 // BFF
-        };
+        // Field order is derived inside the script generator (see
+        // ScriptGenerator::field_based_for) so the preview and the encode can
+        // never disagree about it — issue #49.
 
         // FPS as rational
         let script_generator = ScriptGenerator::new()?
@@ -956,7 +953,6 @@ impl PipelineExecutor {
             num_frames,
             fps_num,
             fps_den,
-            field_based,
             output_index,
         };
 

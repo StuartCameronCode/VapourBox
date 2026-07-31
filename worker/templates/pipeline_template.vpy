@@ -61,6 +61,29 @@ clip = core.std.Crop(clip, left={{CROP_LEFT}}, right={{CROP_RIGHT}}, top={{CROP_
 # ============================================================================
 {{#DEINTERLACE}}
 {{#DEINT_QTGMC}}
+{{#DEINT_WORKING_FORMAT}}
+# Working format for the deinterlace pass (issue #49).
+#  - Interlaced 4:2:0 stores chroma per field, so interpolating it at 4:2:0
+#    mixes the two fields' chroma. Upsampling to 4:2:2 first is field-aware
+#    because zimg honours the _FieldBased prop set above.
+#  - QTGMC runs many merge/expr steps that round at the working depth, so 16-bit
+#    avoids accumulating 8-bit rounding error.
+# The source format is restored immediately after the pass, so nothing
+# downstream sees a different format than it did before.
+_deint_src_format = clip.format
+if clip.format.color_family == vs.YUV:
+    _deint_ss_h = clip.format.subsampling_h
+    _deint_bits = clip.format.bits_per_sample
+{{#DEINT_WF_CHROMA}}
+    _deint_ss_h = 0
+{{/DEINT_WF_CHROMA}}
+{{#DEINT_WF_BITS}}
+    _deint_bits = max(_deint_bits, 16)
+{{/DEINT_WF_BITS}}
+    if _deint_ss_h != clip.format.subsampling_h or _deint_bits != clip.format.bits_per_sample:
+        clip = core.resize.Bicubic(clip, format=clip.format.replace(
+            subsampling_h=_deint_ss_h, bits_per_sample=_deint_bits).id)
+{{/DEINT_WORKING_FORMAT}}
 clip = haf.QTGMC(
     clip,
     Preset="{{PRESET}}",
@@ -293,6 +316,13 @@ clip = haf.QTGMC(
     device={{DEVICE}},
 {{/DEVICE}}
 )
+{{#DEINT_RESTORE_FORMAT}}
+# Back to the source format. QTGMC has already reset _FieldBased to 0, so this
+# downsample is progressive — which is correct for the now-deinterlaced frames.
+if clip.format.id != _deint_src_format.id:
+    clip = core.resize.Bicubic(clip, format=_deint_src_format.id,
+                               dither_type="error_diffusion")
+{{/DEINT_RESTORE_FORMAT}}
 {{/DEINT_QTGMC}}
 {{#DEINT_IVTC}}
 # IVTC: Inverse Telecine (VFM field matching + VDecimate)

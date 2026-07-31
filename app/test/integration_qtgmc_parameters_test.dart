@@ -615,4 +615,130 @@ void main() {
           'no advanced params leaked');
     }, timeout: const Timeout(Duration(minutes: 2)));
   });
+
+  // ===========================================================================
+  // Issue #49: deinterlace working format + field-order derivation
+  // ===========================================================================
+  group('Deinterlace working format (issue #49)', () {
+    /// Build a QTGMC job with the given working-format options.
+    VideoJob buildJob(String name,
+        {bool? chromaUpsampleFix, bool? highPrecision, bool tff = true}) {
+      final params = QTGMCParameters(
+        enabled: true,
+        method: DeinterlaceMethod.qtgmc,
+        preset: QTGMCPreset.fast,
+        tff: tff,
+        fpsDivisor: 2,
+        chromaUpsampleFix: chromaUpsampleFix,
+        highPrecision: highPrecision,
+      );
+      return VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/$name.mkv',
+        qtgmcParameters: params,
+        processingPipeline: ProcessingPipeline(deinterlace: params),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.h264,
+          container: ContainerFormat.mkv,
+          audioMode: AudioMode.none,
+        ),
+        startFrame: 10,
+        endFrame: 30,
+      );
+    }
+
+    test('4:2:0 chroma is upsampled field-aware by default, 16-bit is opt-in',
+        () async {
+      final script = await generateScriptViaWorker(buildJob('deint_wf_default'));
+
+      // Interlaced 4:2:0 stores chroma per field, so the pass converts to
+      // 4:2:2 before QTGMC and restores the source format afterwards.
+      expect(script, contains('_deint_src_format = clip.format'));
+      expect(script, contains('_deint_ss_h = 0'));
+      expect(script, contains('subsampling_h=_deint_ss_h'));
+      expect(script, contains('dither_type="error_diffusion"'));
+
+      // 16-bit costs roughly 2x, so it must stay opt-in.
+      expect(script, isNot(contains('_deint_bits = max(_deint_bits, 16)')),
+          reason: '16-bit processing should be off unless requested');
+
+      print('  PASS: chroma upsample on by default, 16-bit off');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('16-bit processing is emitted when enabled', () async {
+      final script = await generateScriptViaWorker(
+          buildJob('deint_wf_16bit', highPrecision: true));
+
+      expect(script, contains('_deint_ss_h = 0'));
+      expect(script, contains('_deint_bits = max(_deint_bits, 16)'));
+      expect(script, contains('dither_type="error_diffusion"'));
+
+      print('  PASS: 16-bit working format emitted');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('both options off generates no working-format conversion', () async {
+      final script = await generateScriptViaWorker(buildJob('deint_wf_off',
+          chromaUpsampleFix: false, highPrecision: false));
+
+      expect(script, contains('haf.QTGMC('));
+      for (final marker in ['_deint_src_format', '_deint_ss_h', '_deint_bits']) {
+        expect(script, isNot(contains(marker)),
+            reason: 'no working-format conversion expected when both are off');
+      }
+
+      print('  PASS: no conversion when both options are off');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('_FieldBased follows the requested field order, not detection',
+        () async {
+      // std.SeparateFields ignores its tff argument whenever _FieldBased is
+      // set, so the property must agree with QTGMC's TFF or the user's choice
+      // is silently overridden.
+      final bff = await generateScriptViaWorker(
+          buildJob('deint_fieldorder_bff', tff: false));
+      expect(bff, contains('core.std.SetFieldBased(clip, 1)'));
+      expect(bff, contains('TFF=False'));
+
+      final tff = await generateScriptViaWorker(
+          buildJob('deint_fieldorder_tff', tff: true));
+      expect(tff, contains('core.std.SetFieldBased(clip, 2)'));
+      expect(tff, contains('TFF=True'));
+
+      print('  PASS: _FieldBased matches the requested field order');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('unsupported ChromaEdi values are dropped', () async {
+      // havsfunc implements only '' / 'nnedi3' / 'bob'. Anything else disables
+      // chroma EDI and never restores chroma, badly corrupting it.
+      const params = QTGMCParameters(
+        enabled: true,
+        method: DeinterlaceMethod.qtgmc,
+        preset: QTGMCPreset.fast,
+        tff: true,
+        fpsDivisor: 2,
+        chromaEdi: 'Blend',
+      );
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/deint_chromaedi.mkv',
+        qtgmcParameters: params,
+        processingPipeline: ProcessingPipeline(deinterlace: params),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.h264,
+          container: ContainerFormat.mkv,
+          audioMode: AudioMode.none,
+        ),
+        startFrame: 10,
+        endFrame: 30,
+      );
+
+      final script = await generateScriptViaWorker(job);
+      expect(script, isNot(contains('ChromaEdi=')),
+          reason: 'unsupported ChromaEdi values must be dropped');
+
+      print('  PASS: ChromaEdi="Blend" dropped');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+  });
 }

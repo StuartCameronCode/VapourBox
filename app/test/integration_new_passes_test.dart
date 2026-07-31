@@ -15,6 +15,7 @@ library;
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import 'package:vapourbox/models/descratch_parameters.dart';
@@ -52,7 +53,13 @@ VideoJob _baseJob(
 
 /// Assert the worker produced a playable video with a video stream.
 Future<void> _expectValidVideo(JobResult result) async {
-  expect(result.success, isTrue, reason: result.error);
+  // Include the tail of the worker log — "ffmpeg exited with -22" on its own
+  // says nothing about which arguments were rejected.
+  final tail = result.logs.length > 25
+      ? result.logs.sublist(result.logs.length - 25)
+      : result.logs;
+  expect(result.success, isTrue,
+      reason: '${result.error}\n--- worker log (tail) ---\n${tail.join('\n')}');
   expect(File(result.outputPath!).existsSync(), isTrue,
       reason: 'output file should exist');
   final v = await WorkerHarness.firstStream(result.outputPath!,
@@ -137,5 +144,122 @@ void main() {
       final result = await WorkerHarness.runJob(job.toJson(), label: 'knlmeanscl_fallback');
       await _expectValidVideo(result);
     }, timeout: const Timeout(Duration(minutes: 5)));
+  });
+
+  // ===========================================================================
+  // Issue #49: deinterlace working format, end-to-end.
+  //
+  // The script-generation assertions live in integration_qtgmc_parameters_test;
+  // these confirm the converted pipeline actually runs through vspipe | ffmpeg
+  // and — critically — that the working format never leaks into the encode.
+  //
+  // These use the 4:2:0 fixture rather than the shared 4:2:2 interlaced_test.avi:
+  // the chroma upsample is a deliberate no-op on 4:2:2 sources, so 4:2:2 would
+  // not exercise the path at all.
+  // ===========================================================================
+  group('Deinterlace working format (issue #49, full encode)', () {
+    final yuv420Input = p.join(
+        WorkerHarness.repoRoot, 'Tests', 'TestResources', 'pal-dvbt-fieldcoded-25i.ts');
+
+    VideoJob job420(
+      String name, {
+      bool? chromaUpsampleFix,
+      bool? highPrecision,
+      String? chromaEdi,
+    }) =>
+        VideoJob(
+          id: const Uuid().v4(),
+          inputPath: yuv420Input,
+          outputPath: '$_outDir/$name.mkv',
+          // Supply the probe results the app always sends. ffprobe reports
+          // nb_frames=N/A for MPEG-TS, and the worker falls back to
+          // total_frames=1 / 720x480 / 29.97 when these are absent — which
+          // silently produces a one-frame output.
+          totalFrames: 126,
+          inputFrameRate: 25.0,
+          inputWidth: 720,
+          inputHeight: 576,
+          inputPixelFormat: 'yuv420p',
+          processingPipeline: ProcessingPipeline(
+            deinterlace: QTGMCParameters(
+              preset: QTGMCPreset.fast,
+              tff: true,
+              fpsDivisor: 2,
+              chromaUpsampleFix: chromaUpsampleFix,
+              highPrecision: highPrecision,
+              chromaEdi: chromaEdi,
+            ),
+          ),
+          encodingSettings: const EncodingSettings(
+            codec: VideoCodec.h264,
+            container: ContainerFormat.mkv,
+            audioMode: AudioMode.none,
+          ),
+          // Keep the encodes short — this group runs five of them.
+          startFrame: 0,
+          endFrame: 40,
+        );
+
+    Future<String> runAndGetPixFmt(String name, JobResult result) async {
+      await _expectValidVideo(result);
+      final v = await WorkerHarness.firstStream(result.outputPath!,
+          selector: 'v:0', entries: ['pix_fmt']);
+      print('  $name pix_fmt: ${v?['pix_fmt']}');
+      return v?['pix_fmt'] as String;
+    }
+
+    setUpAll(() {
+      expect(File(yuv420Input).existsSync(), isTrue,
+          reason: '4:2:0 interlaced fixture missing: $yuv420Input');
+    });
+
+    // The working format (4:2:2 and/or 16-bit) must be restored before the
+    // encode, so all three variants must produce the same output pixel format.
+    test('working format never leaks into the encoded output', () async {
+      final off = await runAndGetPixFmt(
+          'deint_wf_off',
+          await WorkerHarness.runJob(
+              job420('deint_wf_off', chromaUpsampleFix: false, highPrecision: false)
+                  .toJson(),
+              label: 'deint_wf_off'));
+
+      final chroma = await runAndGetPixFmt(
+          'deint_wf_default',
+          await WorkerHarness.runJob(
+              job420('deint_wf_default').toJson(),
+              label: 'deint_wf_default'));
+
+      final bits = await runAndGetPixFmt(
+          'deint_wf_16bit',
+          await WorkerHarness.runJob(
+              job420('deint_wf_16bit', highPrecision: true).toJson(),
+              label: 'deint_wf_16bit'));
+
+      expect(chroma, off,
+          reason: 'the 4:2:2 working format must be restored before encode');
+      expect(bits, off,
+          reason: 'the 16-bit working format must be dithered back before encode');
+    }, timeout: const Timeout(Duration(minutes: 15)));
+
+    // havsfunc implements only ChromaEdi '' / 'nnedi3' / 'bob'. 'Blend' used to
+    // reach QTGMC and corrupt chroma; it is now dropped, so the run must be
+    // identical to one with no ChromaEdi set at all.
+    test('unsupported ChromaEdi value is dropped, not passed to QTGMC', () async {
+      final blend = await WorkerHarness.runJob(
+          job420('deint_chromaedi_blend', chromaEdi: 'Blend').toJson(),
+          label: 'chromaedi_blend');
+      await _expectValidVideo(blend);
+
+      final none = await WorkerHarness.runJob(
+          job420('deint_chromaedi_none').toJson(),
+          label: 'chromaedi_none');
+      await _expectValidVideo(none);
+
+      final blendHash = await WorkerHarness.frameHash(blend.outputPath!);
+      final noneHash = await WorkerHarness.frameHash(none.outputPath!);
+      expect(blendHash, noneHash,
+          reason: 'ChromaEdi="Blend" must be dropped, producing the default pipeline');
+      print('  frame hash matches: $blendHash');
+    }, timeout: const Timeout(Duration(minutes: 10)));
   });
 }

@@ -38,6 +38,10 @@ class ParameterConverter {
         'preset': params.preset.displayName,
         'tff': params.tff,
         'fpsDivisor': params.fpsDivisor,
+        // Null means "not set" in the model; surface the effective default so
+        // the checkbox always reflects what the worker will actually do.
+        'chromaUpsampleFix': params.chromaUpsampleFix ?? true,
+        'highPrecision': params.highPrecision ?? false,
         'inputType': params.inputType,
         'tr0': params.tr0,
         'tr1': params.tr1,
@@ -439,6 +443,8 @@ class ParameterConverter {
       ),
       tff: v['tff'] as bool?,
       fpsDivisor: v['fpsDivisor'] as int?,
+      chromaUpsampleFix: v['chromaUpsampleFix'] as bool?,
+      highPrecision: v['highPrecision'] as bool?,
       inputType: v['inputType'] as int?,
       tr0: v['tr0'] as int?,
       tr1: v['tr1'] as int?,
