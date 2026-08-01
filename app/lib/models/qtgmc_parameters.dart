@@ -133,6 +133,15 @@ class QTGMCParameters {
   final bool? tff;
   final int? fpsDivisor;
 
+  // === Working Format (issue #49) ===
+  /// Upsample 4:2:0 chroma to 4:2:2 (field-aware) before deinterlacing and
+  /// restore the source format afterwards. Costs roughly 30% throughput, so
+  /// null = disabled.
+  final bool? chromaUpsampleFix;
+
+  /// Run the deinterlace pass at 16-bit and dither back. Null = disabled.
+  final bool? highPrecision;
+
   // === Quality (Temporal Radius) ===
   final int? tr0;
   final int? tr1;
@@ -260,6 +269,8 @@ class QTGMCParameters {
     this.inputType,
     this.tff,
     this.fpsDivisor,
+    this.chromaUpsampleFix,
+    this.highPrecision,
     this.tr0,
     this.tr1,
     this.tr2,
@@ -355,6 +366,8 @@ class QTGMCParameters {
     int? inputType,
     bool? tff,
     int? fpsDivisor,
+    bool? chromaUpsampleFix,
+    bool? highPrecision,
     int? tr0,
     int? tr1,
     int? tr2,
@@ -445,6 +458,8 @@ class QTGMCParameters {
       inputType: inputType ?? this.inputType,
       tff: tff ?? this.tff,
       fpsDivisor: fpsDivisor ?? this.fpsDivisor,
+      chromaUpsampleFix: chromaUpsampleFix ?? this.chromaUpsampleFix,
+      highPrecision: highPrecision ?? this.highPrecision,
       tr0: tr0 ?? this.tr0,
       tr1: tr1 ?? this.tr1,
       tr2: tr2 ?? this.tr2,

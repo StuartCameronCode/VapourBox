@@ -296,7 +296,7 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 
 **8. VapourSynth Compatibility Guards**
 - If the plugin only supports 8-bit, add bit-depth conversion guard in templates
-- If the plugin fails on field-based clips, note this — the preview template conditionally sets field-based via `{{#SET_FIELD_BASED}}` (only when deinterlacing is enabled)
+- If the plugin fails on field-based clips, note this — both templates set field-based via `{{#SET_FIELD_BASED}}`, emitted whenever `ScriptGenerator::field_based_for` returns a value (see "Field Order" below)
 
 **9. Integration Tests** — required, BOTH suites (see "Integration Tests for Filter Changes" below):
 - Add a numbered Rust test in `worker/tests/filter_integration_test.rs`.
@@ -446,6 +446,49 @@ The most important parameters:
 - **SourceMatch**: Higher fidelity mode (0=off, 1-3=increasingly accurate)
 - **FPSDivisor**: 1=double-rate (50i→50p), 2=single-rate (50i→25p)
 
+### Field Order (issue #49) — read before touching `_FieldBased` or `TFF`
+
+`std.SeparateFields` **ignores its `tff` argument whenever the `_FieldBased`
+frame property is set** — the property wins, so QTGMC's `TFF=` parameter is
+inert on a marked clip. Both must therefore come from one value:
+`ScriptGenerator::field_based_for` is that single derivation, used by the encode
+path *and* the preview path. Deriving them separately lets autodetection
+silently override the user's field-order choice and lets the preview deinterlace
+differently from the final render.
+
+- Deinterlacing enabled → `_FieldBased` comes from `pipeline.deinterlace.tff`.
+- Deinterlacing disabled → falls back to `job.detected_field_order`, so
+  field-aware chroma resampling in a later `resize` is still correct
+  (zimg **does** honour `_FieldBased`).
+
+### Deinterlace Working Format (issue #49)
+
+Two QTGMC options wrap the deinterlace pass in a format conversion, restoring
+the source format immediately afterwards (`{{#DEINT_WORKING_FORMAT}}` /
+`{{#DEINT_RESTORE_FORMAT}}` in both templates):
+
+Both are **opt-in** — they trade throughput for quality, so the choice is the
+user's:
+
+- **`chromaUpsampleFix`** (default **off**): interlaced 4:2:0 stores chroma per
+  field, so convert to 4:2:2 before deinterlacing — field-aware, because zimg
+  honours `_FieldBased`. Costs roughly 30% throughput (measured 35 → 24 fps).
+  No-op on 4:2:2/4:4:4 sources.
+- **`highPrecision`** (default **off**): run the pass at 16-bit and dither back,
+  avoiding accumulated 8-bit rounding across QTGMC's many merge/expr steps.
+  Roughly doubles time and memory.
+
+The two are independent — enabling one must not pull in the other. With both
+off (the default) the generated script is byte-for-byte what it was before the
+block existed, asserted by `test_58_deinterlace_working_format_default` and
+`test_60_deinterlace_working_format_disabled`.
+
+**`ChromaEdi` is validated, not passed through.** havsfunc implements only
+`''`, `'nnedi3'` and `'bob'`; any other non-empty value disables chroma EDI
+(`planes=[0]`) and then returns the luma-only interpolation without ever
+restoring chroma, badly corrupting it. `QTGMCParameters::normalized_chroma_edi`
+drops unsupported values — don't bypass it.
+
 ## Testing
 
 VapourBox has **three distinct test suites**. Know which is which before adding
@@ -459,8 +502,11 @@ cd worker && cargo test --test subtitle_integration_test -- --nocapture
 ```
 
 - `filter_integration_test.rs` — **every filter/parameter change must add a
-  numbered test here** (see "Adding a New Filter"). It generates `.vpy` scripts
-  and, via `run_job`, runs the `vspipe | ffmpeg` pipeline, so it needs `deps/`.
+  numbered test here** (see "Adding a New Filter"). Note that despite the name,
+  `run_job` **only generates and inspects the `.vpy` script** — it does not run
+  `vspipe | ffmpeg` (see its body: "For now, just verify script generation
+  works"). So this suite validates *script generation*, and cannot catch runtime
+  or plugin-behaviour bugs; those need the Dart shell-out/integration tests.
 - `subtitle_integration_test.rs` — runs `whisper-cli` on
   `Tests/TestResources/small_clip.mp4`; needs the whisper add-on + ffmpeg.
 - In **debug** builds `DependencyLocator` finds repo-root `deps/`/`addons/` by
@@ -534,10 +580,114 @@ integration tests. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
 
 ## havsfunc Compatibility Patches
 
-The `download-deps-windows.ps1` and `download-deps-macos.sh` scripts apply these automatically. Three patches are needed for modern VapourSynth:
+All three `download-deps-*` scripts apply these automatically, and they must stay
+**identical across platforms** — a patch applied on only some platforms makes the
+same job produce different output per OS. Five patches:
+
 1. **mvtools API**: Renamed `_lambda`→`lambda`, `_global`→`global` parameters
 2. **DFTTest API**: `sstring` parameter removed, replaced with `sigma=10.0`
 3. **VapourSynth YCOCG removal**: `vs.YCOCG` removed, simplify to `!= vs.YUV`
+4. **EEDI3CL fallback**: modern `eedi3m` dropped `EEDI3CL`, so `opencl=True` fell
+   over; fall back to CPU `EEDI3` (NNEDI3CL still uses the GPU)
+5. **`Bob()` 16-bit resample** — see below
+
+Each patch is a **literal string match** against havsfunc r31. If upstream ever
+changes one of those lines the patch silently does nothing, so behavioural tests
+matter more than usual (see `app/test/vapoursynth_integration_test.dart`).
+
+> Known gap: patch 3 only rewrites the `input.format...` YCOCG check, so
+> `KNLMeansCL`'s `clip.format.color_family not in [vs.YUV, vs.YCOCG]` survives and
+> would `AttributeError`. Only reachable with `Denoiser='knlmeanscl'` **and**
+> `ChromaNoise=True` (both non-default), so it has never been hit.
+
+### fmtconv's aarch64 integer scaler bug (fixed by our own patch)
+
+**Symptom.** `fmtc.resample` returned **black** whenever fmtconv's integer kernel
+ran with a source bitdepth below 16. Only **macos-arm64** and **linux-arm64** were
+affected: on x86 the SSE2/AVX2 scalers replace the offending function in the
+`Scaler` constructor, so there it is dead code. Measured by scaling a flat plane
+by two:
+
+| source | axis | kernel | result |
+|---|---|---|---|
+| 8-bit | horizontal | `SB=16 DB=16` | correct |
+| 8-bit | vertical | `SB=8 DB=16` | **black** |
+| 10-bit | either | `SB=10 DB=16` | **black** |
+| 12-bit | either | `SB=12 DB=16` | **black** |
+| 16-bit | either | `SB=16 DB=16` | correct |
+
+It is **not** vertical-only: 10- and 12-bit sources broke on both axes. 8-bit
+horizontal is the single case that escaped, because that route converts to 16-bit
+*before* the scaler and so lands on `SB = DB = 16`. Same-size resampling and float
+sources were never affected. (Deinterlacing hit it via the vertical axis, which is
+why it first looked like a vertical-only bug.)
+
+**Root cause** (`src/fmtcl/Scaler.cpp`, `process_plane_int_cpp`). That kernel
+applied the same sign-conversion constants as its SSE2/AVX2 siblings:
+
+```c
+s_in  = (SB < 16) ? -(0x8000 << (SHIFT_INT + SB - DB)) : 0;
+```
+
+The vector kernels need those because they accumulate in **signed** 16-bit lanes
+and their proxy (`ProxyRwSse2<SplFmt_INT16>::S16<CLIP_FLAG, SIGN_FLAG>`) XORs bit
+15 back on read/write. The C++ kernel has no such counterpart — it accumulates in
+a plain `int` and `ProxyRwCpp` is **unsigned** at both ends (`read()` returns the
+raw value, `write_clip<DB>()` clamps to `[0, 2^DB-1]`). So the bias was applied
+with nothing to undo it and every output clamped to 0. For 8→16-bit,
+flat input 120: `120*4096 - 524288 + 8 = -32760`, `>>4 = -2048`, clamped to `0`.
+`SPAN_I` covers SB = 16, 14, 12, 10, 9, 8 with DB always 16, so only SB = DB = 16
+was correct — there the constants are already 0.
+
+**Fix.** `Scripts/patches/fmtconv-r31-arm-int-scaler.patch` drops the sign
+constants from the C++ kernel. Applied by `download-deps-{macos,linux}.sh` right
+after the clone, and it **hard-fails the build** if it stops applying rather than
+silently shipping the bug back. Windows needs nothing (prebuilt x86 DLL).
+
+Not submitted upstream — that needs a GitLab account. If anyone wants to send it
+later, the patch is the whole change and its header carries the full analysis.
+
+**How it surfaced.** havsfunc's `Bob()` bobs fields via
+`fmtc.resample(scalev=2, ...)`, so on Apple Silicon it destroyed the image:
+
+- **Placebo / Very Slow** came out **~+10/255 brighter**. They are the only
+  presets that default `NoiseProcess=2`, and that noise pass calls `Bob()` to
+  expand fields before extracting noise. The near-black "denoised" clip made
+  `MakeDiff` clip hard, so `GrainRestore`/`NoiseRestore` merged a large positive
+  bias back in.
+- **Draft** came out nearly black (`EdiMode='bob'` interpolates via `Bob()`).
+- **Slower and below** were fine: their only fmtconv use is the same-size `Sbb`
+  gauss blur, which doesn't scale vertically.
+
+havsfunc patch 5 (`Bob()` at 16-bit) is kept as **defence in depth** — it is
+redundant now that fmtconv is fixed, and both routes were measured to produce the
+same output, but it also covers the prebuilt Windows DLL and any future build
+where the fmtconv patch is dropped. Removing it would be safe; removing the
+fmtconv patch would not, since `Bob()` is far from the only sub-16-bit
+resample in havsfunc.
+
+**Upstream status.** Not fixed as of r31. Its changelog has a promising "program
+path without x86 SIMD: fixed wrong conversions (noticed on ARM/Apple)" entry, but
+r31 reproduces the failure exactly — as do yuygfgg's prebuilt arm64 binary and a
+local `-O0` build. Worth re-checking on the next release so the patch can be
+dropped; the tests assert pixel behaviour, not patch text, so they stay valid
+either way.
+
+### fmtconv version is pinned, and upstream moved to GitLab
+
+fmtconv development moved to **`gitlab.com/EleonoreMizo/fmtconv`** in Aug 2023.
+The GitHub repo is an abandoned mirror whose last commit is literally
+*"Repository moved to Gitlab"*, so cloning its `master` silently pinned us to a
+stale post-r30 snapshot. All platforms now use **r31**, pinned:
+
+- macOS / Linux: `FMTCONV_TAG` in `download-deps-{macos,linux}.sh` (GitLab tag)
+- Windows: the r31 zip in `download-deps-windows.ps1` (from the author's site —
+  GitHub release assets stopped at r30, and that URL is what the official GitLab
+  r31 release links to)
+
+**Keep these in step.** r31 changed interlaced PAL-DV chroma placement (U/V
+vertical positions were swapped, vertical subsampling > 2 unhandled), so a
+version skew between platforms would change chroma per-OS.
 
 ## Debugging Tips
 
@@ -750,3 +900,5 @@ Create the app-specific password at appleid.apple.com → Sign-In and Security �
 | Deps Version | Date | Changes |
 |--------------|------|---------|
 | 1.0.0 | 2025-01-15 | Initial release |
+| … | | (1.1.0–1.6.0 went unrecorded) |
+| 1.7.0 | 2026-08-01 | Fixes QTGMC Placebo/Very Slow brightening and near-black Draft on arm64, via `Scripts/patches/fmtconv-r31-arm-int-scaler.patch` (root cause: sign constants in fmtconv's non-SIMD integer scaler) plus havsfunc patch 5 as defence in depth; fmtconv r30 → **r31**, now pinned and sourced from GitLab on every platform |

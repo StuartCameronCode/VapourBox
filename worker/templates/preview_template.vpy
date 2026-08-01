@@ -53,6 +53,23 @@ clip = core.std.Crop(clip, left={{CROP_LEFT}}, right={{CROP_RIGHT}}, top={{CROP_
 # ============================================================================
 {{#DEINTERLACE}}
 {{#DEINT_QTGMC}}
+{{#DEINT_WORKING_FORMAT}}
+# Working format for the deinterlace pass (issue #49) — see pipeline_template.vpy.
+# The preview must apply the same conversion as the encode or it won't match.
+_deint_src_format = clip.format
+if clip.format.color_family == vs.YUV:
+    _deint_ss_h = clip.format.subsampling_h
+    _deint_bits = clip.format.bits_per_sample
+{{#DEINT_WF_CHROMA}}
+    _deint_ss_h = 0
+{{/DEINT_WF_CHROMA}}
+{{#DEINT_WF_BITS}}
+    _deint_bits = max(_deint_bits, 16)
+{{/DEINT_WF_BITS}}
+    if _deint_ss_h != clip.format.subsampling_h or _deint_bits != clip.format.bits_per_sample:
+        clip = core.resize.Bicubic(clip, format=clip.format.replace(
+            subsampling_h=_deint_ss_h, bits_per_sample=_deint_bits).id)
+{{/DEINT_WORKING_FORMAT}}
 clip = haf.QTGMC(
     clip,
     Preset="{{PRESET}}",
@@ -270,6 +287,11 @@ clip = haf.QTGMC(
     device={{DEVICE}},
 {{/DEVICE}}
 )
+{{#DEINT_RESTORE_FORMAT}}
+if clip.format.id != _deint_src_format.id:
+    clip = core.resize.Bicubic(clip, format=_deint_src_format.id,
+                               dither_type="error_diffusion")
+{{/DEINT_RESTORE_FORMAT}}
 {{/DEINT_QTGMC}}
 {{#DEINT_IVTC}}
 # IVTC Preview: VFM field matching only (no VDecimate for single-frame preview)

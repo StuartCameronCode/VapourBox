@@ -1912,6 +1912,9 @@ fn test_55_preview_selects_exact_frame() {
     let mut job = create_base_job("test_55_preview_frame");
     job.qtgmc_parameters.enabled = true;
     job.qtgmc_parameters.tff = Some(true);
+    // Opt into the chroma upsample so the preview/encode parity assertions
+    // below have something to compare.
+    job.qtgmc_parameters.chroma_upsample_fix = Some(true);
     job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: job.qtgmc_parameters.clone(),
         ..ProcessingPipeline::default()
@@ -1925,7 +1928,6 @@ fn test_55_preview_selects_exact_frame() {
         num_frames: 11,
         fps_num: 25,
         fps_den: 1,
-        field_based: 2,
         output_index: 7,
     };
     let script_path = generator
@@ -1941,6 +1943,17 @@ fn test_55_preview_selects_exact_frame() {
     assert!(
         !script.contains("num_frames // 2"),
         "preview must not fall back to the old middle-frame heuristic"
+    );
+    // The preview must apply the same field marking and working-format
+    // conversion as the encode, or it won't represent the final render (#49).
+    assert!(
+        script.contains("core.std.SetFieldBased(clip, 2)"),
+        "preview must mark field order the same way the encode does"
+    );
+    assert!(
+        script.contains("_deint_src_format = clip.format")
+            && script.contains("_deint_ss_h = 0"),
+        "preview must apply the same deinterlace working format as the encode"
     );
     let _ = std::fs::remove_file(&script_path);
 }
@@ -1999,4 +2012,249 @@ fn test_57_ivtc_high_bit_depth_guard() {
         "clip2=_ivtc_src",
         "core.vivtc.VDecimate(clip",
     ]).unwrap();
+}
+
+#[test]
+fn test_58_deinterlace_working_format_default() {
+    // Both working-format options are opt-in: the 4:2:2 chroma upsample costs
+    // roughly 30% throughput and 16-bit roughly doubles it, so neither is
+    // imposed. The default script must therefore be exactly what it was before
+    // the working-format block existed.
+    create_output_dir();
+
+    let mut job = create_base_job("test_58_deint_working_format_default");
+    job.qtgmc_parameters = QTGMCParameters {
+        enabled: true,
+        preset: QTGMCPreset::Fast,
+        tff: Some(true),
+        ..QTGMCParameters::default()
+    };
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+
+    let generator = ScriptGenerator::new().unwrap();
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    for marker in [
+        "_deint_src_format",
+        "_deint_ss_h",
+        "_deint_bits",
+        "DEINT_WORKING_FORMAT",
+    ] {
+        assert!(!script.contains(marker), "expected no '{}' by default", marker);
+    }
+    assert!(script.contains("haf.QTGMC("), "QTGMC call should still be generated");
+}
+
+#[test]
+fn test_58b_deinterlace_chroma_upsample_opt_in() {
+    // Issue #49: interlaced 4:2:0 stores chroma per field, so interpolating it
+    // at 4:2:0 mixes the two fields' chroma. When the option is enabled the
+    // pass converts to 4:2:2 (field-aware, since zimg honours _FieldBased) and
+    // restores the source format afterwards, without touching the bit depth.
+    create_output_dir();
+
+    let mut job = create_base_job("test_58b_deint_chroma_upsample");
+    job.qtgmc_parameters = QTGMCParameters {
+        enabled: true,
+        preset: QTGMCPreset::Fast,
+        tff: Some(true),
+        chroma_upsample_fix: Some(true),
+        ..QTGMCParameters::default()
+    };
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "Deinterlace Chroma Upsample (opt-in)", &[
+        "_deint_src_format = clip.format",
+        "_deint_ss_h = 0",
+        "subsampling_h=_deint_ss_h",
+        "dither_type=\"error_diffusion\"",
+    ]).unwrap();
+
+    // Enabling the chroma fix must not drag 16-bit along with it.
+    let generator = ScriptGenerator::new().unwrap();
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    assert!(
+        !script.contains("_deint_bits = max(_deint_bits, 16)"),
+        "16-bit processing should stay off unless separately enabled"
+    );
+}
+
+#[test]
+fn test_59_deinterlace_high_precision() {
+    // 16-bit on its own: the bit depth is raised and dithered back, and the
+    // chroma subsampling is left alone because the two options are independent.
+    create_output_dir();
+
+    let mut job = create_base_job("test_59_deint_high_precision");
+    job.qtgmc_parameters = QTGMCParameters {
+        enabled: true,
+        preset: QTGMCPreset::Fast,
+        tff: Some(true),
+        high_precision: Some(true),
+        ..QTGMCParameters::default()
+    };
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "Deinterlace Working Format (16-bit)", &[
+        "_deint_src_format = clip.format",
+        "_deint_bits = max(_deint_bits, 16)",
+        "dither_type=\"error_diffusion\"",
+    ]).unwrap();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    assert!(
+        !script.contains("_deint_ss_h = 0"),
+        "16-bit must not enable the chroma upsample as a side effect"
+    );
+}
+
+#[test]
+fn test_59b_deinterlace_both_working_format_options() {
+    // Both on: 4:2:2 and 16-bit, restored to the source format afterwards.
+    create_output_dir();
+
+    let mut job = create_base_job("test_59b_deint_both_options");
+    job.qtgmc_parameters = QTGMCParameters {
+        enabled: true,
+        preset: QTGMCPreset::Fast,
+        tff: Some(true),
+        chroma_upsample_fix: Some(true),
+        high_precision: Some(true),
+        ..QTGMCParameters::default()
+    };
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "Deinterlace Working Format (4:2:2 + 16-bit)", &[
+        "_deint_ss_h = 0",
+        "_deint_bits = max(_deint_bits, 16)",
+        "dither_type=\"error_diffusion\"",
+    ]).unwrap();
+}
+
+#[test]
+fn test_60_deinterlace_working_format_disabled() {
+    // Both off: the script must be exactly what it was before the working-format
+    // block existed, so the conversion can't cost anything when it's not wanted.
+    create_output_dir();
+
+    let mut job = create_base_job("test_60_deint_working_format_off");
+    job.qtgmc_parameters = QTGMCParameters {
+        enabled: true,
+        preset: QTGMCPreset::Fast,
+        tff: Some(true),
+        chroma_upsample_fix: Some(false),
+        high_precision: Some(false),
+        ..QTGMCParameters::default()
+    };
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+
+    let generator = ScriptGenerator::new().unwrap();
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    for marker in ["_deint_src_format", "_deint_ss_h", "_deint_bits", "DEINT_WORKING_FORMAT"] {
+        assert!(!script.contains(marker), "expected no '{}' when both options are off", marker);
+    }
+    assert!(script.contains("haf.QTGMC("), "QTGMC call should still be generated");
+}
+
+#[test]
+fn test_61_chroma_edi_rejects_unsupported_value() {
+    // Issue #49: havsfunc implements only ChromaEdi '' / 'nnedi3' / 'bob'. Any
+    // other non-empty value disables chroma EDI and then returns the luma-only
+    // interpolation without restoring chroma, which badly corrupts chroma. Such
+    // values must be dropped so QTGMC falls back to its default.
+    create_output_dir();
+
+    let mut base = create_base_job("test_61_chroma_edi_guard");
+    base.qtgmc_parameters = QTGMCParameters {
+        enabled: true,
+        preset: QTGMCPreset::Fast,
+        tff: Some(true),
+        ..QTGMCParameters::default()
+    };
+
+    let generator = ScriptGenerator::new().unwrap();
+    let render = |chroma_edi: Option<&str>| {
+        let mut job = base.clone();
+        job.qtgmc_parameters.chroma_edi = chroma_edi.map(str::to_string);
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: job.qtgmc_parameters.clone(),
+            ..ProcessingPipeline::default()
+        });
+        std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap()
+    };
+
+    // Supported values pass through, lowercased the way QTGMC lowercases them.
+    assert!(render(Some("NNEDI3")).contains("ChromaEdi=\"nnedi3\""));
+    assert!(render(Some("Bob")).contains("ChromaEdi=\"bob\""));
+
+    // The empty string is QTGMC's own default and stays.
+    for value in ["", "   "] {
+        assert!(
+            render(Some(value)).contains("ChromaEdi=\"\""),
+            "ChromaEdi={:?} should pass through as the default",
+            value
+        );
+    }
+
+    // Unsupported values are omitted entirely.
+    for value in ["Blend", "nonsense"] {
+        assert!(
+            !render(Some(value)).contains("ChromaEdi="),
+            "ChromaEdi={:?} should have been dropped",
+            value
+        );
+    }
+}
+
+#[test]
+fn test_62_field_based_follows_deinterlace_tff() {
+    // Issue #49: std.SeparateFields ignores its `tff` argument whenever
+    // _FieldBased is set, so the property decides the field order that is
+    // actually used. It must therefore be derived from the same value as
+    // QTGMC's TFF argument — otherwise autodetection silently overrides the
+    // user's field-order choice.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let render = |tff: bool, detected: Option<FieldOrder>| {
+        let mut job = create_base_job("test_62_field_based");
+        job.detected_field_order = detected;
+        job.qtgmc_parameters = QTGMCParameters {
+            enabled: true,
+            preset: QTGMCPreset::Fast,
+            tff: Some(tff),
+            ..QTGMCParameters::default()
+        };
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: job.qtgmc_parameters.clone(),
+            ..ProcessingPipeline::default()
+        });
+        std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap()
+    };
+
+    // BFF requested while detection says TFF: the property must say BFF (1),
+    // matching TFF=False, not follow the detected order.
+    let script = render(false, Some(FieldOrder::TopFieldFirst));
+    assert!(script.contains("core.std.SetFieldBased(clip, 1)"), "expected BFF marking");
+    assert!(script.contains("TFF=False"), "expected TFF=False");
+
+    // And the reverse.
+    let script = render(true, Some(FieldOrder::BottomFieldFirst));
+    assert!(script.contains("core.std.SetFieldBased(clip, 2)"), "expected TFF marking");
+    assert!(script.contains("TFF=True"), "expected TFF=True");
 }

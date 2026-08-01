@@ -48,6 +48,21 @@ pub struct QTGMCParameters {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fps_divisor: Option<i32>,
 
+    // === Working Format (issue #49) ===
+    /// Upsample 4:2:0 chroma to 4:2:2 with field-aware resampling before
+    /// deinterlacing, and restore the source format afterwards. Interlaced
+    /// 4:2:0 stores chroma per field, so interpolating it at 4:2:0 mixes the
+    /// two fields' chroma. Costs roughly 30% throughput (measured 35 -> 24 fps),
+    /// so `None` = disabled and the quality/speed trade-off is the user's call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chroma_upsample_fix: Option<bool>,
+
+    /// Run the deinterlace pass at 16-bit and dither back afterwards. QTGMC
+    /// performs many merge/expr steps that round at the working depth. Costs
+    /// roughly 2x time and memory, so `None` = disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub high_precision: Option<bool>,
+
     // === Quality (Temporal Radius) ===
     /// Temporal radius for pre-filtering (0-2)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -391,6 +406,44 @@ pub struct QTGMCParameters {
 // Default value functions
 fn default_true() -> bool { true }
 
+/// ChromaEdi values havsfunc's QTGMC actually implements. Any other non-empty
+/// string disables chroma EDI (`planes=[0]`) and then returns the luma-only
+/// interpolation without ever restoring chroma, producing badly broken chroma
+/// (issue #49) — so unsupported values are dropped rather than passed through.
+const SUPPORTED_CHROMA_EDI: [&str; 2] = ["nnedi3", "bob"];
+
+impl QTGMCParameters {
+    /// Whether to upsample 4:2:0 chroma to 4:2:2 around the deinterlace pass.
+    /// Defaults to disabled: it is the more correct way to handle interlaced
+    /// 4:2:0 chroma, but it costs roughly 30% throughput, so it is offered as
+    /// an option rather than imposed.
+    pub fn chroma_upsample_fix_enabled(&self) -> bool {
+        self.chroma_upsample_fix.unwrap_or(false)
+    }
+
+    /// Whether to run the deinterlace pass at 16-bit. Defaults to disabled
+    /// because it roughly doubles processing time.
+    pub fn high_precision_enabled(&self) -> bool {
+        self.high_precision.unwrap_or(false)
+    }
+
+    /// `chroma_edi` restricted to the values havsfunc implements, lowercased
+    /// the way QTGMC itself does.
+    ///
+    /// The empty string is passed through — it is QTGMC's own default and means
+    /// "interpolate chroma with the main EDI". Unsupported non-empty values
+    /// return `None` so the parameter is omitted entirely rather than sent
+    /// through to the broken code path.
+    pub fn normalized_chroma_edi(&self) -> Option<String> {
+        let value = self.chroma_edi.as_deref()?.trim().to_lowercase();
+        if value.is_empty() || SUPPORTED_CHROMA_EDI.contains(&value.as_str()) {
+            Some(value)
+        } else {
+            None
+        }
+    }
+}
+
 impl Default for QTGMCParameters {
     fn default() -> Self {
         Self {
@@ -400,6 +453,8 @@ impl Default for QTGMCParameters {
             input_type: None,
             tff: None,
             fps_divisor: None,
+            chroma_upsample_fix: None,
+            high_precision: None,
             tr0: None,
             tr1: None,
             tr2: None,

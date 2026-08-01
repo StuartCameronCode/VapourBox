@@ -11,6 +11,7 @@ use anyhow::{Context, Result};
 use crate::models::{
     VideoJob, ProcessingPipeline, NoiseReductionMethod, ResizeKernel, UpscaleMethod,
     DehaloMethod, DeblockMethod, SharpenMethod, ChromaSubsampling, DeinterlaceMethod,
+    FieldOrder,
 };
 
 /// Generates VapourSynth scripts from templates.
@@ -44,8 +45,6 @@ pub struct PreviewParams {
     pub fps_num: i32,
     /// FPS denominator
     pub fps_den: i32,
-    /// Field order: 1 = BFF, 2 = TFF
-    pub field_based: i32,
     /// Output frame index to emit as the preview (after the pipeline runs on
     /// the decoded window). Accounts for any frame-rate change in the pipeline.
     pub output_index: i32,
@@ -111,11 +110,12 @@ impl ScriptGenerator {
         script = script.replace("{{FPS_NUM}}", &preview_params.fps_num.to_string());
         script = script.replace("{{FPS_DEN}}", &preview_params.fps_den.to_string());
         script = script.replace("{{PREVIEW_OUTPUT_INDEX}}", &preview_params.output_index.to_string());
-        // Field-based: only set when deinterlacing is enabled
-        if pipeline.deinterlace.enabled {
+        // Field-based: same derivation as the encode path, so the preview can't
+        // deinterlace at a different field order than the final render.
+        if let Some(fb) = Self::field_based_for(job, &pipeline) {
             script = script.replace("{{#SET_FIELD_BASED}}", "");
             script = script.replace("{{/SET_FIELD_BASED}}", "");
-            script = script.replace("{{FIELD_BASED}}", &preview_params.field_based.to_string());
+            script = script.replace("{{FIELD_BASED}}", &fb.to_string());
         } else {
             script = remove_block("{{#SET_FIELD_BASED}}", "{{/SET_FIELD_BASED}}", script);
         }
@@ -182,6 +182,30 @@ impl ScriptGenerator {
         )
     }
 
+    /// The `_FieldBased` value to mark the source clip with, or `None` to leave
+    /// it unmarked.
+    ///
+    /// This is the single derivation used by both the encode and the preview
+    /// path. It must stay that way: `std.SeparateFields` ignores its `tff`
+    /// argument whenever `_FieldBased` is set, so the property — not QTGMC's
+    /// `TFF=` parameter — decides the field order that is actually used. Two
+    /// derivations that can disagree means the user's field-order choice can be
+    /// silently overridden, and preview can disagree with the encode (issue #49).
+    pub fn field_based_for(job: &VideoJob, pipeline: &ProcessingPipeline) -> Option<i32> {
+        if pipeline.deinterlace.enabled {
+            // Deinterlacing: the pass's own field order is authoritative.
+            Some(if pipeline.deinterlace.tff.unwrap_or(true) { 2 } else { 1 })
+        } else {
+            // Not deinterlacing: still mark what was detected, so field-aware
+            // chroma resampling in any later resize stays correct.
+            match job.detected_field_order {
+                Some(FieldOrder::TopFieldFirst) => Some(2),
+                Some(FieldOrder::BottomFieldFirst) => Some(1),
+                _ => None,
+            }
+        }
+    }
+
     /// Substitute parameters in a script string.
     fn substitute_parameters(&self, template: &str, job: &VideoJob, pipeline: &ProcessingPipeline, _input_path: &str) -> String {
         let mut script = template.to_string();
@@ -206,19 +230,15 @@ impl ScriptGenerator {
         script = script.replace("{{INPUT_FPS_NUM}}", &fps_num.to_string());
         script = script.replace("{{INPUT_FPS_DEN}}", &fps_den.to_string());
 
-        // Field order — set from detected field order or TFF parameter
-        let field_based = match job.detected_field_order {
-            Some(crate::models::FieldOrder::TopFieldFirst) => Some(2),
-            Some(crate::models::FieldOrder::BottomFieldFirst) => Some(1),
-            _ => {
-                // Fall back to QTGMC TFF parameter
-                if pipeline.deinterlace.enabled {
-                    Some(if pipeline.deinterlace.tff.unwrap_or(true) { 2 } else { 1 })
-                } else {
-                    None
-                }
-            }
-        };
+        // Field order.
+        //
+        // When deinterlacing, this MUST come from the same value as the
+        // deinterlacer's TFF argument: std.SeparateFields ignores its `tff`
+        // argument whenever _FieldBased is set, so deriving the two from
+        // different sources lets the property silently override the user's
+        // field-order choice (issue #49). `field_based_for` is the single
+        // derivation shared with the preview path.
+        let field_based = ScriptGenerator::field_based_for(job, pipeline);
         if let Some(fb) = field_based {
             script = script.replace("{{#SET_FIELD_BASED}}", "");
             script = script.replace("{{/SET_FIELD_BASED}}", "");
@@ -323,6 +343,34 @@ impl ScriptGenerator {
                     script = remove_block("{{#DEINT_IVTC}}", "{{/DEINT_IVTC}}", script);
                     script = remove_block("{{#DEINT_SOFT_TELECINE}}", "{{/DEINT_SOFT_TELECINE}}", script);
 
+                    // Working format around the QTGMC call (issue #49): 4:2:2
+                    // chroma and/or 16-bit, restored to the source format after.
+                    // Only emitted when at least one of them is on, so the
+                    // common case generates exactly the script it did before.
+                    let chroma_fix = params.chroma_upsample_fix_enabled();
+                    let high_precision = params.high_precision_enabled();
+                    if chroma_fix || high_precision {
+                        script = script.replace("{{#DEINT_WORKING_FORMAT}}", "");
+                        script = script.replace("{{/DEINT_WORKING_FORMAT}}", "");
+                        script = script.replace("{{#DEINT_RESTORE_FORMAT}}", "");
+                        script = script.replace("{{/DEINT_RESTORE_FORMAT}}", "");
+                        if chroma_fix {
+                            script = script.replace("{{#DEINT_WF_CHROMA}}", "");
+                            script = script.replace("{{/DEINT_WF_CHROMA}}", "");
+                        } else {
+                            script = remove_block("{{#DEINT_WF_CHROMA}}", "{{/DEINT_WF_CHROMA}}", script);
+                        }
+                        if high_precision {
+                            script = script.replace("{{#DEINT_WF_BITS}}", "");
+                            script = script.replace("{{/DEINT_WF_BITS}}", "");
+                        } else {
+                            script = remove_block("{{#DEINT_WF_BITS}}", "{{/DEINT_WF_BITS}}", script);
+                        }
+                    } else {
+                        script = remove_block("{{#DEINT_WORKING_FORMAT}}", "{{/DEINT_WORKING_FORMAT}}", script);
+                        script = remove_block("{{#DEINT_RESTORE_FORMAT}}", "{{/DEINT_RESTORE_FORMAT}}", script);
+                    }
+
                     // Preset (required)
                     script = script.replace("{{PRESET}}", params.preset.as_str());
 
@@ -346,7 +394,9 @@ impl ScriptGenerator {
                     script = process_optional_int("NN_NEURONS", params.nn_neurons, script);
                     script = process_optional_int("EDI_QUAL", params.edi_qual, script);
                     script = process_optional_int("EDI_MAX_D", params.edi_max_d, script);
-                    script = process_optional_string("CHROMA_EDI", params.chroma_edi.as_deref(), script);
+                    // Only values havsfunc implements — anything else silently
+                    // breaks chroma (issue #49). See normalized_chroma_edi.
+                    script = process_optional_string("CHROMA_EDI", params.normalized_chroma_edi().as_deref(), script);
 
                     // Motion analysis
                     script = process_optional_int("BLOCK_SIZE", params.block_size, script);
