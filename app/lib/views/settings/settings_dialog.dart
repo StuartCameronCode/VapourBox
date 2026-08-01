@@ -11,6 +11,7 @@ import '../../models/encoding_settings.dart';
 import '../../models/video_job.dart';
 import '../../services/dependency_manager.dart';
 import '../../services/hardware_encoder_detector.dart';
+import '../../services/temp_directory_service.dart';
 import '../../services/update_checker.dart';
 import '../../utils/pixel_format.dart';
 import '../../viewmodels/main_viewmodel.dart';
@@ -1205,10 +1206,47 @@ class _GeneralSettingsTabState extends State<_GeneralSettingsTab> {
   bool _checkForUpdates = true;
   bool _isLoading = true;
 
+  /// Temp directory override, or null when using the system default. Mirrors
+  /// [TempDirectoryService] so the row repaints as soon as it's changed.
+  String? _tempOverride;
+
   @override
   void initState() {
     super.initState();
+    _tempOverride = TempDirectoryService.instance.override;
     _loadSettings();
+  }
+
+  /// Pick a directory for scratch files.
+  Future<void> _selectTempDirectory() async {
+    final result = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Select Temporary Files Directory',
+      initialDirectory: _tempOverride,
+    );
+    if (result != null) {
+      await _setTempDirectory(result);
+    }
+  }
+
+  /// Apply a temp directory choice; null resets to the system default. The
+  /// service verifies the directory is writable, so report a failure rather
+  /// than storing a path that would break the next job.
+  Future<void> _setTempDirectory(String? directory) async {
+    try {
+      await TempDirectoryService.instance.setOverride(directory);
+      if (mounted) {
+        setState(() => _tempOverride = TempDirectoryService.instance.override);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Cannot use that directory: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -1245,6 +1283,65 @@ class _GeneralSettingsTabState extends State<_GeneralSettingsTab> {
             subtitle: const Text('Notify when a new version is available'),
             value: _checkForUpdates,
             onChanged: _setCheckForUpdates,
+          ),
+        ),
+
+        const SizedBox(height: 24),
+
+        _buildSection(
+          context,
+          title: 'Temporary Files',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _tempOverride ??
+                            'System default (${TempDirectoryService.instance.systemDefault})',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontFamily: 'monospace',
+                              fontStyle: _tempOverride == null
+                                  ? FontStyle.italic
+                                  : FontStyle.normal,
+                            ),
+                      ),
+                    ),
+                    if (_tempOverride != null)
+                      IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () => _setTempDirectory(null),
+                        tooltip: 'Reset to system default',
+                      ),
+                    IconButton(
+                      icon: const Icon(Icons.folder_open),
+                      onPressed: _selectTempDirectory,
+                      tooltip: 'Choose directory',
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Generated VapourSynth scripts, preview frames, job files and '
+                'extracted DVD titles are written here. Point it at a fast '
+                'drive with room to spare — DVD extraction alone can need '
+                'several GB. Takes effect for the next job.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.6),
+                    ),
+              ),
+            ],
           ),
         ),
 

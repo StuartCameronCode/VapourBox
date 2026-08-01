@@ -4,6 +4,7 @@ import 'dart:io';
 
 import '../models/progress_info.dart';
 import '../models/video_job.dart';
+import 'temp_directory_service.dart';
 import 'tool_locator.dart';
 
 /// Manages the worker process lifecycle and IPC.
@@ -48,8 +49,9 @@ class WorkerManager {
     }
 
     // Write job config to temp file
-    final tempDir = Directory.systemTemp;
-    final configFile = File('${tempDir.path}/vapourbox_job_${job.id}.json');
+    final configFile = File(
+      await TempDirectoryService.instance.filePath('vapourbox_job_${job.id}.json'),
+    );
     await configFile.writeAsString(jsonEncode(job.toJson()));
 
     try {

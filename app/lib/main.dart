@@ -7,6 +7,7 @@ import 'models/filter_registry.dart';
 import 'services/dependency_manager.dart';
 import 'services/hardware_encoder_detector.dart';
 import 'services/preset_service.dart';
+import 'services/temp_directory_service.dart';
 import 'services/tool_locator.dart';
 import 'services/update_checker.dart';
 import 'viewmodels/main_viewmodel.dart';
@@ -19,6 +20,10 @@ void main() async {
 
   // Initialize rhttp (required for Rust FFI on Windows)
   await Rhttp.init();
+
+  // Load the temp directory override before anything writes a scratch file
+  // (the dependency download on first run is the earliest of them).
+  await TempDirectoryService.instance.initialize();
 
   // Initialize window manager for desktop
   await windowManager.ensureInitialized();

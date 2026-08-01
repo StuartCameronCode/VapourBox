@@ -9,6 +9,8 @@ import 'package:flutter/services.dart';
 import 'package:rhttp/rhttp.dart';
 import 'package:path/path.dart' as path;
 
+import 'temp_directory_service.dart';
+
 /// Status of the dependency installation.
 enum DependencyStatus {
   /// Dependencies are installed and up-to-date
@@ -418,7 +420,8 @@ class DependencyManager {
         await _fetchExpectedSha256(expected.getManifestUrl(platformId));
 
     // Create temp file for download
-    final tempDir = await Directory.systemTemp.createTemp('vapourbox_deps_');
+    final tempDir =
+        await TempDirectoryService.instance.createTemp('vapourbox_deps_');
     final tempFile = File(path.join(tempDir.path, filename));
 
     try {

@@ -20,6 +20,7 @@ import '../services/field_order_detector.dart';
 import '../services/frame_math.dart';
 import '../services/preset_service.dart';
 import '../services/preview_generator.dart';
+import '../services/temp_directory_service.dart';
 import '../services/worker_manager.dart';
 
 /// Main view model managing application state.
@@ -1358,9 +1359,10 @@ class MainViewModel extends ChangeNotifier {
     // Create temp file for the extraction.
     // Sanitize volume label to remove characters illegal in filenames (e.g., ":" from "D:\").
     final safeLabel = dvdInfo.volumeLabel.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-    final tempDir = Directory.systemTemp;
     final tempFile = File(
-      '${tempDir.path}/vapourbox_dvd_${safeLabel}_t${titleIndex}_${DateTime.now().millisecondsSinceEpoch}.mpg',
+      await TempDirectoryService.instance.filePath(
+        'vapourbox_dvd_${safeLabel}_t${titleIndex}_${DateTime.now().millisecondsSinceEpoch}.mpg',
+      ),
     );
 
     final dvdSourceInfo = DvdSourceInfo(

@@ -105,6 +105,7 @@ VapourBox/
 | `app/lib/services/worker_manager.dart` | Process spawning, IPC |
 | `app/lib/services/filter_loader.dart` | Load filter schemas from JSON |
 | `app/lib/services/preset_service.dart` | Save/load user presets |
+| `app/lib/services/temp_directory_service.dart` | Configurable scratch-file directory (see "Temporary Files Directory") |
 | `app/assets/filters/core/*.json` | Built-in filter schema definitions |
 
 ## Build Commands
@@ -428,6 +429,36 @@ Filters are defined as JSON schemas in `app/assets/filters/core/` (built-in) or 
 **Widgets**: `slider`, `dropdown`, `checkbox`, `textfield`, `number`.
 **`optional: true`**: Shows enable checkbox; when disabled, parameter is omitted (uses VS default).
 **`visibleWhen`**: Conditional visibility, e.g. `{ "method": ["method_a"] }`.
+
+### Temporary Files Directory
+
+Scratch files default to the system temp directory, and the user can redirect
+them in **Settings → General → Temporary Files** (✕ resets to the default). The
+choice is persisted in shared_preferences under `tempDirectoryOverride` and
+loaded by `TempDirectoryService.initialize()` in `main()`, before the first-run
+dependency download — the earliest thing that writes a temp file.
+
+Two mechanisms cover the two processes, and both matter:
+
+- **Dart** call sites use `TempDirectoryService.instance` (`resolve()`,
+  `filePath()`, `createTemp()`). **Don't add new `Directory.systemTemp` uses** —
+  they would ignore the setting. Current users: worker job config
+  (`worker_manager`), preview frames/config (`preview_generator`), DVD
+  extraction (`main_viewmodel`), deps and whisper downloads.
+- **Rust** needs no per-path plumbing: `ToolLocator.workerEnvironment` sets
+  `TMPDIR` (Unix) and `TMP`/`TEMP` (Windows) from the effective path, so every
+  `env::temp_dir()` in the worker — generated `.vpy` scripts, progress files,
+  preview raw frames, OpenCL/KNLM probes, the macOS vspipe conf — follows it,
+  as do the ffmpeg and vspipe children. Those vars are applied per call rather
+  than baked into the cached env map, so a change takes effect immediately.
+  **Any new worker/tool spawn must pass `workerEnvironment`** or it silently
+  reverts to the system temp directory.
+
+`resolve()` recreates the directory if missing and falls back to system temp if
+it can't (external drive unplugged) — a job in the wrong temp directory beats a
+job that can't run. `setOverride` verifies writability by writing a probe file,
+so a read-only volume is rejected at selection time rather than at job time.
+Covered by `app/test/temp_directory_service_test.dart`.
 
 ### Preset System
 

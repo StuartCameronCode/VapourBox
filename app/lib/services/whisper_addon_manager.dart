@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as path;
 
 import 'addon_manager.dart';
+import 'temp_directory_service.dart';
 
 /// Manages Whisper add-on binary and model downloads.
 class WhisperAddonManager {
@@ -162,7 +163,8 @@ class WhisperAddonManager {
     final whisperDir = await getWhisperDir();
     await whisperDir.create(recursive: true);
 
-    final tempDir = await Directory.systemTemp.createTemp('vapourbox_whisper_');
+    final tempDir =
+        await TempDirectoryService.instance.createTemp('vapourbox_whisper_');
     final tempFile = File(path.join(tempDir.path,
         (format == 'homebrew-bottle' || format == 'tar')
             ? 'whisper.tar.gz'
