@@ -34,6 +34,23 @@ enum UpscaleMethod {
   spline36,
 }
 
+/// What to do with the pixel aspect ratio (SAR) on output.
+enum PixelAspectMode {
+  /// Leave the pixel grid alone and carry the source's SAR through to the
+  /// output metadata. Non-square pixels stay non-square.
+  @JsonValue('preserve')
+  preserve,
+
+  /// Resample so the output has square pixels at the same display shape — what
+  /// an anamorphic DVD needs before it looks right in most players and editors.
+  @JsonValue('square')
+  square,
+
+  /// Stamp an explicit SAR, for a source whose flag is simply wrong.
+  @JsonValue('custom')
+  custom,
+}
+
 /// Crop/resize preset options.
 enum CropResizePreset {
   @JsonValue('off')
@@ -102,6 +119,22 @@ class CropResizeParameters {
   /// Maintain aspect ratio when resizing.
   final bool maintainAspect;
 
+  // --- Aspect ratio ---
+
+  /// What to do with the pixel aspect ratio on output.
+  final PixelAspectMode pixelAspect;
+
+  /// SAR to stamp when [pixelAspect] is custom, as "N:M" or a decimal.
+  final String? customSar;
+
+  /// Force a display aspect ratio ("16:9", "4:3", "1.85"), overriding the one
+  /// implied by the source's dimensions and SAR. Null uses the source's.
+  final String? displayAspect;
+
+  /// Pad (letterbox/pillarbox) to fill the target box instead of leaving the
+  /// fitted image smaller than it in one axis.
+  final bool padToAspect;
+
   // --- Upscale Parameters (for integer scaling) ---
 
   /// Whether to use integer upscaling (2x, 4x) instead of arbitrary resize.
@@ -166,6 +199,11 @@ class CropResizeParameters {
     this.bicubicC,
     this.lanczosTaps,
     this.maintainAspect = true,
+    // Aspect defaults
+    this.pixelAspect = PixelAspectMode.preserve,
+    this.customSar,
+    this.displayAspect,
+    this.padToAspect = false,
     // Upscale defaults
     this.useIntegerUpscale = false,
     this.upscaleMethod = UpscaleMethod.nnedi3Rpow2,
@@ -253,6 +291,10 @@ class CropResizeParameters {
     double? bicubicC,
     int? lanczosTaps,
     bool? maintainAspect,
+    PixelAspectMode? pixelAspect,
+    String? customSar,
+    String? displayAspect,
+    bool? padToAspect,
     bool? useIntegerUpscale,
     UpscaleMethod? upscaleMethod,
     int? upscaleFactor,
@@ -283,6 +325,10 @@ class CropResizeParameters {
       bicubicC: bicubicC ?? this.bicubicC,
       lanczosTaps: lanczosTaps ?? this.lanczosTaps,
       maintainAspect: maintainAspect ?? this.maintainAspect,
+      pixelAspect: pixelAspect ?? this.pixelAspect,
+      customSar: customSar ?? this.customSar,
+      displayAspect: displayAspect ?? this.displayAspect,
+      padToAspect: padToAspect ?? this.padToAspect,
       useIntegerUpscale: useIntegerUpscale ?? this.useIntegerUpscale,
       upscaleMethod: upscaleMethod ?? this.upscaleMethod,
       upscaleFactor: upscaleFactor ?? this.upscaleFactor,
@@ -331,6 +377,10 @@ class CropResizeParameters {
     }
     if (useIntegerUpscale) {
       parts.add('${upscaleFactor}x');
+    }
+    if (pixelAspect == PixelAspectMode.square) parts.add('Square px');
+    if (displayAspect != null && displayAspect!.isNotEmpty) {
+      parts.add('DAR $displayAspect');
     }
     return parts.isEmpty ? 'Custom' : parts.join(' ');
   }

@@ -448,6 +448,8 @@ class ParameterConverter {
       'targetHeight': params.targetHeight,
       'kernel': params.kernel.name,
       'maintainAspect': params.maintainAspect,
+      'pixelAspect': params.pixelAspect.name,
+      'padToAspect': params.padToAspect,
       'useIntegerUpscale': params.useIntegerUpscale,
       'upscaleMethod': params.upscaleMethod.name,
       'upscaleFactor': params.upscaleFactor,
@@ -464,6 +466,8 @@ class ParameterConverter {
       }
     }
 
+    optional('customSar', params.customSar, '10:11');
+    optional('displayAspect', params.displayAspect, '16:9');
     optional('bicubicB', params.bicubicB, 0.0);
     optional('bicubicC', params.bicubicC, 0.5);
     optional('lanczosTaps', params.lanczosTaps, 3);
@@ -902,6 +906,14 @@ class ParameterConverter {
         orElse: () => ResizeKernel.spline36,
       ),
       maintainAspect: v['maintainAspect'] as bool? ?? true,
+      pixelAspect: PixelAspectMode.values.firstWhere(
+        (m) => m.name == (v['pixelAspect'] as String? ?? 'preserve'),
+        orElse: () => PixelAspectMode.preserve,
+      ),
+      // Absent (checkbox off) means "use the source's own aspect".
+      customSar: v['customSar'] as String?,
+      displayAspect: v['displayAspect'] as String?,
+      padToAspect: v['padToAspect'] as bool? ?? false,
       useIntegerUpscale: v['useIntegerUpscale'] as bool? ?? false,
       upscaleMethod: UpscaleMethod.values.firstWhere(
         (m) => m.name.toLowerCase() == (v['upscaleMethod'] as String? ?? 'nnedi3Rpow2').toLowerCase(),

@@ -1117,27 +1117,53 @@ clip = core.resize.Spline36(clip, width=clip.width * {{UPSCALE_FACTOR}}, height=
 {{/RESIZE_INTEGER_UPSCALE}}
 
 {{#RESIZE_STANDARD}}
+# The shape the frame is meant to be *seen* at. On an anamorphic source the
+# stored frame is the wrong shape on purpose (720x576 shown as 16:9), so fitting
+# a target box by stored dimensions alone gets the geometry wrong — which is what
+# used to happen here.
+{{#ASPECT_DAR_OVERRIDE}}
+_display_aspect = {{ASPECT_DAR}}
+{{/ASPECT_DAR_OVERRIDE}}
+{{#ASPECT_DAR_FROM_SOURCE}}
+_display_aspect = (clip.width * {{SOURCE_SAR}}) / clip.height
+{{/ASPECT_DAR_FROM_SOURCE}}
+
+
+def _even(value):
+    # Chroma subsampling needs even dimensions; never round down to zero.
+    return max(2, int(round(value)) & ~1)
+
+
+# Storage aspect when the pixel grid is left alone, display aspect when we are
+# resampling to square pixels: that is exactly what "square up" means.
+{{#ASPECT_SQUARE_PIXELS}}
+_fit_aspect = _display_aspect
+{{/ASPECT_SQUARE_PIXELS}}
+{{#ASPECT_KEEP_PIXELS}}
+_fit_aspect = clip.width / clip.height
+{{/ASPECT_KEEP_PIXELS}}
+
 # Calculate target dimensions
 target_w = {{TARGET_WIDTH}}
 target_h = {{TARGET_HEIGHT}}
+{{#ASPECT_SQUARE_PIXELS}}
+if target_w <= 0 and target_h <= 0:
+    # Squaring the pixels with no target size: keep the height and widen (or
+    # narrow) the frame until the picture is the right shape.
+    target_h = clip.height
+{{/ASPECT_SQUARE_PIXELS}}
+_box_w, _box_h = target_w, target_h
 {{#MAINTAIN_ASPECT}}
-# Maintain aspect ratio - calculate missing dimension
-aspect = clip.width / clip.height
+# Maintain aspect ratio - calculate the missing dimension, or fit inside the box
 if target_w > 0 and target_h <= 0:
-    target_h = int(target_w / aspect)
-    target_h = target_h - (target_h % 2)  # Ensure even
+    target_h = _even(target_w / _fit_aspect)
 elif target_h > 0 and target_w <= 0:
-    target_w = int(target_h * aspect)
-    target_w = target_w - (target_w % 2)  # Ensure even
+    target_w = _even(target_h * _fit_aspect)
 elif target_w > 0 and target_h > 0:
     # Both specified - fit within bounds while maintaining aspect
-    scale_w = target_w / clip.width
-    scale_h = target_h / clip.height
-    scale = min(scale_w, scale_h)
-    target_w = int(clip.width * scale)
-    target_w = target_w - (target_w % 2)
-    target_h = int(clip.height * scale)
-    target_h = target_h - (target_h % 2)
+    scale = min(target_w / (clip.height * _fit_aspect), target_h / clip.height)
+    target_w = _even(clip.height * _fit_aspect * scale)
+    target_h = _even(clip.height * scale)
 {{/MAINTAIN_ASPECT}}
 
 # filter_param_a/b carry the kernel's own tuning: b and c for Bicubic, taps
@@ -1153,6 +1179,23 @@ clip = core.resize.{{RESIZE_KERNEL}}(
     filter_param_b={{RESIZE_FILTER_B}},
 {{/RESIZE_FILTER_B}}
 )
+
+{{#ASPECT_PAD}}
+# Letterbox/pillarbox out to the requested box instead of leaving the fitted
+# image smaller than it. Borders are split evenly and kept even for chroma.
+if _box_w > clip.width or _box_h > clip.height:
+    _pad_w = max(0, _even(_box_w) - clip.width)
+    _pad_h = max(0, _even(_box_h) - clip.height)
+    _left = (_pad_w // 2) & ~1
+    _top = (_pad_h // 2) & ~1
+    clip = core.std.AddBorders(
+        clip,
+        left=_left,
+        right=_pad_w - _left,
+        top=_top,
+        bottom=_pad_h - _top,
+    )
+{{/ASPECT_PAD}}
 {{/RESIZE_STANDARD}}
 {{/RESIZE}}
 

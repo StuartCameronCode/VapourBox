@@ -89,7 +89,7 @@ fn preview_window(target: i32, radius: i32) -> (i32, i32, i32) {
 }
 
 use crate::dependency_locator::DependencyLocator;
-use crate::models::{AudioMode, ContainerFormat, DeinterlaceMethod, EncoderFamily, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
+use crate::models::{AspectDeclaration, AudioMode, ContainerFormat, DeinterlaceMethod, EncoderFamily, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
 use crate::pixel_format;
 use crate::progress_reporter::ProgressReporter;
 use crate::script_generator::{PreviewParams, ScriptGenerator};
@@ -725,16 +725,22 @@ impl PipelineExecutor {
             args.extend(["-movflags".to_string(), "+faststart".to_string()]);
         }
 
-        // Preserve input sample aspect ratio (SAR) when no resize is applied.
-        // The Y4M pipe from vspipe strips SAR metadata, so we must re-apply it.
+        // Declare the output's aspect ratio. The Y4M pipe from vspipe strips it,
+        // so it has to be re-applied whatever the pipeline did — including when
+        // a resize ran, which used to drop it and leave an anamorphic source
+        // squashed (#50).
         let pipeline = job.effective_pipeline();
-        let resize_active = pipeline.crop_resize.enabled && pipeline.crop_resize.resize_enabled;
-        if !resize_active {
-            if let Some(sar) = input_sar {
-                // Use '/' as ratio separator — ':' is the ffmpeg filter option separator
-                let sar_filter = sar.replace(':', "/");
-                args.extend(["-vf".to_string(), format!("setsar={}", sar_filter)]);
+        match pipeline.crop_resize.aspect_declaration(input_sar) {
+            AspectDeclaration::Sar(sar) => {
+                // '/' as the ratio separator — ':' is ffmpeg's filter option separator.
+                args.extend(["-vf".to_string(), format!("setsar={}", sar.replace(':', "/"))]);
             }
+            AspectDeclaration::Dar(dar) => {
+                // ffmpeg derives the SAR from the actual frame size, which only
+                // it knows: the dimensions are computed inside the .vpy.
+                args.extend(["-vf".to_string(), format!("setdar={}", dar)]);
+            }
+            AspectDeclaration::None => {}
         }
 
         // Audio handling

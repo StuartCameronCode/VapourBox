@@ -1,7 +1,7 @@
 {
   "$schema": "https://vapourbox.app/schemas/filter-v1.json",
   "id": "crop_resize",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "name": "Crop & Resize",
   "description": "Crop borders and resize or upscale video",
   "longDescription": "Trims unwanted borders and changes the output resolution. Cropping happens first, then resizing.\n\nUse crop to cut the head-switching noise along the bottom of VHS captures and the black overscan edges of broadcast material \u2014 otherwise the encoder spends bitrate on them. Use resize for a target resolution, or the NNEDI3 upscaler for a much better 2x/4x enlargement than a plain kernel. Keep crop values even so they stay aligned with chroma subsampling.",
@@ -25,7 +25,9 @@
         "kernel",
         "bicubicB",
         "bicubicC",
-        "lanczosTaps"
+        "lanczosTaps",
+        "displayAspect",
+        "customSar"
       ]
     },
     {
@@ -566,6 +568,56 @@
           ]
         }
       }
+    },
+    "pixelAspect": {
+      "type": "enum",
+      "default": "preserve",
+      "options": [
+        "preserve",
+        "square",
+        "custom"
+      ],
+      "ui": {
+        "label": "Pixel Aspect",
+        "description": "preserve keeps the source's non-square pixels and tags the output with them; square resamples so the output has square pixels at the same shape on screen (what most players and editors want from an anamorphic DVD); custom stamps a pixel aspect you specify",
+        "widget": "dropdown"
+      }
+    },
+    "customSar": {
+      "type": "string",
+      "default": "10:11",
+      "optional": true,
+      "ui": {
+        "label": "Custom Pixel Aspect",
+        "description": "Pixel aspect ratio to tag the output with, as \"N:M\" (10:11 for NTSC 4:3, 16:11 for PAL 16:9) or a decimal",
+        "widget": "textfield",
+        "visibleWhen": {
+          "pixelAspect": [
+            "custom"
+          ]
+        }
+      }
+    },
+    "displayAspect": {
+      "type": "string",
+      "default": "16:9",
+      "optional": true,
+      "ui": {
+        "label": "Display Aspect",
+        "description": "Force the shape the picture is shown at, as \"4:3\", \"16:9\", \"1.85\" or a decimal. Left off, the source's own shape is used. Use this to fix a source whose aspect flag is wrong",
+        "widget": "textfield"
+      }
+    },
+    "padToAspect": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Pad to Fill",
+        "description": "Letterbox or pillarbox out to the exact target size instead of leaving the picture smaller than it in one direction",
+        "visibleWhen": {
+          "resizeEnabled": true
+        }
+      }
     }
   },
   "parameterPresets": {
@@ -659,6 +711,16 @@
           "bicubicC",
           "lanczosTaps",
           "maintainAspect"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Aspect Ratio",
+        "parameters": [
+          "pixelAspect",
+          "customSar",
+          "displayAspect",
+          "padToAspect"
         ],
         "expanded": true
       },

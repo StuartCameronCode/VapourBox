@@ -431,6 +431,39 @@ Filters are defined as JSON schemas in `app/assets/filters/core/` (built-in) or 
 **`optional: true`**: Shows enable checkbox; when disabled, parameter is omitted (uses VS default).
 **`visibleWhen`**: Conditional visibility, e.g. `{ "method": ["method_a"] }`.
 
+### Aspect Ratio (issue #50)
+
+Three things decide the shape of the output, and they live in different places:
+
+1. **The stored frame size** — computed in the `.vpy`, because only the script
+   knows the clip's dimensions after cropping and deinterlacing.
+2. **The declared aspect** — applied by ffmpeg (`setsar` / `setdar`), because the
+   Y4M pipe from vspipe **strips aspect metadata entirely**. Whatever the
+   pipeline did, something has to re-stamp it.
+3. **`CropResizeParameters::aspect_declaration`** — the single decision of *what*
+   to stamp, unit-tested, used by the encode path.
+
+The bug this replaced: SAR was re-applied only when no resize ran, so resizing an
+anamorphic source silently dropped it and the picture came out the wrong shape.
+
+- **`pixelAspect: preserve`** (default) — leave the grid alone, re-stamp the
+  source's SAR. Fitting a target box uses the **stored** aspect.
+- **`pixelAspect: square`** — resample so the output is square-pixel at the same
+  display shape (what an anamorphic DVD needs for most players). Fitting uses the
+  **display** aspect, `clip.width * SAR / clip.height`. Works with no target size
+  at all: keep the height, change the width.
+- **`pixelAspect: custom`** — stamp a given SAR verbatim.
+- **`displayAspect`** — force the shape on screen. Declared to ffmpeg as a
+  **`setdar`**, not a `setsar`, because the SAR that produces a given DAR depends
+  on the final frame size, which is computed in the script and unknown to the
+  worker.
+- **`padToAspect`** — letterbox/pillarbox out to the exact target box instead of
+  leaving the picture short in one axis.
+
+Whichever axis you change, `parse_ratio` accepts `16:9`, `16/9` and `1.7778`, and
+returns `None` for anything else so a typo falls back to the source's own aspect
+rather than reaching ffmpeg as a broken filter argument.
+
 ### Source Pixel Formats (issue #50)
 
 `templates/pipe_source.py` reads **raw planar frames off stdin**, so it can only

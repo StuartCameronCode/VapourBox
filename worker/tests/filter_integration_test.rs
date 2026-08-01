@@ -2850,3 +2850,122 @@ fn test_79_mcdegrainsharp_frame_count_and_planes() {
     let script = render(2, 4, true);
     assert!(script.contains("_mcds_super_search = core.mv.Super(_mcds_blurred,"));
 }
+
+#[test]
+fn test_80_resize_fits_by_display_aspect_when_squaring_pixels() {
+    // Issue #50: an anamorphic source's stored frame is deliberately the wrong
+    // shape (720x576 shown as 16:9), so fitting a target box by stored
+    // dimensions alone gets the geometry wrong. Squaring the pixels has to fit
+    // by *display* aspect instead.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let render = |crop_resize: CropResizeParameters, sar: Option<&str>| {
+        let mut job = create_base_job("test_80_aspect");
+        job.input_sar = sar.map(str::to_string);
+        job.processing_pipeline = Some(ProcessingPipeline {
+            crop_resize,
+            ..ProcessingPipeline::default()
+        });
+        std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap()
+    };
+
+    let squared = CropResizeParameters {
+        enabled: true,
+        resize_enabled: true,
+        target_width: Some(1920),
+        pixel_aspect: PixelAspectMode::Square,
+        ..CropResizeParameters::default()
+    };
+    let script = render(squared.clone(), Some("16:11"));
+    assert!(script.contains("_display_aspect = (clip.width * 1.4545) / clip.height"));
+    assert!(script.contains("_fit_aspect = _display_aspect"));
+
+    // Preserving the pixel grid fits by stored dimensions, as before.
+    let script = render(
+        CropResizeParameters {
+            pixel_aspect: PixelAspectMode::Preserve,
+            ..squared.clone()
+        },
+        Some("16:11"),
+    );
+    assert!(script.contains("_fit_aspect = clip.width / clip.height"));
+
+    // A square-pixel source has SAR 1, so both routes agree.
+    let script = render(squared, None);
+    assert!(script.contains("_display_aspect = (clip.width * 1.0) / clip.height"));
+}
+
+#[test]
+fn test_81_squaring_pixels_needs_no_target_size() {
+    // "Make this anamorphic source square" is a resize in its own right: keep
+    // the height and change the width until the picture is the right shape.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_81_square_only");
+    job.input_sar = Some("16:11".to_string());
+    job.processing_pipeline = Some(ProcessingPipeline {
+        crop_resize: CropResizeParameters {
+            enabled: true,
+            resize_enabled: false,
+            pixel_aspect: PixelAspectMode::Square,
+            ..CropResizeParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+
+    assert!(script.contains("target_h = clip.height"), "height is kept");
+    assert!(script.contains("target_w = _even(target_h * _fit_aspect)"), "width follows the display aspect");
+    assert!(script.contains("core.resize.Spline36("));
+}
+
+#[test]
+fn test_82_forced_display_aspect_and_padding() {
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let render = |crop_resize: CropResizeParameters| {
+        let mut job = create_base_job("test_82_aspect_options");
+        job.input_sar = Some("10:11".to_string());
+        job.processing_pipeline = Some(ProcessingPipeline {
+            crop_resize,
+            ..ProcessingPipeline::default()
+        });
+        std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap()
+    };
+
+    // A forced display aspect replaces the source-derived one entirely.
+    let script = render(CropResizeParameters {
+        enabled: true,
+        resize_enabled: true,
+        target_height: Some(720),
+        pixel_aspect: PixelAspectMode::Square,
+        display_aspect: Some("16:9".to_string()),
+        ..CropResizeParameters::default()
+    });
+    assert!(script.contains("_display_aspect = 1.7778"));
+    assert!(!script.contains("clip.width * 10"), "the source SAR must not also be used");
+
+    // Padding fills the box instead of leaving the picture short in one axis.
+    let script = render(CropResizeParameters {
+        enabled: true,
+        resize_enabled: true,
+        target_width: Some(1920),
+        target_height: Some(1080),
+        pad_to_aspect: true,
+        ..CropResizeParameters::default()
+    });
+    assert!(script.contains("core.std.AddBorders("));
+
+    // Without a target box there is nothing to pad out to, so the block goes.
+    let script = render(CropResizeParameters {
+        enabled: true,
+        resize_enabled: false,
+        pixel_aspect: PixelAspectMode::Square,
+        pad_to_aspect: true,
+        ..CropResizeParameters::default()
+    });
+    assert!(!script.contains("core.std.AddBorders("));
+}

@@ -83,7 +83,7 @@ Get the latest release for your platform:
 - **Multiple output formats** — H.264, H.265, ProRes, FFV1 lossless, with hardware encoding support (VideoToolbox, NVENC, QSV, AMF)
 - **Audio options** — passthrough, re-encode (AAC, Opus, FLAC), or strip audio
 - **Custom filters** — extend VapourBox with your own VapourSynth filters via [JSON schemas](docs/FILTER_SCHEMA.md)
-- **Aspect ratio preservation** — non-square pixel SAR (e.g., anamorphic DVD) carried through the pipeline
+- **Aspect ratio control** — non-square pixel SAR (e.g. anamorphic DVD) carried through the pipeline, including through a resize; square up anamorphic pixels, force a display aspect, or letterbox to a target size
 - **Motion-compensated denoising** — SMDegrain, MCTemporalDenoise, or MCDegrainSharp, which sharpens where motion matching is confident and softens where it isn't
 - **Chroma denoise (CCD)** — clears the blotchy colour noise on VHS captures and old camcorder footage without touching detail in the picture
 - **White balance** — temperature (warm/cool) and tint (green/magenta) correction alongside brightness, contrast, saturation, hue and levels

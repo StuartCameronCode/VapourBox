@@ -10,6 +10,7 @@ use anyhow::{Context, Result};
 
 use crate::models::{
     VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod, CCD_REFERENCE_HEIGHT,
+    parse_ratio,
     DehaloMethod, DeblockMethod, SharpenMethod, ChromaSubsampling, DeinterlaceMethod,
     FieldOrder,
 };
@@ -1035,7 +1036,13 @@ impl ScriptGenerator {
         // RESIZE PASS
         // ====================================================================
         let resize = &pipeline.crop_resize;
-        if resize.enabled && (resize.resize_enabled || resize.use_integer_upscale) {
+        // Squaring the pixels resamples the grid, so it needs the resize pass
+        // even with no target size — "make this anamorphic source square" is a
+        // resize in its own right.
+        let squares_pixels = resize.squares_pixels();
+        if resize.enabled
+            && (resize.resize_enabled || resize.use_integer_upscale || squares_pixels)
+        {
             script = script.replace("{{#RESIZE}}", "");
             script = script.replace("{{/RESIZE}}", "");
 
@@ -1095,23 +1102,72 @@ impl ScriptGenerator {
                 script = remove_block("{{#RESIZE_INTEGER_UPSCALE}}", "{{/RESIZE_INTEGER_UPSCALE}}", script);
             }
 
-            // Standard resize
-            if resize.resize_enabled {
+            // Standard resize, which also covers a pixel-aspect squaring with no
+            // target size of its own.
+            if resize.resize_enabled || squares_pixels {
                 script = script.replace("{{#RESIZE_STANDARD}}", "");
                 script = script.replace("{{/RESIZE_STANDARD}}", "");
 
                 // Use -1 for unspecified dimensions (maintain aspect will calculate)
-                let width = resize.target_width.unwrap_or(-1);
-                let height = resize.target_height.unwrap_or(-1);
+                let width = if resize.resize_enabled { resize.target_width.unwrap_or(-1) } else { -1 };
+                let height = if resize.resize_enabled { resize.target_height.unwrap_or(-1) } else { -1 };
                 script = script.replace("{{TARGET_WIDTH}}", &width.to_string());
                 script = script.replace("{{TARGET_HEIGHT}}", &height.to_string());
 
-                // Handle maintain aspect ratio
-                if resize.maintain_aspect {
+                // Squaring with no target size has nothing to fit, so the
+                // aspect logic has to run regardless of the user's choice.
+                if resize.maintain_aspect || (squares_pixels && width <= 0 && height <= 0) {
                     script = script.replace("{{#MAINTAIN_ASPECT}}", "");
                     script = script.replace("{{/MAINTAIN_ASPECT}}", "");
                 } else {
                     script = remove_block("{{#MAINTAIN_ASPECT}}", "{{/MAINTAIN_ASPECT}}", script);
+                }
+
+                // Display aspect: an explicit override, else derived from the
+                // source's dimensions and SAR inside the script.
+                if let Some(dar) = resize.display_aspect_ratio() {
+                    script = script.replace("{{#ASPECT_DAR_OVERRIDE}}", "");
+                    script = script.replace("{{/ASPECT_DAR_OVERRIDE}}", "");
+                    script = script.replace("{{ASPECT_DAR}}", &format_double(dar));
+                    script = remove_block(
+                        "{{#ASPECT_DAR_FROM_SOURCE}}",
+                        "{{/ASPECT_DAR_FROM_SOURCE}}",
+                        script,
+                    );
+                } else {
+                    script = remove_block(
+                        "{{#ASPECT_DAR_OVERRIDE}}",
+                        "{{/ASPECT_DAR_OVERRIDE}}",
+                        script,
+                    );
+                    script = script.replace("{{#ASPECT_DAR_FROM_SOURCE}}", "");
+                    script = script.replace("{{/ASPECT_DAR_FROM_SOURCE}}", "");
+                    let source_sar = job
+                        .input_sar
+                        .as_deref()
+                        .and_then(parse_ratio)
+                        .unwrap_or(1.0);
+                    script = script.replace("{{SOURCE_SAR}}", &format_double(source_sar));
+                }
+
+                // Fit by display aspect when squaring the grid, by storage
+                // aspect when leaving it alone.
+                if squares_pixels {
+                    script = script.replace("{{#ASPECT_SQUARE_PIXELS}}", "");
+                    script = script.replace("{{/ASPECT_SQUARE_PIXELS}}", "");
+                    script = remove_block("{{#ASPECT_KEEP_PIXELS}}", "{{/ASPECT_KEEP_PIXELS}}", script);
+                } else {
+                    script = remove_block("{{#ASPECT_SQUARE_PIXELS}}", "{{/ASPECT_SQUARE_PIXELS}}", script);
+                    script = script.replace("{{#ASPECT_KEEP_PIXELS}}", "");
+                    script = script.replace("{{/ASPECT_KEEP_PIXELS}}", "");
+                }
+
+                // Padding only means anything when there is a box to pad out to.
+                if resize.pad_to_aspect && resize.resize_enabled {
+                    script = script.replace("{{#ASPECT_PAD}}", "");
+                    script = script.replace("{{/ASPECT_PAD}}", "");
+                } else {
+                    script = remove_block("{{#ASPECT_PAD}}", "{{/ASPECT_PAD}}", script);
                 }
 
                 // One call, with the kernel substituted in — the alternative is
