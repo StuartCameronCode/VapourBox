@@ -49,7 +49,9 @@ class MainViewModel extends ChangeNotifier {
 
   // Processing pipeline
   ProcessingPipeline _processingPipeline = const ProcessingPipeline();
-  PassType _selectedPass = PassType.deinterlace;
+  /// Pass whose settings are expanded inline in the pass list, or null when
+  /// every pass is collapsed.
+  PassType? _selectedPass = PassType.deinterlace;
   bool _advancedMode = false;
 
   // Scan-type auto-configuration of the deinterlace pipeline runs ONCE, for the
@@ -120,7 +122,7 @@ class MainViewModel extends ChangeNotifier {
   bool get autoFieldOrder => _autoFieldOrder;
   FieldOrder get manualFieldOrder => _manualFieldOrder;
   ProcessingPipeline get processingPipeline => _processingPipeline;
-  PassType get selectedPass => _selectedPass;
+  PassType? get selectedPass => _selectedPass;
   bool get advancedMode => _advancedMode;
 
   /// Whether a usable OpenCL device was detected (gates the QTGMC OpenCL
@@ -1032,9 +1034,10 @@ class MainViewModel extends ChangeNotifier {
     }
   }
 
-  /// Selects a pass for editing.
+  /// Expands a pass's settings inline, collapsing whichever was open. Selecting
+  /// the pass that is already expanded collapses it.
   void selectPass(PassType pass) {
-    _selectedPass = pass;
+    _selectedPass = _selectedPass == pass ? null : pass;
     notifyListeners();
   }
 

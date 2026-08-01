@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "name": "SpotLess",
   "description": "Remove dust, dirt, and temporal spots from film",
+  "longDescription": "Removes single-frame blemishes: dust specks, hairs and emulsion flecks that flash up for one frame and vanish. It compares each frame against its neighbours and replaces anything that is present in only one of them.\n\nUse it on scanned or telecined film, after deinterlacing. Because the test is temporal, fast or erratic motion can be read as a spot — if you see smearing or ghosting on movement, ease off the strength.",
   "category": "cleanup",
   "icon": "auto_fix_high",
   "order": 3,

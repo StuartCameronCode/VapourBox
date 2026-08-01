@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "name": "Crop & Resize",
   "description": "Crop borders and resize or upscale video",
+  "longDescription": "Trims unwanted borders and changes the output resolution. Cropping happens first, then resizing.\n\nUse crop to cut the head-switching noise along the bottom of VHS captures and the black overscan edges of broadcast material — otherwise the encoder spends bitrate on them. Use resize for a target resolution, or the NNEDI3 upscaler for a much better 2x/4x enlargement than a plain kernel. Keep crop values even so they stay aligned with chroma subsampling.",
   "category": "transform",
   "icon": "crop",
   "order": 9,

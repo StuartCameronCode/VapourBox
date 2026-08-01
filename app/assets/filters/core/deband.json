@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "name": "Deband",
   "description": "Remove banding artifacts using f3kdb",
+  "longDescription": "Replaces the visible stair-steps in smooth gradients — skies, fades, studio backdrops — with a smooth ramp, adding a little grain to disguise the transition.\n\nUse it when an 8-bit source shows distinct bands, which often becomes obvious only after denoising has removed the grain that was hiding them. Too high a threshold blurs genuine low-contrast detail, so raise it gradually.",
   "category": "cleanup",
   "icon": "gradient",
   "order": 5,

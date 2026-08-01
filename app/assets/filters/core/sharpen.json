@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "name": "Sharpen",
   "description": "Sharpen video edges and detail",
+  "longDescription": "Raises contrast right at edges so a soft picture reads as crisper. It cannot add detail that was never captured — it only makes what is there more visible.\n\nUse it sparingly on soft tape and DVD sources, and always after deinterlacing and denoising: sharpening first amplifies noise and creates halos. If edges start to glow, back off or pair it with Dehalo.",
   "category": "enhancement",
   "icon": "auto_fix_high",
   "order": 6,

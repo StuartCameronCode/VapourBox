@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "name": "Deinterlace",
   "description": "QTGMC deinterlacing or IVTC inverse telecine",
+  "longDescription": "Turns interlaced video — where each frame holds two half-height fields captured at different moments — into whole progressive frames, or removes the pulldown pattern from film that was telecined to video. QTGMC rebuilds every field into a full frame for the smoothest motion; IVTC instead recovers the original film frames and drops the duplicates.\n\nUse it on anything from tape or broadcast — VHS, Video8, DV, DVD — where moving edges show comb teeth. Leave it off for footage that is already progressive. Run it first: every other filter works better on whole frames.",
   "category": "deinterlace",
   "icon": "layers",
   "order": 1,

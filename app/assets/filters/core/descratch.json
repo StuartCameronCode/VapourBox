@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "name": "DeScratch",
   "description": "Remove vertical scratches from scanned film",
+  "longDescription": "Finds narrow vertical lines that run down the picture — the bright or dark scratches left by grit in a projector or scanner gate — and fills them in from the pixels either side.\n\nUse it on scanned film and telecine transfers. It has nothing to fix on tape sources, and genuine thin vertical detail (railings, masts, poles) can be mistaken for a scratch, so check the preview before committing.",
   "category": "cleanup",
   "icon": "healing",
   "order": 2,

@@ -12,11 +12,16 @@ import '../../widgets/warning_banner.dart';
 import '../settings/dynamic_filter_panel.dart';
 import '../whisper_download_dialog.dart';
 
-/// Container widget that shows the settings panel for the currently selected pass.
+/// The settings for one processing pass, rendered inline underneath that pass's
+/// row in the pass list. Leads with the filter's description — what it does and
+/// when to use it — followed by any warnings and then the generated controls.
 ///
 /// Uses schema-driven UI generation from FilterRegistry.
-class PassSettingsContainer extends StatelessWidget {
-  const PassSettingsContainer({super.key});
+class PassSettingsInline extends StatelessWidget {
+  /// The pass whose settings to show.
+  final PassType passType;
+
+  const PassSettingsInline({super.key, required this.passType});
 
   /// Maps PassType to filter schema ID.
   static String _getFilterId(PassType passType) {
@@ -52,7 +57,6 @@ class PassSettingsContainer extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<MainViewModel>(
       builder: (context, viewModel, child) {
-        final passType = viewModel.selectedPass;
         final filterId = _getFilterId(passType);
         final schema = FilterRegistry.instance.get(filterId);
 
@@ -64,28 +68,30 @@ class PassSettingsContainer extends StatelessWidget {
         // Use cached dynamic params from ViewModel (preserves null values)
         final params = viewModel.getDynamicParams(filterId);
 
-        return AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
-          child: SingleChildScrollView(
-            key: ValueKey(filterId),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildOpenCLWarning(context, viewModel, filterId, params),
-                _buildBitDepthWarning(context, viewModel, schema, params),
-                DynamicFilterPanelCompact(
-                  schema: schema,
-                  params: params,
-                  onChanged: (newParams) {
-                    _handleParamChange(context, viewModel, filterId, params, newParams);
-                  },
-                ),
-              ],
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildDescription(context, schema),
+            _buildOpenCLWarning(context, viewModel, filterId, params),
+            _buildBitDepthWarning(context, viewModel, schema, params),
+            DynamicFilterPanelCompact(
+              schema: schema,
+              params: params,
+              onChanged: (newParams) {
+                _handleParamChange(context, viewModel, filterId, params, newParams);
+              },
             ),
-          ),
+          ],
         );
       },
     );
+  }
+
+  /// What the filter does, shown above every option: the one-line summary
+  /// always, with the fuller "what it does and when to use it" prose behind an
+  /// expander. See [_FilterDescription].
+  Widget _buildDescription(BuildContext context, FilterSchema schema) {
+    return _FilterDescription(schema: schema);
   }
 
   /// Warning shown when the deinterlace pass uses an OpenCL-only option that
@@ -172,27 +178,158 @@ class PassSettingsContainer extends StatelessWidget {
   }
 
   Widget _buildFallbackPanel(BuildContext context, PassType passType) {
-    return Center(
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
             Icons.warning_amber_rounded,
-            size: 48,
+            size: 32,
             color: Theme.of(context).colorScheme.error,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Text(
             'Filter schema not found',
-            style: Theme.of(context).textTheme.titleMedium,
+            style: Theme.of(context).textTheme.titleSmall,
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Text(
             'Could not load settings for ${passType.displayName}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The blurb above a filter's options: the schema's one-line `description`,
+/// with the fuller `longDescription` — what the filter does and when to reach
+/// for it — behind an expander so it doesn't push the controls off screen.
+///
+/// Collapsed by default, and reset each time a pass is expanded, since the
+/// widget only exists while its pass is open.
+class _FilterDescription extends StatefulWidget {
+  final FilterSchema schema;
+
+  const _FilterDescription({required this.schema});
+
+  @override
+  State<_FilterDescription> createState() => _FilterDescriptionState();
+}
+
+class _FilterDescriptionState extends State<_FilterDescription> {
+  bool _showDetail = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final schema = widget.schema;
+    final summary = schema.description?.trim();
+    final detail = schema.longDescription?.trim();
+
+    // Nothing to say at all.
+    if ((summary == null || summary.isEmpty) && (detail == null || detail.isEmpty)) {
+      return const SizedBox.shrink();
+    }
+
+    // With no summary the long text is all we have, so show it outright.
+    final headline = (summary != null && summary.isNotEmpty) ? summary : detail!;
+    final hasDetail =
+        detail != null && detail.isNotEmpty && detail != headline;
+
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(6),
+        border: Border(
+          left: BorderSide(color: colorScheme.primary.withValues(alpha: 0.5), width: 3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildHeadline(context, headline, hasDetail),
+
+          // Full description — animates open below the summary.
+          AnimatedSize(
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: _showDetail && hasDetail
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 8, right: 4),
+                    child: _buildParagraphs(context, detail),
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeadline(BuildContext context, String headline, bool hasDetail) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final text = Text(
+      headline,
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: colorScheme.onSurface.withValues(alpha: 0.8),
+            height: 1.3,
+          ),
+    );
+
+    if (!hasDetail) return Padding(padding: const EdgeInsets.only(right: 4), child: text);
+
+    return InkWell(
+      onTap: () => setState(() => _showDetail = !_showDetail),
+      borderRadius: BorderRadius.circular(4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: text),
+          const SizedBox(width: 4),
+          Text(
+            _showDetail ? 'Less' : 'More',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: colorScheme.primary,
+                ),
+          ),
+          AnimatedRotation(
+            turns: _showDetail ? 0.5 : 0,
+            duration: const Duration(milliseconds: 160),
+            child: Icon(Icons.expand_more, size: 18, color: colorScheme.primary),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Renders the detail text, treating blank lines as paragraph breaks.
+  Widget _buildParagraphs(BuildContext context, String detail) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final paragraphs = detail
+        .split(RegExp(r'\n\s*\n'))
+        .map((p) => p.trim())
+        .where((p) => p.isNotEmpty)
+        .toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < paragraphs.length; i++) ...[
+          if (i > 0) const SizedBox(height: 8),
+          Text(
+            paragraphs[i],
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurface.withValues(alpha: 0.7),
+                  height: 1.4,
+                ),
+          ),
+        ],
+      ],
     );
   }
 }

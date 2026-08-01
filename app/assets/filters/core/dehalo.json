@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "name": "Dehalo",
   "description": "Remove halo artifacts around edges",
+  "longDescription": "Removes the bright outline that sits alongside high-contrast edges — the ringing left by over-sharpening, upscaling or heavy compression.\n\nUse it when edges look traced with a light pen: common on VHS run through a sharpening time-base corrector, and on upscaled or hard-compressed material. Apply it after deinterlacing and denoising. Too much strength eats the fine detail right next to the edge.",
   "category": "cleanup",
   "icon": "blur_off",
   "order": 4,

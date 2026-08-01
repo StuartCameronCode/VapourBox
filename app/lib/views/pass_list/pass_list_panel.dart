@@ -4,10 +4,14 @@ import 'package:provider/provider.dart';
 import '../../models/processing_pipeline.dart';
 import '../../services/whisper_addon_manager.dart';
 import '../../viewmodels/main_viewmodel.dart';
+import '../pass_settings/pass_settings_inline.dart';
 import '../whisper_download_dialog.dart';
 import 'pass_list_item.dart';
 
 /// Panel showing the list of processing passes that can be enabled/disabled.
+///
+/// Each pass expands in place to reveal its settings — only one at a time, and
+/// only the expanded pass's settings are built.
 class PassListPanel extends StatelessWidget {
   const PassListPanel({super.key});
 
@@ -16,6 +20,27 @@ class PassListPanel extends StatelessWidget {
     return Consumer<MainViewModel>(
       builder: (context, viewModel, child) {
         final pipeline = viewModel.processingPipeline;
+
+        /// Builds one row, wiring up expansion and the inline settings.
+        Widget item(
+          PassType passType,
+          String title,
+          String subtitle,
+          bool isEnabled, {
+          ValueChanged<bool>? onToggle,
+        }) {
+          final isExpanded = viewModel.selectedPass == passType;
+          return PassListItem(
+            passType: passType,
+            title: title,
+            subtitle: subtitle,
+            isEnabled: isEnabled,
+            isExpanded: isExpanded,
+            onToggle: onToggle ?? (enabled) => viewModel.togglePass(passType, enabled),
+            onTap: () => viewModel.selectPass(passType),
+            expandedChild: isExpanded ? PassSettingsInline(passType: passType) : null,
+          );
+        }
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -30,114 +55,81 @@ class PassListPanel extends StatelessWidget {
             const SizedBox(height: 8),
 
             // List of passes
-            PassListItem(
-              passType: PassType.deinterlace,
-              title: 'Deinterlace',
-              subtitle: _getDeinterlaceSummary(pipeline),
-              isEnabled: pipeline.deinterlace.enabled,
-              isSelected: viewModel.selectedPass == PassType.deinterlace,
-              onToggle: (enabled) => viewModel.togglePass(PassType.deinterlace, enabled),
-              onTap: () => viewModel.selectPass(PassType.deinterlace),
+            item(
+              PassType.deinterlace,
+              'Deinterlace',
+              _getDeinterlaceSummary(pipeline),
+              pipeline.deinterlace.enabled,
             ),
 
-            PassListItem(
-              passType: PassType.descratch,
-              title: 'DeScratch',
-              subtitle: pipeline.descratch.summary,
-              isEnabled: pipeline.descratch.enabled,
-              isSelected: viewModel.selectedPass == PassType.descratch,
-              onToggle: (enabled) => viewModel.togglePass(PassType.descratch, enabled),
-              onTap: () => viewModel.selectPass(PassType.descratch),
+            item(
+              PassType.descratch,
+              'DeScratch',
+              pipeline.descratch.summary,
+              pipeline.descratch.enabled,
             ),
 
-            PassListItem(
-              passType: PassType.spotless,
-              title: 'SpotLess',
-              subtitle: pipeline.spotless.summary,
-              isEnabled: pipeline.spotless.enabled,
-              isSelected: viewModel.selectedPass == PassType.spotless,
-              onToggle: (enabled) => viewModel.togglePass(PassType.spotless, enabled),
-              onTap: () => viewModel.selectPass(PassType.spotless),
+            item(
+              PassType.spotless,
+              'SpotLess',
+              pipeline.spotless.summary,
+              pipeline.spotless.enabled,
             ),
 
-            PassListItem(
-              passType: PassType.noiseReduction,
-              title: 'Noise Reduction',
-              subtitle: pipeline.noiseReduction.summary,
-              isEnabled: pipeline.noiseReduction.enabled,
-              isSelected: viewModel.selectedPass == PassType.noiseReduction,
-              onToggle: (enabled) => viewModel.togglePass(PassType.noiseReduction, enabled),
-              onTap: () => viewModel.selectPass(PassType.noiseReduction),
+            item(
+              PassType.noiseReduction,
+              'Noise Reduction',
+              pipeline.noiseReduction.summary,
+              pipeline.noiseReduction.enabled,
             ),
 
-            PassListItem(
-              passType: PassType.dehalo,
-              title: 'Dehalo',
-              subtitle: pipeline.dehalo.summary,
-              isEnabled: pipeline.dehalo.enabled,
-              isSelected: viewModel.selectedPass == PassType.dehalo,
-              onToggle: (enabled) => viewModel.togglePass(PassType.dehalo, enabled),
-              onTap: () => viewModel.selectPass(PassType.dehalo),
+            item(
+              PassType.dehalo,
+              'Dehalo',
+              pipeline.dehalo.summary,
+              pipeline.dehalo.enabled,
             ),
 
-            PassListItem(
-              passType: PassType.deblock,
-              title: 'Deblock',
-              subtitle: pipeline.deblock.summary,
-              isEnabled: pipeline.deblock.enabled,
-              isSelected: viewModel.selectedPass == PassType.deblock,
-              onToggle: (enabled) => viewModel.togglePass(PassType.deblock, enabled),
-              onTap: () => viewModel.selectPass(PassType.deblock),
+            item(
+              PassType.deblock,
+              'Deblock',
+              pipeline.deblock.summary,
+              pipeline.deblock.enabled,
             ),
 
-            PassListItem(
-              passType: PassType.deband,
-              title: 'Deband',
-              subtitle: pipeline.deband.summary,
-              isEnabled: pipeline.deband.enabled,
-              isSelected: viewModel.selectedPass == PassType.deband,
-              onToggle: (enabled) => viewModel.togglePass(PassType.deband, enabled),
-              onTap: () => viewModel.selectPass(PassType.deband),
+            item(
+              PassType.deband,
+              'Deband',
+              pipeline.deband.summary,
+              pipeline.deband.enabled,
             ),
 
-            PassListItem(
-              passType: PassType.sharpen,
-              title: 'Sharpen',
-              subtitle: pipeline.sharpen.summary,
-              isEnabled: pipeline.sharpen.enabled,
-              isSelected: viewModel.selectedPass == PassType.sharpen,
-              onToggle: (enabled) => viewModel.togglePass(PassType.sharpen, enabled),
-              onTap: () => viewModel.selectPass(PassType.sharpen),
+            item(
+              PassType.sharpen,
+              'Sharpen',
+              pipeline.sharpen.summary,
+              pipeline.sharpen.enabled,
             ),
 
-            PassListItem(
-              passType: PassType.chromaFixes,
-              title: 'Chroma Fixes',
-              subtitle: pipeline.chromaFixes.summary,
-              isEnabled: pipeline.chromaFixes.enabled,
-              isSelected: viewModel.selectedPass == PassType.chromaFixes,
-              onToggle: (enabled) => viewModel.togglePass(PassType.chromaFixes, enabled),
-              onTap: () => viewModel.selectPass(PassType.chromaFixes),
+            item(
+              PassType.chromaFixes,
+              'Chroma Fixes',
+              pipeline.chromaFixes.summary,
+              pipeline.chromaFixes.enabled,
             ),
 
-            PassListItem(
-              passType: PassType.colorCorrection,
-              title: 'Color Correction',
-              subtitle: pipeline.colorCorrection.summary,
-              isEnabled: pipeline.colorCorrection.enabled,
-              isSelected: viewModel.selectedPass == PassType.colorCorrection,
-              onToggle: (enabled) => viewModel.togglePass(PassType.colorCorrection, enabled),
-              onTap: () => viewModel.selectPass(PassType.colorCorrection),
+            item(
+              PassType.colorCorrection,
+              'Color Correction',
+              pipeline.colorCorrection.summary,
+              pipeline.colorCorrection.enabled,
             ),
 
-            PassListItem(
-              passType: PassType.cropResize,
-              title: 'Crop / Resize',
-              subtitle: pipeline.cropResize.summary,
-              isEnabled: pipeline.cropResize.enabled,
-              isSelected: viewModel.selectedPass == PassType.cropResize,
-              onToggle: (enabled) => viewModel.togglePass(PassType.cropResize, enabled),
-              onTap: () => viewModel.selectPass(PassType.cropResize),
+            item(
+              PassType.cropResize,
+              'Crop / Resize',
+              pipeline.cropResize.summary,
+              pipeline.cropResize.enabled,
             ),
 
             // Post-Processing section
@@ -152,14 +144,12 @@ class PassListPanel extends StatelessWidget {
               ),
             ),
 
-            PassListItem(
-              passType: PassType.subtitles,
-              title: 'Subtitles',
-              subtitle: pipeline.subtitles.summary,
-              isEnabled: pipeline.subtitles.enabled,
-              isSelected: viewModel.selectedPass == PassType.subtitles,
+            item(
+              PassType.subtitles,
+              'Subtitles',
+              pipeline.subtitles.summary,
+              pipeline.subtitles.enabled,
               onToggle: (enabled) => _handleSubtitlesToggle(context, viewModel, enabled),
-              onTap: () => viewModel.selectPass(PassType.subtitles),
             ),
 
             const SizedBox(height: 16),
