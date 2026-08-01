@@ -456,7 +456,59 @@ impl VideoCodec {
     pub fn forced_pix_fmt(&self) -> Option<&'static str> {
         match self {
             VideoCodec::Huffyuv => Some("yuv422p"),
+            // AMF takes nv12 natively. Left to negotiate, ffmpeg will hand a
+            // >8-bit source to the encoder as p010, and 10-bit HEVC encode is
+            // only supported on some AMD ASICs — where it isn't, the AMF
+            // runtime faults (0xC0000005) instead of failing cleanly, which is
+            // one candidate for the crashes in issue #51. h264_amf has no
+            // 10-bit mode at all. Pinning nv12 makes the conversion explicit
+            // and identical on every card. Custom FFmpeg Arguments still wins:
+            // a later -pix_fmt overrides this one.
+            VideoCodec::H264Amf | VideoCodec::H265Amf => Some("nv12"),
             _ => None,
+        }
+    }
+
+    /// Encoder presets this codec accepts. Mirrors `availablePresets` in
+    /// `app/lib/models/video_job.dart` — keep the two in step.
+    pub fn available_presets(&self) -> &'static [&'static str] {
+        match self.encoder_family() {
+            EncoderFamily::Software => &[
+                "ultrafast", "superfast", "veryfast", "faster", "fast", "medium",
+                "slow", "slower", "veryslow", "placebo",
+            ],
+            EncoderFamily::Nvenc => &["p1", "p2", "p3", "p4", "p5", "p6", "p7"],
+            EncoderFamily::Qsv => &[
+                "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow",
+            ],
+            EncoderFamily::Amf => &["speed", "balanced", "quality"],
+            // VideoToolbox, ProRes and the lossless codecs take no preset.
+            _ => &[],
+        }
+    }
+
+    /// The preset to fall back on when the configured one isn't accepted.
+    pub fn default_preset(&self) -> &'static str {
+        match self.encoder_family() {
+            EncoderFamily::Nvenc => "p4",
+            EncoderFamily::Amf => "balanced",
+            _ => "medium",
+        }
+    }
+
+    /// The configured preset if this encoder accepts it, else its default.
+    ///
+    /// Preset vocabularies are per-family and don't overlap — x264's "medium"
+    /// means nothing to AMF, which wants speed/balanced/quality. A saved preset
+    /// or an imported job config can pair a codec with another family's preset,
+    /// and passing that through makes ffmpeg reject the option and fail the
+    /// whole encode. Falling back keeps the job running with a sane setting.
+    pub fn normalized_preset(&self, configured: &str) -> String {
+        let allowed = self.available_presets();
+        if allowed.is_empty() || allowed.contains(&configured) {
+            configured.to_string()
+        } else {
+            self.default_preset().to_string()
         }
     }
 

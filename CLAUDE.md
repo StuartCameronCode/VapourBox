@@ -466,6 +466,34 @@ Presets save complete filter pipeline + encoding settings. Built-in presets (Fas
 
 ---
 
+## Hardware Encoders (issue #51)
+
+Three invariants that are easy to break and hard to notice, because a wrong
+value here shows up as "this GPU doesn't work" rather than as an error:
+
+- **The availability probe must use a large enough frame.** Hardware encoders
+  have minimum dimensions, and below them they fail — so a too-small probe
+  reports a *working* encoder as broken. AMD AMF rejects 64x64, which is exactly
+  what the probe used to send. `HardwareEncoderDetector.probeFrameSize` is now
+  512 (AMF's floor is 192x128 on some ASICs); `hardware_encoder_probe_test.dart`
+  keeps it there.
+- **Presets are per-family vocabularies and must not cross over.** x264 takes
+  `ultrafast…placebo`, NVENC `p1…p7`, QSV `veryfast…veryslow`, AMF
+  `speed|balanced|quality`. A saved preset or imported job config can pair a
+  codec with the wrong family's preset; ffmpeg then rejects the option and the
+  whole encode dies. `VideoCodec::normalized_preset` (Rust) substitutes the
+  family default — the Rust `available_presets`/`default_preset` must stay in
+  step with `availablePresets`/`defaultPreset` in `app/lib/models/video_job.dart`.
+- **AMF is pinned to `nv12`.** Left to negotiate, a >8-bit source reaches the
+  encoder as p010; 10-bit HEVC encode exists only on some AMD ASICs, and where
+  it doesn't the AMF runtime faults (0xC0000005) instead of failing cleanly.
+  h264_amf has no 10-bit mode at all. Custom FFmpeg Arguments still override it
+  (a later `-pix_fmt` wins), which is the escape hatch for 10-bit HEVC on
+  hardware that supports it.
+
+None of the AMF behaviour can be verified in CI or on macOS — there is no AMD
+hardware in the matrix — so changes here rest on reporter confirmation.
+
 ## QTGMC Parameters Reference
 
 The most important parameters:
