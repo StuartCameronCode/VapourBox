@@ -7,7 +7,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
@@ -101,6 +101,56 @@ pub struct PipelineExecutor {
     decoder_process: Option<Child>,
     vspipe_process: Option<Child>,
     ffmpeg_process: Option<Child>,
+}
+
+/// Watches for the pipeline making no progress at all.
+///
+/// Time is injected rather than read from the clock so the decision is testable:
+/// the hang this guards against cannot be reproduced on demand, which is exactly
+/// why a watchdog is the right answer to it.
+struct StallWatchdog {
+    /// `None` disables the watchdog entirely.
+    limit: Option<Duration>,
+    last_frame: i32,
+    last_progress_at: Instant,
+}
+
+impl StallWatchdog {
+    fn new(limit: Option<Duration>, now: Instant) -> Self {
+        Self {
+            limit,
+            // No frame count has been seen yet, and 0 is a real value (nothing
+            // encoded), so start from one the encoder can never report.
+            last_frame: -1,
+            last_progress_at: now,
+        }
+    }
+
+    /// Feed the latest frame count. Returns how long the pipeline has been stuck
+    /// once that exceeds the limit, and `None` while it is still healthy.
+    fn tick(&mut self, frame: i32, now: Instant) -> Option<Duration> {
+        // Any movement resets the clock. A single frame can legitimately take a
+        // long time (QTGMC at Placebo on a large frame), hence a limit in minutes
+        // rather than seconds.
+        if frame != self.last_frame {
+            self.last_frame = frame;
+            self.last_progress_at = now;
+            return None;
+        }
+
+        let limit = self.limit?;
+        let stalled_for = now.duration_since(self.last_progress_at);
+        (stalled_for >= limit).then_some(stalled_for)
+    }
+
+    /// How far the job got, for the error message.
+    fn stage(frame: i32) -> String {
+        if frame > 0 {
+            format!("encoding (last frame {})", frame)
+        } else {
+            "starting up (no frame encoded yet)".to_string()
+        }
+    }
 }
 
 impl PipelineExecutor {
@@ -351,6 +401,15 @@ impl PipelineExecutor {
         let mut vspipe_total: i32 = 0;
         let mut max_effective_total: i32 = 0;
 
+        // Stall watchdog (#50). Nothing else in this loop has a time limit: if a
+        // child process wedges — the encoder blocked on an input that never
+        // ends, vspipe deadlocked against a full pipe — ffmpeg never writes
+        // progress=end and never exits, so the loop spins forever, the worker
+        // never reports `complete`, and the UI sits on "processing" with no
+        // diagnostics at all. That is the hang reported in #50, and whatever its
+        // root cause, hanging silently is the wrong failure mode.
+        let mut watchdog = StallWatchdog::new(Self::stall_timeout(), Instant::now());
+
         loop {
             // Check for cancellation
             if on_cancel() {
@@ -429,6 +488,31 @@ impl PipelineExecutor {
 
             if ffmpeg_done {
                 break;
+            }
+
+            if let Some(stalled_for) = watchdog.tick(current_frame, Instant::now()) {
+                // Say how far it got before giving up: without this the user has
+                // a hang and nothing to report.
+                let stage = StallWatchdog::stage(current_frame);
+                reporter.send_log(
+                    LogLevel::Error,
+                    &format!(
+                        "No progress for {}s while {} — giving up rather than hanging. \
+                         The decoder, vspipe or the encoder has stopped making progress.",
+                        stalled_for.as_secs(),
+                        stage
+                    ),
+                );
+                // Kill the children first: the waits below would otherwise block
+                // on the same wedged process.
+                self.terminate();
+                let _ = fs::remove_file(&progress_file);
+                bail!(
+                    "Stalled: no progress for {}s while {}. Set \
+                     VAPOURBOX_STALL_TIMEOUT_SECS to change this limit, or 0 to wait forever.",
+                    stalled_for.as_secs(),
+                    stage
+                );
             }
 
             thread::sleep(progress_interval);
@@ -1107,6 +1191,27 @@ impl PipelineExecutor {
         Ok(())
     }
 
+    /// How long the pipeline may make no progress before the job is failed
+    /// instead of hanging (#50).
+    ///
+    /// `None` disables the watchdog. The default is deliberately generous: a
+    /// single frame of QTGMC at Placebo on a large frame can take a long time,
+    /// and finalizing a big MP4 can pause the frame counter. What it catches is
+    /// the case where nothing will ever move again.
+    fn stall_timeout() -> Option<Duration> {
+        const DEFAULT_SECS: u64 = 600;
+
+        match std::env::var("VAPOURBOX_STALL_TIMEOUT_SECS") {
+            Ok(value) => match value.trim().parse::<u64>() {
+                // An explicit 0 means "wait forever", for debugging a stall.
+                Ok(0) => None,
+                Ok(secs) => Some(Duration::from_secs(secs)),
+                Err(_) => Some(Duration::from_secs(DEFAULT_SECS)),
+            },
+            Err(_) => Some(Duration::from_secs(DEFAULT_SECS)),
+        }
+    }
+
     /// Terminate all processes.
     fn terminate(&mut self) {
         if let Some(ref mut decoder) = self.decoder_process {
@@ -1154,6 +1259,94 @@ mod tests {
         assert_eq!(preview_window(42, 0), (42, 0, 1));
         // Negative inputs are clamped, never panicking.
         assert_eq!(preview_window(-3, 5), (0, 0, 6));
+    }
+
+    #[test]
+    fn test_watchdog_resets_on_any_movement() {
+        let start = Instant::now();
+        let limit = Duration::from_secs(60);
+        let mut watchdog = StallWatchdog::new(Some(limit), start);
+
+        // Nothing encoded yet, but well inside the limit.
+        assert_eq!(watchdog.tick(0, start + Duration::from_secs(30)), None);
+        // A frame arrives at 30s, so the clock restarts from there...
+        assert_eq!(watchdog.tick(1, start + Duration::from_secs(30)), None);
+        // ...and 59s later is still fine, even though 89s have passed overall.
+        assert_eq!(watchdog.tick(1, start + Duration::from_secs(89)), None);
+        // One more frame and we are healthy again.
+        assert_eq!(watchdog.tick(2, start + Duration::from_secs(89)), None);
+        assert_eq!(watchdog.tick(2, start + Duration::from_secs(140)), None);
+    }
+
+    #[test]
+    fn test_watchdog_trips_once_the_limit_is_reached() {
+        let start = Instant::now();
+        let limit = Duration::from_secs(60);
+        let mut watchdog = StallWatchdog::new(Some(limit), start);
+
+        // Frame 7 arrives, then nothing ever again.
+        assert_eq!(watchdog.tick(7, start), None);
+        assert_eq!(watchdog.tick(7, start + Duration::from_secs(59)), None);
+        assert_eq!(
+            watchdog.tick(7, start + Duration::from_secs(60)),
+            Some(Duration::from_secs(60)),
+            "exactly at the limit counts as stalled"
+        );
+        assert_eq!(
+            watchdog.tick(7, start + Duration::from_secs(120)),
+            Some(Duration::from_secs(120))
+        );
+    }
+
+    #[test]
+    fn test_watchdog_trips_when_nothing_is_ever_encoded() {
+        // The reported symptom: a job that never produces a frame at all. Frame 0
+        // must not be mistaken for "progress arrived", or the watchdog would
+        // reset forever on a pipeline that never started.
+        let start = Instant::now();
+        let mut watchdog = StallWatchdog::new(Some(Duration::from_secs(60)), start);
+
+        assert_eq!(watchdog.tick(0, start), None, "first sighting is not a stall");
+        assert_eq!(
+            watchdog.tick(0, start + Duration::from_secs(61)),
+            Some(Duration::from_secs(61))
+        );
+        assert_eq!(StallWatchdog::stage(0), "starting up (no frame encoded yet)");
+        assert_eq!(StallWatchdog::stage(1234), "encoding (last frame 1234)");
+    }
+
+    #[test]
+    fn test_watchdog_disabled_never_trips() {
+        let start = Instant::now();
+        let mut watchdog = StallWatchdog::new(None, start);
+        assert_eq!(watchdog.tick(3, start), None);
+        // Ten hours with no movement, and still no complaint.
+        assert_eq!(watchdog.tick(3, start + Duration::from_secs(36_000)), None);
+    }
+
+    #[test]
+    fn test_stall_timeout_default_and_override() {
+        // Serial within this test: the env var is process-global.
+        let restore = std::env::var("VAPOURBOX_STALL_TIMEOUT_SECS").ok();
+
+        std::env::remove_var("VAPOURBOX_STALL_TIMEOUT_SECS");
+        assert_eq!(PipelineExecutor::stall_timeout(), Some(Duration::from_secs(600)));
+
+        std::env::set_var("VAPOURBOX_STALL_TIMEOUT_SECS", "90");
+        assert_eq!(PipelineExecutor::stall_timeout(), Some(Duration::from_secs(90)));
+
+        // 0 means "wait forever", for debugging an actual stall.
+        std::env::set_var("VAPOURBOX_STALL_TIMEOUT_SECS", "0");
+        assert_eq!(PipelineExecutor::stall_timeout(), None);
+
+        // Garbage falls back to the default rather than disabling the guard.
+        std::env::set_var("VAPOURBOX_STALL_TIMEOUT_SECS", "soon");
+        assert_eq!(PipelineExecutor::stall_timeout(), Some(Duration::from_secs(600)));
+
+        match restore {
+            Some(value) => std::env::set_var("VAPOURBOX_STALL_TIMEOUT_SECS", value),
+            None => std::env::remove_var("VAPOURBOX_STALL_TIMEOUT_SECS"),
+        }
     }
 
     #[test]

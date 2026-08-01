@@ -793,6 +793,16 @@ version skew between platforms would change chroma per-OS.
 6. **Filter not appearing**: Check JSON syntax, verify `id` is unique
 7. **macOS build fails with "Unable to find module dependency"**: Build Pods-Runner scheme first, then Runner for arm64 only (see Build Commands)
 8. **App crashes silently on video drop (release build)**: Bundle is incomplete. Use packaging scripts. Run from terminal to see errors.
+9. **Job appears to hang**: the worker now fails instead. `StallWatchdog` in
+   `pipeline_executor.rs` gives up after **600s with no frame progress** and
+   reports how far it got ("Stalled: no progress for Ns while encoding (last
+   frame N)"), killing the children so the post-loop `wait()`s can't block on the
+   same wedged process. Raise or disable it with
+   `VAPOURBOX_STALL_TIMEOUT_SECS=<secs>` (`0` waits forever) when debugging an
+   actual stall — otherwise the watchdog will end the job before you can inspect
+   it. The app-side counterpart is in `worker_manager.dart`: exactly one
+   completion event per job, so a worker that exits without reporting a result
+   surfaces as a failure instead of leaving the UI on "processing" forever.
 
 ## Platform-Specific Notes
 
