@@ -391,6 +391,41 @@ class WorkerHarness {
     return streams.first as Map<String, dynamic>;
   }
 
+  /// Mean luma and chroma of one frame, via ffmpeg's `signalstats`.
+  ///
+  /// The only way to check a colour operation actually moved colour in the
+  /// direction it claims — a valid-output assertion would pass just as happily
+  /// with the sign inverted.
+  static Future<({double y, double u, double v})> frameAverages(
+    String videoPath, {
+    int frame = 2,
+  }) async {
+    final result = await Process.run(
+      ffprobePath,
+      [
+        '-v', 'error',
+        '-f', 'lavfi',
+        // The movie source needs the path escaped for the filtergraph parser.
+        'movie=${videoPath.replaceAll(r'\', '/').replaceAll(':', r'\:')},signalstats',
+        '-show_entries',
+        'frame_tags=lavfi.signalstats.YAVG,lavfi.signalstats.UAVG,lavfi.signalstats.VAVG',
+        '-read_intervals', '%+#${frame + 1}',
+        '-of', 'json',
+      ],
+      environment: ffmpegEnv,
+    );
+    if (result.exitCode != 0) {
+      throw Exception('signalstats probe failed: ${result.stderr}');
+    }
+    final frames = (jsonDecode(result.stdout as String)
+        as Map<String, dynamic>)['frames'] as List;
+    final tags = (frames[frames.length - 1] as Map<String, dynamic>)['tags']
+        as Map<String, dynamic>;
+    double tag(String name) =>
+        double.parse(tags['lavfi.signalstats.$name'].toString());
+    return (y: tag('YAVG'), u: tag('UAVG'), v: tag('VAVG'));
+  }
+
   /// Extract one frame as PNG and return its md5 hash.
   static Future<String> frameHash(String videoPath, {int frame = 5}) async {
     final framePath = p.join(Directory.systemTemp.path,

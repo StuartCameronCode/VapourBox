@@ -2627,3 +2627,59 @@ fn test_72_resize_kernel_and_kernel_tuning() {
     assert!(!script.contains("filter_param_a="));
     assert!(!script.contains("filter_param_b="));
 }
+
+#[test]
+fn test_73_white_balance_temperature_and_tint() {
+    // Issue #50: temperature and tint. U carries blue-yellow and V carries
+    // red-cyan, so warming the image must lower U and raise V; a magenta tint
+    // raises both. Getting a sign wrong here is invisible in a unit test and
+    // very visible on screen.
+    create_output_dir();
+
+    let mut job = create_base_job("test_73_white_balance");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        color_correction: ColorCorrectionParameters {
+            enabled: true,
+            temperature: 40.0,
+            ..ColorCorrectionParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "White balance (warm)", &[
+        "core.std.Expr",
+        "_wb_u = -10.0 * _wb_scale",
+        "_wb_v = 10.0 * _wb_scale",
+        // Luma must be left alone: an empty expression copies the plane.
+        "['', 'x ' + repr(_wb_u) + ' +', 'x ' + repr(_wb_v) + ' +']",
+    ]).unwrap();
+}
+
+#[test]
+fn test_74_white_balance_absent_when_neutral() {
+    // Colour correction is often enabled for brightness alone. A neutral white
+    // balance must add no Expr call at all — an extra pass over every plane for
+    // a no-op offset would cost time and, on integer formats, rounding.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_74_white_balance_neutral");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        color_correction: ColorCorrectionParameters {
+            enabled: true,
+            brightness: 8.0,
+            ..ColorCorrectionParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+
+    assert!(script.contains("adjust.Tweak"), "the brightness tweak should still run");
+    assert!(!script.contains("_wb_scale"), "neutral white balance should emit nothing");
+
+    // Tint alone is enough to bring the block back.
+    job.processing_pipeline.as_mut().unwrap().color_correction.tint = -20.0;
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    assert!(script.contains("_wb_u = -5.0 * _wb_scale"));
+    assert!(script.contains("_wb_v = -5.0 * _wb_scale"));
+}

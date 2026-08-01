@@ -1,33 +1,49 @@
 {
   "$schema": "https://vapourbox.app/schemas/filter-v1.json",
   "id": "color_correction",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Color Correction",
   "description": "Adjust brightness, contrast, saturation and levels",
-  "longDescription": "Adjusts brightness, contrast, saturation and the black and white levels.\n\nUse it to rescue washed-out or crushed transfers, to fix a capture made at the wrong levels (limited 16-235 read as full 0-255, or the reverse), or to lift colour from faded film. Small moves go a long way — check the before/after preview rather than judging by numbers.",
+  "longDescription": "Adjusts brightness, contrast, saturation and the black and white levels.\n\nUse it to rescue washed-out or crushed transfers, to fix a capture made at the wrong levels (limited 16-235 read as full 0-255, or the reverse), or to lift colour from faded film. Small moves go a long way \u2014 check the before/after preview rather than judging by numbers.",
   "category": "color",
   "icon": "tune",
   "order": 7,
-
   "dependencies": {
-    "plugins": ["havsfunc"]
+    "plugins": [
+      "havsfunc"
+    ]
   },
-
   "methods": [
     {
       "id": "tweak",
       "name": "Tweak",
       "description": "Basic color adjustments - brightness, contrast, saturation, hue",
       "function": "haf.Tweak",
-      "parameters": ["brightness", "contrast", "saturation", "hue"]
+      "parameters": [
+        "brightness",
+        "contrast",
+        "saturation",
+        "hue"
+      ]
+    },
+    {
+      "id": "white_balance",
+      "name": "White Balance",
+      "description": "Temperature and tint, applied as a chroma offset",
+      "function": "core.std.Expr",
+      "parameters": [
+        "temperature",
+        "tint"
+      ]
     }
   ],
-
   "parameters": {
     "enabled": {
       "type": "boolean",
       "default": false,
-      "ui": { "hidden": true }
+      "ui": {
+        "hidden": true
+      }
     },
     "brightness": {
       "type": "number",
@@ -36,7 +52,9 @@
       "max": 50.0,
       "step": 1.0,
       "optional": true,
-      "vapoursynth": { "name": "bright" },
+      "vapoursynth": {
+        "name": "bright"
+      },
       "ui": {
         "label": "Brightness",
         "description": "Brightness adjustment (-50 to +50)",
@@ -51,7 +69,9 @@
       "max": 2.0,
       "step": 0.05,
       "optional": true,
-      "vapoursynth": { "name": "cont" },
+      "vapoursynth": {
+        "name": "cont"
+      },
       "ui": {
         "label": "Contrast",
         "description": "Contrast multiplier (1.0 = no change)",
@@ -66,7 +86,9 @@
       "max": 3.0,
       "step": 0.05,
       "optional": true,
-      "vapoursynth": { "name": "sat" },
+      "vapoursynth": {
+        "name": "sat"
+      },
       "ui": {
         "label": "Saturation",
         "description": "Saturation multiplier (1.0 = no change)",
@@ -81,7 +103,9 @@
       "max": 180.0,
       "step": 5.0,
       "optional": true,
-      "vapoursynth": { "name": "hue" },
+      "vapoursynth": {
+        "name": "hue"
+      },
       "ui": {
         "label": "Hue",
         "description": "Hue rotation in degrees",
@@ -93,7 +117,9 @@
       "type": "boolean",
       "default": false,
       "optional": true,
-      "vapoursynth": { "name": "coring" },
+      "vapoursynth": {
+        "name": "coring"
+      },
       "ui": {
         "label": "Coring",
         "description": "Clamp output to TV range (16-235)"
@@ -114,12 +140,16 @@
       "max": 255,
       "step": 1,
       "optional": true,
-      "vapoursynth": { "name": "input_low" },
+      "vapoursynth": {
+        "name": "input_low"
+      },
       "ui": {
         "label": "Input Black",
         "description": "Input black level",
         "widget": "slider",
-        "visibleWhen": { "applyLevels": true }
+        "visibleWhen": {
+          "applyLevels": true
+        }
       }
     },
     "inputHigh": {
@@ -129,12 +159,16 @@
       "max": 255,
       "step": 1,
       "optional": true,
-      "vapoursynth": { "name": "input_high" },
+      "vapoursynth": {
+        "name": "input_high"
+      },
       "ui": {
         "label": "Input White",
         "description": "Input white level",
         "widget": "slider",
-        "visibleWhen": { "applyLevels": true }
+        "visibleWhen": {
+          "applyLevels": true
+        }
       }
     },
     "outputLow": {
@@ -144,12 +178,16 @@
       "max": 255,
       "step": 1,
       "optional": true,
-      "vapoursynth": { "name": "output_low" },
+      "vapoursynth": {
+        "name": "output_low"
+      },
       "ui": {
         "label": "Output Black",
         "description": "Output black level",
         "widget": "slider",
-        "visibleWhen": { "applyLevels": true }
+        "visibleWhen": {
+          "applyLevels": true
+        }
       }
     },
     "outputHigh": {
@@ -159,12 +197,16 @@
       "max": 255,
       "step": 1,
       "optional": true,
-      "vapoursynth": { "name": "output_high" },
+      "vapoursynth": {
+        "name": "output_high"
+      },
       "ui": {
         "label": "Output White",
         "description": "Output white level",
         "widget": "slider",
-        "visibleWhen": { "applyLevels": true }
+        "visibleWhen": {
+          "applyLevels": true
+        }
       }
     },
     "gamma": {
@@ -174,34 +216,93 @@
       "max": 4.0,
       "step": 0.1,
       "optional": true,
-      "vapoursynth": { "name": "gamma" },
+      "vapoursynth": {
+        "name": "gamma"
+      },
       "ui": {
         "label": "Gamma",
         "description": "Gamma correction",
         "widget": "slider",
         "precision": 1,
-        "visibleWhen": { "applyLevels": true }
+        "visibleWhen": {
+          "applyLevels": true
+        }
+      }
+    },
+    "temperature": {
+      "type": "number",
+      "default": 0.0,
+      "min": -100.0,
+      "max": 100.0,
+      "step": 1.0,
+      "optional": true,
+      "vapoursynth": {
+        "name": "temperature"
+      },
+      "ui": {
+        "label": "Temperature",
+        "description": "Warm/cool white balance. Negative is cooler (bluer), positive warmer (more amber). Corrects a colour cast rather than styling the image",
+        "widget": "slider",
+        "precision": 0
+      }
+    },
+    "tint": {
+      "type": "number",
+      "default": 0.0,
+      "min": -100.0,
+      "max": 100.0,
+      "step": 1.0,
+      "optional": true,
+      "vapoursynth": {
+        "name": "tint"
+      },
+      "ui": {
+        "label": "Tint",
+        "description": "Green/magenta white balance. Negative shifts toward green, positive toward magenta \u2014 the axis VHS and telecine casts usually sit on",
+        "widget": "slider",
+        "precision": 0
       }
     }
   },
-
   "ui": {
     "sections": [
       {
         "title": "Basic Adjustments",
-        "parameters": ["brightness", "contrast", "saturation", "hue", "coring"],
+        "parameters": [
+          "brightness",
+          "contrast",
+          "saturation",
+          "hue",
+          "coring"
+        ],
         "expanded": true
       },
       {
         "title": "Levels",
-        "parameters": ["applyLevels", "inputLow", "inputHigh", "outputLow", "outputHigh", "gamma"],
+        "parameters": [
+          "applyLevels",
+          "inputLow",
+          "inputHigh",
+          "outputLow",
+          "outputHigh",
+          "gamma"
+        ],
         "expanded": false
+      },
+      {
+        "title": "White Balance",
+        "parameters": [
+          "temperature",
+          "tint"
+        ],
+        "expanded": true
       }
     ]
   },
-
   "codeTemplate": {
-    "imports": ["import havsfunc as haf"],
+    "imports": [
+      "import havsfunc as haf"
+    ],
     "generate": "method"
   }
 }

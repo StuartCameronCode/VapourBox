@@ -394,6 +394,30 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+
+    // Issue #50: temperature/tint white balance. U carries blue-yellow and V
+    // carries red-cyan, so warm is -U/+V; a sign error here is invisible until
+    // you look at the picture.
+    test('color_correction: white balance offsets reach the script', () async {
+      loadSchema('color_correction'); // confirm schema parses
+      final job = buildJob(
+        testName: 'white_balance',
+        colorCorrection: const ColorCorrectionParameters(
+          enabled: true,
+          temperature: 40,
+          tint: -20,
+        ),
+      );
+      print('  Generating white balance script...');
+      final script = await generateScriptViaWorker(job);
+      // temperature 40 -> ±10 levels, tint -20 -> -5 on both planes.
+      expect(script, contains('_wb_u = -15.0 * _wb_scale'));
+      expect(script, contains('_wb_v = 5.0 * _wb_scale'));
+      // Luma is copied by the empty expression rather than rewritten.
+      expect(script, contains("['', 'x ' + repr(_wb_u) + ' +'"));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     // --- DEBLOCK (Deblock_QED) ---
     test('deblock: Deblock_QED params', () async {
       final schema = loadSchema('deblock');

@@ -819,6 +819,28 @@ clip = core.std.Levels(
 {{/LEVELS_GAMMA}}
 )
 {{/COLOR_LEVELS}}
+
+{{#COLOR_WHITE_BALANCE}}
+# White balance: shift the chroma planes. U carries blue-yellow and V carries
+# red-cyan, so warming the image is -U/+V and a magenta tint raises both.
+# Offsets arrive at 8-bit scale and are scaled to the working depth here, so the
+# same setting means the same colour shift on an 8-bit and a 16-bit clip.
+if clip.format.color_family == vs.YUV:
+    _wb_scale = (
+        (1 << (clip.format.bits_per_sample - 8))
+        if clip.format.sample_type == vs.INTEGER
+        else 1.0 / 255.0
+    )
+    _wb_u = {{COLOR_WB_U}} * _wb_scale
+    _wb_v = {{COLOR_WB_V}} * _wb_scale
+    # An empty expression leaves that plane untouched, so luma is never
+    # rewritten. Expr clamps to the format's range, so extreme settings
+    # saturate rather than wrap around.
+    clip = core.std.Expr(
+        clip,
+        ['', 'x ' + repr(_wb_u) + ' +', 'x ' + repr(_wb_v) + ' +'],
+    )
+{{/COLOR_WHITE_BALANCE}}
 {{/COLOR_CORRECTION}}
 
 # ============================================================================

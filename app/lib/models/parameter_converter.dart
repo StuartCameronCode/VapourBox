@@ -371,6 +371,8 @@ class ParameterConverter {
         'outputLow': params.outputLow,
         'outputHigh': params.outputHigh,
         'gamma': params.gamma,
+        'temperature': params.temperature,
+        'tint': params.tint,
       },
     );
   }
@@ -796,6 +798,8 @@ class ParameterConverter {
       outputLow: v['outputLow'] as int? ?? 0,
       outputHigh: v['outputHigh'] as int? ?? 255,
       gamma: (v['gamma'] as num?)?.toDouble() ?? 1.0,
+      temperature: (v['temperature'] as num?)?.toDouble() ?? 0.0,
+      tint: (v['tint'] as num?)?.toDouble() ?? 0.0,
     );
   }
 

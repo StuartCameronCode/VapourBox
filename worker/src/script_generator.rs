@@ -941,6 +941,17 @@ impl ScriptGenerator {
             } else {
                 script = remove_block("{{#COLOR_LEVELS}}", "{{/COLOR_LEVELS}}", script);
             }
+
+            // White balance (temperature / tint)
+            if color.has_white_balance() {
+                script = script.replace("{{#COLOR_WHITE_BALANCE}}", "");
+                script = script.replace("{{/COLOR_WHITE_BALANCE}}", "");
+                let (u, v) = color.chroma_offsets();
+                script = script.replace("{{COLOR_WB_U}}", &format_double(u));
+                script = script.replace("{{COLOR_WB_V}}", &format_double(v));
+            } else {
+                script = remove_block("{{#COLOR_WHITE_BALANCE}}", "{{/COLOR_WHITE_BALANCE}}", script);
+            }
         } else {
             script = remove_block("{{#COLOR_CORRECTION}}", "{{/COLOR_CORRECTION}}", script);
         }
@@ -1096,6 +1107,16 @@ fn process_optional_int(name: &str, value: Option<i32>, mut script: String) -> S
 }
 
 /// Process an optional double parameter.
+/// Render a float for the script: minimal precision, but always with a decimal
+/// point so it stays a Python float.
+fn format_double(val: f64) -> String {
+    if val.fract() == 0.0 {
+        format!("{:.1}", val)
+    } else {
+        format!("{:.4}", val).trim_end_matches('0').trim_end_matches('.').to_string()
+    }
+}
+
 fn process_optional_double(name: &str, value: Option<f64>, mut script: String) -> String {
     let start_tag = format!("{{{{#{}}}}}", name);
     let end_tag = format!("{{{{/{}}}}}", name);
@@ -1104,13 +1125,7 @@ fn process_optional_double(name: &str, value: Option<f64>, mut script: String) -
     if let Some(val) = value {
         script = script.replace(&start_tag, "");
         script = script.replace(&end_tag, "");
-        // Format with minimal precision
-        let formatted = if val.fract() == 0.0 {
-            format!("{:.1}", val)
-        } else {
-            format!("{:.4}", val).trim_end_matches('0').trim_end_matches('.').to_string()
-        };
-        script = script.replace(&placeholder, &formatted);
+        script = script.replace(&placeholder, &format_double(val));
     } else {
         script = remove_block(&start_tag, &end_tag, script);
     }
