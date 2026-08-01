@@ -2449,3 +2449,181 @@ fn test_68_dehalo_unset_optionals_are_omitted() {
     assert!(script.contains("rx=2"));
     assert!(script.contains("darkstr=1"));
 }
+
+#[test]
+fn test_69_upscale_eedi3_actually_uses_eedi3() {
+    // Issue #50: the UI offered an EEDI3 upscale, but the template block was a
+    // "fall back to spline36 for now" placeholder — picking EEDI3 silently gave
+    // you Spline36. It must now emit a real eedi3m.EEDI3 call, guided by an
+    // nnedi3 sclip.
+    create_output_dir();
+
+    let mut job = create_base_job("test_69_upscale_eedi3");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        crop_resize: CropResizeParameters {
+            enabled: true,
+            use_integer_upscale: true,
+            upscale_method: UpscaleMethod::Eedi3Rpow2,
+            upscale_factor: 2,
+            upscale_alpha: Some(0.4),
+            upscale_beta: Some(0.3),
+            upscale_gamma: Some(40.0),
+            upscale_nrad: Some(3),
+            upscale_mdis: Some(30),
+            ..CropResizeParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "EEDI3 upscale", &[
+        "core.eedi3m.EEDI3",
+        "sclip=sclip",
+        "alpha=0.4",
+        "beta=0.3",
+        "gamma=40",
+        "nrad=3",
+        "mdis=30",
+    ]).unwrap();
+}
+
+#[test]
+fn test_70_upscale_nnedi3_granular_parameters() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_70_upscale_nnedi3");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        crop_resize: CropResizeParameters {
+            enabled: true,
+            use_integer_upscale: true,
+            upscale_method: UpscaleMethod::Nnedi3Rpow2,
+            upscale_factor: 4,
+            upscale_nsize: Some(4),
+            upscale_neurons: Some(4),
+            upscale_qual: Some(2),
+            upscale_etype: Some(1),
+            upscale_pscrn: Some(0),
+            ..CropResizeParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "NNEDI3 upscale granular", &[
+        "core.znedi3.nnedi3",
+        "nsize=4",
+        "nns=4",
+        "qual=2",
+        "etype=1",
+        "pscrn=0",
+        // 4x is two doublings of the 2x step.
+        "range(max(4 // 2, 1))",
+    ]).unwrap();
+}
+
+#[test]
+fn test_71_upscale_corrects_the_dh_half_pixel_shift() {
+    // nnedi3/EEDI3 dh=True leave the result half an output pixel up and left.
+    // The correction must be per-plane: src_top is in luma pixels, so one
+    // whole-clip shift under-corrects subsampled chroma by a quarter row.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_71_upscale_shift");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        crop_resize: CropResizeParameters {
+            enabled: true,
+            use_integer_upscale: true,
+            upscale_method: UpscaleMethod::Nnedi3Rpow2,
+            ..CropResizeParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+
+    assert!(script.contains("_upscale_fix_shift"), "shift correction should be present");
+    assert!(
+        script.contains("core.std.ShufflePlanes(c, i, vs.GRAY)"),
+        "the correction must run per plane, not on the whole clip"
+    );
+    assert!(
+        script.contains("_upscale_shift = _upscale_shift * 2 + 0.5"),
+        "each doubling adds 0.5 and doubles the inherited offset"
+    );
+
+    // Spline36 "upscale" is plain resampling: no doubling loop, no shift.
+    job.processing_pipeline.as_mut().unwrap().crop_resize.upscale_method = UpscaleMethod::Spline36;
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    assert!(!script.contains("_upscale_fix_shift"));
+    assert!(script.contains("core.resize.Spline36(clip, width=clip.width * 2"));
+}
+
+#[test]
+fn test_72_resize_kernel_and_kernel_tuning() {
+    // The kernel list grew to seven, and filter_param_a/b mean different things
+    // per kernel — Bicubic reads them as b and c, Lanczos reads a as the tap
+    // count, and the rest read neither.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let render = |crop_resize: CropResizeParameters| {
+        let mut job = create_base_job("test_72_resize_kernels");
+        job.processing_pipeline = Some(ProcessingPipeline {
+            crop_resize,
+            ..ProcessingPipeline::default()
+        });
+        std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap()
+    };
+
+    let base = CropResizeParameters {
+        enabled: true,
+        resize_enabled: true,
+        target_width: Some(1280),
+        target_height: Some(720),
+        ..CropResizeParameters::default()
+    };
+
+    for (kernel, expected) in [
+        (ResizeKernel::Point, "core.resize.Point("),
+        (ResizeKernel::Bilinear, "core.resize.Bilinear("),
+        (ResizeKernel::Spline16, "core.resize.Spline16("),
+        (ResizeKernel::Spline36, "core.resize.Spline36("),
+        (ResizeKernel::Spline64, "core.resize.Spline64("),
+        (ResizeKernel::Lanczos, "core.resize.Lanczos("),
+        (ResizeKernel::Bicubic, "core.resize.Bicubic("),
+    ] {
+        let script = render(CropResizeParameters { kernel, ..base.clone() });
+        assert!(script.contains(expected), "kernel {:?} should emit {}", kernel, expected);
+    }
+
+    // Bicubic b/c.
+    let script = render(CropResizeParameters {
+        kernel: ResizeKernel::Bicubic,
+        bicubic_b: Some(0.33),
+        bicubic_c: Some(0.33),
+        lanczos_taps: Some(8), // set but irrelevant for this kernel
+        ..base.clone()
+    });
+    assert!(script.contains("filter_param_a=0.33"));
+    assert!(script.contains("filter_param_b=0.33"));
+
+    // Lanczos taps land in filter_param_a, and Bicubic's c must not leak into
+    // filter_param_b, where Lanczos would ignore it at best.
+    let script = render(CropResizeParameters {
+        kernel: ResizeKernel::Lanczos,
+        lanczos_taps: Some(4),
+        bicubic_c: Some(0.75),
+        ..base.clone()
+    });
+    // filter_param_a is a float in zimg, so the tap count is emitted as 4.0.
+    assert!(script.contains("filter_param_a=4.0"));
+    assert!(!script.contains("filter_param_b="));
+
+    // A kernel that reads neither gets neither.
+    let script = render(CropResizeParameters {
+        kernel: ResizeKernel::Spline36,
+        bicubic_b: Some(0.5),
+        lanczos_taps: Some(4),
+        ..base
+    });
+    assert!(!script.contains("filter_param_a="));
+    assert!(!script.contains("filter_param_b="));
+}

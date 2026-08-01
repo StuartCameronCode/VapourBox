@@ -402,24 +402,52 @@ class ParameterConverter {
 
   /// Convert crop resize parameters to dynamic format.
   static DynamicParameters fromCropResize(CropResizeParameters params) {
+    final values = <String, dynamic>{
+      'cropEnabled': params.cropEnabled,
+      'cropLeft': params.cropLeft,
+      'cropRight': params.cropRight,
+      'cropTop': params.cropTop,
+      'cropBottom': params.cropBottom,
+      'resizeEnabled': params.resizeEnabled,
+      'targetWidth': params.targetWidth,
+      'targetHeight': params.targetHeight,
+      'kernel': params.kernel.name,
+      'maintainAspect': params.maintainAspect,
+      'useIntegerUpscale': params.useIntegerUpscale,
+      'upscaleMethod': params.upscaleMethod.name,
+      'upscaleFactor': params.upscaleFactor,
+    };
+    // Kernel tuning and the nnedi3/EEDI3 controls start unticked, so the
+    // plugin's own default applies until the user opts in. Fallbacks are those
+    // defaults, so ticking a box changes nothing until the value is moved.
+    final lastOptional = <String, dynamic>{};
+    void optional(String key, dynamic value, dynamic fallback) {
+      if (value != null) {
+        values[key] = value;
+      } else {
+        lastOptional[key] = fallback;
+      }
+    }
+
+    optional('bicubicB', params.bicubicB, 0.0);
+    optional('bicubicC', params.bicubicC, 0.5);
+    optional('lanczosTaps', params.lanczosTaps, 3);
+    optional('upscaleNsize', params.upscaleNsize, 6);
+    optional('upscaleNeurons', params.upscaleNeurons, 1);
+    optional('upscaleQual', params.upscaleQual, 1);
+    optional('upscaleEtype', params.upscaleEtype, 0);
+    optional('upscalePscrn', params.upscalePscrn, 2);
+    optional('upscaleAlpha', params.upscaleAlpha, 0.2);
+    optional('upscaleBeta', params.upscaleBeta, 0.25);
+    optional('upscaleGamma', params.upscaleGamma, 20.0);
+    optional('upscaleNrad', params.upscaleNrad, 2);
+    optional('upscaleMdis', params.upscaleMdis, 20);
+
     return DynamicParameters(
       filterId: 'crop_resize',
       enabled: params.enabled,
-      values: {
-        'cropEnabled': params.cropEnabled,
-        'cropLeft': params.cropLeft,
-        'cropRight': params.cropRight,
-        'cropTop': params.cropTop,
-        'cropBottom': params.cropBottom,
-        'resizeEnabled': params.resizeEnabled,
-        'targetWidth': params.targetWidth,
-        'targetHeight': params.targetHeight,
-        'kernel': params.kernel.name,
-        'maintainAspect': params.maintainAspect,
-        'useIntegerUpscale': params.useIntegerUpscale,
-        'upscaleMethod': params.upscaleMethod.name,
-        'upscaleFactor': params.upscaleFactor,
-      },
+      values: values,
+      lastOptionalValues: lastOptional,
     );
   }
 
@@ -818,6 +846,20 @@ class ParameterConverter {
         orElse: () => UpscaleMethod.nnedi3Rpow2,
       ),
       upscaleFactor: v['upscaleFactor'] as int? ?? 2,
+      // Absent (checkbox off) stays null so the script omits it entirely.
+      bicubicB: (v['bicubicB'] as num?)?.toDouble(),
+      bicubicC: (v['bicubicC'] as num?)?.toDouble(),
+      lanczosTaps: _asInt(v['lanczosTaps']),
+      upscaleNsize: _asInt(v['upscaleNsize']),
+      upscaleNeurons: _asInt(v['upscaleNeurons']),
+      upscaleQual: _asInt(v['upscaleQual']),
+      upscaleEtype: _asInt(v['upscaleEtype']),
+      upscalePscrn: _asInt(v['upscalePscrn']),
+      upscaleAlpha: (v['upscaleAlpha'] as num?)?.toDouble(),
+      upscaleBeta: (v['upscaleBeta'] as num?)?.toDouble(),
+      upscaleGamma: (v['upscaleGamma'] as num?)?.toDouble(),
+      upscaleNrad: _asInt(v['upscaleNrad']),
+      upscaleMdis: _asInt(v['upscaleMdis']),
     );
   }
 

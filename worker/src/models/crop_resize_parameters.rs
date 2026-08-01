@@ -11,22 +11,51 @@ pub enum ResizeKernel {
     Lanczos,
     Bicubic,
     Bilinear,
+    Point,
+    Spline16,
+    Spline64,
     Nnedi3,
     Eedi3,
 }
 
 #[allow(dead_code)]
 impl ResizeKernel {
-    /// Get the VapourSynth resize function name.
-    pub fn vs_function(&self) -> &'static str {
+    /// The `core.resize` function that implements this kernel.
+    ///
+    /// Nnedi3/Eedi3 are edge-directed *upscalers*, not resampling kernels —
+    /// they belong to the integer-upscale path. Selected here they fall back to
+    /// Spline36, which is what an arbitrary resize needs.
+    pub fn resize_function(&self) -> &'static str {
         match self {
-            ResizeKernel::Spline36 => "core.resize.Spline36",
-            ResizeKernel::Lanczos => "core.resize.Lanczos",
-            ResizeKernel::Bicubic => "core.resize.Bicubic",
-            ResizeKernel::Bilinear => "core.resize.Bilinear",
-            ResizeKernel::Nnedi3 => "nnedi3_rpow2",
-            ResizeKernel::Eedi3 => "eedi3_rpow2",
+            ResizeKernel::Spline36 | ResizeKernel::Nnedi3 | ResizeKernel::Eedi3 => "Spline36",
+            ResizeKernel::Lanczos => "Lanczos",
+            ResizeKernel::Bicubic => "Bicubic",
+            ResizeKernel::Bilinear => "Bilinear",
+            ResizeKernel::Point => "Point",
+            ResizeKernel::Spline16 => "Spline16",
+            ResizeKernel::Spline64 => "Spline64",
         }
+    }
+
+    /// Get the VapourSynth resize function name.
+    pub fn vs_function(&self) -> String {
+        match self {
+            ResizeKernel::Nnedi3 => "nnedi3_rpow2".to_string(),
+            ResizeKernel::Eedi3 => "eedi3_rpow2".to_string(),
+            other => format!("core.resize.{}", other.resize_function()),
+        }
+    }
+
+    /// Whether this kernel reads `filter_param_a` as a b-spline `b` and
+    /// `filter_param_b` as `c` (Bicubic) — as opposed to Lanczos, where
+    /// `filter_param_a` is the tap count, or the rest, which read neither.
+    pub fn takes_bicubic_params(&self) -> bool {
+        matches!(self, ResizeKernel::Bicubic)
+    }
+
+    /// Whether this kernel reads `filter_param_a` as a tap count.
+    pub fn takes_taps(&self) -> bool {
+        matches!(self, ResizeKernel::Lanczos)
     }
 }
 
@@ -105,6 +134,18 @@ pub struct CropResizeParameters {
     #[serde(default)]
     pub kernel: ResizeKernel,
 
+    /// Bicubic `b` (blurring), passed as `filter_param_a`.
+    #[serde(default)]
+    pub bicubic_b: Option<f64>,
+
+    /// Bicubic `c` (ringing), passed as `filter_param_b`.
+    #[serde(default)]
+    pub bicubic_c: Option<f64>,
+
+    /// Lanczos tap count, passed as `filter_param_a`.
+    #[serde(default)]
+    pub lanczos_taps: Option<i32>,
+
     /// Maintain aspect ratio when resizing.
     #[serde(default = "default_true")]
     pub maintain_aspect: bool,
@@ -122,6 +163,51 @@ pub struct CropResizeParameters {
     /// Upscale factor (2 = 2x, 4 = 4x).
     #[serde(default = "default_upscale_factor")]
     pub upscale_factor: i32,
+
+    // --- nnedi3 controls for the edge-directed upscale paths ---
+    // With EEDI3 selected these shape the nnedi3 sclip that guides it.
+
+    /// Neighbourhood size / shape (nnedi3 `nsize`, 0-6).
+    #[serde(default)]
+    pub upscale_nsize: Option<i32>,
+
+    /// Neuron count (nnedi3 `nns`: 0=16, 1=32, 2=64, 3=128, 4=256).
+    #[serde(default)]
+    pub upscale_neurons: Option<i32>,
+
+    /// Prediction quality (nnedi3 `qual`, 1-2).
+    #[serde(default)]
+    pub upscale_qual: Option<i32>,
+
+    /// Error metric used to pick the predictor (nnedi3 `etype`, 0-1).
+    #[serde(default)]
+    pub upscale_etype: Option<i32>,
+
+    /// Prescreener (nnedi3 `pscrn`, 0-4; 0 processes every pixel).
+    #[serde(default)]
+    pub upscale_pscrn: Option<i32>,
+
+    // --- EEDI3 controls ---
+
+    /// Edge-direction connection cost (EEDI3 `alpha`).
+    #[serde(default)]
+    pub upscale_alpha: Option<f64>,
+
+    /// Edge-direction smoothness cost (EEDI3 `beta`).
+    #[serde(default)]
+    pub upscale_beta: Option<f64>,
+
+    /// Penalty for directions away from vertical (EEDI3 `gamma`).
+    #[serde(default)]
+    pub upscale_gamma: Option<f64>,
+
+    /// Neighbourhood radius for the cost function (EEDI3 `nrad`).
+    #[serde(default)]
+    pub upscale_nrad: Option<i32>,
+
+    /// Maximum search distance (EEDI3 `mdis`).
+    #[serde(default)]
+    pub upscale_mdis: Option<i32>,
 }
 
 fn default_true() -> bool { true }
@@ -141,10 +227,23 @@ impl Default for CropResizeParameters {
             target_width: None,
             target_height: None,
             kernel: ResizeKernel::default(),
+            bicubic_b: None,
+            bicubic_c: None,
+            lanczos_taps: None,
             maintain_aspect: true,
             use_integer_upscale: false,
             upscale_method: UpscaleMethod::default(),
             upscale_factor: default_upscale_factor(),
+            upscale_nsize: None,
+            upscale_neurons: None,
+            upscale_qual: None,
+            upscale_etype: None,
+            upscale_pscrn: None,
+            upscale_alpha: None,
+            upscale_beta: None,
+            upscale_gamma: None,
+            upscale_nrad: None,
+            upscale_mdis: None,
         }
     }
 }

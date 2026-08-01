@@ -12,6 +12,12 @@ enum ResizeKernel {
   bicubic,
   @JsonValue('bilinear')
   bilinear,
+  @JsonValue('point')
+  point,
+  @JsonValue('spline16')
+  spline16,
+  @JsonValue('spline64')
+  spline64,
   @JsonValue('nnedi3')
   nnedi3,
   @JsonValue('eedi3')
@@ -84,6 +90,15 @@ class CropResizeParameters {
   /// Resize algorithm to use.
   final ResizeKernel kernel;
 
+  /// Bicubic `b` (blurring), passed as `filter_param_a`.
+  final double? bicubicB;
+
+  /// Bicubic `c` (ringing), passed as `filter_param_b`.
+  final double? bicubicC;
+
+  /// Lanczos tap count, passed as `filter_param_a`.
+  final int? lanczosTaps;
+
   /// Maintain aspect ratio when resizing.
   final bool maintainAspect;
 
@@ -97,6 +112,41 @@ class CropResizeParameters {
 
   /// Upscale factor (2 = 2x, 4 = 4x).
   final int upscaleFactor;
+
+  // --- nnedi3 controls for the edge-directed upscale paths ---
+  // With EEDI3 selected these shape the nnedi3 sclip that guides it.
+
+  /// Neighbourhood size / shape (nnedi3 `nsize`, 0-6).
+  final int? upscaleNsize;
+
+  /// Neuron count (nnedi3 `nns`: 0=16, 1=32, 2=64, 3=128, 4=256).
+  final int? upscaleNeurons;
+
+  /// Prediction quality (nnedi3 `qual`, 1-2).
+  final int? upscaleQual;
+
+  /// Error metric used to pick the predictor (nnedi3 `etype`, 0-1).
+  final int? upscaleEtype;
+
+  /// Prescreener (nnedi3 `pscrn`, 0-4; 0 processes every pixel).
+  final int? upscalePscrn;
+
+  // --- EEDI3 controls ---
+
+  /// Edge-direction connection cost (EEDI3 `alpha`).
+  final double? upscaleAlpha;
+
+  /// Edge-direction smoothness cost (EEDI3 `beta`).
+  final double? upscaleBeta;
+
+  /// Penalty for directions away from vertical (EEDI3 `gamma`).
+  final double? upscaleGamma;
+
+  /// Neighbourhood radius for the cost function (EEDI3 `nrad`).
+  final int? upscaleNrad;
+
+  /// Maximum search distance (EEDI3 `mdis`).
+  final int? upscaleMdis;
 
   const CropResizeParameters({
     this.enabled = false,
@@ -112,11 +162,24 @@ class CropResizeParameters {
     this.targetWidth,
     this.targetHeight,
     this.kernel = ResizeKernel.spline36,
+    this.bicubicB,
+    this.bicubicC,
+    this.lanczosTaps,
     this.maintainAspect = true,
     // Upscale defaults
     this.useIntegerUpscale = false,
     this.upscaleMethod = UpscaleMethod.nnedi3Rpow2,
     this.upscaleFactor = 2,
+    this.upscaleNsize,
+    this.upscaleNeurons,
+    this.upscaleQual,
+    this.upscaleEtype,
+    this.upscalePscrn,
+    this.upscaleAlpha,
+    this.upscaleBeta,
+    this.upscaleGamma,
+    this.upscaleNrad,
+    this.upscaleMdis,
   });
 
   /// Create parameters from a preset.
@@ -186,10 +249,23 @@ class CropResizeParameters {
     int? targetWidth,
     int? targetHeight,
     ResizeKernel? kernel,
+    double? bicubicB,
+    double? bicubicC,
+    int? lanczosTaps,
     bool? maintainAspect,
     bool? useIntegerUpscale,
     UpscaleMethod? upscaleMethod,
     int? upscaleFactor,
+    int? upscaleNsize,
+    int? upscaleNeurons,
+    int? upscaleQual,
+    int? upscaleEtype,
+    int? upscalePscrn,
+    double? upscaleAlpha,
+    double? upscaleBeta,
+    double? upscaleGamma,
+    int? upscaleNrad,
+    int? upscaleMdis,
   }) {
     return CropResizeParameters(
       enabled: enabled ?? this.enabled,
@@ -203,10 +279,23 @@ class CropResizeParameters {
       targetWidth: targetWidth ?? this.targetWidth,
       targetHeight: targetHeight ?? this.targetHeight,
       kernel: kernel ?? this.kernel,
+      bicubicB: bicubicB ?? this.bicubicB,
+      bicubicC: bicubicC ?? this.bicubicC,
+      lanczosTaps: lanczosTaps ?? this.lanczosTaps,
       maintainAspect: maintainAspect ?? this.maintainAspect,
       useIntegerUpscale: useIntegerUpscale ?? this.useIntegerUpscale,
       upscaleMethod: upscaleMethod ?? this.upscaleMethod,
       upscaleFactor: upscaleFactor ?? this.upscaleFactor,
+      upscaleNsize: upscaleNsize ?? this.upscaleNsize,
+      upscaleNeurons: upscaleNeurons ?? this.upscaleNeurons,
+      upscaleQual: upscaleQual ?? this.upscaleQual,
+      upscaleEtype: upscaleEtype ?? this.upscaleEtype,
+      upscalePscrn: upscalePscrn ?? this.upscalePscrn,
+      upscaleAlpha: upscaleAlpha ?? this.upscaleAlpha,
+      upscaleBeta: upscaleBeta ?? this.upscaleBeta,
+      upscaleGamma: upscaleGamma ?? this.upscaleGamma,
+      upscaleNrad: upscaleNrad ?? this.upscaleNrad,
+      upscaleMdis: upscaleMdis ?? this.upscaleMdis,
     );
   }
 

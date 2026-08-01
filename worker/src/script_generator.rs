@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use crate::models::{
-    VideoJob, ProcessingPipeline, NoiseReductionMethod, ResizeKernel, UpscaleMethod,
+    VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod,
     DehaloMethod, DeblockMethod, SharpenMethod, ChromaSubsampling, DeinterlaceMethod,
     FieldOrder,
 };
@@ -959,6 +959,20 @@ impl ScriptGenerator {
                 script = script.replace("{{/RESIZE_INTEGER_UPSCALE}}", "");
                 script = script.replace("{{UPSCALE_FACTOR}}", &resize.upscale_factor.to_string());
 
+                // Two of the three methods are edge-directed and share the
+                // doubling loop and shift correction; Spline36 is plain
+                // resampling and skips all of it.
+                let edge_directed = !matches!(resize.upscale_method, UpscaleMethod::Spline36);
+                if edge_directed {
+                    script = script.replace("{{#UPSCALE_EDGE_DIRECTED}}", "");
+                    script = script.replace("{{/UPSCALE_EDGE_DIRECTED}}", "");
+                    script = remove_block("{{#UPSCALE_SPLINE36}}", "{{/UPSCALE_SPLINE36}}", script);
+                } else {
+                    script = remove_block("{{#UPSCALE_EDGE_DIRECTED}}", "{{/UPSCALE_EDGE_DIRECTED}}", script);
+                    script = script.replace("{{#UPSCALE_SPLINE36}}", "");
+                    script = script.replace("{{/UPSCALE_SPLINE36}}", "");
+                }
+
                 match resize.upscale_method {
                     UpscaleMethod::Nnedi3Rpow2 => {
                         script = script.replace("{{#UPSCALE_NNEDI3}}", "");
@@ -969,12 +983,27 @@ impl ScriptGenerator {
                         script = remove_block("{{#UPSCALE_NNEDI3}}", "{{/UPSCALE_NNEDI3}}", script);
                         script = script.replace("{{#UPSCALE_EEDI3}}", "");
                         script = script.replace("{{/UPSCALE_EEDI3}}", "");
+                        // EEDI3's own controls only exist on this path.
+                        script = process_optional_double("UPSCALE_ALPHA", resize.upscale_alpha, script);
+                        script = process_optional_double("UPSCALE_BETA", resize.upscale_beta, script);
+                        script = process_optional_double("UPSCALE_GAMMA", resize.upscale_gamma, script);
+                        script = process_optional_int("UPSCALE_NRAD", resize.upscale_nrad, script);
+                        script = process_optional_int("UPSCALE_MDIS", resize.upscale_mdis, script);
                     }
                     UpscaleMethod::Spline36 => {
-                        // For spline36 "upscale", we use resize instead
                         script = remove_block("{{#UPSCALE_NNEDI3}}", "{{/UPSCALE_NNEDI3}}", script);
                         script = remove_block("{{#UPSCALE_EEDI3}}", "{{/UPSCALE_EEDI3}}", script);
                     }
+                }
+
+                // The nnedi3 controls apply to both edge-directed methods: on
+                // the EEDI3 path they shape the sclip that guides it.
+                if edge_directed {
+                    script = process_optional_int("UPSCALE_NSIZE", resize.upscale_nsize, script);
+                    script = process_optional_int("UPSCALE_NNS", resize.upscale_neurons, script);
+                    script = process_optional_int("UPSCALE_QUAL", resize.upscale_qual, script);
+                    script = process_optional_int("UPSCALE_ETYPE", resize.upscale_etype, script);
+                    script = process_optional_int("UPSCALE_PSCRN", resize.upscale_pscrn, script);
                 }
             } else {
                 script = remove_block("{{#RESIZE_INTEGER_UPSCALE}}", "{{/RESIZE_INTEGER_UPSCALE}}", script);
@@ -999,37 +1028,23 @@ impl ScriptGenerator {
                     script = remove_block("{{#MAINTAIN_ASPECT}}", "{{/MAINTAIN_ASPECT}}", script);
                 }
 
-                match resize.kernel {
-                    ResizeKernel::Spline36 | ResizeKernel::Nnedi3 | ResizeKernel::Eedi3 => {
-                        // Nnedi3/Eedi3 are for integer upscaling; for standard resize use Spline36
-                        script = script.replace("{{#RESIZE_SPLINE36}}", "");
-                        script = script.replace("{{/RESIZE_SPLINE36}}", "");
-                        script = remove_block("{{#RESIZE_LANCZOS}}", "{{/RESIZE_LANCZOS}}", script);
-                        script = remove_block("{{#RESIZE_BICUBIC}}", "{{/RESIZE_BICUBIC}}", script);
-                        script = remove_block("{{#RESIZE_BILINEAR}}", "{{/RESIZE_BILINEAR}}", script);
-                    }
-                    ResizeKernel::Lanczos => {
-                        script = remove_block("{{#RESIZE_SPLINE36}}", "{{/RESIZE_SPLINE36}}", script);
-                        script = script.replace("{{#RESIZE_LANCZOS}}", "");
-                        script = script.replace("{{/RESIZE_LANCZOS}}", "");
-                        script = remove_block("{{#RESIZE_BICUBIC}}", "{{/RESIZE_BICUBIC}}", script);
-                        script = remove_block("{{#RESIZE_BILINEAR}}", "{{/RESIZE_BILINEAR}}", script);
-                    }
-                    ResizeKernel::Bicubic => {
-                        script = remove_block("{{#RESIZE_SPLINE36}}", "{{/RESIZE_SPLINE36}}", script);
-                        script = remove_block("{{#RESIZE_LANCZOS}}", "{{/RESIZE_LANCZOS}}", script);
-                        script = script.replace("{{#RESIZE_BICUBIC}}", "");
-                        script = script.replace("{{/RESIZE_BICUBIC}}", "");
-                        script = remove_block("{{#RESIZE_BILINEAR}}", "{{/RESIZE_BILINEAR}}", script);
-                    }
-                    ResizeKernel::Bilinear => {
-                        script = remove_block("{{#RESIZE_SPLINE36}}", "{{/RESIZE_SPLINE36}}", script);
-                        script = remove_block("{{#RESIZE_LANCZOS}}", "{{/RESIZE_LANCZOS}}", script);
-                        script = remove_block("{{#RESIZE_BICUBIC}}", "{{/RESIZE_BICUBIC}}", script);
-                        script = script.replace("{{#RESIZE_BILINEAR}}", "");
-                        script = script.replace("{{/RESIZE_BILINEAR}}", "");
-                    }
-                }
+                // One call, with the kernel substituted in — the alternative is
+                // one template block per kernel, which does not scale past a
+                // handful.
+                script = script.replace("{{RESIZE_KERNEL}}", resize.kernel.resize_function());
+
+                // filter_param_a/b mean different things per kernel, so only
+                // emit them for the kernel that reads them. Passing Bicubic's b
+                // to Lanczos would silently change the tap count.
+                let (filter_a, filter_b) = if resize.kernel.takes_bicubic_params() {
+                    (resize.bicubic_b, resize.bicubic_c)
+                } else if resize.kernel.takes_taps() {
+                    (resize.lanczos_taps.map(f64::from), None)
+                } else {
+                    (None, None)
+                };
+                script = process_optional_double("RESIZE_FILTER_A", filter_a, script);
+                script = process_optional_double("RESIZE_FILTER_B", filter_b, script);
             } else {
                 script = remove_block("{{#RESIZE_STANDARD}}", "{{/RESIZE_STANDARD}}", script);
             }

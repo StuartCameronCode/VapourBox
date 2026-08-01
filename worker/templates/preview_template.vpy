@@ -827,24 +827,118 @@ clip = core.std.Levels(
 {{#RESIZE}}
 
 {{#RESIZE_INTEGER_UPSCALE}}
-# Integer upscaling using NNEDI3/ZNEDI3
-# Manual 2x upscale: nnedi3 on Y, transpose, nnedi3 again, transpose back
+# Integer upscaling: repeated edge-directed 2x doubling (double the height,
+# transpose, double again, transpose back).
+{{#UPSCALE_EDGE_DIRECTED}}
+def _upscale_double_height(c):
 {{#UPSCALE_NNEDI3}}
-def nnedi3_2x(c):
-    # Double height
-    c = core.znedi3.nnedi3(c, field=1, dh=True)
-    c = core.std.Transpose(c)
-    # Double width
-    c = core.znedi3.nnedi3(c, field=1, dh=True)
-    c = core.std.Transpose(c)
-    return c
-for _ in range({{UPSCALE_FACTOR}} // 2 if {{UPSCALE_FACTOR}} > 1 else 1):
-    clip = nnedi3_2x(clip)
+    return core.znedi3.nnedi3(
+        c,
+        field=1,
+        dh=True,
+{{#UPSCALE_NSIZE}}
+        nsize={{UPSCALE_NSIZE}},
+{{/UPSCALE_NSIZE}}
+{{#UPSCALE_NNS}}
+        nns={{UPSCALE_NNS}},
+{{/UPSCALE_NNS}}
+{{#UPSCALE_QUAL}}
+        qual={{UPSCALE_QUAL}},
+{{/UPSCALE_QUAL}}
+{{#UPSCALE_ETYPE}}
+        etype={{UPSCALE_ETYPE}},
+{{/UPSCALE_ETYPE}}
+{{#UPSCALE_PSCRN}}
+        pscrn={{UPSCALE_PSCRN}},
+{{/UPSCALE_PSCRN}}
+    )
 {{/UPSCALE_NNEDI3}}
 {{#UPSCALE_EEDI3}}
-# EEDI3 upscaling - fall back to spline36 for now
-clip = core.resize.Spline36(clip, width=clip.width * {{UPSCALE_FACTOR}}, height=clip.height * {{UPSCALE_FACTOR}})
+    # EEDI3 needs a second opinion to bound its cost search. nnedi3 is the
+    # conventional choice and is bundled anyway, so the nnedi3 controls below
+    # shape the sclip that guides EEDI3.
+    sclip = core.znedi3.nnedi3(
+        c,
+        field=1,
+        dh=True,
+{{#UPSCALE_NSIZE}}
+        nsize={{UPSCALE_NSIZE}},
+{{/UPSCALE_NSIZE}}
+{{#UPSCALE_NNS}}
+        nns={{UPSCALE_NNS}},
+{{/UPSCALE_NNS}}
+{{#UPSCALE_QUAL}}
+        qual={{UPSCALE_QUAL}},
+{{/UPSCALE_QUAL}}
+{{#UPSCALE_ETYPE}}
+        etype={{UPSCALE_ETYPE}},
+{{/UPSCALE_ETYPE}}
+{{#UPSCALE_PSCRN}}
+        pscrn={{UPSCALE_PSCRN}},
+{{/UPSCALE_PSCRN}}
+    )
+    return core.eedi3m.EEDI3(
+        c,
+        field=1,
+        dh=True,
+        sclip=sclip,
+{{#UPSCALE_ALPHA}}
+        alpha={{UPSCALE_ALPHA}},
+{{/UPSCALE_ALPHA}}
+{{#UPSCALE_BETA}}
+        beta={{UPSCALE_BETA}},
+{{/UPSCALE_BETA}}
+{{#UPSCALE_GAMMA}}
+        gamma={{UPSCALE_GAMMA}},
+{{/UPSCALE_GAMMA}}
+{{#UPSCALE_NRAD}}
+        nrad={{UPSCALE_NRAD}},
+{{/UPSCALE_NRAD}}
+{{#UPSCALE_MDIS}}
+        mdis={{UPSCALE_MDIS}},
+{{/UPSCALE_MDIS}}
+    )
 {{/UPSCALE_EEDI3}}
+
+
+def _upscale_fix_shift(c, shift):
+    # Interpolating the missing field with dh=True leaves the result half an
+    # output pixel above (and, after the transposes, left of) where it belongs.
+    # Measured on an 8x8 clip with one bright row: the centroid that should land
+    # at output y=7.0 lands at 6.51.
+    #
+    # The correction has to be applied PER PLANE. src_top is expressed in luma
+    # pixels, so a single whole-clip -0.5 under-corrects subsampled chroma by a
+    # quarter of a chroma row (measured: 6.74 instead of 7.0 on 4:2:0), leaving
+    # colour misaligned against luma.
+    if shift == 0:
+        return c
+    if c.format.num_planes == 1:
+        return core.resize.Spline36(c, src_left=-shift, src_top=-shift)
+    planes = [
+        core.resize.Spline36(
+            core.std.ShufflePlanes(c, i, vs.GRAY), src_left=-shift, src_top=-shift)
+        for i in range(c.format.num_planes)
+    ]
+    return core.std.ShufflePlanes(planes, [0] * c.format.num_planes, c.format.color_family)
+
+
+# Each doubling adds half an output pixel of offset, and doubles whatever
+# offset it inherited — so correct once at the end rather than per step, which
+# keeps it to a single resample.
+_upscale_shift = 0.0
+for _ in range(max({{UPSCALE_FACTOR}} // 2, 1)):
+    clip = _upscale_double_height(clip)
+    clip = core.std.Transpose(clip)
+    clip = _upscale_double_height(clip)
+    clip = core.std.Transpose(clip)
+    _upscale_shift = _upscale_shift * 2 + 0.5
+clip = _upscale_fix_shift(clip, _upscale_shift)
+{{/UPSCALE_EDGE_DIRECTED}}
+{{#UPSCALE_SPLINE36}}
+# Plain resampling at an integer factor — no edge direction, just fast.
+clip = core.resize.Spline36(clip, width=clip.width * {{UPSCALE_FACTOR}}, height=clip.height * {{UPSCALE_FACTOR}})
+{{/UPSCALE_SPLINE36}}
 {{/RESIZE_INTEGER_UPSCALE}}
 
 {{#RESIZE_STANDARD}}
@@ -871,18 +965,19 @@ elif target_w > 0 and target_h > 0:
     target_h = target_h - (target_h % 2)
 {{/MAINTAIN_ASPECT}}
 
-{{#RESIZE_SPLINE36}}
-clip = core.resize.Spline36(clip, width=target_w, height=target_h)
-{{/RESIZE_SPLINE36}}
-{{#RESIZE_LANCZOS}}
-clip = core.resize.Lanczos(clip, width=target_w, height=target_h)
-{{/RESIZE_LANCZOS}}
-{{#RESIZE_BICUBIC}}
-clip = core.resize.Bicubic(clip, width=target_w, height=target_h)
-{{/RESIZE_BICUBIC}}
-{{#RESIZE_BILINEAR}}
-clip = core.resize.Bilinear(clip, width=target_w, height=target_h)
-{{/RESIZE_BILINEAR}}
+# filter_param_a/b carry the kernel's own tuning: b and c for Bicubic, taps
+# for Lanczos. They are ignored by kernels that take neither.
+clip = core.resize.{{RESIZE_KERNEL}}(
+    clip,
+    width=target_w,
+    height=target_h,
+{{#RESIZE_FILTER_A}}
+    filter_param_a={{RESIZE_FILTER_A}},
+{{/RESIZE_FILTER_A}}
+{{#RESIZE_FILTER_B}}
+    filter_param_b={{RESIZE_FILTER_B}},
+{{/RESIZE_FILTER_B}}
+)
 {{/RESIZE_STANDARD}}
 {{/RESIZE}}
 
