@@ -316,13 +316,21 @@ $Plugins7z = @(
     }
 )
 
-# Plugins with zip format. NOTE: fmtconv-r30.zip ships BOTH win32/fmtconv.dll and
+# Plugins with zip format. NOTE: fmtconv-r31.zip ships BOTH win32/fmtconv.dll and
 # win64/fmtconv.dll under arch subfolders, so the copy loop below must pick win64
 # (copying both would let win32 clobber the 64-bit DLL depending on file order).
+#
+# fmtconv upstream moved from GitHub to GitLab in Aug 2023 and no longer publishes
+# GitHub release assets, so r31 comes from the author's site - that is the asset the
+# official GitLab release for r31 links to. Keep this version in step with
+# FMTCONV_TAG in download-deps-{macos,linux}.sh: r31 changed interlaced PAL-DV
+# chroma placement, so a version skew between platforms would make the same job
+# produce different chroma on Windows than on macOS/Linux. If this URL ever dies,
+# deps-expected-plugins.json makes it a red build rather than a silent gap.
 $PluginsZip = @(
     @{
         Name = "fmtconv"
-        Url = "https://github.com/EleonoreMizo/fmtconv/releases/download/r30/fmtconv-r30.zip"
+        Url = "https://ldesoras.fr/src/vs/fmtconv-r31.zip"
         Check = "fmtconv.dll"
     },
     @{
@@ -668,6 +676,27 @@ def _fix_mv_args(args):
 
     if ($PatchedEedi3cl) {
         $PatchesApplied += "EEDI3CL fallback"
+    }
+
+    # Patch 5: Bob() bit depth - fmtconv's generic (non-x86-SIMD) VERTICAL
+    # resampler returns black for any input below 16-bit, and havsfunc's Bob()
+    # bobs fields with fmtc.resample(scalev=2, ...). Windows x64 is NOT affected
+    # (its SSE2/AVX2 scalers override the broken generic path) - this is applied
+    # here purely so every platform generates identical output from an identical
+    # havsfunc. On arm64 it is a real fix: it repaired QTGMC's Placebo/Very Slow
+    # presets (the only ones defaulting NoiseProcess=2, whose noise pass calls
+    # Bob) and the Draft preset (EdiMode='bob'). Promoting to 16-bit is a no-op
+    # for quality here because fmtc.resample already outputs 16-bit from 8-bit
+    # input, and Bob()'s existing tail dithers back to the source depth.
+    $OldBob = "    clip = core.std.SeparateFields(clip, tff).fmtc.resample(scalev=2, kernel='bicubic', a1=b, a2=c, interlaced=1, interlacedd=0)`n"
+    if ($Content.Contains($OldBob)) {
+        Write-Host "  Applying Bob 16-bit resample patch..." -ForegroundColor Gray
+        $NewBob = "    _bob_fields = core.std.SeparateFields(clip, tff)`n" +
+                  "    if bits < 16:`n" +
+                  "        _bob_fields = core.fmtc.bitdepth(_bob_fields, bits=16)`n" +
+                  "    clip = _bob_fields.fmtc.resample(scalev=2, kernel='bicubic', a1=b, a2=c, interlaced=1, interlacedd=0)`n"
+        $Content = $Content.Replace($OldBob, $NewBob)
+        $PatchesApplied += "Bob 16-bit resample"
     }
 
     if ($PatchesApplied.Count -gt 0) {

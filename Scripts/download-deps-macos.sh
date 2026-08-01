@@ -1010,11 +1010,31 @@ build_plugin "eedi3m" \
     "meson setup build --buildtype=release && ninja -C build"
 
 # fmtconv (format conversion)
+# Upstream moved to GitLab in Aug 2023; the GitHub repo is an abandoned mirror
+# whose final commit is literally "Repository moved to Gitlab", so cloning its
+# master pinned us to a stale post-r30 snapshot. Use GitLab and pin the tag so
+# the build is reproducible and every platform ships the same fmtconv version
+# (r31 also fixes interlaced PAL-DV chroma placement — U/V vertical positions
+# were swapped and vertical subsampling > 2 was unhandled).
+# NOTE: r31 does NOT fix the aarch64 integer-scaler bug (vertical resampling of
+# sub-16-bit sources returns black). We fix that ourselves with
+# patches/fmtconv-r31-arm-int-scaler.patch, applied right after the clone below.
+FMTCONV_TAG="r31"
 echo ""
-echo "=== Building fmtconv ==="
+echo "=== Building fmtconv ($FMTCONV_TAG) ==="
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfmtconv.dylib" ]; then
     rm -rf fmtconv
-    git clone --depth 1 https://github.com/EleonoreMizo/fmtconv.git fmtconv
+    git clone --depth 1 --branch "$FMTCONV_TAG" https://gitlab.com/EleonoreMizo/fmtconv.git fmtconv
+    # Fix the non-x86 integer vertical scaler, which returns a black plane for
+    # any source below 16-bit — that is what broke havsfunc's Bob(), and with it
+    # QTGMC's Placebo/Very Slow noise pass and the Draft preset. The patch header
+    # has the full analysis. Hard-fail rather than silently shipping the bug back.
+    (cd fmtconv && git apply "$SCRIPT_DIR/patches/fmtconv-r31-arm-int-scaler.patch") || {
+        echo "  ERROR: patches/fmtconv-r31-arm-int-scaler.patch did not apply." >&2
+        echo "  fmtconv $FMTCONV_TAG may have changed upstream — re-check the patch." >&2
+        exit 1
+    }
+    echo "  Patched fmtconv integer scaler (non-x86 vertical resample)"
     cd fmtconv/build/unix
     ./autogen.sh
     ./configure
@@ -1392,6 +1412,33 @@ if old_qtgmc in content:
 
 if patched_eedi3cl:
     patches.append('EEDI3CL fallback')
+
+# Patch 5: Bob() bit depth — fmtconv's generic (non-x86-SIMD) VERTICAL resampler
+# returns black for any input below 16-bit. havsfunc's Bob() bobs fields with
+# fmtc.resample(scalev=2, ...), so on aarch64 it destroys the image outright.
+# That silently broke two QTGMC paths:
+#   - Placebo / Very Slow are the only presets that default NoiseProcess=2, and
+#     that noise pass calls Bob() to expand fields before extracting noise. The
+#     near-black "denoised" clip made MakeDiff clip hard, so GrainRestore/
+#     NoiseRestore merged in a large positive bias: ~+10/255 brighter output.
+#   - Draft sets EdiMode='bob', which interpolates via Bob() — near-black output.
+# Horizontal resampling and >=16-bit input are fine, which is why Slower and
+# below (whose only fmtconv use is the same-size Sbb gauss blur) look correct.
+# x86 is unaffected: its SSE2/AVX2 scalers override the broken generic path, so
+# this only ever hit macos-arm64 and linux-arm64. Still broken in upstream r31.
+# Promote to 16-bit before the resample — Bob()'s existing tail already dithers
+# back to the source depth, and fmtconv keeps doing its own interlaced chroma
+# placement (which zimg would not).
+old_bob = "    clip = core.std.SeparateFields(clip, tff).fmtc.resample(scalev=2, kernel='bicubic', a1=b, a2=c, interlaced=1, interlacedd=0)\n"
+if old_bob in content:
+    content = content.replace(
+        old_bob,
+        "    _bob_fields = core.std.SeparateFields(clip, tff)\n"
+        "    if bits < 16:\n"
+        "        _bob_fields = core.fmtc.bitdepth(_bob_fields, bits=16)\n"
+        "    clip = _bob_fields.fmtc.resample(scalev=2, kernel='bicubic', a1=b, a2=c, interlaced=1, interlacedd=0)\n"
+    )
+    patches.append('Bob 16-bit resample')
 
 if patches:
     with open(havsfunc_path, 'w') as f:

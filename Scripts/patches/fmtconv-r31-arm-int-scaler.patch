@@ -1,0 +1,115 @@
+fmtconv r31: fix the non-x86 integer scaler returning a black plane
+==================================================================
+
+Applies to: fmtconv r31 (gitlab.com/EleonoreMizo/fmtconv), src/fmtcl/Scaler.cpp
+Affects:    every build without the x86 SIMD path - in practice macos-arm64 and
+            linux-arm64. x86 is unaffected because its SSE2/AVX2 scalers replace
+            the patched function outright in the Scaler constructor, making it
+            dead code there.
+Upstream:   not reported yet (needs a GitLab account); this header doubles as the
+            write-up if it is ever submitted.
+
+Symptom
+-------
+core.fmtc.resample() returns an all-zero (black) plane whenever the integer
+kernel runs with a source bitdepth below 16. Measured on macos-arm64, scaling a
+flat plane by two:
+
+    source     axis         kernel        result
+    8-bit      horizontal   SB=16 DB=16   correct
+    8-bit      vertical     SB=8  DB=16   black
+    10-bit     either       SB=10 DB=16   black
+    12-bit     either       SB=12 DB=16   black
+    16-bit     either       SB=16 DB=16   correct
+
+An 8-bit source scaled only horizontally is the one combination that escapes: it
+reaches the kernel already converted to 16-bit, landing on SB = DB = 16. So this
+is NOT a vertical-only bug - 10- and 12-bit sources break on both axes. Same-size
+resampling and float sources are never affected.
+
+In VapourBox this broke havsfunc's Bob(), which bobs fields with
+fmtc.resample(scalev=2, ...). QTGMC's Placebo and Very Slow presets - the only
+ones that default NoiseProcess=2, whose noise pass calls Bob() - came out about
++10/255 too bright, because the near-black "denoised" clip made MakeDiff clip
+hard and GrainRestore/NoiseRestore then merged a large positive bias back in.
+The Draft preset (EdiMode='bob') came out nearly black.
+
+Cause
+-----
+Scaler::process_plane_int_cpp applies the same sign-conversion constants as its
+SSE2/AVX2 siblings:
+
+    s_in  = (SB < 16) ? -(0x8000 << (SHIFT_INT + SB - DB)) : 0;
+    s_out = (DB < 16) ?   0x8000 << (SHIFT_INT + SB - DB)  : 0;
+
+Those exist because the vector kernels accumulate in signed 16-bit lanes: they
+shift whichever end is not 16-bit into the signed domain, and the vector proxy
+undoes it via ProxyRwSse2<SplFmt_INT16>::S16<CLIP_FLAG, SIGN_FLAG>, which XORs
+bit 15 on read/write with SIGN_FLAG = (SB == 16) / (DB == 16).
+
+The C++ path has no such counterpart. It accumulates in a plain int and its
+proxies are unsigned at both ends - ProxyRwCpp<SplFmt_INT8/INT16>::read()
+returns the raw stored value, and write_clip<DB>() clamps to [0, 2^DB-1]. So
+s_in biased the accumulator by -0x8000 << shift with nothing to undo it, and
+write_clip clamped every resulting negative value to 0.
+
+Worked example, 8-bit source to 16-bit destination (SHIFT_INT = 12, so shift 4),
+flat input 120, kernel summing to 4096:
+
+    sum = 120*4096 + s_in + r_cst = 491520 - 524288 + 8 = -32760
+    -32760 >> 4                                         = -2048
+    write_clip<16>(-2048) -> limit(-2048, 0, 65535)      = 0      <-- black
+
+SPAN_I instantiates SB = 16, 14, 12, 10, 9, 8 with DB always 16, so only
+SB = DB = 16 was correct - there s_in and s_out are already 0.
+
+Fix
+---
+Drop the sign constants from the C++ kernel, matching its unsigned proxies.
+write_clip<DB>'s existing [0, 2^DB-1] clamp is already correct for that domain,
+so nothing else changes. With the same example the result becomes
+491528 >> 4 = 30720, i.e. 120 * 2^8 - identical to what the horizontal path
+produces for the same conversion.
+
+Verified on macos-arm64 by transposing the input, resampling along the other axis
+and transposing back. After the patch that reference is bit-identical to the
+direct result for luma in every format tested (8/10/12/16-bit, 4:2:0/4:2:2/4:4:4,
+scaling up and down) and on every plane for 4:2:2 and 4:4:4. At 8 and 16 bits the
+transposed path is genuinely unaffected by the bug; at 10 and 12 bits both axes
+were broken beforehand, so there it shows mutual consistency rather than a check
+against known-good output. 4:2:0 chroma cannot be compared that way at all, since
+chroma siting is not symmetric under transposition; its residual difference is
+identical for 16-bit input, which the bug never affected.
+
+diff --git a/src/fmtcl/Scaler.cpp b/src/fmtcl/Scaler.cpp
+index b01f594..672e468 100644
+--- a/src/fmtcl/Scaler.cpp
++++ b/src/fmtcl/Scaler.cpp
+@@ -399,14 +399,19 @@ void	Scaler::process_plane_int_cpp (typename DST::Ptr::Type dst_ptr, typename SR
+ 	// Rounding constant for the final shift
+ 	const int      r_cst    = 1 << (SHIFT_INT + SB - DB - 1);
+ 
+-	// Sign constants: when we have 16-bit data at one end only,
+-	// we need to make data signed at the oposite end. This sign
+-	// constant is reported on the summing constant.
+-	const int      s_in     = (SB < 16) ? -(0x8000 << (SHIFT_INT + SB - DB)) : 0;
+-	const int      s_out    = (DB < 16) ?   0x8000 << (SHIFT_INT + SB - DB)  : 0;
+-	const int      s_cst    = s_in + s_out;
+-
+-	const int      add_cst  = _add_cst_int + s_cst + r_cst;
++	// No sign constant here, unlike process_plane_int_sse2/avx2.
++	// Those compute on signed 16-bit vector lanes, so they convert whichever
++	// end is not 16-bit into the signed domain and let the proxy's S16
++	// <CLIP_FLAG, SIGN_FLAG> flip bit 15 back on read/write.
++	// This C++ path instead accumulates in a plain int and its proxies are
++	// unsigned at both ends: ProxyRwCpp <SplFmt_INT8/INT16>::read () returns the
++	// raw stored value, and write_clip <DB> () clamps to [0, 2^DB-1]. Applying a
++	// sign constant here therefore biased the accumulator by -0x8000 << shift
++	// with nothing to undo it, so every output clamped to 0 -- i.e. vertical
++	// resampling returned a black plane for any source bitdepth below 16
++	// (SPAN_I covers SB = 14, 12, 10, 9 and 8; only SB = DB = 16 was correct,
++	// because there both s_in and s_out are already 0).
++	const int      add_cst  = _add_cst_int + r_cst;
+ 
+ 	for (int y = y_dst_beg; y < y_dst_end; ++y)
+ 	{
