@@ -9,6 +9,7 @@ import 'descratch_parameters.dart';
 import 'spotless_parameters.dart';
 import 'dehalo_parameters.dart';
 import 'dynamic_parameters.dart';
+import 'chroma_denoise_parameters.dart';
 import 'noise_reduction_parameters.dart';
 import 'parameter_converter.dart';
 import 'qtgmc_parameters.dart';
@@ -23,6 +24,7 @@ enum PassType {
   descratch,
   spotless,
   noiseReduction,
+  chromaDenoise,
   dehalo,
   deblock,
   deband,
@@ -45,6 +47,8 @@ extension PassTypeExtension on PassType {
         return 'SpotLess';
       case PassType.noiseReduction:
         return 'Noise Reduction';
+      case PassType.chromaDenoise:
+        return 'Chroma Denoise';
       case PassType.dehalo:
         return 'Dehalo';
       case PassType.deblock:
@@ -74,6 +78,8 @@ extension PassTypeExtension on PassType {
         return 'Remove dust, dirt, and temporal spots from film';
       case PassType.noiseReduction:
         return 'Reduce video noise and grain';
+      case PassType.chromaDenoise:
+        return 'Remove blotchy colour noise (CCD)';
       case PassType.dehalo:
         return 'Remove halo artifacts around edges';
       case PassType.deblock:
@@ -110,6 +116,9 @@ class ProcessingPipeline {
   /// Noise reduction pass parameters.
   final NoiseReductionParameters noiseReduction;
 
+  /// Chroma denoise pass parameters (CCD).
+  final ChromaDenoiseParameters chromaDenoise;
+
   /// Dehalo pass parameters.
   final DehaloParameters dehalo;
 
@@ -139,6 +148,7 @@ class ProcessingPipeline {
     this.descratch = const DeScratchParameters(),
     this.spotless = const SpotLessParameters(),
     this.noiseReduction = const NoiseReductionParameters(),
+    this.chromaDenoise = const ChromaDenoiseParameters(),
     this.dehalo = const DehaloParameters(),
     this.deblock = const DeblockParameters(),
     this.deband = const DebandParameters(),
@@ -157,6 +167,7 @@ class ProcessingPipeline {
       descratch: const DeScratchParameters(enabled: false),
       spotless: const SpotLessParameters(enabled: false),
       noiseReduction: const NoiseReductionParameters(enabled: false),
+      chromaDenoise: const ChromaDenoiseParameters(enabled: false),
       dehalo: const DehaloParameters(enabled: false),
       deblock: const DeblockParameters(enabled: false),
       deband: const DebandParameters(enabled: false),
@@ -186,6 +197,11 @@ class ProcessingPipeline {
     }
     if (noiseReduction.enabled) {
       passes.add(PassType.noiseReduction);
+    }
+    // Chroma noise is removed with the rest of the denoising, before the
+    // deband/sharpen steps that would otherwise amplify it.
+    if (chromaDenoise.enabled) {
+      passes.add(PassType.chromaDenoise);
     }
     if (dehalo.enabled) {
       passes.add(PassType.dehalo);
@@ -221,6 +237,7 @@ class ProcessingPipeline {
     if (descratch.enabled) count++;
     if (spotless.enabled) count++;
     if (noiseReduction.enabled) count++;
+    if (chromaDenoise.enabled) count++;
     if (dehalo.enabled) count++;
     if (deblock.enabled) count++;
     if (deband.enabled) count++;
@@ -239,6 +256,7 @@ class ProcessingPipeline {
     if (descratch.enabled) count++;
     if (spotless.enabled) count++;
     if (noiseReduction.enabled) count++;
+    if (chromaDenoise.enabled) count++;
     if (dehalo.enabled) count++;
     if (deblock.enabled) count++;
     if (deband.enabled) count++;
@@ -260,6 +278,8 @@ class ProcessingPipeline {
         return spotless.enabled;
       case PassType.noiseReduction:
         return noiseReduction.enabled;
+      case PassType.chromaDenoise:
+        return chromaDenoise.enabled;
       case PassType.dehalo:
         return dehalo.enabled;
       case PassType.deblock:
@@ -292,6 +312,8 @@ class ProcessingPipeline {
         return spotless.summary;
       case PassType.noiseReduction:
         return noiseReduction.summary;
+      case PassType.chromaDenoise:
+        return chromaDenoise.summary;
       case PassType.dehalo:
         return dehalo.summary;
       case PassType.deblock:
@@ -316,6 +338,7 @@ class ProcessingPipeline {
     DeScratchParameters? descratch,
     SpotLessParameters? spotless,
     NoiseReductionParameters? noiseReduction,
+    ChromaDenoiseParameters? chromaDenoise,
     DehaloParameters? dehalo,
     DeblockParameters? deblock,
     DebandParameters? deband,
@@ -330,6 +353,7 @@ class ProcessingPipeline {
       descratch: descratch ?? this.descratch,
       spotless: spotless ?? this.spotless,
       noiseReduction: noiseReduction ?? this.noiseReduction,
+      chromaDenoise: chromaDenoise ?? this.chromaDenoise,
       dehalo: dehalo ?? this.dehalo,
       deblock: deblock ?? this.deblock,
       deband: deband ?? this.deband,
@@ -355,6 +379,10 @@ class ProcessingPipeline {
       case PassType.spotless:
         return copyWith(
           spotless: spotless.copyWith(enabled: enabled),
+        );
+      case PassType.chromaDenoise:
+        return copyWith(
+          chromaDenoise: chromaDenoise.copyWith(enabled: enabled),
         );
       case PassType.noiseReduction:
         return copyWith(

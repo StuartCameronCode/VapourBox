@@ -84,6 +84,7 @@ Get the latest release for your platform:
 - **Audio options** — passthrough, re-encode (AAC, Opus, FLAC), or strip audio
 - **Custom filters** — extend VapourBox with your own VapourSynth filters via [JSON schemas](docs/FILTER_SCHEMA.md)
 - **Aspect ratio preservation** — non-square pixel SAR (e.g., anamorphic DVD) carried through the pipeline
+- **Chroma denoise (CCD)** — clears the blotchy colour noise on VHS captures and old camcorder footage without touching detail in the picture
 - **White balance** — temperature (warm/cool) and tint (green/magenta) correction alongside brightness, contrast, saturation, hue and levels
 - **Edge-directed upscaling** — NNEDI3 or EEDI3 integer doubling with the full neuron/quality/prescreener controls, plus seven resampling kernels with per-kernel tuning
 - **Wide source format support** — 4:1:1 (NTSC DV), 4:1:0, 4:2:0/4:2:2/4:4:4 up to 16-bit, RGB and grayscale sources

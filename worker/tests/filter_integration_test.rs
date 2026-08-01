@@ -581,6 +581,7 @@ fn test_20_combined_all_filters() {
             sm_degrain_prefilter: 2,
             ..NoiseReductionParameters::default()
         },
+        chroma_denoise: ChromaDenoiseParameters::default(),
         dehalo: DehaloParameters::default(),
         deblock: DeblockParameters::default(),
         deband: DebandParameters::default(),
@@ -2682,4 +2683,87 @@ fn test_74_white_balance_absent_when_neutral() {
     let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
     assert!(script.contains("_wb_u = -5.0 * _wb_scale"));
     assert!(script.contains("_wb_v = -5.0 * _wb_scale"));
+}
+
+#[test]
+fn test_75_chroma_denoise_ccd() {
+    // Issue #50: CCD, the chroma denoiser for VHS/camcorder colour noise.
+    create_output_dir();
+
+    let mut job = create_base_job("test_75_chroma_denoise");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        chroma_denoise: ChromaDenoiseParameters {
+            enabled: true,
+            threshold: 8.5,
+            temporal_radius: 2,
+            points_high: true,
+            ..ChromaDenoiseParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "CCD chroma denoise", &[
+        "core.zsmooth.CCD",
+        "threshold=8.5",
+        "temporal_radius=2",
+        "points=[True, True, True]",
+    ]).unwrap();
+}
+
+#[test]
+fn test_76_ccd_scale_is_derived_with_a_floor() {
+    // CCD derives `scale` from the frame height and REJECTS anything below 1.0,
+    // so its own automatic value fails outright on sources shorter than its
+    // 480-line reference (measured: 352x288 and 320x240 both error with "scale
+    // must be greater than or equal to 1.0"). We derive it with a floor so short
+    // and cropped sources still run.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_76_ccd_scale");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        chroma_denoise: ChromaDenoiseParameters {
+            enabled: true,
+            ..ChromaDenoiseParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+
+    assert!(
+        script.contains("_ccd_scale = max(1.0, clip.height / 480.0)"),
+        "scale should be derived from the height with a floor of 1.0"
+    );
+    assert!(script.contains("scale=_ccd_scale"));
+
+    // An explicit scale overrides the derivation entirely.
+    job.processing_pipeline.as_mut().unwrap().chroma_denoise.scale = Some(3.5);
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    assert!(script.contains("_ccd_scale = 3.5"));
+    assert!(!script.contains("max(1.0, clip.height"));
+}
+
+#[test]
+fn test_77_chroma_denoise_absent_when_disabled() {
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_77_chroma_denoise_off");
+    job.processing_pipeline = Some(ProcessingPipeline::default());
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    assert!(!script.contains("zsmooth"), "a disabled pass must emit nothing");
+
+    // And it sits between noise reduction and dehalo in the pass order.
+    let pipeline = ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        noise_reduction: NoiseReductionParameters { enabled: true, ..Default::default() },
+        chroma_denoise: ChromaDenoiseParameters { enabled: true, ..Default::default() },
+        dehalo: DehaloParameters { enabled: true, ..Default::default() },
+        ..ProcessingPipeline::default()
+    };
+    job.processing_pipeline = Some(pipeline.clone());
+    assert_eq!(
+        pipeline.enabled_passes(),
+        vec![PassType::NoiseReduction, PassType::ChromaDenoise, PassType::Dehalo]
+    );
 }

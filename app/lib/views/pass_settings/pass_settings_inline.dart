@@ -34,6 +34,8 @@ class PassSettingsInline extends StatelessWidget {
         return 'spotless';
       case PassType.noiseReduction:
         return 'noise_reduction';
+      case PassType.chromaDenoise:
+        return 'chroma_denoise';
       case PassType.dehalo:
         return 'dehalo';
       case PassType.deblock:

@@ -122,6 +122,16 @@ https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF
 License: See GPL-2.0.txt
 
 
+zsmooth (MIT)
+-------------
+Copyright (c) 2025 Adrian Woracz
+https://github.com/adworacz/zsmooth
+License: MIT License
+Provides core.zsmooth.CCD (Camcorder Colour Denoise), used by the Chroma
+Denoise pass. CCD itself originates as a VirtualDub filter by Sergey
+Stolyarevsky.
+
+
 Flutter (BSD 3-Clause)
 ----------------------
 Copyright (c) 2014-2024 The Flutter Authors

@@ -468,6 +468,36 @@ clip = mvf.BM3D(
 {{/NOISE_REDUCTION}}
 
 # ============================================================================
+# PASS 5b: CHROMA DENOISE (CCD - Camcorder Colour Denoise)
+# ============================================================================
+{{#CHROMA_DENOISE}}
+# CCD averages chroma over neighbours whose RGB distance is within `threshold`,
+# leaving luma untouched — the standard fix for the blotchy colour noise on VHS
+# captures and old camcorder footage.
+#
+# `scale` is a sampling-radius multiplier that CCD derives from the frame height,
+# because the original filter was written for 240p. The plugin REJECTS a scale
+# below 1.0, so on anything shorter than its reference height the automatic value
+# fails the job with "CCD: scale must be greater than or equal to 1.0" (measured:
+# 352x288 and 320x240 both fail, 640x480 and up are fine). Deriving it here with
+# a floor keeps small and cropped sources working, and matches what the plugin
+# would have picked otherwise.
+{{#CCD_SCALE_AUTO}}
+_ccd_scale = max(1.0, clip.height / {{CCD_REFERENCE_HEIGHT}}.0)
+{{/CCD_SCALE_AUTO}}
+{{#CCD_SCALE_EXPLICIT}}
+_ccd_scale = {{CCD_SCALE}}
+{{/CCD_SCALE_EXPLICIT}}
+clip = core.zsmooth.CCD(
+    clip,
+    threshold={{CCD_THRESHOLD}},
+    temporal_radius={{CCD_TEMPORAL_RADIUS}},
+    points={{CCD_POINTS}},
+    scale=_ccd_scale,
+)
+{{/CHROMA_DENOISE}}
+
+# ============================================================================
 # PASS 4: DEHALO
 # ============================================================================
 {{#DEHALO}}

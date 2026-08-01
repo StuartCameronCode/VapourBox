@@ -963,3 +963,4 @@ Create the app-specific password at appleid.apple.com → Sign-In and Security �
 | 1.0.0 | 2025-01-15 | Initial release |
 | … | | (1.1.0–1.6.0 went unrecorded) |
 | 1.7.0 | 2026-08-01 | Fixes QTGMC Placebo/Very Slow brightening and near-black Draft on arm64, via `Scripts/patches/fmtconv-r31-arm-int-scaler.patch` (root cause: sign constants in fmtconv's non-SIMD integer scaler) plus havsfunc patch 5 as defence in depth; fmtconv r30 → **r31**, now pinned and sourced from GitLab on every platform |
+| 1.8.0 | 2026-08-02 | Adds the **zsmooth** plugin (MIT, pre-built — it is written in Zig, so a from-source build would mean a Zig toolchain in every deps build). Provides `core.zsmooth.CCD` for the new Chroma Denoise pass, and `Cnr4` plus a set of RemoveGrain/TemporalMedian-family filters that are now available for future passes. Version is pinned to 0.19.0 in all three download scripts — keep them in step so the same job can't produce different chroma per OS |

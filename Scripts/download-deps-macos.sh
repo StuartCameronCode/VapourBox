@@ -1272,6 +1272,26 @@ if [ "$ARCH" = "arm64" ] && [ -f "$PLUGINS_DIR/libbestsource.dylib" ]; then
 fi
 fi  # end plugin arch split (x86_64 pre-built / arm64 from-source)
 
+# zsmooth (core.zsmooth.CCD - chroma denoiser; also Cnr4 and a set of
+# RemoveGrain/TemporalMedian-family filters).
+#
+# Taken pre-built rather than built from source: zsmooth is written in Zig, and
+# adding a Zig toolchain to every deps build for one plugin is not worth it. The
+# author publishes a binary for every platform/arch VapourBox targets, built
+# against VapourSynth API 4, and it loads fine in our bundled R73.
+#
+# Keep ZSMOOTH_VERSION in step across download-deps-{macos,linux}.sh and
+# download-deps-windows.ps1 — a version skew would make the same job produce
+# different chroma per OS.
+ZSMOOTH_VERSION="0.19.0"
+if [ "$ARCH" = "arm64" ]; then
+    ZSMOOTH_ASSET="zsmooth-aarch64-macos.zip"
+else
+    ZSMOOTH_ASSET="zsmooth-x86_64-macos.zip"
+fi
+download_prebuilt_plugin "zsmooth" "libzsmooth.dylib" \
+    "https://github.com/adworacz/zsmooth/releases/download/${ZSMOOTH_VERSION}/${ZSMOOTH_ASSET}"
+
 # ============================================================================
 # Download NNEDI3 weights
 # ============================================================================

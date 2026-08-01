@@ -10,6 +10,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:vapourbox/models/chroma_denoise_parameters.dart';
 import 'package:vapourbox/models/chroma_fix_parameters.dart';
 import 'package:vapourbox/models/color_correction_parameters.dart';
 import 'package:vapourbox/models/crop_resize_parameters.dart';
@@ -163,6 +164,7 @@ VideoJob buildJob({
   DeScratchParameters? descratch,
   SpotLessParameters? spotless,
   CropResizeParameters? cropResize,
+  ChromaDenoiseParameters? chromaDenoise,
 }) => VideoJob(
   id: const Uuid().v4(),
   inputPath: TestConfig.inputFile,
@@ -179,6 +181,7 @@ VideoJob buildJob({
     chromaFixes: chromaFixes ?? const ChromaFixParameters(),
     colorCorrection: colorCorrection ?? const ColorCorrectionParameters(),
     cropResize: cropResize ?? const CropResizeParameters(),
+    chromaDenoise: chromaDenoise ?? const ChromaDenoiseParameters(),
   ),
   encodingSettings: const EncodingSettings(
     codec: VideoCodec.h264, container: ContainerFormat.mkv, audioMode: AudioMode.none,
@@ -415,6 +418,33 @@ void main() {
       expect(script, contains('_wb_v = 5.0 * _wb_scale'));
       // Luma is copied by the empty expression rather than rewritten.
       expect(script, contains("['', 'x ' + repr(_wb_u) + ' +'"));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+
+    // Issue #50: CCD chroma denoise, the pass that pulls in the zsmooth plugin.
+    test('chroma_denoise: CCD params + derived scale', () async {
+      loadSchema('chroma_denoise'); // confirm schema parses
+      final job = buildJob(
+        testName: 'chroma_denoise',
+        chromaDenoise: const ChromaDenoiseParameters(
+          enabled: true,
+          threshold: 8.5,
+          temporalRadius: 2,
+          pointsHigh: true,
+        ),
+      );
+      print('  Generating CCD script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.zsmooth.CCD('));
+      final actual = parseFilterParams(script, 'core.zsmooth.CCD(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['threshold'], '8.5');
+      expect(actual['temporal_radius'], '2');
+      expect(actual['points'], '[True, True, True]');
+      // CCD rejects a scale below 1.0, and its own automatic value is below 1.0
+      // for anything shorter than 480 lines — so we derive it with a floor.
+      expect(script, contains('max(1.0, clip.height / 480.0)'));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 

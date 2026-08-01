@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use crate::models::{
-    VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod,
+    VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod, CCD_REFERENCE_HEIGHT,
     DehaloMethod, DeblockMethod, SharpenMethod, ChromaSubsampling, DeinterlaceMethod,
     FieldOrder,
 };
@@ -669,6 +669,40 @@ impl ScriptGenerator {
             }
         } else {
             script = remove_block("{{#NOISE_REDUCTION}}", "{{/NOISE_REDUCTION}}", script);
+        }
+
+        // ====================================================================
+        // CHROMA DENOISE PASS (CCD)
+        // ====================================================================
+        let chroma_denoise = &pipeline.chroma_denoise;
+        if chroma_denoise.enabled {
+            script = script.replace("{{#CHROMA_DENOISE}}", "");
+            script = script.replace("{{/CHROMA_DENOISE}}", "");
+            script = script.replace("{{CCD_THRESHOLD}}", &format_double(chroma_denoise.threshold));
+            script = script.replace(
+                "{{CCD_TEMPORAL_RADIUS}}",
+                &chroma_denoise.temporal_radius.to_string(),
+            );
+            script = script.replace("{{CCD_POINTS}}", &chroma_denoise.points_literal());
+
+            // An explicit scale wins; otherwise derive it from the frame height
+            // at runtime, which is the only place the height is known.
+            if let Some(scale) = chroma_denoise.scale {
+                script = remove_block("{{#CCD_SCALE_AUTO}}", "{{/CCD_SCALE_AUTO}}", script);
+                script = script.replace("{{#CCD_SCALE_EXPLICIT}}", "");
+                script = script.replace("{{/CCD_SCALE_EXPLICIT}}", "");
+                script = script.replace("{{CCD_SCALE}}", &format_double(scale));
+            } else {
+                script = script.replace("{{#CCD_SCALE_AUTO}}", "");
+                script = script.replace("{{/CCD_SCALE_AUTO}}", "");
+                script = remove_block("{{#CCD_SCALE_EXPLICIT}}", "{{/CCD_SCALE_EXPLICIT}}", script);
+                script = script.replace(
+                    "{{CCD_REFERENCE_HEIGHT}}",
+                    &CCD_REFERENCE_HEIGHT.to_string(),
+                );
+            }
+        } else {
+            script = remove_block("{{#CHROMA_DENOISE}}", "{{/CHROMA_DENOISE}}", script);
         }
 
         // ====================================================================

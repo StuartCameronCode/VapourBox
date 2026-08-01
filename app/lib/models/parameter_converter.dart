@@ -1,3 +1,4 @@
+import 'chroma_denoise_parameters.dart';
 import 'chroma_fix_parameters.dart';
 import 'color_correction_parameters.dart';
 import 'crop_resize_parameters.dart';
@@ -185,6 +186,29 @@ class ParameterConverter {
         DehaloMethod.vinverse => 'vinverse',
         DehaloMethod.vinverse2 => 'vinverse2',
       };
+
+  /// Convert chroma denoise (CCD) parameters to dynamic format.
+  static DynamicParameters fromChromaDenoise(ChromaDenoiseParameters params) {
+    return DynamicParameters(
+      filterId: 'chroma_denoise',
+      enabled: params.enabled,
+      values: {
+        'method': 'ccd',
+        'threshold': params.threshold,
+        'temporalRadius': params.temporalRadius,
+        'pointsLow': params.pointsLow,
+        'pointsMedium': params.pointsMedium,
+        'pointsHigh': params.pointsHigh,
+        if (params.scale != null) 'scale': params.scale,
+      },
+      // Left off, scale is derived from the frame height at run time — which is
+      // both the plugin's own behaviour and the only value that works on short
+      // sources, so it should not start ticked.
+      lastOptionalValues: {
+        if (params.scale == null) 'scale': 1.0,
+      },
+    );
+  }
 
   /// Convert dehalo parameters to dynamic format.
   static DynamicParameters fromDehalo(DehaloParameters params) {
@@ -475,6 +499,7 @@ class ParameterConverter {
         'descratch': fromDeScratch(pipeline.descratch),
         'spotless': fromSpotLess(pipeline.spotless),
         'noise_reduction': fromNoiseReduction(pipeline.noiseReduction),
+        'chroma_denoise': fromChromaDenoise(pipeline.chromaDenoise),
         'dehalo': fromDehalo(pipeline.dehalo),
         'deblock': fromDeblock(pipeline.deblock),
         'deband': fromDeband(pipeline.deband),
@@ -635,6 +660,21 @@ class ParameterConverter {
       mcTemporalProfile: v['mcTemporalProfile'] as String? ?? 'medium',
       qtgmcEzDenoise: (v['qtgmcEzDenoise'] as num?)?.toDouble() ?? 0.0,
       qtgmcEzKeepGrain: (v['qtgmcEzKeepGrain'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+
+  /// Convert dynamic parameters to chroma denoise (CCD) parameters.
+  static ChromaDenoiseParameters toChromaDenoise(DynamicParameters params) {
+    final v = params.values;
+    return ChromaDenoiseParameters(
+      enabled: params.enabled,
+      threshold: (v['threshold'] as num?)?.toDouble() ?? 4.0,
+      temporalRadius: _asInt(v['temporalRadius']) ?? 0,
+      pointsLow: v['pointsLow'] as bool? ?? true,
+      pointsMedium: v['pointsMedium'] as bool? ?? true,
+      pointsHigh: v['pointsHigh'] as bool? ?? false,
+      // Absent means "derive from the frame height".
+      scale: (v['scale'] as num?)?.toDouble(),
     );
   }
 
@@ -897,6 +937,9 @@ class ParameterConverter {
       noiseReduction: dynamic.get('noise_reduction') != null
           ? toNoiseReduction(dynamic.get('noise_reduction')!)
           : const NoiseReductionParameters(),
+      chromaDenoise: dynamic.get('chroma_denoise') != null
+          ? toChromaDenoise(dynamic.get('chroma_denoise')!)
+          : const ChromaDenoiseParameters(),
       dehalo: dynamic.get('dehalo') != null
           ? toDehalo(dynamic.get('dehalo')!)
           : const DehaloParameters(),

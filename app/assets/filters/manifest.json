@@ -1,1 +1,1 @@
-["deinterlace.json", "descratch.json", "spotless.json", "noise_reduction.json", "deblock.json", "dehalo.json", "deband.json", "sharpen.json", "color_correction.json", "chroma_fixes.json", "crop_resize.json", "subtitles.json"]
+["deinterlace.json", "descratch.json", "spotless.json", "noise_reduction.json", "chroma_denoise.json", "deblock.json", "dehalo.json", "deband.json", "sharpen.json", "color_correction.json", "chroma_fixes.json", "crop_resize.json", "subtitles.json"]

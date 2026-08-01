@@ -1,0 +1,139 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "chroma_denoise",
+  "version": "1.0.0",
+  "name": "Chroma Denoise",
+  "description": "Remove blotchy colour noise (CCD)",
+  "longDescription": "CCD — Camcorder Colour Denoise — cleans up noisy colour while leaving detail in the picture alone. It averages each pixel's colour with nearby pixels whose colour is close enough to be the same thing, so flat areas smooth out and edges stay put.\n\nUse it when the picture is watchable but the colour is a mess: the crawling red and blue blotches on VHS captures, and the chroma noise old camcorders produce in low light. Because it never touches luma, it can be pushed much harder than a general denoiser before the picture looks soft.\n\nRun it after deinterlacing. Raising Temporal Radius above 0 pulls in neighbouring frames, which cleans up more but can smear fast colour movement.",
+  "category": "cleanup",
+  "icon": "palette",
+  "order": 6,
+
+  "dependencies": {
+    "vs_plugins": ["zsmooth.dll"]
+  },
+
+  "methods": [
+    {
+      "id": "ccd",
+      "name": "CCD",
+      "description": "Camcorder Colour Denoise — chroma-only spatial/temporal denoiser",
+      "function": "core.zsmooth.CCD",
+      "parameters": ["threshold", "temporalRadius", "pointsLow", "pointsMedium", "pointsHigh", "scale"]
+    }
+  ],
+
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "hidden": true
+      }
+    },
+    "method": {
+      "type": "enum",
+      "default": "ccd",
+      "options": ["ccd"],
+      "ui": { "hidden": true }
+    },
+    "threshold": {
+      "type": "number",
+      "default": 4.0,
+      "min": 0.0,
+      "max": 50.0,
+      "step": 0.5,
+      "optional": true,
+      "vapoursynth": {
+        "name": "threshold"
+      },
+      "ui": {
+        "label": "Threshold",
+        "description": "How different a neighbouring pixel's colour may be and still be averaged in. Higher cleans more and can bleed colour across edges",
+        "widget": "slider",
+        "precision": 1
+      }
+    },
+    "temporalRadius": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 10,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": {
+        "name": "temporal_radius"
+      },
+      "ui": {
+        "label": "Temporal Radius",
+        "description": "Frames on each side to average with. 0 works on each frame alone; higher cleans more but can smear fast colour movement",
+        "widget": "slider"
+      }
+    },
+    "pointsLow": {
+      "type": "boolean",
+      "default": true,
+      "optional": true,
+      "ui": {
+        "label": "Near Samples",
+        "description": "Include the closest ring of sample points"
+      }
+    },
+    "pointsMedium": {
+      "type": "boolean",
+      "default": true,
+      "optional": true,
+      "ui": {
+        "label": "Mid Samples",
+        "description": "Include the mid-distance ring of sample points"
+      }
+    },
+    "pointsHigh": {
+      "type": "boolean",
+      "default": false,
+      "optional": true,
+      "ui": {
+        "label": "Far Samples",
+        "description": "Include the outermost ring of sample points. Cleans large blotches at the cost of speed and some colour bleed"
+      }
+    },
+    "scale": {
+      "type": "number",
+      "default": 1.0,
+      "min": 1.0,
+      "max": 8.0,
+      "step": 0.5,
+      "optional": true,
+      "vapoursynth": {
+        "name": "scale"
+      },
+      "ui": {
+        "label": "Sample Scale",
+        "description": "How far apart the sample points sit. Left off, this is derived from the frame height (CCD was written for 240p), which is almost always what you want",
+        "widget": "slider",
+        "precision": 1
+      }
+    }
+  },
+
+  "ui": {
+    "sections": [
+      {
+        "title": "Settings",
+        "parameters": ["threshold", "temporalRadius"],
+        "expanded": true
+      },
+      {
+        "title": "Sampling",
+        "parameters": ["pointsLow", "pointsMedium", "pointsHigh", "scale"],
+        "expanded": false,
+        "advancedOnly": true
+      }
+    ]
+  },
+
+  "codeTemplate": {
+    "imports": [],
+    "generate": "method"
+  }
+}

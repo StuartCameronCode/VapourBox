@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
+    ChromaDenoiseParameters, ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
     DebandParameters, DeblockParameters, DehaloParameters, DeinterlaceMethod, DeScratchParameters,
     SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters,
 };
@@ -117,6 +117,7 @@ pub enum PassType {
     DeScratch,
     SpotLess,
     NoiseReduction,
+    ChromaDenoise,
     Dehalo,
     Deblock,
     Deband,
@@ -135,6 +136,7 @@ impl PassType {
             PassType::DeScratch => "DeScratch",
             PassType::SpotLess => "SpotLess",
             PassType::NoiseReduction => "Noise Reduction",
+            PassType::ChromaDenoise => "Chroma Denoise",
             PassType::Dehalo => "Dehalo",
             PassType::Deblock => "Deblock",
             PassType::Deband => "Deband",
@@ -152,6 +154,7 @@ impl PassType {
             PassType::DeScratch => "Remove vertical scratches from scanned film",
             PassType::SpotLess => "Remove dust, dirt, and temporal spots from film",
             PassType::NoiseReduction => "Reduce video noise and grain",
+            PassType::ChromaDenoise => "Remove blotchy colour noise (CCD)",
             PassType::Dehalo => "Remove halo artifacts around edges",
             PassType::Deblock => "Remove compression block artifacts",
             PassType::Deband => "Remove color banding from gradients",
@@ -183,6 +186,10 @@ pub struct ProcessingPipeline {
     /// Noise reduction pass parameters.
     #[serde(default)]
     pub noise_reduction: NoiseReductionParameters,
+
+    /// Chroma denoise pass parameters (CCD).
+    #[serde(default)]
+    pub chroma_denoise: ChromaDenoiseParameters,
 
     /// Dehalo pass parameters.
     #[serde(default)]
@@ -220,6 +227,7 @@ impl Default for ProcessingPipeline {
             descratch: DeScratchParameters::default(),
             spotless: SpotLessParameters::default(),
             noise_reduction: NoiseReductionParameters::default(),
+            chroma_denoise: ChromaDenoiseParameters::default(),
             dehalo: DehaloParameters::default(),
             deblock: DeblockParameters::default(),
             deband: DebandParameters::default(),
@@ -240,6 +248,7 @@ impl ProcessingPipeline {
             descratch: DeScratchParameters { enabled: false, ..Default::default() },
             spotless: SpotLessParameters { enabled: false, ..Default::default() },
             noise_reduction: NoiseReductionParameters { enabled: false, ..Default::default() },
+            chroma_denoise: ChromaDenoiseParameters { enabled: false, ..Default::default() },
             dehalo: DehaloParameters { enabled: false, ..Default::default() },
             deblock: DeblockParameters { enabled: false, ..Default::default() },
             deband: DebandParameters { enabled: false, ..Default::default() },
@@ -269,6 +278,11 @@ impl ProcessingPipeline {
         }
         if self.noise_reduction.enabled {
             passes.push(PassType::NoiseReduction);
+        }
+        // Chroma noise is removed with the rest of the denoising, before the
+        // deband/sharpen steps that would otherwise amplify it.
+        if self.chroma_denoise.enabled {
+            passes.push(PassType::ChromaDenoise);
         }
         if self.dehalo.enabled {
             passes.push(PassType::Dehalo);
@@ -337,6 +351,10 @@ impl ProcessingPipeline {
             // Temporal filters need neighbours for a correct windowed preview,
             // but don't change the frame count.
             PassType::NoiseReduction => FrameMap::Identity { radius: 3 },
+            // CCD is spatial at temporal_radius 0, temporal above it.
+            PassType::ChromaDenoise => FrameMap::Identity {
+                radius: self.chroma_denoise.radius(),
+            },
             PassType::SpotLess => FrameMap::Identity { radius: 2 },
             PassType::DeScratch => FrameMap::Identity { radius: 1 },
             // Purely spatial passes.
@@ -405,6 +423,7 @@ impl ProcessingPipeline {
             PassType::DeScratch => self.descratch.enabled,
             PassType::SpotLess => self.spotless.enabled,
             PassType::NoiseReduction => self.noise_reduction.enabled,
+            PassType::ChromaDenoise => self.chroma_denoise.enabled,
             PassType::Dehalo => self.dehalo.enabled,
             PassType::Deblock => self.deblock.enabled,
             PassType::Deband => self.deband.enabled,
