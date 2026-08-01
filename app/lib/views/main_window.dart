@@ -11,7 +11,6 @@ import '../services/audio_compatibility_service.dart';
 import '../services/preset_service.dart';
 import '../viewmodels/main_viewmodel.dart';
 import '../services/disc_detector.dart';
-import 'about_dialog.dart' as about;
 import 'audio_compatibility_dialog.dart';
 import 'drop_zone.dart';
 import 'dvd_title_picker.dart';
@@ -217,14 +216,7 @@ class MainWindow extends StatelessWidget {
                 : () => _openDvd(context, viewModel),
           ),
 
-          // About button
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            tooltip: 'About',
-            onPressed: () => _showAbout(context),
-          ),
-
-          // Settings button
+          // Settings button — About and bug reporting live in its General tab
           IconButton(
             icon: const Icon(Icons.settings),
             tooltip: 'Settings',
@@ -667,13 +659,6 @@ class MainWindow extends StatelessWidget {
         );
       }
     }
-  }
-
-  void _showAbout(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => const about.AboutDialog(),
-    );
   }
 
   void _showSavePresetDialog(BuildContext context, MainViewModel viewModel) {

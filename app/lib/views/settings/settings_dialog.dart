@@ -4,7 +4,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../about_dialog.dart' as about;
 import '../../models/encoding_settings.dart';
 import '../../models/video_job.dart';
 import '../../services/dependency_manager.dart';
@@ -77,9 +79,9 @@ class _SettingsDialogState extends State<SettingsDialog>
             TabBar(
               controller: _tabController,
               tabs: const [
-                Tab(text: 'Input'),
-                Tab(text: 'Output'),
                 Tab(text: 'General'),
+                Tab(text: 'Output'),
+                Tab(text: 'Input'),
               ],
             ),
 
@@ -88,9 +90,9 @@ class _SettingsDialogState extends State<SettingsDialog>
               child: TabBarView(
                 controller: _tabController,
                 children: const [
-                  _InputSettingsTab(),
-                  _OutputSettingsTab(),
                   _GeneralSettingsTab(),
+                  _OutputSettingsTab(),
+                  _InputSettingsTab(),
                 ],
               ),
             ),
@@ -1245,8 +1247,67 @@ class _GeneralSettingsTabState extends State<_GeneralSettingsTab> {
             onChanged: _setCheckForUpdates,
           ),
         ),
+
+        const SizedBox(height: 24),
+
+        _buildSection(
+          context,
+          title: 'About & Feedback',
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.bug_report_outlined),
+                title: const Text('Report a bug or give feedback'),
+                subtitle: const Text('Opens the issue tracker on GitHub'),
+                trailing: const Icon(Icons.open_in_new, size: 18),
+                onTap: () => _openIssues(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('About VapourBox'),
+                subtitle: const Text('Version, licenses and credits'),
+                onTap: () => showDialog(
+                  context: context,
+                  builder: (context) => const about.AboutDialog(),
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     );
+  }
+
+  /// Opens the project's GitHub issues page in the browser, for bug reports and
+  /// feedback. The repo comes from `deps-version.json` (the same source the
+  /// About dialog uses) so a fork points at its own tracker.
+  Future<void> _openIssues(BuildContext context) async {
+    var repo = 'StuartCameronCode/VapourBox';
+    try {
+      final depsInfo = await DependencyManager.instance.getExpectedVersion();
+      if (depsInfo.githubRepo.isNotEmpty) repo = depsInfo.githubRepo;
+    } catch (_) {
+      // Fall back to the default repo — a missing/unreadable pointer file
+      // shouldn't stop someone filing a bug.
+    }
+
+    final url = 'https://github.com/$repo/issues';
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else if (context.mounted) {
+      // No handler for https (rare on desktop) — show the URL so it can be
+      // copied rather than failing silently.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not open a browser. Visit $url'),
+          action: SnackBarAction(
+            label: 'Copy',
+            onPressed: () => Clipboard.setData(ClipboardData(text: url)),
+          ),
+        ),
+      );
+    }
   }
 
   Widget _buildSection(
