@@ -324,6 +324,127 @@ clip.set_output()
       expect(result.exitCode, 0, reason: 'stderr: ${result.stderr}');
     });
   });
+
+  // Regression guards for the QTGMC "Very Slow / Placebo brighten the picture on
+  // Apple Silicon" bug (and its worse sibling, a near-black Draft preset).
+  //
+  // Root cause was in fmtconv: Scaler::process_plane_int_cpp applied the
+  // SSE2/AVX2 paths' sign-conversion constants while using unsigned C++ proxies,
+  // so the accumulator went negative and write_clip clamped it to 0. Any resample
+  // whose kernel ran with a source bitdepth below 16 returned a black plane, on
+  // builds without the x86 SIMD path (macos-arm64, linux-arm64): 8-bit on the
+  // vertical axis, and 10/12-bit on BOTH axes — 8-bit horizontal escaped only
+  // because that route converts to 16-bit before the scaler. It broke havsfunc's
+  // Bob(), which feeds QTGMC's noise pass (Placebo/Very Slow default
+  // NoiseProcess=2) and the Draft preset's interpolation.
+  //
+  // Two layers now guard it, and these tests cover both:
+  //   1. Scripts/patches/fmtconv-r31-arm-int-scaler.patch, applied when the deps
+  //      scripts build fmtconv from source (macOS/Linux) — the actual fix.
+  //   2. havsfunc "Patch 5" in download-deps-*, which makes Bob() resample at
+  //      16-bit — belt and braces, and it also covers the prebuilt Windows DLL.
+  //
+  // All three assert observable pixel behaviour rather than patch text, so they
+  // stay valid however the fix is delivered — including if fmtconv fixes this
+  // upstream and both patches are eventually dropped.
+  group('fmtconv vertical resample / havsfunc Bob', () {
+    test('fmtc.resample scales vertically at sub-16-bit depths', () async {
+      final script = '''
+import vapoursynth as vs
+core = vs.core
+
+# Flat mid-grey must survive a 2x vertical resample. Before the fix this came
+# back as a pure black plane for every depth below 16. Note fmtconv converts
+# depth by a power-of-two shift, so 8-bit 120 becomes 120 * 256 = 30720, which
+# reads back as 119.53 in 8-bit terms rather than 120.0.
+for bits, fmt in ((8, vs.GRAY8), (10, vs.GRAY10), (12, vs.GRAY12), (16, vs.GRAY16)):
+    peak = (1 << bits) - 1
+    val = round(120 / 255 * peak)
+    src = core.std.BlankClip(format=fmt, width=160, height=120, length=2, color=[val])
+    expected = val / peak * 255
+    for label, kw in (("scalev=2", dict(scalev=2)), ("scalev=0.5", dict(scalev=0.5))):
+        out = core.fmtc.resample(src, **kw)
+        avg = core.std.PlaneStats(out).get_frame(0).props['PlaneStatsAverage'] * 255
+        print(f"CHECK bits={bits} {label} avg={avg:.3f} expected={expected:.3f}")
+        if abs(avg - expected) > 1.0:
+            raise Exception(f"fmtc.resample {label} broken at {bits}-bit: "
+                            f"got {avg:.3f}, expected ~{expected:.3f}")
+print("fmtc vertical resample OK")
+''';
+
+      final result =
+          await _runVspipeScript(vspipePath, script, depsDir: depsDir);
+      expect(result.exitCode, 0, reason: 'stderr: ${result.stderr}');
+      expect(result.stdout.toString(), contains('fmtc vertical resample OK'));
+    });
+
+    test('havsfunc Bob preserves average luma', () async {
+      final script = '''
+import vapoursynth as vs
+import havsfunc as haf
+core = vs.core
+
+# Bob() doubles the frame rate by interpolating each field to a full frame, so
+# average luma must be preserved. Before the fix it collapsed towards black.
+src = core.std.BlankClip(format=vs.YUV420P8, width=160, height=120,
+                         length=4, color=[120, 128, 128])
+src = core.std.SetFieldBased(src, 2)  # TFF
+bobbed = haf.Bob(src, 0, 1, True)
+
+s = core.std.PlaneStats(bobbed, plane=0)
+avgs = [s.get_frame(i).props['PlaneStatsAverage'] * 255 for i in range(len(bobbed))]
+worst = max(abs(a - 120) for a in avgs)
+print(f"CHECK frames={len(bobbed)} worst_deviation={worst:.3f}")
+if len(bobbed) != 2 * len(src):
+    raise Exception(f"Bob should double the frame count, got {len(bobbed)}")
+if worst > 1.0:
+    raise Exception(f"Bob() shifted luma by {worst:.3f}; expected ~0 "
+                    f"(fmtconv vertical resample regression?)")
+print("havsfunc Bob OK")
+''';
+
+      final result =
+          await _runVspipeScript(vspipePath, script, depsDir: depsDir);
+      expect(result.exitCode, 0, reason: 'stderr: ${result.stderr}');
+      expect(result.stdout.toString(), contains('havsfunc Bob OK'));
+    });
+
+    test('QTGMC Very Slow and Draft do not shift luma', () async {
+      // Very Slow is the cheapest preset that defaults NoiseProcess=2 (Placebo
+      // is the same code path but far slower); Draft exercises EdiMode='bob'.
+      final script = '''
+import vapoursynth as vs
+import havsfunc as haf
+core = vs.core
+
+src = core.std.BlankClip(format=vs.YUV420P8, width=160, height=120,
+                         length=6, color=[120, 128, 128])
+# Give the denoiser some detail to chew on, otherwise a flat clip can mask a
+# bias that only shows up once MakeDiff has something to clip.
+src = core.grain.Add(src, var=8, seed=1)
+src = core.std.SetFieldBased(src, 2)  # TFF
+
+base = sum(core.std.PlaneStats(src, plane=0).get_frame(i)
+           .props['PlaneStatsAverage'] for i in range(len(src))) / len(src) * 255
+
+for preset in ('Fast', 'Very Slow', 'Draft'):
+    out = haf.QTGMC(src, Preset=preset, TFF=True, FPSDivisor=1)
+    st = core.std.PlaneStats(out, plane=0)
+    avg = sum(st.get_frame(i).props['PlaneStatsAverage']
+              for i in range(len(out))) / len(out) * 255
+    print(f"CHECK preset={preset} luma={avg:.3f} base={base:.3f} delta={avg - base:+.3f}")
+    if abs(avg - base) > 2.0:
+        raise Exception(f"QTGMC Preset={preset} shifted luma by {avg - base:+.3f} "
+                        f"(expected ~0)")
+print("QTGMC preset luma OK")
+''';
+
+      final result =
+          await _runVspipeScript(vspipePath, script, depsDir: depsDir);
+      expect(result.exitCode, 0, reason: 'stderr: ${result.stderr}');
+      expect(result.stdout.toString(), contains('QTGMC preset luma OK'));
+    }, timeout: const Timeout(Duration(minutes: 5)));
+  });
 }
 
 /// Builds a VapourSynth script that uses pipe_source to read raw video from stdin.
