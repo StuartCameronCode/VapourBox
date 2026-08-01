@@ -345,8 +345,13 @@ class FilterSchema {
   /// Display name.
   final String name;
 
-  /// Description of what this filter does.
+  /// Short one-line description of what this filter does.
   final String? description;
+
+  /// Longer prose shown above the filter's options: what the filter does and
+  /// when you'd reach for it. Paragraphs are separated by a blank line.
+  /// Falls back to [description] in the UI when absent.
+  final String? longDescription;
 
   /// Category for grouping (e.g., "cleanup", "enhancement").
   final String? category;
@@ -394,6 +399,7 @@ class FilterSchema {
     required this.version,
     required this.name,
     this.description,
+    this.longDescription,
     this.category,
     this.icon,
     this.order = 0,

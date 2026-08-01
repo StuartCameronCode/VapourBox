@@ -7,6 +7,7 @@ import 'models/filter_registry.dart';
 import 'services/dependency_manager.dart';
 import 'services/hardware_encoder_detector.dart';
 import 'services/preset_service.dart';
+import 'services/temp_directory_service.dart';
 import 'services/tool_locator.dart';
 import 'services/update_checker.dart';
 import 'viewmodels/main_viewmodel.dart';
@@ -20,14 +21,21 @@ void main() async {
   // Initialize rhttp (required for Rust FFI on Windows)
   await Rhttp.init();
 
+  // Load the temp directory override before anything writes a scratch file
+  // (the dependency download on first run is the earliest of them).
+  await TempDirectoryService.instance.initialize();
+
   // Initialize window manager for desktop
   await windowManager.ensureInitialized();
 
+  // No backgroundColor: a transparent one makes window_manager set the native
+  // window non-opaque, and since the Flutter view only covers the content area
+  // that leaves the macOS title bar see-through — a floating title and traffic
+  // lights over the desktop. The platform default follows light/dark mode.
   const windowOptions = WindowOptions(
     size: Size(900, 700),
     minimumSize: Size(700, 550),
     center: true,
-    backgroundColor: Colors.transparent,
     skipTaskbar: false,
     titleBarStyle: TitleBarStyle.normal,
     title: 'VapourBox',

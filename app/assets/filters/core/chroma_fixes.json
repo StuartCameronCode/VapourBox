@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "name": "Chroma Fixes",
   "description": "Fix chroma bleeding, rainbows, and dot crawl",
+  "longDescription": "Repairs colour-specific damage from analog and composite video: chroma shifted sideways from the luma it belongs to, colour bleeding past edges, rainbow shimmer over fine patterns, and dots crawling along edges.\n\nUse it for VHS, Video8 and other composite captures. Each fix is enabled separately, so turn on only the ones matching what you can actually see in the preview — every one of them costs some colour detail.",
   "category": "cleanup",
   "icon": "palette",
   "order": 8,

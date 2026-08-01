@@ -165,6 +165,18 @@ Unencrypted DVDs (home recordings, some independent releases) work without libdv
 - **Built-in**: Fast, Balanced, High Quality, VHS Cleanup
 - **Save** your current settings for reuse across sessions
 
+### Temporary Files
+
+VapourBox writes its scratch files — generated VapourSynth scripts, preview
+frames, job files and extracted DVD titles — to the system temp directory.
+DVD extraction in particular can need several GB, so if your system temp lives
+on a small or slow volume you can redirect it:
+
+- **Settings → General → Temporary Files** → choose a directory
+- Click the **✕** next to the path to reset it back to the system default
+
+The setting is remembered between sessions and applies to the next job.
+
 ## Building from Source
 
 See [docs/BUILDING.md](docs/BUILDING.md) for build instructions, project structure, and development workflow.

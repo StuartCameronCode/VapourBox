@@ -11,17 +11,16 @@ import '../services/audio_compatibility_service.dart';
 import '../services/preset_service.dart';
 import '../viewmodels/main_viewmodel.dart';
 import '../services/disc_detector.dart';
-import 'about_dialog.dart' as about;
 import 'audio_compatibility_dialog.dart';
 import 'drop_zone.dart';
 import 'dvd_title_picker.dart';
 import 'overwrite_warning_dialog.dart';
 import 'pass_list/pass_list_panel.dart';
-import 'pass_settings/pass_settings_container.dart';
 import 'preview_panel.dart';
 import 'progress_panel.dart';
 import 'queue_panel.dart';
 import 'settings/settings_dialog.dart';
+import '../widgets/resizable_split.dart';
 
 class MainWindow extends StatelessWidget {
   const MainWindow({super.key});
@@ -217,14 +216,7 @@ class MainWindow extends StatelessWidget {
                 : () => _openDvd(context, viewModel),
           ),
 
-          // About button
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            tooltip: 'About',
-            onPressed: () => _showAbout(context),
-          ),
-
-          // Settings button
+          // Settings button — About and bug reporting live in its General tab
           IconButton(
             icon: const Icon(Icons.settings),
             tooltip: 'Settings',
@@ -283,83 +275,82 @@ class MainWindow extends StatelessWidget {
       return const ProgressPanel();
     }
 
-    return Row(
-      children: [
-        // Preview panel (left side)
-        const Expanded(
-          flex: 3,
-          child: PreviewPanel(),
-        ),
-
-        // Divider
-        VerticalDivider(
-          width: 1,
-          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
-        ),
-
-        // Info panel (right side)
-        Expanded(
-          flex: 2,
-          child: _buildInfoPanel(context, viewModel),
-        ),
-      ],
+    // Preview | info panel, with a divider the user can drag. Before it's
+    // dragged the preview takes 60% of the width, as the old 3:2 flex did.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return ResizableSplit(
+          axis: Axis.horizontal,
+          storageKey: 'main.preview',
+          initialFirstSize: constraints.maxWidth * 0.6,
+          minFirstSize: 320,
+          minSecondSize: 320,
+          first: const PreviewPanel(),
+          second: _buildInfoPanel(context, viewModel),
+        );
+      },
     );
   }
 
-  Widget _buildInfoPanel(BuildContext context, MainViewModel viewModel) {
-    return Column(
-      children: [
-        // Queue panel at top
-        SizedBox(
-          height: 180,
-          child: const QueuePanel(),
-        ),
+  // Queue sizing. The queue starts just tall enough for the files actually in
+  // it — one file shouldn't leave a mostly-empty panel — and stops growing at
+  // [_queueMaxAutoHeight], after which the list scrolls. Dragging the divider
+  // overrides this; double-clicking it hands the queue back to auto-sizing.
+  static const double _queueHeaderHeight = 37;
+  static const double _queueRowHeight = 54;
+  static const double _queueMinHeight = 72;
+  static const double _queueMaxAutoHeight = 260;
 
-        // Output settings row
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
-              ),
-            ),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Output: ${viewModel.encodingSettings.codec.displayName} → ${viewModel.encodingSettings.container.name.toUpperCase()}',
-                  style: Theme.of(context).textTheme.bodySmall,
+  double _queueAutoHeight(int itemCount) {
+    final wanted = _queueHeaderHeight + _queueRowHeight * itemCount;
+    return wanted.clamp(_queueMinHeight, _queueMaxAutoHeight);
+  }
+
+  Widget _buildInfoPanel(BuildContext context, MainViewModel viewModel) {
+    return ResizableSplit(
+      axis: Axis.vertical,
+      storageKey: 'main.queue',
+      initialFirstSize: _queueAutoHeight(viewModel.queue.length),
+      minFirstSize: _queueMinHeight,
+      minSecondSize: 200,
+      first: const QueuePanel(),
+      second: Column(
+        children: [
+          // Output settings row
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
                 ),
               ),
-              TextButton(
-                onPressed: () => _showSettings(context, viewModel),
-                child: const Text('Edit'),
-              ),
-            ],
-          ),
-        ),
-
-        // Scrollable pass list and settings
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            ),
+            child: Row(
               children: [
-                // Pass list panel
-                const PassListPanel(),
-
-                const Divider(height: 32),
-
-                // Selected pass settings
-                const PassSettingsContainer(),
+                Expanded(
+                  child: Text(
+                    'Output: ${viewModel.encodingSettings.codec.displayName} → ${viewModel.encodingSettings.container.name.toUpperCase()}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _showSettings(context, viewModel),
+                  child: const Text('Edit'),
+                ),
               ],
             ),
           ),
-        ),
-      ],
+
+          // Scrollable pass list — each pass expands inline to show its settings
+          const Expanded(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.all(16),
+              child: PassListPanel(),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -668,13 +659,6 @@ class MainWindow extends StatelessWidget {
         );
       }
     }
-  }
-
-  void _showAbout(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => const about.AboutDialog(),
-    );
   }
 
   void _showSavePresetDialog(BuildContext context, MainViewModel viewModel) {

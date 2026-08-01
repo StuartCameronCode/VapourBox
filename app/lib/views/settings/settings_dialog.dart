@@ -4,11 +4,14 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../about_dialog.dart' as about;
 import '../../models/encoding_settings.dart';
 import '../../models/video_job.dart';
 import '../../services/dependency_manager.dart';
 import '../../services/hardware_encoder_detector.dart';
+import '../../services/temp_directory_service.dart';
 import '../../services/update_checker.dart';
 import '../../utils/pixel_format.dart';
 import '../../viewmodels/main_viewmodel.dart';
@@ -77,9 +80,9 @@ class _SettingsDialogState extends State<SettingsDialog>
             TabBar(
               controller: _tabController,
               tabs: const [
-                Tab(text: 'Input'),
-                Tab(text: 'Output'),
                 Tab(text: 'General'),
+                Tab(text: 'Output'),
+                Tab(text: 'Input'),
               ],
             ),
 
@@ -88,9 +91,9 @@ class _SettingsDialogState extends State<SettingsDialog>
               child: TabBarView(
                 controller: _tabController,
                 children: const [
-                  _InputSettingsTab(),
-                  _OutputSettingsTab(),
                   _GeneralSettingsTab(),
+                  _OutputSettingsTab(),
+                  _InputSettingsTab(),
                 ],
               ),
             ),
@@ -1203,10 +1206,47 @@ class _GeneralSettingsTabState extends State<_GeneralSettingsTab> {
   bool _checkForUpdates = true;
   bool _isLoading = true;
 
+  /// Temp directory override, or null when using the system default. Mirrors
+  /// [TempDirectoryService] so the row repaints as soon as it's changed.
+  String? _tempOverride;
+
   @override
   void initState() {
     super.initState();
+    _tempOverride = TempDirectoryService.instance.override;
     _loadSettings();
+  }
+
+  /// Pick a directory for scratch files.
+  Future<void> _selectTempDirectory() async {
+    final result = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Select Temporary Files Directory',
+      initialDirectory: _tempOverride,
+    );
+    if (result != null) {
+      await _setTempDirectory(result);
+    }
+  }
+
+  /// Apply a temp directory choice; null resets to the system default. The
+  /// service verifies the directory is writable, so report a failure rather
+  /// than storing a path that would break the next job.
+  Future<void> _setTempDirectory(String? directory) async {
+    try {
+      await TempDirectoryService.instance.setOverride(directory);
+      if (mounted) {
+        setState(() => _tempOverride = TempDirectoryService.instance.override);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Cannot use that directory: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -1245,8 +1285,126 @@ class _GeneralSettingsTabState extends State<_GeneralSettingsTab> {
             onChanged: _setCheckForUpdates,
           ),
         ),
+
+        const SizedBox(height: 24),
+
+        _buildSection(
+          context,
+          title: 'Temporary Files',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _tempOverride ??
+                            'System default (${TempDirectoryService.instance.systemDefault})',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontFamily: 'monospace',
+                              fontStyle: _tempOverride == null
+                                  ? FontStyle.italic
+                                  : FontStyle.normal,
+                            ),
+                      ),
+                    ),
+                    if (_tempOverride != null)
+                      IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () => _setTempDirectory(null),
+                        tooltip: 'Reset to system default',
+                      ),
+                    IconButton(
+                      icon: const Icon(Icons.folder_open),
+                      onPressed: _selectTempDirectory,
+                      tooltip: 'Choose directory',
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Generated VapourSynth scripts, preview frames, job files and '
+                'extracted DVD titles are written here. Point it at a fast '
+                'drive with room to spare — DVD extraction alone can need '
+                'several GB. Takes effect for the next job.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.6),
+                    ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 24),
+
+        _buildSection(
+          context,
+          title: 'About & Feedback',
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.bug_report_outlined),
+                title: const Text('Report a bug or give feedback'),
+                subtitle: const Text('Opens the issue tracker on GitHub'),
+                trailing: const Icon(Icons.open_in_new, size: 18),
+                onTap: () => _openIssues(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('About VapourBox'),
+                subtitle: const Text('Version, licenses and credits'),
+                onTap: () => showDialog(
+                  context: context,
+                  builder: (context) => const about.AboutDialog(),
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     );
+  }
+
+  /// Opens the project's GitHub issues page in the browser, for bug reports and
+  /// feedback. The repo comes from `deps-version.json` (the same source the
+  /// About dialog uses) so a fork points at its own tracker.
+  Future<void> _openIssues(BuildContext context) async {
+    var repo = 'StuartCameronCode/VapourBox';
+    try {
+      final depsInfo = await DependencyManager.instance.getExpectedVersion();
+      if (depsInfo.githubRepo.isNotEmpty) repo = depsInfo.githubRepo;
+    } catch (_) {
+      // Fall back to the default repo — a missing/unreadable pointer file
+      // shouldn't stop someone filing a bug.
+    }
+
+    final url = 'https://github.com/$repo/issues';
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else if (context.mounted) {
+      // No handler for https (rare on desktop) — show the URL so it can be
+      // copied rather than failing silently.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not open a browser. Visit $url'),
+          action: SnackBarAction(
+            label: 'Copy',
+            onPressed: () => Clipboard.setData(ClipboardData(text: url)),
+          ),
+        ),
+      );
+    }
   }
 
   Widget _buildSection(

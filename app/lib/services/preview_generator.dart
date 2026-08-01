@@ -10,6 +10,7 @@ import '../models/encoding_settings.dart';
 import '../models/processing_pipeline.dart';
 import '../models/video_job.dart';
 import 'field_order_detector.dart';
+import 'temp_directory_service.dart';
 import 'tool_locator.dart';
 
 /// Service for generating video thumbnails and processed previews.
@@ -71,8 +72,9 @@ class PreviewGenerator {
     _workerPath = toolLocator.workerPath;
 
     // Create temp directory for thumbnails and previews
-    final systemTemp = Directory.systemTemp;
-    _tempDir = '${systemTemp.path}/vapourbox_preview_${DateTime.now().millisecondsSinceEpoch}';
+    final tempRoot = await TempDirectoryService.instance.resolve();
+    _tempDir =
+        '${tempRoot.path}/vapourbox_preview_${DateTime.now().millisecondsSinceEpoch}';
     await Directory(_tempDir!).create(recursive: true);
   }
 

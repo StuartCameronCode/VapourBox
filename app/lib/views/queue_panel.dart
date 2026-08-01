@@ -47,11 +47,12 @@ class _QueuePanelState extends State<QueuePanel> {
               color: _isDragging
                   ? colorScheme.primary.withValues(alpha: 0.1)
                   : null,
+              // The resizable divider below the queue draws the separating
+              // line, so the border only shows while a drag-and-drop is in
+              // flight (transparent otherwise to keep the height stable).
               border: Border(
                 bottom: BorderSide(
-                  color: _isDragging
-                      ? colorScheme.primary
-                      : colorScheme.outline.withValues(alpha: 0.2),
+                  color: _isDragging ? colorScheme.primary : Colors.transparent,
                   width: _isDragging ? 2 : 1,
                 ),
               ),

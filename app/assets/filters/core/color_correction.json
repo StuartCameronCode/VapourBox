@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "name": "Color Correction",
   "description": "Adjust brightness, contrast, saturation and levels",
+  "longDescription": "Adjusts brightness, contrast, saturation and the black and white levels.\n\nUse it to rescue washed-out or crushed transfers, to fix a capture made at the wrong levels (limited 16-235 read as full 0-255, or the reverse), or to lift colour from faded film. Small moves go a long way — check the before/after preview rather than judging by numbers.",
   "category": "color",
   "icon": "tune",
   "order": 7,

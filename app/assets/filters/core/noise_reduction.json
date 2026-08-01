@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "name": "Noise Reduction",
   "description": "Remove video noise and grain",
+  "longDescription": "Reduces grain, analog noise and colour speckle while trying to keep real detail. Temporal denoisers average across neighbouring frames and are best for steady grain; spatial ones smooth within a single frame and cope better with motion.\n\nUse it on VHS, Hi8 and other noisy captures, and before sharpening or encoding — clean footage compresses far better at the same bitrate. Too much strength smears motion and flattens texture into plastic.",
   "category": "cleanup",
   "icon": "grain",
   "order": 2,

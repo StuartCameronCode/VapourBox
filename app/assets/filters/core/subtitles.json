@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "name": "Subtitles",
   "description": "Generate subtitles from speech using Whisper AI",
+  "longDescription": "Transcribes the spoken audio with the Whisper speech-recognition model and writes it out as a subtitle track alongside the video.\n\nUse it to caption footage that has no subtitles of its own — home video, interviews, lectures. Larger models are more accurate but considerably slower, and accuracy falls away with heavy background noise or overlapping speakers. This pass runs after the encode and never alters the picture.",
   "category": "enhancement",
   "icon": "subtitles",
   "order": 100,

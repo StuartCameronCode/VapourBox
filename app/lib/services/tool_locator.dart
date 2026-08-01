@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 
 import 'dependency_manager.dart';
+import 'temp_directory_service.dart';
 
 /// Centralized service for locating bundled external tools (ffmpeg, ffprobe,
 /// vspipe, vapourbox-worker) and the platform deps directory.
@@ -42,8 +43,21 @@ class ToolLocator {
 
   /// Environment variables for spawning worker/tool processes.
   /// Includes PYTHONHOME, PYTHONPATH, VAPOURSYNTH_PLUGIN_PATH, PATH, etc.
-  Map<String, String> get workerEnvironment =>
-      _workerEnvironment ?? Map<String, String>.from(Platform.environment);
+  ///
+  /// The temp variables are applied per call rather than baked into the cached
+  /// map, so changing the temp directory in Settings takes effect immediately.
+  /// They point the worker's `env::temp_dir()` — and ffmpeg's and vspipe's — at
+  /// the configured directory: TMPDIR for Unix, TMP/TEMP for Windows.
+  Map<String, String> get workerEnvironment {
+    final env = Map<String, String>.from(
+      _workerEnvironment ?? Platform.environment,
+    );
+    final tempPath = TempDirectoryService.instance.effectivePath;
+    env['TMPDIR'] = tempPath;
+    env['TMP'] = tempPath;
+    env['TEMP'] = tempPath;
+    return env;
+  }
 
   /// The current platform identifier (e.g. `windows-x64`, `macos-arm64`).
   String get platformId => DependencyManager.instance.platformId;

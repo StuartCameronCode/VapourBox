@@ -20,6 +20,7 @@ import '../services/field_order_detector.dart';
 import '../services/frame_math.dart';
 import '../services/preset_service.dart';
 import '../services/preview_generator.dart';
+import '../services/temp_directory_service.dart';
 import '../services/worker_manager.dart';
 
 /// Main view model managing application state.
@@ -49,7 +50,9 @@ class MainViewModel extends ChangeNotifier {
 
   // Processing pipeline
   ProcessingPipeline _processingPipeline = const ProcessingPipeline();
-  PassType _selectedPass = PassType.deinterlace;
+  /// Pass whose settings are expanded inline in the pass list, or null when
+  /// every pass is collapsed.
+  PassType? _selectedPass = PassType.deinterlace;
   bool _advancedMode = false;
 
   // Scan-type auto-configuration of the deinterlace pipeline runs ONCE, for the
@@ -120,7 +123,7 @@ class MainViewModel extends ChangeNotifier {
   bool get autoFieldOrder => _autoFieldOrder;
   FieldOrder get manualFieldOrder => _manualFieldOrder;
   ProcessingPipeline get processingPipeline => _processingPipeline;
-  PassType get selectedPass => _selectedPass;
+  PassType? get selectedPass => _selectedPass;
   bool get advancedMode => _advancedMode;
 
   /// Whether a usable OpenCL device was detected (gates the QTGMC OpenCL
@@ -1032,9 +1035,10 @@ class MainViewModel extends ChangeNotifier {
     }
   }
 
-  /// Selects a pass for editing.
+  /// Expands a pass's settings inline, collapsing whichever was open. Selecting
+  /// the pass that is already expanded collapses it.
   void selectPass(PassType pass) {
-    _selectedPass = pass;
+    _selectedPass = _selectedPass == pass ? null : pass;
     notifyListeners();
   }
 
@@ -1355,9 +1359,10 @@ class MainViewModel extends ChangeNotifier {
     // Create temp file for the extraction.
     // Sanitize volume label to remove characters illegal in filenames (e.g., ":" from "D:\").
     final safeLabel = dvdInfo.volumeLabel.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-    final tempDir = Directory.systemTemp;
     final tempFile = File(
-      '${tempDir.path}/vapourbox_dvd_${safeLabel}_t${titleIndex}_${DateTime.now().millisecondsSinceEpoch}.mpg',
+      await TempDirectoryService.instance.filePath(
+        'vapourbox_dvd_${safeLabel}_t${titleIndex}_${DateTime.now().millisecondsSinceEpoch}.mpg',
+      ),
     );
 
     final dvdSourceInfo = DvdSourceInfo(
