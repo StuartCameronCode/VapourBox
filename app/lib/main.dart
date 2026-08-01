@@ -23,11 +23,14 @@ void main() async {
   // Initialize window manager for desktop
   await windowManager.ensureInitialized();
 
+  // No backgroundColor: a transparent one makes window_manager set the native
+  // window non-opaque, and since the Flutter view only covers the content area
+  // that leaves the macOS title bar see-through — a floating title and traffic
+  // lights over the desktop. The platform default follows light/dark mode.
   const windowOptions = WindowOptions(
     size: Size(900, 700),
     minimumSize: Size(700, 550),
     center: true,
-    backgroundColor: Colors.transparent,
     skipTaskbar: false,
     titleBarStyle: TitleBarStyle.normal,
     title: 'VapourBox',
