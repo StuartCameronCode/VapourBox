@@ -8,6 +8,8 @@ enum NoiseReductionMethod {
   smDegrain('SMDegrain'),
   @JsonValue('mcTemporalDenoise')
   mcTemporalDenoise('MCTemporalDenoise'),
+  @JsonValue('mcDegrainSharp')
+  mcDegrainSharp('MCDegrainSharp'),
   @JsonValue('qtgmcBuiltin')
   qtgmcBuiltin('QTGMC Built-in');
 
@@ -69,6 +71,27 @@ class NoiseReductionParameters {
   /// Profile setting for MCTemporalDenoise.
   final String mcTemporalProfile;
 
+  // --- MCDegrainSharp Parameters ---
+
+  /// Number of neighbouring frames on each side to degrain against (1-3).
+  final int mcdsFrames;
+
+  /// Blur strength for the poorly-matched areas (0.0-1.58).
+  final double mcdsBlur;
+
+  /// Sharpening strength for the well-matched areas (0.0-1.0).
+  final double mcdsSharp;
+
+  /// Run the motion search on the blurred clip, which finds steadier vectors on
+  /// noisy sources.
+  final bool mcdsBlurSearch;
+
+  /// Block SAD threshold. Low staggers the denoising, high brings ghosting.
+  final int mcdsThSad;
+
+  /// Planes to process (0 luma, 1 U, 2 V, 3 both chroma, 4 all).
+  final int mcdsPlane;
+
   // --- QTGMC Built-in Parameters ---
   // These are passed through to QTGMC's noise settings
 
@@ -92,6 +115,13 @@ class NoiseReductionParameters {
     this.mcTemporalSigma = 4.0,
     this.mcTemporalRadius = 2,
     this.mcTemporalProfile = 'medium',
+    // MCDegrainSharp defaults (Didée's published values)
+    this.mcdsFrames = 2,
+    this.mcdsBlur = 0.3,
+    this.mcdsSharp = 0.3,
+    this.mcdsBlurSearch = true,
+    this.mcdsThSad = 400,
+    this.mcdsPlane = 4,
     // QTGMC built-in defaults
     this.qtgmcEzDenoise = 0.0,
     this.qtgmcEzKeepGrain = 0.0,
@@ -152,6 +182,12 @@ class NoiseReductionParameters {
     double? mcTemporalSigma,
     int? mcTemporalRadius,
     String? mcTemporalProfile,
+    int? mcdsFrames,
+    double? mcdsBlur,
+    double? mcdsSharp,
+    bool? mcdsBlurSearch,
+    int? mcdsThSad,
+    int? mcdsPlane,
     double? qtgmcEzDenoise,
     double? qtgmcEzKeepGrain,
   }) {
@@ -167,6 +203,12 @@ class NoiseReductionParameters {
       mcTemporalSigma: mcTemporalSigma ?? this.mcTemporalSigma,
       mcTemporalRadius: mcTemporalRadius ?? this.mcTemporalRadius,
       mcTemporalProfile: mcTemporalProfile ?? this.mcTemporalProfile,
+      mcdsFrames: mcdsFrames ?? this.mcdsFrames,
+      mcdsBlur: mcdsBlur ?? this.mcdsBlur,
+      mcdsSharp: mcdsSharp ?? this.mcdsSharp,
+      mcdsBlurSearch: mcdsBlurSearch ?? this.mcdsBlurSearch,
+      mcdsThSad: mcdsThSad ?? this.mcdsThSad,
+      mcdsPlane: mcdsPlane ?? this.mcdsPlane,
       qtgmcEzDenoise: qtgmcEzDenoise ?? this.qtgmcEzDenoise,
       qtgmcEzKeepGrain: qtgmcEzKeepGrain ?? this.qtgmcEzKeepGrain,
     );

@@ -453,6 +453,75 @@ clip = haf.MCTemporalDenoise(
 )
 {{/NR_MCTD}}
 
+{{#NR_MCDEGRAINSHARP}}
+# MCDegrainSharp (Didée) — motion-compensated degrain that sharpens where the
+# motion match is good and blurs where it is poor.
+#
+# Three clips do the work: a blurred one is what gets averaged (so badly-matched
+# areas end up soft rather than smeared with wrong pixels), a sharpened one
+# supplies the pixels the averaging draws from (so well-matched areas come back
+# sharper than the source), and the motion search runs on the blurred clip when
+# asked, which finds steadier vectors on a noisy source.
+_mcds_planes = {{NR_MCDS_PLANES}}
+_mcds_blurred = core.tcanny.TCanny(clip, sigma={{NR_MCDS_BLUR_SIGMA}}, mode=-1, planes=_mcds_planes)
+# Unsharp mask: original plus the difference between it and its own blur.
+_mcds_sharpened = core.std.Expr(
+    [clip, core.tcanny.TCanny(clip, sigma={{NR_MCDS_SHARP_SIGMA}}, mode=-1, planes=_mcds_planes)],
+    ['x x + y -'],
+)
+# Larger blocks for HD; 8 is the classic SD value.
+_mcds_blksize = 16 if clip.width > 960 else 8
+_mcds_super_search = core.mv.Super({{NR_MCDS_SEARCH_CLIP}}, pel=2, sharp=1)
+_mcds_super_render = core.mv.Super(_mcds_sharpened, pel=2, sharp=1, levels=1)
+
+
+def _mcds_vectors(delta, backward):
+    return core.mv.Analyse(
+        _mcds_super_search,
+        isb=backward,
+        delta=delta,
+        blksize=_mcds_blksize,
+        overlap=_mcds_blksize // 2,
+    )
+
+{{#NR_MCDS_DEGRAIN1}}
+clip = core.mv.Degrain1(
+    clip=_mcds_blurred,
+    super=_mcds_super_render,
+    mvbw=_mcds_vectors(1, True),
+    mvfw=_mcds_vectors(1, False),
+    thsad={{NR_MCDS_TH_SAD}},
+    plane={{NR_MCDS_PLANE}},
+)
+{{/NR_MCDS_DEGRAIN1}}
+{{#NR_MCDS_DEGRAIN2}}
+clip = core.mv.Degrain2(
+    clip=_mcds_blurred,
+    super=_mcds_super_render,
+    mvbw=_mcds_vectors(1, True),
+    mvfw=_mcds_vectors(1, False),
+    mvbw2=_mcds_vectors(2, True),
+    mvfw2=_mcds_vectors(2, False),
+    thsad={{NR_MCDS_TH_SAD}},
+    plane={{NR_MCDS_PLANE}},
+)
+{{/NR_MCDS_DEGRAIN2}}
+{{#NR_MCDS_DEGRAIN3}}
+clip = core.mv.Degrain3(
+    clip=_mcds_blurred,
+    super=_mcds_super_render,
+    mvbw=_mcds_vectors(1, True),
+    mvfw=_mcds_vectors(1, False),
+    mvbw2=_mcds_vectors(2, True),
+    mvfw2=_mcds_vectors(2, False),
+    mvbw3=_mcds_vectors(3, True),
+    mvfw3=_mcds_vectors(3, False),
+    thsad={{NR_MCDS_TH_SAD}},
+    plane={{NR_MCDS_PLANE}},
+)
+{{/NR_MCDS_DEGRAIN3}}
+{{/NR_MCDEGRAINSHARP}}
+
 {{#NR_BM3D}}
 # BM3D noise reduction
 clip = mvf.BM3D(

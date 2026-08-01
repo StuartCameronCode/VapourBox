@@ -641,6 +641,7 @@ impl ScriptGenerator {
                     script = script.replace("{{#NR_SMDEGRAIN}}", "");
                     script = script.replace("{{/NR_SMDEGRAIN}}", "");
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
+                    script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
 
                     script = process_optional_int("NR_TR", Some(nr.sm_degrain_tr), script);
@@ -654,16 +655,56 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = script.replace("{{#NR_MCTD}}", "");
                     script = script.replace("{{/NR_MCTD}}", "");
+                    script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
 
                     script = process_optional_string("NR_SETTINGS", Some(&nr.mc_temporal_profile), script);
                     script = process_optional_double("NR_SIGMA", Some(nr.mc_temporal_sigma), script);
                     script = process_optional_int("NR_RADIUS", Some(nr.mc_temporal_radius), script);
                 }
+                NoiseReductionMethod::McDegrainSharp => {
+                    script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
+                    script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
+                    script = script.replace("{{#NR_MCDEGRAINSHARP}}", "");
+                    script = script.replace("{{/NR_MCDEGRAINSHARP}}", "");
+                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+
+                    // The blur/sharpen references must cover the same planes the
+                    // degrain does, so both derive from one selector.
+                    script = script.replace("{{NR_MCDS_PLANES}}", &nr.mcds_planes_literal());
+                    script = script.replace("{{NR_MCDS_PLANE}}", &nr.mcds_plane.to_string());
+                    script = script.replace(
+                        "{{NR_MCDS_BLUR_SIGMA}}",
+                        &format_double(nr.mcds_blur_sigma()),
+                    );
+                    script = script.replace(
+                        "{{NR_MCDS_SHARP_SIGMA}}",
+                        &format_double(nr.mcds_sharp_sigma()),
+                    );
+                    script = script.replace("{{NR_MCDS_TH_SAD}}", &nr.mcds_th_sad.to_string());
+                    script = script.replace(
+                        "{{NR_MCDS_SEARCH_CLIP}}",
+                        if nr.mcds_blur_search { "_mcds_blurred" } else { "clip" },
+                    );
+
+                    // mvtools has a separate function per frame count.
+                    for n in 1..=3 {
+                        let block = format!("NR_MCDS_DEGRAIN{}", n);
+                        let open = format!("{{{{#{}}}}}", block);
+                        let close = format!("{{{{/{}}}}}", block);
+                        if n == nr.mcds_effective_frames() {
+                            script = script.replace(&open, "");
+                            script = script.replace(&close, "");
+                        } else {
+                            script = remove_block(&open, &close, script);
+                        }
+                    }
+                }
                 NoiseReductionMethod::QtgmcBuiltin => {
                     // QTGMC built-in denoising is handled in the QTGMC pass itself
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
+                    script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
                 }
             }

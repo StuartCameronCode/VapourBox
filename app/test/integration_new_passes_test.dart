@@ -22,6 +22,7 @@ import 'package:vapourbox/models/chroma_denoise_parameters.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
 import 'package:vapourbox/models/descratch_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
+import 'package:vapourbox/models/noise_reduction_parameters.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/spotless_parameters.dart';
@@ -420,6 +421,51 @@ void main() {
       final chromaMoved = (on.u - off.u).abs() > 0.01 || (on.v - off.v).abs() > 0.01;
       expect(chromaMoved, isTrue,
           reason: 'CCD should have changed chroma; it may not have run at all');
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  });
+
+  // Issue #50: MCDegrainSharp as a noise-reduction method. It composes mvtools
+  // Super/Analyse/Degrain with two tcanny reference clips by hand, so the encode
+  // is the only thing that proves the graph actually builds and runs.
+  group('MCDegrainSharp (full encode)', () {
+    for (final frames in [1, 2, 3]) {
+      test('runs end-to-end with $frames frame(s)', () async {
+        final job = _baseJob(
+          'mcdegrainsharp_$frames',
+          pipeline: ProcessingPipeline(
+            deinterlace: const QTGMCParameters(
+                preset: QTGMCPreset.fast, tff: true, fpsDivisor: 2),
+            noiseReduction: NoiseReductionParameters(
+              enabled: true,
+              method: NoiseReductionMethod.mcDegrainSharp,
+              mcdsFrames: frames,
+              mcdsThSad: 450,
+            ),
+          ),
+        );
+        await _expectValidVideo(await WorkerHarness.runJob(job.toJson(),
+            label: 'mcdegrainsharp_$frames'));
+      }, timeout: const Timeout(Duration(minutes: 8)));
+    }
+
+    test('runs end-to-end on luma only and on chroma only', () async {
+      for (final plane in [0, 3]) {
+        final job = _baseJob(
+          'mcdegrainsharp_plane_$plane',
+          pipeline: ProcessingPipeline(
+            deinterlace: const QTGMCParameters(
+                preset: QTGMCPreset.fast, tff: true, fpsDivisor: 2),
+            noiseReduction: NoiseReductionParameters(
+              enabled: true,
+              method: NoiseReductionMethod.mcDegrainSharp,
+              mcdsPlane: plane,
+              mcdsBlurSearch: plane != 0,
+            ),
+          ),
+        );
+        await _expectValidVideo(await WorkerHarness.runJob(job.toJson(),
+            label: 'mcdegrainsharp_plane_$plane'));
+      }
     }, timeout: const Timeout(Duration(minutes: 10)));
   });
 }

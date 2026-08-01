@@ -140,6 +140,9 @@ class ParameterConverter {
       case NoiseReductionMethod.mcTemporalDenoise:
         method = 'mc_temporal_denoise';
         break;
+      case NoiseReductionMethod.mcDegrainSharp:
+        method = 'mcdegrainsharp';
+        break;
       case NoiseReductionMethod.qtgmcBuiltin:
         method = 'qtgmc_builtin';
         break;
@@ -158,6 +161,12 @@ class ParameterConverter {
         'mcTemporalSigma': params.mcTemporalSigma,
         'mcTemporalRadius': params.mcTemporalRadius,
         'mcTemporalProfile': params.mcTemporalProfile,
+        'mcdsFrames': params.mcdsFrames,
+        'mcdsBlur': params.mcdsBlur,
+        'mcdsSharp': params.mcdsSharp,
+        'mcdsBlurSearch': params.mcdsBlurSearch,
+        'mcdsThSad': params.mcdsThSad,
+        'mcdsPlane': params.mcdsPlane,
         'qtgmcEzDenoise': params.qtgmcEzDenoise,
         'qtgmcEzKeepGrain': params.qtgmcEzKeepGrain,
       },
@@ -639,6 +648,9 @@ class ParameterConverter {
       case 'mc_temporal_denoise':
         method = NoiseReductionMethod.mcTemporalDenoise;
         break;
+      case 'mcdegrainsharp':
+        method = NoiseReductionMethod.mcDegrainSharp;
+        break;
       case 'qtgmc_builtin':
         method = NoiseReductionMethod.qtgmcBuiltin;
         break;
@@ -657,6 +669,12 @@ class ParameterConverter {
       smDegrainPrefilter: v['smDegrainPrefilter'] as int? ?? 2,
       mcTemporalSigma: (v['mcTemporalSigma'] as num?)?.toDouble() ?? 4.0,
       mcTemporalRadius: v['mcTemporalRadius'] as int? ?? 2,
+      mcdsFrames: _asInt(v['mcdsFrames']) ?? 2,
+      mcdsBlur: (v['mcdsBlur'] as num?)?.toDouble() ?? 0.3,
+      mcdsSharp: (v['mcdsSharp'] as num?)?.toDouble() ?? 0.3,
+      mcdsBlurSearch: v['mcdsBlurSearch'] as bool? ?? true,
+      mcdsThSad: _asInt(v['mcdsThSad']) ?? 400,
+      mcdsPlane: _asInt(v['mcdsPlane']) ?? 4,
       mcTemporalProfile: v['mcTemporalProfile'] as String? ?? 'medium',
       qtgmcEzDenoise: (v['qtgmcEzDenoise'] as num?)?.toDouble() ?? 0.0,
       qtgmcEzKeepGrain: (v['qtgmcEzKeepGrain'] as num?)?.toDouble() ?? 0.0,

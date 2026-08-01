@@ -2767,3 +2767,86 @@ fn test_77_chroma_denoise_absent_when_disabled() {
         vec![PassType::NoiseReduction, PassType::ChromaDenoise, PassType::Dehalo]
     );
 }
+
+#[test]
+fn test_78_mcdegrainsharp() {
+    // Issue #50: MCDegrainSharp (Didée) — "denoise with MDegrain, sharpen where
+    // the motion match is good, blur where it is bad". Needs only mvtools and
+    // tcanny, both already bundled.
+    create_output_dir();
+
+    let mut job = create_base_job("test_78_mcdegrainsharp");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::McDegrainSharp,
+            mcds_frames: 3,
+            mcds_th_sad: 500,
+            ..NoiseReductionParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "MCDegrainSharp", &[
+        "core.tcanny.TCanny",
+        "core.mv.Super",
+        // 3 frames selects Degrain3, and the other two must be gone.
+        "core.mv.Degrain3(",
+        "thsad=500",
+        "levels=1",
+        // The averaged clip is the blurred one; the pixels come from the
+        // sharpened one. Swapping these is the whole difference between this and
+        // a plain degrain.
+        "clip=_mcds_blurred",
+        "super=_mcds_super_render",
+    ]).unwrap();
+}
+
+#[test]
+fn test_79_mcdegrainsharp_frame_count_and_planes() {
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let render = |frames: i32, plane: i32, blur_search: bool| {
+        let mut job = create_base_job("test_79_mcdegrainsharp_variants");
+        job.processing_pipeline = Some(ProcessingPipeline {
+            noise_reduction: NoiseReductionParameters {
+                enabled: true,
+                method: NoiseReductionMethod::McDegrainSharp,
+                mcds_frames: frames,
+                mcds_plane: plane,
+                mcds_blur_search: blur_search,
+                ..NoiseReductionParameters::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap()
+    };
+
+    // mvtools has one function per frame count; exactly one must survive.
+    for (frames, expected) in [(1, "Degrain1("), (2, "Degrain2("), (3, "Degrain3(")] {
+        let script = render(frames, 4, true);
+        assert!(script.contains(expected), "{} frames should use {}", frames, expected);
+        for other in ["Degrain1(", "Degrain2(", "Degrain3("] {
+            if other != expected {
+                assert!(!script.contains(other), "{} should not appear for {} frames", other, frames);
+            }
+        }
+    }
+
+    // The TCanny plane list must match mvtools' plane selector, or the blur and
+    // sharpen references would cover different planes than the degrain.
+    let script = render(2, 3, true);
+    assert!(script.contains("_mcds_planes = [1, 2]"));
+    assert!(script.contains("plane=3"));
+
+    let script = render(2, 0, true);
+    assert!(script.contains("_mcds_planes = [0]"));
+    assert!(script.contains("plane=0"));
+
+    // Searching on the source instead of the blurred copy.
+    let script = render(2, 4, false);
+    assert!(script.contains("_mcds_super_search = core.mv.Super(clip,"));
+    let script = render(2, 4, true);
+    assert!(script.contains("_mcds_super_search = core.mv.Super(_mcds_blurred,"));
+}

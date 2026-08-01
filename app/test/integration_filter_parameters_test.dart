@@ -448,6 +448,34 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+
+    // Issue #50: MCDegrainSharp. The plane selector is a numeric enum, so it
+    // arrives from the dropdown as a string and must be coerced — and TCanny's
+    // plane list has to agree with mvtools' plane selector.
+    test('noise_reduction: MCDegrainSharp params', () async {
+      final schema = loadSchema('noise_reduction');
+      var dyn = ParameterConverter.fromNoiseReduction(const NoiseReductionParameters(
+          enabled: true, method: NoiseReductionMethod.mcDegrainSharp));
+      dyn = dyn.withValue('mcdsFrames', 3);
+      dyn = dyn.withValue('mcdsThSad', 500);
+      // Exactly what the dropdown widget stores: the raw option string.
+      dyn = dyn.withValue('mcdsPlane', schema.parameters['mcdsPlane']!.options![3]);
+      final typed = ParameterConverter.toNoiseReduction(dyn);
+      expect(typed.mcdsPlane, 3, reason: 'string option must be coerced to an int');
+
+      final job = buildJob(testName: 'mcdegrainsharp', noiseReduction: typed);
+      print('  Generating MCDegrainSharp script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.mv.Degrain3('));
+      final actual = parseFilterParams(script, 'core.mv.Degrain3(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['thsad'], '500');
+      expect(actual['plane'], '3');
+      // Blur/sharpen references must cover the same planes as the degrain.
+      expect(script, contains('_mcds_planes = [1, 2]'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     // --- DEBLOCK (Deblock_QED) ---
     test('deblock: Deblock_QED params', () async {
       final schema = loadSchema('deblock');
