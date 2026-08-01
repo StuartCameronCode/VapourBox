@@ -68,7 +68,8 @@ class WorkerHarness {
   /// Platform identifier, e.g. `windows-x64`, `macos-arm64`, `linux-x64`.
   static String get platform => DependencyManager.instance.platformId;
 
-  /// Path to the vapourbox-worker binary (release preferred, then debug).
+  /// Path to the vapourbox-worker binary (debug preferred, then release —
+  /// see [_findWorker] for why).
   static String get workerPath {
     final w = _workerPath;
     if (w == null) {

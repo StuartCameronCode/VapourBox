@@ -2258,3 +2258,42 @@ fn test_62_field_based_follows_deinterlace_tff() {
     assert!(script.contains("core.std.SetFieldBased(clip, 2)"), "expected TFF marking");
     assert!(script.contains("TFF=True"), "expected TFF=True");
 }
+
+#[test]
+fn test_63_source_pixel_format_411_reaches_the_script() {
+    // Issue #50: NTSC DV is 4:1:1. The app passes ffprobe's pix_fmt through
+    // verbatim, and pipe_source used to reject anything outside a 12-entry map,
+    // so every DV import failed with "Unsupported pixel format: yuv411p".
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_63_pixel_format_411");
+    job.input_pixel_format = Some("yuv411p".to_string());
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+
+    assert!(
+        script.contains(r#"pix_fmt="yuv411p""#),
+        "4:1:1 is readable off the pipe, so it should be used as-is"
+    );
+}
+
+#[test]
+fn test_64_unreadable_source_pixel_format_is_converted() {
+    // Formats pipe_source can't read must be converted by the decoder instead
+    // of failing the job, and to a format that holds the source without loss.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let render = |pix_fmt: &str| {
+        let mut job = create_base_job("test_64_pixel_format_convert");
+        job.input_pixel_format = Some(pix_fmt.to_string());
+        std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap()
+    };
+
+    // ProRes 4444: alpha is dropped, 4:4:4 and 10-bit are kept.
+    assert!(render("yuva444p10le").contains(r#"pix_fmt="yuv444p10le""#));
+    // RGB has no subsampling, so 4:4:4 is the only non-degrading choice.
+    assert!(render("rgb24").contains(r#"pix_fmt="yuv444p""#));
+    // Hardware-decoder semi-planar output.
+    assert!(render("p010le").contains(r#"pix_fmt="yuv420p10le""#));
+}

@@ -93,6 +93,7 @@ VapourBox/
 | `worker/src/models/processing_pipeline.rs` | Pipeline passes + `FrameMap` (source↔output frame mapping: `output_count` drives the progress total, `invert`/`total_radius` drive frame-accurate preview) |
 | `worker/src/script_generator.rs` | Template substitution for .vpy |
 | `worker/src/pipeline_executor.rs` | vspipe \| ffmpeg execution |
+| `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
 
@@ -429,6 +430,35 @@ Filters are defined as JSON schemas in `app/assets/filters/core/` (built-in) or 
 **Widgets**: `slider`, `dropdown`, `checkbox`, `textfield`, `number`.
 **`optional: true`**: Shows enable checkbox; when disabled, parameter is omitted (uses VS default).
 **`visibleWhen`**: Conditional visibility, e.g. `{ "method": ["method_a"] }`.
+
+### Source Pixel Formats (issue #50)
+
+`templates/pipe_source.py` reads **raw planar frames off stdin**, so it can only
+handle the formats in its `_FORMAT_MAP`. The app passes ffprobe's `pix_fmt`
+straight through (`field_order_detector.dart` → `VideoJob.inputPixelFormat`), and
+ffprobe reports plenty of formats that aren't in that map — so **any unlisted
+format used to fail the entire job** at script evaluation with "Unsupported pixel
+format: …". NTSC DV (`yuv411p`) was the reported case; `yuva444p10le` (ProRes
+4444), `gbrp`, `rgb24`, `gray`, `nv12` and `p010le` had the same problem.
+
+`worker/src/pixel_format.rs::decode_pixel_format` is now the **single** decider
+of the pipe format, and **all four** call sites must use it — the decoder args
+and the generated script, on both the encode and the preview path. If they
+disagree, the raw byte stream desyncs from the frame geometry pipe_source expects
+and the output is garbage rather than an error.
+
+- Readable formats pass through unchanged.
+- Anything else is converted **by the decoder ffmpeg** to the nearest readable
+  format, always a superset (never less chroma resolution or bit depth), so
+  normalization can't degrade the image. 4:1:0 and 4:4:0 therefore go to 4:2:2,
+  not 4:2:0; depth rounds *up* to a depth VapourSynth has (8/9/10/12/14/16);
+  unrecognized names fall back to `yuv444p16le`.
+
+`NATIVE_FORMATS` (Rust) and `_FORMAT_MAP` (Python) must stay in step —
+`test_native_formats_match_pipe_source` parses the Python file and fails if they
+drift. pipe_source derives plane geometry and bytes-per-sample from the
+VapourSynth format itself (`core.get_video_format`), so adding a format is a
+one-line change on each side.
 
 ### Temporary Files Directory
 

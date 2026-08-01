@@ -98,7 +98,7 @@ impl ScriptGenerator {
         let mut script = self.preview_template.clone();
 
         // Pipe source directory (same as main pipeline)
-        let pipe_source_dir = self.pipe_source_dir().unwrap_or_else(|_| env::temp_dir());
+        let pipe_source_dir = Self::pipe_source_dir().unwrap_or_else(|_| env::temp_dir());
         let dir_str = pipe_source_dir.to_string_lossy().to_string();
         script = script.replace("{{PIPE_SOURCE_DIR}}", &dir_str);
 
@@ -211,7 +211,7 @@ impl ScriptGenerator {
         let mut script = template.to_string();
 
         // Pipe source parameters — FFmpeg decodes, pipes raw frames to VapourSynth via stdin
-        let pipe_source_dir = self.pipe_source_dir().unwrap_or_else(|_| env::temp_dir());
+        let pipe_source_dir = Self::pipe_source_dir().unwrap_or_else(|_| env::temp_dir());
         // Template uses r"..." raw string, so backslashes are literal — no escaping needed
         let dir_str = pipe_source_dir.to_string_lossy().to_string();
         script = script.replace("{{PIPE_SOURCE_DIR}}", &dir_str);
@@ -219,7 +219,10 @@ impl ScriptGenerator {
         // Input video properties (from ffprobe, passed via job)
         script = script.replace("{{INPUT_WIDTH}}", &job.input_width.unwrap_or(720).to_string());
         script = script.replace("{{INPUT_HEIGHT}}", &job.input_height.unwrap_or(480).to_string());
-        script = script.replace("{{INPUT_PIX_FMT}}", job.input_pixel_format.as_deref().unwrap_or("yuv420p"));
+        // Must be the format the decoder is actually told to emit — see
+        // pixel_format.rs, which both paths derive from the job.
+        let pipe_format = crate::pixel_format::decode_pixel_format(job.input_pixel_format.as_deref());
+        script = script.replace("{{INPUT_PIX_FMT}}", &pipe_format.name);
 
         // Total frames — use job value or fallback
         let total_frames = job.total_frames.unwrap_or(1);
@@ -251,7 +254,7 @@ impl ScriptGenerator {
     }
 
     /// Get the directory where pipe_source.py lives (same search as templates).
-    fn pipe_source_dir(&self) -> Result<PathBuf> {
+    pub fn pipe_source_dir() -> Result<PathBuf> {
         let exe_path = env::current_exe()?;
         let exe_dir = exe_path.parent().unwrap_or(Path::new("."));
 

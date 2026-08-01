@@ -90,6 +90,7 @@ fn preview_window(target: i32, radius: i32) -> (i32, i32, i32) {
 
 use crate::dependency_locator::DependencyLocator;
 use crate::models::{AudioMode, ContainerFormat, DeinterlaceMethod, EncoderFamily, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
+use crate::pixel_format;
 use crate::progress_reporter::ProgressReporter;
 use crate::script_generator::{PreviewParams, ScriptGenerator};
 
@@ -143,8 +144,15 @@ impl PipelineExecutor {
             &format!("VAPOURSYNTH_PLUGIN_PATH: {:?}", env.get("VAPOURSYNTH_PLUGIN_PATH")),
         );
 
-        // Determine input pixel format for the decoder
-        let pix_fmt = job.input_pixel_format.as_deref().unwrap_or("yuv420p");
+        // Determine input pixel format for the decoder. Formats pipe_source
+        // can't read off the pipe (yuv411p was one until #50; RGB, gray,
+        // semi-planar and alpha formats still are) are converted here rather
+        // than failing the job — see pixel_format.rs.
+        let pipe_format = pixel_format::decode_pixel_format(job.input_pixel_format.as_deref());
+        if let Some(note) = pipe_format.conversion_note() {
+            self.reporter.send_log(LogLevel::Info, &note);
+        }
+        let pix_fmt = pipe_format.name.as_str();
         // Declared frame size — must match the dimensions pipe_source uses in
         // the template (see script_generator), so the raw stream stays aligned.
         let width = job.input_width.unwrap_or(720);
@@ -898,7 +906,10 @@ impl PipelineExecutor {
 
         let target = frame_index.max(0);
         let frame_rate = job.input_frame_rate.unwrap_or(29.97);
-        let pix_fmt = job.input_pixel_format.as_deref().unwrap_or("yuv420p");
+        // Same normalization as the encode path, so a preview and the final
+        // render always read the source through the same pipe format.
+        let pipe_format = pixel_format::decode_pixel_format(job.input_pixel_format.as_deref());
+        let pix_fmt = pipe_format.name.as_str();
         let width = job.input_width.unwrap_or(720);
         let height = job.input_height.unwrap_or(480);
 

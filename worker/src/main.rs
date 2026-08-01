@@ -22,6 +22,7 @@ mod models;
 mod dependency_locator;
 mod dvd_reader;
 mod pipeline_executor;
+mod pixel_format;
 mod progress_reporter;
 mod script_generator;
 mod subtitle_generator;

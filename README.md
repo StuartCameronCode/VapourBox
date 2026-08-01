@@ -83,6 +83,7 @@ Get the latest release for your platform:
 - **Audio options** — passthrough, re-encode (AAC, Opus, FLAC), or strip audio
 - **Custom filters** — extend VapourBox with your own VapourSynth filters via [JSON schemas](docs/FILTER_SCHEMA.md)
 - **Aspect ratio preservation** — non-square pixel SAR (e.g., anamorphic DVD) carried through the pipeline
+- **Wide source format support** — 4:1:1 (NTSC DV), 4:1:0, 4:2:0/4:2:2/4:4:4 up to 16-bit, RGB and grayscale sources
 - **Standalone** — all processing dependencies are bundled and auto-downloaded on first run
 
 ## Usage
