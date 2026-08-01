@@ -69,6 +69,7 @@ Get the latest release for your platform:
 - **Drag-and-drop interface** — drop video files, folders, or VIDEO_TS directories to start
 - **Auto-detection** — automatically identifies interlaced, telecined, and progressive content
 - **Multi-pass video processing pipeline** — chain filters in order: deinterlace, denoise, dehalo, deblock, deband, sharpen, color correction, chroma fixes, crop/resize
+- **Halo, ring and ghost removal** — seven methods, from DeHalo Alpha and Fine Dehalo through Edge Cleaner to Vinverse for the comb/ghost residue a deinterlacer leaves behind
 - **QTGMC deinterlacing** — full access to all 70+ parameters, from Draft to Placebo quality
 - **IVTC (Inverse Telecine)** — recover original 23.976 FPS film from telecined DVD sources
 - **Soft telecine handling** — strip pulldown flags without re-encoding fields

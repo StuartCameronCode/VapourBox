@@ -163,35 +163,79 @@ class ParameterConverter {
     );
   }
 
+  /// Read an int that may have come back from the UI as a string.
+  ///
+  /// Enum dropdowns hand back the raw option value, and a numeric enum's
+  /// options are strings in the schema (`["1", "16", "17", "18"]`), so the same
+  /// parameter can arrive as `17` (from a converter) or `"17"` (after the user
+  /// picks from the dropdown). A plain `as int?` cast throws on the latter.
+  static int? _asInt(dynamic value) => switch (value) {
+        num n => n.toInt(),
+        String s => int.tryParse(s),
+        _ => null,
+      };
+
+  /// Schema method id for a [DehaloMethod].
+  static String dehaloMethodId(DehaloMethod method) => switch (method) {
+        DehaloMethod.dehaloAlpha => 'dehalo_alpha',
+        DehaloMethod.fineDehalo => 'fine_dehalo',
+        DehaloMethod.fineDehalo2 => 'fine_dehalo2',
+        DehaloMethod.yahr => 'yahr',
+        DehaloMethod.edgeCleaner => 'edge_cleaner',
+        DehaloMethod.vinverse => 'vinverse',
+        DehaloMethod.vinverse2 => 'vinverse2',
+      };
+
   /// Convert dehalo parameters to dynamic format.
   static DynamicParameters fromDehalo(DehaloParameters params) {
-    String method;
-    switch (params.method) {
-      case DehaloMethod.dehaloAlpha:
-        method = 'dehalo_alpha';
-        break;
-      case DehaloMethod.fineDehalo:
-        method = 'fine_dehalo';
-        break;
-      case DehaloMethod.yahr:
-        method = 'yahr';
-        break;
+    // Parameters added after the pass shipped are nullable: a null goes to
+    // lastOptionalValues so its checkbox starts unticked and havsfunc's own
+    // default applies, instead of the UI claiming every knob is in use.
+    final values = <String, dynamic>{
+      'method': dehaloMethodId(params.method),
+      'rx': params.rx,
+      'ry': params.ry,
+      'darkStr': params.darkStr,
+      'brightStr': params.brightStr,
+      'lowThreshold': params.lowThreshold,
+      'highThreshold': params.highThreshold,
+      'yahrBlur': params.yahrBlur,
+      'yahrDepth': params.yahrDepth,
+    };
+    final lastOptional = <String, dynamic>{};
+
+    void optional(String key, dynamic value, dynamic fallback) {
+      if (value != null) {
+        values[key] = value;
+      } else {
+        lastOptional[key] = fallback;
+      }
     }
+
+    // Fallbacks mirror havsfunc's defaults, so ticking a checkbox starts from
+    // the value the filter would have used anyway.
+    optional('lowSens', params.lowSens, 50);
+    optional('highSens', params.highSens, 50);
+    optional('superSample', params.superSample, 1.5);
+    optional('limitLow', params.limitLow, 50);
+    optional('limitHigh', params.limitHigh, 100);
+    optional('contra', params.contra, 0.0);
+    optional('excludeCloseEdges', params.excludeCloseEdges, true);
+    optional('edgeProc', params.edgeProc, 0.0);
+    optional('edgeStrength', params.edgeStrength, 10);
+    optional('edgeRepair', params.edgeRepair, true);
+    optional('edgeRepairMode', params.edgeRepairMode, 17);
+    optional('edgeSmallMode', params.edgeSmallMode, 0);
+    optional('edgeHotPixels', params.edgeHotPixels, false);
+    optional('vinverseStrength', params.vinverseStrength, 2.7);
+    optional('vinverseAmount', params.vinverseAmount, 255);
+    optional('vinverseChroma', params.vinverseChroma, true);
 
     return DynamicParameters(
       filterId: 'dehalo',
       enabled: params.enabled,
-      values: {
-        'method': method,
-        'rx': params.rx,
-        'ry': params.ry,
-        'darkStr': params.darkStr,
-        'brightStr': params.brightStr,
-        'lowThreshold': params.lowThreshold,
-        'highThreshold': params.highThreshold,
-        'yahrBlur': params.yahrBlur,
-        'yahrDepth': params.yahrDepth,
-      },
+      values: values,
+      lastOptionalValues: lastOptional,
     );
   }
 
@@ -568,17 +612,15 @@ class ParameterConverter {
   static DehaloParameters toDehalo(DynamicParameters params) {
     final v = params.values;
     final methodStr = v['method'] as String? ?? 'dehalo_alpha';
-    DehaloMethod method;
-    switch (methodStr) {
-      case 'fine_dehalo':
-        method = DehaloMethod.fineDehalo;
-        break;
-      case 'yahr':
-        method = DehaloMethod.yahr;
-        break;
-      default:
-        method = DehaloMethod.dehaloAlpha;
-    }
+    final method = switch (methodStr) {
+      'fine_dehalo' => DehaloMethod.fineDehalo,
+      'fine_dehalo2' => DehaloMethod.fineDehalo2,
+      'yahr' => DehaloMethod.yahr,
+      'edge_cleaner' => DehaloMethod.edgeCleaner,
+      'vinverse' => DehaloMethod.vinverse,
+      'vinverse2' => DehaloMethod.vinverse2,
+      _ => DehaloMethod.dehaloAlpha,
+    };
 
     return DehaloParameters(
       enabled: params.enabled,
@@ -587,10 +629,27 @@ class ParameterConverter {
       ry: (v['ry'] as num?)?.toDouble() ?? 2.0,
       darkStr: (v['darkStr'] as num?)?.toDouble() ?? 1.0,
       brightStr: (v['brightStr'] as num?)?.toDouble() ?? 1.0,
+      // Absent (checkbox off) stays null so the script omits it entirely.
+      lowSens: (v['lowSens'] as num?)?.toInt(),
+      highSens: (v['highSens'] as num?)?.toInt(),
+      superSample: (v['superSample'] as num?)?.toDouble(),
       lowThreshold: v['lowThreshold'] as int? ?? 50,
       highThreshold: v['highThreshold'] as int? ?? 100,
+      limitLow: (v['limitLow'] as num?)?.toInt(),
+      limitHigh: (v['limitHigh'] as num?)?.toInt(),
+      contra: (v['contra'] as num?)?.toDouble(),
+      excludeCloseEdges: v['excludeCloseEdges'] as bool?,
+      edgeProc: (v['edgeProc'] as num?)?.toDouble(),
       yahrBlur: v['yahrBlur'] as int? ?? 2,
       yahrDepth: v['yahrDepth'] as int? ?? 32,
+      edgeStrength: (v['edgeStrength'] as num?)?.toInt(),
+      edgeRepair: v['edgeRepair'] as bool?,
+      edgeRepairMode: _asInt(v['edgeRepairMode']),
+      edgeSmallMode: _asInt(v['edgeSmallMode']),
+      edgeHotPixels: v['edgeHotPixels'] as bool?,
+      vinverseStrength: (v['vinverseStrength'] as num?)?.toDouble(),
+      vinverseAmount: (v['vinverseAmount'] as num?)?.toInt(),
+      vinverseChroma: v['vinverseChroma'] as bool?,
     );
   }
 
@@ -633,9 +692,9 @@ class ParameterConverter {
       blurlen: v['blurlen'] as int? ?? 15,
       keep: v['keep'] as int? ?? 100,
       border: v['border'] as int? ?? 2,
-      modeY: v['modeY'] as int? ?? 1,
-      modeU: v['modeU'] as int? ?? 0,
-      modeV: v['modeV'] as int? ?? 0,
+      modeY: _asInt(v['modeY']) ?? 1,
+      modeU: _asInt(v['modeU']) ?? 0,
+      modeV: _asInt(v['modeV']) ?? 0,
       mindifUV: v['mindifUV'] as int? ?? 0,
     );
   }
@@ -649,7 +708,7 @@ class ParameterConverter {
       rec: v['rec'] as bool? ?? false,
       blksize: v['blksize'] as int? ?? 16,
       overlap: v['overlap'] as int? ?? 8,
-      pel: v['pel'] as int? ?? 2,
+      pel: _asInt(v['pel']) ?? 2,
     );
   }
 

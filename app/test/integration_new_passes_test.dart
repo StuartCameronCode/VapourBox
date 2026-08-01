@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
+import 'package:vapourbox/models/dehalo_parameters.dart';
 import 'package:vapourbox/models/descratch_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
@@ -262,5 +263,85 @@ void main() {
           reason: 'ChromaEdi="Blend" must be dropped, producing the default pipeline');
       print('  frame hash matches: $blendHash');
     }, timeout: const Timeout(Duration(minutes: 10)));
+  });
+
+  // Issue #50: the dehalo pass gained four havsfunc methods (FineDehalo2,
+  // EdgeCleaner, Vinverse, Vinverse2). Script generation is asserted in the
+  // Rust suite; what matters here is that each one actually loads its plugins
+  // and produces frames — EdgeCleaner needs aWarpSharp2 + RemoveGrain, and the
+  // Vinverse variants are pure std but easy to get wrong on chroma.
+  group('dehalo methods (full encode)', () {
+    Future<void> runMethod(DehaloMethod method, DehaloParameters params) async {
+      final label = 'dehalo_${method.value.toLowerCase()}';
+      final job = _baseJob(
+        label,
+        pipeline: ProcessingPipeline(
+          deinterlace: const QTGMCParameters(
+              preset: QTGMCPreset.fast, tff: true, fpsDivisor: 2),
+          dehalo: params,
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: label);
+      await _expectValidVideo(result);
+    }
+
+    test('FineDehalo2 runs end-to-end', () async {
+      await runMethod(DehaloMethod.fineDehalo2,
+          const DehaloParameters(enabled: true, method: DehaloMethod.fineDehalo2));
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('EdgeCleaner runs end-to-end', () async {
+      await runMethod(
+          DehaloMethod.edgeCleaner,
+          const DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.edgeCleaner,
+            edgeStrength: 15,
+            edgeSmallMode: 1,
+          ));
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('Vinverse runs end-to-end, with and without chroma', () async {
+      await runMethod(
+          DehaloMethod.vinverse,
+          const DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.vinverse,
+            vinverseStrength: 3.0,
+            vinverseAmount: 200,
+            vinverseChroma: false,
+          ));
+      await runMethod(
+          DehaloMethod.vinverse2,
+          const DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.vinverse2,
+            vinverseChroma: true,
+          ));
+    }, timeout: const Timeout(Duration(minutes: 8)));
+
+    test('DeHalo_alpha and FineDehalo advanced parameters run end-to-end', () async {
+      await runMethod(
+          DehaloMethod.dehaloAlpha,
+          const DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.dehaloAlpha,
+            darkStr: 1.4,
+            lowSens: 35,
+            highSens: 65,
+            superSample: 2.0,
+          ));
+      await runMethod(
+          DehaloMethod.fineDehalo,
+          const DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.fineDehalo,
+            limitLow: 60,
+            limitHigh: 120,
+            contra: 1.2,
+            excludeCloseEdges: false,
+            edgeProc: 0.5,
+          ));
+    }, timeout: const Timeout(Duration(minutes: 8)));
   });
 }

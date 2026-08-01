@@ -63,6 +63,17 @@ Set<String> getAllSchemaParamKeys(FilterSchema schema) {
   return schema.parameters.keys.where((k) => k != 'enabled').toSet();
 }
 
+/// Whether the converter knows about [key] at all.
+///
+/// A parameter that defaults to OFF lives in `lastOptionalValues` rather than
+/// `values` (see "Optional Parameter Defaults" in CLAUDE.md) — it is still
+/// wired up, it just starts unticked. What must never happen is a schema
+/// parameter the converter has never heard of, since the UI would then offer a
+/// control that silently does nothing.
+bool converterKnows(DynamicParameters converted, String key) =>
+    converted.values.containsKey(key) ||
+    converted.lastOptionalValues.containsKey(key);
+
 void main() {
   group('Schema structural integrity', () {
     final schemaFiles = [
@@ -186,7 +197,7 @@ void main() {
       for (final key in schemaKeys) {
         if (key == 'method') continue; // method is handled separately
         // IVTC params may not be in QTGMC output - that's OK, they're in the same converter
-        expect(dynamic.values.containsKey(key), isTrue,
+        expect(converterKnows(dynamic, key), isTrue,
             reason: 'Schema param "$key" missing from converter output');
       }
     });
@@ -199,7 +210,7 @@ void main() {
 
       for (final key in schemaKeys) {
         if (key == 'method') continue;
-        expect(dynamic.values.containsKey(key), isTrue,
+        expect(converterKnows(dynamic, key), isTrue,
             reason: 'Schema param "$key" missing from converter output');
       }
     });
@@ -212,7 +223,7 @@ void main() {
 
       for (final key in schemaKeys) {
         if (key == 'method') continue;
-        expect(dynamic.values.containsKey(key), isTrue,
+        expect(converterKnows(dynamic, key), isTrue,
             reason: 'Schema param "$key" missing from converter output');
       }
     });
@@ -225,7 +236,7 @@ void main() {
 
       for (final key in schemaKeys) {
         if (key == 'method') continue;
-        expect(dynamic.values.containsKey(key), isTrue,
+        expect(converterKnows(dynamic, key), isTrue,
             reason: 'Schema param "$key" missing from converter output');
       }
     });
@@ -238,7 +249,7 @@ void main() {
 
       for (final key in schemaKeys) {
         if (key == 'method') continue;
-        expect(dynamic.values.containsKey(key), isTrue,
+        expect(converterKnows(dynamic, key), isTrue,
             reason: 'Schema param "$key" missing from converter output');
       }
     });
@@ -251,7 +262,7 @@ void main() {
 
       for (final key in schemaKeys) {
         if (key == 'method') continue;
-        expect(dynamic.values.containsKey(key), isTrue,
+        expect(converterKnows(dynamic, key), isTrue,
             reason: 'Schema param "$key" missing from converter output');
       }
     });
@@ -264,7 +275,7 @@ void main() {
 
       for (final key in schemaKeys) {
         if (key == 'method') continue;
-        expect(dynamic.values.containsKey(key), isTrue,
+        expect(converterKnows(dynamic, key), isTrue,
             reason: 'Schema param "$key" missing from converter output');
       }
     });
@@ -277,7 +288,7 @@ void main() {
 
       for (final key in schemaKeys) {
         if (key == 'method') continue;
-        expect(dynamic.values.containsKey(key), isTrue,
+        expect(converterKnows(dynamic, key), isTrue,
             reason: 'Schema param "$key" missing from converter output');
       }
     });
@@ -290,7 +301,7 @@ void main() {
 
       for (final key in schemaKeys) {
         if (key == 'method') continue;
-        expect(dynamic.values.containsKey(key), isTrue,
+        expect(converterKnows(dynamic, key), isTrue,
             reason: 'Schema param "$key" missing from converter output');
       }
     });
@@ -303,7 +314,7 @@ void main() {
 
       for (final key in schemaKeys) {
         if (key == 'method') continue;
-        expect(dynamic.values.containsKey(key), isTrue,
+        expect(converterKnows(dynamic, key), isTrue,
             reason: 'Schema param "$key" missing from converter output');
       }
     });

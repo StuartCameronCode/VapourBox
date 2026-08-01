@@ -252,6 +252,84 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    // Issue #50: FineDehalo's masking limits, contra-sharpening and edge
+    // processing were never exposed. Explicit non-default values, so a
+    // parameter that silently fails to reach the script is visible.
+    test('dehalo: FineDehalo advanced params', () async {
+      loadSchema('dehalo'); // confirm schema parses
+      final typed = const DehaloParameters(
+        enabled: true,
+        method: DehaloMethod.fineDehalo,
+        limitLow: 60,
+        limitHigh: 120,
+        contra: 1.2,
+        excludeCloseEdges: false,
+        edgeProc: 0.5,
+      );
+      final job = buildJob(testName: 'dehalo_fine', dehalo: typed);
+      print('  Generating FineDehalo script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.FineDehalo('));
+      final actual = parseFilterParams(script, 'haf.FineDehalo(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['thlimi'], '60');
+      expect(actual['thlima'], '120');
+      expect(actual['contra'], '1.2');
+      expect(actual['excl'], 'False');
+      expect(actual['edgeproc'], '0.5');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // The "ghost" half of issue #50: Vinverse removes the comb residue a
+    // deinterlacer leaves behind.
+    test('dehalo: Vinverse params', () async {
+      loadSchema('dehalo');
+      final typed = const DehaloParameters(
+        enabled: true,
+        method: DehaloMethod.vinverse,
+        vinverseStrength: 3.5,
+        vinverseAmount: 200,
+        vinverseChroma: false,
+      );
+      final job = buildJob(testName: 'dehalo_vinverse', dehalo: typed);
+      print('  Generating Vinverse script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.Vinverse('));
+      final actual = parseFilterParams(script, 'haf.Vinverse(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['sstr'], '3.5');
+      expect(actual['amnt'], '200');
+      expect(actual['chroma'], 'False');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // EdgeCleaner's repair/small-particle modes are numeric enums, so they
+    // arrive from the UI as strings — the converter must coerce them to ints or
+    // the script gets a quoted value VapourSynth rejects.
+    test('dehalo: EdgeCleaner params (numeric enums from the UI)', () async {
+      final schema = loadSchema('dehalo');
+      var dyn = ParameterConverter.fromDehalo(const DehaloParameters(
+          enabled: true, method: DehaloMethod.edgeCleaner));
+      // Exactly what the dropdown widget stores: the raw option string.
+      dyn = dyn.withValue('edgeStrength', 15);
+      dyn = dyn.withValue('edgeRepairMode', schema.parameters['edgeRepairMode']!.options!.first);
+      dyn = dyn.withValue('edgeSmallMode', '1');
+      dyn = dyn.withValue('edgeHotPixels', true);
+      final typed = ParameterConverter.toDehalo(dyn);
+
+      final job = buildJob(testName: 'dehalo_edgecleaner', dehalo: typed);
+      print('  Generating EdgeCleaner script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.EdgeCleaner('));
+      final actual = parseFilterParams(script, 'haf.EdgeCleaner(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['strength'], '15');
+      expect(actual['rmode'], '1', reason: 'string option must be coerced to an int');
+      expect(actual['smode'], '1');
+      expect(actual['hot'], 'True');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     // --- DEBLOCK (Deblock_QED) ---
     test('deblock: Deblock_QED params', () async {
       final schema = loadSchema('deblock');

@@ -2297,3 +2297,155 @@ fn test_64_unreadable_source_pixel_format_is_converted() {
     // Hardware-decoder semi-planar output.
     assert!(render("p010le").contains(r#"pix_fmt="yuv420p10le""#));
 }
+
+#[test]
+fn test_65_dehalo_alpha_advanced_parameters() {
+    // Issue #50: DeHalo_alpha's sensitivity and supersampling arguments were
+    // never exposed, so the pass could only be tuned by radius and strength.
+    create_output_dir();
+
+    let mut job = create_base_job("test_65_dehalo_alpha_advanced");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        dehalo: DehaloParameters {
+            enabled: true,
+            method: DehaloMethod::DehaloAlpha,
+            dark_str: 1.4, // above 1.0 — the old schema capped this at 1.0
+            low_sens: Some(35),
+            high_sens: Some(65),
+            super_sample: Some(2.0),
+            ..DehaloParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "DeHalo_alpha advanced", &[
+        "haf.DeHalo_alpha",
+        "darkstr=1.4",
+        "lowsens=35",
+        "highsens=65",
+        "ss=2",
+    ]).unwrap();
+}
+
+#[test]
+fn test_66_fine_dehalo_advanced_parameters() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_66_fine_dehalo_advanced");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        dehalo: DehaloParameters {
+            enabled: true,
+            method: DehaloMethod::FineDehalo,
+            limit_low: Some(60),
+            limit_high: Some(120),
+            contra: Some(1.2),
+            exclude_close_edges: Some(false),
+            edge_proc: Some(0.5),
+            ..DehaloParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "FineDehalo advanced", &[
+        "haf.FineDehalo",
+        "thlimi=60",
+        "thlima=120",
+        "contra=1.2",
+        "excl=False",
+        "edgeproc=0.5",
+    ]).unwrap();
+}
+
+#[test]
+fn test_67_dehalo_ghost_and_edge_methods() {
+    // The "ghost" half of the request: Vinverse removes the comb residue a
+    // deinterlacer leaves behind, and each new method must emit its own
+    // havsfunc call with nothing left over from the others.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let render = |dehalo: DehaloParameters| {
+        let mut job = create_base_job("test_67_dehalo_methods");
+        job.processing_pipeline = Some(ProcessingPipeline {
+            dehalo,
+            ..ProcessingPipeline::default()
+        });
+        std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap()
+    };
+
+    let script = render(DehaloParameters {
+        enabled: true,
+        method: DehaloMethod::Vinverse,
+        vinverse_strength: Some(3.5),
+        vinverse_amount: Some(200),
+        vinverse_chroma: Some(false),
+        ..DehaloParameters::default()
+    });
+    assert!(script.contains("haf.Vinverse("), "expected a Vinverse call");
+    assert!(script.contains("sstr=3.5"));
+    assert!(script.contains("amnt=200"));
+    assert!(script.contains("chroma=False"));
+    assert!(!script.contains("haf.DeHalo_alpha"), "other methods must be removed");
+
+    // Vinverse2 shares the block; only the function name changes.
+    let script = render(DehaloParameters {
+        enabled: true,
+        method: DehaloMethod::Vinverse2,
+        ..DehaloParameters::default()
+    });
+    assert!(script.contains("haf.Vinverse2("), "expected a Vinverse2 call");
+
+    let script = render(DehaloParameters {
+        enabled: true,
+        method: DehaloMethod::EdgeCleaner,
+        edge_strength: Some(20),
+        edge_repair: Some(true),
+        edge_repair_mode: Some(1),
+        edge_small_mode: Some(1),
+        edge_hot_pixels: Some(true),
+        ..DehaloParameters::default()
+    });
+    assert!(script.contains("haf.EdgeCleaner("));
+    assert!(script.contains("strength=20"));
+    assert!(script.contains("rep=True"));
+    assert!(script.contains("rmode=1"));
+    assert!(script.contains("smode=1"));
+    assert!(script.contains("hot=True"));
+
+    // FineDehalo2 takes no parameters, so it must not carry an argument list.
+    let script = render(DehaloParameters {
+        enabled: true,
+        method: DehaloMethod::FineDehalo2,
+        ..DehaloParameters::default()
+    });
+    assert!(script.contains("haf.FineDehalo2(clip)"));
+    assert!(!script.contains("haf.FineDehalo("), "FineDehalo2 is not FineDehalo");
+}
+
+#[test]
+fn test_68_dehalo_unset_optionals_are_omitted() {
+    // An unset optional must not reach the script at all: havsfunc's own default
+    // is the documented behaviour, and emitting our idea of it would silently
+    // pin the value if upstream ever changed.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_68_dehalo_defaults");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        dehalo: DehaloParameters {
+            enabled: true,
+            method: DehaloMethod::DehaloAlpha,
+            ..DehaloParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+
+    assert!(script.contains("haf.DeHalo_alpha"));
+    for absent in ["lowsens=", "highsens=", "ss="] {
+        assert!(!script.contains(absent), "unset optional {} leaked into the script", absent);
+    }
+    // The pre-existing always-passed arguments are unchanged.
+    assert!(script.contains("rx=2"));
+    assert!(script.contains("darkstr=1"));
+}

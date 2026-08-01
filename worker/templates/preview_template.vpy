@@ -488,6 +488,15 @@ clip = haf.DeHalo_alpha(
 {{#DEHALO_BRIGHTSTR}}
     brightstr={{DEHALO_BRIGHTSTR}},
 {{/DEHALO_BRIGHTSTR}}
+{{#DEHALO_LOWSENS}}
+    lowsens={{DEHALO_LOWSENS}},
+{{/DEHALO_LOWSENS}}
+{{#DEHALO_HIGHSENS}}
+    highsens={{DEHALO_HIGHSENS}},
+{{/DEHALO_HIGHSENS}}
+{{#DEHALO_SS}}
+    ss={{DEHALO_SS}},
+{{/DEHALO_SS}}
 )
 {{/DEHALO_DEHALO_ALPHA}}
 
@@ -513,8 +522,29 @@ clip = haf.FineDehalo(
 {{#DEHALO_HIGH_THRESHOLD}}
     thma={{DEHALO_HIGH_THRESHOLD}},
 {{/DEHALO_HIGH_THRESHOLD}}
+{{#DEHALO_THLIMI}}
+    thlimi={{DEHALO_THLIMI}},
+{{/DEHALO_THLIMI}}
+{{#DEHALO_THLIMA}}
+    thlima={{DEHALO_THLIMA}},
+{{/DEHALO_THLIMA}}
+{{#DEHALO_CONTRA}}
+    contra={{DEHALO_CONTRA}},
+{{/DEHALO_CONTRA}}
+{{#DEHALO_EXCL}}
+    excl={{DEHALO_EXCL}},
+{{/DEHALO_EXCL}}
+{{#DEHALO_EDGEPROC}}
+    edgeproc={{DEHALO_EDGEPROC}},
+{{/DEHALO_EDGEPROC}}
 )
 {{/DEHALO_FINE_DEHALO}}
+
+{{#DEHALO_FINE_DEHALO2}}
+# FineDehalo2 - removes the ringing FineDehalo leaves on sharp edges.
+# Takes only convolution kernels beyond the defaults, so it has no parameters.
+clip = haf.FineDehalo2(clip)
+{{/DEHALO_FINE_DEHALO2}}
 
 {{#DEHALO_YAHR}}
 # YAHR - Yet Another Halo Remover
@@ -528,6 +558,45 @@ clip = haf.YAHR(
 {{/DEHALO_YAHR_DEPTH}}
 )
 {{/DEHALO_YAHR}}
+
+{{#DEHALO_EDGE_CLEANER}}
+# EdgeCleaner - edge denoising and weak dehaloing (aWarpSharp2)
+clip = haf.EdgeCleaner(
+    clip,
+{{#DEHALO_EDGE_STRENGTH}}
+    strength={{DEHALO_EDGE_STRENGTH}},
+{{/DEHALO_EDGE_STRENGTH}}
+{{#DEHALO_EDGE_REPAIR}}
+    rep={{DEHALO_EDGE_REPAIR}},
+{{/DEHALO_EDGE_REPAIR}}
+{{#DEHALO_EDGE_RMODE}}
+    rmode={{DEHALO_EDGE_RMODE}},
+{{/DEHALO_EDGE_RMODE}}
+{{#DEHALO_EDGE_SMODE}}
+    smode={{DEHALO_EDGE_SMODE}},
+{{/DEHALO_EDGE_SMODE}}
+{{#DEHALO_EDGE_HOT}}
+    hot={{DEHALO_EDGE_HOT}},
+{{/DEHALO_EDGE_HOT}}
+)
+{{/DEHALO_EDGE_CLEANER}}
+
+{{#DEHALO_VINVERSE}}
+# Vinverse - removes vertical comb/ghost residue left by deinterlacing.
+# It blurs vertically, so run it on progressive (already deinterlaced) frames.
+clip = haf.{{DEHALO_VINVERSE_FN}}(
+    clip,
+{{#DEHALO_VINVERSE_SSTR}}
+    sstr={{DEHALO_VINVERSE_SSTR}},
+{{/DEHALO_VINVERSE_SSTR}}
+{{#DEHALO_VINVERSE_AMNT}}
+    amnt={{DEHALO_VINVERSE_AMNT}},
+{{/DEHALO_VINVERSE_AMNT}}
+{{#DEHALO_VINVERSE_CHROMA}}
+    chroma={{DEHALO_VINVERSE_CHROMA}},
+{{/DEHALO_VINVERSE_CHROMA}}
+)
+{{/DEHALO_VINVERSE}}
 {{/DEHALO}}
 
 # ============================================================================

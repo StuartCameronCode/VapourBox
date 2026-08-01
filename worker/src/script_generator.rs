@@ -679,33 +679,78 @@ impl ScriptGenerator {
             script = script.replace("{{#DEHALO}}", "");
             script = script.replace("{{/DEHALO}}", "");
 
-            match dehalo.method {
-                DehaloMethod::DehaloAlpha => {
-                    script = script.replace("{{#DEHALO_DEHALO_ALPHA}}", "");
-                    script = script.replace("{{/DEHALO_DEHALO_ALPHA}}", "");
-                    script = remove_block("{{#DEHALO_FINE_DEHALO}}", "{{/DEHALO_FINE_DEHALO}}", script);
-                    script = remove_block("{{#DEHALO_YAHR}}", "{{/DEHALO_YAHR}}", script);
-                }
-                DehaloMethod::FineDehalo => {
-                    script = remove_block("{{#DEHALO_DEHALO_ALPHA}}", "{{/DEHALO_DEHALO_ALPHA}}", script);
-                    script = script.replace("{{#DEHALO_FINE_DEHALO}}", "");
-                    script = script.replace("{{/DEHALO_FINE_DEHALO}}", "");
-                    script = remove_block("{{#DEHALO_YAHR}}", "{{/DEHALO_YAHR}}", script);
-                    script = process_optional_int("DEHALO_LOW_THRESHOLD", Some(dehalo.low_threshold), script);
-                    script = process_optional_int("DEHALO_HIGH_THRESHOLD", Some(dehalo.high_threshold), script);
-                }
-                DehaloMethod::Yahr => {
-                    script = remove_block("{{#DEHALO_DEHALO_ALPHA}}", "{{/DEHALO_DEHALO_ALPHA}}", script);
-                    script = remove_block("{{#DEHALO_FINE_DEHALO}}", "{{/DEHALO_FINE_DEHALO}}", script);
-                    script = script.replace("{{#DEHALO_YAHR}}", "");
-                    script = script.replace("{{/DEHALO_YAHR}}", "");
-                    script = process_optional_int("DEHALO_YAHR_BLUR", Some(dehalo.yahr_blur), script);
-                    script = process_optional_int("DEHALO_YAHR_DEPTH", Some(dehalo.yahr_depth), script);
+            // Exactly one method block survives; the rest are removed. Listing
+            // every block per arm is what the other passes do, but with seven
+            // methods it stops being readable — so keep the block the method
+            // selects and drop the others by difference.
+            const DEHALO_BLOCKS: [&str; 6] = [
+                "DEHALO_DEHALO_ALPHA",
+                "DEHALO_FINE_DEHALO",
+                "DEHALO_FINE_DEHALO2",
+                "DEHALO_YAHR",
+                "DEHALO_EDGE_CLEANER",
+                "DEHALO_VINVERSE",
+            ];
+
+            let selected = match dehalo.method {
+                DehaloMethod::DehaloAlpha => "DEHALO_DEHALO_ALPHA",
+                DehaloMethod::FineDehalo => "DEHALO_FINE_DEHALO",
+                DehaloMethod::FineDehalo2 => "DEHALO_FINE_DEHALO2",
+                DehaloMethod::Yahr => "DEHALO_YAHR",
+                DehaloMethod::EdgeCleaner => "DEHALO_EDGE_CLEANER",
+                // Both Vinverse variants share one block; only the function
+                // name differs.
+                DehaloMethod::Vinverse | DehaloMethod::Vinverse2 => "DEHALO_VINVERSE",
+            };
+
+            for block in DEHALO_BLOCKS {
+                let open = format!("{{{{#{}}}}}", block);
+                let close = format!("{{{{/{}}}}}", block);
+                if block == selected {
+                    script = script.replace(&open, "");
+                    script = script.replace(&close, "");
+                } else {
+                    script = remove_block(&open, &close, script);
                 }
             }
 
-            // Common parameters for DeHalo_alpha and FineDehalo
-            if dehalo.method != DehaloMethod::Yahr {
+            match dehalo.method {
+                DehaloMethod::DehaloAlpha => {
+                    script = process_optional_int("DEHALO_LOWSENS", dehalo.low_sens, script);
+                    script = process_optional_int("DEHALO_HIGHSENS", dehalo.high_sens, script);
+                    script = process_optional_double("DEHALO_SS", dehalo.super_sample, script);
+                }
+                DehaloMethod::FineDehalo => {
+                    script = process_optional_int("DEHALO_LOW_THRESHOLD", Some(dehalo.low_threshold), script);
+                    script = process_optional_int("DEHALO_HIGH_THRESHOLD", Some(dehalo.high_threshold), script);
+                    script = process_optional_int("DEHALO_THLIMI", dehalo.limit_low, script);
+                    script = process_optional_int("DEHALO_THLIMA", dehalo.limit_high, script);
+                    script = process_optional_double("DEHALO_CONTRA", dehalo.contra, script);
+                    script = process_optional_bool("DEHALO_EXCL", dehalo.exclude_close_edges, script);
+                    script = process_optional_double("DEHALO_EDGEPROC", dehalo.edge_proc, script);
+                }
+                DehaloMethod::FineDehalo2 => {}
+                DehaloMethod::Yahr => {
+                    script = process_optional_int("DEHALO_YAHR_BLUR", Some(dehalo.yahr_blur), script);
+                    script = process_optional_int("DEHALO_YAHR_DEPTH", Some(dehalo.yahr_depth), script);
+                }
+                DehaloMethod::EdgeCleaner => {
+                    script = process_optional_int("DEHALO_EDGE_STRENGTH", dehalo.edge_strength, script);
+                    script = process_optional_bool("DEHALO_EDGE_REPAIR", dehalo.edge_repair, script);
+                    script = process_optional_int("DEHALO_EDGE_RMODE", dehalo.edge_repair_mode, script);
+                    script = process_optional_int("DEHALO_EDGE_SMODE", dehalo.edge_small_mode, script);
+                    script = process_optional_bool("DEHALO_EDGE_HOT", dehalo.edge_hot_pixels, script);
+                }
+                DehaloMethod::Vinverse | DehaloMethod::Vinverse2 => {
+                    script = script.replace("{{DEHALO_VINVERSE_FN}}", dehalo.method.as_str());
+                    script = process_optional_double("DEHALO_VINVERSE_SSTR", dehalo.vinverse_strength, script);
+                    script = process_optional_int("DEHALO_VINVERSE_AMNT", dehalo.vinverse_amount, script);
+                    script = process_optional_bool("DEHALO_VINVERSE_CHROMA", dehalo.vinverse_chroma, script);
+                }
+            }
+
+            // Radius and strength are shared by DeHalo_alpha and FineDehalo only.
+            if dehalo.method.uses_halo_radius() {
                 script = process_optional_double("DEHALO_RX", Some(dehalo.rx), script);
                 script = process_optional_double("DEHALO_RY", Some(dehalo.ry), script);
                 script = process_optional_double("DEHALO_DARKSTR", Some(dehalo.dark_str), script);
