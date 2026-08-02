@@ -18,8 +18,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
+import 'package:vapourbox/models/chroma_denoise_parameters.dart';
+import 'package:vapourbox/models/dehalo_parameters.dart';
 import 'package:vapourbox/models/descratch_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
+import 'package:vapourbox/models/noise_reduction_parameters.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/spotless_parameters.dart';
@@ -261,6 +264,208 @@ void main() {
       expect(blendHash, noneHash,
           reason: 'ChromaEdi="Blend" must be dropped, producing the default pipeline');
       print('  frame hash matches: $blendHash');
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  });
+
+  // Issue #50: the dehalo pass gained four havsfunc methods (FineDehalo2,
+  // EdgeCleaner, Vinverse, Vinverse2). Script generation is asserted in the
+  // Rust suite; what matters here is that each one actually loads its plugins
+  // and produces frames — EdgeCleaner needs aWarpSharp2 + RemoveGrain, and the
+  // Vinverse variants are pure std but easy to get wrong on chroma.
+  group('dehalo methods (full encode)', () {
+    Future<void> runMethod(DehaloMethod method, DehaloParameters params) async {
+      final label = 'dehalo_${method.value.toLowerCase()}';
+      final job = _baseJob(
+        label,
+        pipeline: ProcessingPipeline(
+          deinterlace: const QTGMCParameters(
+              preset: QTGMCPreset.fast, tff: true, fpsDivisor: 2),
+          dehalo: params,
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: label);
+      await _expectValidVideo(result);
+    }
+
+    test('FineDehalo2 runs end-to-end', () async {
+      await runMethod(DehaloMethod.fineDehalo2,
+          const DehaloParameters(enabled: true, method: DehaloMethod.fineDehalo2));
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('EdgeCleaner runs end-to-end', () async {
+      await runMethod(
+          DehaloMethod.edgeCleaner,
+          const DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.edgeCleaner,
+            edgeStrength: 15,
+            edgeSmallMode: 1,
+          ));
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('Vinverse runs end-to-end, with and without chroma', () async {
+      await runMethod(
+          DehaloMethod.vinverse,
+          const DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.vinverse,
+            vinverseStrength: 3.0,
+            vinverseAmount: 200,
+            vinverseChroma: false,
+          ));
+      await runMethod(
+          DehaloMethod.vinverse2,
+          const DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.vinverse2,
+            vinverseChroma: true,
+          ));
+    }, timeout: const Timeout(Duration(minutes: 8)));
+
+    test('DeHalo_alpha and FineDehalo advanced parameters run end-to-end', () async {
+      await runMethod(
+          DehaloMethod.dehaloAlpha,
+          const DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.dehaloAlpha,
+            darkStr: 1.4,
+            lowSens: 35,
+            highSens: 65,
+            superSample: 2.0,
+          ));
+      await runMethod(
+          DehaloMethod.fineDehalo,
+          const DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.fineDehalo,
+            limitLow: 60,
+            limitHigh: 120,
+            contra: 1.2,
+            excludeCloseEdges: false,
+            edgeProc: 0.5,
+          ));
+    }, timeout: const Timeout(Duration(minutes: 8)));
+  });
+
+  // Issue #50: CCD (chroma denoise) via the zsmooth plugin. This is the first
+  // pass to depend on that plugin, so the encode is also the check that the
+  // binary is present and loads in the bundled VapourSynth.
+  group('chroma denoise / CCD (full encode)', () {
+    test('CCD runs end-to-end, spatially and temporally', () async {
+      final spatial = _baseJob(
+        'ccd_spatial',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(preset: QTGMCPreset.fast, tff: true, fpsDivisor: 2),
+          chromaDenoise: ChromaDenoiseParameters(enabled: true, threshold: 10),
+        ),
+      );
+      await _expectValidVideo(
+          await WorkerHarness.runJob(spatial.toJson(), label: 'ccd_spatial'));
+
+      final temporal = _baseJob(
+        'ccd_temporal',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(preset: QTGMCPreset.fast, tff: true, fpsDivisor: 2),
+          chromaDenoise: ChromaDenoiseParameters(
+            enabled: true,
+            threshold: 8,
+            temporalRadius: 2,
+            pointsHigh: true,
+          ),
+        ),
+      );
+      await _expectValidVideo(
+          await WorkerHarness.runJob(temporal.toJson(), label: 'ccd_temporal'));
+    }, timeout: const Timeout(Duration(minutes: 10)));
+
+    // CCD only touches chroma, so luma must come out bit-identical while chroma
+    // moves. This is also what distinguishes "the filter ran" from "the filter
+    // was silently skipped".
+    test('CCD changes chroma and leaves luma alone', () async {
+      Future<({double y, double u, double v})> run(
+          String label, ChromaDenoiseParameters params) async {
+        final job = VideoJob(
+          id: const Uuid().v4(),
+          inputPath: WorkerHarness.inputFile,
+          outputPath: '$_outDir/$label.mkv',
+          processingPipeline: ProcessingPipeline(
+            deinterlace: const QTGMCParameters(enabled: false),
+            chromaDenoise: params,
+          ),
+          encodingSettings: const EncodingSettings(
+            // Lossless, so the measurement reflects the filter not the encoder.
+            codec: VideoCodec.ffv1,
+            container: ContainerFormat.mkv,
+            audioMode: AudioMode.none,
+          ),
+          inputWidth: 720,
+          inputHeight: 576,
+          inputFrameRate: 25.0,
+          startFrame: 0,
+          endFrame: 4,
+        );
+        final result = await WorkerHarness.runJob(job.toJson(), label: label);
+        await _expectValidVideo(result);
+        final avg = await WorkerHarness.frameAverages(result.outputPath!);
+        print('  $label: Y=${avg.y.toStringAsFixed(3)} '
+            'U=${avg.u.toStringAsFixed(3)} V=${avg.v.toStringAsFixed(3)}');
+        return avg;
+      }
+
+      final off = await run('ccd_off', const ChromaDenoiseParameters());
+      // A high threshold guarantees a measurable change on any source.
+      final on = await run('ccd_on',
+          const ChromaDenoiseParameters(enabled: true, threshold: 40));
+
+      expect(on.y, closeTo(off.y, 0.001), reason: 'CCD must not touch luma');
+      final chromaMoved = (on.u - off.u).abs() > 0.01 || (on.v - off.v).abs() > 0.01;
+      expect(chromaMoved, isTrue,
+          reason: 'CCD should have changed chroma; it may not have run at all');
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  });
+
+  // Issue #50: MCDegrainSharp as a noise-reduction method. It composes mvtools
+  // Super/Analyse/Degrain with two tcanny reference clips by hand, so the encode
+  // is the only thing that proves the graph actually builds and runs.
+  group('MCDegrainSharp (full encode)', () {
+    for (final frames in [1, 2, 3]) {
+      test('runs end-to-end with $frames frame(s)', () async {
+        final job = _baseJob(
+          'mcdegrainsharp_$frames',
+          pipeline: ProcessingPipeline(
+            deinterlace: const QTGMCParameters(
+                preset: QTGMCPreset.fast, tff: true, fpsDivisor: 2),
+            noiseReduction: NoiseReductionParameters(
+              enabled: true,
+              method: NoiseReductionMethod.mcDegrainSharp,
+              mcdsFrames: frames,
+              mcdsThSad: 450,
+            ),
+          ),
+        );
+        await _expectValidVideo(await WorkerHarness.runJob(job.toJson(),
+            label: 'mcdegrainsharp_$frames'));
+      }, timeout: const Timeout(Duration(minutes: 8)));
+    }
+
+    test('runs end-to-end on luma only and on chroma only', () async {
+      for (final plane in [0, 3]) {
+        final job = _baseJob(
+          'mcdegrainsharp_plane_$plane',
+          pipeline: ProcessingPipeline(
+            deinterlace: const QTGMCParameters(
+                preset: QTGMCPreset.fast, tff: true, fpsDivisor: 2),
+            noiseReduction: NoiseReductionParameters(
+              enabled: true,
+              method: NoiseReductionMethod.mcDegrainSharp,
+              mcdsPlane: plane,
+              mcdsBlurSearch: plane != 0,
+            ),
+          ),
+        );
+        await _expectValidVideo(await WorkerHarness.runJob(job.toJson(),
+            label: 'mcdegrainsharp_plane_$plane'));
+      }
     }, timeout: const Timeout(Duration(minutes: 10)));
   });
 }

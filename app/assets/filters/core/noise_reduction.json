@@ -1,33 +1,61 @@
 {
   "$schema": "https://vapourbox.app/schemas/filter-v1.json",
   "id": "noise_reduction",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Noise Reduction",
   "description": "Remove video noise and grain",
-  "longDescription": "Reduces grain, analog noise and colour speckle while trying to keep real detail. Temporal denoisers average across neighbouring frames and are best for steady grain; spatial ones smooth within a single frame and cope better with motion.\n\nUse it on VHS, Hi8 and other noisy captures, and before sharpening or encoding — clean footage compresses far better at the same bitrate. Too much strength smears motion and flattens texture into plastic.",
+  "longDescription": "Reduces grain, analog noise and colour speckle while trying to keep real detail. Temporal denoisers average across neighbouring frames and are best for steady grain; spatial ones smooth within a single frame and cope better with motion.\n\nUse it on VHS, Hi8 and other noisy captures, and before sharpening or encoding \u2014 clean footage compresses far better at the same bitrate. Too much strength smears motion and flattens texture into plastic.",
   "category": "cleanup",
   "icon": "grain",
   "order": 2,
-
   "dependencies": {
-    "plugins": ["havsfunc", "mvsfunc"],
-    "vs_plugins": ["libmvtools.dll", "DFTTest.dll"]
+    "plugins": [
+      "havsfunc",
+      "mvsfunc"
+    ],
+    "vs_plugins": [
+      "libmvtools.dll",
+      "DFTTest.dll"
+    ]
   },
-
   "methods": [
     {
       "id": "smdegrain",
       "name": "SMDegrain",
       "description": "Motion-compensated denoising - excellent quality",
       "function": "haf.SMDegrain",
-      "parameters": ["smDegrainTr", "smDegrainThSAD", "smDegrainThSADC", "smDegrainRefine", "smDegrainPrefilter"]
+      "parameters": [
+        "smDegrainTr",
+        "smDegrainThSAD",
+        "smDegrainThSADC",
+        "smDegrainRefine",
+        "smDegrainPrefilter"
+      ]
     },
     {
       "id": "mc_temporal_denoise",
       "name": "MCTemporalDenoise",
       "description": "Advanced temporal denoising - best for heavy noise",
       "function": "haf.MCTemporalDenoise",
-      "parameters": ["mcTemporalProfile", "mcTemporalSigma", "mcTemporalRadius"]
+      "parameters": [
+        "mcTemporalProfile",
+        "mcTemporalSigma",
+        "mcTemporalRadius"
+      ]
+    },
+    {
+      "id": "mcdegrainsharp",
+      "name": "MCDegrainSharp",
+      "description": "Did\u00e9e's motion-compensated degrain: sharpens where the motion match is good, blurs where it is poor. Also written MDegrainSharpen",
+      "function": "core.mv.Degrain",
+      "parameters": [
+        "mcdsFrames",
+        "mcdsThSad",
+        "mcdsBlur",
+        "mcdsSharp",
+        "mcdsBlurSearch",
+        "mcdsPlane"
+      ]
     },
     {
       "id": "qtgmc_builtin",
@@ -37,18 +65,26 @@
       "parameters": []
     }
   ],
-
   "parameters": {
     "enabled": {
       "type": "boolean",
       "default": false,
-      "ui": { "hidden": true }
+      "ui": {
+        "hidden": true
+      }
     },
     "method": {
       "type": "enum",
       "default": "smdegrain",
-      "options": ["smdegrain", "mc_temporal_denoise", "qtgmc_builtin"],
-      "ui": { "hidden": true }
+      "options": [
+        "smdegrain",
+        "mc_temporal_denoise",
+        "mcdegrainsharp",
+        "qtgmc_builtin"
+      ],
+      "ui": {
+        "hidden": true
+      }
     },
     "smDegrainTr": {
       "type": "integer",
@@ -57,12 +93,18 @@
       "max": 3,
       "step": 1,
       "optional": true,
-      "vapoursynth": { "name": "tr" },
+      "vapoursynth": {
+        "name": "tr"
+      },
       "ui": {
         "label": "Temporal Radius",
         "description": "Number of frames to use for denoising (2 recommended for VHS)",
         "widget": "slider",
-        "visibleWhen": { "method": ["smdegrain"] }
+        "visibleWhen": {
+          "method": [
+            "smdegrain"
+          ]
+        }
       }
     },
     "smDegrainThSAD": {
@@ -72,12 +114,18 @@
       "max": 1000,
       "step": 25,
       "optional": true,
-      "vapoursynth": { "name": "thSAD" },
+      "vapoursynth": {
+        "name": "thSAD"
+      },
       "ui": {
         "label": "Luma Threshold",
         "description": "SAD threshold for luma denoising (250-400 for VHS)",
         "widget": "slider",
-        "visibleWhen": { "method": ["smdegrain"] }
+        "visibleWhen": {
+          "method": [
+            "smdegrain"
+          ]
+        }
       }
     },
     "smDegrainThSADC": {
@@ -87,23 +135,35 @@
       "max": 500,
       "step": 25,
       "optional": true,
-      "vapoursynth": { "name": "thSADC" },
+      "vapoursynth": {
+        "name": "thSADC"
+      },
       "ui": {
         "label": "Chroma Threshold",
         "description": "SAD threshold for chroma denoising",
         "widget": "slider",
-        "visibleWhen": { "method": ["smdegrain"] }
+        "visibleWhen": {
+          "method": [
+            "smdegrain"
+          ]
+        }
       }
     },
     "smDegrainRefine": {
       "type": "boolean",
       "default": true,
       "optional": true,
-      "vapoursynth": { "name": "RefineMotion" },
+      "vapoursynth": {
+        "name": "RefineMotion"
+      },
       "ui": {
         "label": "Refine Motion",
         "description": "Refine motion vectors for better quality",
-        "visibleWhen": { "method": ["smdegrain"] }
+        "visibleWhen": {
+          "method": [
+            "smdegrain"
+          ]
+        }
       }
     },
     "smDegrainPrefilter": {
@@ -113,25 +173,43 @@
       "max": 3,
       "step": 1,
       "optional": true,
-      "vapoursynth": { "name": "prefilter" },
+      "vapoursynth": {
+        "name": "prefilter"
+      },
       "ui": {
         "label": "Prefilter",
         "description": "Prefilter strength for motion estimation",
         "widget": "slider",
-        "visibleWhen": { "method": ["smdegrain"] }
+        "visibleWhen": {
+          "method": [
+            "smdegrain"
+          ]
+        }
       }
     },
     "mcTemporalProfile": {
       "type": "enum",
       "default": "medium",
-      "options": ["very high", "high", "medium", "low", "very low"],
+      "options": [
+        "very high",
+        "high",
+        "medium",
+        "low",
+        "very low"
+      ],
       "optional": true,
-      "vapoursynth": { "name": "settings" },
+      "vapoursynth": {
+        "name": "settings"
+      },
       "ui": {
         "label": "Settings",
         "description": "Quality preset",
         "widget": "dropdown",
-        "visibleWhen": { "method": ["mc_temporal_denoise"] }
+        "visibleWhen": {
+          "method": [
+            "mc_temporal_denoise"
+          ]
+        }
       }
     },
     "mcTemporalSigma": {
@@ -141,13 +219,19 @@
       "max": 20.0,
       "step": 0.5,
       "optional": true,
-      "vapoursynth": { "name": "sigma" },
+      "vapoursynth": {
+        "name": "sigma"
+      },
       "ui": {
         "label": "Sigma",
         "description": "Noise sigma estimate",
         "widget": "slider",
         "precision": 1,
-        "visibleWhen": { "method": ["mc_temporal_denoise"] }
+        "visibleWhen": {
+          "method": [
+            "mc_temporal_denoise"
+          ]
+        }
       }
     },
     "mcTemporalRadius": {
@@ -157,12 +241,18 @@
       "max": 4,
       "step": 1,
       "optional": true,
-      "vapoursynth": { "name": "radius" },
+      "vapoursynth": {
+        "name": "radius"
+      },
       "ui": {
         "label": "Temporal Radius",
         "description": "Number of frames to use for temporal denoising",
         "widget": "slider",
-        "visibleWhen": { "method": ["mc_temporal_denoise"] }
+        "visibleWhen": {
+          "method": [
+            "mc_temporal_denoise"
+          ]
+        }
       }
     },
     "qtgmcEzDenoise": {
@@ -172,13 +262,19 @@
       "max": 5.0,
       "step": 0.1,
       "optional": true,
-      "vapoursynth": { "name": "EZDenoise" },
+      "vapoursynth": {
+        "name": "EZDenoise"
+      },
       "ui": {
         "label": "EZ Denoise",
         "description": "QTGMC easy denoise strength (0 = off, 2-4 for VHS)",
         "widget": "slider",
         "precision": 1,
-        "visibleWhen": { "method": ["qtgmc_builtin"] }
+        "visibleWhen": {
+          "method": [
+            "qtgmc_builtin"
+          ]
+        }
       }
     },
     "qtgmcEzKeepGrain": {
@@ -188,39 +284,199 @@
       "max": 1.0,
       "step": 0.1,
       "optional": true,
-      "vapoursynth": { "name": "EZKeepGrain" },
+      "vapoursynth": {
+        "name": "EZKeepGrain"
+      },
       "ui": {
         "label": "EZ Keep Grain",
         "description": "Amount of grain to preserve (0 = remove all)",
         "widget": "slider",
         "precision": 1,
-        "visibleWhen": { "method": ["qtgmc_builtin"] }
+        "visibleWhen": {
+          "method": [
+            "qtgmc_builtin"
+          ]
+        }
+      }
+    },
+    "mcdsFrames": {
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 3,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": {
+        "name": "frames"
+      },
+      "ui": {
+        "label": "Frames",
+        "description": "Neighbouring frames on each side to average with. More removes more noise and risks more ghosting",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "mcdegrainsharp"
+          ]
+        }
+      }
+    },
+    "mcdsThSad": {
+      "type": "integer",
+      "default": 400,
+      "min": 50,
+      "max": 1200,
+      "step": 50,
+      "optional": true,
+      "vapoursynth": {
+        "name": "thsad"
+      },
+      "ui": {
+        "label": "SAD Threshold",
+        "description": "How different a block may be and still be averaged in. Too low leaves patchy denoising, too high brings ghosting",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "mcdegrainsharp"
+          ]
+        }
+      }
+    },
+    "mcdsBlur": {
+      "type": "number",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.58,
+      "step": 0.05,
+      "optional": true,
+      "vapoursynth": {
+        "name": "bblur"
+      },
+      "ui": {
+        "label": "Blur (bad matches)",
+        "description": "How much to soften areas where motion matching failed. This is what stops a bad match smearing wrong pixels into the frame",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": {
+          "method": [
+            "mcdegrainsharp"
+          ]
+        }
+      }
+    },
+    "mcdsSharp": {
+      "type": "number",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "optional": true,
+      "vapoursynth": {
+        "name": "csharp"
+      },
+      "ui": {
+        "label": "Sharpen (good matches)",
+        "description": "How much to sharpen areas where motion matching succeeded",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": {
+          "method": [
+            "mcdegrainsharp"
+          ]
+        }
+      }
+    },
+    "mcdsBlurSearch": {
+      "type": "boolean",
+      "default": true,
+      "optional": true,
+      "vapoursynth": {
+        "name": "bsrch"
+      },
+      "ui": {
+        "label": "Search on Blurred Clip",
+        "description": "Run the motion search on the blurred copy. Finds steadier vectors on a noisy source; turn off if fine motion is being missed",
+        "visibleWhen": {
+          "method": [
+            "mcdegrainsharp"
+          ]
+        }
+      }
+    },
+    "mcdsPlane": {
+      "type": "enum",
+      "default": "4",
+      "options": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "optional": true,
+      "vapoursynth": {
+        "name": "plane"
+      },
+      "ui": {
+        "label": "Planes",
+        "description": "0 luma only, 1 U, 2 V, 3 both chroma planes, 4 everything",
+        "widget": "dropdown",
+        "visibleWhen": {
+          "method": [
+            "mcdegrainsharp"
+          ]
+        }
       }
     }
   },
-
   "ui": {
     "sections": [
       {
         "title": "SMDegrain Settings",
-        "parameters": ["smDegrainTr", "smDegrainThSAD", "smDegrainThSADC", "smDegrainRefine", "smDegrainPrefilter"],
+        "parameters": [
+          "smDegrainTr",
+          "smDegrainThSAD",
+          "smDegrainThSADC",
+          "smDegrainRefine",
+          "smDegrainPrefilter"
+        ],
         "expanded": true
       },
       {
         "title": "MCTemporalDenoise Settings",
-        "parameters": ["mcTemporalProfile", "mcTemporalSigma", "mcTemporalRadius"],
+        "parameters": [
+          "mcTemporalProfile",
+          "mcTemporalSigma",
+          "mcTemporalRadius"
+        ],
         "expanded": true
       },
       {
         "title": "QTGMC Built-in Settings",
-        "parameters": ["qtgmcEzDenoise", "qtgmcEzKeepGrain"],
+        "parameters": [
+          "qtgmcEzDenoise",
+          "qtgmcEzKeepGrain"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "MCDegrainSharp",
+        "parameters": [
+          "mcdsFrames",
+          "mcdsThSad",
+          "mcdsBlur",
+          "mcdsSharp",
+          "mcdsBlurSearch",
+          "mcdsPlane"
+        ],
         "expanded": true
       }
     ]
   },
-
   "codeTemplate": {
-    "imports": ["import havsfunc as haf", "import mvsfunc as mvf"],
+    "imports": [
+      "import havsfunc as haf",
+      "import mvsfunc as mvf"
+    ],
     "generate": "method"
   }
 }

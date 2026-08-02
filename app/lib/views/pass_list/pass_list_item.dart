@@ -170,6 +170,8 @@ class PassListItem extends StatelessWidget {
         return Icons.auto_fix_high;
       case PassType.noiseReduction:
         return Icons.grain;
+      case PassType.chromaDenoise:
+        return Icons.palette;
       case PassType.dehalo:
         return Icons.flare;
       case PassType.deblock:

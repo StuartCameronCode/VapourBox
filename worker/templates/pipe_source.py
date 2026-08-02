@@ -23,40 +23,53 @@ if sys.platform == 'win32':
     import msvcrt
     msvcrt.setmode(sys.stdin.fileno(), os.O_BINARY)
 
-# Map FFmpeg pixel format names to VapourSynth format IDs and bytes-per-sample
+# FFmpeg pixel format name -> VapourSynth format. Only formats readable
+# *directly* off the pipe belong here; anything else is converted by the decoder
+# ffmpeg to the nearest format in this map (see `pixel_format.rs`, which is the
+# single producer of the name passed to create_pipe_clip and must stay in sync
+# with these keys — `test_native_formats_match_pipe_source` asserts that).
+#
+# Plane geometry and bytes-per-sample are derived from the VapourSynth format
+# itself rather than duplicated here, so adding a format is a one-line change.
 _FORMAT_MAP = {
-    'yuv420p':     (vs.YUV420P8,  1),
-    'yuv422p':     (vs.YUV422P8,  1),
-    'yuv444p':     (vs.YUV444P8,  1),
-    'yuv420p10le': (vs.YUV420P10, 2),
-    'yuv422p10le': (vs.YUV422P10, 2),
-    'yuv444p10le': (vs.YUV444P10, 2),
-    'yuv420p16le': (vs.YUV420P16, 2),
-    'yuv422p16le': (vs.YUV422P16, 2),
-    'yuv444p16le': (vs.YUV444P16, 2),
+    'yuv411p':     vs.YUV411P8,   # NTSC DV / DVCPRO
+    'yuv420p':     vs.YUV420P8,
+    'yuv422p':     vs.YUV422P8,
+    'yuv444p':     vs.YUV444P8,
+    'yuv420p9le':  vs.YUV420P9,
+    'yuv422p9le':  vs.YUV422P9,
+    'yuv444p9le':  vs.YUV444P9,
+    'yuv420p10le': vs.YUV420P10,
+    'yuv422p10le': vs.YUV422P10,
+    'yuv444p10le': vs.YUV444P10,
+    'yuv420p12le': vs.YUV420P12,
+    'yuv422p12le': vs.YUV422P12,
+    'yuv444p12le': vs.YUV444P12,
+    'yuv420p14le': vs.YUV420P14,
+    'yuv422p14le': vs.YUV422P14,
+    'yuv444p14le': vs.YUV444P14,
+    'yuv420p16le': vs.YUV420P16,
+    'yuv422p16le': vs.YUV422P16,
+    'yuv444p16le': vs.YUV444P16,
     # Common aliases
-    'yuvj420p':    (vs.YUV420P8,  1),  # MJPEG full-range
-    'yuvj422p':    (vs.YUV422P8,  1),
-    'yuvj444p':    (vs.YUV444P8,  1),
-}
-
-# Subsampling factors: (horiz, vert) for chroma planes
-_SUBSAMPLE = {
-    vs.YUV420P8:  (2, 2), vs.YUV420P10: (2, 2), vs.YUV420P16: (2, 2),
-    vs.YUV422P8:  (2, 1), vs.YUV422P10: (2, 1), vs.YUV422P16: (2, 1),
-    vs.YUV444P8:  (1, 1), vs.YUV444P10: (1, 1), vs.YUV444P16: (1, 1),
+    'yuvj420p':    vs.YUV420P8,   # MJPEG full-range
+    'yuvj422p':    vs.YUV422P8,
+    'yuvj444p':    vs.YUV444P8,
 }
 
 
 class _PipeReader:
     """Reads raw video frames from stdin with a small cache for temporal filters."""
 
-    def __init__(self, width, height, vs_format, bps):
+    def __init__(self, width, height, vs_format):
         self.width = width
         self.height = height
-        self.bps = bps  # bytes per sample (1 for 8-bit, 2 for 10/16-bit)
 
-        ss_h, ss_v = _SUBSAMPLE[vs_format]
+        fmt = core.get_video_format(vs_format)
+        bps = fmt.bytes_per_sample  # 1 for 8-bit, 2 for 9..16-bit
+        self.bps = bps
+        ss_h = 1 << fmt.subsampling_w
+        ss_v = 1 << fmt.subsampling_h
         self.plane_sizes = [
             width * height * bps,                            # Y
             (width // ss_h) * (height // ss_v) * bps,       # U
@@ -171,8 +184,8 @@ def create_pipe_clip(width, height, num_frames, fps_num, fps_den, pix_fmt):
         raise ValueError(f"Unsupported pixel format: {pix_fmt}. "
                          f"Supported: {', '.join(_FORMAT_MAP.keys())}")
 
-    vs_format, bps = _FORMAT_MAP[pix_fmt]
-    reader = _PipeReader(width, height, vs_format, bps)
+    vs_format = _FORMAT_MAP[pix_fmt]
+    reader = _PipeReader(width, height, vs_format)
 
     blank = core.std.BlankClip(
         width=width, height=height,

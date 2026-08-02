@@ -581,6 +581,7 @@ fn test_20_combined_all_filters() {
             sm_degrain_prefilter: 2,
             ..NoiseReductionParameters::default()
         },
+        chroma_denoise: ChromaDenoiseParameters::default(),
         dehalo: DehaloParameters::default(),
         deblock: DeblockParameters::default(),
         deband: DebandParameters::default(),
@@ -2257,4 +2258,743 @@ fn test_62_field_based_follows_deinterlace_tff() {
     let script = render(true, Some(FieldOrder::BottomFieldFirst));
     assert!(script.contains("core.std.SetFieldBased(clip, 2)"), "expected TFF marking");
     assert!(script.contains("TFF=True"), "expected TFF=True");
+}
+
+#[test]
+fn test_63_source_pixel_format_411_reaches_the_script() {
+    // Issue #50: NTSC DV is 4:1:1. The app passes ffprobe's pix_fmt through
+    // verbatim, and pipe_source used to reject anything outside a 12-entry map,
+    // so every DV import failed with "Unsupported pixel format: yuv411p".
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_63_pixel_format_411");
+    job.input_pixel_format = Some("yuv411p".to_string());
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+
+    assert!(
+        script.contains(r#"pix_fmt="yuv411p""#),
+        "4:1:1 is readable off the pipe, so it should be used as-is"
+    );
+}
+
+#[test]
+fn test_64_unreadable_source_pixel_format_is_converted() {
+    // Formats pipe_source can't read must be converted by the decoder instead
+    // of failing the job, and to a format that holds the source without loss.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let render = |pix_fmt: &str| {
+        let mut job = create_base_job("test_64_pixel_format_convert");
+        job.input_pixel_format = Some(pix_fmt.to_string());
+        std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap()
+    };
+
+    // ProRes 4444: alpha is dropped, 4:4:4 and 10-bit are kept.
+    assert!(render("yuva444p10le").contains(r#"pix_fmt="yuv444p10le""#));
+    // RGB has no subsampling, so 4:4:4 is the only non-degrading choice.
+    assert!(render("rgb24").contains(r#"pix_fmt="yuv444p""#));
+    // Hardware-decoder semi-planar output.
+    assert!(render("p010le").contains(r#"pix_fmt="yuv420p10le""#));
+}
+
+#[test]
+fn test_65_dehalo_alpha_advanced_parameters() {
+    // Issue #50: DeHalo_alpha's sensitivity and supersampling arguments were
+    // never exposed, so the pass could only be tuned by radius and strength.
+    create_output_dir();
+
+    let mut job = create_base_job("test_65_dehalo_alpha_advanced");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        dehalo: DehaloParameters {
+            enabled: true,
+            method: DehaloMethod::DehaloAlpha,
+            dark_str: 1.4, // above 1.0 — the old schema capped this at 1.0
+            low_sens: Some(35),
+            high_sens: Some(65),
+            super_sample: Some(2.0),
+            ..DehaloParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "DeHalo_alpha advanced", &[
+        "haf.DeHalo_alpha",
+        "darkstr=1.4",
+        "lowsens=35",
+        "highsens=65",
+        "ss=2",
+    ]).unwrap();
+}
+
+#[test]
+fn test_66_fine_dehalo_advanced_parameters() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_66_fine_dehalo_advanced");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        dehalo: DehaloParameters {
+            enabled: true,
+            method: DehaloMethod::FineDehalo,
+            limit_low: Some(60),
+            limit_high: Some(120),
+            contra: Some(1.2),
+            exclude_close_edges: Some(false),
+            edge_proc: Some(0.5),
+            ..DehaloParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "FineDehalo advanced", &[
+        "haf.FineDehalo",
+        "thlimi=60",
+        "thlima=120",
+        "contra=1.2",
+        "excl=False",
+        "edgeproc=0.5",
+    ]).unwrap();
+}
+
+#[test]
+fn test_67_dehalo_ghost_and_edge_methods() {
+    // The "ghost" half of the request: Vinverse removes the comb residue a
+    // deinterlacer leaves behind, and each new method must emit its own
+    // havsfunc call with nothing left over from the others.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let render = |dehalo: DehaloParameters| {
+        let mut job = create_base_job("test_67_dehalo_methods");
+        job.processing_pipeline = Some(ProcessingPipeline {
+            dehalo,
+            ..ProcessingPipeline::default()
+        });
+        std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap()
+    };
+
+    let script = render(DehaloParameters {
+        enabled: true,
+        method: DehaloMethod::Vinverse,
+        vinverse_strength: Some(3.5),
+        vinverse_amount: Some(200),
+        vinverse_chroma: Some(false),
+        ..DehaloParameters::default()
+    });
+    assert!(script.contains("haf.Vinverse("), "expected a Vinverse call");
+    assert!(script.contains("sstr=3.5"));
+    assert!(script.contains("amnt=200"));
+    assert!(script.contains("chroma=False"));
+    assert!(!script.contains("haf.DeHalo_alpha"), "other methods must be removed");
+
+    // Vinverse2 shares the block; only the function name changes.
+    let script = render(DehaloParameters {
+        enabled: true,
+        method: DehaloMethod::Vinverse2,
+        ..DehaloParameters::default()
+    });
+    assert!(script.contains("haf.Vinverse2("), "expected a Vinverse2 call");
+
+    let script = render(DehaloParameters {
+        enabled: true,
+        method: DehaloMethod::EdgeCleaner,
+        edge_strength: Some(20),
+        edge_repair: Some(true),
+        edge_repair_mode: Some(1),
+        edge_small_mode: Some(1),
+        edge_hot_pixels: Some(true),
+        ..DehaloParameters::default()
+    });
+    assert!(script.contains("haf.EdgeCleaner("));
+    assert!(script.contains("strength=20"));
+    assert!(script.contains("rep=True"));
+    assert!(script.contains("rmode=1"));
+    assert!(script.contains("smode=1"));
+    assert!(script.contains("hot=True"));
+
+    // FineDehalo2 takes no parameters, so it must not carry an argument list.
+    let script = render(DehaloParameters {
+        enabled: true,
+        method: DehaloMethod::FineDehalo2,
+        ..DehaloParameters::default()
+    });
+    assert!(script.contains("haf.FineDehalo2(clip)"));
+    assert!(!script.contains("haf.FineDehalo("), "FineDehalo2 is not FineDehalo");
+}
+
+#[test]
+fn test_68_dehalo_unset_optionals_are_omitted() {
+    // An unset optional must not reach the script at all: havsfunc's own default
+    // is the documented behaviour, and emitting our idea of it would silently
+    // pin the value if upstream ever changed.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_68_dehalo_defaults");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        dehalo: DehaloParameters {
+            enabled: true,
+            method: DehaloMethod::DehaloAlpha,
+            ..DehaloParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+
+    assert!(script.contains("haf.DeHalo_alpha"));
+    for absent in ["lowsens=", "highsens=", "ss="] {
+        assert!(!script.contains(absent), "unset optional {} leaked into the script", absent);
+    }
+    // The pre-existing always-passed arguments are unchanged.
+    assert!(script.contains("rx=2"));
+    assert!(script.contains("darkstr=1"));
+}
+
+#[test]
+fn test_69_upscale_eedi3_actually_uses_eedi3() {
+    // Issue #50: the UI offered an EEDI3 upscale, but the template block was a
+    // "fall back to spline36 for now" placeholder — picking EEDI3 silently gave
+    // you Spline36. It must now emit a real eedi3m.EEDI3 call, guided by an
+    // nnedi3 sclip.
+    create_output_dir();
+
+    let mut job = create_base_job("test_69_upscale_eedi3");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        crop_resize: CropResizeParameters {
+            enabled: true,
+            use_integer_upscale: true,
+            upscale_method: UpscaleMethod::Eedi3Rpow2,
+            upscale_factor: 2,
+            upscale_alpha: Some(0.4),
+            upscale_beta: Some(0.3),
+            upscale_gamma: Some(40.0),
+            upscale_nrad: Some(3),
+            upscale_mdis: Some(30),
+            ..CropResizeParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "EEDI3 upscale", &[
+        "core.eedi3m.EEDI3",
+        "sclip=sclip",
+        "alpha=0.4",
+        "beta=0.3",
+        "gamma=40",
+        "nrad=3",
+        "mdis=30",
+    ]).unwrap();
+}
+
+#[test]
+fn test_70_upscale_nnedi3_granular_parameters() {
+    create_output_dir();
+
+    let mut job = create_base_job("test_70_upscale_nnedi3");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        crop_resize: CropResizeParameters {
+            enabled: true,
+            use_integer_upscale: true,
+            upscale_method: UpscaleMethod::Nnedi3Rpow2,
+            upscale_factor: 4,
+            upscale_nsize: Some(4),
+            upscale_neurons: Some(4),
+            upscale_qual: Some(2),
+            upscale_etype: Some(1),
+            upscale_pscrn: Some(0),
+            ..CropResizeParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "NNEDI3 upscale granular", &[
+        "core.znedi3.nnedi3",
+        "nsize=4",
+        "nns=4",
+        "qual=2",
+        "etype=1",
+        "pscrn=0",
+        // 4x is two doublings of the 2x step.
+        "range(max(4 // 2, 1))",
+    ]).unwrap();
+}
+
+#[test]
+fn test_71_upscale_corrects_the_dh_half_pixel_shift() {
+    // nnedi3/EEDI3 dh=True leave the result half an output pixel up and left.
+    // The correction must be per-plane: src_top is in luma pixels, so one
+    // whole-clip shift under-corrects subsampled chroma by a quarter row.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_71_upscale_shift");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        crop_resize: CropResizeParameters {
+            enabled: true,
+            use_integer_upscale: true,
+            upscale_method: UpscaleMethod::Nnedi3Rpow2,
+            ..CropResizeParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+
+    assert!(script.contains("_upscale_fix_shift"), "shift correction should be present");
+    assert!(
+        script.contains("core.std.ShufflePlanes(c, i, vs.GRAY)"),
+        "the correction must run per plane, not on the whole clip"
+    );
+    assert!(
+        script.contains("_upscale_shift = _upscale_shift * 2 + 0.5"),
+        "each doubling adds 0.5 and doubles the inherited offset"
+    );
+
+    // Spline36 "upscale" is plain resampling: no doubling loop, no shift.
+    job.processing_pipeline.as_mut().unwrap().crop_resize.upscale_method = UpscaleMethod::Spline36;
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    assert!(!script.contains("_upscale_fix_shift"));
+    assert!(script.contains("core.resize.Spline36(clip, width=clip.width * 2"));
+}
+
+#[test]
+fn test_72_resize_kernel_and_kernel_tuning() {
+    // The kernel list grew to seven, and filter_param_a/b mean different things
+    // per kernel — Bicubic reads them as b and c, Lanczos reads a as the tap
+    // count, and the rest read neither.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let render = |crop_resize: CropResizeParameters| {
+        let mut job = create_base_job("test_72_resize_kernels");
+        job.processing_pipeline = Some(ProcessingPipeline {
+            crop_resize,
+            ..ProcessingPipeline::default()
+        });
+        std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap()
+    };
+
+    let base = CropResizeParameters {
+        enabled: true,
+        resize_enabled: true,
+        target_width: Some(1280),
+        target_height: Some(720),
+        ..CropResizeParameters::default()
+    };
+
+    for (kernel, expected) in [
+        (ResizeKernel::Point, "core.resize.Point("),
+        (ResizeKernel::Bilinear, "core.resize.Bilinear("),
+        (ResizeKernel::Spline16, "core.resize.Spline16("),
+        (ResizeKernel::Spline36, "core.resize.Spline36("),
+        (ResizeKernel::Spline64, "core.resize.Spline64("),
+        (ResizeKernel::Lanczos, "core.resize.Lanczos("),
+        (ResizeKernel::Bicubic, "core.resize.Bicubic("),
+    ] {
+        let script = render(CropResizeParameters { kernel, ..base.clone() });
+        assert!(script.contains(expected), "kernel {:?} should emit {}", kernel, expected);
+    }
+
+    // Bicubic b/c.
+    let script = render(CropResizeParameters {
+        kernel: ResizeKernel::Bicubic,
+        bicubic_b: Some(0.33),
+        bicubic_c: Some(0.33),
+        lanczos_taps: Some(8), // set but irrelevant for this kernel
+        ..base.clone()
+    });
+    assert!(script.contains("filter_param_a=0.33"));
+    assert!(script.contains("filter_param_b=0.33"));
+
+    // Lanczos taps land in filter_param_a, and Bicubic's c must not leak into
+    // filter_param_b, where Lanczos would ignore it at best.
+    let script = render(CropResizeParameters {
+        kernel: ResizeKernel::Lanczos,
+        lanczos_taps: Some(4),
+        bicubic_c: Some(0.75),
+        ..base.clone()
+    });
+    // filter_param_a is a float in zimg, so the tap count is emitted as 4.0.
+    assert!(script.contains("filter_param_a=4.0"));
+    assert!(!script.contains("filter_param_b="));
+
+    // A kernel that reads neither gets neither.
+    let script = render(CropResizeParameters {
+        kernel: ResizeKernel::Spline36,
+        bicubic_b: Some(0.5),
+        lanczos_taps: Some(4),
+        ..base
+    });
+    assert!(!script.contains("filter_param_a="));
+    assert!(!script.contains("filter_param_b="));
+}
+
+#[test]
+fn test_73_white_balance_temperature_and_tint() {
+    // Issue #50: temperature and tint. U carries blue-yellow and V carries
+    // red-cyan, so warming the image must lower U and raise V; a magenta tint
+    // raises both. Getting a sign wrong here is invisible in a unit test and
+    // very visible on screen.
+    create_output_dir();
+
+    let mut job = create_base_job("test_73_white_balance");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        color_correction: ColorCorrectionParameters {
+            enabled: true,
+            temperature: 40.0,
+            ..ColorCorrectionParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "White balance (warm)", &[
+        "core.std.Expr",
+        "_wb_u = -10.0 * _wb_scale",
+        "_wb_v = 10.0 * _wb_scale",
+        // Luma must be left alone: an empty expression copies the plane.
+        "['', 'x ' + repr(_wb_u) + ' +', 'x ' + repr(_wb_v) + ' +']",
+    ]).unwrap();
+}
+
+#[test]
+fn test_74_white_balance_absent_when_neutral() {
+    // Colour correction is often enabled for brightness alone. A neutral white
+    // balance must add no Expr call at all — an extra pass over every plane for
+    // a no-op offset would cost time and, on integer formats, rounding.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_74_white_balance_neutral");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        color_correction: ColorCorrectionParameters {
+            enabled: true,
+            brightness: 8.0,
+            ..ColorCorrectionParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+
+    assert!(script.contains("adjust.Tweak"), "the brightness tweak should still run");
+    assert!(!script.contains("_wb_scale"), "neutral white balance should emit nothing");
+
+    // Tint alone is enough to bring the block back.
+    job.processing_pipeline.as_mut().unwrap().color_correction.tint = -20.0;
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    assert!(script.contains("_wb_u = -5.0 * _wb_scale"));
+    assert!(script.contains("_wb_v = -5.0 * _wb_scale"));
+}
+
+#[test]
+fn test_75_chroma_denoise_ccd() {
+    // Issue #50: CCD, the chroma denoiser for VHS/camcorder colour noise.
+    create_output_dir();
+
+    let mut job = create_base_job("test_75_chroma_denoise");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        chroma_denoise: ChromaDenoiseParameters {
+            enabled: true,
+            threshold: 8.5,
+            temporal_radius: 2,
+            points_high: true,
+            ..ChromaDenoiseParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "CCD chroma denoise", &[
+        "core.zsmooth.CCD",
+        "threshold=8.5",
+        "temporal_radius=2",
+        "points=[True, True, True]",
+    ]).unwrap();
+}
+
+#[test]
+fn test_76_ccd_scale_is_derived_with_a_floor() {
+    // CCD derives `scale` from the frame height and REJECTS anything below 1.0,
+    // so its own automatic value fails outright on sources shorter than its
+    // 480-line reference (measured: 352x288 and 320x240 both error with "scale
+    // must be greater than or equal to 1.0"). We derive it with a floor so short
+    // and cropped sources still run.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_76_ccd_scale");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        chroma_denoise: ChromaDenoiseParameters {
+            enabled: true,
+            ..ChromaDenoiseParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+
+    assert!(
+        script.contains("_ccd_scale = max(1.0, clip.height / 480.0)"),
+        "scale should be derived from the height with a floor of 1.0"
+    );
+    assert!(script.contains("scale=_ccd_scale"));
+
+    // An explicit scale overrides the derivation entirely.
+    job.processing_pipeline.as_mut().unwrap().chroma_denoise.scale = Some(3.5);
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    assert!(script.contains("_ccd_scale = 3.5"));
+    assert!(!script.contains("max(1.0, clip.height"));
+}
+
+#[test]
+fn test_77_chroma_denoise_absent_when_disabled() {
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_77_chroma_denoise_off");
+    job.processing_pipeline = Some(ProcessingPipeline::default());
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    assert!(!script.contains("zsmooth"), "a disabled pass must emit nothing");
+
+    // And it sits between noise reduction and dehalo in the pass order.
+    let pipeline = ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        noise_reduction: NoiseReductionParameters { enabled: true, ..Default::default() },
+        chroma_denoise: ChromaDenoiseParameters { enabled: true, ..Default::default() },
+        dehalo: DehaloParameters { enabled: true, ..Default::default() },
+        ..ProcessingPipeline::default()
+    };
+    job.processing_pipeline = Some(pipeline.clone());
+    assert_eq!(
+        pipeline.enabled_passes(),
+        vec![PassType::NoiseReduction, PassType::ChromaDenoise, PassType::Dehalo]
+    );
+}
+
+#[test]
+fn test_78_mcdegrainsharp() {
+    // Issue #50: MCDegrainSharp (Didée) — "denoise with MDegrain, sharpen where
+    // the motion match is good, blur where it is bad". Needs only mvtools and
+    // tcanny, both already bundled.
+    create_output_dir();
+
+    let mut job = create_base_job("test_78_mcdegrainsharp");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::McDegrainSharp,
+            mcds_frames: 3,
+            mcds_th_sad: 500,
+            ..NoiseReductionParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "MCDegrainSharp", &[
+        "core.tcanny.TCanny",
+        "core.mv.Super",
+        // 3 frames selects Degrain3, and the other two must be gone.
+        "core.mv.Degrain3(",
+        "thsad=500",
+        "levels=1",
+        // The averaged clip is the blurred one; the pixels come from the
+        // sharpened one. Swapping these is the whole difference between this and
+        // a plain degrain.
+        "clip=_mcds_blurred",
+        "super=_mcds_super_render",
+    ]).unwrap();
+}
+
+#[test]
+fn test_79_mcdegrainsharp_frame_count_and_planes() {
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let render = |frames: i32, plane: i32, blur_search: bool| {
+        let mut job = create_base_job("test_79_mcdegrainsharp_variants");
+        job.processing_pipeline = Some(ProcessingPipeline {
+            noise_reduction: NoiseReductionParameters {
+                enabled: true,
+                method: NoiseReductionMethod::McDegrainSharp,
+                mcds_frames: frames,
+                mcds_plane: plane,
+                mcds_blur_search: blur_search,
+                ..NoiseReductionParameters::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap()
+    };
+
+    // mvtools has one function per frame count; exactly one must survive.
+    for (frames, expected) in [(1, "Degrain1("), (2, "Degrain2("), (3, "Degrain3(")] {
+        let script = render(frames, 4, true);
+        assert!(script.contains(expected), "{} frames should use {}", frames, expected);
+        for other in ["Degrain1(", "Degrain2(", "Degrain3("] {
+            if other != expected {
+                assert!(!script.contains(other), "{} should not appear for {} frames", other, frames);
+            }
+        }
+    }
+
+    // The TCanny plane list must match mvtools' plane selector, or the blur and
+    // sharpen references would cover different planes than the degrain.
+    let script = render(2, 3, true);
+    assert!(script.contains("_mcds_planes = [1, 2]"));
+    assert!(script.contains("plane=3"));
+
+    let script = render(2, 0, true);
+    assert!(script.contains("_mcds_planes = [0]"));
+    assert!(script.contains("plane=0"));
+
+    // Searching on the source instead of the blurred copy.
+    let script = render(2, 4, false);
+    assert!(script.contains("_mcds_super_search = core.mv.Super(clip,"));
+    let script = render(2, 4, true);
+    assert!(script.contains("_mcds_super_search = core.mv.Super(_mcds_blurred,"));
+}
+
+#[test]
+fn test_80_resize_fits_by_display_aspect_when_squaring_pixels() {
+    // Issue #50: an anamorphic source's stored frame is deliberately the wrong
+    // shape (720x576 shown as 16:9), so fitting a target box by stored
+    // dimensions alone gets the geometry wrong. Squaring the pixels has to fit
+    // by *display* aspect instead.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let render = |crop_resize: CropResizeParameters, sar: Option<&str>| {
+        let mut job = create_base_job("test_80_aspect");
+        job.input_sar = sar.map(str::to_string);
+        job.processing_pipeline = Some(ProcessingPipeline {
+            crop_resize,
+            ..ProcessingPipeline::default()
+        });
+        std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap()
+    };
+
+    let squared = CropResizeParameters {
+        enabled: true,
+        resize_enabled: true,
+        target_width: Some(1920),
+        pixel_aspect: PixelAspectMode::Square,
+        ..CropResizeParameters::default()
+    };
+    let script = render(squared.clone(), Some("16:11"));
+    assert!(script.contains("_display_aspect = (clip.width * 1.4545) / clip.height"));
+    assert!(script.contains("_fit_aspect = _display_aspect"));
+
+    // Preserving the pixel grid fits by stored dimensions, as before.
+    let script = render(
+        CropResizeParameters {
+            pixel_aspect: PixelAspectMode::Preserve,
+            ..squared.clone()
+        },
+        Some("16:11"),
+    );
+    assert!(script.contains("_fit_aspect = clip.width / clip.height"));
+
+    // A square-pixel source has SAR 1, so both routes agree.
+    let script = render(squared, None);
+    assert!(script.contains("_display_aspect = (clip.width * 1.0) / clip.height"));
+}
+
+#[test]
+fn test_81_squaring_pixels_needs_no_target_size() {
+    // "Make this anamorphic source square" is a resize in its own right: keep
+    // the height and change the width until the picture is the right shape.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_81_square_only");
+    job.input_sar = Some("16:11".to_string());
+    job.processing_pipeline = Some(ProcessingPipeline {
+        crop_resize: CropResizeParameters {
+            enabled: true,
+            resize_enabled: false,
+            pixel_aspect: PixelAspectMode::Square,
+            ..CropResizeParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+
+    assert!(script.contains("target_h = clip.height"), "height is kept");
+    assert!(script.contains("target_w = _even(target_h * _fit_aspect)"), "width follows the display aspect");
+    assert!(script.contains("core.resize.Spline36("));
+}
+
+#[test]
+fn test_82_forced_display_aspect_and_padding() {
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let render = |crop_resize: CropResizeParameters| {
+        let mut job = create_base_job("test_82_aspect_options");
+        job.input_sar = Some("10:11".to_string());
+        job.processing_pipeline = Some(ProcessingPipeline {
+            crop_resize,
+            ..ProcessingPipeline::default()
+        });
+        std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap()
+    };
+
+    // A forced display aspect replaces the source-derived one entirely.
+    let script = render(CropResizeParameters {
+        enabled: true,
+        resize_enabled: true,
+        target_height: Some(720),
+        pixel_aspect: PixelAspectMode::Square,
+        display_aspect: Some("16:9".to_string()),
+        ..CropResizeParameters::default()
+    });
+    assert!(script.contains("_display_aspect = 1.7778"));
+    assert!(!script.contains("clip.width * 10"), "the source SAR must not also be used");
+
+    // Padding fills the box instead of leaving the picture short in one axis.
+    let script = render(CropResizeParameters {
+        enabled: true,
+        resize_enabled: true,
+        target_width: Some(1920),
+        target_height: Some(1080),
+        pad_to_aspect: true,
+        ..CropResizeParameters::default()
+    });
+    assert!(script.contains("core.std.AddBorders("));
+
+    // Without a target box there is nothing to pad out to, so the block goes.
+    let script = render(CropResizeParameters {
+        enabled: true,
+        resize_enabled: false,
+        pixel_aspect: PixelAspectMode::Square,
+        pad_to_aspect: true,
+        ..CropResizeParameters::default()
+    });
+    assert!(!script.contains("core.std.AddBorders("));
+}
+
+#[test]
+fn test_83_fine_dehalo_thresholds_match_havsfunc_defaults() {
+    // The schema shipped thmi=50/thma=100 — which are thlimi/thlima's defaults,
+    // copied onto the wrong pair. havsfunc's FineDehalo uses thmi=80, thma=128.
+    // Because both are always emitted, the wrong value was actively passed on
+    // every FineDehalo run rather than merely displayed.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_83_fine_dehalo_defaults");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        dehalo: DehaloParameters {
+            enabled: true,
+            method: DehaloMethod::FineDehalo,
+            ..DehaloParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+
+    assert!(script.contains("thmi=80"), "thmi should default to havsfunc's 80");
+    assert!(script.contains("thma=128"), "thma should default to havsfunc's 128");
+
+    // And the pair they were confused with keeps its own (correct) defaults,
+    // which are only emitted when the user opts in.
+    assert!(!script.contains("thlimi="), "thlimi is optional and unset here");
+    assert!(!script.contains("thlima="), "thlima is optional and unset here");
 }

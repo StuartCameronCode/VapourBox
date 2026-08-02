@@ -63,6 +63,14 @@ class ColorCorrectionParameters {
   /// Gamma adjustment (0.1 to 10.0, 1.0 = no change).
   final double gamma;
 
+  // --- White balance ---
+
+  /// Colour temperature, -100 (cool/blue) to +100 (warm/amber). 0 = no change.
+  final double temperature;
+
+  /// Tint, -100 (green) to +100 (magenta). 0 = no change.
+  final double tint;
+
   const ColorCorrectionParameters({
     this.enabled = false,
     this.preset = ColorCorrectionPreset.off,
@@ -79,6 +87,9 @@ class ColorCorrectionParameters {
     this.outputLow = 0,
     this.outputHigh = 255,
     this.gamma = 1.0,
+    // White balance defaults
+    this.temperature = 0.0,
+    this.tint = 0.0,
   });
 
   /// Create parameters from a preset.
@@ -139,6 +150,8 @@ class ColorCorrectionParameters {
     int? outputLow,
     int? outputHigh,
     double? gamma,
+    double? temperature,
+    double? tint,
   }) {
     return ColorCorrectionParameters(
       enabled: enabled ?? this.enabled,
@@ -154,6 +167,8 @@ class ColorCorrectionParameters {
       outputLow: outputLow ?? this.outputLow,
       outputHigh: outputHigh ?? this.outputHigh,
       gamma: gamma ?? this.gamma,
+      temperature: temperature ?? this.temperature,
+      tint: tint ?? this.tint,
     );
   }
 
@@ -176,6 +191,8 @@ class ColorCorrectionParameters {
     if (brightness != 0) parts.add('B:${brightness.toStringAsFixed(0)}');
     if (contrast != 1) parts.add('C:${contrast.toStringAsFixed(1)}');
     if (saturation != 1) parts.add('S:${saturation.toStringAsFixed(1)}');
+    if (temperature != 0) parts.add('Temp:${temperature.toStringAsFixed(0)}');
+    if (tint != 0) parts.add('Tint:${tint.toStringAsFixed(0)}');
     return parts.isEmpty ? 'Custom' : parts.join(' ');
   }
 

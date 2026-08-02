@@ -141,7 +141,7 @@ class DehaloSettingsPanel extends StatelessWidget {
             value: params.lowThreshold.toDouble(),
             min: 0,
             max: 200,
-            divisions: 40,
+            divisions: 200,
             onChanged: (value) {
               _updateParams(viewModel, params.copyWith(lowThreshold: value.round()));
             },
@@ -153,7 +153,7 @@ class DehaloSettingsPanel extends StatelessWidget {
             value: params.highThreshold.toDouble(),
             min: 0,
             max: 255,
-            divisions: 51,
+            divisions: 255,
             onChanged: (value) {
               _updateParams(viewModel, params.copyWith(highThreshold: value.round()));
             },

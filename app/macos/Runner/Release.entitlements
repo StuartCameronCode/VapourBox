@@ -1,9 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  NOTE: com.apple.security.app-sandbox is deliberately absent (issue #50).
+
+  These entitlements are normally discarded: package-macos.sh signs the bundle
+  with packaging/macos/distribution.entitlements (codesign --force replaces the
+  set wholesale), so what ships is that file's three hardened-runtime exceptions
+  and no sandbox. Verified against the released v0.9.10 DMG.
+
+  They still take effect for a release build assembled by hand instead of by the
+  packaging script — which CLAUDE.md tells you not to do, but which is easy
+  enough to reach by accident. Declaring the sandbox here made such a build
+  resolve dependencies to a container path and fail to strip quarantine from
+  them, so it is left out to keep that trap shut.
+-->
 <plist version="1.0">
 <dict>
-	<key>com.apple.security.app-sandbox</key>
-	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>

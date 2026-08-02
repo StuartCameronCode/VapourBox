@@ -10,8 +10,10 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:vapourbox/models/chroma_denoise_parameters.dart';
 import 'package:vapourbox/models/chroma_fix_parameters.dart';
 import 'package:vapourbox/models/color_correction_parameters.dart';
+import 'package:vapourbox/models/crop_resize_parameters.dart';
 import 'package:vapourbox/models/deband_parameters.dart';
 import 'package:vapourbox/models/deblock_parameters.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
@@ -161,6 +163,8 @@ VideoJob buildJob({
   ColorCorrectionParameters? colorCorrection,
   DeScratchParameters? descratch,
   SpotLessParameters? spotless,
+  CropResizeParameters? cropResize,
+  ChromaDenoiseParameters? chromaDenoise,
 }) => VideoJob(
   id: const Uuid().v4(),
   inputPath: TestConfig.inputFile,
@@ -176,6 +180,8 @@ VideoJob buildJob({
     sharpen: sharpen ?? const SharpenParameters(),
     chromaFixes: chromaFixes ?? const ChromaFixParameters(),
     colorCorrection: colorCorrection ?? const ColorCorrectionParameters(),
+    cropResize: cropResize ?? const CropResizeParameters(),
+    chromaDenoise: chromaDenoise ?? const ChromaDenoiseParameters(),
   ),
   encodingSettings: const EncodingSettings(
     codec: VideoCodec.h264, container: ContainerFormat.mkv, audioMode: AudioMode.none,
@@ -249,6 +255,224 @@ void main() {
       print('  Parsed ${actual.length} params');
       validateParams(actual: actual, schema: schema, method: method,
         setValues: ParameterConverter.fromDehalo(typed).values);
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // Issue #50: FineDehalo's masking limits, contra-sharpening and edge
+    // processing were never exposed. Explicit non-default values, so a
+    // parameter that silently fails to reach the script is visible.
+    test('dehalo: FineDehalo advanced params', () async {
+      loadSchema('dehalo'); // confirm schema parses
+      final typed = const DehaloParameters(
+        enabled: true,
+        method: DehaloMethod.fineDehalo,
+        limitLow: 60,
+        limitHigh: 120,
+        contra: 1.2,
+        excludeCloseEdges: false,
+        edgeProc: 0.5,
+      );
+      final job = buildJob(testName: 'dehalo_fine', dehalo: typed);
+      print('  Generating FineDehalo script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.FineDehalo('));
+      final actual = parseFilterParams(script, 'haf.FineDehalo(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['thlimi'], '60');
+      expect(actual['thlima'], '120');
+      expect(actual['contra'], '1.2');
+      expect(actual['excl'], 'False');
+      expect(actual['edgeproc'], '0.5');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // The "ghost" half of issue #50: Vinverse removes the comb residue a
+    // deinterlacer leaves behind.
+    test('dehalo: Vinverse params', () async {
+      loadSchema('dehalo');
+      final typed = const DehaloParameters(
+        enabled: true,
+        method: DehaloMethod.vinverse,
+        vinverseStrength: 3.5,
+        vinverseAmount: 200,
+        vinverseChroma: false,
+      );
+      final job = buildJob(testName: 'dehalo_vinverse', dehalo: typed);
+      print('  Generating Vinverse script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.Vinverse('));
+      final actual = parseFilterParams(script, 'haf.Vinverse(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['sstr'], '3.5');
+      expect(actual['amnt'], '200');
+      expect(actual['chroma'], 'False');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // EdgeCleaner's repair/small-particle modes are numeric enums, so they
+    // arrive from the UI as strings — the converter must coerce them to ints or
+    // the script gets a quoted value VapourSynth rejects.
+    test('dehalo: EdgeCleaner params (numeric enums from the UI)', () async {
+      final schema = loadSchema('dehalo');
+      var dyn = ParameterConverter.fromDehalo(const DehaloParameters(
+          enabled: true, method: DehaloMethod.edgeCleaner));
+      // Exactly what the dropdown widget stores: the raw option string.
+      dyn = dyn.withValue('edgeStrength', 15);
+      dyn = dyn.withValue('edgeRepairMode', schema.parameters['edgeRepairMode']!.options!.first);
+      dyn = dyn.withValue('edgeSmallMode', '1');
+      dyn = dyn.withValue('edgeHotPixels', true);
+      final typed = ParameterConverter.toDehalo(dyn);
+
+      final job = buildJob(testName: 'dehalo_edgecleaner', dehalo: typed);
+      print('  Generating EdgeCleaner script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.EdgeCleaner('));
+      final actual = parseFilterParams(script, 'haf.EdgeCleaner(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['strength'], '15');
+      expect(actual['rmode'], '1', reason: 'string option must be coerced to an int');
+      expect(actual['smode'], '1');
+      expect(actual['hot'], 'True');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+
+    // Issue #50: picking the EEDI3 upscale used to emit a Spline36 resize --
+    // the template block was a placeholder. Assert the real call reaches the
+    // script, in the push gate rather than only in the nightly encode.
+    test('crop_resize: EEDI3 upscale emits eedi3m with its own parameters', () async {
+      loadSchema('crop_resize'); // confirm schema parses
+      final typed = const CropResizeParameters(
+        enabled: true,
+        useIntegerUpscale: true,
+        upscaleMethod: UpscaleMethod.eedi3Rpow2,
+        upscaleFactor: 2,
+        upscaleNsize: 4,
+        upscaleNeurons: 3,
+        upscaleAlpha: 0.4,
+        upscaleMdis: 30,
+      );
+      final job = buildJob(testName: 'upscale_eedi3', cropResize: typed);
+      print('  Generating EEDI3 upscale script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.eedi3m.EEDI3('));
+      final actual = parseFilterParams(script, 'core.eedi3m.EEDI3(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['alpha'], '0.4');
+      expect(actual['mdis'], '30');
+      // The nnedi3 sclip that guides it carries the nnedi3 controls.
+      final sclip = parseFilterParams(script, 'core.znedi3.nnedi3(');
+      expect(sclip['nsize'], '4');
+      expect(sclip['nns'], '3');
+      // And the half-pixel dh shift is corrected per plane.
+      expect(script, contains('_upscale_fix_shift'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('crop_resize: kernel tuning only reaches the kernel that reads it', () async {
+      loadSchema('crop_resize');
+      final job = buildJob(
+        testName: 'resize_lanczos_taps',
+        cropResize: const CropResizeParameters(
+          enabled: true,
+          resizeEnabled: true,
+          targetWidth: 640,
+          targetHeight: 480,
+          maintainAspect: false,
+          kernel: ResizeKernel.lanczos,
+          lanczosTaps: 4,
+          bicubicB: 0.33,
+          bicubicC: 0.33,
+        ),
+      );
+      print('  Generating Lanczos resize script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.resize.Lanczos('));
+      final actual = parseFilterParams(script, 'core.resize.Lanczos(');
+      // filter_param_a is a float in zimg, so an integer tap count is emitted
+      // as 4.0 — zimg rounds it back to an int.
+      expect(actual['filter_param_a'], '4.0', reason: 'taps go in filter_param_a');
+      expect(actual.containsKey('filter_param_b'), isFalse,
+          reason: "Bicubic's c must not leak into a Lanczos call");
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+
+    // Issue #50: temperature/tint white balance. U carries blue-yellow and V
+    // carries red-cyan, so warm is -U/+V; a sign error here is invisible until
+    // you look at the picture.
+    test('color_correction: white balance offsets reach the script', () async {
+      loadSchema('color_correction'); // confirm schema parses
+      final job = buildJob(
+        testName: 'white_balance',
+        colorCorrection: const ColorCorrectionParameters(
+          enabled: true,
+          temperature: 40,
+          tint: -20,
+        ),
+      );
+      print('  Generating white balance script...');
+      final script = await generateScriptViaWorker(job);
+      // temperature 40 -> ±10 levels, tint -20 -> -5 on both planes.
+      expect(script, contains('_wb_u = -15.0 * _wb_scale'));
+      expect(script, contains('_wb_v = 5.0 * _wb_scale'));
+      // Luma is copied by the empty expression rather than rewritten.
+      expect(script, contains("['', 'x ' + repr(_wb_u) + ' +'"));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+
+    // Issue #50: CCD chroma denoise, the pass that pulls in the zsmooth plugin.
+    test('chroma_denoise: CCD params + derived scale', () async {
+      loadSchema('chroma_denoise'); // confirm schema parses
+      final job = buildJob(
+        testName: 'chroma_denoise',
+        chromaDenoise: const ChromaDenoiseParameters(
+          enabled: true,
+          threshold: 8.5,
+          temporalRadius: 2,
+          pointsHigh: true,
+        ),
+      );
+      print('  Generating CCD script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.zsmooth.CCD('));
+      final actual = parseFilterParams(script, 'core.zsmooth.CCD(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['threshold'], '8.5');
+      expect(actual['temporal_radius'], '2');
+      expect(actual['points'], '[True, True, True]');
+      // CCD rejects a scale below 1.0, and its own automatic value is below 1.0
+      // for anything shorter than 480 lines — so we derive it with a floor.
+      expect(script, contains('max(1.0, clip.height / 480.0)'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+
+    // Issue #50: MCDegrainSharp. The plane selector is a numeric enum, so it
+    // arrives from the dropdown as a string and must be coerced — and TCanny's
+    // plane list has to agree with mvtools' plane selector.
+    test('noise_reduction: MCDegrainSharp params', () async {
+      final schema = loadSchema('noise_reduction');
+      var dyn = ParameterConverter.fromNoiseReduction(const NoiseReductionParameters(
+          enabled: true, method: NoiseReductionMethod.mcDegrainSharp));
+      dyn = dyn.withValue('mcdsFrames', 3);
+      dyn = dyn.withValue('mcdsThSad', 500);
+      // Exactly what the dropdown widget stores: the raw option string.
+      dyn = dyn.withValue('mcdsPlane', schema.parameters['mcdsPlane']!.options![3]);
+      final typed = ParameterConverter.toNoiseReduction(dyn);
+      expect(typed.mcdsPlane, 3, reason: 'string option must be coerced to an int');
+
+      final job = buildJob(testName: 'mcdegrainsharp', noiseReduction: typed);
+      print('  Generating MCDegrainSharp script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.mv.Degrain3('));
+      final actual = parseFilterParams(script, 'core.mv.Degrain3(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['thsad'], '500');
+      expect(actual['plane'], '3');
+      // Blur/sharpen references must cover the same planes as the degrain.
+      expect(script, contains('_mcds_planes = [1, 2]'));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 

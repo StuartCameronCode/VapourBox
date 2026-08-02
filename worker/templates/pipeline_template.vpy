@@ -507,6 +507,75 @@ clip = haf.MCTemporalDenoise(
 )
 {{/NR_MCTD}}
 
+{{#NR_MCDEGRAINSHARP}}
+# MCDegrainSharp (Didée) — motion-compensated degrain that sharpens where the
+# motion match is good and blurs where it is poor.
+#
+# Three clips do the work: a blurred one is what gets averaged (so badly-matched
+# areas end up soft rather than smeared with wrong pixels), a sharpened one
+# supplies the pixels the averaging draws from (so well-matched areas come back
+# sharper than the source), and the motion search runs on the blurred clip when
+# asked, which finds steadier vectors on a noisy source.
+_mcds_planes = {{NR_MCDS_PLANES}}
+_mcds_blurred = core.tcanny.TCanny(clip, sigma={{NR_MCDS_BLUR_SIGMA}}, mode=-1, planes=_mcds_planes)
+# Unsharp mask: original plus the difference between it and its own blur.
+_mcds_sharpened = core.std.Expr(
+    [clip, core.tcanny.TCanny(clip, sigma={{NR_MCDS_SHARP_SIGMA}}, mode=-1, planes=_mcds_planes)],
+    ['x x + y -'],
+)
+# Larger blocks for HD; 8 is the classic SD value.
+_mcds_blksize = 16 if clip.width > 960 else 8
+_mcds_super_search = core.mv.Super({{NR_MCDS_SEARCH_CLIP}}, pel=2, sharp=1)
+_mcds_super_render = core.mv.Super(_mcds_sharpened, pel=2, sharp=1, levels=1)
+
+
+def _mcds_vectors(delta, backward):
+    return core.mv.Analyse(
+        _mcds_super_search,
+        isb=backward,
+        delta=delta,
+        blksize=_mcds_blksize,
+        overlap=_mcds_blksize // 2,
+    )
+
+{{#NR_MCDS_DEGRAIN1}}
+clip = core.mv.Degrain1(
+    clip=_mcds_blurred,
+    super=_mcds_super_render,
+    mvbw=_mcds_vectors(1, True),
+    mvfw=_mcds_vectors(1, False),
+    thsad={{NR_MCDS_TH_SAD}},
+    plane={{NR_MCDS_PLANE}},
+)
+{{/NR_MCDS_DEGRAIN1}}
+{{#NR_MCDS_DEGRAIN2}}
+clip = core.mv.Degrain2(
+    clip=_mcds_blurred,
+    super=_mcds_super_render,
+    mvbw=_mcds_vectors(1, True),
+    mvfw=_mcds_vectors(1, False),
+    mvbw2=_mcds_vectors(2, True),
+    mvfw2=_mcds_vectors(2, False),
+    thsad={{NR_MCDS_TH_SAD}},
+    plane={{NR_MCDS_PLANE}},
+)
+{{/NR_MCDS_DEGRAIN2}}
+{{#NR_MCDS_DEGRAIN3}}
+clip = core.mv.Degrain3(
+    clip=_mcds_blurred,
+    super=_mcds_super_render,
+    mvbw=_mcds_vectors(1, True),
+    mvfw=_mcds_vectors(1, False),
+    mvbw2=_mcds_vectors(2, True),
+    mvfw2=_mcds_vectors(2, False),
+    mvbw3=_mcds_vectors(3, True),
+    mvfw3=_mcds_vectors(3, False),
+    thsad={{NR_MCDS_TH_SAD}},
+    plane={{NR_MCDS_PLANE}},
+)
+{{/NR_MCDS_DEGRAIN3}}
+{{/NR_MCDEGRAINSHARP}}
+
 {{#NR_BM3D}}
 # BM3D noise reduction
 clip = mvf.BM3D(
@@ -520,6 +589,36 @@ clip = mvf.BM3D(
 )
 {{/NR_BM3D}}
 {{/NOISE_REDUCTION}}
+
+# ============================================================================
+# PASS 5b: CHROMA DENOISE (CCD - Camcorder Colour Denoise)
+# ============================================================================
+{{#CHROMA_DENOISE}}
+# CCD averages chroma over neighbours whose RGB distance is within `threshold`,
+# leaving luma untouched — the standard fix for the blotchy colour noise on VHS
+# captures and old camcorder footage.
+#
+# `scale` is a sampling-radius multiplier that CCD derives from the frame height,
+# because the original filter was written for 240p. The plugin REJECTS a scale
+# below 1.0, so on anything shorter than its reference height the automatic value
+# fails the job with "CCD: scale must be greater than or equal to 1.0" (measured:
+# 352x288 and 320x240 both fail, 640x480 and up are fine). Deriving it here with
+# a floor keeps small and cropped sources working, and matches what the plugin
+# would have picked otherwise.
+{{#CCD_SCALE_AUTO}}
+_ccd_scale = max(1.0, clip.height / {{CCD_REFERENCE_HEIGHT}}.0)
+{{/CCD_SCALE_AUTO}}
+{{#CCD_SCALE_EXPLICIT}}
+_ccd_scale = {{CCD_SCALE}}
+{{/CCD_SCALE_EXPLICIT}}
+clip = core.zsmooth.CCD(
+    clip,
+    threshold={{CCD_THRESHOLD}},
+    temporal_radius={{CCD_TEMPORAL_RADIUS}},
+    points={{CCD_POINTS}},
+    scale=_ccd_scale,
+)
+{{/CHROMA_DENOISE}}
 
 # ============================================================================
 # PASS 4: DEHALO
@@ -542,6 +641,15 @@ clip = haf.DeHalo_alpha(
 {{#DEHALO_BRIGHTSTR}}
     brightstr={{DEHALO_BRIGHTSTR}},
 {{/DEHALO_BRIGHTSTR}}
+{{#DEHALO_LOWSENS}}
+    lowsens={{DEHALO_LOWSENS}},
+{{/DEHALO_LOWSENS}}
+{{#DEHALO_HIGHSENS}}
+    highsens={{DEHALO_HIGHSENS}},
+{{/DEHALO_HIGHSENS}}
+{{#DEHALO_SS}}
+    ss={{DEHALO_SS}},
+{{/DEHALO_SS}}
 )
 {{/DEHALO_DEHALO_ALPHA}}
 
@@ -567,8 +675,29 @@ clip = haf.FineDehalo(
 {{#DEHALO_HIGH_THRESHOLD}}
     thma={{DEHALO_HIGH_THRESHOLD}},
 {{/DEHALO_HIGH_THRESHOLD}}
+{{#DEHALO_THLIMI}}
+    thlimi={{DEHALO_THLIMI}},
+{{/DEHALO_THLIMI}}
+{{#DEHALO_THLIMA}}
+    thlima={{DEHALO_THLIMA}},
+{{/DEHALO_THLIMA}}
+{{#DEHALO_CONTRA}}
+    contra={{DEHALO_CONTRA}},
+{{/DEHALO_CONTRA}}
+{{#DEHALO_EXCL}}
+    excl={{DEHALO_EXCL}},
+{{/DEHALO_EXCL}}
+{{#DEHALO_EDGEPROC}}
+    edgeproc={{DEHALO_EDGEPROC}},
+{{/DEHALO_EDGEPROC}}
 )
 {{/DEHALO_FINE_DEHALO}}
+
+{{#DEHALO_FINE_DEHALO2}}
+# FineDehalo2 - removes the ringing FineDehalo leaves on sharp edges.
+# Takes only convolution kernels beyond the defaults, so it has no parameters.
+clip = haf.FineDehalo2(clip)
+{{/DEHALO_FINE_DEHALO2}}
 
 {{#DEHALO_YAHR}}
 # YAHR - Yet Another Halo Remover
@@ -582,6 +711,45 @@ clip = haf.YAHR(
 {{/DEHALO_YAHR_DEPTH}}
 )
 {{/DEHALO_YAHR}}
+
+{{#DEHALO_EDGE_CLEANER}}
+# EdgeCleaner - edge denoising and weak dehaloing (aWarpSharp2)
+clip = haf.EdgeCleaner(
+    clip,
+{{#DEHALO_EDGE_STRENGTH}}
+    strength={{DEHALO_EDGE_STRENGTH}},
+{{/DEHALO_EDGE_STRENGTH}}
+{{#DEHALO_EDGE_REPAIR}}
+    rep={{DEHALO_EDGE_REPAIR}},
+{{/DEHALO_EDGE_REPAIR}}
+{{#DEHALO_EDGE_RMODE}}
+    rmode={{DEHALO_EDGE_RMODE}},
+{{/DEHALO_EDGE_RMODE}}
+{{#DEHALO_EDGE_SMODE}}
+    smode={{DEHALO_EDGE_SMODE}},
+{{/DEHALO_EDGE_SMODE}}
+{{#DEHALO_EDGE_HOT}}
+    hot={{DEHALO_EDGE_HOT}},
+{{/DEHALO_EDGE_HOT}}
+)
+{{/DEHALO_EDGE_CLEANER}}
+
+{{#DEHALO_VINVERSE}}
+# Vinverse - removes vertical comb/ghost residue left by deinterlacing.
+# It blurs vertically, so run it on progressive (already deinterlaced) frames.
+clip = haf.{{DEHALO_VINVERSE_FN}}(
+    clip,
+{{#DEHALO_VINVERSE_SSTR}}
+    sstr={{DEHALO_VINVERSE_SSTR}},
+{{/DEHALO_VINVERSE_SSTR}}
+{{#DEHALO_VINVERSE_AMNT}}
+    amnt={{DEHALO_VINVERSE_AMNT}},
+{{/DEHALO_VINVERSE_AMNT}}
+{{#DEHALO_VINVERSE_CHROMA}}
+    chroma={{DEHALO_VINVERSE_CHROMA}},
+{{/DEHALO_VINVERSE_CHROMA}}
+)
+{{/DEHALO_VINVERSE}}
 {{/DEHALO}}
 
 # ============================================================================
@@ -804,6 +972,28 @@ clip = core.std.Levels(
 {{/LEVELS_GAMMA}}
 )
 {{/COLOR_LEVELS}}
+
+{{#COLOR_WHITE_BALANCE}}
+# White balance: shift the chroma planes. U carries blue-yellow and V carries
+# red-cyan, so warming the image is -U/+V and a magenta tint raises both.
+# Offsets arrive at 8-bit scale and are scaled to the working depth here, so the
+# same setting means the same colour shift on an 8-bit and a 16-bit clip.
+if clip.format.color_family == vs.YUV:
+    _wb_scale = (
+        (1 << (clip.format.bits_per_sample - 8))
+        if clip.format.sample_type == vs.INTEGER
+        else 1.0 / 255.0
+    )
+    _wb_u = {{COLOR_WB_U}} * _wb_scale
+    _wb_v = {{COLOR_WB_V}} * _wb_scale
+    # An empty expression leaves that plane untouched, so luma is never
+    # rewritten. Expr clamps to the format's range, so extreme settings
+    # saturate rather than wrap around.
+    clip = core.std.Expr(
+        clip,
+        ['', 'x ' + repr(_wb_u) + ' +', 'x ' + repr(_wb_v) + ' +'],
+    )
+{{/COLOR_WHITE_BALANCE}}
 {{/COLOR_CORRECTION}}
 
 # ============================================================================
@@ -812,62 +1002,200 @@ clip = core.std.Levels(
 {{#RESIZE}}
 
 {{#RESIZE_INTEGER_UPSCALE}}
-# Integer upscaling using NNEDI3/ZNEDI3
-# Manual 2x upscale: nnedi3 on Y, transpose, nnedi3 again, transpose back
+# Integer upscaling: repeated edge-directed 2x doubling (double the height,
+# transpose, double again, transpose back).
+{{#UPSCALE_EDGE_DIRECTED}}
+def _upscale_double_height(c):
 {{#UPSCALE_NNEDI3}}
-def nnedi3_2x(c):
-    # Double height
-    c = core.znedi3.nnedi3(c, field=1, dh=True)
-    c = core.std.Transpose(c)
-    # Double width
-    c = core.znedi3.nnedi3(c, field=1, dh=True)
-    c = core.std.Transpose(c)
-    return c
-for _ in range({{UPSCALE_FACTOR}} // 2 if {{UPSCALE_FACTOR}} > 1 else 1):
-    clip = nnedi3_2x(clip)
+    return core.znedi3.nnedi3(
+        c,
+        field=1,
+        dh=True,
+{{#UPSCALE_NSIZE}}
+        nsize={{UPSCALE_NSIZE}},
+{{/UPSCALE_NSIZE}}
+{{#UPSCALE_NNS}}
+        nns={{UPSCALE_NNS}},
+{{/UPSCALE_NNS}}
+{{#UPSCALE_QUAL}}
+        qual={{UPSCALE_QUAL}},
+{{/UPSCALE_QUAL}}
+{{#UPSCALE_ETYPE}}
+        etype={{UPSCALE_ETYPE}},
+{{/UPSCALE_ETYPE}}
+{{#UPSCALE_PSCRN}}
+        pscrn={{UPSCALE_PSCRN}},
+{{/UPSCALE_PSCRN}}
+    )
 {{/UPSCALE_NNEDI3}}
 {{#UPSCALE_EEDI3}}
-# EEDI3 upscaling - fall back to spline36 for now
-clip = core.resize.Spline36(clip, width=clip.width * {{UPSCALE_FACTOR}}, height=clip.height * {{UPSCALE_FACTOR}})
+    # EEDI3 needs a second opinion to bound its cost search. nnedi3 is the
+    # conventional choice and is bundled anyway, so the nnedi3 controls below
+    # shape the sclip that guides EEDI3.
+    sclip = core.znedi3.nnedi3(
+        c,
+        field=1,
+        dh=True,
+{{#UPSCALE_NSIZE}}
+        nsize={{UPSCALE_NSIZE}},
+{{/UPSCALE_NSIZE}}
+{{#UPSCALE_NNS}}
+        nns={{UPSCALE_NNS}},
+{{/UPSCALE_NNS}}
+{{#UPSCALE_QUAL}}
+        qual={{UPSCALE_QUAL}},
+{{/UPSCALE_QUAL}}
+{{#UPSCALE_ETYPE}}
+        etype={{UPSCALE_ETYPE}},
+{{/UPSCALE_ETYPE}}
+{{#UPSCALE_PSCRN}}
+        pscrn={{UPSCALE_PSCRN}},
+{{/UPSCALE_PSCRN}}
+    )
+    return core.eedi3m.EEDI3(
+        c,
+        field=1,
+        dh=True,
+        sclip=sclip,
+{{#UPSCALE_ALPHA}}
+        alpha={{UPSCALE_ALPHA}},
+{{/UPSCALE_ALPHA}}
+{{#UPSCALE_BETA}}
+        beta={{UPSCALE_BETA}},
+{{/UPSCALE_BETA}}
+{{#UPSCALE_GAMMA}}
+        gamma={{UPSCALE_GAMMA}},
+{{/UPSCALE_GAMMA}}
+{{#UPSCALE_NRAD}}
+        nrad={{UPSCALE_NRAD}},
+{{/UPSCALE_NRAD}}
+{{#UPSCALE_MDIS}}
+        mdis={{UPSCALE_MDIS}},
+{{/UPSCALE_MDIS}}
+    )
 {{/UPSCALE_EEDI3}}
+
+
+def _upscale_fix_shift(c, shift):
+    # Interpolating the missing field with dh=True leaves the result half an
+    # output pixel above (and, after the transposes, left of) where it belongs.
+    # Measured on an 8x8 clip with one bright row: the centroid that should land
+    # at output y=7.0 lands at 6.51.
+    #
+    # The correction has to be applied PER PLANE. src_top is expressed in luma
+    # pixels, so a single whole-clip -0.5 under-corrects subsampled chroma by a
+    # quarter of a chroma row (measured: 6.74 instead of 7.0 on 4:2:0), leaving
+    # colour misaligned against luma.
+    if shift == 0:
+        return c
+    if c.format.num_planes == 1:
+        return core.resize.Spline36(c, src_left=-shift, src_top=-shift)
+    planes = [
+        core.resize.Spline36(
+            core.std.ShufflePlanes(c, i, vs.GRAY), src_left=-shift, src_top=-shift)
+        for i in range(c.format.num_planes)
+    ]
+    return core.std.ShufflePlanes(planes, [0] * c.format.num_planes, c.format.color_family)
+
+
+# Each doubling adds half an output pixel of offset, and doubles whatever
+# offset it inherited — so correct once at the end rather than per step, which
+# keeps it to a single resample.
+_upscale_shift = 0.0
+for _ in range(max({{UPSCALE_FACTOR}} // 2, 1)):
+    clip = _upscale_double_height(clip)
+    clip = core.std.Transpose(clip)
+    clip = _upscale_double_height(clip)
+    clip = core.std.Transpose(clip)
+    _upscale_shift = _upscale_shift * 2 + 0.5
+clip = _upscale_fix_shift(clip, _upscale_shift)
+{{/UPSCALE_EDGE_DIRECTED}}
+{{#UPSCALE_SPLINE36}}
+# Plain resampling at an integer factor — no edge direction, just fast.
+clip = core.resize.Spline36(clip, width=clip.width * {{UPSCALE_FACTOR}}, height=clip.height * {{UPSCALE_FACTOR}})
+{{/UPSCALE_SPLINE36}}
 {{/RESIZE_INTEGER_UPSCALE}}
 
 {{#RESIZE_STANDARD}}
+# The shape the frame is meant to be *seen* at. On an anamorphic source the
+# stored frame is the wrong shape on purpose (720x576 shown as 16:9), so fitting
+# a target box by stored dimensions alone gets the geometry wrong — which is what
+# used to happen here.
+{{#ASPECT_DAR_OVERRIDE}}
+_display_aspect = {{ASPECT_DAR}}
+{{/ASPECT_DAR_OVERRIDE}}
+{{#ASPECT_DAR_FROM_SOURCE}}
+_display_aspect = (clip.width * {{SOURCE_SAR}}) / clip.height
+{{/ASPECT_DAR_FROM_SOURCE}}
+
+
+def _even(value):
+    # Chroma subsampling needs even dimensions; never round down to zero.
+    return max(2, int(round(value)) & ~1)
+
+
+# Storage aspect when the pixel grid is left alone, display aspect when we are
+# resampling to square pixels: that is exactly what "square up" means.
+{{#ASPECT_SQUARE_PIXELS}}
+_fit_aspect = _display_aspect
+{{/ASPECT_SQUARE_PIXELS}}
+{{#ASPECT_KEEP_PIXELS}}
+_fit_aspect = clip.width / clip.height
+{{/ASPECT_KEEP_PIXELS}}
+
 # Calculate target dimensions
 target_w = {{TARGET_WIDTH}}
 target_h = {{TARGET_HEIGHT}}
+{{#ASPECT_SQUARE_PIXELS}}
+if target_w <= 0 and target_h <= 0:
+    # Squaring the pixels with no target size: keep the height and widen (or
+    # narrow) the frame until the picture is the right shape.
+    target_h = clip.height
+{{/ASPECT_SQUARE_PIXELS}}
+_box_w, _box_h = target_w, target_h
 {{#MAINTAIN_ASPECT}}
-# Maintain aspect ratio - calculate missing dimension
-aspect = clip.width / clip.height
+# Maintain aspect ratio - calculate the missing dimension, or fit inside the box
 if target_w > 0 and target_h <= 0:
-    target_h = int(target_w / aspect)
-    target_h = target_h - (target_h % 2)  # Ensure even
+    target_h = _even(target_w / _fit_aspect)
 elif target_h > 0 and target_w <= 0:
-    target_w = int(target_h * aspect)
-    target_w = target_w - (target_w % 2)  # Ensure even
+    target_w = _even(target_h * _fit_aspect)
 elif target_w > 0 and target_h > 0:
     # Both specified - fit within bounds while maintaining aspect
-    scale_w = target_w / clip.width
-    scale_h = target_h / clip.height
-    scale = min(scale_w, scale_h)
-    target_w = int(clip.width * scale)
-    target_w = target_w - (target_w % 2)
-    target_h = int(clip.height * scale)
-    target_h = target_h - (target_h % 2)
+    scale = min(target_w / (clip.height * _fit_aspect), target_h / clip.height)
+    target_w = _even(clip.height * _fit_aspect * scale)
+    target_h = _even(clip.height * scale)
 {{/MAINTAIN_ASPECT}}
 
-{{#RESIZE_SPLINE36}}
-clip = core.resize.Spline36(clip, width=target_w, height=target_h)
-{{/RESIZE_SPLINE36}}
-{{#RESIZE_LANCZOS}}
-clip = core.resize.Lanczos(clip, width=target_w, height=target_h)
-{{/RESIZE_LANCZOS}}
-{{#RESIZE_BICUBIC}}
-clip = core.resize.Bicubic(clip, width=target_w, height=target_h)
-{{/RESIZE_BICUBIC}}
-{{#RESIZE_BILINEAR}}
-clip = core.resize.Bilinear(clip, width=target_w, height=target_h)
-{{/RESIZE_BILINEAR}}
+# filter_param_a/b carry the kernel's own tuning: b and c for Bicubic, taps
+# for Lanczos. They are ignored by kernels that take neither.
+clip = core.resize.{{RESIZE_KERNEL}}(
+    clip,
+    width=target_w,
+    height=target_h,
+{{#RESIZE_FILTER_A}}
+    filter_param_a={{RESIZE_FILTER_A}},
+{{/RESIZE_FILTER_A}}
+{{#RESIZE_FILTER_B}}
+    filter_param_b={{RESIZE_FILTER_B}},
+{{/RESIZE_FILTER_B}}
+)
+
+{{#ASPECT_PAD}}
+# Letterbox/pillarbox out to the requested box instead of leaving the fitted
+# image smaller than it. Borders are split evenly and kept even for chroma.
+if _box_w > clip.width or _box_h > clip.height:
+    _pad_w = max(0, _even(_box_w) - clip.width)
+    _pad_h = max(0, _even(_box_h) - clip.height)
+    _left = (_pad_w // 2) & ~1
+    _top = (_pad_h // 2) & ~1
+    clip = core.std.AddBorders(
+        clip,
+        left=_left,
+        right=_pad_w - _left,
+        top=_top,
+        bottom=_pad_h - _top,
+    )
+{{/ASPECT_PAD}}
 {{/RESIZE_STANDARD}}
 {{/RESIZE}}
 

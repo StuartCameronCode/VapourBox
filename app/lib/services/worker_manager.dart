@@ -19,6 +19,15 @@ class WorkerManager {
   /// Last error message received (used to populate CompletionResult).
   String? _lastErrorMessage;
 
+  /// Whether a completion has already been emitted for the current job.
+  ///
+  /// Exactly one completion event per job, no more and no less. Cancelling
+  /// emits immediately and the process exit would otherwise emit again; a
+  /// missing `complete` message would otherwise emit nothing at all and leave
+  /// the UI on "processing" forever with the worker already gone — which is
+  /// indistinguishable from the hang reported in #50.
+  bool _completionEmitted = false;
+
   /// Stream of progress updates from the worker.
   final _progressController = StreamController<ProgressInfo>.broadcast();
   Stream<ProgressInfo> get progressStream => _progressController.stream;
@@ -41,6 +50,8 @@ class WorkerManager {
     if (_process != null) {
       throw StateError('Worker is already running');
     }
+
+    _completionEmitted = false;
 
     final toolLocator = ToolLocator.instance;
     final workerPath = toolLocator.workerPath;
@@ -80,19 +91,17 @@ class WorkerManager {
         // Clean up config file
         configFile.delete().catchError((_) => configFile);
 
-        // Emit completion result after process has fully exited
-        if (!_completionController.isClosed) {
-          if (_pendingCompletion != null) {
-            // Use the completion result from stdout
-            _completionController.add(_pendingCompletion!);
-          } else if (exitCode != 0) {
-            // Process exited with error before sending completion
-            _completionController.add(CompletionResult(
+        // The worker sends a `complete` message on both success and failure, so
+        // _pendingCompletion is normally set. If it isn't, the exit still has to
+        // be reported — see [_completionEmitted].
+        _emitCompletion(_pendingCompletion ??
+            CompletionResult(
               success: false,
-              errorMessage: 'Worker exited with code $exitCode',
+              errorMessage: _lastErrorMessage ??
+                  (exitCode == 0
+                      ? 'Worker exited without reporting a result'
+                      : 'Worker exited with code $exitCode'),
             ));
-          }
-        }
 
         _cleanup();
       });
@@ -169,11 +178,18 @@ class WorkerManager {
 
     _cleanup();
 
-    _completionController.add(CompletionResult(
+    _emitCompletion(const CompletionResult(
       success: false,
       errorMessage: 'Job cancelled by user',
       cancelled: true,
     ));
+  }
+
+  /// Emit [result] unless this job has already reported one.
+  void _emitCompletion(CompletionResult result) {
+    if (_completionEmitted || _completionController.isClosed) return;
+    _completionEmitted = true;
+    _completionController.add(result);
   }
 
   void _handleStdoutLine(String line) {

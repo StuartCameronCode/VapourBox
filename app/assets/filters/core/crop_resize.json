@@ -1,40 +1,69 @@
 {
   "$schema": "https://vapourbox.app/schemas/filter-v1.json",
   "id": "crop_resize",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "name": "Crop & Resize",
   "description": "Crop borders and resize or upscale video",
-  "longDescription": "Trims unwanted borders and changes the output resolution. Cropping happens first, then resizing.\n\nUse crop to cut the head-switching noise along the bottom of VHS captures and the black overscan edges of broadcast material — otherwise the encoder spends bitrate on them. Use resize for a target resolution, or the NNEDI3 upscaler for a much better 2x/4x enlargement than a plain kernel. Keep crop values even so they stay aligned with chroma subsampling.",
+  "longDescription": "Trims unwanted borders and changes the output resolution. Cropping happens first, then resizing.\n\nUse crop to cut the head-switching noise along the bottom of VHS captures and the black overscan edges of broadcast material \u2014 otherwise the encoder spends bitrate on them. Use resize for a target resolution, or the NNEDI3 upscaler for a much better 2x/4x enlargement than a plain kernel. Keep crop values even so they stay aligned with chroma subsampling.",
   "category": "transform",
   "icon": "crop",
   "order": 9,
-
   "dependencies": {
-    "vs_plugins": ["libvs_znedi3.dll"]
+    "vs_plugins": [
+      "libvs_znedi3.dll"
+    ]
   },
-
   "methods": [
     {
       "id": "standard",
-      "name": "Standard Resize",
-      "description": "Standard resize with selectable kernel",
+      "name": "Resize",
+      "description": "Resample to a target size with a selectable kernel",
       "function": "core.resize",
-      "parameters": ["targetWidth", "targetHeight", "kernel"]
+      "parameters": [
+        "targetWidth",
+        "targetHeight",
+        "kernel",
+        "bicubicB",
+        "bicubicC",
+        "lanczosTaps",
+        "displayAspect",
+        "customSar"
+      ]
     },
     {
       "id": "nnedi3_2x",
-      "name": "NNEDI3 2x Upscale",
-      "description": "High-quality 2x upscale using neural network interpolation",
+      "name": "NNEDI3 Upscale",
+      "description": "Edge-directed integer doubling",
       "function": "core.znedi3.nnedi3",
-      "parameters": ["upscaleFactor"]
+      "parameters": [
+        "upscaleNsize",
+        "upscaleNeurons",
+        "upscaleQual",
+        "upscaleEtype",
+        "upscalePscrn"
+      ]
+    },
+    {
+      "id": "eedi3_2x",
+      "name": "EEDI3 Upscale",
+      "description": "Edge-directed integer doubling, guided by NNEDI3",
+      "function": "core.eedi3m.EEDI3",
+      "parameters": [
+        "upscaleAlpha",
+        "upscaleBeta",
+        "upscaleGamma",
+        "upscaleNrad",
+        "upscaleMdis"
+      ]
     }
   ],
-
   "parameters": {
     "enabled": {
       "type": "boolean",
       "default": false,
-      "ui": { "hidden": true }
+      "ui": {
+        "hidden": true
+      }
     },
     "cropEnabled": {
       "type": "boolean",
@@ -51,12 +80,16 @@
       "max": 200,
       "step": 2,
       "optional": true,
-      "vapoursynth": { "name": "left" },
+      "vapoursynth": {
+        "name": "left"
+      },
       "ui": {
         "label": "Crop Left",
         "description": "Pixels to crop from left (8-10 for VHS overscan)",
         "widget": "slider",
-        "visibleWhen": { "cropEnabled": true }
+        "visibleWhen": {
+          "cropEnabled": true
+        }
       }
     },
     "cropRight": {
@@ -66,12 +99,16 @@
       "max": 200,
       "step": 2,
       "optional": true,
-      "vapoursynth": { "name": "right" },
+      "vapoursynth": {
+        "name": "right"
+      },
       "ui": {
         "label": "Crop Right",
         "description": "Pixels to crop from right (8-10 for VHS overscan)",
         "widget": "slider",
-        "visibleWhen": { "cropEnabled": true }
+        "visibleWhen": {
+          "cropEnabled": true
+        }
       }
     },
     "cropTop": {
@@ -81,12 +118,16 @@
       "max": 200,
       "step": 2,
       "optional": true,
-      "vapoursynth": { "name": "top" },
+      "vapoursynth": {
+        "name": "top"
+      },
       "ui": {
         "label": "Crop Top",
         "description": "Pixels to crop from top (4-8 for VHS overscan)",
         "widget": "slider",
-        "visibleWhen": { "cropEnabled": true }
+        "visibleWhen": {
+          "cropEnabled": true
+        }
       }
     },
     "cropBottom": {
@@ -96,12 +137,16 @@
       "max": 200,
       "step": 2,
       "optional": true,
-      "vapoursynth": { "name": "bottom" },
+      "vapoursynth": {
+        "name": "bottom"
+      },
       "ui": {
         "label": "Crop Bottom",
         "description": "Pixels to crop from bottom (4-8 for VHS overscan)",
         "widget": "slider",
-        "visibleWhen": { "cropEnabled": true }
+        "visibleWhen": {
+          "cropEnabled": true
+        }
       }
     },
     "resizeEnabled": {
@@ -119,12 +164,16 @@
       "max": 7680,
       "step": 2,
       "optional": true,
-      "vapoursynth": { "name": "width" },
+      "vapoursynth": {
+        "name": "width"
+      },
       "ui": {
         "label": "Target Width",
         "description": "Target width in pixels (null = auto)",
         "widget": "number",
-        "visibleWhen": { "resizeEnabled": true }
+        "visibleWhen": {
+          "resizeEnabled": true
+        }
       }
     },
     "targetHeight": {
@@ -134,25 +183,41 @@
       "max": 4320,
       "step": 2,
       "optional": true,
-      "vapoursynth": { "name": "height" },
+      "vapoursynth": {
+        "name": "height"
+      },
       "ui": {
         "label": "Target Height",
         "description": "Target height in pixels (null = auto)",
         "widget": "number",
-        "visibleWhen": { "resizeEnabled": true }
+        "visibleWhen": {
+          "resizeEnabled": true
+        }
       }
     },
     "kernel": {
       "type": "enum",
       "default": "spline36",
-      "options": ["bilinear", "bicubic", "lanczos", "spline36"],
+      "options": [
+        "point",
+        "bilinear",
+        "bicubic",
+        "lanczos",
+        "spline16",
+        "spline36",
+        "spline64"
+      ],
       "optional": true,
-      "vapoursynth": { "name": "kernel" },
+      "vapoursynth": {
+        "name": "kernel"
+      },
       "ui": {
         "label": "Resize Kernel",
-        "description": "Interpolation algorithm (Spline36 or Lanczos for quality)",
+        "description": "Resampling filter. Spline36 or Lanczos for downscaling detail; Bicubic when you want to tune sharpness against ringing; Point for pixel-exact scaling with no blending",
         "widget": "dropdown",
-        "visibleWhen": { "resizeEnabled": true }
+        "visibleWhen": {
+          "resizeEnabled": true
+        }
       }
     },
     "maintainAspect": {
@@ -161,7 +226,9 @@
       "ui": {
         "label": "Maintain Aspect Ratio",
         "description": "Keep original aspect ratio when resizing",
-        "visibleWhen": { "resizeEnabled": true }
+        "visibleWhen": {
+          "resizeEnabled": true
+        }
       }
     },
     "useIntegerUpscale": {
@@ -175,13 +242,19 @@
     "upscaleMethod": {
       "type": "enum",
       "default": "nnedi3Rpow2",
-      "options": ["nnedi3Rpow2", "eedi3Rpow2", "spline36"],
+      "options": [
+        "nnedi3Rpow2",
+        "eedi3Rpow2",
+        "spline36"
+      ],
       "optional": true,
       "ui": {
         "label": "Upscale Method",
-        "description": "Upscaling method and factor",
+        "description": "Edge-directed doubling. NNEDI3 is the usual choice; EEDI3 is slower and follows near-horizontal edges better (it uses NNEDI3 to guide its search); Spline36 is plain resampling with no edge direction",
         "widget": "dropdown",
-        "visibleWhen": { "useIntegerUpscale": true }
+        "visibleWhen": {
+          "useIntegerUpscale": true
+        }
       }
     },
     "upscaleFactor": {
@@ -195,21 +268,392 @@
         "label": "Upscale Factor",
         "description": "Integer upscale multiplier (2x or 4x)",
         "widget": "slider",
-        "visibleWhen": { "useIntegerUpscale": true }
+        "visibleWhen": {
+          "useIntegerUpscale": true
+        }
+      }
+    },
+    "bicubicB": {
+      "type": "number",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "optional": true,
+      "vapoursynth": {
+        "name": "filter_param_a"
+      },
+      "ui": {
+        "label": "Bicubic B",
+        "description": "Blurring term. 0 with C=0.5 is Catmull-Rom (sharp), 1/3 with C=1/3 is Mitchell (soft), 1 with C=0 is B-spline (softest)",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": {
+          "kernel": [
+            "bicubic"
+          ],
+          "resizeEnabled": true
+        }
+      }
+    },
+    "bicubicC": {
+      "type": "number",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "optional": true,
+      "vapoursynth": {
+        "name": "filter_param_b"
+      },
+      "ui": {
+        "label": "Bicubic C",
+        "description": "Ringing term. Higher is sharper with more ringing; B + 2C = 1 keeps the filter well behaved",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": {
+          "kernel": [
+            "bicubic"
+          ],
+          "resizeEnabled": true
+        }
+      }
+    },
+    "lanczosTaps": {
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": {
+        "name": "filter_param_a"
+      },
+      "ui": {
+        "label": "Lanczos Taps",
+        "description": "Filter width. More taps means sharper with more ringing",
+        "widget": "slider",
+        "visibleWhen": {
+          "kernel": [
+            "lanczos"
+          ],
+          "resizeEnabled": true
+        }
+      }
+    },
+    "upscaleNsize": {
+      "type": "integer",
+      "default": 6,
+      "min": 0,
+      "max": 6,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": {
+        "name": "nsize"
+      },
+      "ui": {
+        "label": "Neighbourhood Size",
+        "description": "Shape of the pixel neighbourhood the network sees (0-6). 6 is the widest",
+        "widget": "slider",
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "nnedi3Rpow2",
+            "eedi3Rpow2"
+          ]
+        }
+      }
+    },
+    "upscaleNeurons": {
+      "type": "integer",
+      "default": 1,
+      "min": 0,
+      "max": 4,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": {
+        "name": "nns"
+      },
+      "ui": {
+        "label": "Neurons",
+        "description": "Network size: 0=16, 1=32, 2=64, 3=128, 4=256 neurons. More is slower and slightly cleaner",
+        "widget": "slider",
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "nnedi3Rpow2",
+            "eedi3Rpow2"
+          ]
+        }
+      }
+    },
+    "upscaleQual": {
+      "type": "integer",
+      "default": 1,
+      "min": 1,
+      "max": 2,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": {
+        "name": "qual"
+      },
+      "ui": {
+        "label": "Quality",
+        "description": "2 averages two predictor sets for a small quality gain at double the cost",
+        "widget": "slider",
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "nnedi3Rpow2",
+            "eedi3Rpow2"
+          ]
+        }
+      }
+    },
+    "upscaleEtype": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 1,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": {
+        "name": "etype"
+      },
+      "ui": {
+        "label": "Error Metric",
+        "description": "How the network weights are chosen: 0 favours absolute error, 1 favours squared error",
+        "widget": "slider",
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "nnedi3Rpow2",
+            "eedi3Rpow2"
+          ]
+        }
+      }
+    },
+    "upscalePscrn": {
+      "type": "integer",
+      "default": 2,
+      "min": 0,
+      "max": 4,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": {
+        "name": "pscrn"
+      },
+      "ui": {
+        "label": "Prescreener",
+        "description": "Skips pixels the prescreener judges safe to interpolate cheaply. 0 processes every pixel (slowest, most accurate)",
+        "widget": "slider",
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "nnedi3Rpow2",
+            "eedi3Rpow2"
+          ]
+        }
+      }
+    },
+    "upscaleAlpha": {
+      "type": "number",
+      "default": 0.2,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "optional": true,
+      "vapoursynth": {
+        "name": "alpha"
+      },
+      "ui": {
+        "label": "EEDI3 Alpha",
+        "description": "Weight on edge connection cost. Higher follows edges harder and risks artifacts",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "eedi3Rpow2"
+          ]
+        }
+      }
+    },
+    "upscaleBeta": {
+      "type": "number",
+      "default": 0.25,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "optional": true,
+      "vapoursynth": {
+        "name": "beta"
+      },
+      "ui": {
+        "label": "EEDI3 Beta",
+        "description": "Weight on interpolation smoothness. Higher is smoother and less edge-directed",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "eedi3Rpow2"
+          ]
+        }
+      }
+    },
+    "upscaleGamma": {
+      "type": "number",
+      "default": 20.0,
+      "min": 0.0,
+      "max": 100.0,
+      "step": 5.0,
+      "optional": true,
+      "vapoursynth": {
+        "name": "gamma"
+      },
+      "ui": {
+        "label": "EEDI3 Gamma",
+        "description": "Penalty for directions away from vertical. Higher keeps the interpolation more vertical",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "eedi3Rpow2"
+          ]
+        }
+      }
+    },
+    "upscaleNrad": {
+      "type": "integer",
+      "default": 2,
+      "min": 0,
+      "max": 3,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": {
+        "name": "nrad"
+      },
+      "ui": {
+        "label": "EEDI3 Radius",
+        "description": "Neighbourhood radius used to score a direction",
+        "widget": "slider",
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "eedi3Rpow2"
+          ]
+        }
+      }
+    },
+    "upscaleMdis": {
+      "type": "integer",
+      "default": 20,
+      "min": 1,
+      "max": 40,
+      "step": 1,
+      "optional": true,
+      "vapoursynth": {
+        "name": "mdis"
+      },
+      "ui": {
+        "label": "EEDI3 Max Distance",
+        "description": "How far sideways a direction may be searched. Larger catches shallower edges and costs time",
+        "widget": "slider",
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "eedi3Rpow2"
+          ]
+        }
+      }
+    },
+    "pixelAspect": {
+      "type": "enum",
+      "default": "preserve",
+      "options": [
+        "preserve",
+        "square",
+        "custom"
+      ],
+      "ui": {
+        "label": "Pixel Aspect",
+        "description": "preserve keeps the source's non-square pixels and tags the output with them; square resamples so the output has square pixels at the same shape on screen (what most players and editors want from an anamorphic DVD); custom stamps a pixel aspect you specify",
+        "widget": "dropdown"
+      }
+    },
+    "customSar": {
+      "type": "string",
+      "default": "10:11",
+      "optional": true,
+      "ui": {
+        "label": "Custom Pixel Aspect",
+        "description": "Pixel aspect ratio to tag the output with, as \"N:M\" (10:11 for NTSC 4:3, 16:11 for PAL 16:9) or a decimal",
+        "widget": "textfield",
+        "visibleWhen": {
+          "pixelAspect": [
+            "custom"
+          ]
+        }
+      }
+    },
+    "displayAspect": {
+      "type": "string",
+      "default": "16:9",
+      "optional": true,
+      "ui": {
+        "label": "Display Aspect",
+        "description": "Force the shape the picture is shown at, as \"4:3\", \"16:9\", \"1.85\" or a decimal. Left off, the source's own shape is used. Use this to fix a source whose aspect flag is wrong",
+        "widget": "textfield"
+      }
+    },
+    "padToAspect": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Pad to Fill",
+        "description": "Letterbox or pillarbox out to the exact target size instead of leaving the picture smaller than it in one direction",
+        "visibleWhen": {
+          "resizeEnabled": true
+        }
       }
     }
   },
-
   "parameterPresets": {
     "cropPreset": {
       "label": "Crop Preset",
       "description": "Quick crop presets for common scenarios",
       "default": "None",
       "options": {
-        "None": { "cropEnabled": false, "cropLeft": 0, "cropRight": 0, "cropTop": 0, "cropBottom": 0 },
-        "Remove Overscan": { "cropEnabled": true, "cropLeft": 8, "cropRight": 8, "cropTop": 8, "cropBottom": 8 },
-        "NTSC Overscan": { "cropEnabled": true, "cropLeft": 8, "cropRight": 8, "cropTop": 4, "cropBottom": 4 },
-        "PAL Overscan": { "cropEnabled": true, "cropLeft": 10, "cropRight": 10, "cropTop": 8, "cropBottom": 8 }
+        "None": {
+          "cropEnabled": false,
+          "cropLeft": 0,
+          "cropRight": 0,
+          "cropTop": 0,
+          "cropBottom": 0
+        },
+        "Remove Overscan": {
+          "cropEnabled": true,
+          "cropLeft": 8,
+          "cropRight": 8,
+          "cropTop": 8,
+          "cropBottom": 8
+        },
+        "NTSC Overscan": {
+          "cropEnabled": true,
+          "cropLeft": 8,
+          "cropRight": 8,
+          "cropTop": 4,
+          "cropBottom": 4
+        },
+        "PAL Overscan": {
+          "cropEnabled": true,
+          "cropLeft": 10,
+          "cropRight": 10,
+          "cropTop": 8,
+          "cropBottom": 8
+        }
       }
     },
     "resizePreset": {
@@ -217,36 +661,91 @@
       "description": "Quick resize presets for common resolutions",
       "default": "None",
       "options": {
-        "None": { "resizeEnabled": false },
-        "720p": { "resizeEnabled": true, "targetWidth": 1280, "targetHeight": 720 },
-        "1080p": { "resizeEnabled": true, "targetWidth": 1920, "targetHeight": 1080 },
-        "1440p": { "resizeEnabled": true, "targetWidth": 2560, "targetHeight": 1440 },
-        "4K": { "resizeEnabled": true, "targetWidth": 3840, "targetHeight": 2160 }
+        "None": {
+          "resizeEnabled": false
+        },
+        "720p": {
+          "resizeEnabled": true,
+          "targetWidth": 1280,
+          "targetHeight": 720
+        },
+        "1080p": {
+          "resizeEnabled": true,
+          "targetWidth": 1920,
+          "targetHeight": 1080
+        },
+        "1440p": {
+          "resizeEnabled": true,
+          "targetWidth": 2560,
+          "targetHeight": 1440
+        },
+        "4K": {
+          "resizeEnabled": true,
+          "targetWidth": 3840,
+          "targetHeight": 2160
+        }
       }
     }
   },
-
   "ui": {
     "sections": [
       {
         "title": "Crop",
-        "parameters": ["cropEnabled", "cropLeft", "cropRight", "cropTop", "cropBottom"],
+        "parameters": [
+          "cropEnabled",
+          "cropLeft",
+          "cropRight",
+          "cropTop",
+          "cropBottom"
+        ],
         "expanded": true
       },
       {
         "title": "Resize",
-        "parameters": ["resizeEnabled", "targetWidth", "targetHeight", "kernel", "maintainAspect"],
+        "parameters": [
+          "resizeEnabled",
+          "targetWidth",
+          "targetHeight",
+          "kernel",
+          "bicubicB",
+          "bicubicC",
+          "lanczosTaps",
+          "maintainAspect"
+        ],
         "expanded": true
       },
       {
-        "title": "Upscale (NNEDI3)",
-        "parameters": ["useIntegerUpscale", "upscaleMethod", "upscaleFactor"],
+        "title": "Aspect Ratio",
+        "parameters": [
+          "pixelAspect",
+          "customSar",
+          "displayAspect",
+          "padToAspect"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Upscale (NNEDI3 / EEDI3)",
+        "parameters": [
+          "useIntegerUpscale",
+          "upscaleMethod",
+          "upscaleFactor",
+          "upscaleNsize",
+          "upscaleNeurons",
+          "upscaleQual",
+          "upscaleEtype",
+          "upscalePscrn",
+          "upscaleAlpha",
+          "upscaleBeta",
+          "upscaleGamma",
+          "upscaleNrad",
+          "upscaleMdis"
+        ],
         "expanded": false,
         "advancedOnly": true
       }
     ]
   },
-
   "codeTemplate": {
     "imports": [],
     "generate": "custom"

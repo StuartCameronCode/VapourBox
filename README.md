@@ -69,6 +69,7 @@ Get the latest release for your platform:
 - **Drag-and-drop interface** — drop video files, folders, or VIDEO_TS directories to start
 - **Auto-detection** — automatically identifies interlaced, telecined, and progressive content
 - **Multi-pass video processing pipeline** — chain filters in order: deinterlace, denoise, dehalo, deblock, deband, sharpen, color correction, chroma fixes, crop/resize
+- **Halo, ring and ghost removal** — seven methods, from DeHalo Alpha and Fine Dehalo through Edge Cleaner to Vinverse for the comb/ghost residue a deinterlacer leaves behind
 - **QTGMC deinterlacing** — full access to all 70+ parameters, from Draft to Placebo quality
 - **IVTC (Inverse Telecine)** — recover original 23.976 FPS film from telecined DVD sources
 - **Soft telecine handling** — strip pulldown flags without re-encoding fields
@@ -82,7 +83,12 @@ Get the latest release for your platform:
 - **Multiple output formats** — H.264, H.265, ProRes, FFV1 lossless, with hardware encoding support (VideoToolbox, NVENC, QSV, AMF)
 - **Audio options** — passthrough, re-encode (AAC, Opus, FLAC), or strip audio
 - **Custom filters** — extend VapourBox with your own VapourSynth filters via [JSON schemas](docs/FILTER_SCHEMA.md)
-- **Aspect ratio preservation** — non-square pixel SAR (e.g., anamorphic DVD) carried through the pipeline
+- **Aspect ratio control** — non-square pixel SAR (e.g. anamorphic DVD) carried through the pipeline, including through a resize; square up anamorphic pixels, force a display aspect, or letterbox to a target size
+- **Motion-compensated denoising** — SMDegrain, MCTemporalDenoise, or MCDegrainSharp, which sharpens where motion matching is confident and softens where it isn't
+- **Chroma denoise (CCD)** — clears the blotchy colour noise on VHS captures and old camcorder footage without touching detail in the picture
+- **White balance** — temperature (warm/cool) and tint (green/magenta) correction alongside brightness, contrast, saturation, hue and levels
+- **Edge-directed upscaling** — NNEDI3 or EEDI3 integer doubling with the full neuron/quality/prescreener controls, plus seven resampling kernels with per-kernel tuning
+- **Wide source format support** — 4:1:1 (NTSC DV), 4:1:0, 4:2:0/4:2:2/4:4:4 up to 16-bit, RGB and grayscale sources
 - **Standalone** — all processing dependencies are bundled and auto-downloaded on first run
 
 ## Usage

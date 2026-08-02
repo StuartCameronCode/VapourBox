@@ -175,6 +175,8 @@ class MainViewModel extends ChangeNotifier {
         return ParameterConverter.fromSpotLess(_processingPipeline.spotless);
       case 'noise_reduction':
         return ParameterConverter.fromNoiseReduction(_processingPipeline.noiseReduction);
+      case 'chroma_denoise':
+        return ParameterConverter.fromChromaDenoise(_processingPipeline.chromaDenoise);
       case 'dehalo':
         return ParameterConverter.fromDehalo(_processingPipeline.dehalo);
       case 'deblock':
@@ -217,6 +219,11 @@ class MainViewModel extends ChangeNotifier {
       case 'noise_reduction':
         _processingPipeline = _processingPipeline.copyWith(
           noiseReduction: ParameterConverter.toNoiseReduction(params),
+        );
+        break;
+      case 'chroma_denoise':
+        _processingPipeline = _processingPipeline.copyWith(
+          chromaDenoise: ParameterConverter.toChromaDenoise(params),
         );
         break;
       case 'dehalo':
@@ -1016,6 +1023,8 @@ class MainViewModel extends ChangeNotifier {
         return 'spotless';
       case PassType.noiseReduction:
         return 'noise_reduction';
+      case PassType.chromaDenoise:
+        return 'chroma_denoise';
       case PassType.dehalo:
         return 'dehalo';
       case PassType.deblock:

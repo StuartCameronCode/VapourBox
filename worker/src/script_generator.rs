@@ -9,7 +9,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use crate::models::{
-    VideoJob, ProcessingPipeline, NoiseReductionMethod, ResizeKernel, UpscaleMethod,
+    VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod, CCD_REFERENCE_HEIGHT,
+    parse_ratio,
     DehaloMethod, DeblockMethod, SharpenMethod, ChromaSubsampling, DeinterlaceMethod,
     FieldOrder,
 };
@@ -98,7 +99,7 @@ impl ScriptGenerator {
         let mut script = self.preview_template.clone();
 
         // Pipe source directory (same as main pipeline)
-        let pipe_source_dir = self.pipe_source_dir().unwrap_or_else(|_| env::temp_dir());
+        let pipe_source_dir = Self::pipe_source_dir().unwrap_or_else(|_| env::temp_dir());
         let dir_str = pipe_source_dir.to_string_lossy().to_string();
         script = script.replace("{{PIPE_SOURCE_DIR}}", &dir_str);
 
@@ -211,7 +212,7 @@ impl ScriptGenerator {
         let mut script = template.to_string();
 
         // Pipe source parameters — FFmpeg decodes, pipes raw frames to VapourSynth via stdin
-        let pipe_source_dir = self.pipe_source_dir().unwrap_or_else(|_| env::temp_dir());
+        let pipe_source_dir = Self::pipe_source_dir().unwrap_or_else(|_| env::temp_dir());
         // Template uses r"..." raw string, so backslashes are literal — no escaping needed
         let dir_str = pipe_source_dir.to_string_lossy().to_string();
         script = script.replace("{{PIPE_SOURCE_DIR}}", &dir_str);
@@ -219,7 +220,10 @@ impl ScriptGenerator {
         // Input video properties (from ffprobe, passed via job)
         script = script.replace("{{INPUT_WIDTH}}", &job.input_width.unwrap_or(720).to_string());
         script = script.replace("{{INPUT_HEIGHT}}", &job.input_height.unwrap_or(480).to_string());
-        script = script.replace("{{INPUT_PIX_FMT}}", job.input_pixel_format.as_deref().unwrap_or("yuv420p"));
+        // Must be the format the decoder is actually told to emit — see
+        // pixel_format.rs, which both paths derive from the job.
+        let pipe_format = crate::pixel_format::decode_pixel_format(job.input_pixel_format.as_deref());
+        script = script.replace("{{INPUT_PIX_FMT}}", &pipe_format.name);
 
         // Total frames — use job value or fallback
         let total_frames = job.total_frames.unwrap_or(1);
@@ -251,7 +255,7 @@ impl ScriptGenerator {
     }
 
     /// Get the directory where pipe_source.py lives (same search as templates).
-    fn pipe_source_dir(&self) -> Result<PathBuf> {
+    pub fn pipe_source_dir() -> Result<PathBuf> {
         let exe_path = env::current_exe()?;
         let exe_dir = exe_path.parent().unwrap_or(Path::new("."));
 
@@ -638,6 +642,7 @@ impl ScriptGenerator {
                     script = script.replace("{{#NR_SMDEGRAIN}}", "");
                     script = script.replace("{{/NR_SMDEGRAIN}}", "");
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
+                    script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
 
                     script = process_optional_int("NR_TR", Some(nr.sm_degrain_tr), script);
@@ -651,21 +656,95 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = script.replace("{{#NR_MCTD}}", "");
                     script = script.replace("{{/NR_MCTD}}", "");
+                    script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
 
                     script = process_optional_string("NR_SETTINGS", Some(&nr.mc_temporal_profile), script);
                     script = process_optional_double("NR_SIGMA", Some(nr.mc_temporal_sigma), script);
                     script = process_optional_int("NR_RADIUS", Some(nr.mc_temporal_radius), script);
                 }
+                NoiseReductionMethod::McDegrainSharp => {
+                    script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
+                    script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
+                    script = script.replace("{{#NR_MCDEGRAINSHARP}}", "");
+                    script = script.replace("{{/NR_MCDEGRAINSHARP}}", "");
+                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+
+                    // The blur/sharpen references must cover the same planes the
+                    // degrain does, so both derive from one selector.
+                    script = script.replace("{{NR_MCDS_PLANES}}", &nr.mcds_planes_literal());
+                    script = script.replace("{{NR_MCDS_PLANE}}", &nr.mcds_plane.to_string());
+                    script = script.replace(
+                        "{{NR_MCDS_BLUR_SIGMA}}",
+                        &format_double(nr.mcds_blur_sigma()),
+                    );
+                    script = script.replace(
+                        "{{NR_MCDS_SHARP_SIGMA}}",
+                        &format_double(nr.mcds_sharp_sigma()),
+                    );
+                    script = script.replace("{{NR_MCDS_TH_SAD}}", &nr.mcds_th_sad.to_string());
+                    script = script.replace(
+                        "{{NR_MCDS_SEARCH_CLIP}}",
+                        if nr.mcds_blur_search { "_mcds_blurred" } else { "clip" },
+                    );
+
+                    // mvtools has a separate function per frame count.
+                    for n in 1..=3 {
+                        let block = format!("NR_MCDS_DEGRAIN{}", n);
+                        let open = format!("{{{{#{}}}}}", block);
+                        let close = format!("{{{{/{}}}}}", block);
+                        if n == nr.mcds_effective_frames() {
+                            script = script.replace(&open, "");
+                            script = script.replace(&close, "");
+                        } else {
+                            script = remove_block(&open, &close, script);
+                        }
+                    }
+                }
                 NoiseReductionMethod::QtgmcBuiltin => {
                     // QTGMC built-in denoising is handled in the QTGMC pass itself
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
+                    script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
                 }
             }
         } else {
             script = remove_block("{{#NOISE_REDUCTION}}", "{{/NOISE_REDUCTION}}", script);
+        }
+
+        // ====================================================================
+        // CHROMA DENOISE PASS (CCD)
+        // ====================================================================
+        let chroma_denoise = &pipeline.chroma_denoise;
+        if chroma_denoise.enabled {
+            script = script.replace("{{#CHROMA_DENOISE}}", "");
+            script = script.replace("{{/CHROMA_DENOISE}}", "");
+            script = script.replace("{{CCD_THRESHOLD}}", &format_double(chroma_denoise.threshold));
+            script = script.replace(
+                "{{CCD_TEMPORAL_RADIUS}}",
+                &chroma_denoise.temporal_radius.to_string(),
+            );
+            script = script.replace("{{CCD_POINTS}}", &chroma_denoise.points_literal());
+
+            // An explicit scale wins; otherwise derive it from the frame height
+            // at runtime, which is the only place the height is known.
+            if let Some(scale) = chroma_denoise.scale {
+                script = remove_block("{{#CCD_SCALE_AUTO}}", "{{/CCD_SCALE_AUTO}}", script);
+                script = script.replace("{{#CCD_SCALE_EXPLICIT}}", "");
+                script = script.replace("{{/CCD_SCALE_EXPLICIT}}", "");
+                script = script.replace("{{CCD_SCALE}}", &format_double(scale));
+            } else {
+                script = script.replace("{{#CCD_SCALE_AUTO}}", "");
+                script = script.replace("{{/CCD_SCALE_AUTO}}", "");
+                script = remove_block("{{#CCD_SCALE_EXPLICIT}}", "{{/CCD_SCALE_EXPLICIT}}", script);
+                script = script.replace(
+                    "{{CCD_REFERENCE_HEIGHT}}",
+                    &CCD_REFERENCE_HEIGHT.to_string(),
+                );
+            }
+        } else {
+            script = remove_block("{{#CHROMA_DENOISE}}", "{{/CHROMA_DENOISE}}", script);
         }
 
         // ====================================================================
@@ -676,33 +755,78 @@ impl ScriptGenerator {
             script = script.replace("{{#DEHALO}}", "");
             script = script.replace("{{/DEHALO}}", "");
 
-            match dehalo.method {
-                DehaloMethod::DehaloAlpha => {
-                    script = script.replace("{{#DEHALO_DEHALO_ALPHA}}", "");
-                    script = script.replace("{{/DEHALO_DEHALO_ALPHA}}", "");
-                    script = remove_block("{{#DEHALO_FINE_DEHALO}}", "{{/DEHALO_FINE_DEHALO}}", script);
-                    script = remove_block("{{#DEHALO_YAHR}}", "{{/DEHALO_YAHR}}", script);
-                }
-                DehaloMethod::FineDehalo => {
-                    script = remove_block("{{#DEHALO_DEHALO_ALPHA}}", "{{/DEHALO_DEHALO_ALPHA}}", script);
-                    script = script.replace("{{#DEHALO_FINE_DEHALO}}", "");
-                    script = script.replace("{{/DEHALO_FINE_DEHALO}}", "");
-                    script = remove_block("{{#DEHALO_YAHR}}", "{{/DEHALO_YAHR}}", script);
-                    script = process_optional_int("DEHALO_LOW_THRESHOLD", Some(dehalo.low_threshold), script);
-                    script = process_optional_int("DEHALO_HIGH_THRESHOLD", Some(dehalo.high_threshold), script);
-                }
-                DehaloMethod::Yahr => {
-                    script = remove_block("{{#DEHALO_DEHALO_ALPHA}}", "{{/DEHALO_DEHALO_ALPHA}}", script);
-                    script = remove_block("{{#DEHALO_FINE_DEHALO}}", "{{/DEHALO_FINE_DEHALO}}", script);
-                    script = script.replace("{{#DEHALO_YAHR}}", "");
-                    script = script.replace("{{/DEHALO_YAHR}}", "");
-                    script = process_optional_int("DEHALO_YAHR_BLUR", Some(dehalo.yahr_blur), script);
-                    script = process_optional_int("DEHALO_YAHR_DEPTH", Some(dehalo.yahr_depth), script);
+            // Exactly one method block survives; the rest are removed. Listing
+            // every block per arm is what the other passes do, but with seven
+            // methods it stops being readable — so keep the block the method
+            // selects and drop the others by difference.
+            const DEHALO_BLOCKS: [&str; 6] = [
+                "DEHALO_DEHALO_ALPHA",
+                "DEHALO_FINE_DEHALO",
+                "DEHALO_FINE_DEHALO2",
+                "DEHALO_YAHR",
+                "DEHALO_EDGE_CLEANER",
+                "DEHALO_VINVERSE",
+            ];
+
+            let selected = match dehalo.method {
+                DehaloMethod::DehaloAlpha => "DEHALO_DEHALO_ALPHA",
+                DehaloMethod::FineDehalo => "DEHALO_FINE_DEHALO",
+                DehaloMethod::FineDehalo2 => "DEHALO_FINE_DEHALO2",
+                DehaloMethod::Yahr => "DEHALO_YAHR",
+                DehaloMethod::EdgeCleaner => "DEHALO_EDGE_CLEANER",
+                // Both Vinverse variants share one block; only the function
+                // name differs.
+                DehaloMethod::Vinverse | DehaloMethod::Vinverse2 => "DEHALO_VINVERSE",
+            };
+
+            for block in DEHALO_BLOCKS {
+                let open = format!("{{{{#{}}}}}", block);
+                let close = format!("{{{{/{}}}}}", block);
+                if block == selected {
+                    script = script.replace(&open, "");
+                    script = script.replace(&close, "");
+                } else {
+                    script = remove_block(&open, &close, script);
                 }
             }
 
-            // Common parameters for DeHalo_alpha and FineDehalo
-            if dehalo.method != DehaloMethod::Yahr {
+            match dehalo.method {
+                DehaloMethod::DehaloAlpha => {
+                    script = process_optional_int("DEHALO_LOWSENS", dehalo.low_sens, script);
+                    script = process_optional_int("DEHALO_HIGHSENS", dehalo.high_sens, script);
+                    script = process_optional_double("DEHALO_SS", dehalo.super_sample, script);
+                }
+                DehaloMethod::FineDehalo => {
+                    script = process_optional_int("DEHALO_LOW_THRESHOLD", Some(dehalo.low_threshold), script);
+                    script = process_optional_int("DEHALO_HIGH_THRESHOLD", Some(dehalo.high_threshold), script);
+                    script = process_optional_int("DEHALO_THLIMI", dehalo.limit_low, script);
+                    script = process_optional_int("DEHALO_THLIMA", dehalo.limit_high, script);
+                    script = process_optional_double("DEHALO_CONTRA", dehalo.contra, script);
+                    script = process_optional_bool("DEHALO_EXCL", dehalo.exclude_close_edges, script);
+                    script = process_optional_double("DEHALO_EDGEPROC", dehalo.edge_proc, script);
+                }
+                DehaloMethod::FineDehalo2 => {}
+                DehaloMethod::Yahr => {
+                    script = process_optional_int("DEHALO_YAHR_BLUR", Some(dehalo.yahr_blur), script);
+                    script = process_optional_int("DEHALO_YAHR_DEPTH", Some(dehalo.yahr_depth), script);
+                }
+                DehaloMethod::EdgeCleaner => {
+                    script = process_optional_int("DEHALO_EDGE_STRENGTH", dehalo.edge_strength, script);
+                    script = process_optional_bool("DEHALO_EDGE_REPAIR", dehalo.edge_repair, script);
+                    script = process_optional_int("DEHALO_EDGE_RMODE", dehalo.edge_repair_mode, script);
+                    script = process_optional_int("DEHALO_EDGE_SMODE", dehalo.edge_small_mode, script);
+                    script = process_optional_bool("DEHALO_EDGE_HOT", dehalo.edge_hot_pixels, script);
+                }
+                DehaloMethod::Vinverse | DehaloMethod::Vinverse2 => {
+                    script = script.replace("{{DEHALO_VINVERSE_FN}}", dehalo.method.as_str());
+                    script = process_optional_double("DEHALO_VINVERSE_SSTR", dehalo.vinverse_strength, script);
+                    script = process_optional_int("DEHALO_VINVERSE_AMNT", dehalo.vinverse_amount, script);
+                    script = process_optional_bool("DEHALO_VINVERSE_CHROMA", dehalo.vinverse_chroma, script);
+                }
+            }
+
+            // Radius and strength are shared by DeHalo_alpha and FineDehalo only.
+            if dehalo.method.uses_halo_radius() {
                 script = process_optional_double("DEHALO_RX", Some(dehalo.rx), script);
                 script = process_optional_double("DEHALO_RY", Some(dehalo.ry), script);
                 script = process_optional_double("DEHALO_DARKSTR", Some(dehalo.dark_str), script);
@@ -893,6 +1017,17 @@ impl ScriptGenerator {
             } else {
                 script = remove_block("{{#COLOR_LEVELS}}", "{{/COLOR_LEVELS}}", script);
             }
+
+            // White balance (temperature / tint)
+            if color.has_white_balance() {
+                script = script.replace("{{#COLOR_WHITE_BALANCE}}", "");
+                script = script.replace("{{/COLOR_WHITE_BALANCE}}", "");
+                let (u, v) = color.chroma_offsets();
+                script = script.replace("{{COLOR_WB_U}}", &format_double(u));
+                script = script.replace("{{COLOR_WB_V}}", &format_double(v));
+            } else {
+                script = remove_block("{{#COLOR_WHITE_BALANCE}}", "{{/COLOR_WHITE_BALANCE}}", script);
+            }
         } else {
             script = remove_block("{{#COLOR_CORRECTION}}", "{{/COLOR_CORRECTION}}", script);
         }
@@ -901,7 +1036,13 @@ impl ScriptGenerator {
         // RESIZE PASS
         // ====================================================================
         let resize = &pipeline.crop_resize;
-        if resize.enabled && (resize.resize_enabled || resize.use_integer_upscale) {
+        // Squaring the pixels resamples the grid, so it needs the resize pass
+        // even with no target size — "make this anamorphic source square" is a
+        // resize in its own right.
+        let squares_pixels = resize.squares_pixels();
+        if resize.enabled
+            && (resize.resize_enabled || resize.use_integer_upscale || squares_pixels)
+        {
             script = script.replace("{{#RESIZE}}", "");
             script = script.replace("{{/RESIZE}}", "");
 
@@ -910,6 +1051,20 @@ impl ScriptGenerator {
                 script = script.replace("{{#RESIZE_INTEGER_UPSCALE}}", "");
                 script = script.replace("{{/RESIZE_INTEGER_UPSCALE}}", "");
                 script = script.replace("{{UPSCALE_FACTOR}}", &resize.upscale_factor.to_string());
+
+                // Two of the three methods are edge-directed and share the
+                // doubling loop and shift correction; Spline36 is plain
+                // resampling and skips all of it.
+                let edge_directed = !matches!(resize.upscale_method, UpscaleMethod::Spline36);
+                if edge_directed {
+                    script = script.replace("{{#UPSCALE_EDGE_DIRECTED}}", "");
+                    script = script.replace("{{/UPSCALE_EDGE_DIRECTED}}", "");
+                    script = remove_block("{{#UPSCALE_SPLINE36}}", "{{/UPSCALE_SPLINE36}}", script);
+                } else {
+                    script = remove_block("{{#UPSCALE_EDGE_DIRECTED}}", "{{/UPSCALE_EDGE_DIRECTED}}", script);
+                    script = script.replace("{{#UPSCALE_SPLINE36}}", "");
+                    script = script.replace("{{/UPSCALE_SPLINE36}}", "");
+                }
 
                 match resize.upscale_method {
                     UpscaleMethod::Nnedi3Rpow2 => {
@@ -921,67 +1076,117 @@ impl ScriptGenerator {
                         script = remove_block("{{#UPSCALE_NNEDI3}}", "{{/UPSCALE_NNEDI3}}", script);
                         script = script.replace("{{#UPSCALE_EEDI3}}", "");
                         script = script.replace("{{/UPSCALE_EEDI3}}", "");
+                        // EEDI3's own controls only exist on this path.
+                        script = process_optional_double("UPSCALE_ALPHA", resize.upscale_alpha, script);
+                        script = process_optional_double("UPSCALE_BETA", resize.upscale_beta, script);
+                        script = process_optional_double("UPSCALE_GAMMA", resize.upscale_gamma, script);
+                        script = process_optional_int("UPSCALE_NRAD", resize.upscale_nrad, script);
+                        script = process_optional_int("UPSCALE_MDIS", resize.upscale_mdis, script);
                     }
                     UpscaleMethod::Spline36 => {
-                        // For spline36 "upscale", we use resize instead
                         script = remove_block("{{#UPSCALE_NNEDI3}}", "{{/UPSCALE_NNEDI3}}", script);
                         script = remove_block("{{#UPSCALE_EEDI3}}", "{{/UPSCALE_EEDI3}}", script);
                     }
+                }
+
+                // The nnedi3 controls apply to both edge-directed methods: on
+                // the EEDI3 path they shape the sclip that guides it.
+                if edge_directed {
+                    script = process_optional_int("UPSCALE_NSIZE", resize.upscale_nsize, script);
+                    script = process_optional_int("UPSCALE_NNS", resize.upscale_neurons, script);
+                    script = process_optional_int("UPSCALE_QUAL", resize.upscale_qual, script);
+                    script = process_optional_int("UPSCALE_ETYPE", resize.upscale_etype, script);
+                    script = process_optional_int("UPSCALE_PSCRN", resize.upscale_pscrn, script);
                 }
             } else {
                 script = remove_block("{{#RESIZE_INTEGER_UPSCALE}}", "{{/RESIZE_INTEGER_UPSCALE}}", script);
             }
 
-            // Standard resize
-            if resize.resize_enabled {
+            // Standard resize, which also covers a pixel-aspect squaring with no
+            // target size of its own.
+            if resize.resize_enabled || squares_pixels {
                 script = script.replace("{{#RESIZE_STANDARD}}", "");
                 script = script.replace("{{/RESIZE_STANDARD}}", "");
 
                 // Use -1 for unspecified dimensions (maintain aspect will calculate)
-                let width = resize.target_width.unwrap_or(-1);
-                let height = resize.target_height.unwrap_or(-1);
+                let width = if resize.resize_enabled { resize.target_width.unwrap_or(-1) } else { -1 };
+                let height = if resize.resize_enabled { resize.target_height.unwrap_or(-1) } else { -1 };
                 script = script.replace("{{TARGET_WIDTH}}", &width.to_string());
                 script = script.replace("{{TARGET_HEIGHT}}", &height.to_string());
 
-                // Handle maintain aspect ratio
-                if resize.maintain_aspect {
+                // Squaring with no target size has nothing to fit, so the
+                // aspect logic has to run regardless of the user's choice.
+                if resize.maintain_aspect || (squares_pixels && width <= 0 && height <= 0) {
                     script = script.replace("{{#MAINTAIN_ASPECT}}", "");
                     script = script.replace("{{/MAINTAIN_ASPECT}}", "");
                 } else {
                     script = remove_block("{{#MAINTAIN_ASPECT}}", "{{/MAINTAIN_ASPECT}}", script);
                 }
 
-                match resize.kernel {
-                    ResizeKernel::Spline36 | ResizeKernel::Nnedi3 | ResizeKernel::Eedi3 => {
-                        // Nnedi3/Eedi3 are for integer upscaling; for standard resize use Spline36
-                        script = script.replace("{{#RESIZE_SPLINE36}}", "");
-                        script = script.replace("{{/RESIZE_SPLINE36}}", "");
-                        script = remove_block("{{#RESIZE_LANCZOS}}", "{{/RESIZE_LANCZOS}}", script);
-                        script = remove_block("{{#RESIZE_BICUBIC}}", "{{/RESIZE_BICUBIC}}", script);
-                        script = remove_block("{{#RESIZE_BILINEAR}}", "{{/RESIZE_BILINEAR}}", script);
-                    }
-                    ResizeKernel::Lanczos => {
-                        script = remove_block("{{#RESIZE_SPLINE36}}", "{{/RESIZE_SPLINE36}}", script);
-                        script = script.replace("{{#RESIZE_LANCZOS}}", "");
-                        script = script.replace("{{/RESIZE_LANCZOS}}", "");
-                        script = remove_block("{{#RESIZE_BICUBIC}}", "{{/RESIZE_BICUBIC}}", script);
-                        script = remove_block("{{#RESIZE_BILINEAR}}", "{{/RESIZE_BILINEAR}}", script);
-                    }
-                    ResizeKernel::Bicubic => {
-                        script = remove_block("{{#RESIZE_SPLINE36}}", "{{/RESIZE_SPLINE36}}", script);
-                        script = remove_block("{{#RESIZE_LANCZOS}}", "{{/RESIZE_LANCZOS}}", script);
-                        script = script.replace("{{#RESIZE_BICUBIC}}", "");
-                        script = script.replace("{{/RESIZE_BICUBIC}}", "");
-                        script = remove_block("{{#RESIZE_BILINEAR}}", "{{/RESIZE_BILINEAR}}", script);
-                    }
-                    ResizeKernel::Bilinear => {
-                        script = remove_block("{{#RESIZE_SPLINE36}}", "{{/RESIZE_SPLINE36}}", script);
-                        script = remove_block("{{#RESIZE_LANCZOS}}", "{{/RESIZE_LANCZOS}}", script);
-                        script = remove_block("{{#RESIZE_BICUBIC}}", "{{/RESIZE_BICUBIC}}", script);
-                        script = script.replace("{{#RESIZE_BILINEAR}}", "");
-                        script = script.replace("{{/RESIZE_BILINEAR}}", "");
-                    }
+                // Display aspect: an explicit override, else derived from the
+                // source's dimensions and SAR inside the script.
+                if let Some(dar) = resize.display_aspect_ratio() {
+                    script = script.replace("{{#ASPECT_DAR_OVERRIDE}}", "");
+                    script = script.replace("{{/ASPECT_DAR_OVERRIDE}}", "");
+                    script = script.replace("{{ASPECT_DAR}}", &format_double(dar));
+                    script = remove_block(
+                        "{{#ASPECT_DAR_FROM_SOURCE}}",
+                        "{{/ASPECT_DAR_FROM_SOURCE}}",
+                        script,
+                    );
+                } else {
+                    script = remove_block(
+                        "{{#ASPECT_DAR_OVERRIDE}}",
+                        "{{/ASPECT_DAR_OVERRIDE}}",
+                        script,
+                    );
+                    script = script.replace("{{#ASPECT_DAR_FROM_SOURCE}}", "");
+                    script = script.replace("{{/ASPECT_DAR_FROM_SOURCE}}", "");
+                    let source_sar = job
+                        .input_sar
+                        .as_deref()
+                        .and_then(parse_ratio)
+                        .unwrap_or(1.0);
+                    script = script.replace("{{SOURCE_SAR}}", &format_double(source_sar));
                 }
+
+                // Fit by display aspect when squaring the grid, by storage
+                // aspect when leaving it alone.
+                if squares_pixels {
+                    script = script.replace("{{#ASPECT_SQUARE_PIXELS}}", "");
+                    script = script.replace("{{/ASPECT_SQUARE_PIXELS}}", "");
+                    script = remove_block("{{#ASPECT_KEEP_PIXELS}}", "{{/ASPECT_KEEP_PIXELS}}", script);
+                } else {
+                    script = remove_block("{{#ASPECT_SQUARE_PIXELS}}", "{{/ASPECT_SQUARE_PIXELS}}", script);
+                    script = script.replace("{{#ASPECT_KEEP_PIXELS}}", "");
+                    script = script.replace("{{/ASPECT_KEEP_PIXELS}}", "");
+                }
+
+                // Padding only means anything when there is a box to pad out to.
+                if resize.pad_to_aspect && resize.resize_enabled {
+                    script = script.replace("{{#ASPECT_PAD}}", "");
+                    script = script.replace("{{/ASPECT_PAD}}", "");
+                } else {
+                    script = remove_block("{{#ASPECT_PAD}}", "{{/ASPECT_PAD}}", script);
+                }
+
+                // One call, with the kernel substituted in — the alternative is
+                // one template block per kernel, which does not scale past a
+                // handful.
+                script = script.replace("{{RESIZE_KERNEL}}", resize.kernel.resize_function());
+
+                // filter_param_a/b mean different things per kernel, so only
+                // emit them for the kernel that reads them. Passing Bicubic's b
+                // to Lanczos would silently change the tap count.
+                let (filter_a, filter_b) = if resize.kernel.takes_bicubic_params() {
+                    (resize.bicubic_b, resize.bicubic_c)
+                } else if resize.kernel.takes_taps() {
+                    (resize.lanczos_taps.map(f64::from), None)
+                } else {
+                    (None, None)
+                };
+                script = process_optional_double("RESIZE_FILTER_A", filter_a, script);
+                script = process_optional_double("RESIZE_FILTER_B", filter_b, script);
             } else {
                 script = remove_block("{{#RESIZE_STANDARD}}", "{{/RESIZE_STANDARD}}", script);
             }
@@ -1033,6 +1238,16 @@ fn process_optional_int(name: &str, value: Option<i32>, mut script: String) -> S
 }
 
 /// Process an optional double parameter.
+/// Render a float for the script: minimal precision, but always with a decimal
+/// point so it stays a Python float.
+fn format_double(val: f64) -> String {
+    if val.fract() == 0.0 {
+        format!("{:.1}", val)
+    } else {
+        format!("{:.4}", val).trim_end_matches('0').trim_end_matches('.').to_string()
+    }
+}
+
 fn process_optional_double(name: &str, value: Option<f64>, mut script: String) -> String {
     let start_tag = format!("{{{{#{}}}}}", name);
     let end_tag = format!("{{{{/{}}}}}", name);
@@ -1041,13 +1256,7 @@ fn process_optional_double(name: &str, value: Option<f64>, mut script: String) -
     if let Some(val) = value {
         script = script.replace(&start_tag, "");
         script = script.replace(&end_tag, "");
-        // Format with minimal precision
-        let formatted = if val.fract() == 0.0 {
-            format!("{:.1}", val)
-        } else {
-            format!("{:.4}", val).trim_end_matches('0').trim_end_matches('.').to_string()
-        };
-        script = script.replace(&placeholder, &formatted);
+        script = script.replace(&placeholder, &format_double(val));
     } else {
         script = remove_block(&start_tag, &end_tag, script);
     }

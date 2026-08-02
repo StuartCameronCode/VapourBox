@@ -1,3 +1,4 @@
+import 'chroma_denoise_parameters.dart';
 import 'chroma_fix_parameters.dart';
 import 'color_correction_parameters.dart';
 import 'crop_resize_parameters.dart';
@@ -139,6 +140,9 @@ class ParameterConverter {
       case NoiseReductionMethod.mcTemporalDenoise:
         method = 'mc_temporal_denoise';
         break;
+      case NoiseReductionMethod.mcDegrainSharp:
+        method = 'mcdegrainsharp';
+        break;
       case NoiseReductionMethod.qtgmcBuiltin:
         method = 'qtgmc_builtin';
         break;
@@ -157,41 +161,114 @@ class ParameterConverter {
         'mcTemporalSigma': params.mcTemporalSigma,
         'mcTemporalRadius': params.mcTemporalRadius,
         'mcTemporalProfile': params.mcTemporalProfile,
+        'mcdsFrames': params.mcdsFrames,
+        'mcdsBlur': params.mcdsBlur,
+        'mcdsSharp': params.mcdsSharp,
+        'mcdsBlurSearch': params.mcdsBlurSearch,
+        'mcdsThSad': params.mcdsThSad,
+        'mcdsPlane': params.mcdsPlane,
         'qtgmcEzDenoise': params.qtgmcEzDenoise,
         'qtgmcEzKeepGrain': params.qtgmcEzKeepGrain,
       },
     );
   }
 
+  /// Read an int that may have come back from the UI as a string.
+  ///
+  /// Enum dropdowns hand back the raw option value, and a numeric enum's
+  /// options are strings in the schema (`["1", "16", "17", "18"]`), so the same
+  /// parameter can arrive as `17` (from a converter) or `"17"` (after the user
+  /// picks from the dropdown). A plain `as int?` cast throws on the latter.
+  static int? _asInt(dynamic value) => switch (value) {
+        num n => n.toInt(),
+        String s => int.tryParse(s),
+        _ => null,
+      };
+
+  /// Schema method id for a [DehaloMethod].
+  static String dehaloMethodId(DehaloMethod method) => switch (method) {
+        DehaloMethod.dehaloAlpha => 'dehalo_alpha',
+        DehaloMethod.fineDehalo => 'fine_dehalo',
+        DehaloMethod.fineDehalo2 => 'fine_dehalo2',
+        DehaloMethod.yahr => 'yahr',
+        DehaloMethod.edgeCleaner => 'edge_cleaner',
+        DehaloMethod.vinverse => 'vinverse',
+        DehaloMethod.vinverse2 => 'vinverse2',
+      };
+
+  /// Convert chroma denoise (CCD) parameters to dynamic format.
+  static DynamicParameters fromChromaDenoise(ChromaDenoiseParameters params) {
+    return DynamicParameters(
+      filterId: 'chroma_denoise',
+      enabled: params.enabled,
+      values: {
+        'method': 'ccd',
+        'threshold': params.threshold,
+        'temporalRadius': params.temporalRadius,
+        'pointsLow': params.pointsLow,
+        'pointsMedium': params.pointsMedium,
+        'pointsHigh': params.pointsHigh,
+        if (params.scale != null) 'scale': params.scale,
+      },
+      // Left off, scale is derived from the frame height at run time — which is
+      // both the plugin's own behaviour and the only value that works on short
+      // sources, so it should not start ticked.
+      lastOptionalValues: {
+        if (params.scale == null) 'scale': 1.0,
+      },
+    );
+  }
+
   /// Convert dehalo parameters to dynamic format.
   static DynamicParameters fromDehalo(DehaloParameters params) {
-    String method;
-    switch (params.method) {
-      case DehaloMethod.dehaloAlpha:
-        method = 'dehalo_alpha';
-        break;
-      case DehaloMethod.fineDehalo:
-        method = 'fine_dehalo';
-        break;
-      case DehaloMethod.yahr:
-        method = 'yahr';
-        break;
+    // Parameters added after the pass shipped are nullable: a null goes to
+    // lastOptionalValues so its checkbox starts unticked and havsfunc's own
+    // default applies, instead of the UI claiming every knob is in use.
+    final values = <String, dynamic>{
+      'method': dehaloMethodId(params.method),
+      'rx': params.rx,
+      'ry': params.ry,
+      'darkStr': params.darkStr,
+      'brightStr': params.brightStr,
+      'lowThreshold': params.lowThreshold,
+      'highThreshold': params.highThreshold,
+      'yahrBlur': params.yahrBlur,
+      'yahrDepth': params.yahrDepth,
+    };
+    final lastOptional = <String, dynamic>{};
+
+    void optional(String key, dynamic value, dynamic fallback) {
+      if (value != null) {
+        values[key] = value;
+      } else {
+        lastOptional[key] = fallback;
+      }
     }
+
+    // Fallbacks mirror havsfunc's defaults, so ticking a checkbox starts from
+    // the value the filter would have used anyway.
+    optional('lowSens', params.lowSens, 50);
+    optional('highSens', params.highSens, 50);
+    optional('superSample', params.superSample, 1.5);
+    optional('limitLow', params.limitLow, 50);
+    optional('limitHigh', params.limitHigh, 100);
+    optional('contra', params.contra, 0.0);
+    optional('excludeCloseEdges', params.excludeCloseEdges, true);
+    optional('edgeProc', params.edgeProc, 0.0);
+    optional('edgeStrength', params.edgeStrength, 10);
+    optional('edgeRepair', params.edgeRepair, true);
+    optional('edgeRepairMode', params.edgeRepairMode, 17);
+    optional('edgeSmallMode', params.edgeSmallMode, 0);
+    optional('edgeHotPixels', params.edgeHotPixels, false);
+    optional('vinverseStrength', params.vinverseStrength, 2.7);
+    optional('vinverseAmount', params.vinverseAmount, 255);
+    optional('vinverseChroma', params.vinverseChroma, true);
 
     return DynamicParameters(
       filterId: 'dehalo',
       enabled: params.enabled,
-      values: {
-        'method': method,
-        'rx': params.rx,
-        'ry': params.ry,
-        'darkStr': params.darkStr,
-        'brightStr': params.brightStr,
-        'lowThreshold': params.lowThreshold,
-        'highThreshold': params.highThreshold,
-        'yahrBlur': params.yahrBlur,
-        'yahrDepth': params.yahrDepth,
-      },
+      values: values,
+      lastOptionalValues: lastOptional,
     );
   }
 
@@ -327,6 +404,8 @@ class ParameterConverter {
         'outputLow': params.outputLow,
         'outputHigh': params.outputHigh,
         'gamma': params.gamma,
+        'temperature': params.temperature,
+        'tint': params.tint,
       },
     );
   }
@@ -358,24 +437,56 @@ class ParameterConverter {
 
   /// Convert crop resize parameters to dynamic format.
   static DynamicParameters fromCropResize(CropResizeParameters params) {
+    final values = <String, dynamic>{
+      'cropEnabled': params.cropEnabled,
+      'cropLeft': params.cropLeft,
+      'cropRight': params.cropRight,
+      'cropTop': params.cropTop,
+      'cropBottom': params.cropBottom,
+      'resizeEnabled': params.resizeEnabled,
+      'targetWidth': params.targetWidth,
+      'targetHeight': params.targetHeight,
+      'kernel': params.kernel.name,
+      'maintainAspect': params.maintainAspect,
+      'pixelAspect': params.pixelAspect.name,
+      'padToAspect': params.padToAspect,
+      'useIntegerUpscale': params.useIntegerUpscale,
+      'upscaleMethod': params.upscaleMethod.name,
+      'upscaleFactor': params.upscaleFactor,
+    };
+    // Kernel tuning and the nnedi3/EEDI3 controls start unticked, so the
+    // plugin's own default applies until the user opts in. Fallbacks are those
+    // defaults, so ticking a box changes nothing until the value is moved.
+    final lastOptional = <String, dynamic>{};
+    void optional(String key, dynamic value, dynamic fallback) {
+      if (value != null) {
+        values[key] = value;
+      } else {
+        lastOptional[key] = fallback;
+      }
+    }
+
+    optional('customSar', params.customSar, '10:11');
+    optional('displayAspect', params.displayAspect, '16:9');
+    optional('bicubicB', params.bicubicB, 0.0);
+    optional('bicubicC', params.bicubicC, 0.5);
+    optional('lanczosTaps', params.lanczosTaps, 3);
+    optional('upscaleNsize', params.upscaleNsize, 6);
+    optional('upscaleNeurons', params.upscaleNeurons, 1);
+    optional('upscaleQual', params.upscaleQual, 1);
+    optional('upscaleEtype', params.upscaleEtype, 0);
+    optional('upscalePscrn', params.upscalePscrn, 2);
+    optional('upscaleAlpha', params.upscaleAlpha, 0.2);
+    optional('upscaleBeta', params.upscaleBeta, 0.25);
+    optional('upscaleGamma', params.upscaleGamma, 20.0);
+    optional('upscaleNrad', params.upscaleNrad, 2);
+    optional('upscaleMdis', params.upscaleMdis, 20);
+
     return DynamicParameters(
       filterId: 'crop_resize',
       enabled: params.enabled,
-      values: {
-        'cropEnabled': params.cropEnabled,
-        'cropLeft': params.cropLeft,
-        'cropRight': params.cropRight,
-        'cropTop': params.cropTop,
-        'cropBottom': params.cropBottom,
-        'resizeEnabled': params.resizeEnabled,
-        'targetWidth': params.targetWidth,
-        'targetHeight': params.targetHeight,
-        'kernel': params.kernel.name,
-        'maintainAspect': params.maintainAspect,
-        'useIntegerUpscale': params.useIntegerUpscale,
-        'upscaleMethod': params.upscaleMethod.name,
-        'upscaleFactor': params.upscaleFactor,
-      },
+      values: values,
+      lastOptionalValues: lastOptional,
     );
   }
 
@@ -401,6 +512,7 @@ class ParameterConverter {
         'descratch': fromDeScratch(pipeline.descratch),
         'spotless': fromSpotLess(pipeline.spotless),
         'noise_reduction': fromNoiseReduction(pipeline.noiseReduction),
+        'chroma_denoise': fromChromaDenoise(pipeline.chromaDenoise),
         'dehalo': fromDehalo(pipeline.dehalo),
         'deblock': fromDeblock(pipeline.deblock),
         'deband': fromDeband(pipeline.deband),
@@ -540,6 +652,9 @@ class ParameterConverter {
       case 'mc_temporal_denoise':
         method = NoiseReductionMethod.mcTemporalDenoise;
         break;
+      case 'mcdegrainsharp':
+        method = NoiseReductionMethod.mcDegrainSharp;
+        break;
       case 'qtgmc_builtin':
         method = NoiseReductionMethod.qtgmcBuiltin;
         break;
@@ -558,9 +673,30 @@ class ParameterConverter {
       smDegrainPrefilter: v['smDegrainPrefilter'] as int? ?? 2,
       mcTemporalSigma: (v['mcTemporalSigma'] as num?)?.toDouble() ?? 4.0,
       mcTemporalRadius: v['mcTemporalRadius'] as int? ?? 2,
+      mcdsFrames: _asInt(v['mcdsFrames']) ?? 2,
+      mcdsBlur: (v['mcdsBlur'] as num?)?.toDouble() ?? 0.3,
+      mcdsSharp: (v['mcdsSharp'] as num?)?.toDouble() ?? 0.3,
+      mcdsBlurSearch: v['mcdsBlurSearch'] as bool? ?? true,
+      mcdsThSad: _asInt(v['mcdsThSad']) ?? 400,
+      mcdsPlane: _asInt(v['mcdsPlane']) ?? 4,
       mcTemporalProfile: v['mcTemporalProfile'] as String? ?? 'medium',
       qtgmcEzDenoise: (v['qtgmcEzDenoise'] as num?)?.toDouble() ?? 0.0,
       qtgmcEzKeepGrain: (v['qtgmcEzKeepGrain'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+
+  /// Convert dynamic parameters to chroma denoise (CCD) parameters.
+  static ChromaDenoiseParameters toChromaDenoise(DynamicParameters params) {
+    final v = params.values;
+    return ChromaDenoiseParameters(
+      enabled: params.enabled,
+      threshold: (v['threshold'] as num?)?.toDouble() ?? 4.0,
+      temporalRadius: _asInt(v['temporalRadius']) ?? 0,
+      pointsLow: v['pointsLow'] as bool? ?? true,
+      pointsMedium: v['pointsMedium'] as bool? ?? true,
+      pointsHigh: v['pointsHigh'] as bool? ?? false,
+      // Absent means "derive from the frame height".
+      scale: (v['scale'] as num?)?.toDouble(),
     );
   }
 
@@ -568,17 +704,15 @@ class ParameterConverter {
   static DehaloParameters toDehalo(DynamicParameters params) {
     final v = params.values;
     final methodStr = v['method'] as String? ?? 'dehalo_alpha';
-    DehaloMethod method;
-    switch (methodStr) {
-      case 'fine_dehalo':
-        method = DehaloMethod.fineDehalo;
-        break;
-      case 'yahr':
-        method = DehaloMethod.yahr;
-        break;
-      default:
-        method = DehaloMethod.dehaloAlpha;
-    }
+    final method = switch (methodStr) {
+      'fine_dehalo' => DehaloMethod.fineDehalo,
+      'fine_dehalo2' => DehaloMethod.fineDehalo2,
+      'yahr' => DehaloMethod.yahr,
+      'edge_cleaner' => DehaloMethod.edgeCleaner,
+      'vinverse' => DehaloMethod.vinverse,
+      'vinverse2' => DehaloMethod.vinverse2,
+      _ => DehaloMethod.dehaloAlpha,
+    };
 
     return DehaloParameters(
       enabled: params.enabled,
@@ -587,10 +721,27 @@ class ParameterConverter {
       ry: (v['ry'] as num?)?.toDouble() ?? 2.0,
       darkStr: (v['darkStr'] as num?)?.toDouble() ?? 1.0,
       brightStr: (v['brightStr'] as num?)?.toDouble() ?? 1.0,
-      lowThreshold: v['lowThreshold'] as int? ?? 50,
-      highThreshold: v['highThreshold'] as int? ?? 100,
+      // Absent (checkbox off) stays null so the script omits it entirely.
+      lowSens: (v['lowSens'] as num?)?.toInt(),
+      highSens: (v['highSens'] as num?)?.toInt(),
+      superSample: (v['superSample'] as num?)?.toDouble(),
+      lowThreshold: v['lowThreshold'] as int? ?? 80,
+      highThreshold: v['highThreshold'] as int? ?? 128,
+      limitLow: (v['limitLow'] as num?)?.toInt(),
+      limitHigh: (v['limitHigh'] as num?)?.toInt(),
+      contra: (v['contra'] as num?)?.toDouble(),
+      excludeCloseEdges: v['excludeCloseEdges'] as bool?,
+      edgeProc: (v['edgeProc'] as num?)?.toDouble(),
       yahrBlur: v['yahrBlur'] as int? ?? 2,
       yahrDepth: v['yahrDepth'] as int? ?? 32,
+      edgeStrength: (v['edgeStrength'] as num?)?.toInt(),
+      edgeRepair: v['edgeRepair'] as bool?,
+      edgeRepairMode: _asInt(v['edgeRepairMode']),
+      edgeSmallMode: _asInt(v['edgeSmallMode']),
+      edgeHotPixels: v['edgeHotPixels'] as bool?,
+      vinverseStrength: (v['vinverseStrength'] as num?)?.toDouble(),
+      vinverseAmount: (v['vinverseAmount'] as num?)?.toInt(),
+      vinverseChroma: v['vinverseChroma'] as bool?,
     );
   }
 
@@ -633,9 +784,9 @@ class ParameterConverter {
       blurlen: v['blurlen'] as int? ?? 15,
       keep: v['keep'] as int? ?? 100,
       border: v['border'] as int? ?? 2,
-      modeY: v['modeY'] as int? ?? 1,
-      modeU: v['modeU'] as int? ?? 0,
-      modeV: v['modeV'] as int? ?? 0,
+      modeY: _asInt(v['modeY']) ?? 1,
+      modeU: _asInt(v['modeU']) ?? 0,
+      modeV: _asInt(v['modeV']) ?? 0,
       mindifUV: v['mindifUV'] as int? ?? 0,
     );
   }
@@ -649,7 +800,7 @@ class ParameterConverter {
       rec: v['rec'] as bool? ?? false,
       blksize: v['blksize'] as int? ?? 16,
       overlap: v['overlap'] as int? ?? 8,
-      pel: v['pel'] as int? ?? 2,
+      pel: _asInt(v['pel']) ?? 2,
     );
   }
 
@@ -709,6 +860,8 @@ class ParameterConverter {
       outputLow: v['outputLow'] as int? ?? 0,
       outputHigh: v['outputHigh'] as int? ?? 255,
       gamma: (v['gamma'] as num?)?.toDouble() ?? 1.0,
+      temperature: (v['temperature'] as num?)?.toDouble() ?? 0.0,
+      tint: (v['tint'] as num?)?.toDouble() ?? 0.0,
     );
   }
 
@@ -753,12 +906,34 @@ class ParameterConverter {
         orElse: () => ResizeKernel.spline36,
       ),
       maintainAspect: v['maintainAspect'] as bool? ?? true,
+      pixelAspect: PixelAspectMode.values.firstWhere(
+        (m) => m.name == (v['pixelAspect'] as String? ?? 'preserve'),
+        orElse: () => PixelAspectMode.preserve,
+      ),
+      // Absent (checkbox off) means "use the source's own aspect".
+      customSar: v['customSar'] as String?,
+      displayAspect: v['displayAspect'] as String?,
+      padToAspect: v['padToAspect'] as bool? ?? false,
       useIntegerUpscale: v['useIntegerUpscale'] as bool? ?? false,
       upscaleMethod: UpscaleMethod.values.firstWhere(
         (m) => m.name.toLowerCase() == (v['upscaleMethod'] as String? ?? 'nnedi3Rpow2').toLowerCase(),
         orElse: () => UpscaleMethod.nnedi3Rpow2,
       ),
       upscaleFactor: v['upscaleFactor'] as int? ?? 2,
+      // Absent (checkbox off) stays null so the script omits it entirely.
+      bicubicB: (v['bicubicB'] as num?)?.toDouble(),
+      bicubicC: (v['bicubicC'] as num?)?.toDouble(),
+      lanczosTaps: _asInt(v['lanczosTaps']),
+      upscaleNsize: _asInt(v['upscaleNsize']),
+      upscaleNeurons: _asInt(v['upscaleNeurons']),
+      upscaleQual: _asInt(v['upscaleQual']),
+      upscaleEtype: _asInt(v['upscaleEtype']),
+      upscalePscrn: _asInt(v['upscalePscrn']),
+      upscaleAlpha: (v['upscaleAlpha'] as num?)?.toDouble(),
+      upscaleBeta: (v['upscaleBeta'] as num?)?.toDouble(),
+      upscaleGamma: (v['upscaleGamma'] as num?)?.toDouble(),
+      upscaleNrad: _asInt(v['upscaleNrad']),
+      upscaleMdis: _asInt(v['upscaleMdis']),
     );
   }
 
@@ -792,6 +967,9 @@ class ParameterConverter {
       noiseReduction: dynamic.get('noise_reduction') != null
           ? toNoiseReduction(dynamic.get('noise_reduction')!)
           : const NoiseReductionParameters(),
+      chromaDenoise: dynamic.get('chroma_denoise') != null
+          ? toChromaDenoise(dynamic.get('chroma_denoise')!)
+          : const ChromaDenoiseParameters(),
       dehalo: dynamic.get('dehalo') != null
           ? toDehalo(dynamic.get('dehalo')!)
           : const DehaloParameters(),

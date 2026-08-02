@@ -93,6 +93,7 @@ VapourBox/
 | `worker/src/models/processing_pipeline.rs` | Pipeline passes + `FrameMap` (source↔output frame mapping: `output_count` drives the progress total, `invert`/`total_radius` drive frame-accurate preview) |
 | `worker/src/script_generator.rs` | Template substitution for .vpy |
 | `worker/src/pipeline_executor.rs` | vspipe \| ffmpeg execution |
+| `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
 
@@ -430,6 +431,68 @@ Filters are defined as JSON schemas in `app/assets/filters/core/` (built-in) or 
 **`optional: true`**: Shows enable checkbox; when disabled, parameter is omitted (uses VS default).
 **`visibleWhen`**: Conditional visibility, e.g. `{ "method": ["method_a"] }`.
 
+### Aspect Ratio (issue #50)
+
+Three things decide the shape of the output, and they live in different places:
+
+1. **The stored frame size** — computed in the `.vpy`, because only the script
+   knows the clip's dimensions after cropping and deinterlacing.
+2. **The declared aspect** — applied by ffmpeg (`setsar` / `setdar`), because the
+   Y4M pipe from vspipe **strips aspect metadata entirely**. Whatever the
+   pipeline did, something has to re-stamp it.
+3. **`CropResizeParameters::aspect_declaration`** — the single decision of *what*
+   to stamp, unit-tested, used by the encode path.
+
+The bug this replaced: SAR was re-applied only when no resize ran, so resizing an
+anamorphic source silently dropped it and the picture came out the wrong shape.
+
+- **`pixelAspect: preserve`** (default) — leave the grid alone, re-stamp the
+  source's SAR. Fitting a target box uses the **stored** aspect.
+- **`pixelAspect: square`** — resample so the output is square-pixel at the same
+  display shape (what an anamorphic DVD needs for most players). Fitting uses the
+  **display** aspect, `clip.width * SAR / clip.height`. Works with no target size
+  at all: keep the height, change the width.
+- **`pixelAspect: custom`** — stamp a given SAR verbatim.
+- **`displayAspect`** — force the shape on screen. Declared to ffmpeg as a
+  **`setdar`**, not a `setsar`, because the SAR that produces a given DAR depends
+  on the final frame size, which is computed in the script and unknown to the
+  worker.
+- **`padToAspect`** — letterbox/pillarbox out to the exact target box instead of
+  leaving the picture short in one axis.
+
+Whichever axis you change, `parse_ratio` accepts `16:9`, `16/9` and `1.7778`, and
+returns `None` for anything else so a typo falls back to the source's own aspect
+rather than reaching ffmpeg as a broken filter argument.
+
+### Source Pixel Formats (issue #50)
+
+`templates/pipe_source.py` reads **raw planar frames off stdin**, so it can only
+handle the formats in its `_FORMAT_MAP`. The app passes ffprobe's `pix_fmt`
+straight through (`field_order_detector.dart` → `VideoJob.inputPixelFormat`), and
+ffprobe reports plenty of formats that aren't in that map — so **any unlisted
+format used to fail the entire job** at script evaluation with "Unsupported pixel
+format: …". NTSC DV (`yuv411p`) was the reported case; `yuva444p10le` (ProRes
+4444), `gbrp`, `rgb24`, `gray`, `nv12` and `p010le` had the same problem.
+
+`worker/src/pixel_format.rs::decode_pixel_format` is now the **single** decider
+of the pipe format, and **all four** call sites must use it — the decoder args
+and the generated script, on both the encode and the preview path. If they
+disagree, the raw byte stream desyncs from the frame geometry pipe_source expects
+and the output is garbage rather than an error.
+
+- Readable formats pass through unchanged.
+- Anything else is converted **by the decoder ffmpeg** to the nearest readable
+  format, always a superset (never less chroma resolution or bit depth), so
+  normalization can't degrade the image. 4:1:0 and 4:4:0 therefore go to 4:2:2,
+  not 4:2:0; depth rounds *up* to a depth VapourSynth has (8/9/10/12/14/16);
+  unrecognized names fall back to `yuv444p16le`.
+
+`NATIVE_FORMATS` (Rust) and `_FORMAT_MAP` (Python) must stay in step —
+`test_native_formats_match_pipe_source` parses the Python file and fails if they
+drift. pipe_source derives plane geometry and bytes-per-sample from the
+VapourSynth format itself (`core.get_video_format`), so adding a format is a
+one-line change on each side.
+
 ### Temporary Files Directory
 
 Scratch files default to the system temp directory, and the user can redirect
@@ -730,6 +793,29 @@ version skew between platforms would change chroma per-OS.
 6. **Filter not appearing**: Check JSON syntax, verify `id` is unique
 7. **macOS build fails with "Unable to find module dependency"**: Build Pods-Runner scheme first, then Runner for arm64 only (see Build Commands)
 8. **App crashes silently on video drop (release build)**: Bundle is incomplete. Use packaging scripts. Run from terminal to see errors.
+9. **macOS debug build and the shipped app must stay unsandboxed** (issue #50):
+   `packaging/macos/distribution.entitlements` — what `package-macos.sh` actually
+   signs with, and therefore what ships — has **no** `app-sandbox`, verified
+   against the released DMG. `DebugProfile.entitlements` and
+   `Release.entitlements` deliberately omit it too. Re-adding it redirects `HOME`
+   into `~/Library/Containers/com.stuartcameron.vapourbox/Data/...`, so deps
+   install to a different directory than the shipped app uses, **and** a
+   sandboxed process cannot remove `com.apple.quarantine` from what it
+   downloads — macOS then SIGKILLs ffmpeg/vspipe, surfacing as "ffmpeg exited
+   with signal 9" or a Gatekeeper "not opened" dialog. `DependencyManager`
+   now catches this class of problem by *running* ffmpeg after install and on
+   every startup (`executabilityProblem()` → `DependencyStatus.blocked`), which
+   reports the `xattr -cr` fix instead of failing at job time.
+10. **Job appears to hang**: the worker now fails instead. `StallWatchdog` in
+   `pipeline_executor.rs` gives up after **600s with no frame progress** and
+   reports how far it got ("Stalled: no progress for Ns while encoding (last
+   frame N)"), killing the children so the post-loop `wait()`s can't block on the
+   same wedged process. Raise or disable it with
+   `VAPOURBOX_STALL_TIMEOUT_SECS=<secs>` (`0` waits forever) when debugging an
+   actual stall — otherwise the watchdog will end the job before you can inspect
+   it. The app-side counterpart is in `worker_manager.dart`: exactly one
+   completion event per job, so a worker that exits without reporting a result
+   surfaces as a failure instead of leaving the UI on "processing" forever.
 
 ## Platform-Specific Notes
 

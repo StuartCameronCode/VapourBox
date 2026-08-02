@@ -84,6 +84,13 @@ class PassListPanel extends StatelessWidget {
             ),
 
             item(
+              PassType.chromaDenoise,
+              'Chroma Denoise',
+              pipeline.chromaDenoise.summary,
+              pipeline.chromaDenoise.enabled,
+            ),
+
+            item(
               PassType.dehalo,
               'Dehalo',
               pipeline.dehalo.summary,
