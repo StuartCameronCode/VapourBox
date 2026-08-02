@@ -751,6 +751,48 @@ build_plugin "tmedian" \
     "libtmedian.so" \
     "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
 
+# zsmooth (core.zsmooth.CCD - chroma denoiser; also Cnr4 and a set of
+# RemoveGrain/TemporalMedian-family filters).
+#
+# Taken pre-built rather than built from source: zsmooth is written in Zig, and
+# adding a Zig toolchain to every deps build for one plugin is not worth it. The
+# author publishes a binary for every platform/arch VapourBox targets.
+#
+# Keep ZSMOOTH_VERSION in step across download-deps-{macos,linux}.sh and
+# download-deps-windows.ps1 — a version skew would make the same job produce
+# different chroma per OS.
+ZSMOOTH_VERSION="0.19.0"
+case "$ARCH" in
+    aarch64|arm64) ZSMOOTH_ASSET="zsmooth-aarch64-linux-gnu.zip" ;;
+    *)             ZSMOOTH_ASSET="zsmooth-x86_64-linux-gnu.zip" ;;
+esac
+echo ""
+echo "=== Downloading zsmooth ==="
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libzsmooth.so" ]; then
+    rm -rf "$BUILD_DIR/zsmooth"
+    mkdir -p "$BUILD_DIR/zsmooth"
+    if curl -sL -o "$BUILD_DIR/zsmooth/zsmooth.zip" \
+        "https://github.com/adworacz/zsmooth/releases/download/${ZSMOOTH_VERSION}/${ZSMOOTH_ASSET}" \
+        && unzip -q -o "$BUILD_DIR/zsmooth/zsmooth.zip" -d "$BUILD_DIR/zsmooth"; then
+        so_path=$(find "$BUILD_DIR/zsmooth" -name "*.so" -type f 2>/dev/null | head -1)
+        if [ -n "$so_path" ]; then
+            cp "$so_path" "$PLUGINS_DIR/libzsmooth.so"
+            patchelf --set-rpath '$ORIGIN:$ORIGIN/../../lib' "$PLUGINS_DIR/libzsmooth.so" 2>/dev/null || true
+            echo "  Downloaded pre-built zsmooth -> libzsmooth.so"
+            BUILT_PLUGINS+=("zsmooth")
+        else
+            echo "  Failed: no .so in the zsmooth archive"
+            FAILED_PLUGINS+=("zsmooth")
+        fi
+    else
+        echo "  Failed to download zsmooth"
+        FAILED_PLUGINS+=("zsmooth")
+    fi
+    rm -rf "$BUILD_DIR/zsmooth"
+else
+    echo "  zsmooth already exists, skipping"
+fi
+
 # DeScratch (core.descratch.DeScratch - vertical scratch removal)
 # Built from source: the repo carries the VapourSynth + AviSynthPlus headers as
 # submodules, so a recursive clone is required (build_plugin can't fetch those).

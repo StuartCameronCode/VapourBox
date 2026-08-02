@@ -341,6 +341,17 @@ $PluginsZip = @(
         Name = "knlmeanscl"
         Url = "https://github.com/Khanattila/KNLMeansCL/releases/download/v1.1.1/KNLMeansCL-v1.1.1.zip"
         Check = "KNLMeansCL.dll"
+    },
+    @{
+        # core.zsmooth.CCD - chroma denoiser (also Cnr4 and a set of
+        # RemoveGrain/TemporalMedian-family filters). Written in Zig, so it is
+        # taken pre-built on every platform rather than adding a Zig toolchain to
+        # the deps builds. Keep the version in step with ZSMOOTH_VERSION in
+        # download-deps-{macos,linux}.sh: a skew would make the same job produce
+        # different chroma per OS.
+        Name = "zsmooth"
+        Url = "https://github.com/adworacz/zsmooth/releases/download/0.19.0/zsmooth-x86_64-windows.zip"
+        Check = "zsmooth.dll"
     }
 )
 

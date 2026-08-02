@@ -16,6 +16,7 @@
     "TCanny.dll",
     "TTempSmooth.dll",
     "VIVTC.dll",
+    "zsmooth.dll",
     "fft3dfilter.dll",
     "fmtconv.dll",
     "libawarpsharp2.dll",
@@ -49,7 +50,8 @@
     "libtmedian.dylib",
     "libttempsmooth.dylib",
     "libvivtc.dylib",
-    "libznedi3.dylib"
+    "libznedi3.dylib",
+    "libzsmooth.dylib"
   ],
   "macos-x64": [
     "libaddgrain.dylib",
@@ -74,7 +76,8 @@
     "libtmedian.dylib",
     "libttempsmooth.dylib",
     "libvivtc.dylib",
-    "libznedi3.dylib"
+    "libznedi3.dylib",
+    "libzsmooth.dylib"
   ],
   "linux-x64": [
     "libaddgrain.so",
@@ -98,7 +101,8 @@
     "libtmedian.so",
     "libttempsmooth.so",
     "libvivtc.so",
-    "libznedi3.so"
+    "libznedi3.so",
+    "libzsmooth.so"
   ],
   "linux-arm64": [
     "libaddgrain.so",
@@ -122,6 +126,7 @@
     "libtmedian.so",
     "libttempsmooth.so",
     "libvivtc.so",
-    "libznedi3.so"
+    "libznedi3.so",
+    "libzsmooth.so"
   ]
 }
