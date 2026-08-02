@@ -6,7 +6,7 @@ A user-friendly wrapper for [VapourSynth](https://www.vapoursynth.com/) that mak
 
 No scripting required. No command line needed. Just drop your video and go.
 
-![VapourBox Screenshot](docs/images/screenshot.png)
+![VapourBox showing a VHS capture mid-restoration: the preview split between the interlaced original and the deinterlaced result, with the video pipeline and processing queue alongside](docs/images/screenshot.png)
 
 ## Use Cases
 
