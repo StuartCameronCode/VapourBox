@@ -908,6 +908,9 @@ impl PipelineExecutor {
     /// Build encoder-family-specific quality and preset arguments.
     fn build_encoder_quality_args(args: &mut Vec<String>, job: &VideoJob) {
         let settings = &job.encoding_settings;
+        // Never pass another family's preset vocabulary to the encoder — ffmpeg
+        // rejects the option and the encode dies. See `normalized_preset`.
+        let preset = settings.codec.normalized_preset(&settings.encoder_preset);
         if let Some(profile) = settings.codec.prores_profile() {
             args.push("-profile:v".to_string());
             args.push(profile.to_string());
@@ -915,7 +918,7 @@ impl PipelineExecutor {
             match settings.codec.encoder_family() {
                 EncoderFamily::Software => {
                     args.extend(["-crf".to_string(), settings.quality.to_string()]);
-                    args.extend(["-preset".to_string(), settings.encoder_preset.clone()]);
+                    args.extend(["-preset".to_string(), preset.clone()]);
                 }
                 EncoderFamily::Nvenc => {
                     // VBR with constant quality (-cq) provides much better quality
@@ -924,7 +927,7 @@ impl PipelineExecutor {
                     args.extend(["-rc".to_string(), "vbr".to_string()]);
                     args.extend(["-cq".to_string(), settings.quality.to_string()]);
                     args.extend(["-b:v".to_string(), "0".to_string()]);
-                    args.extend(["-preset".to_string(), settings.encoder_preset.clone()]);
+                    args.extend(["-preset".to_string(), preset.clone()]);
                     args.extend(["-tune".to_string(), "hq".to_string()]);
                     args.extend(["-multipass".to_string(), "fullres".to_string()]);
                     args.extend(["-rc-lookahead".to_string(), "32".to_string()]);
@@ -938,7 +941,7 @@ impl PipelineExecutor {
                 }
                 EncoderFamily::Qsv => {
                     args.extend(["-global_quality".to_string(), settings.quality.to_string()]);
-                    args.extend(["-preset".to_string(), settings.encoder_preset.clone()]);
+                    args.extend(["-preset".to_string(), preset.clone()]);
                 }
                 EncoderFamily::Videotoolbox => {
                     // VideoToolbox's constant-quality mode (-q:v) is only
@@ -970,7 +973,12 @@ impl PipelineExecutor {
                     args.extend(["-rc".to_string(), "cqp".to_string()]);
                     args.extend(["-qp_i".to_string(), settings.quality.to_string()]);
                     args.extend(["-qp_p".to_string(), settings.quality.to_string()]);
-                    args.extend(["-quality".to_string(), settings.encoder_preset.clone()]);
+                    // B-frames were left on the encoder's default QP while I and
+                    // P were pinned, so a GOP could mix a chosen quality with an
+                    // unrelated one. AMF ignores the option on ASICs without
+                    // B-frame support, so setting it is safe either way.
+                    args.extend(["-qp_b".to_string(), settings.quality.to_string()]);
+                    args.extend(["-quality".to_string(), preset.clone()]);
                 }
                 EncoderFamily::Lossless | EncoderFamily::ProRes => {
                     // No quality/preset args needed
@@ -1917,10 +1925,76 @@ mod tests {
         assert!(qp_p_idx.is_some(), "AMF should use -qp_p");
         assert_eq!(args[qp_p_idx.unwrap() + 1], "20");
 
+        let qp_b_idx = args.iter().position(|a| a == "-qp_b");
+        assert!(qp_b_idx.is_some(), "AMF should pin -qp_b too (issue #51)");
+        assert_eq!(args[qp_b_idx.unwrap() + 1], "20");
+
         let quality_idx = args.iter().position(|a| a == "-quality");
         assert!(quality_idx.is_some(), "AMF should use -quality");
         assert_eq!(args[quality_idx.unwrap() + 1], "balanced");
 
         assert!(!args.contains(&"-crf".to_string()), "AMF should not use -crf");
+    }
+
+    /// Issue #51: left to negotiate, a >8-bit source reaches AMF as p010 and
+    /// 10-bit HEVC encode only exists on some AMD ASICs — elsewhere the runtime
+    /// faults rather than failing cleanly. Pin the format both encoders always
+    /// support.
+    #[test]
+    fn test_ffmpeg_args_amf_forces_nv12() {
+        for codec in [VideoCodec::H264Amf, VideoCodec::H265Amf] {
+            let mut job = create_test_job("output.mp4");
+            job.encoding_settings.codec = codec;
+
+            let args = build_ffmpeg_args_for_test(&job);
+
+            let idx = args.iter().position(|a| a == "-pix_fmt");
+            assert!(idx.is_some(), "{:?} should force a pixel format", codec);
+            assert_eq!(args[idx.unwrap() + 1], "nv12", "codec {:?}", codec);
+        }
+    }
+
+    /// A preset from another encoder family (a saved preset carrying x264's
+    /// "medium", say) must not reach ffmpeg — it rejects the option and the
+    /// whole encode fails. Each family falls back to its own default instead.
+    #[test]
+    fn test_ffmpeg_args_foreign_preset_falls_back() {
+        let cases = [
+            (VideoCodec::H264Amf, "-quality", "balanced"),
+            (VideoCodec::H264Nvenc, "-preset", "p4"),
+            (VideoCodec::H264Qsv, "-preset", "medium"),
+        ];
+
+        for (codec, flag, expected) in cases {
+            let mut job = create_test_job("output.mp4");
+            job.encoding_settings.codec = codec;
+            // "placebo" is x264-only — meaningless to every hardware family.
+            job.encoding_settings.encoder_preset = "placebo".to_string();
+
+            let args = build_ffmpeg_args_for_test(&job);
+            let idx = args.iter().position(|a| a == flag);
+            assert!(idx.is_some(), "{:?} should pass {}", codec, flag);
+            assert_eq!(args[idx.unwrap() + 1], expected, "codec {:?}", codec);
+        }
+    }
+
+    /// A preset the encoder *does* accept passes through untouched.
+    #[test]
+    fn test_ffmpeg_args_valid_preset_preserved() {
+        let mut job = create_test_job("output.mp4");
+        job.encoding_settings.codec = VideoCodec::H265Amf;
+        job.encoding_settings.encoder_preset = "speed".to_string();
+
+        let args = build_ffmpeg_args_for_test(&job);
+        let idx = args.iter().position(|a| a == "-quality").unwrap();
+        assert_eq!(args[idx + 1], "speed");
+
+        // Software x264 keeps its own vocabulary.
+        let mut sw = create_test_job("output.mp4");
+        sw.encoding_settings.codec = VideoCodec::H264;
+        sw.encoding_settings.encoder_preset = "veryslow".to_string();
+        let sw_args = build_ffmpeg_args_for_test(&sw);
+        let sw_idx = sw_args.iter().position(|a| a == "-preset").unwrap();
+        assert_eq!(sw_args[sw_idx + 1], "veryslow");
     }
 }

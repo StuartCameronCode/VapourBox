@@ -125,14 +125,28 @@ class HardwareEncoderDetector extends ChangeNotifier {
     }
   }
 
+  /// Frame size for the functional probe.
+  ///
+  /// Hardware encoders have minimum dimensions and a tiny frame makes them
+  /// report a *false* failure: AMD AMF rejects 64x64, which had VapourBox
+  /// marking working AMF encoders as broken (issue #51). AMF's minimum is
+  /// 192x128 on some ASICs, and NVENC/QSV have their own floors, so probe at a
+  /// size comfortably above all of them. One frame, so the cost is unchanged.
+  static const int probeFrameSize = 512;
+
+  /// The ffmpeg arguments used to functionally probe [codecValue]. Exposed for
+  /// tests so the frame-size guarantee above can't silently regress.
+  static List<String> probeArgs(String codecValue) => <String>[
+        '-hide_banner', '-loglevel', 'error',
+        '-f', 'lavfi',
+        '-i', 'color=c=black:s=${probeFrameSize}x$probeFrameSize:r=5:d=1',
+        '-frames:v', '1',
+        '-c:v', codecValue,
+        '-f', 'null', '-',
+      ];
+
   Future<void> _probe(String ffmpegPath, VideoCodec codec) async {
-    final args = <String>[
-      '-hide_banner', '-loglevel', 'error',
-      '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=5:d=1',
-      '-frames:v', '1',
-      '-c:v', codec.value,
-      '-f', 'null', '-',
-    ];
+    final args = probeArgs(codec.value);
     var ok = false;
     String? errorLog;
     try {
