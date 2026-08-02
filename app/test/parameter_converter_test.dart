@@ -401,5 +401,50 @@ void main() {
         expect(dynamicPipeline.get('deinterlace')?.values['preset'], 'Medium');
       });
     });
+    // Issue #50: FineDehalo's thmi/thma defaults were corrected from 50/100 to
+    // havsfunc's 80/128. Changing a default must never rewrite settings a user
+    // already saved — presets and job configs serialize these explicitly, so
+    // the correction has to apply to *absent* keys only.
+    group('corrected defaults do not rewrite saved settings', () {
+      test('a preset saved with the old values reloads unchanged', () {
+        const saved = DehaloParameters(
+          enabled: true,
+          method: DehaloMethod.fineDehalo,
+          lowThreshold: 50,
+          highThreshold: 100,
+        );
+
+        final reloaded = DehaloParameters.fromJson(saved.toJson());
+
+        expect(reloaded.lowThreshold, 50,
+            reason: 'a saved threshold must survive a change to the default');
+        expect(reloaded.highThreshold, 100);
+      });
+
+      test('a config with the keys absent picks up the corrected default', () {
+        final fresh = DehaloParameters.fromJson({
+          'enabled': true,
+          'method': 'FineDehalo',
+        });
+
+        expect(fresh.lowThreshold, 80, reason: "havsfunc's thmi default");
+        expect(fresh.highThreshold, 128, reason: "havsfunc's thma default");
+      });
+
+      test('the converter round-trips a saved value rather than the default', () {
+        const saved = DehaloParameters(
+          enabled: true,
+          method: DehaloMethod.fineDehalo,
+          lowThreshold: 50,
+          highThreshold: 100,
+        );
+
+        final typed = ParameterConverter.toDehalo(
+            ParameterConverter.fromDehalo(saved));
+
+        expect(typed.lowThreshold, 50);
+        expect(typed.highThreshold, 100);
+      });
+    });
   });
 }
