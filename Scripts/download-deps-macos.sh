@@ -1275,22 +1275,73 @@ fi  # end plugin arch split (x86_64 pre-built / arm64 from-source)
 # zsmooth (core.zsmooth.CCD - chroma denoiser; also Cnr4 and a set of
 # RemoveGrain/TemporalMedian-family filters).
 #
-# Taken pre-built rather than built from source: zsmooth is written in Zig, and
-# adding a Zig toolchain to every deps build for one plugin is not worth it. The
-# author publishes a binary for every platform/arch VapourBox targets, built
-# against VapourSynth API 4, and it loads fine in our bundled R73.
-#
 # Keep ZSMOOTH_VERSION in step across download-deps-{macos,linux}.sh and
 # download-deps-windows.ps1 — a version skew would make the same job produce
 # different chroma per OS.
 ZSMOOTH_VERSION="0.19.0"
+
 if [ "$ARCH" = "arm64" ]; then
-    ZSMOOTH_ASSET="zsmooth-aarch64-macos.zip"
+    # arm64 takes the author's build: it is minos 13, comfortably under this
+    # arch's 15.0 target.
+    download_prebuilt_plugin "zsmooth" "libzsmooth.dylib" \
+        "https://github.com/adworacz/zsmooth/releases/download/${ZSMOOTH_VERSION}/zsmooth-aarch64-macos.zip"
 else
-    ZSMOOTH_ASSET="zsmooth-x86_64-macos.zip"
+    # x64 builds from source (issue #39). The author's x86_64 build is minos
+    # 13.0, and this bundle targets 12.0, so the pre-built binary is rejected by
+    # the minos guard at the end of this script — it would fail to load on
+    # Monterey with a dyld error, which is the exact failure #39 was opened for.
+    # Same reason zimg/fftw/boost are built from source in the x64 branch above.
+    #
+    # zsmooth is written in Zig, so this needs a Zig toolchain. It is fetched
+    # here rather than installed globally: it is used for this one plugin, and
+    # pinning it keeps the build reproducible. ZIG_VERSION must satisfy
+    # zsmooth's `minimum_zig_version` (build.zig.zon) — 0.15.2 for zsmooth
+    # 0.19.0. `zig build` also fetches zsmooth's own Zig dependencies
+    # (vapoursynth headers, fftw), so this step needs network access.
+    ZIG_VERSION="0.15.2"
+    echo ""
+    echo "=== Building zsmooth from source (x64, targeting macOS $MACOS_MIN_VERSION) ==="
+    if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libzsmooth.dylib" ]; then
+        # Subshell so a failure here can't abort the whole script under `set -e`;
+        # the file check below decides whether it worked.
+        (
+            set -e
+            cd "$BUILD_DIR"
+            rm -rf zig-toolchain zsmooth
+            curl -fsSL -o zig.tar.xz \
+                "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-macos-${ZIG_VERSION}.tar.xz"
+            mkdir -p zig-toolchain
+            tar -xf zig.tar.xz -C zig-toolchain --strip-components=1
+            git clone --depth 1 --branch "$ZSMOOTH_VERSION" \
+                https://github.com/adworacz/zsmooth.git zsmooth
+            cd zsmooth
+            # Zig needs a full x.y version here: "x86_64-macos.12" is rejected
+            # as an invalid OS version, "x86_64-macos.12.0" is accepted. Tolerate
+            # a bare major from a $MACOS_MIN_VERSION override.
+            case "$MACOS_MIN_VERSION" in
+                *.*) ZIG_MACOS_MIN="$MACOS_MIN_VERSION" ;;
+                *)   ZIG_MACOS_MIN="${MACOS_MIN_VERSION}.0" ;;
+            esac
+            "$BUILD_DIR/zig-toolchain/zig" build \
+                -Doptimize=ReleaseFast \
+                -Dtarget="x86_64-macos.${ZIG_MACOS_MIN}"
+            cp zig-out/lib/libzsmooth.dylib "$PLUGINS_DIR/libzsmooth.dylib"
+        ) || true
+
+        if [ -f "$PLUGINS_DIR/libzsmooth.dylib" ]; then
+            install_name_tool -id "@loader_path/libzsmooth.dylib" \
+                "$PLUGINS_DIR/libzsmooth.dylib" 2>/dev/null || true
+            codesign -s - -f "$PLUGINS_DIR/libzsmooth.dylib" 2>/dev/null || true
+            echo "  Built zsmooth -> libzsmooth.dylib"
+        else
+            echo "  Warning: failed to build zsmooth"
+            FAILED_PLUGINS+=("zsmooth")
+        fi
+        rm -rf "$BUILD_DIR/zig-toolchain" "$BUILD_DIR/zsmooth" "$BUILD_DIR/zig.tar.xz"
+    else
+        echo "  zsmooth already exists, skipping"
+    fi
 fi
-download_prebuilt_plugin "zsmooth" "libzsmooth.dylib" \
-    "https://github.com/adworacz/zsmooth/releases/download/${ZSMOOTH_VERSION}/${ZSMOOTH_ASSET}"
 
 # ============================================================================
 # Download NNEDI3 weights
