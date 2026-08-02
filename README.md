@@ -1,3 +1,5 @@
+<img src="docs/images/icon.png" alt="VapourBox" width="120" align="right">
+
 # VapourBox
 
 A user-friendly wrapper for [VapourSynth](https://www.vapoursynth.com/) that makes video processing accessible to everyone. Convert between video formats, apply QTGMC deinterlacing, perform IVTC (inverse telecine) for DVD sources, extract DVD titles, reduce noise, generate subtitles, and fix common video problems — all through a simple drag-and-drop interface.
@@ -44,7 +46,7 @@ Get the latest release for your platform:
 
 1. Download the `.dmg` for your Mac's CPU from the [releases page](https://github.com/StuartCameronCode/VapourBox/releases/latest) — `arm64` for Apple Silicon (macOS 15+), `x64` for Intel (macOS 12+)
 2. Open the DMG and drag **VapourBox** to your Applications folder
-3. On first launch, VapourBox will automatically download its processing dependencies (~180 MB)
+3. On first launch, VapourBox will automatically download its processing dependencies (~100 MB)
 
 > **Note**: VapourBox is signed with an Apple Developer ID and notarized, so it opens normally — just drag it to Applications and launch.
 
@@ -53,14 +55,14 @@ Get the latest release for your platform:
 1. Download the `.zip` file from the [releases page](https://github.com/StuartCameronCode/VapourBox/releases/latest)
 2. Extract to a folder of your choice (e.g., `C:\VapourBox`)
 3. Run `vapourbox.exe`
-4. On first launch, VapourBox will automatically download its processing dependencies (~195 MB)
+4. On first launch, VapourBox will automatically download its processing dependencies (~145 MB)
 
 ### Linux
 
 1. Download the `.tar.gz` file for your architecture from the [releases page](https://github.com/StuartCameronCode/VapourBox/releases/latest)
 2. Extract: `tar -xzf VapourBox-x.x.x-linux-x64.tar.gz`
 3. Run: `cd VapourBox-x.x.x-linux-x64 && ./vapourbox`
-4. On first launch, VapourBox will automatically download its processing dependencies (~100 MB)
+4. On first launch, VapourBox will automatically download its processing dependencies (~185 MB)
 
 > **GPU acceleration**: For GPU-accelerated deinterlacing (NNEDI3CL), install your GPU's OpenCL driver. Without it, VapourBox falls back to CPU-based processing automatically.
 
@@ -68,9 +70,12 @@ Get the latest release for your platform:
 
 - **Drag-and-drop interface** — drop video files, folders, or VIDEO_TS directories to start
 - **Auto-detection** — automatically identifies interlaced, telecined, and progressive content
-- **Multi-pass video processing pipeline** — chain filters in order: deinterlace, denoise, dehalo, deblock, deband, sharpen, color correction, chroma fixes, crop/resize
+- **Settings that stay next to their filter** — tap a pass and its controls expand in place beneath it, rather than in a separate panel; every filter leads with a summary and a **More** expander explaining what it does and when to reach for it
+- **Resizable panels** — give the preview or the pass list whatever share of the window suits the job
+- **Multi-pass video processing pipeline** — thirteen filters, applied in a fixed order: crop, deinterlace, descratch, spotless, denoise, chroma denoise, dehalo, deblock, deband, sharpen, chroma fixes, color correction, resize
 - **Halo, ring and ghost removal** — seven methods, from DeHalo Alpha and Fine Dehalo through Edge Cleaner to Vinverse for the comb/ghost residue a deinterlacer leaves behind
 - **QTGMC deinterlacing** — full access to all 70+ parameters, from Draft to Placebo quality
+- **Optional higher-precision deinterlacing** — interlaced 4:2:0 stores chroma per field, so the pass can upsample to 4:2:2 first, and separately run at 16-bit to avoid rounding accumulated across QTGMC's many internal steps. Both are off by default; the descriptions state what each costs
 - **IVTC (Inverse Telecine)** — recover original 23.976 FPS film from telecined DVD sources
 - **Soft telecine handling** — strip pulldown flags without re-encoding fields
 - **Whisper subtitle generation** — generate SRT subtitles from speech, embed into video, or both
@@ -79,16 +84,17 @@ Get the latest release for your platform:
 - **In/Out point markers** — export only a portion of your video
 - **DVD disc import** — open a DVD, pick a title, extract and process directly
 - **Batch queue** — process multiple videos with the same settings
-- **Preset system** — built-in presets (Fast, Balanced, High Quality, VHS Cleanup) plus save your own
+- **Preset system** — built-in presets (Fast, Balanced, High Quality, VHS Cleanup, DVD IVTC) plus save your own
 - **Multiple output formats** — H.264, H.265, ProRes, FFV1 lossless, with hardware encoding support (VideoToolbox, NVENC, QSV, AMF)
 - **Audio options** — passthrough, re-encode (AAC, Opus, FLAC), or strip audio
 - **Custom filters** — extend VapourBox with your own VapourSynth filters via [JSON schemas](docs/FILTER_SCHEMA.md)
 - **Aspect ratio control** — non-square pixel SAR (e.g. anamorphic DVD) carried through the pipeline, including through a resize; square up anamorphic pixels, force a display aspect, or letterbox to a target size
 - **Motion-compensated denoising** — SMDegrain, MCTemporalDenoise, or MCDegrainSharp, which sharpens where motion matching is confident and softens where it isn't
-- **Chroma denoise (CCD)** — clears the blotchy colour noise on VHS captures and old camcorder footage without touching detail in the picture
+- **Chroma denoise (CCD)** — clears the blotchy color noise on VHS captures and old camcorder footage without touching detail in the picture
 - **White balance** — temperature (warm/cool) and tint (green/magenta) correction alongside brightness, contrast, saturation, hue and levels
 - **Edge-directed upscaling** — NNEDI3 or EEDI3 integer doubling with the full neuron/quality/prescreener controls, plus seven resampling kernels with per-kernel tuning
 - **Wide source format support** — 4:1:1 (NTSC DV), 4:1:0, 4:2:0/4:2:2/4:4:4 up to 16-bit, RGB and grayscale sources
+- **Built-in feedback route** — Settings → General has "Report a bug or give feedback", which opens the issue tracker (a fork points at its own)
 - **Standalone** — all processing dependencies are bundled and auto-downloaded on first run
 
 ## Usage
@@ -168,7 +174,7 @@ Unencrypted DVDs (home recordings, some independent releases) work without libdv
 ### Presets
 
 - Click the tuning icon in the toolbar to open presets
-- **Built-in**: Fast, Balanced, High Quality, VHS Cleanup
+- **Built-in**: Fast, Balanced, High Quality, VHS Cleanup, DVD IVTC
 - **Save** your current settings for reuse across sessions
 
 ### Temporary Files
