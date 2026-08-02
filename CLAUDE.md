@@ -318,6 +318,29 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 - For local testing, run the download script to populate `deps/` (e.g.
   `deps/windows-x64/vapoursynth/vs-plugins/`, `deps/macos-arm64/vapoursynth/plugins/`).
 
+### Regenerating the App Icon
+
+`Scripts/generate-app-icon.swift` is the vector source of truth — it draws the
+icon with CoreGraphics at whatever size you ask for, so no ImageMagick or
+librsvg is needed (and every size is drawn at its own scale rather than
+downsampled from one bitmap). `Scripts/generate-app-icons.sh` drives it at the
+sizes each platform wants and packs the Windows `.ico` in pure Python:
+
+```bash
+./Scripts/generate-app-icons.sh     # macOS only; needs Swift from the Xcode CLT
+```
+
+The generated PNGs and `.ico` **are committed**, because Xcode's asset catalog
+and the Windows resource compiler read them at build time. Re-run the script
+after editing the design, and rebuild to see it: macOS caches icons
+aggressively, so `run-debug-macos.sh` (which replaces the whole bundle) is the
+reliable way to check.
+
+`--style macos` insets the artwork in a rounded body per Apple's icon grid;
+`--style square` is full-bleed for Windows and Linux, which draw no mask of
+their own. The design rationale — and two rejected concepts, so they are not
+tried again — is in the renderer's header comment.
+
 ### Adding a New Built-in Preset
 
 1. Edit `app/lib/services/preset_service.dart`
