@@ -72,13 +72,23 @@ Get the latest release for your platform:
 - **Auto-detection** — automatically identifies interlaced, telecined, and progressive content
 - **Settings that stay next to their filter** — tap a pass and its controls expand in place beneath it, rather than in a separate panel; every filter leads with a summary and a **More** expander explaining what it does and when to reach for it
 - **Resizable panels** — give the preview or the pass list whatever share of the window suits the job
-- **Multi-pass video processing pipeline** — thirteen filters, applied in a fixed order: crop, deinterlace, descratch, spotless, denoise, chroma denoise, dehalo, deblock, deband, sharpen, chroma fixes, color correction, resize
-- **Halo, ring and ghost removal** — seven methods, from DeHalo Alpha and Fine Dehalo through Edge Cleaner to Vinverse for the comb/ghost residue a deinterlacer leaves behind
+- **Multi-pass video processing pipeline** — thirteen filters, each independently switchable, applied in a fixed order:
+  - **Deinterlace** — QTGMC, or IVTC to recover the original 23.976 FPS film from a telecined DVD
+  - **DeScratch** — remove the vertical scratches left on scanned film
+  - **SpotLess** — remove dust, dirt and one-frame spots
+  - **Noise Reduction** — motion-compensated denoising via SMDegrain, MCTemporalDenoise, or MCDegrainSharp, which sharpens where motion matching is confident and softens where it isn't
+  - **Chroma Denoise** — CCD, for the blotchy color noise on VHS captures and old camcorder footage, leaving detail in the picture untouched
+  - **Dehalo** — seven methods covering halo, ringing, and the comb/ghost residue a deinterlacer leaves behind
+  - **Deblock** — blocking artifacts from heavily compressed sources
+  - **Deband** — banding in gradients and skies, via f3kdb
+  - **Sharpen** — LSFmod or CAS, for edges and fine detail
+  - **Chroma Fixes** — chroma bleeding, rainbows and dot crawl
+  - **Color Correction** — brightness, contrast, saturation, hue and levels, plus white balance: temperature (warm/cool) and tint (green/magenta)
+  - **Crop & Resize** — cropping runs first, before deinterlacing, so nothing downstream spends time on pixels you are discarding; resizing and edge-directed upscaling run last
+  - **Subtitles** — Whisper AI speech-to-text, after the video passes, to an SRT file, embedded, or both
 - **QTGMC deinterlacing** — full access to all 70+ parameters, from Draft to Placebo quality
 - **Optional higher-precision deinterlacing** — interlaced 4:2:0 stores chroma per field, so the pass can upsample to 4:2:2 first, and separately run at 16-bit to avoid rounding accumulated across QTGMC's many internal steps. Both are off by default; the descriptions state what each costs
-- **IVTC (Inverse Telecine)** — recover original 23.976 FPS film from telecined DVD sources
 - **Soft telecine handling** — strip pulldown flags without re-encoding fields
-- **Whisper subtitle generation** — generate SRT subtitles from speech, embed into video, or both
 - **Real-time preview** — side-by-side before/after comparison with live filter updates
 - **Zoomable timeline** — mouse wheel zoom centered on cursor, drag to pan
 - **In/Out point markers** — export only a portion of your video
@@ -89,9 +99,6 @@ Get the latest release for your platform:
 - **Audio options** — passthrough, re-encode (AAC, Opus, FLAC), or strip audio
 - **Custom filters** — extend VapourBox with your own VapourSynth filters via [JSON schemas](docs/FILTER_SCHEMA.md)
 - **Aspect ratio control** — non-square pixel SAR (e.g. anamorphic DVD) carried through the pipeline, including through a resize; square up anamorphic pixels, force a display aspect, or letterbox to a target size
-- **Motion-compensated denoising** — SMDegrain, MCTemporalDenoise, or MCDegrainSharp, which sharpens where motion matching is confident and softens where it isn't
-- **Chroma denoise (CCD)** — clears the blotchy color noise on VHS captures and old camcorder footage without touching detail in the picture
-- **White balance** — temperature (warm/cool) and tint (green/magenta) correction alongside brightness, contrast, saturation, hue and levels
 - **Edge-directed upscaling** — NNEDI3 or EEDI3 integer doubling with the full neuron/quality/prescreener controls, plus seven resampling kernels with per-kernel tuning
 - **Wide source format support** — 4:1:1 (NTSC DV), 4:1:0, 4:2:0/4:2:2/4:4:4 up to 16-bit, RGB and grayscale sources
 - **Built-in feedback route** — Settings → General has "Report a bug or give feedback", which opens the issue tracker (a fork points at its own)
