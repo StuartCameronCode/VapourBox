@@ -25,6 +25,12 @@ enum DependencyStatus {
   /// Dependencies are installed but SHA256 doesn't match (corrupted)
   corrupted,
 
+  /// Installed and complete, but the binaries refuse to execute — on macOS this
+  /// is almost always com.apple.quarantine, which the OS enforces by SIGKILLing
+  /// the process. Re-downloading cannot fix it, so this must NOT be treated as
+  /// missing/outdated or the app would loop on the download.
+  blocked,
+
   /// Currently checking status
   checking,
 }
@@ -368,11 +374,66 @@ class DependencyManager {
         }
       }
 
+      // Present and complete is not the same as usable — see
+      // executabilityProblem(). Checking here as well as after install matters:
+      // the install that quarantined them may have been several launches ago.
+      final problem = await executabilityProblem();
+      if (problem != null) {
+        print('DependencyManager: Dependencies present but unusable: $problem');
+        return DependencyStatus.blocked;
+      }
+
       print('DependencyManager: Dependencies OK (v${installed.version})');
       return DependencyStatus.installed;
     } catch (e) {
       print('DependencyManager: Check failed: $e');
       return DependencyStatus.missing;
+    }
+  }
+
+  /// Why the installed dependencies can't be executed, or null if they can.
+  ///
+  /// Checking that files *exist* is not enough: macOS refuses to execute a
+  /// quarantined binary, killing it with SIGKILL, so a complete and correct
+  /// install can still be unusable. That surfaced as "ffmpeg exited with signal
+  /// 9" at job time, an error naming neither the cause nor the fix (issue #50).
+  ///
+  /// ffmpeg stands in for the rest: quarantine is applied to everything that was
+  /// extracted, so if ffmpeg runs, its siblings will too.
+  ///
+  /// [depsDirOverride] exists so tests can point this at a deliberately broken
+  /// install; production callers leave it unset.
+  Future<String?> executabilityProblem({Directory? depsDirOverride}) async {
+    final depsDir = depsDirOverride ?? await getDepsDirectory();
+    final ffmpeg = File(path.join(
+        depsDir.path, 'ffmpeg', Platform.isWindows ? 'ffmpeg.exe' : 'ffmpeg'));
+    if (!await ffmpeg.exists()) return null; // absence is the caller's business
+
+    try {
+      final result = await Process.run(ffmpeg.path, ['-version']);
+      if (result.exitCode == 0) return null;
+
+      // SIGKILL (-9, or 137 through a shell) is the quarantine signature.
+      final killed = result.exitCode == -9 || result.exitCode == 137;
+      if (Platform.isMacOS && killed && await _isQuarantined(ffmpeg.path)) {
+        return 'macOS has quarantined the downloaded dependencies, so it kills '
+            'them on launch. Clear the flag and restart VapourBox:\n\n'
+            'xattr -cr "${depsDir.path}"';
+      }
+      return 'The bundled ffmpeg would not run (exit ${result.exitCode}). '
+          '${result.stderr}'.trim();
+    } catch (e) {
+      return 'The bundled ffmpeg could not be launched: $e';
+    }
+  }
+
+  /// Whether [filePath] still carries com.apple.quarantine.
+  Future<bool> _isQuarantined(String filePath) async {
+    try {
+      final result = await Process.run('xattr', [filePath]);
+      return (result.stdout as String).contains('com.apple.quarantine');
+    } catch (_) {
+      return false;
     }
   }
 
@@ -444,6 +505,17 @@ class DependencyManager {
       final downloadedBytes = await tempFile.length();
 
       await _extractZip(tempFile);
+
+      // Prove the install is actually usable before declaring success. The
+      // quarantine strip above can fail — silently, and it cannot succeed at all
+      // from a sandboxed process — leaving a complete install whose binaries
+      // macOS kills on sight. Reporting "Complete" then would hand the user an
+      // "ffmpeg exited with signal 9" hours later instead of the real problem
+      // now (issue #50).
+      final problem = await executabilityProblem();
+      if (problem != null) {
+        throw Exception(problem);
+      }
 
       // Write version file (per-platform version, so the next check matches)
       await _writeInstalledVersion(expected.versionFor(platformId));

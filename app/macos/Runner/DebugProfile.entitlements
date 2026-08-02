@@ -1,9 +1,30 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  NOTE: com.apple.security.app-sandbox is deliberately absent (issue #50).
+
+  The shipped app is NOT sandboxed: package-macos.sh re-signs the bundle with
+  packaging/macos/distribution.entitlements, which carries only the three
+  hardened-runtime exceptions. Verified against the released v0.9.10 DMG.
+
+  A sandboxed debug build therefore behaves differently from the app users run,
+  and not harmlessly: the sandbox redirects HOME, so downloaded dependencies land
+  in ~/Library/Containers/com.stuartcameron.vapourbox/Data/... instead of
+  ~/Library/Application Support/VapourBox/deps, AND a sandboxed process cannot
+  remove com.apple.quarantine from what it downloads. macOS then SIGKILLs
+  ffmpeg/vspipe on exec, which surfaces as "ffmpeg exited with signal 9" or a
+  Gatekeeper "not opened" dialog — with nothing pointing at the real cause.
+
+  Keeping the sandbox off here means dev and release resolve the same deps
+  directory and the quarantine strip works, so `run-debug-macos.sh` exercises
+  what users actually get.
+
+  The remaining keys are sandbox entitlements and are inert without it. They are
+  left in place to stay close to the Flutter template, so re-adding the sandbox
+  (if it is ever wanted) needs only the one key back.
+-->
 <plist version="1.0">
 <dict>
-	<key>com.apple.security.app-sandbox</key>
-	<true/>
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
 	<key>com.apple.security.network.server</key>

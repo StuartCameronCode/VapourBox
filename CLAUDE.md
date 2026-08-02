@@ -793,7 +793,20 @@ version skew between platforms would change chroma per-OS.
 6. **Filter not appearing**: Check JSON syntax, verify `id` is unique
 7. **macOS build fails with "Unable to find module dependency"**: Build Pods-Runner scheme first, then Runner for arm64 only (see Build Commands)
 8. **App crashes silently on video drop (release build)**: Bundle is incomplete. Use packaging scripts. Run from terminal to see errors.
-9. **Job appears to hang**: the worker now fails instead. `StallWatchdog` in
+9. **macOS debug build and the shipped app must stay unsandboxed** (issue #50):
+   `packaging/macos/distribution.entitlements` — what `package-macos.sh` actually
+   signs with, and therefore what ships — has **no** `app-sandbox`, verified
+   against the released DMG. `DebugProfile.entitlements` and
+   `Release.entitlements` deliberately omit it too. Re-adding it redirects `HOME`
+   into `~/Library/Containers/com.stuartcameron.vapourbox/Data/...`, so deps
+   install to a different directory than the shipped app uses, **and** a
+   sandboxed process cannot remove `com.apple.quarantine` from what it
+   downloads — macOS then SIGKILLs ffmpeg/vspipe, surfacing as "ffmpeg exited
+   with signal 9" or a Gatekeeper "not opened" dialog. `DependencyManager`
+   now catches this class of problem by *running* ffmpeg after install and on
+   every startup (`executabilityProblem()` → `DependencyStatus.blocked`), which
+   reports the `xattr -cr` fix instead of failing at job time.
+10. **Job appears to hang**: the worker now fails instead. `StallWatchdog` in
    `pipeline_executor.rs` gives up after **600s with no frame progress** and
    reports how far it got ("Stalled: no progress for Ns while encoding (last
    frame N)"), killing the children so the post-loop `wait()`s can't block on the

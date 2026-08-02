@@ -100,6 +100,18 @@ class _AppStartupWrapperState extends State<AppStartupWrapper> {
       // Check dependencies first
       final status = await DependencyManager.instance.checkDependencies();
 
+      // Installed but unusable: re-downloading would reproduce the same
+      // unusable install, so surface the fix instead of looping on a download
+      // (issue #50).
+      if (status == DependencyStatus.blocked) {
+        final problem = await DependencyManager.instance.executabilityProblem();
+        setState(() {
+          _errorMessage = problem ??
+              'The processing dependencies are installed but cannot be run.';
+        });
+        return;
+      }
+
       if (status != DependencyStatus.installed) {
         // Dependencies need to be downloaded
         if (mounted) {

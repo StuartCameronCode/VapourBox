@@ -96,6 +96,12 @@ class _DependencyDownloadDialogState extends State<DependencyDownloadDialog> {
       case DependencyStatus.corrupted:
         return 'Some processing components are damaged or incomplete.\n\n'
             'Re-downloading to fix the issue.';
+      case DependencyStatus.blocked:
+        // Re-downloading cannot fix this; main.dart reports the fix instead of
+        // opening this dialog. Handled here so the status is never silently
+        // rendered as "Preparing dependencies...".
+        return 'The processing components are installed but macOS will not run '
+            'them.\n\nSee the message on the main window.';
       default:
         return 'Preparing dependencies...';
     }
