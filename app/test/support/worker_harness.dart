@@ -396,33 +396,48 @@ class WorkerHarness {
   /// The only way to check a colour operation actually moved colour in the
   /// direction it claims — a valid-output assertion would pass just as happily
   /// with the sign inverted.
+  ///
+  /// The file is fed through `-i`, which takes it as a plain argument and needs
+  /// no escaping. Reading it with a `movie=` filtergraph source instead would
+  /// require escaping the path for the graph parser, and no amount of escaping
+  /// survives a Windows drive letter — the colon splits the graph and ffmpeg
+  /// reports `Failed to avformat_open_input 'D'`.
   static Future<({double y, double u, double v})> frameAverages(
     String videoPath, {
     int frame = 2,
   }) async {
     final result = await Process.run(
-      ffprobePath,
+      ffmpegPath,
       [
         '-v', 'error',
-        '-f', 'lavfi',
-        // The movie source needs the path escaped for the filtergraph parser.
-        'movie=${videoPath.replaceAll(r'\', '/').replaceAll(':', r'\:')},signalstats',
-        '-show_entries',
-        'frame_tags=lavfi.signalstats.YAVG,lavfi.signalstats.UAVG,lavfi.signalstats.VAVG',
-        '-read_intervals', '%+#${frame + 1}',
-        '-of', 'json',
+        '-i', videoPath,
+        '-frames:v', '${frame + 1}',
+        // `file=-` puts the metadata on stdout; the default writes it to the
+        // log, which `-v error` would swallow.
+        '-vf', 'signalstats,metadata=print:file=-',
+        '-f', 'null', '-',
       ],
       environment: ffmpegEnv,
     );
     if (result.exitCode != 0) {
       throw Exception('signalstats probe failed: ${result.stderr}');
     }
-    final frames = (jsonDecode(result.stdout as String)
-        as Map<String, dynamic>)['frames'] as List;
-    final tags = (frames[frames.length - 1] as Map<String, dynamic>)['tags']
-        as Map<String, dynamic>;
-    double tag(String name) =>
-        double.parse(tags['lavfi.signalstats.$name'].toString());
+
+    // One block per frame, each headed by `frame:N`. Take the last, so the
+    // requested frame is the one measured rather than the first decoded.
+    final blocks = (result.stdout as String).split(RegExp(r'^frame:', multiLine: true));
+    final last = blocks.lastWhere((b) => b.contains('lavfi.signalstats.YAVG'),
+        orElse: () => throw Exception(
+            'signalstats produced no YAVG for $videoPath:\n${result.stdout}'));
+
+    double tag(String name) {
+      final m = RegExp('lavfi\\.signalstats\\.$name=([-0-9.]+)').firstMatch(last);
+      if (m == null) {
+        throw Exception('signalstats missing $name for $videoPath');
+      }
+      return double.parse(m.group(1)!);
+    }
+
     return (y: tag('YAVG'), u: tag('UAVG'), v: tag('VAVG'));
   }
 
