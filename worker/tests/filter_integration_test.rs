@@ -2969,3 +2969,32 @@ fn test_82_forced_display_aspect_and_padding() {
     });
     assert!(!script.contains("core.std.AddBorders("));
 }
+
+#[test]
+fn test_83_fine_dehalo_thresholds_match_havsfunc_defaults() {
+    // The schema shipped thmi=50/thma=100 — which are thlimi/thlima's defaults,
+    // copied onto the wrong pair. havsfunc's FineDehalo uses thmi=80, thma=128.
+    // Because both are always emitted, the wrong value was actively passed on
+    // every FineDehalo run rather than merely displayed.
+    create_output_dir();
+
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_83_fine_dehalo_defaults");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        dehalo: DehaloParameters {
+            enabled: true,
+            method: DehaloMethod::FineDehalo,
+            ..DehaloParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+
+    assert!(script.contains("thmi=80"), "thmi should default to havsfunc's 80");
+    assert!(script.contains("thma=128"), "thma should default to havsfunc's 128");
+
+    // And the pair they were confused with keeps its own (correct) defaults,
+    // which are only emitted when the user opts in.
+    assert!(!script.contains("thlimi="), "thlimi is optional and unset here");
+    assert!(!script.contains("thlima="), "thlima is optional and unset here");
+}

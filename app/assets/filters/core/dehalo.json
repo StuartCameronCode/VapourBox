@@ -4,36 +4,61 @@
   "version": "1.1.0",
   "name": "Dehalo",
   "description": "Remove halo, ringing and ghosting around edges",
-  "longDescription": "Removes the bright outline that sits alongside high-contrast edges — the ringing left by over-sharpening, upscaling or heavy compression.\n\nUse it when edges look traced with a light pen: common on VHS run through a sharpening time-base corrector, and on upscaled or hard-compressed material. Apply it after deinterlacing and denoising. Too much strength eats the fine detail right next to the edge.\n\nThe two Vinverse methods target a different artifact: the vertical comb or ghost residue a deinterlacer leaves behind. They blur vertically, so only run them on progressive frames — after the deinterlace pass, never instead of it.",
+  "longDescription": "Removes the bright outline that sits alongside high-contrast edges \u2014 the ringing left by over-sharpening, upscaling or heavy compression.\n\nUse it when edges look traced with a light pen: common on VHS run through a sharpening time-base corrector, and on upscaled or hard-compressed material. Apply it after deinterlacing and denoising. Too much strength eats the fine detail right next to the edge.\n\nThe two Vinverse methods target a different artifact: the vertical comb or ghost residue a deinterlacer leaves behind. They blur vertically, so only run them on progressive frames \u2014 after the deinterlace pass, never instead of it.",
   "category": "cleanup",
   "icon": "blur_off",
   "order": 4,
-
   "dependencies": {
-    "plugins": ["havsfunc"],
-    "vs_plugins": ["RemoveGrainVS.dll", "CTMF.dll"],
-    "optional": ["libawarpsharp2.dll"]
+    "plugins": [
+      "havsfunc"
+    ],
+    "vs_plugins": [
+      "RemoveGrainVS.dll",
+      "CTMF.dll"
+    ],
+    "optional": [
+      "libawarpsharp2.dll"
+    ]
   },
-
   "methods": [
     {
       "id": "dehalo_alpha",
       "name": "DeHalo Alpha",
       "description": "General purpose dehalo, good for most sources",
       "function": "haf.DeHalo_alpha",
-      "parameters": ["rx", "ry", "darkStr", "brightStr", "lowSens", "highSens", "superSample"]
+      "parameters": [
+        "rx",
+        "ry",
+        "darkStr",
+        "brightStr",
+        "lowSens",
+        "highSens",
+        "superSample"
+      ]
     },
     {
       "id": "fine_dehalo",
       "name": "Fine Dehalo",
       "description": "More precise, better edge preservation",
       "function": "haf.FineDehalo",
-      "parameters": ["rx", "ry", "darkStr", "brightStr", "lowThreshold", "highThreshold", "limitLow", "limitHigh", "contra", "excludeCloseEdges", "edgeProc"]
+      "parameters": [
+        "rx",
+        "ry",
+        "darkStr",
+        "brightStr",
+        "lowThreshold",
+        "highThreshold",
+        "limitLow",
+        "limitHigh",
+        "contra",
+        "excludeCloseEdges",
+        "edgeProc"
+      ]
     },
     {
       "id": "fine_dehalo2",
       "name": "Fine Dehalo 2",
-      "description": "Removes the ringing left on sharp edges — run after Fine Dehalo",
+      "description": "Removes the ringing left on sharp edges \u2014 run after Fine Dehalo",
       "function": "haf.FineDehalo2",
       "parameters": []
     },
@@ -42,31 +67,47 @@
       "name": "YAHR",
       "description": "Yet Another Halo Remover - fast and effective",
       "function": "haf.YAHR",
-      "parameters": ["yahrBlur", "yahrDepth"]
+      "parameters": [
+        "yahrBlur",
+        "yahrDepth"
+      ]
     },
     {
       "id": "edge_cleaner",
       "name": "Edge Cleaner",
       "description": "Cleans edge noise and weak halos (aWarpSharp2)",
       "function": "haf.EdgeCleaner",
-      "parameters": ["edgeStrength", "edgeRepair", "edgeRepairMode", "edgeSmallMode", "edgeHotPixels"]
+      "parameters": [
+        "edgeStrength",
+        "edgeRepair",
+        "edgeRepairMode",
+        "edgeSmallMode",
+        "edgeHotPixels"
+      ]
     },
     {
       "id": "vinverse",
       "name": "Vinverse (de-ghost)",
       "description": "Removes comb/ghost residue left by deinterlacing",
       "function": "haf.Vinverse",
-      "parameters": ["vinverseStrength", "vinverseAmount", "vinverseChroma"]
+      "parameters": [
+        "vinverseStrength",
+        "vinverseAmount",
+        "vinverseChroma"
+      ]
     },
     {
       "id": "vinverse2",
       "name": "Vinverse 2 (de-ghost)",
       "description": "Like Vinverse but keeps more vertical detail",
       "function": "haf.Vinverse2",
-      "parameters": ["vinverseStrength", "vinverseAmount", "vinverseChroma"]
+      "parameters": [
+        "vinverseStrength",
+        "vinverseAmount",
+        "vinverseChroma"
+      ]
     }
   ],
-
   "parameters": {
     "enabled": {
       "type": "boolean",
@@ -78,8 +119,18 @@
     "method": {
       "type": "enum",
       "default": "dehalo_alpha",
-      "options": ["dehalo_alpha", "fine_dehalo", "fine_dehalo2", "yahr", "edge_cleaner", "vinverse", "vinverse2"],
-      "ui": { "hidden": true }
+      "options": [
+        "dehalo_alpha",
+        "fine_dehalo",
+        "fine_dehalo2",
+        "yahr",
+        "edge_cleaner",
+        "vinverse",
+        "vinverse2"
+      ],
+      "ui": {
+        "hidden": true
+      }
     },
     "rx": {
       "type": "number",
@@ -97,7 +148,10 @@
         "widget": "slider",
         "precision": 1,
         "visibleWhen": {
-          "method": ["dehalo_alpha", "fine_dehalo"]
+          "method": [
+            "dehalo_alpha",
+            "fine_dehalo"
+          ]
         }
       }
     },
@@ -117,7 +171,10 @@
         "widget": "slider",
         "precision": 1,
         "visibleWhen": {
-          "method": ["dehalo_alpha", "fine_dehalo"]
+          "method": [
+            "dehalo_alpha",
+            "fine_dehalo"
+          ]
         }
       }
     },
@@ -133,11 +190,14 @@
       },
       "ui": {
         "label": "Dark Halo Strength",
-        "description": "Strength of dark halo removal. Above 1.0 overshoots — it pushes past the original pixel rather than blending back to it",
+        "description": "Strength of dark halo removal. Above 1.0 overshoots \u2014 it pushes past the original pixel rather than blending back to it",
         "widget": "slider",
         "precision": 2,
         "visibleWhen": {
-          "method": ["dehalo_alpha", "fine_dehalo"]
+          "method": [
+            "dehalo_alpha",
+            "fine_dehalo"
+          ]
         }
       }
     },
@@ -153,11 +213,14 @@
       },
       "ui": {
         "label": "Bright Halo Strength",
-        "description": "Strength of bright halo removal. Above 1.0 overshoots — it pushes past the original pixel rather than blending back to it",
+        "description": "Strength of bright halo removal. Above 1.0 overshoots \u2014 it pushes past the original pixel rather than blending back to it",
         "widget": "slider",
         "precision": 2,
         "visibleWhen": {
-          "method": ["dehalo_alpha", "fine_dehalo"]
+          "method": [
+            "dehalo_alpha",
+            "fine_dehalo"
+          ]
         }
       }
     },
@@ -176,7 +239,9 @@
         "description": "How aggressively strong halos are treated. Lower keeps more of them",
         "widget": "slider",
         "visibleWhen": {
-          "method": ["dehalo_alpha"]
+          "method": [
+            "dehalo_alpha"
+          ]
         }
       }
     },
@@ -195,7 +260,9 @@
         "description": "How aggressively weak halos are treated. Higher catches subtler haloing",
         "widget": "slider",
         "visibleWhen": {
-          "method": ["dehalo_alpha"]
+          "method": [
+            "dehalo_alpha"
+          ]
         }
       }
     },
@@ -215,16 +282,18 @@
         "widget": "slider",
         "precision": 1,
         "visibleWhen": {
-          "method": ["dehalo_alpha"]
+          "method": [
+            "dehalo_alpha"
+          ]
         }
       }
     },
     "lowThreshold": {
       "type": "integer",
-      "default": 50,
+      "default": 80,
       "min": 0,
       "max": 200,
-      "step": 5,
+      "step": 1,
       "optional": true,
       "vapoursynth": {
         "name": "thmi"
@@ -234,16 +303,18 @@
         "description": "Minimum edge strength that counts as an edge",
         "widget": "slider",
         "visibleWhen": {
-          "method": ["fine_dehalo"]
+          "method": [
+            "fine_dehalo"
+          ]
         }
       }
     },
     "highThreshold": {
       "type": "integer",
-      "default": 100,
+      "default": 128,
       "min": 0,
       "max": 255,
-      "step": 5,
+      "step": 1,
       "optional": true,
       "vapoursynth": {
         "name": "thma"
@@ -253,7 +324,9 @@
         "description": "Edge strength treated as a definite edge",
         "widget": "slider",
         "visibleWhen": {
-          "method": ["fine_dehalo"]
+          "method": [
+            "fine_dehalo"
+          ]
         }
       }
     },
@@ -269,10 +342,12 @@
       },
       "ui": {
         "label": "Limit Low",
-        "description": "Below this edge strength, dehaloing is fully limited — protects faint detail",
+        "description": "Below this edge strength, dehaloing is fully limited \u2014 protects faint detail",
         "widget": "slider",
         "visibleWhen": {
-          "method": ["fine_dehalo"]
+          "method": [
+            "fine_dehalo"
+          ]
         }
       }
     },
@@ -291,7 +366,9 @@
         "description": "Above this edge strength, dehaloing is applied in full",
         "widget": "slider",
         "visibleWhen": {
-          "method": ["fine_dehalo"]
+          "method": [
+            "fine_dehalo"
+          ]
         }
       }
     },
@@ -311,7 +388,9 @@
         "widget": "slider",
         "precision": 1,
         "visibleWhen": {
-          "method": ["fine_dehalo"]
+          "method": [
+            "fine_dehalo"
+          ]
         }
       }
     },
@@ -326,7 +405,9 @@
         "label": "Exclude Close Edges",
         "description": "Skip areas where edges are too close together to tell halo from detail",
         "visibleWhen": {
-          "method": ["fine_dehalo"]
+          "method": [
+            "fine_dehalo"
+          ]
         }
       }
     },
@@ -346,7 +427,9 @@
         "widget": "slider",
         "precision": 2,
         "visibleWhen": {
-          "method": ["fine_dehalo"]
+          "method": [
+            "fine_dehalo"
+          ]
         }
       }
     },
@@ -365,7 +448,9 @@
         "description": "Blur amount for YAHR",
         "widget": "slider",
         "visibleWhen": {
-          "method": ["yahr"]
+          "method": [
+            "yahr"
+          ]
         }
       }
     },
@@ -384,7 +469,9 @@
         "description": "Processing depth for YAHR",
         "widget": "slider",
         "visibleWhen": {
-          "method": ["yahr"]
+          "method": [
+            "yahr"
+          ]
         }
       }
     },
@@ -403,7 +490,9 @@
         "description": "How hard to clean along edges",
         "widget": "slider",
         "visibleWhen": {
-          "method": ["edge_cleaner"]
+          "method": [
+            "edge_cleaner"
+          ]
         }
       }
     },
@@ -418,14 +507,21 @@
         "label": "Repair",
         "description": "Constrain the warped result against the source. Leave on unless you want the raw effect",
         "visibleWhen": {
-          "method": ["edge_cleaner"]
+          "method": [
+            "edge_cleaner"
+          ]
         }
       }
     },
     "edgeRepairMode": {
       "type": "enum",
       "default": "17",
-      "options": ["1", "16", "17", "18"],
+      "options": [
+        "1",
+        "16",
+        "17",
+        "18"
+      ],
       "optional": true,
       "vapoursynth": {
         "name": "rmode"
@@ -435,14 +531,19 @@
         "description": "1 is very mild and good for halos; 17 keeps the least haloing; 16 and 18 preserve edge structure but keep more halo",
         "widget": "dropdown",
         "visibleWhen": {
-          "method": ["edge_cleaner"]
+          "method": [
+            "edge_cleaner"
+          ]
         }
       }
     },
     "edgeSmallMode": {
       "type": "enum",
       "default": "0",
-      "options": ["0", "1"],
+      "options": [
+        "0",
+        "1"
+      ],
       "optional": true,
       "vapoursynth": {
         "name": "smode"
@@ -452,7 +553,9 @@
         "description": "1 protects small bright particles (stars, specular highlights) via RemoveGrain; 0 disables that",
         "widget": "dropdown",
         "visibleWhen": {
-          "method": ["edge_cleaner"]
+          "method": [
+            "edge_cleaner"
+          ]
         }
       }
     },
@@ -467,7 +570,9 @@
         "label": "Remove Hot Pixels",
         "description": "Also remove isolated bright pixels",
         "visibleWhen": {
-          "method": ["edge_cleaner"]
+          "method": [
+            "edge_cleaner"
+          ]
         }
       }
     },
@@ -487,7 +592,10 @@
         "widget": "slider",
         "precision": 1,
         "visibleWhen": {
-          "method": ["vinverse", "vinverse2"]
+          "method": [
+            "vinverse",
+            "vinverse2"
+          ]
         }
       }
     },
@@ -506,7 +614,10 @@
         "description": "Cap on how far any pixel may move. 255 is unlimited; lower values keep the result closer to the source",
         "widget": "slider",
         "visibleWhen": {
-          "method": ["vinverse", "vinverse2"]
+          "method": [
+            "vinverse",
+            "vinverse2"
+          ]
         }
       }
     },
@@ -521,30 +632,59 @@
         "label": "Process Chroma",
         "description": "Also treat the colour planes. Turn off to leave colour untouched",
         "visibleWhen": {
-          "method": ["vinverse", "vinverse2"]
+          "method": [
+            "vinverse",
+            "vinverse2"
+          ]
         }
       }
     }
   },
-
   "ui": {
     "sections": [
       {
         "title": "Settings",
-        "parameters": ["rx", "ry", "darkStr", "brightStr", "lowThreshold", "highThreshold", "yahrBlur", "yahrDepth", "edgeStrength", "edgeRepair", "vinverseStrength", "vinverseAmount", "vinverseChroma"],
+        "parameters": [
+          "rx",
+          "ry",
+          "darkStr",
+          "brightStr",
+          "lowThreshold",
+          "highThreshold",
+          "yahrBlur",
+          "yahrDepth",
+          "edgeStrength",
+          "edgeRepair",
+          "vinverseStrength",
+          "vinverseAmount",
+          "vinverseChroma"
+        ],
         "expanded": true
       },
       {
         "title": "Advanced",
-        "parameters": ["lowSens", "highSens", "superSample", "limitLow", "limitHigh", "contra", "excludeCloseEdges", "edgeProc", "edgeRepairMode", "edgeSmallMode", "edgeHotPixels"],
+        "parameters": [
+          "lowSens",
+          "highSens",
+          "superSample",
+          "limitLow",
+          "limitHigh",
+          "contra",
+          "excludeCloseEdges",
+          "edgeProc",
+          "edgeRepairMode",
+          "edgeSmallMode",
+          "edgeHotPixels"
+        ],
         "expanded": false,
         "advancedOnly": true
       }
     ]
   },
-
   "codeTemplate": {
-    "imports": ["import havsfunc as haf"],
+    "imports": [
+      "import havsfunc as haf"
+    ],
     "generate": "method"
   }
 }

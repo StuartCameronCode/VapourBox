@@ -180,8 +180,8 @@ fn default_rx() -> f64 { 2.0 }
 fn default_ry() -> f64 { 2.0 }
 fn default_dark_str() -> f64 { 1.0 }
 fn default_bright_str() -> f64 { 1.0 }
-fn default_low_threshold() -> i32 { 50 }
-fn default_high_threshold() -> i32 { 100 }
+fn default_low_threshold() -> i32 { 80 }
+fn default_high_threshold() -> i32 { 128 }
 fn default_yahr_blur() -> i32 { 2 }
 fn default_yahr_depth() -> i32 { 32 }
 
