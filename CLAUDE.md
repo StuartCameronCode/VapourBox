@@ -291,7 +291,7 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 **6. UI Wiring (ALL FOUR locations — missing any causes silent failures)**
 - `app/lib/views/pass_list/pass_list_panel.dart` — add `PassListItem` entry
 - `app/lib/views/pass_list/pass_list_item.dart` — add icon in `_getIconForPass()`
-- `app/lib/views/pass_settings/pass_settings_container.dart` — add case in `_getFilterId()`
+- `app/lib/views/pass_settings/pass_settings_inline.dart` — add case in `_getFilterId()`
 - `app/lib/viewmodels/main_viewmodel.dart` — add case in BOTH `_convertToParams()` AND `_updatePipelineFromDynamic()`
 
 **7. Optional Parameter Defaults**
@@ -345,9 +345,13 @@ tried again — is in the renderer's header comment.
 
 ### Adding a New Built-in Preset
 
-1. Edit `app/lib/services/preset_service.dart`
-2. Add new `ProcessingPreset` in `_createBuiltInPresets()`
-3. Configure `pipeline` with desired filter settings, set `isBuiltIn: true`
+1. Edit `app/lib/models/processing_preset.dart`
+2. Add a `static ProcessingPreset builtInX()` factory beside the existing ones
+   (`builtInFast()`, `builtInVhsCleanup()`, …), with `isBuiltIn: true` and an
+   `id` of the form `builtin-x`
+3. Configure `pipeline` with the desired filter settings and `encodingSettings`
+4. Add it to the list returned by `ProcessingPreset.builtInPresets()` — nothing
+   picks it up otherwise
 
 ### Adding a New QTGMC Parameter
 
@@ -427,7 +431,15 @@ Use `run_job_and_verify` when you want to confirm specific VapourSynth function 
 
 ## Filter Schema System
 
-Filters are defined as JSON schemas in `app/assets/filters/core/` (built-in) or `~/.vapourbox/filters/` (user). See existing filters for full examples. Key structure:
+Built-in filters are defined as JSON schemas in `app/assets/filters/core/`, listed
+in `app/assets/filters/manifest.json`. See existing filters for full examples. Key
+structure:
+
+> **User-supplied filters are not a supported feature.** `FilterRegistry` still
+> scans `~/.vapourbox/filters/` and `FilterLoader` still exposes
+> `installFilter()`, but that path was never finished and must not be documented
+> or offered to users. Treat this schema as the internal format for built-in
+> filters only.
 
 ```json
 {
@@ -550,7 +562,11 @@ Covered by `app/test/temp_directory_service_test.dart`.
 
 ### Preset System
 
-Presets save complete filter pipeline + encoding settings. Built-in presets (Fast, Balanced, High Quality, VHS Cleanup) are in `PresetService._createBuiltInPresets()`. User presets save to `~/.vapourbox/presets/*.json`.
+Presets save complete filter pipeline + encoding settings. The five built-ins
+(Fast, Balanced, High Quality, VHS Cleanup, DVD IVTC) are static factories in
+`app/lib/models/processing_preset.dart`, collected by
+`ProcessingPreset.builtInPresets()`, which `PresetService` calls in `initialize()`
+and `reload()`. User presets save to `~/.vapourbox/presets/*.json`.
 
 ---
 

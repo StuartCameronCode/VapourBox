@@ -152,11 +152,9 @@ Each filter leads with a plain-language summary and a **More** expander describi
 </details>
 
 <details>
-<summary><b>Presets and custom filters</b></summary>
+<summary><b>Presets</b></summary>
 
 Presets store the whole pipeline plus encoding settings. Built-in: Fast, Balanced, High Quality, VHS Cleanup, DVD IVTC. Your own save alongside them and persist across sessions.
-
-VapourBox can also be extended with any VapourSynth filter by writing a [JSON schema](docs/FILTER_SCHEMA.md) for it — no recompiling, and the UI is generated from the schema.
 
 </details>
 

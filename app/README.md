@@ -1,16 +1,21 @@
-# vapourbox
+# VapourBox — Flutter app
 
-A new Flutter project.
+The Flutter (Dart) half of VapourBox: the UI, job configuration and preview. The
+video processing itself runs in the Rust worker (`../worker`), which this app
+spawns and talks to over JSON.
 
-## Getting Started
+- Build instructions and project layout: [`../docs/BUILDING.md`](../docs/BUILDING.md)
+- What VapourBox is: [`../README.md`](../README.md)
 
-This project is a starting point for a Flutter application.
+Quick reference:
 
-A few resources to get you started if this is your first Flutter project:
+```bash
+flutter pub get
+dart run build_runner build --delete-conflicting-outputs   # after model changes
+flutter test --exclude-tags heavy                          # what CI runs
+flutter run                                                # needs the worker built
+```
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+`flutter run` expects a worker binary alongside the app bundle and a populated
+`deps/` directory — see BUILDING.md for the per-platform debug scripts that set
+both up.

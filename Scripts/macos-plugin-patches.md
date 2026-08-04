@@ -2,6 +2,14 @@
 
 This document tracks patches and configuration needed to build VapourSynth and plugins on macOS ARM64 for a fully self-contained app (no Homebrew runtime dependencies).
 
+> **`Scripts/download-deps-macos.sh` is the authority**, not this file. These are
+> notes from the original arm64 bring-up, kept because the reasoning behind the
+> install-name and code-signing work is not obvious from the script. Where the two
+> disagree, the script wins. In particular, arm64 now takes **most plugins
+> pre-built** from the `yuygfgg/Macos_vapoursynth_plugins` pool rather than
+> building them, so several build patches below apply only to the x86_64 path (or
+> no longer run at all).
+
 ## VapourSynth Core
 
 VapourSynth must be built from source to:
@@ -122,6 +130,23 @@ done
 
 ---
 
+## Two things that bite every time
+
+**Plugin build failures are non-fatal.** `build_plugin` appends to
+`FAILED_PLUGINS` and carries on; the script prints `Failed plugins: …` at the end
+(`download-deps-macos.sh:1825`) and still exits 0 with "Installation complete". So
+a green run does **not** mean a complete bundle — read that summary line. The
+backstop is `Scripts/deps-expected-plugins.json`: `package-deps-macos.sh` asserts
+every listed plugin is present and fails there instead.
+
+**Meson plugins that locate VapourSynth headers by running `import vapoursynth`
+break on runner images with a newer Homebrew Python** (they probe the *host*
+python, which has no `vapoursynth` module — seen as `ModuleNotFoundError` from
+`meson.build`, e.g. mvtools on `macos-15` with Homebrew Python 3.14). `build_plugin`
+now rewrites that probe generically with the real VS include dir (`VS_INC_DIR`,
+`download-deps-macos.sh:663`); `vivtc` has the same patch inline. If a newly added
+meson plugin fails this way, it needs the same treatment.
+
 ## Plugin Build Patches
 
 ## ZNEDI3
@@ -132,8 +157,12 @@ done
 - **Output**: Produces `vsznedi3.so` instead of `.dylib`
 
 ## DFTTest
-- **Issue**: Requires `fftw3f_threads` library which is not available in Homebrew's fftw package
-- **Fix**: Patch meson.build to remove fftw3f_threads dependency (use single-threaded fftw3f only)
+- **Superseded on arm64**: `libdfttest.dylib` is now fetched pre-built from the
+  yuygfgg pool, with its `@rpath/libfftw3f_threads.3.dylib` reference repointed at
+  `@loader_path/../../lib/`. `libfftw3f_threads.3` **is** shipped, so the
+  single-threaded workaround below is no longer needed or applied.
+- **Issue** (historical): Requires `fftw3f_threads` library which is not available in Homebrew's fftw package
+- **Fix** (historical): Patch meson.build to remove fftw3f_threads dependency (use single-threaded fftw3f only)
 - **Patched meson.build**:
 ```meson
 project('DFTTest', 'cpp',
@@ -161,10 +190,12 @@ shared_module('dfttest', sources,
 - **Output**: Library in `.libs/libfmtconv.dylib`
 
 ## NNEDI3 (CPU version)
-- **Issue**: Uses autotools with ARM-specific flags that don't work on macOS
+- **Status**: **no longer skipped** — `download-deps-macos.sh` builds it via
+  `build_plugin "nnedi3"`, and `libnnedi3.dylib` is in the `macos-arm64` list in
+  `deps-expected-plugins.json` (arm64 only; the x64 bundle ships znedi3/nnedi3cl).
+- **Issue** (historical): Uses autotools with ARM-specific flags that don't work on macOS
 - **Specific error**: `clang: error: unsupported option '-mfpu=' for target 'arm64-apple-darwin25.2.0'`
-- **Status**: SKIPPED - use ZNEDI3 or NNEDI3CL instead (QTGMC prefers these anyway)
-- **Alternative**: Patch Makefile.am to remove `-mfpu=neon` flag for macOS
+- **Fix**: Patch Makefile.am to remove the `-mfpu=neon` flag for macOS
 
 ## neo-f3kdb
 - **Issue**: Uses CMake, not meson
@@ -186,6 +217,16 @@ shared_module('dfttest', sources,
 - BM3D (may need patches)
 - KNLMeansCL (may need patches)
 
-## Plugins from Homebrew (pre-built ARM64)
-- FFMS2 (`brew install ffms2` -> copy libffms2.dylib)
-- FFTW (`brew install fftw` -> copy libfftw3f.dylib)
+## Support libraries — no longer from Homebrew
+
+The bundle must not depend on Homebrew at runtime, so nothing is copied out of
+`brew` on arm64 any more:
+
+- **FFTW** — `libfftw3f.3` and `libfftw3f_threads.3` come pre-built from the
+  yuygfgg `support/` pool on arm64, and are **built from source** (3.3.10, float)
+  for x86_64 so they meet the macOS 12 deployment target.
+- **FFMS2** — no longer used. Source indexing is **bestsource**
+  (`libbestsource.dylib`).
+- The other bundled support libs on x86_64 (zimg, libdvdread, xz, boost) are also
+  built from source targeting macOS 12; see the `SRCLIB` section of
+  `download-deps-macos.sh` and the x64/#39 notes in `CLAUDE.md`.
