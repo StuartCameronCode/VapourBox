@@ -2,7 +2,7 @@
 
 # VapourBox
 
-A desktop app for archiving and converting video. Point it at a file, a folder or a DVD, choose an output format, optionally run some cleanup, and it produces the file.
+A desktop app for archiving and converting video — tape captures, camcorder footage, film scans, DVDs, and the digital files you already have. Choose an output format, optionally run some cleanup, and it produces the file.
 
 [![Latest release](https://img.shields.io/github/v/release/StuartCameronCode/VapourBox?label=download)](https://github.com/StuartCameronCode/VapourBox/releases/latest)
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-blue)
@@ -14,13 +14,13 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg —
 
 ## What it's for
 
-**Conversion.** Read a wide range of sources — including formats that trip up consumer converters, like NTSC DV 4:1:1 and 10/16-bit material — and write H.264, H.265, ProRes or lossless FFV1. Audio can be passed through untouched, re-encoded to AAC, Opus or FLAC, or dropped. Hardware encoders are used when the machine has them.
+**Conversion.** Reads the DV and AVCHD files a camcorder writes, MPEG-2 from discs and set-top recorders, MXF from scanners and broadcast gear, and the ordinary MP4/MKV/AVI/MOV files you already have. Writes H.264, H.265, ProRes or lossless FFV1. It also handles the source formats that quietly defeat consumer converters — NTSC DV's 4:1:1 chroma, 4:1:0, and the 10- to 16-bit RGB and grayscale material film scans arrive in. Audio can be passed through untouched, re-encoded to AAC, Opus or FLAC, or dropped, and hardware encoders are used where the machine has them.
 
-**Archiving.** Get video off discs and out of obsolete formats into something that will still open in twenty years. DVDs and `VIDEO_TS` folders are read directly, titles are extracted and encoded in one pass, and FFV1 gives you a lossless master. Aspect ratio is carried through correctly, including anamorphic DVD pixels through a resize — a common way for archived video to end up the wrong shape.
+**Archiving.** Old footage tends to be stuck in a format that's awkward to keep: a tape capture in a codec nothing opens any more, a MiniDV file straight off the camera, a stack of DVDs, a film scan too large to keep as-is. VapourBox turns any of it into something that will still open in twenty years — FFV1 for a lossless master, or H.265 for a copy that's watchable on a phone. DVDs and `VIDEO_TS` folders are read directly, so a disc needs no separate ripping step — pick a title and it's extracted, processed and encoded in one pass. Aspect ratio is carried through correctly, including non-square pixels through a resize, which is a common way for archived video to end up the wrong shape.
 
-**Correcting how the picture is stored.** Interlaced video needs converting to progressive to display properly on anything modern, and film that was telecined onto a DVD can be returned to its original 23.976 fps frames. VapourBox detects which of these applies and handles both — QTGMC for deinterlacing, IVTC for telecined film.
+**Correcting how the picture is stored.** Most consumer and broadcast video recorded before the 2010s is interlaced — VHS, Video8 and Hi8, DV camcorders, DVDs, off-air recordings — and needs converting to progressive to display properly on a modern screen. Film transferred to video was padded with pulldown instead, which can be reversed to recover the original 23.976 fps frames. VapourBox detects which case applies and handles both: QTGMC for deinterlacing, IVTC for telecined film.
 
-**Cleanup, when the source needs it.** Thirteen optional filters for noise, chroma problems, compression artifacts, scratches, halos and color. Off by default; you turn on what a given source needs.
+**Cleanup, when the source needs it.** Thirteen optional filters covering tape noise and smeared color, dust and scratches on scanned film, blocking from a heavily compressed disc or recorder, and halos, banding and color balance. All off by default; you turn on what a given source actually needs.
 
 **Subtitles.** Speech is transcribed with Whisper AI to a separate `.srt`, embedded in the output, or both.
 
@@ -84,7 +84,8 @@ GPU-accelerated deinterlacing (NNEDI3CL) needs your GPU's OpenCL driver installe
 | **Video** | H.264, H.265, ProRes, FFV1 (lossless), with hardware encoding via VideoToolbox, NVENC, Quick Sync or AMF where available |
 | **Audio** | Passthrough, or re-encode to AAC, Opus or FLAC, or strip |
 | **Containers** | MKV, MP4, MOV, AVI |
-| **Sources** | 4:1:1 (NTSC DV), 4:1:0, 4:2:0/4:2:2/4:4:4 up to 16-bit, RGB, grayscale |
+| **Reads** | `.dv` · `.mts` `.m2ts` (AVCHD) · `.vob` `.m2v` `.mpg` `.mpeg` · `.mxf` · `.avi` `.mov` `.mp4` `.mkv` `.ts` `.wmv` `.webm` `.flv`, plus DVD discs and `VIDEO_TS` folders |
+| **Source formats** | 4:1:1 (NTSC DV), 4:1:0, 4:2:0/4:2:2/4:4:4 up to 16-bit, RGB, grayscale |
 | **Aspect ratio** | Non-square pixels preserved through the pipeline, including through a resize; or square up anamorphic pixels, force a display aspect, or letterbox to a target size |
 
 ## The filter pipeline
