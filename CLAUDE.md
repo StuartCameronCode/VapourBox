@@ -265,7 +265,9 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 **1. Filter Schema & Registration**
 - Create JSON file in `app/assets/filters/core/<filter_id>.json`
 - **Add to `app/assets/filters/manifest.json`** — filters won't load without this
-- See existing filters in `app/assets/filters/core/` for schema reference
+- **Field reference: [docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md)** — every key,
+  which are required, and the ones that look plausible but are silently ignored
+- Closest existing examples: `dehalo.json` (multi-method), `spotless.json` (minimal)
 
 **2. Rust Model & Pipeline**
 - Create `worker/src/models/<filter>_parameters.rs` with serde `rename_all = "camelCase"`
@@ -435,11 +437,13 @@ Built-in filters are defined as JSON schemas in `app/assets/filters/core/`, list
 in `app/assets/filters/manifest.json`. See existing filters for full examples. Key
 structure:
 
+Full field reference: **[docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md)**.
+
 > **User-supplied filters are not a supported feature.** `FilterRegistry` still
 > scans `~/.vapourbox/filters/` and `FilterLoader` still exposes
-> `installFilter()`, but that path was never finished and must not be documented
-> or offered to users. Treat this schema as the internal format for built-in
-> filters only.
+> `installFilter()`, but that path was never finished and must not be offered to
+> users or mentioned in the README. The schema itself is the internal format for
+> **built-in** filters and is documented as such.
 
 ```json
 {
