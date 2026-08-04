@@ -112,9 +112,11 @@ VapourBox/
 ## Build Commands
 
 ### Prerequisites
-- Flutter SDK 3.16+
-- Rust 1.70+
-- Windows: Visual Studio Build Tools with C++ workload
+- Flutter SDK, stable channel — `app/pubspec.yaml` requires Dart SDK `^3.6.2`, so Flutter 3.27.4+
+- Rust stable (worker is edition 2021; CI uses `dtolnay/rust-toolchain@stable`)
+- Windows: Visual Studio Build Tools with C++ workload, plus **7-Zip** at
+  `C:\Program Files\7-Zip\7z.exe` — `download-deps-windows.ps1` skips the `.7z`
+  plugins (mvtools, nnedi3cl, znedi3, …) with a warning if it's missing
 - macOS: Xcode Command Line Tools
 - Linux: `clang cmake git ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev`
 
@@ -676,9 +678,12 @@ Headless Dart-VM tests. Three groups:
   worker end-to-end via `app/test/support/worker_harness.dart`. The encode-heavy
   ones are `@Tags(['heavy'])`: the **push gate** runs `--exclude-tags heavy`
   (script-only: `integration_filter_parameters_test`,
-  `integration_qtgmc_parameters_test`); **nightly.yml** runs `--tags heavy`
-  (`integration_filter_pipeline`, `_audio_conversion`, `_chroma_subsampling`,
-  `_interlacing_status`, `_video_trimming`, `_new_passes`).
+  `integration_qtgmc_parameters_test`); **nightly.yml** runs `--tags heavy`.
+  The heavy set grows, so `grep -l "Tags(\['heavy'\])" app/test/*.dart` is the
+  authority — 11 files as of Aug 2026: `integration_filter_pipeline`,
+  `_audio_conversion`, `_chroma_subsampling`, `_interlacing_status`,
+  `_video_trimming`, `_new_passes`, `_aspect_ratio`, `_high_bit_depth`,
+  `_source_formats`, `_upscale_resize`, `_white_balance`.
 
 The harness honors `$VAPOURBOX_DEPS_DIR`, else uses repo-root `deps/<platform>`,
 else **downloads the deps release pinned in `app/assets/deps-version.json`**
