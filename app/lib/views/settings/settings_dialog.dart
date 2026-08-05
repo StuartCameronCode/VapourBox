@@ -17,6 +17,154 @@ import '../../utils/pixel_format.dart';
 import '../../viewmodels/main_viewmodel.dart';
 import '../../widgets/warning_banner.dart';
 
+/// Hover text for the output colour format help icon.
+///
+/// Short on purpose. A [Tooltip] cannot scroll and is positioned relative to its
+/// child, so a long one runs off the screen edge with no way to read the rest —
+/// which is exactly what happened when the full explanation lived here. Anything
+/// longer than a few lines belongs in the dialog below.
+const String chromaFormatTooltip =
+    'What chroma subsampling and bit depth mean,\n'
+    'and which option to pick. Click for details.';
+
+/// The full explanation, shown in a scrollable dialog.
+///
+/// Paragraphs, not hand-wrapped lines: the dialog gives it a fixed width and
+/// lets it flow, so wrapping is the layout engine's job here.
+///
+/// Every option's [ChromaSubsampling.label] must appear;
+/// `settings_chroma_tooltip_test.dart` fails if a format is added and this text
+/// is not updated with it.
+const List<(String, String)> chromaFormatHelpSections = [
+  (
+    'How much colour is stored',
+    'Video stores brightness at full resolution but colour at a lower one, '
+        'because the eye reads detail mostly from brightness. It is why an '
+        'analogue capture or a DVD still looks sharp while carrying a quarter of '
+        'the colour information.\n\n'
+        '4:2:0 keeps one colour sample per 2x2 block of pixels. 4:2:2 keeps one '
+        'per horizontal pair — twice the vertical colour detail. Less colour '
+        'means smaller files and wider player support; more of it survives '
+        'further editing, and shows up on saturated edges, titles and chroma '
+        'keys.',
+  ),
+  (
+    'How finely each sample is graded',
+    'Bit depth is the number of levels available per channel: 8-bit gives 256, '
+        '10-bit gives 1024. More levels keep gradients — skies, fades, VHS luma '
+        'ramps — smooth instead of breaking into visible bands.\n\n'
+        'When VapourBox does reduce depth it dithers, so a converted gradient '
+        'stays smooth rather than banding.',
+  ),
+  (
+    'Which one to pick',
+    'Match source — no conversion, so nothing is lost. The archival choice. '
+        'Note that a 10-bit source stays 10-bit, which encodes as H.264 High '
+        '4:2:2: correct, but a profile QuickTime, most browsers and phones '
+        'refuse to open.\n\n'
+        '4:2:0 8-bit — plays on everything. Use it for anything going to '
+        "someone else's device, the web, or a TV.\n\n"
+        '4:2:2 8-bit — keeps the extra colour detail of a 4:2:2 or '
+        'analogue-captured source, at 8-bit precision.\n\n'
+        '4:2:2 10-bit — keeps the colour detail and the 10-bit grading. Best '
+        'when the file is going on for more work; needs a player that handles '
+        '10-bit.',
+  ),
+];
+
+/// The help affordance beside the output colour format dropdown: a short hover
+/// tooltip, and the full explanation on click.
+///
+/// Click-for-detail rather than one big tooltip because the explanation is
+/// several paragraphs, and a tooltip can neither scroll nor stay on screen at
+/// that size. It follows the same idiom as the encoder availability info button
+/// further down this file.
+///
+/// A separate widget so its readability can be asserted in both themes: a
+/// tooltip is the one surface where the obvious styling is wrong. Material's
+/// tooltip is **inverted** — light in dark mode, dark in light mode — so styling
+/// its text with the body text colour (which follows the *page*, not the
+/// tooltip) or with a fixed white gives light-on-light and an unreadable box.
+/// The text colour has to come from the same pair as the surface, which is what
+/// `inverseSurface`/`onInverseSurface` are for.
+class ChromaFormatHelpIcon extends StatelessWidget {
+  const ChromaFormatHelpIcon({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: chromaFormatTooltip,
+      waitDuration: const Duration(milliseconds: 300),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: scheme.inverseSurface,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      textStyle: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: scheme.onInverseSurface,
+            height: 1.35,
+          ),
+      child: IconButton(
+        icon: const Icon(Icons.info_outline, size: 20),
+        color: scheme.primary,
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.only(left: 8),
+        constraints: const BoxConstraints(),
+        // The tooltip above supplies the hover text; IconButton's own would
+        // fight it.
+        onPressed: () => showChromaFormatHelp(context),
+      ),
+    );
+  }
+}
+
+/// Open the colour format explanation. Scrollable and height-capped, so it fits
+/// whatever window the app is in.
+Future<void> showChromaFormatHelp(BuildContext context) {
+  return showDialog<void>(
+    context: context,
+    builder: (ctx) {
+      final theme = Theme.of(ctx);
+      return AlertDialog(
+        title: const Text('Output colour format'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Two things decide how much colour information the output '
+                  'keeps.',
+                  style: theme.textTheme.bodyMedium,
+                ),
+                for (final (heading, body) in chromaFormatHelpSections) ...[
+                  const SizedBox(height: 20),
+                  Text(
+                    heading,
+                    style: theme.textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(body,
+                      style: theme.textTheme.bodyMedium?.copyWith(height: 1.4)),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      );
+    },
+  );
+}
+
 class SettingsDialog extends StatefulWidget {
   const SettingsDialog({super.key});
 
@@ -688,7 +836,11 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  DropdownButtonFormField<ChromaSubsampling>(
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<ChromaSubsampling>(
                     value: settings.chromaSubsampling,
                     decoration: const InputDecoration(
                       labelText: 'Chroma Subsampling',
@@ -700,13 +852,20 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                         child: Text(format.displayName),
                       );
                     }).toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        viewModel.updateEncodingSettings(
-                          settings.copyWith(chromaSubsampling: value),
-                        );
-                      }
-                    },
+                          onChanged: (value) {
+                            if (value != null) {
+                              viewModel.updateEncodingSettings(
+                                settings.copyWith(chromaSubsampling: value),
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                      // Hover help: what subsampling and bit depth actually are,
+                      // and which option to reach for. The short line below the
+                      // dropdown is the summary; this is the explanation.
+                      const ChromaFormatHelpIcon(),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   Text(

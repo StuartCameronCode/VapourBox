@@ -63,24 +63,34 @@ enum AudioQuality {
 @JsonEnum(valueField: 'value')
 enum ChromaSubsampling {
   /// Keep original format (no conversion), bit depth included.
-  original('original', 'Match source', null),
+  original('original', 'Match source', null, null),
   /// Convert to 8-bit YUV420 for maximum compatibility (smaller files).
-  yuv420('yuv420', '4:2:0 8-bit (most compatible)', 8),
+  yuv420('yuv420', '4:2:0 8-bit', 'most compatible', 8),
   /// Convert to 8-bit YUV422 for higher chroma quality.
-  yuv422('yuv422', '4:2:2 8-bit (more colour detail)', 8),
+  yuv422('yuv422', '4:2:2 8-bit', 'more colour detail', 8),
   /// Convert to 10-bit YUV422: keeps a 10-bit source's precision while
   /// normalizing chroma, and gives an 8-bit source headroom for gradients.
-  yuv422p10('yuv422p10', '4:2:2 10-bit (keeps 10-bit precision)', 10);
+  yuv422p10('yuv422p10', '4:2:2 10-bit', 'keeps 10-bit precision', 10);
 
-  const ChromaSubsampling(this.value, this.displayName, this.outputBitDepth);
+  const ChromaSubsampling(
+      this.value, this.label, this.blurb, this.outputBitDepth);
 
   final String value;
-  final String displayName;
+
+  /// Short canonical name, e.g. "4:2:0 8-bit". The one piece of vocabulary the
+  /// dropdown, the tooltip and the warnings all share, so they can't drift into
+  /// describing the same option three different ways.
+  final String label;
+
+  /// Parenthetical hint shown after [label] in the dropdown, if any.
+  final String? blurb;
 
   /// Bit depth the output is converted to, or null for [original], which does
   /// no conversion. Drives the "your source will be reduced" warning, so a new
   /// option gets the right warning without touching the UI.
   final int? outputBitDepth;
+
+  String get displayName => blurb == null ? label : '$label ($blurb)';
 }
 
 /// Video encoding settings for FFmpeg output.

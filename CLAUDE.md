@@ -222,7 +222,16 @@ dart run build_runner build
 
 1. Build worker: `cd worker && cargo build`
 2. Copy worker: `cp worker/target/debug/vapourbox-worker.exe app/build/windows/x64/runner/Debug/`
-3. Run app: `cd app && flutter run`
+3. **Copy the templates too**: `cp worker/templates/*.vpy worker/templates/*.py app/build/windows/x64/runner/Debug/templates/`
+4. Run app: `cd app && flutter run`
+
+> Step 3 is not optional and it fails silently. `exe_dir/templates` is the
+> **first** path `ScriptGenerator` searches, so the copy sitting next to the
+> debug exe **shadows** `worker/templates/` — a `.vpy` change you just made has
+> no effect on the running app, with no error to suggest why. (Measured: a
+> months-old `Debug/templates/pipeline_template.vpy` was still being used after
+> a fresh `cargo build`.) Anything that edits a template must re-copy, or delete
+> `Debug/templates/` so the upward search finds the repo's copy.
 
 **Linux: Use the debug script:**
 
