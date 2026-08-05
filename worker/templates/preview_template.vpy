@@ -843,7 +843,16 @@ clip = haf.FixChromaBleedingMod(
 {{/CHROMA_FIX_BLEEDING}}
 
 {{#CHROMA_DECRAWL}}
-# LUTDeCrawl - remove dot crawl artifacts
+# LUTDeCrawl - remove dot crawl artifacts.
+# havsfunc REJECTS anything above 10-bit outright ("LUTDeCrawl: This is not an
+# 8-10 bit YUV clip"), which failed the whole job on a 12-bit source such as
+# ProRes 4444 XQ. Run the pass at 10-bit and restore the source format after —
+# dot crawl is an analog artifact, so 10-bit is ample for the decision, and the
+# 8/10-bit path stays byte-for-byte what it was.
+_decrawl_orig_format = clip.format
+if clip.format.bits_per_sample > 10:
+    clip = core.resize.Bilinear(clip, format=clip.format.replace(
+        bits_per_sample=10, sample_type=vs.INTEGER).id)
 clip = haf.LUTDeCrawl(
     clip,
 {{#DECRAWL_YTHRESH}}
@@ -856,6 +865,9 @@ clip = haf.LUTDeCrawl(
     maxdiff={{DECRAWL_MAXDIFF}},
 {{/DECRAWL_MAXDIFF}}
 )
+if _decrawl_orig_format.bits_per_sample > 10:
+    clip = core.resize.Bilinear(clip, format=_decrawl_orig_format.id,
+                               dither_type="error_diffusion")
 {{/CHROMA_DECRAWL}}
 
 {{#CHROMA_VINVERSE}}
@@ -879,11 +891,23 @@ clip = haf.Vinverse(
 import adjust
 
 {{#COLOR_TWEAK}}
-# Tweak brightness, contrast, saturation, hue
+# Tweak brightness, contrast, saturation, hue.
+#
+# adjust.Tweak scales its own hue/saturation/coring constants to the clip's depth,
+# but `bright` is added in RAW SAMPLE UNITS — so the identical setting is 4x
+# weaker on a 10-bit clip and 256x weaker at 16-bit. Measured on 10-bit 4:2:2:
+# brightness 10 moved luma by ~2.5/255 instead of 10/255. The UI works in 8-bit
+# levels, so scale it here, exactly as the white-balance block below does.
+# Contrast, saturation and hue are ratios and need no scaling.
+_tweak_bright_scale = (
+    (1 << (clip.format.bits_per_sample - 8))
+    if clip.format.sample_type == vs.INTEGER
+    else 1.0 / 255.0
+)
 clip = adjust.Tweak(
     clip,
 {{#COLOR_BRIGHTNESS}}
-    bright={{COLOR_BRIGHTNESS}},
+    bright={{COLOR_BRIGHTNESS}} * _tweak_bright_scale,
 {{/COLOR_BRIGHTNESS}}
 {{#COLOR_CONTRAST}}
     cont={{COLOR_CONTRAST}},
@@ -898,20 +922,36 @@ clip = adjust.Tweak(
 {{/COLOR_TWEAK}}
 
 {{#COLOR_LEVELS}}
-# Levels adjustment
+# Levels adjustment.
+#
+# std.Levels works in the clip's OWN sample range, but these values arrive from
+# the UI at 8-bit scale (0-255). Passed through unscaled they are nonsense on a
+# >8-bit clip: on 10-bit 4:2:2, max_in=235 maps everything above 235/1023 to
+# white (measured mean error 93/255 against the same edit at 8-bit — the reported
+# "levels blows out 10-bit ProRes"). Scale against peak, the way havsfunc's
+# scale() does, so 255 lands exactly on the format's maximum.
+_levels_peak = (1 << clip.format.bits_per_sample) - 1
+
+
+def _levels_8bit(value):
+    if clip.format.sample_type != vs.INTEGER:
+        return value / 255.0
+    return int(round(value * _levels_peak / 255))
+
+
 clip = core.std.Levels(
     clip,
 {{#LEVELS_INPUT_LOW}}
-    min_in={{LEVELS_INPUT_LOW}},
+    min_in=_levels_8bit({{LEVELS_INPUT_LOW}}),
 {{/LEVELS_INPUT_LOW}}
 {{#LEVELS_INPUT_HIGH}}
-    max_in={{LEVELS_INPUT_HIGH}},
+    max_in=_levels_8bit({{LEVELS_INPUT_HIGH}}),
 {{/LEVELS_INPUT_HIGH}}
 {{#LEVELS_OUTPUT_LOW}}
-    min_out={{LEVELS_OUTPUT_LOW}},
+    min_out=_levels_8bit({{LEVELS_OUTPUT_LOW}}),
 {{/LEVELS_OUTPUT_LOW}}
 {{#LEVELS_OUTPUT_HIGH}}
-    max_out={{LEVELS_OUTPUT_HIGH}},
+    max_out=_levels_8bit({{LEVELS_OUTPUT_HIGH}}),
 {{/LEVELS_OUTPUT_HIGH}}
 {{#LEVELS_GAMMA}}
     gamma={{LEVELS_GAMMA}},
