@@ -110,10 +110,19 @@ void main() {
 import vapoursynth as vs
 core = vs.core
 
-# List all required plugins (core set that works on both Windows and macOS)
+# Every namespace the templates call directly, plus the ones havsfunc reaches
+# for on the paths the app exposes. A plugin missing here is a FILTER that fails
+# at job time with "No attribute with the name <ns> exists" — which is what an
+# incomplete or stale deps install looks like from the user's side. `zsmooth`
+# (Chroma Denoise / CCD) was added to the bundle after this list was written and
+# went uncovered, so a bundle without it passed the suite and failed the filter.
 required = ['std', 'resize', 'mv', 'znedi3', 'eedi3m', 'fmtc',
             'dfttest', 'neo_f3kdb', 'cas', 'dctf', 'deblock', 'rgvs',
-            'ctmf', 'warp', 'misc', 'grain', 'tcanny']
+            'ctmf', 'warp', 'misc', 'grain', 'tcanny',
+            'zsmooth', 'descratch', 'vivtc', 'ttmpsm', 'tmedian',
+            'fft3dfilter']
+# nnedi3cl and knlm are deliberately NOT required: both are OpenCL and the app
+# degrades to a CPU path when the driver is absent.
 
 missing = []
 for plugin in required:

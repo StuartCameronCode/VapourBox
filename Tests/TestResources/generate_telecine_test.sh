@@ -40,7 +40,6 @@ ffmpeg -y -hide_banner -loglevel warning \
     -vf "telecine=pattern=23,setfield=tff" \
     -c:v mpeg2video -b:v 8M \
     -flags +ilme+ildct \
-    -top 1 \
     -g 15 -bf 2 \
     "$TELECINE_OUT"
 

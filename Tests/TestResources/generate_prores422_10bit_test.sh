@@ -32,7 +32,8 @@ fi
 ffmpeg -y -i "$SOURCE" \
   -frames:v 30 \
   -c:v prores_ks -profile:v 2 -vendor apl0 -pix_fmt yuv422p10le \
-  -flags +ildct+ilme -top 1 \
+  -vf setfield=tff \
+  -flags +ildct+ilme \
   "$OUTPUT"
 
 echo "Wrote $OUTPUT"
