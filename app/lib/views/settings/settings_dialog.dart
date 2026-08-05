@@ -17,17 +17,7 @@ import '../../utils/pixel_format.dart';
 import '../../viewmodels/main_viewmodel.dart';
 import '../../widgets/warning_banner.dart';
 
-/// Hover text for the output colour format help icon.
-///
-/// Short on purpose. A [Tooltip] cannot scroll and is positioned relative to its
-/// child, so a long one runs off the screen edge with no way to read the rest —
-/// which is exactly what happened when the full explanation lived here. Anything
-/// longer than a few lines belongs in the dialog below.
-const String chromaFormatTooltip =
-    'What chroma subsampling and bit depth mean,\n'
-    'and which option to pick. Click for details.';
-
-/// The full explanation, shown in a scrollable dialog.
+/// The output colour format explanation, shown in a scrollable dialog.
 ///
 /// Paragraphs, not hand-wrapped lines: the dialog gives it a fixed width and
 /// lets it flow, so wrapping is the layout engine's job here.
@@ -72,49 +62,37 @@ const List<(String, String)> chromaFormatHelpSections = [
   ),
 ];
 
-/// The help affordance beside the output colour format dropdown: a short hover
-/// tooltip, and the full explanation on click.
+/// The help affordance beside the output colour format dropdown: click the icon,
+/// get the explanation.
 ///
-/// Click-for-detail rather than one big tooltip because the explanation is
-/// several paragraphs, and a tooltip can neither scroll nor stay on screen at
-/// that size. It follows the same idiom as the encoder availability info button
-/// further down this file.
+/// **Deliberately no hover tooltip.** The explanation runs to several paragraphs
+/// and a [Tooltip] can neither scroll nor stay on screen at that size, so it went
+/// in a dialog; a hover summary on top of that was just a second thing to read
+/// past. The icon still carries a `semanticLabel`, so a screen reader announces
+/// it without a popup appearing for pointer users. If you are tempted to add a
+/// tooltip back: it is the one surface where the obvious styling is wrong —
+/// Material's tooltip is *inverted*, light in dark mode, so styling its text with
+/// the page's text colour (or a fixed white) gives light-on-light. Use
+/// `onInverseSurface` on `inverseSurface`.
 ///
-/// A separate widget so its readability can be asserted in both themes: a
-/// tooltip is the one surface where the obvious styling is wrong. Material's
-/// tooltip is **inverted** — light in dark mode, dark in light mode — so styling
-/// its text with the body text colour (which follows the *page*, not the
-/// tooltip) or with a fixed white gives light-on-light and an unreadable box.
-/// The text colour has to come from the same pair as the surface, which is what
-/// `inverseSurface`/`onInverseSurface` are for.
+/// A separate widget so the dialog can be opened and asserted in a test without
+/// standing up the whole settings tree.
 class ChromaFormatHelpIcon extends StatelessWidget {
   const ChromaFormatHelpIcon({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Tooltip(
-      message: chromaFormatTooltip,
-      waitDuration: const Duration(milliseconds: 300),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: scheme.inverseSurface,
-        borderRadius: BorderRadius.circular(6),
+    return IconButton(
+      icon: const Icon(
+        Icons.info_outline,
+        size: 20,
+        semanticLabel: 'About output colour formats',
       ),
-      textStyle: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: scheme.onInverseSurface,
-            height: 1.35,
-          ),
-      child: IconButton(
-        icon: const Icon(Icons.info_outline, size: 20),
-        color: scheme.primary,
-        visualDensity: VisualDensity.compact,
-        padding: const EdgeInsets.only(left: 8),
-        constraints: const BoxConstraints(),
-        // The tooltip above supplies the hover text; IconButton's own would
-        // fight it.
-        onPressed: () => showChromaFormatHelp(context),
-      ),
+      color: Theme.of(context).colorScheme.primary,
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.only(left: 8),
+      constraints: const BoxConstraints(),
+      onPressed: () => showChromaFormatHelp(context),
     );
   }
 }
