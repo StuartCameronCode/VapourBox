@@ -681,7 +681,72 @@ void main() {
   });
 
   // ===========================================================================
-  // 5. The preview PNG has to be displayable by the app.
+  // 5. The output colour format selector, on a >8-bit source.
+  //
+  // Settings → Colour format defaults to matching the input, so a 10-bit 4:2:2
+  // source encodes to 10-bit 4:2:2 — which for H.264 means the High 4:2:2
+  // profile, and for HEVC the Rext profile: correct, but not what a consumer
+  // player, browser or phone will open. Choosing 4:2:0 is the remedy, so what
+  // matters is that it really lands on 8-bit 4:2:0 rather than 10-bit 4:2:0
+  // (which is High 10, still refused by a lot of players). The existing
+  // integration_chroma_subsampling_test only ever runs on an 8-bit source, so
+  // none of this was covered.
+  // ===========================================================================
+  group('output colour format selector on a 10-bit source', () {
+    Future<Map<String, dynamic>> encodeWith(
+        ChromaSubsampling subsampling, String label) async {
+      final fixture = await _fixture('yuv422p10le');
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: fixture,
+        outputPath: '$_outDir/chroma_$label.mkv',
+        processingPipeline: _only(),
+        encodingSettings: EncodingSettings(
+          codec: VideoCodec.h264,
+          container: ContainerFormat.mkv,
+          audioMode: AudioMode.none,
+          chromaSubsampling: subsampling,
+        ),
+        detectedFieldOrder: FieldOrder.topFieldFirst,
+        totalFrames: _frames,
+        inputFrameRate: _fps,
+        inputWidth: _width,
+        inputHeight: _height,
+        inputPixelFormat: 'yuv422p10le',
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: label);
+      expect(result.success, isTrue, reason: result.error);
+      final out = await WorkerHarness.firstStream(result.outputPath!,
+          selector: 'v:0', entries: ['pix_fmt', 'profile']);
+      expect(out, isNotNull);
+      print('  $label -> ${out!['pix_fmt']} (${out['profile']})');
+      return out;
+    }
+
+    test('4:2:0 gives an 8-bit 4:2:0 file', () async {
+      final out = await encodeWith(ChromaSubsampling.yuv420, 'yuv420');
+      // 8-bit specifically: a 10-bit 4:2:0 output would be High 10 and would
+      // still fail to open in the players this setting exists to satisfy.
+      expect(out['pix_fmt'], 'yuv420p');
+      expect(out['profile'], 'High');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('4:2:2 gives an 8-bit 4:2:2 file', () async {
+      final out = await encodeWith(ChromaSubsampling.yuv422, 'yuv422');
+      expect(out['pix_fmt'], 'yuv422p');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('matching the input keeps the source format', () async {
+      // Deliberate: "match input" means no conversion, and for a 10-bit source
+      // that is a 10-bit 4:2:2 output. Pinned so a future change to the default
+      // is a decision someone makes on purpose rather than a silent one.
+      final out = await encodeWith(ChromaSubsampling.original, 'original');
+      expect(out['pix_fmt'], 'yuv422p10le');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+  });
+
+  // ===========================================================================
+  // 6. The preview PNG has to be displayable by the app.
   // ===========================================================================
   group('preview PNG is usable by the UI', () {
     test('a >8-bit source yields a PNG Flutter can decode', () async {
