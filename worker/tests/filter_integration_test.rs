@@ -3282,3 +3282,104 @@ fn test_88_ivtc_and_descratch_keep_their_eight_bit_guards() {
         );
     }
 }
+
+#[test]
+fn test_89_output_colour_format_conversion_is_dithered() {
+    // This block is where a 10- or 12-bit source is reduced to 8 bits, and
+    // resize defaults to dither_type="none" â€” plain rounding, which bands a
+    // shallow gradient that the source held smoothly. Verified against vspipe:
+    // omitting the argument produces output byte-identical to an explicit
+    // "none" and different from "error_diffusion".
+    create_output_dir();
+
+    let mut job = create_10bit_job("test_89_chroma_dither");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..QTGMCParameters::default() },
+        ..ProcessingPipeline::default()
+    });
+    job.encoding_settings.chroma_subsampling = ChromaSubsampling::Yuv420;
+
+    let (encode, preview) = generate_both_scripts(&job);
+    for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(
+            script.contains("format=target_format")
+                && script.contains("dither_type=\"error_diffusion\""),
+            "{}: the output format conversion must dither, script was:\n{}",
+            label, script
+        );
+    }
+}
+
+#[test]
+fn test_90_output_colour_format_reaches_the_preview_too() {
+    // The conversion block existed only in pipeline_template.vpy, so a preview
+    // never showed the output format â€” including any banding the reduction
+    // introduces, which is exactly what a preview is for. Both templates now
+    // carry it, and both are driven by the same substitution.
+    create_output_dir();
+
+    let mut job = create_10bit_job("test_90_chroma_preview");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..QTGMCParameters::default() },
+        ..ProcessingPipeline::default()
+    });
+
+    // Every convertible format, in both scripts.
+    for (subsampling, expected) in [
+        (ChromaSubsampling::Yuv420, "vs.YUV420P8"),
+        (ChromaSubsampling::Yuv422, "vs.YUV422P8"),
+        (ChromaSubsampling::Yuv422P10, "vs.YUV422P10"),
+    ] {
+        job.encoding_settings.chroma_subsampling = subsampling;
+        let (encode, preview) = generate_both_scripts(&job);
+        for (label, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(
+                script.contains(&format!("target_format = {}", expected)),
+                "{}: {:?} should convert to {}, script was:\n{}",
+                label, subsampling, expected, script
+            );
+        }
+    }
+
+    // And "keep the source format" must leave no conversion behind in either.
+    job.encoding_settings.chroma_subsampling = ChromaSubsampling::Original;
+    let (encode, preview) = generate_both_scripts(&job);
+    for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(
+            !script.contains("target_format ="),
+            "{}: Original must not convert the output format, script was:\n{}",
+            label, script
+        );
+        assert!(
+            !script.contains("{{#CHROMA_CONVERT}}") && !script.contains("{{CHROMA_FORMAT}}"),
+            "{}: the conversion block must be removed, not left as a placeholder",
+            label
+        );
+    }
+}
+
+#[test]
+fn test_91_chroma_subsampling_serde_names_match_the_app() {
+    // These strings are the wire format between the app and the worker; the Dart
+    // side asserts the same list in app/test/pixel_format_test.dart. A mismatch
+    // makes the worker reject the job config outright.
+    for (subsampling, expected) in [
+        (ChromaSubsampling::Original, "\"original\""),
+        (ChromaSubsampling::Yuv420, "\"yuv420\""),
+        (ChromaSubsampling::Yuv422, "\"yuv422\""),
+        (ChromaSubsampling::Yuv422P10, "\"yuv422p10\""),
+    ] {
+        let json = serde_json::to_string(&subsampling).expect("serialize");
+        assert_eq!(json, expected, "{:?} serializes wrong", subsampling);
+        // And round-trips, so an older preset still loads.
+        let back: ChromaSubsampling = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, subsampling);
+    }
+
+    // Only Original means "no conversion"; everything else names a format.
+    assert_eq!(ChromaSubsampling::Original.vapoursynth_format(), None);
+    assert_eq!(
+        ChromaSubsampling::Yuv422P10.vapoursynth_format(),
+        Some("vs.YUV422P10")
+    );
+}

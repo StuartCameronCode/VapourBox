@@ -1186,6 +1186,23 @@ if _box_w > clip.width or _box_h > clip.height:
 {{/RESIZE}}
 
 # ============================================================================
+# OUTPUT FORMAT CONVERSION
+#
+# The preview applies the output colour format too, so it shows what the render
+# will actually look like — including the banding an undithered depth reduction
+# used to introduce, which is precisely the thing a preview should reveal before
+# a long encode rather than after. Identical to the block in
+# pipeline_template.vpy; the two must stay in step (see "Field Order" for why
+# preview/encode divergence is treated as a bug).
+# ============================================================================
+{{#CHROMA_CONVERT}}
+target_format = {{CHROMA_FORMAT}}
+if clip.format.id != target_format:
+    clip = core.resize.Bicubic(clip, format=target_format,
+                               dither_type="error_diffusion")
+{{/CHROMA_CONVERT}}
+
+# ============================================================================
 # OUTPUT - select the exact target frame for preview.
 # The worker decodes a window of source frames around the requested frame and
 # passes the deterministic output index it maps to (after any frame-rate change

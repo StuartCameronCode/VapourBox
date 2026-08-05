@@ -710,7 +710,11 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '4:2:0 is most compatible (web, mobile). 4:2:2 preserves more color detail.',
+                    'Match source keeps the input format — for a 10-bit source '
+                    'that means a 10-bit file, which some players and browsers '
+                    'will not open. 4:2:0 8-bit plays everywhere. 4:2:2 keeps '
+                    'more colour detail; its 10-bit form keeps a 10-bit '
+                    "source's precision.",
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context)
                               .colorScheme
@@ -764,17 +768,16 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     );
   }
 
-  /// Warning shown when converting chroma subsampling would also drop a
-  /// higher-bit-depth source to 8-bit on output. A chroma-subsampling
-  /// conversion forces an 8-bit output format (YUV420P8/YUV422P8), whereas
-  /// "Original" preserves the source format and its bit depth. Returns an empty
-  /// list when nothing needs saying (source is 8-bit, unknown, or "Original").
+  /// Warning shown when the chosen output colour format would reduce a
+  /// higher-bit-depth source's precision — the 8-bit formats always do, 4:2:2
+  /// 10-bit only for a source deeper than 10, and "Match source" never. Returns
+  /// an empty list when nothing needs saying.
   List<Widget> _buildChromaBitDepthWarning(
     MainViewModel viewModel,
     EncodingSettings settings,
   ) {
     final message = chromaConversionBitDepthWarning(
-      converting: settings.chromaSubsampling != ChromaSubsampling.original,
+      targetBitDepth: settings.chromaSubsampling.outputBitDepth,
       pixelFormat: viewModel.videoInfo?.pixelFormat,
     );
     if (message == null) return const [];

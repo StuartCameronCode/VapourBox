@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use crate::models::{
     VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod, CCD_REFERENCE_HEIGHT,
     parse_ratio,
-    DehaloMethod, DeblockMethod, SharpenMethod, ChromaSubsampling, DeinterlaceMethod,
+    DehaloMethod, DeblockMethod, SharpenMethod, DeinterlaceMethod,
     FieldOrder,
 };
 
@@ -1197,21 +1197,18 @@ impl ScriptGenerator {
         // ====================================================================
         // OUTPUT CHROMA SUBSAMPLING CONVERSION
         // ====================================================================
-        match job.encoding_settings.chroma_subsampling {
-            ChromaSubsampling::Original => {
+        // The target format is the enum's own business (ChromaSubsampling::
+        // vapoursynth_format), so adding an output format is one line there
+        // rather than another arm here. `None` means "keep the source format",
+        // bit depth included.
+        match job.encoding_settings.chroma_subsampling.vapoursynth_format() {
+            None => {
                 script = remove_block("{{#CHROMA_CONVERT}}", "{{/CHROMA_CONVERT}}", script);
             }
-            ChromaSubsampling::Yuv420 => {
+            Some(format) => {
                 script = script.replace("{{#CHROMA_CONVERT}}", "");
                 script = script.replace("{{/CHROMA_CONVERT}}", "");
-                // Use YUV420P8 for 8-bit, YUV420P16 for higher bit depth
-                // We'll default to 8-bit since that's most common for deinterlaced content
-                script = script.replace("{{CHROMA_FORMAT}}", "vs.YUV420P8");
-            }
-            ChromaSubsampling::Yuv422 => {
-                script = script.replace("{{#CHROMA_CONVERT}}", "");
-                script = script.replace("{{/CHROMA_CONVERT}}", "");
-                script = script.replace("{{CHROMA_FORMAT}}", "vs.YUV422P8");
+                script = script.replace("{{CHROMA_FORMAT}}", format);
             }
         }
 

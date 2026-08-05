@@ -134,6 +134,67 @@ Future<String> _fixture(String pixFmt) async {
   return path;
 }
 
+/// A 10-bit 4:2:2 clip whose luma is a smooth horizontal ramp and constant down
+/// every column, written sample by sample.
+///
+/// It has to be built by hand: ffmpeg's synthetic sources are 8-bit internally,
+/// so a "gradient" from lavfi converted to 10-bit holds only 256 levels and a
+/// dither has nothing to preserve. This ramp spans 40 *10-bit* code values across
+/// the width — 10 values at 8-bit — so reducing it to 8 bits either rounds into
+/// flat vertical bands or diffuses the error, and the two are trivially
+/// distinguishable: see the dither test below.
+Future<String> _rampFixture() async {
+  final path = '$_outDir/ramp_10bit.mkv';
+  if (File(path).existsSync()) return path;
+
+  final lumaRow = Uint8List(_width * 2);
+  for (var x = 0; x < _width; x++) {
+    // 64 is 10-bit black; 40 code values is 10 at 8-bit.
+    final v = 64 + (x * 40) ~/ _width;
+    lumaRow[x * 2] = v & 0xFF;
+    lumaRow[x * 2 + 1] = (v >> 8) & 0xFF;
+  }
+  final chromaRow = Uint8List(_width ~/ 2 * 2);
+  for (var x = 0; x < _width ~/ 2; x++) {
+    chromaRow[x * 2] = 512 & 0xFF; // neutral chroma at 10-bit
+    chromaRow[x * 2 + 1] = 512 >> 8;
+  }
+
+  final frame = BytesBuilder();
+  for (var y = 0; y < _height; y++) {
+    frame.add(lumaRow);
+  }
+  for (var plane = 0; plane < 2; plane++) {
+    for (var y = 0; y < _height; y++) {
+      frame.add(chromaRow);
+    }
+  }
+  final oneFrame = frame.takeBytes();
+  final raw = File('$_outDir/ramp_10bit.raw');
+  final sink = raw.openWrite();
+  for (var i = 0; i < 6; i++) {
+    sink.add(oneFrame);
+  }
+  await sink.close();
+
+  final result = await Process.run(
+    WorkerHarness.ffmpegPath,
+    [
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-f', 'rawvideo', '-pix_fmt', 'yuv422p10le',
+      '-s', '${_width}x$_height', '-r', '${_fps.toInt()}',
+      '-i', raw.path,
+      '-c:v', 'ffv1', '-pix_fmt', 'yuv422p10le',
+      path,
+    ],
+    environment: WorkerHarness.ffmpegEnv,
+  );
+  expect(result.exitCode, 0,
+      reason: 'ramp fixture generation failed: ${result.stderr}');
+  await raw.delete().catchError((_) => raw);
+  return path;
+}
+
 VideoJob _job({
   required String fixture,
   required String pixFmt,
@@ -736,12 +797,89 @@ void main() {
       expect(out['pix_fmt'], 'yuv422p');
     }, timeout: const Timeout(Duration(minutes: 5)));
 
+    test('4:2:2 10-bit keeps the source precision', () async {
+      // The option that normalizes chroma without throwing away the 10 bits —
+      // the reason it exists is that the other two conversions are 8-bit only.
+      final out = await encodeWith(ChromaSubsampling.yuv422p10, 'yuv422p10');
+      expect(out['pix_fmt'], 'yuv422p10le');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
     test('matching the input keeps the source format', () async {
       // Deliberate: "match input" means no conversion, and for a 10-bit source
       // that is a 10-bit 4:2:2 output. Pinned so a future change to the default
       // is a decision someone makes on purpose rather than a silent one.
       final out = await encodeWith(ChromaSubsampling.original, 'original');
       expect(out['pix_fmt'], 'yuv422p10le');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('reducing 10-bit to 8-bit dithers instead of banding', () async {
+      // The conversion is the one place a deep source is reduced to 8 bits, and
+      // resize defaults to plain rounding. On a ramp that is constant down every
+      // column, rounding leaves every column single-valued (flat bands); error
+      // diffusion spreads the residual vertically, so columns vary.
+      //
+      // Encoded losslessly: x264 at the default CRF would smooth the dither away
+      // and the measurement would say nothing about the pipeline.
+      final fixture = await _rampFixture();
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: fixture,
+        outputPath: '$_outDir/ramp_to_8bit.mkv',
+        processingPipeline: _only(),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.mkv,
+          audioMode: AudioMode.none,
+          chromaSubsampling: ChromaSubsampling.yuv420,
+        ),
+        detectedFieldOrder: FieldOrder.topFieldFirst,
+        totalFrames: 6,
+        inputFrameRate: _fps,
+        inputWidth: _width,
+        inputHeight: _height,
+        inputPixelFormat: 'yuv422p10le',
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'ramp_8bit');
+      expect(result.success, isTrue, reason: result.error);
+
+      final out = await WorkerHarness.firstStream(result.outputPath!,
+          selector: 'v:0', entries: ['pix_fmt']);
+      expect(out!['pix_fmt'], 'yuv420p');
+
+      // Pull one frame's luma plane at its own depth — no rescaling to muddy it.
+      final gray = await Process.run(
+        WorkerHarness.ffmpegPath,
+        [
+          '-v', 'error', '-y', '-i', result.outputPath!,
+          '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'gray',
+          '$_outDir/ramp_out.gray',
+        ],
+        environment: WorkerHarness.ffmpegEnv,
+      );
+      expect(gray.exitCode, 0, reason: '${gray.stderr}');
+      final luma = await File('$_outDir/ramp_out.gray').readAsBytes();
+      expect(luma.length, _width * _height);
+
+      var varyingColumns = 0;
+      for (var x = 0; x < _width; x++) {
+        final first = luma[x];
+        for (var y = 1; y < _height; y++) {
+          if (luma[y * _width + x] != first) {
+            varyingColumns++;
+            break;
+          }
+        }
+      }
+      final fraction = varyingColumns / _width;
+      print('  columns varying down the frame: '
+          '$varyingColumns/$_width (${(fraction * 100).toStringAsFixed(1)}%)');
+
+      // Plain rounding gives exactly 0%: the source is constant down every
+      // column, so without dithering the output is too.
+      expect(fraction, greaterThan(0.25),
+          reason: 'the 10->8-bit reduction looks undithered — a ramp that is '
+              'flat down every column came out flat, i.e. banded. Check '
+              'dither_type on the output format conversion in both templates.');
     }, timeout: const Timeout(Duration(minutes: 5)));
   });
 

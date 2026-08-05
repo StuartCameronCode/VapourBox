@@ -592,6 +592,44 @@ Note that for a >8-bit source the preview PNG comes out **`rgb48be`** (16-bit pe
 channel) rather than `rgb24`, because vspipe emits 10-bit Y4M. `Image.memory`
 handles it; don't "fix" it by forcing 8-bit.
 
+### Output Colour Format
+
+`ChromaSubsampling` (**Settings → Color Format**) is the last thing the script
+does, and it decides bit depth as well as chroma:
+
+| Option | Output | For |
+|---|---|---|
+| `original` (default) | source format, depth included | archival; a 10-bit source stays 10-bit |
+| `yuv420` | `vs.YUV420P8` | compatibility — the only one every player opens |
+| `yuv422` | `vs.YUV422P8` | more chroma detail, 8-bit |
+| `yuv422p10` | `vs.YUV422P10` | normalize chroma without dropping to 8-bit |
+
+Three things to keep in mind:
+
+- **The default produces a file many players refuse.** A 10-bit 4:2:2 source
+  encoded with `original` gives H.264 **High 4:2:2** (HEVC: **Rext**), which is
+  correct but not openable in QuickTime, most browsers or phones. That is
+  deliberate — the user picks a format — and `test_..._matching_the_input_keeps_the_source_format`
+  pins it so changing the default is a decision, not a drift.
+- **The conversion is the one place a deep source is reduced to 8 bits, so it
+  must dither.** `resize` defaults to `dither_type="none"`; plain rounding bands
+  shallow gradients (skies, fades). Verified against vspipe: omitting the
+  argument is byte-identical to explicit `"none"` and differs from
+  `"error_diffusion"`. The end-to-end test feeds a ramp that is constant down
+  every column — rounding leaves **0%** of columns varying, error diffusion
+  **~75%** — and it encodes losslessly, because x264 at the default CRF smooths
+  the dither away and the measurement then proves nothing.
+- **The block lives in BOTH templates.** It was in `pipeline_template.vpy` only,
+  so a preview never showed the output format or its banding. `Yuv422P10` was
+  added by one line in `ChromaSubsampling::vapoursynth_format` — put new formats
+  there rather than adding a match arm in `script_generator.rs`.
+
+The Rust enum's serde names and the Dart enum's `value` strings are the wire
+format (`test_91` and `pixel_format_test.dart` assert the same list from both
+sides). The Dart enum also carries `outputBitDepth`, which drives the
+"your N-bit source will be output as M-bit" warning — a new option that omits it
+silently stops warning.
+
 ### Temporary Files Directory
 
 Scratch files default to the system temp directory, and the user can redirect

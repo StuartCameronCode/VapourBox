@@ -1243,10 +1243,20 @@ if _box_w > clip.width or _box_h > clip.height:
 # OUTPUT FORMAT CONVERSION
 # ============================================================================
 {{#CHROMA_CONVERT}}
-# Convert to target chroma subsampling
+# Convert to the requested output colour format.
+#
+# dither_type matters here and nowhere else in this block: resize defaults to
+# "none", i.e. plain rounding, and this is where a 10- or 12-bit source is
+# reduced to 8 bits (choosing 4:2:0 to get a widely-playable file is the usual
+# reason to be here). Rounding a shallow gradient to 8 bits without dithering
+# bands it — visible on skies and fades that the source held smoothly. Every
+# other depth conversion in this template already asks for error diffusion. It
+# is a no-op when the target is not shallower than the source, so the 8-bit and
+# the 10-bit paths are unaffected.
 target_format = {{CHROMA_FORMAT}}
 if clip.format.id != target_format:
-    clip = core.resize.Bicubic(clip, format=target_format)
+    clip = core.resize.Bicubic(clip, format=target_format,
+                               dither_type="error_diffusion")
 {{/CHROMA_CONVERT}}
 
 # ============================================================================
