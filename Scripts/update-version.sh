@@ -78,14 +78,35 @@ if [ -n "$APP_VERSION" ]; then
         echo "  Updated Windows Runner.rc"
     fi
 
-    # Update macOS Info.plist
+    # Update macOS Info.plist.
+    #
+    # PlistBuddy exists only on macOS, and this used to be the ONLY path — so
+    # running this script from Windows or Linux skipped the plist without a word,
+    # and the macOS DMG built by CI came out labelled with the previous version
+    # while every other file said the new one. The plist is XML, so sed can do it
+    # anywhere; PlistBuddy stays the preferred tool where it exists.
     MAC_PLIST="$PROJECT_ROOT/app/macos/Runner/Info.plist"
     if [ -f "$MAC_PLIST" ]; then
-        # Use PlistBuddy on macOS
         if command -v /usr/libexec/PlistBuddy &> /dev/null; then
             /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" "$MAC_PLIST"
             /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_VERSION" "$MAC_PLIST"
-            echo "  Updated macOS Info.plist"
+            echo "  Updated macOS Info.plist (PlistBuddy)"
+        else
+            # Replace the <string> on the line following each version key.
+            for KEY in CFBundleShortVersionString CFBundleVersion; do
+                if [[ "$OSTYPE" == "darwin"* ]]; then
+                    sed -i '' "/<key>${KEY}<\/key>/{n;s|<string>.*</string>|<string>${APP_VERSION}</string>|;}" "$MAC_PLIST"
+                else
+                    sed -i "/<key>${KEY}<\/key>/{n;s|<string>.*</string>|<string>${APP_VERSION}</string>|;}" "$MAC_PLIST"
+                fi
+            done
+            echo "  Updated macOS Info.plist (sed)"
+        fi
+
+        # Never leave the plist behind again: fail loudly instead.
+        if ! grep -q "<string>${APP_VERSION}</string>" "$MAC_PLIST"; then
+            echo "ERROR: failed to set the version in $MAC_PLIST" >&2
+            exit 1
         fi
     fi
 
