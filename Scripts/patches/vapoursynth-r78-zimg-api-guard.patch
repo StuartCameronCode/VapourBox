@@ -1,0 +1,54 @@
+VapourSynth R78: guard the zimg chromatic_adaptation field behind an API check
+=============================================================================
+
+Applies to: VapourSynth R78 (github.com/vapoursynth/vapoursynth),
+            src/core/vsresize.cpp
+Affects:    every platform. R78 does not compile against any released zimg.
+Upstream:   already fixed, in commit 37eed3dd ("Add zimg chromatic_adaptation
+            api version check", 2026-08-02). That commit landed AFTER R78 was
+            tagged and is in R79RC1, so this is a straight backport of it, not
+            a change of our own.
+
+Symptom
+-------
+Building R78 against zimg 3.0.6 - the current release, and what Homebrew, the
+distros and VapourSynth's own subprojects/zimg.wrap all provide - fails:
+
+    ../src/core/vsresize.cpp:582:22: error: no member named
+    'chromatic_adaptation' in 'vszimgxx::zfilter_graph_builder_params'
+      582 |   m_params.chromatic_adaptation = propGetScalarDef<int>(...)
+
+R78 added the chromatic_adaptation resize argument and reads the field
+unconditionally, but the field only exists in a zimg newer than 3.0.6
+(ZIMG_API_VERSION 2.5). So the "latest release" of VapourSynth cannot be built
+from source at all with a released zimg.
+
+Why we carry it
+---------------
+The alternatives were worse. Shipping R79RC1 means shipping a prerelease;
+waiting for a zimg release that does not exist yet blocks the upgrade; and
+building zimg from git would pin us to an unreleased revision on all five
+platforms. This is two lines, it is upstream's own fix, and it drops out
+naturally when we move to R79 or later - at which point this patch will stop
+applying and the deps build will hard-fail, which is the intended reminder.
+
+commit 37eed3ddbdb61e92975d9a4b054a488e93fc9a1c
+Author: Fredrik Mellbin <fredrik.mellbin@gmail.com>
+Date:   Sun Aug 2 21:36:03 2026 +0200
+
+    Add zimg chromatic_adaptation api version check
+
+diff --git a/src/core/vsresize.cpp b/src/core/vsresize.cpp
+index 6f3f5405..52ba5ddc 100644
+--- a/src/core/vsresize.cpp
++++ b/src/core/vsresize.cpp
+@@ -579,7 +579,9 @@ class vszimg {
+ 
+             m_params.cpu_type = ZIMG_CPU_AUTO_64B;
+             m_params.allow_approximate_gamma = propGetScalarDef<int>(in, "approximate_gamma", 1, vsapi);
++#if ZIMG_API_VERSION >= ZIMG_MAKE_API_VERSION(2, 5)
+             m_params.chromatic_adaptation = propGetScalarDef<int>(in, "chromatic_adaptation", 1, vsapi);
++#endif
+             m_params.resample_filter = u.filter;
+             m_params.filter_param_a = propGetScalarDef<double>(in, "filter_param_a", m_params.filter_param_a, vsapi);
+             m_params.filter_param_b = propGetScalarDef<double>(in, "filter_param_b", m_params.filter_param_b, vsapi);

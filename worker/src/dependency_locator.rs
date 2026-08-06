@@ -700,26 +700,6 @@ impl DependencyLocator {
         }
     }
 
-    /// Write the VapourSynth autoload config to a PER-PROCESS path and return it.
-    ///
-    /// `build_environment` runs on every worker invocation, and `flutter test`
-    /// runs test files concurrently, so writing a shared, fixed-name conf let an
-    /// overlapping vspipe read it mid-truncation — `UserPluginDir` came back
-    /// empty and plugin autoload silently skipped everything (the intermittent
-    /// "No attribute with the name fmtc exists" on the nightly). A per-process
-    /// file (named by PID) is written fully by this process and touched by no
-    /// other, eliminating the race. Verified by reproduction: a shared conf
-    /// failed ~1/120 concurrent runs; per-process was 0/360.
-    fn write_runtime_conf(plugins_dir: &Path) -> Option<PathBuf> {
-        let content = format!(
-            "UserPluginDir={}\nAutoloadUserPluginDir=true\nAutoloadSystemPluginDir=false\n",
-            plugins_dir.to_string_lossy()
-        );
-        let conf_path = env::temp_dir().join(format!("vapourbox-vs-{}.conf", std::process::id()));
-        std::fs::write(&conf_path, content).ok()?;
-        Some(conf_path)
-    }
-
     /// Build environment variables for running vspipe/ffmpeg.
     pub fn build_environment(&self) -> std::collections::HashMap<String, String> {
         let mut env = std::collections::HashMap::new();
@@ -735,7 +715,7 @@ impl DependencyLocator {
 
         // Set VapourSynth plugin path
         env.insert(
-            "VAPOURSYNTH_PLUGIN_PATH".to_string(),
+            "VAPOURSYNTH_EXTRA_PLUGIN_PATH".to_string(),
             self.vapoursynth_plugin_path().to_string_lossy().to_string(),
         );
 
@@ -768,14 +748,16 @@ impl DependencyLocator {
             };
             env.insert("DYLD_LIBRARY_PATH".to_string(), new_dyld);
 
-            // Generate VapourSynth config so vspipe-bin finds bundled plugins
-            // and ignores system plugins (which could conflict).
-            // This replaces the config generation in the vspipe wrapper script,
-            // allowing us to call vspipe-bin directly (so kill() works).
+            // Point vspipe-bin at the bundled plugins. R74 removed the config
+            // file mechanism (UserPluginDir / AutoloadUserPluginDir /
+            // VAPOURSYNTH_CONF_PATH) in favour of this variable, which also
+            // retires the per-process conf file we used to write: there is no
+            // longer a shared file for concurrent runs to race on.
             let plugins_dir = vs_lib_path.join("plugins");
-            if let Some(conf_path) = Self::write_runtime_conf(&plugins_dir) {
-                env.insert("VAPOURSYNTH_CONF_PATH".to_string(), conf_path.to_string_lossy().to_string());
-            }
+            env.insert(
+                "VAPOURSYNTH_EXTRA_PLUGIN_PATH".to_string(),
+                plugins_dir.to_string_lossy().to_string(),
+            );
         }
 
         #[cfg(target_os = "linux")]
@@ -803,11 +785,12 @@ impl DependencyLocator {
             };
             env.insert("LD_LIBRARY_PATH".to_string(), new_ld);
 
-            // Generate VapourSynth config (same as macOS)
+            // Bundled plugin path (same as macOS)
             let plugins_dir = vs_lib_path.join("plugins");
-            if let Some(conf_path) = Self::write_runtime_conf(&plugins_dir) {
-                env.insert("VAPOURSYNTH_CONF_PATH".to_string(), conf_path.to_string_lossy().to_string());
-            }
+            env.insert(
+                "VAPOURSYNTH_EXTRA_PLUGIN_PATH".to_string(),
+                plugins_dir.to_string_lossy().to_string(),
+            );
         }
 
         env

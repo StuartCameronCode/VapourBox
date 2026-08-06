@@ -42,7 +42,7 @@ class ToolLocator {
   String? get workerPath => _workerPath;
 
   /// Environment variables for spawning worker/tool processes.
-  /// Includes PYTHONHOME, PYTHONPATH, VAPOURSYNTH_PLUGIN_PATH, PATH, etc.
+  /// Includes PYTHONHOME, PYTHONPATH, VAPOURSYNTH_EXTRA_PLUGIN_PATH, PATH, etc.
   ///
   /// The temp variables are applied per call rather than baked into the cached
   /// map, so changing the temp directory in Settings takes effect immediately.
@@ -163,7 +163,7 @@ class ToolLocator {
     if (Platform.isWindows) {
       env['PYTHONHOME'] = path.join(_depsDir!, 'vapoursynth');
       env['PYTHONPATH'] = path.join(_depsDir!, 'vapoursynth', 'Lib', 'site-packages');
-      env['VAPOURSYNTH_PLUGIN_PATH'] = path.join(_depsDir!, 'vapoursynth', 'vs-plugins');
+      env['VAPOURSYNTH_EXTRA_PLUGIN_PATH'] = path.join(_depsDir!, 'vapoursynth', 'vs-plugins');
 
       final paths = [
         path.join(_depsDir!, 'vapoursynth'),
@@ -178,7 +178,7 @@ class ToolLocator {
 
       env['PYTHONPATH'] = path.join(_depsDir!, 'python-packages');
       env['PYTHONNOUSERSITE'] = '1';
-      env['VAPOURSYNTH_PLUGIN_PATH'] = path.join(_depsDir!, 'vapoursynth', 'plugins');
+      env['VAPOURSYNTH_EXTRA_PLUGIN_PATH'] = path.join(_depsDir!, 'vapoursynth', 'plugins');
 
       final paths = <String>[];
       if (await bundledPython.exists()) {
@@ -206,7 +206,7 @@ class ToolLocator {
 
       env['PYTHONPATH'] = path.join(_depsDir!, 'python-packages');
       env['PYTHONNOUSERSITE'] = '1';
-      env['VAPOURSYNTH_PLUGIN_PATH'] = path.join(_depsDir!, 'vapoursynth', 'plugins');
+      env['VAPOURSYNTH_EXTRA_PLUGIN_PATH'] = path.join(_depsDir!, 'vapoursynth', 'plugins');
 
       final paths = <String>[];
       if (await bundledPython.exists()) {

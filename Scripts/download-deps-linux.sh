@@ -153,16 +153,28 @@ fi
 echo ""
 echo "=== Building VapourSynth from source ==="
 
+VS_TAG="R78"
 VS_BUILD_DIR="$BUILD_DIR/vapoursynth"
 VS_INSTALL_DIR="$BUILD_DIR/vapoursynth-install"
 
 if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.so" ]; then
-    echo "  Cloning VapourSynth R73..."
+    echo "  Cloning VapourSynth $VS_TAG..."
     rm -rf "$VS_BUILD_DIR"
-    git clone --depth 1 --branch R73 https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR" 2>/dev/null || \
+    git clone --depth 1 --branch "$VS_TAG" https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR" 2>/dev/null || \
     git clone --depth 1 https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR"
 
     cd "$VS_BUILD_DIR"
+
+    # zimg API guard (backport of upstream 37eed3dd). R78 reads zimg's
+    # chromatic_adaptation field unconditionally, but it only exists in a zimg
+    # newer than the current release, so R78 builds against no released zimg.
+    # See the patch header. Hard-fail rather than die in the compiler.
+    git apply "$SCRIPT_DIR/patches/vapoursynth-r78-zimg-api-guard.patch" || {
+        echo "  ERROR: patches/vapoursynth-r78-zimg-api-guard.patch did not apply." >&2
+        echo "  If VapourSynth has moved past R78 the fix is already upstream — drop it." >&2
+        exit 1
+    }
+    echo "  Applied the zimg chromatic_adaptation API guard"
 
     # Install Cython in our embedded Python for building
     echo "  Installing Cython in embedded Python..."
@@ -222,15 +234,25 @@ EOF
 
     echo "  Copying VapourSynth files..."
     # Copy vspipe
-    cp "$VS_INSTALL_DIR/bin/vspipe" "$DEPS_DIR/vapoursynth/vspipe-bin"
+    # Copy from the build directory, not the install prefix: R74 turned
+    # VapourSynth into a Python package, so `ninja install` puts everything
+    # under <prefix>/<python-site-packages>/vapoursynth/ instead of bin/ and
+    # lib/. The build directory is flat and Python-independent.
+    VS_BUILT="$VS_BUILD_DIR/build"
+
+    cp "$VS_BUILT/vspipe" "$DEPS_DIR/vapoursynth/vspipe-bin"
     chmod +x "$DEPS_DIR/vapoursynth/vspipe-bin"
 
     # Copy libraries
-    cp "$VS_INSTALL_DIR/lib/libvapoursynth.so"* "$DEPS_DIR/vapoursynth/"
-    cp "$VS_INSTALL_DIR/lib/libvapoursynth-script.so"* "$DEPS_DIR/vapoursynth/"
+    cp "$VS_BUILT/libvapoursynth.so"* "$DEPS_DIR/vapoursynth/"
+    # vapoursynth-script was renamed vsscript in R78.
+    cp "$VS_BUILT/libvsscript.so"* "$DEPS_DIR/vapoursynth/"
+    # R78 split every core filter (std, resize, ...) out of libvapoursynth into
+    # this module; without it the core namespaces are absent and every job fails.
+    cp "$VS_BUILT/libvapoursynthfilters.so"* "$DEPS_DIR/vapoursynth/"
 
     # Copy Python module
-    find "$VS_BUILD_DIR/build" -name "vapoursynth*.so" -exec cp {} "$PYTHON_PACKAGES_DIR/" \;
+    cp "$VS_BUILT/vapoursynth.abi3.so" "$PYTHON_PACKAGES_DIR/"
 
     # Fix RPATHs
     echo "  Fixing RPATHs..."
@@ -255,19 +277,12 @@ export VAPOURSYNTH_PLUGIN_PATH="$SCRIPT_DIR/plugins"
 export PYTHONPATH="$DEPS_ROOT/python-packages:${PYTHONPATH:-}"
 export LD_LIBRARY_PATH="$SCRIPT_DIR:$DEPS_ROOT/python/lib:$DEPS_ROOT/lib:${LD_LIBRARY_PATH:-}"
 
-# Generate config dynamically with correct absolute path
-CONF_FILE=$(mktemp)
-cat > "$CONF_FILE" << EOF
-UserPluginDir=$SCRIPT_DIR/plugins
-AutoloadUserPluginDir=true
-AutoloadSystemPluginDir=false
-EOF
-export VAPOURSYNTH_CONF_PATH="$CONF_FILE"
+# R74 removed the config-file mechanism entirely (UserPluginDir /
+# AutoloadUserPluginDir / VAPOURSYNTH_CONF_PATH no longer exist). Plugins come
+# from <libdir>/plugins plus this variable.
+export VAPOURSYNTH_EXTRA_PLUGIN_PATH="$SCRIPT_DIR/plugins"
 
-"$SCRIPT_DIR/vspipe-bin" "$@"
-EXIT_CODE=$?
-rm -f "$CONF_FILE"
-exit $EXIT_CODE
+exec "$SCRIPT_DIR/vspipe-bin" "$@"
 WRAPPER_EOF
     chmod +x "$DEPS_DIR/vapoursynth/vspipe"
 

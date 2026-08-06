@@ -270,16 +270,32 @@ PYTHON_INCLUDE="$PYTHON_DIR/include/python${PYTHON_MAJOR_MINOR}"
 echo ""
 echo "=== Building VapourSynth from source ==="
 
+VS_TAG="R78"
 VS_BUILD_DIR="$BUILD_DIR/vapoursynth"
 VS_INSTALL_DIR="$BUILD_DIR/vapoursynth-install"
 
 if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.dylib" ]; then
-    echo "  Cloning VapourSynth R73..."
+    echo "  Cloning VapourSynth $VS_TAG..."
     rm -rf "$VS_BUILD_DIR"
-    git clone --depth 1 --branch R73 https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR" 2>/dev/null || \
+    git clone --depth 1 --branch "$VS_TAG" https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR" 2>/dev/null || \
     git clone --depth 1 https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR"
 
     cd "$VS_BUILD_DIR"
+
+    # ------------------------------------------------------------------------
+    # zimg API guard (backport of upstream 37eed3dd)
+    # ------------------------------------------------------------------------
+    # R78 reads zimg's chromatic_adaptation field unconditionally, but that
+    # field only exists in a zimg newer than the current release (3.0.6), so
+    # R78 does not compile against any released zimg. Upstream fixed it two
+    # days after tagging; this is that fix. Hard-fail rather than fall over in
+    # the compiler with a confusing error.
+    git apply "$SCRIPT_DIR/patches/vapoursynth-r78-zimg-api-guard.patch" || {
+        echo "  ERROR: patches/vapoursynth-r78-zimg-api-guard.patch did not apply." >&2
+        echo "  If VapourSynth has moved past R78 the fix is already upstream — drop it." >&2
+        exit 1
+    }
+    echo "  Applied the zimg chromatic_adaptation API guard"
 
     # ------------------------------------------------------------------------
     # Back-deploy patch for Monterey (issue #39) — x64 only
@@ -371,34 +387,43 @@ EOF
     meson setup build \
         --prefix="$VS_INSTALL_DIR" \
         --buildtype=release \
-        -Dlibdir=lib \
-        -Dplugindir="" \
-        -Dpython3_bin="$PYTHON_BIN"
+        -Dlibdir=lib
 
     echo "  Building VapourSynth..."
     PATH="$PYTHON_DIR/bin:$PATH" ninja -C build
     PATH="$PYTHON_DIR/bin:$PATH" ninja -C build install
 
     echo "  Copying VapourSynth files..."
-    # Copy vspipe
-    cp "$VS_INSTALL_DIR/bin/vspipe" "$DEPS_DIR/vapoursynth/vspipe-bin"
+    # Copy from the build directory, not the install prefix. R74 turned
+    # VapourSynth into a Python package ("pip install vapoursynth"), so
+    # `ninja install` now puts vspipe and every library under
+    # <prefix>/<python-site-packages>/vapoursynth/ rather than <prefix>/bin and
+    # <prefix>/lib. The build directory is flat and does not depend on which
+    # Python did the install, so it is the stable place to copy from.
+    VS_BUILT="$VS_BUILD_DIR/build"
+
+    cp "$VS_BUILT/vspipe" "$DEPS_DIR/vapoursynth/vspipe-bin"
     chmod +x "$DEPS_DIR/vapoursynth/vspipe-bin"
 
     # Copy libraries with both names for compatibility
-    cp "$VS_INSTALL_DIR/lib/libvapoursynth.4.dylib" "$DEPS_DIR/vapoursynth/libvapoursynth.dylib"
-    cp "$VS_INSTALL_DIR/lib/libvapoursynth.4.dylib" "$DEPS_DIR/vapoursynth/libvapoursynth.4.dylib"
-    cp "$VS_INSTALL_DIR/lib/libvapoursynth-script.4.dylib" "$DEPS_DIR/vapoursynth/libvapoursynth-script.dylib"
-    cp "$VS_INSTALL_DIR/lib/libvapoursynth-script.4.dylib" "$DEPS_DIR/vapoursynth/libvapoursynth-script.4.dylib"
+    cp "$VS_BUILT/libvapoursynth.4.dylib" "$DEPS_DIR/vapoursynth/libvapoursynth.dylib"
+    cp "$VS_BUILT/libvapoursynth.4.dylib" "$DEPS_DIR/vapoursynth/libvapoursynth.4.dylib"
+    # vapoursynth-script was renamed vsscript in R78, and is unversioned.
+    cp "$VS_BUILT/libvsscript.dylib" "$DEPS_DIR/vapoursynth/libvsscript.dylib"
+    # R78 split every core filter (std, resize, ...) out of libvapoursynth into
+    # this module. Without it the core namespaces are simply absent and every
+    # job fails at script evaluation.
+    cp "$VS_BUILT/libvapoursynthfilters.dylib" "$DEPS_DIR/vapoursynth/libvapoursynthfilters.dylib"
 
     # Copy zimg from Homebrew (will fix paths to be relative)
     cp "$BREW_PREFIX/lib/libzimg.2.dylib" "$DEPS_DIR/vapoursynth/libzimg.dylib"
 
     # Copy Python module
-    find "$VS_BUILD_DIR/build" -name "vapoursynth*.so" -exec cp {} "$PYTHON_PACKAGES_DIR/" \;
+    cp "$VS_BUILT/vapoursynth.abi3.so" "$PYTHON_PACKAGES_DIR/"
 
     # Fix Python module library paths (critical for self-contained operation)
     cd "$PYTHON_PACKAGES_DIR"
-    for so_file in vapoursynth.cpython-*.so; do
+    for so_file in vapoursynth*.so; do
         if [ -f "$so_file" ]; then
             # Fix libvapoursynth reference to use loader_path
             install_name_tool -change "@rpath/libvapoursynth.4.dylib" \
@@ -459,28 +484,15 @@ export PYTHONPATH="$DEPS_ROOT/python-packages:${PYTHONPATH:-}"
 # Add our lib directories to dylib search path
 export DYLD_LIBRARY_PATH="$SCRIPT_DIR:$DEPS_ROOT/python/lib:${DYLD_LIBRARY_PATH:-}"
 
-# Generate config dynamically with correct absolute path
-CONF_FILE=$(mktemp)
-cat > "$CONF_FILE" << EOF
-UserPluginDir=$SCRIPT_DIR/plugins
-AutoloadUserPluginDir=true
-AutoloadSystemPluginDir=false
-EOF
-export VAPOURSYNTH_CONF_PATH="$CONF_FILE"
+# R74 removed the config-file mechanism entirely (UserPluginDir /
+# AutoloadUserPluginDir / VAPOURSYNTH_CONF_PATH no longer exist). Plugins now
+# come from <libdir>/plugins plus this variable, which is simpler than the temp
+# config file this wrapper used to generate.
+export VAPOURSYNTH_EXTRA_PLUGIN_PATH="$SCRIPT_DIR/plugins"
 
-# Run vspipe and clean up config
-"$SCRIPT_DIR/vspipe-bin" "$@"
-EXIT_CODE=$?
-rm -f "$CONF_FILE"
-exit $EXIT_CODE
+exec "$SCRIPT_DIR/vspipe-bin" "$@"
 WRAPPER_EOF
     chmod +x "$DEPS_DIR/vapoursynth/vspipe"
-
-    # Create fallback config file (used if wrapper doesn't generate one)
-    cat > "$DEPS_DIR/vapoursynth/vapoursynth.conf" << 'CONF_EOF'
-AutoloadUserPluginDir=false
-AutoloadSystemPluginDir=false
-CONF_EOF
 
     cd "$BUILD_DIR"
     echo "  Built VapourSynth from source with embedded Python"
@@ -1646,7 +1658,7 @@ done
 
 # Sign Python module
 cd "$PYTHON_PACKAGES_DIR"
-for so_file in vapoursynth.cpython-*.so; do
+for so_file in vapoursynth*.so; do
     if [ -f "$so_file" ]; then
         codesign -s - -f "$so_file" 2>/dev/null && echo "  Signed $so_file"
     fi
