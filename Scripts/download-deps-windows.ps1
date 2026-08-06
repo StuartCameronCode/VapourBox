@@ -90,7 +90,7 @@ function Download-File {
 # and matches the macOS and Linux bundles. Pinned rather than probing for the
 # newest patch, so the bundle is reproducible.
 Write-Host ""
-Write-Host "[1/8] Installing Python $PythonVersion embeddable + VapourSynth $VSRelease..." -ForegroundColor Yellow
+Write-Host "[1/7] Installing Python $PythonVersion embeddable + VapourSynth $VSRelease..." -ForegroundColor Yellow
 
 $VSDir = "$FullTargetDir\vapoursynth"
 $VSPipePath = "$VSDir\Lib\site-packages\vapoursynth\vspipe.exe"
@@ -140,7 +140,7 @@ import site
 # 3. FFmpeg
 # =============================================================================
 Write-Host ""
-Write-Host "[3/8] Downloading FFmpeg..." -ForegroundColor Yellow
+Write-Host "[2/7] Downloading FFmpeg..." -ForegroundColor Yellow
 
 $FFmpegZip = Join-Path $TempDir "ffmpeg.zip"
 $FFmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
@@ -170,7 +170,7 @@ if (-not (Test-Path "$FullTargetDir\ffmpeg\ffmpeg.exe")) {
 # 4. VapourSynth Plugins (via 7z)
 # =============================================================================
 Write-Host ""
-Write-Host "[4/8] Downloading VapourSynth plugins..." -ForegroundColor Yellow
+Write-Host "[3/7] Downloading VapourSynth plugins..." -ForegroundColor Yellow
 
 # Check for 7-Zip
 $7zPath = "C:\Program Files\7-Zip\7z.exe"
@@ -507,7 +507,7 @@ if (-not (Test-Path $DvdReadPath)) {
 # 5. Python Packages (havsfunc, mvsfunc, adjust)
 # =============================================================================
 Write-Host ""
-Write-Host "[5/8] Downloading Python packages..." -ForegroundColor Yellow
+Write-Host "[4/7] Downloading Python packages..." -ForegroundColor Yellow
 
 $SitePackagesDir = "$FullTargetDir\vapoursynth\Lib\site-packages"
 
@@ -569,7 +569,7 @@ Write-Host "  Python packages installed" -ForegroundColor Green
 # 6. Patch havsfunc for API compatibility
 # =============================================================================
 Write-Host ""
-Write-Host "[6/8] Patching havsfunc for API compatibility..." -ForegroundColor Yellow
+Write-Host "[5/7] Patching havsfunc for API compatibility..." -ForegroundColor Yellow
 
 $HavsfuncPath = "$SitePackagesDir\havsfunc.py"
 if (Test-Path $HavsfuncPath) {
@@ -694,7 +694,7 @@ def _fix_mv_args(args):
 # 7. NNEDI3 Weights (if not already copied with znedi3)
 # =============================================================================
 Write-Host ""
-Write-Host "[7/8] Verifying NNEDI3 weights..." -ForegroundColor Yellow
+Write-Host "[6/7] Verifying NNEDI3 weights..." -ForegroundColor Yellow
 
 $WeightsPath = "$PluginsDir\nnedi3_weights.bin"
 if (-not (Test-Path $WeightsPath)) {
@@ -737,7 +737,7 @@ if (Test-Path $VSPipeExe) {
 # 8. Cleanup
 # =============================================================================
 Write-Host ""
-Write-Host "[8/8] Cleaning up..." -ForegroundColor Yellow
+Write-Host "[7/7] Cleaning up..." -ForegroundColor Yellow
 
 Remove-Item $TempDir -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "  Cleanup complete" -ForegroundColor Green
