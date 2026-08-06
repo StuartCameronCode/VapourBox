@@ -122,6 +122,18 @@ required = ['std', 'resize', 'mv', 'znedi3', 'eedi3m', 'fmtc',
             'ctmf', 'warp', 'misc', 'grain', 'tcanny',
             'zsmooth', 'descratch', 'vivtc', 'ttmpsm', 'tmedian',
             'fft3dfilter']
+
+# On ARM, `nnedi3` is load-bearing and `znedi3` is only the fallback: znedi3's
+# SIMD is x86-only, so the ARM bundles build it scalar and both the templates'
+# _nnedi3() helper and havsfunc's patched _nnedi3_impl() pick nnedi3 instead
+# (6.3x faster, same network and weights). A bundle that dropped nnedi3 would
+# still deinterlace correctly — it would just silently be slow again, which is
+# exactly the kind of regression a "does it run" check never catches.
+# x86 bundles deliberately do NOT ship plain nnedi3 (Windows and macOS-x64 have
+# only znedi3 + nnedi3cl), so this requirement is arch-conditional, not global.
+import platform
+if platform.machine().lower() in ('arm64', 'aarch64'):
+    required.append('nnedi3')
 # nnedi3cl and knlm are deliberately NOT required: both are OpenCL and the app
 # degrades to a CPU path when the driver is absent.
 

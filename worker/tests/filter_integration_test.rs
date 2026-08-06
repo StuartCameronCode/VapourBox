@@ -2510,7 +2510,7 @@ fn test_70_upscale_nnedi3_granular_parameters() {
     });
 
     run_job_and_verify(&job, "NNEDI3 upscale granular", &[
-        "core.znedi3.nnedi3",
+        "return _nnedi3(",
         "nsize=4",
         "nns=4",
         "qual=2",
@@ -3382,4 +3382,53 @@ fn test_91_chroma_subsampling_serde_names_match_the_app() {
         ChromaSubsampling::Yuv422P10.vapoursynth_format(),
         Some("vs.YUV422P10")
     );
+}
+
+/// Test 92: neither template may name an nnedi3 implementation directly.
+///
+/// znedi3's SIMD kernels are x86-only, so the ARM bundles build it with X86=0
+/// and it runs fully scalar — measured 6.3x slower than the bundled nnedi3,
+/// which ships real NEON kernels, and 30% of the whole arm64 QTGMC cost. Both
+/// implement the same network from the same weights file, so the templates pick
+/// at runtime via the `_nnedi3()` helper (havsfunc does the same through its
+/// patch 6). A direct `core.znedi3.nnedi3` call reintroduces the slow path on
+/// ARM silently — it still produces a correct picture, just far slower, so only
+/// an assertion like this one catches it.
+#[test]
+fn test_92_templates_do_not_hardcode_an_nnedi3_implementation() {
+    let templates_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+
+    for name in ["pipeline_template.vpy", "preview_template.vpy"] {
+        let path = templates_dir.join(name);
+        let body = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+
+        // The helper itself is the one place either plugin may be named.
+        let helper_start = body
+            .find("def _nnedi3(")
+            .unwrap_or_else(|| panic!("{name} is missing the _nnedi3() helper"));
+        let helper_end = helper_start
+            + body[helper_start..]
+                .find("\n\n")
+                .expect("helper should be followed by a blank line");
+        let (before, after) = (&body[..helper_start], &body[helper_end..]);
+
+        for (plugin, call) in [
+            ("znedi3", "core.znedi3.nnedi3("),
+            ("nnedi3", "core.nnedi3.nnedi3("),
+        ] {
+            assert!(
+                !before.contains(call) && !after.contains(call),
+                "{name} calls {plugin} directly; route it through _nnedi3() so ARM \
+                 gets the NEON implementation"
+            );
+        }
+
+        // And the helper is actually reached — the upscale path is the only
+        // caller in the template itself (QTGMC goes through havsfunc).
+        assert!(
+            body.contains("_nnedi3(\n"),
+            "{name} defines _nnedi3() but never calls it"
+        );
+    }
 }
