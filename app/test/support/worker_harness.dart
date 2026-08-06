@@ -590,7 +590,7 @@ class WorkerHarness {
   /// Critical files that must exist for a deps dir to count as usable.
   static List<String> _criticalFiles() {
     if (Platform.isWindows) {
-      return ['vapoursynth/VSPipe.exe', 'vapoursynth/vs-plugins', 'ffmpeg/ffmpeg.exe'];
+      return ['vapoursynth/Lib/site-packages/vapoursynth/vspipe.exe', 'vapoursynth/vs-plugins', 'ffmpeg/ffmpeg.exe'];
     }
     return ['vapoursynth/vspipe', 'vapoursynth/plugins', 'ffmpeg/ffmpeg'];
   }

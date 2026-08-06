@@ -26,7 +26,7 @@ void main() {
     final String ffmpegExe;
     if (Platform.isWindows) {
       depsPlatform = 'windows-x64';
-      vspipeExe = 'VSPipe.exe';
+      vspipeExe = r'Lib\site-packages\vapoursynth\vspipe.exe';
       ffmpegExe = 'ffmpeg.exe';
     } else if (Platform.isMacOS) {
       // Check architecture

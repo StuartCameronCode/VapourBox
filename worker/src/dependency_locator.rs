@@ -161,15 +161,23 @@ impl DependencyLocator {
 
         #[cfg(target_os = "windows")]
         {
-            // Windows: VapourSynth portable uses VSPipe.exe
-            let path = vs_dir.join("VSPipe.exe");
+            // R78 ships Windows as a Python wheel, so vspipe.exe lives inside
+            // the installed package next to libvapoursynth.dll rather than at
+            // the root of the portable directory.
+            let path = vs_dir
+                .join("Lib")
+                .join("site-packages")
+                .join("vapoursynth")
+                .join("vspipe.exe");
             if path.exists() {
                 return Ok(path);
             }
-            // Fallback to lowercase
-            let alt = vs_dir.join("vspipe.exe");
-            if alt.exists() {
-                return Ok(alt);
+            // Pre-R78 layouts kept it at the top level.
+            for legacy in ["VSPipe.exe", "vspipe.exe"] {
+                let alt = vs_dir.join(legacy);
+                if alt.exists() {
+                    return Ok(alt);
+                }
             }
         }
 

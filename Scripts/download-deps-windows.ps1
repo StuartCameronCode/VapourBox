@@ -4,8 +4,8 @@
 
 .DESCRIPTION
     This script downloads and sets up:
-    - VapourSynth R73 (portable, includes Python 3.8)
-    - Python 3.8 embeddable (for VSScript)
+    - VapourSynth R78 (installed as a Python wheel)
+    - Python 3.12 embeddable (hosts the wheel and VSScript)
     - FFmpeg (latest GPL build)
     - VapourSynth plugins (mvtools, nnedi3cl, znedi3, eedi3m, fmtconv, miscfilters, dfttest, neo_f3kdb, cas, fft3dfilter, descratch, temporalmedian)
     - FFTW library (required by dfttest)
@@ -57,6 +57,13 @@ if (-not (Test-Path $TempDir)) {
     New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
 }
 
+# VapourSynth release and the embeddable Python it is installed into.
+# The wheel is cp312-abi3, so any Python >= 3.12 works; keep this in step
+# with the macOS and Linux bundles.
+$VSRelease = "R78"
+$PythonVersion = "3.12.10"
+$PythonTag = "312"
+
 function Download-File {
     param([string]$Url, [string]$OutFile)
     Write-Host "  Downloading: $Url" -ForegroundColor Gray
@@ -64,106 +71,69 @@ function Download-File {
 }
 
 # =============================================================================
-# 1. VapourSynth R73 Portable
+# 1. Python 3.12 embeddable + VapourSynth R78 wheel
 # =============================================================================
+# R74 turned VapourSynth into a Python package and R78 ships Windows purely as
+# a wheel: VapourSynth64-Portable-R78.zip contains only wheel\, vspipe.bat,
+# pip.bat and docs - no VSPipe.exe, no DLLs, no Python. The wheel itself is
+# self-contained (vspipe.exe, libvapoursynth.dll, libvapoursynthfilters*.dll,
+# vsscript.dll, vapoursynth.pyd), so the R73 flow - portable zip first, then
+# bolt Python 3.8 on the side - no longer applies.
+#
+# This mirrors the official Install-Portable-VapourSynth-R78.ps1: unpack an
+# embeddable Python, add Lib\site-packages to its ._pth, then install the
+# wheel. We expand the wheel rather than bootstrapping pip into the embeddable
+# interpreter; a wheel is a zip, this one has no .data payload and no scripts,
+# and expanding keeps the build deterministic and offline-friendly.
+#
+# Python 3.12 is the floor R74 set (the wheel is cp312-abi3, so 3.12+ all work)
+# and matches the macOS and Linux bundles. Pinned rather than probing for the
+# newest patch, so the bundle is reproducible.
 Write-Host ""
-Write-Host "[1/8] Downloading VapourSynth R73 Portable..." -ForegroundColor Yellow
+Write-Host "[1/8] Installing Python $PythonVersion embeddable + VapourSynth $VSRelease..." -ForegroundColor Yellow
 
-$VSZip = Join-Path $TempDir "vapoursynth.zip"
-$VSUrl = "https://github.com/vapoursynth/vapoursynth/releases/download/R73/VapourSynth64-Portable-R73.zip"
-
-if (-not (Test-Path "$FullTargetDir\vapoursynth\VSPipe.exe")) {
-    Download-File -Url $VSUrl -OutFile $VSZip
-    Expand-Archive -Path $VSZip -DestinationPath "$FullTargetDir\vapoursynth" -Force
-    Remove-Item $VSZip -Force
-    Write-Host "  VapourSynth R73 installed" -ForegroundColor Green
-} else {
-    Write-Host "  VapourSynth R73 already installed" -ForegroundColor Gray
-}
-
-# =============================================================================
-# 2. Python 3.8 Embeddable (for VSScriptPython38.dll)
-# =============================================================================
-Write-Host ""
-Write-Host "[2/8] Downloading Python 3.8.10 embeddable..." -ForegroundColor Yellow
-
-$PythonZip = Join-Path $TempDir "python38.zip"
-$PythonUrl = "https://www.python.org/ftp/python/3.8.10/python-3.8.10-embed-amd64.zip"
 $VSDir = "$FullTargetDir\vapoursynth"
+$VSPipePath = "$VSDir\Lib\site-packages\vapoursynth\vspipe.exe"
 
-# NOTE: guard on BOTH python38.dll AND python38.zip. python38.zip is the Python
-# 3.8 standard library (contains the `encodings` module). It is *.zip-gitignored,
-# so a checked-out deps/windows-x64 tree has python38.dll committed but NOT
-# python38.zip. Guarding on python38.dll alone made CI skip this block and ship a
-# bundle with no stdlib -> "ModuleNotFoundError: No module named 'encodings'".
-if (-not (Test-Path "$VSDir\python38.dll") -or -not (Test-Path "$VSDir\python38.zip")) {
+if (-not (Test-Path $VSPipePath)) {
+    # --- Python embeddable ---
+    $PythonZip = Join-Path $TempDir "python-embed.zip"
+    $PythonUrl = "https://www.python.org/ftp/python/$PythonVersion/python-$PythonVersion-embed-amd64.zip"
     Download-File -Url $PythonUrl -OutFile $PythonZip
+    Expand-Archive -Path $PythonZip -DestinationPath $VSDir -Force
+    Remove-Item $PythonZip -Force
 
-    $PythonTempDir = Join-Path $TempDir "python38-extract"
-    Expand-Archive -Path $PythonZip -DestinationPath $PythonTempDir -Force
-
-    # Copy Python files to VapourSynth directory
-    Copy-Item "$PythonTempDir\python38.dll" $VSDir -Force
-    Copy-Item "$PythonTempDir\python3.dll" $VSDir -Force
-    Copy-Item "$PythonTempDir\python38.zip" $VSDir -Force
-    Copy-Item "$PythonTempDir\*.pyd" $VSDir -Force
-    Copy-Item "$PythonTempDir\libffi-7.dll" $VSDir -Force
-    Copy-Item "$PythonTempDir\libcrypto-1_1.dll" $VSDir -Force
-    Copy-Item "$PythonTempDir\libssl-1_1.dll" $VSDir -Force
-
-    # Create python38._pth file
+    # The embeddable interpreter ignores site-packages unless its ._pth says so.
     @"
-python38.zip
+python$PythonTag.zip
 .
 Lib\site-packages
 import site
-"@ | Set-Content "$VSDir\python38._pth"
+"@ | Set-Content "$VSDir\python$PythonTag._pth"
 
-    Remove-Item $PythonZip -Force
-    Remove-Item $PythonTempDir -Recurse -Force
-    Write-Host "  Python 3.8.10 installed" -ForegroundColor Green
+    # --- VapourSynth wheel ---
+    $VSZip = Join-Path $TempDir "vapoursynth.zip"
+    $VSUrl = "https://github.com/vapoursynth/vapoursynth/releases/download/$VSRelease/VapourSynth64-Portable-$VSRelease.zip"
+    Download-File -Url $VSUrl -OutFile $VSZip
+    $VSTemp = Join-Path $TempDir "vs-portable"
+    Expand-Archive -Path $VSZip -DestinationPath $VSTemp -Force
+    Remove-Item $VSZip -Force
+
+    $Wheel = Get-ChildItem "$VSTemp\wheel" -Filter "*.whl" | Select-Object -First 1
+    if (-not $Wheel) {
+        Write-Host "  ERROR: no wheel found in VapourSynth64-Portable-$VSRelease.zip" -ForegroundColor Red
+        exit 1
+    }
+    Expand-Archive -Path $Wheel.FullName -DestinationPath "$VSDir\Lib\site-packages" -Force
+    Remove-Item $VSTemp -Recurse -Force
+
+    if (-not (Test-Path $VSPipePath)) {
+        Write-Host "  ERROR: vspipe.exe missing after installing $($Wheel.Name)" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "  VapourSynth $VSRelease installed (Python $PythonVersion)" -ForegroundColor Green
 } else {
-    Write-Host "  Python 3.8.10 already installed" -ForegroundColor Gray
-}
-
-# Install VapourSynth Python 3.8 wheel
-Write-Host "  Installing VapourSynth Python wheel..." -ForegroundColor Gray
-$WheelPath = "$VSDir\wheel\vapoursynth-73-cp38-cp38-win_amd64.whl"
-if (Test-Path $WheelPath) {
-    Expand-Archive -Path $WheelPath -DestinationPath "$VSDir\Lib\site-packages" -Force
-    # Copy .pyd with simple name
-    if (Test-Path "$VSDir\Lib\site-packages\vapoursynth.cp38-win_amd64.pyd") {
-        Copy-Item "$VSDir\Lib\site-packages\vapoursynth.cp38-win_amd64.pyd" "$VSDir\Lib\site-packages\vapoursynth.pyd" -Force
-    }
-
-    # Relocate the wheel's *.data/data/ payload. Expand-Archive mirrors the zip
-    # verbatim, but pip treats a wheel's <name>.data/data/ tree as rooted at the
-    # install *prefix* (here the VS portable dir), not site-packages. For this
-    # wheel that payload is the core vapoursynth.dll, which lands buried at
-    # vapoursynth-73.data\data\Lib\site-packages\vapoursynth.dll. The
-    # vapoursynth.pyd loads vapoursynth.dll at import time and Python 3.8 only
-    # finds it next to the .pyd, so without relocating it VSScript fails with
-    # "Failed to initialize VSScript" for *every* script (preview and pipeline).
-    $WheelDataDir = Get-ChildItem "$VSDir\Lib\site-packages" -Directory -Filter "vapoursynth-*.data" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($WheelDataDir) {
-        $DataRoot = Join-Path $WheelDataDir.FullName "data"
-        if (Test-Path $DataRoot) {
-            Get-ChildItem $DataRoot -Recurse -File | ForEach-Object {
-                $Rel = $_.FullName.Substring($DataRoot.Length).TrimStart('\')
-                $Dest = Join-Path $VSDir $Rel
-                New-Item -ItemType Directory -Force -Path (Split-Path $Dest -Parent) | Out-Null
-                Copy-Item $_.FullName $Dest -Force
-                Write-Host "    Relocated wheel data: $Rel" -ForegroundColor Gray
-            }
-        }
-        Remove-Item $WheelDataDir.FullName -Recurse -Force -ErrorAction SilentlyContinue
-    }
-
-    # Sanity check: the core DLL must sit next to the .pyd or VSScript won't init.
-    if (-not (Test-Path "$VSDir\Lib\site-packages\vapoursynth.dll")) {
-        throw "VapourSynth core DLL missing at Lib\site-packages\vapoursynth.dll after wheel install - VSScript will fail to initialize."
-    }
-    Write-Host "  VapourSynth wheel installed" -ForegroundColor Green
+    Write-Host "  VapourSynth $VSRelease already installed" -ForegroundColor Gray
 }
 
 # =============================================================================
@@ -747,7 +717,7 @@ if (-not (Test-Path $WeightsPath)) {
 # only the preview integration test would surface.
 Write-Host ""
 Write-Host "[7.5/8] Verifying VSScript initializes..." -ForegroundColor Yellow
-$VSPipeExe = "$VSDir\VSPipe.exe"
+$VSPipeExe = "$VSDir\Lib\site-packages\vapoursynth\vspipe.exe"
 if (Test-Path $VSPipeExe) {
     $env:PYTHONNOUSERSITE = "1"
     $env:PYTHONHOME = $VSDir
@@ -782,7 +752,7 @@ Write-Host "Dependencies installed to: $FullTargetDir" -ForegroundColor White
 Write-Host ""
 Write-Host "Directory structure:" -ForegroundColor White
 Write-Host "  $FullTargetDir\"
-Write-Host "    vapoursynth\           - VapourSynth + Python 3.8 + vspipe.exe"
+Write-Host "    vapoursynth\           - VapourSynth + Python 3.12 + vspipe.exe"
 Write-Host "      vs-plugins\          - VS plugins (.dll)"
 Write-Host "      Lib\site-packages\   - Python packages (havsfunc, mvsfunc, etc.)"
 Write-Host "    ffmpeg\                - FFmpeg binaries"

@@ -441,7 +441,7 @@ class DependencyManager {
   List<String> _getCriticalFiles() {
     if (Platform.isWindows) {
       return [
-        'vapoursynth/VSPipe.exe',
+        'vapoursynth/Lib/site-packages/vapoursynth/vspipe.exe',
         'vapoursynth/vs-plugins',
         'ffmpeg/ffmpeg.exe',
       ];
