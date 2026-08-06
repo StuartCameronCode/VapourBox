@@ -423,6 +423,24 @@ List<_Pass> _passes() => [
           ),
         ),
       ),
+      // FixChromaBleedingMod diverges more than the rest between depths, and it
+      // is the filter itself, not an unscaled parameter: it derives neutral/peak
+      // from the clip and puts every constant through havsfunc's scale(). What
+      // it also does is call its internal Levels() with input_low == input_high,
+      // which makes `divisor` 1 in NATIVE CODE UNITS — so the mask transition
+      // spans exactly one code value at any depth, i.e. a quarter of the
+      // relative width at 10-bit that it has at 8-bit. That mask is then
+      // Inflate()d and drives a MaskedMerge, so a 1-LSB difference flips whole
+      // regions. Both results are "right"; they binarize in slightly different
+      // places.
+      //
+      // Hence the platform spread — everything it touches is core std.* plus
+      // adjust.Tweak (std.Expr/std.Lut), and Expr's SIMD path rounds differently
+      // in the from-source macOS x64 core than in the prebuilt Windows one.
+      // Measured: Windows 0.77, Linux/macOS arm64 ~0.8, macOS x64 2.64.
+      //
+      // 4.0 clears that with headroom while staying far below what this test
+      // exists to catch: an unscaled 8-bit parameter moved Levels by 93/255.
       _Pass(
         'chroma_bleeding_fix',
         _only(
@@ -431,6 +449,7 @@ List<_Pass> _passes() => [
             applyChromaBleedingFix: true,
           ),
         ),
+        tolerance: 4.0,
       ),
       // LUTDeCrawl scales its own thresholds but refuses >10-bit input; the pass
       // runs it at 10-bit and restores the source format.
