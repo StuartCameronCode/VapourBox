@@ -222,7 +222,16 @@ dart run build_runner build
 
 1. Build worker: `cd worker && cargo build`
 2. Copy worker: `cp worker/target/debug/vapourbox-worker.exe app/build/windows/x64/runner/Debug/`
-3. Run app: `cd app && flutter run`
+3. **Copy the templates too**: `cp worker/templates/*.vpy worker/templates/*.py app/build/windows/x64/runner/Debug/templates/`
+4. Run app: `cd app && flutter run`
+
+> Step 3 is not optional and it fails silently. `exe_dir/templates` is the
+> **first** path `ScriptGenerator` searches, so the copy sitting next to the
+> debug exe **shadows** `worker/templates/` — a `.vpy` change you just made has
+> no effect on the running app, with no error to suggest why. (Measured: a
+> months-old `Debug/templates/pipeline_template.vpy` was still being used after
+> a fresh `cargo build`.) Anything that edits a template must re-copy, or delete
+> `Debug/templates/` so the upward search finds the repo's copy.
 
 **Linux: Use the debug script:**
 
@@ -301,7 +310,17 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 - Example: `DynamicParameters(filterId: 'x', enabled: true, values: {}, lastOptionalValues: {'param1': 5})`
 
 **8. VapourSynth Compatibility Guards**
-- If the plugin only supports 8-bit, add bit-depth conversion guard in templates
+- If the plugin only supports 8-bit (or, like `LUTDeCrawl`, caps out at 10),
+  add a bit-depth conversion guard in **both** templates and restore the source
+  format after — see "High Bit Depth Sources"
+- If any parameter is a **level, threshold or offset expressed in 8-bit units**
+  (which is how the UI presents them), scale it to `clip.format` *in the script*.
+  A filter working in the clip's own range is silently wrong on a 10-bit source
+  otherwise, with no error to go on — the failure mode that broke Levels and
+  Tweak brightness
+- Add the plugin's **namespace** to the required list in
+  `app/test/vapoursynth_integration_test.dart`, or a deps bundle missing it will
+  pass CI and fail at job time
 - If the plugin fails on field-based clips, note this — both templates set field-based via `{{#SET_FIELD_BASED}}`, emitted whenever `ScriptGenerator::field_based_for` returns a value (see "Field Order" below)
 
 **9. Integration Tests** — required, BOTH suites (see "Integration Tests for Filter Changes" below):
@@ -534,6 +553,92 @@ drift. pipe_source derives plane geometry and bytes-per-sample from the
 VapourSynth format itself (`core.get_video_format`), so adding a format is a
 one-line change on each side.
 
+### High Bit Depth Sources (10-bit ProRes 422 and deeper)
+
+A >8-bit source (`yuv422p10le` from ProRes 422, `yuv444p12le` from ProRes 4444 XQ)
+is read natively off the pipe — the format work above covers *getting* it in. What
+breaks is what happens **after**, in two different ways, and only one of them is
+loud:
+
+1. **The filter rejects the depth** and vspipe dies, taking the whole job or
+   preview with it. Known cases, all now guarded in **both** templates:
+   `vivtc.VFM` is 8-bit only (runs on a downconverted metrics clip, pixels come
+   from the full-depth clip via `clip2`); `descratch.DeScratch` is 8-bit only
+   (converts down and back); `havsfunc.LUTDeCrawl` refuses **anything above
+   10-bit** (runs at 10-bit and restores the source format).
+2. **The filter accepts the depth and quietly misapplies its parameters.** Every
+   threshold and offset in the UI is expressed in **8-bit levels (0-255)**, so
+   anything handed to a filter that works in the clip's own range is wrong by a
+   factor of 4 at 10-bit and 256 at 16-bit — with no error anywhere. Two were
+   found this way:
+   - **`std.Levels`** — `max_in=235` on a 10-bit clip mapped everything above
+     235/1023 to white. Measured mean error **93/255** against the same edit at
+     8-bit: a blown-out picture. Now scaled by `_levels_8bit()` in the template,
+     against *peak* (havsfunc's `scale()` convention) so 255 lands exactly on the
+     format maximum.
+   - **`adjust.Tweak(bright=…)`** — the module scales its own hue/sat/coring
+     constants but adds `bright` in raw sample units, making the brightness
+     slider ~4x weaker at 10-bit. Now scaled by `_tweak_bright_scale`. Contrast,
+     saturation and hue are **ratios and must not be scaled**.
+
+Both scalings are computed **in the script from `clip.format`**, not by the
+worker: a preceding pass may have changed the depth, so only the script knows what
+the pass will actually see. The white-balance block is the precedent.
+
+**Testing this class of bug needs a reference, not an expected value.** A filter
+whose parameters are correctly depth-scaled produces the *same picture* at 10-bit
+as at 8-bit, to within rounding — so `app/test/integration_high_bit_depth_filters_test.dart`
+(heavy, nightly) runs every pass on identical 8-bit and 10-bit fixtures and
+compares the resulting preview frames (mean abs diff, passthrough baseline ~0.6,
+tolerance 2.0). That is what caught both scaling bugs; a "did it run" assertion
+passes happily on all of them. It also runs every pass at 12- and 16-bit (the
+depth-rejection class) and checks the preview PNG stays decodable. The cheap
+counterpart — the guards and scalings being present in **both** generated
+scripts — is `test_84`…`test_88` in `worker/tests/filter_integration_test.rs`,
+which run on every push.
+
+Note that for a >8-bit source the preview PNG comes out **`rgb48be`** (16-bit per
+channel) rather than `rgb24`, because vspipe emits 10-bit Y4M. `Image.memory`
+handles it; don't "fix" it by forcing 8-bit.
+
+### Output Colour Format
+
+`ChromaSubsampling` (**Settings → Color Format**) is the last thing the script
+does, and it decides bit depth as well as chroma:
+
+| Option | Output | For |
+|---|---|---|
+| `original` (default) | source format, depth included | archival; a 10-bit source stays 10-bit |
+| `yuv420` | `vs.YUV420P8` | compatibility — the only one every player opens |
+| `yuv422` | `vs.YUV422P8` | more chroma detail, 8-bit |
+| `yuv422p10` | `vs.YUV422P10` | normalize chroma without dropping to 8-bit |
+
+Three things to keep in mind:
+
+- **The default produces a file many players refuse.** A 10-bit 4:2:2 source
+  encoded with `original` gives H.264 **High 4:2:2** (HEVC: **Rext**), which is
+  correct but not openable in QuickTime, most browsers or phones. That is
+  deliberate — the user picks a format — and `test_..._matching_the_input_keeps_the_source_format`
+  pins it so changing the default is a decision, not a drift.
+- **The conversion is the one place a deep source is reduced to 8 bits, so it
+  must dither.** `resize` defaults to `dither_type="none"`; plain rounding bands
+  shallow gradients (skies, fades). Verified against vspipe: omitting the
+  argument is byte-identical to explicit `"none"` and differs from
+  `"error_diffusion"`. The end-to-end test feeds a ramp that is constant down
+  every column — rounding leaves **0%** of columns varying, error diffusion
+  **~75%** — and it encodes losslessly, because x264 at the default CRF smooths
+  the dither away and the measurement then proves nothing.
+- **The block lives in BOTH templates.** It was in `pipeline_template.vpy` only,
+  so a preview never showed the output format or its banding. `Yuv422P10` was
+  added by one line in `ChromaSubsampling::vapoursynth_format` — put new formats
+  there rather than adding a match arm in `script_generator.rs`.
+
+The Rust enum's serde names and the Dart enum's `value` strings are the wire
+format (`test_91` and `pixel_format_test.dart` assert the same list from both
+sides). The Dart enum also carries `outputBitDepth`, which drives the
+"your N-bit source will be output as M-bit" warning — a new option that omits it
+silently stops warning.
+
 ### Temporary Files Directory
 
 Scratch files default to the system temp directory, and the user can redirect
@@ -700,10 +805,27 @@ Headless Dart-VM tests. Three groups:
   (script-only: `integration_filter_parameters_test`,
   `integration_qtgmc_parameters_test`); **nightly.yml** runs `--tags heavy`.
   The heavy set grows, so `grep -l "Tags(\['heavy'\])" app/test/*.dart` is the
-  authority — 11 files as of Aug 2026: `integration_filter_pipeline`,
+  authority — 12 files as of Aug 2026: `integration_filter_pipeline`,
   `_audio_conversion`, `_chroma_subsampling`, `_interlacing_status`,
   `_video_trimming`, `_new_passes`, `_aspect_ratio`, `_high_bit_depth`,
-  `_source_formats`, `_upscale_resize`, `_white_balance`.
+  `_high_bit_depth_filters`, `_source_formats`, `_upscale_resize`,
+  `_white_balance`.
+
+`WorkerHarness` also runs the worker in **preview** mode (`runPreview`) and
+compares rendered frames (`imageToRgb24` + `meanAbsDiff`). Preview and encode are
+separate scripts *and* separate ffmpeg invocations, so a filter can render fine
+and still fail the preview — assert both. Comparing frames is the only way to
+catch a filter that runs cleanly and produces the wrong picture; see "High Bit
+Depth Sources".
+
+> `vapoursynth_integration_test`'s "all required plugins load" list is the
+> runtime contract for a **complete deps install**, and it must name every
+> namespace a filter can reach. `zsmooth` (Chroma Denoise / CCD) was added to the
+> bundle after that list was written and went uncovered for a while, so a bundle
+> missing it passed the suite while the filter failed at job time with "No
+> attribute with the name zsmooth exists". Add the namespace whenever you add a
+> plugin. OpenCL-only plugins (`nnedi3cl`, `knlm`) stay **out** of the list — the
+> app degrades to a CPU path without them.
 
 The harness honors `$VAPOURBOX_DEPS_DIR`, else uses repo-root `deps/<platform>`,
 else **downloads the deps release pinned in `app/assets/deps-version.json`**

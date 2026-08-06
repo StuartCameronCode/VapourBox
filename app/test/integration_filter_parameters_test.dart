@@ -599,19 +599,26 @@ void main() {
       print('  Generating color_correction script...');
       final script = await generateScriptViaWorker(job);
 
-      // Tweak
+      // Tweak. `bright` is an offset in sample units and carries the scale to
+      // the clip's bit depth with it (adjust.Tweak adds it raw, so an unscaled
+      // value is 4x weaker at 10-bit); cont/sat/hue are ratios and go through
+      // as-is. See test_85 in worker/tests/filter_integration_test.rs.
       expect(script, contains('adjust.Tweak('));
       final tweak = parseFilterParams(script, 'adjust.Tweak(');
       print('  Tweak: ${tweak.length} params');
-      expect(tweak['bright'], '5.0'); expect(tweak['cont'], '1.2');
+      expect(tweak['bright'], '5.0 * _tweak_bright_scale');
+      expect(tweak['cont'], '1.2');
       expect(tweak['sat'], '1.3'); expect(tweak['hue'], '10.0');
 
-      // Levels
+      // Levels. std.Levels works in the clip's own sample range, so the 8-bit
+      // values from the UI are scaled at run time (test_84).
       expect(script, contains('core.std.Levels('));
       final levels = parseFilterParams(script, 'core.std.Levels(');
       print('  Levels: ${levels.length} params');
-      expect(levels['min_in'], '10'); expect(levels['max_in'], '240');
-      expect(levels['min_out'], '5'); expect(levels['max_out'], '250');
+      expect(levels['min_in'], '_levels_8bit(10)');
+      expect(levels['max_in'], '_levels_8bit(240)');
+      expect(levels['min_out'], '_levels_8bit(5)');
+      expect(levels['max_out'], '_levels_8bit(250)');
       expect(levels['gamma'], '0.9');
 
       print('  PASS');

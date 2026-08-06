@@ -52,16 +52,22 @@ String? filterBitDepthWarning({
       'reducing colour precision.';
 }
 
-/// Warning message when converting chroma subsampling will also drop a
-/// higher-bit-depth [pixelFormat] source to 8-bit on output, or null when not
-/// applicable (not [converting], unknown format, or the source is 8-bit).
+/// Warning message when the chosen output colour format would reduce a
+/// higher-bit-depth [pixelFormat] source's precision.
+///
+/// [targetBitDepth] is the depth the output format converts to, or null when no
+/// conversion happens ("Match source"). Returns null when nothing needs saying:
+/// no conversion, unknown format, or the target is deep enough to hold the
+/// source — so choosing 4:2:2 10-bit for a 10-bit source stays silent, while
+/// choosing it for a 12-bit source correctly says 10-bit rather than 8-bit.
 String? chromaConversionBitDepthWarning({
-  required bool converting,
+  required int? targetBitDepth,
   String? pixelFormat,
 }) {
-  if (!converting || pixelFormat == null) return null;
+  if (targetBitDepth == null || pixelFormat == null) return null;
   final depth = pixelFormatBitDepth(pixelFormat);
-  if (depth <= 8) return null;
-  return 'Your $depth-bit source will be output as 8-bit when converting '
-      'chroma subsampling. Choose "Original" to keep the source\'s bit depth.';
+  if (depth <= targetBitDepth) return null;
+  return 'Your $depth-bit source will be output as $targetBitDepth-bit in this '
+      'colour format. Choose "Match source" to keep the source\'s bit depth'
+      '${targetBitDepth < 10 ? ', or 4:2:2 10-bit to keep more of it' : ''}.';
 }

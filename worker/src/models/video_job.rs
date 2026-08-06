@@ -298,14 +298,32 @@ impl<'de> serde::Deserialize<'de> for AudioQuality {
 /// Output chroma subsampling format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
+/// Mirrors `ChromaSubsampling` in `app/lib/models/encoding_settings.dart` — the
+/// serde names here must match that enum's `value` strings.
 pub enum ChromaSubsampling {
-    /// Keep original format (no conversion).
+    /// Keep original format (no conversion), bit depth included.
     #[default]
     Original,
-    /// Convert to YUV420 for maximum compatibility.
+    /// Convert to 8-bit YUV420 for maximum compatibility.
     Yuv420,
-    /// Convert to YUV422 for higher chroma quality.
+    /// Convert to 8-bit YUV422 for higher chroma quality.
     Yuv422,
+    /// Convert to 10-bit YUV422 — keeps a 10-bit source's precision while
+    /// normalizing chroma, and gives an 8-bit source headroom for gradients.
+    Yuv422P10,
+}
+
+impl ChromaSubsampling {
+    /// The VapourSynth format constant the pipeline converts to, or `None` for
+    /// `Original` (no conversion at all).
+    pub fn vapoursynth_format(&self) -> Option<&'static str> {
+        match self {
+            ChromaSubsampling::Original => None,
+            ChromaSubsampling::Yuv420 => Some("vs.YUV420P8"),
+            ChromaSubsampling::Yuv422 => Some("vs.YUV422P8"),
+            ChromaSubsampling::Yuv422P10 => Some("vs.YUV422P10"),
+        }
+    }
 }
 
 impl Default for EncodingSettings {

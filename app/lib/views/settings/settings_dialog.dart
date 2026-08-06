@@ -17,6 +17,132 @@ import '../../utils/pixel_format.dart';
 import '../../viewmodels/main_viewmodel.dart';
 import '../../widgets/warning_banner.dart';
 
+/// The output colour format explanation, shown in a scrollable dialog.
+///
+/// Paragraphs, not hand-wrapped lines: the dialog gives it a fixed width and
+/// lets it flow, so wrapping is the layout engine's job here.
+///
+/// Every option's [ChromaSubsampling.label] must appear;
+/// `settings_chroma_tooltip_test.dart` fails if a format is added and this text
+/// is not updated with it.
+const List<(String, String)> chromaFormatHelpSections = [
+  (
+    'How much colour is stored',
+    'Video stores brightness at full resolution but colour at a lower one, '
+        'because the eye reads detail mostly from brightness. It is why an '
+        'analogue capture or a DVD still looks sharp while carrying a quarter of '
+        'the colour information.\n\n'
+        '4:2:0 keeps one colour sample per 2x2 block of pixels. 4:2:2 keeps one '
+        'per horizontal pair — twice the vertical colour detail. Less colour '
+        'means smaller files and wider player support; more of it survives '
+        'further editing, and shows up on saturated edges, titles and chroma '
+        'keys.',
+  ),
+  (
+    'How finely each sample is graded',
+    'Bit depth is the number of levels available per channel: 8-bit gives 256, '
+        '10-bit gives 1024. More levels keep gradients — skies, fades, VHS luma '
+        'ramps — smooth instead of breaking into visible bands.\n\n'
+        'When VapourBox does reduce depth it dithers, so a converted gradient '
+        'stays smooth rather than banding.',
+  ),
+  (
+    'Which one to pick',
+    'Match source — no conversion, so nothing is lost. The archival choice. '
+        'Note that a 10-bit source stays 10-bit, which encodes as H.264 High '
+        '4:2:2: correct, but a profile QuickTime, most browsers and phones '
+        'refuse to open.\n\n'
+        '4:2:0 8-bit — plays on everything. Use it for anything going to '
+        "someone else's device, the web, or a TV.\n\n"
+        '4:2:2 8-bit — keeps the extra colour detail of a 4:2:2 or '
+        'analogue-captured source, at 8-bit precision.\n\n'
+        '4:2:2 10-bit — keeps the colour detail and the 10-bit grading. Best '
+        'when the file is going on for more work; needs a player that handles '
+        '10-bit.',
+  ),
+];
+
+/// The help affordance beside the output colour format dropdown: click the icon,
+/// get the explanation.
+///
+/// **Deliberately no hover tooltip.** The explanation runs to several paragraphs
+/// and a [Tooltip] can neither scroll nor stay on screen at that size, so it went
+/// in a dialog; a hover summary on top of that was just a second thing to read
+/// past. The icon still carries a `semanticLabel`, so a screen reader announces
+/// it without a popup appearing for pointer users. If you are tempted to add a
+/// tooltip back: it is the one surface where the obvious styling is wrong —
+/// Material's tooltip is *inverted*, light in dark mode, so styling its text with
+/// the page's text colour (or a fixed white) gives light-on-light. Use
+/// `onInverseSurface` on `inverseSurface`.
+///
+/// A separate widget so the dialog can be opened and asserted in a test without
+/// standing up the whole settings tree.
+class ChromaFormatHelpIcon extends StatelessWidget {
+  const ChromaFormatHelpIcon({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      icon: const Icon(
+        Icons.info_outline,
+        size: 20,
+        semanticLabel: 'About output colour formats',
+      ),
+      color: Theme.of(context).colorScheme.primary,
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.only(left: 8),
+      constraints: const BoxConstraints(),
+      onPressed: () => showChromaFormatHelp(context),
+    );
+  }
+}
+
+/// Open the colour format explanation. Scrollable and height-capped, so it fits
+/// whatever window the app is in.
+Future<void> showChromaFormatHelp(BuildContext context) {
+  return showDialog<void>(
+    context: context,
+    builder: (ctx) {
+      final theme = Theme.of(ctx);
+      return AlertDialog(
+        title: const Text('Output colour format'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Two things decide how much colour information the output '
+                  'keeps.',
+                  style: theme.textTheme.bodyMedium,
+                ),
+                for (final (heading, body) in chromaFormatHelpSections) ...[
+                  const SizedBox(height: 20),
+                  Text(
+                    heading,
+                    style: theme.textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(body,
+                      style: theme.textTheme.bodyMedium?.copyWith(height: 1.4)),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      );
+    },
+  );
+}
+
 class SettingsDialog extends StatefulWidget {
   const SettingsDialog({super.key});
 
@@ -688,7 +814,11 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  DropdownButtonFormField<ChromaSubsampling>(
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<ChromaSubsampling>(
                     value: settings.chromaSubsampling,
                     decoration: const InputDecoration(
                       labelText: 'Chroma Subsampling',
@@ -700,17 +830,28 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                         child: Text(format.displayName),
                       );
                     }).toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        viewModel.updateEncodingSettings(
-                          settings.copyWith(chromaSubsampling: value),
-                        );
-                      }
-                    },
+                          onChanged: (value) {
+                            if (value != null) {
+                              viewModel.updateEncodingSettings(
+                                settings.copyWith(chromaSubsampling: value),
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                      // Hover help: what subsampling and bit depth actually are,
+                      // and which option to reach for. The short line below the
+                      // dropdown is the summary; this is the explanation.
+                      const ChromaFormatHelpIcon(),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '4:2:0 is most compatible (web, mobile). 4:2:2 preserves more color detail.',
+                    'Match source keeps the input format — for a 10-bit source '
+                    'that means a 10-bit file, which some players and browsers '
+                    'will not open. 4:2:0 8-bit plays everywhere. 4:2:2 keeps '
+                    'more colour detail; its 10-bit form keeps a 10-bit '
+                    "source's precision.",
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context)
                               .colorScheme
@@ -764,17 +905,16 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     );
   }
 
-  /// Warning shown when converting chroma subsampling would also drop a
-  /// higher-bit-depth source to 8-bit on output. A chroma-subsampling
-  /// conversion forces an 8-bit output format (YUV420P8/YUV422P8), whereas
-  /// "Original" preserves the source format and its bit depth. Returns an empty
-  /// list when nothing needs saying (source is 8-bit, unknown, or "Original").
+  /// Warning shown when the chosen output colour format would reduce a
+  /// higher-bit-depth source's precision — the 8-bit formats always do, 4:2:2
+  /// 10-bit only for a source deeper than 10, and "Match source" never. Returns
+  /// an empty list when nothing needs saying.
   List<Widget> _buildChromaBitDepthWarning(
     MainViewModel viewModel,
     EncodingSettings settings,
   ) {
     final message = chromaConversionBitDepthWarning(
-      converting: settings.chromaSubsampling != ChromaSubsampling.original,
+      targetBitDepth: settings.chromaSubsampling.outputBitDepth,
       pixelFormat: viewModel.videoInfo?.pixelFormat,
     );
     if (message == null) return const [];

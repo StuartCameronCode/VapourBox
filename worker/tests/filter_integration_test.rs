@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 // Import the worker's models
 use vapourbox_worker::models::*;
+use vapourbox_worker::pixel_format;
 use vapourbox_worker::script_generator::{PreviewParams, ScriptGenerator};
 
 fn get_test_input() -> PathBuf {
@@ -2997,4 +2998,388 @@ fn test_83_fine_dehalo_thresholds_match_havsfunc_defaults() {
     // which are only emitted when the user opts in.
     assert!(!script.contains("thlimi="), "thlimi is optional and unset here");
     assert!(!script.contains("thlima="), "thlima is optional and unset here");
+}
+
+// =============================================================================
+// HIGH BIT DEPTH (10-bit ProRes 422 and deeper)
+//
+// Two things go wrong on a >8-bit source, and only one of them is loud:
+//
+//   * a filter REJECTS the depth and takes the whole job down (vivtc.VFM is
+//     8-bit only, havsfunc.LUTDeCrawl refuses anything above 10-bit), and
+//   * a filter ACCEPTS the depth and quietly misapplies its parameters, because
+//     every threshold in the UI is expressed in 8-bit levels while the filter
+//     works in the clip's own range.
+//
+// The tests below pin the guards and the scaling in the generated script â€” cheap,
+// and they run on every push. Whether the picture actually comes out the same at
+// 10-bit as at 8-bit is measured end-to-end in
+// app/test/integration_high_bit_depth_filters_test.dart (heavy, nightly).
+// =============================================================================
+
+/// A 10-bit 4:2:2 job, i.e. what a ProRes 422 source produces.
+fn create_10bit_job(output_name: &str) -> VideoJob {
+    let mut job = create_base_job(output_name);
+    job.input_width = Some(720);
+    job.input_height = Some(480);
+    job.input_pixel_format = Some("yuv422p10le".to_string());
+    job.input_frame_rate = Some(29.97);
+    job.total_frames = Some(30);
+    job
+}
+
+/// Both scripts for one job: the encode script and the preview script. A
+/// bit-depth guard has to be in both, or the preview stops matching the render.
+fn generate_both_scripts(job: &VideoJob) -> (String, String) {
+    let generator = ScriptGenerator::new().expect("create generator");
+    let encode_path = generator.generate(job).expect("generate encode script");
+    let encode = std::fs::read_to_string(&encode_path).expect("read encode script");
+
+    let params = PreviewParams {
+        width: job.input_width.unwrap_or(720),
+        height: job.input_height.unwrap_or(480),
+        pix_fmt: job
+            .input_pixel_format
+            .clone()
+            .unwrap_or_else(|| "yuv420p".to_string()),
+        num_frames: 11,
+        fps_num: 30000,
+        fps_den: 1001,
+        output_index: 5,
+    };
+    let preview_path = generator
+        .generate_preview(job, &params)
+        .expect("generate preview script");
+    let preview = std::fs::read_to_string(&preview_path).expect("read preview script");
+
+    let _ = std::fs::remove_file(&encode_path);
+    let _ = std::fs::remove_file(&preview_path);
+    (encode, preview)
+}
+
+#[test]
+fn test_84_levels_are_scaled_to_the_working_bit_depth() {
+    // std.Levels works in the CLIP's sample range, but these values arrive at
+    // 8-bit scale from the UI. Passed through raw, max_in=235 on a 10-bit clip
+    // maps everything above 235/1023 to white â€” a blown-out picture with no
+    // error message (measured mean error 93/255 against the same edit at 8-bit).
+    create_output_dir();
+
+    let mut job = create_10bit_job("test_84_levels_scaled");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..QTGMCParameters::default() },
+        color_correction: ColorCorrectionParameters {
+            enabled: true,
+            apply_levels: true,
+            input_low: 16,
+            input_high: 235,
+            output_low: 0,
+            output_high: 250,
+            ..ColorCorrectionParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let (encode, preview) = generate_both_scripts(&job);
+    for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(
+            script.contains("min_in=_levels_8bit(16)")
+                && script.contains("max_in=_levels_8bit(235)")
+                && script.contains("max_out=_levels_8bit(250)"),
+            "{}: levels must be scaled to the working depth, script was:\n{}",
+            label, script
+        );
+        // The scale has to be derived from the clip at run time â€” the worker does
+        // not know the depth the pass will actually see, since a preceding pass
+        // may have converted it.
+        assert!(
+            script.contains("_levels_peak = (1 << clip.format.bits_per_sample) - 1"),
+            "{}: the levels scale must come from the clip's own format",
+            label
+        );
+        assert!(
+            !script.contains("min_in=16,"),
+            "{}: raw 8-bit levels must not reach std.Levels",
+            label
+        );
+    }
+}
+
+#[test]
+fn test_85_tweak_brightness_is_scaled_to_the_working_bit_depth() {
+    // adjust.Tweak scales its own hue/sat/coring constants but adds `bright` in
+    // raw sample units, so an unscaled value is 4x weaker at 10-bit and 256x
+    // weaker at 16-bit. Contrast, saturation and hue are ratios: they must NOT
+    // be scaled.
+    create_output_dir();
+
+    let mut job = create_10bit_job("test_85_tweak_scaled");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..QTGMCParameters::default() },
+        color_correction: ColorCorrectionParameters {
+            enabled: true,
+            brightness: 10.0,
+            contrast: 1.2,
+            saturation: 1.3,
+            hue: 8.0,
+            ..ColorCorrectionParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let (encode, preview) = generate_both_scripts(&job);
+    for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(
+            script.contains("bright=10.0 * _tweak_bright_scale"),
+            "{}: brightness must be scaled to the working depth, script was:\n{}",
+            label, script
+        );
+        assert!(
+            script.contains("_tweak_bright_scale = (")
+                && script.contains("(1 << (clip.format.bits_per_sample - 8))"),
+            "{}: the brightness scale must be derived from the clip's format",
+            label
+        );
+        assert!(
+            script.contains("cont=1.2") && !script.contains("cont=1.2 * _tweak"),
+            "{}: contrast is a ratio and must not be scaled",
+            label
+        );
+        assert!(
+            script.contains("sat=1.3") && script.contains("hue=8.0"),
+            "{}: saturation and hue are ratios and must not be scaled",
+            label
+        );
+    }
+}
+
+#[test]
+fn test_86_decrawl_is_guarded_above_ten_bits() {
+    // havsfunc's LUTDeCrawl raises "This is not an 8-10 bit YUV clip" for
+    // anything deeper, which failed the entire job on a 12-bit source such as
+    // ProRes 4444 XQ. The pass runs at 10-bit and restores the source format.
+    create_output_dir();
+
+    let mut job = create_10bit_job("test_86_decrawl_guard");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..QTGMCParameters::default() },
+        chroma_fixes: ChromaFixParameters {
+            enabled: true,
+            apply_de_crawl: true,
+            ..ChromaFixParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let (encode, preview) = generate_both_scripts(&job);
+    for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(
+            script.contains("_decrawl_orig_format = clip.format"),
+            "{}: de-crawl must remember the source format, script was:\n{}",
+            label, script
+        );
+        assert!(
+            script.contains("if clip.format.bits_per_sample > 10:"),
+            "{}: de-crawl must convert down only above 10 bits",
+            label
+        );
+        assert!(
+            script.contains("if _decrawl_orig_format.bits_per_sample > 10:"),
+            "{}: de-crawl must restore the source format afterwards",
+            label
+        );
+    }
+}
+
+#[test]
+fn test_87_prores_10bit_422_is_read_natively_by_both_paths() {
+    // yuv422p10le is in pipe_source's format map, so it must reach the script
+    // unchanged â€” converting it would cost time for nothing. The encode and the
+    // preview must agree, or the raw byte stream desyncs from the frame geometry
+    // and the output is garbage rather than an error (#50).
+    create_output_dir();
+
+    let format = pixel_format::decode_pixel_format(Some("yuv422p10le"));
+    assert_eq!(format.name, "yuv422p10le");
+    assert_eq!(
+        format.converted_from, None,
+        "10-bit 4:2:2 is readable off the pipe and must not be converted"
+    );
+
+    // ProRes 4444 carries an alpha plane, which ffprobe reports in the format
+    // name. Alpha is dropped; depth and chroma resolution are kept.
+    assert_eq!(
+        pixel_format::decode_pixel_format(Some("yuva444p10le")).name,
+        "yuv444p10le"
+    );
+    // ProRes 4444 XQ is 12-bit.
+    let xq = pixel_format::decode_pixel_format(Some("yuv444p12le"));
+    assert_eq!(xq.name, "yuv444p12le");
+    assert_eq!(xq.converted_from, None);
+
+    let mut job = create_10bit_job("test_87_prores_native");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters {
+            enabled: true,
+            preset: QTGMCPreset::Fast,
+            tff: Some(true),
+            ..QTGMCParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let (encode, preview) = generate_both_scripts(&job);
+    for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(
+            script.contains("pix_fmt=\"yuv422p10le\""),
+            "{}: the source's own pixel format must reach create_pipe_clip, script was:\n{}",
+            label, script
+        );
+    }
+}
+
+#[test]
+fn test_88_ivtc_and_descratch_keep_their_eight_bit_guards() {
+    // Both filters are 8-bit only. VFM takes its metrics from a downconverted
+    // copy and its pixels from the full-depth clip via clip2, so IVTC on a
+    // 10-bit source neither fails nor loses precision; DeScratch converts down
+    // and back. These are the guards that made 10-bit ProRes work at all, so
+    // they are pinned in both scripts.
+    create_output_dir();
+
+    let mut job = create_10bit_job("test_88_ivtc_descratch_guards");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters {
+            enabled: true,
+            method: DeinterlaceMethod::Ivtc,
+            tff: Some(true),
+            ..QTGMCParameters::default()
+        },
+        descratch: DeScratchParameters {
+            enabled: true,
+            ..DeScratchParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let (encode, preview) = generate_both_scripts(&job);
+    for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(
+            script.contains("_ivtc_metrics = clip if clip.format.bits_per_sample == 8"),
+            "{}: VFM must run on an 8-bit metrics clip, script was:\n{}",
+            label, script
+        );
+        assert!(
+            script.contains("clip2=_ivtc_src"),
+            "{}: VFM must emit full-depth pixels via clip2",
+            label
+        );
+        assert!(
+            script.contains("_descratch_orig_format = clip.format")
+                && script.contains("if _descratch_orig_format.bits_per_sample != 8:"),
+            "{}: DeScratch must round-trip the source bit depth",
+            label
+        );
+    }
+}
+
+#[test]
+fn test_89_output_colour_format_conversion_is_dithered() {
+    // This block is where a 10- or 12-bit source is reduced to 8 bits, and
+    // resize defaults to dither_type="none" â€” plain rounding, which bands a
+    // shallow gradient that the source held smoothly. Verified against vspipe:
+    // omitting the argument produces output byte-identical to an explicit
+    // "none" and different from "error_diffusion".
+    create_output_dir();
+
+    let mut job = create_10bit_job("test_89_chroma_dither");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..QTGMCParameters::default() },
+        ..ProcessingPipeline::default()
+    });
+    job.encoding_settings.chroma_subsampling = ChromaSubsampling::Yuv420;
+
+    let (encode, preview) = generate_both_scripts(&job);
+    for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(
+            script.contains("format=target_format")
+                && script.contains("dither_type=\"error_diffusion\""),
+            "{}: the output format conversion must dither, script was:\n{}",
+            label, script
+        );
+    }
+}
+
+#[test]
+fn test_90_output_colour_format_reaches_the_preview_too() {
+    // The conversion block existed only in pipeline_template.vpy, so a preview
+    // never showed the output format â€” including any banding the reduction
+    // introduces, which is exactly what a preview is for. Both templates now
+    // carry it, and both are driven by the same substitution.
+    create_output_dir();
+
+    let mut job = create_10bit_job("test_90_chroma_preview");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..QTGMCParameters::default() },
+        ..ProcessingPipeline::default()
+    });
+
+    // Every convertible format, in both scripts.
+    for (subsampling, expected) in [
+        (ChromaSubsampling::Yuv420, "vs.YUV420P8"),
+        (ChromaSubsampling::Yuv422, "vs.YUV422P8"),
+        (ChromaSubsampling::Yuv422P10, "vs.YUV422P10"),
+    ] {
+        job.encoding_settings.chroma_subsampling = subsampling;
+        let (encode, preview) = generate_both_scripts(&job);
+        for (label, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(
+                script.contains(&format!("target_format = {}", expected)),
+                "{}: {:?} should convert to {}, script was:\n{}",
+                label, subsampling, expected, script
+            );
+        }
+    }
+
+    // And "keep the source format" must leave no conversion behind in either.
+    job.encoding_settings.chroma_subsampling = ChromaSubsampling::Original;
+    let (encode, preview) = generate_both_scripts(&job);
+    for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(
+            !script.contains("target_format ="),
+            "{}: Original must not convert the output format, script was:\n{}",
+            label, script
+        );
+        assert!(
+            !script.contains("{{#CHROMA_CONVERT}}") && !script.contains("{{CHROMA_FORMAT}}"),
+            "{}: the conversion block must be removed, not left as a placeholder",
+            label
+        );
+    }
+}
+
+#[test]
+fn test_91_chroma_subsampling_serde_names_match_the_app() {
+    // These strings are the wire format between the app and the worker; the Dart
+    // side asserts the same list in app/test/pixel_format_test.dart. A mismatch
+    // makes the worker reject the job config outright.
+    for (subsampling, expected) in [
+        (ChromaSubsampling::Original, "\"original\""),
+        (ChromaSubsampling::Yuv420, "\"yuv420\""),
+        (ChromaSubsampling::Yuv422, "\"yuv422\""),
+        (ChromaSubsampling::Yuv422P10, "\"yuv422p10\""),
+    ] {
+        let json = serde_json::to_string(&subsampling).expect("serialize");
+        assert_eq!(json, expected, "{:?} serializes wrong", subsampling);
+        // And round-trips, so an older preset still loads.
+        let back: ChromaSubsampling = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, subsampling);
+    }
+
+    // Only Original means "no conversion"; everything else names a format.
+    assert_eq!(ChromaSubsampling::Original.vapoursynth_format(), None);
+    assert_eq!(
+        ChromaSubsampling::Yuv422P10.vapoursynth_format(),
+        Some("vs.YUV422P10")
+    );
 }

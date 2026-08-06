@@ -441,6 +441,109 @@ class WorkerHarness {
     return (y: tag('YAVG'), u: tag('UAVG'), v: tag('VAVG'));
   }
 
+  /// Run the worker in `--preview` mode and return the PNG bytes it writes to
+  /// stdout, or a failure with the worker's stderr.
+  ///
+  /// The preview path is a separate script + separate ffmpeg invocation from the
+  /// encode path, so a filter can render fine and still fail the preview (or
+  /// vice versa). Anything asserted about one should be asserted about both.
+  static Future<PreviewResult> runPreview(
+    Map<String, dynamic> jobJson, {
+    required int frame,
+    String label = 'preview',
+    Duration timeout = const Duration(minutes: 5),
+  }) async {
+    final id = jobJson['id']?.toString() ?? 'preview';
+    final configFile = File(p.join(Directory.systemTemp.path, 'vb_pv_$id.json'));
+    await configFile.writeAsString(jsonEncode(jobJson));
+    try {
+      final process = await Process.start(
+        workerPath,
+        ['--config', configFile.path, '--preview', '--frame', '$frame'],
+        environment: workerEnv,
+        workingDirectory: File(workerPath).parent.path,
+      );
+
+      // Collect both pipes concurrently — stdout is the PNG and can be several
+      // hundred KB, which deadlocks if stderr is left unread.
+      final stdoutFuture = process.stdout
+          .fold<BytesBuilder>(BytesBuilder(), (b, chunk) => b..add(chunk));
+      final stderrFuture = process.stderr.transform(utf8.decoder).join();
+
+      final exitCode = await process.exitCode.timeout(timeout, onTimeout: () {
+        process.kill();
+        throw TimeoutException('$label timed out after ${timeout.inSeconds}s');
+      });
+      final png = (await stdoutFuture).takeBytes();
+      final logs = await stderrFuture;
+
+      if (exitCode != 0 || png.isEmpty) {
+        return PreviewResult(
+          png: null,
+          error: exitCode != 0
+              ? 'preview exited with $exitCode'
+              : 'preview produced no PNG',
+          logs: logs,
+        );
+      }
+      return PreviewResult(png: png, logs: logs);
+    } catch (e) {
+      return PreviewResult(png: null, error: e.toString(), logs: '');
+    } finally {
+      await configFile.delete().catchError((_) => configFile);
+    }
+  }
+
+  /// Decode a PNG (or any image ffmpeg reads) to packed 8-bit RGB samples.
+  ///
+  /// Comparing two of these is how a filter's *result* is checked rather than
+  /// just its exit code — a filter can run cleanly and still produce the wrong
+  /// picture, which is the whole failure mode of an unscaled 8-bit threshold on
+  /// a 10-bit clip. rgb24 also normalizes bit depth, so an 8-bit and a 16-bit
+  /// PNG become directly comparable.
+  static Future<Uint8List> imageToRgb24(Uint8List imageBytes,
+      {String label = 'img'}) async {
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    final src = File(p.join(Directory.systemTemp.path, 'vb_${label}_$stamp.png'));
+    final dst = File(p.join(Directory.systemTemp.path, 'vb_${label}_$stamp.rgb'));
+    try {
+      await src.writeAsBytes(imageBytes);
+      final result = await Process.run(
+        ffmpegPath,
+        [
+          '-y', '-v', 'error', '-i', src.path,
+          '-f', 'rawvideo', '-pix_fmt', 'rgb24', dst.path,
+        ],
+        environment: ffmpegEnv,
+      );
+      if (result.exitCode != 0) {
+        throw Exception('rgb24 conversion failed for $label: ${result.stderr}');
+      }
+      return await dst.readAsBytes();
+    } finally {
+      for (final f in [src, dst]) {
+        if (await f.exists()) await f.delete().catchError((_) => f);
+      }
+    }
+  }
+
+  /// Mean absolute per-sample difference between two rgb24 buffers, 0-255.
+  ///
+  /// Throws when the sizes differ, since that is itself a failure (a frame or
+  /// format desync) rather than a difference worth averaging.
+  static double meanAbsDiff(Uint8List a, Uint8List b) {
+    if (a.length != b.length) {
+      throw Exception(
+          'buffers differ in size (${a.length} vs ${b.length}) — frame/format desync');
+    }
+    if (a.isEmpty) throw Exception('empty buffers');
+    var total = 0;
+    for (var i = 0; i < a.length; i++) {
+      total += (a[i] - b[i]).abs();
+    }
+    return total / a.length;
+  }
+
   /// Extract one frame as PNG and return its md5 hash.
   static Future<String> frameHash(String videoPath, {int frame = 5}) async {
     final framePath = p.join(Directory.systemTemp.path,
@@ -702,4 +805,30 @@ class JobResult {
   String toString() => success
       ? 'SUCCESS in ${duration.inSeconds}s -> $outputPath'
       : 'FAILED: $error (exit code: $exitCode)';
+}
+
+/// Outcome of a `--preview` run: the PNG bytes, or an error plus the worker's
+/// stderr (which carries the VapourSynth traceback for a failed pass).
+class PreviewResult {
+  final Uint8List? png;
+  final String? error;
+  final String logs;
+
+  PreviewResult({required this.png, this.error, required this.logs});
+
+  bool get success => png != null && png!.isNotEmpty;
+
+  /// The last few stderr lines — the VapourSynth error, without the traceback
+  /// noise above it.
+  String get errorTail {
+    final lines = logs
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+    return lines.length <= 4 ? lines.join(' | ') : lines.sublist(lines.length - 4).join(' | ');
+  }
+
+  @override
+  String toString() => success ? 'SUCCESS (${png!.length} bytes)' : 'FAILED: $error\n$errorTail';
 }
