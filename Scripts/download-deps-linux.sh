@@ -235,10 +235,15 @@ EOF
     [ -n "$VS_CC" ] && echo "  Using $VS_CC for VapourSynth"
 
     echo "  Configuring VapourSynth..."
+    # CC/CXX go through `env` rather than as assignment prefixes: bash only
+    # treats an assignment as one when it is literal at parse time, so
+    # ${VS_CC:+CC=...} would expand into a command word and fail with
+    # "CC=clang-19: command not found". Only `meson setup` needs them — the
+    # compiler is recorded in the build directory, so ninja does not.
     PATH="$PYTHON_DIR/bin:$PATH" \
-    ${VS_CC:+CC="$VS_CC"} ${VS_CXX:+CXX="$VS_CXX"} \
     PKG_CONFIG_PATH="$BUILD_DIR/pkgconfig:$BUILD_PREFIX/lib/pkgconfig" \
     LD_LIBRARY_PATH="$PYTHON_DIR/lib:$BUILD_PREFIX/lib:${LD_LIBRARY_PATH:-}" \
+    env ${VS_CC:+CC="$VS_CC"} ${VS_CXX:+CXX="$VS_CXX"} \
     # Run meson with the EMBEDDED python, not whatever meson happens to be
     # installed under. R78 locates Python with
     # `import('python').find_installation()`, which resolves to the interpreter
