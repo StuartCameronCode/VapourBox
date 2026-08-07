@@ -384,6 +384,21 @@ EOF
     # Configure with no system plugin path and using our embedded Python
     PATH="$PYTHON_DIR/bin:$BREW_PREFIX/opt/cython/bin:$PATH" \
     PKG_CONFIG_PATH="$BUILD_DIR/pkgconfig:$BREW_PREFIX/lib/pkgconfig" \
+    # meson looks for a "cython3" program before "cython", so apt's cython3
+    # (0.29 on jammy) wins over the Cython 3.x we just installed into the
+    # embedded interpreter no matter how PATH is ordered — and R78's
+    # vapoursynth.pyx uses Cython 3 syntax, failing with "Syntax error in C
+    # variable declaration" on `noexcept`. Provide both names as wrappers that
+    # run the module, which also sidesteps the console script's baked-in
+    # shebang (it points at the machine that built the interpreter).
+    for cy in cython cython3; do
+        cat > "$PYTHON_DIR/bin/$cy" << CYEOF
+#!/bin/bash
+exec "$PYTHON_DIR/bin/python3" -m cython "\$@"
+CYEOF
+        chmod +x "$PYTHON_DIR/bin/$cy"
+    done
+
     # Run meson with the EMBEDDED python, not whatever meson happens to be
     # installed under. R78 locates Python with
     # `import('python').find_installation()`, which resolves to the interpreter

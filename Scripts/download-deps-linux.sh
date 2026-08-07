@@ -213,6 +213,21 @@ EOF
         cp "$BUILD_PREFIX/lib/pkgconfig/zimg.pc" "$BUILD_DIR/pkgconfig/"
     fi
 
+    # meson looks for a "cython3" program before "cython", so apt's cython3
+    # (0.29 on jammy) wins over the Cython 3.x we just installed into the
+    # embedded interpreter no matter how PATH is ordered — and R78's
+    # vapoursynth.pyx uses Cython 3 syntax, failing with "Syntax error in C
+    # variable declaration" on `noexcept`. Provide both names as wrappers that
+    # run the module, which also sidesteps the console script's baked-in
+    # shebang (it points at the machine that built the interpreter).
+    for cy in cython cython3; do
+        cat > "$PYTHON_DIR/bin/$cy" << CYEOF
+#!/bin/bash
+exec "$PYTHON_DIR/bin/python3" -m cython "\$@"
+CYEOF
+        chmod +x "$PYTHON_DIR/bin/$cy"
+    done
+
     # R78 needs a newer C++ toolchain than Ubuntu 22.04's default gcc 11:
     # float16_helper.h uses _Float16 in C++ and averageframesfilter.cpp uses
     # __builtin_roundevenf. Use a newer clang for VapourSynth alone if one is
