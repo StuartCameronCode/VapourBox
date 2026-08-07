@@ -3400,8 +3400,12 @@ fn test_92_templates_do_not_hardcode_an_nnedi3_implementation() {
 
     for name in ["pipeline_template.vpy", "preview_template.vpy"] {
         let path = templates_dir.join(name);
+        // Normalise line endings: git checks these templates out CRLF on Windows,
+        // and the blank-line search below is otherwise looking for "\n\n" in a
+        // file that only ever contains "\r\n\r\n".
         let body = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+            .replace("\r\n", "\n");
 
         // The helper itself is the one place either plugin may be named.
         let helper_start = body
