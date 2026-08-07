@@ -1672,9 +1672,19 @@ cd "$BUILD_DIR"
 echo ""
 echo "=== Writing version file ==="
 
+# Stamp the version the app expects, read from the single source of truth.
+# A hardcoded value here (it used to be 1.0.0) makes checkDependencies() — an
+# exact string compare against app/assets/deps-version.json — report a mismatch
+# for a freshly built tree, and the app then downloads the published bundle
+# straight over the top of it. Harmless while the local tree matched the
+# release; destructive as soon as it is ahead, which is exactly what a deps
+# upgrade branch creates.
+EXPECTED_DEPS_VERSION=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" \
+    "$PROJECT_ROOT/app/assets/deps-version.json" 2>/dev/null || echo "0.0.0")
+
 cat > "$DEPS_DIR/version.json" << EOF
 {
-  "version": "1.0.0",
+  "version": "$EXPECTED_DEPS_VERSION",
   "installedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "platform": "$PLATFORM_DIR",
   "architecture": "$ARCH",
