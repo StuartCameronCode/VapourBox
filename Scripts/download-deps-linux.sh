@@ -306,12 +306,25 @@ CYEOF
     # PYTHONPATH satisfies that without moving anything the app knows about, and
     # leaves the plugins at <libdir>/plugins where R78 autoloads them — so no
     # plugin path variable is set here; with both, plugins load twice.
-    cp "$VS_BUILT/libvapoursynth.so"* "$DEPS_DIR/vapoursynth/"
-    # vapoursynth-script was renamed vsscript in R78.
-    cp "$VS_BUILT/libvsscript.so"* "$DEPS_DIR/vapoursynth/"
-    # R78 split every core filter (std, resize, ...) out of libvapoursynth into
-    # this module; without it the core namespaces are absent and every job fails.
-    cp "$VS_BUILT/libvapoursynthfilters.so"* "$DEPS_DIR/vapoursynth/"
+    # Copy the libraries and their symlinks, skipping meson's private
+    # "<target>.p" build directories — a bare `cp libvapoursynth.so*` matches
+    # those too and fails with "-r not specified; omitting directory".
+    # vapoursynth-script was renamed vsscript in R78, and libvapoursynthfilters
+    # is new: it holds every core filter (std, resize, ...), so without it the
+    # core namespaces are absent and every job fails at script evaluation.
+    for pattern in libvapoursynth.so libvsscript.so libvapoursynthfilters.so; do
+        found=false
+        for f in "$VS_BUILT/$pattern"*; do
+            [ -e "$f" ] || continue
+            [ -d "$f" ] && continue
+            cp -a "$f" "$DEPS_DIR/vapoursynth/"
+            found=true
+        done
+        if [ "$found" = false ]; then
+            echo "  ERROR: no $pattern* built in $VS_BUILT" >&2
+            exit 1
+        fi
+    done
     cp "$VS_BUILT/vapoursynth.abi3.so" "$DEPS_DIR/vapoursynth/"
     # The pure-Python half of the package; without it `vapoursynth config`
     # cannot run and vsscript's automatic configuration has nothing to call.
