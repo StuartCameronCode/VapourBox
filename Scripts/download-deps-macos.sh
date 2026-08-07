@@ -1410,6 +1410,71 @@ else
 fi
 
 # ============================================================================
+# akarin — LLVM JIT for std.Expr (arm64 only)
+# ============================================================================
+# VapourSynth's own Expr JIT is wrapped in #ifdef VS_TARGET_CPU_X86, so on ARM
+# every expression is walked once per pixel by a scalar interpreter. akarin has
+# a real LLVM JIT that works on aarch64: measured 4.1x end to end on QTGMC Slow
+# (11.5s -> 2.8s, 720x576, M1) and bit-identical to std.Expr on 45 of the 46
+# expressions havsfunc actually generates.
+#
+# arm64 only, deliberately. The x64 wheel is macosx_14_0 while this bundle
+# targets $MACOS_MIN_VERSION (issue #39), so shipping it would raise the Intel
+# floor to macOS 14 — and x86 already has the JIT, so it loses nothing. The
+# routing shim falls back to std.Expr wherever core.akarin is absent.
+AKARIN_VERSION="1.4.1"
+echo ""
+echo "=== Downloading akarin $AKARIN_VERSION (LLVM JIT for std.Expr) ==="
+if [ "$ARCH" = "x86_64" ]; then
+    echo "  Skipped on x64: wheel is macosx_14_0, this bundle targets $MACOS_MIN_VERSION."
+elif [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libakarin.dylib" ]; then
+    AK_URL=$("$PYTHON_BIN" - "$AKARIN_VERSION" "macosx_14_0_arm64" <<'PYEOF'
+import json, sys, urllib.request
+ver, tag = sys.argv[1], sys.argv[2]
+d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/vapoursynth-akarin/{ver}/json"))
+print(next(f["url"] for f in d["urls"] if f["filename"].endswith(tag + ".whl")))
+PYEOF
+)
+    rm -rf "$BUILD_DIR/akarin" && mkdir -p "$BUILD_DIR/akarin" "$LIB_DIR"
+    curl -L -o "$BUILD_DIR/akarin.whl" "$AK_URL"
+    # A wheel is a zip; we want the plugin binary only, never a pip install into
+    # the embedded interpreter.
+    unzip -q "$BUILD_DIR/akarin.whl" -d "$BUILD_DIR/akarin"
+    cp "$BUILD_DIR/akarin/vapoursynth/plugins/akarin/libakarin.dylib" "$PLUGINS_DIR/"
+    cp "$BUILD_DIR/akarin"/vapoursynth_akarin.dylibs/*.dylib "$LIB_DIR/"
+    chmod u+w "$PLUGINS_DIR/libakarin.dylib"
+
+    # The wheel links its private libs as @loader_path/../../../vapoursynth_akarin.dylibs,
+    # which is relative to the wheel's own layout and resolves to nothing here.
+    # Repoint to lib/, matching the nnedi3cl -> boost convention. lib/ is
+    # deliberately NOT on DYLD_LIBRARY_PATH, so the bundled libz cannot shadow
+    # the system one for ffmpeg or anything else.
+    install_name_tool -id "@loader_path/libakarin.dylib" "$PLUGINS_DIR/libakarin.dylib"
+    for dep in $(otool -L "$PLUGINS_DIR/libakarin.dylib" | awk '/vapoursynth_akarin\.dylibs/{print $1}'); do
+        install_name_tool -change "$dep" "@loader_path/../../lib/$(basename "$dep")" \
+            "$PLUGINS_DIR/libakarin.dylib"
+    done
+    for f in "$BUILD_DIR/akarin"/vapoursynth_akarin.dylibs/*.dylib; do
+        b=$(basename "$f")
+        chmod u+w "$LIB_DIR/$b"
+        install_name_tool -id "@loader_path/$b" "$LIB_DIR/$b" 2>/dev/null || true
+        codesign -s - -f "$LIB_DIR/$b" 2>/dev/null || true
+    done
+    # Re-sign after install_name_tool or macOS SIGKILLs the loader (exit 137).
+    codesign -s - -f "$PLUGINS_DIR/libakarin.dylib" 2>/dev/null || true
+
+    if otool -L "$PLUGINS_DIR/libakarin.dylib" | grep -q "vapoursynth_akarin.dylibs"; then
+        echo "  ERROR: libakarin.dylib still references the wheel-relative dylib path."
+        echo "         It would load here and fail in the packaged bundle."
+        exit 1
+    fi
+    rm -rf "$BUILD_DIR/akarin" "$BUILD_DIR/akarin.whl"
+    echo "  Installed akarin -> libakarin.dylib"
+else
+    echo "  akarin already exists, skipping"
+fi
+
+# ============================================================================
 # Download NNEDI3 weights
 # ============================================================================
 echo ""
@@ -1607,6 +1672,55 @@ def _nnedi3_impl():
     return core.znedi3.nnedi3 if hasattr(core, 'znedi3') else core.nnedi3.nnedi3
 ''')
         patches.append(f'ARM nnedi3 preference ({n_edi} sites)')
+
+# Patch 7: route std.Expr through akarin's LLVM JIT.
+# VapourSynth's Expr JIT is wrapped in #ifdef VS_TARGET_CPU_X86, so on ARM the
+# whole bytecode program is walked once per pixel by ExprInterpreter::eval().
+# Expr dominates arm64 QTGMC by a wide margin -- measured 550-640 CPU-seconds
+# against the interpolator's 30 -- so this is the single biggest arm64 win
+# available: 4.1x end to end on QTGMC Slow (11.5s -> 2.8s, M1, 720x576).
+#
+# havsfunc has 116 core.std.Expr call sites. Rewriting each one is unmaintainable
+# against a file we already patch six other ways, so rebind the module's `core`
+# to a proxy that swaps only .std.Expr and forwards everything else untouched.
+#
+# Verified against the 46 distinct expressions havsfunc actually generates
+# (collected at runtime across every QTGMC preset plus daa/santiag/LSFmod/
+# DeHalo_alpha/FineDehalo/SMDegrain/Deblock_QED/EdgeCleaner/YAHR): 45 are
+# bit-identical. The one exception is the DeHalo_alpha/FineDehalo edge-MASK
+# scale 'x {thmi} - {i} / 255 *', where a single input value lands on an exact
+# .5 tie -- std.Expr rounds half-to-even, akarin rounds it down, so one level in
+# a mask. macOS x64 has no akarin wheel compatible with our 12.0 floor and so
+# keeps std.Expr; that platform therefore differs by that one level. It is far
+# smaller than the ARM/x86 difference already accepted for nnedi3 vs znedi3
+# (mean 0.045/255, worst pixel 27/255).
+#
+# The shim installs only when akarin is present, so where it is absent `core`
+# stays the real core: no wrapper, no overhead, no behaviour change.
+if '_akarin_expr' not in content:
+    content = content.replace('import math\n', 'import math\n' + '''
+
+# Route std.Expr through akarin's LLVM JIT where present (see download-deps-*).
+_akarin_expr = getattr(getattr(core, 'akarin', None), 'Expr', None)
+if _akarin_expr is not None:
+    class _ExprStd:
+        __slots__ = ('_std',)
+        def __init__(self, std):
+            self._std = std
+        def __getattr__(self, name):
+            return _akarin_expr if name == 'Expr' else getattr(self._std, name)
+
+    class _ExprCore:
+        __slots__ = ('_core', '_std')
+        def __init__(self, c):
+            self._core = c
+            self._std = _ExprStd(c.std)
+        def __getattr__(self, name):
+            return self._std if name == 'std' else getattr(self._core, name)
+
+    core = _ExprCore(core)
+''')
+    patches.append('akarin Expr routing')
 
 if patches:
     with open(havsfunc_path, 'w') as f:

@@ -58,6 +58,23 @@ def _nnedi3(clip, **kwargs):
         return core.nnedi3.nnedi3(clip, **kwargs)
     return core.znedi3.nnedi3(clip, **kwargs)
 
+
+# VapourSynth's std.Expr JIT is wrapped in #ifdef VS_TARGET_CPU_X86, so on ARM
+# every expression is walked once per pixel by a scalar interpreter -- by far the
+# dominant cost in an arm64 filter graph. akarin has a real LLVM JIT that works
+# on aarch64 and is bit-identical to std.Expr for every expression used here.
+# Falls back to std.Expr wherever akarin is absent (notably macos-x64, whose
+# only wheel would raise the Intel floor to macOS 14). havsfunc's own 116 call
+# sites get the same treatment via its patch 7. Route every expression through
+# this helper rather than calling core.std.Expr directly.
+_akarin_expr = getattr(getattr(core, 'akarin', None), 'Expr', None)
+
+
+def _expr(clips, expr, **kwargs):
+    if _akarin_expr is not None:
+        return _akarin_expr(clips, expr, **kwargs)
+    return core.std.Expr(clips, expr, **kwargs)
+
 # ============================================================================
 # PASS 1: PRE-CROP (before deinterlacing to reduce processing area)
 # ============================================================================
@@ -482,7 +499,7 @@ clip = haf.MCTemporalDenoise(
 _mcds_planes = {{NR_MCDS_PLANES}}
 _mcds_blurred = core.tcanny.TCanny(clip, sigma={{NR_MCDS_BLUR_SIGMA}}, mode=-1, planes=_mcds_planes)
 # Unsharp mask: original plus the difference between it and its own blur.
-_mcds_sharpened = core.std.Expr(
+_mcds_sharpened = _expr(
     [clip, core.tcanny.TCanny(clip, sigma={{NR_MCDS_SHARP_SIGMA}}, mode=-1, planes=_mcds_planes)],
     ['x x + y -'],
 )
@@ -992,7 +1009,7 @@ if clip.format.color_family == vs.YUV:
     # An empty expression leaves that plane untouched, so luma is never
     # rewritten. Expr clamps to the format's range, so extreme settings
     # saturate rather than wrap around.
-    clip = core.std.Expr(
+    clip = _expr(
         clip,
         ['', 'x ' + repr(_wb_u) + ' +', 'x ' + repr(_wb_v) + ' +'],
     )

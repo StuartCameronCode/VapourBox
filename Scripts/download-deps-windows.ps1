@@ -510,6 +510,58 @@ if (-not (Test-Path $DvdReadPath)) {
 }
 
 # =============================================================================
+# akarin - LLVM JIT for std.Expr
+# =============================================================================
+# VapourSynth's own Expr JIT is x86-only (#ifdef VS_TARGET_CPU_X86), so ARM runs
+# a scalar per-pixel interpreter. Windows x64 already has that JIT, so it gains
+# far less than arm64 does -- but the routing shim is arch-neutral and shipping
+# akarin everywhere it exists keeps the same job from producing different output
+# per OS, which is the rule the havsfunc patches already follow.
+#
+# akarin is bit-identical to std.Expr on 45 of the 46 expressions havsfunc
+# generates; the one exception rounds a single .5 tie down instead of to even.
+$AkarinVersion = "1.4.1"
+Write-Host ""
+Write-Host "Downloading akarin $AkarinVersion (LLVM JIT for std.Expr)..." -ForegroundColor Yellow
+if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
+    try {
+        $AkMeta = Invoke-RestMethod -Uri "https://pypi.org/pypi/vapoursynth-akarin/$AkarinVersion/json"
+        $AkUrl = ($AkMeta.urls | Where-Object { $_.filename -like "*win_amd64.whl" } |
+                  Select-Object -First 1).url
+        if (-not $AkUrl) { throw "no win_amd64 wheel for akarin $AkarinVersion" }
+
+        $AkWhl = Join-Path $TempDir "akarin.whl"
+        $AkZip = Join-Path $TempDir "akarin-wheel.zip"
+        $AkOut = Join-Path $TempDir "akarin-extract"
+        Invoke-WebRequest -Uri $AkUrl -OutFile $AkWhl -UseBasicParsing
+        # A wheel is a zip, but Expand-Archive validates the *extension* and
+        # refuses .whl outright -- same trap as the VapourSynth wheel above.
+        Copy-Item $AkWhl $AkZip -Force
+        Remove-Item $AkOut -Recurse -Force -ErrorAction SilentlyContinue
+        Expand-Archive -Path $AkZip -DestinationPath $AkOut -Force
+
+        # libzstd.dll sits beside the plugin, which is how the wheel ships it and
+        # how Windows resolves a plugin's own dependencies. VapourSynth will probe
+        # it during autoload and skip it (no VapourSynthPluginInit2); that is
+        # noise in the log, not a failure.
+        $AkSrc = Join-Path $AkOut "vapoursynth\plugins\akarin"
+        foreach ($dll in @("libakarin.dll", "libzstd.dll")) {
+            $p = Join-Path $AkSrc $dll
+            if (-not (Test-Path $p)) { throw "$dll missing from the akarin wheel" }
+            Copy-Item $p (Join-Path $PluginsDir $dll) -Force
+            Write-Host "    Copied: $dll" -ForegroundColor Gray
+        }
+        Remove-Item $AkWhl, $AkZip -Force -ErrorAction SilentlyContinue
+        Remove-Item $AkOut -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "  akarin installed" -ForegroundColor Green
+    } catch {
+        Write-Host "    Failed: $_" -ForegroundColor Red
+    }
+} else {
+    Write-Host "  akarin already installed" -ForegroundColor Gray
+}
+
+# =============================================================================
 # 5. Python Packages (havsfunc, mvsfunc, adjust)
 # =============================================================================
 Write-Host ""
@@ -719,6 +771,44 @@ def _nnedi3_impl():
 "@
         $Content = $Content -replace "(import math\r?\n)", "`$1$PatchFunction"
         $PatchesApplied += "ARM nnedi3 preference"
+    }
+
+    # Patch 7: route std.Expr through akarin's LLVM JIT.
+    # VapourSynth's own Expr JIT is x86-only, so ARM walks the whole bytecode
+    # program once per pixel. Windows x64 already has that JIT and gains far
+    # less, but this is applied here so every platform generates identical
+    # output from an identical havsfunc - the same reasoning as patches 5 and 6.
+    # havsfunc has 116 core.std.Expr sites, so rebind the module's `core` to a
+    # proxy that swaps only .std.Expr and forwards everything else untouched.
+    # The shim installs only when akarin is present; where it is absent `core`
+    # stays the real core, with no wrapper and no behaviour change.
+    if ($Content -notmatch "_akarin_expr") {
+        Write-Host "  Applying akarin Expr routing patch..." -ForegroundColor Gray
+        $PatchFunction = @"
+
+# Route std.Expr through akarin's LLVM JIT where present (see download-deps-*).
+_akarin_expr = getattr(getattr(core, 'akarin', None), 'Expr', None)
+if _akarin_expr is not None:
+    class _ExprStd:
+        __slots__ = ('_std',)
+        def __init__(self, std):
+            self._std = std
+        def __getattr__(self, name):
+            return _akarin_expr if name == 'Expr' else getattr(self._std, name)
+
+    class _ExprCore:
+        __slots__ = ('_core', '_std')
+        def __init__(self, c):
+            self._core = c
+            self._std = _ExprStd(c.std)
+        def __getattr__(self, name):
+            return self._std if name == 'std' else getattr(self._core, name)
+
+    core = _ExprCore(core)
+
+"@
+        $Content = $Content -replace "(import math\r?\n)", "`$1$PatchFunction"
+        $PatchesApplied += "akarin Expr routing"
     }
 
     if ($PatchesApplied.Count -gt 0) {
