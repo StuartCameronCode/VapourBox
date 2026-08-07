@@ -178,7 +178,7 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.so" ]; th
 
     # Install Cython in our embedded Python for building
     echo "  Installing Cython in embedded Python..."
-    "$PYTHON_BIN" -m pip install --quiet cython
+    "$PYTHON_BIN" -m pip install --quiet cython meson
 
     # Create pkg-config file for our embedded Python
     mkdir -p "$BUILD_DIR/pkgconfig"
@@ -217,7 +217,16 @@ EOF
     PATH="$PYTHON_DIR/bin:$PATH" \
     PKG_CONFIG_PATH="$BUILD_DIR/pkgconfig:$BUILD_PREFIX/lib/pkgconfig" \
     LD_LIBRARY_PATH="$PYTHON_DIR/lib:$BUILD_PREFIX/lib:${LD_LIBRARY_PATH:-}" \
-    meson setup build \
+    # Run meson with the EMBEDDED python, not whatever meson happens to be
+    # installed under. R78 locates Python with
+    # `import('python').find_installation()`, which resolves to the interpreter
+    # meson itself is running as — PATH does not influence it, and the
+    # -Dpython3_bin option that used to override it was removed. Left alone,
+    # meson picks the runner's system python: on Linux that has no development
+    # headers, so configuration dies with "Header 'Python.h' could not be
+    # found", and on macOS it silently builds and installs against Homebrew's
+    # python instead of the one we ship.
+    "$PYTHON_BIN" -m mesonbuild.mesonmain setup build \
         --prefix="$VS_INSTALL_DIR" \
         --buildtype=release \
         -Dlibdir=lib

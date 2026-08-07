@@ -301,7 +301,11 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.dylib" ];
     # bundle stays byte-for-byte unchanged.
     if [ "$ARCH" = "x86_64" ]; then
         echo "  Patching vspipe doubleToString for Monterey back-deploy (issue #39)..."
-        for vs_src in src/vspipe/vsjson.cpp src/vspipe/vspipe.cpp; do
+        # R73 carried doubleToString() in both files; R78 has it only in
+        # vsjson.cpp. Patch whichever files actually contain it, so this neither
+        # hard-fails on a file that no longer needs it nor silently skips one
+        # that does.
+        for vs_src in $(grep -rl "std::to_chars" src/vspipe/ 2>/dev/null); do
             VS_SRC="$vs_src" python3 - <<'PYEOF'
 import os, sys
 path = os.environ["VS_SRC"]
@@ -341,7 +345,7 @@ PYEOF
 
     # Install Cython in our embedded Python for building
     echo "  Installing Cython in embedded Python..."
-    "$PYTHON_BIN" -m pip install --quiet cython
+    "$PYTHON_BIN" -m pip install --quiet cython meson
 
     # Create pkg-config file for our embedded Python
     mkdir -p "$BUILD_DIR/pkgconfig"
@@ -375,7 +379,16 @@ EOF
     # Configure with no system plugin path and using our embedded Python
     PATH="$PYTHON_DIR/bin:$BREW_PREFIX/opt/cython/bin:$PATH" \
     PKG_CONFIG_PATH="$BUILD_DIR/pkgconfig:$BREW_PREFIX/lib/pkgconfig" \
-    meson setup build \
+    # Run meson with the EMBEDDED python, not whatever meson happens to be
+    # installed under. R78 locates Python with
+    # `import('python').find_installation()`, which resolves to the interpreter
+    # meson itself is running as — PATH does not influence it, and the
+    # -Dpython3_bin option that used to override it was removed. Left alone,
+    # meson picks the runner's system python: on Linux that has no development
+    # headers, so configuration dies with "Header 'Python.h' could not be
+    # found", and on macOS it silently builds and installs against Homebrew's
+    # python instead of the one we ship.
+    "$PYTHON_BIN" -m mesonbuild.mesonmain setup build \
         --prefix="$VS_INSTALL_DIR" \
         --buildtype=release \
         -Dlibdir=lib
@@ -441,21 +454,6 @@ SHIM_EOF
     # Copy zimg from Homebrew (will fix paths to be relative)
     cp "$BREW_PREFIX/lib/libzimg.2.dylib" "$DEPS_DIR/vapoursynth/libzimg.dylib"
 
-    # Copy Python module
-
-    # Fix Python module library paths (critical for self-contained operation)
-    cd "$PYTHON_PACKAGES_DIR"
-    for so_file in vapoursynth*.so; do
-        if [ -f "$so_file" ]; then
-            # Fix libvapoursynth reference to use loader_path
-            install_name_tool -change "@rpath/libvapoursynth.4.dylib" \
-                "@loader_path/../vapoursynth/libvapoursynth.4.dylib" "$so_file" 2>/dev/null || true
-            # Fix Python library reference (from python-build-standalone's internal path)
-            install_name_tool -change "/install/lib/libpython${PYTHON_MAJOR_MINOR}.dylib" \
-                "@loader_path/../python/lib/libpython${PYTHON_MAJOR_MINOR}.dylib" "$so_file" 2>/dev/null || true
-        fi
-    done
-
     echo "  Fixing library paths..."
     cd "$DEPS_DIR/vapoursynth"
 
@@ -464,21 +462,35 @@ SHIM_EOF
         install_name_tool -id "@loader_path/$lib" "$lib" 2>/dev/null || true
     done
 
-    # Fix vspipe-bin to use relative paths
-    install_name_tool -change "$VS_INSTALL_DIR/lib/libvapoursynth-script.4.dylib" \
-        "@executable_path/libvapoursynth-script.4.dylib" vspipe-bin
-
-    # Fix libvapoursynth-script references
-    install_name_tool -change "$VS_INSTALL_DIR/lib/libvapoursynth.4.dylib" \
-        "@loader_path/libvapoursynth.4.dylib" libvapoursynth-script.dylib
-    install_name_tool -change "$VS_INSTALL_DIR/lib/libvapoursynth.4.dylib" \
-        "@loader_path/libvapoursynth.4.dylib" libvapoursynth-script.4.dylib
-
-    # Fix Python library reference to use our embedded Python
-    install_name_tool -change "$PYTHON_DIR/lib/libpython${PYTHON_MAJOR_MINOR}.dylib" \
-        "@executable_path/../python/lib/libpython${PYTHON_MAJOR_MINOR}.dylib" libvapoursynth-script.dylib
-    install_name_tool -change "$PYTHON_DIR/lib/libpython${PYTHON_MAJOR_MINOR}.dylib" \
-        "@executable_path/../python/lib/libpython${PYTHON_MAJOR_MINOR}.dylib" libvapoursynth-script.4.dylib
+    # Everything that links libvapoursynth or libpython now sits in this one
+    # directory (R78 ships them as a Python package), so fix them in one pass.
+    #
+    # The python reference is "/install/lib/libpython3.X.dylib" —
+    # python-build-standalone bakes that absolute path in as the install name,
+    # and it does not exist on any machine. Rewriting it is what makes the
+    # bundle self-contained; miss it and vspipe dies at load with
+    # "Library not loaded: /install/lib/libpython3.12.dylib". Both that and the
+    # build-tree path are rewritten, so it does not matter which the linker
+    # recorded.
+    for macho in libvsscript.dylib libvapoursynthfilters.dylib vapoursynth.abi3.so \
+                 vspipe-bin libvapoursynth-script.dylib libvapoursynth-script.4.dylib; do
+        [ -e "$macho" ] || continue
+        for vs_ref in "$VS_INSTALL_DIR/lib/libvapoursynth.4.dylib" "@rpath/libvapoursynth.4.dylib"; do
+            install_name_tool -change "$vs_ref" \
+                "@loader_path/libvapoursynth.4.dylib" "$macho" 2>/dev/null || true
+        done
+        # vspipe links vsscript through @rpath. That happens to resolve via the
+        # DYLD_LIBRARY_PATH the wrapper and the worker both set, so it "works"
+        # without this — but only because of the environment, which makes the
+        # binary non-relocatable and the failure environment-dependent.
+        install_name_tool -change "@rpath/libvsscript.dylib" \
+            "@loader_path/libvsscript.dylib" "$macho" 2>/dev/null || true
+        for py_ref in "/install/lib/libpython${PYTHON_MAJOR_MINOR}.dylib" \
+                      "$PYTHON_DIR/lib/libpython${PYTHON_MAJOR_MINOR}.dylib"; do
+            install_name_tool -change "$py_ref" \
+                "@loader_path/../python/lib/libpython${PYTHON_MAJOR_MINOR}.dylib" "$macho" 2>/dev/null || true
+        done
+    done
 
     # Fix zimg references
     install_name_tool -change "$BREW_PREFIX/opt/zimg/lib/libzimg.2.dylib" \
