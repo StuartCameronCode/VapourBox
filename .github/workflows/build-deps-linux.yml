@@ -27,7 +27,7 @@ permissions:
 jobs:
   build-x64:
     if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -39,18 +39,12 @@ jobs:
             cython3 pkg-config gcc g++ python3-pip \
             libfftw3-dev libboost-filesystem-dev libboost-atomic-dev \
             ocl-icd-opencl-dev opencl-headers libdvdread-dev unzip
-          # VapourSynth R78 needs a C++ toolchain newer than jammy's default:
-          # src/core/float16_helper.h uses _Float16 in C++ (needs GCC >= 13) and
-          # averageframesfilter.cpp uses __builtin_roundevenf (needs clang >= 17).
-          # ubuntu-22.04 ships gcc 11 and has no gcc-13 in its repositories at
-          # all, so this comes from apt.llvm.org — the route already proven to
-          # work on jammy arm64. The rest of the deps build keeps using the
-          # system gcc; only VapourSynth needs the newer compiler, and
-          # download-deps-linux.sh picks it up if present.
-          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-          chmod +x /tmp/llvm.sh
-          sudo /tmp/llvm.sh 19
-          clang-19 --version | head -1
+          # ubuntu-24.04 ships gcc 13 and Cython 3, which is what VapourSynth
+          # R78 needs: float16_helper.h uses _Float16 in C++ (GCC >= 13),
+          # averageframesfilter.cpp uses __builtin_roundevenf, and
+          # vapoursynth.pyx uses Cython 3 syntax. On 22.04 none of those were
+          # available and each had to be worked around separately.
+          gcc --version | head -1
           pip3 install meson
 
       - name: Build dependencies
@@ -77,7 +71,7 @@ jobs:
 
   build-arm64:
     if: ${{ inputs.arch == 'arm64' || inputs.arch == 'both' }}
-    runs-on: ubuntu-22.04-arm
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v5
 
@@ -89,18 +83,12 @@ jobs:
             cython3 pkg-config gcc g++ python3-pip \
             libfftw3-dev libboost-filesystem-dev libboost-atomic-dev \
             ocl-icd-opencl-dev opencl-headers libdvdread-dev unzip
-          # VapourSynth R78 needs a C++ toolchain newer than jammy's default:
-          # src/core/float16_helper.h uses _Float16 in C++ (needs GCC >= 13) and
-          # averageframesfilter.cpp uses __builtin_roundevenf (needs clang >= 17).
-          # ubuntu-22.04 ships gcc 11 and has no gcc-13 in its repositories at
-          # all, so this comes from apt.llvm.org — the route already proven to
-          # work on jammy arm64. The rest of the deps build keeps using the
-          # system gcc; only VapourSynth needs the newer compiler, and
-          # download-deps-linux.sh picks it up if present.
-          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-          chmod +x /tmp/llvm.sh
-          sudo /tmp/llvm.sh 19
-          clang-19 --version | head -1
+          # ubuntu-24.04 ships gcc 13 and Cython 3, which is what VapourSynth
+          # R78 needs: float16_helper.h uses _Float16 in C++ (GCC >= 13),
+          # averageframesfilter.cpp uses __builtin_roundevenf, and
+          # vapoursynth.pyx uses Cython 3 syntax. On 22.04 none of those were
+          # available and each had to be worked around separately.
+          gcc --version | head -1
           pip3 install meson
 
       - name: Build dependencies

@@ -856,7 +856,7 @@ Each job pulls the published deps bundle + the whisper add-on, then runs
 **suite #1 (`cargo test`) and suite #2 (`flutter test --exclude-tags heavy`)** —
 including the subtitle integration test, excluding the heavy full-encode
 integration tests. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
-(`macos-15-intel`), **Windows x64**, **Linux x64** (`ubuntu-22.04`). Notes:
+(`macos-15-intel`), **Windows x64**, **Linux x64** (`ubuntu-24.04`). Notes:
 
 - whisper-cli is provisioned from the **same source the app uses at runtime**
   (`app/assets/whisper-addon.json`): macOS via a Homebrew bottle, Windows/Linux
@@ -901,6 +901,27 @@ matter more than usual (see `app/test/vapoursynth_integration_test.dart`).
 > `KNLMeansCL`'s `clip.format.color_family not in [vs.YUV, vs.YCOCG]` survives and
 > would `AttributeError`. Only reachable with `Denoiser='knlmeanscl'` **and**
 > `ChromaNoise=True` (both non-default), so it has never been hit.
+
+### Linux builds on ubuntu-24.04, and that sets the glibc floor
+
+The Linux **deps** builds and the runners that test against them
+(`ci-test.yml`, `nightly.yml`) all run on `ubuntu-24.04`. They must stay in
+step: the deps binaries need the glibc they were built against, so testing them
+on an older runner fails at load, and `ci-test.yml` carries a comment saying so.
+
+This was forced by R78. ubuntu-22.04 could not build it at all, and not for one
+reason but four, each only visible once the previous was cleared: no `_Float16`
+in C++ (needs GCC >= 13, jammy has 11 and no gcc-13 package), no
+`__builtin_roundevenf` under its clang, Cython 0.29 against a `.pyx` using
+Cython 3 syntax, and meson preferring the apt `cython3` over a pip-installed
+Cython 3. Noble ships all of it.
+
+**The cost is user-facing**: the bundle now needs **glibc 2.39**, so Ubuntu
+22.04 (2.35) and Debian 12 (2.36) can no longer run it. That is recorded in the
+README's platform table. The app and whisper builds deliberately stay on
+`ubuntu-22.04` — their binaries run on newer systems regardless, so a lower
+floor there costs nothing — but the effective requirement is the highest of the
+components, which is the deps.
 
 ### Testing a deps change before publishing: release-candidate tags
 

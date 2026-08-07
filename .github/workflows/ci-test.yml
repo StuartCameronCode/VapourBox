@@ -4,7 +4,7 @@ name: CI Tests
 # model) and runs the Rust test suite plus the Flutter tests, EXCLUDING the
 # heavy full-encode integration tests (those run in nightly.yml via
 # `--tags heavy`). macOS is tested natively on both arm64 (macos-15) and x64
-# (macos-15-intel); Windows on x64; Linux on x64 (ubuntu-22.04).
+# (macos-15-intel); Windows on x64; Linux on x64 (ubuntu-24.04).
 
 on:
   push:
@@ -180,7 +180,8 @@ jobs:
         run: cd app && flutter test --exclude-tags heavy
 
   linux:
-    runs-on: ubuntu-22.04  # matches the deps-build runner (glibc compatibility)
+    runs-on: ubuntu-24.04  # must match the deps-build runner: those binaries
+                       # need its glibc, so an older runner cannot run them
     env:
       # Dart ToolLocator/DependencyManager honour this; the Rust locator does
       # not (it uses the XDG path), so we also symlink it below.

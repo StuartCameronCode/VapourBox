@@ -39,8 +39,8 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg —
 | macOS (Apple Silicon) | macOS 15 Sequoia | `VapourBox-x.x.x-macos-arm64.dmg` |
 | macOS (Intel) | macOS 12 Monterey | `VapourBox-x.x.x-macos-x64.dmg` |
 | Windows (x64) | Windows 10/11 | `VapourBox-x.x.x-windows-x64.zip` |
-| Linux (x64) | — | `VapourBox-x.x.x-linux-x64.tar.gz` |
-| Linux (arm64) | — | `VapourBox-x.x.x-linux-arm64.tar.gz` |
+| Linux (x64) | glibc 2.39 (Ubuntu 24.04, Debian 13) | `VapourBox-x.x.x-linux-x64.tar.gz` |
+| Linux (arm64) | glibc 2.39 (Ubuntu 24.04, Debian 13) | `VapourBox-x.x.x-linux-arm64.tar.gz` |
 
 All processing is local. There is no account, no telemetry, and nothing is uploaded.
 
