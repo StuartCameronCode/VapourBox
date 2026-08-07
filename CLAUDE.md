@@ -932,9 +932,23 @@ prescreener decision — expected for independent implementations of the same ne
 
 The choice is made **at runtime** (`platform.machine()`), not by the build, so the
 patch text stays identical on every platform and **x86 keeps using znedi3
-unchanged**. Both plugins are therefore required in the deps bundle and both are in
-the `vapoursynth_integration_test.dart` plugin list — dropping either breaks
-deinterlacing on half the platforms.
+unchanged**. nnedi3 is therefore required only on the **ARM** bundles —
+`deps-expected-plugins.json` lists it for `macos-arm64` and `linux-arm64` and
+deliberately **not** for the three x86 ones, which never call it. Requiring it on
+x86 just fails the packaging guard on a plugin nothing would load (nnedi3's x86
+path also needs `yasm`, which the runners don't have).
+
+> **Building nnedi3 on aarch64 needs two source patches**, because dubhater's
+> build system treats every ARM as 32-bit ARMv7. `-mfpu=neon` is an ARMv7 option
+> that aarch64 gcc rejects outright, and `cpufeatures.cpp` reads `HWCAP_ARM_*`
+> from `getauxval()` — constants that exist only for 32-bit ARM. macOS only ever
+> hit the first (it takes the `__APPLE__` branch in `cpufeatures.cpp`), which is
+> why Linux arm64 shipped without the plugin until 2026-08-07. Both edits, and a
+> guard that hard-fails if either stops matching, are in the nnedi3 block of
+> `download-deps-linux.sh`; keep the `-mfpu` expression identical to the macOS
+> one. The second patch is the one to be careful with: `nnedi3.cpp` only does
+> `if (!cpu.neon) d->opt = 0`, so a wrong answer there yields a **correct picture
+> at scalar speed** — the same silent failure this whole section is about.
 
 > This is one instance of a much larger arm64 gap: native arm64 QTGMC runs
 > **3–4.5x slower than the x64 bundle under Rosetta**. The dominant cause is not

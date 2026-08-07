@@ -678,6 +678,30 @@ if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libnnedi3.so" ]; then
     rm -rf nnedi3
     git clone --depth 1 https://github.com/dubhater/vapoursynth-nnedi3.git nnedi3
     cd nnedi3
+    # dubhater's build system treats every ARM as 32-bit ARMv7, so aarch64 fails
+    # in two unrelated places. Both are build-system bugs, not portability limits:
+    # the NEON intrinsics themselves compile fine on aarch64 (macOS arm64 builds
+    # this same simd_neon.c).
+    #
+    #   1. -mfpu=neon is an ARMv7 option. NEON is baseline on aarch64 and gcc
+    #      rejects the flag outright. download-deps-macos.sh strips it with this
+    #      same expression -- keep the two identical.
+    #   2. cpufeatures.cpp reads HWCAP_ARM_* out of getauxval(), and those
+    #      constants exist only for 32-bit ARM. ARMv8-A mandates NEON, so take
+    #      the constant-true path macOS already uses.
+    #
+    # (2) is the dangerous one, because getting it wrong is silent: nnedi3.cpp
+    # only does "if (!cpu.neon) d->opt = 0", so a false negative still produces a
+    # correct picture -- just at scalar speed, which is the entire thing this
+    # plugin is bundled to avoid. Both edits are literal string matches, so
+    # verify they applied rather than shipping an unpatched build.
+    sed -i 's/ -mfpu=neon//' Makefile.am
+    sed -i 's/#elif defined(__APPLE__) && defined(NNEDI3_ARM)/#elif (defined(__APPLE__) || defined(__aarch64__)) \&\& defined(NNEDI3_ARM)/' src/cpufeatures.cpp
+    if grep -q -- '-mfpu=neon' Makefile.am || ! grep -q '__aarch64__' src/cpufeatures.cpp; then
+        echo "  ERROR: the nnedi3 aarch64 build patches no longer apply -- upstream changed."
+        echo "         Refusing to build a silently-scalar nnedi3; fix the patches in this script."
+        exit 1
+    fi
     if ./autogen.sh && \
        PKG_CONFIG_PATH="$PLUGIN_PKG_CONFIG" \
        CFLAGS="-I$VS_INCLUDE_DIR" \

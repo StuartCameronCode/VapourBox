@@ -93,7 +93,6 @@
     "libmiscfilters.so",
     "libmvtools.so",
     "libneo-f3kdb.so",
-    "libnnedi3.so",
     "libnnedi3cl.so",
     "libremovegrain.so",
     "libtcanny.so",
