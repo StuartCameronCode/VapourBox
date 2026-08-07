@@ -287,16 +287,16 @@ exec "$DEPS_ROOT/python/bin/python3" -m vapoursynth "$@"
 SHIM_EOF
     chmod +x "$PYTHON_DIR/bin/vapoursynth"
 
-    # Copy Python module
-
     # Fix RPATHs
     echo "  Fixing RPATHs..."
     patchelf --set-rpath '$ORIGIN' "$DEPS_DIR/vapoursynth/vspipe-bin"
     for lib in "$DEPS_DIR/vapoursynth"/libvapoursynth*.so*; do
         [ -f "$lib" ] && [ ! -L "$lib" ] && patchelf --set-rpath '$ORIGIN:$ORIGIN/../python/lib' "$lib" 2>/dev/null || true
     done
-    for so_file in "$PYTHON_PACKAGES_DIR"/vapoursynth*.so; do
-        [ -f "$so_file" ] && patchelf --set-rpath '$ORIGIN/../vapoursynth:$ORIGIN/../python/lib' "$so_file" 2>/dev/null || true
+    # The extension module sits in vapoursynth/ now, beside the libraries it
+    # loads, so $ORIGIN alone reaches them.
+    for so_file in "$DEPS_DIR/vapoursynth"/vapoursynth*.so; do
+        [ -f "$so_file" ] && patchelf --set-rpath '$ORIGIN:$ORIGIN/../python/lib' "$so_file" 2>/dev/null || true
     done
 
     # Create wrapper script (same concept as macOS)
@@ -326,8 +326,18 @@ WRAPPER_EOF
     chmod +x "$DEPS_DIR/vapoursynth/vspipe"
 
     # Copy VS headers to deps for plugin builds (persists across runs)
+    # R78 installs the headers inside the Python package rather than under
+    # <prefix>/include/vapoursynth, so locate them instead of assuming. Plugin
+    # builds resolve VapourSynth through these, so a wrong path here means most
+    # of the plugin set silently fails to configure.
     mkdir -p "$DEPS_DIR/vapoursynth/include"
-    cp "$VS_INSTALL_DIR/include/vapoursynth/"*.h "$DEPS_DIR/vapoursynth/include/"
+    VS_HDR_DIR="$(dirname "$(find "$VS_INSTALL_DIR" -name 'VapourSynth4.h' 2>/dev/null | head -1)")"
+    if [ -n "$VS_HDR_DIR" ] && [ -d "$VS_HDR_DIR" ]; then
+        cp "$VS_HDR_DIR/"*.h "$DEPS_DIR/vapoursynth/include/"
+    else
+        echo "  ERROR: could not locate VapourSynth headers under $VS_INSTALL_DIR" >&2
+        exit 1
+    fi
 
     cd "$BUILD_DIR"
     echo "  Built VapourSynth from source with embedded Python"
@@ -355,7 +365,7 @@ includedir=\${prefix}/include
 
 Name: VapourSynth
 Description: VapourSynth
-Version: 73
+Version: 78
 Libs: -L\${libdir} -lvapoursynth
 Cflags: -I\${includedir}
 EOF

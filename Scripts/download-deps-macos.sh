@@ -312,8 +312,13 @@ path = os.environ["VS_SRC"]
 with open(path) as f:
     content = f.read()
 
-old = ("    auto res = std::to_chars(buffer, buffer + sizeof(buffer), v, std::chars_format::fixed);\n"
-       "    return std::string(buffer, res.ptr - buffer);")
+# R78 uses two call forms: vsjson.cpp passes chars_format::fixed, vspipe.cpp
+# adds a precision argument. Match either, rather than one literal string.
+m = re.search(
+    r"[ \t]*auto res = std::to_chars\(buffer, buffer \+ sizeof\(buffer\), v, std::chars_format::fixed[^)]*\);\n"
+    r"[ \t]*return std::string\(buffer, res\.ptr - buffer\);",
+    content)
+old = m.group(0) if m else None
 new = ("    // issue #39: std::to_chars(double) needs macOS 13.3+ libc++. Emit the\n"
        "    // shortest fixed-notation string that round-trips, via snprintf, so\n"
        "    // vspipe loads on Monterey 12.x.\n"
@@ -325,14 +330,14 @@ new = ("    // issue #39: std::to_chars(double) needs macOS 13.3+ libc++. Emit t
        "    std::snprintf(buffer, sizeof(buffer), \"%.17f\", v);\n"
        "    return std::string(buffer);")
 
-if old not in content:
+if old is None:
     if "issue #39" in content:
         print(f"    {path}: already patched")
         sys.exit(0)
     print(f"    ERROR: expected to_chars pattern not found in {path}", file=sys.stderr)
     sys.exit(1)
 
-content = content.replace(old, new)
+content = content.replace(old, new, 1)
 # Ensure the headers snprintf/strtod need are present (idempotent).
 content = content.replace("#include <charconv>\n",
                           "#include <charconv>\n#include <cstdio>\n#include <cstdlib>\n", 1)
@@ -788,8 +793,14 @@ STEFANOLT="https://github.com/Stefan-Olt/vs-plugin-build/releases/download/vsplu
 # plugin builds on BOTH arches (see build_plugin and the x86_64 source builds):
 # the host python has no `vapoursynth` module on a clean runner, so meson plugins
 # can't probe it the usual way and must be pointed at these explicitly.
-VS_PC_DIR="$VS_INSTALL_DIR/lib/pkgconfig"
-VS_INC_DIR="$(dirname "$(find "$VS_INSTALL_DIR/include" -name 'VapourSynth4.h' 2>/dev/null | head -1)")"
+# R78 installs VapourSynth as a Python package, so its pkgconfig and
+# include directories live under <prefix>/<site-packages>/vapoursynth/
+# rather than <prefix>/lib and <prefix>/include. Locate them instead of
+# assuming: with the wrong path every plugin resolving VapourSynth via
+# pkg-config silently fails to configure, and the bundle comes out with
+# most of its plugins missing.
+VS_PC_DIR="$(dirname "$(find "$VS_INSTALL_DIR" -name vapoursynth.pc 2>/dev/null | head -1)")"
+VS_INC_DIR="$(dirname "$(find "$VS_INSTALL_DIR" -name 'VapourSynth4.h' 2>/dev/null | head -1)")"
 
 if [ "$ARCH" = "x86_64" ]; then
     # ========================================================================
