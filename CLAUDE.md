@@ -884,7 +884,7 @@ integration tests. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
 
 All three `download-deps-*` scripts apply these automatically, and they must stay
 **identical across platforms** — a patch applied on only some platforms makes the
-same job produce different output per OS. Six patches:
+same job produce different output per OS. Seven patches:
 
 1. **mvtools API**: Renamed `_lambda`→`lambda`, `_global`→`global` parameters
 2. **DFTTest API**: `sstring` parameter removed, replaced with `sigma=10.0`
@@ -893,6 +893,8 @@ same job produce different output per OS. Six patches:
    over; fall back to CPU `EEDI3` (NNEDI3CL still uses the GPU)
 5. **`Bob()` 16-bit resample** — see below
 6. **ARM nnedi3 preference** — see "The ARM interpolator choice" below
+7. **akarin Expr routing** — rebinds havsfunc's `core` to a proxy that sends
+   `.std.Expr` to `akarin.Expr`; see "`std.Expr` on ARM" below
 
 Each patch is a **literal string match** against havsfunc r31. If upstream ever
 changes one of those lines the patch silently does nothing, so behavioural tests
@@ -958,9 +960,75 @@ path also needs `yasm`, which the runners don't have).
 > `ExprInterpreter::eval()`, a scalar switch-dispatch interpreter run **once per
 > pixel**: 69.5s vs 3.3s of CPU on the same job, **21x**. Most of VS core is
 > x86-SIMD-only the same way (genericfilters, mergefilters, averageframes,
-> planestats). Fixing that needs a vectorized Expr on ARM and is tracked
-> separately. Not a cause: mvtools is *faster* natively (it compiles its SSE2
-> paths through simde).
+> planestats). Not a cause: mvtools is *faster* natively (it compiles its SSE2
+> paths through simde). **That Expr gap is now closed by akarin** — see below.
+
+### `std.Expr` on ARM goes through akarin's LLVM JIT
+
+VapourSynth's `compile_jit()` is x86-only, so on ARM every expression is walked
+**once per pixel** by `ExprInterpreter::eval()`. Measured on an M1 under R78,
+`Expr` costs **550–640 CPU-seconds** in a QTGMC Slow graph against the
+interpolator's **30** — it is not one cost among several, it is the cost.
+`akarin.Expr` is a real LLVM JIT that works on aarch64: **QTGMC Slow 11.5s →
+2.8s, 4.1x** (3 runs each, 720x576, 120 output frames).
+
+Three things to keep straight:
+
+- **The routing is a shim, not 116 edits.** havsfunc has 116 `core.std.Expr`
+  call sites, so **patch 7** rebinds its module-level `core` to a proxy that
+  swaps *only* `.std.Expr` and forwards everything else. The proxy installs
+  **only when `core.akarin` exists**, so where it doesn't, `core` stays the real
+  core — no wrapper, no overhead, no behaviour change. Both templates get an
+  `_expr()` helper for their own two call sites each, mirroring `_nnedi3()`;
+  `test_93` fails the build if either calls `core.std.Expr` directly, and also
+  if the helper's fallback calls *itself* (a blanket search-and-replace made it
+  infinitely recursive once — the fallback must name `core.std.Expr`).
+- **macOS x64 deliberately does not get it.** The only wheel is
+  `macosx_14_0_x86_64` and that bundle targets **12.0** (issue #39), so shipping
+  it would raise the Intel floor to macOS 14 — for a platform that already has
+  the JIT. It keeps `std.Expr` through the fallback. The namespace requirement in
+  `vapoursynth_integration_test.dart` is therefore **conditional**, like `nnedi3`.
+- **It is not bit-identical, and the one difference is known.** Of the **46**
+  expressions havsfunc actually generates, 45 match exactly. The exception is the
+  `DeHalo_alpha`/`FineDehalo` edge-**mask** scale `x {thmi} - {i} / 255 *`, where
+  one input value lands on an exact `.5` tie: `std.Expr` rounds half-to-even,
+  akarin rounds down — one level, in a mask. So macOS x64 differs from every
+  other platform by that one level. That is far smaller than the ARM/x86
+  difference already accepted for nnedi3 vs znedi3 (mean 0.045/255, worst pixel
+  27/255).
+
+**Test the corpus, not a sample.** The expressions are mostly f-strings with
+computed thresholds, so a static scan of havsfunc finds **11** of the 46.
+`app/test/akarin_expr_parity_test.dart` (heavy) collects them *at runtime* across
+every QTGMC preset plus daa/santiag/LSFmod/DeHalo_alpha/FineDehalo/SMDegrain/
+Deblock_QED/EdgeCleaner/YAHR, then compares both implementations over inputs
+covering all 256 values. It asserts `corpus >= 40` so a broken collector fails
+rather than passing vacuously, and bounds the difference at exactly what is
+measured today (worst ≤ 1 level, ≤ 1 differing expression).
+
+The plugin comes from the `vapoursynth-akarin` **PyPI wheel** (a wheel is a zip;
+never pip-install it into the embedded interpreter), pinned to a version and
+resolved through the PyPI JSON API so the hashed file URL is never hardcoded.
+Per-platform placement differs and matters:
+
+| | plugin | its private libs |
+|---|---|---|
+| macOS arm64 | `vapoursynth/plugins/` | `lib/`, repointed from `@loader_path/../../../vapoursynth_akarin.dylibs` and **re-signed** |
+| Linux x64/arm64 | `vapoursynth/plugins/` | `lib/`, via `patchelf --set-rpath` |
+| Windows x64 | `vapoursynth/vs-plugins/` | **beside the plugin** |
+
+On Unix the private libs go in `lib/` rather than `plugins/`, because `plugins/`
+is autoloaded and a non-plugin `.so` there gets probed on every core init. `lib/`
+is deliberately **not** on `DYLD_LIBRARY_PATH`, so the bundled libz cannot shadow
+the system one for ffmpeg. Linux's zstd carries a **per-arch build hash** in its
+filename (`libzstd-5df4f4df…` on x64, `-a1561916…` on arm64), so glob it — and
+the ELF `NEEDED` entry uses that exact hashed name.
+
+akarin is **LGPL-3.0** and statically links **LLVM 22.1.2** (Apache-2.0 with LLVM
+exception); both are in `licenses/NOTICES.txt`. It adds ~61 MB uncompressed per
+platform, but only about **21 MB to each deps zip** — the earlier "the zips
+roughly double" estimate was wrong, because it compared uncompressed size against
+compressed zips.
 ### Linux builds on ubuntu-24.04, and that sets the glibc floor
 
 The Linux **deps** builds and the runners that test against them
@@ -1473,3 +1541,4 @@ Create the app-specific password at appleid.apple.com → Sign-In and Security �
 | 1.0.0 | 2025-01-15 | Initial release |
 | … | | (1.1.0–1.6.0 went unrecorded) |
 | 1.7.0 | 2026-08-01 | Fixes QTGMC Placebo/Very Slow brightening and near-black Draft on arm64, via `Scripts/patches/fmtconv-r31-arm-int-scaler.patch` (root cause: sign constants in fmtconv's non-SIMD integer scaler) plus havsfunc patch 5 as defence in depth; fmtconv r30 → **r31**, now pinned and sourced from GitLab on every platform. **Rebuilt 2026-08-02** to add the **zsmooth** plugin (MIT), providing `core.zsmooth.CCD` plus `Cnr4` and a set of RemoveGrain/TemporalMedian-family filters. Version pinned to 0.19.0 in all three download scripts — keep them in step so the same job can't produce different chroma per OS. Taken pre-built everywhere except macOS x64, which builds it with Zig to reach `minos 12.0` (see the macOS platform notes) |
+| 1.8.0 | 2026-08-07 | VapourSynth **R73 → R78** on every platform, which moves Windows to a Python 3.12 wheel layout and makes `deps/<platform>/vapoursynth/` the Python package itself on macOS/Linux (see the R78 sections). Adds the **akarin** plugin (LGPL-3.0, statically links LLVM 22.1.2) supplying an LLVM JIT for `std.Expr`, routed in via havsfunc **patch 7** and the templates' `_expr()` helper — worth **4.1x** on arm64 QTGMC Slow, since VapourSynth's own Expr JIT is x86-only. **Not** shipped on macos-x64, whose only wheel would raise the Intel floor to macOS 14 (issue #39). Fixes the **nnedi3** build on linux-arm64, which had never produced a binary (`-mfpu=neon` and `HWCAP_ARM_*` are both 32-bit-ARM-only), and drops the plugin from linux-x64's expected list to match the other x86 bundles. **BestSource removed** — nothing had called it since the pipe source replaced it. Linux now needs **glibc 2.39** (ubuntu-24.04), so Ubuntu 22.04 and Debian 12 can no longer run it |

@@ -132,6 +132,27 @@ Denoise pass. CCD itself originates as a VirtualDub filter by Sergey
 Stolyarevsky.
 
 
+akarin (LGPL-3.0)
+-----------------
+Copyright (c) the akarin plugin authors
+https://github.com/Jaded-Encoding-Thaumaturgy/akarin-vapoursynth-plugin
+License: See LGPL-3.0.txt
+Provides core.akarin.Expr, an LLVM-JIT implementation of std.Expr. VapourSynth's
+own Expr JIT is x86-only, so on ARM every expression is otherwise interpreted
+once per pixel; akarin supplies the JIT those platforms lack. Distributed as an
+unmodified binary taken from the project's published wheel, and dynamically
+linked -- the LGPL relinking right is satisfied by replacing that binary in
+deps/<platform>/vapoursynth/plugins/. Not shipped on macOS x64.
+
+LLVM (Apache-2.0 WITH LLVM-exception)
+-------------------------------------
+Copyright (c) the LLVM Project contributors
+https://llvm.org
+License: See Apache-2.0-LLVM-Exception.txt
+LLVM 22.1.2 is statically linked into the akarin plugin above, which is where
+its JIT comes from. Included here because that binary carries LLVM code.
+
+
 Flutter (BSD 3-Clause)
 ----------------------
 Copyright (c) 2014-2024 The Flutter Authors
