@@ -678,6 +678,30 @@ if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libnnedi3.so" ]; then
     rm -rf nnedi3
     git clone --depth 1 https://github.com/dubhater/vapoursynth-nnedi3.git nnedi3
     cd nnedi3
+    # dubhater's build system treats every ARM as 32-bit ARMv7, so aarch64 fails
+    # in two unrelated places. Both are build-system bugs, not portability limits:
+    # the NEON intrinsics themselves compile fine on aarch64 (macOS arm64 builds
+    # this same simd_neon.c).
+    #
+    #   1. -mfpu=neon is an ARMv7 option. NEON is baseline on aarch64 and gcc
+    #      rejects the flag outright. download-deps-macos.sh strips it with this
+    #      same expression -- keep the two identical.
+    #   2. cpufeatures.cpp reads HWCAP_ARM_* out of getauxval(), and those
+    #      constants exist only for 32-bit ARM. ARMv8-A mandates NEON, so take
+    #      the constant-true path macOS already uses.
+    #
+    # (2) is the dangerous one, because getting it wrong is silent: nnedi3.cpp
+    # only does "if (!cpu.neon) d->opt = 0", so a false negative still produces a
+    # correct picture -- just at scalar speed, which is the entire thing this
+    # plugin is bundled to avoid. Both edits are literal string matches, so
+    # verify they applied rather than shipping an unpatched build.
+    sed -i 's/ -mfpu=neon//' Makefile.am
+    sed -i 's/#elif defined(__APPLE__) && defined(NNEDI3_ARM)/#elif (defined(__APPLE__) || defined(__aarch64__)) \&\& defined(NNEDI3_ARM)/' src/cpufeatures.cpp
+    if grep -q -- '-mfpu=neon' Makefile.am || ! grep -q '__aarch64__' src/cpufeatures.cpp; then
+        echo "  ERROR: the nnedi3 aarch64 build patches no longer apply -- upstream changed."
+        echo "         Refusing to build a silently-scalar nnedi3; fix the patches in this script."
+        exit 1
+    fi
     if ./autogen.sh && \
        PKG_CONFIG_PATH="$PLUGIN_PKG_CONFIG" \
        CFLAGS="-I$VS_INCLUDE_DIR" \
@@ -1113,6 +1137,37 @@ if old_bob in content:
         "    clip = _bob_fields.fmtc.resample(scalev=2, kernel='bicubic', a1=b, a2=c, interlaced=1, interlacedd=0)\n"
     )
     patches.append('Bob 16-bit resample')
+
+# Patch 6: prefer the NEON nnedi3 over the scalar znedi3 on ARM.
+# znedi3's SIMD kernels are x86-only, so the ARM bundles build it with X86=0 and
+# it runs fully scalar (PredictorC / PrescreenerOldC). The bundled dubhater
+# nnedi3 ships real NEON kernels and is 6.3x faster for the same call — measured
+# on an M1, QTGMC Slow, 400 frames of 720x576: 37.8s vs 5.95s of CPU, which is
+# 30% of the whole arm64 QTGMC cost. havsfunc hardcodes znedi3 whenever it is
+# present, so without this every ARM deinterlace pays that.
+# Both plugins implement the same network from the same nnedi3_weights.bin and
+# their signatures are identical for every argument havsfunc passes, so this is a
+# drop-in swap: measured mean output difference 0.045/255 (worst pixel 27/255, on
+# edges where the prescreener decision flips).
+# The choice is made at runtime rather than by the build, so this patch text
+# stays identical on every platform — x86 keeps using znedi3 exactly as before.
+if '_nnedi3_impl' not in content:
+    old_edi = "myNNEDI3 = core.znedi3.nnedi3 if hasattr(core, 'znedi3') else core.nnedi3.nnedi3"
+    n_edi = content.count(old_edi)
+    if n_edi:
+        # Leading whitespace is untouched, so this covers all three call sites
+        # (daa, santiag, QTGMC) despite their differing indentation.
+        content = content.replace(old_edi, "myNNEDI3 = _nnedi3_impl()")
+        content = content.replace('import math\n', 'import math\n' + '''
+
+# Prefer the NEON nnedi3 over the scalar znedi3 on ARM (see download-deps-*).
+def _nnedi3_impl():
+    import platform
+    if platform.machine().lower() in ('arm64', 'aarch64') and hasattr(core, 'nnedi3'):
+        return core.nnedi3.nnedi3
+    return core.znedi3.nnedi3 if hasattr(core, 'znedi3') else core.nnedi3.nnedi3
+''')
+        patches.append(f'ARM nnedi3 preference ({n_edi} sites)')
 
 if patches:
     with open(havsfunc_path, 'w') as f:

@@ -360,8 +360,10 @@ void main() {
       print('  Parsed ${actual.length} params');
       expect(actual['alpha'], '0.4');
       expect(actual['mdis'], '30');
-      // The nnedi3 sclip that guides it carries the nnedi3 controls.
-      final sclip = parseFilterParams(script, 'core.znedi3.nnedi3(');
+      // The nnedi3 sclip that guides it carries the nnedi3 controls. Match the
+      // assignment, not a bare `_nnedi3(` — the helper's own `def _nnedi3(` line
+      // appears earlier in the script and would be found first.
+      final sclip = parseFilterParams(script, 'sclip = _nnedi3(');
       expect(sclip['nsize'], '4');
       expect(sclip['nns'], '3');
       // And the half-pixel dh shift is corrected per plane.

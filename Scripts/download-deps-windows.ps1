@@ -692,6 +692,35 @@ def _fix_mv_args(args):
         $PatchesApplied += "Bob 16-bit resample"
     }
 
+    # Patch 6: prefer the NEON nnedi3 over the scalar znedi3 on ARM.
+    # znedi3's SIMD kernels are x86-only, so the ARM bundles build it with X86=0
+    # and it runs fully scalar; the bundled dubhater nnedi3 ships real NEON
+    # kernels and is 6.3x faster for the same call (measured on an M1, QTGMC
+    # Slow: 37.8s vs 5.95s of CPU). havsfunc hardcodes znedi3 whenever it is
+    # present, so without this every ARM deinterlace pays that cost.
+    # Windows x64 is NOT affected - the runtime check below keeps it on znedi3
+    # exactly as before. This is applied here purely so every platform generates
+    # identical output from an identical havsfunc, same as patch 5.
+    $OldEdi = "myNNEDI3 = core.znedi3.nnedi3 if hasattr(core, 'znedi3') else core.nnedi3.nnedi3"
+    if ($Content -notmatch "_nnedi3_impl" -and $Content.Contains($OldEdi)) {
+        Write-Host "  Applying ARM nnedi3 preference patch..." -ForegroundColor Gray
+        # Leading whitespace is untouched, so this covers all three call sites
+        # (daa, santiag, QTGMC) despite their differing indentation.
+        $Content = $Content.Replace($OldEdi, "myNNEDI3 = _nnedi3_impl()")
+        $PatchFunction = @"
+
+# Prefer the NEON nnedi3 over the scalar znedi3 on ARM (see download-deps-*).
+def _nnedi3_impl():
+    import platform
+    if platform.machine().lower() in ('arm64', 'aarch64') and hasattr(core, 'nnedi3'):
+        return core.nnedi3.nnedi3
+    return core.znedi3.nnedi3 if hasattr(core, 'znedi3') else core.nnedi3.nnedi3
+
+"@
+        $Content = $Content -replace "(import math\r?\n)", "`$1$PatchFunction"
+        $PatchesApplied += "ARM nnedi3 preference"
+    }
+
     if ($PatchesApplied.Count -gt 0) {
         Set-Content $HavsfuncPath $Content -NoNewline
         Write-Host "  havsfunc patched ($($PatchesApplied -join ', '))" -ForegroundColor Green

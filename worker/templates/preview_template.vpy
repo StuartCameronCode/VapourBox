@@ -41,6 +41,23 @@ print(f"INPUT_INFO:frames={total_frames},fps_num={{FPS_NUM}},fps_den={{FPS_DEN}}
 # Import havsfunc for various filters (QTGMC, SMDegrain, chroma fixes)
 import havsfunc as haf
 
+# znedi3 carries x86-only SIMD, so on ARM it is built with X86=0 and runs fully
+# scalar — measured 6.3x slower than the bundled nnedi3, which ships real NEON
+# kernels. Both implement the same network from the same weights file and their
+# signatures are identical for every argument used here, so preferring nnedi3 on
+# ARM is a drop-in swap (measured mean difference 0.045/255). Route every
+# interpolator call through this helper rather than naming a plugin directly.
+# havsfunc's own three call sites get the same treatment via its patch 6.
+import platform as _platform
+
+_IS_ARM = _platform.machine().lower() in ('arm64', 'aarch64')
+
+
+def _nnedi3(clip, **kwargs):
+    if _IS_ARM and hasattr(core, 'nnedi3'):
+        return core.nnedi3.nnedi3(clip, **kwargs)
+    return core.znedi3.nnedi3(clip, **kwargs)
+
 # ============================================================================
 # PASS 1: PRE-CROP (before deinterlacing to reduce processing area)
 # ============================================================================
@@ -993,7 +1010,7 @@ if clip.format.color_family == vs.YUV:
 {{#UPSCALE_EDGE_DIRECTED}}
 def _upscale_double_height(c):
 {{#UPSCALE_NNEDI3}}
-    return core.znedi3.nnedi3(
+    return _nnedi3(
         c,
         field=1,
         dh=True,
@@ -1018,7 +1035,7 @@ def _upscale_double_height(c):
     # EEDI3 needs a second opinion to bound its cost search. nnedi3 is the
     # conventional choice and is bundled anyway, so the nnedi3 controls below
     # shape the sclip that guides EEDI3.
-    sclip = core.znedi3.nnedi3(
+    sclip = _nnedi3(
         c,
         field=1,
         dh=True,

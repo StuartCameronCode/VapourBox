@@ -884,7 +884,7 @@ integration tests. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
 
 All three `download-deps-*` scripts apply these automatically, and they must stay
 **identical across platforms** — a patch applied on only some platforms makes the
-same job produce different output per OS. Five patches:
+same job produce different output per OS. Six patches:
 
 1. **mvtools API**: Renamed `_lambda`→`lambda`, `_global`→`global` parameters
 2. **DFTTest API**: `sstring` parameter removed, replaced with `sigma=10.0`
@@ -892,6 +892,7 @@ same job produce different output per OS. Five patches:
 4. **EEDI3CL fallback**: modern `eedi3m` dropped `EEDI3CL`, so `opencl=True` fell
    over; fall back to CPU `EEDI3` (NNEDI3CL still uses the GPU)
 5. **`Bob()` 16-bit resample** — see below
+6. **ARM nnedi3 preference** — see "The ARM interpolator choice" below
 
 Each patch is a **literal string match** against havsfunc r31. If upstream ever
 changes one of those lines the patch silently does nothing, so behavioural tests
@@ -902,6 +903,64 @@ matter more than usual (see `app/test/vapoursynth_integration_test.dart`).
 > would `AttributeError`. Only reachable with `Denoiser='knlmeanscl'` **and**
 > `ChromaNoise=True` (both non-default), so it has never been hit.
 
+### The ARM interpolator choice: nnedi3, not znedi3 (patch 6)
+
+**Never name an nnedi3 implementation directly.** Both templates define a
+`_nnedi3()` helper and havsfunc gets an `_nnedi3_impl()` via patch 6; every call
+site goes through one of those. `test_92` fails the build if a template
+reintroduces a direct `core.znedi3.nnedi3` / `core.nnedi3.nnedi3` call.
+
+The reason is a pure-performance trap that produces a **correct picture**, so
+nothing but a benchmark or that assertion catches it:
+
+- znedi3's SIMD kernels are x86-only, so `download-deps-{macos,linux}.sh` build it
+  `make X86=0 X86_AVX512=0` and ARM gets the scalar `PredictorC`/`PrescreenerOldC`
+  path. The bundled dubhater **`nnedi3` has real NEON kernels**
+  (`computeNetwork0_neon`, `dotProd_neon`, …).
+- Measured on an M1, QTGMC Slow, 400 frames of 720x576: **37.8s of CPU for znedi3
+  vs 5.95s for nnedi3 — 6.3x**, and 30% of the entire arm64 QTGMC cost. End to end
+  the swap is worth **+10% (Faster) to +40% (Slow)**.
+- havsfunc hardcoded `core.znedi3.nnedi3 if hasattr(core, 'znedi3')` at three call
+  sites (daa, santiag, QTGMC), so *every* ARM deinterlace paid it.
+
+The two plugins implement the same network from the same `nnedi3_weights.bin` and
+their signatures are identical for every argument used, so this is a drop-in swap:
+measured mean output difference **0.045/255** for the interpolator alone and
+**0.072/255** end-to-end through QTGMC (tolerance is 2.0). Worst single pixel is
+~48/255 on hard edges, where the two implementations' float rounding flips a
+prescreener decision — expected for independent implementations of the same net.
+
+The choice is made **at runtime** (`platform.machine()`), not by the build, so the
+patch text stays identical on every platform and **x86 keeps using znedi3
+unchanged**. nnedi3 is therefore required only on the **ARM** bundles —
+`deps-expected-plugins.json` lists it for `macos-arm64` and `linux-arm64` and
+deliberately **not** for the three x86 ones, which never call it. Requiring it on
+x86 just fails the packaging guard on a plugin nothing would load (nnedi3's x86
+path also needs `yasm`, which the runners don't have).
+
+> **Building nnedi3 on aarch64 needs two source patches**, because dubhater's
+> build system treats every ARM as 32-bit ARMv7. `-mfpu=neon` is an ARMv7 option
+> that aarch64 gcc rejects outright, and `cpufeatures.cpp` reads `HWCAP_ARM_*`
+> from `getauxval()` — constants that exist only for 32-bit ARM. macOS only ever
+> hit the first (it takes the `__APPLE__` branch in `cpufeatures.cpp`), which is
+> why Linux arm64 shipped without the plugin until 2026-08-07. Both edits, and a
+> guard that hard-fails if either stops matching, are in the nnedi3 block of
+> `download-deps-linux.sh`; keep the `-mfpu` expression identical to the macOS
+> one. The second patch is the one to be careful with: `nnedi3.cpp` only does
+> `if (!cpu.neon) d->opt = 0`, so a wrong answer there yields a **correct picture
+> at scalar speed** — the same silent failure this whole section is about.
+
+> This is one instance of a much larger arm64 gap: native arm64 QTGMC runs
+> **3–4.5x slower than the x64 bundle under Rosetta**. The dominant cause is not
+> this but `std.Expr` — VapourSynth's `compile_jit()`
+> (`src/core/expr/jitcompiler.cpp`) is wrapped in `#ifdef VS_TARGET_CPU_X86`, so on
+> aarch64 it returns no compiler and `exprfilter.cpp` falls back to
+> `ExprInterpreter::eval()`, a scalar switch-dispatch interpreter run **once per
+> pixel**: 69.5s vs 3.3s of CPU on the same job, **21x**. Most of VS core is
+> x86-SIMD-only the same way (genericfilters, mergefilters, averageframes,
+> planestats). Fixing that needs a vectorized Expr on ARM and is tracked
+> separately. Not a cause: mvtools is *faster* natively (it compiles its SSE2
+> paths through simde).
 ### Linux builds on ubuntu-24.04, and that sets the glibc floor
 
 The Linux **deps** builds and the runners that test against them
