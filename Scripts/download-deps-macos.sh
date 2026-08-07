@@ -307,7 +307,7 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.dylib" ];
         # that does.
         for vs_src in $(grep -rl "std::to_chars" src/vspipe/ 2>/dev/null); do
             VS_SRC="$vs_src" python3 - <<'PYEOF'
-import os, sys
+import os, re, sys
 path = os.environ["VS_SRC"]
 with open(path) as f:
     content = f.read()
@@ -801,6 +801,17 @@ STEFANOLT="https://github.com/Stefan-Olt/vs-plugin-build/releases/download/vsplu
 # most of its plugins missing.
 VS_PC_DIR="$(dirname "$(find "$VS_INSTALL_DIR" -name vapoursynth.pc 2>/dev/null | head -1)")"
 VS_INC_DIR="$(dirname "$(find "$VS_INSTALL_DIR" -name 'VapourSynth4.h' 2>/dev/null | head -1)")"
+# R78 installs only the API4 headers, but several plugins we build still
+# #include <VapourSynth.h> (API3) — api3 support remains in the core, just the
+# headers stopped being installed. They are still in the source tree, so top up
+# the include dir from there; without this nnedi3, addgrain, awarpsharp2, ctmf
+# and the OpenCL pair fail with "'VapourSynth.h' file not found".
+if [ -n "$VS_INC_DIR" ] && [ -d "$VS_BUILD_DIR/include" ]; then
+    for hdr in "$VS_BUILD_DIR/include/"*.h; do
+        [ -f "$hdr" ] || continue
+        [ -f "$VS_INC_DIR/$(basename "$hdr")" ] || cp "$hdr" "$VS_INC_DIR/"
+    done
+fi
 
 if [ "$ARCH" = "x86_64" ]; then
     # ========================================================================

@@ -213,8 +213,30 @@ EOF
         cp "$BUILD_PREFIX/lib/pkgconfig/zimg.pc" "$BUILD_DIR/pkgconfig/"
     fi
 
+    # R78 needs a newer C++ toolchain than Ubuntu 22.04's default gcc 11:
+    # float16_helper.h uses _Float16 in C++ and averageframesfilter.cpp uses
+    # __builtin_roundevenf. Use a newer clang for VapourSynth alone if one is
+    # installed, leaving every other component on the system compiler. Fail
+    # loudly rather than dying later inside a confusing template error.
+    VS_CC=""; VS_CXX=""
+    for v in 19 18 17; do
+        if command -v "clang-$v" >/dev/null 2>&1; then
+            VS_CC="clang-$v"; VS_CXX="clang++-$v"; break
+        fi
+    done
+    if [ -z "$VS_CC" ]; then
+        GCC_MAJOR=$(gcc -dumpversion 2>/dev/null | cut -d. -f1)
+        if [ -z "$GCC_MAJOR" ] || [ "$GCC_MAJOR" -lt 13 ]; then
+            echo "  ERROR: VapourSynth $VS_TAG needs clang >= 17 or GCC >= 13." >&2
+            echo "  Found gcc ${GCC_MAJOR:-unknown} and no suitable clang." >&2
+            exit 1
+        fi
+    fi
+    [ -n "$VS_CC" ] && echo "  Using $VS_CC for VapourSynth"
+
     echo "  Configuring VapourSynth..."
     PATH="$PYTHON_DIR/bin:$PATH" \
+    ${VS_CC:+CC="$VS_CC"} ${VS_CXX:+CXX="$VS_CXX"} \
     PKG_CONFIG_PATH="$BUILD_DIR/pkgconfig:$BUILD_PREFIX/lib/pkgconfig" \
     LD_LIBRARY_PATH="$PYTHON_DIR/lib:$BUILD_PREFIX/lib:${LD_LIBRARY_PATH:-}" \
     # Run meson with the EMBEDDED python, not whatever meson happens to be
@@ -334,6 +356,13 @@ WRAPPER_EOF
     VS_HDR_DIR="$(dirname "$(find "$VS_INSTALL_DIR" -name 'VapourSynth4.h' 2>/dev/null | head -1)")"
     if [ -n "$VS_HDR_DIR" ] && [ -d "$VS_HDR_DIR" ]; then
         cp "$VS_HDR_DIR/"*.h "$DEPS_DIR/vapoursynth/include/"
+        # R78 installs only the API4 headers, but several plugins still include
+        # <VapourSynth.h> (API3). They remain in the source tree.
+        for hdr in "$VS_BUILD_DIR/include/"*.h; do
+            [ -f "$hdr" ] || continue
+            [ -f "$DEPS_DIR/vapoursynth/include/$(basename "$hdr")" ] || \
+                cp "$hdr" "$DEPS_DIR/vapoursynth/include/"
+        done
     else
         echo "  ERROR: could not locate VapourSynth headers under $VS_INSTALL_DIR" >&2
         exit 1
