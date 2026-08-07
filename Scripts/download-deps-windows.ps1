@@ -124,7 +124,13 @@ import site
         Write-Host "  ERROR: no wheel found in VapourSynth64-Portable-$VSRelease.zip" -ForegroundColor Red
         exit 1
     }
-    Expand-Archive -Path $Wheel.FullName -DestinationPath "$VSDir\Lib\site-packages" -Force
+    # A wheel *is* a zip, but Expand-Archive validates the file extension and
+    # rejects .whl outright ("is not a supported archive file format"), so copy
+    # it to a .zip name first rather than unpacking in place.
+    $WheelZip = Join-Path $TempDir "$($Wheel.BaseName).zip"
+    Copy-Item $Wheel.FullName $WheelZip -Force
+    Expand-Archive -Path $WheelZip -DestinationPath "$VSDir\Lib\site-packages" -Force
+    Remove-Item $WheelZip -Force
     Remove-Item $VSTemp -Recurse -Force
 
     if (-not (Test-Path $VSPipePath)) {
@@ -518,7 +524,13 @@ if (-not (Test-Path "$SitePackagesDir\havsfunc.py")) {
     $HavsfuncTar = Join-Path $TempDir "havsfunc.tar.gz"
 
     Download-File -Url $HavsfuncUrl -OutFile $HavsfuncTar
-    & tar -xzf $HavsfuncTar -C $TempDir
+    # Use Windows' own bsdtar by full path. Bare `tar` picks up whatever is first
+    # on PATH, and Git for Windows ships GNU tar, which reads the drive letter in
+    # "C:\..." as a remote host: "tar (child): Cannot connect to C: resolve failed".
+    $SystemTar = Join-Path $env:SystemRoot "System32\tar.exe"
+    if (-not (Test-Path $SystemTar)) { $SystemTar = "tar" }
+    & $SystemTar -xzf $HavsfuncTar -C $TempDir
+    if ($LASTEXITCODE -ne 0) { throw "tar failed to extract $HavsfuncTar (exit $LASTEXITCODE)" }
 
     $HavsfuncPy = Get-ChildItem -Path $TempDir -Recurse -Filter "havsfunc.py" | Select-Object -First 1
     if ($HavsfuncPy) {
@@ -722,7 +734,7 @@ if (Test-Path $VSPipeExe) {
     $env:PYTHONNOUSERSITE = "1"
     $env:PYTHONHOME = $VSDir
     $env:PYTHONPATH = "$VSDir\Lib\site-packages"
-    $env:VAPOURSYNTH_PLUGIN_PATH = $PluginsDir
+    $env:VAPOURSYNTH_EXTRA_PLUGIN_PATH = $PluginsDir
     $env:PATH = "$FullTargetDir\ffmpeg;$VSDir;$env:PATH"
     $VsVersion = & $VSPipeExe --version 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0 -or $VsVersion -notmatch "Core R") {
@@ -732,6 +744,27 @@ if (Test-Path $VSPipeExe) {
 } else {
     throw "VSPipe.exe not found at $VSPipeExe"
 }
+
+# =============================================================================
+# 7.6 Version file
+# =============================================================================
+# Without this the app considers a locally-built deps tree "missing" on startup
+# ("DependencyManager: Version file missing") and downloads the published bundle
+# straight over the top of it. That is destructive whenever the local tree is
+# ahead of the release - building R78 here and then launching the app silently
+# restored the R73 bundle. Stamp the version the app expects so a freshly built
+# tree reads as current. macOS and Linux already write this file.
+Write-Host ""
+Write-Host "[7.6/8] Writing version file..." -ForegroundColor Yellow
+$DepsVersionJson = Join-Path $ProjectRoot "app\assets\deps-version.json"
+$ExpectedVersion = (Get-Content $DepsVersionJson -Raw | ConvertFrom-Json).version
+[ordered]@{
+    version     = $ExpectedVersion
+    installedAt = (Get-Date).ToUniversalTime().ToString("o")
+    platform    = "windows-x64"
+    buildType   = "source"
+} | ConvertTo-Json | Set-Content -Path "$FullTargetDir\version.json" -Encoding utf8
+Write-Host "  version.json written ($ExpectedVersion)" -ForegroundColor Green
 
 # =============================================================================
 # 8. Cleanup

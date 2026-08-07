@@ -34,8 +34,19 @@ if (-not (Test-Path $DepsDir)) {
     exit 1
 }
 
-if (-not (Test-Path (Join-Path $DepsDir "vapoursynth\VSPipe.exe"))) {
+# R78 ships Windows as a Python wheel, so vspipe.exe lives inside the installed
+# package next to libvapoursynth.dll rather than at the root of the portable dir.
+if (-not (Test-Path (Join-Path $DepsDir "vapoursynth\Lib\site-packages\vapoursynth\vspipe.exe"))) {
     Write-Host "ERROR: VapourSynth not found in dependencies" -ForegroundColor Red
+    exit 1
+}
+
+# R78 moved every core filter (std, resize, ...) out of libvapoursynth into
+# libvapoursynthfilters.dll. Without it the bundle loads but every job dies at
+# script evaluation with missing namespaces.
+if (-not (Test-Path (Join-Path $DepsDir "vapoursynth\Lib\site-packages\vapoursynth\libvapoursynthfilters.dll"))) {
+    Write-Host "ERROR: libvapoursynthfilters.dll (R78 core filters) missing" -ForegroundColor Red
+    Write-Host "Every job would fail at script evaluation with missing namespaces (std, resize, ...)" -ForegroundColor Red
     exit 1
 }
 
@@ -44,13 +55,13 @@ if (-not (Test-Path (Join-Path $DepsDir "ffmpeg\ffmpeg.exe"))) {
     exit 1
 }
 
-# python38.zip is the Python 3.8 stdlib (contains the `encodings` module). It is
+# python312.zip is the Python 3.12 stdlib (contains the `encodings` module). It is
 # *.zip-gitignored, so it is easy to ship a bundle without it when building from a
 # checked-out deps tree. Without it the app crashes at runtime with:
 #   ModuleNotFoundError: No module named 'encodings'
-$Python38Zip = Join-Path $DepsDir "vapoursynth\python38.zip"
-if (-not (Test-Path $Python38Zip) -or (Get-Item $Python38Zip).Length -lt 1MB) {
-    Write-Host "ERROR: vapoursynth\python38.zip (Python 3.8 stdlib) missing or too small" -ForegroundColor Red
+$PythonStdlibZip = Join-Path $DepsDir "vapoursynth\python312.zip"
+if (-not (Test-Path $PythonStdlibZip) -or (Get-Item $PythonStdlibZip).Length -lt 1MB) {
+    Write-Host "ERROR: vapoursynth\python312.zip (Python 3.12 stdlib) missing or too small" -ForegroundColor Red
     Write-Host "The packaged bundle would crash with: ModuleNotFoundError: No module named 'encodings'" -ForegroundColor Red
     Write-Host "Run '.\Scripts\download-deps-windows.ps1' to fetch it, then re-package" -ForegroundColor Red
     exit 1
@@ -91,6 +102,18 @@ foreach ($dir in $UnnecessaryDirs) {
 
 # Remove __pycache__ directories recursively
 Get-ChildItem -Path "$PackageDir\vapoursynth" -Directory -Recurse -Filter "__pycache__" | Remove-Item -Recurse -Force
+
+# R78's wheel ships debug symbols beside every DLL (libvapoursynth.pdb,
+# libvapoursynthfilters*.pdb, vsscript.pdb) - ~49 MB of them, unused at runtime.
+Get-ChildItem -Path "$PackageDir\vapoursynth" -Recurse -File -Filter "*.pdb" | Remove-Item -Force
+
+# The wheel's SDK payload: C headers and pkg-config files for building plugins
+# against VapourSynth. The R73 layout kept the same thing in an "sdk" directory,
+# already pruned above.
+foreach ($dir in @("include", "pkgconfig")) {
+    $path = Join-Path "$PackageDir\vapoursynth\Lib\site-packages\vapoursynth" $dir
+    if (Test-Path $path) { Remove-Item -Recurse -Force $path }
+}
 
 # Remove development files from site-packages
 $DevDirs = @("cython", "vsscript")
