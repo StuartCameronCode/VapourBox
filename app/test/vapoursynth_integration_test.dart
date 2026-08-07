@@ -134,6 +134,20 @@ required = ['std', 'resize', 'mv', 'znedi3', 'eedi3m', 'fmtc',
 import platform
 if platform.machine().lower() in ('arm64', 'aarch64'):
     required.append('nnedi3')
+
+# `akarin` supplies the LLVM JIT for std.Expr. VapourSynth's own Expr JIT is
+# x86-only (#ifdef VS_TARGET_CPU_X86), so on ARM every expression is otherwise
+# walked once per pixel — measured 550-640 CPU-seconds against the interpolator's
+# 30 in a QTGMC Slow graph, i.e. the dominant arm64 cost. havsfunc's patch 7 and
+# the templates' _expr() helper both fall back to std.Expr when it is absent, so
+# a bundle missing it still renders correctly and just runs several times slower:
+# the same silent class of regression as nnedi3 above.
+# macos-x64 is the deliberate exception — the only wheel is macosx_14_0 and that
+# bundle targets 12.0 (issue #39), so requiring it there would fail CI for a
+# platform that intentionally does not ship it (and already has an x86 JIT).
+import sys
+if not (sys.platform == 'darwin' and platform.machine().lower() in ('x86_64', 'amd64')):
+    required.append('akarin')
 # nnedi3cl and knlm are deliberately NOT required: both are OpenCL and the app
 # degrades to a CPU path when the driver is absent.
 

@@ -3436,3 +3436,66 @@ fn test_92_templates_do_not_hardcode_an_nnedi3_implementation() {
         );
     }
 }
+
+/// Test 93: neither template may call `core.std.Expr` directly.
+///
+/// VapourSynth's Expr JIT is wrapped in `#ifdef VS_TARGET_CPU_X86`, so on ARM the
+/// whole bytecode program is walked once per pixel by `ExprInterpreter::eval()`.
+/// Measured on an M1, Expr costs 550-640 CPU-seconds in a QTGMC Slow graph
+/// against the interpolator's 30 — it dominates everything else. akarin's LLVM
+/// JIT works on aarch64 and is worth 4.1x end to end, so both templates route
+/// through the `_expr()` helper (havsfunc does the same through its patch 7).
+///
+/// This is exactly the failure mode `test_92` exists for: a direct
+/// `core.std.Expr` call still produces a *correct picture*, just far slower on
+/// ARM, so nothing but an assertion like this catches the regression.
+///
+/// The helper's own fallback is the one permitted direct call — and it must be a
+/// real call, not `_expr(...)`, which would recurse forever. That is not
+/// hypothetical: a blanket search-and-replace introduced exactly that bug while
+/// this change was being written.
+#[test]
+fn test_93_templates_do_not_call_std_expr_directly() {
+    let templates_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+
+    for name in ["pipeline_template.vpy", "preview_template.vpy"] {
+        let path = templates_dir.join(name);
+        // Normalise line endings: git checks these out CRLF on Windows.
+        let body = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+            .replace("\r\n", "\n");
+
+        let helper_start = body
+            .find("def _expr(")
+            .unwrap_or_else(|| panic!("{name} is missing the _expr() helper"));
+        let helper_end = helper_start
+            + body[helper_start..]
+                .find("\n\n")
+                .expect("_expr() helper should be followed by a blank line");
+        let helper = &body[helper_start..helper_end];
+        let (before, after) = (&body[..helper_start], &body[helper_end..]);
+
+        assert!(
+            !before.contains("core.std.Expr(") && !after.contains("core.std.Expr("),
+            "{name} calls core.std.Expr directly; route it through _expr() so ARM \
+             gets akarin's JIT instead of the per-pixel interpreter"
+        );
+
+        // The fallback must call the real thing, or it is infinite recursion.
+        assert!(
+            helper.contains("return core.std.Expr("),
+            "{name}'s _expr() fallback must call core.std.Expr; anything else \
+             either recurses forever or loses the no-akarin path (macos-x64)"
+        );
+        assert!(
+            !helper.contains("return _expr("),
+            "{name}'s _expr() fallback calls itself — infinite recursion"
+        );
+
+        // And the helper is actually reached.
+        assert!(
+            body.matches("_expr(").count() > body.matches("_akarin_expr(").count() + 1,
+            "{name} defines _expr() but never calls it"
+        );
+    }
+}
