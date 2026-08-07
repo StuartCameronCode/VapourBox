@@ -811,6 +811,16 @@ Headless Dart-VM tests. Three groups:
   `_high_bit_depth_filters`, `_source_formats`, `_upscale_resize`,
   `_white_balance`.
 
+> **Feeding a test clip to vspipe's stdin: start draining stdout/stderr BEFORE
+> writing, and never `await` the write.** These scripts request a single frame,
+> so vspipe reads a fraction of the raw file and exits; awaiting `stdin.close()`
+> first deadlocks, because the write blocks on a pipe nobody is reading and the
+> drain that would let vspipe finish never starts. R73 hid this by spending
+> ~1.4s in script evaluation — long enough for the whole payload to land in the
+> OS pipe buffer. R78 evaluates in ~0.01s and lost the race every time, turning
+> all ten stdin-piping tests in `vapoursynth_integration_test.dart` into 30s
+> timeouts. It was always a race, not a version difference.
+
 `WorkerHarness` also runs the worker in **preview** mode (`runPreview`) and
 compares rendered frames (`imageToRgb24` + `meanAbsDiff`). Preview and encode are
 separate scripts *and* separate ffmpeg invocations, so a filter can render fine
@@ -1019,9 +1029,43 @@ version skew between platforms would change chroma per-OS.
 
 ### Windows
 
-- VapourSynth R73 portable uses Python 3.8 (not 3.11+)
-- Worker sets env vars via `DependencyLocator`: `PYTHONHOME`, `PYTHONPATH`, `VAPOURSYNTH_PLUGIN_PATH`, `PATH`
+- **VapourSynth R78 ships Windows purely as a Python wheel.**
+  `VapourSynth64-Portable-R78.zip` holds only `wheel\`, `vspipe.bat`, `pip.bat`
+  and docs — no `VSPipe.exe`, no DLLs, no Python. `download-deps-windows.ps1`
+  therefore follows upstream's own installer: unpack the **Python 3.12.10
+  embeddable**, add `Lib\site-packages` to its `._pth`, then expand the wheel
+  (a wheel is a zip, but `Expand-Archive` rejects the `.whl` extension, so it is
+  copied to a `.zip` name first).
+- Layout moved with it — anything hardcoding the old paths breaks silently:
+
+  | | R73 | R78 |
+  |---|---|---|
+  | Python | 3.8.10 embeddable | **3.12.10** embeddable (wheel is cp312-abi3) |
+  | vspipe | `vapoursynth\VSPipe.exe` | `vapoursynth\Lib\site-packages\vapoursynth\vspipe.exe` |
+  | plugin path var | `VAPOURSYNTH_PLUGIN_PATH` | **`VAPOURSYNTH_EXTRA_PLUGIN_PATH`** |
+  | core filters | inside `libvapoursynth` | separate `libvapoursynthfilters.dll` |
+  | vsscript | `VSScriptPython38.dll` | `vsscript.dll` (Python-version independent) |
+
+- `libvapoursynthfilters.dll` matters more than it looks: R78 moved **every core
+  filter** (`std`, `resize`, …) out of `libvapoursynth` into it, so a bundle
+  without it fails every job at script evaluation with missing namespaces.
+  `package-deps-windows.ps1` guards on it.
+- Worker sets env vars via `DependencyLocator`: `PYTHONHOME`, `PYTHONPATH`,
+  `VAPOURSYNTH_EXTRA_PLUGIN_PATH`, `PATH`. The old `VAPOURSYNTH_PLUGIN_PATH`
+  name is inert from R74 on — plugins are simply never autoloaded and every
+  filter dies with "No attribute with the name `<ns>` exists". `ToolLocator`
+  (Dart), `DependencyLocator` (Rust) and the test harnesses must all use the new
+  name; the harnesses were missed in the migration and only the Dart
+  integration suite caught it.
 - Plugins in `deps/windows-x64/vapoursynth/vs-plugins/`, Python packages in `Lib/site-packages/`
+- BestSource (`core.bs`) is **not** in the Windows bundle — it is macOS-only, for
+  parity. Neither is plain `nnedi3`; Windows ships `znedi3` + `nnedi3cl`. The
+  authoritative required-namespace list is in
+  `app/test/vapoursynth_integration_test.dart`.
+- The script writes `deps/windows-x64/version.json` (as macOS and Linux do).
+  Without it the app reports "Version file missing" on startup and downloads the
+  **published** bundle over the local one — which silently restored R73 over a
+  locally built R78 tree.
 - Show in Folder: `cmd /c explorer /select, <path>`
 
 ### macOS
