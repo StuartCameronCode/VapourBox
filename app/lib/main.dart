@@ -88,6 +88,9 @@ class AppStartupWrapper extends StatefulWidget {
 class _AppStartupWrapperState extends State<AppStartupWrapper> {
   bool _isReady = false;
   String? _errorMessage;
+  /// Set when the installed deps are newer than this build expects. Shown
+  /// once, after startup, without blocking the app.
+  String? _depsWarning;
 
   @override
   void initState() {
@@ -112,7 +115,24 @@ class _AppStartupWrapperState extends State<AppStartupWrapper> {
         return;
       }
 
-      if (status != DependencyStatus.installed) {
+      // Newer than expected: usable, but never tested against this app build.
+      // Warn once and carry on — downloading would be a silent downgrade, and
+      // the install routine wipes and replaces, so it would also be destructive.
+      if (status == DependencyStatus.newerThanExpected) {
+        final installed =
+            await DependencyManager.instance.getInstalledVersion();
+        final expected = await DependencyManager.instance.getExpectedVersion();
+        if (mounted) {
+          setState(() {
+            _depsWarning =
+                'Installed processing dependencies (${installed?.version}) are '
+                'newer than the version this build of VapourBox was tested with '
+                '(${expected.versionFor(DependencyManager.instance.platformId)}). '
+                'They have been kept, but this combination is unverified — if '
+                'jobs fail unexpectedly, this is worth mentioning in a report.';
+          });
+        }
+      } else if (status != DependencyStatus.installed) {
         // Dependencies need to be downloaded
         if (mounted) {
           final success = await DependencyDownloadDialog.show(context, status);
@@ -148,6 +168,27 @@ class _AppStartupWrapperState extends State<AppStartupWrapper> {
   }
 
   /// Check for updates in the background without blocking startup.
+  Future<void> _showDepsWarningAsync() async {
+    final message = _depsWarning;
+    if (message == null) return;
+    _depsWarning = null; // once only
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Unverified dependency version'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _checkForUpdatesAsync() async {
     // Wait for the next frame to ensure UI is fully built
     await Future.delayed(const Duration(milliseconds: 500));
@@ -172,6 +213,11 @@ class _AppStartupWrapperState extends State<AppStartupWrapper> {
 
     if (!_isReady) {
       return _buildLoadingScreen();
+    }
+
+    if (_depsWarning != null) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _showDepsWarningAsync());
     }
 
     return ChangeNotifierProvider(

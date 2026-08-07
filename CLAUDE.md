@@ -902,6 +902,38 @@ matter more than usual (see `app/test/vapoursynth_integration_test.dart`).
 > would `AttributeError`. Only reachable with `Denoiser='knlmeanscl'` **and**
 > `ChromaNoise=True` (both non-default), so it has never been hit.
 
+### Installing a deps bundle: staged, swapped, and version-directional
+
+`DependencyManager` **replaces** a bundle rather than merging into one, which is
+what makes a layout change like R73 → R78 safe: no `libvapoursynth-script`,
+`vapoursynth.conf`, `libbestsource`, `python38.*` or stale `VSPipe.exe` survives
+into the new install. (That last one matters — `dependency_locator.rs` keeps a
+deliberate fallback to the old top-level `VSPipe.exe`, so a leftover R73 binary
+could otherwise be picked up silently.)
+
+Three properties worth preserving if you touch this:
+
+- **Staged, then swapped.** The download is verified, extracted to
+  `<deps>.new`, checked with `executabilityProblem()` and stamped with its
+  `version.json` — and only then swapped in via two renames, with the old tree
+  moved to `<deps>.old` and deleted afterwards. It used to delete the live
+  install and extract over the top, which left the user with *nothing* if that
+  window was interrupted. If the second rename fails the first is undone.
+- **`version.json` is written last**, inside the staged tree. It is the commit
+  marker: a tree that never completed can never look valid.
+- **Direction is checked, not just equality.** Installed *newer* than expected
+  is `newerThanExpected` — kept, with a one-time warning at startup — not
+  `outdated`. Treating it as outdated downgraded a deliberately newer bundle,
+  and since installing wipes and replaces, that was destructive. Use
+  `compareVersions`, not `!=` or a string compare: `"1.10.0"` sorts before
+  `"1.9.0"` lexically.
+
+The critical-file list also includes a file that exists **only** in the R78
+layout (`libvapoursynthfilters`, plus `vapoursynth/__init__.py` on Unix).
+`vspipe`, `plugins/` and `ffmpeg` all exist in both layouts, so without an
+R78-only marker a stale tree carrying a newer `version.json` passes every check
+and fails later at job time.
+
 ### R78: `deps/<platform>/vapoursynth/` IS the Python package (macOS/Linux)
 
 R78 ships VapourSynth as a Python package, and this is not cosmetic. `vsscript`

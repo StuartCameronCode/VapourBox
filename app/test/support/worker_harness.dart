@@ -594,11 +594,27 @@ class WorkerHarness {
   }
 
   /// Critical files that must exist for a deps dir to count as usable.
+  /// Includes a file that exists only in the R78 layout, so a stale pre-R78
+  /// deps tree is rejected rather than used and failing later at job time.
   static List<String> _criticalFiles() {
     if (Platform.isWindows) {
-      return ['vapoursynth/Lib/site-packages/vapoursynth/vspipe.exe', 'vapoursynth/vs-plugins', 'ffmpeg/ffmpeg.exe'];
+      return [
+        'vapoursynth/Lib/site-packages/vapoursynth/vspipe.exe',
+        'vapoursynth/Lib/site-packages/vapoursynth/libvapoursynthfilters.dll',
+        'vapoursynth/vs-plugins',
+        'ffmpeg/ffmpeg.exe',
+      ];
     }
-    return ['vapoursynth/vspipe', 'vapoursynth/plugins', 'ffmpeg/ffmpeg'];
+    final filters = Platform.isMacOS
+        ? 'vapoursynth/libvapoursynthfilters.dylib'
+        : 'vapoursynth/libvapoursynthfilters.so';
+    return [
+      'vapoursynth/vspipe',
+      filters,
+      'vapoursynth/__init__.py',
+      'vapoursynth/plugins',
+      'ffmpeg/ffmpeg',
+    ];
   }
 
   static bool _depsValid(String dir) {

@@ -19,8 +19,17 @@ enum DependencyStatus {
   /// Dependencies are not installed
   missing,
 
-  /// Dependencies are installed but wrong version
+  /// Dependencies are installed but older than this app expects
   outdated,
+
+  /// Installed deps are NEWER than the version this app was built against.
+  ///
+  /// Treated as usable, not as something to "fix": replacing them would be a
+  /// silent downgrade, and the newer bundle is the one the user deliberately
+  /// installed (or that a newer app left behind). It has not been tested with
+  /// this app version though, so the user is told once rather than left to
+  /// discover an incompatibility as a job failure.
+  newerThanExpected,
 
   /// Dependencies are installed but SHA256 doesn't match (corrupted)
   corrupted,
@@ -301,8 +310,8 @@ class DependencyManager {
   }
 
   /// Get the version file path within deps directory.
-  Future<File> _getInstalledVersionFile() async {
-    final depsDir = await getDepsDirectory();
+  Future<File> _getInstalledVersionFile({Directory? depsDirOverride}) async {
+    final depsDir = depsDirOverride ?? await getDepsDirectory();
     return File(path.join(depsDir.path, 'version.json'));
   }
 
@@ -355,9 +364,21 @@ class DependencyManager {
         return DependencyStatus.missing;
       }
 
-      // Check version match (per-platform: a platform may pin its own version)
+      // Check version match (per-platform: a platform may pin its own version).
+      // Direction matters. Older than expected is an upgrade; newer is not a
+      // fault at all, and treating it as one downgraded a deliberately newer
+      // bundle back to the released one — destructively, since installing wipes
+      // and replaces.
       final expectedVersion = expected.versionFor(platformId);
       if (installed.version != expectedVersion) {
+        final order = compareVersions(installed.version, expectedVersion);
+        if (order > 0) {
+          print(
+              'DependencyManager: Installed deps ${installed.version} are newer '
+              'than the expected $expectedVersion — keeping them, untested with '
+              'this app version');
+          return DependencyStatus.newerThanExpected;
+        }
         print(
             'DependencyManager: Version mismatch - installed: ${installed.version}, expected: $expectedVersion');
         return DependencyStatus.outdated;
@@ -437,17 +458,50 @@ class DependencyManager {
     }
   }
 
+  /// Compare two dotted version strings numerically.
+  ///
+  /// Returns <0 if [a] is older than [b], 0 if equal, >0 if newer. A plain
+  /// string compare is wrong here — "1.10.0" sorts before "1.9.0" — and these
+  /// values decide whether the app replaces an install. Non-numeric or
+  /// differing-length components degrade to a component-wise best effort rather
+  /// than throwing, because an unparseable version must not crash startup.
+  @visibleForTesting
+  static int compareVersions(String a, String b) {
+    final pa = a.split('.');
+    final pb = b.split('.');
+    for (var i = 0; i < (pa.length > pb.length ? pa.length : pb.length); i++) {
+      final na = i < pa.length ? int.tryParse(pa[i].trim()) ?? 0 : 0;
+      final nb = i < pb.length ? int.tryParse(pb[i].trim()) ?? 0 : 0;
+      if (na != nb) return na < nb ? -1 : 1;
+    }
+    return 0;
+  }
+
   /// Get list of critical files that must exist.
+  ///
+  /// Includes at least one file that exists ONLY in the R78 layout. vspipe,
+  /// the plugin directory and ffmpeg are all present in the pre-R78 bundle
+  /// too, so on their own they cannot tell a current install from a stale one
+  /// carrying a newer version.json — and a stale tree passes every other check
+  /// while failing at job time. libvapoursynthfilters arrived with R78 (it is
+  /// where every core filter now lives) and __init__.py only exists because we
+  /// ship VapourSynth as a Python package, so either one is a reliable marker.
   List<String> _getCriticalFiles() {
     if (Platform.isWindows) {
       return [
         'vapoursynth/Lib/site-packages/vapoursynth/vspipe.exe',
+        'vapoursynth/Lib/site-packages/vapoursynth/libvapoursynthfilters.dll',
         'vapoursynth/vs-plugins',
         'ffmpeg/ffmpeg.exe',
       ];
     } else if (Platform.isMacOS || Platform.isLinux) {
+      final filters = Platform.isMacOS
+          ? 'vapoursynth/libvapoursynthfilters.dylib'
+          : 'vapoursynth/libvapoursynthfilters.so';
       return [
         'vapoursynth/vspipe',
+        filters,
+        'vapoursynth/__init__.py',
         'vapoursynth/plugins',
         'ffmpeg/ffmpeg',
       ];
@@ -504,7 +558,25 @@ class DependencyManager {
 
       final downloadedBytes = await tempFile.length();
 
-      await _extractZip(tempFile);
+      // Build the new install alongside the current one and swap it in, rather
+      // than deleting the current one and extracting over the top. The old path
+      // left the user with nothing between the delete and the last file
+      // written: a crash, a quit, a full disk or a flat battery in that window
+      // meant a mandatory full re-download, and on macOS it unlinked files the
+      // running app may still have had open.
+      //
+      // Costs roughly twice the bundle size on disk while it runs. The staging
+      // and retired directories are siblings of the deps directory, so both
+      // renames stay on one filesystem and the swap is as close to atomic as
+      // the platform allows.
+      final depsDir = await getDepsDirectory();
+      final staging = Directory('${depsDir.path}.new');
+      final retired = Directory('${depsDir.path}.old');
+      for (final d in [staging, retired]) {
+        if (await d.exists()) await d.delete(recursive: true);
+      }
+
+      await _extractZip(tempFile, targetOverride: staging);
 
       // Prove the install is actually usable before declaring success. The
       // quarantine strip above can fail — silently, and it cannot succeed at all
@@ -512,13 +584,39 @@ class DependencyManager {
       // macOS kills on sight. Reporting "Complete" then would hand the user an
       // "ffmpeg exited with signal 9" hours later instead of the real problem
       // now (issue #50).
-      final problem = await executabilityProblem();
+      //
+      // Checked against the staged copy, so a bundle that fails here is thrown
+      // away with the existing install still in place.
+      final problem = await executabilityProblem(depsDirOverride: staging);
       if (problem != null) {
+        await staging.delete(recursive: true).catchError((_) => staging);
         throw Exception(problem);
       }
 
-      // Write version file (per-platform version, so the next check matches)
-      await _writeInstalledVersion(expected.versionFor(platformId));
+      // Write version file (per-platform version, so the next check matches).
+      // Still the last thing written into the tree, so a staged directory that
+      // never gets swapped in can never look complete.
+      await _writeInstalledVersion(expected.versionFor(platformId),
+          depsDirOverride: staging);
+
+      // Swap. If the second rename fails we have already moved the old install
+      // aside, so put it back rather than leaving the user with no deps at all.
+      final hadPrevious = await depsDir.exists();
+      if (hadPrevious) await depsDir.rename(retired.path);
+      try {
+        await staging.rename(depsDir.path);
+      } catch (e) {
+        if (hadPrevious) {
+          await retired.rename(depsDir.path);
+        }
+        rethrow;
+      }
+
+      // Best-effort: the install is already live, so failing to remove the old
+      // copy costs disk space, not correctness.
+      if (hadPrevious) {
+        unawaited(retired.delete(recursive: true).catchError((_) => retired));
+      }
 
       _progressController.add(DownloadProgress(
         bytesReceived: downloadedBytes,
@@ -625,8 +723,8 @@ class DependencyManager {
   }
 
   /// Extract a zip file to the deps directory.
-  Future<void> _extractZip(File zipFile) async {
-    final depsDir = await getDepsDirectory();
+  Future<void> _extractZip(File zipFile, {Directory? targetOverride}) async {
+    final depsDir = targetOverride ?? await getDepsDirectory();
 
     // Create parent directory if needed
     final parentDir = depsDir.parent;
@@ -763,8 +861,10 @@ class DependencyManager {
   }
 
   /// Write the installed version file.
-  Future<void> _writeInstalledVersion(String version) async {
-    final versionFile = await _getInstalledVersionFile();
+  Future<void> _writeInstalledVersion(String version,
+      {Directory? depsDirOverride}) async {
+    final versionFile =
+        await _getInstalledVersionFile(depsDirOverride: depsDirOverride);
     final info = InstalledDepsInfo(
       version: version,
       installedAt: DateTime.now(),
