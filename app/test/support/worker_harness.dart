@@ -140,13 +140,14 @@ class WorkerHarness {
       if (bundledPython.existsSync()) {
         env['PYTHONHOME'] = p.join(d, 'python');
       }
-      env['PYTHONPATH'] = p.join(d, 'python-packages');
+      // The platform dir carries the R78 `vapoursynth` package, so it must be
+      // importable — vsscript's config is keyed by the libvsscript path the
+      // module reports, which has to match the one vspipe-bin loads.
+      env['PYTHONPATH'] = [d, p.join(d, 'python-packages')].join(':');
       env['PYTHONNOUSERSITE'] = '1';
-      // R74 replaced VAPOURSYNTH_PLUGIN_PATH with this. Under the old name the
-      // bundled plugins are never autoloaded and every filter fails with
-      // "No attribute with the name <ns> exists".
-      env['VAPOURSYNTH_EXTRA_PLUGIN_PATH'] =
-          p.join(d, 'vapoursynth', 'plugins');
+      // No plugin path variable: the plugins are at <libdir>/plugins, which R78
+      // autoloads. Setting it as well loads every plugin twice.
+      env['XDG_CONFIG_HOME'] = p.join(d, 'config');
 
       final paths = <String>[];
       if (bundledPython.existsSync()) paths.add(p.join(d, 'python', 'bin'));

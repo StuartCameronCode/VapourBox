@@ -176,9 +176,17 @@ class ToolLocator {
         env['PYTHONHOME'] = path.join(_depsDir!, 'python');
       }
 
-      env['PYTHONPATH'] = path.join(_depsDir!, 'python-packages');
+      // The platform dir carries the R78 `vapoursynth` package (libs, vsscript
+      // and the extension module), so it must be importable: vsscript's config
+      // is keyed by the libvsscript path the module reports, and that has to be
+      // the same file vspipe-bin loads.
+      env['PYTHONPATH'] =
+          [_depsDir!, path.join(_depsDir!, 'python-packages')].join(':');
       env['PYTHONNOUSERSITE'] = '1';
-      env['VAPOURSYNTH_EXTRA_PLUGIN_PATH'] = path.join(_depsDir!, 'vapoursynth', 'plugins');
+      // No VAPOURSYNTH_EXTRA_PLUGIN_PATH here: the plugins sit at
+      // <libdir>/plugins, which R78 autoloads. Setting it as well loads every
+      // plugin twice. Windows still needs it — its plugins are in vs-plugins.
+      env['XDG_CONFIG_HOME'] = path.join(_depsDir!, 'config');
 
       final paths = <String>[];
       if (await bundledPython.exists()) {
@@ -204,9 +212,17 @@ class ToolLocator {
         env['PYTHONHOME'] = path.join(_depsDir!, 'python');
       }
 
-      env['PYTHONPATH'] = path.join(_depsDir!, 'python-packages');
+      // The platform dir carries the R78 `vapoursynth` package (libs, vsscript
+      // and the extension module), so it must be importable: vsscript's config
+      // is keyed by the libvsscript path the module reports, and that has to be
+      // the same file vspipe-bin loads.
+      env['PYTHONPATH'] =
+          [_depsDir!, path.join(_depsDir!, 'python-packages')].join(':');
       env['PYTHONNOUSERSITE'] = '1';
-      env['VAPOURSYNTH_EXTRA_PLUGIN_PATH'] = path.join(_depsDir!, 'vapoursynth', 'plugins');
+      // No VAPOURSYNTH_EXTRA_PLUGIN_PATH here: the plugins sit at
+      // <libdir>/plugins, which R78 autoloads. Setting it as well loads every
+      // plugin twice. Windows still needs it — its plugins are in vs-plugins.
+      env['XDG_CONFIG_HOME'] = path.join(_depsDir!, 'config');
 
       final paths = <String>[];
       if (await bundledPython.exists()) {

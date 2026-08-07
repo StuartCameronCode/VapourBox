@@ -243,16 +243,44 @@ EOF
     cp "$VS_BUILT/vspipe" "$DEPS_DIR/vapoursynth/vspipe-bin"
     chmod +x "$DEPS_DIR/vapoursynth/vspipe-bin"
 
-    # Copy libraries
+    # ------------------------------------------------------------------------
+    # deps/<platform>/vapoursynth/ IS the Python package
+    # ------------------------------------------------------------------------
+    # R78 ships VapourSynth as a Python package, and vsscript resolves the
+    # Python library through a config file keyed by the ABSOLUTE PATH of
+    # libvsscript, written by `vapoursynth config` from the imported package.
+    # The copy vspipe-bin loads and the copy the module reports must therefore
+    # be the same file, or every script fails with "Python executable and
+    # library path couldn't be determined despite automatic configuration".
+    #
+    # Keeping the directory named `vapoursynth` and putting the platform dir on
+    # PYTHONPATH satisfies that without moving anything the app knows about, and
+    # leaves the plugins at <libdir>/plugins where R78 autoloads them — so no
+    # plugin path variable is set here; with both, plugins load twice.
     cp "$VS_BUILT/libvapoursynth.so"* "$DEPS_DIR/vapoursynth/"
     # vapoursynth-script was renamed vsscript in R78.
     cp "$VS_BUILT/libvsscript.so"* "$DEPS_DIR/vapoursynth/"
     # R78 split every core filter (std, resize, ...) out of libvapoursynth into
     # this module; without it the core namespaces are absent and every job fails.
     cp "$VS_BUILT/libvapoursynthfilters.so"* "$DEPS_DIR/vapoursynth/"
+    cp "$VS_BUILT/vapoursynth.abi3.so" "$DEPS_DIR/vapoursynth/"
+    # The pure-Python half of the package; without it `vapoursynth config`
+    # cannot run and vsscript's automatic configuration has nothing to call.
+    cp "$VS_BUILD_DIR/src/py/"*.py "$DEPS_DIR/vapoursynth/"
+    cp "$VS_BUILD_DIR/src/py/vapoursynth.pyi" "$DEPS_DIR/vapoursynth/" 2>/dev/null || true
+
+    # vsscript self-configures by shelling out to a `vapoursynth` executable;
+    # a from-source build creates no console script, so provide one.
+    cat > "$PYTHON_DIR/bin/vapoursynth" << 'SHIM_EOF'
+#!/bin/bash
+DEPS_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+export PYTHONHOME="$DEPS_ROOT/python"
+export PYTHONPATH="$DEPS_ROOT:$DEPS_ROOT/python-packages:${PYTHONPATH:-}"
+exec "$DEPS_ROOT/python/bin/python3" -m vapoursynth "$@"
+SHIM_EOF
+    chmod +x "$PYTHON_DIR/bin/vapoursynth"
 
     # Copy Python module
-    cp "$VS_BUILT/vapoursynth.abi3.so" "$PYTHON_PACKAGES_DIR/"
 
     # Fix RPATHs
     echo "  Fixing RPATHs..."
@@ -274,13 +302,17 @@ DEPS_ROOT="$(dirname "$SCRIPT_DIR")"
 export PATH="$DEPS_ROOT/python/bin:$PATH"
 export PYTHONHOME="$DEPS_ROOT/python"
 export VAPOURSYNTH_PLUGIN_PATH="$SCRIPT_DIR/plugins"
-export PYTHONPATH="$DEPS_ROOT/python-packages:${PYTHONPATH:-}"
+export PYTHONPATH="$DEPS_ROOT:$DEPS_ROOT/python-packages:${PYTHONPATH:-}"
 export LD_LIBRARY_PATH="$SCRIPT_DIR:$DEPS_ROOT/python/lib:$DEPS_ROOT/lib:${LD_LIBRARY_PATH:-}"
 
 # R74 removed the config-file mechanism entirely (UserPluginDir /
-# AutoloadUserPluginDir / VAPOURSYNTH_CONF_PATH no longer exist). Plugins come
-# from <libdir>/plugins plus this variable.
-export VAPOURSYNTH_EXTRA_PLUGIN_PATH="$SCRIPT_DIR/plugins"
+# AutoloadUserPluginDir / VAPOURSYNTH_CONF_PATH no longer exist). Plugins live
+# at <libdir>/plugins and are autoloaded, so no plugin variable is needed.
+#
+# vsscript resolves the Python library through a config keyed by the libvsscript
+# path, written on first use via the `vapoursynth` shim on PATH.
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$DEPS_ROOT/config}"
+mkdir -p "$XDG_CONFIG_HOME" 2>/dev/null || true
 
 exec "$SCRIPT_DIR/vspipe-bin" "$@"
 WRAPPER_EOF

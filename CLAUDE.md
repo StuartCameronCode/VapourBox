@@ -902,6 +902,41 @@ matter more than usual (see `app/test/vapoursynth_integration_test.dart`).
 > would `AttributeError`. Only reachable with `Denoiser='knlmeanscl'` **and**
 > `ChromaNoise=True` (both non-default), so it has never been hit.
 
+### R78: `deps/<platform>/vapoursynth/` IS the Python package (macOS/Linux)
+
+R78 ships VapourSynth as a Python package, and this is not cosmetic. `vsscript`
+resolves the Python library through a config file at
+`$XDG_CONFIG_HOME/vapoursynth/vapoursynth.toml`, **keyed by the absolute path of
+`libvsscript`**. That file is written by `vapoursynth config`, which records the
+`libvsscript` belonging to the *imported package*. So the copy `vspipe-bin`
+loads and the copy the module reports must be the same file, or every script
+dies with:
+
+> Python executable and library path couldn't be determined despite automatic
+> configuration. Run `vapoursynth config` ...
+
+Hence the layout: the libraries, `vapoursynth.abi3.so` and the pure-Python files
+(`__init__.py`, `_cli.py`, `_utils.py`, …) all live in
+`deps/<platform>/vapoursynth/`, and the **platform directory is on `PYTHONPATH`**
+so `import vapoursynth` resolves there. Four consequences:
+
+- **Ship the `.py` files too.** Without them `vapoursynth config` cannot run and
+  vsscript's automatic configuration has nothing to call.
+- **A `vapoursynth` shim goes in `python/bin/`.** vsscript self-configures by
+  literally running `system("vapoursynth config")`; a from-source build creates
+  no console script, so we provide one.
+- **`XDG_CONFIG_HOME` must point somewhere writable** (`deps/<platform>/config`).
+  The worker, the app and the vspipe wrapper all set it.
+- **Do not set `VAPOURSYNTH_EXTRA_PLUGIN_PATH` on macOS/Linux.** The plugins are
+  at `vapoursynth/plugins`, which is `<libdir>/plugins` — R78 autoloads it. With
+  both, every plugin loads twice and warns `Plugin ... already loaded`. Windows
+  still needs the variable: its plugins are in `vs-plugins`, which is not the
+  autoload directory.
+
+`_has_implicit_config()` returns true **only on Windows** (where `python.exe`
+sits next to the package), which is why the Windows bundle needs none of this and
+why a Windows-only test pass does not prove the Unix path works.
+
 ### No source-indexing plugin is bundled
 
 Sources are read as **raw frames piped from ffmpeg** (`templates/pipe_source.py`),

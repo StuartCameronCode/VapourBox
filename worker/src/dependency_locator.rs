@@ -507,6 +507,16 @@ impl DependencyLocator {
             // Custom Python packages first (always needed)
             paths.push(platform_dir.join("python-packages").to_string_lossy().to_string());
 
+            // R78 ships VapourSynth as a Python package: libvapoursynth,
+            // libvapoursynthfilters, libvsscript and the extension module all
+            // live in <deps>/vapoursynth/. Putting the platform directory on
+            // the path is what makes `import vapoursynth` resolve to it, and
+            // it is also what lets `vapoursynth config` record the same
+            // libvsscript path that vspipe-bin loads — the config is keyed by
+            // that absolute path, so a mismatch means "Python executable and
+            // library path couldn't be determined".
+            paths.push(platform_dir.to_string_lossy().to_string());
+
             // Add bundled Python site-packages if available
             if let Some(python_home) = self.python_home() {
                 // Python 3.12 from python-build-standalone
@@ -521,6 +531,16 @@ impl DependencyLocator {
         {
             // Linux: same layout as macOS
             paths.push(platform_dir.join("python-packages").to_string_lossy().to_string());
+
+            // R78 ships VapourSynth as a Python package: libvapoursynth,
+            // libvapoursynthfilters, libvsscript and the extension module all
+            // live in <deps>/vapoursynth/. Putting the platform directory on
+            // the path is what makes `import vapoursynth` resolve to it, and
+            // it is also what lets `vapoursynth config` record the same
+            // libvsscript path that vspipe-bin loads — the config is keyed by
+            // that absolute path, so a mismatch means "Python executable and
+            // library path couldn't be determined".
+            paths.push(platform_dir.to_string_lossy().to_string());
 
             if let Some(python_home) = self.python_home() {
                 paths.push(python_home.join("lib").join("python3.12").join("site-packages").to_string_lossy().to_string());
@@ -721,11 +741,32 @@ impl DependencyLocator {
         }
         env.insert("PYTHONPATH".to_string(), self.python_path());
 
-        // Set VapourSynth plugin path
+        // Set VapourSynth plugin path.
+        //
+        // On macOS and Linux the plugins sit at <deps>/vapoursynth/plugins,
+        // which is <libdir>/plugins relative to libvapoursynth, so R78
+        // autoloads them and setting this as well would load every plugin
+        // twice ("Plugin ... already loaded"). Windows keeps it: its plugins
+        // live in vs-plugins, which is not the autoload directory.
+        #[cfg(target_os = "windows")]
         env.insert(
             "VAPOURSYNTH_EXTRA_PLUGIN_PATH".to_string(),
             self.vapoursynth_plugin_path().to_string_lossy().to_string(),
         );
+
+        // vsscript resolves the Python library through a config file keyed by
+        // the libvsscript path, and writes it on first use by shelling out to
+        // a `vapoursynth` executable. Give it a writable location inside the
+        // deps tree and make sure the bundled python/bin (which carries that
+        // shim) is reachable.
+        #[cfg(not(target_os = "windows"))]
+        {
+            env.insert(
+                "XDG_CONFIG_HOME".to_string(),
+                self.platform_dir().join("config").to_string_lossy().to_string(),
+            );
+            let _ = std::fs::create_dir_all(self.platform_dir().join("config"));
+        }
 
         // Set NNEDI3CL weights
         env.insert(
