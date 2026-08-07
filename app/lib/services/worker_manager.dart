@@ -156,31 +156,76 @@ class WorkerManager {
     }
   }
 
-  /// Cancels the current job.
-  Future<void> cancel() async {
-    if (_process == null) return;
+  /// How long to let the worker shut itself down before forcing it.
+  ///
+  /// This MUST comfortably exceed the worker's cancellation poll interval
+  /// (`progress_interval`, 500ms in `pipeline_executor.rs`), because SIGTERM
+  /// only sets an atomic flag there — the actual teardown happens the next time
+  /// the progress loop comes round, and only then does it get to kill vspipe
+  /// and ffmpeg and reap them.
+  ///
+  /// It used to be exactly 500ms, i.e. precisely the poll interval, so the
+  /// worker essentially never won the race: it was SIGKILLed before reaching the
+  /// check. SIGKILL cannot be caught, so `PipelineExecutor::terminate()` (and its
+  /// `Drop`) never ran and vspipe/ffmpeg were reparented to init — left encoding
+  /// a cancelled job at full tilt, still writing to the output file, while the UI
+  /// reported "Job cancelled by user". Observed in the wild: three orphans at
+  /// ~670% CPU eleven minutes after a cancel, output past 320MB.
+  static const Duration _shutdownGrace = Duration(seconds: 5);
 
-    // Send SIGTERM on Unix, taskkill on Windows
+  /// How long to wait for a SIGKILLed process to actually disappear.
+  static const Duration _forceKillGrace = Duration(seconds: 3);
+
+  /// Cancels the current job.
+  ///
+  /// Waits for the worker to genuinely exit rather than assuming it has, so its
+  /// children are torn down by the worker itself. Only escalates to SIGKILL if
+  /// it is still alive after [_shutdownGrace].
+  Future<void> cancel() async {
+    // Hold a local reference: `_cleanup()` nulls the field, and the old code
+    // tested `_process != null` *before* that ran, so its "force kill if still
+    // running" check was never actually false.
+    final process = _process;
+    if (process == null) return;
+
     if (Platform.isWindows) {
-      // On Windows, we need to kill the process tree
-      await Process.run('taskkill', ['/PID', '${_process!.pid}', '/T', '/F']);
+      // No SIGTERM on Windows, and Process.kill maps to TerminateProcess, which
+      // does not touch children. taskkill /T walks the tree, so nothing is
+      // orphaned; /F is unavoidable there.
+      await Process.run('taskkill', ['/PID', '${process.pid}', '/T', '/F']);
     } else {
-      _process!.kill(ProcessSignal.sigterm);
+      process.kill(ProcessSignal.sigterm);
     }
 
-    // Give it a moment to clean up
-    await Future.delayed(const Duration(milliseconds: 500));
+    // Wait for the process to actually exit. `exitCode` completes once it has
+    // been reaped, so this is a real observation rather than a guess.
+    var exited = true;
+    try {
+      await process.exitCode.timeout(_shutdownGrace);
+    } on TimeoutException {
+      exited = false;
+    }
 
-    // Force kill if still running
-    if (_process != null) {
-      _process!.kill(ProcessSignal.sigkill);
+    if (!exited) {
+      // Genuinely wedged. Forcing it here orphans the children — the same
+      // failure described above — but by now the alternative is a job that
+      // never stops at all, so take the lesser problem and say so.
+      process.kill(ProcessSignal.sigkill);
+      try {
+        await process.exitCode.timeout(_forceKillGrace);
+      } on TimeoutException {
+        // Nothing further we can do from here.
+      }
     }
 
     _cleanup();
 
-    _emitCompletion(const CompletionResult(
+    _emitCompletion(CompletionResult(
       success: false,
-      errorMessage: 'Job cancelled by user',
+      errorMessage: exited
+          ? 'Job cancelled by user'
+          : 'Job cancelled by user (the worker had to be forced, so stray '
+              'ffmpeg/vspipe processes may still be running)',
       cancelled: true,
     ));
   }
