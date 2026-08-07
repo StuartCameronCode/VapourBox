@@ -131,7 +131,8 @@ class WorkerHarness {
     if (Platform.isWindows) {
       env['PYTHONHOME'] = p.join(d, 'vapoursynth');
       env['PYTHONPATH'] = p.join(d, 'vapoursynth', 'Lib', 'site-packages');
-      env['VAPOURSYNTH_PLUGIN_PATH'] = p.join(d, 'vapoursynth', 'vs-plugins');
+      env['VAPOURSYNTH_EXTRA_PLUGIN_PATH'] =
+          p.join(d, 'vapoursynth', 'vs-plugins');
       final paths = [p.join(d, 'vapoursynth'), p.join(d, 'ffmpeg')];
       env['PATH'] = '${paths.join(';')};${env['PATH'] ?? ''}';
     } else {
@@ -141,7 +142,11 @@ class WorkerHarness {
       }
       env['PYTHONPATH'] = p.join(d, 'python-packages');
       env['PYTHONNOUSERSITE'] = '1';
-      env['VAPOURSYNTH_PLUGIN_PATH'] = p.join(d, 'vapoursynth', 'plugins');
+      // R74 replaced VAPOURSYNTH_PLUGIN_PATH with this. Under the old name the
+      // bundled plugins are never autoloaded and every filter fails with
+      // "No attribute with the name <ns> exists".
+      env['VAPOURSYNTH_EXTRA_PLUGIN_PATH'] =
+          p.join(d, 'vapoursynth', 'plugins');
 
       final paths = <String>[];
       if (bundledPython.existsSync()) paths.add(p.join(d, 'python', 'bin'));
