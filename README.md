@@ -199,7 +199,7 @@ Stuart Cameron — [stuart-cameron.com](https://stuart-cameron.com)
 macOS plugins and binaries sourced from:
 
 - **[yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins)** — pre-built ARM64 VapourSynth plugins for macOS
-- **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** — cross-platform VapourSynth plugins (arm64 + x86_64; used for `tmedian` and `bestsource`)
+- **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** — cross-platform VapourSynth plugins (arm64 + x86_64; used for `tmedian`)
 - **[evermeet.cx](https://evermeet.cx/ffmpeg/)** — static x86_64 FFmpeg/FFprobe builds for the Intel macOS bundle
 
 The Intel (x64) bundle additionally builds its support libraries (zimg, fftw, libdvdread, xz, boost) from source targeting **macOS 12**, so it runs on Monterey; the Apple Silicon (arm64) bundle is built for the current macOS and targets **macOS 15**.

@@ -225,8 +225,9 @@ The bundle must not depend on Homebrew at runtime, so nothing is copied out of
 - **FFTW** — `libfftw3f.3` and `libfftw3f_threads.3` come pre-built from the
   yuygfgg `support/` pool on arm64, and are **built from source** (3.3.10, float)
   for x86_64 so they meet the macOS 12 deployment target.
-- **FFMS2** — no longer used. Source indexing is **bestsource**
-  (`libbestsource.dylib`).
+- **FFMS2** — no longer used, and neither is **bestsource**, which replaced it.
+  Sources are read as raw frames piped from ffmpeg (`pipe_source.py`), so no
+  source-indexing plugin is bundled at all.
 - The other bundled support libs on x86_64 (zimg, libdvdread, xz, boost) are also
   built from source targeting macOS 12; see the `SRCLIB` section of
   `download-deps-macos.sh` and the x64/#39 notes in `CLAUDE.md`.

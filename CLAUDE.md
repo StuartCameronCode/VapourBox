@@ -902,6 +902,28 @@ matter more than usual (see `app/test/vapoursynth_integration_test.dart`).
 > would `AttributeError`. Only reachable with `Denoiser='knlmeanscl'` **and**
 > `ChromaNoise=True` (both non-default), so it has never been hit.
 
+### No source-indexing plugin is bundled
+
+Sources are read as **raw frames piped from ffmpeg** (`templates/pipe_source.py`),
+so nothing in the product opens a file through a VapourSynth source filter.
+
+FFMS2 went first, replaced by **BestSource**; then the pipe source replaced that,
+and BestSource stayed in the macOS bundle for years afterwards calling itself
+"bundled for parity" — parity with nothing, since Windows and Linux never shipped
+it. Removed 2026-08-07: no `core.bs.` call site existed anywhere in the
+templates, worker, app or tests.
+
+It was worth removing rather than leaving alone. At **16.9 MB** it was four times
+the next largest plugin and about a sixth of the macOS deps zip, and it was the
+**only** consumer of `liblzma` — so it also carried the `xz` from-source build on
+x64, two `install_name_tool` repoint blocks (its arm64 build links the *system*
+liblzma, its x64 build Homebrew's), and their codesign steps, all of which went
+with it.
+
+If a source filter is ever needed again, add it back deliberately with a call
+site — don't reintroduce it into the preview path, which is pipe-source-based for
+frame-accuracy reasons.
+
 ### fmtconv's aarch64 integer scaler bug (fixed by our own patch)
 
 **Symptom.** `fmtc.resample` returned **black** whenever fmtconv's integer kernel
@@ -1058,10 +1080,11 @@ version skew between platforms would change chroma per-OS.
   name; the harnesses were missed in the migration and only the Dart
   integration suite caught it.
 - Plugins in `deps/windows-x64/vapoursynth/vs-plugins/`, Python packages in `Lib/site-packages/`
-- BestSource (`core.bs`) is **not** in the Windows bundle — it is macOS-only, for
-  parity. Neither is plain `nnedi3`; Windows ships `znedi3` + `nnedi3cl`. The
-  authoritative required-namespace list is in
-  `app/test/vapoursynth_integration_test.dart`.
+- Plain `nnedi3` is **not** in the Windows bundle; it ships `znedi3` +
+  `nnedi3cl`. The authoritative required-namespace list is in
+  `app/test/vapoursynth_integration_test.dart` — check there before "fixing" an
+  apparently missing plugin. **BestSource is no longer bundled anywhere** (see
+  "No source-indexing plugin" below).
 - The script writes `deps/windows-x64/version.json` (as macOS and Linux do).
   Without it the app reports "Version file missing" on startup and downloads the
   **published** bundle over the local one — which silently restored R73 over a
@@ -1074,7 +1097,7 @@ version skew between platforms would change chroma per-OS.
 - Fully self-contained deps (no Homebrew at runtime): Python 3.12 (python-build-standalone), VS built from source
 - Worker sets: `PYTHONHOME`, `PYTHONPATH`, `VAPOURSYNTH_CONF_PATH`, `DYLD_LIBRARY_PATH`
 - `vspipe` is a wrapper script that generates config dynamically (needed because `VAPOURSYNTH_PLUGIN_PATH` is additive, not a replacement)
-- **FFmpeg** is sourced pre-built as a static binary that links only system frameworks: **x64** from evermeet.cx, **arm64** from martin-riedl.de (Homebrew's arm64 ffmpeg is dynamically linked to ~17 Homebrew dylibs and is NOT self-contained, so it can't be bundled). **x64 plugins** build from source under Rosetta, except `tmedian`/`bestsource` which come pre-built from Stefan-Olt/vs-plugin-build. **`zsmooth` is the one plugin built from source on x64 but taken pre-built on arm64**: the author's x86_64 binary is `minos 13.0` and this bundle targets 12.0, so the minos guard rejects it (it would fail to load on Monterey — exactly issue #39). It is written in Zig, so the x64 branch fetches a pinned Zig toolchain and builds with `-Dtarget=x86_64-macos.12.0`; `ZIG_VERSION` must satisfy zsmooth's `minimum_zig_version`, and the build needs network access for zsmooth's own Zig dependencies. arm64 keeps the pre-built binary, which is under its 15.0 target.
+- **FFmpeg** is sourced pre-built as a static binary that links only system frameworks: **x64** from evermeet.cx, **arm64** from martin-riedl.de (Homebrew's arm64 ffmpeg is dynamically linked to ~17 Homebrew dylibs and is NOT self-contained, so it can't be bundled). **x64 plugins** build from source under Rosetta, except `tmedian` which comes pre-built from Stefan-Olt/vs-plugin-build. **`zsmooth` is the one plugin built from source on x64 but taken pre-built on arm64**: the author's x86_64 binary is `minos 13.0` and this bundle targets 12.0, so the minos guard rejects it (it would fail to load on Monterey — exactly issue #39). It is written in Zig, so the x64 branch fetches a pinned Zig toolchain and builds with `-Dtarget=x86_64-macos.12.0`; `ZIG_VERSION` must satisfy zsmooth's `minimum_zig_version`, and the build needs network access for zsmooth's own Zig dependencies. arm64 keeps the pre-built binary, which is under its 15.0 target.
 - **x64 minimum macOS = 12.0 (Monterey), issue #39**: the only hosted Intel runner is `macos-15-intel` (`macos-13` was retired), so Homebrew bottles come out `minos 14/15` and won't load on 12. The x64 build therefore exports `MACOSX_DEPLOYMENT_TARGET=12.0` and **builds the bundled support libs from source** (zimg, fftw, libdvdread, xz, boost) so they target 12; the OpenCL plugins (`nnedi3cl`/`knlmeanscl`) are compiled against that source boost (`BOOST_ROOT="$SRCLIB"`) for ABI match. vspipe's `doubleToString` is patched off `std::to_chars` (needs 13.3+ libc++). A `minos` verification pass at the end fails the build under `STRICT_MIN_OS=1` (set in `build-deps-macos.yml`) if any bundled Mach-O exceeds 12.0. **arm64 is unchanged (still `minos 15`)** — it has no old runner and the prebuilt arm64 plugins are >12. The app/worker deployment target is **per-arch**: the x64 build targets **12.0** and the arm64 build targets **15.0** (matching its minos-15 deps). `build-macos.yml` resolves the target per matrix arch and threads it to rustc (`MACOSX_DEPLOYMENT_TARGET`) and xcodebuild (which overrides the `Runner.xcodeproj` 12.0 baseline); the `Podfile` reads `VAPOURBOX_DEPLOYMENT_TARGET` (default 12.0). `package-macos.sh` sets the same per-arch target for local builds.
 - **Code signing**: After `install_name_tool` modifications, binaries must be re-signed: `codesign -s - -f <binary>` (exit code 137 = SIGKILL means invalid signature)
 - Quarantine removal: `xattr -cr` on deps after download

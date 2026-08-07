@@ -28,7 +28,6 @@
   "macos-arm64": [
     "libaddgrain.dylib",
     "libawarpsharp2.dylib",
-    "libbestsource.dylib",
     "libbm3d.dylib",
     "libcas.dylib",
     "libctmf.dylib",
@@ -56,7 +55,6 @@
   "macos-x64": [
     "libaddgrain.dylib",
     "libawarpsharp2.dylib",
-    "libbestsource.dylib",
     "libcas.dylib",
     "libctmf.dylib",
     "libdctfilter.dylib",

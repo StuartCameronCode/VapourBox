@@ -122,8 +122,7 @@ BREW_DEPS=(
     #   fftw       -> libfftw3f.3 + libfftw3f_threads.3 (dfttest)
     #   boost      -> libboost_filesystem + libboost_atomic (nnedi3cl)
     #   libdvdread -> libdvdread (DVD title extraction in the worker)
-    #   xz         -> liblzma.5 (linked by Stefan-Olt's x86_64 bestsource)
-    fftw boost libdvdread xz
+    fftw boost libdvdread
     # FFmpeg (build-time convenience only; at runtime both arches ship static
     # ffmpeg downloaded from evermeet.cx (x64) / martin-riedl.de (arm64))
     ffmpeg
@@ -154,7 +153,7 @@ done
 # On the only available Intel runner (macos-15-intel) `brew install` pours
 # minos 14/15 bottles that won't load on macOS 12. Build the few libraries we
 # *bundle* from source so they inherit MACOSX_DEPLOYMENT_TARGET (12.0):
-#   zimg/fftw/libdvdread/xz  - stable C ABIs; dropped in over the Homebrew
+#   zimg/fftw/libdvdread     - stable C ABIs; dropped in over the Homebrew
 #                              copies just before the repoint pass.
 #   boost (filesystem,atomic) - ABI-sensitive, so the OpenCL plugins
 #                              (nnedi3cl/knlmeanscl) are ALSO compiled against
@@ -167,14 +166,6 @@ if [ "$ARCH" = "x86_64" ]; then
     NPROC=$(sysctl -n hw.ncpu)
     SRC_TMP="$BUILD_DIR/srclib-src"
     mkdir -p "$SRCLIB" "$SRC_TMP"
-    cd "$SRC_TMP"
-
-    # xz / liblzma 5.4.6 (pre-5.6 to avoid the 5.6.x backdoor) -> liblzma.5.dylib
-    echo "  Building xz (liblzma 5.4.6)..."
-    curl -fsSL "https://github.com/tukaani-project/xz/releases/download/v5.4.6/xz-5.4.6.tar.gz" -o xz.tar.gz
-    tar xzf xz.tar.gz && cd xz-5.4.6
-    ./configure --prefix="$SRCLIB" --enable-shared --disable-static --disable-doc -q
-    make -j"$NPROC" >/dev/null && make install >/dev/null
     cd "$SRC_TMP"
 
     # fftw 3.3.10, single precision + threads -> libfftw3f.3 + libfftw3f_threads.3
@@ -216,7 +207,7 @@ if [ "$ARCH" = "x86_64" ]; then
 
     # boost is linked by the OpenCL plugins built later; give it an @rpath id so
     # those plugins record a *repointable* reference (the repoint pass skips refs
-    # that are already @loader_path/...). zimg/fftw/dvdread/lzma get their ids
+    # that are already @loader_path/...). zimg/fftw/dvdread get their ids
     # normalized when they're dropped into the bundle.
     for b in libboost_filesystem libboost_atomic; do
         [ -f "$SRCLIB/lib/$b.dylib" ] && install_name_tool -id "@rpath/$b.dylib" "$SRCLIB/lib/$b.dylib"
@@ -780,20 +771,6 @@ if [ "$ARCH" = "x86_64" ]; then
     download_prebuilt_plugin "CTMF"          "libctmf.dylib"        "$STEFANOLT/com.holywu.ctmf/r5/darwin-x86_64/2024-09-30T20.54.04%2B00.00Z/CTMF-r5-darwin-x86_64.zip"
     download_prebuilt_plugin "TCanny"        "libtcanny.dylib"      "$STEFANOLT/com.holywu.tcanny/r14/darwin-x86_64/2024-09-30T21.00.45%2B00.00Z/TCanny-r14-darwin-x86_64.zip"
     download_prebuilt_plugin "TemporalMedian" "libtmedian.dylib"    "$STEFANOLT/com.nodame.temporalmedian/v1/darwin-x86_64/2024-09-30T21.01.26%2B00.00Z/TemporalMedian-v1-darwin-x86_64.zip"
-    download_prebuilt_plugin "BestSource"    "libbestsource.dylib"  "$STEFANOLT/com.vapoursynth.bestsource/R16/darwin-x86_64/2026-01-10T19.07.30%2B00.00Z/BestSource-R16-darwin-x86_64.zip"
-
-    # Stefan-Olt's x86_64 BestSource dynamically links liblzma; bundle it from
-    # Homebrew (xz) and repoint the reference at the bundled copy in lib/.
-    if [ -f "$PLUGINS_DIR/libbestsource.dylib" ]; then
-        if [ ! -f "$LIB_DIR/liblzma.5.dylib" ] && [ -f "$BREW_PREFIX/opt/xz/lib/liblzma.5.dylib" ]; then
-            cp "$BREW_PREFIX/opt/xz/lib/liblzma.5.dylib" "$LIB_DIR/liblzma.5.dylib"
-            install_name_tool -id "@loader_path/liblzma.5.dylib" "$LIB_DIR/liblzma.5.dylib" 2>/dev/null || true
-            codesign -s - -f "$LIB_DIR/liblzma.5.dylib" 2>/dev/null || true
-        fi
-        install_name_tool -change "$BREW_PREFIX/opt/xz/lib/liblzma.5.dylib" \
-            "@loader_path/../../lib/liblzma.5.dylib" "$PLUGINS_DIR/libbestsource.dylib" 2>/dev/null || true
-        codesign -s - -f "$PLUGINS_DIR/libbestsource.dylib" 2>/dev/null || true
-    fi
 
     # ---- The four plugins Stefan-Olt does not ship: build from source ----
     cd "$BUILD_DIR"
@@ -1260,28 +1237,6 @@ else
 fi
 download_prebuilt_plugin "TemporalMedian" "libtmedian.dylib" "$TMEDIAN_URL"
 
-# BestSource (core.bs - source loader, bundled for parity)
-if [ "$ARCH" = "arm64" ]; then
-    BESTSOURCE_URL="$STEFANOLT/com.vapoursynth.bestsource/R16/darwin-aarch64/2026-01-10T18.55.40%2B00.00Z/BestSource-R16-darwin-aarch64.zip"
-else
-    BESTSOURCE_URL="$STEFANOLT/com.vapoursynth.bestsource/R16/darwin-x86_64/2026-01-10T19.07.30%2B00.00Z/BestSource-R16-darwin-x86_64.zip"
-fi
-download_prebuilt_plugin "BestSource" "libbestsource.dylib" "$BESTSOURCE_URL"
-
-# Stefan-Olt's aarch64 BestSource links the *system* /usr/lib/liblzma.5.dylib
-# (the x86_64 build links Homebrew's xz copy, handled in the x86_64 branch above).
-# Bundle liblzma from Homebrew (xz) and repoint the reference at the bundled copy
-# so the issue #28 guard stays strict and we don't depend on the system lib.
-if [ "$ARCH" = "arm64" ] && [ -f "$PLUGINS_DIR/libbestsource.dylib" ]; then
-    if [ ! -f "$LIB_DIR/liblzma.5.dylib" ] && [ -f "$BREW_PREFIX/opt/xz/lib/liblzma.5.dylib" ]; then
-        cp "$BREW_PREFIX/opt/xz/lib/liblzma.5.dylib" "$LIB_DIR/liblzma.5.dylib"
-        install_name_tool -id "@loader_path/liblzma.5.dylib" "$LIB_DIR/liblzma.5.dylib" 2>/dev/null || true
-        codesign -s - -f "$LIB_DIR/liblzma.5.dylib" 2>/dev/null || true
-    fi
-    install_name_tool -change "/usr/lib/liblzma.5.dylib" \
-        "@loader_path/../../lib/liblzma.5.dylib" "$PLUGINS_DIR/libbestsource.dylib" 2>/dev/null || true
-    codesign -s - -f "$PLUGINS_DIR/libbestsource.dylib" 2>/dev/null || true
-fi
 fi  # end plugin arch split (x86_64 pre-built / arm64 from-source)
 
 # zsmooth (core.zsmooth.CCD - chroma denoiser; also Cnr4 and a set of
@@ -1555,7 +1510,7 @@ if [ "$ARCH" = "x86_64" ] && [ -d "$SRCLIB/lib" ]; then
     # The remaining libs live in lib/; the repoint passes below normalize their
     # ids and inter-references. cp -f follows the versioned symlinks.
     for libname in libfftw3f.3.dylib libfftw3f_threads.3.dylib libdvdread.dylib \
-                   liblzma.5.dylib libboost_filesystem.dylib libboost_atomic.dylib; do
+                   libboost_filesystem.dylib libboost_atomic.dylib; do
         if [ -f "$SRCLIB/lib/$libname" ]; then
             cp -f "$SRCLIB/lib/$libname" "$LIB_DIR/$libname"
             codesign -s - -f "$LIB_DIR/$libname" 2>/dev/null || true
@@ -1578,7 +1533,7 @@ fi
 # the bundle is fully relocatable.
 echo ""
 echo "=== Repointing plugin support-lib references to bundled lib/ ==="
-SUPPORT_LIBS=(libfftw3f.3.dylib libfftw3f_threads.3.dylib libboost_filesystem.dylib libboost_atomic.dylib liblzma.5.dylib libdvdread.dylib)
+SUPPORT_LIBS=(libfftw3f.3.dylib libfftw3f_threads.3.dylib libboost_filesystem.dylib libboost_atomic.dylib libdvdread.dylib)
 for plugin in "$PLUGINS_DIR"/*.dylib; do
     [ -f "$plugin" ] || continue
     plugin_base=$(basename "$plugin")
@@ -1817,7 +1772,7 @@ else
     echo "The MACOSX_DEPLOYMENT_TARGET export fixes everything built from source here."
     echo "Anything still flagged is a *prebuilt* artifact this script only copies, so"
     echo "it needs its own fix:"
-    echo "  - Homebrew bottles (zimg/fftw/boost/libdvdread/xz): the macos-15 runner"
+    echo "  - Homebrew bottles (zimg/fftw/boost/libdvdread): the macos-15 runner"
     echo "    installs Sequoia bottles. Build these from source with the target set,"
     echo "    or fetch older-OS bottles."
     echo "  - ffmpeg (evermeet.cx / martin-riedl.de) and Python (python-build-standalone):"
