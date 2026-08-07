@@ -801,6 +801,21 @@ STEFANOLT="https://github.com/Stefan-Olt/vs-plugin-build/releases/download/vsplu
 # most of its plugins missing.
 VS_PC_DIR="$(dirname "$(find "$VS_INSTALL_DIR" -name vapoursynth.pc 2>/dev/null | head -1)")"
 VS_INC_DIR="$(dirname "$(find "$VS_INSTALL_DIR" -name 'VapourSynth4.h' 2>/dev/null | head -1)")"
+# R78's generated vapoursynth.pc dropped the libdir variable that R73's had.
+# Plugins whose meson.build does
+#   vapoursynth_dep.get_variable(pkgconfig: 'libdir')
+# to decide where to install (addgrain, tcanny) then fail configuration with
+# "Could not get pkg-config variable and no default provided". The value is only
+# used as an install prefix and we copy the built dylib ourselves, so any sane
+# path restores the lookup.
+if [ -n "$VS_PC_DIR" ] && [ -f "$VS_PC_DIR/vapoursynth.pc" ] \
+   && ! grep -q '^libdir=' "$VS_PC_DIR/vapoursynth.pc"; then
+    awk '{print} /^includedir=/ && !done {print "libdir=${prefix}/lib"; done=1}' \
+        "$VS_PC_DIR/vapoursynth.pc" > "$VS_PC_DIR/vapoursynth.pc.tmp" \
+        && mv "$VS_PC_DIR/vapoursynth.pc.tmp" "$VS_PC_DIR/vapoursynth.pc"
+    echo "  Added libdir to vapoursynth.pc (R78 omits it)"
+fi
+
 # R78 installs only the API4 headers, but several plugins we build still
 # #include <VapourSynth.h> (API3) — api3 support remains in the core, just the
 # headers stopped being installed. They are still in the source tree, so top up
