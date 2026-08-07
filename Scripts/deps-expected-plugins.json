@@ -23,7 +23,9 @@
     "libmvtools.dll",
     "libtemporalmedian.dll",
     "neo-f3kdb.dll",
-    "vsznedi3.dll"
+    "vsznedi3.dll",
+    "libakarin.dll",
+    "libzstd.dll"
   ],
   "macos-arm64": [
     "libaddgrain.dylib",
@@ -50,7 +52,8 @@
     "libttempsmooth.dylib",
     "libvivtc.dylib",
     "libznedi3.dylib",
-    "libzsmooth.dylib"
+    "libzsmooth.dylib",
+    "libakarin.dylib"
   ],
   "macos-x64": [
     "libaddgrain.dylib",
@@ -100,7 +103,8 @@
     "libttempsmooth.so",
     "libvivtc.so",
     "libznedi3.so",
-    "libzsmooth.so"
+    "libzsmooth.so",
+    "libakarin.so"
   ],
   "linux-arm64": [
     "libaddgrain.so",
@@ -126,6 +130,7 @@
     "libttempsmooth.so",
     "libvivtc.so",
     "libznedi3.so",
-    "libzsmooth.so"
+    "libzsmooth.so",
+    "libakarin.so"
   ]
 }
