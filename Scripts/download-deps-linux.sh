@@ -220,9 +220,7 @@ EOF
     meson setup build \
         --prefix="$VS_INSTALL_DIR" \
         --buildtype=release \
-        -Dlibdir=lib \
-        -Dplugindir="" \
-        -Dpython3_bin="$PYTHON_BIN"
+        -Dlibdir=lib
 
     echo "  Building VapourSynth..."
     PATH="$PYTHON_DIR/bin:$PATH" \
