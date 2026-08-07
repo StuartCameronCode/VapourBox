@@ -811,6 +811,16 @@ Headless Dart-VM tests. Three groups:
   `_high_bit_depth_filters`, `_source_formats`, `_upscale_resize`,
   `_white_balance`.
 
+> **Feeding a test clip to vspipe's stdin: start draining stdout/stderr BEFORE
+> writing, and never `await` the write.** These scripts request a single frame,
+> so vspipe reads a fraction of the raw file and exits; awaiting `stdin.close()`
+> first deadlocks, because the write blocks on a pipe nobody is reading and the
+> drain that would let vspipe finish never starts. R73 hid this by spending
+> ~1.4s in script evaluation — long enough for the whole payload to land in the
+> OS pipe buffer. R78 evaluates in ~0.01s and lost the race every time, turning
+> all ten stdin-piping tests in `vapoursynth_integration_test.dart` into 30s
+> timeouts. It was always a race, not a version difference.
+
 `WorkerHarness` also runs the worker in **preview** mode (`runPreview`) and
 compares rendered frames (`imageToRgb24` + `meanAbsDiff`). Preview and encode are
 separate scripts *and* separate ffmpeg invocations, so a filter can render fine
@@ -846,7 +856,7 @@ Each job pulls the published deps bundle + the whisper add-on, then runs
 **suite #1 (`cargo test`) and suite #2 (`flutter test --exclude-tags heavy`)** —
 including the subtitle integration test, excluding the heavy full-encode
 integration tests. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
-(`macos-15-intel`), **Windows x64**, **Linux x64** (`ubuntu-22.04`). Notes:
+(`macos-15-intel`), **Windows x64**, **Linux x64** (`ubuntu-24.04`). Notes:
 
 - whisper-cli is provisioned from the **same source the app uses at runtime**
   (`app/assets/whisper-addon.json`): macOS via a Homebrew bottle, Windows/Linux
@@ -891,6 +901,148 @@ matter more than usual (see `app/test/vapoursynth_integration_test.dart`).
 > `KNLMeansCL`'s `clip.format.color_family not in [vs.YUV, vs.YCOCG]` survives and
 > would `AttributeError`. Only reachable with `Denoiser='knlmeanscl'` **and**
 > `ChromaNoise=True` (both non-default), so it has never been hit.
+
+### Linux builds on ubuntu-24.04, and that sets the glibc floor
+
+The Linux **deps** builds and the runners that test against them
+(`ci-test.yml`, `nightly.yml`) all run on `ubuntu-24.04`. They must stay in
+step: the deps binaries need the glibc they were built against, so testing them
+on an older runner fails at load, and `ci-test.yml` carries a comment saying so.
+
+This was forced by R78. ubuntu-22.04 could not build it at all, and not for one
+reason but four, each only visible once the previous was cleared: no `_Float16`
+in C++ (needs GCC >= 13, jammy has 11 and no gcc-13 package), no
+`__builtin_roundevenf` under its clang, Cython 0.29 against a `.pyx` using
+Cython 3 syntax, and meson preferring the apt `cython3` over a pip-installed
+Cython 3. Noble ships all of it.
+
+**The cost is user-facing**: the bundle now needs **glibc 2.39**, so Ubuntu
+22.04 (2.35) and Debian 12 (2.36) can no longer run it. That is recorded in the
+README's platform table. The app and whisper builds deliberately stay on
+`ubuntu-22.04` — their binaries run on newer systems regardless, so a lower
+floor there costs nothing — but the effective requirement is the highest of the
+components, which is the deps.
+
+### Testing a deps change before publishing: release-candidate tags
+
+A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and
+`nightly.yml` download the bundle named by `app/assets/deps-version.json` from a
+**published** release, so a deps change cannot be tested until it is published —
+and publishing an untested bundle is what you were trying to avoid.
+
+**Draft releases do not solve it** (their assets need an authenticated API call,
+so neither CI nor the app can fetch them). **Prereleases do**: they are publicly
+downloadable at the ordinary `releases/download/<tag>/<asset>` URL, and every
+consumer here is tag-driven — `getDownloadUrl()` builds the URL from
+`releaseTag`, and nothing in the repo uses `/releases/latest`. So a prerelease
+is indistinguishable from a stable release to CI, the nightly suite *and* a real
+app build.
+
+The workflow:
+
+1. `gh release create deps-vX.Y.Z-rc1 --prerelease` on the PR branch.
+2. Run the three `build-deps-*` workflows with `version: X.Y.Z-rc1` and
+   `release_tag: deps-vX.Y.Z-rc1`. They upload the zip and its `.sha256.json`
+   sidecar. (They also always upload a workflow artifact, so `release_tag` can
+   be left empty for a build-only run.)
+3. Point `deps-version.json` at the rc **on the PR branch only**.
+4. Iterate — rc bundles are disposable, because the rule about never reusing a
+   deps version only binds once a *released app* references one.
+5. Before merge, publish the final `deps-vX.Y.Z` and repoint.
+
+`Scripts/release.sh` refuses to cut an app release while `deps-version.json`
+names an `-rc` tag. That is the one way this bites: an rc escaping into a shipped
+build, where later deleting the prerelease breaks the download for everyone who
+installed it.
+
+### Installing a deps bundle: staged, swapped, and version-directional
+
+`DependencyManager` **replaces** a bundle rather than merging into one, which is
+what makes a layout change like R73 → R78 safe: no `libvapoursynth-script`,
+`vapoursynth.conf`, `libbestsource`, `python38.*` or stale `VSPipe.exe` survives
+into the new install. (That last one matters — `dependency_locator.rs` keeps a
+deliberate fallback to the old top-level `VSPipe.exe`, so a leftover R73 binary
+could otherwise be picked up silently.)
+
+Three properties worth preserving if you touch this:
+
+- **Staged, then swapped.** The download is verified, extracted to
+  `<deps>.new`, checked with `executabilityProblem()` and stamped with its
+  `version.json` — and only then swapped in via two renames, with the old tree
+  moved to `<deps>.old` and deleted afterwards. It used to delete the live
+  install and extract over the top, which left the user with *nothing* if that
+  window was interrupted. If the second rename fails the first is undone.
+- **`version.json` is written last**, inside the staged tree. It is the commit
+  marker: a tree that never completed can never look valid.
+- **Direction is checked, not just equality.** Installed *newer* than expected
+  is `newerThanExpected` — kept, with a one-time warning at startup — not
+  `outdated`. Treating it as outdated downgraded a deliberately newer bundle,
+  and since installing wipes and replaces, that was destructive. Use
+  `compareVersions`, not `!=` or a string compare: `"1.10.0"` sorts before
+  `"1.9.0"` lexically.
+
+The critical-file list also includes a file that exists **only** in the R78
+layout (`libvapoursynthfilters`, plus `vapoursynth/__init__.py` on Unix).
+`vspipe`, `plugins/` and `ffmpeg` all exist in both layouts, so without an
+R78-only marker a stale tree carrying a newer `version.json` passes every check
+and fails later at job time.
+
+### R78: `deps/<platform>/vapoursynth/` IS the Python package (macOS/Linux)
+
+R78 ships VapourSynth as a Python package, and this is not cosmetic. `vsscript`
+resolves the Python library through a config file at
+`$XDG_CONFIG_HOME/vapoursynth/vapoursynth.toml`, **keyed by the absolute path of
+`libvsscript`**. That file is written by `vapoursynth config`, which records the
+`libvsscript` belonging to the *imported package*. So the copy `vspipe-bin`
+loads and the copy the module reports must be the same file, or every script
+dies with:
+
+> Python executable and library path couldn't be determined despite automatic
+> configuration. Run `vapoursynth config` ...
+
+Hence the layout: the libraries, `vapoursynth.abi3.so` and the pure-Python files
+(`__init__.py`, `_cli.py`, `_utils.py`, …) all live in
+`deps/<platform>/vapoursynth/`, and the **platform directory is on `PYTHONPATH`**
+so `import vapoursynth` resolves there. Four consequences:
+
+- **Ship the `.py` files too.** Without them `vapoursynth config` cannot run and
+  vsscript's automatic configuration has nothing to call.
+- **A `vapoursynth` shim goes in `python/bin/`.** vsscript self-configures by
+  literally running `system("vapoursynth config")`; a from-source build creates
+  no console script, so we provide one.
+- **`XDG_CONFIG_HOME` must point somewhere writable** (`deps/<platform>/config`).
+  The worker, the app and the vspipe wrapper all set it.
+- **Do not set `VAPOURSYNTH_EXTRA_PLUGIN_PATH` on macOS/Linux.** The plugins are
+  at `vapoursynth/plugins`, which is `<libdir>/plugins` — R78 autoloads it. With
+  both, every plugin loads twice and warns `Plugin ... already loaded`. Windows
+  still needs the variable: its plugins are in `vs-plugins`, which is not the
+  autoload directory.
+
+`_has_implicit_config()` returns true **only on Windows** (where `python.exe`
+sits next to the package), which is why the Windows bundle needs none of this and
+why a Windows-only test pass does not prove the Unix path works.
+
+### No source-indexing plugin is bundled
+
+Sources are read as **raw frames piped from ffmpeg** (`templates/pipe_source.py`),
+so nothing in the product opens a file through a VapourSynth source filter.
+
+FFMS2 went first, replaced by **BestSource**; then the pipe source replaced that,
+and BestSource stayed in the macOS bundle for years afterwards calling itself
+"bundled for parity" — parity with nothing, since Windows and Linux never shipped
+it. Removed 2026-08-07: no `core.bs.` call site existed anywhere in the
+templates, worker, app or tests.
+
+It was worth removing rather than leaving alone. At **16.9 MB** it was four times
+the next largest plugin and about a sixth of the macOS deps zip, and it was the
+**only** consumer of `liblzma` — so it also carried the `xz` from-source build on
+x64, two `install_name_tool` repoint blocks (its arm64 build links the *system*
+liblzma, its x64 build Homebrew's), and their codesign steps, all of which went
+with it.
+
+If a source filter is ever needed again, add it back deliberately with a call
+site — don't reintroduce it into the preview path, which is pipe-source-based for
+frame-accuracy reasons.
 
 ### fmtconv's aarch64 integer scaler bug (fixed by our own patch)
 
@@ -1019,9 +1171,44 @@ version skew between platforms would change chroma per-OS.
 
 ### Windows
 
-- VapourSynth R73 portable uses Python 3.8 (not 3.11+)
-- Worker sets env vars via `DependencyLocator`: `PYTHONHOME`, `PYTHONPATH`, `VAPOURSYNTH_PLUGIN_PATH`, `PATH`
+- **VapourSynth R78 ships Windows purely as a Python wheel.**
+  `VapourSynth64-Portable-R78.zip` holds only `wheel\`, `vspipe.bat`, `pip.bat`
+  and docs — no `VSPipe.exe`, no DLLs, no Python. `download-deps-windows.ps1`
+  therefore follows upstream's own installer: unpack the **Python 3.12.10
+  embeddable**, add `Lib\site-packages` to its `._pth`, then expand the wheel
+  (a wheel is a zip, but `Expand-Archive` rejects the `.whl` extension, so it is
+  copied to a `.zip` name first).
+- Layout moved with it — anything hardcoding the old paths breaks silently:
+
+  | | R73 | R78 |
+  |---|---|---|
+  | Python | 3.8.10 embeddable | **3.12.10** embeddable (wheel is cp312-abi3) |
+  | vspipe | `vapoursynth\VSPipe.exe` | `vapoursynth\Lib\site-packages\vapoursynth\vspipe.exe` |
+  | plugin path var | `VAPOURSYNTH_PLUGIN_PATH` | **`VAPOURSYNTH_EXTRA_PLUGIN_PATH`** |
+  | core filters | inside `libvapoursynth` | separate `libvapoursynthfilters.dll` |
+  | vsscript | `VSScriptPython38.dll` | `vsscript.dll` (Python-version independent) |
+
+- `libvapoursynthfilters.dll` matters more than it looks: R78 moved **every core
+  filter** (`std`, `resize`, …) out of `libvapoursynth` into it, so a bundle
+  without it fails every job at script evaluation with missing namespaces.
+  `package-deps-windows.ps1` guards on it.
+- Worker sets env vars via `DependencyLocator`: `PYTHONHOME`, `PYTHONPATH`,
+  `VAPOURSYNTH_EXTRA_PLUGIN_PATH`, `PATH`. The old `VAPOURSYNTH_PLUGIN_PATH`
+  name is inert from R74 on — plugins are simply never autoloaded and every
+  filter dies with "No attribute with the name `<ns>` exists". `ToolLocator`
+  (Dart), `DependencyLocator` (Rust) and the test harnesses must all use the new
+  name; the harnesses were missed in the migration and only the Dart
+  integration suite caught it.
 - Plugins in `deps/windows-x64/vapoursynth/vs-plugins/`, Python packages in `Lib/site-packages/`
+- Plain `nnedi3` is **not** in the Windows bundle; it ships `znedi3` +
+  `nnedi3cl`. The authoritative required-namespace list is in
+  `app/test/vapoursynth_integration_test.dart` — check there before "fixing" an
+  apparently missing plugin. **BestSource is no longer bundled anywhere** (see
+  "No source-indexing plugin" below).
+- The script writes `deps/windows-x64/version.json` (as macOS and Linux do).
+  Without it the app reports "Version file missing" on startup and downloads the
+  **published** bundle over the local one — which silently restored R73 over a
+  locally built R78 tree.
 - Show in Folder: `cmd /c explorer /select, <path>`
 
 ### macOS
@@ -1030,7 +1217,7 @@ version skew between platforms would change chroma per-OS.
 - Fully self-contained deps (no Homebrew at runtime): Python 3.12 (python-build-standalone), VS built from source
 - Worker sets: `PYTHONHOME`, `PYTHONPATH`, `VAPOURSYNTH_CONF_PATH`, `DYLD_LIBRARY_PATH`
 - `vspipe` is a wrapper script that generates config dynamically (needed because `VAPOURSYNTH_PLUGIN_PATH` is additive, not a replacement)
-- **FFmpeg** is sourced pre-built as a static binary that links only system frameworks: **x64** from evermeet.cx, **arm64** from martin-riedl.de (Homebrew's arm64 ffmpeg is dynamically linked to ~17 Homebrew dylibs and is NOT self-contained, so it can't be bundled). **x64 plugins** build from source under Rosetta, except `tmedian`/`bestsource` which come pre-built from Stefan-Olt/vs-plugin-build. **`zsmooth` is the one plugin built from source on x64 but taken pre-built on arm64**: the author's x86_64 binary is `minos 13.0` and this bundle targets 12.0, so the minos guard rejects it (it would fail to load on Monterey — exactly issue #39). It is written in Zig, so the x64 branch fetches a pinned Zig toolchain and builds with `-Dtarget=x86_64-macos.12.0`; `ZIG_VERSION` must satisfy zsmooth's `minimum_zig_version`, and the build needs network access for zsmooth's own Zig dependencies. arm64 keeps the pre-built binary, which is under its 15.0 target.
+- **FFmpeg** is sourced pre-built as a static binary that links only system frameworks: **x64** from evermeet.cx, **arm64** from martin-riedl.de (Homebrew's arm64 ffmpeg is dynamically linked to ~17 Homebrew dylibs and is NOT self-contained, so it can't be bundled). **x64 plugins** build from source under Rosetta, except `tmedian` which comes pre-built from Stefan-Olt/vs-plugin-build. **`zsmooth` is the one plugin built from source on x64 but taken pre-built on arm64**: the author's x86_64 binary is `minos 13.0` and this bundle targets 12.0, so the minos guard rejects it (it would fail to load on Monterey — exactly issue #39). It is written in Zig, so the x64 branch fetches a pinned Zig toolchain and builds with `-Dtarget=x86_64-macos.12.0`; `ZIG_VERSION` must satisfy zsmooth's `minimum_zig_version`, and the build needs network access for zsmooth's own Zig dependencies. arm64 keeps the pre-built binary, which is under its 15.0 target.
 - **x64 minimum macOS = 12.0 (Monterey), issue #39**: the only hosted Intel runner is `macos-15-intel` (`macos-13` was retired), so Homebrew bottles come out `minos 14/15` and won't load on 12. The x64 build therefore exports `MACOSX_DEPLOYMENT_TARGET=12.0` and **builds the bundled support libs from source** (zimg, fftw, libdvdread, xz, boost) so they target 12; the OpenCL plugins (`nnedi3cl`/`knlmeanscl`) are compiled against that source boost (`BOOST_ROOT="$SRCLIB"`) for ABI match. vspipe's `doubleToString` is patched off `std::to_chars` (needs 13.3+ libc++). A `minos` verification pass at the end fails the build under `STRICT_MIN_OS=1` (set in `build-deps-macos.yml`) if any bundled Mach-O exceeds 12.0. **arm64 is unchanged (still `minos 15`)** — it has no old runner and the prebuilt arm64 plugins are >12. The app/worker deployment target is **per-arch**: the x64 build targets **12.0** and the arm64 build targets **15.0** (matching its minos-15 deps). `build-macos.yml` resolves the target per matrix arch and threads it to rustc (`MACOSX_DEPLOYMENT_TARGET`) and xcodebuild (which overrides the `Runner.xcodeproj` 12.0 baseline); the `Podfile` reads `VAPOURBOX_DEPLOYMENT_TARGET` (default 12.0). `package-macos.sh` sets the same per-arch target for local builds.
 - **Code signing**: After `install_name_tool` modifications, binaries must be re-signed: `codesign -s - -f <binary>` (exit code 137 = SIGKILL means invalid signature)
 - Quarantine removal: `xattr -cr` on deps after download

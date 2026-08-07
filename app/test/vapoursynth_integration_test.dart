@@ -5,6 +5,7 @@
 // Run with: flutter test test/vapoursynth_integration_test.dart
 // Note: Requires platform-specific deps to be present with all plugins.
 
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
@@ -26,7 +27,7 @@ void main() {
     final String ffmpegExe;
     if (Platform.isWindows) {
       depsPlatform = 'windows-x64';
-      vspipeExe = 'VSPipe.exe';
+      vspipeExe = r'Lib\site-packages\vapoursynth\vspipe.exe';
       ffmpegExe = 'ffmpeg.exe';
     } else if (Platform.isMacOS) {
       // Check architecture
@@ -510,7 +511,11 @@ Future<ProcessResult> _runVspipeScript(
       environment = {
         'PYTHONHOME': vsDir,
         'PYTHONPATH': path.join(vsDir, 'Lib', 'site-packages'),
-        'VAPOURSYNTH_PLUGIN_PATH': path.join(vsDir, 'vs-plugins'),
+        // R74 replaced VAPOURSYNTH_PLUGIN_PATH with this; under the old name the
+        // bundled plugins are simply not autoloaded and every filter fails with
+        // "No attribute with the name <ns> exists". Matches
+        // DependencyLocator::build_environment in the worker.
+        'VAPOURSYNTH_EXTRA_PLUGIN_PATH': path.join(vsDir, 'vs-plugins'),
       };
     } else {
       // macOS/Linux - the vspipe wrapper script handles most env setup
@@ -528,18 +533,36 @@ Future<ProcessResult> _runVspipeScript(
         environment: environment,
       );
 
-      // Feed the raw file to stdin
       final rawBytes = await rawFile.readAsBytes();
-      process.stdin.add(rawBytes);
-      await process.stdin.close();
 
-      // Collect output
+      // Start draining BEFORE writing stdin, and never await the write.
+      //
+      // These scripts ask for a single frame, so vspipe reads a fraction of the
+      // raw file and exits; the rest of the write has nowhere to go. Awaiting
+      // `stdin.close()` first then deadlocks — the write blocks on a pipe nobody
+      // is reading, so the drain that would let vspipe finish never starts.
+      //
+      // R73 hid this: it spent ~1.4s evaluating the script, long enough for the
+      // whole 60 KB to land in the OS pipe buffer before vspipe exited. R78
+      // evaluates in ~0.01s and loses the race every time. It was always a race,
+      // not a version difference, so don't "fix" it by reordering back.
       final stdout = StringBuffer();
       final stderr = StringBuffer();
-      await Future.wait([
+      final drained = Future.wait([
         process.stdout.transform(const SystemEncoding().decoder).forEach(stdout.write),
         process.stderr.transform(const SystemEncoding().decoder).forEach(stderr.write),
       ]);
+
+      unawaited(() async {
+        try {
+          process.stdin.add(rawBytes);
+          await process.stdin.close();
+        } catch (_) {
+          // Broken pipe: vspipe got the frames it needed and exited.
+        }
+      }());
+
+      await drained;
       final exitCode = await process.exitCode;
 
       return ProcessResult(process.pid, exitCode, stdout.toString(), stderr.toString());

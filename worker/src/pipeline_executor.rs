@@ -191,7 +191,7 @@ impl PipelineExecutor {
         );
         self.reporter.send_log(
             LogLevel::Debug,
-            &format!("VAPOURSYNTH_PLUGIN_PATH: {:?}", env.get("VAPOURSYNTH_PLUGIN_PATH")),
+            &format!("VAPOURSYNTH_EXTRA_PLUGIN_PATH: {:?}", env.get("VAPOURSYNTH_EXTRA_PLUGIN_PATH")),
         );
 
         // Determine input pixel format for the decoder. Formats pipe_source

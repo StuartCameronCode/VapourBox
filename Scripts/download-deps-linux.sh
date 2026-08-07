@@ -153,20 +153,32 @@ fi
 echo ""
 echo "=== Building VapourSynth from source ==="
 
+VS_TAG="R78"
 VS_BUILD_DIR="$BUILD_DIR/vapoursynth"
 VS_INSTALL_DIR="$BUILD_DIR/vapoursynth-install"
 
 if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.so" ]; then
-    echo "  Cloning VapourSynth R73..."
+    echo "  Cloning VapourSynth $VS_TAG..."
     rm -rf "$VS_BUILD_DIR"
-    git clone --depth 1 --branch R73 https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR" 2>/dev/null || \
+    git clone --depth 1 --branch "$VS_TAG" https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR" 2>/dev/null || \
     git clone --depth 1 https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR"
 
     cd "$VS_BUILD_DIR"
 
+    # zimg API guard (backport of upstream 37eed3dd). R78 reads zimg's
+    # chromatic_adaptation field unconditionally, but it only exists in a zimg
+    # newer than the current release, so R78 builds against no released zimg.
+    # See the patch header. Hard-fail rather than die in the compiler.
+    git apply "$SCRIPT_DIR/patches/vapoursynth-r78-zimg-api-guard.patch" || {
+        echo "  ERROR: patches/vapoursynth-r78-zimg-api-guard.patch did not apply." >&2
+        echo "  If VapourSynth has moved past R78 the fix is already upstream — drop it." >&2
+        exit 1
+    }
+    echo "  Applied the zimg chromatic_adaptation API guard"
+
     # Install Cython in our embedded Python for building
     echo "  Installing Cython in embedded Python..."
-    "$PYTHON_BIN" -m pip install --quiet cython
+    "$PYTHON_BIN" -m pip install --quiet cython meson
 
     # Create pkg-config file for our embedded Python
     mkdir -p "$BUILD_DIR/pkgconfig"
@@ -201,16 +213,65 @@ EOF
         cp "$BUILD_PREFIX/lib/pkgconfig/zimg.pc" "$BUILD_DIR/pkgconfig/"
     fi
 
+    # meson looks for a "cython3" program before "cython", so apt's cython3
+    # (0.29 on jammy) wins over the Cython 3.x we just installed into the
+    # embedded interpreter no matter how PATH is ordered — and R78's
+    # vapoursynth.pyx uses Cython 3 syntax, failing with "Syntax error in C
+    # variable declaration" on `noexcept`. Provide both names as wrappers that
+    # run the module, which also sidesteps the console script's baked-in
+    # shebang (it points at the machine that built the interpreter).
+    for cy in cython cython3; do
+        cat > "$PYTHON_DIR/bin/$cy" << CYEOF
+#!/bin/bash
+exec "$PYTHON_DIR/bin/python3" -m cython "\$@"
+CYEOF
+        chmod +x "$PYTHON_DIR/bin/$cy"
+    done
+
+    # R78 needs a newer C++ toolchain than Ubuntu 22.04's default gcc 11:
+    # float16_helper.h uses _Float16 in C++ and averageframesfilter.cpp uses
+    # __builtin_roundevenf. Use a newer clang for VapourSynth alone if one is
+    # installed, leaving every other component on the system compiler. Fail
+    # loudly rather than dying later inside a confusing template error.
+    VS_CC=""; VS_CXX=""
+    for v in 19 18 17; do
+        if command -v "clang-$v" >/dev/null 2>&1; then
+            VS_CC="clang-$v"; VS_CXX="clang++-$v"; break
+        fi
+    done
+    if [ -z "$VS_CC" ]; then
+        GCC_MAJOR=$(gcc -dumpversion 2>/dev/null | cut -d. -f1)
+        if [ -z "$GCC_MAJOR" ] || [ "$GCC_MAJOR" -lt 13 ]; then
+            echo "  ERROR: VapourSynth $VS_TAG needs clang >= 17 or GCC >= 13." >&2
+            echo "  Found gcc ${GCC_MAJOR:-unknown} and no suitable clang." >&2
+            exit 1
+        fi
+    fi
+    [ -n "$VS_CC" ] && echo "  Using $VS_CC for VapourSynth"
+
     echo "  Configuring VapourSynth..."
+    # CC/CXX go through `env` rather than as assignment prefixes: bash only
+    # treats an assignment as one when it is literal at parse time, so
+    # ${VS_CC:+CC=...} would expand into a command word and fail with
+    # "CC=clang-19: command not found". Only `meson setup` needs them — the
+    # compiler is recorded in the build directory, so ninja does not.
     PATH="$PYTHON_DIR/bin:$PATH" \
     PKG_CONFIG_PATH="$BUILD_DIR/pkgconfig:$BUILD_PREFIX/lib/pkgconfig" \
     LD_LIBRARY_PATH="$PYTHON_DIR/lib:$BUILD_PREFIX/lib:${LD_LIBRARY_PATH:-}" \
-    meson setup build \
+    env ${VS_CC:+CC="$VS_CC"} ${VS_CXX:+CXX="$VS_CXX"} \
+    # Run meson with the EMBEDDED python, not whatever meson happens to be
+    # installed under. R78 locates Python with
+    # `import('python').find_installation()`, which resolves to the interpreter
+    # meson itself is running as — PATH does not influence it, and the
+    # -Dpython3_bin option that used to override it was removed. Left alone,
+    # meson picks the runner's system python: on Linux that has no development
+    # headers, so configuration dies with "Header 'Python.h' could not be
+    # found", and on macOS it silently builds and installs against Homebrew's
+    # python instead of the one we ship.
+    "$PYTHON_BIN" -m mesonbuild.mesonmain setup build \
         --prefix="$VS_INSTALL_DIR" \
         --buildtype=release \
-        -Dlibdir=lib \
-        -Dplugindir="" \
-        -Dpython3_bin="$PYTHON_BIN"
+        -Dlibdir=lib
 
     echo "  Building VapourSynth..."
     PATH="$PYTHON_DIR/bin:$PATH" \
@@ -222,15 +283,64 @@ EOF
 
     echo "  Copying VapourSynth files..."
     # Copy vspipe
-    cp "$VS_INSTALL_DIR/bin/vspipe" "$DEPS_DIR/vapoursynth/vspipe-bin"
+    # Copy from the build directory, not the install prefix: R74 turned
+    # VapourSynth into a Python package, so `ninja install` puts everything
+    # under <prefix>/<python-site-packages>/vapoursynth/ instead of bin/ and
+    # lib/. The build directory is flat and Python-independent.
+    VS_BUILT="$VS_BUILD_DIR/build"
+
+    cp "$VS_BUILT/vspipe" "$DEPS_DIR/vapoursynth/vspipe-bin"
     chmod +x "$DEPS_DIR/vapoursynth/vspipe-bin"
 
-    # Copy libraries
-    cp "$VS_INSTALL_DIR/lib/libvapoursynth.so"* "$DEPS_DIR/vapoursynth/"
-    cp "$VS_INSTALL_DIR/lib/libvapoursynth-script.so"* "$DEPS_DIR/vapoursynth/"
+    # ------------------------------------------------------------------------
+    # deps/<platform>/vapoursynth/ IS the Python package
+    # ------------------------------------------------------------------------
+    # R78 ships VapourSynth as a Python package, and vsscript resolves the
+    # Python library through a config file keyed by the ABSOLUTE PATH of
+    # libvsscript, written by `vapoursynth config` from the imported package.
+    # The copy vspipe-bin loads and the copy the module reports must therefore
+    # be the same file, or every script fails with "Python executable and
+    # library path couldn't be determined despite automatic configuration".
+    #
+    # Keeping the directory named `vapoursynth` and putting the platform dir on
+    # PYTHONPATH satisfies that without moving anything the app knows about, and
+    # leaves the plugins at <libdir>/plugins where R78 autoloads them — so no
+    # plugin path variable is set here; with both, plugins load twice.
+    # Copy the libraries and their symlinks, skipping meson's private
+    # "<target>.p" build directories — a bare `cp libvapoursynth.so*` matches
+    # those too and fails with "-r not specified; omitting directory".
+    # vapoursynth-script was renamed vsscript in R78, and libvapoursynthfilters
+    # is new: it holds every core filter (std, resize, ...), so without it the
+    # core namespaces are absent and every job fails at script evaluation.
+    for pattern in libvapoursynth.so libvsscript.so libvapoursynthfilters.so; do
+        found=false
+        for f in "$VS_BUILT/$pattern"*; do
+            [ -e "$f" ] || continue
+            [ -d "$f" ] && continue
+            cp -a "$f" "$DEPS_DIR/vapoursynth/"
+            found=true
+        done
+        if [ "$found" = false ]; then
+            echo "  ERROR: no $pattern* built in $VS_BUILT" >&2
+            exit 1
+        fi
+    done
+    cp "$VS_BUILT/vapoursynth.abi3.so" "$DEPS_DIR/vapoursynth/"
+    # The pure-Python half of the package; without it `vapoursynth config`
+    # cannot run and vsscript's automatic configuration has nothing to call.
+    cp "$VS_BUILD_DIR/src/py/"*.py "$DEPS_DIR/vapoursynth/"
+    cp "$VS_BUILD_DIR/src/py/vapoursynth.pyi" "$DEPS_DIR/vapoursynth/" 2>/dev/null || true
 
-    # Copy Python module
-    find "$VS_BUILD_DIR/build" -name "vapoursynth*.so" -exec cp {} "$PYTHON_PACKAGES_DIR/" \;
+    # vsscript self-configures by shelling out to a `vapoursynth` executable;
+    # a from-source build creates no console script, so provide one.
+    cat > "$PYTHON_DIR/bin/vapoursynth" << 'SHIM_EOF'
+#!/bin/bash
+DEPS_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+export PYTHONHOME="$DEPS_ROOT/python"
+export PYTHONPATH="$DEPS_ROOT:$DEPS_ROOT/python-packages:${PYTHONPATH:-}"
+exec "$DEPS_ROOT/python/bin/python3" -m vapoursynth "$@"
+SHIM_EOF
+    chmod +x "$PYTHON_DIR/bin/vapoursynth"
 
     # Fix RPATHs
     echo "  Fixing RPATHs..."
@@ -238,8 +348,10 @@ EOF
     for lib in "$DEPS_DIR/vapoursynth"/libvapoursynth*.so*; do
         [ -f "$lib" ] && [ ! -L "$lib" ] && patchelf --set-rpath '$ORIGIN:$ORIGIN/../python/lib' "$lib" 2>/dev/null || true
     done
-    for so_file in "$PYTHON_PACKAGES_DIR"/vapoursynth*.so; do
-        [ -f "$so_file" ] && patchelf --set-rpath '$ORIGIN/../vapoursynth:$ORIGIN/../python/lib' "$so_file" 2>/dev/null || true
+    # The extension module sits in vapoursynth/ now, beside the libraries it
+    # loads, so $ORIGIN alone reaches them.
+    for so_file in "$DEPS_DIR/vapoursynth"/vapoursynth*.so; do
+        [ -f "$so_file" ] && patchelf --set-rpath '$ORIGIN:$ORIGIN/../python/lib' "$so_file" 2>/dev/null || true
     done
 
     # Create wrapper script (same concept as macOS)
@@ -252,28 +364,42 @@ DEPS_ROOT="$(dirname "$SCRIPT_DIR")"
 export PATH="$DEPS_ROOT/python/bin:$PATH"
 export PYTHONHOME="$DEPS_ROOT/python"
 export VAPOURSYNTH_PLUGIN_PATH="$SCRIPT_DIR/plugins"
-export PYTHONPATH="$DEPS_ROOT/python-packages:${PYTHONPATH:-}"
+export PYTHONPATH="$DEPS_ROOT:$DEPS_ROOT/python-packages:${PYTHONPATH:-}"
 export LD_LIBRARY_PATH="$SCRIPT_DIR:$DEPS_ROOT/python/lib:$DEPS_ROOT/lib:${LD_LIBRARY_PATH:-}"
 
-# Generate config dynamically with correct absolute path
-CONF_FILE=$(mktemp)
-cat > "$CONF_FILE" << EOF
-UserPluginDir=$SCRIPT_DIR/plugins
-AutoloadUserPluginDir=true
-AutoloadSystemPluginDir=false
-EOF
-export VAPOURSYNTH_CONF_PATH="$CONF_FILE"
+# R74 removed the config-file mechanism entirely (UserPluginDir /
+# AutoloadUserPluginDir / VAPOURSYNTH_CONF_PATH no longer exist). Plugins live
+# at <libdir>/plugins and are autoloaded, so no plugin variable is needed.
+#
+# vsscript resolves the Python library through a config keyed by the libvsscript
+# path, written on first use via the `vapoursynth` shim on PATH.
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$DEPS_ROOT/config}"
+mkdir -p "$XDG_CONFIG_HOME" 2>/dev/null || true
 
-"$SCRIPT_DIR/vspipe-bin" "$@"
-EXIT_CODE=$?
-rm -f "$CONF_FILE"
-exit $EXIT_CODE
+exec "$SCRIPT_DIR/vspipe-bin" "$@"
 WRAPPER_EOF
     chmod +x "$DEPS_DIR/vapoursynth/vspipe"
 
     # Copy VS headers to deps for plugin builds (persists across runs)
+    # R78 installs the headers inside the Python package rather than under
+    # <prefix>/include/vapoursynth, so locate them instead of assuming. Plugin
+    # builds resolve VapourSynth through these, so a wrong path here means most
+    # of the plugin set silently fails to configure.
     mkdir -p "$DEPS_DIR/vapoursynth/include"
-    cp "$VS_INSTALL_DIR/include/vapoursynth/"*.h "$DEPS_DIR/vapoursynth/include/"
+    VS_HDR_DIR="$(dirname "$(find "$VS_INSTALL_DIR" -name 'VapourSynth4.h' 2>/dev/null | head -1)")"
+    if [ -n "$VS_HDR_DIR" ] && [ -d "$VS_HDR_DIR" ]; then
+        cp "$VS_HDR_DIR/"*.h "$DEPS_DIR/vapoursynth/include/"
+        # R78 installs only the API4 headers, but several plugins still include
+        # <VapourSynth.h> (API3). They remain in the source tree.
+        for hdr in "$VS_BUILD_DIR/include/"*.h; do
+            [ -f "$hdr" ] || continue
+            [ -f "$DEPS_DIR/vapoursynth/include/$(basename "$hdr")" ] || \
+                cp "$hdr" "$DEPS_DIR/vapoursynth/include/"
+        done
+    else
+        echo "  ERROR: could not locate VapourSynth headers under $VS_INSTALL_DIR" >&2
+        exit 1
+    fi
 
     cd "$BUILD_DIR"
     echo "  Built VapourSynth from source with embedded Python"
@@ -301,7 +427,7 @@ includedir=\${prefix}/include
 
 Name: VapourSynth
 Description: VapourSynth
-Version: 73
+Version: 78
 Libs: -L\${libdir} -lvapoursynth
 Cflags: -I\${includedir}
 EOF
@@ -1054,9 +1180,19 @@ fi
 echo ""
 echo "=== Writing version file ==="
 
+# Stamp the version the app expects, read from the single source of truth.
+# A hardcoded value here (it used to be 1.0.0) makes checkDependencies() — an
+# exact string compare against app/assets/deps-version.json — report a mismatch
+# for a freshly built tree, and the app then downloads the published bundle
+# straight over the top of it. Harmless while the local tree matched the
+# release; destructive as soon as it is ahead, which is exactly what a deps
+# upgrade branch creates.
+EXPECTED_DEPS_VERSION=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" \
+    "$PROJECT_ROOT/app/assets/deps-version.json" 2>/dev/null || echo "0.0.0")
+
 cat > "$DEPS_DIR/version.json" << EOF
 {
-  "version": "1.0.0",
+  "version": "$EXPECTED_DEPS_VERSION",
   "installedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "platform": "$PLATFORM_DIR",
   "architecture": "$ARCH",

@@ -131,7 +131,8 @@ class WorkerHarness {
     if (Platform.isWindows) {
       env['PYTHONHOME'] = p.join(d, 'vapoursynth');
       env['PYTHONPATH'] = p.join(d, 'vapoursynth', 'Lib', 'site-packages');
-      env['VAPOURSYNTH_PLUGIN_PATH'] = p.join(d, 'vapoursynth', 'vs-plugins');
+      env['VAPOURSYNTH_EXTRA_PLUGIN_PATH'] =
+          p.join(d, 'vapoursynth', 'vs-plugins');
       final paths = [p.join(d, 'vapoursynth'), p.join(d, 'ffmpeg')];
       env['PATH'] = '${paths.join(';')};${env['PATH'] ?? ''}';
     } else {
@@ -139,9 +140,14 @@ class WorkerHarness {
       if (bundledPython.existsSync()) {
         env['PYTHONHOME'] = p.join(d, 'python');
       }
-      env['PYTHONPATH'] = p.join(d, 'python-packages');
+      // The platform dir carries the R78 `vapoursynth` package, so it must be
+      // importable — vsscript's config is keyed by the libvsscript path the
+      // module reports, which has to match the one vspipe-bin loads.
+      env['PYTHONPATH'] = [d, p.join(d, 'python-packages')].join(':');
       env['PYTHONNOUSERSITE'] = '1';
-      env['VAPOURSYNTH_PLUGIN_PATH'] = p.join(d, 'vapoursynth', 'plugins');
+      // No plugin path variable: the plugins are at <libdir>/plugins, which R78
+      // autoloads. Setting it as well loads every plugin twice.
+      env['XDG_CONFIG_HOME'] = p.join(d, 'config');
 
       final paths = <String>[];
       if (bundledPython.existsSync()) paths.add(p.join(d, 'python', 'bin'));
@@ -588,11 +594,27 @@ class WorkerHarness {
   }
 
   /// Critical files that must exist for a deps dir to count as usable.
+  /// Includes a file that exists only in the R78 layout, so a stale pre-R78
+  /// deps tree is rejected rather than used and failing later at job time.
   static List<String> _criticalFiles() {
     if (Platform.isWindows) {
-      return ['vapoursynth/VSPipe.exe', 'vapoursynth/vs-plugins', 'ffmpeg/ffmpeg.exe'];
+      return [
+        'vapoursynth/Lib/site-packages/vapoursynth/vspipe.exe',
+        'vapoursynth/Lib/site-packages/vapoursynth/libvapoursynthfilters.dll',
+        'vapoursynth/vs-plugins',
+        'ffmpeg/ffmpeg.exe',
+      ];
     }
-    return ['vapoursynth/vspipe', 'vapoursynth/plugins', 'ffmpeg/ffmpeg'];
+    final filters = Platform.isMacOS
+        ? 'vapoursynth/libvapoursynthfilters.dylib'
+        : 'vapoursynth/libvapoursynthfilters.so';
+    return [
+      'vapoursynth/vspipe',
+      filters,
+      'vapoursynth/__init__.py',
+      'vapoursynth/plugins',
+      'ffmpeg/ffmpeg',
+    ];
   }
 
   static bool _depsValid(String dir) {

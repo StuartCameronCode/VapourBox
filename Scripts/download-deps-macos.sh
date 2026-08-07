@@ -122,8 +122,7 @@ BREW_DEPS=(
     #   fftw       -> libfftw3f.3 + libfftw3f_threads.3 (dfttest)
     #   boost      -> libboost_filesystem + libboost_atomic (nnedi3cl)
     #   libdvdread -> libdvdread (DVD title extraction in the worker)
-    #   xz         -> liblzma.5 (linked by Stefan-Olt's x86_64 bestsource)
-    fftw boost libdvdread xz
+    fftw boost libdvdread
     # FFmpeg (build-time convenience only; at runtime both arches ship static
     # ffmpeg downloaded from evermeet.cx (x64) / martin-riedl.de (arm64))
     ffmpeg
@@ -154,7 +153,7 @@ done
 # On the only available Intel runner (macos-15-intel) `brew install` pours
 # minos 14/15 bottles that won't load on macOS 12. Build the few libraries we
 # *bundle* from source so they inherit MACOSX_DEPLOYMENT_TARGET (12.0):
-#   zimg/fftw/libdvdread/xz  - stable C ABIs; dropped in over the Homebrew
+#   zimg/fftw/libdvdread     - stable C ABIs; dropped in over the Homebrew
 #                              copies just before the repoint pass.
 #   boost (filesystem,atomic) - ABI-sensitive, so the OpenCL plugins
 #                              (nnedi3cl/knlmeanscl) are ALSO compiled against
@@ -167,14 +166,6 @@ if [ "$ARCH" = "x86_64" ]; then
     NPROC=$(sysctl -n hw.ncpu)
     SRC_TMP="$BUILD_DIR/srclib-src"
     mkdir -p "$SRCLIB" "$SRC_TMP"
-    cd "$SRC_TMP"
-
-    # xz / liblzma 5.4.6 (pre-5.6 to avoid the 5.6.x backdoor) -> liblzma.5.dylib
-    echo "  Building xz (liblzma 5.4.6)..."
-    curl -fsSL "https://github.com/tukaani-project/xz/releases/download/v5.4.6/xz-5.4.6.tar.gz" -o xz.tar.gz
-    tar xzf xz.tar.gz && cd xz-5.4.6
-    ./configure --prefix="$SRCLIB" --enable-shared --disable-static --disable-doc -q
-    make -j"$NPROC" >/dev/null && make install >/dev/null
     cd "$SRC_TMP"
 
     # fftw 3.3.10, single precision + threads -> libfftw3f.3 + libfftw3f_threads.3
@@ -216,7 +207,7 @@ if [ "$ARCH" = "x86_64" ]; then
 
     # boost is linked by the OpenCL plugins built later; give it an @rpath id so
     # those plugins record a *repointable* reference (the repoint pass skips refs
-    # that are already @loader_path/...). zimg/fftw/dvdread/lzma get their ids
+    # that are already @loader_path/...). zimg/fftw/dvdread get their ids
     # normalized when they're dropped into the bundle.
     for b in libboost_filesystem libboost_atomic; do
         [ -f "$SRCLIB/lib/$b.dylib" ] && install_name_tool -id "@rpath/$b.dylib" "$SRCLIB/lib/$b.dylib"
@@ -270,16 +261,32 @@ PYTHON_INCLUDE="$PYTHON_DIR/include/python${PYTHON_MAJOR_MINOR}"
 echo ""
 echo "=== Building VapourSynth from source ==="
 
+VS_TAG="R78"
 VS_BUILD_DIR="$BUILD_DIR/vapoursynth"
 VS_INSTALL_DIR="$BUILD_DIR/vapoursynth-install"
 
 if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.dylib" ]; then
-    echo "  Cloning VapourSynth R73..."
+    echo "  Cloning VapourSynth $VS_TAG..."
     rm -rf "$VS_BUILD_DIR"
-    git clone --depth 1 --branch R73 https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR" 2>/dev/null || \
+    git clone --depth 1 --branch "$VS_TAG" https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR" 2>/dev/null || \
     git clone --depth 1 https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR"
 
     cd "$VS_BUILD_DIR"
+
+    # ------------------------------------------------------------------------
+    # zimg API guard (backport of upstream 37eed3dd)
+    # ------------------------------------------------------------------------
+    # R78 reads zimg's chromatic_adaptation field unconditionally, but that
+    # field only exists in a zimg newer than the current release (3.0.6), so
+    # R78 does not compile against any released zimg. Upstream fixed it two
+    # days after tagging; this is that fix. Hard-fail rather than fall over in
+    # the compiler with a confusing error.
+    git apply "$SCRIPT_DIR/patches/vapoursynth-r78-zimg-api-guard.patch" || {
+        echo "  ERROR: patches/vapoursynth-r78-zimg-api-guard.patch did not apply." >&2
+        echo "  If VapourSynth has moved past R78 the fix is already upstream — drop it." >&2
+        exit 1
+    }
+    echo "  Applied the zimg chromatic_adaptation API guard"
 
     # ------------------------------------------------------------------------
     # Back-deploy patch for Monterey (issue #39) — x64 only
@@ -294,15 +301,24 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.dylib" ];
     # bundle stays byte-for-byte unchanged.
     if [ "$ARCH" = "x86_64" ]; then
         echo "  Patching vspipe doubleToString for Monterey back-deploy (issue #39)..."
-        for vs_src in src/vspipe/vsjson.cpp src/vspipe/vspipe.cpp; do
+        # R73 carried doubleToString() in both files; R78 has it only in
+        # vsjson.cpp. Patch whichever files actually contain it, so this neither
+        # hard-fails on a file that no longer needs it nor silently skips one
+        # that does.
+        for vs_src in $(grep -rl "std::to_chars" src/vspipe/ 2>/dev/null); do
             VS_SRC="$vs_src" python3 - <<'PYEOF'
-import os, sys
+import os, re, sys
 path = os.environ["VS_SRC"]
 with open(path) as f:
     content = f.read()
 
-old = ("    auto res = std::to_chars(buffer, buffer + sizeof(buffer), v, std::chars_format::fixed);\n"
-       "    return std::string(buffer, res.ptr - buffer);")
+# R78 uses two call forms: vsjson.cpp passes chars_format::fixed, vspipe.cpp
+# adds a precision argument. Match either, rather than one literal string.
+m = re.search(
+    r"[ \t]*auto res = std::to_chars\(buffer, buffer \+ sizeof\(buffer\), v, std::chars_format::fixed[^)]*\);\n"
+    r"[ \t]*return std::string\(buffer, res\.ptr - buffer\);",
+    content)
+old = m.group(0) if m else None
 new = ("    // issue #39: std::to_chars(double) needs macOS 13.3+ libc++. Emit the\n"
        "    // shortest fixed-notation string that round-trips, via snprintf, so\n"
        "    // vspipe loads on Monterey 12.x.\n"
@@ -314,14 +330,14 @@ new = ("    // issue #39: std::to_chars(double) needs macOS 13.3+ libc++. Emit t
        "    std::snprintf(buffer, sizeof(buffer), \"%.17f\", v);\n"
        "    return std::string(buffer);")
 
-if old not in content:
+if old is None:
     if "issue #39" in content:
         print(f"    {path}: already patched")
         sys.exit(0)
     print(f"    ERROR: expected to_chars pattern not found in {path}", file=sys.stderr)
     sys.exit(1)
 
-content = content.replace(old, new)
+content = content.replace(old, new, 1)
 # Ensure the headers snprintf/strtod need are present (idempotent).
 content = content.replace("#include <charconv>\n",
                           "#include <charconv>\n#include <cstdio>\n#include <cstdlib>\n", 1)
@@ -334,7 +350,7 @@ PYEOF
 
     # Install Cython in our embedded Python for building
     echo "  Installing Cython in embedded Python..."
-    "$PYTHON_BIN" -m pip install --quiet cython
+    "$PYTHON_BIN" -m pip install --quiet cython meson
 
     # Create pkg-config file for our embedded Python
     mkdir -p "$BUILD_DIR/pkgconfig"
@@ -368,46 +384,95 @@ EOF
     # Configure with no system plugin path and using our embedded Python
     PATH="$PYTHON_DIR/bin:$BREW_PREFIX/opt/cython/bin:$PATH" \
     PKG_CONFIG_PATH="$BUILD_DIR/pkgconfig:$BREW_PREFIX/lib/pkgconfig" \
-    meson setup build \
+    # meson looks for a "cython3" program before "cython", so apt's cython3
+    # (0.29 on jammy) wins over the Cython 3.x we just installed into the
+    # embedded interpreter no matter how PATH is ordered — and R78's
+    # vapoursynth.pyx uses Cython 3 syntax, failing with "Syntax error in C
+    # variable declaration" on `noexcept`. Provide both names as wrappers that
+    # run the module, which also sidesteps the console script's baked-in
+    # shebang (it points at the machine that built the interpreter).
+    for cy in cython cython3; do
+        cat > "$PYTHON_DIR/bin/$cy" << CYEOF
+#!/bin/bash
+exec "$PYTHON_DIR/bin/python3" -m cython "\$@"
+CYEOF
+        chmod +x "$PYTHON_DIR/bin/$cy"
+    done
+
+    # Run meson with the EMBEDDED python, not whatever meson happens to be
+    # installed under. R78 locates Python with
+    # `import('python').find_installation()`, which resolves to the interpreter
+    # meson itself is running as — PATH does not influence it, and the
+    # -Dpython3_bin option that used to override it was removed. Left alone,
+    # meson picks the runner's system python: on Linux that has no development
+    # headers, so configuration dies with "Header 'Python.h' could not be
+    # found", and on macOS it silently builds and installs against Homebrew's
+    # python instead of the one we ship.
+    "$PYTHON_BIN" -m mesonbuild.mesonmain setup build \
         --prefix="$VS_INSTALL_DIR" \
         --buildtype=release \
-        -Dlibdir=lib \
-        -Dplugindir="" \
-        -Dpython3_bin="$PYTHON_BIN"
+        -Dlibdir=lib
 
     echo "  Building VapourSynth..."
     PATH="$PYTHON_DIR/bin:$PATH" ninja -C build
     PATH="$PYTHON_DIR/bin:$PATH" ninja -C build install
 
     echo "  Copying VapourSynth files..."
-    # Copy vspipe
-    cp "$VS_INSTALL_DIR/bin/vspipe" "$DEPS_DIR/vapoursynth/vspipe-bin"
+    # Copy from the build directory, not the install prefix. R74 turned
+    # VapourSynth into a Python package ("pip install vapoursynth"), so
+    # `ninja install` now puts vspipe and every library under
+    # <prefix>/<python-site-packages>/vapoursynth/ rather than <prefix>/bin and
+    # <prefix>/lib. The build directory is flat and does not depend on which
+    # Python did the install, so it is the stable place to copy from.
+    VS_BUILT="$VS_BUILD_DIR/build"
+
+    cp "$VS_BUILT/vspipe" "$DEPS_DIR/vapoursynth/vspipe-bin"
     chmod +x "$DEPS_DIR/vapoursynth/vspipe-bin"
 
-    # Copy libraries with both names for compatibility
-    cp "$VS_INSTALL_DIR/lib/libvapoursynth.4.dylib" "$DEPS_DIR/vapoursynth/libvapoursynth.dylib"
-    cp "$VS_INSTALL_DIR/lib/libvapoursynth.4.dylib" "$DEPS_DIR/vapoursynth/libvapoursynth.4.dylib"
-    cp "$VS_INSTALL_DIR/lib/libvapoursynth-script.4.dylib" "$DEPS_DIR/vapoursynth/libvapoursynth-script.dylib"
-    cp "$VS_INSTALL_DIR/lib/libvapoursynth-script.4.dylib" "$DEPS_DIR/vapoursynth/libvapoursynth-script.4.dylib"
+    # ------------------------------------------------------------------------
+    # deps/<platform>/vapoursynth/ IS the Python package
+    # ------------------------------------------------------------------------
+    # R78 ships VapourSynth as a Python package, and vsscript resolves the
+    # Python library through a config file keyed by the ABSOLUTE PATH of
+    # libvsscript. That config is written by `vapoursynth config`, which records
+    # the libvsscript belonging to the imported package. So the copy vspipe-bin
+    # loads and the copy the module reports have to be the same file, or every
+    # script fails with "Python executable and library path couldn't be
+    # determined despite automatic configuration".
+    #
+    # Keeping the directory name `vapoursynth` and putting the platform dir on
+    # PYTHONPATH satisfies that without moving anything the app already knows
+    # about. It also puts the plugins at <libdir>/plugins, which R78 autoloads,
+    # so VAPOURSYNTH_EXTRA_PLUGIN_PATH is no longer set on this platform — with
+    # both, every plugin loads twice and warns about it.
+    cp "$VS_BUILT/libvapoursynth.4.dylib"      "$DEPS_DIR/vapoursynth/libvapoursynth.4.dylib"
+    ln -sf libvapoursynth.4.dylib              "$DEPS_DIR/vapoursynth/libvapoursynth.dylib"
+    # vapoursynth-script was renamed vsscript in R78, and is unversioned.
+    cp "$VS_BUILT/libvsscript.dylib"           "$DEPS_DIR/vapoursynth/libvsscript.dylib"
+    # R78 split every core filter (std, resize, ...) out of libvapoursynth into
+    # this module. Without it the core namespaces are simply absent and every
+    # job fails at script evaluation.
+    cp "$VS_BUILT/libvapoursynthfilters.dylib" "$DEPS_DIR/vapoursynth/libvapoursynthfilters.dylib"
+    cp "$VS_BUILT/vapoursynth.abi3.so"         "$DEPS_DIR/vapoursynth/"
+    # The pure-Python half of the package. Without it `vapoursynth config`
+    # cannot run and vsscript's automatic configuration has nothing to call.
+    cp "$VS_BUILD_DIR/src/py/"*.py "$VS_BUILD_DIR/src/py/vapoursynth.pyi" \
+        "$DEPS_DIR/vapoursynth/" 2>/dev/null || \
+        cp "$VS_BUILD_DIR/src/py/"*.py "$DEPS_DIR/vapoursynth/"
+
+    # vsscript self-configures by shelling out to a `vapoursynth` executable.
+    # A from-source build creates no console script, so provide one.
+    cat > "$PYTHON_DIR/bin/vapoursynth" << 'SHIM_EOF'
+#!/bin/bash
+DEPS_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+export PYTHONHOME="$DEPS_ROOT/python"
+export PYTHONPATH="$DEPS_ROOT:$DEPS_ROOT/python-packages:${PYTHONPATH:-}"
+exec "$DEPS_ROOT/python/bin/python3" -m vapoursynth "$@"
+SHIM_EOF
+    chmod +x "$PYTHON_DIR/bin/vapoursynth"
 
     # Copy zimg from Homebrew (will fix paths to be relative)
     cp "$BREW_PREFIX/lib/libzimg.2.dylib" "$DEPS_DIR/vapoursynth/libzimg.dylib"
-
-    # Copy Python module
-    find "$VS_BUILD_DIR/build" -name "vapoursynth*.so" -exec cp {} "$PYTHON_PACKAGES_DIR/" \;
-
-    # Fix Python module library paths (critical for self-contained operation)
-    cd "$PYTHON_PACKAGES_DIR"
-    for so_file in vapoursynth.cpython-*.so; do
-        if [ -f "$so_file" ]; then
-            # Fix libvapoursynth reference to use loader_path
-            install_name_tool -change "@rpath/libvapoursynth.4.dylib" \
-                "@loader_path/../vapoursynth/libvapoursynth.4.dylib" "$so_file" 2>/dev/null || true
-            # Fix Python library reference (from python-build-standalone's internal path)
-            install_name_tool -change "/install/lib/libpython${PYTHON_MAJOR_MINOR}.dylib" \
-                "@loader_path/../python/lib/libpython${PYTHON_MAJOR_MINOR}.dylib" "$so_file" 2>/dev/null || true
-        fi
-    done
 
     echo "  Fixing library paths..."
     cd "$DEPS_DIR/vapoursynth"
@@ -417,21 +482,35 @@ EOF
         install_name_tool -id "@loader_path/$lib" "$lib" 2>/dev/null || true
     done
 
-    # Fix vspipe-bin to use relative paths
-    install_name_tool -change "$VS_INSTALL_DIR/lib/libvapoursynth-script.4.dylib" \
-        "@executable_path/libvapoursynth-script.4.dylib" vspipe-bin
-
-    # Fix libvapoursynth-script references
-    install_name_tool -change "$VS_INSTALL_DIR/lib/libvapoursynth.4.dylib" \
-        "@loader_path/libvapoursynth.4.dylib" libvapoursynth-script.dylib
-    install_name_tool -change "$VS_INSTALL_DIR/lib/libvapoursynth.4.dylib" \
-        "@loader_path/libvapoursynth.4.dylib" libvapoursynth-script.4.dylib
-
-    # Fix Python library reference to use our embedded Python
-    install_name_tool -change "$PYTHON_DIR/lib/libpython${PYTHON_MAJOR_MINOR}.dylib" \
-        "@executable_path/../python/lib/libpython${PYTHON_MAJOR_MINOR}.dylib" libvapoursynth-script.dylib
-    install_name_tool -change "$PYTHON_DIR/lib/libpython${PYTHON_MAJOR_MINOR}.dylib" \
-        "@executable_path/../python/lib/libpython${PYTHON_MAJOR_MINOR}.dylib" libvapoursynth-script.4.dylib
+    # Everything that links libvapoursynth or libpython now sits in this one
+    # directory (R78 ships them as a Python package), so fix them in one pass.
+    #
+    # The python reference is "/install/lib/libpython3.X.dylib" —
+    # python-build-standalone bakes that absolute path in as the install name,
+    # and it does not exist on any machine. Rewriting it is what makes the
+    # bundle self-contained; miss it and vspipe dies at load with
+    # "Library not loaded: /install/lib/libpython3.12.dylib". Both that and the
+    # build-tree path are rewritten, so it does not matter which the linker
+    # recorded.
+    for macho in libvsscript.dylib libvapoursynthfilters.dylib vapoursynth.abi3.so \
+                 vspipe-bin libvapoursynth-script.dylib libvapoursynth-script.4.dylib; do
+        [ -e "$macho" ] || continue
+        for vs_ref in "$VS_INSTALL_DIR/lib/libvapoursynth.4.dylib" "@rpath/libvapoursynth.4.dylib"; do
+            install_name_tool -change "$vs_ref" \
+                "@loader_path/libvapoursynth.4.dylib" "$macho" 2>/dev/null || true
+        done
+        # vspipe links vsscript through @rpath. That happens to resolve via the
+        # DYLD_LIBRARY_PATH the wrapper and the worker both set, so it "works"
+        # without this — but only because of the environment, which makes the
+        # binary non-relocatable and the failure environment-dependent.
+        install_name_tool -change "@rpath/libvsscript.dylib" \
+            "@loader_path/libvsscript.dylib" "$macho" 2>/dev/null || true
+        for py_ref in "/install/lib/libpython${PYTHON_MAJOR_MINOR}.dylib" \
+                      "$PYTHON_DIR/lib/libpython${PYTHON_MAJOR_MINOR}.dylib"; do
+            install_name_tool -change "$py_ref" \
+                "@loader_path/../python/lib/libpython${PYTHON_MAJOR_MINOR}.dylib" "$macho" 2>/dev/null || true
+        done
+    done
 
     # Fix zimg references
     install_name_tool -change "$BREW_PREFIX/opt/zimg/lib/libzimg.2.dylib" \
@@ -454,33 +533,24 @@ export PYTHONHOME="$DEPS_ROOT/python"
 export VAPOURSYNTH_PLUGIN_PATH="$SCRIPT_DIR/plugins"
 
 # Set Python path to load our vapoursynth module and packages
-export PYTHONPATH="$DEPS_ROOT/python-packages:${PYTHONPATH:-}"
+export PYTHONPATH="$DEPS_ROOT:$DEPS_ROOT/python-packages:${PYTHONPATH:-}"
 
 # Add our lib directories to dylib search path
 export DYLD_LIBRARY_PATH="$SCRIPT_DIR:$DEPS_ROOT/python/lib:${DYLD_LIBRARY_PATH:-}"
 
-# Generate config dynamically with correct absolute path
-CONF_FILE=$(mktemp)
-cat > "$CONF_FILE" << EOF
-UserPluginDir=$SCRIPT_DIR/plugins
-AutoloadUserPluginDir=true
-AutoloadSystemPluginDir=false
-EOF
-export VAPOURSYNTH_CONF_PATH="$CONF_FILE"
+# R74 removed the config-file mechanism entirely (UserPluginDir /
+# AutoloadUserPluginDir / VAPOURSYNTH_CONF_PATH no longer exist). Plugins live
+# at <libdir>/plugins and are autoloaded, so no plugin variable is needed here.
+#
+# vsscript resolves the Python library through a config keyed by the libvsscript
+# path and writes it on first use via the `vapoursynth` shim on PATH, so give it
+# somewhere writable to put it.
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$DEPS_ROOT/config}"
+mkdir -p "$XDG_CONFIG_HOME" 2>/dev/null || true
 
-# Run vspipe and clean up config
-"$SCRIPT_DIR/vspipe-bin" "$@"
-EXIT_CODE=$?
-rm -f "$CONF_FILE"
-exit $EXIT_CODE
+exec "$SCRIPT_DIR/vspipe-bin" "$@"
 WRAPPER_EOF
     chmod +x "$DEPS_DIR/vapoursynth/vspipe"
-
-    # Create fallback config file (used if wrapper doesn't generate one)
-    cat > "$DEPS_DIR/vapoursynth/vapoursynth.conf" << 'CONF_EOF'
-AutoloadUserPluginDir=false
-AutoloadSystemPluginDir=false
-CONF_EOF
 
     cd "$BUILD_DIR"
     echo "  Built VapourSynth from source with embedded Python"
@@ -738,8 +808,40 @@ STEFANOLT="https://github.com/Stefan-Olt/vs-plugin-build/releases/download/vsplu
 # plugin builds on BOTH arches (see build_plugin and the x86_64 source builds):
 # the host python has no `vapoursynth` module on a clean runner, so meson plugins
 # can't probe it the usual way and must be pointed at these explicitly.
-VS_PC_DIR="$VS_INSTALL_DIR/lib/pkgconfig"
-VS_INC_DIR="$(dirname "$(find "$VS_INSTALL_DIR/include" -name 'VapourSynth4.h' 2>/dev/null | head -1)")"
+# R78 installs VapourSynth as a Python package, so its pkgconfig and
+# include directories live under <prefix>/<site-packages>/vapoursynth/
+# rather than <prefix>/lib and <prefix>/include. Locate them instead of
+# assuming: with the wrong path every plugin resolving VapourSynth via
+# pkg-config silently fails to configure, and the bundle comes out with
+# most of its plugins missing.
+VS_PC_DIR="$(dirname "$(find "$VS_INSTALL_DIR" -name vapoursynth.pc 2>/dev/null | head -1)")"
+VS_INC_DIR="$(dirname "$(find "$VS_INSTALL_DIR" -name 'VapourSynth4.h' 2>/dev/null | head -1)")"
+# R78's generated vapoursynth.pc dropped the libdir variable that R73's had.
+# Plugins whose meson.build does
+#   vapoursynth_dep.get_variable(pkgconfig: 'libdir')
+# to decide where to install (addgrain, tcanny) then fail configuration with
+# "Could not get pkg-config variable and no default provided". The value is only
+# used as an install prefix and we copy the built dylib ourselves, so any sane
+# path restores the lookup.
+if [ -n "$VS_PC_DIR" ] && [ -f "$VS_PC_DIR/vapoursynth.pc" ] \
+   && ! grep -q '^libdir=' "$VS_PC_DIR/vapoursynth.pc"; then
+    awk '{print} /^includedir=/ && !done {print "libdir=${prefix}/lib"; done=1}' \
+        "$VS_PC_DIR/vapoursynth.pc" > "$VS_PC_DIR/vapoursynth.pc.tmp" \
+        && mv "$VS_PC_DIR/vapoursynth.pc.tmp" "$VS_PC_DIR/vapoursynth.pc"
+    echo "  Added libdir to vapoursynth.pc (R78 omits it)"
+fi
+
+# R78 installs only the API4 headers, but several plugins we build still
+# #include <VapourSynth.h> (API3) — api3 support remains in the core, just the
+# headers stopped being installed. They are still in the source tree, so top up
+# the include dir from there; without this nnedi3, addgrain, awarpsharp2, ctmf
+# and the OpenCL pair fail with "'VapourSynth.h' file not found".
+if [ -n "$VS_INC_DIR" ] && [ -d "$VS_BUILD_DIR/include" ]; then
+    for hdr in "$VS_BUILD_DIR/include/"*.h; do
+        [ -f "$hdr" ] || continue
+        [ -f "$VS_INC_DIR/$(basename "$hdr")" ] || cp "$hdr" "$VS_INC_DIR/"
+    done
+fi
 
 if [ "$ARCH" = "x86_64" ]; then
     # ========================================================================
@@ -768,20 +870,6 @@ if [ "$ARCH" = "x86_64" ]; then
     download_prebuilt_plugin "CTMF"          "libctmf.dylib"        "$STEFANOLT/com.holywu.ctmf/r5/darwin-x86_64/2024-09-30T20.54.04%2B00.00Z/CTMF-r5-darwin-x86_64.zip"
     download_prebuilt_plugin "TCanny"        "libtcanny.dylib"      "$STEFANOLT/com.holywu.tcanny/r14/darwin-x86_64/2024-09-30T21.00.45%2B00.00Z/TCanny-r14-darwin-x86_64.zip"
     download_prebuilt_plugin "TemporalMedian" "libtmedian.dylib"    "$STEFANOLT/com.nodame.temporalmedian/v1/darwin-x86_64/2024-09-30T21.01.26%2B00.00Z/TemporalMedian-v1-darwin-x86_64.zip"
-    download_prebuilt_plugin "BestSource"    "libbestsource.dylib"  "$STEFANOLT/com.vapoursynth.bestsource/R16/darwin-x86_64/2026-01-10T19.07.30%2B00.00Z/BestSource-R16-darwin-x86_64.zip"
-
-    # Stefan-Olt's x86_64 BestSource dynamically links liblzma; bundle it from
-    # Homebrew (xz) and repoint the reference at the bundled copy in lib/.
-    if [ -f "$PLUGINS_DIR/libbestsource.dylib" ]; then
-        if [ ! -f "$LIB_DIR/liblzma.5.dylib" ] && [ -f "$BREW_PREFIX/opt/xz/lib/liblzma.5.dylib" ]; then
-            cp "$BREW_PREFIX/opt/xz/lib/liblzma.5.dylib" "$LIB_DIR/liblzma.5.dylib"
-            install_name_tool -id "@loader_path/liblzma.5.dylib" "$LIB_DIR/liblzma.5.dylib" 2>/dev/null || true
-            codesign -s - -f "$LIB_DIR/liblzma.5.dylib" 2>/dev/null || true
-        fi
-        install_name_tool -change "$BREW_PREFIX/opt/xz/lib/liblzma.5.dylib" \
-            "@loader_path/../../lib/liblzma.5.dylib" "$PLUGINS_DIR/libbestsource.dylib" 2>/dev/null || true
-        codesign -s - -f "$PLUGINS_DIR/libbestsource.dylib" 2>/dev/null || true
-    fi
 
     # ---- The four plugins Stefan-Olt does not ship: build from source ----
     cd "$BUILD_DIR"
@@ -1248,28 +1336,6 @@ else
 fi
 download_prebuilt_plugin "TemporalMedian" "libtmedian.dylib" "$TMEDIAN_URL"
 
-# BestSource (core.bs - source loader, bundled for parity)
-if [ "$ARCH" = "arm64" ]; then
-    BESTSOURCE_URL="$STEFANOLT/com.vapoursynth.bestsource/R16/darwin-aarch64/2026-01-10T18.55.40%2B00.00Z/BestSource-R16-darwin-aarch64.zip"
-else
-    BESTSOURCE_URL="$STEFANOLT/com.vapoursynth.bestsource/R16/darwin-x86_64/2026-01-10T19.07.30%2B00.00Z/BestSource-R16-darwin-x86_64.zip"
-fi
-download_prebuilt_plugin "BestSource" "libbestsource.dylib" "$BESTSOURCE_URL"
-
-# Stefan-Olt's aarch64 BestSource links the *system* /usr/lib/liblzma.5.dylib
-# (the x86_64 build links Homebrew's xz copy, handled in the x86_64 branch above).
-# Bundle liblzma from Homebrew (xz) and repoint the reference at the bundled copy
-# so the issue #28 guard stays strict and we don't depend on the system lib.
-if [ "$ARCH" = "arm64" ] && [ -f "$PLUGINS_DIR/libbestsource.dylib" ]; then
-    if [ ! -f "$LIB_DIR/liblzma.5.dylib" ] && [ -f "$BREW_PREFIX/opt/xz/lib/liblzma.5.dylib" ]; then
-        cp "$BREW_PREFIX/opt/xz/lib/liblzma.5.dylib" "$LIB_DIR/liblzma.5.dylib"
-        install_name_tool -id "@loader_path/liblzma.5.dylib" "$LIB_DIR/liblzma.5.dylib" 2>/dev/null || true
-        codesign -s - -f "$LIB_DIR/liblzma.5.dylib" 2>/dev/null || true
-    fi
-    install_name_tool -change "/usr/lib/liblzma.5.dylib" \
-        "@loader_path/../../lib/liblzma.5.dylib" "$PLUGINS_DIR/libbestsource.dylib" 2>/dev/null || true
-    codesign -s - -f "$PLUGINS_DIR/libbestsource.dylib" 2>/dev/null || true
-fi
 fi  # end plugin arch split (x86_64 pre-built / arm64 from-source)
 
 # zsmooth (core.zsmooth.CCD - chroma denoiser; also Cnr4 and a set of
@@ -1543,7 +1609,7 @@ if [ "$ARCH" = "x86_64" ] && [ -d "$SRCLIB/lib" ]; then
     # The remaining libs live in lib/; the repoint passes below normalize their
     # ids and inter-references. cp -f follows the versioned symlinks.
     for libname in libfftw3f.3.dylib libfftw3f_threads.3.dylib libdvdread.dylib \
-                   liblzma.5.dylib libboost_filesystem.dylib libboost_atomic.dylib; do
+                   libboost_filesystem.dylib libboost_atomic.dylib; do
         if [ -f "$SRCLIB/lib/$libname" ]; then
             cp -f "$SRCLIB/lib/$libname" "$LIB_DIR/$libname"
             codesign -s - -f "$LIB_DIR/$libname" 2>/dev/null || true
@@ -1566,7 +1632,7 @@ fi
 # the bundle is fully relocatable.
 echo ""
 echo "=== Repointing plugin support-lib references to bundled lib/ ==="
-SUPPORT_LIBS=(libfftw3f.3.dylib libfftw3f_threads.3.dylib libboost_filesystem.dylib libboost_atomic.dylib liblzma.5.dylib libdvdread.dylib)
+SUPPORT_LIBS=(libfftw3f.3.dylib libfftw3f_threads.3.dylib libboost_filesystem.dylib libboost_atomic.dylib libdvdread.dylib)
 for plugin in "$PLUGINS_DIR"/*.dylib; do
     [ -f "$plugin" ] || continue
     plugin_base=$(basename "$plugin")
@@ -1646,7 +1712,7 @@ done
 
 # Sign Python module
 cd "$PYTHON_PACKAGES_DIR"
-for so_file in vapoursynth.cpython-*.so; do
+for so_file in vapoursynth*.so; do
     if [ -f "$so_file" ]; then
         codesign -s - -f "$so_file" 2>/dev/null && echo "  Signed $so_file"
     fi
@@ -1660,9 +1726,19 @@ cd "$BUILD_DIR"
 echo ""
 echo "=== Writing version file ==="
 
+# Stamp the version the app expects, read from the single source of truth.
+# A hardcoded value here (it used to be 1.0.0) makes checkDependencies() — an
+# exact string compare against app/assets/deps-version.json — report a mismatch
+# for a freshly built tree, and the app then downloads the published bundle
+# straight over the top of it. Harmless while the local tree matched the
+# release; destructive as soon as it is ahead, which is exactly what a deps
+# upgrade branch creates.
+EXPECTED_DEPS_VERSION=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" \
+    "$PROJECT_ROOT/app/assets/deps-version.json" 2>/dev/null || echo "0.0.0")
+
 cat > "$DEPS_DIR/version.json" << EOF
 {
-  "version": "1.0.0",
+  "version": "$EXPECTED_DEPS_VERSION",
   "installedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "platform": "$PLATFORM_DIR",
   "architecture": "$ARCH",
@@ -1795,7 +1871,7 @@ else
     echo "The MACOSX_DEPLOYMENT_TARGET export fixes everything built from source here."
     echo "Anything still flagged is a *prebuilt* artifact this script only copies, so"
     echo "it needs its own fix:"
-    echo "  - Homebrew bottles (zimg/fftw/boost/libdvdread/xz): the macos-15 runner"
+    echo "  - Homebrew bottles (zimg/fftw/boost/libdvdread): the macos-15 runner"
     echo "    installs Sequoia bottles. Build these from source with the target set,"
     echo "    or fetch older-OS bottles."
     echo "  - ffmpeg (evermeet.cx / martin-riedl.de) and Python (python-build-standalone):"

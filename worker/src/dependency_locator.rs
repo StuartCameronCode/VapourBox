@@ -161,15 +161,23 @@ impl DependencyLocator {
 
         #[cfg(target_os = "windows")]
         {
-            // Windows: VapourSynth portable uses VSPipe.exe
-            let path = vs_dir.join("VSPipe.exe");
+            // R78 ships Windows as a Python wheel, so vspipe.exe lives inside
+            // the installed package next to libvapoursynth.dll rather than at
+            // the root of the portable directory.
+            let path = vs_dir
+                .join("Lib")
+                .join("site-packages")
+                .join("vapoursynth")
+                .join("vspipe.exe");
             if path.exists() {
                 return Ok(path);
             }
-            // Fallback to lowercase
-            let alt = vs_dir.join("vspipe.exe");
-            if alt.exists() {
-                return Ok(alt);
+            // Pre-R78 layouts kept it at the top level.
+            for legacy in ["VSPipe.exe", "vspipe.exe"] {
+                let alt = vs_dir.join(legacy);
+                if alt.exists() {
+                    return Ok(alt);
+                }
             }
         }
 
@@ -499,6 +507,16 @@ impl DependencyLocator {
             // Custom Python packages first (always needed)
             paths.push(platform_dir.join("python-packages").to_string_lossy().to_string());
 
+            // R78 ships VapourSynth as a Python package: libvapoursynth,
+            // libvapoursynthfilters, libvsscript and the extension module all
+            // live in <deps>/vapoursynth/. Putting the platform directory on
+            // the path is what makes `import vapoursynth` resolve to it, and
+            // it is also what lets `vapoursynth config` record the same
+            // libvsscript path that vspipe-bin loads — the config is keyed by
+            // that absolute path, so a mismatch means "Python executable and
+            // library path couldn't be determined".
+            paths.push(platform_dir.to_string_lossy().to_string());
+
             // Add bundled Python site-packages if available
             if let Some(python_home) = self.python_home() {
                 // Python 3.12 from python-build-standalone
@@ -513,6 +531,16 @@ impl DependencyLocator {
         {
             // Linux: same layout as macOS
             paths.push(platform_dir.join("python-packages").to_string_lossy().to_string());
+
+            // R78 ships VapourSynth as a Python package: libvapoursynth,
+            // libvapoursynthfilters, libvsscript and the extension module all
+            // live in <deps>/vapoursynth/. Putting the platform directory on
+            // the path is what makes `import vapoursynth` resolve to it, and
+            // it is also what lets `vapoursynth config` record the same
+            // libvsscript path that vspipe-bin loads — the config is keyed by
+            // that absolute path, so a mismatch means "Python executable and
+            // library path couldn't be determined".
+            paths.push(platform_dir.to_string_lossy().to_string());
 
             if let Some(python_home) = self.python_home() {
                 paths.push(python_home.join("lib").join("python3.12").join("site-packages").to_string_lossy().to_string());
@@ -700,26 +728,6 @@ impl DependencyLocator {
         }
     }
 
-    /// Write the VapourSynth autoload config to a PER-PROCESS path and return it.
-    ///
-    /// `build_environment` runs on every worker invocation, and `flutter test`
-    /// runs test files concurrently, so writing a shared, fixed-name conf let an
-    /// overlapping vspipe read it mid-truncation — `UserPluginDir` came back
-    /// empty and plugin autoload silently skipped everything (the intermittent
-    /// "No attribute with the name fmtc exists" on the nightly). A per-process
-    /// file (named by PID) is written fully by this process and touched by no
-    /// other, eliminating the race. Verified by reproduction: a shared conf
-    /// failed ~1/120 concurrent runs; per-process was 0/360.
-    fn write_runtime_conf(plugins_dir: &Path) -> Option<PathBuf> {
-        let content = format!(
-            "UserPluginDir={}\nAutoloadUserPluginDir=true\nAutoloadSystemPluginDir=false\n",
-            plugins_dir.to_string_lossy()
-        );
-        let conf_path = env::temp_dir().join(format!("vapourbox-vs-{}.conf", std::process::id()));
-        std::fs::write(&conf_path, content).ok()?;
-        Some(conf_path)
-    }
-
     /// Build environment variables for running vspipe/ffmpeg.
     pub fn build_environment(&self) -> std::collections::HashMap<String, String> {
         let mut env = std::collections::HashMap::new();
@@ -733,11 +741,32 @@ impl DependencyLocator {
         }
         env.insert("PYTHONPATH".to_string(), self.python_path());
 
-        // Set VapourSynth plugin path
+        // Set VapourSynth plugin path.
+        //
+        // On macOS and Linux the plugins sit at <deps>/vapoursynth/plugins,
+        // which is <libdir>/plugins relative to libvapoursynth, so R78
+        // autoloads them and setting this as well would load every plugin
+        // twice ("Plugin ... already loaded"). Windows keeps it: its plugins
+        // live in vs-plugins, which is not the autoload directory.
+        #[cfg(target_os = "windows")]
         env.insert(
-            "VAPOURSYNTH_PLUGIN_PATH".to_string(),
+            "VAPOURSYNTH_EXTRA_PLUGIN_PATH".to_string(),
             self.vapoursynth_plugin_path().to_string_lossy().to_string(),
         );
+
+        // vsscript resolves the Python library through a config file keyed by
+        // the libvsscript path, and writes it on first use by shelling out to
+        // a `vapoursynth` executable. Give it a writable location inside the
+        // deps tree and make sure the bundled python/bin (which carries that
+        // shim) is reachable.
+        #[cfg(not(target_os = "windows"))]
+        {
+            env.insert(
+                "XDG_CONFIG_HOME".to_string(),
+                self.platform_dir().join("config").to_string_lossy().to_string(),
+            );
+            let _ = std::fs::create_dir_all(self.platform_dir().join("config"));
+        }
 
         // Set NNEDI3CL weights
         env.insert(
@@ -768,14 +797,16 @@ impl DependencyLocator {
             };
             env.insert("DYLD_LIBRARY_PATH".to_string(), new_dyld);
 
-            // Generate VapourSynth config so vspipe-bin finds bundled plugins
-            // and ignores system plugins (which could conflict).
-            // This replaces the config generation in the vspipe wrapper script,
-            // allowing us to call vspipe-bin directly (so kill() works).
+            // Point vspipe-bin at the bundled plugins. R74 removed the config
+            // file mechanism (UserPluginDir / AutoloadUserPluginDir /
+            // VAPOURSYNTH_CONF_PATH) in favour of this variable, which also
+            // retires the per-process conf file we used to write: there is no
+            // longer a shared file for concurrent runs to race on.
             let plugins_dir = vs_lib_path.join("plugins");
-            if let Some(conf_path) = Self::write_runtime_conf(&plugins_dir) {
-                env.insert("VAPOURSYNTH_CONF_PATH".to_string(), conf_path.to_string_lossy().to_string());
-            }
+            env.insert(
+                "VAPOURSYNTH_EXTRA_PLUGIN_PATH".to_string(),
+                plugins_dir.to_string_lossy().to_string(),
+            );
         }
 
         #[cfg(target_os = "linux")]
@@ -803,11 +834,12 @@ impl DependencyLocator {
             };
             env.insert("LD_LIBRARY_PATH".to_string(), new_ld);
 
-            // Generate VapourSynth config (same as macOS)
+            // Bundled plugin path (same as macOS)
             let plugins_dir = vs_lib_path.join("plugins");
-            if let Some(conf_path) = Self::write_runtime_conf(&plugins_dir) {
-                env.insert("VAPOURSYNTH_CONF_PATH".to_string(), conf_path.to_string_lossy().to_string());
-            }
+            env.insert(
+                "VAPOURSYNTH_EXTRA_PLUGIN_PATH".to_string(),
+                plugins_dir.to_string_lossy().to_string(),
+            );
         }
 
         env

@@ -96,6 +96,11 @@ class _DependencyDownloadDialogState extends State<DependencyDownloadDialog> {
       case DependencyStatus.corrupted:
         return 'Some processing components are damaged or incomplete.\n\n'
             'Re-downloading to fix the issue.';
+      case DependencyStatus.newerThanExpected:
+        // main.dart keeps these and warns instead of opening this dialog;
+        // handled so the status can never fall through to the default.
+        return 'The installed processing components are newer than this build '
+            'expects.\n\nThey have been kept.';
       case DependencyStatus.blocked:
         // Re-downloading cannot fix this; main.dart reports the fix instead of
         // opening this dialog. Handled here so the status is never silently
