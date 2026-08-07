@@ -902,6 +902,38 @@ matter more than usual (see `app/test/vapoursynth_integration_test.dart`).
 > would `AttributeError`. Only reachable with `Denoiser='knlmeanscl'` **and**
 > `ChromaNoise=True` (both non-default), so it has never been hit.
 
+### Testing a deps change before publishing: release-candidate tags
+
+A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and
+`nightly.yml` download the bundle named by `app/assets/deps-version.json` from a
+**published** release, so a deps change cannot be tested until it is published —
+and publishing an untested bundle is what you were trying to avoid.
+
+**Draft releases do not solve it** (their assets need an authenticated API call,
+so neither CI nor the app can fetch them). **Prereleases do**: they are publicly
+downloadable at the ordinary `releases/download/<tag>/<asset>` URL, and every
+consumer here is tag-driven — `getDownloadUrl()` builds the URL from
+`releaseTag`, and nothing in the repo uses `/releases/latest`. So a prerelease
+is indistinguishable from a stable release to CI, the nightly suite *and* a real
+app build.
+
+The workflow:
+
+1. `gh release create deps-vX.Y.Z-rc1 --prerelease` on the PR branch.
+2. Run the three `build-deps-*` workflows with `version: X.Y.Z-rc1` and
+   `release_tag: deps-vX.Y.Z-rc1`. They upload the zip and its `.sha256.json`
+   sidecar. (They also always upload a workflow artifact, so `release_tag` can
+   be left empty for a build-only run.)
+3. Point `deps-version.json` at the rc **on the PR branch only**.
+4. Iterate — rc bundles are disposable, because the rule about never reusing a
+   deps version only binds once a *released app* references one.
+5. Before merge, publish the final `deps-vX.Y.Z` and repoint.
+
+`Scripts/release.sh` refuses to cut an app release while `deps-version.json`
+names an `-rc` tag. That is the one way this bites: an rc escaping into a shipped
+build, where later deleting the prerelease breaks the download for everyone who
+installed it.
+
 ### Installing a deps bundle: staged, swapped, and version-directional
 
 `DependencyManager` **replaces** a bundle rather than merging into one, which is

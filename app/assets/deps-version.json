@@ -1,6 +1,6 @@
 {
-  "version": "1.7.0",
-  "releaseTag": "deps-v1.7.0",
-  "releaseDate": "2026-08-01",
+  "version": "1.8.0-rc1",
+  "releaseTag": "deps-v1.8.0-rc1",
+  "releaseDate": "2026-08-07",
   "githubRepo": "StuartCameronCode/VapourBox"
 }

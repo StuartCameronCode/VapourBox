@@ -107,6 +107,25 @@ fi
 echo -e "${GREEN}Prerequisites OK${NC}"
 echo ""
 
+# ---------------------------------------------------------------------------
+# Refuse to ship an app that points at a release-candidate deps bundle.
+# ---------------------------------------------------------------------------
+# Candidate bundles (deps-vX.Y.Z-rcN) exist so a PR touching deps can be tested
+# by CI, the nightly suite and a real app build before anything is published as
+# stable — prereleases are publicly downloadable, drafts are not. They are
+# deliberately disposable, so one escaping into a shipped release is a live
+# hazard: deleting or rebuilding the prerelease later breaks the download for
+# every user who installed that build.
+DEPS_TAG_IN_TREE=$(grep '"releaseTag"' "$PROJECT_ROOT/app/assets/deps-version.json" 2>/dev/null | sed 's/.*: *"\([^"]*\)".*/\1/')
+if [[ "$DEPS_TAG_IN_TREE" == *-rc* ]]; then
+    echo -e "${RED}ERROR: app/assets/deps-version.json points at a release candidate:${NC}"
+    echo -e "${RED}         $DEPS_TAG_IN_TREE${NC}"
+    echo ""
+    echo "Publish the final deps release and repoint deps-version.json at it"
+    echo "before cutting an app release. RC tags must never ship."
+    exit 1
+fi
+
 # Get current versions from GitHub
 echo -e "${YELLOW}Fetching current versions from GitHub...${NC}"
 
