@@ -82,6 +82,31 @@ struct Args {
 fn main() -> ExitCode {
     let args = Args::parse();
 
+    // Become our own process-group leader, so the app can tear down this worker
+    // *and everything it spawns* with a single signal to -pid.
+    //
+    // Without this, killing the worker leaves vspipe and ffmpeg running. They
+    // usually die shortly afterwards, but only incidentally: their pipes close
+    // with the worker and they take EPIPE the next time they write. A child
+    // blocked on slow input — reading a source over a network share is the
+    // reported case — writes nothing for minutes and so never notices, and is
+    // left encoding a job nobody is waiting for.
+    //
+    // Nothing kills them deliberately today. The encode path's
+    // PipelineExecutor::terminate() only covers the children it tracks on
+    // `self`, and preview mode never even installs a signal handler (it returns
+    // below before ctrlc is set up), so a SIGTERM there kills the worker outright
+    // without unwinding — Drop never runs and its children are simply abandoned.
+    // Rather than add bookkeeping to each path, put everything in one group.
+    //
+    // Best-effort: if this fails the app falls back to signalling the pid alone,
+    // which is exactly today's behaviour.
+    #[cfg(unix)]
+    {
+        use nix::unistd::{setpgid, Pid};
+        let _ = setpgid(Pid::from_raw(0), Pid::from_raw(0));
+    }
+
     // DVD info mode: enumerate titles, output JSON to stdout
     if let Some(ref dvd_path) = args.dvd_info {
         return run_dvd_info(dvd_path);
