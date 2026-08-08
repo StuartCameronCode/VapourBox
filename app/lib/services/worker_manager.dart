@@ -29,6 +29,28 @@ class WorkerManager {
   /// indistinguishable from the hang reported in #50.
   bool _completionEmitted = false;
 
+  /// Which job the manager is currently running.
+  ///
+  /// Incremented by every [startJob]. Anything asynchronous that outlives a job
+  /// — the exit handler, the tail of [cancel] — captures this and does nothing
+  /// if it no longer matches, because by then it would be acting on someone
+  /// else's job.
+  ///
+  /// This matters because cancelling now waits for the worker to genuinely exit,
+  /// which can take seconds. Cancellation emits a completion, the queue advances
+  /// and starts the next job on that event, and the tail of the *cancelling*
+  /// call then ran `_cleanup()` — nulling `_process` and cancelling the new job's
+  /// stdout subscription. The job ran to completion with nobody listening, so the
+  /// progress dialog span forever with no updates.
+  int _generation = 0;
+
+  /// Whether the job identified by [_generation] is being cancelled.
+  ///
+  /// The exit handler is registered on `exitCode` before [cancel] awaits it, so
+  /// it reports first. Without this it describes a deliberate cancellation as
+  /// "Worker exited with code 143".
+  bool _cancelRequested = false;
+
   /// Stream of progress updates from the worker.
   final _progressController = StreamController<ProgressInfo>.broadcast();
   Stream<ProgressInfo> get progressStream => _progressController.stream;
@@ -53,6 +75,8 @@ class WorkerManager {
     }
 
     _completionEmitted = false;
+    _cancelRequested = false;
+    final generation = ++_generation;
 
     final toolLocator = ToolLocator.instance;
     final workerPath = toolLocator.workerPath;
@@ -89,8 +113,12 @@ class WorkerManager {
 
       // Wait for process to exit
       _process!.exitCode.then((exitCode) {
-        // Clean up config file
+        // Clean up config file — safe regardless of whose job this is.
         configFile.delete().catchError((_) => configFile);
+
+        // A newer job has since started; reporting its completion or tearing
+        // down its plumbing here would strand it silently.
+        if (generation != _generation) return;
 
         // The worker sends a `complete` message on both success and failure, so
         // _pendingCompletion is normally set. If it isn't, the exit still has to
@@ -98,10 +126,13 @@ class WorkerManager {
         _emitCompletion(_pendingCompletion ??
             CompletionResult(
               success: false,
-              errorMessage: _lastErrorMessage ??
-                  (exitCode == 0
-                      ? 'Worker exited without reporting a result'
-                      : 'Worker exited with code $exitCode'),
+              cancelled: _cancelRequested,
+              errorMessage: _cancelRequested
+                  ? 'Job cancelled by user'
+                  : _lastErrorMessage ??
+                      (exitCode == 0
+                          ? 'Worker exited without reporting a result'
+                          : 'Worker exited with code $exitCode'),
             ));
 
         _cleanup();
@@ -188,6 +219,10 @@ class WorkerManager {
     // running" check was never actually false.
     final process = _process;
     if (process == null) return;
+    // Which job this call is cancelling. Everything after the await below is
+    // conditional on it still being the current one.
+    final generation = _generation;
+    _cancelRequested = true;
 
     if (Platform.isWindows) {
       // No SIGTERM on Windows, and Process.kill maps to TerminateProcess, which
@@ -222,6 +257,13 @@ class WorkerManager {
         // Nothing further we can do from here.
       }
     }
+
+    // Waiting above can take seconds, and cancelling emits a completion that
+    // the queue acts on by starting the next job. If that has happened, this
+    // call must not touch anything: `_cleanup()` would null `_process` and
+    // cancel the new job's stdout subscription, leaving it running with nobody
+    // listening and the progress dialog spinning forever.
+    if (generation != _generation) return;
 
     _cleanup();
 
