@@ -120,20 +120,27 @@ class WorkerManager {
         // down its plumbing here would strand it silently.
         if (generation != _generation) return;
 
-        // The worker sends a `complete` message on both success and failure, so
-        // _pendingCompletion is normally set. If it isn't, the exit still has to
-        // be reported — see [_completionEmitted].
-        _emitCompletion(_pendingCompletion ??
-            CompletionResult(
-              success: false,
-              cancelled: _cancelRequested,
-              errorMessage: _cancelRequested
-                  ? 'Job cancelled by user'
-                  : _lastErrorMessage ??
-                      (exitCode == 0
-                          ? 'Worker exited without reporting a result'
-                          : 'Worker exited with code $exitCode'),
-            ));
+        // A cancelled job MUST report as cancelled, and that has to override
+        // `_pendingCompletion` rather than merely fill in for it.
+        //
+        // The worker sends `complete(false)` on its way out of a cancellation
+        // too (main.rs), and `_handleStdoutLine` builds that into a
+        // CompletionResult with no `cancelled` flag — so it defaults to false.
+        // Since `_pendingCompletion` is therefore always set, putting the flag
+        // in a `??` fallback left it permanently unreachable: cancelling looked
+        // exactly like a failure.
+        //
+        // That is not cosmetic. `_handleQueueItemCompletion` stops the queue on
+        // `cancelled`, but on a plain failure it marks the item failed and calls
+        // `_processNextItem()` — so a cancel silently started the next job and
+        // left `_isQueueProcessing` true, and the UI sat on "processing" with a
+        // spinner and no progress.
+        _emitCompletion(completionFor(
+          cancelRequested: _cancelRequested,
+          pending: _pendingCompletion,
+          lastError: _lastErrorMessage,
+          exitCode: exitCode,
+        ));
 
         _cleanup();
       });
@@ -275,6 +282,51 @@ class WorkerManager {
               'ffmpeg/vspipe processes may still be running)',
       cancelled: true,
     ));
+  }
+
+  /// What to report when the worker exits.
+  ///
+  /// Pulled out as a pure function because getting it wrong is invisible from
+  /// inside the app: every value is plausible, nothing throws, and the only
+  /// symptom is the queue behaving as though a cancelled job had failed.
+  ///
+  /// A cancelled job MUST report `cancelled`, and that has to override [pending]
+  /// rather than merely fill in for it. The worker sends `complete(false)` on its
+  /// way out of a cancellation too, and `_handleStdoutLine` turns that into a
+  /// CompletionResult with no `cancelled` flag — so it defaults to false. Since
+  /// [pending] is therefore always set, an earlier attempt at this put the flag
+  /// in a `??` fallback, where it was permanently unreachable and cancelling
+  /// still looked exactly like a failure.
+  ///
+  /// The consequence is in `_handleQueueItemCompletion`: it stops the queue on
+  /// `cancelled`, but on a plain failure it marks the item failed and calls
+  /// `_processNextItem()`. So a cancel silently started the next job, left
+  /// `_isQueueProcessing` true, and the UI sat on "processing" with a spinner
+  /// and no progress.
+  // Public so it can be unit-tested directly; not part of the intended API.
+  static CompletionResult completionFor({
+    required bool cancelRequested,
+    required CompletionResult? pending,
+    required String? lastError,
+    required int exitCode,
+  }) {
+    if (cancelRequested) {
+      return const CompletionResult(
+        success: false,
+        cancelled: true,
+        errorMessage: 'Job cancelled by user',
+      );
+    }
+    // The worker reports `complete` on success and failure alike, so `pending`
+    // is normally set. If it isn't, the exit still has to be reported.
+    return pending ??
+        CompletionResult(
+          success: false,
+          errorMessage: lastError ??
+              (exitCode == 0
+                  ? 'Worker exited without reporting a result'
+                  : 'Worker exited with code $exitCode'),
+        );
   }
 
   /// Emit [result] unless this job has already reported one.
