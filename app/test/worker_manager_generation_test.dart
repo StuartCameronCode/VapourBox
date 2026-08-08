@@ -21,7 +21,14 @@ void main() {
     late String source;
 
     setUpAll(() {
-      source = File('lib/services/worker_manager.dart').readAsStringSync();
+      // Normalise line endings. git checks this file out CRLF on Windows, and
+      // every scan below is written against "\n" — so without this the whole
+      // suite fails there and nowhere else. Same trap as test_92 in
+      // filter_integration_test.rs; if you add an assertion here, do not embed
+      // a bare "\n" without remembering this line exists.
+      source = File('lib/services/worker_manager.dart')
+          .readAsStringSync()
+          .replaceAll('\r\n', '\n');
     });
 
     test('the exit handler does nothing once a newer job has started', () {
