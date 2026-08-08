@@ -72,17 +72,18 @@ void main() {
           reason: 'the guard must precede the _cleanup() call');
     });
 
-    test('a cancelled job is reported as cancelled, not as an exit code', () {
-      // The exit handler is registered on exitCode before cancel() awaits it, so
-      // it reports first. Without _cancelRequested it describes a deliberate
-      // cancellation as "Worker exited with code 143", and the UI cannot tell a
-      // cancellation from a crash.
+    test('the exit handler delegates the decision, passing the cancel flag', () {
+      // What gets reported is decided by WorkerManager.completionFor, which is
+      // unit-tested directly in worker_completion_result_test.dart. All that
+      // matters here is that the handler actually routes through it and hands
+      // over _cancelRequested — an earlier version computed the result inline
+      // and put the cancelled flag in an unreachable branch.
       final start = source.indexOf('_process!.exitCode.then(');
       final body = source.substring(start, source.indexOf('} catch (e) {', start));
-      expect(body, contains('cancelled: _cancelRequested'),
-          reason: 'the exit handler must mark a cancelled job as cancelled');
-      expect(body, contains("_cancelRequested\n"),
-          reason: 'and use it for the message too');
+      expect(body, contains('completionFor('),
+          reason: 'the exit handler must use the tested decision, not its own');
+      expect(body, contains('cancelRequested: _cancelRequested'),
+          reason: 'a cancelled job is only distinguishable if the flag is passed');
     });
 
     test('startJob resets both flags so state cannot leak between jobs', () {
