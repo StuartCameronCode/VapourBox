@@ -4,6 +4,7 @@ import 'dart:io';
 
 import '../models/progress_info.dart';
 import '../models/video_job.dart';
+import 'process_tree.dart';
 import 'temp_directory_service.dart';
 import 'tool_locator.dart';
 
@@ -194,7 +195,11 @@ class WorkerManager {
       // orphaned; /F is unavoidable there.
       await Process.run('taskkill', ['/PID', '${process.pid}', '/T', '/F']);
     } else {
-      process.kill(ProcessSignal.sigterm);
+      // Signal the whole process group. The worker still tears its own pipeline
+      // down when it gets the chance, but that only covers the children it
+      // tracks, and it cannot run at all if it is forced below — so do not rely
+      // on it alone. See ProcessTree.
+      ProcessTree.killTree(process);
     }
 
     // Wait for the process to actually exit. `exitCode` completes once it has
@@ -210,7 +215,7 @@ class WorkerManager {
       // Genuinely wedged. Forcing it here orphans the children — the same
       // failure described above — but by now the alternative is a job that
       // never stops at all, so take the lesser problem and say so.
-      process.kill(ProcessSignal.sigkill);
+      ProcessTree.killTree(process, ProcessSignal.sigkill);
       try {
         await process.exitCode.timeout(_forceKillGrace);
       } on TimeoutException {

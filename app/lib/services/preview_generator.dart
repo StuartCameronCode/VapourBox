@@ -11,12 +11,27 @@ import '../models/processing_pipeline.dart';
 import '../models/video_job.dart';
 import 'field_order_detector.dart';
 import 'temp_directory_service.dart';
+import 'process_tree.dart';
 import 'tool_locator.dart';
 
 /// Service for generating video thumbnails and processed previews.
 class PreviewGenerator {
   Process? _thumbnailProcess;
   Process? _previewProcess;
+
+  /// Every preview worker still running, including ones already superseded.
+  ///
+  /// `_previewProcess` alone is not enough to guarantee cleanup. It is assigned
+  /// *after* `await Process.start(...)` returns, so a seek that arrives inside
+  /// that window cancels whatever the field held at the time — not the process
+  /// currently being spawned — and the next assignment then overwrites the
+  /// reference to it. That process is never tracked and never killed. Scrubbing
+  /// the timeline cancels a preview on every move, so those strays accumulate,
+  /// which is what "a bunch of vspipe and ffmpeg processes" looks like.
+  ///
+  /// Registering at spawn and discarding on exit closes that window: a process
+  /// is reachable for cancellation from the moment it exists.
+  final Set<Process> _livePreviews = {};
   String? _ffmpegPath;
   String? _ffprobePath;
   String? _workerPath;
@@ -283,10 +298,14 @@ class PreviewGenerator {
         workingDirectory: path.dirname(_workerPath!),
       );
       _previewProcess = process;
+      _livePreviews.add(process);
 
       if (cancelToken?.isCancelled ?? false) {
-        process.kill();
+        // Whole group: killing the worker alone strands vspipe/ffmpeg.
+        ProcessTree.killTree(process);
         _previewProcess = null;
+        _livePreviews.remove(process);
+        await ProcessTree.waitForExit(process);
         return null;
       }
 
@@ -309,8 +328,12 @@ class PreviewGenerator {
 
       await for (final chunk in process.stdout) {
         if (cancelToken?.isCancelled ?? false) {
-          process.kill();
+          // Whole group: killing the worker alone strands vspipe/ffmpeg.
+          ProcessTree.killTree(process);
           _previewProcess = null;
+          _livePreviews.remove(process);
+        _livePreviews.remove(process);
+          await ProcessTree.waitForExit(process);
           return null;
         }
         pngBytes.addAll(chunk);
@@ -323,6 +346,7 @@ class PreviewGenerator {
       final exitCode = await process.exitCode;
       if (_previewProcess == process) {
         _previewProcess = null;
+        _livePreviews.remove(process);
       }
 
       // Log the result
@@ -347,6 +371,7 @@ class PreviewGenerator {
     } finally {
       if (_previewProcess == process) {
         _previewProcess = null;
+        _livePreviews.remove(process);
       }
       // Clean up config file on error
       try {
@@ -358,20 +383,62 @@ class PreviewGenerator {
   }
 
   /// Cancel any ongoing preview generation.
+  ///
+  /// Seeking the scrubber cancels the in-flight preview on every move, so this
+  /// runs far more often than a job cancel does — and anything it fails to clean
+  /// up accumulates. Killing the worker's pid alone left `vspipe` and `ffmpeg`
+  /// running: preview mode installs no signal handler (it returns before ctrlc
+  /// is set up in `worker/src/main.rs`), so SIGTERM kills the worker outright
+  /// without unwinding, and `generate_preview` holds its children in locals that
+  /// `PipelineExecutor::terminate()` never sees. Nothing killed them
+  /// deliberately; they just tended to die on EPIPE once their pipes closed,
+  /// which does not happen while they are blocked reading a slow source.
+  ///
+  /// Signal the whole process group instead, and wait for the worker to actually
+  /// go — a fire-and-forget kill cannot tell a clean shutdown from a stray.
+  /// Signals every live preview and returns as soon as they have been told to
+  /// stop — it does NOT wait for them to exit.
+  ///
+  /// A seek calls this before starting the next preview, so blocking here would
+  /// add the full shutdown grace to every scrubber movement and make seeking
+  /// feel broken. Signalling is immediate and ordered; reaping is not, so it
+  /// runs unawaited. Use [awaitPreviewShutdown] when the wait actually matters.
   Future<void> cancelPreviewGeneration() async {
-    if (_previewProcess != null) {
-      _previewProcess!.kill();
-      _previewProcess = null;
+    final doomed = <Process>{
+      ..._livePreviews,
+      if (_previewProcess != null) _previewProcess!,
+      if (_thumbnailProcess != null) _thumbnailProcess!,
+    };
+    _livePreviews.clear();
+    _previewProcess = null;
+    _thumbnailProcess = null;
+
+    for (final p in doomed) {
+      // The whole group: signalling the worker alone strands vspipe/ffmpeg,
+      // and preview mode has no handler that would clean up after itself.
+      ProcessTree.killTree(p);
+      // Reap in the background so a slow shutdown cannot stall the next seek.
+      unawaited(ProcessTree.waitForExit(p));
     }
-    if (_thumbnailProcess != null) {
-      _thumbnailProcess!.kill();
-      _thumbnailProcess = null;
-    }
+  }
+
+  /// Cancel and wait for everything to actually be gone.
+  ///
+  /// For shutdown, where leaving strays behind is worse than a brief pause.
+  Future<void> awaitPreviewShutdown() async {
+    final doomed = <Process>{
+      ..._livePreviews,
+      if (_previewProcess != null) _previewProcess!,
+      if (_thumbnailProcess != null) _thumbnailProcess!,
+    };
+    await cancelPreviewGeneration();
+    await Future.wait(doomed.map(ProcessTree.waitForExit));
   }
 
   /// Clean up resources.
   Future<void> dispose() async {
-    await cancelPreviewGeneration();
+    // Shutdown is the one place the wait is worth it: strays outlive the app.
+    await awaitPreviewShutdown();
     _thumbnailCache.clear();
 
     // Clean up temp directory

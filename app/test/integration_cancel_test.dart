@@ -23,6 +23,7 @@
 @Tags(['heavy'])
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -30,6 +31,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
+import 'package:vapourbox/services/process_tree.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
@@ -186,6 +188,237 @@ void main() {
       expect(sw.elapsed, lessThan(const Duration(seconds: 5)),
           reason: 'worker took ${sw.elapsed.inMilliseconds}ms to shut down, '
               'which does not fit inside WorkerManager._shutdownGrace');
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('the worker leads its own process group, so the tree can be signalled',
+        () async {
+      // ProcessTree.killTree() signals -pid, which only reaches the pipeline if
+      // the worker made itself a group leader (setpgid in worker/src/main.rs).
+      // If that call is ever removed the kill silently degrades to pid-only and
+      // strays come back — with no visible symptom until a source is slow
+      // enough that the children do not happen to die on EPIPE.
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: longInput,
+        outputPath: p.join(WorkerHarness.outputDir, 'unused_group.mkv'),
+        processingPipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(
+              enabled: true, preset: QTGMCPreset.slower, tff: true),
+        ),
+        encodingSettings: const EncodingSettings(
+            codec: VideoCodec.h264,
+            container: ContainerFormat.mkv,
+            audioMode: AudioMode.passthrough),
+      );
+      final cfg = File(p.join(Directory.systemTemp.path, 'vb_group.json'));
+      await cfg.writeAsString(jsonEncode(job.toJson()));
+      addTearDown(() async {
+        if (await cfg.exists()) await cfg.delete();
+      });
+
+      final proc = await Process.start(
+        WorkerHarness.workerPath,
+        ['--config', cfg.path],
+        environment: WorkerHarness.workerEnv,
+        workingDirectory: File(WorkerHarness.workerPath).parent.path,
+      );
+      proc.stdout.drain<void>();
+      proc.stderr.drain<void>();
+
+      var pgid = '';
+      var kids = <String>[];
+      for (var i = 0; i < 80; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        final pg =
+            await Process.run('ps', ['-o', 'pgid=', '-p', '${proc.pid}']);
+        pgid = pg.stdout.toString().trim();
+        if (pgid != '${proc.pid}') continue;
+        final r = await Process.run('pgrep', ['-g', '${proc.pid}']);
+        kids = r.stdout
+            .toString()
+            .trim()
+            .split('\n')
+            .where((s) => s.isNotEmpty && s != '${proc.pid}')
+            .toList();
+        if (kids.isNotEmpty) break;
+      }
+
+      expect(pgid, '${proc.pid}',
+          reason: 'the worker is not its own process-group leader, so '
+              'ProcessTree.killTree() cannot reach vspipe/ffmpeg');
+      expect(kids, isNotEmpty,
+          reason: 'no children joined the group — nothing to prove');
+
+      // Stop them first: a child that dies on EPIPE would pass regardless, and
+      // that incidental cascade is precisely what must not be relied on.
+      for (final k in kids) {
+        Process.killPid(int.parse(k), ProcessSignal.sigstop);
+      }
+      expect(Process.killPid(-proc.pid, ProcessSignal.sigterm), isTrue,
+          reason: 'a negative pid must reach the group');
+      await Future<void>.delayed(const Duration(seconds: 1));
+      for (final k in kids) {
+        Process.killPid(int.parse(k), ProcessSignal.sigcont);
+      }
+
+      var alive = <String>[];
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        alive = [];
+        for (final k in kids) {
+          final r = await Process.run('ps', ['-o', 'pid=', '-p', k]);
+          if (r.stdout.toString().trim().isNotEmpty) alive.add(k);
+        }
+        if (alive.isEmpty) break;
+      }
+      for (final k in alive) {
+        Process.killPid(int.parse(k), ProcessSignal.sigkill);
+      }
+      expect(alive, isEmpty,
+          reason: 'the group signal did not reach the children even though they '
+              'were stopped and so could not have died on EPIPE');
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('rapid seeks leave nothing behind', () async {
+      // Scrubbing spawns a preview per movement and cancels the previous one.
+      // The old code tracked a single _previewProcess assigned *after* await
+      // Process.start returned, so a seek arriving in that window cancelled the
+      // wrong reference and the in-flight worker was lost — untracked and never
+      // killed. Ten seeks in quick succession is the shape that produced "a
+      // bunch of vspipe and ffmpeg processes".
+      final depsDir = WorkerHarness.depsDir;
+      final before = await _processesUnder(depsDir);
+
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: longInput,
+        outputPath: p.join(WorkerHarness.outputDir, 'unused_seek.mkv'),
+        processingPipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(
+              enabled: true, preset: QTGMCPreset.slower, tff: true),
+        ),
+        encodingSettings: const EncodingSettings(
+            codec: VideoCodec.h264,
+            container: ContainerFormat.mkv,
+            audioMode: AudioMode.passthrough),
+      );
+      final cfg = File(p.join(Directory.systemTemp.path, 'vb_seek.json'));
+      await cfg.writeAsString(jsonEncode(job.toJson()));
+      addTearDown(() async {
+        if (await cfg.exists()) await cfg.delete();
+      });
+
+      // Mimic the scrubber: start a preview, and before it can finish, start
+      // the next one and tear the previous down the way the app now does.
+      final started = <Process>[];
+      Process? current;
+      for (var i = 0; i < 10; i++) {
+        if (current != null) {
+          ProcessTree.killTree(current);
+          unawaited(ProcessTree.waitForExit(current));
+        }
+        current = await Process.start(
+          WorkerHarness.workerPath,
+          ['--config', cfg.path, '--preview', '--frame', '${300 + i * 40}'],
+          environment: WorkerHarness.workerEnv,
+          workingDirectory: File(WorkerHarness.workerPath).parent.path,
+        );
+        current.stdout.drain<void>();
+        current.stderr.drain<void>();
+        started.add(current);
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+      ProcessTree.killTree(current!);
+      await ProcessTree.waitForExit(current);
+
+      // Everything the burst spawned must be gone.
+      var strays = <int>[];
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        strays = (await _processesUnder(depsDir))
+            .where((pid) => !before.contains(pid))
+            .toList();
+        if (strays.isEmpty) break;
+      }
+      for (final pid in strays) {
+        Process.killPid(pid, ProcessSignal.sigkill);
+      }
+      expect(strays, isEmpty,
+          reason: '${strays.length} worker/vspipe/ffmpeg processes survived a '
+              'burst of ${started.length} seeks');
+    }, timeout: const Timeout(Duration(minutes: 4)));
+
+    test('killing a preview leaves no orphaned children', () async {
+      // Seeking the preview scrubber cancels the in-flight preview and starts
+      // another, so this path runs far more often than a job cancel does.
+      final depsDir = WorkerHarness.depsDir;
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: longInput,
+        outputPath: p.join(WorkerHarness.outputDir, 'unused_preview.mkv'),
+        processingPipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(
+            enabled: true,
+            preset: QTGMCPreset.slower,
+            tff: true,
+          ),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.h264,
+          container: ContainerFormat.mkv,
+          audioMode: AudioMode.passthrough,
+        ),
+      );
+      final configFile =
+          File(p.join(Directory.systemTemp.path, 'vb_preview_orphans.json'));
+      await configFile.writeAsString(jsonEncode(job.toJson()));
+      addTearDown(() async {
+        if (await configFile.exists()) await configFile.delete();
+      });
+
+      final before = await _processesUnder(depsDir);
+
+      final proc = await Process.start(
+        WorkerHarness.workerPath,
+        ['--config', configFile.path, '--preview', '--frame', '900'],
+        environment: WorkerHarness.workerEnv,
+        workingDirectory: File(WorkerHarness.workerPath).parent.path,
+      );
+      proc.stdout.drain<void>();
+      proc.stderr.drain<void>();
+
+      var spawned = <int>[];
+      final deadline = DateTime.now().add(const Duration(seconds: 40));
+      while (DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        spawned = (await _processesUnder(depsDir))
+            .where((pid) => !before.contains(pid))
+            .toList();
+        if (spawned.length >= 2) break;
+      }
+      expect(spawned.length, greaterThanOrEqualTo(2),
+          reason: 'the preview pipeline never started, so this proves nothing');
+
+      // Exactly what PreviewGenerator.cancelPreviewGeneration() does.
+      proc.kill();
+      await proc.exitCode.timeout(const Duration(seconds: 15),
+          onTimeout: () { proc.kill(ProcessSignal.sigkill); return -1; });
+
+      List<int> leftovers = [];
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        final now = await _processesUnder(depsDir);
+        leftovers = spawned.where(now.contains).toList();
+        if (leftovers.isEmpty) break;
+      }
+      if (leftovers.isNotEmpty) {
+        for (final pid in leftovers) {
+          Process.killPid(pid, ProcessSignal.sigkill);
+        }
+      }
+      expect(leftovers, isEmpty,
+          reason: 'vspipe/ffmpeg outlived the preview worker. Seeking the '
+              'scrubber cancels a preview on every move, so these accumulate');
     }, timeout: const Timeout(Duration(minutes: 3)));
   });
 }
