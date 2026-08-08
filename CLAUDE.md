@@ -1487,6 +1487,38 @@ Notes:
 5. **Test** — fresh install + upgrade test
 6. **Create GitHub releases** — deps release first (if changed, tag `deps-vX.Y.Z`), then app release (tag `vX.Y.Z`)
 
+> ### NEVER mark a deps release as "Latest"
+>
+> **Always pass `--latest=false` when creating or editing a `deps-v*` release.**
+>
+> ```bash
+> gh release create deps-vX.Y.Z --latest=false --title "..." --notes "..."
+> ```
+>
+> `gh release create` marks the new release as Latest **by default**, and deps
+> releases are cut *after* the app release they pair with — so the default
+> silently demotes the app. "Latest" is what a visitor to the repo lands on and
+> what `/releases/latest` resolves to, so a deps bundle sitting there points
+> people at a 200MB zip of internal binaries instead of the app they came for.
+>
+> **The scripts already do this correctly** — `Scripts/release.sh` and
+> `build-whisper.yml` both pass `--latest=false`. The trap is the *hand-rolled*
+> `gh release create`, which is how a deps tag gets cut when publishing one
+> outside the normal flow (an rc being promoted, a rebuild, a one-off). That path
+> has been got wrong repeatedly.
+>
+> If it happens, fix **both** halves — clearing the flag does not hand Latest
+> back to the app release, it just leaves nothing marked:
+>
+> ```bash
+> gh release edit deps-vX.Y.Z --latest=false
+> gh release edit vX.Y.Z      --latest        # put it back on the app release
+> ```
+>
+> Prereleases (`--prerelease`, the rc flow above) are never marked Latest, so
+> only stable deps tags are affected. Same rule applies to the whisper add-on
+> releases (`whisper-vX.Y.Z`) for the same reason.
+
 ### macOS Code Signing & Notarization
 
 The macOS app is signed with a **Developer ID Application** certificate and notarized by Apple so it launches without Gatekeeper warnings. Signing happens **in CI** (`build-macos.yml`) — the runner imports the cert into a temporary keychain, then `package-macos.sh --notarize` signs every Mach-O inner-out (dylibs → frameworks → `.so` → worker → app), signs the DMG, submits to the notary service, and staples the ticket. `ci-build-and-release.sh` just downloads the finished signed/notarized DMG and uploads it — no local signing step.
