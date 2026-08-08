@@ -188,10 +188,18 @@ Stuart Cameron — [stuart-cameron.com](https://stuart-cameron.com)
 - **VIVTC** by Fredrik Mellbin — VFM field matching and VDecimate for inverse telecine
 - **VapourSynth** by Fredrik Mellbin — video processing framework
 - **havsfunc** by HolyWu — QTGMC VapourSynth port
+- **mvtools** by Manao, Fizick, Pinterf and dubhater — the motion estimation QTGMC is built on
+- **NNEDI3** by Kevin Stone (tritical) — the edge-directed interpolator behind QTGMC, via **znedi3** by sekrit-twc and dubhater's **nnedi3**, whose NEON kernels are what make it fast on Apple Silicon and ARM Linux
+- **akarin** — an LLVM-JIT expression evaluator. VapourSynth's own compiler for filter expressions is x86-only, so on ARM every expression was interpreted once per pixel; this is the single biggest reason Apple Silicon is now several times faster
+- **fmtconv** by Firesledge — format conversion and resampling
+- **zsmooth** by Adrian Woracz — chroma denoising (CCD) and the RemoveGrain family
 - **whisper.cpp** by Georgi Gerganov — speech recognition for subtitle generation
 - **libdvdread** by VideoLAN — DVD reading and navigation
 - **FFmpeg** project — video encoding
 - **Hybrid** by Selur — inspiration for this project
+
+Full licence texts and the complete list of bundled components are in
+[`licenses/NOTICES.txt`](licenses/NOTICES.txt).
 
 <details>
 <summary><b>Pre-built binary sources</b></summary>
@@ -202,6 +210,8 @@ macOS plugins and binaries sourced from:
 - **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** — cross-platform VapourSynth plugins (arm64 + x86_64; used for `tmedian`)
 - **[evermeet.cx](https://evermeet.cx/ffmpeg/)** — static x86_64 FFmpeg/FFprobe builds for the Intel macOS bundle
 
-The Intel (x64) bundle additionally builds its support libraries (zimg, fftw, libdvdread, xz, boost) from source targeting **macOS 12**, so it runs on Monterey; the Apple Silicon (arm64) bundle is built for the current macOS and targets **macOS 15**.
+The Intel (x64) bundle additionally builds its support libraries (zimg, fftw, libdvdread, boost) from source targeting **macOS 12**, so it runs on Monterey; the Apple Silicon (arm64) bundle is built for the current macOS and targets **macOS 15**.
+
+The `akarin` plugin is the one component the Intel bundle does **not** ship: its only build targets macOS 14, which would raise the Intel floor from Monterey. Intel Macs already have VapourSynth's own x86 expression compiler, so they lose nothing by it.
 
 </details>

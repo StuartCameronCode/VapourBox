@@ -32,6 +32,16 @@ https://github.com/dubhater/vapoursynth-mvtools
 License: See GPL-2.0.txt
 
 
+nnedi3 (GPL 2.0)
+----------------
+Copyright (c) 2010-2011 Kevin Stone (tritical); VapourSynth port by dubhater
+https://github.com/dubhater/vapoursynth-nnedi3
+License: See GPL-2.0.txt
+The same neural network as znedi3, from the same nnedi3_weights.bin, but with
+NEON kernels. Shipped on the ARM bundles only, where znedi3's x86-only SIMD
+leaves it running scalar; havsfunc and both templates select it at runtime on
+arm64/aarch64. x86 bundles ship znedi3 alone.
+
 znedi3 (GPL 2.0)
 ----------------
 Copyright (c) 2018-2024 sekrit-twc
