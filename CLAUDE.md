@@ -1525,6 +1525,20 @@ The macOS app is signed with a **Developer ID Application** certificate and nota
 
 `package-macos.sh` also works locally: with a Developer ID cert in your keychain it signs, and `--notarize` uses a stored `notarytool` keychain profile (default name `VapourBox`). In CI there is no keychain profile, so it falls back to `NOTARY_APPLE_ID` / `NOTARY_PASSWORD` / `NOTARY_TEAM_ID` env vars. Use `--no-sign` for ad-hoc local test builds.
 
+> **A notarization `403` is not necessarily your account.** The notary service
+> returns *"HTTP status code: 403. Invalid or inaccessible developer team ID for
+> the provided Apple ID"* during Apple-side outages, which reads like a
+> permissions or credential fault and sends you auditing the developer account.
+> It cost a long detour on 2026-08-08; the build was fine and succeeded on a
+> straight re-run once Apple recovered.
+>
+> Check for an outage **first** (<https://developer.apple.com/system-status/>),
+> then rule out the cheap account causes in this order: membership renewal date,
+> pending Program License Agreement, and the app-specific password (changing your
+> Apple ID password silently revokes every one of them). The strongest signal
+> that it is *not* us: `git log` shows no change to `build-macos.yml` or
+> `package-macos.sh` since the last successful notarization.
+
 **Required GitHub repo secrets** (Settings → Secrets and variables → Actions):
 
 | Secret | Value |
