@@ -85,6 +85,8 @@ class FakeJobRunner implements JobRunner {
     await Future<void>.delayed(Duration.zero);
   }
 
+  void emitProgress(ProgressInfo p) => _progress.add(p);
+
   Future<void> succeed({String output = '/tmp/out.mkv'}) =>
       complete(CompletionResult(success: true, outputPath: output));
 

@@ -111,6 +111,16 @@ class ToolLocator {
 
   /// Resolve the vapourbox-worker executable path.
   String? _resolveWorker() {
+    // Explicit override, mirroring VAPOURBOX_DEPS_DIR above. Under `flutter
+    // test` the resolved executable is the test runner, not the app bundle, so
+    // neither the production nor the dev path below can find the worker — which
+    // left WorkerManager, and therefore the whole cancel/restart flow, with no
+    // way to be tested against a real worker at all.
+    final override = Platform.environment['VAPOURBOX_WORKER'];
+    if (override != null && override.isNotEmpty && File(override).existsSync()) {
+      return override;
+    }
+
     final exeDir = path.dirname(Platform.resolvedExecutable);
     final ext = Platform.isWindows ? '.exe' : '';
     final workerExe = 'vapourbox-worker$ext';
