@@ -247,6 +247,43 @@ hang shipped unverified — two of them "verified" by tests that only read sourc
 text. Prefer behavioural tests here; source-scanning assertions have twice
 produced false failures during ordinary refactoring.
 
+### (e) The stale progress file — the actual cause, fixed in #67
+
+The one that produced "the UI never updates". Everything above is real, but none
+of it was this.
+
+The worker polls `${TMPDIR}/vb_progress_${job.id}` for ffmpeg's progress, and
+**`job.id` is the queue item's id** — identical every time that item is re-run.
+ffmpeg writes `progress=end` as it terminates, so a cancelled run leaves one
+behind. The next run's loop polls immediately, before its own ffmpeg has opened
+and truncated the file, reads the previous run's tail, concludes the encode has
+already finished, and **breaks out of the progress loop on its first
+iteration** — then blocks forever in `decoder.wait()` while the pipeline encodes
+at full speed behind it.
+
+Confirmed by sampling the stuck worker: `__wait4` under `execute`, 0% CPU, while
+vspipe sat at 440% and both ffmpegs ran. No progress was ever reported and the
+job never completed.
+
+Why it took four attempts to find:
+
+- **The app was innocent throughout.** It never received a progress event,
+  because none was ever sent. Every app-side fix was for a symptom.
+- **It only follows a cancel**, because only a re-run of the same queue item
+  reuses the id.
+- **It is a race** between the first poll and ffmpeg's truncate, so it came and
+  went. Adding `debugPrint` calls shifted the timing enough to hide it — which
+  is why one traced build "seemed to work" with functionally identical code.
+- **No test could reproduce it**: every test generated a fresh job id, so the
+  file never pre-existed. Even seeding one deliberately does not fail against
+  the broken worker locally, because ffmpeg truncates a local file almost
+  instantly. The window is wide over a network share, which is where it showed.
+
+Fixed two ways: the file is deleted before the pipeline starts, and
+`progress_end_is_ours()` refuses to believe a `progress=end` seen before this run
+has reported a frame. The second is what `test_94` pins, because it is the half
+that can be tested deterministically.
+
 ## 8. Preview generation
 
 A separate lifecycle with different rules, worth knowing because it shares the

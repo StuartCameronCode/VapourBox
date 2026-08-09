@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../models/progress_info.dart';
 import '../models/video_job.dart';
 import 'job_runner.dart';
@@ -114,6 +116,7 @@ class WorkerManager implements JobRunner {
         environment: toolLocator.workerEnvironment,
         workingDirectory: File(workerPath).parent.path,
       );
+
 
       // Listen to stdout for JSON messages
       _stdoutSubscription = _process!.stdout
@@ -247,6 +250,7 @@ class WorkerManager implements JobRunner {
     final generation = _generation;
     _cancelRequested = true;
 
+
     if (process == null) {
       // Nothing to signal — the job finished microseconds ago, `startJob` threw,
       // or we are still inside `preparingJob` and the process does not exist
@@ -376,7 +380,9 @@ class WorkerManager implements JobRunner {
 
   /// Emit [result] unless this job has already reported one.
   void _emitCompletion(CompletionResult result) {
-    if (_completionEmitted || _completionController.isClosed) return;
+    if (_completionEmitted || _completionController.isClosed) {
+      return;
+    }
     _completionEmitted = true;
     _jobInFlight = false;
     _completionController.add(result);

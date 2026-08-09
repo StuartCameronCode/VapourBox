@@ -1287,6 +1287,14 @@ class MainViewModel extends ChangeNotifier {
       await _workerManager.cancel();
     }
 
+    // A completion emitted during the cancel is delivered asynchronously
+    // (broadcast stream), so checking immediately races it — and winning that
+    // race is worse than losing it: the queue's own handler never runs, the item
+    // is never marked `cancelled`, and recovery happens by fallback instead of
+    // by design. Give delivery a turn of the event loop first.
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
     // By now a completion should have retired the `cancelling` latch. If one
     // never arrived, stand down anyway: `cancelling` is neither `idle` nor in
     // `canCancel`, so staying there disables Start *and* Cancel with no way back
