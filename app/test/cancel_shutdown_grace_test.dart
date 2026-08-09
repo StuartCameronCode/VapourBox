@@ -21,6 +21,12 @@
 // This is the same class of guard as `test_native_formats_match_pipe_source`
 // (Rust `NATIVE_FORMATS` vs Python `_FORMAT_MAP`).
 
+// NOTE: always normalise line endings when reading source here. git checks these
+// files out CRLF on Windows, and every scan below is written against "\n". This
+// has broken CI three separate times — twice with a confusing "expected a value
+// less than N" and once with a RangeError from indexOf returning -1. If a scan
+// can be replaced by a behavioural assertion, prefer that; these read source
+// only because the thing they guard is a code shape, not an observable.
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -50,10 +56,12 @@ void main() {
     test('the app gives the worker longer than its cancellation poll interval',
         () {
       final rs = File(p.join(root, 'worker', 'src', 'pipeline_executor.rs'))
-          .readAsStringSync();
+          .readAsStringSync()
+          .replaceAll('\r\n', '\n');
       final dart = File(p.join(
               root, 'app', 'lib', 'services', 'worker_manager.dart'))
-          .readAsStringSync();
+          .readAsStringSync()
+          .replaceAll('\r\n', '\n');
 
       final pollMatch = RegExp(
         r'let\s+progress_interval\s*=\s*Duration::from_millis\((\d+)\)',
@@ -86,7 +94,8 @@ void main() {
     test('cancel waits for the process to exit instead of sleeping', () {
       final dart = File(p.join(
               root, 'app', 'lib', 'services', 'worker_manager.dart'))
-          .readAsStringSync();
+          .readAsStringSync()
+          .replaceAll('\r\n', '\n');
       final cancelStart = dart.indexOf('Future<void> cancel()');
       expect(cancelStart, greaterThan(-1));
       // Read the whole method, not up to the first `_cleanup()`. cancel() now
