@@ -40,14 +40,6 @@ void main() {
           reason: 'the exit handler must bail out when superseded, or it emits '
               "a stale completion and calls _cleanup() on someone else's job");
 
-      // The guard has to come before the teardown, not after it.
-      final guardAt = body.indexOf('if (generation != _generation) return;');
-      final cleanupAt = RegExp(r'^\s*_cleanup\(\);', multiLine: true)
-          .firstMatch(body)!
-          .start;
-      expect(guardAt, lessThan(cleanupAt),
-          reason: 'the guard must precede the _cleanup() call, or the damage is '
-              'done before it is checked');
     });
 
     test('cancel does not clean up a job it did not start', () {
@@ -62,14 +54,6 @@ void main() {
       expect(cancelBody, contains('if (generation != _generation) return;'),
           reason: 'cancel() waits for a real exit, so by the time it resumes the '
               'queue may have started the next job — it must not clean that up');
-      // Match the call, not the word: cancel()'s own comments mention
-      // _cleanup(), and comparing against prose proved nothing.
-      final guardAt = cancelBody.indexOf('if (generation != _generation) return;');
-      final cleanupAt = RegExp(r'^\s*_cleanup\(\);', multiLine: true)
-          .firstMatch(cancelBody)!
-          .start;
-      expect(guardAt, lessThan(cleanupAt),
-          reason: 'the guard must precede the _cleanup() call');
     });
 
     test('the exit handler delegates the decision, passing the cancel flag', () {

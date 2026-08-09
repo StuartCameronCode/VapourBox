@@ -4,12 +4,13 @@ import 'dart:io';
 
 import '../models/progress_info.dart';
 import '../models/video_job.dart';
+import 'job_runner.dart';
 import 'process_tree.dart';
 import 'temp_directory_service.dart';
 import 'tool_locator.dart';
 
 /// Manages the worker process lifecycle and IPC.
-class WorkerManager {
+class WorkerManager implements JobRunner {
   Process? _process;
   StreamSubscription<String>? _stdoutSubscription;
   StreamSubscription<String>? _stderrSubscription;
@@ -51,24 +52,38 @@ class WorkerManager {
   /// "Worker exited with code 143".
   bool _cancelRequested = false;
 
+  /// Whether a started job still owes a [CompletionResult].
+  ///
+  /// `_completionEmitted` enforces "at most one" completion per job. This
+  /// enforces the other half — "at least one" — which nothing did before, and
+  /// whose absence is the hang: `cancel()` returned silently when there was no
+  /// process, the viewmodel had already latched `_state = cancelling`, and with
+  /// no event to retire that latch the UI sat with Start *and* Cancel disabled.
+  bool _jobInFlight = false;
+
   /// Stream of progress updates from the worker.
   final _progressController = StreamController<ProgressInfo>.broadcast();
+  @override
   Stream<ProgressInfo> get progressStream => _progressController.stream;
 
   /// Stream of log messages from the worker.
   final _logController = StreamController<LogMessage>.broadcast();
+  @override
   Stream<LogMessage> get logStream => _logController.stream;
 
   /// Stream of completion events.
   final _completionController = StreamController<CompletionResult>.broadcast();
+  @override
   Stream<CompletionResult> get completionStream => _completionController.stream;
 
   /// Whether the worker is currently running.
+  @override
   bool get isRunning => _process != null;
 
   /// Starts a deinterlacing job.
   ///
   /// Creates a temporary JSON config file and spawns the worker process.
+  @override
   Future<void> startJob(VideoJob job) async {
     if (_process != null) {
       throw StateError('Worker is already running');
@@ -76,6 +91,7 @@ class WorkerManager {
 
     _completionEmitted = false;
     _cancelRequested = false;
+    _jobInFlight = true;
     final generation = ++_generation;
 
     final toolLocator = ToolLocator.instance;
@@ -220,16 +236,38 @@ class WorkerManager {
   /// Waits for the worker to genuinely exit rather than assuming it has, so its
   /// children are torn down by the worker itself. Only escalates to SIGKILL if
   /// it is still alive after [_shutdownGrace].
+  @override
   Future<void> cancel() async {
     // Hold a local reference: `_cleanup()` nulls the field, and the old code
     // tested `_process != null` *before* that ran, so its "force kill if still
     // running" check was never actually false.
     final process = _process;
-    if (process == null) return;
     // Which job this call is cancelling. Everything after the await below is
     // conditional on it still being the current one.
     final generation = _generation;
     _cancelRequested = true;
+
+    if (process == null) {
+      // Nothing to signal — the job finished microseconds ago, `startJob` threw,
+      // or we are still inside `preparingJob` and the process does not exist
+      // yet. That last case is reachable from the UI: `canCancel` includes
+      // `preparingJob`, so the Cancel button is live before there is anything to
+      // cancel.
+      //
+      // The caller has already moved the UI into `cancelling`, so returning
+      // silently here is what stranded it: `cancelling` is neither `idle` nor in
+      // `canCancel`, leaving Start and Cancel both disabled with no way back.
+      // Report the cancellation so the latch can be retired.
+      if (_jobInFlight) {
+        _emitCompletion(const CompletionResult(
+          success: false,
+          cancelled: true,
+          errorMessage: 'Job cancelled by user',
+        ));
+        _cleanup();
+      }
+      return;
+    }
 
     if (Platform.isWindows) {
       // No SIGTERM on Windows, and Process.kill maps to TerminateProcess, which
@@ -310,7 +348,14 @@ class WorkerManager {
     required String? lastError,
     required int exitCode,
   }) {
-    if (cancelRequested) {
+    // Cancellation is observed two ways, and either is sufficient.
+    //
+    // `cancelRequested` is what the app asked for. Exit 130 is what the worker
+    // actually did (`worker/src/main.rs` returns it once the cancel flag is
+    // seen). Taking both means a cancellation initiated anywhere — including a
+    // SIGINT the app never issued — is still reported as one, rather than being
+    // inferred solely from a flag the app sets for itself.
+    if (cancelRequested || exitCode == 130) {
       return const CompletionResult(
         success: false,
         cancelled: true,
@@ -333,6 +378,7 @@ class WorkerManager {
   void _emitCompletion(CompletionResult result) {
     if (_completionEmitted || _completionController.isClosed) return;
     _completionEmitted = true;
+    _jobInFlight = false;
     _completionController.add(result);
   }
 
@@ -396,6 +442,7 @@ class WorkerManager {
   }
 
   /// Disposes of resources.
+  @override
   void dispose() {
     cancel();
     _progressController.close();

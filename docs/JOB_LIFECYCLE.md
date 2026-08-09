@@ -126,16 +126,18 @@ on SIGTERM without unwinding.
 
 ---
 
-## 5. Why cancellation is inferred, not reported
+## 5. How cancellation is recognised
 
 There is no "cancelled" message in the protocol. The worker reports
 `complete(false)` for a cancellation and for a genuine failure alike, and
 `_handleStdoutLine` builds both into a `CompletionResult` with no `cancelled`
 flag — so it defaults to `false` (`worker_manager.dart:312`).
 
-The app therefore has to *infer* cancellation from a flag it set itself
-(`_cancelRequested`). That inference is the only thing separating two outcomes
-the queue treats very differently:
+So the app recognises a cancellation two ways, either of which suffices:
+`_cancelRequested` (what it asked for) or **exit code 130** (what the worker
+actually did). Relying on the flag alone was fragile — that is how bug (c) below
+became unreachable. The distinction separates two outcomes the queue treats very
+differently:
 
 | `result` | `_handleQueueItemCompletion` does |
 |---|---|
@@ -173,9 +175,9 @@ job's stdout subscription. Fixed with `_generation`.
 `_pendingCompletion`, which is always set (§5), so it was unreachable. The queue
 saw a plain failure and started the next job.
 
-### (d) The completion that never arrives — NOT fixed
+### (d) The completion that never arrives — fixed in #67
 
-This is the structural one, and the likeliest cause of the remaining symptom.
+This is the structural one, and the actual cause of the reported symptom.
 
 `cancelProcessing` sets `_state = cancelling` **before** doing anything, then
 calls `WorkerManager.cancel()`. But:
@@ -214,19 +216,36 @@ cannot recover it either. That item can never be run again.
 
 ---
 
-## 7. Invariants that should hold, and are not enforced
+## 7. Invariants, and what enforces them
 
-1. Every started job produces **exactly one** `CompletionResult`. Currently
-   `_completionEmitted` enforces "at most one"; nothing enforces "at least one".
-2. `_state.isActive` implies a live worker **or** a pending completion. Nothing
-   checks this, and nothing times out.
-3. `_isQueueProcessing` implies `_currentProcessingIndex` addresses a
-   `processing` item. Violated whenever a completion is dropped.
-4. No `QueueItem` remains `processing` once `_isQueueProcessing` is false.
-   Violated by the dropped-completion path, and unrecoverable because
-   `canReprocess` excludes `processing`.
-5. Cancelling is always distinguishable from failing. Currently inferred from a
-   local flag rather than reported by the worker (§5).
+Each of these was violated by one of the bugs above. They are now enforced, and
+the enforcement is exercised by `app/test/main_viewmodel_lifecycle_test.dart`,
+which drives the real viewmodel against a `FakeJobRunner`.
+
+1. **Every started job produces exactly one `CompletionResult`.**
+   `_completionEmitted` gives "at most one"; `_jobInFlight` gives "at least
+   one" — `cancel()` reports even when there is no process to signal.
+2. **`_state` never latches on an event that did not arrive.** `cancelProcessing`
+   reconciles to `idle` if nothing retired the `cancelling` latch, and logs that
+   it did so.
+3. **An unattributable completion stands the queue down** rather than being
+   dropped. `_handleQueueItemCompletion` calls `_stopProcessing()` instead of
+   returning early.
+4. **No `QueueItem` is left `processing`.** `_stopProcessing()` resets any it
+   finds, and every path that ends processing goes through it — so the rescue
+   cannot be forgotten on one of them.
+5. **Cancelling is distinguishable from failing**, and is *observed* rather than
+   inferred: `WorkerManager.completionFor` treats `cancelRequested` **or**
+   `exitCode == 130` (what the worker actually returns) as cancelled.
+
+### Testability
+
+`MainViewModel` takes a `JobRunner` (`app/lib/services/job_runner.dart`),
+defaulting to `WorkerManager`. Before that seam existed the queue state machine
+could not be driven from a test at all, which is why three fixes for the same
+hang shipped unverified — two of them "verified" by tests that only read source
+text. Prefer behavioural tests here; source-scanning assertions have twice
+produced false failures during ordinary refactoring.
 
 ## 8. Preview generation
 

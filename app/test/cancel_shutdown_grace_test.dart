@@ -89,7 +89,12 @@ void main() {
           .readAsStringSync();
       final cancelStart = dart.indexOf('Future<void> cancel()');
       expect(cancelStart, greaterThan(-1));
-      final body = dart.substring(cancelStart, dart.indexOf('_cleanup();', cancelStart));
+      // Read the whole method, not up to the first `_cleanup()`. cancel() now
+      // has an early branch for "nothing to kill" which cleans up before the
+      // await, so anchoring on the first occurrence pointed at that instead —
+      // a false failure with the behaviour perfectly correct.
+      final body =
+          dart.substring(cancelStart, dart.indexOf('\n  }\n', cancelStart));
 
       // It must observe the exit, not assume it after a fixed delay.
       expect(body, contains('exitCode'),

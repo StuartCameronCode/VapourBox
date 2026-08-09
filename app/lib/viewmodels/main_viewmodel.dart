@@ -21,11 +21,14 @@ import '../services/frame_math.dart';
 import '../services/preset_service.dart';
 import '../services/preview_generator.dart';
 import '../services/temp_directory_service.dart';
+import '../services/job_runner.dart';
 import '../services/worker_manager.dart';
 
 /// Main view model managing application state.
 class MainViewModel extends ChangeNotifier {
-  final WorkerManager _workerManager = WorkerManager();
+  /// Runs jobs. Injectable so the queue state machine can be driven from a
+  /// test — see JobRunner for why that matters.
+  final JobRunner _workerManager;
   final FieldOrderDetector _fieldOrderDetector = FieldOrderDetector();
   final PreviewGenerator _previewGenerator = PreviewGenerator();
   final DvdService _dvdService = DvdService();
@@ -337,7 +340,8 @@ class MainViewModel extends ChangeNotifier {
     return _manualFieldOrder;
   }
 
-  MainViewModel() {
+  MainViewModel({JobRunner? runner})
+      : _workerManager = runner ?? WorkerManager() {
     _setupSubscriptions();
     _initializePreviewGenerator();
     _probeGpuCapabilities();
@@ -1088,11 +1092,10 @@ class MainViewModel extends ChangeNotifier {
 
     if (nextIndex == -1) {
       // No more items to process
-      _isQueueProcessing = false;
-      _currentProcessingIndex = -1;
-      // Show failed state if any items failed, otherwise completed
       final hasFailed = _queue.any((q) => q.status == QueueItemStatus.failed);
-      _state = hasFailed ? ProcessingState.failed : ProcessingState.completed;
+      _stopProcessing(
+        state: hasFailed ? ProcessingState.failed : ProcessingState.completed,
+      );
       notifyListeners();
       return;
     }
@@ -1193,6 +1196,15 @@ class MainViewModel extends ChangeNotifier {
   /// Handles completion of a queue item.
   Future<void> _handleQueueItemCompletion(CompletionResult result) async {
     if (_currentProcessingIndex < 0 || _currentProcessingIndex >= _queue.length) {
+      // A completion with no item to attribute it to. Dropping it silently is
+      // what poisons the app: both latches stay set, `canProcess` stays false
+      // and `startQueueProcessing` returns at its guard, so the UI spins with
+      // Start disabled and no way back short of a restart.
+      //
+      // The event is unattributable, not meaningless — the worker has stopped.
+      // Stand down rather than latch.
+      _stopProcessing();
+      notifyListeners();
       return;
     }
 
@@ -1200,9 +1212,10 @@ class MainViewModel extends ChangeNotifier {
 
     if (result.cancelled) {
       item.status = QueueItemStatus.cancelled;
-      _isQueueProcessing = false;
-      _currentProcessingIndex = -1;
-      _state = ProcessingState.idle;
+      // Cancel stops the whole queue; remaining ready items stay ready for a
+      // later Start. _stopProcessing runs after the status is set, so this item
+      // is not caught by its rescue of stranded `processing` items.
+      _stopProcessing();
     } else if (result.success) {
       item.status = QueueItemStatus.completed;
       // Process next item
@@ -1221,6 +1234,24 @@ class MainViewModel extends ChangeNotifier {
     }
 
     notifyListeners();
+  }
+
+  /// Return the queue to a state the user can act on.
+  ///
+  /// Every path that stops processing goes through here, so recovery cannot be
+  /// forgotten on one of them. In particular it rescues items stranded in
+  /// `processing`: that status is neither `canProcess` nor `canReprocess`, so
+  /// `startQueueProcessing`'s reset loop skips it and the item can never be run
+  /// again — the queue stays permanently unusable for that file.
+  void _stopProcessing({ProcessingState state = ProcessingState.idle}) {
+    for (final item in _queue) {
+      if (item.status == QueueItemStatus.processing) {
+        item.status = QueueItemStatus.ready;
+      }
+    }
+    _isQueueProcessing = false;
+    _currentProcessingIndex = -1;
+    _state = state;
   }
 
   /// Gets the effective field order for a queue item.
@@ -1254,6 +1285,21 @@ class MainViewModel extends ChangeNotifier {
       await cancelQueueProcessing();
     } else {
       await _workerManager.cancel();
+    }
+
+    // By now a completion should have retired the `cancelling` latch. If one
+    // never arrived, stand down anyway: `cancelling` is neither `idle` nor in
+    // `canCancel`, so staying there disables Start *and* Cancel with no way back
+    // short of restarting the app. A missed event should cost the user a
+    // mislabelled item, not a dead window.
+    if (_state == ProcessingState.cancelling) {
+      _logMessages.add(LogMessage(
+        level: LogLevel.warning,
+        message: 'Cancellation completed without a result from the worker; '
+            'returning to idle.',
+      ));
+      _stopProcessing();
+      notifyListeners();
     }
   }
 
