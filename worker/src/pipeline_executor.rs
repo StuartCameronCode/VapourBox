@@ -29,6 +29,29 @@ fn is_autoload_skip_line(line: &str) -> bool {
         || line.contains("forget to install a plugin")
 }
 
+/// Whether a `progress=end` line belongs to the run currently executing.
+///
+/// The progress file is named `vb_progress_{job.id}`, and `job.id` is the queue
+/// item's id — identical every time that item is re-run. ffmpeg writes
+/// `progress=end` as it terminates, so a cancelled run leaves one behind, and
+/// the next run's loop polls before its own ffmpeg has opened and truncated the
+/// file.
+///
+/// Believing that line ends the progress loop on its first iteration. The worker
+/// then blocks in `decoder.wait()` while the pipeline encodes at full speed
+/// behind it: no progress is ever reported and the job never completes, so the
+/// app sits on "processing" with a spinner. Four fixes were made in the app for
+/// that symptom before the cause was found here.
+///
+/// A `progress=end` before this run has reported a single frame cannot be ours.
+/// The file is also deleted before the pipeline starts; this is the belt to that
+/// pair of braces, and the part that can be tested deterministically — the file
+/// race depends on how fast ffmpeg opens its output, which is why the bug showed
+/// up against a network share and never locally.
+fn progress_end_is_ours(current_frame: i32) -> bool {
+    current_frame > 0
+}
+
 /// Format an exit status for error messages, including signal info on Unix.
 fn format_exit_status(status: &std::process::ExitStatus) -> String {
     if let Some(code) = status.code() {
@@ -301,6 +324,25 @@ impl PipelineExecutor {
         // Build FFmpeg arguments, using a temp file for progress to avoid
         // Windows pipe buffering which delays progress by ~10K frames.
         let progress_file = std::env::temp_dir().join(format!("vb_progress_{}", job.id));
+
+        // Delete any file left over from a previous run of this job BEFORE the
+        // pipeline starts.
+        //
+        // The name is derived from job.id, which is the queue item's id and so is
+        // identical every time that item is re-run. ffmpeg writes `progress=end`
+        // as it terminates, so a cancelled run leaves one behind — and the next
+        // run's progress loop polls immediately, before its own ffmpeg has opened
+        // and truncated the file. It reads the previous run's tail, concludes the
+        // encode has already finished, breaks out of the loop on its first
+        // iteration, and blocks forever in decoder.wait() while the pipeline
+        // encodes at full speed behind it. No progress is ever reported and the
+        // job never completes: the app sits on "processing" with a spinner.
+        //
+        // Whether that happens is a race between our first poll and ffmpeg's
+        // truncate, which is why it came and went and never reproduced under
+        // test — every test used a fresh job id, so the file never pre-existed.
+        let _ = fs::remove_file(&progress_file);
+
         let existing_comment = self.probe_comment(&job.input_path);
         let ffmpeg_args = self.build_ffmpeg_args(job, &progress_file, input_sar.as_deref(), existing_comment.as_deref());
 
@@ -439,7 +481,7 @@ impl PipelineExecutor {
                             }
                         }
                     } else if line.starts_with("progress=end") {
-                        ffmpeg_done = true;
+                        ffmpeg_done = progress_end_is_ours(current_frame);
                     }
                 }
             }
@@ -1245,6 +1287,40 @@ mod tests {
     use super::*;
     use crate::models::{AudioCodec, AudioQuality, EncodingSettings, QTGMCParameters, VideoCodec};
     use uuid::Uuid;
+
+    /// A leftover `progress=end` must not end a run that has produced no frames.
+    ///
+    /// This is the bug that produced "the UI sits on processing with a spinner
+    /// and never updates". The progress file is keyed on job.id, which is the
+    /// queue item's id and so is reused on every re-run of that item; a
+    /// cancelled run leaves `progress=end` behind, and the next run read it
+    /// before its own ffmpeg had truncated the file, broke out of the progress
+    /// loop immediately, and blocked in decoder.wait() forever.
+    ///
+    /// It is tested here rather than end-to-end because the failure is a race
+    /// between the first poll and ffmpeg's truncate: it reproduces reliably over
+    /// a network share and essentially never against a local file, so an
+    /// integration test passes with or without the fix. (Verified: the heavy
+    /// stale-progress tests pass against the broken worker too.)
+    #[test]
+    fn test_94_stale_progress_end_is_not_ours() {
+        assert!(
+            !progress_end_is_ours(0),
+            "a progress=end seen before this run reported any frame is a \
+             leftover from the previous run; trusting it ends the loop on the \
+             first iteration and hangs the job"
+        );
+    }
+
+    #[test]
+    fn test_95_progress_end_after_frames_ends_the_run() {
+        assert!(
+            progress_end_is_ours(1),
+            "once this run has reported frames, progress=end is genuinely ours \
+             and must end the loop — otherwise the job never finishes"
+        );
+        assert!(progress_end_is_ours(150_000));
+    }
 
     #[test]
     fn test_preview_window_centered() {

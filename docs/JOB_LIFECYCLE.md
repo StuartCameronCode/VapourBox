@@ -126,16 +126,18 @@ on SIGTERM without unwinding.
 
 ---
 
-## 5. Why cancellation is inferred, not reported
+## 5. How cancellation is recognised
 
 There is no "cancelled" message in the protocol. The worker reports
 `complete(false)` for a cancellation and for a genuine failure alike, and
 `_handleStdoutLine` builds both into a `CompletionResult` with no `cancelled`
 flag — so it defaults to `false` (`worker_manager.dart:312`).
 
-The app therefore has to *infer* cancellation from a flag it set itself
-(`_cancelRequested`). That inference is the only thing separating two outcomes
-the queue treats very differently:
+So the app recognises a cancellation two ways, either of which suffices:
+`_cancelRequested` (what it asked for) or **exit code 130** (what the worker
+actually did). Relying on the flag alone was fragile — that is how bug (c) below
+became unreachable. The distinction separates two outcomes the queue treats very
+differently:
 
 | `result` | `_handleQueueItemCompletion` does |
 |---|---|
@@ -173,9 +175,9 @@ job's stdout subscription. Fixed with `_generation`.
 `_pendingCompletion`, which is always set (§5), so it was unreachable. The queue
 saw a plain failure and started the next job.
 
-### (d) The completion that never arrives — NOT fixed
+### (d) The completion that never arrives — fixed in #67
 
-This is the structural one, and the likeliest cause of the remaining symptom.
+This is the structural one, and the actual cause of the reported symptom.
 
 `cancelProcessing` sets `_state = cancelling` **before** doing anything, then
 calls `WorkerManager.cancel()`. But:
@@ -214,19 +216,73 @@ cannot recover it either. That item can never be run again.
 
 ---
 
-## 7. Invariants that should hold, and are not enforced
+## 7. Invariants, and what enforces them
 
-1. Every started job produces **exactly one** `CompletionResult`. Currently
-   `_completionEmitted` enforces "at most one"; nothing enforces "at least one".
-2. `_state.isActive` implies a live worker **or** a pending completion. Nothing
-   checks this, and nothing times out.
-3. `_isQueueProcessing` implies `_currentProcessingIndex` addresses a
-   `processing` item. Violated whenever a completion is dropped.
-4. No `QueueItem` remains `processing` once `_isQueueProcessing` is false.
-   Violated by the dropped-completion path, and unrecoverable because
-   `canReprocess` excludes `processing`.
-5. Cancelling is always distinguishable from failing. Currently inferred from a
-   local flag rather than reported by the worker (§5).
+Each of these was violated by one of the bugs above. They are now enforced, and
+the enforcement is exercised by `app/test/main_viewmodel_lifecycle_test.dart`,
+which drives the real viewmodel against a `FakeJobRunner`.
+
+1. **Every started job produces exactly one `CompletionResult`.**
+   `_completionEmitted` gives "at most one"; `_jobInFlight` gives "at least
+   one" — `cancel()` reports even when there is no process to signal.
+2. **`_state` never latches on an event that did not arrive.** `cancelProcessing`
+   reconciles to `idle` if nothing retired the `cancelling` latch, and logs that
+   it did so.
+3. **An unattributable completion stands the queue down** rather than being
+   dropped. `_handleQueueItemCompletion` calls `_stopProcessing()` instead of
+   returning early.
+4. **No `QueueItem` is left `processing`.** `_stopProcessing()` resets any it
+   finds, and every path that ends processing goes through it — so the rescue
+   cannot be forgotten on one of them.
+5. **Cancelling is distinguishable from failing**, and is *observed* rather than
+   inferred: `WorkerManager.completionFor` treats `cancelRequested` **or**
+   `exitCode == 130` (what the worker actually returns) as cancelled.
+
+### Testability
+
+`MainViewModel` takes a `JobRunner` (`app/lib/services/job_runner.dart`),
+defaulting to `WorkerManager`. Before that seam existed the queue state machine
+could not be driven from a test at all, which is why three fixes for the same
+hang shipped unverified — two of them "verified" by tests that only read source
+text. Prefer behavioural tests here; source-scanning assertions have twice
+produced false failures during ordinary refactoring.
+
+### (e) The stale progress file — the actual cause, fixed in #67
+
+The one that produced "the UI never updates". Everything above is real, but none
+of it was this.
+
+The worker polls `${TMPDIR}/vb_progress_${job.id}` for ffmpeg's progress, and
+**`job.id` is the queue item's id** — identical every time that item is re-run.
+ffmpeg writes `progress=end` as it terminates, so a cancelled run leaves one
+behind. The next run's loop polls immediately, before its own ffmpeg has opened
+and truncated the file, reads the previous run's tail, concludes the encode has
+already finished, and **breaks out of the progress loop on its first
+iteration** — then blocks forever in `decoder.wait()` while the pipeline encodes
+at full speed behind it.
+
+Confirmed by sampling the stuck worker: `__wait4` under `execute`, 0% CPU, while
+vspipe sat at 440% and both ffmpegs ran. No progress was ever reported and the
+job never completed.
+
+Why it took four attempts to find:
+
+- **The app was innocent throughout.** It never received a progress event,
+  because none was ever sent. Every app-side fix was for a symptom.
+- **It only follows a cancel**, because only a re-run of the same queue item
+  reuses the id.
+- **It is a race** between the first poll and ffmpeg's truncate, so it came and
+  went. Adding `debugPrint` calls shifted the timing enough to hide it — which
+  is why one traced build "seemed to work" with functionally identical code.
+- **No test could reproduce it**: every test generated a fresh job id, so the
+  file never pre-existed. Even seeding one deliberately does not fail against
+  the broken worker locally, because ffmpeg truncates a local file almost
+  instantly. The window is wide over a network share, which is where it showed.
+
+Fixed two ways: the file is deleted before the pipeline starts, and
+`progress_end_is_ours()` refuses to believe a `progress=end` seen before this run
+has reported a frame. The second is what `test_94` pins, because it is the half
+that can be tested deterministically.
 
 ## 8. Preview generation
 
