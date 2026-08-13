@@ -18,8 +18,11 @@
 // which fails against the old code. This test guards the assumption that fix
 // rests on. Do not weaken it into a "cancel returns without error" check.
 //
-// POSIX only — Windows has no SIGTERM, and the app uses `taskkill /T` there,
-// which kills the tree outright.
+// Two of these tests are POSIX only and say so where they are skipped: SIGTERM
+// semantics and process-group leadership have no Windows equivalent. The orphan
+// checks DO run on Windows, where the tree is killed with `taskkill /T` — they
+// have to, because that is the platform whose teardown had no coverage at all,
+// and the one where preview cancellation was leaking vspipe and ffmpeg.
 @Tags(['heavy'])
 library;
 
@@ -38,10 +41,74 @@ import 'package:vapourbox/models/video_job.dart';
 
 import 'support/worker_harness.dart';
 
+/// Every path a deps binary can legitimately be executed from.
+///
+/// The prefix match below has to allow for the deps directory being reached by
+/// more than one name. On Linux the worker does not search upward from the
+/// executable at all (`dependency_locator.rs`, which restricts that to
+/// non-Linux debug builds), so it resolves deps through
+/// `$XDG_DATA_HOME`/`~/.local/share/VapourBox/deps` — which CI *symlinks* to the
+/// checkout. `ps` then reports the symlinked path while the test holds the
+/// workspace one, they share no prefix, and the child count comes back zero:
+/// the test fails claiming the pipeline never started when it started fine.
+List<String> _depsRoots(String dir) {
+  final roots = <String>{dir};
+
+  try {
+    roots.add(Directory(dir).resolveSymbolicLinksSync());
+  } on FileSystemException {
+    // Not resolvable — the literal path is still worth matching.
+  }
+
+  // The Linux production location, with the platform suffix carried over.
+  final platform = p.basename(dir);
+  final xdg = Platform.environment['XDG_DATA_HOME'];
+  final home = Platform.environment['HOME'];
+  if (xdg != null && xdg.isNotEmpty) {
+    roots.add(p.join(xdg, 'VapourBox', 'deps', platform));
+  } else if (home != null && home.isNotEmpty) {
+    roots.add(p.join(home, '.local', 'share', 'VapourBox', 'deps', platform));
+  }
+
+  return roots.toList();
+}
+
 /// PIDs of live processes whose executable path sits under [dir].
+///
+/// Cross-platform: `ps` reports the command line on Unix, and `Get-CimInstance
+/// Win32_Process` the executable path on Windows, where `ps` does not exist at
+/// all — which used to make every orphan assertion here unrunnable on the one
+/// platform whose teardown path was untested.
 Future<List<int>> _processesUnder(String dir) async {
-  final ps = await Process.run('ps', ['-Ao', 'pid=,command=']);
+  final roots = _depsRoots(dir);
+  bool underDeps(String command) => roots.any(command.startsWith);
+
   final out = <int>[];
+
+  if (Platform.isWindows) {
+    final ps = await Process.run('powershell', [
+      '-NoProfile',
+      '-Command',
+      r'Get-CimInstance Win32_Process | ForEach-Object '
+          r'{ "$($_.ProcessId)`t$($_.ExecutablePath)" }',
+    ]);
+    for (final line in const LineSplitter().convert(ps.stdout.toString())) {
+      final tab = line.indexOf('\t');
+      if (tab <= 0) continue;
+      final pid = int.tryParse(line.substring(0, tab).trim());
+      if (pid == null) continue;
+      // Win32 reports a backslash path; the deps roots use whatever separator
+      // the harness built them with, so compare on one form.
+      final exe = line.substring(tab + 1).trim().replaceAll(r'\', '/');
+      if (exe.isEmpty) continue;
+      if (underDeps(exe) || roots.any((r) => exe.startsWith(r.replaceAll(r'\', '/')))) {
+        out.add(pid);
+      }
+    }
+    return out;
+  }
+
+  final ps = await Process.run('ps', ['-Ao', 'pid=,command=']);
   for (final line in const LineSplitter().convert(ps.stdout.toString())) {
     final trimmed = line.trimLeft();
     final sp = trimmed.indexOf(' ');
@@ -51,7 +118,7 @@ Future<List<int>> _processesUnder(String dir) async {
     final cmd = trimmed.substring(sp + 1);
     // Match only the executable path, not an argument that happens to name the
     // deps dir (the job config and output paths can both mention it).
-    if (cmd.startsWith(dir)) out.add(pid);
+    if (underDeps(cmd)) out.add(pid);
   }
   return out;
 }
@@ -82,7 +149,11 @@ void main() {
       }
     });
 
-    test('SIGTERM stops the worker and leaves no orphaned children', () async {
+    test('SIGTERM stops the worker and leaves no orphaned children', skip: Platform.isWindows
+        ? 'POSIX only: Windows has no SIGTERM, and Process.kill maps to '
+            'TerminateProcess. The app kills the tree with taskkill /T there, '
+            'which the preview-orphan test below covers.'
+        : null, () async {
       final depsDir = WorkerHarness.depsDir;
       final outPath =
           p.join(WorkerHarness.outputDir, 'test_cancel_orphans.mkv');
@@ -191,7 +262,11 @@ void main() {
     }, timeout: const Timeout(Duration(minutes: 3)));
 
     test('the worker leads its own process group, so the tree can be signalled',
-        () async {
+        skip: Platform.isWindows
+            ? 'POSIX only: Windows has no process groups. The equivalent there '
+                'is taskkill /T walking the child tree, asserted by the '
+                'orphan tests rather than by a pgid.'
+            : null, () async {
       // ProcessTree.killTree() signals -pid, which only reaches the pipeline if
       // the worker made itself a group leader (setpgid in worker/src/main.rs).
       // If that call is ever removed the kill silently degrades to pid-only and
@@ -314,7 +389,7 @@ void main() {
       Process? current;
       for (var i = 0; i < 10; i++) {
         if (current != null) {
-          ProcessTree.killTree(current);
+          await ProcessTree.killTree(current);
           unawaited(ProcessTree.waitForExit(current));
         }
         current = await Process.start(
@@ -328,7 +403,7 @@ void main() {
         started.add(current);
         await Future<void>.delayed(const Duration(milliseconds: 250));
       }
-      ProcessTree.killTree(current!);
+      await ProcessTree.killTree(current!);
       await ProcessTree.waitForExit(current);
 
       // Everything the burst spawned must be gone.
@@ -399,8 +474,13 @@ void main() {
       expect(spawned.length, greaterThanOrEqualTo(2),
           reason: 'the preview pipeline never started, so this proves nothing');
 
-      // Exactly what PreviewGenerator.cancelPreviewGeneration() does.
-      proc.kill();
+      // Exactly what PreviewGenerator.cancelPreviewGeneration() does — which is
+      // killTree, not proc.kill(). This line used to claim the former while
+      // doing the latter, and that gap is the whole reason the Windows preview
+      // leak survived: leader-only kills happen to work on Unix (the children
+      // take EPIPE) so the test passed, while on Windows nothing reached the
+      // children and no assertion here could tell.
+      await ProcessTree.killTree(proc);
       await proc.exitCode.timeout(const Duration(seconds: 15),
           onTimeout: () { proc.kill(ProcessSignal.sigkill); return -1; });
 

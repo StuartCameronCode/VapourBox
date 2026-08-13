@@ -36,9 +36,14 @@ void main() {
     await WorkerHarness.ensureReady();
     await Directory(WorkerHarness.outputDir).create(recursive: true);
 
-    // ToolLocator resolves relative to the executable, which under `flutter
-    // test` is the test runner. Point it at the real deps and worker.
-    // (Set before initialize(); the values are cached.)
+    // ToolLocator resolves relative to the running executable, which under
+    // `flutter test` is the test runner rather than the app bundle — so it needs
+    // VAPOURBOX_WORKER (and VAPOURBOX_DEPS_DIR) in the environment, which
+    // nightly.yml sets for the heavy step. This cannot be done from here: a Dart
+    // process cannot mutate its own environment, and an earlier version of this
+    // comment claimed the setup did so, which is why the test failed every night
+    // with "Worker executable not found" rather than telling anyone what was
+    // missing.
     longInput = p.join(WorkerHarness.outputDir, 'cancel_long_source.avi');
     if (!File(longInput).existsSync()) {
       final gen = await Process.run(WorkerHarness.ffmpegPath, [
