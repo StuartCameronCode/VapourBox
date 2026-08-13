@@ -21,7 +21,12 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 clap = { version = "4.0", features = ["derive"] }
 thiserror = "1.0"
 anyhow = "1.0"
-ctrlc = "3.4"
+# `termination` is required for SIGTERM (and SIGHUP): without it ctrlc installs
+# a handler for SIGINT *only*, so a SIGTERM — which is exactly what the app sends
+# to cancel a job — killed the worker by default disposition. The handler never
+# ran, so PipelineExecutor::terminate() never ran, and vspipe/ffmpeg were
+# abandoned mid-encode. See the cancel integration tests.
+ctrlc = { version = "3.4", features = ["termination"] }
 which = "7.0"
 chrono = { version = "0.4", features = ["serde"] }
 libloading = "0.8"

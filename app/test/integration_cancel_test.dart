@@ -101,12 +101,33 @@ Future<List<int>> _childrenOf(int pid) async {
   // worker/src/main.rs) precisely so its whole pipeline can be addressed at
   // once, so the group *is* the tree.
   final r = await Process.run('pgrep', ['-g', '$pid']);
-  return const LineSplitter()
+  final members = const LineSplitter()
       .convert(r.stdout.toString())
       .map((s) => int.tryParse(s.trim()))
       .whereType<int>()
       .where((child) => child != pid)
       .toList();
+  if (members.isEmpty) return members;
+
+  // Drop zombies. On cancel the worker SIGKILLs its children and bails without
+  // waiting on them (pipeline_executor.rs:457), so for the moment between that
+  // kill and the worker's own exit they are zombies with a live parent — and
+  // pgrep lists zombies. They are already dead: they hold no CPU and no pipe,
+  // and init reaps them as soon as the worker goes. Counting them made this
+  // test fail intermittently on the fastest runner (macos-arm64), which samples
+  // inside that window; a slower one never sees it. What the test means by an
+  // orphan is a process still *running*, so say that.
+  final st = await Process.run('ps', ['-o', 'pid=,stat=', '-p', members.join(',')]);
+  final alive = <int>[];
+  for (final line in const LineSplitter().convert(st.stdout.toString())) {
+    final parts = line.trim().split(RegExp(r'\s+'));
+    if (parts.length < 2) continue;
+    final child = int.tryParse(parts[0]);
+    if (child == null) continue;
+    if (parts[1].startsWith('Z')) continue; // zombie: dead, awaiting reaping
+    alive.add(child);
+  }
+  return alive;
 }
 
 /// A human-readable line per pid: state and command, for failure messages.
