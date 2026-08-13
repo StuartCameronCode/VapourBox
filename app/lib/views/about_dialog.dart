@@ -167,10 +167,22 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/HomeOfVapourSynthEvolution/havsfunc',
                       ),
                       _ComponentTile(
+                        name: 'VIVTC',
+                        license: 'LGPL 2.1',
+                        copyright: 'Fredrik Mellbin',
+                        url: 'https://github.com/vapoursynth/vivtc',
+                      ),
+                      _ComponentTile(
                         name: 'mvtools',
                         license: 'GPL 2.0',
                         copyright: 'Manao, Fizick, Pinterf, dubhater',
                         url: 'https://github.com/dubhater/vapoursynth-mvtools',
+                      ),
+                      _ComponentTile(
+                        name: 'nnedi3',
+                        license: 'GPL 2.0',
+                        copyright: 'Kevin Stone (tritical); port by dubhater',
+                        url: 'https://github.com/dubhater/vapoursynth-nnedi3',
                       ),
                       _ComponentTile(
                         name: 'znedi3',
@@ -185,16 +197,22 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3',
                       ),
                       _ComponentTile(
+                        name: 'akarin',
+                        license: 'LGPL 3.0',
+                        copyright: 'The akarin plugin authors',
+                        url: 'https://github.com/Jaded-Encoding-Thaumaturgy/akarin-vapoursynth-plugin',
+                      ),
+                      _ComponentTile(
+                        name: 'zsmooth',
+                        license: 'MIT',
+                        copyright: 'Adrian Woracz',
+                        url: 'https://github.com/adworacz/zsmooth',
+                      ),
+                      _ComponentTile(
                         name: 'FFmpeg',
                         license: 'LGPL 2.1+',
                         copyright: 'FFmpeg contributors',
                         url: 'https://github.com/FFmpeg/FFmpeg',
-                      ),
-                      _ComponentTile(
-                        name: 'ffms2',
-                        license: 'MIT',
-                        copyright: 'FFMS contributors',
-                        url: 'https://github.com/FFMS/ffms2',
                       ),
                       _ComponentTile(
                         name: 'DFTTest',
@@ -218,7 +236,19 @@ class _AboutDialogState extends State<AboutDialog> {
                         name: 'fmtconv',
                         license: 'WTFPL',
                         copyright: 'Firesledge (Laurent de Soras)',
-                        url: 'https://github.com/EleonoreMizo/fmtconv',
+                        url: 'https://gitlab.com/EleonoreMizo/fmtconv',
+                      ),
+                      _ComponentTile(
+                        name: 'whisper.cpp',
+                        license: 'MIT',
+                        copyright: 'Georgi Gerganov',
+                        url: 'https://github.com/ggerganov/whisper.cpp',
+                      ),
+                      _ComponentTile(
+                        name: 'libdvdread',
+                        license: 'GPL 2.0+',
+                        copyright: 'VideoLAN and contributors',
+                        url: 'https://code.videolan.org/videolan/libdvdread',
                       ),
                       _ComponentTile(
                         name: 'Flutter',
@@ -235,6 +265,23 @@ class _AboutDialogState extends State<AboutDialog> {
                     ],
                   ),
                 ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Credits that are not bundled components: QTGMC is an algorithm
+              // (shipped as part of havsfunc above), Hybrid is inspiration only.
+              // Both are acknowledged in README.md, so neither gets a licence
+              // badge here.
+              Text(
+                'QTGMC deinterlacing algorithm by Vit. '
+                'Inspired by Hybrid by Selur.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.6),
+                    ),
               ),
 
               const SizedBox(height: 16),

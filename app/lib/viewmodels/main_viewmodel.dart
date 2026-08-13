@@ -1523,10 +1523,11 @@ class MainViewModel extends ChangeNotifier {
     }
   }
 
-  /// Add a folder: if it's a VIDEO_TS folder, treat as DVD; otherwise scan for videos.
+  /// Add a folder: if it's a ripped DVD, treat as DVD; otherwise scan for videos.
   Future<void> addFolder(String folderPath) async {
-    // Check if this is a DVD folder (contains VIDEO_TS)
-    final dvdMountPoint = await DiscDetector.findVideoTsParent(folderPath);
+    // Check if this is a ripped DVD (a VIDEO_TS directory, a folder containing
+    // one, or a flat rip holding the VIDEO_TS contents directly).
+    final dvdMountPoint = await DiscDetector.findDvdRoot(folderPath);
     if (dvdMountPoint != null) {
       // Route to DVD enumeration flow — caller should show title picker
       // We throw a special exception that the UI can catch to show the DVD picker

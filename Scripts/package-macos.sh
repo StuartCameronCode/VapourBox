@@ -281,9 +281,19 @@ else
     done
 
     # 4. Sign helper executables
+    #
+    # The worker needs the SAME entitlements as the app, not just the hardened
+    # runtime. Entitlements are per-executable, and the worker is its own
+    # process — the app bundle's set does not reach it. Signed hardened with no
+    # entitlements it gets library validation, and it dlopens the downloaded,
+    # ad-hoc-signed libdvdread from deps/ (dvd_reader.rs), which then fails with
+    # "mapping process and mapped file (non-platform) have different Team IDs"
+    # and no DVD can be extracted. Debug builds never show this: they are
+    # ad-hoc signed, so there is no Team ID to mismatch.
     echo "    Signing helper executables..."
     if [ -f "$CONTENTS/MacOS/vapourbox-worker" ]; then
-        codesign --force --sign "$IDENTITY" --options runtime --timestamp "$CONTENTS/MacOS/vapourbox-worker"
+        codesign --force --sign "$IDENTITY" --options runtime --timestamp \
+            --entitlements "$ENTITLEMENTS" "$CONTENTS/MacOS/vapourbox-worker"
     fi
 
     # 5. Sign the main app bundle with entitlements
@@ -293,6 +303,19 @@ else
     # 6. Verify
     echo "    Verifying signature..."
     codesign --verify --deep --strict "$APP_BUNDLE"
+
+    # Every Mach-O we launch as its own process must carry
+    # disable-library-validation, or it cannot dlopen the ad-hoc-signed
+    # libraries in the downloaded deps bundle (see step 4).
+    for exe in "$CONTENTS/MacOS/vapourbox" "$CONTENTS/MacOS/vapourbox-worker"; do
+        [ -f "$exe" ] || continue
+        if ! codesign -d --entitlements - --xml "$exe" 2>/dev/null \
+            | grep -q "com.apple.security.cs.disable-library-validation"; then
+            echo "ERROR: $(basename "$exe") is signed without disable-library-validation"
+            echo "       It will fail to dlopen the ad-hoc-signed deps libraries."
+            exit 1
+        fi
+    done
     echo "    Signature verified OK"
 fi
 
