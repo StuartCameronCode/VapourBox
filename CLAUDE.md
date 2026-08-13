@@ -1525,6 +1525,23 @@ The macOS app is signed with a **Developer ID Application** certificate and nota
 
 `package-macos.sh` also works locally: with a Developer ID cert in your keychain it signs, and `--notarize` uses a stored `notarytool` keychain profile (default name `VapourBox`). In CI there is no keychain profile, so it falls back to `NOTARY_APPLE_ID` / `NOTARY_PASSWORD` / `NOTARY_TEAM_ID` env vars. Use `--no-sign` for ad-hoc local test builds.
 
+> **Every helper executable needs the entitlements too, not just the app.**
+> Entitlements are per-Mach-O and the app bundle's set does **not** reach a
+> child process, so `vapourbox-worker` must be signed with
+> `--entitlements packaging/macos/distribution.entitlements` in its own right.
+> Signed hardened without them it gets **library validation**, and the worker
+> `dlopen`s the downloaded, **ad-hoc-signed** `libdvdread.dylib` from
+> `deps/<arch>/lib/` (`worker/src/dvd_reader.rs`) — which then fails with
+> *"mapping process and mapped file (non-platform) have different Team IDs"* and
+> DVD import is dead in the shipped app. It shipped that way through 0.9.12.
+>
+> Nothing else catches this: the debug build is **ad-hoc signed**, so it has no
+> Team ID to mismatch and DVD extraction works fine locally; `codesign --verify
+> --deep --strict` passes, and notarization passes. `package-macos.sh` now
+> asserts after signing that both `vapourbox` and `vapourbox-worker` carry
+> `disable-library-validation`, and fails the package if either doesn't. Add any
+> future bundled helper to that loop.
+
 > **A notarization `403` is not necessarily your account.** The notary service
 > returns *"HTTP status code: 403. Invalid or inaccessible developer team ID for
 > the provided Apple ID"* during Apple-side outages, which reads like a
