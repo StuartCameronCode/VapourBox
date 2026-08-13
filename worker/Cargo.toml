@@ -1,6 +1,6 @@
 [package]
 name = "vapourbox-worker"
-version = "0.9.12"
+version = "0.9.13"
 edition = "2021"
 description = "Video processing worker using VapourSynth"
 authors = ["Stuart Cameron"]
