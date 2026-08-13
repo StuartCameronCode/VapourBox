@@ -113,7 +113,7 @@ class _DropZoneState extends State<DropZone> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 48),
                   child: Text(
-                    'Supported: Video files, folders of videos, DVD discs, and VIDEO_TS folders',
+                    'Supported: Video files, folders of videos, DVD discs, and ripped DVD folders',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: colorScheme.onSurface.withValues(alpha: 0.4),

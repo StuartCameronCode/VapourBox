@@ -109,29 +109,89 @@ class DiscDetector {
     return discs;
   }
 
-  /// Checks if a given path contains a VIDEO_TS directory (or IS a VIDEO_TS directory).
-  /// Returns the parent path (mount point) if found, or null.
-  static Future<String?> findVideoTsParent(String path) async {
-    // Check if path itself is named VIDEO_TS
+  /// Decides whether [path] is a ripped DVD, and if so returns the path to
+  /// hand the worker's `--dvd-info` / `--dvd-extract`. Returns null for an
+  /// ordinary folder, which the caller should scan for video files instead.
+  ///
+  /// Three shapes count as a DVD, in this order:
+  ///
+  /// 1. [path] **is** a `VIDEO_TS` directory holding an IFO — the disc root is
+  ///    its parent.
+  /// 2. [path] **contains** a `VIDEO_TS` directory holding an IFO — the usual
+  ///    mounted disc or a rip that kept the wrapping directory.
+  /// 3. [path] holds the VIDEO_TS *contents* directly (a "flat" rip, named
+  ///    after the disc): an IFO **and** at least one `.VOB`.
+  ///
+  /// Case 3 demands a VOB where the first two do not, deliberately. A folder
+  /// with a `VIDEO_TS` subdirectory is unambiguous, but a flat folder is
+  /// ordinary until proven otherwise, and a stray IFO next to unrelated videos
+  /// must not hijack the whole folder into the DVD flow. An IFO with no VOB is
+  /// not extractable anyway.
+  static Future<String?> findDvdRoot(String path) async {
+    final dir = Directory(path);
+    if (!await dir.exists()) return null;
+
+    // 1. The path itself is a VIDEO_TS directory.
     final dirName = path.replaceAll('\\', '/').split('/').last.toUpperCase();
-    if (dirName == 'VIDEO_TS') {
-      final parent = Directory(path).parent.path;
-      if (await File('$path/VIDEO_TS.IFO').exists() ||
-          await File('$path/video_ts.ifo').exists()) {
-        return parent;
-      }
+    if (dirName == 'VIDEO_TS' && await _hasDvdIfo(dir)) {
+      return dir.parent.path;
     }
 
-    // Check if path contains VIDEO_TS
-    final videoTsDir = Directory('$path/VIDEO_TS');
-    if (await videoTsDir.exists()) {
-      // Verify it has IFO files
-      if (await File('$path/VIDEO_TS/VIDEO_TS.IFO').exists() ||
-          await File('$path/VIDEO_TS/video_ts.ifo').exists()) {
-        return path;
-      }
+    // 2. A VIDEO_TS subdirectory (matched case-insensitively, since only
+    //    Windows and macOS resolve the case for us).
+    final videoTs = await _findChildDirectory(dir, 'video_ts');
+    if (videoTs != null && await _hasDvdIfo(videoTs)) {
+      return path;
+    }
+
+    // 3. A flat rip: VIDEO_TS contents sitting directly in the folder.
+    if (await _hasDvdIfo(dir) && await _hasVob(dir)) {
+      return path;
     }
 
     return null;
+  }
+
+  /// Case-insensitive lookup of a child directory by [name] (already lowercase).
+  static Future<Directory?> _findChildDirectory(
+      Directory parent, String name) async {
+    try {
+      await for (final entity in parent.list(followLinks: false)) {
+        if (entity is Directory &&
+            entity.path.replaceAll('\\', '/').split('/').last.toLowerCase() ==
+                name) {
+          return entity;
+        }
+      }
+    } catch (_) {
+      // Unreadable directory — treat as not a DVD.
+    }
+    return null;
+  }
+
+  /// Whether [dir] directly contains `VIDEO_TS.IFO` or a `VTS_nn_0.IFO`.
+  static Future<bool> _hasDvdIfo(Directory dir) =>
+      _anyFile(dir, (name) => name == 'video_ts.ifo' || _vtsIfo.hasMatch(name));
+
+  /// Whether [dir] directly contains any `.VOB`.
+  static Future<bool> _hasVob(Directory dir) =>
+      _anyFile(dir, (name) => name.endsWith('.vob'));
+
+  static final RegExp _vtsIfo = RegExp(r'^vts_\d{2}_0\.ifo$');
+
+  /// Whether any file directly in [dir] has a lowercased name matching [test].
+  static Future<bool> _anyFile(
+      Directory dir, bool Function(String name) test) async {
+    try {
+      await for (final entity in dir.list(followLinks: false)) {
+        if (entity is! File) continue;
+        final name =
+            entity.path.replaceAll('\\', '/').split('/').last.toLowerCase();
+        if (test(name)) return true;
+      }
+    } catch (_) {
+      // Unreadable directory — treat as not a DVD.
+    }
+    return false;
   }
 }

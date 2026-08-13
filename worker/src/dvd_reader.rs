@@ -256,7 +256,42 @@ fn find_video_ts_dir(path: &str) -> Result<PathBuf> {
         return Ok(video_ts_lower);
     }
 
+    // A "flat" rip: the folder holds the VIDEO_TS *contents* without the
+    // wrapping directory, and is named after the disc rather than VIDEO_TS
+    // (what several rippers produce, and what you get by copying the files out
+    // of a VIDEO_TS by hand). The IFO is the marker — the folder itself then
+    // plays the role of the VIDEO_TS directory.
+    if dir_has_dvd_ifo(p) {
+        return Ok(p.to_path_buf());
+    }
+
     bail!("VIDEO_TS directory not found at {:?}", path)
+}
+
+/// Whether a directory directly contains a DVD IFO (`VIDEO_TS.IFO` or a
+/// `VTS_nn_0.IFO`), matched case-insensitively because rips vary and only
+/// Windows/macOS filesystems are forgiving about it.
+pub fn dir_has_dvd_ifo(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        if name == "video_ts.ifo" {
+            return true;
+        }
+        // VTS_01_0.IFO … VTS_99_0.IFO
+        if let Some(rest) = name.strip_prefix("vts_") {
+            if let Some(num) = rest.strip_suffix("_0.ifo") {
+                if num.len() == 2 && num.chars().all(|c| c.is_ascii_digit()) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
 }
 
 /// Find an IFO file, handling case sensitivity.
@@ -901,6 +936,70 @@ pub fn extract_title(
 mod tests {
     use super::*;
 
+    /// Creates the named empty files in a fresh temp dir and returns it.
+    fn dir_with(files: &[&str]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        for rel in files {
+            let path = dir.path().join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, b"").unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn test_find_video_ts_dir_nested() {
+        let dir = dir_with(&["VIDEO_TS/VIDEO_TS.IFO", "VIDEO_TS/VTS_01_1.VOB"]);
+        let found = find_video_ts_dir(dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(found, dir.path().join("VIDEO_TS"));
+    }
+
+    #[test]
+    fn test_find_video_ts_dir_is_video_ts() {
+        let dir = dir_with(&["VIDEO_TS/VIDEO_TS.IFO"]);
+        let video_ts = dir.path().join("VIDEO_TS");
+        let found = find_video_ts_dir(video_ts.to_str().unwrap()).unwrap();
+        assert_eq!(found, video_ts);
+    }
+
+    /// A flat rip — the VIDEO_TS contents in a folder named after the disc.
+    /// The folder itself stands in for the VIDEO_TS directory; without this the
+    /// worker bails and the folder cannot be opened as a DVD at all.
+    #[test]
+    fn test_find_video_ts_dir_flat_rip() {
+        let dir = dir_with(&["VIDEO_TS.IFO", "VTS_01_0.IFO", "VTS_01_1.VOB"]);
+        let found = find_video_ts_dir(dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(found, dir.path());
+    }
+
+    #[test]
+    fn test_find_video_ts_dir_flat_rip_vts_ifo_only() {
+        let dir = dir_with(&["vts_01_0.ifo", "vts_01_1.vob"]);
+        let found = find_video_ts_dir(dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(found, dir.path());
+    }
+
+    #[test]
+    fn test_find_video_ts_dir_rejects_plain_folder() {
+        let dir = dir_with(&["a.mp4", "b.mkv"]);
+        assert!(find_video_ts_dir(dir.path().to_str().unwrap()).is_err());
+    }
+
+    #[test]
+    fn test_dir_has_dvd_ifo() {
+        assert!(dir_has_dvd_ifo(dir_with(&["VIDEO_TS.IFO"]).path()));
+        assert!(dir_has_dvd_ifo(dir_with(&["video_ts.ifo"]).path()));
+        assert!(dir_has_dvd_ifo(dir_with(&["VTS_01_0.IFO"]).path()));
+        assert!(dir_has_dvd_ifo(dir_with(&["VTS_99_0.IFO"]).path()));
+
+        // Not IFOs that name a title set root.
+        assert!(!dir_has_dvd_ifo(dir_with(&["VTS_1_0.IFO"]).path()));
+        assert!(!dir_has_dvd_ifo(dir_with(&["VTS_01_1.VOB"]).path()));
+        assert!(!dir_has_dvd_ifo(dir_with(&["notes.ifo"]).path()));
+        assert!(!dir_has_dvd_ifo(dir_with(&[]).path()));
+        assert!(!dir_has_dvd_ifo(std::path::Path::new("/nonexistent/xyz")));
+    }
+
     #[test]
     fn test_bcd_to_u8() {
         assert_eq!(bcd_to_u8(0x00), 0);
@@ -1263,5 +1362,27 @@ mod tests {
         // -- Both titles share the same VTS, so same video/audio attrs --
         assert_eq!(short.width, 720);
         assert_eq!(short.audio_tracks.len(), 2);
+    }
+
+    /// The same enumeration, but from a flat rip: the IFOs sit directly in a
+    /// folder named after the disc, with no VIDEO_TS directory. Proves the whole
+    /// title-reading path works for that shape, not just the directory lookup.
+    #[test]
+    fn test_enumerate_titles_from_flat_rip_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let disc = tmp.path().join("Wedding 1998");
+        std::fs::create_dir(&disc).unwrap();
+
+        std::fs::write(disc.join("VIDEO_TS.IFO"), build_test_vmg_ifo()).unwrap();
+        std::fs::write(disc.join("VTS_01_0.IFO"), build_test_vts_ifo()).unwrap();
+        std::fs::write(disc.join("VTS_01_1.VOB"), b"").unwrap();
+
+        let info = enumerate_titles(disc.to_str().unwrap()).unwrap();
+
+        // The folder name is the disc name here, so it becomes the volume label.
+        assert_eq!(info.volume_label, "Wedding 1998");
+        assert_eq!(info.titles.len(), 2);
+        assert!((info.titles[0].duration_seconds - 5400.0).abs() < 1.0);
+        assert_eq!(info.titles[0].width, 720);
     }
 }

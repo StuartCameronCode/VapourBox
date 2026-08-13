@@ -118,9 +118,11 @@ Each filter leads with a plain-language summary and a **More** expander describi
 
 **From a disc:** insert it and click the disc icon in the toolbar, or **Open DVD** on the drop zone. VapourBox reads the disc structure and shows a title picker with duration, resolution, chapters and audio tracks. Select a title and **Add to Queue** — it's extracted to a temporary file, then analyzed and queued like any other video.
 
-**From a folder:** drag in a folder containing `VIDEO_TS` (or the `VIDEO_TS` folder itself) and the title picker appears automatically.
+**From a ripped folder:** drag in a folder containing `VIDEO_TS`, the `VIDEO_TS` folder itself, or a flat rip — the `VIDEO_TS` contents (`VIDEO_TS.IFO`, `VTS_01_1.VOB`, …) sitting directly in a folder named after the disc. The title picker appears automatically in all three cases.
 
 **A folder of loose files:** drag it in, or use **Open Folder** — the folder is scanned recursively and everything found is queued.
+
+VapourBox decides between the two by looking for a DVD IFO: a folder is only treated as a disc if one is present, and a flat rip additionally needs at least one `.VOB`, so a stray `VIDEO_TS.IFO` beside ordinary videos won't divert the whole folder into the title picker.
 
 **Encrypted discs.** Most commercial DVDs use CSS encryption. VapourBox reads discs via libdvdread, which can load libdvdcss at runtime to decrypt them, but **libdvdcss is not bundled** — install it separately if you need it. Unencrypted discs (home recordings, some independent releases) work without it.
 
