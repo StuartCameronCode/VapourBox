@@ -109,6 +109,30 @@ Future<List<int>> _childrenOf(int pid) async {
       .toList();
 }
 
+/// A human-readable line per pid: state and command, for failure messages.
+///
+/// A bare pid list cannot distinguish "still encoding at full CPU" — the bug
+/// under test — from a zombie awaiting reaping, which is harmless and transient.
+/// On Unix, STAT starting with Z is the zombie case.
+Future<String> _describe(List<int> pids) async {
+  if (pids.isEmpty) return '(none)';
+  if (Platform.isWindows) {
+    final r = await Process.run('powershell', [
+      '-NoProfile',
+      '-Command',
+      'Get-CimInstance Win32_Process | Where-Object { @(${pids.join(',')}) '
+          r'-contains $_.ProcessId } | ForEach-Object '
+          r'{ "$($_.ProcessId) $($_.Name)" }',
+    ]);
+    final out = r.stdout.toString().trim();
+    return out.isEmpty ? '(gone by the time we looked)' : out;
+  }
+  final r = await Process.run(
+      'ps', ['-o', 'pid=,stat=,command=', '-p', pids.join(',')]);
+  final out = r.stdout.toString().trim();
+  return out.isEmpty ? '(gone by the time we looked)' : out;
+}
+
 void main() {
   group('cancelling a job', () {
     late String longInput;
@@ -227,6 +251,10 @@ void main() {
         if (leftovers.isEmpty) break;
       }
 
+      // Describe them BEFORE killing them, or the failure message reports
+      // processes that no longer exist.
+      final survivors = await _describe(leftovers);
+
       // If this fails, kill them — a failing test must not leave the machine
       // pinned at full CPU, which is the very problem under test.
       if (leftovers.isNotEmpty) {
@@ -237,7 +265,8 @@ void main() {
 
       expect(leftovers, isEmpty,
           reason: 'vspipe/ffmpeg outlived a SIGTERMed worker; cancel() relies '
-              'on the worker reaping them, so this breaks the fix');
+              'on the worker reaping them, so this breaks the fix.\n'
+              'Survivors:\n$survivors');
 
       // The worker should go down well inside the app's 5s grace.
       expect(sw.elapsed, lessThan(const Duration(seconds: 5)),
@@ -476,7 +505,8 @@ void main() {
         }
       }
       expect(leftovers, isEmpty,
-          reason: 'vspipe/ffmpeg outlived the preview worker. Seeking the '
+          reason: 'Survivors:\n${await _describe(leftovers)}\n'
+              'vspipe/ffmpeg outlived the preview worker. Seeking the '
               'scrubber cancels a preview on every move, so these accumulate');
     }, timeout: const Timeout(Duration(minutes: 3)));
   });
