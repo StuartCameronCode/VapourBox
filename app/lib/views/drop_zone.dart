@@ -1,14 +1,11 @@
-import 'dart:io';
-
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../models/dvd_info.dart';
 import '../services/disc_detector.dart';
 import '../viewmodels/main_viewmodel.dart';
-import 'dvd_title_picker.dart';
+import 'dropped_paths.dart';
 
 class DropZone extends StatefulWidget {
   const DropZone({super.key});
@@ -34,7 +31,7 @@ class _DropZoneState extends State<DropZone> {
       onDragDone: (details) {
         setState(() => _isDragging = false);
         if (details.files.isNotEmpty) {
-          _handleDroppedPaths(
+          handleDroppedPaths(
             context,
             details.files.map((f) => f.path).toList(),
           );
@@ -128,47 +125,6 @@ class _DropZoneState extends State<DropZone> {
     );
   }
 
-  /// Handle dropped paths (could be files or directories).
-  Future<void> _handleDroppedPaths(BuildContext context, List<String> paths) async {
-    final viewModel = context.read<MainViewModel>();
-    final videoFiles = <String>[];
-
-    for (final p in paths) {
-      final entity = FileSystemEntity.typeSync(p);
-
-      if (entity == FileSystemEntityType.directory) {
-        // It's a directory — try to add as folder (may trigger DVD flow)
-        try {
-          await viewModel.addFolder(p);
-        } on DvdFolderDetected catch (e) {
-          if (context.mounted) {
-            await _showDvdPicker(context, e.mountPoint);
-          }
-        } catch (e) {
-          if (context.mounted) {
-            _showError(context, 'Failed to open folder: $e');
-          }
-        }
-      } else if (_isVideoFile(p)) {
-        videoFiles.add(p);
-      }
-    }
-
-    // Add any video files that were dropped
-    if (videoFiles.isNotEmpty) {
-      viewModel.addMultipleToQueue(videoFiles);
-    } else if (paths.isNotEmpty && videoFiles.isEmpty) {
-      // Only show error if we had paths but found no videos
-      // (don't show if folders were successfully processed)
-      final hadDirectories = paths.any(
-        (p) => FileSystemEntity.typeSync(p) == FileSystemEntityType.directory,
-      );
-      if (!hadDirectories && context.mounted) {
-        _showError(context, 'Please drop video files or folders');
-      }
-    }
-  }
-
   Future<void> _pickFile(BuildContext context) async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -199,11 +155,11 @@ class _DropZoneState extends State<DropZone> {
       await viewModel.addFolder(folderPath);
     } on DvdFolderDetected catch (e) {
       if (context.mounted) {
-        await _showDvdPicker(context, e.mountPoint);
+        await showDvdPicker(context, e.mountPoint);
       }
     } catch (e) {
       if (context.mounted) {
-        _showError(context, 'Failed to open folder: $e');
+        showDropError(context, 'Failed to open folder: $e');
       }
     }
   }
@@ -217,13 +173,13 @@ class _DropZoneState extends State<DropZone> {
     if (!context.mounted) return;
 
     if (discs.isEmpty) {
-      _showError(context, 'No DVD discs detected');
+      showDropError(context, 'No DVD discs detected');
       return;
     }
 
     if (discs.length == 1) {
       // Single disc — go directly to title picker
-      await _showDvdPicker(context, discs.first.mountPoint);
+      await showDvdPicker(context, discs.first.mountPoint);
     } else {
       // Multiple discs — let user choose
       final disc = await showDialog<DvdDisc>(
@@ -256,88 +212,8 @@ class _DropZoneState extends State<DropZone> {
       );
 
       if (disc != null && context.mounted) {
-        await _showDvdPicker(context, disc.mountPoint);
+        await showDvdPicker(context, disc.mountPoint);
       }
     }
-  }
-
-  /// Show the DVD title picker and add selected title to queue.
-  Future<void> _showDvdPicker(BuildContext context, String mountPoint) async {
-    final viewModel = context.read<MainViewModel>();
-
-    // Show loading indicator
-    DvdInfo? dvdInfo;
-    String? error;
-
-    if (!context.mounted) return;
-
-    // Show loading dialog
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const AlertDialog(
-        content: Row(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 16),
-            Text('Reading DVD structure...'),
-          ],
-        ),
-      ),
-    );
-
-    try {
-      dvdInfo = await viewModel.getDvdInfo(mountPoint);
-    } catch (e) {
-      error = e.toString();
-    }
-
-    // Close loading dialog
-    if (context.mounted) {
-      Navigator.of(context).pop();
-    }
-
-    if (error != null) {
-      if (context.mounted) {
-        _showError(context, 'Failed to read DVD: $error');
-      }
-      return;
-    }
-
-    if (dvdInfo == null || !context.mounted) return;
-
-    // Show title picker
-    final result = await DvdTitlePicker.show(
-      context: context,
-      dvdInfo: dvdInfo,
-    );
-
-    if (result != null && context.mounted) {
-      // Extract and add to queue
-      viewModel.addDvdTitle(
-        dvdInfo: dvdInfo,
-        titleIndex: result.titleIndex,
-        startChapter: result.startChapter,
-        endChapter: result.endChapter,
-      );
-    }
-  }
-
-  bool _isVideoFile(String path) {
-    final extensions = [
-      '.avi', '.mov', '.mp4', '.mkv', '.mxf', '.m2v', '.mpg', '.mpeg',
-      '.ts', '.vob', '.dv', '.mts', '.m2ts', '.wmv', '.webm', '.flv'
-    ];
-    final lowerPath = path.toLowerCase();
-    return extensions.any((ext) => lowerPath.endsWith(ext));
-  }
-
-  void _showError(BuildContext context, String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Theme.of(context).colorScheme.error,
-      ),
-    );
   }
 }

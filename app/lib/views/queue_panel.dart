@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../models/queue_item.dart';
 import '../viewmodels/main_viewmodel.dart';
+import 'dropped_paths.dart';
 
 /// Panel showing the queue of videos to process.
 class QueuePanel extends StatefulWidget {
@@ -33,13 +34,13 @@ class _QueuePanelState extends State<QueuePanel> {
           onDragDone: (details) {
             setState(() => _isDragging = false);
             if (details.files.isNotEmpty) {
-              final validPaths = details.files
-                  .where((f) => _isVideoFile(f.path))
-                  .map((f) => f.path)
-                  .toList();
-              if (validPaths.isNotEmpty) {
-                viewModel.addMultipleToQueue(validPaths);
-              }
+              // Shared with the drop zone, so a folder dropped here behaves the
+              // same as one dropped on the empty state — including opening the
+              // title picker for a ripped DVD.
+              handleDroppedPaths(
+                context,
+                details.files.map((f) => f.path).toList(),
+              );
             }
           },
           child: Container(
@@ -88,15 +89,6 @@ class _QueuePanelState extends State<QueuePanel> {
         );
       },
     );
-  }
-
-  bool _isVideoFile(String path) {
-    final extensions = [
-      '.avi', '.mov', '.mp4', '.mkv', '.mxf', '.m2v', '.mpg', '.mpeg',
-      '.ts', '.vob', '.dv', '.mts', '.m2ts', '.wmv', '.webm', '.flv'
-    ];
-    final lowerPath = path.toLowerCase();
-    return extensions.any((ext) => lowerPath.endsWith(ext));
   }
 
   Widget _buildHeader(BuildContext context, MainViewModel viewModel, int count) {
