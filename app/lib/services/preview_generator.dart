@@ -301,8 +301,8 @@ class PreviewGenerator {
       _livePreviews.add(process);
 
       if (cancelToken?.isCancelled ?? false) {
-        // Whole group: killing the worker alone strands vspipe/ffmpeg.
-        ProcessTree.killTree(process);
+        // Whole tree: killing the worker alone strands vspipe/ffmpeg.
+        await ProcessTree.killTree(process);
         _previewProcess = null;
         _livePreviews.remove(process);
         await ProcessTree.waitForExit(process);
@@ -329,10 +329,9 @@ class PreviewGenerator {
       await for (final chunk in process.stdout) {
         if (cancelToken?.isCancelled ?? false) {
           // Whole group: killing the worker alone strands vspipe/ffmpeg.
-          ProcessTree.killTree(process);
+          await ProcessTree.killTree(process);
           _previewProcess = null;
           _livePreviews.remove(process);
-        _livePreviews.remove(process);
           await ProcessTree.waitForExit(process);
           return null;
         }
@@ -416,7 +415,7 @@ class PreviewGenerator {
     for (final p in doomed) {
       // The whole group: signalling the worker alone strands vspipe/ffmpeg,
       // and preview mode has no handler that would clean up after itself.
-      ProcessTree.killTree(p);
+      await ProcessTree.killTree(p);
       // Reap in the background so a slow shutdown cannot stall the next seek.
       unawaited(ProcessTree.waitForExit(p));
     }

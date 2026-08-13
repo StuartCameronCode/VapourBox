@@ -273,18 +273,11 @@ class WorkerManager implements JobRunner {
       return;
     }
 
-    if (Platform.isWindows) {
-      // No SIGTERM on Windows, and Process.kill maps to TerminateProcess, which
-      // does not touch children. taskkill /T walks the tree, so nothing is
-      // orphaned; /F is unavoidable there.
-      await Process.run('taskkill', ['/PID', '${process.pid}', '/T', '/F']);
-    } else {
-      // Signal the whole process group. The worker still tears its own pipeline
-      // down when it gets the chance, but that only covers the children it
-      // tracks, and it cannot run at all if it is forced below — so do not rely
-      // on it alone. See ProcessTree.
-      ProcessTree.killTree(process);
-    }
+    // The whole tree: a process group on Unix, taskkill /T on Windows, both
+    // inside ProcessTree. The worker still tears its own pipeline down when it
+    // gets the chance, but that only covers the children it tracks, and it
+    // cannot run at all if it is forced below — so do not rely on it alone.
+    await ProcessTree.killTree(process);
 
     // Wait for the process to actually exit. `exitCode` completes once it has
     // been reaped, so this is a real observation rather than a guess.
@@ -299,7 +292,7 @@ class WorkerManager implements JobRunner {
       // Genuinely wedged. Forcing it here orphans the children — the same
       // failure described above — but by now the alternative is a job that
       // never stops at all, so take the lesser problem and say so.
-      ProcessTree.killTree(process, ProcessSignal.sigkill);
+      await ProcessTree.killTree(process, ProcessSignal.sigkill);
       try {
         await process.exitCode.timeout(_forceKillGrace);
       } on TimeoutException {
