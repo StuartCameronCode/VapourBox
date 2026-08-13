@@ -41,86 +41,72 @@ import 'package:vapourbox/models/video_job.dart';
 
 import 'support/worker_harness.dart';
 
-/// Every path a deps binary can legitimately be executed from.
+/// PIDs of everything [pid] spawned — its process group on Unix, its descendant
+/// tree on Windows — excluding the leader itself.
 ///
-/// The prefix match below has to allow for the deps directory being reached by
-/// more than one name. On Linux the worker does not search upward from the
-/// executable at all (`dependency_locator.rs`, which restricts that to
-/// non-Linux debug builds), so it resolves deps through
-/// `$XDG_DATA_HOME`/`~/.local/share/VapourBox/deps` — which CI *symlinks* to the
-/// checkout. `ps` then reports the symlinked path while the test holds the
-/// workspace one, they share no prefix, and the child count comes back zero:
-/// the test fails claiming the pipeline never started when it started fine.
-List<String> _depsRoots(String dir) {
-  final roots = <String>{dir};
-
-  try {
-    roots.add(Directory(dir).resolveSymbolicLinksSync());
-  } on FileSystemException {
-    // Not resolvable — the literal path is still worth matching.
-  }
-
-  // The Linux production location, with the platform suffix carried over.
-  final platform = p.basename(dir);
-  final xdg = Platform.environment['XDG_DATA_HOME'];
-  final home = Platform.environment['HOME'];
-  if (xdg != null && xdg.isNotEmpty) {
-    roots.add(p.join(xdg, 'VapourBox', 'deps', platform));
-  } else if (home != null && home.isNotEmpty) {
-    roots.add(p.join(home, '.local', 'share', 'VapourBox', 'deps', platform));
-  }
-
-  return roots.toList();
-}
-
-/// PIDs of live processes whose executable path sits under [dir].
+/// Identity is by ancestry, deliberately, not by "some process whose executable
+/// lives under deps/". That older approach was wrong twice over:
 ///
-/// Cross-platform: `ps` reports the command line on Unix, and `Get-CimInstance
-/// Win32_Process` the executable path on Windows, where `ps` does not exist at
-/// all — which used to make every orphan assertion here unrunnable on the one
-/// platform whose teardown path was untested.
-Future<List<int>> _processesUnder(String dir) async {
-  final roots = _depsRoots(dir);
-  bool underDeps(String command) => roots.any(command.startsWith);
-
-  final out = <int>[];
-
+///  * `flutter test` runs test *files* concurrently, and several of them drive
+///    the worker. A path match therefore counts another file's live pipeline as
+///    this test's leftovers, which is a false failure that depends on how the
+///    runner happened to interleave.
+///  * It had to guess which name the deps directory was reached by. On Linux the
+///    worker resolves deps through `~/.local/share/VapourBox/deps`
+///    (`dependency_locator.rs` disables the upward search there) — a path CI
+///    *symlinks* to the checkout, sharing no prefix with the workspace path the
+///    test held. Every child count came back zero and the tests failed claiming
+///    the pipeline never started when it had started fine.
+///
+/// Ancestry has neither problem, and needs no bookkeeping of what was running
+/// beforehand. It stays valid after the leader exits: a process group outlives
+/// its leader on Unix, and a dead parent's pid is still recorded on Windows.
+Future<List<int>> _childrenOf(int pid) async {
   if (Platform.isWindows) {
+    // Walk ParentProcessId down from the worker; the pipeline is only two
+    // levels deep, but recursing costs nothing and survives a shell in between.
     final ps = await Process.run('powershell', [
       '-NoProfile',
       '-Command',
       r'Get-CimInstance Win32_Process | ForEach-Object '
-          r'{ "$($_.ProcessId)`t$($_.ExecutablePath)" }',
+          r'{ "$($_.ProcessId) $($_.ParentProcessId)" }',
     ]);
+    final parents = <int, int>{};
     for (final line in const LineSplitter().convert(ps.stdout.toString())) {
-      final tab = line.indexOf('\t');
-      if (tab <= 0) continue;
-      final pid = int.tryParse(line.substring(0, tab).trim());
-      if (pid == null) continue;
-      // Win32 reports a backslash path; the deps roots use whatever separator
-      // the harness built them with, so compare on one form.
-      final exe = line.substring(tab + 1).trim().replaceAll(r'\', '/');
-      if (exe.isEmpty) continue;
-      if (underDeps(exe) || roots.any((r) => exe.startsWith(r.replaceAll(r'\', '/')))) {
-        out.add(pid);
+      final parts = line.trim().split(RegExp(r'\s+'));
+      if (parts.length < 2) continue;
+      final child = int.tryParse(parts[0]);
+      final parent = int.tryParse(parts[1]);
+      if (child == null || parent == null) continue;
+      parents[child] = parent;
+    }
+    final out = <int>[];
+    for (final entry in parents.entries) {
+      var cur = entry.value;
+      // Bounded walk: a cycle in this map would otherwise hang the test.
+      for (var depth = 0; depth < 16 && cur != 0; depth++) {
+        if (cur == pid) {
+          out.add(entry.key);
+          break;
+        }
+        final next = parents[cur];
+        if (next == null || next == cur) break;
+        cur = next;
       }
     }
     return out;
   }
 
-  final ps = await Process.run('ps', ['-Ao', 'pid=,command=']);
-  for (final line in const LineSplitter().convert(ps.stdout.toString())) {
-    final trimmed = line.trimLeft();
-    final sp = trimmed.indexOf(' ');
-    if (sp <= 0) continue;
-    final pid = int.tryParse(trimmed.substring(0, sp));
-    if (pid == null) continue;
-    final cmd = trimmed.substring(sp + 1);
-    // Match only the executable path, not an argument that happens to name the
-    // deps dir (the job config and output paths can both mention it).
-    if (underDeps(cmd)) out.add(pid);
-  }
-  return out;
+  // The worker makes itself a process-group leader (setpgid in
+  // worker/src/main.rs) precisely so its whole pipeline can be addressed at
+  // once, so the group *is* the tree.
+  final r = await Process.run('pgrep', ['-g', '$pid']);
+  return const LineSplitter()
+      .convert(r.stdout.toString())
+      .map((s) => int.tryParse(s.trim()))
+      .whereType<int>()
+      .where((child) => child != pid)
+      .toList();
 }
 
 void main() {
@@ -154,7 +140,6 @@ void main() {
             'TerminateProcess. The app kills the tree with taskkill /T there, '
             'which the preview-orphan test below covers.'
         : null, () async {
-      final depsDir = WorkerHarness.depsDir;
       final outPath =
           p.join(WorkerHarness.outputDir, 'test_cancel_orphans.mkv');
 
@@ -187,8 +172,6 @@ void main() {
         if (await o.exists()) await o.delete();
       });
 
-      final before = await _processesUnder(depsDir);
-
       final proc = await Process.start(
         WorkerHarness.workerPath,
         ['--config', configFile.path],
@@ -203,10 +186,11 @@ void main() {
       var spawned = <int>[];
       final deadline = DateTime.now().add(const Duration(seconds: 40));
       while (DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        spawned = (await _processesUnder(depsDir))
-            .where((pid) => !before.contains(pid))
-            .toList();
+        // Poll briskly: on a fast machine the whole pipeline can come and go
+        // between two half-second samples, and missing it reads as "never
+        // started" rather than as the race it is.
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        spawned = await _childrenOf(proc.pid);
         if (spawned.length >= 2) break; // vspipe + at least one ffmpeg
       }
       expect(spawned.length, greaterThanOrEqualTo(2),
@@ -238,7 +222,7 @@ void main() {
       List<int> leftovers = [];
       for (var i = 0; i < 20; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
-        final now = await _processesUnder(depsDir);
+        final now = await _childrenOf(proc.pid);
         leftovers = spawned.where(now.contains).toList();
         if (leftovers.isEmpty) break;
       }
@@ -361,9 +345,6 @@ void main() {
       // wrong reference and the in-flight worker was lost — untracked and never
       // killed. Ten seeks in quick succession is the shape that produced "a
       // bunch of vspipe and ffmpeg processes".
-      final depsDir = WorkerHarness.depsDir;
-      final before = await _processesUnder(depsDir);
-
       final job = VideoJob(
         id: const Uuid().v4(),
         inputPath: longInput,
@@ -406,13 +387,15 @@ void main() {
       await ProcessTree.killTree(current!);
       await ProcessTree.waitForExit(current);
 
-      // Everything the burst spawned must be gone.
+      // Everything the burst spawned must be gone — asked of each worker's own
+      // group, so a concurrently-running test file's pipeline cannot be
+      // mistaken for a stray of ours.
       var strays = <int>[];
       for (var i = 0; i < 20; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
-        strays = (await _processesUnder(depsDir))
-            .where((pid) => !before.contains(pid))
-            .toList();
+        strays = [
+          for (final w in started) ...await _childrenOf(w.pid),
+        ];
         if (strays.isEmpty) break;
       }
       for (final pid in strays) {
@@ -426,7 +409,6 @@ void main() {
     test('killing a preview leaves no orphaned children', () async {
       // Seeking the preview scrubber cancels the in-flight preview and starts
       // another, so this path runs far more often than a job cancel does.
-      final depsDir = WorkerHarness.depsDir;
       final job = VideoJob(
         id: const Uuid().v4(),
         inputPath: longInput,
@@ -451,8 +433,6 @@ void main() {
         if (await configFile.exists()) await configFile.delete();
       });
 
-      final before = await _processesUnder(depsDir);
-
       final proc = await Process.start(
         WorkerHarness.workerPath,
         ['--config', configFile.path, '--preview', '--frame', '900'],
@@ -465,10 +445,9 @@ void main() {
       var spawned = <int>[];
       final deadline = DateTime.now().add(const Duration(seconds: 40));
       while (DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        spawned = (await _processesUnder(depsDir))
-            .where((pid) => !before.contains(pid))
-            .toList();
+        // A single-frame preview is short-lived; sample often enough to see it.
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        spawned = await _childrenOf(proc.pid);
         if (spawned.length >= 2) break;
       }
       expect(spawned.length, greaterThanOrEqualTo(2),
@@ -487,7 +466,7 @@ void main() {
       List<int> leftovers = [];
       for (var i = 0; i < 20; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
-        final now = await _processesUnder(depsDir);
+        final now = await _childrenOf(proc.pid);
         leftovers = spawned.where(now.contains).toList();
         if (leftovers.isEmpty) break;
       }
