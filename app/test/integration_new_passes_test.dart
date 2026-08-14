@@ -25,6 +25,7 @@ import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/noise_reduction_parameters.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
+import 'package:vapourbox/models/sharpen_parameters.dart';
 import 'package:vapourbox/models/spotless_parameters.dart';
 import 'package:vapourbox/models/subtitle_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
@@ -123,6 +124,180 @@ void main() {
         skip: WorkerHarness.whisperAvailable
             ? false
             : 'whisper add-on not present (set VAPOURBOX_ADDONS_DIR or install the add-on)');
+
+
+    // --- Filters added from the Hybrid gap analysis -----------------------
+    //
+    // Script generation for these is covered cheaply in
+    // integration_filter_parameters_test; what only a real encode proves is that
+    // the plugin actually loads and processes the source. Each of these plugins
+    // was already in the deps bundle but had never been called by the product,
+    // so "it is in deps-expected-plugins.json" was not evidence that it works.
+    //
+    // Deinterlacing is off in these: the point is to exercise the filter, and a
+    // QTGMC pass would dominate the runtime without testing anything new.
+
+    test('noise reduction: DFTTest runs end-to-end', () async {
+      final job = _baseJob(
+        'nr_dfttest',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.dfttest,
+            dfttestSigma: 8.0,
+            dfttestTbsize: 3,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'nr_dfttest');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('noise reduction: DFTTest spatial-only (tbsize 1) runs end-to-end',
+        () async {
+      // tbsize=1 takes a different path inside DFTTest — no temporal window at
+      // all — so it is worth exercising separately.
+      final job = _baseJob(
+        'nr_dfttest_spatial',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.dfttest,
+            dfttestTbsize: 1,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'nr_dfttest_spatial');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('noise reduction: FFT3DFilter runs end-to-end', () async {
+      final job = _baseJob(
+        'nr_fft3d',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.fft3dFilter,
+            fft3dSigma: 2.0,
+            fft3dBt: 3,
+            fft3dSharpen: 0.3,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'nr_fft3d');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('noise reduction: TTempSmooth runs end-to-end', () async {
+      final job = _baseJob(
+        'nr_ttempsmooth',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.tTempSmooth,
+            ttempMaxr: 3,
+            ttempThresh: 4,
+            ttempMdiff: 2,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'nr_ttempsmooth');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('sharpen: aWarpSharp2 runs end-to-end', () async {
+      final job = _baseJob(
+        'sharpen_awarpsharp2',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          sharpen: SharpenParameters(
+            enabled: true,
+            method: SharpenMethod.aWarpSharp2,
+            warpDepth: 16,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'sharpen_awarpsharp2');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('dehalo: HQDeringmod runs end-to-end', () async {
+      final job = _baseJob(
+        'dehalo_hqderingmod',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          dehalo: DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.hqDeringmod,
+            deringMrad: 1,
+            deringThr: 12.0,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'dehalo_hqderingmod');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('the added filters render in the preview path too', () async {
+      // Preview and encode are separate scripts AND separate ffmpeg
+      // invocations, so a filter can encode fine and still fail the preview.
+      for (final entry in <String, ProcessingPipeline>{
+        'dfttest': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.dfttest,
+          ),
+        ),
+        'fft3d': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.fft3dFilter,
+          ),
+        ),
+        'ttempsmooth': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.tTempSmooth,
+          ),
+        ),
+        'awarpsharp2': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          sharpen: SharpenParameters(
+            enabled: true,
+            method: SharpenMethod.aWarpSharp2,
+          ),
+        ),
+        'hqderingmod': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          dehalo: DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.hqDeringmod,
+          ),
+        ),
+      }.entries) {
+        final job = _baseJob('preview_${entry.key}', pipeline: entry.value);
+        final preview = await WorkerHarness.runPreview(
+          job.toJson(),
+          frame: 10,
+          label: 'preview_${entry.key}',
+        );
+        expect(preview.success, isTrue,
+            reason: '${entry.key} preview failed: ${preview.errorTail}');
+        print('  ${entry.key}: preview frame rendered '
+            '(${preview.png!.length} bytes)');
+      }
+    }, timeout: const Timeout(Duration(minutes: 8)));
 
     // Issue #37: QTGMC with EZ Denoise + the knlmeanscl denoiser must never
     // crash the job. KNLMeansCL is OpenCL-only; on a headless CI runner (no

@@ -541,6 +541,45 @@ clip = haf.MCTemporalDenoise(
 )
 {{/NR_MCTD}}
 
+{{#NR_DFTTEST}}
+# DFTTest — frequency-domain denoiser. Fine, even grain separates cleanly from
+# detail in the DFT domain, which is what this does better than the
+# motion-compensated options.
+clip = core.dfttest.DFTTest(
+    clip,
+    sigma={{NR_DFTTEST_SIGMA}},
+    tbsize={{NR_DFTTEST_TBSIZE}},
+    sbsize={{NR_DFTTEST_SBSIZE}},
+)
+{{/NR_DFTTEST}}
+
+{{#NR_FFT3D}}
+# FFT3DFilter — the classic 3D FFT spatio-temporal denoiser. Fast and
+# aggressive; the traditional first stop for VHS luma noise.
+clip = core.fft3dfilter.FFT3DFilter(
+    clip,
+    sigma={{NR_FFT3D_SIGMA}},
+    bt={{NR_FFT3D_BT}},
+{{#NR_FFT3D_SHARPEN}}
+    sharpen={{NR_FFT3D_SHARPEN}},
+{{/NR_FFT3D_SHARPEN}}
+)
+{{/NR_FFT3D}}
+
+{{#NR_TTEMPSMOOTH}}
+# TTempSmooth — motion-adaptive temporal smoother. Very gentle: pixels differing
+# by more than `thresh` are left alone entirely, so it settles residual shimmer
+# without touching real motion. `mdiff` is held below `thresh` by the worker,
+# because equal or greater silently disables the motion protection.
+clip = core.ttmpsm.TTempSmooth(
+    clip,
+    maxr={{NR_TTEMP_MAXR}},
+    thresh={{NR_TTEMP_THRESH}},
+    mdiff={{NR_TTEMP_MDIFF}},
+    strength={{NR_TTEMP_STRENGTH}},
+)
+{{/NR_TTEMPSMOOTH}}
+
 {{#NR_MCDEGRAINSHARP}}
 # MCDegrainSharp (Didée) — motion-compensated degrain that sharpens where the
 # motion match is good and blurs where it is poor.
@@ -784,6 +823,30 @@ clip = haf.{{DEHALO_VINVERSE_FN}}(
 {{/DEHALO_VINVERSE_CHROMA}}
 )
 {{/DEHALO_VINVERSE}}
+{{#DEHALO_HQDERING}}
+# HQDeringmod - masked ring removal. Targets the overshoot immediately beside an
+# edge while a mask protects the edge itself, which is a narrower target than
+# dehalo's wider bright band. Every argument is optional so havsfunc's own
+# defaults apply where the user hasn't chosen.
+clip = haf.HQDeringmod(
+    clip,
+{{#DEHALO_DERING_MRAD}}
+    mrad={{DEHALO_DERING_MRAD}},
+{{/DEHALO_DERING_MRAD}}
+{{#DEHALO_DERING_MSMOOTH}}
+    msmooth={{DEHALO_DERING_MSMOOTH}},
+{{/DEHALO_DERING_MSMOOTH}}
+{{#DEHALO_DERING_MTHR}}
+    mthr={{DEHALO_DERING_MTHR}},
+{{/DEHALO_DERING_MTHR}}
+{{#DEHALO_DERING_THR}}
+    thr={{DEHALO_DERING_THR}},
+{{/DEHALO_DERING_THR}}
+{{#DEHALO_DERING_DARKTHR}}
+    darkthr={{DEHALO_DERING_DARKTHR}},
+{{/DEHALO_DERING_DARKTHR}}
+)
+{{/DEHALO_HQDERING}}
 {{/DEHALO}}
 
 # ============================================================================
@@ -888,6 +951,24 @@ clip = core.cas.CAS(
 {{/SHARPEN_CAS_SHARPNESS}}
 )
 {{/SHARPEN_CAS}}
+{{#SHARPEN_AWARPSHARP2}}
+# aWarpSharp2 - sharpens by warping pixels toward edges rather than raising
+# local contrast, so it produces no halos.
+#
+# `chroma` and `planes` are deliberately not passed. This VapourSynth port takes
+# chroma as 0 or 1 (NOT Avisynth's 0-6, where 4 means "warp chroma with the luma
+# mask") and rejects anything else outright, and by default it processes luma
+# only — the conventional use as a sharpener. Passing a guessed value here is how
+# this block first shipped broken; expose it deliberately, with a test, or leave
+# the plugin's own default alone.
+clip = core.warp.AWarpSharp2(
+    clip,
+    thresh={{SHARPEN_WARP_THRESH}},
+    blur={{SHARPEN_WARP_BLUR}},
+    type={{SHARPEN_WARP_TYPE}},
+    depth={{SHARPEN_WARP_DEPTH}},
+)
+{{/SHARPEN_AWARPSHARP2}}
 {{/SHARPEN}}
 
 # ============================================================================

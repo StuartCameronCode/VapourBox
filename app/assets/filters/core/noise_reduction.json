@@ -4,7 +4,7 @@
   "version": "1.1.0",
   "name": "Noise Reduction",
   "description": "Remove video noise and grain",
-  "longDescription": "Reduces grain, analog noise and colour speckle while trying to keep real detail. Temporal denoisers average across neighbouring frames and are best for steady grain; spatial ones smooth within a single frame and cope better with motion.\n\nUse it on VHS, Hi8 and other noisy captures, and before sharpening or encoding \u2014 clean footage compresses far better at the same bitrate. Too much strength smears motion and flattens texture into plastic.",
+  "longDescription": "Reduces grain, analog noise and colour speckle while trying to keep real detail. Temporal denoisers average across neighbouring frames and are best for steady grain; spatial ones smooth within a single frame and cope better with motion.\n\nUse it on VHS, Hi8 and other noisy captures, and before sharpening or encoding — clean footage compresses far better at the same bitrate. Too much strength smears motion and flattens texture into plastic.",
   "category": "cleanup",
   "icon": "grain",
   "order": 2,
@@ -46,7 +46,7 @@
     {
       "id": "mcdegrainsharp",
       "name": "MCDegrainSharp",
-      "description": "Did\u00e9e's motion-compensated degrain: sharpens where the motion match is good, blurs where it is poor. Also written MDegrainSharpen",
+      "description": "Didée's motion-compensated degrain: sharpens where the motion match is good, blurs where it is poor. Also written MDegrainSharpen",
       "function": "core.mv.Degrain",
       "parameters": [
         "mcdsFrames",
@@ -64,6 +64,43 @@
       "description": "Reuses the motion search QTGMC already ran, so it is nearly free. Only useful when deinterlacing is on",
       "function": "qtgmc_internal",
       "parameters": []
+    },
+    {
+      "id": "dfttest",
+      "name": "DFTTest",
+      "description": "Frequency-domain denoiser. The cleanest option on fine, even grain — separates it from detail better than the motion-compensated methods. Moderate speed",
+      "function": "core.dfttest.DFTTest",
+      "parameters": [
+        "dfttestSigma",
+        "dfttestTbsize",
+        "dfttestSbsize"
+      ],
+      "advancedOnly": true
+    },
+    {
+      "id": "fft3dfilter",
+      "name": "FFT3DFilter",
+      "description": "The traditional first stop for VHS luma noise. Fast and aggressive, with optional sharpening built in",
+      "function": "core.fft3dfilter.FFT3DFilter",
+      "parameters": [
+        "fft3dSigma",
+        "fft3dBt",
+        "fft3dSharpen"
+      ],
+      "advancedOnly": true
+    },
+    {
+      "id": "ttempsmooth",
+      "name": "TTempSmooth",
+      "description": "Very gentle temporal smoother — leaves anything that moves alone. A finishing pass for residual shimmer, not a primary denoiser",
+      "function": "core.ttmpsm.TTempSmooth",
+      "parameters": [
+        "ttempMaxr",
+        "ttempThresh",
+        "ttempMdiff",
+        "ttempStrength"
+      ],
+      "advancedOnly": true
     }
   ],
   "parameters": {
@@ -81,7 +118,10 @@
         "smdegrain",
         "mc_temporal_denoise",
         "mcdegrainsharp",
-        "qtgmc_builtin"
+        "qtgmc_builtin",
+        "dfttest",
+        "fft3dfilter",
+        "ttempsmooth"
       ],
       "ui": {
         "hidden": true
@@ -427,6 +467,179 @@
           ]
         }
       }
+    },
+    "dfttestSigma": {
+      "type": "number",
+      "default": 8.0,
+      "min": 0.0,
+      "max": 64.0,
+      "step": 0.5,
+      "ui": {
+        "label": "Strength",
+        "description": "Higher removes more noise and more fine detail with it",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "dfttest"
+          ]
+        }
+      }
+    },
+    "dfttestTbsize": {
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 7,
+      "step": 2,
+      "ui": {
+        "label": "Temporal Window",
+        "description": "Frames considered together. 1 is purely spatial; even values are rounded down so the window stays centred",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "dfttest"
+          ]
+        }
+      }
+    },
+    "dfttestSbsize": {
+      "type": "integer",
+      "default": 16,
+      "min": 8,
+      "max": 32,
+      "step": 4,
+      "ui": {
+        "label": "Block Size",
+        "description": "Larger blocks separate noise from detail better but are slower",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "dfttest"
+          ]
+        }
+      }
+    },
+    "fft3dSigma": {
+      "type": "number",
+      "default": 2.0,
+      "min": 0.1,
+      "max": 16.0,
+      "step": 0.1,
+      "ui": {
+        "label": "Strength",
+        "description": "Higher removes more noise. FFT3D is aggressive — small changes matter",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "fft3dfilter"
+          ]
+        }
+      }
+    },
+    "fft3dBt": {
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 5,
+      "step": 1,
+      "ui": {
+        "label": "Temporal Window",
+        "description": "Frames considered together. 1 is purely spatial",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "fft3dfilter"
+          ]
+        }
+      }
+    },
+    "fft3dSharpen": {
+      "type": "number",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "ui": {
+        "label": "Sharpen",
+        "description": "Sharpening applied inside the same transform. 0 leaves it off",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": {
+          "method": [
+            "fft3dfilter"
+          ]
+        }
+      }
+    },
+    "ttempMaxr": {
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 7,
+      "step": 1,
+      "ui": {
+        "label": "Temporal Radius",
+        "description": "Frames on each side to average over",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "ttempsmooth"
+          ]
+        }
+      }
+    },
+    "ttempThresh": {
+      "type": "integer",
+      "default": 4,
+      "min": 1,
+      "max": 32,
+      "step": 1,
+      "ui": {
+        "label": "Threshold",
+        "description": "Pixels differing by more than this are left alone. Higher smooths more",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "ttempsmooth"
+          ]
+        }
+      }
+    },
+    "ttempMdiff": {
+      "type": "integer",
+      "default": 2,
+      "min": 0,
+      "max": 31,
+      "step": 1,
+      "ui": {
+        "label": "Motion Threshold",
+        "description": "Protects moving pixels. Held below Threshold automatically",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "ttempsmooth"
+          ]
+        }
+      }
+    },
+    "ttempStrength": {
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "ui": {
+        "label": "Strength",
+        "description": "Higher weights the current frame more, so smooths less",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "ttempsmooth"
+          ]
+        }
+      }
     }
   },
   "ui": {
@@ -468,6 +681,34 @@
           "mcdsSharp",
           "mcdsBlurSearch",
           "mcdsPlane"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "DFTTest",
+        "parameters": [
+          "dfttestSigma",
+          "dfttestTbsize",
+          "dfttestSbsize"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "FFT3DFilter",
+        "parameters": [
+          "fft3dSigma",
+          "fft3dBt",
+          "fft3dSharpen"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "TTempSmooth",
+        "parameters": [
+          "ttempMaxr",
+          "ttempThresh",
+          "ttempMdiff",
+          "ttempStrength"
         ],
         "expanded": true
       }

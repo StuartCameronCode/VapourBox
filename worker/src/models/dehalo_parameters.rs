@@ -22,6 +22,11 @@ pub enum DehaloMethod {
     /// Vinverse variant that preserves more vertical detail.
     #[serde(rename = "Vinverse2")]
     Vinverse2,
+    /// HQDeringmod: masked ring removal. Smooths the overshoot beside an edge
+    /// while protecting the edge itself, which is a different target from
+    /// dehalo's wider bright band.
+    #[serde(rename = "HQDeringmod")]
+    HqDeringmod,
 }
 
 #[allow(dead_code)]
@@ -35,6 +40,7 @@ impl DehaloMethod {
             DehaloMethod::EdgeCleaner => "EdgeCleaner",
             DehaloMethod::Vinverse => "Vinverse",
             DehaloMethod::Vinverse2 => "Vinverse2",
+            DehaloMethod::HqDeringmod => "HQDeringmod",
         }
     }
 
@@ -174,6 +180,29 @@ pub struct DehaloParameters {
     /// Process chroma as well as luma (havsfunc `chroma`).
     #[serde(default)]
     pub vinverse_chroma: Option<bool>,
+
+    // --- HQDeringmod parameters ---
+
+    /// Ring mask radius. 1 is the default; 2 catches wider rings.
+    #[serde(default)]
+    pub dering_mrad: Option<i32>,
+
+    /// Mask smoothing radius, which softens where the mask takes effect.
+    #[serde(default)]
+    pub dering_msmooth: Option<i32>,
+
+    /// Edge-mask threshold (0-255). Lower finds more edges to protect.
+    #[serde(default)]
+    pub dering_mthr: Option<i32>,
+
+    /// Limit on how far a pixel may be changed, in 8-bit levels.
+    #[serde(default)]
+    pub dering_thr: Option<f64>,
+
+    /// Separate limit for the dark side of an edge; defaults to `thr / 4`
+    /// inside havsfunc, which is usually what you want.
+    #[serde(default)]
+    pub dering_darkthr: Option<f64>,
 }
 
 fn default_rx() -> f64 { 2.0 }
@@ -214,6 +243,11 @@ impl Default for DehaloParameters {
             vinverse_strength: None,
             vinverse_amount: None,
             vinverse_chroma: None,
+            dering_mrad: None,
+            dering_msmooth: None,
+            dering_mthr: None,
+            dering_thr: None,
+            dering_darkthr: None,
         }
     }
 }

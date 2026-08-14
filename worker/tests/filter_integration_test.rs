@@ -644,6 +644,7 @@ fn test_21_sharpen_lsfmod() {
             undershoot: 2,
             soft_edge: 0,
             cas_sharpness: 0.5,
+            ..Default::default()
         },
         ..ProcessingPipeline::default()
     });
@@ -670,6 +671,7 @@ fn test_22_sharpen_cas() {
             undershoot: 1,
             soft_edge: 0,
             cas_sharpness: 0.7,
+            ..Default::default()
         },
         ..ProcessingPipeline::default()
     });
@@ -855,6 +857,7 @@ fn test_28_verify_sharpen_lsfmod_in_script() {
             undershoot: 2,
             soft_edge: 0,
             cas_sharpness: 0.5,
+            ..Default::default()
         },
         ..ProcessingPipeline::default()
     });
@@ -886,6 +889,7 @@ fn test_29_verify_sharpen_cas_in_script() {
             undershoot: 1,
             soft_edge: 0,
             cas_sharpness: 0.7,
+            ..Default::default()
         },
         ..ProcessingPipeline::default()
     });
@@ -3496,6 +3500,378 @@ fn test_93_templates_do_not_call_std_expr_directly() {
         assert!(
             body.matches("_expr(").count() > body.matches("_akarin_expr(").count() + 1,
             "{name} defines _expr() but never calls it"
+        );
+    }
+}
+
+// ============================================================================
+// Filters added from the Hybrid gap analysis
+//
+// All five are effort-1 additions: every plugin they need was already in the
+// deps bundle, unused. They were chosen because each fails *differently* from
+// what the pass already offered, which is the only justification for another
+// entry in a method dropdown.
+//
+// KNLMeansCL was in the same batch and was dropped: its OpenCL path does not
+// initialise on every machine (the app's own probe reports knlm=false on the
+// development Mac), CI deliberately excludes OpenCL-only plugins from the
+// required-namespace list, and its `channels="YUV"` mode requires 4:4:4 — which
+// none of this app's target sources are. Verified by probing the bundle, not
+// from documentation.
+// ============================================================================
+
+/// Generate a job's script and return its text.
+///
+/// `run_job_and_verify` covers "these strings are present"; this is for the
+/// cases that assert something is *absent*, which is the direction that catches
+/// a block the generator failed to strip.
+fn script_text(job: &VideoJob) -> String {
+    let generator = ScriptGenerator::new().expect("Failed to create generator");
+    let script_path = generator.generate(job).expect("Failed to generate script");
+    std::fs::read_to_string(&script_path).expect("read generated script")
+}
+
+#[test]
+fn test_94_dfttest_noise_reduction() {
+    create_output_dir();
+    let mut job = create_base_job("test_94_dfttest");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters {
+            enabled: false,
+            ..Default::default()
+        },
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::DfTtest,
+            dfttest_sigma: 12.5,
+            dfttest_tbsize: 5,
+            dfttest_sbsize: 12,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "DFTTest",
+        &["core.dfttest.DFTTest", "sigma=12.5", "tbsize=5", "sbsize=12"],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_95_dfttest_temporal_window_is_forced_odd() {
+    // An even tbsize isn't rejected by DFTTest — it just processes a window
+    // that isn't centred on the current frame, so the fix has to be ours.
+    create_output_dir();
+    let mut job = create_base_job("test_95_dfttest_even_tbsize");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters {
+            enabled: false,
+            ..Default::default()
+        },
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::DfTtest,
+            dfttest_tbsize: 6,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(&job, "DFTTest even tbsize", &["tbsize=5"]).unwrap();
+}
+
+#[test]
+fn test_96_fft3dfilter_noise_reduction() {
+    create_output_dir();
+    let mut job = create_base_job("test_96_fft3d");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters {
+            enabled: false,
+            ..Default::default()
+        },
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::Fft3dFilter,
+            fft3d_sigma: 3.5,
+            fft3d_bt: 4,
+            fft3d_sharpen: 0.4,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "FFT3DFilter",
+        &[
+            "core.fft3dfilter.FFT3DFilter",
+            "sigma=3.5",
+            "bt=4",
+            "sharpen=0.4",
+        ],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_97_fft3d_sharpen_is_omitted_when_zero() {
+    // Left at 0 the argument is dropped so the plugin's own default applies,
+    // rather than passing an explicit no-op.
+    create_output_dir();
+    let mut job = create_base_job("test_97_fft3d_no_sharpen");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters {
+            enabled: false,
+            ..Default::default()
+        },
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::Fft3dFilter,
+            fft3d_sharpen: 0.0,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = script_text(&job);
+    assert!(
+        script.contains("core.fft3dfilter.FFT3DFilter"),
+        "FFT3DFilter should be called"
+    );
+    assert!(
+        !script.contains("sharpen="),
+        "sharpen should be omitted at 0 so the plugin default applies"
+    );
+}
+
+#[test]
+fn test_98_ttempsmooth_noise_reduction() {
+    create_output_dir();
+    let mut job = create_base_job("test_98_ttempsmooth");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters {
+            enabled: false,
+            ..Default::default()
+        },
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::TTempSmooth,
+            ttemp_maxr: 4,
+            ttemp_thresh: 6,
+            ttemp_mdiff: 3,
+            ttemp_strength: 3,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "TTempSmooth",
+        &[
+            "core.ttmpsm.TTempSmooth",
+            "maxr=4",
+            "thresh=6",
+            "mdiff=3",
+            "strength=3",
+        ],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_99_ttempsmooth_mdiff_is_held_below_thresh() {
+    // mdiff >= thresh is accepted by the plugin but silently disables the
+    // motion protection the parameter exists for, so it smooths through motion.
+    create_output_dir();
+    let mut job = create_base_job("test_99_ttempsmooth_mdiff");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters {
+            enabled: false,
+            ..Default::default()
+        },
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::TTempSmooth,
+            ttemp_thresh: 4,
+            ttemp_mdiff: 9,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(&job, "TTempSmooth mdiff clamp", &["thresh=4", "mdiff=3"]).unwrap();
+}
+
+#[test]
+fn test_100_awarpsharp2_sharpening() {
+    create_output_dir();
+    let mut job = create_base_job("test_100_awarpsharp2");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters {
+            enabled: false,
+            ..Default::default()
+        },
+        sharpen: SharpenParameters {
+            enabled: true,
+            method: SharpenMethod::AWarpSharp2,
+            warp_depth: 20,
+            warp_thresh: 100,
+            warp_blur: 3,
+            warp_type: 1,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "aWarpSharp2",
+        &[
+            "core.warp.AWarpSharp2",
+            "depth=20",
+            "thresh=100",
+            "blur=3",
+            "type=1",
+        ],
+    )
+    .unwrap();
+
+    // `chroma` is deliberately not passed. This port takes 0 or 1 and rejects
+    // anything else at script evaluation — the block first shipped with
+    // Avisynth's chroma=4 and killed vspipe outright, caught by the heavy
+    // end-to-end test rather than by script generation. Leave the plugin's own
+    // default alone unless someone exposes it with real verification.
+    let script = script_text(&job);
+    assert!(
+        !script.contains("chroma="),
+        "aWarpSharp2 should not pass chroma; this port only accepts 0 or 1"
+    );
+}
+
+#[test]
+fn test_101_hqderingmod_dehalo() {
+    create_output_dir();
+    let mut job = create_base_job("test_101_hqderingmod");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters {
+            enabled: false,
+            ..Default::default()
+        },
+        dehalo: DehaloParameters {
+            enabled: true,
+            method: DehaloMethod::HqDeringmod,
+            dering_mrad: Some(2),
+            dering_msmooth: Some(2),
+            dering_mthr: Some(70),
+            dering_thr: Some(16.0),
+            dering_darkthr: Some(4.0),
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "HQDeringmod",
+        &[
+            "haf.HQDeringmod",
+            "mrad=2",
+            "msmooth=2",
+            "mthr=70",
+            // Exact text: format_double emits a trailing .0, and a bare
+            // "thr=16" would also match "thr=16.0" and hide a formatting change.
+            "thr=16.0",
+            "darkthr=4.0",
+        ],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_102_hqderingmod_omits_unset_parameters() {
+    // Every HQDeringmod argument is optional so havsfunc's own defaults apply
+    // where the user hasn't chosen — passing our own would silently override
+    // upstream tuning.
+    create_output_dir();
+    let mut job = create_base_job("test_102_hqderingmod_defaults");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters {
+            enabled: false,
+            ..Default::default()
+        },
+        dehalo: DehaloParameters {
+            enabled: true,
+            method: DehaloMethod::HqDeringmod,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = script_text(&job);
+    assert!(script.contains("haf.HQDeringmod"), "HQDeringmod should be called");
+    for arg in ["mrad=", "msmooth=", "mthr=", "thr=", "darkthr="] {
+        assert!(
+            !script.contains(arg),
+            "{arg} should be omitted when unset so havsfunc's default applies"
+        );
+    }
+}
+
+#[test]
+fn test_103_each_noise_method_emits_only_its_own_filter() {
+    // The template holds every method's block and the generator strips the
+    // others. A missed remove_block leaves two denoisers chained silently —
+    // valid VapourSynth, twice the runtime, and not what the user asked for.
+    create_output_dir();
+
+    let calls = [
+        ("smdegrain", "haf.SMDegrain"),
+        ("mctd", "haf.MCTemporalDenoise"),
+        ("dfttest", "core.dfttest.DFTTest"),
+        ("fft3d", "core.fft3dfilter.FFT3DFilter"),
+        ("ttempsmooth", "core.ttmpsm.TTempSmooth"),
+    ];
+
+    let methods = [
+        (NoiseReductionMethod::SmDegrain, "smdegrain"),
+        (NoiseReductionMethod::McTemporalDenoise, "mctd"),
+        (NoiseReductionMethod::DfTtest, "dfttest"),
+        (NoiseReductionMethod::Fft3dFilter, "fft3d"),
+        (NoiseReductionMethod::TTempSmooth, "ttempsmooth"),
+    ];
+
+    for (method, key) in methods {
+        let mut job = create_base_job(&format!("test_103_{key}"));
+        job.qtgmc_parameters.enabled = false;
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters {
+                enabled: false,
+                ..Default::default()
+            },
+            noise_reduction: NoiseReductionParameters {
+                enabled: true,
+                method,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+
+        let script = script_text(&job);
+        for (other_key, call) in calls {
+            let present = script.contains(call);
+            if other_key == key {
+                assert!(present, "{key} should emit {call}");
+            } else {
+                assert!(!present, "{key} also emitted {call} — a block wasn't stripped");
+            }
+        }
+        // And no unsubstituted placeholders survive for the selected method.
+        assert!(
+            !script.contains("{{NR_"),
+            "{key} left an unsubstituted NR_ placeholder in the script"
         );
     }
 }

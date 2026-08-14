@@ -533,6 +533,35 @@ Full field reference: **[docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md)**.
 **`optional: true`**: Shows enable checkbox; when disabled, parameter is omitted (uses VS default).
 **`visibleWhen`**: Conditional visibility, e.g. `{ "method": ["method_a"] }`.
 
+### Filters added from the gap analysis (2026-08-15)
+
+Five filters whose plugins were **already in the deps bundle and unused**, so no
+deps release was needed: **DFTTest**, **FFT3DFilter** and **TTempSmooth** as
+Noise Reduction methods, **aWarpSharp2** as a Sharpen method, and
+**HQDeringmod** as a Dehalo method. The three new denoisers are `advancedOnly`;
+aWarpSharp2 and HQDeringmod are visible, because each is a different *mechanism*
+rather than a variant (and Dehalo's pass name already covers ringing).
+
+Two lessons from doing it, both of which cost a debugging cycle:
+
+> **Probe the bundled plugin, don't read about it.** Running each candidate
+> against `deps/macos-arm64` at 8/10/12/16-bit before writing any wiring is what
+> kept **KNLMeansCL** out of the batch: its OpenCL path does not initialise
+> everywhere (the app's own `knlm-probe.json` reports `false` on the development
+> Mac), CI deliberately excludes OpenCL-only plugins from
+> `vapoursynth_integration_test`'s required list, and `channels="YUV"` demands
+> 4:4:4 — which none of this app's sources are. It looked like a one-line win and
+> was not low risk at all.
+>
+> **A plugin's VapourSynth port may not share its Avisynth parameter
+> vocabulary.** `warp.AWarpSharp2` takes `chroma` as **0 or 1** and rejects
+> anything else at script evaluation; Avisynth's takes 0-6, where 4 means "warp
+> chroma with the luma mask". Shipping the Avisynth value killed vspipe outright.
+> Script-generation tests passed the whole time — only the **heavy end-to-end
+> test** caught it, which is the argument for keeping that suite. `chroma` is now
+> deliberately not passed at all, asserted from both sides, in line with how
+> every other optional plugin argument here is treated.
+
 ### Advanced mode is one app-wide setting, and it is the complexity lever
 
 `AdvancedModeService` (**Settings → General → Show advanced options**, persisted

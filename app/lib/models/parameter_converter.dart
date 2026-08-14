@@ -146,6 +146,15 @@ class ParameterConverter {
       case NoiseReductionMethod.qtgmcBuiltin:
         method = 'qtgmc_builtin';
         break;
+      case NoiseReductionMethod.dfttest:
+        method = 'dfttest';
+        break;
+      case NoiseReductionMethod.fft3dFilter:
+        method = 'fft3dfilter';
+        break;
+      case NoiseReductionMethod.tTempSmooth:
+        method = 'ttempsmooth';
+        break;
     }
 
     return DynamicParameters(
@@ -169,6 +178,16 @@ class ParameterConverter {
         'mcdsPlane': params.mcdsPlane,
         'qtgmcEzDenoise': params.qtgmcEzDenoise,
         'qtgmcEzKeepGrain': params.qtgmcEzKeepGrain,
+        'dfttestSigma': params.dfttestSigma,
+        'dfttestTbsize': params.dfttestTbsize,
+        'dfttestSbsize': params.dfttestSbsize,
+        'fft3dSigma': params.fft3dSigma,
+        'fft3dBt': params.fft3dBt,
+        'fft3dSharpen': params.fft3dSharpen,
+        'ttempMaxr': params.ttempMaxr,
+        'ttempThresh': params.ttempThresh,
+        'ttempMdiff': params.ttempMdiff,
+        'ttempStrength': params.ttempStrength,
       },
     );
   }
@@ -194,6 +213,7 @@ class ParameterConverter {
         DehaloMethod.edgeCleaner => 'edge_cleaner',
         DehaloMethod.vinverse => 'vinverse',
         DehaloMethod.vinverse2 => 'vinverse2',
+        DehaloMethod.hqDeringmod => 'hq_deringmod',
       };
 
   /// Convert chroma denoise (CCD) parameters to dynamic format.
@@ -263,6 +283,13 @@ class ParameterConverter {
     optional('vinverseStrength', params.vinverseStrength, 2.7);
     optional('vinverseAmount', params.vinverseAmount, 255);
     optional('vinverseChroma', params.vinverseChroma, true);
+    // HQDeringmod fallbacks mirror havsfunc's own defaults, so ticking a
+    // checkbox starts from the value the filter would have used anyway.
+    optional('deringMrad', params.deringMrad, 1);
+    optional('deringMsmooth', params.deringMsmooth, 1);
+    optional('deringMthr', params.deringMthr, 60);
+    optional('deringThr', params.deringThr, 12.0);
+    optional('deringDarkthr', params.deringDarkthr, 3.0);
 
     return DynamicParameters(
       filterId: 'dehalo',
@@ -370,6 +397,9 @@ class ParameterConverter {
       case SharpenMethod.cas:
         method = 'cas';
         break;
+      case SharpenMethod.aWarpSharp2:
+        method = 'awarpsharp2';
+        break;
     }
 
     return DynamicParameters(
@@ -382,6 +412,10 @@ class ParameterConverter {
         'undershoot': params.undershoot,
         'softEdge': params.softEdge,
         'casSharpness': params.casSharpness,
+        'warpDepth': params.warpDepth,
+        'warpThresh': params.warpThresh,
+        'warpBlur': params.warpBlur,
+        'warpType': params.warpType,
       },
     );
   }
@@ -658,6 +692,15 @@ class ParameterConverter {
       case 'qtgmc_builtin':
         method = NoiseReductionMethod.qtgmcBuiltin;
         break;
+      case 'dfttest':
+        method = NoiseReductionMethod.dfttest;
+        break;
+      case 'fft3dfilter':
+        method = NoiseReductionMethod.fft3dFilter;
+        break;
+      case 'ttempsmooth':
+        method = NoiseReductionMethod.tTempSmooth;
+        break;
       default:
         method = NoiseReductionMethod.smDegrain;
     }
@@ -682,6 +725,16 @@ class ParameterConverter {
       mcTemporalProfile: v['mcTemporalProfile'] as String? ?? 'medium',
       qtgmcEzDenoise: (v['qtgmcEzDenoise'] as num?)?.toDouble() ?? 0.0,
       qtgmcEzKeepGrain: (v['qtgmcEzKeepGrain'] as num?)?.toDouble() ?? 0.0,
+      dfttestSigma: (v['dfttestSigma'] as num?)?.toDouble() ?? 8.0,
+      dfttestTbsize: _asInt(v['dfttestTbsize']) ?? 3,
+      dfttestSbsize: _asInt(v['dfttestSbsize']) ?? 16,
+      fft3dSigma: (v['fft3dSigma'] as num?)?.toDouble() ?? 2.0,
+      fft3dBt: _asInt(v['fft3dBt']) ?? 3,
+      fft3dSharpen: (v['fft3dSharpen'] as num?)?.toDouble() ?? 0.0,
+      ttempMaxr: _asInt(v['ttempMaxr']) ?? 3,
+      ttempThresh: _asInt(v['ttempThresh']) ?? 4,
+      ttempMdiff: _asInt(v['ttempMdiff']) ?? 2,
+      ttempStrength: _asInt(v['ttempStrength']) ?? 2,
     );
   }
 
@@ -711,6 +764,7 @@ class ParameterConverter {
       'edge_cleaner' => DehaloMethod.edgeCleaner,
       'vinverse' => DehaloMethod.vinverse,
       'vinverse2' => DehaloMethod.vinverse2,
+      'hq_deringmod' => DehaloMethod.hqDeringmod,
       _ => DehaloMethod.dehaloAlpha,
     };
 
@@ -742,6 +796,11 @@ class ParameterConverter {
       vinverseStrength: (v['vinverseStrength'] as num?)?.toDouble(),
       vinverseAmount: (v['vinverseAmount'] as num?)?.toInt(),
       vinverseChroma: v['vinverseChroma'] as bool?,
+      deringMrad: _asInt(v['deringMrad']),
+      deringMsmooth: _asInt(v['deringMsmooth']),
+      deringMthr: _asInt(v['deringMthr']),
+      deringThr: (v['deringThr'] as num?)?.toDouble(),
+      deringDarkthr: (v['deringDarkthr'] as num?)?.toDouble(),
     );
   }
 
@@ -829,6 +888,9 @@ class ParameterConverter {
       case 'cas':
         method = SharpenMethod.cas;
         break;
+      case 'awarpsharp2':
+        method = SharpenMethod.aWarpSharp2;
+        break;
       default:
         method = SharpenMethod.lsfmod;
     }
@@ -841,6 +903,10 @@ class ParameterConverter {
       undershoot: v['undershoot'] as int? ?? 1,
       softEdge: v['softEdge'] as int? ?? 0,
       casSharpness: (v['casSharpness'] as num?)?.toDouble() ?? 0.5,
+      warpDepth: _asInt(v['warpDepth']) ?? 16,
+      warpThresh: _asInt(v['warpThresh']) ?? 128,
+      warpBlur: _asInt(v['warpBlur']) ?? 2,
+      warpType: _asInt(v['warpType']) ?? 0,
     );
   }
 

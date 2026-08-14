@@ -18,7 +18,9 @@ enum DehaloMethod {
   @JsonValue('Vinverse')
   vinverse('Vinverse', 'Vinverse (de-ghost)'),
   @JsonValue('Vinverse2')
-  vinverse2('Vinverse2', 'Vinverse 2 (de-ghost)');
+  vinverse2('Vinverse2', 'Vinverse 2 (de-ghost)'),
+  @JsonValue('HQDeringmod')
+  hqDeringmod('HQDeringmod', 'HQDeringmod (de-ring)');
 
   const DehaloMethod(this.value, this.displayName);
   final String value;
@@ -40,6 +42,9 @@ enum DehaloMethod {
         return 'Removes comb/ghost residue left by deinterlacing';
       case DehaloMethod.vinverse2:
         return 'Like Vinverse but keeps more vertical detail';
+      case DehaloMethod.hqDeringmod:
+        return 'Masked ring removal — treats the overshoot beside an edge '
+            'while protecting the edge itself';
     }
   }
 }
@@ -142,6 +147,24 @@ class DehaloParameters {
   /// Process chroma as well as luma (havsfunc `chroma`).
   final bool? vinverseChroma;
 
+  // --- HQDeringmod parameters ---
+
+  /// Ring mask radius. 1 is havsfunc's default; 2 catches wider rings.
+  final int? deringMrad;
+
+  /// Mask smoothing radius, which softens where the mask takes effect.
+  final int? deringMsmooth;
+
+  /// Edge-mask threshold (0-255). Lower finds more edges to protect.
+  final int? deringMthr;
+
+  /// Limit on how far a pixel may be changed, in 8-bit levels.
+  final double? deringThr;
+
+  /// Separate limit for the dark side of an edge; havsfunc defaults it to
+  /// `thr / 4`, which is usually what you want.
+  final double? deringDarkthr;
+
   const DehaloParameters({
     this.enabled = false,
     this.method = DehaloMethod.dehaloAlpha,
@@ -169,6 +192,11 @@ class DehaloParameters {
     this.vinverseStrength,
     this.vinverseAmount,
     this.vinverseChroma,
+    this.deringMrad,
+    this.deringMsmooth,
+    this.deringMthr,
+    this.deringThr,
+    this.deringDarkthr,
   });
 
   DehaloParameters copyWith({
@@ -198,6 +226,11 @@ class DehaloParameters {
     double? vinverseStrength,
     int? vinverseAmount,
     bool? vinverseChroma,
+    int? deringMrad,
+    int? deringMsmooth,
+    int? deringMthr,
+    double? deringThr,
+    double? deringDarkthr,
   }) {
     return DehaloParameters(
       enabled: enabled ?? this.enabled,
@@ -226,6 +259,11 @@ class DehaloParameters {
       vinverseStrength: vinverseStrength ?? this.vinverseStrength,
       vinverseAmount: vinverseAmount ?? this.vinverseAmount,
       vinverseChroma: vinverseChroma ?? this.vinverseChroma,
+      deringMrad: deringMrad ?? this.deringMrad,
+      deringMsmooth: deringMsmooth ?? this.deringMsmooth,
+      deringMthr: deringMthr ?? this.deringMthr,
+      deringThr: deringThr ?? this.deringThr,
+      deringDarkthr: deringDarkthr ?? this.deringDarkthr,
     );
   }
 

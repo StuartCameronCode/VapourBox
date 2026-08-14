@@ -91,11 +91,34 @@ void main() {
       final dehalo = schemas.firstWhere((s) => s.id == 'dehalo');
       expect(
         dehalo.visibleMethods(showAdvanced: false).map((m) => m.id),
-        ['dehalo_alpha', 'fine_dehalo', 'yahr'],
+        // HQDeringmod is visible because deringing is a distinct problem from
+        // dehaloing, not a variant of it — this pass is named for both.
+        ['dehalo_alpha', 'fine_dehalo', 'yahr', 'hq_deringmod'],
       );
       // Vinverse is offered by Chroma Fixes too; Fine Dehalo 2 is a follow-up
       // pass rather than a first choice.
-      expect(dehalo.methods.length, 7);
+      expect(dehalo.methods.length, 8);
+    });
+
+    test('the filters added from the gap analysis are behind advanced mode', () {
+      // Each is an alternative for when the default is not the right tool, not
+      // a better default — which is exactly what advanced mode is for. SMDegrain
+      // still covers the common case, so simple mode does not grow.
+      final nr = schemas.firstWhere((s) => s.id == 'noise_reduction');
+      expect(
+        nr.visibleMethods(showAdvanced: false).map((m) => m.id),
+        ['smdegrain', 'mc_temporal_denoise', 'qtgmc_builtin'],
+      );
+      for (final id in ['dfttest', 'fft3dfilter', 'ttempsmooth']) {
+        expect(nr.getMethod(id)?.advancedOnly, true, reason: id);
+      }
+
+      // aWarpSharp2 is visible: it is a genuinely different mechanism from
+      // LSFmod and CAS rather than another variant of them, and the pass only
+      // offered two options.
+      final sharpen = schemas.firstWhere((s) => s.id == 'sharpen');
+      expect(sharpen.getMethod('awarpsharp2')?.advancedOnly, false);
+      expect(sharpen.visibleMethods(showAdvanced: false).length, 3);
     });
   });
 }

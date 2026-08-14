@@ -8,40 +8,68 @@
   "category": "enhancement",
   "icon": "auto_fix_high",
   "order": 6,
-
   "dependencies": {
-    "plugins": ["havsfunc"],
-    "vs_plugins": ["CAS.dll"]
+    "plugins": [
+      "havsfunc"
+    ],
+    "vs_plugins": [
+      "CAS.dll"
+    ]
   },
-
   "methods": [
     {
       "id": "lsfmod",
       "name": "LSFmod",
       "description": "Best first choice. Limits overshoot, so it sharpens without adding halos. Moderate speed",
       "function": "haf.LSFmod",
-      "parameters": ["strength", "overshoot", "undershoot", "softEdge"]
+      "parameters": [
+        "strength",
+        "overshoot",
+        "undershoot",
+        "softEdge"
+      ]
     },
     {
       "id": "cas",
       "name": "CAS",
       "description": "Very fast, one control, subtle by design. Good when LSFmod is more than the picture needs",
       "function": "core.cas.CAS",
-      "parameters": ["casSharpness"]
+      "parameters": [
+        "casSharpness"
+      ]
+    },
+    {
+      "id": "awarpsharp2",
+      "name": "aWarpSharp2",
+      "description": "Sharpens by warping pixels toward edges instead of raising contrast, so it adds no halos at all. A distinctly different look — very effective on soft or upscaled material",
+      "function": "core.warp.AWarpSharp2",
+      "parameters": [
+        "warpDepth",
+        "warpThresh",
+        "warpBlur",
+        "warpType"
+      ]
     }
   ],
-
   "parameters": {
     "enabled": {
       "type": "boolean",
       "default": false,
-      "ui": { "hidden": true }
+      "ui": {
+        "hidden": true
+      }
     },
     "method": {
       "type": "enum",
       "default": "lsfmod",
-      "options": ["lsfmod", "cas"],
-      "ui": { "hidden": true }
+      "options": [
+        "lsfmod",
+        "cas",
+        "awarpsharp2"
+      ],
+      "ui": {
+        "hidden": true
+      }
     },
     "strength": {
       "type": "integer",
@@ -50,12 +78,18 @@
       "max": 200,
       "step": 5,
       "optional": true,
-      "vapoursynth": { "name": "strength" },
+      "vapoursynth": {
+        "name": "strength"
+      },
       "ui": {
         "label": "Strength",
         "description": "Sharpening strength (50-100 for VHS)",
         "widget": "slider",
-        "visibleWhen": { "method": ["lsfmod"] }
+        "visibleWhen": {
+          "method": [
+            "lsfmod"
+          ]
+        }
       }
     },
     "overshoot": {
@@ -65,12 +99,18 @@
       "max": 255,
       "step": 1,
       "optional": true,
-      "vapoursynth": { "name": "Overshoot" },
+      "vapoursynth": {
+        "name": "Overshoot"
+      },
       "ui": {
         "label": "Overshoot",
         "description": "Maximum overshoot allowed",
         "widget": "slider",
-        "visibleWhen": { "method": ["lsfmod"] }
+        "visibleWhen": {
+          "method": [
+            "lsfmod"
+          ]
+        }
       }
     },
     "undershoot": {
@@ -80,12 +120,18 @@
       "max": 255,
       "step": 1,
       "optional": true,
-      "vapoursynth": { "name": "Undershoot" },
+      "vapoursynth": {
+        "name": "Undershoot"
+      },
       "ui": {
         "label": "Undershoot",
         "description": "Maximum undershoot allowed",
         "widget": "slider",
-        "visibleWhen": { "method": ["lsfmod"] }
+        "visibleWhen": {
+          "method": [
+            "lsfmod"
+          ]
+        }
       }
     },
     "softEdge": {
@@ -95,12 +141,18 @@
       "max": 100,
       "step": 5,
       "optional": true,
-      "vapoursynth": { "name": "soft" },
+      "vapoursynth": {
+        "name": "soft"
+      },
       "ui": {
         "label": "Soft Edge",
         "description": "Soft edge protection percentage",
         "widget": "slider",
-        "visibleWhen": { "method": ["lsfmod"] }
+        "visibleWhen": {
+          "method": [
+            "lsfmod"
+          ]
+        }
       }
     },
     "casSharpness": {
@@ -110,29 +162,120 @@
       "max": 1.0,
       "step": 0.05,
       "optional": true,
-      "vapoursynth": { "name": "sharpness" },
+      "vapoursynth": {
+        "name": "sharpness"
+      },
       "ui": {
         "label": "CAS Sharpness",
         "description": "CAS sharpening strength (0.3-0.5 for VHS)",
         "widget": "slider",
         "precision": 2,
-        "visibleWhen": { "method": ["cas"] }
+        "visibleWhen": {
+          "method": [
+            "cas"
+          ]
+        }
+      }
+    },
+    "warpDepth": {
+      "type": "integer",
+      "default": 16,
+      "min": 0,
+      "max": 128,
+      "step": 1,
+      "ui": {
+        "label": "Depth",
+        "description": "How far pixels may be warped toward edges. The main strength control",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "awarpsharp2"
+          ]
+        }
+      }
+    },
+    "warpThresh": {
+      "type": "integer",
+      "default": 128,
+      "min": 0,
+      "max": 255,
+      "step": 8,
+      "ui": {
+        "label": "Edge Threshold",
+        "description": "Lower finds more edges to warp toward",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "awarpsharp2"
+          ]
+        }
+      }
+    },
+    "warpBlur": {
+      "type": "integer",
+      "default": 2,
+      "min": 0,
+      "max": 3,
+      "step": 1,
+      "ui": {
+        "label": "Mask Blur",
+        "description": "More blur warps more smoothly and less precisely",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "awarpsharp2"
+          ]
+        }
+      }
+    },
+    "warpType": {
+      "type": "enum",
+      "default": "0",
+      "options": [
+        "0",
+        "1"
+      ],
+      "ui": {
+        "label": "Blur Kernel",
+        "description": "0 = radius 6 box per pass (smoother), 1 = radius 2 box (tighter)",
+        "widget": "dropdown",
+        "visibleWhen": {
+          "method": [
+            "awarpsharp2"
+          ]
+        }
       }
     }
   },
-
   "ui": {
     "sections": [
       {
         "title": "Settings",
-        "parameters": ["strength", "overshoot", "undershoot", "softEdge", "casSharpness"],
+        "parameters": [
+          "strength",
+          "overshoot",
+          "undershoot",
+          "softEdge",
+          "casSharpness"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "aWarpSharp2",
+        "parameters": [
+          "warpDepth",
+          "warpThresh",
+          "warpBlur",
+          "warpType"
+        ],
         "expanded": true
       }
     ]
   },
-
   "codeTemplate": {
-    "imports": ["import havsfunc as haf"],
+    "imports": [
+      "import havsfunc as haf"
+    ],
     "generate": "method"
   }
 }

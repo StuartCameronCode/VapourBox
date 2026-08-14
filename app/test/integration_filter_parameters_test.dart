@@ -671,6 +671,171 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+
+    // --- Filters added from the Hybrid gap analysis -----------------------
+    //
+    // Each of these was already installed in the deps bundle and merely
+    // unexposed, so the risk here is not the plugin — it is the wiring. These
+    // assert the parameters survive the whole trip (Dart typed model ->
+    // converter -> job JSON -> Rust model -> generated .vpy), which is the part
+    // that fails silently: a name mismatch anywhere and the filter runs with
+    // its defaults while the UI shows the user's values.
+
+    test('noise reduction: DFTTest params', () async {
+      loadSchema('noise_reduction');
+      final typed = const NoiseReductionParameters(
+        enabled: true,
+        method: NoiseReductionMethod.dfttest,
+        dfttestSigma: 12.5,
+        dfttestTbsize: 5,
+        dfttestSbsize: 12,
+      );
+      final job = buildJob(testName: 'nr_dfttest', noiseReduction: typed);
+      print('  Generating DFTTest script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.dfttest.DFTTest('));
+      final actual = parseFilterParams(script, 'core.dfttest.DFTTest(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['sigma'], '12.5');
+      expect(actual['tbsize'], '5');
+      expect(actual['sbsize'], '12');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('noise reduction: DFTTest temporal window is forced odd', () async {
+      // An even tbsize is accepted by DFTTest but processes a window that isn't
+      // centred on the current frame, so the worker rounds it down.
+      final typed = const NoiseReductionParameters(
+        enabled: true,
+        method: NoiseReductionMethod.dfttest,
+        dfttestTbsize: 6,
+      );
+      final job = buildJob(testName: 'nr_dfttest_even', noiseReduction: typed);
+      final script = await generateScriptViaWorker(job);
+      final actual = parseFilterParams(script, 'core.dfttest.DFTTest(');
+      expect(actual['tbsize'], '5');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('noise reduction: FFT3DFilter params', () async {
+      loadSchema('noise_reduction');
+      final typed = const NoiseReductionParameters(
+        enabled: true,
+        method: NoiseReductionMethod.fft3dFilter,
+        fft3dSigma: 3.5,
+        fft3dBt: 4,
+        fft3dSharpen: 0.4,
+      );
+      final job = buildJob(testName: 'nr_fft3d', noiseReduction: typed);
+      print('  Generating FFT3DFilter script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.fft3dfilter.FFT3DFilter('));
+      final actual = parseFilterParams(script, 'core.fft3dfilter.FFT3DFilter(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['sigma'], '3.5');
+      expect(actual['bt'], '4');
+      expect(actual['sharpen'], '0.4');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('noise reduction: TTempSmooth params, mdiff held below thresh',
+        () async {
+      loadSchema('noise_reduction');
+      // mdiff deliberately set above thresh: the plugin accepts that but it
+      // silently disables the motion protection the parameter exists for.
+      final typed = const NoiseReductionParameters(
+        enabled: true,
+        method: NoiseReductionMethod.tTempSmooth,
+        ttempMaxr: 4,
+        ttempThresh: 6,
+        ttempMdiff: 9,
+        ttempStrength: 3,
+      );
+      final job = buildJob(testName: 'nr_ttempsmooth', noiseReduction: typed);
+      print('  Generating TTempSmooth script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.ttmpsm.TTempSmooth('));
+      final actual = parseFilterParams(script, 'core.ttmpsm.TTempSmooth(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['maxr'], '4');
+      expect(actual['thresh'], '6');
+      expect(actual['mdiff'], '5', reason: 'clamped to thresh - 1');
+      expect(actual['strength'], '3');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('sharpen: aWarpSharp2 params', () async {
+      loadSchema('sharpen');
+      final typed = const SharpenParameters(
+        enabled: true,
+        method: SharpenMethod.aWarpSharp2,
+        warpDepth: 20,
+        warpThresh: 100,
+        warpBlur: 3,
+        warpType: 1,
+      );
+      final job = buildJob(testName: 'sharpen_awarpsharp2', sharpen: typed);
+      print('  Generating aWarpSharp2 script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.warp.AWarpSharp2('));
+      final actual = parseFilterParams(script, 'core.warp.AWarpSharp2(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['depth'], '20');
+      expect(actual['thresh'], '100');
+      expect(actual['blur'], '3');
+      expect(actual['type'], '1');
+      // `chroma` is deliberately absent: this port accepts only 0 or 1 and
+      // rejects anything else at script evaluation. The block first shipped with
+      // Avisynth's chroma=4, which killed vspipe — caught by the heavy
+      // end-to-end test, not by script generation, which is why this assertion
+      // is here as well.
+      expect(actual.containsKey('chroma'), isFalse);
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('dehalo: HQDeringmod params', () async {
+      loadSchema('dehalo');
+      final typed = const DehaloParameters(
+        enabled: true,
+        method: DehaloMethod.hqDeringmod,
+        deringMrad: 2,
+        deringMsmooth: 2,
+        deringMthr: 70,
+        deringThr: 16.0,
+        deringDarkthr: 4.0,
+      );
+      final job = buildJob(testName: 'dehalo_hqderingmod', dehalo: typed);
+      print('  Generating HQDeringmod script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.HQDeringmod('));
+      final actual = parseFilterParams(script, 'haf.HQDeringmod(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['mrad'], '2');
+      expect(actual['msmooth'], '2');
+      expect(actual['mthr'], '70');
+      // format_double emits a trailing .0 for whole numbers; assert the exact
+      // text so a change in numeric formatting is visible rather than hidden by
+      // a substring match.
+      expect(actual['thr'], '16.0');
+      expect(actual['darkthr'], '4.0');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('dehalo: HQDeringmod omits unset params so havsfunc defaults apply',
+        () async {
+      final typed = const DehaloParameters(
+        enabled: true,
+        method: DehaloMethod.hqDeringmod,
+      );
+      final job = buildJob(testName: 'dehalo_hqdering_defaults', dehalo: typed);
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.HQDeringmod('));
+      final actual = parseFilterParams(script, 'haf.HQDeringmod(');
+      expect(actual, isEmpty,
+          reason: 'passing our own values would override upstream tuning');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     // --- IVTC (core.vivtc.VFM + VDecimate) high-bit-depth guard ---
     // VFM only accepts 8-bit YUV/GRAY, so IVTC on a 10-bit source (e.g. ProRes
     // 422, yuv422p10le) must run field matching on an 8-bit metrics copy while

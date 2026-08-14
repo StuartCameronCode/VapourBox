@@ -644,6 +644,9 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
+                    script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
+                    script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
 
                     script = process_optional_int("NR_TR", Some(nr.sm_degrain_tr), script);
                     script = process_optional_int("NR_TH_SAD", Some(nr.sm_degrain_th_sad), script);
@@ -658,6 +661,9 @@ impl ScriptGenerator {
                     script = script.replace("{{/NR_MCTD}}", "");
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
+                    script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
+                    script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
 
                     script = process_optional_string("NR_SETTINGS", Some(&nr.mc_temporal_profile), script);
                     script = process_optional_double("NR_SIGMA", Some(nr.mc_temporal_sigma), script);
@@ -669,6 +675,9 @@ impl ScriptGenerator {
                     script = script.replace("{{#NR_MCDEGRAINSHARP}}", "");
                     script = script.replace("{{/NR_MCDEGRAINSHARP}}", "");
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
+                    script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
+                    script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
 
                     // The blur/sharpen references must cover the same planes the
                     // degrain does, so both derive from one selector.
@@ -701,12 +710,95 @@ impl ScriptGenerator {
                         }
                     }
                 }
+                NoiseReductionMethod::DfTtest => {
+                    script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
+                    script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
+                    script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
+                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
+                    script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
+                    script = script.replace("{{#NR_DFTTEST}}", "");
+                    script = script.replace("{{/NR_DFTTEST}}", "");
+
+                    script = script.replace(
+                        "{{NR_DFTTEST_SIGMA}}",
+                        &format_double(nr.dfttest_sigma),
+                    );
+                    // Forced odd, so the temporal window stays centred on the
+                    // current frame.
+                    script = script.replace(
+                        "{{NR_DFTTEST_TBSIZE}}",
+                        &nr.dfttest_effective_tbsize().to_string(),
+                    );
+                    script = script.replace(
+                        "{{NR_DFTTEST_SBSIZE}}",
+                        &nr.dfttest_sbsize.to_string(),
+                    );
+                }
+                NoiseReductionMethod::Fft3dFilter => {
+                    script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
+                    script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
+                    script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
+                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
+                    script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
+                    script = script.replace("{{#NR_FFT3D}}", "");
+                    script = script.replace("{{/NR_FFT3D}}", "");
+
+                    script = script.replace(
+                        "{{NR_FFT3D_SIGMA}}",
+                        &format_double(nr.fft3d_sigma),
+                    );
+                    script = script.replace(
+                        "{{NR_FFT3D_BT}}",
+                        &nr.fft3d_effective_bt().to_string(),
+                    );
+                    // Omitted at 0 so the plugin's own default applies rather
+                    // than an explicit no-op argument.
+                    script = process_optional_double(
+                        "NR_FFT3D_SHARPEN",
+                        if nr.fft3d_sharpen > 0.0 { Some(nr.fft3d_sharpen) } else { None },
+                        script,
+                    );
+                }
+                NoiseReductionMethod::TTempSmooth => {
+                    script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
+                    script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
+                    script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
+                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
+                    script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
+                    script = script.replace("{{#NR_TTEMPSMOOTH}}", "");
+                    script = script.replace("{{/NR_TTEMPSMOOTH}}", "");
+
+                    script = script.replace(
+                        "{{NR_TTEMP_MAXR}}",
+                        &nr.ttemp_effective_maxr().to_string(),
+                    );
+                    script = script.replace(
+                        "{{NR_TTEMP_THRESH}}",
+                        &nr.ttemp_effective_thresh().to_string(),
+                    );
+                    // Held below thresh: equal or greater is accepted by the
+                    // plugin but silently disables its motion protection.
+                    script = script.replace(
+                        "{{NR_TTEMP_MDIFF}}",
+                        &nr.ttemp_effective_mdiff().to_string(),
+                    );
+                    script = script.replace(
+                        "{{NR_TTEMP_STRENGTH}}",
+                        &nr.ttemp_strength.to_string(),
+                    );
+                }
                 NoiseReductionMethod::QtgmcBuiltin => {
                     // QTGMC built-in denoising is handled in the QTGMC pass itself
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
+                    script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
+                    script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
                 }
             }
         } else {
@@ -759,13 +851,14 @@ impl ScriptGenerator {
             // every block per arm is what the other passes do, but with seven
             // methods it stops being readable — so keep the block the method
             // selects and drop the others by difference.
-            const DEHALO_BLOCKS: [&str; 6] = [
+            const DEHALO_BLOCKS: [&str; 7] = [
                 "DEHALO_DEHALO_ALPHA",
                 "DEHALO_FINE_DEHALO",
                 "DEHALO_FINE_DEHALO2",
                 "DEHALO_YAHR",
                 "DEHALO_EDGE_CLEANER",
                 "DEHALO_VINVERSE",
+                "DEHALO_HQDERING",
             ];
 
             let selected = match dehalo.method {
@@ -777,6 +870,7 @@ impl ScriptGenerator {
                 // Both Vinverse variants share one block; only the function
                 // name differs.
                 DehaloMethod::Vinverse | DehaloMethod::Vinverse2 => "DEHALO_VINVERSE",
+                DehaloMethod::HqDeringmod => "DEHALO_HQDERING",
             };
 
             for block in DEHALO_BLOCKS {
@@ -822,6 +916,13 @@ impl ScriptGenerator {
                     script = process_optional_double("DEHALO_VINVERSE_SSTR", dehalo.vinverse_strength, script);
                     script = process_optional_int("DEHALO_VINVERSE_AMNT", dehalo.vinverse_amount, script);
                     script = process_optional_bool("DEHALO_VINVERSE_CHROMA", dehalo.vinverse_chroma, script);
+                }
+                DehaloMethod::HqDeringmod => {
+                    script = process_optional_int("DEHALO_DERING_MRAD", dehalo.dering_mrad, script);
+                    script = process_optional_int("DEHALO_DERING_MSMOOTH", dehalo.dering_msmooth, script);
+                    script = process_optional_int("DEHALO_DERING_MTHR", dehalo.dering_mthr, script);
+                    script = process_optional_double("DEHALO_DERING_THR", dehalo.dering_thr, script);
+                    script = process_optional_double("DEHALO_DERING_DARKTHR", dehalo.dering_darkthr, script);
                 }
             }
 
@@ -900,6 +1001,7 @@ impl ScriptGenerator {
                     script = script.replace("{{#SHARPEN_LSFMOD}}", "");
                     script = script.replace("{{/SHARPEN_LSFMOD}}", "");
                     script = remove_block("{{#SHARPEN_CAS}}", "{{/SHARPEN_CAS}}", script);
+                    script = remove_block("{{#SHARPEN_AWARPSHARP2}}", "{{/SHARPEN_AWARPSHARP2}}", script);
 
                     script = process_optional_int("SHARPEN_STRENGTH", Some(sharpen.strength), script);
                     script = process_optional_int("SHARPEN_OVERSHOOT", Some(sharpen.overshoot), script);
@@ -910,8 +1012,23 @@ impl ScriptGenerator {
                     script = remove_block("{{#SHARPEN_LSFMOD}}", "{{/SHARPEN_LSFMOD}}", script);
                     script = script.replace("{{#SHARPEN_CAS}}", "");
                     script = script.replace("{{/SHARPEN_CAS}}", "");
+                    script = remove_block("{{#SHARPEN_AWARPSHARP2}}", "{{/SHARPEN_AWARPSHARP2}}", script);
 
                     script = process_optional_double("SHARPEN_CAS_SHARPNESS", Some(sharpen.cas_sharpness), script);
+                }
+                SharpenMethod::AWarpSharp2 => {
+                    script = remove_block("{{#SHARPEN_LSFMOD}}", "{{/SHARPEN_LSFMOD}}", script);
+                    script = remove_block("{{#SHARPEN_CAS}}", "{{/SHARPEN_CAS}}", script);
+                    script = script.replace("{{#SHARPEN_AWARPSHARP2}}", "");
+                    script = script.replace("{{/SHARPEN_AWARPSHARP2}}", "");
+
+                    script = script.replace("{{SHARPEN_WARP_THRESH}}", &sharpen.warp_thresh.to_string());
+                    script = script.replace(
+                        "{{SHARPEN_WARP_BLUR}}",
+                        &sharpen.warp_effective_blur().to_string(),
+                    );
+                    script = script.replace("{{SHARPEN_WARP_TYPE}}", &sharpen.warp_type.to_string());
+                    script = script.replace("{{SHARPEN_WARP_DEPTH}}", &sharpen.warp_depth.to_string());
                 }
             }
         } else {
