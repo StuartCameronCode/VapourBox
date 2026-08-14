@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../models/pass_relevance.dart';
 import '../../models/processing_pipeline.dart';
 import '../../services/whisper_addon_manager.dart';
 import '../../viewmodels/main_viewmodel.dart';
@@ -83,6 +84,7 @@ class PassListPanel extends StatelessWidget {
             subtitle: subtitle,
             isEnabled: isEnabled,
             isExpanded: isExpanded,
+            relevance: relevanceFor(passType, viewModel.videoInfo),
             onToggle: onToggle ?? (enabled) => viewModel.togglePass(passType, enabled),
             onTap: () => viewModel.selectPass(passType),
             expandedChild: isExpanded ? PassSettingsInline(passType: passType) : null,

@@ -1,11 +1,16 @@
 import 'package:json_annotation/json_annotation.dart';
 import 'package:uuid/uuid.dart';
 
+import 'chroma_fix_parameters.dart';
+import 'deband_parameters.dart';
+import 'deblock_parameters.dart';
 import 'dehalo_parameters.dart';
+import 'descratch_parameters.dart';
 import 'encoding_settings.dart';
 import 'noise_reduction_parameters.dart';
 import 'qtgmc_parameters.dart';
 import 'processing_pipeline.dart';
+import 'spotless_parameters.dart';
 import 'video_job.dart';
 
 part 'processing_preset.g.dart';
@@ -191,14 +196,151 @@ class ProcessingPreset {
     );
   }
 
+  /// Built-in preset: PAL DVD / digital broadcast (576i MPEG-2).
+  ///
+  /// Named for the source rather than the technique, which is the point: the
+  /// user knows what they fed in, not which denoiser it wants. MPEG-2 at DVD and
+  /// broadcast bitrates blocks visibly, so this pairs deinterlacing with a
+  /// deblock and deliberately leaves denoising off — the picture is usually
+  /// clean, and denoising it costs detail for nothing.
+  static ProcessingPreset builtInPalDvd() {
+    return ProcessingPreset(
+      id: 'builtin-pal-dvd',
+      name: 'PAL DVD / Broadcast',
+      description: 'Interlaced 576i MPEG-2: deinterlace and deblock, no denoise',
+      pipeline: ProcessingPipeline(
+        deinterlace: QTGMCParameters(
+          enabled: true,
+          preset: QTGMCPreset.slow,
+        ),
+        deblock: DeblockParameters(
+          enabled: true,
+          method: DeblockMethod.deblockQed,
+        ),
+      ),
+      encodingSettings: EncodingSettings(
+        encoderPreset: 'medium',
+        quality: 18,
+      ),
+      isBuiltIn: true,
+    );
+  }
+
+  /// Built-in preset: DV camcorder tape (DV/DVCAM, interlaced).
+  ///
+  /// DV's heavily subsampled chroma (4:1:1 on NTSC, 4:2:0 on PAL) misaligns and
+  /// bleeds, so the chroma work matters more here than the noise work. Noise is
+  /// light rather than off: DV tape is grainier than a DVD but far cleaner than
+  /// VHS.
+  static ProcessingPreset builtInDvCamcorder() {
+    return ProcessingPreset(
+      id: 'builtin-dv-camcorder',
+      name: 'DV Camcorder Tape',
+      description: 'Interlaced DV: deinterlace, fix chroma alignment, light denoise',
+      pipeline: ProcessingPipeline(
+        deinterlace: QTGMCParameters(
+          enabled: true,
+          preset: QTGMCPreset.slow,
+          chromaUpsampleFix: true,
+        ),
+        // fromPreset, not `preset:` — the enum on its own is only a label, and
+        // passing it without the matching values leaves every threshold at its
+        // default, i.e. "light" would denoise exactly as hard as "moderate".
+        noiseReduction:
+            NoiseReductionParameters.fromPreset(NoiseReductionPreset.light),
+        chromaFixes: ChromaFixParameters(
+          enabled: true,
+          preset: ChromaFixPreset.custom,
+          applyChromaBleedingFix: true,
+        ),
+      ),
+      encodingSettings: EncodingSettings(
+        encoderPreset: 'medium',
+        quality: 18,
+      ),
+      isBuiltIn: true,
+    );
+  }
+
+  /// Built-in preset: 8mm / Super 8 film scan.
+  ///
+  /// A film scan is already progressive, so deinterlacing is off — running it
+  /// would only soften the picture. What film has instead is physical damage,
+  /// which is what DeScratch and SpotLess are for. Encodes to FFV1 because a
+  /// scan is usually a master, not a delivery copy.
+  static ProcessingPreset builtInFilmScan() {
+    return ProcessingPreset(
+      id: 'builtin-film-scan',
+      name: '8mm / Super 8 Film Scan',
+      description:
+          'Progressive film scan: dust, scratches and grain — no deinterlacing',
+      pipeline: ProcessingPipeline(
+        // Explicitly off, and it has to be: QTGMCParameters defaults to
+        // `enabled: true`, so a preset that simply omits deinterlacing gets it
+        // anyway — which on a progressive scan just softens the picture.
+        deinterlace: QTGMCParameters(enabled: false),
+        descratch: DeScratchParameters(enabled: true),
+        spotless: SpotLessParameters(enabled: true),
+        noiseReduction:
+            NoiseReductionParameters.fromPreset(NoiseReductionPreset.moderate),
+      ),
+      encodingSettings: EncodingSettings(
+        codec: VideoCodec.ffv1,
+        container: ContainerFormat.mkv,
+        encoderPreset: 'medium',
+        quality: 18,
+      ),
+      isBuiltIn: true,
+    );
+  }
+
+  /// Built-in preset: anime DVD (telecined film, drawn line art).
+  ///
+  /// Telecined, so it wants IVTC rather than deinterlacing. Line art shows the
+  /// two faults live action mostly hides: halos from the broadcast chain's
+  /// sharpening, and banding across the large flat colour areas.
+  static ProcessingPreset builtInAnimeDvd() {
+    return ProcessingPreset(
+      id: 'builtin-anime-dvd',
+      name: 'Anime DVD',
+      description: 'Telecined line art: inverse telecine, dehalo and deband',
+      pipeline: ProcessingPipeline(
+        deinterlace: QTGMCParameters(
+          enabled: true,
+          method: DeinterlaceMethod.ivtc,
+          ivtcOrder: 1,
+          ivtcMode: 1,
+          ivtcCycle: 5,
+        ),
+        dehalo: DehaloParameters(
+          enabled: true,
+          method: DehaloMethod.fineDehalo,
+        ),
+        deband: DebandParameters(enabled: true),
+      ),
+      encodingSettings: EncodingSettings(
+        encoderPreset: 'medium',
+        quality: 18,
+      ),
+      isBuiltIn: true,
+    );
+  }
+
   /// Get all built-in presets.
+  ///
+  /// Ordered so the source-shaped presets come after the three quality tiers:
+  /// a user who knows what they captured should be able to find it by name.
   static List<ProcessingPreset> builtInPresets() {
     return [
       builtInFast(),
       builtInBalanced(),
       builtInHighQuality(),
       builtInVhsCleanup(),
+      builtInDvCamcorder(),
+      builtInPalDvd(),
       builtInDvdIvtc(),
+      builtInAnimeDvd(),
+      builtInFilmScan(),
     ];
   }
 }

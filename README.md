@@ -27,7 +27,7 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg —
 ## How it works
 
 1. **Add the source.** Drop in a file, a folder of files, a `VIDEO_TS` folder, or open a DVD in the drive. VapourBox inspects it and reports what it found — interlaced, telecined or progressive — so the choice isn't guesswork.
-2. **Set the output and any processing.** Pick a codec and container, then either start from a preset (Fast, Balanced, High Quality, VHS Cleanup, DVD IVTC) or switch individual filters on. Each filter's controls open in place beneath it, with a summary of what it does and when it applies.
+2. **Set the output and any processing.** Pick a codec and container, then either start from a preset — three quality tiers, plus six named after the source, from VHS Cleanup to 8mm / Super 8 Film Scan — or switch individual filters on. Each filter's controls open in place beneath it, with a summary of what it does and when it applies.
 3. **Check the preview, then run it.** The preview shows source and processed output side by side and updates as settings change, so settings can be judged before a long encode. Multiple files queue up and process unattended.
 
 ## Download
@@ -111,6 +111,10 @@ Thirteen filters, each switchable independently, applied in a fixed order. Most 
 
 Each filter leads with a plain-language summary and a **More** expander describing what it does and when it's the right choice, so the settings can be understood in place rather than looked up elsewhere.
 
+The list also reacts to the file you dropped in. Filters that match what was detected in your source are marked **Suggested** with the reason — "source is hard telecine (3:2 pulldown)", "anamorphic source (10:11) — check pixel aspect" — and ones that can't apply say so, such as deinterlacing a progressive file. Nothing is switched on or off for you; detection is sometimes wrong, so it stays a hint. Filters whose problems can't be spotted from the file alone — dirt, scratches, grain, halos — say nothing either way.
+
+Where two filters work against each other, the one that loses out says so when you open it: sharpening ahead of a denoiser that will undo it, for instance.
+
 ## Details
 
 <details>
@@ -157,7 +161,9 @@ VapourBox decides between the two by looking for a DVD IFO: a folder is only tre
 <details>
 <summary><b>Presets</b></summary>
 
-Presets store the whole pipeline plus encoding settings. Built-in: Fast, Balanced, High Quality, VHS Cleanup, DVD IVTC. Your own save alongside them and persist across sessions.
+Presets store the whole pipeline plus encoding settings. Three quality tiers — Fast, Balanced, High Quality — and six named after the source you actually have: VHS Cleanup, DV Camcorder Tape, PAL DVD / Broadcast, DVD IVTC, Anime DVD, and 8mm / Super 8 Film Scan. Your own save alongside them and persist across sessions.
+
+Pick the one matching your source and you can ignore the pass list entirely.
 
 </details>
 

@@ -383,6 +383,28 @@ tried again — is in the renderer's header comment.
 3. Configure `pipeline` with the desired filter settings and `encodingSettings`
 4. Add it to the list returned by `ProcessingPreset.builtInPresets()` — nothing
    picks it up otherwise
+5. Assert in `app/test/processing_preset_test.dart` that it does what its **name**
+   says. That file is where two real bugs in the source presets were caught, both
+   of them silent:
+
+> **`ProcessingPipeline()`'s default deinterlaces.** `QTGMCParameters.enabled`
+> defaults to **`true`**, so a preset that simply doesn't mention deinterlacing
+> gets it anyway — which on a progressive source (a film scan) just softens the
+> picture for no reason. Pass `deinterlace: QTGMCParameters(enabled: false)`
+> explicitly when you don't want it.
+>
+> **A `preset:` enum on its own is only a label.** `NoiseReductionParameters(
+> preset: NoiseReductionPreset.light)` leaves every threshold at its default, so
+> "light" denoises exactly as hard as "moderate". Use the
+> `NoiseReductionParameters.fromPreset(...)` factory, which applies the matching
+> values.
+
+**Name presets after the source, not the technique.** The user knows they
+captured a DV tape; they don't know it wants SMDegrain with a chroma-bleed fix.
+That is why the set includes `DV Camcorder Tape`, `PAL DVD / Broadcast`,
+`Anime DVD` and `8mm / Super 8 Film Scan` alongside the three quality tiers, and
+it is the cheapest way to add capability — a preset costs no UI complexity at
+all.
 
 ### Adding a New QTGMC Parameter
 
@@ -517,6 +539,34 @@ it aggressively enough to matter. Adding filters to this app means adding
 *methods to existing passes* far more often than new passes, so `advancedOnly`
 on a method is what keeps a slot's dropdown short. Field reference and the three
 rules for using it: **[docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md)**.
+
+### Suggestions and advice are hints, and must stay hints
+
+Two small pure-function models sit beside the pass list, and both are
+deliberately toothless — neither blocks a job, disables a control or changes a
+value:
+
+- **`pass_relevance.dart`** (`relevanceFor`) decides whether a pass is
+  `recommended` / `neutral` / `notApplicable` for the loaded file, from the
+  `VideoInfo` detection already does (scan type, height, codec, SAR). It drives a
+  "Suggested" badge and a reason line, and **never reorders the list** — row
+  order is pipeline order, asserted by `pass_list_stages_test.dart`.
+  The load-bearing property is restraint: a badge on nine of thirteen rows is
+  decoration, not a recommendation, so passes detection cannot judge (dirt,
+  scratches, grain, halos, banding, colour) return `neutral` and say nothing.
+  `pass_relevance_test.dart` bounds the number of suggestions per source and
+  asserts those nine stay silent for every scan type / height / codec
+  combination. `ScanType.unknown` must stay neutral too — detection failed, so
+  claiming either way is worse than silence.
+- **`pass_advice.dart`** (`adviseOn` / `adviceFor`) comments on pass
+  *combinations*, which is the complexity that actually bites: sharpening that
+  the denoiser will undo, an FPS divisor that IVTC ignores, Vinverse with
+  deinterlacing off. Rendered through the existing `WarningBanner` in
+  `pass_settings_inline.dart`. Every combination it mentions still produces a
+  valid render, so none of it is validation. Advice must only ever attach to an
+  **enabled** pass — a banner on a pass the user isn't using is how advisory UI
+  gets learned-to-ignore — and `pass_advice_test.dart` asserts that, plus that a
+  default pipeline is completely silent.
 
 **Curation is asserted, not just recommended.**
 `app/test/filter_schema_curation_test.dart` lints every shipped schema: the first
@@ -843,7 +893,8 @@ Headless Dart-VM tests. Three groups:
   "Attribution" below), `advanced_mode_service`,
   `dynamic_filter_panel_advanced` (a widget test — pumps the generated panel
   through a `ChangeNotifierProvider`, no desktop needed),
-  `filter_schema_curation` (lints every shipped schema), `pass_list_stages`.
+  `filter_schema_curation` (lints every shipped schema), `pass_list_stages`,
+  `pass_relevance`, `pass_advice`, `processing_preset`.
 - **Shell-out tests** — `vapoursynth_integration_test`,
   `schema_converter_integration_test`; need the per-arch `deps/` and (for whisper)
   `addons/`.

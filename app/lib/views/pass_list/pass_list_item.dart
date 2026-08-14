@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../models/pass_relevance.dart';
 import '../../models/processing_pipeline.dart';
 
 /// A single item in the pass list showing a processing pass.
@@ -16,6 +17,11 @@ class PassListItem extends StatelessWidget {
   final ValueChanged<bool> onToggle;
   final VoidCallback onTap;
 
+  /// How much this pass has to do with the loaded file. Drives a badge or a
+  /// muted note only — it never reorders the row or disables the control, since
+  /// detection is a hint and is sometimes wrong.
+  final PassRelevanceResult relevance;
+
   /// Settings shown inline while expanded. Only built for the expanded item.
   final Widget? expandedChild;
 
@@ -28,6 +34,7 @@ class PassListItem extends StatelessWidget {
     required this.isExpanded,
     required this.onToggle,
     required this.onTap,
+    this.relevance = PassRelevanceResult.neutral,
     this.expandedChild,
   });
 
@@ -121,21 +128,42 @@ class PassListItem extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w500,
-                          color: isEnabled
-                              ? colorScheme.onSurface
-                              : colorScheme.onSurface.withValues(alpha: 0.5),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          title,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w500,
+                                color: isEnabled
+                                    ? colorScheme.onSurface
+                                    : colorScheme.onSurface.withValues(alpha: 0.5),
+                              ),
                         ),
+                      ),
+                      if (relevance.isRecommended) ...[
+                        const SizedBox(width: 8),
+                        _buildSuggestedBadge(context, colorScheme),
+                      ],
+                    ],
                   ),
                   Text(
-                    subtitle,
+                    // The reason a pass is suggested, or can't apply, is more
+                    // use than a generic settings summary — but only while the
+                    // pass is off. Once the user has turned it on they have
+                    // made the call, and the settings matter again.
+                    (!isEnabled && relevance.reason != null)
+                        ? relevance.reason!
+                        : subtitle,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontStyle: (!isEnabled && relevance.reason != null)
+                              ? FontStyle.italic
+                              : FontStyle.normal,
                           color: isEnabled
                               ? colorScheme.onSurface.withValues(alpha: 0.7)
-                              : colorScheme.onSurface.withValues(alpha: 0.4),
+                              : colorScheme.onSurface.withValues(
+                                  alpha: relevance.isNotApplicable ? 0.3 : 0.4,
+                                ),
                         ),
                   ),
                 ],
@@ -156,6 +184,27 @@ class PassListItem extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// "Suggested" rather than "Recommended": it is a hint from metadata, and
+  /// overstating it would be misleading on the sources where detection is
+  /// wrong.
+  Widget _buildSuggestedBadge(BuildContext context, ColorScheme colorScheme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: colorScheme.primary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        'Suggested',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: colorScheme.primary,
+              fontWeight: FontWeight.w600,
+              fontSize: 10,
+            ),
       ),
     );
   }
