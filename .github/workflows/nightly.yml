@@ -101,6 +101,13 @@ jobs:
           dart run build_runner build --delete-conflicting-outputs
 
       - name: Heavy integration tests
+        # ToolLocator resolves the worker relative to the running executable,
+        # which under `flutter test` is the test runner, not the app bundle. The
+        # tests that drive WorkerManager for real therefore need this pointed at
+        # the built binary; without it they fail with "Worker executable not
+        # found" and prove nothing.
+        env:
+          VAPOURBOX_WORKER: ${{ github.workspace }}/worker/target/debug/vapourbox-worker
         run: cd app && flutter test --tags heavy
 
   windows:
@@ -171,6 +178,10 @@ jobs:
           dart run build_runner build --delete-conflicting-outputs
 
       - name: Heavy integration tests
+        # See the macOS job: ToolLocator needs the worker path under
+        # `flutter test`, where the running executable is the test runner.
+        env:
+          VAPOURBOX_WORKER: ${{ github.workspace }}\worker\target\debug\vapourbox-worker.exe
         run: cd app && flutter test --tags heavy
 
   linux:
@@ -248,4 +259,11 @@ jobs:
           dart run build_runner build --delete-conflicting-outputs
 
       - name: Heavy integration tests
+        # ToolLocator resolves the worker relative to the running executable,
+        # which under `flutter test` is the test runner, not the app bundle. The
+        # tests that drive WorkerManager for real therefore need this pointed at
+        # the built binary; without it they fail with "Worker executable not
+        # found" and prove nothing.
+        env:
+          VAPOURBOX_WORKER: ${{ github.workspace }}/worker/target/debug/vapourbox-worker
         run: cd app && flutter test --tags heavy

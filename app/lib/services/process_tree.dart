@@ -13,6 +13,13 @@ import 'dart:io';
 /// The worker puts itself in its own process group at startup (`setpgid` in
 /// `worker/src/main.rs`), so its whole tree can be signalled at once by sending
 /// to the negated pid. That is a deliberate teardown rather than a hopeful one.
+///
+/// Windows has no process groups, so the equivalent there is `taskkill /T`,
+/// which walks the child tree. That belongs **here** rather than in each caller:
+/// it used to be the caller's job, `worker_manager` did it, `preview_generator`
+/// did not, and preview cancellation therefore stranded vspipe and ffmpeg on
+/// Windows every time the scrubber moved. One implementation, so the next caller
+/// cannot forget.
 class ProcessTree {
   /// Signal [process] and everything it spawned.
   ///
@@ -21,11 +28,29 @@ class ProcessTree {
   /// without process groups. That fallback is exactly the previous behaviour, so
   /// this is never worse than what it replaced.
   ///
-  /// Returns true if the group signal landed.
-  static bool killTree(Process process, [ProcessSignal signal = ProcessSignal.sigterm]) {
+  /// **[signal] is advisory on Windows.** `taskkill /F` is unconditionally
+  /// forceful, so a `sigterm` request kills as hard as a `sigkill` one. Nothing
+  /// gentler reaches a child tree there, and leaving the tree alive is worse.
+  ///
+  /// Returns true if the whole tree was addressed (a group signal on Unix, a
+  /// successful `taskkill /T` on Windows), false if only the leader was.
+  static Future<bool> killTree(Process process,
+      [ProcessSignal signal = ProcessSignal.sigterm]) async {
     if (Platform.isWindows) {
-      // No process groups; taskkill /T walks the tree instead. Callers on
-      // Windows use that directly.
+      try {
+        final r = await Process.run(
+          'taskkill',
+          ['/PID', '${process.pid}', '/T', '/F'],
+        );
+        // 128 (and 255) mean it had already exited, which is success for our
+        // purposes — there is no tree left to strand.
+        if (r.exitCode == 0 || r.exitCode == 128 || r.exitCode == 255) {
+          return true;
+        }
+      } on ProcessException {
+        // taskkill missing or unrunnable — fall through to the leader-only kill
+        // so this is never worse than the old behaviour.
+      }
       return process.kill(signal);
     }
     // A negative pid addresses the process group. Dart forwards this to kill(2)
@@ -54,7 +79,7 @@ class ProcessTree {
       // Still alive. Forcing it here can orphan the children, which is the very
       // thing this class exists to avoid — so force the whole group, not just
       // the leader.
-      killTree(process, ProcessSignal.sigkill);
+      await killTree(process, ProcessSignal.sigkill);
       try {
         await process.exitCode.timeout(forceGrace);
       } on Object {

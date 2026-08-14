@@ -18,8 +18,11 @@
 // which fails against the old code. This test guards the assumption that fix
 // rests on. Do not weaken it into a "cancel returns without error" check.
 //
-// POSIX only — Windows has no SIGTERM, and the app uses `taskkill /T` there,
-// which kills the tree outright.
+// Two of these tests are POSIX only and say so where they are skipped: SIGTERM
+// semantics and process-group leadership have no Windows equivalent. The orphan
+// checks DO run on Windows, where the tree is killed with `taskkill /T` — they
+// have to, because that is the platform whose teardown had no coverage at all,
+// and the one where preview cancellation was leaking vspipe and ffmpeg.
 @Tags(['heavy'])
 library;
 
@@ -38,22 +41,117 @@ import 'package:vapourbox/models/video_job.dart';
 
 import 'support/worker_harness.dart';
 
-/// PIDs of live processes whose executable path sits under [dir].
-Future<List<int>> _processesUnder(String dir) async {
-  final ps = await Process.run('ps', ['-Ao', 'pid=,command=']);
-  final out = <int>[];
-  for (final line in const LineSplitter().convert(ps.stdout.toString())) {
-    final trimmed = line.trimLeft();
-    final sp = trimmed.indexOf(' ');
-    if (sp <= 0) continue;
-    final pid = int.tryParse(trimmed.substring(0, sp));
-    if (pid == null) continue;
-    final cmd = trimmed.substring(sp + 1);
-    // Match only the executable path, not an argument that happens to name the
-    // deps dir (the job config and output paths can both mention it).
-    if (cmd.startsWith(dir)) out.add(pid);
+/// PIDs of everything [pid] spawned — its process group on Unix, its descendant
+/// tree on Windows — excluding the leader itself.
+///
+/// Identity is by ancestry, deliberately, not by "some process whose executable
+/// lives under deps/". That older approach was wrong twice over:
+///
+///  * `flutter test` runs test *files* concurrently, and several of them drive
+///    the worker. A path match therefore counts another file's live pipeline as
+///    this test's leftovers, which is a false failure that depends on how the
+///    runner happened to interleave.
+///  * It had to guess which name the deps directory was reached by. On Linux the
+///    worker resolves deps through `~/.local/share/VapourBox/deps`
+///    (`dependency_locator.rs` disables the upward search there) — a path CI
+///    *symlinks* to the checkout, sharing no prefix with the workspace path the
+///    test held. Every child count came back zero and the tests failed claiming
+///    the pipeline never started when it had started fine.
+///
+/// Ancestry has neither problem, and needs no bookkeeping of what was running
+/// beforehand. It stays valid after the leader exits: a process group outlives
+/// its leader on Unix, and a dead parent's pid is still recorded on Windows.
+Future<List<int>> _childrenOf(int pid) async {
+  if (Platform.isWindows) {
+    // Walk ParentProcessId down from the worker; the pipeline is only two
+    // levels deep, but recursing costs nothing and survives a shell in between.
+    final ps = await Process.run('powershell', [
+      '-NoProfile',
+      '-Command',
+      r'Get-CimInstance Win32_Process | ForEach-Object '
+          r'{ "$($_.ProcessId) $($_.ParentProcessId)" }',
+    ]);
+    final parents = <int, int>{};
+    for (final line in const LineSplitter().convert(ps.stdout.toString())) {
+      final parts = line.trim().split(RegExp(r'\s+'));
+      if (parts.length < 2) continue;
+      final child = int.tryParse(parts[0]);
+      final parent = int.tryParse(parts[1]);
+      if (child == null || parent == null) continue;
+      parents[child] = parent;
+    }
+    final out = <int>[];
+    for (final entry in parents.entries) {
+      var cur = entry.value;
+      // Bounded walk: a cycle in this map would otherwise hang the test.
+      for (var depth = 0; depth < 16 && cur != 0; depth++) {
+        if (cur == pid) {
+          out.add(entry.key);
+          break;
+        }
+        final next = parents[cur];
+        if (next == null || next == cur) break;
+        cur = next;
+      }
+    }
+    return out;
   }
-  return out;
+
+  // The worker makes itself a process-group leader (setpgid in
+  // worker/src/main.rs) precisely so its whole pipeline can be addressed at
+  // once, so the group *is* the tree.
+  final r = await Process.run('pgrep', ['-g', '$pid']);
+  final members = const LineSplitter()
+      .convert(r.stdout.toString())
+      .map((s) => int.tryParse(s.trim()))
+      .whereType<int>()
+      .where((child) => child != pid)
+      .toList();
+  if (members.isEmpty) return members;
+
+  // Drop zombies. On cancel the worker SIGKILLs its children and bails without
+  // waiting on them (pipeline_executor.rs:457), so for the moment between that
+  // kill and the worker's own exit they are zombies with a live parent — and
+  // pgrep lists zombies. They are already dead: they hold no CPU and no pipe,
+  // and init reaps them as soon as the worker goes. Counting them made this
+  // test fail intermittently on the fastest runner (macos-arm64), which samples
+  // inside that window; a slower one never sees it. What the test means by an
+  // orphan is a process still *running*, so say that.
+  final st = await Process.run('ps', ['-o', 'pid=,stat=', '-p', members.join(',')]);
+  final alive = <int>[];
+  for (final line in const LineSplitter().convert(st.stdout.toString())) {
+    final parts = line.trim().split(RegExp(r'\s+'));
+    if (parts.length < 2) continue;
+    final child = int.tryParse(parts[0]);
+    if (child == null) continue;
+    if (parts[1].startsWith('Z')) continue; // zombie: dead, awaiting reaping
+    alive.add(child);
+  }
+  return alive;
+}
+
+/// A human-readable line per pid: state and command, for failure messages.
+///
+/// A bare pid list cannot distinguish "still encoding at full CPU" — the bug
+/// under test — from a zombie awaiting reaping, which is harmless and transient.
+/// On Unix, STAT starting with Z is the zombie case.
+Future<String> _describe(List<int> pids) async {
+  if (pids.isEmpty) return '(none)';
+  if (Platform.isWindows) {
+    final r = await Process.run('powershell', [
+      '-NoProfile',
+      '-Command',
+      'Get-CimInstance Win32_Process | Where-Object { @(${pids.join(',')}) '
+          r'-contains $_.ProcessId } | ForEach-Object '
+          r'{ "$($_.ProcessId) $($_.Name)" }',
+    ]);
+    final out = r.stdout.toString().trim();
+    return out.isEmpty ? '(gone by the time we looked)' : out;
+  }
+  final r = await Process.run(
+      'ps', ['-o', 'pid=,stat=,command=', '-p', pids.join(',')]);
+  final out = r.stdout.toString().trim();
+  return out.isEmpty ? '(gone by the time we looked)' : out;
 }
 
 void main() {
@@ -82,8 +180,11 @@ void main() {
       }
     });
 
-    test('SIGTERM stops the worker and leaves no orphaned children', () async {
-      final depsDir = WorkerHarness.depsDir;
+    test('SIGTERM stops the worker and leaves no orphaned children', skip: Platform.isWindows
+        ? 'POSIX only: Windows has no SIGTERM, and Process.kill maps to '
+            'TerminateProcess. The app kills the tree with taskkill /T there, '
+            'which the preview-orphan test below covers.'
+        : null, () async {
       final outPath =
           p.join(WorkerHarness.outputDir, 'test_cancel_orphans.mkv');
 
@@ -116,8 +217,6 @@ void main() {
         if (await o.exists()) await o.delete();
       });
 
-      final before = await _processesUnder(depsDir);
-
       final proc = await Process.start(
         WorkerHarness.workerPath,
         ['--config', configFile.path],
@@ -132,10 +231,11 @@ void main() {
       var spawned = <int>[];
       final deadline = DateTime.now().add(const Duration(seconds: 40));
       while (DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        spawned = (await _processesUnder(depsDir))
-            .where((pid) => !before.contains(pid))
-            .toList();
+        // Poll briskly: on a fast machine the whole pipeline can come and go
+        // between two half-second samples, and missing it reads as "never
+        // started" rather than as the race it is.
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        spawned = await _childrenOf(proc.pid);
         if (spawned.length >= 2) break; // vspipe + at least one ffmpeg
       }
       expect(spawned.length, greaterThanOrEqualTo(2),
@@ -167,10 +267,14 @@ void main() {
       List<int> leftovers = [];
       for (var i = 0; i < 20; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
-        final now = await _processesUnder(depsDir);
+        final now = await _childrenOf(proc.pid);
         leftovers = spawned.where(now.contains).toList();
         if (leftovers.isEmpty) break;
       }
+
+      // Describe them BEFORE killing them, or the failure message reports
+      // processes that no longer exist.
+      final survivors = await _describe(leftovers);
 
       // If this fails, kill them — a failing test must not leave the machine
       // pinned at full CPU, which is the very problem under test.
@@ -182,7 +286,8 @@ void main() {
 
       expect(leftovers, isEmpty,
           reason: 'vspipe/ffmpeg outlived a SIGTERMed worker; cancel() relies '
-              'on the worker reaping them, so this breaks the fix');
+              'on the worker reaping them, so this breaks the fix.\n'
+              'Survivors:\n$survivors');
 
       // The worker should go down well inside the app's 5s grace.
       expect(sw.elapsed, lessThan(const Duration(seconds: 5)),
@@ -191,7 +296,11 @@ void main() {
     }, timeout: const Timeout(Duration(minutes: 3)));
 
     test('the worker leads its own process group, so the tree can be signalled',
-        () async {
+        skip: Platform.isWindows
+            ? 'POSIX only: Windows has no process groups. The equivalent there '
+                'is taskkill /T walking the child tree, asserted by the '
+                'orphan tests rather than by a pgid.'
+            : null, () async {
       // ProcessTree.killTree() signals -pid, which only reaches the pipeline if
       // the worker made itself a group leader (setpgid in worker/src/main.rs).
       // If that call is ever removed the kill silently degrades to pid-only and
@@ -286,9 +395,6 @@ void main() {
       // wrong reference and the in-flight worker was lost — untracked and never
       // killed. Ten seeks in quick succession is the shape that produced "a
       // bunch of vspipe and ffmpeg processes".
-      final depsDir = WorkerHarness.depsDir;
-      final before = await _processesUnder(depsDir);
-
       final job = VideoJob(
         id: const Uuid().v4(),
         inputPath: longInput,
@@ -314,7 +420,7 @@ void main() {
       Process? current;
       for (var i = 0; i < 10; i++) {
         if (current != null) {
-          ProcessTree.killTree(current);
+          await ProcessTree.killTree(current);
           unawaited(ProcessTree.waitForExit(current));
         }
         current = await Process.start(
@@ -328,16 +434,18 @@ void main() {
         started.add(current);
         await Future<void>.delayed(const Duration(milliseconds: 250));
       }
-      ProcessTree.killTree(current!);
+      await ProcessTree.killTree(current!);
       await ProcessTree.waitForExit(current);
 
-      // Everything the burst spawned must be gone.
+      // Everything the burst spawned must be gone — asked of each worker's own
+      // group, so a concurrently-running test file's pipeline cannot be
+      // mistaken for a stray of ours.
       var strays = <int>[];
       for (var i = 0; i < 20; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
-        strays = (await _processesUnder(depsDir))
-            .where((pid) => !before.contains(pid))
-            .toList();
+        strays = [
+          for (final w in started) ...await _childrenOf(w.pid),
+        ];
         if (strays.isEmpty) break;
       }
       for (final pid in strays) {
@@ -351,7 +459,6 @@ void main() {
     test('killing a preview leaves no orphaned children', () async {
       // Seeking the preview scrubber cancels the in-flight preview and starts
       // another, so this path runs far more often than a job cancel does.
-      final depsDir = WorkerHarness.depsDir;
       final job = VideoJob(
         id: const Uuid().v4(),
         inputPath: longInput,
@@ -376,8 +483,6 @@ void main() {
         if (await configFile.exists()) await configFile.delete();
       });
 
-      final before = await _processesUnder(depsDir);
-
       final proc = await Process.start(
         WorkerHarness.workerPath,
         ['--config', configFile.path, '--preview', '--frame', '900'],
@@ -390,24 +495,28 @@ void main() {
       var spawned = <int>[];
       final deadline = DateTime.now().add(const Duration(seconds: 40));
       while (DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        spawned = (await _processesUnder(depsDir))
-            .where((pid) => !before.contains(pid))
-            .toList();
+        // A single-frame preview is short-lived; sample often enough to see it.
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        spawned = await _childrenOf(proc.pid);
         if (spawned.length >= 2) break;
       }
       expect(spawned.length, greaterThanOrEqualTo(2),
           reason: 'the preview pipeline never started, so this proves nothing');
 
-      // Exactly what PreviewGenerator.cancelPreviewGeneration() does.
-      proc.kill();
+      // Exactly what PreviewGenerator.cancelPreviewGeneration() does — which is
+      // killTree, not proc.kill(). This line used to claim the former while
+      // doing the latter, and that gap is the whole reason the Windows preview
+      // leak survived: leader-only kills happen to work on Unix (the children
+      // take EPIPE) so the test passed, while on Windows nothing reached the
+      // children and no assertion here could tell.
+      await ProcessTree.killTree(proc);
       await proc.exitCode.timeout(const Duration(seconds: 15),
           onTimeout: () { proc.kill(ProcessSignal.sigkill); return -1; });
 
       List<int> leftovers = [];
       for (var i = 0; i < 20; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
-        final now = await _processesUnder(depsDir);
+        final now = await _childrenOf(proc.pid);
         leftovers = spawned.where(now.contains).toList();
         if (leftovers.isEmpty) break;
       }
@@ -417,7 +526,8 @@ void main() {
         }
       }
       expect(leftovers, isEmpty,
-          reason: 'vspipe/ffmpeg outlived the preview worker. Seeking the '
+          reason: 'Survivors:\n${await _describe(leftovers)}\n'
+              'vspipe/ffmpeg outlived the preview worker. Seeking the '
               'scrubber cancels a preview on every move, so these accumulate');
     }, timeout: const Timeout(Duration(minutes: 3)));
   });
