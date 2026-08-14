@@ -18,14 +18,14 @@
     {
       "id": "lsfmod",
       "name": "LSFmod",
-      "description": "LimitedSharpenFaster - quality sharpening with overshoot protection",
+      "description": "Best first choice. Limits overshoot, so it sharpens without adding halos. Moderate speed",
       "function": "haf.LSFmod",
       "parameters": ["strength", "overshoot", "undershoot", "softEdge"]
     },
     {
       "id": "cas",
       "name": "CAS",
-      "description": "Contrast Adaptive Sharpening - fast GPU-optimized sharpening",
+      "description": "Very fast, one control, subtle by design. Good when LSFmod is more than the picture needs",
       "function": "core.cas.CAS",
       "parameters": ["casSharpness"]
     }

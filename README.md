@@ -162,6 +162,15 @@ Presets store the whole pipeline plus encoding settings. Built-in: Fast, Balance
 </details>
 
 <details>
+<summary><b>Advanced options</b></summary>
+
+Each filter shows a short, curated set of choices by default. **Settings → General → Show advanced options** reveals the rest — every method and every parameter, in every filter. The switch beside a filter's options does the same thing; either way it applies everywhere and is remembered.
+
+Turning it off never changes what a filter is doing: if a preset selected an advanced method, that method stays selected and stays visible.
+
+</details>
+
+<details>
 <summary><b>Temporary files</b></summary>
 
 Scratch files — generated scripts, preview frames, job files, extracted DVD titles — go to the system temp directory. DVD extraction can need several GB, so if the system temp is on a small or slow volume it can be redirected: **Settings → General → Temporary Files**. The **✕** beside the path resets it to the default. The setting persists and applies to the next job.

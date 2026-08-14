@@ -22,7 +22,7 @@
     {
       "id": "smdegrain",
       "name": "SMDegrain",
-      "description": "Motion-compensated denoising - excellent quality",
+      "description": "Best first choice. Motion-compensated, so it cleans noise without smearing movement. Moderate speed",
       "function": "haf.SMDegrain",
       "parameters": [
         "smDegrainTr",
@@ -35,7 +35,7 @@
     {
       "id": "mc_temporal_denoise",
       "name": "MCTemporalDenoise",
-      "description": "Advanced temporal denoising - best for heavy noise",
+      "description": "For heavy noise SMDegrain can't settle — VHS and off-air captures. Slowest option",
       "function": "haf.MCTemporalDenoise",
       "parameters": [
         "mcTemporalProfile",
@@ -55,12 +55,13 @@
         "mcdsSharp",
         "mcdsBlurSearch",
         "mcdsPlane"
-      ]
+      ],
+      "advancedOnly": true
     },
     {
       "id": "qtgmc_builtin",
       "name": "QTGMC Built-in",
-      "description": "Use QTGMC's integrated denoising - fastest option",
+      "description": "Reuses the motion search QTGMC already ran, so it is nearly free. Only useful when deinterlacing is on",
       "function": "qtgmc_internal",
       "parameters": []
     }

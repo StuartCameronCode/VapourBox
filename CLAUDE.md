@@ -299,8 +299,13 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 - Add to `fromPipeline()` map
 - Add to `toPipeline()` construction
 
-**6. UI Wiring (ALL FOUR locations — missing any causes silent failures)**
-- `app/lib/views/pass_list/pass_list_panel.dart` — add `PassListItem` entry
+**6. UI Wiring (ALL FIVE locations — missing any causes silent failures)**
+- `app/lib/views/pass_list/pass_list_panel.dart` — add a `row()` case **and** put
+  the pass in a `PassListPanel.stages` entry. A `PassType` absent from `stages`
+  renders nothing at all — no error, the pass is simply unreachable.
+  `pass_list_stages_test.dart` fails if one is missed. Stages are labels over the
+  **existing pipeline order**, so a pass goes in the stage its position already
+  falls in; never reorder rows to suit a grouping.
 - `app/lib/views/pass_list/pass_list_item.dart` — add icon in `_getIconForPass()`
 - `app/lib/views/pass_settings/pass_settings_inline.dart` — add case in `_getFilterId()`
 - `app/lib/viewmodels/main_viewmodel.dart` — add case in BOTH `_convertToParams()` AND `_updatePipelineFromDynamic()`
@@ -495,6 +500,40 @@ Full field reference: **[docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md)**.
 **Widgets**: `slider`, `dropdown`, `checkbox`, `textfield`, `number`.
 **`optional: true`**: Shows enable checkbox; when disabled, parameter is omitted (uses VS default).
 **`visibleWhen`**: Conditional visibility, e.g. `{ "method": ["method_a"] }`.
+
+### Advanced mode is one app-wide setting, and it is the complexity lever
+
+`AdvancedModeService` (**Settings → General → Show advanced options**, persisted
+under `showAdvancedOptions`) gates three things: `advancedOnly` **sections**,
+preset-controlled parameters, and `advancedOnly` **methods**. It is provided
+through `MultiProvider` in `main.dart` and read with
+`context.watch<AdvancedModeService>()`, so every panel agrees and the choice
+survives collapsing a pass.
+
+It used to be `bool _advancedMode` inside `_DynamicFilterPanelCompactState` —
+per-panel, defaulting off, **reset on every collapse**. That made it useless as
+a lever: an expert re-flipped it constantly, so nothing could be hidden behind
+it aggressively enough to matter. Adding filters to this app means adding
+*methods to existing passes* far more often than new passes, so `advancedOnly`
+on a method is what keeps a slot's dropdown short. Field reference and the three
+rules for using it: **[docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md)**.
+
+**Curation is asserted, not just recommended.**
+`app/test/filter_schema_curation_test.dart` lints every shipped schema: the first
+method is never `advancedOnly` (it is the resolved default), at least one method
+survives simple mode, every method carries a description (the only guidance the
+dropdown shows), and **no schema offers more than 4 methods in simple mode**.
+That last one is the load-bearing assertion — adding methods is expected, letting
+a simple-mode dropdown grow without curating is what it catches. Currently
+curated: dehalo 7 → 3, noise_reduction 4 → 3, crop_resize 3 → 2.
+
+> The one trap: `FilterSchema.visibleMethods` **always keeps the currently
+> selected method**, advanced-only or not. A preset can select one, and hiding it
+> would both misreport the pipeline and hand `DropdownButtonFormField` a value
+> that isn't in its items — a thrown assertion, not a graceful fallback. Don't
+> "simplify" that argument away; `dynamic_filter_panel_advanced_test.dart`
+> asserts it, along with the case that a filter filtered down to a single method
+> still tells the user more exist.
 
 ### Aspect Ratio (issue #50)
 
@@ -801,7 +840,10 @@ Headless Dart-VM tests. Three groups:
 - **Pure unit tests** — `dynamic_parameters`, `filter_schema`,
   `parameter_converter`, `widget_test`, `scan_type_detection`,
   `attribution` (NOTICES/About-dialog/deps-manifest agreement — see
-  "Attribution" below).
+  "Attribution" below), `advanced_mode_service`,
+  `dynamic_filter_panel_advanced` (a widget test — pumps the generated panel
+  through a `ChangeNotifierProvider`, no desktop needed),
+  `filter_schema_curation` (lints every shipped schema), `pass_list_stages`.
 - **Shell-out tests** — `vapoursynth_integration_test`,
   `schema_converter_integration_test`; need the per-arch `deps/` and (for whisper)
   `addons/`.

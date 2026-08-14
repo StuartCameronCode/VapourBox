@@ -79,6 +79,32 @@ parameters that apply to it.
 | `description` | string | No | Shown beside the method in the dropdown |
 | `function` | string | **Yes** | VapourSynth/Python function to call |
 | `parameters` | array | **Yes** | Parameter ids this method uses |
+| `advancedOnly` | boolean | No (`false`) | Method is only offered in advanced mode |
+
+### `advancedOnly` on a method
+
+This is how a filter offers a short list to everyone and the full set to someone
+who has asked for it — the mechanism that stops a slot like Noise Reduction
+becoming a dropdown of sixteen names as methods are added. It is gated by the
+same app-wide switch as an `advancedOnly` **section**
+(`AdvancedModeService`, **Settings → General → Show advanced options**).
+
+Three behaviours to know before using it:
+
+- **Order is the curation.** `visibleMethods()` preserves schema order, so put
+  the method a regular user should land on first. It is also the default, since
+  `methods.first` is what an unset `method` resolves to — so **never mark the
+  first method `advancedOnly`**.
+- **A selected method is always shown**, even in simple mode. A preset or a
+  saved job can select an advanced-only method; hiding it would misreport what
+  the pipeline is doing, and would hand the dropdown a value that isn't among
+  its items (a Flutter assertion, not a graceful degradation). Pinned by
+  `dynamic_filter_panel_advanced_test.dart`.
+- **Leave at least one method un-advanced.** Marking every method advanced-only
+  leaves simple mode showing one arbitrary choice with no dropdown.
+
+When a filter drops to a single visible method the dropdown is suppressed
+entirely and replaced by a line telling the user more exist in advanced mode.
 
 ## Parameters
 
@@ -154,7 +180,8 @@ parameters that apply to it.
 | `visibleWhen` | object | Conditional visibility |
 | `booleanLabels` | object | Names the two states of a boolean, e.g. `{"true": "Top Field First (TFF)", "false": "Bottom Field First (BFF)"}` |
 
-There is **no `advancedOnly` on a parameter** — only on a section (below).
+There is **no `advancedOnly` on a parameter** — only on a section (below) or a
+method (above).
 
 ### Conditional visibility
 

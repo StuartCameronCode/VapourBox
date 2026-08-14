@@ -24,7 +24,7 @@
     {
       "id": "dehalo_alpha",
       "name": "DeHalo Alpha",
-      "description": "General purpose dehalo, good for most sources",
+      "description": "Best first choice. Handles the bright outlines left by over-sharpening on most sources",
       "function": "haf.DeHalo_alpha",
       "parameters": [
         "rx",
@@ -39,7 +39,7 @@
     {
       "id": "fine_dehalo",
       "name": "Fine Dehalo",
-      "description": "More precise, better edge preservation",
+      "description": "Masked, so it keeps real edges better than DeHalo Alpha. Slower. Use when DeHalo Alpha softens the picture",
       "function": "haf.FineDehalo",
       "parameters": [
         "rx",
@@ -58,14 +58,15 @@
     {
       "id": "fine_dehalo2",
       "name": "Fine Dehalo 2",
-      "description": "Removes the ringing left on sharp edges \u2014 run after Fine Dehalo",
+      "description": "Removes the ringing left on sharp edges. A follow-up pass \u2014 run it after Fine Dehalo, not instead of it",
       "function": "haf.FineDehalo2",
-      "parameters": []
+      "parameters": [],
+      "advancedOnly": true
     },
     {
       "id": "yahr",
       "name": "YAHR",
-      "description": "Yet Another Halo Remover - fast and effective",
+      "description": "Fastest option, and good on halos that come with ringing. Can soften fine texture",
       "function": "haf.YAHR",
       "parameters": [
         "yahrBlur",
@@ -75,7 +76,7 @@
     {
       "id": "edge_cleaner",
       "name": "Edge Cleaner",
-      "description": "Cleans edge noise and weak halos (aWarpSharp2)",
+      "description": "Cleans edge noise and weak halos by warping edges (aWarpSharp2). Niche — for line art rather than live action",
       "function": "haf.EdgeCleaner",
       "parameters": [
         "edgeStrength",
@@ -83,29 +84,32 @@
         "edgeRepairMode",
         "edgeSmallMode",
         "edgeHotPixels"
-      ]
+      ],
+      "advancedOnly": true
     },
     {
       "id": "vinverse",
       "name": "Vinverse (de-ghost)",
-      "description": "Removes comb/ghost residue left by deinterlacing",
+      "description": "Removes comb/ghost residue left by deinterlacing. Also offered in Chroma Fixes, which is the better place for it",
       "function": "haf.Vinverse",
       "parameters": [
         "vinverseStrength",
         "vinverseAmount",
         "vinverseChroma"
-      ]
+      ],
+      "advancedOnly": true
     },
     {
       "id": "vinverse2",
       "name": "Vinverse 2 (de-ghost)",
-      "description": "Like Vinverse but keeps more vertical detail",
+      "description": "Like Vinverse but keeps more vertical detail. Also offered in Chroma Fixes",
       "function": "haf.Vinverse2",
       "parameters": [
         "vinverseStrength",
         "vinverseAmount",
         "vinverseChroma"
-      ]
+      ],
+      "advancedOnly": true
     }
   ],
   "parameters": {

@@ -18,14 +18,14 @@
     {
       "id": "deblock_qed",
       "name": "Deblock QED",
-      "description": "Quality Edge-Directed Deblock - good for all sources",
+      "description": "Best first choice. Edge-aware, so it flattens blocks without smearing detail across them",
       "function": "haf.Deblock_QED",
       "parameters": ["quant1", "quant2", "aOffset1", "aOffset2"]
     },
     {
       "id": "deblock",
       "name": "Deblock",
-      "description": "Simple deblock filter - faster but less quality",
+      "description": "The h.264 in-loop deblocker. Much faster, and enough for lightly blocked sources",
       "function": "core.deblock.Deblock",
       "parameters": ["quant1"]
     }

@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../about_dialog.dart' as about;
 import '../../models/encoding_settings.dart';
 import '../../models/video_job.dart';
+import '../../services/advanced_mode_service.dart';
 import '../../services/dependency_manager.dart';
 import '../../services/hardware_encoder_detector.dart';
 import '../../services/temp_directory_service.dart';
@@ -1415,6 +1416,23 @@ class _GeneralSettingsTabState extends State<_GeneralSettingsTab> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        _buildSection(
+          context,
+          title: 'Filter Options',
+          child: SwitchListTile(
+            title: const Text('Show advanced options'),
+            subtitle: const Text(
+              'Reveal every filter method and parameter. Leave off for a '
+              'shorter, curated set of choices.',
+            ),
+            value: context.watch<AdvancedModeService>().enabled,
+            onChanged: (value) =>
+                AdvancedModeService.instance.setEnabled(value),
+          ),
+        ),
+
+        const SizedBox(height: 24),
+
         _buildSection(
           context,
           title: 'Updates',
