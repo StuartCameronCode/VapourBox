@@ -15,6 +15,26 @@ import 'video_job.dart';
 
 part 'processing_preset.g.dart';
 
+/// What kind of choice a preset represents, which is how the preset menu groups
+/// them.
+///
+/// Mixing "how hard should it try" with "what did you capture" in one flat list
+/// makes both harder to pick from — they answer different questions.
+enum PresetCategory {
+  /// A quality/speed tier. Differs from its siblings only in effort, not in
+  /// which problems it fixes.
+  @JsonValue('quality')
+  quality,
+
+  /// Shaped for a kind of source: a VHS tape, a DVD, a film scan.
+  @JsonValue('source')
+  source,
+
+  /// Anything the user saved themselves.
+  @JsonValue('custom')
+  custom,
+}
+
 /// A saved preset containing filter and encoding settings.
 @JsonSerializable(explicitToJson: true)
 class ProcessingPreset {
@@ -39,6 +59,13 @@ class ProcessingPreset {
   /// Whether this is a built-in preset (read-only).
   final bool isBuiltIn;
 
+  /// Which group this belongs to in the preset menu. Declared by each built-in
+  /// factory rather than looked up from a list of ids elsewhere, so a new preset
+  /// cannot silently land in the wrong group. Defaults to [PresetCategory.custom],
+  /// which is right for anything a user saves and for presets saved before this
+  /// field existed.
+  final PresetCategory category;
+
   ProcessingPreset({
     String? id,
     required this.name,
@@ -47,6 +74,7 @@ class ProcessingPreset {
     required this.encodingSettings,
     DateTime? createdAt,
     this.isBuiltIn = false,
+    this.category = PresetCategory.custom,
   })  : id = id ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now();
 
@@ -62,6 +90,7 @@ class ProcessingPreset {
     EncodingSettings? encodingSettings,
     DateTime? createdAt,
     bool? isBuiltIn,
+    PresetCategory? category,
   }) {
     return ProcessingPreset(
       id: id ?? this.id,
@@ -71,6 +100,7 @@ class ProcessingPreset {
       encodingSettings: encodingSettings ?? this.encodingSettings,
       createdAt: createdAt ?? this.createdAt,
       isBuiltIn: isBuiltIn ?? this.isBuiltIn,
+      category: category ?? this.category,
     );
   }
 
@@ -91,6 +121,7 @@ class ProcessingPreset {
         quality: 20,
       ),
       isBuiltIn: true,
+      category: PresetCategory.quality,
     );
   }
 
@@ -111,6 +142,7 @@ class ProcessingPreset {
         quality: 18,
       ),
       isBuiltIn: true,
+      category: PresetCategory.quality,
     );
   }
 
@@ -133,6 +165,7 @@ class ProcessingPreset {
         quality: 16,
       ),
       isBuiltIn: true,
+      category: PresetCategory.quality,
     );
   }
 
@@ -170,6 +203,7 @@ class ProcessingPreset {
         quality: 18,
       ),
       isBuiltIn: true,
+      category: PresetCategory.source,
     );
   }
 
@@ -193,6 +227,7 @@ class ProcessingPreset {
         quality: 18,
       ),
       isBuiltIn: true,
+      category: PresetCategory.source,
     );
   }
 
@@ -223,6 +258,7 @@ class ProcessingPreset {
         quality: 18,
       ),
       isBuiltIn: true,
+      category: PresetCategory.source,
     );
   }
 
@@ -259,6 +295,7 @@ class ProcessingPreset {
         quality: 18,
       ),
       isBuiltIn: true,
+      category: PresetCategory.source,
     );
   }
 
@@ -291,6 +328,7 @@ class ProcessingPreset {
         quality: 18,
       ),
       isBuiltIn: true,
+      category: PresetCategory.source,
     );
   }
 
@@ -323,6 +361,7 @@ class ProcessingPreset {
         quality: 18,
       ),
       isBuiltIn: true,
+      category: PresetCategory.source,
     );
   }
 

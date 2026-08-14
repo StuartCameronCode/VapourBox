@@ -406,6 +406,16 @@ That is why the set includes `DV Camcorder Tape`, `PAL DVD / Broadcast`,
 it is the cheapest way to add capability — a preset costs no UI complexity at
 all.
 
+**Set `category`.** `PresetCategory.quality` for a speed/quality tier,
+`PresetCategory.source` for one shaped around a kind of source; the menu in
+`main_window.dart` groups on it ("For Your Source" / "Quality Only"). It is
+declared by the factory rather than looked up from a list of ids, so a new
+preset cannot land in the wrong group — but one that omits it defaults to
+`custom` and files itself under the source presets, so
+`processing_preset_test.dart` asserts every built-in declares one. The default is
+right for user-saved presets and for presets on disk from before the field
+existed.
+
 ### Adding a New QTGMC Parameter
 
 1. Add to `worker/src/models/qtgmc_parameters.rs` (with serde attributes)

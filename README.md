@@ -161,9 +161,13 @@ VapourBox decides between the two by looking for a DVD IFO: a folder is only tre
 <details>
 <summary><b>Presets</b></summary>
 
-Presets store the whole pipeline plus encoding settings. Three quality tiers — Fast, Balanced, High Quality — and six named after the source you actually have: VHS Cleanup, DV Camcorder Tape, PAL DVD / Broadcast, DVD IVTC, Anime DVD, and 8mm / Super 8 Film Scan. Your own save alongside them and persist across sessions.
+Presets store the whole pipeline plus encoding settings, and the menu splits them by the question they answer.
 
-Pick the one matching your source and you can ignore the pass list entirely.
+**For Your Source** — pick the one matching what you have and you can ignore the pass list entirely: VHS Cleanup, DV Camcorder Tape, PAL DVD / Broadcast, DVD IVTC, Anime DVD, 8mm / Super 8 Film Scan.
+
+**Quality Only** — Fast, Balanced and High Quality just deinterlace, at three levels of effort. Use one when the picture is already clean.
+
+Your own presets save alongside them and persist across sessions.
 
 </details>
 

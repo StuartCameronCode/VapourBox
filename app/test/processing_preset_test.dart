@@ -11,6 +11,8 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
+import 'package:vapourbox/models/encoding_settings.dart';
+import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/processing_preset.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
@@ -65,9 +67,64 @@ void main() {
         final restored = ProcessingPreset.fromJson(preset.toJson());
         expect(restored.id, preset.id);
         expect(restored.name, preset.name);
+        expect(restored.category, preset.category);
         expect(restored.pipeline.enabledPassCount,
             preset.pipeline.enabledPassCount);
       }
+    });
+  });
+
+  group('menu grouping', () {
+    test('every built-in declares a category', () {
+      // The menu groups on this. A built-in left as `custom` would be filed
+      // under the source presets, which is the safe fallback but still wrong.
+      for (final preset in presets) {
+        expect(preset.category, isNot(PresetCategory.custom), reason: preset.id);
+      }
+    });
+
+    test('the quality tiers are the only quality-category presets', () {
+      expect(
+        presets
+            .where((p) => p.category == PresetCategory.quality)
+            .map((p) => p.id)
+            .toSet(),
+        {'builtin-fast', 'builtin-balanced', 'builtin-high-quality'},
+      );
+    });
+
+    test('every other built-in is a source preset', () {
+      final bySource = presets
+          .where((p) => p.category == PresetCategory.source)
+          .map((p) => p.id)
+          .toSet();
+      expect(bySource, {
+        'builtin-vhs-cleanup',
+        'builtin-dv-camcorder',
+        'builtin-pal-dvd',
+        'builtin-dvd-ivtc',
+        'builtin-anime-dvd',
+        'builtin-film-scan',
+      });
+      // Source presets should outnumber the tiers — the whole point is that
+      // naming the source is what a user can actually answer.
+      expect(bySource.length, greaterThan(3));
+    });
+
+    test('a user-saved preset defaults to custom', () {
+      final saved = ProcessingPreset(
+        name: 'My settings',
+        pipeline: const ProcessingPipeline(),
+        encodingSettings: EncodingSettings(),
+      );
+      expect(saved.category, PresetCategory.custom);
+      expect(saved.isBuiltIn, false);
+    });
+
+    test('a preset saved before the field existed loads as custom', () {
+      // Old user presets on disk have no `category` key.
+      final json = presets.first.toJson()..remove('category');
+      expect(ProcessingPreset.fromJson(json).category, PresetCategory.custom);
     });
   });
 

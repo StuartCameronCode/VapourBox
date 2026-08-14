@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/encoding_settings.dart';
+import '../models/processing_preset.dart';
 import '../models/progress_info.dart';
 import '../models/queue_item.dart';
 import '../services/audio_compatibility_service.dart';
@@ -141,23 +142,54 @@ class MainWindow extends StatelessWidget {
             },
             itemBuilder: (context) {
               final presets = viewModel.availablePresets;
-              final builtIn = presets.where((p) => p.isBuiltIn).toList();
               final user = presets.where((p) => !p.isBuiltIn).toList();
 
+              // Split the built-ins by what question they answer. "How hard
+              // should it try" and "what did you capture" are different
+              // decisions, and one flat list of nine makes both harder to pick
+              // from. Anything uncategorised falls in with the source presets
+              // rather than disappearing.
+              final quality = presets
+                  .where((p) =>
+                      p.isBuiltIn && p.category == PresetCategory.quality)
+                  .toList();
+              final bySource = presets
+                  .where((p) =>
+                      p.isBuiltIn && p.category != PresetCategory.quality)
+                  .toList();
+
+              PopupMenuItem<String> presetItem(ProcessingPreset p) =>
+                  PopupMenuItem<String>(
+                    value: 'load:${p.id}',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: Text(p.name),
+                      subtitle: p.description != null
+                          ? Text(p.description!,
+                              style: const TextStyle(fontSize: 11))
+                          : null,
+                    ),
+                  );
+
               return [
-                const PopupMenuItem<String>(
-                  enabled: false,
-                  child: Text('Built-in Presets', style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
-                ...builtIn.map((p) => PopupMenuItem<String>(
-                      value: 'load:${p.id}',
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        title: Text(p.name),
-                        subtitle: p.description != null ? Text(p.description!, style: const TextStyle(fontSize: 11)) : null,
-                      ),
-                    )),
+                if (bySource.isNotEmpty) ...[
+                  const PopupMenuItem<String>(
+                    enabled: false,
+                    child: Text('For Your Source',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                  ...bySource.map(presetItem),
+                ],
+                if (quality.isNotEmpty) ...[
+                  const PopupMenuDivider(),
+                  const PopupMenuItem<String>(
+                    enabled: false,
+                    child: Text('Quality Only (deinterlace)',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                  ...quality.map(presetItem),
+                ],
                 if (user.isNotEmpty) ...[
                   const PopupMenuDivider(),
                   const PopupMenuItem<String>(
