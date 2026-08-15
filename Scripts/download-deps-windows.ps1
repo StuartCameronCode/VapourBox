@@ -248,6 +248,20 @@ $Plugins7z = @(
         Check = "libawarpsharp2.dll"
     },
     @{
+        # Bifrost (core.bifrost.Bifrost) - temporal rainbow / dot-crawl removal.
+        # The archive ships x86\ and x64\ folders; the loop below prefers x64.
+        Name = "bifrost"
+        Url = "https://github.com/dubhater/vapoursynth-bifrost/releases/download/v3.0/Bifrost-3.0.7z"
+        Check = "bifrost.dll"
+    },
+    @{
+        # Retinex (core.retinex.MSRCP) - lifts shadow detail out of
+        # underexposed footage. Ships Win32\ and x64\ folders.
+        Name = "retinex"
+        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Retinex/releases/download/r4/Retinex-r4.7z"
+        Check = "Retinex.dll"
+    },
+    @{
         # FluxSmooth (core.flux.SmoothT / SmoothST), and what havsfunc's STPresso
         # calls internally. Pinned to v2 on every platform: this is the newest
         # tag with a published Windows binary, and Windows has no from-source

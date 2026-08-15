@@ -11,6 +11,9 @@
   "dependencies": {
     "plugins": [
       "havsfunc"
+    ],
+    "vs_plugins": [
+      "bifrost.dll"
     ]
   },
   "methods": [
@@ -327,6 +330,45 @@
           "applyDeRainbow": true
         }
       }
+    },
+    "applyBifrost": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Remove Shimmering Rainbows",
+        "description": "Compares across frames rather than within one, so it catches rainbowing that shimmers as the picture moves. Works alongside the other rainbow removal, not instead of it"
+      }
+    },
+    "bifrostLumaThresh": {
+      "type": "number",
+      "default": 10.0,
+      "min": 0.0,
+      "max": 64.0,
+      "step": 1.0,
+      "ui": {
+        "label": "Motion Threshold",
+        "description": "Areas changing more than this between frames are treated as movement and left alone",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "applyBifrost": true
+        }
+      }
+    },
+    "bifrostVariation": {
+      "type": "integer",
+      "default": 5,
+      "min": 0,
+      "max": 10,
+      "step": 1,
+      "ui": {
+        "label": "Caution",
+        "description": "How much agreement is needed before a pixel is changed. Higher is safer and removes less",
+        "widget": "slider",
+        "visibleWhen": {
+          "applyBifrost": true
+        }
+      }
     }
   },
   "ui": {
@@ -360,7 +402,10 @@
           "deCrawlMaxDiff",
           "applyDeRainbow",
           "deRainbowCThresh",
-          "deRainbowYThresh"
+          "deRainbowYThresh",
+          "applyBifrost",
+          "bifrostLumaThresh",
+          "bifrostVariation"
         ],
         "expanded": true
       },

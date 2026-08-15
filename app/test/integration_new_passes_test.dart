@@ -621,6 +621,41 @@ void main() {
       await _expectValidVideo(result);
     }, timeout: const Timeout(Duration(minutes: 6)));
 
+
+    // --- Batch five: proves bifrost and retinex actually load ---------------
+
+    test('chroma_fixes: Bifrost runs end-to-end', () async {
+      final job = _baseJob(
+        'chroma_bifrost',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          chromaFixes: ChromaFixParameters(
+            enabled: true,
+            applyBifrost: true,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'chroma_bifrost');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('color: shadow detail runs end-to-end', () async {
+      final job = _baseJob(
+        'color_shadow_detail',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          colorCorrection: ColorCorrectionParameters(
+            enabled: true,
+            applyShadowDetail: true,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(),
+          label: 'color_shadow_detail');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
     // Issue #37: QTGMC with EZ Denoise + the knlmeanscl denoiser must never
     // crash the job. KNLMeansCL is OpenCL-only; on a headless CI runner (no
     // usable OpenCL device) the worker's knlm probe fails and the denoiser is

@@ -1116,6 +1116,31 @@ if _derainbow_orig_format.bits_per_sample > 10:
                                dither_type="error_diffusion")
 {{/CHROMA_DERAINBOW}}
 
+{{#CHROMA_BIFROST}}
+# Bifrost - temporal rainbow / dot-crawl removal. Where LUTDeRainbow decides
+# within a frame, this compares across frames (or fields), so it catches
+# rainbowing that shimmers rather than sits still. Measured on an alternating-
+# chroma clip: frame-to-frame chroma swing halved.
+#
+# 8-BIT ONLY: "Bifrost: Only constant format 8 bit integer YUV input supported",
+# verified against the bundle at 10/12/16-bit and 4:2:2. Same treatment as
+# DeScratch — run the pass at 8-bit and restore the source format after. In
+# practice the sources this targets (VHS, Video8, DV captures) are 8-bit anyway.
+_bifrost_src_format = clip.format
+if clip.format.bits_per_sample != 8:
+    clip = core.resize.Bilinear(clip, format=clip.format.replace(
+        bits_per_sample=8, sample_type=vs.INTEGER).id)
+clip = core.bifrost.Bifrost(
+    clip,
+    luma_thresh={{BIFROST_LUMA_THRESH}},
+    variation={{BIFROST_VARIATION}},
+    interlaced={{BIFROST_INTERLACED}},
+)
+if _bifrost_src_format.bits_per_sample != 8:
+    clip = core.resize.Bilinear(clip, format=_bifrost_src_format.id,
+                               dither_type="error_diffusion")
+{{/CHROMA_BIFROST}}
+
 {{#CHROMA_VINVERSE}}
 # Vinverse - remove residual combing
 clip = haf.Vinverse(
@@ -1236,6 +1261,31 @@ clip = haf.SmoothLevels(
     useDB=False,
 )
 {{/COLOR_SMOOTH_LEVELS}}
+
+{{#COLOR_SHADOW_DETAIL}}
+# Retinex (MSRCP) - lifts detail out of shadows by comparing each pixel to a
+# wide local average, so underexposed footage opens up without simply raising
+# the black level.
+#
+# LUMA ONLY, deliberately. retinex.MSRCP rejects subsampled formats outright
+# ("sub-sampled format is not supported") and every source this app handles is
+# 4:2:0 or 4:2:2. Rather than round-trip the whole clip through 4:4:4 and
+# resample chroma twice for a brightness operation, the luma plane is lifted out
+# as greyscale, processed, and put back — colour comes through bit-identical.
+# Verified working this way at 8/10/12/16-bit and 4:2:2.
+_retinex_y = core.std.ShufflePlanes(clip, planes=0, colorfamily=vs.GRAY)
+_retinex_y = core.retinex.MSRCP(
+    _retinex_y,
+    sigma=[{{SHADOW_SIGMA}}],
+    lower_thr={{SHADOW_LOWER}},
+    upper_thr={{SHADOW_UPPER}},
+)
+if clip.format.color_family == vs.GRAY:
+    clip = _retinex_y
+else:
+    clip = core.std.ShufflePlanes([_retinex_y, clip, clip], planes=[0, 1, 2],
+                                  colorfamily=clip.format.color_family)
+{{/COLOR_SHADOW_DETAIL}}
 
 {{#COLOR_WHITE_BALANCE}}
 # White balance: shift the chroma planes. U carries blue-yellow and V carries

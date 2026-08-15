@@ -4838,3 +4838,133 @@ fn test_134_plain_levels_still_runs_when_smooth_is_off() {
     // And the plain path keeps the black point AND the gamma together.
     assert!(script.contains("min_in=_levels_8bit(16)"));
 }
+
+// ============================================================================
+// Fifth batch: the second deps change (bifrost + retinex, joining deps 1.9.0).
+// ============================================================================
+
+#[test]
+fn test_135_bifrost_with_its_eight_bit_guard() {
+    // Bifrost is 8-bit only: "Only constant format 8 bit integer YUV input
+    // supported", verified against the bundle at 10/12/16-bit and 4:2:2. Same
+    // convert-down-and-restore treatment as DeScratch.
+    create_output_dir();
+    let mut job = create_base_job("test_135_bifrost");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        chroma_fixes: ChromaFixParameters {
+            enabled: true,
+            apply_bifrost: true,
+            bifrost_luma_thresh: 12.0,
+            bifrost_variation: 3,
+            bifrost_interlaced: false,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "Bifrost",
+        &[
+            "core.bifrost.Bifrost(",
+            "luma_thresh=12",
+            "variation=3",
+            "interlaced=False",
+            "_bifrost_src_format",
+            "bits_per_sample != 8",
+        ],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_136_shadow_detail_runs_on_luma_only() {
+    // retinex.MSRCP rejects subsampled formats outright, and every source this
+    // app handles is 4:2:0 or 4:2:2 — so the luma plane is extracted as
+    // greyscale, processed, and put back, leaving chroma bit-identical rather
+    // than round-tripping the clip through 4:4:4.
+    create_output_dir();
+    let mut job = create_base_job("test_136_shadow_detail");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        color_correction: ColorCorrectionParameters {
+            enabled: true,
+            apply_shadow_detail: true,
+            shadow_sigma: 120.0,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "Shadow detail",
+        &[
+            "core.retinex.MSRCP(",
+            "sigma=[120",
+            // The luma-only round trip, which is what makes it usable at all.
+            "colorfamily=vs.GRAY",
+            "core.std.ShufflePlanes",
+        ],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_137_shadow_detail_parameters_are_clamped() {
+    create_output_dir();
+    let mut job = create_base_job("test_137_shadow_clamp");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        color_correction: ColorCorrectionParameters {
+            enabled: true,
+            apply_shadow_detail: true,
+            shadow_sigma: 9000.0,
+            shadow_lower_thr: 0.9,
+            shadow_upper_thr: -1.0,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "Shadow detail clamps",
+        &["sigma=[500", "lower_thr=0.1", "upper_thr=0"],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_138_the_two_rainbow_removers_are_independent() {
+    // LUTDeRainbow decides within a frame; Bifrost compares across frames. They
+    // are complementary, so both must be able to run together and each must be
+    // strippable on its own.
+    create_output_dir();
+    for (derainbow, bifrost) in [(true, false), (false, true), (true, true)] {
+        let mut job = create_base_job("test_138_rainbow_pair");
+        job.qtgmc_parameters.enabled = false;
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            chroma_fixes: ChromaFixParameters {
+                enabled: true,
+                apply_de_rainbow: derainbow,
+                apply_bifrost: bifrost,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        let script = script_text(&job);
+        assert_eq!(
+            script.contains("haf.LUTDeRainbow("),
+            derainbow,
+            "LUTDeRainbow presence should follow its own toggle"
+        );
+        assert_eq!(
+            script.contains("core.bifrost.Bifrost("),
+            bifrost,
+            "Bifrost presence should follow its own toggle"
+        );
+    }
+}

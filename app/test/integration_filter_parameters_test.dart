@@ -1133,6 +1133,52 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+
+    // --- Batch five: needs bifrost + retinex (deps 1.9.0) -------------------
+
+    test('chroma_fixes: Bifrost with its 8-bit guard', () async {
+      loadSchema('chroma_fixes');
+      final job = buildJob(
+        testName: 'chroma_bifrost',
+        chromaFixes: const ChromaFixParameters(
+          enabled: true,
+          applyBifrost: true,
+          bifrostLumaThresh: 12.0,
+          bifrostVariation: 3,
+          bifrostInterlaced: false,
+        ),
+      );
+      print('  Generating Bifrost script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.bifrost.Bifrost('));
+      final actual = parseFilterParams(script, 'core.bifrost.Bifrost(');
+      expect(actual['variation'], '3');
+      expect(actual['interlaced'], 'False');
+      // 8-bit only, verified against the bundle at 10/12/16-bit and 4:2:2.
+      expect(script, contains('_bifrost_src_format'));
+      expect(script, contains('bits_per_sample != 8'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('color: shadow detail runs on luma only', () async {
+      loadSchema('color_correction');
+      final job = buildJob(
+        testName: 'color_shadow_detail',
+        colorCorrection: const ColorCorrectionParameters(
+          enabled: true,
+          applyShadowDetail: true,
+          shadowSigma: 120.0,
+        ),
+      );
+      print('  Generating shadow detail script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.retinex.MSRCP('));
+      // MSRCP rejects subsampled formats and every source here is one, so the
+      // luma plane is processed alone rather than round-tripping via 4:4:4.
+      expect(script, contains('colorfamily=vs.GRAY'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     // --- IVTC (core.vivtc.VFM + VDecimate) high-bit-depth guard ---
     // VFM only accepts 8-bit YUV/GRAY, so IVTC on a 10-bit source (e.g. ProRes
     // 422, yuv422p10le) must run field matching on an 8-bit metrics copy while

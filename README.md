@@ -108,8 +108,8 @@ Seventeen filters, each switchable independently, applied in a fixed order. Most
 | **Film Grain** | Grain added back after denoising, so the picture is not left plastic — and to hide banding in skies and fades. |
 | **Rotate / Flip** | Footage shot sideways, mirrored captures, scans that came off the scanner the wrong way round. |
 | **Sharpen** | Soft sources needing edge and fine detail recovery. aWarpSharp2 sharpens by warping edges instead of raising contrast, so it adds no halos. |
-| **Chroma Fixes** | Color bleeding past edges, rainbowing, dot crawl, and residual combing. |
-| **Color Correction** | Brightness, contrast, saturation, hue, levels, and white balance (warm/cool, green/magenta). |
+| **Chroma Fixes** | Color bleeding past edges, rainbowing and dot crawl — including the shimmering kind that only shows when the picture moves — and residual combing. |
+| **Color Correction** | Brightness, contrast, saturation, hue, levels, white balance (warm/cool, green/magenta), and lifting detail out of the shadows of underexposed footage. |
 | **Crop & Resize** | Trimming overscan, scaling, and edge-directed upscaling. |
 | **Subtitles** | Whisper AI speech-to-text, to `.srt`, embedded, or both. |
 

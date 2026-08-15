@@ -1203,6 +1203,48 @@ else
     echo "  fluxsmooth already exists, skipping"
 fi
 
+# Bifrost (core.bifrost.Bifrost) - temporal rainbow / dot-crawl removal for
+# composite captures. Pinned to v3.0, the newest tag with a published Windows
+# binary; see the fluxsmooth note above for why every platform tracks that.
+#
+# Its source is one C file, so it is compiled directly rather than through its
+# autotools build — no autoconf/automake/libtool needed in CI. It includes
+# <vapoursynth/VapourSynth4.h>, so the include path has to be the PARENT of a
+# directory called vapoursynth; VS_INC_DIR points at the headers themselves, so
+# a small include root is staged for it.
+BIFROST_TAG="v3.0"
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libbifrost.dylib" ]; then
+    echo ""
+    echo "=== Building bifrost ($BIFROST_TAG) ==="
+    rm -rf bifrost bifrost-incroot
+    mkdir -p bifrost-incroot/vapoursynth
+    cp "$VS_INC_DIR"/*.h bifrost-incroot/vapoursynth/ 2>/dev/null || true
+    if git clone --depth 1 --branch "$BIFROST_TAG" -q \
+        https://github.com/dubhater/vapoursynth-bifrost.git bifrost 2>/dev/null \
+       && cc -std=c99 -O2 -fPIC -shared \
+            -o "$PLUGINS_DIR/libbifrost.dylib" \
+            bifrost/src/bifrost.c -Ibifrost-incroot; then
+        codesign -s - -f "$PLUGINS_DIR/libbifrost.dylib" 2>/dev/null || true
+        echo "  Built bifrost -> libbifrost.dylib"
+        BUILT_PLUGINS+=("bifrost")
+    else
+        echo "  Failed to build bifrost"
+        FAILED_PLUGINS+=("bifrost")
+    fi
+else
+    echo "  bifrost already exists, skipping"
+fi
+
+# Retinex (core.retinex.MSRCP) - multi-scale retinex, used here to lift shadow
+# detail out of underexposed footage. Pinned to r4, the newest tag with a
+# published Windows binary. Ordinary meson build; it finds the VapourSynth
+# headers through pkg-config, which build_plugin already points at our
+# from-source install.
+build_plugin "retinex" \
+    "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Retinex.git" \
+    "libretinex.dylib" \
+    "meson setup build --buildtype=release && ninja -C build"
+
 # AddGrain
 build_plugin "addgrain" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain.git" \

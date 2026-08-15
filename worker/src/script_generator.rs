@@ -1339,6 +1339,26 @@ impl ScriptGenerator {
                 script = remove_block("{{#CHROMA_DERAINBOW}}", "{{/CHROMA_DERAINBOW}}", script);
             }
 
+            // Bifrost
+            if chroma.apply_bifrost {
+                script = script.replace("{{#CHROMA_BIFROST}}", "");
+                script = script.replace("{{/CHROMA_BIFROST}}", "");
+                script = script.replace(
+                    "{{BIFROST_LUMA_THRESH}}",
+                    &format_double(chroma.bifrost_luma_thresh),
+                );
+                script = script.replace(
+                    "{{BIFROST_VARIATION}}",
+                    &chroma.bifrost_effective_variation().to_string(),
+                );
+                script = script.replace(
+                    "{{BIFROST_INTERLACED}}",
+                    if chroma.bifrost_interlaced { "True" } else { "False" },
+                );
+            } else {
+                script = remove_block("{{#CHROMA_BIFROST}}", "{{/CHROMA_BIFROST}}", script);
+            }
+
             // Vinverse
             if chroma.apply_vinverse {
                 script = script.replace("{{#CHROMA_VINVERSE}}", "");
@@ -1424,6 +1444,26 @@ impl ScriptGenerator {
             } else {
                 script = remove_block("{{#COLOR_LEVELS}}", "{{/COLOR_LEVELS}}", script);
                 script = remove_block("{{#COLOR_SMOOTH_LEVELS}}", "{{/COLOR_SMOOTH_LEVELS}}", script);
+            }
+
+            // Shadow detail (Retinex)
+            if color.apply_shadow_detail {
+                script = script.replace("{{#COLOR_SHADOW_DETAIL}}", "");
+                script = script.replace("{{/COLOR_SHADOW_DETAIL}}", "");
+                script = script.replace(
+                    "{{SHADOW_SIGMA}}",
+                    &format_double(color.shadow_effective_sigma()),
+                );
+                script = script.replace(
+                    "{{SHADOW_LOWER}}",
+                    &format_double(color.shadow_effective_lower()),
+                );
+                script = script.replace(
+                    "{{SHADOW_UPPER}}",
+                    &format_double(color.shadow_effective_upper()),
+                );
+            } else {
+                script = remove_block("{{#COLOR_SHADOW_DETAIL}}", "{{/COLOR_SHADOW_DETAIL}}", script);
             }
 
             // White balance (temperature / tint)

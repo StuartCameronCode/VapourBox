@@ -89,6 +89,22 @@ class ChromaFixParameters {
   /// Require both chroma planes to agree before treating a pixel.
   final bool deRainbowLinkUv;
 
+  // --- Bifrost (temporal rainbow removal) ---
+
+  /// Apply Bifrost. Where LUTDeRainbow decides within a frame, this compares
+  /// across frames, so it catches rainbowing that shimmers rather than sits
+  /// still. 8-bit only — the worker converts down and restores.
+  final bool applyBifrost;
+
+  /// Luma difference above which a block is treated as motion and left alone.
+  final double bifrostLumaThresh;
+
+  /// How many neighbouring blocks must agree before a pixel is treated.
+  final int bifrostVariation;
+
+  /// Treat the source as interlaced, comparing fields rather than frames.
+  final bool bifrostInterlaced;
+
   // --- Vinverse Parameters ---
 
   /// Whether to apply Vinverse (inverted telecine/chroma fix).
@@ -124,6 +140,10 @@ class ChromaFixParameters {
     this.deRainbowYThresh = 10,
     this.deRainbowUseLuma = true,
     this.deRainbowLinkUv = true,
+    this.applyBifrost = false,
+    this.bifrostLumaThresh = 10.0,
+    this.bifrostVariation = 5,
+    this.bifrostInterlaced = true,
     this.applyVinverse = false,
     this.vinverseSstr = 2.7,
     this.vinverseAmnt = 255,
@@ -193,6 +213,10 @@ class ChromaFixParameters {
     int? deRainbowYThresh,
     bool? deRainbowUseLuma,
     bool? deRainbowLinkUv,
+    bool? applyBifrost,
+    double? bifrostLumaThresh,
+    int? bifrostVariation,
+    bool? bifrostInterlaced,
     bool? applyVinverse,
     double? vinverseSstr,
     int? vinverseAmnt,
@@ -217,6 +241,10 @@ class ChromaFixParameters {
       deRainbowYThresh: deRainbowYThresh ?? this.deRainbowYThresh,
       deRainbowUseLuma: deRainbowUseLuma ?? this.deRainbowUseLuma,
       deRainbowLinkUv: deRainbowLinkUv ?? this.deRainbowLinkUv,
+      applyBifrost: applyBifrost ?? this.applyBifrost,
+      bifrostLumaThresh: bifrostLumaThresh ?? this.bifrostLumaThresh,
+      bifrostVariation: bifrostVariation ?? this.bifrostVariation,
+      bifrostInterlaced: bifrostInterlaced ?? this.bifrostInterlaced,
       applyVinverse: applyVinverse ?? this.applyVinverse,
       vinverseSstr: vinverseSstr ?? this.vinverseSstr,
       vinverseAmnt: vinverseAmnt ?? this.vinverseAmnt,

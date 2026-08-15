@@ -11,6 +11,9 @@
   "dependencies": {
     "plugins": [
       "havsfunc"
+    ],
+    "vs_plugins": [
+      "Retinex.dll"
     ]
   },
   "methods": [
@@ -273,6 +276,30 @@
           "applyLevels": true
         }
       }
+    },
+    "applyShadowDetail": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Lift Shadow Detail",
+        "description": "Opens up detail hidden in dark areas of underexposed footage, by comparing each part of the picture to its surroundings rather than raising the black level. Brightness only — colour is untouched"
+      }
+    },
+    "shadowSigma": {
+      "type": "number",
+      "default": 100.0,
+      "min": 1.0,
+      "max": 500.0,
+      "step": 10.0,
+      "ui": {
+        "label": "Area Size",
+        "description": "How wide a neighbourhood each pixel is judged against. Larger opens up broad shadows; smaller brings out local texture",
+        "widget": "slider",
+        "precision": 0,
+        "visibleWhen": {
+          "applyShadowDetail": true
+        }
+      }
     }
   },
   "ui": {
@@ -284,7 +311,9 @@
           "contrast",
           "saturation",
           "hue",
-          "coring"
+          "coring",
+          "applyShadowDetail",
+          "shadowSigma"
         ],
         "expanded": true
       },

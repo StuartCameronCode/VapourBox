@@ -54,6 +54,23 @@ class ColorCorrectionParameters {
   /// Off by default so existing presets keep the behaviour they were saved with.
   final bool smoothLevels;
 
+  /// Lift shadow detail with multi-scale retinex, on luma only.
+  ///
+  /// The plugin rejects subsampled formats, and every source this app handles
+  /// is one — so the luma plane is processed on its own and colour is left
+  /// untouched, rather than resampling chroma twice for a brightness operation.
+  final bool applyShadowDetail;
+
+  /// Retinex scale in pixels. Larger lifts broad shadow areas; smaller favours
+  /// local texture.
+  final double shadowSigma;
+
+  /// Fraction of the darkest pixels ignored when rescaling.
+  final double shadowLowerThr;
+
+  /// Same at the bright end.
+  final double shadowUpperThr;
+
   /// Input black level (0-255).
   final int inputLow;
 
@@ -89,6 +106,10 @@ class ColorCorrectionParameters {
     // Levels defaults
     this.applyLevels = false,
     this.smoothLevels = false,
+    this.applyShadowDetail = false,
+    this.shadowSigma = 100.0,
+    this.shadowLowerThr = 0.001,
+    this.shadowUpperThr = 0.001,
     this.inputLow = 0,
     this.inputHigh = 255,
     this.outputLow = 0,
@@ -153,6 +174,10 @@ class ColorCorrectionParameters {
     bool? coring,
     bool? applyLevels,
     bool? smoothLevels,
+    bool? applyShadowDetail,
+    double? shadowSigma,
+    double? shadowLowerThr,
+    double? shadowUpperThr,
     int? inputLow,
     int? inputHigh,
     int? outputLow,
@@ -171,6 +196,10 @@ class ColorCorrectionParameters {
       coring: coring ?? this.coring,
       applyLevels: applyLevels ?? this.applyLevels,
       smoothLevels: smoothLevels ?? this.smoothLevels,
+      applyShadowDetail: applyShadowDetail ?? this.applyShadowDetail,
+      shadowSigma: shadowSigma ?? this.shadowSigma,
+      shadowLowerThr: shadowLowerThr ?? this.shadowLowerThr,
+      shadowUpperThr: shadowUpperThr ?? this.shadowUpperThr,
       inputLow: inputLow ?? this.inputLow,
       inputHigh: inputHigh ?? this.inputHigh,
       outputLow: outputLow ?? this.outputLow,

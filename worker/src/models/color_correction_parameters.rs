@@ -63,6 +63,32 @@ pub struct ColorCorrectionParameters {
     #[serde(default)]
     pub smooth_levels: bool,
 
+    // --- Retinex (shadow detail) ---
+
+    /// Lift shadow detail with multi-scale retinex.
+    ///
+    /// Run on luma only. `retinex.MSRCP` rejects subsampled formats outright
+    /// ("sub-sampled format is not supported"), and every source this app
+    /// handles is 4:2:0 or 4:2:2 — so rather than round-trip the whole clip
+    /// through 4:4:4 and resample chroma twice, the luma plane is extracted as
+    /// greyscale, processed, and put back. Colour is left bit-identical.
+    #[serde(default)]
+    pub apply_shadow_detail: bool,
+
+    /// Retinex scale, in pixels. Larger looks at a wider neighbourhood, so it
+    /// lifts broad shadow areas rather than local texture.
+    #[serde(default = "default_shadow_sigma")]
+    pub shadow_sigma: f64,
+
+    /// Fraction of the darkest pixels ignored when rescaling, which stops a few
+    /// black pixels dragging the whole result.
+    #[serde(default = "default_shadow_lower")]
+    pub shadow_lower_thr: f64,
+
+    /// Same at the bright end.
+    #[serde(default = "default_shadow_upper")]
+    pub shadow_upper_thr: f64,
+
     /// Input black level (0-255).
     #[serde(default)]
     pub input_low: i32,
@@ -118,6 +144,9 @@ impl ColorCorrectionParameters {
     }
 }
 
+fn default_shadow_sigma() -> f64 { 100.0 }
+fn default_shadow_lower() -> f64 { 0.001 }
+fn default_shadow_upper() -> f64 { 0.001 }
 fn default_one_f64() -> f64 { 1.0 }
 fn default_255() -> i32 { 255 }
 
@@ -133,6 +162,10 @@ impl Default for ColorCorrectionParameters {
             coring: false,
             apply_levels: false,
             smooth_levels: false,
+            apply_shadow_detail: false,
+            shadow_sigma: default_shadow_sigma(),
+            shadow_lower_thr: default_shadow_lower(),
+            shadow_upper_thr: default_shadow_upper(),
             input_low: 0,
             input_high: 255,
             output_low: 0,
@@ -276,10 +309,57 @@ mod smooth_levels_tests {
         let p = ColorCorrectionParameters {
             apply_levels: true,
             smooth_levels: false,
+            apply_shadow_detail: false,
+            shadow_sigma: default_shadow_sigma(),
+            shadow_lower_thr: default_shadow_lower(),
+            shadow_upper_thr: default_shadow_upper(),
             input_low: 16,
             gamma: 0.6,
             ..Default::default()
         };
         assert!(!p.smooth_levels_drops_black_point());
+    }
+}
+
+impl ColorCorrectionParameters {
+    /// Retinex scale, clamped to something meaningful for SD and HD frames.
+    pub fn shadow_effective_sigma(&self) -> f64 {
+        self.shadow_sigma.clamp(1.0, 500.0)
+    }
+
+    /// The clipping thresholds, kept inside the 0-1 fraction the plugin wants
+    /// and away from the degenerate ends.
+    pub fn shadow_effective_lower(&self) -> f64 {
+        self.shadow_lower_thr.clamp(0.0, 0.1)
+    }
+
+    /// See [`Self::shadow_effective_lower`].
+    pub fn shadow_effective_upper(&self) -> f64 {
+        self.shadow_upper_thr.clamp(0.0, 0.1)
+    }
+}
+
+#[cfg(test)]
+mod shadow_detail_tests {
+    use super::*;
+
+    #[test]
+    fn test_defaults_are_off_and_conservative() {
+        let p = ColorCorrectionParameters::default();
+        assert!(!p.apply_shadow_detail);
+        assert_eq!(p.shadow_sigma, 100.0);
+    }
+
+    #[test]
+    fn test_sigma_and_thresholds_are_clamped() {
+        let p = ColorCorrectionParameters {
+            shadow_sigma: 9000.0,
+            shadow_lower_thr: 0.9,
+            shadow_upper_thr: -1.0,
+            ..Default::default()
+        };
+        assert_eq!(p.shadow_effective_sigma(), 500.0);
+        assert_eq!(p.shadow_effective_lower(), 0.1);
+        assert_eq!(p.shadow_effective_upper(), 0.0);
     }
 }

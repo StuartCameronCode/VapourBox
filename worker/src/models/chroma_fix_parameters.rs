@@ -103,6 +103,27 @@ pub struct ChromaFixParameters {
     #[serde(default = "default_true")]
     pub de_rainbow_link_uv: bool,
 
+    // --- Bifrost (temporal rainbow removal) ---
+
+    /// Apply Bifrost. Where LUTDeRainbow works within a frame, this compares
+    /// across frames, so it catches rainbowing that shimmers rather than sits
+    /// still.
+    #[serde(default)]
+    pub apply_bifrost: bool,
+
+    /// Luma difference above which a block is treated as motion and left alone.
+    #[serde(default = "default_bifrost_luma_thresh")]
+    pub bifrost_luma_thresh: f64,
+
+    /// How many neighbouring blocks must agree before a pixel is treated
+    /// (0-3). Higher is more conservative.
+    #[serde(default = "default_bifrost_variation")]
+    pub bifrost_variation: i32,
+
+    /// Treat the source as interlaced, comparing fields rather than frames.
+    #[serde(default = "default_true")]
+    pub bifrost_interlaced: bool,
+
     // --- Vinverse Parameters ---
 
     /// Whether to apply Vinverse (inverted telecine/chroma fix).
@@ -126,6 +147,8 @@ fn default_de_crawl_max_diff() -> i32 { 50 }
 fn default_true() -> bool { true }
 fn default_de_rainbow_cthresh() -> i32 { 10 }
 fn default_de_rainbow_ythresh() -> i32 { 10 }
+fn default_bifrost_luma_thresh() -> f64 { 10.0 }
+fn default_bifrost_variation() -> i32 { 5 }
 fn default_vinverse_sstr() -> f64 { 2.7 }
 fn default_255() -> i32 { 255 }
 
@@ -148,6 +171,10 @@ impl Default for ChromaFixParameters {
             de_rainbow_y_thresh: default_de_rainbow_ythresh(),
             de_rainbow_use_luma: true,
             de_rainbow_link_uv: true,
+            apply_bifrost: false,
+            bifrost_luma_thresh: default_bifrost_luma_thresh(),
+            bifrost_variation: default_bifrost_variation(),
+            bifrost_interlaced: true,
             de_crawl_y_thresh: default_de_crawl_thresh(),
             de_crawl_c_thresh: default_de_crawl_thresh(),
             de_crawl_max_diff: default_de_crawl_max_diff(),
@@ -181,5 +208,12 @@ mod tests {
         let json = serde_json::to_string(&params).unwrap();
         assert!(json.contains("\"enabled\":false"));
         assert!(json.contains("\"chromaBleedCx\":4"));
+    }
+}
+
+impl ChromaFixParameters {
+    /// Bifrost's `variation`, clamped to the range it accepts.
+    pub fn bifrost_effective_variation(&self) -> i32 {
+        self.bifrost_variation.clamp(0, 10)
     }
 }

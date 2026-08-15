@@ -562,6 +562,37 @@ Two lessons from doing it, both of which cost a debugging cycle:
 > deliberately not passed at all, asserted from both sides, in line with how
 > every other optional plugin argument here is treated.
 
+### Fifth filter batch (2026-08-15): two more deps plugins
+
+**Bifrost** (Chroma Fixes) and **Retinex** (Color Correction), joining the
+already-pending deps 1.9.0 rather than forcing another bump — the tag was still
+unpublished, so it was free to grow.
+
+Screening the remaining effort-2 candidates against the Windows-binary rule is
+now the first step, and it disqualifies about half of them:
+
+| plugin | latest release ships a Windows binary? |
+|---|---|
+| Bifrost v3.0, Retinex r4, MiniDeen v2, MSmooth v1.1, Descale r8 | yes |
+| DeDot v3, FillBorders v4, EEDI2 r7.1, EdgeFixer r3, TDeintMod r10.1 | **no** |
+
+> **Bifrost is 8-bit only** — "Only constant format 8 bit integer YUV input
+> supported", verified at 10/12/16-bit and 4:2:2. It gets DeScratch's
+> convert-down-and-restore guard. Low impact in practice: the composite captures
+> it targets are 8-bit anyway. Measured on an alternating-chroma clip, it halves
+> the frame-to-frame chroma swing.
+>
+> **Retinex rejects subsampled formats outright** ("sub-sampled format is not
+> supported"), and *every* source this app handles is 4:2:0 or 4:2:2. Rather
+> than round-trip the clip through 4:4:4 and resample chroma twice for what is a
+> brightness operation, the luma plane is extracted as greyscale, processed, and
+> put back — colour comes through bit-identical. Verified working that way at
+> 8/10/12/16-bit and 4:2:2.
+>
+> **bifrost includes `<vapoursynth/VapourSynth4.h>`**, not `<VapourSynth4.h>`,
+> so `-I"$VS_INC_DIR"` is not enough — the scripts stage an include root with a
+> `vapoursynth/` subdirectory and pass its parent.
+
 ### Fourth filter batch (2026-08-15): probe agents, and what they caught
 
 Five more effort-1 filters: **CTMF** (Noise Reduction), **DCTFilter** (Deblock),
@@ -1955,5 +1986,5 @@ Create the app-specific password at appleid.apple.com → Sign-In and Security �
 | 1.0.0 | 2025-01-15 | Initial release |
 | … | | (1.1.0–1.6.0 went unrecorded) |
 | 1.7.0 | 2026-08-01 | Fixes QTGMC Placebo/Very Slow brightening and near-black Draft on arm64, via `Scripts/patches/fmtconv-r31-arm-int-scaler.patch` (root cause: sign constants in fmtconv's non-SIMD integer scaler) plus havsfunc patch 5 as defence in depth; fmtconv r30 → **r31**, now pinned and sourced from GitLab on every platform. **Rebuilt 2026-08-02** to add the **zsmooth** plugin (MIT), providing `core.zsmooth.CCD` plus `Cnr4` and a set of RemoveGrain/TemporalMedian-family filters. Version pinned to 0.19.0 in all three download scripts — keep them in step so the same job can't produce different chroma per OS. Taken pre-built everywhere except macOS x64, which builds it with Zig to reach `minos 12.0` (see the macOS platform notes) |
-| 1.9.0 | 2026-08-15 | Adds the **fluxsmooth** plugin (`core.flux.SmoothT` / `SmoothST`), which also unlocks havsfunc's **STPresso** — it calls `core.flux.SmoothT` internally and raised "No attribute with the name flux exists" without it. Pinned to **v2** on every platform: that is the newest tag with a published Windows binary, and `download-deps-windows.ps1` has no from-source path, so macOS/Linux track the version Windows can get rather than letting the same job denoise differently per OS. Built on macOS/Linux by invoking the compiler directly on its single C file rather than through its autotools build, so no new build dependency (autoconf/automake/libtool) is added to CI |
+| 1.9.0 | 2026-08-15 | Adds three plugins. **fluxsmooth** (`core.flux.SmoothT` / `SmoothST`), which also unlocks havsfunc's **STPresso** — it calls `core.flux.SmoothT` internally and raised "No attribute with the name flux exists" without it. Pinned to **v2** on every platform: that is the newest tag with a published Windows binary, and `download-deps-windows.ps1` has no from-source path, so macOS/Linux track the version Windows can get rather than letting the same job denoise differently per OS. Built on macOS/Linux by invoking the compiler directly on its single C file rather than through its autotools build, so no new build dependency (autoconf/automake/libtool) is added to CI. Also adds **bifrost** (`core.bifrost.Bifrost`, temporal rainbow/dot-crawl removal, pinned v3.0) and **retinex** (`core.retinex.MSRCP`, shadow-detail lift, pinned r4) — both chosen because their *newest* release ships a Windows binary, so no version skew, and both link nothing beyond system libraries. bifrost is another single C file compiled directly, but it includes `<vapoursynth/VapourSynth4.h>` so the scripts stage a small include root whose parent is passed to `-I`; retinex is an ordinary meson build resolving headers through pkg-config |
 | 1.8.0 | 2026-08-07 | VapourSynth **R73 → R78** on every platform, which moves Windows to a Python 3.12 wheel layout and makes `deps/<platform>/vapoursynth/` the Python package itself on macOS/Linux (see the R78 sections). Adds the **akarin** plugin (LGPL-3.0, statically links LLVM 22.1.2) supplying an LLVM JIT for `std.Expr`, routed in via havsfunc **patch 7** and the templates' `_expr()` helper — worth **4.1x** on arm64 QTGMC Slow, since VapourSynth's own Expr JIT is x86-only. **Not** shipped on macos-x64, whose only wheel would raise the Intel floor to macOS 14 (issue #39). Fixes the **nnedi3** build on linux-arm64, which had never produced a binary (`-mfpu=neon` and `HWCAP_ARM_*` are both 32-bit-ARM-only), and drops the plugin from linux-x64's expected list to match the other x86 bundles. **BestSource removed** — nothing had called it since the pipe source replaced it. Linux now needs **glibc 2.39** (ubuntu-24.04), so Ubuntu 22.04 and Debian 12 can no longer run it |
