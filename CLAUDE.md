@@ -592,6 +592,17 @@ What an effort-2 addition actually costs, beyond the usual filter wiring:
 > `gh api repos/<owner>/<repo>/releases --jq '.[] | "\(.tag_name) \(.assets|length)"'`
 > **before** planning any effort-2 addition.
 
+> **Yes, one filter justified this deps release — that was a deliberate call.**
+> zsmooth already provides `FluxSmoothT`/`FluxSmoothST`, so those two methods
+> never needed the plugin; they call the canonical `flux` namespace only because
+> it is present. **STPresso is the only filter that actually required it**,
+> because havsfunc hardcodes `core.flux.SmoothT` and cannot see zsmooth's
+> equivalent. The alternative — point the two FluxSmooth methods at zsmooth, drop
+> STPresso, revert to deps 1.8.0 — was considered and rejected on 2026-08-15:
+> STPresso is well regarded, the plugin is 34 KB, and a deps release is a
+> one-time cost. Don't re-litigate this; if the plugin ever needs removing, it is
+> STPresso that goes with it.
+
 > **Prefer compiling a small plugin directly over running its build system.**
 > fluxsmooth is autotools, and adding autoconf/automake/libtool to three CI
 > deps workflows for one plugin is a poor trade. It is a single C file, so the
