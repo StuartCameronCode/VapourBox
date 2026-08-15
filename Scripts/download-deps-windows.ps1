@@ -248,6 +248,16 @@ $Plugins7z = @(
         Check = "libawarpsharp2.dll"
     },
     @{
+        # FluxSmooth (core.flux.SmoothT / SmoothST), and what havsfunc's STPresso
+        # calls internally. Pinned to v2 on every platform: this is the newest
+        # tag with a published Windows binary, and Windows has no from-source
+        # build path here, so macOS/Linux track the version Windows can get
+        # rather than letting the same job denoise differently per OS.
+        Name = "fluxsmooth"
+        Url = "https://github.com/dubhater/vapoursynth-fluxsmooth/releases/download/v2/vapoursynth-fluxsmooth-v2-win64.7z"
+        Check = "libfluxsmooth.dll"
+    },
+    @{
         Name = "removegrain"
         Url = "https://github.com/vapoursynth/vs-removegrain/releases/download/R1/removegrain-r1.7z"
         Check = "RemoveGrainVS.dll"

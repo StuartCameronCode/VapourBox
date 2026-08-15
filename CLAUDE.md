@@ -562,6 +562,42 @@ Two lessons from doing it, both of which cost a debugging cycle:
 > deliberately not passed at all, asserted from both sides, in line with how
 > every other optional plugin argument here is treated.
 
+### Third filter batch (2026-08-15): the first deps change
+
+**fluxsmooth** is the first plugin this work has *added* to the bundle rather
+than found already in it, so it is the first batch that needs a **deps release**
+(1.8.0 → **1.9.0**). It unlocks three Noise Reduction methods: `FluxSmoothT`,
+`FluxSmoothST`, and **STPresso**, which was dropped from the second batch for
+exactly this missing dependency.
+
+What an effort-2 addition actually costs, beyond the usual filter wiring:
+
+1. A build block in **all three** `download-deps-*` scripts.
+2. An entry per platform in `Scripts/deps-expected-plugins.json` — the packaging
+   guard that turns a dead download URL into a red build.
+3. The namespace in `app/test/vapoursynth_integration_test.dart`'s required
+   list, or a bundle missing it passes CI and fails at job time.
+4. A version + tag bump in `app/assets/deps-version.json`.
+5. **A deps release actually built and published**, which is CI work and cannot
+   be done or verified locally — see the rc flow in "Testing a deps change".
+
+> **Windows has no from-source build path, and that decides the version.**
+> `download-deps-windows.ps1` only fetches published release archives, so a
+> plugin is only addable if upstream ships a Windows binary — and every platform
+> must then pin the version Windows can get. FillBorders and Bwdif were the first
+> two candidates and were **rejected on this basis**: their newest Windows
+> binaries are several releases behind their source (FillBorders v2 vs v4, Bwdif
+> r4.1 vs r5.1), and pinning everything back that far would have cost features
+> that only exist in the newer source. Check
+> `gh api repos/<owner>/<repo>/releases --jq '.[] | "\(.tag_name) \(.assets|length)"'`
+> **before** planning any effort-2 addition.
+
+> **Prefer compiling a small plugin directly over running its build system.**
+> fluxsmooth is autotools, and adding autoconf/automake/libtool to three CI
+> deps workflows for one plugin is a poor trade. It is a single C file, so the
+> macOS and Linux scripts call the compiler directly — one line, no new
+> toolchain, and identical output.
+
 ### Second filter batch (2026-08-15): two new passes
 
 **Anti-Aliasing** (`daa`, `santiag`) and **Stabilize** (`Stab`) are the first
@@ -1839,4 +1875,5 @@ Create the app-specific password at appleid.apple.com → Sign-In and Security �
 | 1.0.0 | 2025-01-15 | Initial release |
 | … | | (1.1.0–1.6.0 went unrecorded) |
 | 1.7.0 | 2026-08-01 | Fixes QTGMC Placebo/Very Slow brightening and near-black Draft on arm64, via `Scripts/patches/fmtconv-r31-arm-int-scaler.patch` (root cause: sign constants in fmtconv's non-SIMD integer scaler) plus havsfunc patch 5 as defence in depth; fmtconv r30 → **r31**, now pinned and sourced from GitLab on every platform. **Rebuilt 2026-08-02** to add the **zsmooth** plugin (MIT), providing `core.zsmooth.CCD` plus `Cnr4` and a set of RemoveGrain/TemporalMedian-family filters. Version pinned to 0.19.0 in all three download scripts — keep them in step so the same job can't produce different chroma per OS. Taken pre-built everywhere except macOS x64, which builds it with Zig to reach `minos 12.0` (see the macOS platform notes) |
+| 1.9.0 | 2026-08-15 | Adds the **fluxsmooth** plugin (`core.flux.SmoothT` / `SmoothST`), which also unlocks havsfunc's **STPresso** — it calls `core.flux.SmoothT` internally and raised "No attribute with the name flux exists" without it. Pinned to **v2** on every platform: that is the newest tag with a published Windows binary, and `download-deps-windows.ps1` has no from-source path, so macOS/Linux track the version Windows can get rather than letting the same job denoise differently per OS. Built on macOS/Linux by invoking the compiler directly on its single C file rather than through its autotools build, so no new build dependency (autoconf/automake/libtool) is added to CI |
 | 1.8.0 | 2026-08-07 | VapourSynth **R73 → R78** on every platform, which moves Windows to a Python 3.12 wheel layout and makes `deps/<platform>/vapoursynth/` the Python package itself on macOS/Linux (see the R78 sections). Adds the **akarin** plugin (LGPL-3.0, statically links LLVM 22.1.2) supplying an LLVM JIT for `std.Expr`, routed in via havsfunc **patch 7** and the templates' `_expr()` helper — worth **4.1x** on arm64 QTGMC Slow, since VapourSynth's own Expr JIT is x86-only. **Not** shipped on macos-x64, whose only wheel would raise the Intel floor to macOS 14 (issue #39). Fixes the **nnedi3** build on linux-arm64, which had never produced a binary (`-mfpu=neon` and `HWCAP_ARM_*` are both 32-bit-ARM-only), and drops the plugin from linux-x64's expected list to match the other x86 bundles. **BestSource removed** — nothing had called it since the pipe source replaced it. Linux now needs **glibc 2.39** (ubuntu-24.04), so Ubuntu 22.04 and Debian 12 can no longer run it |

@@ -19,6 +19,14 @@ pub enum NoiseReductionMethod {
     Fft3dFilter,
     /// Motion-adaptive temporal smoother. Very gentle — a finishing pass.
     TTempSmooth,
+    /// FluxSmooth temporal-only: averages a pixel with its neighbours in time,
+    /// but only where they bracket it in value. Cheap and motion-safe.
+    FluxSmoothT,
+    /// FluxSmooth spatio-temporal: as above plus the eight spatial neighbours.
+    FluxSmoothSt,
+    /// STPresso (havsfunc): limits how far any pixel may move, so detail
+    /// survives almost intact. Calls FluxSmoothT internally.
+    StPresso,
 }
 
 /// Noise reduction preset levels.
@@ -167,6 +175,31 @@ pub struct NoiseReductionParameters {
     /// Weighting strength (1-8). Higher weights the current frame more.
     #[serde(default = "default_ttemp_strength")]
     pub ttemp_strength: i32,
+
+    // --- FluxSmooth Parameters ---
+
+    /// Temporal threshold: a pixel is averaged only when its neighbours in time
+    /// differ by no more than this. Higher smooths more and risks motion.
+    #[serde(default = "default_flux_temporal")]
+    pub flux_temporal_threshold: i32,
+
+    /// Spatial threshold for the ST variant. -1 disables the spatial half.
+    #[serde(default = "default_flux_spatial")]
+    pub flux_spatial_threshold: i32,
+
+    // --- STPresso Parameters ---
+
+    /// How far a pixel may move, in 8-bit levels. The whole point of the filter.
+    #[serde(default = "default_stpresso_limit")]
+    pub stpresso_limit: i32,
+
+    /// Bias toward the original pixel (0-100). Higher keeps more of it.
+    #[serde(default = "default_stpresso_bias")]
+    pub stpresso_bias: i32,
+
+    /// Temporal threshold handed to the FluxSmoothT it runs internally.
+    #[serde(default = "default_stpresso_tthr")]
+    pub stpresso_tthr: i32,
 }
 
 fn default_sm_degrain_tr() -> i32 { 2 }
@@ -191,6 +224,11 @@ fn default_ttemp_maxr() -> i32 { 3 }
 fn default_ttemp_thresh() -> i32 { 4 }
 fn default_ttemp_mdiff() -> i32 { 2 }
 fn default_ttemp_strength() -> i32 { 2 }
+fn default_flux_temporal() -> i32 { 7 }
+fn default_flux_spatial() -> i32 { 7 }
+fn default_stpresso_limit() -> i32 { 3 }
+fn default_stpresso_bias() -> i32 { 24 }
+fn default_stpresso_tthr() -> i32 { 12 }
 
 impl Default for NoiseReductionParameters {
     fn default() -> Self {
@@ -224,6 +262,11 @@ impl Default for NoiseReductionParameters {
             ttemp_thresh: default_ttemp_thresh(),
             ttemp_mdiff: default_ttemp_mdiff(),
             ttemp_strength: default_ttemp_strength(),
+            flux_temporal_threshold: default_flux_temporal(),
+            flux_spatial_threshold: default_flux_spatial(),
+            stpresso_limit: default_stpresso_limit(),
+            stpresso_bias: default_stpresso_bias(),
+            stpresso_tthr: default_stpresso_tthr(),
         }
     }
 }
@@ -301,6 +344,18 @@ impl NoiseReductionParameters {
     /// TTempSmooth's temporal radius, clamped to the 1-7 it implements.
     pub fn ttemp_effective_maxr(&self) -> i32 {
         self.ttemp_maxr.clamp(1, 7)
+    }
+
+    /// FluxSmooth's temporal threshold, clamped to the -1..255 it accepts.
+    ///
+    /// -1 disables that half of the filter; below that the plugin errors.
+    pub fn flux_effective_temporal(&self) -> i32 {
+        self.flux_temporal_threshold.clamp(-1, 255)
+    }
+
+    /// FluxSmooth's spatial threshold, same range.
+    pub fn flux_effective_spatial(&self) -> i32 {
+        self.flux_spatial_threshold.clamp(-1, 255)
     }
 }
 
@@ -392,6 +447,9 @@ mod tests {
             (NoiseReductionMethod::DfTtest, "dfTtest"),
             (NoiseReductionMethod::Fft3dFilter, "fft3dFilter"),
             (NoiseReductionMethod::TTempSmooth, "tTempSmooth"),
+            (NoiseReductionMethod::FluxSmoothT, "fluxSmoothT"),
+            (NoiseReductionMethod::FluxSmoothSt, "fluxSmoothSt"),
+            (NoiseReductionMethod::StPresso, "stPresso"),
         ] {
             let json = name(method);
             assert!(

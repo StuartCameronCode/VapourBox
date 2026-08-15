@@ -22,7 +22,13 @@ enum NoiseReductionMethod {
   @JsonValue('fft3dFilter')
   fft3dFilter('FFT3DFilter'),
   @JsonValue('tTempSmooth')
-  tTempSmooth('TTempSmooth');
+  tTempSmooth('TTempSmooth'),
+  @JsonValue('fluxSmoothT')
+  fluxSmoothT('FluxSmoothT'),
+  @JsonValue('fluxSmoothSt')
+  fluxSmoothSt('FluxSmoothST'),
+  @JsonValue('stPresso')
+  stPresso('STPresso');
 
   const NoiseReductionMethod(this.displayName);
   final String displayName;
@@ -148,6 +154,26 @@ class NoiseReductionParameters {
   /// Weighting strength (1-8). Higher weights the current frame more.
   final int ttempStrength;
 
+  // --- FluxSmooth Parameters ---
+
+  /// Temporal threshold: a pixel is averaged only where its neighbours in time
+  /// bracket it in value. Higher smooths more and risks motion. -1 disables.
+  final int fluxTemporalThreshold;
+
+  /// Spatial threshold for the ST variant. -1 disables the spatial half.
+  final int fluxSpatialThreshold;
+
+  // --- STPresso Parameters ---
+
+  /// How far a pixel may move, in 8-bit levels. The whole point of the filter.
+  final int stpressoLimit;
+
+  /// Bias toward the original pixel (0-100). Higher keeps more of it.
+  final int stpressoBias;
+
+  /// Temporal threshold for the FluxSmoothT it runs internally.
+  final int stpressoTthr;
+
   const NoiseReductionParameters({
     this.enabled = false,
     this.preset = NoiseReductionPreset.off,
@@ -182,6 +208,11 @@ class NoiseReductionParameters {
     this.ttempThresh = 4,
     this.ttempMdiff = 2,
     this.ttempStrength = 2,
+    this.fluxTemporalThreshold = 7,
+    this.fluxSpatialThreshold = 7,
+    this.stpressoLimit = 3,
+    this.stpressoBias = 24,
+    this.stpressoTthr = 12,
   });
 
   /// Create parameters from a preset.
@@ -257,6 +288,11 @@ class NoiseReductionParameters {
     int? ttempThresh,
     int? ttempMdiff,
     int? ttempStrength,
+    int? fluxTemporalThreshold,
+    int? fluxSpatialThreshold,
+    int? stpressoLimit,
+    int? stpressoBias,
+    int? stpressoTthr,
   }) {
     return NoiseReductionParameters(
       enabled: enabled ?? this.enabled,
@@ -288,6 +324,12 @@ class NoiseReductionParameters {
       ttempThresh: ttempThresh ?? this.ttempThresh,
       ttempMdiff: ttempMdiff ?? this.ttempMdiff,
       ttempStrength: ttempStrength ?? this.ttempStrength,
+      fluxTemporalThreshold:
+          fluxTemporalThreshold ?? this.fluxTemporalThreshold,
+      fluxSpatialThreshold: fluxSpatialThreshold ?? this.fluxSpatialThreshold,
+      stpressoLimit: stpressoLimit ?? this.stpressoLimit,
+      stpressoBias: stpressoBias ?? this.stpressoBias,
+      stpressoTthr: stpressoTthr ?? this.stpressoTthr,
     );
   }
 

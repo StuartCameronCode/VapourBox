@@ -1170,6 +1170,39 @@ build_plugin "removegrain" \
     "libremovegrain.dylib" \
     "meson setup build --buildtype=release && ninja -C build"
 
+# FluxSmooth (core.flux.SmoothT / SmoothST). Also what havsfunc's STPresso calls
+# internally — without this plugin STPresso raises "No attribute with the name
+# flux exists", which is why it is not offered without it.
+#
+# Pinned to v2, the newest tag with a published Windows binary. Windows has no
+# from-source build path here (download-deps-windows.ps1 only fetches release
+# archives), so every platform tracks the version Windows can get; a version
+# skew would make the same job denoise differently per OS.
+#
+# Built by invoking the compiler directly rather than through its autotools
+# build: it is one C file, and autoconf/automake/libtool are not otherwise
+# required by any deps build.
+FLUXSMOOTH_TAG="v2"
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfluxsmooth.dylib" ]; then
+    echo ""
+    echo "=== Building fluxsmooth ($FLUXSMOOTH_TAG) ==="
+    rm -rf fluxsmooth
+    if git clone --depth 1 --branch "$FLUXSMOOTH_TAG" -q \
+        https://github.com/dubhater/vapoursynth-fluxsmooth.git fluxsmooth 2>/dev/null \
+       && cc -std=c99 -O2 -fPIC -shared \
+            -o "$PLUGINS_DIR/libfluxsmooth.dylib" \
+            fluxsmooth/src/fluxsmooth.c -I"$VS_INC_DIR"; then
+        codesign -s - -f "$PLUGINS_DIR/libfluxsmooth.dylib" 2>/dev/null || true
+        echo "  Built fluxsmooth -> libfluxsmooth.dylib"
+        BUILT_PLUGINS+=("fluxsmooth")
+    else
+        echo "  Failed to build fluxsmooth"
+        FAILED_PLUGINS+=("fluxsmooth")
+    fi
+else
+    echo "  fluxsmooth already exists, skipping"
+fi
+
 # AddGrain
 build_plugin "addgrain" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain.git" \

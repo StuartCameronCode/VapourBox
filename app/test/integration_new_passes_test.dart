@@ -405,6 +405,63 @@ void main() {
       }
     }, timeout: const Timeout(Duration(minutes: 10)));
 
+
+    // --- Third batch: proves the new fluxsmooth plugin actually loads --------
+    //
+    // These are the first tests in the suite that depend on a plugin added by a
+    // DEPS change rather than one already in the bundle, so a failure here means
+    // the bundle, not the wiring.
+
+    test('noise reduction: FluxSmoothT runs end-to-end', () async {
+      final job = _baseJob(
+        'nr_flux_t',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.fluxSmoothT,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'nr_flux_t');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('noise reduction: FluxSmoothST runs end-to-end', () async {
+      final job = _baseJob(
+        'nr_flux_st',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.fluxSmoothSt,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'nr_flux_st');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('noise reduction: STPresso runs end-to-end', () async {
+      // STPresso calls core.flux.SmoothT internally, so this fails with
+      // "No attribute with the name flux exists" on a bundle without the
+      // plugin — which is exactly why it was dropped from the previous batch.
+      final job = _baseJob(
+        'nr_stpresso',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.stPresso,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'nr_stpresso');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
     // Issue #37: QTGMC with EZ Denoise + the knlmeanscl denoiser must never
     // crash the job. KNLMeansCL is OpenCL-only; on a headless CI runner (no
     // usable OpenCL device) the worker's knlm probe fails and the denoiser is

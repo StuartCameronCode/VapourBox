@@ -4084,3 +4084,180 @@ fn test_110_new_passes_run_in_the_documented_order() {
     assert!(aa < sharp, "anti-aliasing must run before sharpening");
     assert!(sharp < stab, "stabilisation runs after the detail passes");
 }
+
+// ============================================================================
+// Third batch: the first filters that needed a DEPS change.
+//
+// `fluxsmooth` is a new plugin in the bundle (deps 1.9.0), pinned to v2 on every
+// platform because that is the newest tag with a published Windows binary and
+// the Windows deps script has no from-source path. It unlocks three filters:
+// FluxSmoothT, FluxSmoothST, and havsfunc's STPresso — which calls
+// core.flux.SmoothT internally and was dropped from the second batch precisely
+// because the plugin was missing.
+// ============================================================================
+
+#[test]
+fn test_111_fluxsmooth_temporal() {
+    create_output_dir();
+    let mut job = create_base_job("test_111_fluxsmooth_t");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::FluxSmoothT,
+            flux_temporal_threshold: 9,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "FluxSmoothT",
+        &["core.flux.SmoothT(", "temporal_threshold=9"],
+    )
+    .unwrap();
+
+    // The temporal-only variant must not emit the spatial one.
+    let script = script_text(&job);
+    assert!(!script.contains("core.flux.SmoothST("));
+}
+
+#[test]
+fn test_112_fluxsmooth_spatiotemporal() {
+    create_output_dir();
+    let mut job = create_base_job("test_112_fluxsmooth_st");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::FluxSmoothSt,
+            flux_temporal_threshold: 9,
+            flux_spatial_threshold: 11,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "FluxSmoothST",
+        &[
+            "core.flux.SmoothST(",
+            "temporal_threshold=9",
+            "spatial_threshold=11",
+        ],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_113_fluxsmooth_thresholds_allow_minus_one_but_no_lower() {
+    // -1 disables that half of the filter; below that the plugin errors, so the
+    // worker clamps rather than letting it through.
+    create_output_dir();
+    let mut job = create_base_job("test_113_fluxsmooth_clamp");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::FluxSmoothSt,
+            flux_temporal_threshold: -50,
+            flux_spatial_threshold: 900,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "FluxSmooth clamps",
+        &["temporal_threshold=-1", "spatial_threshold=255"],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_114_stpresso() {
+    create_output_dir();
+    let mut job = create_base_job("test_114_stpresso");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::StPresso,
+            stpresso_limit: 5,
+            stpresso_bias: 30,
+            stpresso_tthr: 16,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "STPresso",
+        &["haf.STPresso(", "limit=5", "bias=30", "tthr=16"],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_115_every_noise_method_still_emits_only_its_own_filter() {
+    // Extends test_103 to the fluxsmooth-backed methods. A missed remove_block
+    // chains two denoisers silently — valid VapourSynth, twice the runtime, and
+    // not what the user asked for.
+    create_output_dir();
+
+    let calls = [
+        ("smdegrain", "haf.SMDegrain"),
+        ("mctd", "haf.MCTemporalDenoise"),
+        ("dfttest", "core.dfttest.DFTTest"),
+        ("fft3d", "core.fft3dfilter.FFT3DFilter"),
+        ("ttempsmooth", "core.ttmpsm.TTempSmooth"),
+        ("fluxt", "core.flux.SmoothT("),
+        ("fluxst", "core.flux.SmoothST("),
+        ("stpresso", "haf.STPresso"),
+    ];
+
+    let methods = [
+        (NoiseReductionMethod::SmDegrain, "smdegrain"),
+        (NoiseReductionMethod::McTemporalDenoise, "mctd"),
+        (NoiseReductionMethod::DfTtest, "dfttest"),
+        (NoiseReductionMethod::Fft3dFilter, "fft3d"),
+        (NoiseReductionMethod::TTempSmooth, "ttempsmooth"),
+        (NoiseReductionMethod::FluxSmoothT, "fluxt"),
+        (NoiseReductionMethod::FluxSmoothSt, "fluxst"),
+        (NoiseReductionMethod::StPresso, "stpresso"),
+    ];
+
+    for (method, key) in methods {
+        let mut job = create_base_job(&format!("test_115_{key}"));
+        job.qtgmc_parameters.enabled = false;
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            noise_reduction: NoiseReductionParameters {
+                enabled: true,
+                method,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+
+        let script = script_text(&job);
+        for (other_key, call) in calls {
+            // SmoothT is a substring of SmoothST, so compare on the full call
+            // text including the opening paren.
+            let present = script.contains(call);
+            if other_key == key {
+                assert!(present, "{key} should emit {call}");
+            } else {
+                assert!(!present, "{key} also emitted {call} — a block wasn't stripped");
+            }
+        }
+        assert!(
+            !script.contains("{{NR_"),
+            "{key} left an unsubstituted NR_ placeholder"
+        );
+    }
+}

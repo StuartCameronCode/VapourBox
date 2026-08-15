@@ -1,5 +1,5 @@
 {
-  "_comment": "Required VapourSynth plugin filenames per platform — the contract for a COMPLETE deps bundle. The package-deps-* scripts assert every file listed here exists in the staged bundle before zipping and FAIL the build if any are missing, so a silently-failed download (e.g. a dead upstream URL) becomes a red build instead of an incomplete bundle shipping. Plugin directory: windows-x64 = vapoursynth/vs-plugins, macos/linux = vapoursynth/plugins. Lists exclude data files (nnedi3 weights) and runtime libs (fftw); they cover the VapourSynth plugin binaries only. Update this when adding or removing a plugin.",
+  "_comment": "Required VapourSynth plugin filenames per platform \u2014 the contract for a COMPLETE deps bundle. The package-deps-* scripts assert every file listed here exists in the staged bundle before zipping and FAIL the build if any are missing, so a silently-failed download (e.g. a dead upstream URL) becomes a red build instead of an incomplete bundle shipping. Plugin directory: windows-x64 = vapoursynth/vs-plugins, macos/linux = vapoursynth/plugins. Lists exclude data files (nnedi3 weights) and runtime libs (fftw); they cover the VapourSynth plugin binaries only. Update this when adding or removing a plugin.",
   "windows-x64": [
     "AddGrain.dll",
     "CAS.dll",
@@ -16,19 +16,21 @@
     "TCanny.dll",
     "TTempSmooth.dll",
     "VIVTC.dll",
-    "zsmooth.dll",
     "fft3dfilter.dll",
     "fmtconv.dll",
+    "libakarin.dll",
     "libawarpsharp2.dll",
+    "libfluxsmooth.dll",
     "libmvtools.dll",
     "libtemporalmedian.dll",
+    "libzstd.dll",
     "neo-f3kdb.dll",
     "vsznedi3.dll",
-    "libakarin.dll",
-    "libzstd.dll"
+    "zsmooth.dll"
   ],
   "macos-arm64": [
     "libaddgrain.dylib",
+    "libakarin.dylib",
     "libawarpsharp2.dylib",
     "libbm3d.dylib",
     "libcas.dylib",
@@ -39,6 +41,7 @@
     "libdfttest.dylib",
     "libeedi3m.dylib",
     "libfft3dfilter.dylib",
+    "libfluxsmooth.dylib",
     "libfmtconv.dylib",
     "libknlmeanscl.dylib",
     "libmiscfilters.dylib",
@@ -52,8 +55,7 @@
     "libttempsmooth.dylib",
     "libvivtc.dylib",
     "libznedi3.dylib",
-    "libzsmooth.dylib",
-    "libakarin.dylib"
+    "libzsmooth.dylib"
   ],
   "macos-x64": [
     "libaddgrain.dylib",
@@ -66,6 +68,7 @@
     "libdfttest.dylib",
     "libeedi3m.dylib",
     "libfft3dfilter.dylib",
+    "libfluxsmooth.dylib",
     "libfmtconv.dylib",
     "libknlmeanscl.dylib",
     "libmiscfilters.dylib",
@@ -82,6 +85,7 @@
   ],
   "linux-x64": [
     "libaddgrain.so",
+    "libakarin.so",
     "libawarpsharp2.so",
     "libcas.so",
     "libctmf.so",
@@ -91,6 +95,7 @@
     "libdfttest.so",
     "libeedi3m.so",
     "libfft3dfilter.so",
+    "libfluxsmooth.so",
     "libfmtconv.so",
     "libknlmeanscl.so",
     "libmiscfilters.so",
@@ -103,11 +108,11 @@
     "libttempsmooth.so",
     "libvivtc.so",
     "libznedi3.so",
-    "libzsmooth.so",
-    "libakarin.so"
+    "libzsmooth.so"
   ],
   "linux-arm64": [
     "libaddgrain.so",
+    "libakarin.so",
     "libawarpsharp2.so",
     "libcas.so",
     "libctmf.so",
@@ -117,6 +122,7 @@
     "libdfttest.so",
     "libeedi3m.so",
     "libfft3dfilter.so",
+    "libfluxsmooth.so",
     "libfmtconv.so",
     "libknlmeanscl.so",
     "libmiscfilters.so",
@@ -130,7 +136,6 @@
     "libttempsmooth.so",
     "libvivtc.so",
     "libznedi3.so",
-    "libzsmooth.so",
-    "libakarin.so"
+    "libzsmooth.so"
   ]
 }

@@ -157,6 +157,15 @@ class ParameterConverter {
       case NoiseReductionMethod.tTempSmooth:
         method = 'ttempsmooth';
         break;
+      case NoiseReductionMethod.fluxSmoothT:
+        method = 'fluxsmooth_t';
+        break;
+      case NoiseReductionMethod.fluxSmoothSt:
+        method = 'fluxsmooth_st';
+        break;
+      case NoiseReductionMethod.stPresso:
+        method = 'stpresso';
+        break;
     }
 
     return DynamicParameters(
@@ -190,6 +199,11 @@ class ParameterConverter {
         'ttempThresh': params.ttempThresh,
         'ttempMdiff': params.ttempMdiff,
         'ttempStrength': params.ttempStrength,
+        'fluxTemporalThreshold': params.fluxTemporalThreshold,
+        'fluxSpatialThreshold': params.fluxSpatialThreshold,
+        'stpressoLimit': params.stpressoLimit,
+        'stpressoBias': params.stpressoBias,
+        'stpressoTthr': params.stpressoTthr,
       },
     );
   }
@@ -760,6 +774,15 @@ class ParameterConverter {
       case 'ttempsmooth':
         method = NoiseReductionMethod.tTempSmooth;
         break;
+      case 'fluxsmooth_t':
+        method = NoiseReductionMethod.fluxSmoothT;
+        break;
+      case 'fluxsmooth_st':
+        method = NoiseReductionMethod.fluxSmoothSt;
+        break;
+      case 'stpresso':
+        method = NoiseReductionMethod.stPresso;
+        break;
       default:
         method = NoiseReductionMethod.smDegrain;
     }
@@ -794,6 +817,11 @@ class ParameterConverter {
       ttempThresh: _asInt(v['ttempThresh']) ?? 4,
       ttempMdiff: _asInt(v['ttempMdiff']) ?? 2,
       ttempStrength: _asInt(v['ttempStrength']) ?? 2,
+      fluxTemporalThreshold: _asInt(v['fluxTemporalThreshold']) ?? 7,
+      fluxSpatialThreshold: _asInt(v['fluxSpatialThreshold']) ?? 7,
+      stpressoLimit: _asInt(v['stpressoLimit']) ?? 3,
+      stpressoBias: _asInt(v['stpressoBias']) ?? 24,
+      stpressoTthr: _asInt(v['stpressoTthr']) ?? 12,
     );
   }
 

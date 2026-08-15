@@ -98,7 +98,7 @@ Thirteen filters, each switchable independently, applied in a fixed order. Most 
 | **Deinterlace** | Comb-like jagged edges on moving objects. QTGMC for interlaced video, or IVTC to recover the original film frames from telecined DVD. |
 | **DeScratch** | Vertical scratch lines on scanned film. |
 | **SpotLess** | Dust, dirt and single-frame specks. |
-| **Noise Reduction** | Grain and video noise across the whole frame. Motion-compensated by default; DFTTest, FFT3DFilter and TTempSmooth are available under advanced options for noise the default handles badly. |
+| **Noise Reduction** | Grain and video noise across the whole frame. Motion-compensated by default; DFTTest, FFT3DFilter, TTempSmooth, FluxSmooth and STPresso are available under advanced options for noise the default handles badly. |
 | **Chroma Denoise** | Blotchy, smeared color — common on VHS captures and old camcorder footage. Leaves luma detail untouched. |
 | **Dehalo** | Bright outlines around edges, ringing, and residual ghosting left by a deinterlacer. HQDeringmod targets ringing specifically. |
 | **Deblock** | Square blocking from heavy compression. |

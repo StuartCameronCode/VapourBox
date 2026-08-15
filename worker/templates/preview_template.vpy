@@ -522,6 +522,38 @@ clip = core.ttmpsm.TTempSmooth(
 )
 {{/NR_TTEMPSMOOTH}}
 
+{{#NR_FLUXSMOOTH_T}}
+# FluxSmoothT - averages each pixel with its temporal neighbours, but ONLY where
+# they bracket it in value (one above, one below). Motion is therefore left
+# alone almost for free, which is why it is a common first pass on tape.
+clip = core.flux.SmoothT(
+    clip,
+    temporal_threshold={{NR_FLUX_TEMPORAL}},
+)
+{{/NR_FLUXSMOOTH_T}}
+
+{{#NR_FLUXSMOOTH_ST}}
+# FluxSmoothST - as SmoothT plus the eight spatial neighbours. Stronger, and a
+# little more willing to soften detail.
+clip = core.flux.SmoothST(
+    clip,
+    temporal_threshold={{NR_FLUX_TEMPORAL}},
+    spatial_threshold={{NR_FLUX_SPATIAL}},
+)
+{{/NR_FLUXSMOOTH_ST}}
+
+{{#NR_STPRESSO}}
+# STPresso (havsfunc) - limits how far any pixel may move from its original
+# value, so detail survives almost intact. Calls core.flux.SmoothT internally,
+# which is why the fluxsmooth plugin is a hard requirement for this method.
+clip = haf.STPresso(
+    clip,
+    limit={{NR_STPRESSO_LIMIT}},
+    bias={{NR_STPRESSO_BIAS}},
+    tthr={{NR_STPRESSO_TTHR}},
+)
+{{/NR_STPRESSO}}
+
 {{#NR_MCDEGRAINSHARP}}
 # MCDegrainSharp (Didée) — motion-compensated degrain that sharpens where the
 # motion match is good and blurs where it is poor.

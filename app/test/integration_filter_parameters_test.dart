@@ -934,6 +934,68 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+
+    // --- Third batch: needs the fluxsmooth plugin (deps 1.9.0) --------------
+
+    test('noise reduction: FluxSmoothT params', () async {
+      loadSchema('noise_reduction');
+      final job = buildJob(
+        testName: 'nr_flux_t',
+        noiseReduction: const NoiseReductionParameters(
+          enabled: true,
+          method: NoiseReductionMethod.fluxSmoothT,
+          fluxTemporalThreshold: 9,
+        ),
+      );
+      print('  Generating FluxSmoothT script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.flux.SmoothT('));
+      expect(script, isNot(contains('core.flux.SmoothST(')));
+      final actual = parseFilterParams(script, 'core.flux.SmoothT(');
+      expect(actual['temporal_threshold'], '9');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('noise reduction: FluxSmoothST params', () async {
+      final job = buildJob(
+        testName: 'nr_flux_st',
+        noiseReduction: const NoiseReductionParameters(
+          enabled: true,
+          method: NoiseReductionMethod.fluxSmoothSt,
+          fluxTemporalThreshold: 9,
+          fluxSpatialThreshold: 11,
+        ),
+      );
+      print('  Generating FluxSmoothST script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.flux.SmoothST('));
+      final actual = parseFilterParams(script, 'core.flux.SmoothST(');
+      expect(actual['temporal_threshold'], '9');
+      expect(actual['spatial_threshold'], '11');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('noise reduction: STPresso params', () async {
+      final job = buildJob(
+        testName: 'nr_stpresso',
+        noiseReduction: const NoiseReductionParameters(
+          enabled: true,
+          method: NoiseReductionMethod.stPresso,
+          stpressoLimit: 5,
+          stpressoBias: 30,
+          stpressoTthr: 16,
+        ),
+      );
+      print('  Generating STPresso script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.STPresso('));
+      final actual = parseFilterParams(script, 'haf.STPresso(');
+      expect(actual['limit'], '5');
+      expect(actual['bias'], '30');
+      expect(actual['tthr'], '16');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     // --- IVTC (core.vivtc.VFM + VDecimate) high-bit-depth guard ---
     // VFM only accepts 8-bit YUV/GRAY, so IVTC on a 10-bit source (e.g. ProRes
     // 422, yuv422p10le) must run field matching on an 8-bit metrics copy while

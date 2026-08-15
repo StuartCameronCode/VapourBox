@@ -645,6 +645,9 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
+                    script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
@@ -662,6 +665,9 @@ impl ScriptGenerator {
                     script = script.replace("{{/NR_MCTD}}", "");
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
+                    script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
@@ -676,6 +682,9 @@ impl ScriptGenerator {
                     script = script.replace("{{#NR_MCDEGRAINSHARP}}", "");
                     script = script.replace("{{/NR_MCDEGRAINSHARP}}", "");
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
+                    script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
@@ -716,6 +725,9 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
+                    script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
                     script = script.replace("{{#NR_DFTTEST}}", "");
@@ -741,6 +753,9 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
+                    script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
                     script = script.replace("{{#NR_FFT3D}}", "");
@@ -767,6 +782,9 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
+                    script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = script.replace("{{#NR_TTEMPSMOOTH}}", "");
@@ -791,12 +809,65 @@ impl ScriptGenerator {
                         &nr.ttemp_strength.to_string(),
                     );
                 }
+                NoiseReductionMethod::FluxSmoothT | NoiseReductionMethod::FluxSmoothSt => {
+                    script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
+                    script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
+                    script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
+                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
+                    script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
+                    script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
+                    script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
+
+                    let spatial = nr.method == NoiseReductionMethod::FluxSmoothSt;
+                    let (keep, drop) = if spatial {
+                        ("NR_FLUXSMOOTH_ST", "NR_FLUXSMOOTH_T")
+                    } else {
+                        ("NR_FLUXSMOOTH_T", "NR_FLUXSMOOTH_ST")
+                    };
+                    script = script.replace(&format!("{{{{#{}}}}}", keep), "");
+                    script = script.replace(&format!("{{{{/{}}}}}", keep), "");
+                    script = remove_block(
+                        &format!("{{{{#{}}}}}", drop),
+                        &format!("{{{{/{}}}}}", drop),
+                        script,
+                    );
+
+                    script = script.replace(
+                        "{{NR_FLUX_TEMPORAL}}",
+                        &nr.flux_effective_temporal().to_string(),
+                    );
+                    script = script.replace(
+                        "{{NR_FLUX_SPATIAL}}",
+                        &nr.flux_effective_spatial().to_string(),
+                    );
+                }
+                NoiseReductionMethod::StPresso => {
+                    script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
+                    script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
+                    script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
+                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
+                    script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
+                    script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
+                    script = script.replace("{{#NR_STPRESSO}}", "");
+                    script = script.replace("{{/NR_STPRESSO}}", "");
+
+                    script = script.replace("{{NR_STPRESSO_LIMIT}}", &nr.stpresso_limit.to_string());
+                    script = script.replace("{{NR_STPRESSO_BIAS}}", &nr.stpresso_bias.to_string());
+                    script = script.replace("{{NR_STPRESSO_TTHR}}", &nr.stpresso_tthr.to_string());
+                }
                 NoiseReductionMethod::QtgmcBuiltin => {
                     // QTGMC built-in denoising is handled in the QTGMC pass itself
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
+                    script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);

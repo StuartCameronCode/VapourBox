@@ -15,7 +15,8 @@
     ],
     "vs_plugins": [
       "libmvtools.dll",
-      "DFTTest.dll"
+      "DFTTest.dll",
+      "libfluxsmooth.dll"
     ]
   },
   "methods": [
@@ -101,6 +102,39 @@
         "ttempStrength"
       ],
       "advancedOnly": true
+    },
+    {
+      "id": "fluxsmooth_t",
+      "name": "FluxSmoothT",
+      "description": "Averages a pixel with its neighbours in time only where they bracket it in value, so motion is left alone almost for free. Very fast — a common first pass on tape",
+      "function": "core.flux.SmoothT",
+      "parameters": [
+        "fluxTemporalThreshold"
+      ],
+      "advancedOnly": true
+    },
+    {
+      "id": "fluxsmooth_st",
+      "name": "FluxSmoothST",
+      "description": "As FluxSmoothT plus the eight spatial neighbours. Stronger, and a little more willing to soften fine detail",
+      "function": "core.flux.SmoothST",
+      "parameters": [
+        "fluxTemporalThreshold",
+        "fluxSpatialThreshold"
+      ],
+      "advancedOnly": true
+    },
+    {
+      "id": "stpresso",
+      "name": "STPresso",
+      "description": "Caps how far any pixel may move, so detail survives almost intact. A finishing pass for when a real denoiser is too destructive but the picture still crawls",
+      "function": "haf.STPresso",
+      "parameters": [
+        "stpressoLimit",
+        "stpressoBias",
+        "stpressoTthr"
+      ],
+      "advancedOnly": true
     }
   ],
   "parameters": {
@@ -121,7 +155,10 @@
         "qtgmc_builtin",
         "dfttest",
         "fft3dfilter",
-        "ttempsmooth"
+        "ttempsmooth",
+        "fluxsmooth_t",
+        "fluxsmooth_st",
+        "stpresso"
       ],
       "ui": {
         "hidden": true
@@ -640,6 +677,92 @@
           ]
         }
       }
+    },
+    "fluxTemporalThreshold": {
+      "type": "integer",
+      "default": 7,
+      "min": -1,
+      "max": 64,
+      "step": 1,
+      "ui": {
+        "label": "Temporal Threshold",
+        "description": "How different a neighbouring frame may be and still be averaged in. -1 turns the temporal half off",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "fluxsmooth_t",
+            "fluxsmooth_st"
+          ]
+        }
+      }
+    },
+    "fluxSpatialThreshold": {
+      "type": "integer",
+      "default": 7,
+      "min": -1,
+      "max": 64,
+      "step": 1,
+      "ui": {
+        "label": "Spatial Threshold",
+        "description": "Same, for the eight neighbouring pixels. -1 turns the spatial half off",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "fluxsmooth_st"
+          ]
+        }
+      }
+    },
+    "stpressoLimit": {
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 16,
+      "step": 1,
+      "ui": {
+        "label": "Limit",
+        "description": "Furthest any pixel may move, in 8-bit levels. The control that matters",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "stpresso"
+          ]
+        }
+      }
+    },
+    "stpressoBias": {
+      "type": "integer",
+      "default": 24,
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "ui": {
+        "label": "Bias",
+        "description": "How strongly the original pixel is favoured. Higher keeps more of it",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "stpresso"
+          ]
+        }
+      }
+    },
+    "stpressoTthr": {
+      "type": "integer",
+      "default": 12,
+      "min": 1,
+      "max": 64,
+      "step": 1,
+      "ui": {
+        "label": "Temporal Threshold",
+        "description": "Passed to the FluxSmooth it runs internally",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "stpresso"
+          ]
+        }
+      }
     }
   },
   "ui": {
@@ -709,6 +832,23 @@
           "ttempThresh",
           "ttempMdiff",
           "ttempStrength"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "FluxSmooth",
+        "parameters": [
+          "fluxTemporalThreshold",
+          "fluxSpatialThreshold"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "STPresso",
+        "parameters": [
+          "stpressoLimit",
+          "stpressoBias",
+          "stpressoTthr"
         ],
         "expanded": true
       }
