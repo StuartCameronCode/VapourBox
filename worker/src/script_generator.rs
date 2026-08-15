@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use crate::models::{
-    AntiAliasMethod,
+    AntiAliasMethod, GrainMethod,
     VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod, CCD_REFERENCE_HEIGHT,
     parse_ratio,
     DehaloMethod, DeblockMethod, SharpenMethod, DeinterlaceMethod,
@@ -645,6 +645,7 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
@@ -665,6 +666,7 @@ impl ScriptGenerator {
                     script = script.replace("{{/NR_MCTD}}", "");
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
@@ -682,6 +684,7 @@ impl ScriptGenerator {
                     script = script.replace("{{#NR_MCDEGRAINSHARP}}", "");
                     script = script.replace("{{/NR_MCDEGRAINSHARP}}", "");
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
@@ -725,6 +728,7 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
@@ -753,6 +757,7 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
@@ -782,6 +787,7 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
@@ -814,6 +820,7 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
@@ -847,6 +854,7 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
@@ -859,12 +867,33 @@ impl ScriptGenerator {
                     script = script.replace("{{NR_STPRESSO_BIAS}}", &nr.stpresso_bias.to_string());
                     script = script.replace("{{NR_STPRESSO_TTHR}}", &nr.stpresso_tthr.to_string());
                 }
+                NoiseReductionMethod::Ctmf => {
+                    script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
+                    script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
+                    script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
+                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
+                    script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
+                    script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
+                    script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
+                    script = script.replace("{{#NR_CTMF}}", "");
+                    script = script.replace("{{/NR_CTMF}}", "");
+
+                    script = script.replace(
+                        "{{NR_CTMF_RADIUS}}",
+                        &nr.ctmf_effective_radius().to_string(),
+                    );
+                    script = script.replace("{{NR_CTMF_PLANES}}", nr.ctmf_planes_literal());
+                }
                 NoiseReductionMethod::QtgmcBuiltin => {
                     // QTGMC built-in denoising is handled in the QTGMC pass itself
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
@@ -1022,6 +1051,7 @@ impl ScriptGenerator {
                     script = script.replace("{{#DEBLOCK_QED}}", "");
                     script = script.replace("{{/DEBLOCK_QED}}", "");
                     script = remove_block("{{#DEBLOCK_SIMPLE}}", "{{/DEBLOCK_SIMPLE}}", script);
+                    script = remove_block("{{#DEBLOCK_DCTFILTER}}", "{{/DEBLOCK_DCTFILTER}}", script);
 
                     script = process_optional_int("DEBLOCK_QUANT1", Some(deblock.quant1), script);
                     script = process_optional_int("DEBLOCK_QUANT2", Some(deblock.quant2), script);
@@ -1032,8 +1062,24 @@ impl ScriptGenerator {
                     script = remove_block("{{#DEBLOCK_QED}}", "{{/DEBLOCK_QED}}", script);
                     script = script.replace("{{#DEBLOCK_SIMPLE}}", "");
                     script = script.replace("{{/DEBLOCK_SIMPLE}}", "");
+                    script = remove_block("{{#DEBLOCK_DCTFILTER}}", "{{/DEBLOCK_DCTFILTER}}", script);
 
                     script = process_optional_int("DEBLOCK_QUANT1", Some(deblock.quant1), script);
+                }
+                DeblockMethod::DctFilter => {
+                    script = remove_block("{{#DEBLOCK_QED}}", "{{/DEBLOCK_QED}}", script);
+                    script = remove_block("{{#DEBLOCK_SIMPLE}}", "{{/DEBLOCK_SIMPLE}}", script);
+                    script = script.replace("{{#DEBLOCK_DCTFILTER}}", "");
+                    script = script.replace("{{/DEBLOCK_DCTFILTER}}", "");
+
+                    script = script.replace(
+                        "{{DEBLOCK_DCT_FACTORS}}",
+                        &deblock.dct_factors_literal(),
+                    );
+                    script = script.replace(
+                        "{{DEBLOCK_DCT_PLANES}}",
+                        deblock.dct_planes_literal(),
+                    );
                 }
             }
         } else {
@@ -1101,6 +1147,95 @@ impl ScriptGenerator {
             script = script.replace("{{STAB_MIRROR}}", &stabilize.effective_mirror().to_string());
         } else {
             script = remove_block("{{#STABILIZE}}", "{{/STABILIZE}}", script);
+        }
+
+        // ====================================================================
+        // FILM GRAIN PASS
+        // ====================================================================
+        let grain = &pipeline.grain;
+        if grain.has_effect() {
+            script = script.replace("{{#GRAIN}}", "");
+            script = script.replace("{{/GRAIN}}", "");
+
+            match grain.method {
+                GrainMethod::AddGrain => {
+                    script = script.replace("{{#GRAIN_ADD}}", "");
+                    script = script.replace("{{/GRAIN_ADD}}", "");
+                    script = remove_block("{{#GRAIN_FACTORY3}}", "{{/GRAIN_FACTORY3}}", script);
+
+                    script = script.replace("{{GRAIN_VAR}}", &format_double(grain.var));
+                    script = script.replace("{{GRAIN_UVAR}}", &format_double(grain.uvar));
+                    // Capped below 1.0, which the plugin accepts but which wraps
+                    // back to uncorrelated noise at full amplitude.
+                    script = script.replace(
+                        "{{GRAIN_CORR}}",
+                        &format_double(grain.effective_corr()),
+                    );
+                    script = script.replace(
+                        "{{GRAIN_CONSTANT}}",
+                        if grain.constant { "True" } else { "False" },
+                    );
+                }
+                GrainMethod::GrainFactory3 => {
+                    script = remove_block("{{#GRAIN_ADD}}", "{{/GRAIN_ADD}}", script);
+                    script = script.replace("{{#GRAIN_FACTORY3}}", "");
+                    script = script.replace("{{/GRAIN_FACTORY3}}", "");
+
+                    script = script.replace("{{GRAIN_G1}}", &format_double(grain.g1str));
+                    script = script.replace("{{GRAIN_G2}}", &format_double(grain.g2str));
+                    script = script.replace("{{GRAIN_G3}}", &format_double(grain.g3str));
+                    // Omitted at 0 so havsfunc's own default applies.
+                    script = process_optional_int(
+                        "GRAIN_TEMP_AVG",
+                        if grain.effective_temp_avg() > 0 {
+                            Some(grain.effective_temp_avg())
+                        } else {
+                            None
+                        },
+                        script,
+                    );
+                }
+            }
+        } else {
+            script = remove_block("{{#GRAIN}}", "{{/GRAIN}}", script);
+        }
+
+        // ====================================================================
+        // ROTATE / FLIP PASS
+        // ====================================================================
+        let geometry = &pipeline.geometry;
+        if geometry.has_effect() {
+            script = script.replace("{{#GEOMETRY}}", "");
+            script = script.replace("{{/GEOMETRY}}", "");
+
+            match geometry.rotation.function() {
+                Some(func) => {
+                    script = script.replace("{{#GEOM_ROTATE}}", "");
+                    script = script.replace("{{/GEOM_ROTATE}}", "");
+                    script = script.replace("{{GEOM_ROTATE_FN}}", func);
+                }
+                None => {
+                    script = remove_block("{{#GEOM_ROTATE}}", "{{/GEOM_ROTATE}}", script);
+                }
+            }
+
+            for (flag, block) in [
+                (geometry.flip_horizontal, "GEOM_FLIP_H"),
+                (geometry.flip_vertical, "GEOM_FLIP_V"),
+            ] {
+                let open = format!("{{{{#{}}}}}", block);
+                let close = format!("{{{{/{}}}}}", block);
+                if flag {
+                    script = script.replace(&open, "");
+                    script = script.replace(&close, "");
+                } else {
+                    script = remove_block(&open, &close, script);
+                }
+            }
+        } else {
+            // Enabled with nothing chosen emits nothing, so the script says what
+            // actually runs.
+            script = remove_block("{{#GEOMETRY}}", "{{/GEOMETRY}}", script);
         }
 
         // ====================================================================
@@ -1250,16 +1385,45 @@ impl ScriptGenerator {
                 || color.output_high != 255
                 || (color.gamma - 1.0).abs() > 0.001;
 
-            if has_levels {
+            if has_levels && !color.smooth_levels {
                 script = script.replace("{{#COLOR_LEVELS}}", "");
                 script = script.replace("{{/COLOR_LEVELS}}", "");
+                script = remove_block("{{#COLOR_SMOOTH_LEVELS}}", "{{/COLOR_SMOOTH_LEVELS}}", script);
                 script = process_optional_int("LEVELS_INPUT_LOW", if color.input_low != 0 { Some(color.input_low) } else { None }, script);
                 script = process_optional_int("LEVELS_INPUT_HIGH", if color.input_high != 255 { Some(color.input_high) } else { None }, script);
                 script = process_optional_int("LEVELS_OUTPUT_LOW", if color.output_low != 0 { Some(color.output_low) } else { None }, script);
                 script = process_optional_int("LEVELS_OUTPUT_HIGH", if color.output_high != 255 { Some(color.output_high) } else { None }, script);
                 script = process_optional_double("LEVELS_GAMMA", if (color.gamma - 1.0).abs() > 0.001 { Some(color.gamma) } else { None }, script);
+            } else if has_levels {
+                // SmoothLevels reuses the _levels_8bit() helper defined in the
+                // plain block, so that block's scaffolding stays emitted while
+                // its std.Levels call does not.
+                script = script.replace("{{#COLOR_LEVELS}}", "");
+                script = script.replace("{{/COLOR_LEVELS}}", "");
+                script = process_optional_int("LEVELS_INPUT_LOW", None, script);
+                script = process_optional_int("LEVELS_INPUT_HIGH", None, script);
+                script = process_optional_int("LEVELS_OUTPUT_LOW", None, script);
+                script = process_optional_int("LEVELS_OUTPUT_HIGH", None, script);
+                script = process_optional_double("LEVELS_GAMMA", None, script);
+                script = script.replace("core.std.Levels(\n    clip,\n)", "clip");
+
+                script = script.replace("{{#COLOR_SMOOTH_LEVELS}}", "");
+                script = script.replace("{{/COLOR_SMOOTH_LEVELS}}", "");
+                // The black point is dropped when gamma is not 1.0 — havsfunc's
+                // LUT goes complex below input_low and fails outright.
+                script = script.replace(
+                    "{{SMOOTH_INPUT_LOW}}",
+                    &color.smooth_levels_input_low().to_string(),
+                );
+                script = script.replace("{{SMOOTH_INPUT_HIGH}}", &color.input_high.to_string());
+                script = script.replace("{{SMOOTH_OUTPUT_LOW}}", &color.output_low.to_string());
+                script = script.replace("{{SMOOTH_OUTPUT_HIGH}}", &color.output_high.to_string());
+                script = script.replace("{{SMOOTH_GAMMA}}", &format_double(color.gamma));
+                // -2 is havsfunc's own default and the best-measured setting.
+                script = script.replace("{{SMOOTH_MODE}}", "-2");
             } else {
                 script = remove_block("{{#COLOR_LEVELS}}", "{{/COLOR_LEVELS}}", script);
+                script = remove_block("{{#COLOR_SMOOTH_LEVELS}}", "{{/COLOR_SMOOTH_LEVELS}}", script);
             }
 
             // White balance (temperature / tint)
@@ -1386,8 +1550,13 @@ impl ScriptGenerator {
                     );
                     script = script.replace("{{#ASPECT_DAR_FROM_SOURCE}}", "");
                     script = script.replace("{{/ASPECT_DAR_FROM_SOURCE}}", "");
-                    let source_sar = job
-                        .input_sar
+                    // The rotate pass runs before this, so the source SAR no
+                    // longer describes the frame if it turned. Same adjustment
+                    // as the encode-side declaration, or the square-pixel
+                    // fitting path computes the display aspect upside down.
+                    let source_sar = pipeline
+                        .geometry
+                        .adjusted_sar(job.input_sar.as_deref())
                         .as_deref()
                         .and_then(parse_ratio)
                         .unwrap_or(1.0);

@@ -56,7 +56,11 @@ class PassListPanel extends StatelessWidget {
     ),
     (
       title: 'Framing',
-      passes: [PassType.stabilize, PassType.cropResize],
+      passes: [PassType.stabilize, PassType.geometry, PassType.cropResize],
+    ),
+    (
+      title: 'Finishing',
+      passes: [PassType.grain],
     ),
     (
       title: 'Post-Processing',
@@ -129,6 +133,12 @@ class PassListPanel extends StatelessWidget {
             case PassType.stabilize:
               return item(passType, 'Stabilize', pipeline.stabilize.summary,
                   pipeline.stabilize.enabled);
+            case PassType.geometry:
+              return item(passType, 'Rotate / Flip', pipeline.geometry.summary,
+                  pipeline.geometry.enabled);
+            case PassType.grain:
+              return item(passType, 'Film Grain', pipeline.grain.summary,
+                  pipeline.grain.enabled);
             case PassType.chromaFixes:
               return item(passType, 'Chroma Fixes', pipeline.chromaFixes.summary,
                   pipeline.chromaFixes.enabled);

@@ -10,6 +10,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vapourbox/models/chroma_denoise_parameters.dart';
 import 'package:vapourbox/models/deband_parameters.dart';
+import 'package:vapourbox/models/geometry_parameters.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
 import 'package:vapourbox/models/chroma_fix_parameters.dart';
 import 'package:vapourbox/models/noise_reduction_parameters.dart';
@@ -201,6 +202,57 @@ void main() {
         ),
         isNull,
       );
+    });
+  });
+
+  group('rotating interlaced material', () {
+    test('warns when a quarter turn runs with deinterlacing off', () {
+      final advice = adviceFor(
+        PassType.geometry,
+        const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          geometry: GeometryParameters(
+            enabled: true,
+            rotation: Rotation.cw90,
+          ),
+        ),
+      );
+      expect(advice, isNotNull);
+      expect(advice, contains('destroys'));
+    });
+
+    test('silent when deinterlacing is on, since it runs first', () {
+      expect(
+        adviceFor(
+          PassType.geometry,
+          const ProcessingPipeline(
+            deinterlace: QTGMCParameters(enabled: true),
+            geometry: GeometryParameters(
+              enabled: true,
+              rotation: Rotation.cw90,
+            ),
+          ),
+        ),
+        isNull,
+      );
+    });
+
+    test('silent for a half turn and for flips, which keep fields in rows', () {
+      for (final geometry in [
+        const GeometryParameters(enabled: true, rotation: Rotation.rotate180),
+        const GeometryParameters(enabled: true, flipHorizontal: true),
+      ]) {
+        expect(
+          adviceFor(
+            PassType.geometry,
+            ProcessingPipeline(
+              deinterlace: const QTGMCParameters(enabled: false),
+              geometry: geometry,
+            ),
+          ),
+          isNull,
+        );
+      }
     });
   });
 

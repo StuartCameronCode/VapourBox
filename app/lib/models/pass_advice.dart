@@ -111,6 +111,25 @@ List<PassAdvice> adviseOn(ProcessingPipeline pipeline) {
     ));
   }
 
+  // --- Rotating interlaced material destroys it ---
+  // Fields are stored as alternating horizontal lines. A quarter turn puts them
+  // in alternating COLUMNS, where no deinterlacer can find them: measured,
+  // std.SeparateFields on a turned clip returns two "fields" that each still
+  // contain both, interleaved. It is not a quality trade-off, it is
+  // unrecoverable — and _FieldBased still claims the clip is fine afterwards.
+  if (on(PassType.geometry) &&
+      pipeline.geometry.rotation.swapsAxes &&
+      !pipeline.deinterlace.enabled) {
+    advice.add(const PassAdvice(
+      PassType.geometry,
+      'Rotating an interlaced source by a quarter turn destroys the field '
+      'structure permanently — the comb ends up in columns, where no '
+      'deinterlacer can separate it. If this source is interlaced, turn '
+      'Deinterlace on: it runs first, so the rotation then happens to '
+      'progressive frames.',
+    ));
+  }
+
   return advice;
 }
 

@@ -49,6 +49,10 @@ class PassSettingsInline extends StatelessWidget {
         return 'anti_alias';
       case PassType.stabilize:
         return 'stabilize';
+      case PassType.geometry:
+        return 'geometry';
+      case PassType.grain:
+        return 'grain';
       case PassType.colorCorrection:
         return 'color_correction';
       case PassType.chromaFixes:

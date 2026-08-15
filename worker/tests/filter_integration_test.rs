@@ -4261,3 +4261,580 @@ fn test_115_every_noise_method_still_emits_only_its_own_filter() {
         );
     }
 }
+
+// ============================================================================
+// Batch four.
+// ============================================================================
+
+#[test]
+fn test_116_geometry_rotation_and_flips() {
+    create_output_dir();
+    let mut job = create_base_job("test_116_geometry");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        geometry: GeometryParameters {
+            enabled: true,
+            rotation: Rotation::Cw90,
+            flip_horizontal: true,
+            flip_vertical: false,
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "Rotate / Flip",
+        &["core.std.Turn90(", "core.std.FlipHorizontal("],
+    )
+    .unwrap();
+
+    let script = script_text(&job);
+    assert!(
+        !script.contains("core.std.FlipVertical("),
+        "an unselected flip must not be emitted"
+    );
+}
+
+#[test]
+fn test_117_geometry_enabled_with_nothing_selected_emits_nothing() {
+    // Turning the pass on without choosing anything is a no-op, and the script
+    // should say what actually runs rather than carry a silent identity call.
+    create_output_dir();
+    let mut job = create_base_job("test_117_geometry_noop");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        geometry: GeometryParameters { enabled: true, ..Default::default() },
+        ..ProcessingPipeline::default()
+    });
+    let script = script_text(&job);
+    for call in ["core.std.Turn90(", "core.std.Turn180(", "core.std.Turn270(",
+                 "core.std.FlipHorizontal(", "core.std.FlipVertical("] {
+        assert!(!script.contains(call), "{call} should not be emitted");
+    }
+    assert!(!script.contains("{{GEOM"), "left an unsubstituted placeholder");
+}
+
+#[test]
+fn test_118_each_rotation_emits_its_own_turn() {
+    create_output_dir();
+    for (rotation, expected, forbidden) in [
+        (Rotation::Cw90, "core.std.Turn90(", "core.std.Turn270("),
+        (Rotation::Rotate180, "core.std.Turn180(", "core.std.Turn90("),
+        (Rotation::Ccw90, "core.std.Turn270(", "core.std.Turn90("),
+    ] {
+        let mut job = create_base_job("test_118_geometry_rotations");
+        job.qtgmc_parameters.enabled = false;
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            geometry: GeometryParameters {
+                enabled: true,
+                rotation,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        let script = script_text(&job);
+        assert!(script.contains(expected), "{rotation:?} should emit {expected}");
+        assert!(!script.contains(forbidden), "{rotation:?} also emitted {forbidden}");
+    }
+}
+
+#[test]
+fn test_119_rotation_runs_before_framing_and_after_deinterlacing() {
+    // Both orderings are load-bearing. A quarter turn swaps width and height,
+    // so framing must see the final shape; and fields run horizontally, so
+    // turning a still-interlaced clip would shear them.
+    create_output_dir();
+    let mut job = create_base_job("test_119_geometry_order");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.tff = Some(true);
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters {
+            enabled: true,
+            preset: QTGMCPreset::Fast,
+            tff: Some(true),
+            ..Default::default()
+        },
+        geometry: GeometryParameters {
+            enabled: true,
+            rotation: Rotation::Cw90,
+            ..Default::default()
+        },
+        crop_resize: CropResizeParameters {
+            enabled: true,
+            resize_enabled: true,
+            target_width: Some(480),
+            target_height: Some(640),
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let script = script_text(&job);
+    let deint = script.find("haf.QTGMC(").expect("QTGMC present");
+    let turn = script.find("core.std.Turn90(").expect("Turn90 present");
+    // Anchor on the target size, not on "core.resize." — the template also uses
+    // resize near the top to normalise unusual chroma formats, and matching that
+    // would compare against the wrong call entirely.
+    let framing = script
+        .find("target_w = 480")
+        .expect("the framing resize should carry the target width");
+    assert!(deint < turn, "rotation must follow deinterlacing");
+    assert!(turn < framing, "rotation must precede framing");
+}
+
+#[test]
+fn test_120_grain_addgrain() {
+    create_output_dir();
+    let mut job = create_base_job("test_120_grain_add");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        grain: GrainParameters {
+            enabled: true,
+            method: GrainMethod::AddGrain,
+            var: 9.0,
+            uvar: 2.0,
+            corr: 0.5,
+            constant: true,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "AddGrain",
+        &["core.grain.Add(", "var=9.0", "uvar=2.0", "hcorr=0.5", "vcorr=0.5", "constant=True"],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_121_grain_correlation_is_capped_below_one() {
+    // 1.0 is accepted by the plugin but wraps back to uncorrelated noise at
+    // full amplitude — the opposite of what the control implies.
+    create_output_dir();
+    let mut job = create_base_job("test_121_grain_corr");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        grain: GrainParameters {
+            enabled: true,
+            corr: 1.0,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(&job, "AddGrain corr cap", &["hcorr=0.9", "vcorr=0.9"]).unwrap();
+}
+
+#[test]
+fn test_122_grain_is_not_depth_scaled() {
+    // `var` is already in 8-bit units and the plugin rescales internally, so it
+    // must NOT get the _levels_8bit() treatment applied to std.Levels and
+    // Tweak. Measured: identical 8-bit-equivalent output at 8/10/12/16-bit.
+    // This asserts the script passes the value through untouched.
+    create_output_dir();
+    let mut job = create_base_job("test_122_grain_depth");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        grain: GrainParameters {
+            enabled: true,
+            var: 6.0,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = script_text(&job);
+    assert!(script.contains("var=6"), "var should be passed through verbatim");
+    for scaled in ["_grain_scale", "peak", "_levels_8bit"] {
+        assert!(
+            !script.contains(&format!("var={scaled}")),
+            "var must not be depth-scaled"
+        );
+    }
+}
+
+#[test]
+fn test_123_grain_factory3() {
+    create_output_dir();
+    let mut job = create_base_job("test_123_grain_gf3");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        grain: GrainParameters {
+            enabled: true,
+            method: GrainMethod::GrainFactory3,
+            g1str: 6.0,
+            g2str: 4.0,
+            g3str: 2.0,
+            temp_avg: 50,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "GrainFactory3",
+        &["haf.GrainFactory3(", "g1str=6", "g2str=4", "g3str=2", "temp_avg=50"],
+    )
+    .unwrap();
+
+    let script = script_text(&job);
+    assert!(!script.contains("core.grain.Add("), "the other method must be stripped");
+}
+
+#[test]
+fn test_124_grain_runs_last_of_the_video_passes() {
+    // Grain added before a resize is resampled away and before a deband is
+    // smoothed away, so it has to come after both — and before the output
+    // colour conversion, which must stay final.
+    create_output_dir();
+    let mut job = create_base_job("test_124_grain_order");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        deband: DebandParameters { enabled: true, ..Default::default() },
+        sharpen: SharpenParameters {
+            enabled: true,
+            method: SharpenMethod::CAS,
+            ..Default::default()
+        },
+        grain: GrainParameters { enabled: true, ..Default::default() },
+        crop_resize: CropResizeParameters {
+            enabled: true,
+            resize_enabled: true,
+            target_width: Some(640),
+            target_height: Some(480),
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let script = script_text(&job);
+    let deband = script.find("neo_f3kdb.Deband(").expect("deband present");
+    let sharpen = script.find("core.cas.CAS(").expect("sharpen present");
+    let framing = script.find("target_w = 640").expect("framing present");
+    let grain = script.find("core.grain.Add(").expect("grain present");
+    assert!(deband < grain, "grain must follow deband");
+    assert!(sharpen < grain, "grain must follow sharpening");
+    assert!(framing < grain, "grain must follow the framing resize");
+}
+
+#[test]
+fn test_125_grain_with_zero_strength_emits_nothing() {
+    create_output_dir();
+    let mut job = create_base_job("test_125_grain_silent");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        grain: GrainParameters {
+            enabled: true,
+            var: 0.0,
+            uvar: 0.0,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = script_text(&job);
+    assert!(!script.contains("core.grain.Add("));
+    assert!(!script.contains("{{GRAIN"), "left an unsubstituted placeholder");
+}
+
+#[test]
+fn test_126_rotation_restores_the_source_pixel_format() {
+    // A quarter turn swaps the chroma subsampling axes: 4:2:2 becomes 4:4:0,
+    // which vspipe emits as "C440" and ffmpeg rejects outright, and 4:1:1 has no
+    // y4m identifier at all so vspipe itself fails. Both are hard job failures,
+    // and 4:2:2 is the common 10-bit ProRes case — so the script captures the
+    // source format before the turn and converts back after.
+    create_output_dir();
+    let mut job = create_base_job("test_126_rotate_format");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        geometry: GeometryParameters {
+            enabled: true,
+            rotation: Rotation::Cw90,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "Rotate format guard",
+        &[
+            "_geom_src_format = clip.format",
+            "clip.format.id != _geom_src_format.id",
+            "core.resize.Spline36(clip, format=_geom_src_format.id)",
+        ],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_127_rotation_inverts_the_declared_sample_aspect() {
+    // SAR is pixel width : height, so a quarter turn exchanges them. There are
+    // TWO consumers: the ffmpeg-side declaration on the encode path, and
+    // {{SOURCE_SAR}} in the script's square-pixel fitting. Both must see the
+    // rotated value or an anamorphic source comes out the wrong shape.
+    let turned = GeometryParameters {
+        enabled: true,
+        rotation: Rotation::Cw90,
+        ..Default::default()
+    };
+    assert_eq!(turned.adjusted_sar(Some("64:45")).as_deref(), Some("45:64"));
+
+    create_output_dir();
+    let mut job = create_base_job("test_127_rotate_sar");
+    job.qtgmc_parameters.enabled = false;
+    job.input_sar = Some("64:45".to_string());
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        geometry: turned,
+        crop_resize: CropResizeParameters {
+            enabled: true,
+            resize_enabled: true,
+            pixel_aspect: PixelAspectMode::Square,
+            target_height: Some(720),
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let script = script_text(&job);
+    // 45/64 = 0.703125; the un-inverted 64/45 would be 1.4222.
+    assert!(
+        script.contains("0.703125") || script.contains("0.7031"),
+        "the square-pixel path should use the inverted SAR, not the source's"
+    );
+    assert!(
+        !script.contains("1.4222"),
+        "the un-inverted SAR must not reach the fitting calculation"
+    );
+}
+
+#[test]
+fn test_128_ctmf_with_its_nine_bit_guard_and_pinned_memsize() {
+    create_output_dir();
+    let mut job = create_base_job("test_128_ctmf");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::Ctmf,
+            ctmf_radius: 4,
+            ctmf_planes: 0,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "CTMF",
+        &[
+            "core.ctmf.CTMF(",
+            "radius=4",
+            "planes=[0]",
+            // 9-bit is rejected outright by the plugin and IS reachable —
+            // pixel_format.rs rounds an odd source depth up through 9.
+            "bits_per_sample == 9",
+            // Pinned: at the plugin's 1 MiB default, 16-bit radius 3 measures
+            // 0.79 fps against 42 fps here, for bit-identical output.
+            "memsize=16777216",
+        ],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_129_ctmf_radius_is_clamped_in_the_script() {
+    create_output_dir();
+    let mut job = create_base_job("test_129_ctmf_clamp");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::Ctmf,
+            ctmf_radius: 200,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(&job, "CTMF clamp", &["radius=12"]).unwrap();
+}
+
+#[test]
+fn test_130_dctfilter_builds_a_valid_eight_factor_curve() {
+    create_output_dir();
+    let mut job = create_base_job("test_130_dctfilter");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        deblock: DeblockParameters {
+            enabled: true,
+            method: DeblockMethod::DctFilter,
+            dct_cutoff: 5,
+            dct_strength: 0.6,
+            dct_planes: 0,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "DCTFilter",
+        &["core.dctf.DCTFilter(", "factors=[", "planes=[0]"],
+    )
+    .unwrap();
+
+    let script = script_text(&job);
+    // Exactly eight factors, or the plugin errors.
+    let start = script.find("factors=[").unwrap() + "factors=[".len();
+    let end = script[start..].find(']').unwrap() + start;
+    assert_eq!(
+        script[start..end].split(',').count(),
+        8,
+        "DCTFilter requires exactly 8 factors"
+    );
+    // Scope this to the factors themselves: the template's own comment
+    // explains the NaN trap, and matching that would assert on prose.
+    let factors = &script[start..end];
+    assert!(
+        !factors.to_lowercase().contains("nan") && !factors.to_lowercase().contains("inf"),
+        "a NaN factor passes the plugin's range check and blackens the frame: {factors}"
+    );
+}
+
+#[test]
+fn test_131_dctfilter_at_zero_strength_is_the_identity_curve() {
+    // All factors at 1.0 is a verified bit-exact no-op, so the pass can be
+    // enabled with nothing turned up and change nothing.
+    create_output_dir();
+    let mut job = create_base_job("test_131_dctfilter_noop");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        deblock: DeblockParameters {
+            enabled: true,
+            method: DeblockMethod::DctFilter,
+            dct_strength: 0.0,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "DCTFilter identity",
+        &["factors=[1.0000, 1.0000, 1.0000, 1.0000, 1.0000, 1.0000, 1.0000, 1.0000]"],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_132_smooth_levels_scales_its_values_to_the_clip_depth() {
+    // SmoothLevels reads levels in the CLIP'S OWN range, not 8-bit — the same
+    // trap as std.Levels, and the same fix: scale in the script from
+    // clip.format, because a preceding pass may have changed the depth.
+    // Measured unscaled, a gamma-only edit at 16-bit is off by a worst pixel of
+    // 249/255.
+    create_output_dir();
+    let mut job = create_base_job("test_132_smooth_levels");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        color_correction: ColorCorrectionParameters {
+            enabled: true,
+            apply_levels: true,
+            smooth_levels: true,
+            input_low: 16,
+            input_high: 235,
+            output_low: 0,
+            output_high: 255,
+            gamma: 1.0,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "SmoothLevels",
+        &[
+            "haf.SmoothLevels(",
+            "input_low=_levels_8bit(16)",
+            "input_high=_levels_8bit(235)",
+            "output_high=_levels_8bit(255)",
+            "Smode=-2",
+            // havsfunc calls core.f3kdb.Deband and this bundle ships
+            // neo_f3kdb, so the default useDB=True fails on every format.
+            "useDB=False",
+        ],
+    )
+    .unwrap();
+
+    let script = script_text(&job);
+    assert!(
+        !script.contains("clip = core.std.Levels("),
+        "the plain Levels call must not also run"
+    );
+}
+
+#[test]
+fn test_133_smooth_levels_drops_the_black_point_when_gamma_would_crash() {
+    // havsfunc raises a negative base to a fractional power below input_low,
+    // which yields a Python complex and fails the LUT outright. Measured: it
+    // crashes whenever input_low > 0 and 1/gamma is not an integer.
+    create_output_dir();
+    let mut job = create_base_job("test_133_smooth_levels_gamma");
+    job.qtgmc_parameters.enabled = false;
+    let color = ColorCorrectionParameters {
+        enabled: true,
+        apply_levels: true,
+        smooth_levels: true,
+        input_low: 16,
+        gamma: 0.6,
+        ..Default::default()
+    };
+    assert!(color.smooth_levels_drops_black_point());
+
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        color_correction: color,
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "SmoothLevels gamma guard",
+        &["input_low=_levels_8bit(0)", "gamma=0.6"],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_134_plain_levels_still_runs_when_smooth_is_off() {
+    // The existing behaviour must be untouched, so saved presets keep working.
+    create_output_dir();
+    let mut job = create_base_job("test_134_plain_levels");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        color_correction: ColorCorrectionParameters {
+            enabled: true,
+            apply_levels: true,
+            smooth_levels: false,
+            input_low: 16,
+            gamma: 0.6,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = script_text(&job);
+    assert!(script.contains("core.std.Levels("), "plain Levels should run");
+    assert!(!script.contains("haf.SmoothLevels("), "SmoothLevels should not");
+    // And the plain path keeps the black point AND the gamma together.
+    assert!(script.contains("min_in=_levels_8bit(16)"));
+}

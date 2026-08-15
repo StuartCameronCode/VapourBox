@@ -142,6 +142,11 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info) {
     // thing that makes it worth having.
     case PassType.antiAlias:
     case PassType.stabilize:
+    // Orientation is a fact about how the footage was shot, not a defect
+    // ffprobe reports — a rotation flag in the container is not the same as
+    // the picture being the wrong way round.
+    case PassType.geometry:
+    case PassType.grain:
       return PassRelevanceResult.neutral;
   }
 }

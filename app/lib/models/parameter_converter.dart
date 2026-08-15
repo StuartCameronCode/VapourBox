@@ -1,5 +1,7 @@
 import 'chroma_denoise_parameters.dart';
 import 'anti_alias_parameters.dart';
+import 'geometry_parameters.dart';
+import 'grain_parameters.dart';
 import 'chroma_fix_parameters.dart';
 import 'color_correction_parameters.dart';
 import 'crop_resize_parameters.dart';
@@ -166,6 +168,9 @@ class ParameterConverter {
       case NoiseReductionMethod.stPresso:
         method = 'stpresso';
         break;
+      case NoiseReductionMethod.ctmf:
+        method = 'ctmf';
+        break;
     }
 
     return DynamicParameters(
@@ -204,6 +209,8 @@ class ParameterConverter {
         'stpressoLimit': params.stpressoLimit,
         'stpressoBias': params.stpressoBias,
         'stpressoTthr': params.stpressoTthr,
+        'ctmfRadius': params.ctmfRadius,
+        'ctmfPlanes': params.ctmfPlanes,
       },
     );
   }
@@ -367,6 +374,75 @@ class ParameterConverter {
     );
   }
 
+  /// Convert rotate/flip parameters to dynamic format.
+  static DynamicParameters fromGeometry(GeometryParameters params) {
+    return DynamicParameters(
+      filterId: 'geometry',
+      enabled: params.enabled,
+      values: {
+        'method': 'transform',
+        'rotation': params.rotation.name,
+        'flipHorizontal': params.flipHorizontal,
+        'flipVertical': params.flipVertical,
+      },
+    );
+  }
+
+  /// Convert dynamic parameters to rotate/flip parameters.
+  static GeometryParameters toGeometry(DynamicParameters params) {
+    final v = params.values;
+    final name = v['rotation'] as String? ?? 'none';
+    return GeometryParameters(
+      enabled: params.enabled,
+      rotation: Rotation.values.firstWhere(
+        (r) => r.name == name,
+        orElse: () => Rotation.none,
+      ),
+      flipHorizontal: v['flipHorizontal'] as bool? ?? false,
+      flipVertical: v['flipVertical'] as bool? ?? false,
+    );
+  }
+
+  /// Convert grain parameters to dynamic format.
+  static DynamicParameters fromGrain(GrainParameters params) {
+    return DynamicParameters(
+      filterId: 'grain',
+      enabled: params.enabled,
+      values: {
+        'method': params.method == GrainMethod.grainFactory3
+            ? 'grain_factory3'
+            : 'add_grain',
+        'var': params.var_,
+        'uvar': params.uvar,
+        'corr': params.corr,
+        'constant': params.constant,
+        'g1str': params.g1str,
+        'g2str': params.g2str,
+        'g3str': params.g3str,
+        'tempAvg': params.tempAvg,
+      },
+    );
+  }
+
+  /// Convert dynamic parameters to grain parameters.
+  static GrainParameters toGrain(DynamicParameters params) {
+    final v = params.values;
+    return GrainParameters(
+      enabled: params.enabled,
+      method: v['method'] == 'grain_factory3'
+          ? GrainMethod.grainFactory3
+          : GrainMethod.addGrain,
+      var_: (v['var'] as num?)?.toDouble() ?? 4.0,
+      uvar: (v['uvar'] as num?)?.toDouble() ?? 0.0,
+      corr: (v['corr'] as num?)?.toDouble() ?? 0.0,
+      constant: v['constant'] as bool? ?? false,
+      g1str: (v['g1str'] as num?)?.toDouble() ?? 4.0,
+      g2str: (v['g2str'] as num?)?.toDouble() ?? 3.0,
+      g3str: (v['g3str'] as num?)?.toDouble() ?? 2.0,
+      tempAvg: _asInt(v['tempAvg']) ?? 0,
+    );
+  }
+
   /// Convert deblock parameters to dynamic format.
   static DynamicParameters fromDeblock(DeblockParameters params) {
     String method;
@@ -376,6 +452,9 @@ class ParameterConverter {
         break;
       case DeblockMethod.deblock:
         method = 'deblock';
+        break;
+      case DeblockMethod.dctFilter:
+        method = 'dctfilter';
         break;
     }
 
@@ -388,6 +467,9 @@ class ParameterConverter {
         'quant2': params.quant2,
         'aOffset1': params.aOffset1,
         'aOffset2': params.aOffset2,
+        'dctCutoff': params.dctCutoff,
+        'dctStrength': params.dctStrength,
+        'dctPlanes': params.dctPlanes,
       },
     );
   }
@@ -501,6 +583,7 @@ class ParameterConverter {
         'saturation': params.saturation,
         'coring': params.coring,
         'applyLevels': params.applyLevels,
+        'smoothLevels': params.smoothLevels,
         'inputLow': params.inputLow,
         'inputHigh': params.inputHigh,
         'outputLow': params.outputLow,
@@ -619,6 +702,8 @@ class ParameterConverter {
         'noise_reduction': fromNoiseReduction(pipeline.noiseReduction),
         'anti_alias': fromAntiAlias(pipeline.antiAlias),
         'stabilize': fromStabilize(pipeline.stabilize),
+        'geometry': fromGeometry(pipeline.geometry),
+        'grain': fromGrain(pipeline.grain),
         'chroma_denoise': fromChromaDenoise(pipeline.chromaDenoise),
         'dehalo': fromDehalo(pipeline.dehalo),
         'deblock': fromDeblock(pipeline.deblock),
@@ -783,6 +868,9 @@ class ParameterConverter {
       case 'stpresso':
         method = NoiseReductionMethod.stPresso;
         break;
+      case 'ctmf':
+        method = NoiseReductionMethod.ctmf;
+        break;
       default:
         method = NoiseReductionMethod.smDegrain;
     }
@@ -822,6 +910,8 @@ class ParameterConverter {
       stpressoLimit: _asInt(v['stpressoLimit']) ?? 3,
       stpressoBias: _asInt(v['stpressoBias']) ?? 24,
       stpressoTthr: _asInt(v['stpressoTthr']) ?? 12,
+      ctmfRadius: _asInt(v['ctmfRadius']) ?? 2,
+      ctmfPlanes: _asInt(v['ctmfPlanes']) ?? 2,
     );
   }
 
@@ -900,6 +990,9 @@ class ParameterConverter {
       case 'deblock':
         method = DeblockMethod.deblock;
         break;
+      case 'dctfilter':
+        method = DeblockMethod.dctFilter;
+        break;
       default:
         method = DeblockMethod.deblockQed;
     }
@@ -911,6 +1004,11 @@ class ParameterConverter {
       quant2: v['quant2'] as int? ?? 26,
       aOffset1: v['aOffset1'] as int? ?? 1,
       aOffset2: v['aOffset2'] as int? ?? 1,
+      dctCutoff: _asInt(v['dctCutoff']) ?? 5,
+      // Guarded on the Rust side too, but a NaN here would reach a plugin whose
+      // own range check lets it through and blackens the frame.
+      dctStrength: (v['dctStrength'] as num?)?.toDouble() ?? 0.6,
+      dctPlanes: _asInt(v['dctPlanes']) ?? 0,
     );
   }
 
@@ -1008,6 +1106,7 @@ class ParameterConverter {
       saturation: (v['saturation'] as num?)?.toDouble() ?? 1.0,
       coring: v['coring'] as bool? ?? false,
       applyLevels: v['applyLevels'] as bool? ?? false,
+      smoothLevels: v['smoothLevels'] as bool? ?? false,
       inputLow: v['inputLow'] as int? ?? 0,
       inputHigh: v['inputHigh'] as int? ?? 255,
       outputLow: v['outputLow'] as int? ?? 0,
@@ -1129,6 +1228,12 @@ class ParameterConverter {
       stabilize: dynamic.get('stabilize') != null
           ? toStabilize(dynamic.get('stabilize')!)
           : const StabilizeParameters(),
+      geometry: dynamic.get('geometry') != null
+          ? toGeometry(dynamic.get('geometry')!)
+          : const GeometryParameters(),
+      grain: dynamic.get('grain') != null
+          ? toGrain(dynamic.get('grain')!)
+          : const GrainParameters(),
       chromaDenoise: dynamic.get('chroma_denoise') != null
           ? toChromaDenoise(dynamic.get('chroma_denoise')!)
           : const ChromaDenoiseParameters(),

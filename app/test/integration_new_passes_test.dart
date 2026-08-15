@@ -22,7 +22,11 @@ import 'package:vapourbox/models/anti_alias_parameters.dart';
 import 'package:vapourbox/models/chroma_denoise_parameters.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
 import 'package:vapourbox/models/chroma_fix_parameters.dart';
+import 'package:vapourbox/models/color_correction_parameters.dart';
 import 'package:vapourbox/models/descratch_parameters.dart';
+import 'package:vapourbox/models/deblock_parameters.dart';
+import 'package:vapourbox/models/grain_parameters.dart';
+import 'package:vapourbox/models/geometry_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/noise_reduction_parameters.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
@@ -459,6 +463,161 @@ void main() {
       );
       final result =
           await WorkerHarness.runJob(job.toJson(), label: 'nr_stpresso');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+
+    // --- Batch four --------------------------------------------------------
+
+    test('noise reduction: CTMF runs end-to-end', () async {
+      final job = _baseJob(
+        'nr_ctmf',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.ctmf,
+            ctmfRadius: 3,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'nr_ctmf');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('deblock: DCTFilter runs end-to-end', () async {
+      final job = _baseJob(
+        'deblock_dctfilter',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          deblock: DeblockParameters(
+            enabled: true,
+            method: DeblockMethod.dctFilter,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'deblock_dctfilter');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('grain: AddGrain and GrainFactory3 both run end-to-end', () async {
+      for (final entry in <String, GrainParameters>{
+        'grain_add': const GrainParameters(enabled: true, var_: 6.0, uvar: 2.0),
+        'grain_gf3': const GrainParameters(
+          enabled: true,
+          method: GrainMethod.grainFactory3,
+        ),
+      }.entries) {
+        final job = _baseJob(
+          entry.key,
+          pipeline: ProcessingPipeline(
+            deinterlace: const QTGMCParameters(enabled: false),
+            grain: entry.value,
+          ),
+        );
+        final result =
+            await WorkerHarness.runJob(job.toJson(), label: entry.key);
+        await _expectValidVideo(result);
+      }
+    }, timeout: const Timeout(Duration(minutes: 10)));
+
+    test('geometry: every rotation and flip runs end-to-end', () async {
+      // The quarter turns are the ones that matter: they change the pixel
+      // format (4:2:2 becomes 4:4:0), which ffmpeg rejects outright unless the
+      // script converts back. Script generation cannot catch that.
+      for (final entry in <String, GeometryParameters>{
+        'geo_cw90': const GeometryParameters(
+          enabled: true,
+          rotation: Rotation.cw90,
+        ),
+        'geo_180': const GeometryParameters(
+          enabled: true,
+          rotation: Rotation.rotate180,
+        ),
+        'geo_ccw90': const GeometryParameters(
+          enabled: true,
+          rotation: Rotation.ccw90,
+        ),
+        'geo_flips': const GeometryParameters(
+          enabled: true,
+          flipHorizontal: true,
+          flipVertical: true,
+        ),
+      }.entries) {
+        final job = _baseJob(
+          entry.key,
+          pipeline: ProcessingPipeline(
+            deinterlace: const QTGMCParameters(enabled: false),
+            geometry: entry.value,
+          ),
+        );
+        final result =
+            await WorkerHarness.runJob(job.toJson(), label: entry.key);
+        await _expectValidVideo(result);
+      }
+    }, timeout: const Timeout(Duration(minutes: 12)));
+
+    test('batch four renders in the preview path too', () async {
+      for (final entry in <String, ProcessingPipeline>{
+        'ctmf': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.ctmf,
+          ),
+        ),
+        'dctfilter': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          deblock: DeblockParameters(
+            enabled: true,
+            method: DeblockMethod.dctFilter,
+          ),
+        ),
+        'grain': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          grain: GrainParameters(enabled: true),
+        ),
+        'rotate': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          geometry: GeometryParameters(
+            enabled: true,
+            rotation: Rotation.cw90,
+          ),
+        ),
+      }.entries) {
+        final job = _baseJob('preview4_${entry.key}', pipeline: entry.value);
+        final preview = await WorkerHarness.runPreview(
+          job.toJson(),
+          frame: 10,
+          label: 'preview4_${entry.key}',
+        );
+        expect(preview.success, isTrue,
+            reason: '${entry.key} preview failed: ${preview.errorTail}');
+        print('  ${entry.key}: preview frame rendered '
+            '(${preview.png!.length} bytes)');
+      }
+    }, timeout: const Timeout(Duration(minutes: 10)));
+
+
+    test('color: SmoothLevels runs end-to-end', () async {
+      // The default useDB=True raises "no attribute named f3kdb" on every
+      // format against this bundle, so this proves the pin actually holds.
+      final job = _baseJob(
+        'color_smooth_levels',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          colorCorrection: ColorCorrectionParameters(
+            enabled: true,
+            applyLevels: true,
+            smoothLevels: true,
+            inputLow: 16,
+            inputHigh: 235,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'color_smooth_levels');
       await _expectValidVideo(result);
     }, timeout: const Timeout(Duration(minutes: 6)));
 

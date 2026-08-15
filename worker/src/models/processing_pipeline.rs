@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    AntiAliasParameters, StabilizeParameters,
+    AntiAliasParameters, GeometryParameters, GrainParameters, StabilizeParameters,
     ChromaDenoiseParameters, ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
     DebandParameters, DeblockParameters, DehaloParameters, DeinterlaceMethod, DeScratchParameters,
     SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters,
@@ -125,6 +125,8 @@ pub enum PassType {
     Sharpen,
     AntiAlias,
     Stabilize,
+    Geometry,
+    Grain,
     ColorCorrection,
     ChromaFixes,
     CropResize,
@@ -146,6 +148,8 @@ impl PassType {
             PassType::Sharpen => "Sharpen",
             PassType::AntiAlias => "Anti-Aliasing",
             PassType::Stabilize => "Stabilize",
+            PassType::Geometry => "Rotate / Flip",
+            PassType::Grain => "Film Grain",
             PassType::ColorCorrection => "Color Correction",
             PassType::ChromaFixes => "Chroma Fixes",
             PassType::CropResize => "Crop / Resize",
@@ -166,6 +170,8 @@ impl PassType {
             PassType::Sharpen => "Sharpen edges and enhance detail",
             PassType::AntiAlias => "Smooth stair-stepping on diagonal edges",
             PassType::Stabilize => "Remove shake and weave from the picture",
+            PassType::Geometry => "Rotate or mirror the picture",
+            PassType::Grain => "Add film grain back after denoising",
             PassType::ColorCorrection => "Adjust brightness, contrast, and colors",
             PassType::ChromaFixes => "Fix chroma bleeding and crawl artifacts",
             PassType::CropResize => "Crop borders and resize output",
@@ -222,6 +228,14 @@ pub struct ProcessingPipeline {
     #[serde(default)]
     pub stabilize: StabilizeParameters,
 
+    /// Rotate/flip pass parameters.
+    #[serde(default)]
+    pub geometry: GeometryParameters,
+
+    /// Film grain pass parameters.
+    #[serde(default)]
+    pub grain: GrainParameters,
+
     /// Color correction pass parameters.
     #[serde(default)]
     pub color_correction: ColorCorrectionParameters,
@@ -249,6 +263,8 @@ impl Default for ProcessingPipeline {
             sharpen: SharpenParameters::default(),
             anti_alias: AntiAliasParameters::default(),
             stabilize: StabilizeParameters::default(),
+            geometry: GeometryParameters::default(),
+            grain: GrainParameters::default(),
             color_correction: ColorCorrectionParameters::default(),
             chroma_fixes: ChromaFixParameters::default(),
             crop_resize: CropResizeParameters::default(),
@@ -272,6 +288,8 @@ impl ProcessingPipeline {
             sharpen: SharpenParameters { enabled: false, ..Default::default() },
             anti_alias: AntiAliasParameters { enabled: false, ..Default::default() },
             stabilize: StabilizeParameters { enabled: false, ..Default::default() },
+            geometry: GeometryParameters { enabled: false, ..Default::default() },
+            grain: GrainParameters { enabled: false, ..Default::default() },
             color_correction: ColorCorrectionParameters { enabled: false, ..Default::default() },
             chroma_fixes: ChromaFixParameters { enabled: false, ..Default::default() },
             crop_resize: CropResizeParameters { enabled: false, ..Default::default() },
@@ -331,11 +349,25 @@ impl ProcessingPipeline {
         if self.stabilize.enabled {
             passes.push(PassType::Stabilize);
         }
+        // Rotation swaps width and height, so it has to settle before any
+        // framing decision is made. It also must follow deinterlacing: fields
+        // run horizontally, so turning a still-interlaced clip shears them.
+        if self.geometry.has_effect() {
+            passes.push(PassType::Geometry);
+        }
         if self.crop_resize.enabled && self.crop_resize.resize_enabled {
             // Resize (post-processing) - if not already added for crop
             if !passes.contains(&PassType::CropResize) {
                 passes.push(PassType::CropResize);
             }
+        }
+
+        // Grain goes last of the video passes. Added before the resize it is
+        // resampled away; before the deband it is smoothed away. Measured, and
+        // the reason this pass sits after framing rather than with the other
+        // enhancement steps.
+        if self.grain.has_effect() {
+            passes.push(PassType::Grain);
         }
 
         passes
@@ -459,6 +491,8 @@ impl ProcessingPipeline {
             PassType::Sharpen => self.sharpen.enabled,
             PassType::AntiAlias => self.anti_alias.enabled,
             PassType::Stabilize => self.stabilize.enabled,
+            PassType::Geometry => self.geometry.has_effect(),
+            PassType::Grain => self.grain.has_effect(),
             PassType::ColorCorrection => self.color_correction.enabled,
             PassType::ChromaFixes => self.chroma_fixes.enabled,
             PassType::CropResize => self.crop_resize.enabled,

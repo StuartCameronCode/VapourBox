@@ -49,7 +49,9 @@ void main() {
       PassType.chromaFixes,
       PassType.colorCorrection,
       PassType.stabilize,
+      PassType.geometry,
       PassType.cropResize,
+      PassType.grain,
       PassType.subtitles,
     ]);
   });
@@ -66,6 +68,17 @@ void main() {
           lessThan(indexOf(PassType.sharpen)));
     });
 
+    test('rotation settles before any framing decision', () {
+      // A quarter turn swaps width and height, so crop, resize and the aspect
+      // declaration must all see the final shape.
+      expect(indexOf(PassType.geometry),
+          lessThan(indexOf(PassType.cropResize)));
+      // And it must follow deinterlacing: fields run horizontally, so turning
+      // a still-interlaced clip shears them.
+      expect(indexOf(PassType.geometry),
+          greaterThan(indexOf(PassType.deinterlace)));
+    });
+
     test('stabilisation runs last before framing', () {
       // It shifts the picture within the frame and exposes thin empty edges, so
       // a crop afterwards can remove them.
@@ -74,6 +87,15 @@ void main() {
       expect(indexOf(PassType.stabilize),
           greaterThan(indexOf(PassType.colorCorrection)));
     });
+  });
+
+  test('grain is the last video pass', () {
+    // Grain added before the resize is resampled away and before the deband is
+    // smoothed away, so it has to follow both.
+    expect(flattened.indexOf(PassType.grain),
+        greaterThan(flattened.indexOf(PassType.cropResize)));
+    expect(flattened.indexOf(PassType.grain),
+        greaterThan(flattened.indexOf(PassType.deband)));
   });
 
   test('every stage has a title and at least one pass', () {

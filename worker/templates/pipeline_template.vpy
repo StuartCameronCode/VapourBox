@@ -612,6 +612,34 @@ clip = haf.STPresso(
 )
 {{/NR_STPRESSO}}
 
+{{#NR_CTMF}}
+# CTMF - constant-time median filter. A large-radius median for blotches and
+# impulse noise, at a cost that barely moves with radius (measured: radius 1 to
+# 127 is about 20% apart).
+#
+# Two guards, both measured against the bundle rather than assumed:
+#
+#  - 9-BIT IS REJECTED outright ("only constant format 8, 10, 12, 14, 16 bit
+#    integer ... supported"), and 9-bit is reachable here: pixel_format.rs rounds
+#    an odd source depth up through [8, 9, 10, 12, 14, 16] and pipe_source maps
+#    yuv420p9le. So a 9-bit clip is lifted to 10-bit and restored after.
+#  - memsize is pinned to 16 MiB. At the plugin's 1 MiB default, 16-bit radius 3
+#    runs at 0.79 fps against 42 fps with this value — a 40x cliff — for
+#    BIT-IDENTICAL output.
+_ctmf_src_format = clip.format
+if clip.format.bits_per_sample == 9:
+    clip = core.resize.Point(clip, format=clip.format.replace(
+        bits_per_sample=10, sample_type=vs.INTEGER).id)
+clip = core.ctmf.CTMF(
+    clip,
+    radius={{NR_CTMF_RADIUS}},
+    planes={{NR_CTMF_PLANES}},
+    memsize=16777216,
+)
+if _ctmf_src_format.bits_per_sample == 9:
+    clip = core.resize.Point(clip, format=_ctmf_src_format.id)
+{{/NR_CTMF}}
+
 {{#NR_MCDEGRAINSHARP}}
 # MCDegrainSharp (Didée) — motion-compensated degrain that sharpens where the
 # motion match is good and blurs where it is poor.
@@ -914,6 +942,22 @@ clip = core.deblock.Deblock(
 {{/DEBLOCK_QUANT1}}
 )
 {{/DEBLOCK_SIMPLE}}
+{{#DEBLOCK_DCTFILTER}}
+# DCTFilter - attenuates chosen DCT frequency bands directly. A scalpel for
+# ringing and mosquito noise, which the two block-edge deblockers do not touch.
+#
+# The eight factors are applied SEPARABLY: coefficient (u, v) is scaled by
+# factors[u] * factors[v] — measured against the bundle, not the max(u, v) the
+# Avisynth filter of the same name uses. So a band affects a whole row and
+# column. The worker builds the curve from a cutoff and a strength rather than
+# exposing eight raw sliders, and guarantees every value is finite: DCTFilter's
+# own range check lets NaN through and a NaN factor silently blackens the frame.
+clip = core.dctf.DCTFilter(
+    clip,
+    factors={{DEBLOCK_DCT_FACTORS}},
+    planes={{DEBLOCK_DCT_PLANES}},
+)
+{{/DEBLOCK_DCTFILTER}}
 {{/DEBLOCK}}
 
 # ============================================================================
@@ -1219,6 +1263,38 @@ clip = core.std.Levels(
 )
 {{/COLOR_LEVELS}}
 
+{{#COLOR_SMOOTH_LEVELS}}
+# SmoothLevels - the same curve as std.Levels, but dithered and limited as it
+# goes, so stretching a narrow range does not band. Measured on a shallow
+# gradient stretched to full range: distinct output levels 47 -> 135.
+#
+# Three things are load-bearing here, all measured against the bundle:
+#
+#  1. SmoothLevels reads its levels in the CLIP'S OWN range, not 8-bit — the
+#     same trap as std.Levels. Six arguments need scaling (input_low/high,
+#     output_low/high, Ecenter, protect) and the rest must NOT be touched:
+#     gamma and chroma are ratios. Unscaled, a gamma-only edit at 16-bit is off
+#     by a worst pixel of 249/255.
+#  2. useDB is pinned False. havsfunc calls `core.f3kdb.Deband` and this bundle
+#     ships `neo_f3kdb` under a different namespace, so the default useDB=True
+#     raises "no attribute named f3kdb" on EVERY format. Fixing that needs a
+#     havsfunc patch, i.e. a deps release; useDB=False already gets most of the
+#     benefit.
+#  3. The black point is dropped when gamma is not 1.0 — havsfunc raises a
+#     negative base to a fractional power below input_low, which yields a
+#     complex number and fails the LUT. The worker does that, and tells the user.
+clip = haf.SmoothLevels(
+    clip,
+    input_low=_levels_8bit({{SMOOTH_INPUT_LOW}}),
+    input_high=_levels_8bit({{SMOOTH_INPUT_HIGH}}),
+    output_low=_levels_8bit({{SMOOTH_OUTPUT_LOW}}),
+    output_high=_levels_8bit({{SMOOTH_OUTPUT_HIGH}}),
+    gamma={{SMOOTH_GAMMA}},
+    Smode={{SMOOTH_MODE}},
+    useDB=False,
+)
+{{/COLOR_SMOOTH_LEVELS}}
+
 {{#COLOR_WHITE_BALANCE}}
 # White balance: shift the chroma planes. U carries blue-yellow and V carries
 # red-cyan, so warming the image is -U/+V and a magenta tint raises both.
@@ -1261,6 +1337,39 @@ clip = haf.Stab(
     mirror={{STAB_MIRROR}},
 )
 {{/STABILIZE}}
+
+# ============================================================================
+# PASS: ROTATE / FLIP
+# ============================================================================
+{{#GEOMETRY}}
+# Quarter-turn rotation and mirroring, in that order. core.std only, so the ops
+# themselves move samples without changing their values.
+#
+# A quarter turn swaps width and height, which is why this runs before any
+# framing decision; the worker also inverts the declared sample aspect for it,
+# since SAR is pixel width : height and the turn exchanges those.
+#
+# A turn ALSO swaps the chroma subsampling axes, and that is not cosmetic:
+# 4:2:2 becomes 4:4:0, which vspipe emits as "C440" and ffmpeg rejects outright
+# ("YUV4MPEG stream contains an unknown pixel format"), and 4:1:1 has no y4m
+# identifier at all so vspipe itself fails. Both are hard job failures, and
+# 4:2:2 is the common 10-bit ProRes case. So the source format is captured here
+# and restored after the turn, exactly as the LUTDeCrawl and DeScratch guards
+# do. It is a no-op for 4:2:0, 4:4:4 and greyscale, whose subsampling is
+# symmetric.
+_geom_src_format = clip.format
+{{#GEOM_ROTATE}}
+clip = core.std.{{GEOM_ROTATE_FN}}(clip)
+{{/GEOM_ROTATE}}
+{{#GEOM_FLIP_H}}
+clip = core.std.FlipHorizontal(clip)
+{{/GEOM_FLIP_H}}
+{{#GEOM_FLIP_V}}
+clip = core.std.FlipVertical(clip)
+{{/GEOM_FLIP_V}}
+if clip.format.id != _geom_src_format.id:
+    clip = core.resize.Spline36(clip, format=_geom_src_format.id)
+{{/GEOMETRY}}
 
 # ============================================================================
 # PASS 10: RESIZE / UPSCALE
@@ -1464,6 +1573,50 @@ if _box_w > clip.width or _box_h > clip.height:
 {{/ASPECT_PAD}}
 {{/RESIZE_STANDARD}}
 {{/RESIZE}}
+
+# ============================================================================
+# PASS: FILM GRAIN
+# ============================================================================
+{{#GRAIN}}
+{{#GRAIN_ADD}}
+# AddGrain - one strength control, and the only one of the two that can grain
+# chroma or hold a static pattern.
+#
+# `var` is a VARIANCE: the noise standard deviation is its square root, so
+# var=4 gives sigma=2. It is already expressed in 8-bit units and the plugin
+# rescales internally, so it must NOT get the _levels_8bit() treatment used for
+# std.Levels and Tweak — doing that would quadruple the grain at 10-bit.
+# Verified against the bundle: identical 8-bit-equivalent output at 8/10/12/16
+# bit and 4:2:2.
+clip = core.grain.Add(
+    clip,
+    var={{GRAIN_VAR}},
+    uvar={{GRAIN_UVAR}},
+    hcorr={{GRAIN_CORR}},
+    vcorr={{GRAIN_CORR}},
+    constant={{GRAIN_CONSTANT}},
+)
+{{/GRAIN_ADD}}
+
+{{#GRAIN_FACTORY3}}
+# GrainFactory3 - three grain layers chosen by luma level, so shadows get more
+# grain than highlights. Closer to real film stock than a flat noise field.
+#
+# Two measured limitations worth knowing: it is LUMA-ONLY (chroma comes back
+# bit-identical), and it is ALWAYS animated — havsfunc leaves grain.Add's
+# `constant` at its default and exposes no way to reach it. `temp_avg` damps the
+# animation but cannot stop it.
+clip = haf.GrainFactory3(
+    clip,
+    g1str={{GRAIN_G1}},
+    g2str={{GRAIN_G2}},
+    g3str={{GRAIN_G3}},
+{{#GRAIN_TEMP_AVG}}
+    temp_avg={{GRAIN_TEMP_AVG}},
+{{/GRAIN_TEMP_AVG}}
+)
+{{/GRAIN_FACTORY3}}
+{{/GRAIN}}
 
 # ============================================================================
 # OUTPUT FORMAT CONVERSION

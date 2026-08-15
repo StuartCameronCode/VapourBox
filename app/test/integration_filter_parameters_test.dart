@@ -12,6 +12,8 @@ import 'package:uuid/uuid.dart';
 
 import 'package:vapourbox/models/anti_alias_parameters.dart';
 import 'package:vapourbox/models/chroma_denoise_parameters.dart';
+import 'package:vapourbox/models/grain_parameters.dart';
+import 'package:vapourbox/models/geometry_parameters.dart';
 import 'package:vapourbox/models/chroma_fix_parameters.dart';
 import 'package:vapourbox/models/color_correction_parameters.dart';
 import 'package:vapourbox/models/crop_resize_parameters.dart';
@@ -169,6 +171,8 @@ VideoJob buildJob({
   ChromaDenoiseParameters? chromaDenoise,
   AntiAliasParameters? antiAlias,
   StabilizeParameters? stabilize,
+  GeometryParameters? geometry,
+  GrainParameters? grain,
 }) => VideoJob(
   id: const Uuid().v4(),
   inputPath: TestConfig.inputFile,
@@ -188,6 +192,8 @@ VideoJob buildJob({
     chromaDenoise: chromaDenoise ?? const ChromaDenoiseParameters(),
     antiAlias: antiAlias ?? const AntiAliasParameters(),
     stabilize: stabilize ?? const StabilizeParameters(),
+    geometry: geometry ?? const GeometryParameters(),
+    grain: grain ?? const GrainParameters(),
   ),
   encodingSettings: const EncodingSettings(
     codec: VideoCodec.h264, container: ContainerFormat.mkv, audioMode: AudioMode.none,
@@ -993,6 +999,137 @@ void main() {
       expect(actual['limit'], '5');
       expect(actual['bias'], '30');
       expect(actual['tthr'], '16');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+
+    // --- Batch four -------------------------------------------------------
+
+    test('noise reduction: CTMF, with its 9-bit guard and pinned memsize',
+        () async {
+      loadSchema('noise_reduction');
+      final job = buildJob(
+        testName: 'nr_ctmf',
+        noiseReduction: const NoiseReductionParameters(
+          enabled: true,
+          method: NoiseReductionMethod.ctmf,
+          ctmfRadius: 4,
+          ctmfPlanes: 0,
+        ),
+      );
+      print('  Generating CTMF script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.ctmf.CTMF('));
+      final actual = parseFilterParams(script, 'core.ctmf.CTMF(');
+      expect(actual['radius'], '4');
+      // 9-bit is rejected by the plugin and IS reachable: pixel_format.rs
+      // rounds an odd source depth up through 9.
+      expect(script, contains('bits_per_sample == 9'));
+      // At the plugin default, 16-bit radius 3 measures 0.79 fps against 42
+      // here, for bit-identical output.
+      expect(actual['memsize'], '16777216');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('deblock: DCTFilter builds exactly eight finite factors', () async {
+      loadSchema('deblock');
+      final job = buildJob(
+        testName: 'deblock_dctfilter',
+        deblock: const DeblockParameters(
+          enabled: true,
+          method: DeblockMethod.dctFilter,
+          dctCutoff: 5,
+          dctStrength: 0.6,
+        ),
+      );
+      print('  Generating DCTFilter script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.dctf.DCTFilter('));
+
+      final start = script.indexOf('factors=[') + 'factors=['.length;
+      final end = script.indexOf(']', start);
+      final factors = script.substring(start, end).split(',');
+      expect(factors.length, 8, reason: 'the plugin requires exactly 8');
+      for (final f in factors) {
+        final value = double.parse(f.trim());
+        expect(value, inInclusiveRange(0.0, 1.0));
+        expect(value.isFinite, isTrue,
+            reason: 'the plugin accepts NaN and blackens the frame');
+      }
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('grain: AddGrain params are not depth-scaled', () async {
+      loadSchema('grain');
+      final job = buildJob(
+        testName: 'grain_add',
+        grain: const GrainParameters(
+          enabled: true,
+          var_: 9.0,
+          uvar: 2.0,
+          constant: true,
+        ),
+      );
+      print('  Generating AddGrain script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.grain.Add('));
+      final actual = parseFilterParams(script, 'core.grain.Add(');
+      // `var` is already in 8-bit units and the plugin rescales internally, so
+      // applying the _levels_8bit() treatment would quadruple grain at 10-bit.
+      // format_double emits a trailing .0; assert the exact text so a change
+      // in numeric formatting is visible rather than hidden.
+      expect(actual['var'], '9.0');
+      expect(actual['uvar'], '2.0');
+      expect(actual['constant'], 'True');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('geometry: rotation restores the source pixel format', () async {
+      loadSchema('geometry');
+      final job = buildJob(
+        testName: 'geometry_rotate',
+        geometry: const GeometryParameters(
+          enabled: true,
+          rotation: Rotation.cw90,
+          flipHorizontal: true,
+        ),
+      );
+      print('  Generating rotate script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.std.Turn90('));
+      expect(script, contains('core.std.FlipHorizontal('));
+      expect(script, isNot(contains('core.std.FlipVertical(')));
+      // A quarter turn makes 4:2:2 into 4:4:0, which ffmpeg rejects outright,
+      // and 4:1:1 into a format with no y4m identifier at all.
+      expect(script, contains('_geom_src_format'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+
+    test('color: SmoothLevels scales to the clip depth and pins useDB',
+        () async {
+      loadSchema('color_correction');
+      final job = buildJob(
+        testName: 'color_smooth_levels',
+        colorCorrection: const ColorCorrectionParameters(
+          enabled: true,
+          applyLevels: true,
+          smoothLevels: true,
+          inputLow: 16,
+          inputHigh: 235,
+        ),
+      );
+      print('  Generating SmoothLevels script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.SmoothLevels('));
+      // Same trap as std.Levels: SmoothLevels reads its levels in the clip's
+      // own range, so they are scaled in-script from clip.format.
+      expect(script, contains('input_low=_levels_8bit(16)'));
+      expect(script, contains('input_high=_levels_8bit(235)'));
+      // havsfunc calls core.f3kdb.Deband; this bundle ships neo_f3kdb, so the
+      // default useDB=True fails on every format.
+      expect(script, contains('useDB=False'));
+      expect(script, isNot(contains('clip = core.std.Levels(')));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 

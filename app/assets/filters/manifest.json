@@ -13,5 +13,7 @@
   "crop_resize.json",
   "subtitles.json",
   "anti_alias.json",
-  "stabilize.json"
+  "stabilize.json",
+  "geometry.json",
+  "grain.json"
 ]

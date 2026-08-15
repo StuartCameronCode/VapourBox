@@ -856,7 +856,12 @@ impl PipelineExecutor {
         // a resize ran, which used to drop it and leave an anamorphic source
         // squashed (#50).
         let pipeline = job.effective_pipeline();
-        match pipeline.crop_resize.aspect_declaration(input_sar) {
+        // A quarter turn exchanges pixel width and height, so the SAR that
+        // describes the source no longer describes the rotated frame. Adjust it
+        // before declaring it, or a rotated anamorphic source is stretched by
+        // the square of its own aspect.
+        let rotated_sar = pipeline.geometry.adjusted_sar(input_sar);
+        match pipeline.crop_resize.aspect_declaration(rotated_sar.as_deref()) {
             AspectDeclaration::Sar(sar) => {
                 // '/' as the ratio separator — ':' is ffmpeg's filter option separator.
                 args.extend(["-vf".to_string(), format!("setsar={}", sar.replace(':', "/"))]);

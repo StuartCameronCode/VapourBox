@@ -55,6 +55,14 @@ pub struct ColorCorrectionParameters {
     #[serde(default)]
     pub apply_levels: bool,
 
+    /// Use havsfunc's SmoothLevels instead of plain `std.Levels`.
+    ///
+    /// Same curve, but dithered and limited as it goes, so stretching a narrow
+    /// range does not band. Measured on a shallow gradient stretched to full
+    /// range: distinct output levels go from 47 to 135.
+    #[serde(default)]
+    pub smooth_levels: bool,
+
     /// Input black level (0-255).
     #[serde(default)]
     pub input_low: i32,
@@ -124,6 +132,7 @@ impl Default for ColorCorrectionParameters {
             saturation: 1.0,
             coring: false,
             apply_levels: false,
+            smooth_levels: false,
             input_low: 0,
             input_high: 255,
             output_low: 0,
@@ -183,5 +192,94 @@ mod tests {
         let json = serde_json::to_string(&params).unwrap();
         assert!(json.contains("\"enabled\":false"));
         assert!(json.contains("\"contrast\":1.0"));
+    }
+}
+
+impl ColorCorrectionParameters {
+    /// The black point actually passed to SmoothLevels.
+    ///
+    /// havsfunc builds its lookup table over the whole `0..peak` domain and
+    /// raises `x - input_low` to `1/gamma`. For `x < input_low` that base is
+    /// negative, and a fractional exponent on a negative base yields a Python
+    /// `complex` — which fails the LUT with `TypeError: must be real number, not
+    /// complex`. Measured: it crashes whenever `input_low > 0` and `1/gamma` is
+    /// not an integer, i.e. for essentially every useful gamma.
+    ///
+    /// Rather than refuse the combination, the black point is dropped for that
+    /// case. Losing the lift is visible; a failed job is worse, and the plain
+    /// Levels mode still does both together.
+    pub fn smooth_levels_input_low(&self) -> i32 {
+        if (self.gamma - 1.0).abs() > f64::EPSILON {
+            0
+        } else {
+            self.input_low
+        }
+    }
+
+    /// Whether the gamma guard above actually dropped anything, so the UI can
+    /// say so rather than silently ignoring a control the user set.
+    pub fn smooth_levels_drops_black_point(&self) -> bool {
+        self.smooth_levels
+            && self.apply_levels
+            && self.input_low > 0
+            && (self.gamma - 1.0).abs() > f64::EPSILON
+    }
+}
+
+#[cfg(test)]
+mod smooth_levels_tests {
+    use super::*;
+
+    #[test]
+    fn test_black_point_survives_when_gamma_is_neutral() {
+        let p = ColorCorrectionParameters {
+            input_low: 16,
+            gamma: 1.0,
+            ..Default::default()
+        };
+        assert_eq!(p.smooth_levels_input_low(), 16);
+        assert!(!p.smooth_levels_drops_black_point());
+    }
+
+    #[test]
+    fn test_black_point_is_dropped_when_gamma_would_crash_the_lut() {
+        // havsfunc raises a negative base to a fractional power for x below
+        // input_low, which yields a complex number and fails the LUT.
+        for gamma in [0.6, 0.8, 1.2, 2.2] {
+            let p = ColorCorrectionParameters {
+                apply_levels: true,
+                smooth_levels: true,
+                input_low: 16,
+                gamma,
+                ..Default::default()
+            };
+            assert_eq!(p.smooth_levels_input_low(), 0, "gamma {gamma}");
+            assert!(p.smooth_levels_drops_black_point(), "gamma {gamma}");
+        }
+    }
+
+    #[test]
+    fn test_nothing_is_dropped_when_the_black_point_is_already_zero() {
+        let p = ColorCorrectionParameters {
+            apply_levels: true,
+            smooth_levels: true,
+            input_low: 0,
+            gamma: 0.6,
+            ..Default::default()
+        };
+        assert_eq!(p.smooth_levels_input_low(), 0);
+        assert!(!p.smooth_levels_drops_black_point());
+    }
+
+    #[test]
+    fn test_plain_levels_mode_never_reports_a_dropped_black_point() {
+        let p = ColorCorrectionParameters {
+            apply_levels: true,
+            smooth_levels: false,
+            input_low: 16,
+            gamma: 0.6,
+            ..Default::default()
+        };
+        assert!(!p.smooth_levels_drops_black_point());
     }
 }

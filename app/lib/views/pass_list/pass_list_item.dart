@@ -233,6 +233,10 @@ class PassListItem extends StatelessWidget {
         return Icons.gesture;
       case PassType.stabilize:
         return Icons.stay_current_landscape;
+      case PassType.geometry:
+        return Icons.rotate_90_degrees_cw;
+      case PassType.grain:
+        return Icons.grain;
       case PassType.colorCorrection:
         return Icons.palette;
       case PassType.chromaFixes:

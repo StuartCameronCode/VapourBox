@@ -562,6 +562,75 @@ Two lessons from doing it, both of which cost a debugging cycle:
 > deliberately not passed at all, asserted from both sides, in line with how
 > every other optional plugin argument here is treated.
 
+### Fourth filter batch (2026-08-15): probe agents, and what they caught
+
+Five more effort-1 filters: **CTMF** (Noise Reduction), **DCTFilter** (Deblock),
+a **Film Grain** pass (AddGrain + GrainFactory3), a **Rotate / Flip** pass, and
+**SmoothLevels** as an option on the existing Levels control. All from plugins
+already in the bundle, so no deps change.
+
+This batch was probed by parallel read-only agents before any wiring was
+written, and that is the only reason it works. The traps they found, none of
+which any documentation would have shown:
+
+> **A quarter turn changes the pixel FORMAT, and ffmpeg refuses the result.**
+> `std.Turn90` swaps the chroma subsampling axes, so 4:2:2 becomes 4:4:0 — which
+> vspipe emits as `C440` and ffmpeg rejects with "YUV4MPEG stream contains an
+> unknown pixel format" — and 4:1:1 becomes a format with no y4m identifier at
+> all, killing vspipe itself. Both are hard job failures and 4:2:2 is the common
+> 10-bit ProRes case. The template captures `clip.format.id` before the turn and
+> converts back after, like the LUTDeCrawl guard.
+>
+> **SAR must be inverted on a quarter turn, in TWO places.** SAR is pixel width
+> : height, so turning exchanges them. `GeometryParameters::adjusted_sar` feeds
+> both the ffmpeg-side declaration in `pipeline_executor.rs` *and* the
+> `{{SOURCE_SAR}}` used by the square-pixel fitting path in the template. Miss
+> either and an anamorphic source comes out the wrong shape.
+>
+> **Turning interlaced material is unrecoverable, not merely lossy.** Fields are
+> alternating rows; a quarter turn puts them in alternating *columns*, where
+> `SeparateFields` returns two "fields" that each still contain both. No
+> deinterlacer can fix it afterwards, and `_FieldBased` still claims the clip is
+> fine. `pass_advice.dart` warns when a quarter turn is set with deinterlacing
+> off — the pass order already puts deinterlacing first.
+>
+> **CTMF rejects 9-bit, and 9-bit is reachable.** `pixel_format.rs` rounds an odd
+> source depth up through `[8, 9, 10, 12, 14, 16]` and `pipe_source` maps
+> `yuv420p9le`, so a 9-bit source would kill the job. Guarded in both templates.
+> Its `memsize` is also pinned to 16 MiB: at the plugin's 1 MiB default, 16-bit
+> radius 3 measures **0.79 fps against 42 fps**, for bit-identical output.
+>
+> **DCTFilter accepts NaN and silently blackens the frame.** Its own range check
+> is `factor < 0.0 || factor > 1.0`, and both are false for NaN. The worker
+> builds the eight factors from a cutoff and a strength and guarantees every one
+> is finite. Its coefficient mapping is also **separable** (`factors[u] *
+> factors[v]`), not the `max(u, v)` the Avisynth filter of the same name uses.
+>
+> **`grain.Add`'s `var` must NOT be depth-scaled**, unlike every other level in
+> this app. It is already in 8-bit units and the plugin rescales internally;
+> applying the `_levels_8bit()` treatment would quadruple the grain at 10-bit.
+> Measured identical 8-bit-equivalent output at 8/10/12/16-bit.
+>
+> **SmoothLevels' default configuration cannot run at all.** havsfunc calls
+> `core.f3kdb.Deband` and this bundle ships **`neo_f3kdb`** under a different
+> namespace, so `useDB=True` — the default — raises "no attribute named f3kdb"
+> on every format. It is pinned `False`; fixing it properly needs a havsfunc
+> patch 8 and therefore a deps release. Its levels are also read in the clip's
+> own range, so six arguments are scaled in-script; and it **crashes** when
+> `input_low > 0` and `1/gamma` is not an integer (a negative base to a
+> fractional power yields a Python complex), so the worker drops the black point
+> for that combination.
+
+> **TemporalDegrain2 was requested and is NOT effort 1.** Its upstream repo
+> declares **no licence**, so vendoring ~4,300 lines of it is a legal decision
+> rather than a technical one. Beyond that: it needs five modules, not one;
+> `postFFT=5` **aborts the process** rather than raising; `postFFT=4` is broken
+> two ways; `extraSharp=True` is a `NameError` at exactly 16-bit; and both
+> `limitSigma` and mvtools' `limit=255` default are depth-dependent, so
+> `outputStage=0` is a **complete no-op at >=12-bit** and 73% of the degraining
+> is silently lost at 16-bit. Good news: bm3d is never reached, so it needs no
+> deps addition. Implementable, but effort 3 and blocked on the licence.
+
 ### Third filter batch (2026-08-15): the first deps change
 
 **fluxsmooth** is the first plugin this work has *added* to the bundle rather

@@ -48,6 +48,12 @@ class ColorCorrectionParameters {
   /// Whether to apply levels adjustment.
   final bool applyLevels;
 
+  /// Use SmoothLevels instead of plain Levels: the same curve, but dithered and
+  /// limited as it goes, so stretching a narrow range does not band.
+  ///
+  /// Off by default so existing presets keep the behaviour they were saved with.
+  final bool smoothLevels;
+
   /// Input black level (0-255).
   final int inputLow;
 
@@ -82,6 +88,7 @@ class ColorCorrectionParameters {
     this.coring = false,
     // Levels defaults
     this.applyLevels = false,
+    this.smoothLevels = false,
     this.inputLow = 0,
     this.inputHigh = 255,
     this.outputLow = 0,
@@ -145,6 +152,7 @@ class ColorCorrectionParameters {
     double? saturation,
     bool? coring,
     bool? applyLevels,
+    bool? smoothLevels,
     int? inputLow,
     int? inputHigh,
     int? outputLow,
@@ -162,6 +170,7 @@ class ColorCorrectionParameters {
       saturation: saturation ?? this.saturation,
       coring: coring ?? this.coring,
       applyLevels: applyLevels ?? this.applyLevels,
+      smoothLevels: smoothLevels ?? this.smoothLevels,
       inputLow: inputLow ?? this.inputLow,
       inputHigh: inputHigh ?? this.inputHigh,
       outputLow: outputLow ?? this.outputLow,

@@ -8,7 +8,9 @@ enum DeblockMethod {
   @JsonValue('Deblock_QED')
   deblockQed('Deblock_QED', 'Deblock QED'),
   @JsonValue('Deblock')
-  deblock('Deblock', 'Deblock');
+  deblock('Deblock', 'Deblock'),
+  @JsonValue('DCTFilter')
+  dctFilter('DCTFilter', 'DCTFilter');
 
   const DeblockMethod(this.value, this.displayName);
   final String value;
@@ -20,6 +22,9 @@ enum DeblockMethod {
         return 'Quality Enhanced Deblocking - good for DVDs';
       case DeblockMethod.deblock:
         return 'Simple deblocking filter';
+      case DeblockMethod.dctFilter:
+        return 'Attenuates high DCT frequency bands — targets ringing and '
+            'mosquito noise rather than block edges';
     }
   }
 }
@@ -48,6 +53,17 @@ class DeblockParameters {
   /// Analyze planes offset 2.
   final int aOffset2;
 
+  // --- DCTFilter parameters ---
+
+  /// Lowest frequency band left untouched (0-7). Everything above is attenuated.
+  final int dctCutoff;
+
+  /// How hard the bands above the cutoff are attenuated (0.0-1.0).
+  final double dctStrength;
+
+  /// Planes to filter: 0 luma only, 1 chroma only, 2 both.
+  final int dctPlanes;
+
   const DeblockParameters({
     this.enabled = false,
     this.method = DeblockMethod.deblockQed,
@@ -55,6 +71,9 @@ class DeblockParameters {
     this.quant2 = 26,
     this.aOffset1 = 1,
     this.aOffset2 = 1,
+    this.dctCutoff = 5,
+    this.dctStrength = 0.6,
+    this.dctPlanes = 0,
   });
 
   DeblockParameters copyWith({
@@ -64,6 +83,9 @@ class DeblockParameters {
     int? quant2,
     int? aOffset1,
     int? aOffset2,
+    int? dctCutoff,
+    double? dctStrength,
+    int? dctPlanes,
   }) {
     return DeblockParameters(
       enabled: enabled ?? this.enabled,
@@ -72,6 +94,9 @@ class DeblockParameters {
       quant2: quant2 ?? this.quant2,
       aOffset1: aOffset1 ?? this.aOffset1,
       aOffset2: aOffset2 ?? this.aOffset2,
+      dctCutoff: dctCutoff ?? this.dctCutoff,
+      dctStrength: dctStrength ?? this.dctStrength,
+      dctPlanes: dctPlanes ?? this.dctPlanes,
     );
   }
 

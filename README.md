@@ -20,7 +20,7 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg —
 
 **Correcting how the picture is stored.** Most consumer and broadcast video recorded before the 2010s is interlaced — VHS, Video8 and Hi8, DV camcorders, DVDs, off-air recordings — and needs converting to progressive to display properly on a modern screen. Film transferred to video was padded with pulldown instead, which can be reversed to recover the original 23.976 fps frames. VapourBox detects which case applies and handles both: QTGMC for deinterlacing, IVTC for telecined film.
 
-**Cleanup, when the source needs it.** Thirteen optional filters covering tape noise and smeared color, dust and scratches on scanned film, blocking from a heavily compressed disc or recorder, and halos, banding and color balance. All off by default; you turn on what a given source actually needs.
+**Cleanup, when the source needs it.** Seventeen optional filters covering tape noise and smeared color, dust and scratches on scanned film, blocking from a heavily compressed disc or recorder, jagged diagonal edges, camera shake, and halos, banding and color balance. All off by default; you turn on what a given source actually needs.
 
 **Subtitles.** Speech is transcribed with Whisper AI to a separate `.srt`, embedded in the output, or both.
 
@@ -91,20 +91,22 @@ GPU-accelerated deinterlacing (NNEDI3CL) needs your GPU's OpenCL driver installe
 
 ## The filter pipeline
 
-Thirteen filters, each switchable independently, applied in a fixed order. Most sources need none or a few.
+Seventeen filters, each switchable independently, applied in a fixed order. Most sources need none or a few.
 
 | Filter | What it addresses |
 |--------|-------------------|
 | **Deinterlace** | Comb-like jagged edges on moving objects. QTGMC for interlaced video, or IVTC to recover the original film frames from telecined DVD. |
 | **DeScratch** | Vertical scratch lines on scanned film. |
 | **SpotLess** | Dust, dirt and single-frame specks. |
-| **Noise Reduction** | Grain and video noise across the whole frame. Motion-compensated by default; DFTTest, FFT3DFilter, TTempSmooth, FluxSmooth and STPresso are available under advanced options for noise the default handles badly. |
+| **Noise Reduction** | Grain and video noise across the whole frame. Motion-compensated by default; DFTTest, FFT3DFilter, TTempSmooth, FluxSmooth, STPresso and a large-window median are available under advanced options for noise the default handles badly. |
 | **Chroma Denoise** | Blotchy, smeared color — common on VHS captures and old camcorder footage. Leaves luma detail untouched. |
 | **Dehalo** | Bright outlines around edges, ringing, and residual ghosting left by a deinterlacer. HQDeringmod targets ringing specifically. |
-| **Deblock** | Square blocking from heavy compression. |
+| **Deblock** | Square blocking from heavy compression, and the ringing around edges that comes with it. |
 | **Deband** | Visible steps in gradients and skies. |
 | **Anti-Aliasing** | Stair-stepping on diagonal edges, left by deinterlacing or upscaling. Runs before sharpening, which would otherwise make the steps more visible. |
 | **Stabilize** | Shake and weave — telecine wobble, jittery film scans, handheld footage. Runs last before cropping, so a small crop removes the edges it exposes. |
+| **Film Grain** | Grain added back after denoising, so the picture is not left plastic — and to hide banding in skies and fades. |
+| **Rotate / Flip** | Footage shot sideways, mirrored captures, scans that came off the scanner the wrong way round. |
 | **Sharpen** | Soft sources needing edge and fine detail recovery. aWarpSharp2 sharpens by warping edges instead of raising contrast, so it adds no halos. |
 | **Chroma Fixes** | Color bleeding past edges, rainbowing, dot crawl, and residual combing. |
 | **Color Correction** | Brightness, contrast, saturation, hue, levels, and white balance (warm/cool, green/magenta). |

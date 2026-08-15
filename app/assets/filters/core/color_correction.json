@@ -4,7 +4,7 @@
   "version": "1.1.0",
   "name": "Color Correction",
   "description": "Adjust brightness, contrast, saturation and levels",
-  "longDescription": "Adjusts brightness, contrast, saturation and the black and white levels.\n\nUse it to rescue washed-out or crushed transfers, to fix a capture made at the wrong levels (limited 16-235 read as full 0-255, or the reverse), or to lift colour from faded film. Small moves go a long way \u2014 check the before/after preview rather than judging by numbers.",
+  "longDescription": "Adjusts brightness, contrast, saturation and the black and white levels.\n\nUse it to rescue washed-out or crushed transfers, to fix a capture made at the wrong levels (limited 16-235 read as full 0-255, or the reverse), or to lift colour from faded film. Small moves go a long way — check the before/after preview rather than judging by numbers.",
   "category": "color",
   "icon": "tune",
   "order": 7,
@@ -258,9 +258,20 @@
       },
       "ui": {
         "label": "Tint",
-        "description": "Green/magenta white balance. Negative shifts toward green, positive toward magenta \u2014 the axis VHS and telecine casts usually sit on",
+        "description": "Green/magenta white balance. Negative shifts toward green, positive toward magenta — the axis VHS and telecine casts usually sit on",
         "widget": "slider",
         "precision": 0
+      }
+    },
+    "smoothLevels": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Smooth Levels",
+        "description": "Dithers and limits the adjustment as it goes, so stretching a narrow range does not leave visible steps in skies and fades. Slower, and it cannot lift the black point and change gamma at the same time",
+        "visibleWhen": {
+          "applyLevels": true
+        }
       }
     }
   },
@@ -285,7 +296,8 @@
           "inputHigh",
           "outputLow",
           "outputHigh",
-          "gamma"
+          "gamma",
+          "smoothLevels"
         ],
         "expanded": false
       },

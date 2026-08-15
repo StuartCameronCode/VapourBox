@@ -27,6 +27,9 @@ pub enum NoiseReductionMethod {
     /// STPresso (havsfunc): limits how far any pixel may move, so detail
     /// survives almost intact. Calls FluxSmoothT internally.
     StPresso,
+    /// Constant-time median filter. Large-radius median for blotches and
+    /// impulse noise, at a cost that barely moves with radius.
+    Ctmf,
 }
 
 /// Noise reduction preset levels.
@@ -200,6 +203,17 @@ pub struct NoiseReductionParameters {
     /// Temporal threshold handed to the FluxSmoothT it runs internally.
     #[serde(default = "default_stpresso_tthr")]
     pub stpresso_tthr: i32,
+
+    // --- CTMF Parameters ---
+
+    /// Median window radius. The filter is constant-time, so this costs almost
+    /// nothing — measured, radius 1 to 127 is a ~20% difference.
+    #[serde(default = "default_ctmf_radius")]
+    pub ctmf_radius: i32,
+
+    /// Planes to filter: 0 luma only, 1 chroma only, 2 both.
+    #[serde(default = "default_ctmf_planes")]
+    pub ctmf_planes: i32,
 }
 
 fn default_sm_degrain_tr() -> i32 { 2 }
@@ -229,6 +243,8 @@ fn default_flux_spatial() -> i32 { 7 }
 fn default_stpresso_limit() -> i32 { 3 }
 fn default_stpresso_bias() -> i32 { 24 }
 fn default_stpresso_tthr() -> i32 { 12 }
+fn default_ctmf_radius() -> i32 { 2 }
+fn default_ctmf_planes() -> i32 { 2 }
 
 impl Default for NoiseReductionParameters {
     fn default() -> Self {
@@ -267,6 +283,8 @@ impl Default for NoiseReductionParameters {
             stpresso_limit: default_stpresso_limit(),
             stpresso_bias: default_stpresso_bias(),
             stpresso_tthr: default_stpresso_tthr(),
+            ctmf_radius: default_ctmf_radius(),
+            ctmf_planes: default_ctmf_planes(),
         }
     }
 }
@@ -356,6 +374,25 @@ impl NoiseReductionParameters {
     /// FluxSmooth's spatial threshold, same range.
     pub fn flux_effective_spatial(&self) -> i32 {
         self.flux_spatial_threshold.clamp(-1, 255)
+    }
+
+    /// CTMF's radius, clamped to what the plugin accepts.
+    ///
+    /// The plugin's own limit is 1-127, but `2*radius+1` must also fit inside
+    /// every processed plane — on a 4:2:0 clip that is the half-size chroma
+    /// plane. 12 is well inside both for any real video and past the point of
+    /// visual usefulness.
+    pub fn ctmf_effective_radius(&self) -> i32 {
+        self.ctmf_radius.clamp(1, 12)
+    }
+
+    /// The `planes` list literal for CTMF.
+    pub fn ctmf_planes_literal(&self) -> &'static str {
+        match self.ctmf_planes {
+            0 => "[0]",
+            1 => "[1, 2]",
+            _ => "[0, 1, 2]",
+        }
     }
 }
 
@@ -450,6 +487,7 @@ mod tests {
             (NoiseReductionMethod::FluxSmoothT, "fluxSmoothT"),
             (NoiseReductionMethod::FluxSmoothSt, "fluxSmoothSt"),
             (NoiseReductionMethod::StPresso, "stPresso"),
+            (NoiseReductionMethod::Ctmf, "ctmf"),
         ] {
             let json = name(method);
             assert!(
@@ -457,6 +495,32 @@ mod tests {
                 "expected method {expected:?} in {json}"
             );
         }
+    }
+
+    #[test]
+    fn test_ctmf_radius_is_clamped_to_what_fits_a_chroma_plane() {
+        // The plugin's own limit is 1-127, but 2*radius+1 must also fit inside
+        // every processed plane, and on 4:2:0 that is the half-size chroma one.
+        let with = |r: i32| NoiseReductionParameters {
+            ctmf_radius: r,
+            ..Default::default()
+        };
+        assert_eq!(with(0).ctmf_effective_radius(), 1);
+        assert_eq!(with(2).ctmf_effective_radius(), 2);
+        assert_eq!(with(99).ctmf_effective_radius(), 12);
+    }
+
+    #[test]
+    fn test_ctmf_planes_literal() {
+        let with = |p: i32| NoiseReductionParameters {
+            ctmf_planes: p,
+            ..Default::default()
+        };
+        assert_eq!(with(0).ctmf_planes_literal(), "[0]");
+        assert_eq!(with(1).ctmf_planes_literal(), "[1, 2]");
+        assert_eq!(with(2).ctmf_planes_literal(), "[0, 1, 2]");
+        // Anything unexpected filters everything rather than nothing.
+        assert_eq!(with(9).ctmf_planes_literal(), "[0, 1, 2]");
     }
 
     #[test]

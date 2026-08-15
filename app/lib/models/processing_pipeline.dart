@@ -1,6 +1,8 @@
 import 'package:json_annotation/json_annotation.dart';
 
 import 'anti_alias_parameters.dart';
+import 'geometry_parameters.dart';
+import 'grain_parameters.dart';
 import 'chroma_fix_parameters.dart';
 import 'color_correction_parameters.dart';
 import 'crop_resize_parameters.dart';
@@ -33,6 +35,8 @@ enum PassType {
   sharpen,
   antiAlias,
   stabilize,
+  geometry,
+  grain,
   colorCorrection,
   chromaFixes,
   cropResize,
@@ -65,6 +69,10 @@ extension PassTypeExtension on PassType {
         return 'Anti-Aliasing';
       case PassType.stabilize:
         return 'Stabilize';
+      case PassType.geometry:
+        return 'Rotate / Flip';
+      case PassType.grain:
+        return 'Film Grain';
       case PassType.colorCorrection:
         return 'Color Correction';
       case PassType.chromaFixes:
@@ -100,6 +108,10 @@ extension PassTypeExtension on PassType {
         return 'Smooth stair-stepping on diagonal edges';
       case PassType.stabilize:
         return 'Remove shake and weave from the picture';
+      case PassType.geometry:
+        return 'Rotate or mirror the picture';
+      case PassType.grain:
+        return 'Add film grain back after denoising';
       case PassType.colorCorrection:
         return 'Adjust brightness, contrast, and colors';
       case PassType.chromaFixes:
@@ -144,6 +156,8 @@ class ProcessingPipeline {
   final SharpenParameters sharpen;
   final AntiAliasParameters antiAlias;
   final StabilizeParameters stabilize;
+  final GeometryParameters geometry;
+  final GrainParameters grain;
 
   /// Color correction pass parameters.
   final ColorCorrectionParameters colorCorrection;
@@ -169,6 +183,8 @@ class ProcessingPipeline {
     this.sharpen = const SharpenParameters(),
     this.antiAlias = const AntiAliasParameters(),
     this.stabilize = const StabilizeParameters(),
+    this.geometry = const GeometryParameters(),
+    this.grain = const GrainParameters(),
     this.colorCorrection = const ColorCorrectionParameters(),
     this.chromaFixes = const ChromaFixParameters(),
     this.cropResize = const CropResizeParameters(),
@@ -190,6 +206,8 @@ class ProcessingPipeline {
       sharpen: const SharpenParameters(enabled: false),
       antiAlias: const AntiAliasParameters(enabled: false),
       stabilize: const StabilizeParameters(enabled: false),
+      geometry: const GeometryParameters(enabled: false),
+      grain: const GrainParameters(enabled: false),
       colorCorrection: const ColorCorrectionParameters(enabled: false),
       chromaFixes: const ChromaFixParameters(enabled: false),
       cropResize: const CropResizeParameters(enabled: false),
@@ -249,12 +267,24 @@ class ProcessingPipeline {
     if (stabilize.enabled) {
       passes.add(PassType.stabilize);
     }
+    // Rotation swaps width and height, so it settles before any framing
+    // decision. It also follows deinterlacing: fields run horizontally, so
+    // turning a still-interlaced clip shears them.
+    if (geometry.hasEffect) {
+      passes.add(PassType.geometry);
+    }
     if (cropResize.enabled && cropResize.resizeEnabled) {
       // Resize (post-processing) - if not already added for crop
       if (!passes.contains(PassType.cropResize)) {
         passes.add(PassType.cropResize);
       }
     }
+    // Grain goes last of the video passes: added before the resize it is
+    // resampled away, before the deband it is smoothed away.
+    if (grain.hasEffect) {
+      passes.add(PassType.grain);
+    }
+
     return passes;
   }
 
@@ -272,6 +302,8 @@ class ProcessingPipeline {
     if (sharpen.enabled) count++;
     if (antiAlias.enabled) count++;
     if (stabilize.enabled) count++;
+    if (geometry.hasEffect) count++;
+    if (grain.hasEffect) count++;
     if (colorCorrection.enabled) count++;
     if (chromaFixes.enabled) count++;
     if (cropResize.enabled) count++;
@@ -293,6 +325,8 @@ class ProcessingPipeline {
     if (sharpen.enabled) count++;
     if (antiAlias.enabled) count++;
     if (stabilize.enabled) count++;
+    if (geometry.hasEffect) count++;
+    if (grain.hasEffect) count++;
     if (colorCorrection.enabled) count++;
     if (chromaFixes.enabled) count++;
     if (cropResize.enabled) count++;
@@ -324,6 +358,10 @@ class ProcessingPipeline {
         return antiAlias.enabled;
       case PassType.stabilize:
         return stabilize.enabled;
+      case PassType.geometry:
+        return geometry.hasEffect;
+      case PassType.grain:
+        return grain.hasEffect;
       case PassType.colorCorrection:
         return colorCorrection.enabled;
       case PassType.chromaFixes:
@@ -362,6 +400,10 @@ class ProcessingPipeline {
         return antiAlias.summary;
       case PassType.stabilize:
         return stabilize.summary;
+      case PassType.geometry:
+        return geometry.summary;
+      case PassType.grain:
+        return grain.summary;
       case PassType.colorCorrection:
         return colorCorrection.summary;
       case PassType.chromaFixes:
@@ -385,6 +427,8 @@ class ProcessingPipeline {
     SharpenParameters? sharpen,
     AntiAliasParameters? antiAlias,
     StabilizeParameters? stabilize,
+    GeometryParameters? geometry,
+    GrainParameters? grain,
     ColorCorrectionParameters? colorCorrection,
     ChromaFixParameters? chromaFixes,
     CropResizeParameters? cropResize,
@@ -402,6 +446,8 @@ class ProcessingPipeline {
       sharpen: sharpen ?? this.sharpen,
       antiAlias: antiAlias ?? this.antiAlias,
       stabilize: stabilize ?? this.stabilize,
+      geometry: geometry ?? this.geometry,
+      grain: grain ?? this.grain,
       colorCorrection: colorCorrection ?? this.colorCorrection,
       chromaFixes: chromaFixes ?? this.chromaFixes,
       cropResize: cropResize ?? this.cropResize,
@@ -455,6 +501,14 @@ class ProcessingPipeline {
       case PassType.stabilize:
         return copyWith(
           stabilize: stabilize.copyWith(enabled: enabled),
+        );
+      case PassType.geometry:
+        return copyWith(
+          geometry: geometry.copyWith(enabled: enabled),
+        );
+      case PassType.grain:
+        return copyWith(
+          grain: grain.copyWith(enabled: enabled),
         );
       case PassType.colorCorrection:
         return copyWith(

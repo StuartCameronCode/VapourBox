@@ -28,7 +28,9 @@ enum NoiseReductionMethod {
   @JsonValue('fluxSmoothSt')
   fluxSmoothSt('FluxSmoothST'),
   @JsonValue('stPresso')
-  stPresso('STPresso');
+  stPresso('STPresso'),
+  @JsonValue('ctmf')
+  ctmf('CTMF');
 
   const NoiseReductionMethod(this.displayName);
   final String displayName;
@@ -174,6 +176,14 @@ class NoiseReductionParameters {
   /// Temporal threshold for the FluxSmoothT it runs internally.
   final int stpressoTthr;
 
+  // --- CTMF Parameters ---
+
+  /// Median window radius. Constant-time, so this costs almost nothing.
+  final int ctmfRadius;
+
+  /// Planes to filter: 0 luma only, 1 chroma only, 2 both.
+  final int ctmfPlanes;
+
   const NoiseReductionParameters({
     this.enabled = false,
     this.preset = NoiseReductionPreset.off,
@@ -213,6 +223,8 @@ class NoiseReductionParameters {
     this.stpressoLimit = 3,
     this.stpressoBias = 24,
     this.stpressoTthr = 12,
+    this.ctmfRadius = 2,
+    this.ctmfPlanes = 2,
   });
 
   /// Create parameters from a preset.
@@ -293,6 +305,8 @@ class NoiseReductionParameters {
     int? stpressoLimit,
     int? stpressoBias,
     int? stpressoTthr,
+    int? ctmfRadius,
+    int? ctmfPlanes,
   }) {
     return NoiseReductionParameters(
       enabled: enabled ?? this.enabled,
@@ -330,6 +344,8 @@ class NoiseReductionParameters {
       stpressoLimit: stpressoLimit ?? this.stpressoLimit,
       stpressoBias: stpressoBias ?? this.stpressoBias,
       stpressoTthr: stpressoTthr ?? this.stpressoTthr,
+      ctmfRadius: ctmfRadius ?? this.ctmfRadius,
+      ctmfPlanes: ctmfPlanes ?? this.ctmfPlanes,
     );
   }
 

@@ -192,6 +192,10 @@ class MainViewModel extends ChangeNotifier {
         return ParameterConverter.fromAntiAlias(_processingPipeline.antiAlias);
       case 'stabilize':
         return ParameterConverter.fromStabilize(_processingPipeline.stabilize);
+      case 'geometry':
+        return ParameterConverter.fromGeometry(_processingPipeline.geometry);
+      case 'grain':
+        return ParameterConverter.fromGrain(_processingPipeline.grain);
       case 'color_correction':
         return ParameterConverter.fromColorCorrection(_processingPipeline.colorCorrection);
       case 'chroma_fixes':
@@ -261,6 +265,16 @@ class MainViewModel extends ChangeNotifier {
       case 'stabilize':
         _processingPipeline = _processingPipeline.copyWith(
           stabilize: ParameterConverter.toStabilize(params),
+        );
+        break;
+      case 'geometry':
+        _processingPipeline = _processingPipeline.copyWith(
+          geometry: ParameterConverter.toGeometry(params),
+        );
+        break;
+      case 'grain':
+        _processingPipeline = _processingPipeline.copyWith(
+          grain: ParameterConverter.toGrain(params),
         );
         break;
       case 'color_correction':
@@ -1055,6 +1069,10 @@ class MainViewModel extends ChangeNotifier {
         return 'anti_alias';
       case PassType.stabilize:
         return 'stabilize';
+      case PassType.geometry:
+        return 'geometry';
+      case PassType.grain:
+        return 'grain';
       case PassType.colorCorrection:
         return 'color_correction';
       case PassType.chromaFixes:
