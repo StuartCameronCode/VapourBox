@@ -620,6 +620,7 @@ fn test_20_combined_all_filters() {
             maintain_aspect: true,
             ..CropResizeParameters::default()
         },
+        ..ProcessingPipeline::default()
     });
 
     run_job(&job, "Combined - All Filters Active").unwrap();
@@ -3874,4 +3875,212 @@ fn test_103_each_noise_method_emits_only_its_own_filter() {
             "{key} left an unsubstituted NR_ placeholder in the script"
         );
     }
+}
+
+// ============================================================================
+// Second batch: filters whose plugins/functions were already in the bundle.
+//
+// Anti-aliasing and stabilisation are whole categories VapourBox had nothing
+// in, which is why they are passes rather than methods. LUTDeRainbow joins the
+// Chroma Fixes stack beside LUTDeCrawl, whose 8-10 bit limit it shares.
+//
+// STPresso was in this batch and was dropped: havsfunc's implementation calls
+// `core.flux.SmoothT`, and the fluxsmooth plugin is NOT bundled (zsmooth
+// provides FluxSmoothT under a different namespace). That makes it effort 2,
+// not 1. Found by probing, before any wiring was written.
+// ============================================================================
+
+#[test]
+fn test_104_anti_alias_daa() {
+    create_output_dir();
+    let mut job = create_base_job("test_104_aa_daa");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        anti_alias: AntiAliasParameters {
+            enabled: true,
+            method: AntiAliasMethod::Daa,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(&job, "Anti-Alias daa", &["haf.daa("]).unwrap();
+
+    let script = script_text(&job);
+    assert!(
+        !script.contains("haf.santiag("),
+        "the santiag block should have been stripped"
+    );
+}
+
+#[test]
+fn test_105_anti_alias_santiag() {
+    create_output_dir();
+    let mut job = create_base_job("test_105_aa_santiag");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        anti_alias: AntiAliasParameters {
+            enabled: true,
+            method: AntiAliasMethod::Santiag,
+            santiag_strh: 2,
+            santiag_strv: 3,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "Anti-Alias santiag",
+        &["haf.santiag(", "strh=2", "strv=3", "type=\"nnedi3\""],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_106_santiag_type_cannot_name_an_unbundled_interpolator() {
+    // havsfunc accepts eedi2 and sangnom; neither is in the deps bundle, and
+    // naming one fails at script evaluation rather than degrading.
+    create_output_dir();
+    let mut job = create_base_job("test_106_aa_santiag_type");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        anti_alias: AntiAliasParameters {
+            enabled: true,
+            method: AntiAliasMethod::Santiag,
+            santiag_type: "sangnom".to_string(),
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = script_text(&job);
+    assert!(script.contains("type=\"nnedi3\""), "should fall back to nnedi3");
+    // Assert on the emitted argument, not on the whole script: the template's
+    // own comment explains why eedi2 and sangnom are excluded, and naming them
+    // there is not the same as passing them.
+    assert!(
+        !script.contains("type=\"sangnom\""),
+        "sangnom must not reach havsfunc — it is not in the deps bundle"
+    );
+    assert!(
+        !script.contains("type=\"eedi2\""),
+        "eedi2 must not reach havsfunc — it is not in the deps bundle"
+    );
+}
+
+#[test]
+fn test_107_stabilize() {
+    create_output_dir();
+    let mut job = create_base_job("test_107_stabilize");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        stabilize: StabilizeParameters {
+            enabled: true,
+            dxmax: 6,
+            dymax: 8,
+            mirror: 3,
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "Stabilize",
+        &["haf.Stab(", "dxmax=6", "dymax=8", "mirror=3"],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_108_stabilize_limits_are_normalized() {
+    // A negative dxmax/dymax is accepted by DepanStabilise and disables
+    // correction on that axis, which looks like the filter doing nothing.
+    create_output_dir();
+    let mut job = create_base_job("test_108_stabilize_limits");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        stabilize: StabilizeParameters {
+            enabled: true,
+            dxmax: -3,
+            dymax: -3,
+            mirror: 9,
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "Stabilize clamps",
+        &["dxmax=0", "dymax=0", "mirror=3"],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_109_lut_derainbow_with_ten_bit_guard() {
+    create_output_dir();
+    let mut job = create_base_job("test_109_derainbow");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        chroma_fixes: ChromaFixParameters {
+            enabled: true,
+            apply_de_rainbow: true,
+            de_rainbow_c_thresh: 12,
+            de_rainbow_y_thresh: 14,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    run_job_and_verify(
+        &job,
+        "LUTDeRainbow",
+        &[
+            "haf.LUTDeRainbow(",
+            "cthresh=12",
+            "ythresh=14",
+            // Same 8-10 bit limit as LUTDeCrawl, verified against the bundle.
+            "bits_per_sample > 10",
+            "_derainbow_orig_format",
+        ],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_110_new_passes_run_in_the_documented_order() {
+    // The order the passes appear in the script is the order they run, and two
+    // of these placements are deliberate: anti-aliasing BEFORE sharpening
+    // (sharpening stair-stepped edges makes the stepping worse), and
+    // stabilisation LAST before framing (so a crop can remove the borders it
+    // shifts into view).
+    create_output_dir();
+    let mut job = create_base_job("test_110_order");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        anti_alias: AntiAliasParameters { enabled: true, ..Default::default() },
+        sharpen: SharpenParameters {
+            enabled: true,
+            method: SharpenMethod::CAS,
+            ..Default::default()
+        },
+        stabilize: StabilizeParameters { enabled: true, ..Default::default() },
+        crop_resize: CropResizeParameters {
+            enabled: true,
+            resize_enabled: true,
+            target_width: Some(640),
+            target_height: Some(480),
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let script = script_text(&job);
+    let aa = script.find("haf.daa(").expect("daa should be present");
+    let sharp = script.find("core.cas.CAS(").expect("CAS should be present");
+    let stab = script.find("haf.Stab(").expect("Stab should be present");
+    assert!(aa < sharp, "anti-aliasing must run before sharpening");
+    assert!(sharp < stab, "stabilisation runs after the detail passes");
 }

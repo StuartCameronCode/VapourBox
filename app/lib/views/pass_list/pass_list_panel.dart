@@ -48,6 +48,7 @@ class PassListPanel extends StatelessWidget {
     (
       title: 'Detail & Color',
       passes: [
+        PassType.antiAlias,
         PassType.sharpen,
         PassType.chromaFixes,
         PassType.colorCorrection,
@@ -55,7 +56,7 @@ class PassListPanel extends StatelessWidget {
     ),
     (
       title: 'Framing',
-      passes: [PassType.cropResize],
+      passes: [PassType.stabilize, PassType.cropResize],
     ),
     (
       title: 'Post-Processing',
@@ -122,6 +123,12 @@ class PassListPanel extends StatelessWidget {
             case PassType.sharpen:
               return item(passType, 'Sharpen', pipeline.sharpen.summary,
                   pipeline.sharpen.enabled);
+            case PassType.antiAlias:
+              return item(passType, 'Anti-Aliasing', pipeline.antiAlias.summary,
+                  pipeline.antiAlias.enabled);
+            case PassType.stabilize:
+              return item(passType, 'Stabilize', pipeline.stabilize.summary,
+                  pipeline.stabilize.enabled);
             case PassType.chromaFixes:
               return item(passType, 'Chroma Fixes', pipeline.chromaFixes.summary,
                   pipeline.chromaFixes.enabled);

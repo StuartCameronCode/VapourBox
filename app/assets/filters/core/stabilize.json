@@ -1,0 +1,109 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "stabilize",
+  "version": "1.0.0",
+  "name": "Stabilize",
+  "description": "Remove shake and weave from the picture",
+  "longDescription": "Measures how much the whole frame moves between shots and cancels it, so a shaky capture holds still. Deliberate camera movement survives: only the difference from the recent trend is removed.\n\nUse it on telecine weave, film scans that wobble in the gate, and handheld camcorder footage. It runs last before cropping, because it shifts the picture within the frame and leaves thin empty edges — a small crop afterwards removes them.\n\nThe shift leaves thin empty edges; set Fill Exposed Edges to mirror them back in, or crop them away afterwards.",
+  "category": "cleanup",
+  "icon": "stay_current_landscape",
+  "order": 11,
+  "dependencies": {
+    "plugins": [
+      "havsfunc"
+    ],
+    "vs_plugins": [
+      "libmvtools.dll"
+    ]
+  },
+  "methods": [
+    {
+      "id": "stab",
+      "name": "Stab",
+      "description": "Motion-analysis stabilisation via MVTools. Cancels shake while leaving intended camera movement alone",
+      "function": "haf.Stab",
+      "parameters": [
+        "dxmax",
+        "dymax",
+        "mirror"
+      ]
+    }
+  ],
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "hidden": true
+      }
+    },
+    "method": {
+      "type": "enum",
+      "default": "stab",
+      "options": [
+        "stab"
+      ],
+      "ui": {
+        "hidden": true
+      }
+    },
+    "dxmax": {
+      "type": "integer",
+      "default": 4,
+      "min": 0,
+      "max": 32,
+      "step": 1,
+      "ui": {
+        "label": "Max Horizontal Shift",
+        "description": "Largest sideways correction, in pixels. 0 leaves the horizontal axis alone",
+        "widget": "slider"
+      }
+    },
+    "dymax": {
+      "type": "integer",
+      "default": 4,
+      "min": 0,
+      "max": 32,
+      "step": 1,
+      "ui": {
+        "label": "Max Vertical Shift",
+        "description": "Largest up/down correction, in pixels. 0 leaves the vertical axis alone",
+        "widget": "slider"
+      }
+    },
+    "mirror": {
+      "type": "enum",
+      "default": "0",
+      "options": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ],
+      "ui": {
+        "label": "Fill Exposed Edges",
+        "description": "Shifting the picture leaves thin empty edges. 0 leaves them black, 1 fills top and bottom, 2 left and right, 3 all four — which saves cropping afterwards",
+        "widget": "dropdown"
+      }
+    }
+  },
+  "ui": {
+    "sections": [
+      {
+        "title": "Settings",
+        "parameters": [
+          "dxmax",
+          "dymax",
+          "mirror"
+        ],
+        "expanded": true
+      }
+    ]
+  },
+  "codeTemplate": {
+    "imports": [
+      "import havsfunc as haf"
+    ],
+    "generate": "method"
+  }
+}

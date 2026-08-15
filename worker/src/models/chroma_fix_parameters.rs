@@ -81,6 +81,28 @@ pub struct ChromaFixParameters {
     #[serde(default = "default_de_crawl_max_diff")]
     pub de_crawl_max_diff: i32,
 
+    // --- LUTDeRainbow (cross-luminance / rainbowing) ---
+
+    /// Apply LUTDeRainbow.
+    #[serde(default)]
+    pub apply_de_rainbow: bool,
+
+    /// Chroma difference threshold for detecting rainbowing.
+    #[serde(default = "default_de_rainbow_cthresh")]
+    pub de_rainbow_c_thresh: i32,
+
+    /// Luma difference threshold. Areas moving more than this are left alone.
+    #[serde(default = "default_de_rainbow_ythresh")]
+    pub de_rainbow_y_thresh: i32,
+
+    /// Use the luma difference in the decision as well as chroma.
+    #[serde(default = "default_true")]
+    pub de_rainbow_use_luma: bool,
+
+    /// Require both chroma planes to agree before treating a pixel.
+    #[serde(default = "default_true")]
+    pub de_rainbow_link_uv: bool,
+
     // --- Vinverse Parameters ---
 
     /// Whether to apply Vinverse (inverted telecine/chroma fix).
@@ -101,6 +123,9 @@ fn default_chroma_bleed_blur() -> f64 { 0.7 }
 fn default_chroma_bleed_strength() -> f64 { 0.8 }
 fn default_de_crawl_thresh() -> i32 { 10 }
 fn default_de_crawl_max_diff() -> i32 { 50 }
+fn default_true() -> bool { true }
+fn default_de_rainbow_cthresh() -> i32 { 10 }
+fn default_de_rainbow_ythresh() -> i32 { 10 }
 fn default_vinverse_sstr() -> f64 { 2.7 }
 fn default_255() -> i32 { 255 }
 
@@ -118,6 +143,11 @@ impl Default for ChromaFixParameters {
             chroma_bleed_c_blur: default_chroma_bleed_blur(),
             chroma_bleed_strength: default_chroma_bleed_strength(),
             apply_de_crawl: false,
+            apply_de_rainbow: false,
+            de_rainbow_c_thresh: default_de_rainbow_cthresh(),
+            de_rainbow_y_thresh: default_de_rainbow_ythresh(),
+            de_rainbow_use_luma: true,
+            de_rainbow_link_uv: true,
             de_crawl_y_thresh: default_de_crawl_thresh(),
             de_crawl_c_thresh: default_de_crawl_thresh(),
             de_crawl_max_diff: default_de_crawl_max_diff(),

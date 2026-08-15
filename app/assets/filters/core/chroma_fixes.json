@@ -8,26 +8,43 @@
   "category": "cleanup",
   "icon": "palette",
   "order": 8,
-
   "dependencies": {
-    "plugins": ["havsfunc"]
+    "plugins": [
+      "havsfunc"
+    ]
   },
-
   "methods": [
     {
       "id": "chroma_fixes",
       "name": "Chroma Fixes",
       "description": "Fix chroma bleeding, dot crawl, and combing artifacts (enable individually below)",
       "function": "custom",
-      "parameters": ["applyChromaShift", "chromaShiftH", "chromaShiftV", "applyChromaBleedingFix", "chromaBleedCx", "chromaBleedCy", "chromaBleedCBlur", "chromaBleedStrength", "applyDeCrawl", "deCrawlYThresh", "deCrawlCThresh", "deCrawlMaxDiff", "applyVinverse", "vinverseSstr", "vinverseAmnt"]
+      "parameters": [
+        "applyChromaShift",
+        "chromaShiftH",
+        "chromaShiftV",
+        "applyChromaBleedingFix",
+        "chromaBleedCx",
+        "chromaBleedCy",
+        "chromaBleedCBlur",
+        "chromaBleedStrength",
+        "applyDeCrawl",
+        "deCrawlYThresh",
+        "deCrawlCThresh",
+        "deCrawlMaxDiff",
+        "applyVinverse",
+        "vinverseSstr",
+        "vinverseAmnt"
+      ]
     }
   ],
-
   "parameters": {
     "enabled": {
       "type": "boolean",
       "default": false,
-      "ui": { "hidden": true }
+      "ui": {
+        "hidden": true
+      }
     },
     "applyChromaShift": {
       "type": "boolean",
@@ -43,13 +60,17 @@
       "min": -8.0,
       "max": 8.0,
       "step": 0.25,
-      "vapoursynth": { "name": "src_left" },
+      "vapoursynth": {
+        "name": "src_left"
+      },
       "ui": {
         "label": "Horizontal Shift",
         "description": "Shift chroma left/right in pixels (negative = left, positive = right)",
         "widget": "slider",
         "precision": 2,
-        "visibleWhen": { "applyChromaShift": true }
+        "visibleWhen": {
+          "applyChromaShift": true
+        }
       }
     },
     "chromaShiftV": {
@@ -58,13 +79,17 @@
       "min": -4.0,
       "max": 4.0,
       "step": 0.25,
-      "vapoursynth": { "name": "src_top" },
+      "vapoursynth": {
+        "name": "src_top"
+      },
       "ui": {
         "label": "Vertical Shift",
         "description": "Shift chroma up/down in pixels (negative = up, positive = down)",
         "widget": "slider",
         "precision": 2,
-        "visibleWhen": { "applyChromaShift": true }
+        "visibleWhen": {
+          "applyChromaShift": true
+        }
       }
     },
     "applyChromaBleedingFix": {
@@ -82,12 +107,16 @@
       "max": 16,
       "step": 1,
       "optional": true,
-      "vapoursynth": { "name": "cx" },
+      "vapoursynth": {
+        "name": "cx"
+      },
       "ui": {
         "label": "Horizontal Offset",
         "description": "Chroma X offset correction",
         "widget": "slider",
-        "visibleWhen": { "applyChromaBleedingFix": true }
+        "visibleWhen": {
+          "applyChromaBleedingFix": true
+        }
       }
     },
     "chromaBleedCy": {
@@ -97,12 +126,16 @@
       "max": 16,
       "step": 1,
       "optional": true,
-      "vapoursynth": { "name": "cy" },
+      "vapoursynth": {
+        "name": "cy"
+      },
       "ui": {
         "label": "Vertical Offset",
         "description": "Chroma Y offset correction",
         "widget": "slider",
-        "visibleWhen": { "applyChromaBleedingFix": true }
+        "visibleWhen": {
+          "applyChromaBleedingFix": true
+        }
       }
     },
     "chromaBleedCBlur": {
@@ -112,13 +145,17 @@
       "max": 2.0,
       "step": 0.1,
       "optional": true,
-      "vapoursynth": { "name": "thr" },
+      "vapoursynth": {
+        "name": "thr"
+      },
       "ui": {
         "label": "Chroma Blur",
         "description": "Chroma blur strength",
         "widget": "slider",
         "precision": 1,
-        "visibleWhen": { "applyChromaBleedingFix": true }
+        "visibleWhen": {
+          "applyChromaBleedingFix": true
+        }
       }
     },
     "chromaBleedStrength": {
@@ -128,13 +165,17 @@
       "max": 1.0,
       "step": 0.1,
       "optional": true,
-      "vapoursynth": { "name": "strength" },
+      "vapoursynth": {
+        "name": "strength"
+      },
       "ui": {
         "label": "Strength",
         "description": "Fix strength",
         "widget": "slider",
         "precision": 1,
-        "visibleWhen": { "applyChromaBleedingFix": true }
+        "visibleWhen": {
+          "applyChromaBleedingFix": true
+        }
       }
     },
     "applyDeCrawl": {
@@ -152,12 +193,16 @@
       "max": 50,
       "step": 1,
       "optional": true,
-      "vapoursynth": { "name": "ythresh" },
+      "vapoursynth": {
+        "name": "ythresh"
+      },
       "ui": {
         "label": "Luma Threshold",
         "description": "Luma threshold for de-crawl",
         "widget": "slider",
-        "visibleWhen": { "applyDeCrawl": true }
+        "visibleWhen": {
+          "applyDeCrawl": true
+        }
       }
     },
     "deCrawlCThresh": {
@@ -167,12 +212,16 @@
       "max": 50,
       "step": 1,
       "optional": true,
-      "vapoursynth": { "name": "cthresh" },
+      "vapoursynth": {
+        "name": "cthresh"
+      },
       "ui": {
         "label": "Chroma Threshold",
         "description": "Chroma threshold for de-crawl",
         "widget": "slider",
-        "visibleWhen": { "applyDeCrawl": true }
+        "visibleWhen": {
+          "applyDeCrawl": true
+        }
       }
     },
     "deCrawlMaxDiff": {
@@ -182,12 +231,16 @@
       "max": 255,
       "step": 5,
       "optional": true,
-      "vapoursynth": { "name": "maxdiff" },
+      "vapoursynth": {
+        "name": "maxdiff"
+      },
       "ui": {
         "label": "Max Difference",
         "description": "Maximum difference allowed",
         "widget": "slider",
-        "visibleWhen": { "applyDeCrawl": true }
+        "visibleWhen": {
+          "applyDeCrawl": true
+        }
       }
     },
     "applyVinverse": {
@@ -205,13 +258,17 @@
       "max": 10.0,
       "step": 0.1,
       "optional": true,
-      "vapoursynth": { "name": "sstr" },
+      "vapoursynth": {
+        "name": "sstr"
+      },
       "ui": {
         "label": "Strength",
         "description": "Spatial strength",
         "widget": "slider",
         "precision": 1,
-        "visibleWhen": { "applyVinverse": true }
+        "visibleWhen": {
+          "applyVinverse": true
+        }
       }
     },
     "vinverseAmnt": {
@@ -221,43 +278,107 @@
       "max": 255,
       "step": 5,
       "optional": true,
-      "vapoursynth": { "name": "amnt" },
+      "vapoursynth": {
+        "name": "amnt"
+      },
       "ui": {
         "label": "Amount",
         "description": "Blend amount (0-255)",
         "widget": "slider",
-        "visibleWhen": { "applyVinverse": true }
+        "visibleWhen": {
+          "applyVinverse": true
+        }
+      }
+    },
+    "applyDeRainbow": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Remove Rainbowing",
+        "description": "Shimmering colour bands over fine detail on composite captures. The companion to dot crawl removal, which targets the dots along colour edges"
+      }
+    },
+    "deRainbowCThresh": {
+      "type": "integer",
+      "default": 10,
+      "min": 0,
+      "max": 255,
+      "step": 1,
+      "ui": {
+        "label": "Rainbow Chroma Threshold",
+        "description": "How different chroma must be before it is treated as rainbowing. Lower catches more",
+        "widget": "slider",
+        "visibleWhen": {
+          "applyDeRainbow": true
+        }
+      }
+    },
+    "deRainbowYThresh": {
+      "type": "integer",
+      "default": 10,
+      "min": 0,
+      "max": 255,
+      "step": 1,
+      "ui": {
+        "label": "Rainbow Luma Threshold",
+        "description": "Areas moving more than this are left alone, which protects real motion",
+        "widget": "slider",
+        "visibleWhen": {
+          "applyDeRainbow": true
+        }
       }
     }
   },
-
   "ui": {
     "sections": [
       {
         "title": "Y/C Delay (Chroma Shift)",
-        "parameters": ["applyChromaShift", "chromaShiftH", "chromaShiftV"],
+        "parameters": [
+          "applyChromaShift",
+          "chromaShiftH",
+          "chromaShiftV"
+        ],
         "expanded": true
       },
       {
         "title": "Chroma Bleeding Fix",
-        "parameters": ["applyChromaBleedingFix", "chromaBleedCx", "chromaBleedCy", "chromaBleedCBlur", "chromaBleedStrength"],
+        "parameters": [
+          "applyChromaBleedingFix",
+          "chromaBleedCx",
+          "chromaBleedCy",
+          "chromaBleedCBlur",
+          "chromaBleedStrength"
+        ],
         "expanded": true
       },
       {
         "title": "DeCrawl (Dot Crawl)",
-        "parameters": ["applyDeCrawl", "deCrawlYThresh", "deCrawlCThresh", "deCrawlMaxDiff"],
+        "parameters": [
+          "applyDeCrawl",
+          "deCrawlYThresh",
+          "deCrawlCThresh",
+          "deCrawlMaxDiff",
+          "applyDeRainbow",
+          "deRainbowCThresh",
+          "deRainbowYThresh"
+        ],
         "expanded": true
       },
       {
         "title": "Vinverse (Combing Fix)",
-        "parameters": ["applyVinverse", "vinverseSstr", "vinverseAmnt"],
+        "parameters": [
+          "applyVinverse",
+          "vinverseSstr",
+          "vinverseAmnt"
+        ],
         "expanded": true
       }
     ]
   },
-
   "codeTemplate": {
-    "imports": ["import havsfunc as haf"],
+    "imports": [
+      "import havsfunc as haf"
+    ],
     "generate": "custom"
   }
 }

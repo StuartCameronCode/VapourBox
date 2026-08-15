@@ -135,6 +135,13 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info) {
     case PassType.sharpen:
     case PassType.colorCorrection:
     case PassType.subtitles:
+    // Anti-aliasing and stabilisation are tempting to tie to detection —
+    // jaggies follow deinterlacing, shake follows handheld capture — but
+    // neither is actually visible in the metadata, only plausible from it.
+    // Badging every interlaced source would dilute the badge, which is the one
+    // thing that makes it worth having.
+    case PassType.antiAlias:
+    case PassType.stabilize:
       return PassRelevanceResult.neutral;
   }
 }

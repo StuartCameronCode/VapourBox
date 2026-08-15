@@ -18,8 +18,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
+import 'package:vapourbox/models/anti_alias_parameters.dart';
 import 'package:vapourbox/models/chroma_denoise_parameters.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
+import 'package:vapourbox/models/chroma_fix_parameters.dart';
 import 'package:vapourbox/models/descratch_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/noise_reduction_parameters.dart';
@@ -27,6 +29,7 @@ import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/sharpen_parameters.dart';
 import 'package:vapourbox/models/spotless_parameters.dart';
+import 'package:vapourbox/models/stabilize_parameters.dart';
 import 'package:vapourbox/models/subtitle_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 
@@ -298,6 +301,109 @@ void main() {
             '(${preview.png!.length} bytes)');
       }
     }, timeout: const Timeout(Duration(minutes: 8)));
+
+
+    // --- Second batch: whole categories the app had nothing in --------------
+
+    test('anti-alias: daa runs end-to-end', () async {
+      final job = _baseJob(
+        'aa_daa',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          antiAlias: AntiAliasParameters(
+            enabled: true,
+            method: AntiAliasMethod.daa,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'aa_daa');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('anti-alias: santiag runs end-to-end', () async {
+      final job = _baseJob(
+        'aa_santiag',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          antiAlias: AntiAliasParameters(
+            enabled: true,
+            method: AntiAliasMethod.santiag,
+            santiagStrh: 1,
+            santiagStrv: 1,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'aa_santiag');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 8)));
+
+    test('stabilize: Stab runs end-to-end', () async {
+      final job = _baseJob(
+        'stabilize',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          stabilize: StabilizeParameters(enabled: true, mirror: 3),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'stabilize');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 8)));
+
+    test('chroma_fixes: LUTDeRainbow runs end-to-end', () async {
+      final job = _baseJob(
+        'derainbow',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          chromaFixes: ChromaFixParameters(
+            enabled: true,
+            applyDeRainbow: true,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'derainbow');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('the second batch renders in the preview path too', () async {
+      for (final entry in <String, ProcessingPipeline>{
+        'aa_daa': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          antiAlias: AntiAliasParameters(enabled: true),
+        ),
+        'aa_santiag': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          antiAlias: AntiAliasParameters(
+            enabled: true,
+            method: AntiAliasMethod.santiag,
+          ),
+        ),
+        'stabilize': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          stabilize: StabilizeParameters(enabled: true),
+        ),
+        'derainbow': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          chromaFixes: ChromaFixParameters(
+            enabled: true,
+            applyDeRainbow: true,
+          ),
+        ),
+      }.entries) {
+        final job = _baseJob('preview2_${entry.key}', pipeline: entry.value);
+        final preview = await WorkerHarness.runPreview(
+          job.toJson(),
+          frame: 10,
+          label: 'preview2_${entry.key}',
+        );
+        expect(preview.success, isTrue,
+            reason: '${entry.key} preview failed: ${preview.errorTail}');
+        print('  ${entry.key}: preview frame rendered '
+            '(${preview.png!.length} bytes)');
+      }
+    }, timeout: const Timeout(Duration(minutes: 10)));
 
     // Issue #37: QTGMC with EZ Denoise + the knlmeanscl denoiser must never
     // crash the job. KNLMeansCL is OpenCL-only; on a headless CI runner (no

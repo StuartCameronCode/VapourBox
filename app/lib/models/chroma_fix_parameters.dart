@@ -68,6 +68,27 @@ class ChromaFixParameters {
   /// Maximum difference allowed.
   final int deCrawlMaxDiff;
 
+  // --- LUTDeRainbow Parameters ---
+
+  /// Whether to apply LUTDeRainbow (cross-luminance / rainbowing removal).
+  ///
+  /// Same 8-10 bit limit as LUTDeCrawl — havsfunc rejects anything above 10-bit
+  /// outright, so the worker runs the pass at 10-bit and restores the source
+  /// format afterwards.
+  final bool applyDeRainbow;
+
+  /// Chroma difference threshold for detecting rainbowing.
+  final int deRainbowCThresh;
+
+  /// Luma difference threshold. Areas moving more than this are left alone.
+  final int deRainbowYThresh;
+
+  /// Use the luma difference in the decision as well as chroma.
+  final bool deRainbowUseLuma;
+
+  /// Require both chroma planes to agree before treating a pixel.
+  final bool deRainbowLinkUv;
+
   // --- Vinverse Parameters ---
 
   /// Whether to apply Vinverse (inverted telecine/chroma fix).
@@ -98,6 +119,11 @@ class ChromaFixParameters {
     this.deCrawlCThresh = 10,
     this.deCrawlMaxDiff = 50,
     // Vinverse defaults
+    this.applyDeRainbow = false,
+    this.deRainbowCThresh = 10,
+    this.deRainbowYThresh = 10,
+    this.deRainbowUseLuma = true,
+    this.deRainbowLinkUv = true,
     this.applyVinverse = false,
     this.vinverseSstr = 2.7,
     this.vinverseAmnt = 255,
@@ -162,6 +188,11 @@ class ChromaFixParameters {
     int? deCrawlYThresh,
     int? deCrawlCThresh,
     int? deCrawlMaxDiff,
+    bool? applyDeRainbow,
+    int? deRainbowCThresh,
+    int? deRainbowYThresh,
+    bool? deRainbowUseLuma,
+    bool? deRainbowLinkUv,
     bool? applyVinverse,
     double? vinverseSstr,
     int? vinverseAmnt,
@@ -181,6 +212,11 @@ class ChromaFixParameters {
       deCrawlYThresh: deCrawlYThresh ?? this.deCrawlYThresh,
       deCrawlCThresh: deCrawlCThresh ?? this.deCrawlCThresh,
       deCrawlMaxDiff: deCrawlMaxDiff ?? this.deCrawlMaxDiff,
+      applyDeRainbow: applyDeRainbow ?? this.applyDeRainbow,
+      deRainbowCThresh: deRainbowCThresh ?? this.deRainbowCThresh,
+      deRainbowYThresh: deRainbowYThresh ?? this.deRainbowYThresh,
+      deRainbowUseLuma: deRainbowUseLuma ?? this.deRainbowUseLuma,
+      deRainbowLinkUv: deRainbowLinkUv ?? this.deRainbowLinkUv,
       applyVinverse: applyVinverse ?? this.applyVinverse,
       vinverseSstr: vinverseSstr ?? this.vinverseSstr,
       vinverseAmnt: vinverseAmnt ?? this.vinverseAmnt,

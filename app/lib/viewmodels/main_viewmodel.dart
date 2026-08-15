@@ -188,6 +188,10 @@ class MainViewModel extends ChangeNotifier {
         return ParameterConverter.fromDeband(_processingPipeline.deband);
       case 'sharpen':
         return ParameterConverter.fromSharpen(_processingPipeline.sharpen);
+      case 'anti_alias':
+        return ParameterConverter.fromAntiAlias(_processingPipeline.antiAlias);
+      case 'stabilize':
+        return ParameterConverter.fromStabilize(_processingPipeline.stabilize);
       case 'color_correction':
         return ParameterConverter.fromColorCorrection(_processingPipeline.colorCorrection);
       case 'chroma_fixes':
@@ -247,6 +251,16 @@ class MainViewModel extends ChangeNotifier {
       case 'sharpen':
         _processingPipeline = _processingPipeline.copyWith(
           sharpen: ParameterConverter.toSharpen(params),
+        );
+        break;
+      case 'anti_alias':
+        _processingPipeline = _processingPipeline.copyWith(
+          antiAlias: ParameterConverter.toAntiAlias(params),
+        );
+        break;
+      case 'stabilize':
+        _processingPipeline = _processingPipeline.copyWith(
+          stabilize: ParameterConverter.toStabilize(params),
         );
         break;
       case 'color_correction':
@@ -1037,6 +1051,10 @@ class MainViewModel extends ChangeNotifier {
         return 'deband';
       case PassType.sharpen:
         return 'sharpen';
+      case PassType.antiAlias:
+        return 'anti_alias';
+      case PassType.stabilize:
+        return 'stabilize';
       case PassType.colorCorrection:
         return 'color_correction';
       case PassType.chromaFixes:

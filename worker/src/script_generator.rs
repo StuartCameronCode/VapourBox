@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use crate::models::{
+    AntiAliasMethod,
     VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod, CCD_REFERENCE_HEIGHT,
     parse_ratio,
     DehaloMethod, DeblockMethod, SharpenMethod, DeinterlaceMethod,
@@ -989,6 +990,49 @@ impl ScriptGenerator {
         }
 
         // ====================================================================
+        // ANTI-ALIASING PASS
+        // ====================================================================
+        let anti_alias = &pipeline.anti_alias;
+        if anti_alias.enabled {
+            script = script.replace("{{#ANTI_ALIAS}}", "");
+            script = script.replace("{{/ANTI_ALIAS}}", "");
+
+            match anti_alias.method {
+                AntiAliasMethod::Daa => {
+                    script = script.replace("{{#AA_DAA}}", "");
+                    script = script.replace("{{/AA_DAA}}", "");
+                    script = remove_block("{{#AA_SANTIAG}}", "{{/AA_SANTIAG}}", script);
+                }
+                AntiAliasMethod::Santiag => {
+                    script = remove_block("{{#AA_DAA}}", "{{/AA_DAA}}", script);
+                    script = script.replace("{{#AA_SANTIAG}}", "");
+                    script = script.replace("{{/AA_SANTIAG}}", "");
+
+                    script = script.replace("{{AA_STRH}}", &anti_alias.effective_strh().to_string());
+                    script = script.replace("{{AA_STRV}}", &anti_alias.effective_strv().to_string());
+                    // Restricted to what the bundle actually ships.
+                    script = script.replace("{{AA_TYPE}}", anti_alias.effective_santiag_type());
+                }
+            }
+        } else {
+            script = remove_block("{{#ANTI_ALIAS}}", "{{/ANTI_ALIAS}}", script);
+        }
+
+        // ====================================================================
+        // STABILIZE PASS
+        // ====================================================================
+        let stabilize = &pipeline.stabilize;
+        if stabilize.enabled {
+            script = script.replace("{{#STABILIZE}}", "");
+            script = script.replace("{{/STABILIZE}}", "");
+            script = script.replace("{{STAB_DXMAX}}", &stabilize.effective_dxmax().to_string());
+            script = script.replace("{{STAB_DYMAX}}", &stabilize.effective_dymax().to_string());
+            script = script.replace("{{STAB_MIRROR}}", &stabilize.effective_mirror().to_string());
+        } else {
+            script = remove_block("{{#STABILIZE}}", "{{/STABILIZE}}", script);
+        }
+
+        // ====================================================================
         // SHARPEN PASS
         // ====================================================================
         let sharpen = &pipeline.sharpen;
@@ -1075,6 +1119,18 @@ impl ScriptGenerator {
                 script = process_optional_int("DECRAWL_MAXDIFF", Some(chroma.de_crawl_max_diff), script);
             } else {
                 script = remove_block("{{#CHROMA_DECRAWL}}", "{{/CHROMA_DECRAWL}}", script);
+            }
+
+            // LUTDeRainbow
+            if chroma.apply_de_rainbow {
+                script = script.replace("{{#CHROMA_DERAINBOW}}", "");
+                script = script.replace("{{/CHROMA_DERAINBOW}}", "");
+                script = process_optional_int("DERAINBOW_CTHRESH", Some(chroma.de_rainbow_c_thresh), script);
+                script = process_optional_int("DERAINBOW_YTHRESH", Some(chroma.de_rainbow_y_thresh), script);
+                script = process_optional_bool("DERAINBOW_Y", Some(chroma.de_rainbow_use_luma), script);
+                script = process_optional_bool("DERAINBOW_LINKUV", Some(chroma.de_rainbow_link_uv), script);
+            } else {
+                script = remove_block("{{#CHROMA_DERAINBOW}}", "{{/CHROMA_DERAINBOW}}", script);
             }
 
             // Vinverse

@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
+    AntiAliasParameters, StabilizeParameters,
     ChromaDenoiseParameters, ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
     DebandParameters, DeblockParameters, DehaloParameters, DeinterlaceMethod, DeScratchParameters,
     SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters,
@@ -122,6 +123,8 @@ pub enum PassType {
     Deblock,
     Deband,
     Sharpen,
+    AntiAlias,
+    Stabilize,
     ColorCorrection,
     ChromaFixes,
     CropResize,
@@ -141,6 +144,8 @@ impl PassType {
             PassType::Deblock => "Deblock",
             PassType::Deband => "Deband",
             PassType::Sharpen => "Sharpen",
+            PassType::AntiAlias => "Anti-Aliasing",
+            PassType::Stabilize => "Stabilize",
             PassType::ColorCorrection => "Color Correction",
             PassType::ChromaFixes => "Chroma Fixes",
             PassType::CropResize => "Crop / Resize",
@@ -159,6 +164,8 @@ impl PassType {
             PassType::Deblock => "Remove compression block artifacts",
             PassType::Deband => "Remove color banding from gradients",
             PassType::Sharpen => "Sharpen edges and enhance detail",
+            PassType::AntiAlias => "Smooth stair-stepping on diagonal edges",
+            PassType::Stabilize => "Remove shake and weave from the picture",
             PassType::ColorCorrection => "Adjust brightness, contrast, and colors",
             PassType::ChromaFixes => "Fix chroma bleeding and crawl artifacts",
             PassType::CropResize => "Crop borders and resize output",
@@ -207,6 +214,14 @@ pub struct ProcessingPipeline {
     #[serde(default)]
     pub sharpen: SharpenParameters,
 
+    /// Anti-aliasing pass parameters.
+    #[serde(default)]
+    pub anti_alias: AntiAliasParameters,
+
+    /// Stabilisation pass parameters.
+    #[serde(default)]
+    pub stabilize: StabilizeParameters,
+
     /// Color correction pass parameters.
     #[serde(default)]
     pub color_correction: ColorCorrectionParameters,
@@ -232,6 +247,8 @@ impl Default for ProcessingPipeline {
             deblock: DeblockParameters::default(),
             deband: DebandParameters::default(),
             sharpen: SharpenParameters::default(),
+            anti_alias: AntiAliasParameters::default(),
+            stabilize: StabilizeParameters::default(),
             color_correction: ColorCorrectionParameters::default(),
             chroma_fixes: ChromaFixParameters::default(),
             crop_resize: CropResizeParameters::default(),
@@ -253,6 +270,8 @@ impl ProcessingPipeline {
             deblock: DeblockParameters { enabled: false, ..Default::default() },
             deband: DebandParameters { enabled: false, ..Default::default() },
             sharpen: SharpenParameters { enabled: false, ..Default::default() },
+            anti_alias: AntiAliasParameters { enabled: false, ..Default::default() },
+            stabilize: StabilizeParameters { enabled: false, ..Default::default() },
             color_correction: ColorCorrectionParameters { enabled: false, ..Default::default() },
             chroma_fixes: ChromaFixParameters { enabled: false, ..Default::default() },
             crop_resize: CropResizeParameters { enabled: false, ..Default::default() },
@@ -293,6 +312,11 @@ impl ProcessingPipeline {
         if self.deband.enabled {
             passes.push(PassType::Deband);
         }
+        // Anti-aliasing before sharpening: sharpening stair-stepped edges
+        // makes the stepping more visible, not less.
+        if self.anti_alias.enabled {
+            passes.push(PassType::AntiAlias);
+        }
         if self.sharpen.enabled {
             passes.push(PassType::Sharpen);
         }
@@ -301,6 +325,11 @@ impl ProcessingPipeline {
         }
         if self.color_correction.enabled {
             passes.push(PassType::ColorCorrection);
+        }
+        // Stabilisation shifts the picture within the frame, so it runs last
+        // before framing — that way a crop can remove the edges it exposes.
+        if self.stabilize.enabled {
+            passes.push(PassType::Stabilize);
         }
         if self.crop_resize.enabled && self.crop_resize.resize_enabled {
             // Resize (post-processing) - if not already added for crop
@@ -428,6 +457,8 @@ impl ProcessingPipeline {
             PassType::Deblock => self.deblock.enabled,
             PassType::Deband => self.deband.enabled,
             PassType::Sharpen => self.sharpen.enabled,
+            PassType::AntiAlias => self.anti_alias.enabled,
+            PassType::Stabilize => self.stabilize.enabled,
             PassType::ColorCorrection => self.color_correction.enabled,
             PassType::ChromaFixes => self.chroma_fixes.enabled,
             PassType::CropResize => self.crop_resize.enabled,

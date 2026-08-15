@@ -103,8 +103,10 @@ Thirteen filters, each switchable independently, applied in a fixed order. Most 
 | **Dehalo** | Bright outlines around edges, ringing, and residual ghosting left by a deinterlacer. HQDeringmod targets ringing specifically. |
 | **Deblock** | Square blocking from heavy compression. |
 | **Deband** | Visible steps in gradients and skies. |
+| **Anti-Aliasing** | Stair-stepping on diagonal edges, left by deinterlacing or upscaling. Runs before sharpening, which would otherwise make the steps more visible. |
+| **Stabilize** | Shake and weave — telecine wobble, jittery film scans, handheld footage. Runs last before cropping, so a small crop removes the edges it exposes. |
 | **Sharpen** | Soft sources needing edge and fine detail recovery. aWarpSharp2 sharpens by warping edges instead of raising contrast, so it adds no halos. |
-| **Chroma Fixes** | Color bleeding past edges, rainbowing, dot crawl. |
+| **Chroma Fixes** | Color bleeding past edges, rainbowing, dot crawl, and residual combing. |
 | **Color Correction** | Brightness, contrast, saturation, hue, levels, and white balance (warm/cool, green/magenta). |
 | **Crop & Resize** | Trimming overscan, scaling, and edge-directed upscaling. |
 | **Subtitles** | Whisper AI speech-to-text, to `.srt`, embedded, or both. |

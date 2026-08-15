@@ -1,5 +1,6 @@
 import 'package:json_annotation/json_annotation.dart';
 
+import 'anti_alias_parameters.dart';
 import 'chroma_fix_parameters.dart';
 import 'color_correction_parameters.dart';
 import 'crop_resize_parameters.dart';
@@ -7,6 +8,7 @@ import 'deband_parameters.dart';
 import 'deblock_parameters.dart';
 import 'descratch_parameters.dart';
 import 'spotless_parameters.dart';
+import 'stabilize_parameters.dart';
 import 'dehalo_parameters.dart';
 import 'dynamic_parameters.dart';
 import 'chroma_denoise_parameters.dart';
@@ -29,6 +31,8 @@ enum PassType {
   deblock,
   deband,
   sharpen,
+  antiAlias,
+  stabilize,
   colorCorrection,
   chromaFixes,
   cropResize,
@@ -57,6 +61,10 @@ extension PassTypeExtension on PassType {
         return 'Deband';
       case PassType.sharpen:
         return 'Sharpen';
+      case PassType.antiAlias:
+        return 'Anti-Aliasing';
+      case PassType.stabilize:
+        return 'Stabilize';
       case PassType.colorCorrection:
         return 'Color Correction';
       case PassType.chromaFixes:
@@ -88,6 +96,10 @@ extension PassTypeExtension on PassType {
         return 'Remove color banding from gradients';
       case PassType.sharpen:
         return 'Sharpen edges and enhance detail';
+      case PassType.antiAlias:
+        return 'Smooth stair-stepping on diagonal edges';
+      case PassType.stabilize:
+        return 'Remove shake and weave from the picture';
       case PassType.colorCorrection:
         return 'Adjust brightness, contrast, and colors';
       case PassType.chromaFixes:
@@ -130,6 +142,8 @@ class ProcessingPipeline {
 
   /// Sharpening pass parameters.
   final SharpenParameters sharpen;
+  final AntiAliasParameters antiAlias;
+  final StabilizeParameters stabilize;
 
   /// Color correction pass parameters.
   final ColorCorrectionParameters colorCorrection;
@@ -153,6 +167,8 @@ class ProcessingPipeline {
     this.deblock = const DeblockParameters(),
     this.deband = const DebandParameters(),
     this.sharpen = const SharpenParameters(),
+    this.antiAlias = const AntiAliasParameters(),
+    this.stabilize = const StabilizeParameters(),
     this.colorCorrection = const ColorCorrectionParameters(),
     this.chromaFixes = const ChromaFixParameters(),
     this.cropResize = const CropResizeParameters(),
@@ -172,6 +188,8 @@ class ProcessingPipeline {
       deblock: const DeblockParameters(enabled: false),
       deband: const DebandParameters(enabled: false),
       sharpen: const SharpenParameters(enabled: false),
+      antiAlias: const AntiAliasParameters(enabled: false),
+      stabilize: const StabilizeParameters(enabled: false),
       colorCorrection: const ColorCorrectionParameters(enabled: false),
       chromaFixes: const ChromaFixParameters(enabled: false),
       cropResize: const CropResizeParameters(enabled: false),
@@ -212,6 +230,11 @@ class ProcessingPipeline {
     if (deband.enabled) {
       passes.add(PassType.deband);
     }
+    // Anti-aliasing before sharpening: sharpening stair-stepped edges makes
+    // the stepping more visible, not less.
+    if (antiAlias.enabled) {
+      passes.add(PassType.antiAlias);
+    }
     if (sharpen.enabled) {
       passes.add(PassType.sharpen);
     }
@@ -220,6 +243,11 @@ class ProcessingPipeline {
     }
     if (colorCorrection.enabled) {
       passes.add(PassType.colorCorrection);
+    }
+    // Stabilisation shifts the picture within the frame, so it runs last
+    // before framing — a crop can then remove the edges it exposes.
+    if (stabilize.enabled) {
+      passes.add(PassType.stabilize);
     }
     if (cropResize.enabled && cropResize.resizeEnabled) {
       // Resize (post-processing) - if not already added for crop
@@ -242,6 +270,8 @@ class ProcessingPipeline {
     if (deblock.enabled) count++;
     if (deband.enabled) count++;
     if (sharpen.enabled) count++;
+    if (antiAlias.enabled) count++;
+    if (stabilize.enabled) count++;
     if (colorCorrection.enabled) count++;
     if (chromaFixes.enabled) count++;
     if (cropResize.enabled) count++;
@@ -261,6 +291,8 @@ class ProcessingPipeline {
     if (deblock.enabled) count++;
     if (deband.enabled) count++;
     if (sharpen.enabled) count++;
+    if (antiAlias.enabled) count++;
+    if (stabilize.enabled) count++;
     if (colorCorrection.enabled) count++;
     if (chromaFixes.enabled) count++;
     if (cropResize.enabled) count++;
@@ -288,6 +320,10 @@ class ProcessingPipeline {
         return deband.enabled;
       case PassType.sharpen:
         return sharpen.enabled;
+      case PassType.antiAlias:
+        return antiAlias.enabled;
+      case PassType.stabilize:
+        return stabilize.enabled;
       case PassType.colorCorrection:
         return colorCorrection.enabled;
       case PassType.chromaFixes:
@@ -322,6 +358,10 @@ class ProcessingPipeline {
         return deband.summary;
       case PassType.sharpen:
         return sharpen.summary;
+      case PassType.antiAlias:
+        return antiAlias.summary;
+      case PassType.stabilize:
+        return stabilize.summary;
       case PassType.colorCorrection:
         return colorCorrection.summary;
       case PassType.chromaFixes:
@@ -343,6 +383,8 @@ class ProcessingPipeline {
     DeblockParameters? deblock,
     DebandParameters? deband,
     SharpenParameters? sharpen,
+    AntiAliasParameters? antiAlias,
+    StabilizeParameters? stabilize,
     ColorCorrectionParameters? colorCorrection,
     ChromaFixParameters? chromaFixes,
     CropResizeParameters? cropResize,
@@ -358,6 +400,8 @@ class ProcessingPipeline {
       deblock: deblock ?? this.deblock,
       deband: deband ?? this.deband,
       sharpen: sharpen ?? this.sharpen,
+      antiAlias: antiAlias ?? this.antiAlias,
+      stabilize: stabilize ?? this.stabilize,
       colorCorrection: colorCorrection ?? this.colorCorrection,
       chromaFixes: chromaFixes ?? this.chromaFixes,
       cropResize: cropResize ?? this.cropResize,
@@ -403,6 +447,14 @@ class ProcessingPipeline {
       case PassType.sharpen:
         return copyWith(
           sharpen: sharpen.copyWith(enabled: enabled),
+        );
+      case PassType.antiAlias:
+        return copyWith(
+          antiAlias: antiAlias.copyWith(enabled: enabled),
+        );
+      case PassType.stabilize:
+        return copyWith(
+          stabilize: stabilize.copyWith(enabled: enabled),
         );
       case PassType.colorCorrection:
         return copyWith(

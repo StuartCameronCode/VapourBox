@@ -1,4 +1,5 @@
 import 'chroma_denoise_parameters.dart';
+import 'anti_alias_parameters.dart';
 import 'chroma_fix_parameters.dart';
 import 'color_correction_parameters.dart';
 import 'crop_resize_parameters.dart';
@@ -6,6 +7,7 @@ import 'deband_parameters.dart';
 import 'deblock_parameters.dart';
 import 'descratch_parameters.dart';
 import 'spotless_parameters.dart';
+import 'stabilize_parameters.dart';
 import 'dehalo_parameters.dart';
 import 'dynamic_parameters.dart';
 import 'noise_reduction_parameters.dart';
@@ -299,6 +301,58 @@ class ParameterConverter {
     );
   }
 
+  /// Convert anti-aliasing parameters to dynamic format.
+  static DynamicParameters fromAntiAlias(AntiAliasParameters params) {
+    return DynamicParameters(
+      filterId: 'anti_alias',
+      enabled: params.enabled,
+      values: {
+        'method': params.method == AntiAliasMethod.santiag ? 'santiag' : 'daa',
+        'santiagStrh': params.santiagStrh,
+        'santiagStrv': params.santiagStrv,
+      },
+    );
+  }
+
+  /// Convert dynamic parameters to anti-aliasing parameters.
+  static AntiAliasParameters toAntiAlias(DynamicParameters params) {
+    final v = params.values;
+    return AntiAliasParameters(
+      enabled: params.enabled,
+      method: v['method'] == 'santiag'
+          ? AntiAliasMethod.santiag
+          : AntiAliasMethod.daa,
+      santiagStrh: _asInt(v['santiagStrh']) ?? 1,
+      santiagStrv: _asInt(v['santiagStrv']) ?? 1,
+      // Not exposed: only nnedi3 is bundled, and the worker pins it there.
+    );
+  }
+
+  /// Convert stabilisation parameters to dynamic format.
+  static DynamicParameters fromStabilize(StabilizeParameters params) {
+    return DynamicParameters(
+      filterId: 'stabilize',
+      enabled: params.enabled,
+      values: {
+        'method': 'stab',
+        'dxmax': params.dxmax,
+        'dymax': params.dymax,
+        'mirror': params.mirror,
+      },
+    );
+  }
+
+  /// Convert dynamic parameters to stabilisation parameters.
+  static StabilizeParameters toStabilize(DynamicParameters params) {
+    final v = params.values;
+    return StabilizeParameters(
+      enabled: params.enabled,
+      dxmax: _asInt(v['dxmax']) ?? 4,
+      dymax: _asInt(v['dymax']) ?? 4,
+      mirror: _asInt(v['mirror']) ?? 0,
+    );
+  }
+
   /// Convert deblock parameters to dynamic format.
   static DynamicParameters fromDeblock(DeblockParameters params) {
     String method;
@@ -459,6 +513,9 @@ class ParameterConverter {
         'chromaBleedCBlur': params.chromaBleedCBlur,
         'chromaBleedStrength': params.chromaBleedStrength,
         'applyDeCrawl': params.applyDeCrawl,
+        'applyDeRainbow': params.applyDeRainbow,
+        'deRainbowCThresh': params.deRainbowCThresh,
+        'deRainbowYThresh': params.deRainbowYThresh,
         'deCrawlYThresh': params.deCrawlYThresh,
         'deCrawlCThresh': params.deCrawlCThresh,
         'deCrawlMaxDiff': params.deCrawlMaxDiff,
@@ -546,6 +603,8 @@ class ParameterConverter {
         'descratch': fromDeScratch(pipeline.descratch),
         'spotless': fromSpotLess(pipeline.spotless),
         'noise_reduction': fromNoiseReduction(pipeline.noiseReduction),
+        'anti_alias': fromAntiAlias(pipeline.antiAlias),
+        'stabilize': fromStabilize(pipeline.stabilize),
         'chroma_denoise': fromChromaDenoise(pipeline.chromaDenoise),
         'dehalo': fromDehalo(pipeline.dehalo),
         'deblock': fromDeblock(pipeline.deblock),
@@ -945,6 +1004,9 @@ class ParameterConverter {
       chromaBleedCBlur: (v['chromaBleedCBlur'] as num?)?.toDouble() ?? 0.7,
       chromaBleedStrength: (v['chromaBleedStrength'] as num?)?.toDouble() ?? 0.8,
       applyDeCrawl: v['applyDeCrawl'] as bool? ?? false,
+      applyDeRainbow: v['applyDeRainbow'] as bool? ?? false,
+      deRainbowCThresh: _asInt(v['deRainbowCThresh']) ?? 10,
+      deRainbowYThresh: _asInt(v['deRainbowYThresh']) ?? 10,
       deCrawlYThresh: v['deCrawlYThresh'] as int? ?? 10,
       deCrawlCThresh: v['deCrawlCThresh'] as int? ?? 10,
       deCrawlMaxDiff: v['deCrawlMaxDiff'] as int? ?? 50,
@@ -1033,6 +1095,12 @@ class ParameterConverter {
       noiseReduction: dynamic.get('noise_reduction') != null
           ? toNoiseReduction(dynamic.get('noise_reduction')!)
           : const NoiseReductionParameters(),
+      antiAlias: dynamic.get('anti_alias') != null
+          ? toAntiAlias(dynamic.get('anti_alias')!)
+          : const AntiAliasParameters(),
+      stabilize: dynamic.get('stabilize') != null
+          ? toStabilize(dynamic.get('stabilize')!)
+          : const StabilizeParameters(),
       chromaDenoise: dynamic.get('chroma_denoise') != null
           ? toChromaDenoise(dynamic.get('chroma_denoise')!)
           : const ChromaDenoiseParameters(),

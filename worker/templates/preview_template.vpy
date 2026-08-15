@@ -861,6 +861,31 @@ clip = core.neo_f3kdb.Deband(
 {{/DEBAND}}
 
 # ============================================================================
+# PASS: ANTI-ALIASING
+# ============================================================================
+{{#ANTI_ALIAS}}
+{{#AA_DAA}}
+# daa - double-rate anti-aliasing. Interpolates both fields with nnedi3 and
+# averages them, so a stair-stepped diagonal is rebuilt rather than blurred.
+# The gentler of the two methods and the usual choice.
+clip = haf.daa(clip)
+{{/AA_DAA}}
+
+{{#AA_SANTIAG}}
+# santiag - stronger anti-aliasing with independent horizontal and vertical
+# strength, so it can be aimed at one axis. `type` is pinned to nnedi3: havsfunc
+# also accepts eedi2 and sangnom, neither of which is in the deps bundle, and
+# naming an absent one fails at script evaluation with a bare "no attribute".
+clip = haf.santiag(
+    clip,
+    strh={{AA_STRH}},
+    strv={{AA_STRV}},
+    type="{{AA_TYPE}}",
+)
+{{/AA_SANTIAG}}
+{{/ANTI_ALIAS}}
+
+# ============================================================================
 # PASS 7: SHARPEN
 # ============================================================================
 {{#SHARPEN}}
@@ -981,6 +1006,40 @@ if _decrawl_orig_format.bits_per_sample > 10:
                                dither_type="error_diffusion")
 {{/CHROMA_DECRAWL}}
 
+{{#CHROMA_DERAINBOW}}
+# LUTDeRainbow - remove rainbowing (cross-luminance): the shimmering colour
+# bands composite video puts over fine detail. The companion to LUTDeCrawl,
+# which targets the dots along colour edges instead.
+#
+# Same 8-10 bit limit as LUTDeCrawl and the same treatment: havsfunc rejects
+# anything above 10-bit outright ("LUTDeRainbow: This is not an 8-10 bit YUV or
+# YCoCg clip"), verified against the bundle, so run at 10-bit and restore the
+# source format after. Rainbowing is an analog artifact; 10-bit is ample for the
+# decision and the 8/10-bit path is byte-for-byte unchanged.
+_derainbow_orig_format = clip.format
+if clip.format.bits_per_sample > 10:
+    clip = core.resize.Bilinear(clip, format=clip.format.replace(
+        bits_per_sample=10, sample_type=vs.INTEGER).id)
+clip = haf.LUTDeRainbow(
+    clip,
+{{#DERAINBOW_CTHRESH}}
+    cthresh={{DERAINBOW_CTHRESH}},
+{{/DERAINBOW_CTHRESH}}
+{{#DERAINBOW_YTHRESH}}
+    ythresh={{DERAINBOW_YTHRESH}},
+{{/DERAINBOW_YTHRESH}}
+{{#DERAINBOW_Y}}
+    y={{DERAINBOW_Y}},
+{{/DERAINBOW_Y}}
+{{#DERAINBOW_LINKUV}}
+    linkUV={{DERAINBOW_LINKUV}},
+{{/DERAINBOW_LINKUV}}
+)
+if _derainbow_orig_format.bits_per_sample > 10:
+    clip = core.resize.Bilinear(clip, format=_derainbow_orig_format.id,
+                               dither_type="error_diffusion")
+{{/CHROMA_DERAINBOW}}
+
 {{#CHROMA_VINVERSE}}
 # Vinverse - remove residual combing
 clip = haf.Vinverse(
@@ -1092,6 +1151,26 @@ if clip.format.color_family == vs.YUV:
     )
 {{/COLOR_WHITE_BALANCE}}
 {{/COLOR_CORRECTION}}
+
+# ============================================================================
+# PASS: STABILIZE
+# ============================================================================
+{{#STABILIZE}}
+# Stab - global motion stabilisation via MVTools' Depan family. Measures the
+# frame-to-frame shift and subtracts it, so shake is cancelled while a
+# deliberate pan survives. Frame count is unchanged, which is why this is an
+# ordinary pass.
+#
+# The signature is Stab(clp, dxmax, dymax, mirror) — there is no `range`
+# argument, whatever other Stab implementations take. `mirror` fills the edges
+# the shift exposes rather than leaving them black.
+clip = haf.Stab(
+    clip,
+    dxmax={{STAB_DXMAX}},
+    dymax={{STAB_DYMAX}},
+    mirror={{STAB_MIRROR}},
+)
+{{/STABILIZE}}
 
 # ============================================================================
 # PASS 10: RESIZE / UPSCALE

@@ -10,6 +10,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:vapourbox/models/anti_alias_parameters.dart';
 import 'package:vapourbox/models/chroma_denoise_parameters.dart';
 import 'package:vapourbox/models/chroma_fix_parameters.dart';
 import 'package:vapourbox/models/color_correction_parameters.dart';
@@ -27,6 +28,7 @@ import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/sharpen_parameters.dart';
 import 'package:vapourbox/models/spotless_parameters.dart';
+import 'package:vapourbox/models/stabilize_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 
 import 'support/worker_harness.dart';
@@ -165,6 +167,8 @@ VideoJob buildJob({
   SpotLessParameters? spotless,
   CropResizeParameters? cropResize,
   ChromaDenoiseParameters? chromaDenoise,
+  AntiAliasParameters? antiAlias,
+  StabilizeParameters? stabilize,
 }) => VideoJob(
   id: const Uuid().v4(),
   inputPath: TestConfig.inputFile,
@@ -182,6 +186,8 @@ VideoJob buildJob({
     colorCorrection: colorCorrection ?? const ColorCorrectionParameters(),
     cropResize: cropResize ?? const CropResizeParameters(),
     chromaDenoise: chromaDenoise ?? const ChromaDenoiseParameters(),
+    antiAlias: antiAlias ?? const AntiAliasParameters(),
+    stabilize: stabilize ?? const StabilizeParameters(),
   ),
   encodingSettings: const EncodingSettings(
     codec: VideoCodec.h264, container: ContainerFormat.mkv, audioMode: AudioMode.none,
@@ -833,6 +839,98 @@ void main() {
       final actual = parseFilterParams(script, 'haf.HQDeringmod(');
       expect(actual, isEmpty,
           reason: 'passing our own values would override upstream tuning');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+
+    // --- Second batch: anti-aliasing, stabilisation, rainbow removal --------
+
+    test('anti-alias: daa', () async {
+      loadSchema('anti_alias');
+      final job = buildJob(
+        testName: 'aa_daa',
+        antiAlias: const AntiAliasParameters(
+          enabled: true,
+          method: AntiAliasMethod.daa,
+        ),
+      );
+      print('  Generating daa script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.daa('));
+      expect(script, isNot(contains('haf.santiag(')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('anti-alias: santiag params, interpolator pinned to nnedi3', () async {
+      loadSchema('anti_alias');
+      final job = buildJob(
+        testName: 'aa_santiag',
+        antiAlias: const AntiAliasParameters(
+          enabled: true,
+          method: AntiAliasMethod.santiag,
+          santiagStrh: 2,
+          santiagStrv: 3,
+        ),
+      );
+      print('  Generating santiag script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.santiag('));
+      final actual = parseFilterParams(script, 'haf.santiag(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['strh'], '2');
+      expect(actual['strv'], '3');
+      // eedi2 and sangnom are not in the deps bundle; naming one would fail at
+      // script evaluation rather than degrade.
+      expect(actual['type'], '"nnedi3"');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('stabilize: Stab params', () async {
+      loadSchema('stabilize');
+      final job = buildJob(
+        testName: 'stabilize',
+        stabilize: const StabilizeParameters(
+          enabled: true,
+          dxmax: 6,
+          dymax: 8,
+          mirror: 3,
+        ),
+      );
+      print('  Generating Stab script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.Stab('));
+      final actual = parseFilterParams(script, 'haf.Stab(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['dxmax'], '6');
+      expect(actual['dymax'], '8');
+      expect(actual['mirror'], '3');
+      // Stab(clp, dxmax, dymax, mirror) — there is no `range` argument, and
+      // passing one is a TypeError at script evaluation.
+      expect(actual.containsKey('range'), isFalse);
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('chroma_fixes: LUTDeRainbow with its 10-bit guard', () async {
+      loadSchema('chroma_fixes');
+      final job = buildJob(
+        testName: 'derainbow',
+        chromaFixes: const ChromaFixParameters(
+          enabled: true,
+          applyDeRainbow: true,
+          deRainbowCThresh: 12,
+          deRainbowYThresh: 14,
+        ),
+      );
+      print('  Generating LUTDeRainbow script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.LUTDeRainbow('));
+      final actual = parseFilterParams(script, 'haf.LUTDeRainbow(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['cthresh'], '12');
+      expect(actual['ythresh'], '14');
+      // Same 8-10 bit limit as LUTDeCrawl, verified by probing the bundle.
+      expect(script, contains('_derainbow_orig_format'));
+      expect(script, contains('bits_per_sample > 10'));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 

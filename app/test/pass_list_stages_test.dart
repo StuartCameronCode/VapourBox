@@ -44,12 +44,36 @@ void main() {
       PassType.dehalo,
       PassType.deblock,
       PassType.deband,
+      PassType.antiAlias,
       PassType.sharpen,
       PassType.chromaFixes,
       PassType.colorCorrection,
+      PassType.stabilize,
       PassType.cropResize,
       PassType.subtitles,
     ]);
+  });
+
+  group('the placements that carry meaning', () {
+    int indexOf(PassType p) => flattened.indexOf(p);
+
+    test('anti-aliasing runs before sharpening', () {
+      // Sharpening a stair-stepped edge makes the stepping more visible, not
+      // less, so the order is not arbitrary. Mirrored in
+      // ProcessingPipeline.enabledPasses and asserted end-to-end in the Rust
+      // test_110.
+      expect(indexOf(PassType.antiAlias),
+          lessThan(indexOf(PassType.sharpen)));
+    });
+
+    test('stabilisation runs last before framing', () {
+      // It shifts the picture within the frame and exposes thin empty edges, so
+      // a crop afterwards can remove them.
+      expect(indexOf(PassType.stabilize),
+          lessThan(indexOf(PassType.cropResize)));
+      expect(indexOf(PassType.stabilize),
+          greaterThan(indexOf(PassType.colorCorrection)));
+    });
   });
 
   test('every stage has a title and at least one pass', () {

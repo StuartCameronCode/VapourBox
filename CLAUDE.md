@@ -562,6 +562,53 @@ Two lessons from doing it, both of which cost a debugging cycle:
 > deliberately not passed at all, asserted from both sides, in line with how
 > every other optional plugin argument here is treated.
 
+### Second filter batch (2026-08-15): two new passes
+
+**Anti-Aliasing** (`daa`, `santiag`) and **Stabilize** (`Stab`) are the first
+whole *categories* added rather than alternatives inside an existing pass, plus
+**LUTDeRainbow** as a Chroma Fixes toggle. All three come from `havsfunc` and
+MVTools, already in the bundle, so again no deps release.
+
+Two orderings are load-bearing and asserted from both sides
+(`test_110` in Rust, `pass_list_stages_test.dart` in Dart):
+
+- **Anti-aliasing runs before Sharpen.** Sharpening a stair-stepped edge makes
+  the stepping more visible, not less.
+- **Stabilize runs last before Crop/Resize.** It shifts the picture within the
+  frame and exposes thin empty edges, so a crop afterwards removes them.
+
+> **`santiag`'s `type` is pinned to `nnedi3`.** havsfunc also accepts `eedi2`
+> and `sangnom`; **neither is in the deps bundle**, and naming an absent one
+> fails at script evaluation with a bare "no attribute" error. `AntiAliasParameters::effective_santiag_type`
+> drops anything else. The same shape as `normalized_chroma_edi` — don't bypass it.
+>
+> **LUTDeRainbow shares LUTDeCrawl's 8-10 bit limit** ("This is not an 8-10 bit
+> YUV or YCoCg clip"), so it gets the same convert-down-and-restore guard in both
+> templates. Found by probing the bundle, not from documentation.
+>
+> **STPresso was dropped from this batch.** havsfunc implements it with
+> `core.flux.SmoothT`, and the **fluxsmooth plugin is not bundled** — zsmooth
+> provides `FluxSmoothT` under a different namespace, which havsfunc does not
+> know about. That makes it effort 2, not 1.
+
+> **Probe the signature, not just the call.** `Stab` shipped with a `range`
+> argument that the bundled havsfunc does not have
+> (`Stab(clp, dxmax, dymax, mirror)`), so every job using it died with a
+> `TypeError`. The earlier probe called `haf.Stab(clip)` with no arguments and
+> passed, which proved only that the function exists. `inspect.signature` against
+> the bundled module is the check that would have caught it — the same lesson as
+> aWarpSharp2's `chroma`, one level deeper.
+
+> **The heavy tests run the worker BINARY, not the library.** `cargo test`
+> compiles `src/` into its own test executable, so the Rust suite can pass
+> against new code while `app/test/integration_*` exercises a stale
+> `worker/target/debug/vapourbox-worker`. The symptom is badly misleading:
+> generated scripts full of unsubstituted `{{PLACEHOLDER}}` and a bare Python
+> `SyntaxError` from vspipe, which reads like a template bug. `WorkerHarness`
+> now prints a loud warning when the binary is older than anything in
+> `worker/src` or `worker/templates` — **run `cargo build` before the heavy
+> suite**.
+
 ### Advanced mode is one app-wide setting, and it is the complexity lever
 
 `AdvancedModeService` (**Settings → General → Show advanced options**, persisted
