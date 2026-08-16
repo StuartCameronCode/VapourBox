@@ -1189,78 +1189,6 @@ build_plugin "removegrain" \
     "libremovegrain.dylib" \
     "meson setup build --buildtype=release && ninja -C build"
 
-# FluxSmooth (core.flux.SmoothT / SmoothST). Also what havsfunc's STPresso calls
-# internally — without this plugin STPresso raises "No attribute with the name
-# flux exists", which is why it is not offered without it.
-#
-# Pinned to v2, the newest tag with a published Windows binary. Windows has no
-# from-source build path here (download-deps-windows.ps1 only fetches release
-# archives), so every platform tracks the version Windows can get; a version
-# skew would make the same job denoise differently per OS.
-#
-# Built by invoking the compiler directly rather than through its autotools
-# build: it is one C file, and autoconf/automake/libtool are not otherwise
-# required by any deps build.
-FLUXSMOOTH_TAG="v2"
-if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfluxsmooth.dylib" ]; then
-    echo ""
-    echo "=== Building fluxsmooth ($FLUXSMOOTH_TAG) ==="
-    rm -rf fluxsmooth
-    if git clone --depth 1 --branch "$FLUXSMOOTH_TAG" -q \
-        https://github.com/dubhater/vapoursynth-fluxsmooth.git fluxsmooth 2>/dev/null \
-       && cc -std=c99 -O2 -fPIC -shared \
-            -o "$PLUGINS_DIR/libfluxsmooth.dylib" \
-            fluxsmooth/src/fluxsmooth.c -I"$VS_INC_DIR"; then
-        codesign -s - -f "$PLUGINS_DIR/libfluxsmooth.dylib" 2>/dev/null || true
-        echo "  Built fluxsmooth -> libfluxsmooth.dylib"
-        BUILT_PLUGINS+=("fluxsmooth")
-    else
-        echo "  Failed to build fluxsmooth"
-        FAILED_PLUGINS+=("fluxsmooth")
-    fi
-else
-    echo "  fluxsmooth already exists, skipping"
-fi
-
-# Bifrost (core.bifrost.Bifrost) - temporal rainbow / dot-crawl removal for
-# composite captures. Pinned to v3.0, the newest tag with a published Windows
-# binary; see the fluxsmooth note above for why every platform tracks that.
-#
-# Its source is one C file, so it is compiled directly rather than through its
-# autotools build — no autoconf/automake/libtool needed in CI. It includes
-# <vapoursynth/VapourSynth4.h>, so the include path has to be the PARENT of a
-# directory called vapoursynth — which is what the symlink farm created next to
-# VS_INC_DIR above provides.
-BIFROST_TAG="v3.0"
-if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libbifrost.dylib" ]; then
-    echo ""
-    echo "=== Building bifrost ($BIFROST_TAG) ==="
-    rm -rf bifrost
-    if git clone --depth 1 --branch "$BIFROST_TAG" -q \
-        https://github.com/dubhater/vapoursynth-bifrost.git bifrost 2>/dev/null \
-       && cc -std=c99 -O2 -fPIC -shared \
-            -o "$PLUGINS_DIR/libbifrost.dylib" \
-            bifrost/src/bifrost.c -I"$VS_INC_DIR"; then
-        codesign -s - -f "$PLUGINS_DIR/libbifrost.dylib" 2>/dev/null || true
-        echo "  Built bifrost -> libbifrost.dylib"
-        BUILT_PLUGINS+=("bifrost")
-    else
-        echo "  Failed to build bifrost"
-        FAILED_PLUGINS+=("bifrost")
-    fi
-else
-    echo "  bifrost already exists, skipping"
-fi
-
-# Retinex (core.retinex.MSRCP) - multi-scale retinex, used here to lift shadow
-# detail out of underexposed footage. Pinned to r4, the newest tag with a
-# published Windows binary. Ordinary meson build; it finds the VapourSynth
-# headers through pkg-config, which build_plugin already points at our
-# from-source install.
-build_plugin "retinex" \
-    "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Retinex.git" \
-    "libretinex.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
 
 # AddGrain
 build_plugin "addgrain" \
@@ -1429,6 +1357,87 @@ fi
 download_prebuilt_plugin "TemporalMedian" "libtmedian.dylib" "$TMEDIAN_URL"
 
 fi  # end plugin arch split (x86_64 pre-built / arm64 from-source)
+
+# The three plugins below are built from source on BOTH arches, so they sit
+# outside the arch split above. They started inside its arm64 branch, where
+# x64 never reached them and the packaging guard failed on all three missing
+# dylibs. x64 takes pre-built binaries for most plugins, but Stefan-Olt ships
+# none of these, and building them is cheap: two single C files and one small
+# meson project. MACOSX_DEPLOYMENT_TARGET is exported near the top, so the x64
+# builds inherit the 12.0 floor and pass the minos guard (issue #39).
+
+# FluxSmooth (core.flux.SmoothT / SmoothST). Also what havsfunc's STPresso calls
+# internally — without this plugin STPresso raises "No attribute with the name
+# flux exists", which is why it is not offered without it.
+#
+# Pinned to v2, the newest tag with a published Windows binary. Windows has no
+# from-source build path here (download-deps-windows.ps1 only fetches release
+# archives), so every platform tracks the version Windows can get; a version
+# skew would make the same job denoise differently per OS.
+#
+# Built by invoking the compiler directly rather than through its autotools
+# build: it is one C file, and autoconf/automake/libtool are not otherwise
+# required by any deps build.
+FLUXSMOOTH_TAG="v2"
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfluxsmooth.dylib" ]; then
+    echo ""
+    echo "=== Building fluxsmooth ($FLUXSMOOTH_TAG) ==="
+    rm -rf fluxsmooth
+    if git clone --depth 1 --branch "$FLUXSMOOTH_TAG" -q \
+        https://github.com/dubhater/vapoursynth-fluxsmooth.git fluxsmooth 2>/dev/null \
+       && cc -std=c99 -O2 -fPIC -shared \
+            -o "$PLUGINS_DIR/libfluxsmooth.dylib" \
+            fluxsmooth/src/fluxsmooth.c -I"$VS_INC_DIR"; then
+        codesign -s - -f "$PLUGINS_DIR/libfluxsmooth.dylib" 2>/dev/null || true
+        echo "  Built fluxsmooth -> libfluxsmooth.dylib"
+        BUILT_PLUGINS+=("fluxsmooth")
+    else
+        echo "  Failed to build fluxsmooth"
+        FAILED_PLUGINS+=("fluxsmooth")
+    fi
+else
+    echo "  fluxsmooth already exists, skipping"
+fi
+
+# Bifrost (core.bifrost.Bifrost) - temporal rainbow / dot-crawl removal for
+# composite captures. Pinned to v3.0, the newest tag with a published Windows
+# binary; see the fluxsmooth note above for why every platform tracks that.
+#
+# Its source is one C file, so it is compiled directly rather than through its
+# autotools build — no autoconf/automake/libtool needed in CI. It includes
+# <vapoursynth/VapourSynth4.h>, so the include path has to be the PARENT of a
+# directory called vapoursynth — which is what the symlink farm created next to
+# VS_INC_DIR above provides.
+BIFROST_TAG="v3.0"
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libbifrost.dylib" ]; then
+    echo ""
+    echo "=== Building bifrost ($BIFROST_TAG) ==="
+    rm -rf bifrost
+    if git clone --depth 1 --branch "$BIFROST_TAG" -q \
+        https://github.com/dubhater/vapoursynth-bifrost.git bifrost 2>/dev/null \
+       && cc -std=c99 -O2 -fPIC -shared \
+            -o "$PLUGINS_DIR/libbifrost.dylib" \
+            bifrost/src/bifrost.c -I"$VS_INC_DIR"; then
+        codesign -s - -f "$PLUGINS_DIR/libbifrost.dylib" 2>/dev/null || true
+        echo "  Built bifrost -> libbifrost.dylib"
+        BUILT_PLUGINS+=("bifrost")
+    else
+        echo "  Failed to build bifrost"
+        FAILED_PLUGINS+=("bifrost")
+    fi
+else
+    echo "  bifrost already exists, skipping"
+fi
+
+# Retinex (core.retinex.MSRCP) - multi-scale retinex, used here to lift shadow
+# detail out of underexposed footage. Pinned to r4, the newest tag with a
+# published Windows binary. Ordinary meson build; it finds the VapourSynth
+# headers through pkg-config, which build_plugin already points at our
+# from-source install.
+build_plugin "retinex" \
+    "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Retinex.git" \
+    "libretinex.dylib" \
+    "meson setup build --buildtype=release && ninja -C build"
 
 # zsmooth (core.zsmooth.CCD - chroma denoiser; also Cnr4 and a set of
 # RemoveGrain/TemporalMedian-family filters).
