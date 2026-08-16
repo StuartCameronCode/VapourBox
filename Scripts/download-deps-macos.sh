@@ -843,6 +843,25 @@ if [ -n "$VS_INC_DIR" ] && [ -d "$VS_BUILD_DIR/include" ]; then
     done
 fi
 
+# Some plugins spell their includes <vapoursynth/VapourSynth.h> rather than
+# <VapourSynth.h> — retinex (API3) and bifrost (API4) both do — so they need an
+# include root whose CHILD is a directory called vapoursynth. Mirror the
+# permanent symlink farm download-deps-linux.sh keeps, so that on both platforms
+# a single -I"$VS_INC_DIR" satisfies either include style and no plugin has to
+# stage a private include tree.
+#
+# retinex resolves its headers through pkg-config, which yields this same
+# directory, so it needs no build-command change once the subdirectory exists.
+if [ -n "$VS_INC_DIR" ]; then
+    mkdir -p "$VS_INC_DIR/vapoursynth"
+    for hdr in "$VS_INC_DIR"/*.h; do
+        [ -f "$hdr" ] || continue
+        ln -sf "../$(basename "$hdr")" "$VS_INC_DIR/vapoursynth/$(basename "$hdr")"
+    done
+    [ -f "$VS_INC_DIR/vapoursynth/VapourSynth.h" ] || \
+        echo "  WARNING: no API3 header to link into $VS_INC_DIR/vapoursynth (retinex will fail)"
+fi
+
 if [ "$ARCH" = "x86_64" ]; then
     # ========================================================================
     # x86_64 plugins: download pre-built darwin-x86_64 binaries from
@@ -1210,20 +1229,18 @@ fi
 # Its source is one C file, so it is compiled directly rather than through its
 # autotools build — no autoconf/automake/libtool needed in CI. It includes
 # <vapoursynth/VapourSynth4.h>, so the include path has to be the PARENT of a
-# directory called vapoursynth; VS_INC_DIR points at the headers themselves, so
-# a small include root is staged for it.
+# directory called vapoursynth — which is what the symlink farm created next to
+# VS_INC_DIR above provides.
 BIFROST_TAG="v3.0"
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libbifrost.dylib" ]; then
     echo ""
     echo "=== Building bifrost ($BIFROST_TAG) ==="
-    rm -rf bifrost bifrost-incroot
-    mkdir -p bifrost-incroot/vapoursynth
-    cp "$VS_INC_DIR"/*.h bifrost-incroot/vapoursynth/ 2>/dev/null || true
+    rm -rf bifrost
     if git clone --depth 1 --branch "$BIFROST_TAG" -q \
         https://github.com/dubhater/vapoursynth-bifrost.git bifrost 2>/dev/null \
        && cc -std=c99 -O2 -fPIC -shared \
             -o "$PLUGINS_DIR/libbifrost.dylib" \
-            bifrost/src/bifrost.c -Ibifrost-incroot; then
+            bifrost/src/bifrost.c -I"$VS_INC_DIR"; then
         codesign -s - -f "$PLUGINS_DIR/libbifrost.dylib" 2>/dev/null || true
         echo "  Built bifrost -> libbifrost.dylib"
         BUILT_PLUGINS+=("bifrost")

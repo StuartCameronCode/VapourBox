@@ -828,11 +828,15 @@ if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfluxsmooth.so" ]; then
     echo ""
     echo "=== Building fluxsmooth ($FLUXSMOOTH_TAG) ==="
     rm -rf fluxsmooth
+    # Fail loudly if the include variable is ever renamed again: an empty one
+    # reaches cc as a bare `-I` and the error ("missing path after -I") says
+    # nothing about which variable was wrong.
+    : "${VS_INCLUDE_DIR:?VS_INCLUDE_DIR is unset — fluxsmooth cannot find the VapourSynth headers}"
     if git clone --depth 1 --branch "$FLUXSMOOTH_TAG" -q \
         https://github.com/dubhater/vapoursynth-fluxsmooth.git fluxsmooth 2>/dev/null \
        && cc -std=c99 -O2 -fPIC -shared \
             -o "$PLUGINS_DIR/libfluxsmooth.so" \
-            fluxsmooth/src/fluxsmooth.c -I"$VS_INC_DIR"; then
+            fluxsmooth/src/fluxsmooth.c -I"$VS_INCLUDE_DIR"; then
         echo "  Built fluxsmooth -> libfluxsmooth.so"
         BUILT_PLUGINS+=("fluxsmooth")
     else
@@ -850,20 +854,26 @@ fi
 # Its source is one C file, so it is compiled directly rather than through its
 # autotools build — no autoconf/automake/libtool needed in CI. It includes
 # <vapoursynth/VapourSynth4.h>, so the include path has to be the PARENT of a
-# directory called vapoursynth; VS_INC_DIR points at the headers themselves, so
-# a small include root is staged for it.
+# directory called vapoursynth. Unlike macOS, this script already maintains
+# exactly that: $VS_INCLUDE_DIR/vapoursynth/ is a farm of symlinks created near
+# the top for plugins using this include style, so point -I at its parent and
+# stage nothing.
 BIFROST_TAG="v3.0"
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libbifrost.so" ]; then
     echo ""
     echo "=== Building bifrost ($BIFROST_TAG) ==="
-    rm -rf bifrost bifrost-incroot
-    mkdir -p bifrost-incroot/vapoursynth
-    cp "$VS_INC_DIR"/*.h bifrost-incroot/vapoursynth/ 2>/dev/null || true
+    rm -rf bifrost
+    : "${VS_INCLUDE_DIR:?VS_INCLUDE_DIR is unset — bifrost cannot find the VapourSynth headers}"
+    [ -f "$VS_INCLUDE_DIR/vapoursynth/VapourSynth4.h" ] || {
+        echo "  ERROR: $VS_INCLUDE_DIR/vapoursynth/VapourSynth4.h missing — the"
+        echo "         include symlink farm did not get created."
+        exit 1
+    }
     if git clone --depth 1 --branch "$BIFROST_TAG" -q \
         https://github.com/dubhater/vapoursynth-bifrost.git bifrost 2>/dev/null \
        && cc -std=c99 -O2 -fPIC -shared \
             -o "$PLUGINS_DIR/libbifrost.so" \
-            bifrost/src/bifrost.c -Ibifrost-incroot; then
+            bifrost/src/bifrost.c -I"$VS_INCLUDE_DIR"; then
         echo "  Built bifrost -> libbifrost.so"
         BUILT_PLUGINS+=("bifrost")
     else
@@ -875,10 +885,14 @@ else
 fi
 
 # Retinex (core.retinex.MSRCP) - see the macOS script for the rationale.
+# It resolves VapourSynth through pkg-config, so it needs $PLUGIN_BUILD_ENV
+# like every other meson plugin here — the macOS script has no equivalent
+# prefix, so copying its invocation across drops PKG_CONFIG_PATH and meson
+# fails with 'Dependency "vapoursynth" not found'.
 build_plugin "retinex" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Retinex.git" \
     "libretinex.so" \
-    "meson setup build --buildtype=release && ninja -C build"
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
 
 # AddGrain
 build_plugin "addgrain" \
