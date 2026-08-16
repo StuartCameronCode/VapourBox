@@ -22,7 +22,15 @@
 #             up and nothing a user could stumble into. Pass it via
 #             workflow_dispatch:
 #
-#               gh workflow run ci-test.yml --ref <branch> -f deps_run_id=<id>
+#               gh workflow run ci-test.yml --ref <branch> \
+#                 -f deps_run_id="<macos-id>,<windows-id>,<linux-id>"
+#
+#             It takes a LIST because one CI dispatch runs all four platform
+#             jobs, while macOS, Windows and Linux are three separate
+#             build-deps-* workflows and therefore three separate run IDs. Each
+#             job tries every ID in turn and takes the first that holds an
+#             artifact for its platform, so the same list works for all of them
+#             and the order does not matter.
 #
 #             Requires `actions: read` on the workflow token; the callers
 #             declare it.
@@ -37,21 +45,32 @@ TAG="${2:?missing release tag}"
 VER="${3:?missing version}"
 
 if [ -n "${DEPS_RUN_ID:-}" ]; then
-  echo "deps source: artifact from workflow run $DEPS_RUN_ID (NOT a release)" >&2
   rm -rf .deps-artifact
-  gh run download "$DEPS_RUN_ID" \
-    --pattern "VapourBox-deps-*-${PLATFORM}" --dir .deps-artifact >&2
+  ZIP=""
+  FROM_RUN=""
 
-  # gh nests each artifact in a directory named after it, so glob rather than
-  # assuming a layout.
-  ZIP=$(find .deps-artifact -name "VapourBox-deps-*-${PLATFORM}.zip" | head -1)
+  # A run that built a different platform simply has no matching artifact, and
+  # `gh run download` exits non-zero for that. That is expected here, not a
+  # failure, so keep trying the rest of the list before giving up.
+  for RUN in $(echo "$DEPS_RUN_ID" | tr ',' ' '); do
+    echo "looking for a $PLATFORM artifact in run $RUN" >&2
+    if gh run download "$RUN" \
+        --pattern "VapourBox-deps-*-${PLATFORM}" --dir .deps-artifact >&2 2>/dev/null; then
+      # gh nests each artifact in a directory named after it, so glob rather
+      # than assuming a layout.
+      ZIP=$(find .deps-artifact -name "VapourBox-deps-*-${PLATFORM}.zip" | head -1)
+      if [ -n "$ZIP" ]; then FROM_RUN="$RUN"; break; fi
+    fi
+    rm -rf .deps-artifact
+  done
+
   if [ -z "$ZIP" ]; then
-    echo "::error::run $DEPS_RUN_ID has no deps artifact for $PLATFORM" >&2
-    echo "artifacts present:" >&2
-    find .deps-artifact -name '*.zip' >&2 || true
+    echo "::error::no $PLATFORM deps artifact in any of: $DEPS_RUN_ID" >&2
+    echo "Check the build-deps-* run actually produced one — the artifact is" >&2
+    echo "named VapourBox-deps-<version>-${PLATFORM}." >&2
     exit 1
   fi
-  echo "::warning::Testing an UNPUBLISHED deps bundle from run $DEPS_RUN_ID, not ${TAG}." >&2
+  echo "::warning::Testing an UNPUBLISHED deps bundle for ${PLATFORM} from run ${FROM_RUN}, not ${TAG}." >&2
 else
   echo "deps source: release $TAG" >&2
   ZIP="VapourBox-deps-${VER}-${PLATFORM}.zip"

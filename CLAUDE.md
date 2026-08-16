@@ -1451,13 +1451,16 @@ from a release. No tag, no release, nothing publicly visible, and nothing to
 clean up — artifacts expire on their own.
 
 ```bash
-# 1. Build the bundle with NO release upload (leave release_tag empty).
-gh workflow run build-deps-macos.yml -f version=1.9.0 -f arch=both
-gh run list --workflow=build-deps-macos.yml --limit 1   # note the run ID
+# 1. Build the bundles. release_tag may be empty (artifact only) or name a
+#    draft release to stage the assets in — the artifact is uploaded either way.
+gh workflow run build-deps-macos.yml   -f version=1.9.0 -f arch=both
+gh workflow run build-deps-windows.yml -f version=1.9.0
+gh workflow run build-deps-linux.yml   -f version=1.9.0 -f arch=both
 
-# 2. Point a CI run at it. Must be workflow_dispatch — a push/PR trigger
-#    cannot carry an input, so it always takes the release path.
-gh workflow run ci-test.yml --ref <branch> -f deps_run_id=<run-id>
+# 2. Point a CI run at all three runs at once. Must be workflow_dispatch — a
+#    push/PR trigger cannot carry an input, so it always takes the release path.
+gh workflow run ci-test.yml --ref <branch> \
+  -f deps_run_id="<macos-run>,<windows-run>,<linux-run>"
 ```
 
 Three things to know:
@@ -1466,9 +1469,13 @@ Three things to know:
   token (`contents` + `packages` read, everything else none) does **not** grant.
   Both workflows therefore declare an explicit read-only `permissions:` block.
   Don't "simplify" it away — the failure is a 404 on the artifact fetch.
-- **One run ID covers one platform family.** `build-deps-macos.yml` produces
-  both arches in one run, but Windows and Linux are separate workflows and
-  therefore separate run IDs. Dispatch CI once per bundle you want to exercise.
+- **`deps_run_id` is a list, and has to be.** One CI dispatch runs all four
+  platform jobs, but macOS, Windows and Linux are three separate `build-deps-*`
+  workflows and therefore three separate run IDs (macOS produces both arches in
+  one run). Each job tries every ID and takes the first holding an artifact for
+  *its* platform, so order doesn't matter and a partial list is fine — the jobs
+  whose platform is missing fail with `no <platform> deps artifact in any of:`
+  rather than silently testing the wrong thing.
 - **The version isn't cross-checked** against `deps-version.json`, deliberately —
   the bundle under test is unreleased and may carry a throwaway version. The
   script logs a `::warning::` naming the run, so a green tick can't be mistaken

@@ -21,7 +21,7 @@ on:
           - linux
         default: all
       deps_run_id:
-        description: 'Optional build-deps-* run ID to take the deps bundle from, instead of the release named in deps-version.json'
+        description: 'Optional build-deps-* run IDs (comma-separated) to take the deps bundles from, instead of the release named in deps-version.json'
         required: false
         type: string
 
