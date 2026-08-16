@@ -1124,6 +1124,24 @@ impl ScriptGenerator {
             script = script.replace("{{#ANTI_ALIAS}}", "");
             script = script.replace("{{/ANTI_ALIAS}}", "");
 
+            // znedi3 errors outright on a clip carrying _FieldBased, which this
+            // pipeline sets whenever a field order is known — including with
+            // deinterlacing off. Clear it for the pass and restore it after, so
+            // "anti-alias without deinterlacing" is not a hard failure on the
+            // x86 bundles while working on arm64. Uses its own placeholder
+            // rather than {{FIELD_BASED}} so it does not depend on the outer
+            // substitution having run first.
+            match Self::field_based_for(job, pipeline) {
+                Some(fb) => {
+                    script = script.replace("{{#AA_FIELD_BASED}}", "");
+                    script = script.replace("{{/AA_FIELD_BASED}}", "");
+                    script = script.replace("{{AA_FIELD_BASED_VALUE}}", &fb.to_string());
+                }
+                None => {
+                    script = remove_block("{{#AA_FIELD_BASED}}", "{{/AA_FIELD_BASED}}", script);
+                }
+            }
+
             match anti_alias.method {
                 AntiAliasMethod::Daa => {
                     script = script.replace("{{#AA_DAA}}", "");

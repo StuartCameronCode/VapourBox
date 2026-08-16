@@ -4968,3 +4968,77 @@ fn test_138_the_two_rainbow_removers_are_independent() {
         );
     }
 }
+
+#[test]
+fn test_139_anti_alias_clears_field_based_around_the_pass() {
+    // znedi3 errors outright on a clip carrying _FieldBased ("Failed to
+    // retrieve frame 0 with error: znedi3: _FieldBased"), and the pipeline sets
+    // that property whenever a field order is known — including with
+    // deinterlacing OFF, where it is kept so a later resize resamples chroma
+    // field-aware. So "anti-alias without deinterlacing" was a hard job failure
+    // on every x86 bundle, while arm64's nnedi3 and the prebuilt Windows znedi3
+    // accepted it: the same job succeeded or died depending on the machine.
+    //
+    // The heavy suite caught it; script generation cannot, which is why this
+    // asserts the guard's SHAPE rather than that the job runs.
+    create_output_dir();
+    let mut job = create_base_job("test_139_aa_field_based");
+    job.qtgmc_parameters.enabled = false;
+    job.detected_field_order = Some(FieldOrder::TopFieldFirst);
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        anti_alias: AntiAliasParameters {
+            enabled: true,
+            method: AntiAliasMethod::Daa,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let script = script_text(&job);
+    let cleared = script
+        .find("core.std.SetFieldBased(clip, 0)")
+        .expect("the pass must clear _FieldBased before running");
+    let daa = script.find("haf.daa(").expect("daa must be emitted");
+    let restored = script
+        .rfind("core.std.SetFieldBased(clip, 2)")
+        .expect("the detected field order must be restored afterwards");
+
+    assert!(cleared < daa, "the clear must come before daa, not after");
+    assert!(
+        daa < restored,
+        "the restore must come after daa — a later resize still needs the mark"
+    );
+}
+
+#[test]
+fn test_140_anti_alias_emits_no_field_guard_when_nothing_was_detected() {
+    // With no field order known the pipeline never sets _FieldBased, so the
+    // guard would be restoring a property that was never there. Keeps the
+    // generated script identical to what it was before the guard existed for
+    // the common progressive case.
+    create_output_dir();
+    let mut job = create_base_job("test_140_aa_no_field_guard");
+    job.qtgmc_parameters.enabled = false;
+    job.detected_field_order = None;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        anti_alias: AntiAliasParameters {
+            enabled: true,
+            method: AntiAliasMethod::Daa,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let script = script_text(&job);
+    assert!(script.contains("haf.daa("), "daa must still be emitted");
+    assert!(
+        !script.contains("SetFieldBased"),
+        "no field order was detected, so nothing should touch _FieldBased"
+    );
+    assert!(
+        !script.contains("{{AA_FIELD_BASED_VALUE}}"),
+        "the guard's placeholder must not survive into the script"
+    );
+}
