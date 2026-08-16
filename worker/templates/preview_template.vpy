@@ -940,16 +940,11 @@ clip = core.neo_f3kdb.Deband(
 # PASS: ANTI-ALIASING
 # ============================================================================
 {{#ANTI_ALIAS}}
-{{#AA_FIELD_BASED}}
-# znedi3 REFUSES a clip carrying _FieldBased ("Failed to retrieve frame 0 with
-# error: znedi3: _FieldBased"), and this pipeline sets that property whenever a
-# field order is known — including with deinterlacing OFF, where it is kept so a
-# later resize resamples chroma field-aware. Anti-aliasing works on whole
-# frames, so drop the mark for the pass and restore it immediately after.
-# Must stay in step with pipeline_template.vpy — a preview that skipped this
-# would fail while the encode succeeded.
-clip = core.std.SetFieldBased(clip, 0)
-{{/AA_FIELD_BASED}}
+# znedi3's double-rate mode requires the _FieldBased frame property and fails
+# with "znedi3: _FieldBased" when it is absent, which is what havsfunc's daa
+# uses (field=3). See pipeline_template.vpy for the measurements; must stay in
+# step with it, or a preview fails where the encode succeeds.
+clip = core.std.SetFieldBased(clip, {{AA_FIELD_BASED_VALUE}})
 {{#AA_DAA}}
 # daa - double-rate anti-aliasing. Interpolates both fields with nnedi3 and
 # averages them, so a stair-stepped diagonal is rebuilt rather than blurred.
@@ -969,11 +964,6 @@ clip = haf.santiag(
     type="{{AA_TYPE}}",
 )
 {{/AA_SANTIAG}}
-{{#AA_FIELD_BASED}}
-# Put the field mark back: a later resize still needs it to resample chroma
-# field-aware, which is the whole reason it is set with deinterlacing off.
-clip = core.std.SetFieldBased(clip, {{AA_FIELD_BASED_VALUE}})
-{{/AA_FIELD_BASED}}
 {{/ANTI_ALIAS}}
 
 # ============================================================================

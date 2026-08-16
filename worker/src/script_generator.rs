@@ -1124,23 +1124,24 @@ impl ScriptGenerator {
             script = script.replace("{{#ANTI_ALIAS}}", "");
             script = script.replace("{{/ANTI_ALIAS}}", "");
 
-            // znedi3 errors outright on a clip carrying _FieldBased, which this
-            // pipeline sets whenever a field order is known — including with
-            // deinterlacing off. Clear it for the pass and restore it after, so
-            // "anti-alias without deinterlacing" is not a hard failure on the
-            // x86 bundles while working on arm64. Uses its own placeholder
-            // rather than {{FIELD_BASED}} so it does not depend on the outer
-            // substitution having run first.
-            match Self::field_based_for(job, pipeline) {
-                Some(fb) => {
-                    script = script.replace("{{#AA_FIELD_BASED}}", "");
-                    script = script.replace("{{/AA_FIELD_BASED}}", "");
-                    script = script.replace("{{AA_FIELD_BASED_VALUE}}", &fb.to_string());
-                }
-                None => {
-                    script = remove_block("{{#AA_FIELD_BASED}}", "{{/AA_FIELD_BASED}}", script);
-                }
-            }
+            // znedi3's double-rate mode REQUIRES the _FieldBased property and
+            // fails the job with "znedi3: _FieldBased" without it — measured
+            // against the bundled plugin, field=3 errors when it is absent and
+            // is fine at either 0 or 2. havsfunc's daa uses field=3, and the
+            // property is only set upstream when a field order is known, so an
+            // ordinary source with none killed the pass on the x86 bundles.
+            //
+            // Always mark the clip rather than depending on an upstream pass:
+            // 0 once deinterlacing has run (its output is progressive) or when
+            // nothing was detected, the detected order otherwise. Uses its own
+            // placeholder rather than {{FIELD_BASED}} so it does not depend on
+            // the outer substitution having run first.
+            let aa_field_based = if pipeline.deinterlace.enabled {
+                0
+            } else {
+                Self::field_based_for(job, pipeline).unwrap_or(0)
+            };
+            script = script.replace("{{AA_FIELD_BASED_VALUE}}", &aa_field_based.to_string());
 
             match anti_alias.method {
                 AntiAliasMethod::Daa => {

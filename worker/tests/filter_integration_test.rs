@@ -4970,21 +4970,22 @@ fn test_138_the_two_rainbow_removers_are_independent() {
 }
 
 #[test]
-fn test_139_anti_alias_clears_field_based_around_the_pass() {
-    // znedi3 errors outright on a clip carrying _FieldBased ("Failed to
-    // retrieve frame 0 with error: znedi3: _FieldBased"), and the pipeline sets
-    // that property whenever a field order is known — including with
-    // deinterlacing OFF, where it is kept so a later resize resamples chroma
-    // field-aware. So "anti-alias without deinterlacing" was a hard job failure
-    // on every x86 bundle, while arm64's nnedi3 and the prebuilt Windows znedi3
-    // accepted it: the same job succeeded or died depending on the machine.
+fn test_139_anti_alias_always_marks_field_based() {
+    // znedi3's double-rate mode REQUIRES the _FieldBased property and fails the
+    // whole job with "znedi3: _FieldBased" without it. Measured against the
+    // bundled plugin: field=3 errors when the property is absent and is fine at
+    // either 0 or 2; field=1 does not care. havsfunc's daa uses field=3.
     //
-    // The heavy suite caught it; script generation cannot, which is why this
-    // asserts the guard's SHAPE rather than that the job runs.
+    // The property is only set upstream when a field order is KNOWN, so an
+    // ordinary source with none — most of them — killed the pass. It survived
+    // on arm64 (nnedi3 via patch 6) and Windows (prebuilt znedi3), and died on
+    // macOS x64 and Linux x64, so the same job worked or failed depending on
+    // the machine. Found by the nightly suite; script generation cannot see it,
+    // which is why this asserts the mark is present rather than that daa runs.
     create_output_dir();
     let mut job = create_base_job("test_139_aa_field_based");
     job.qtgmc_parameters.enabled = false;
-    job.detected_field_order = Some(FieldOrder::TopFieldFirst);
+    job.detected_field_order = None; // the case that failed
     job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
         anti_alias: AntiAliasParameters {
@@ -4996,31 +4997,56 @@ fn test_139_anti_alias_clears_field_based_around_the_pass() {
     });
 
     let script = script_text(&job);
-    let cleared = script
+    let marked = script
         .find("core.std.SetFieldBased(clip, 0)")
-        .expect("the pass must clear _FieldBased before running");
+        .expect("an undetected field order must still be marked progressive");
     let daa = script.find("haf.daa(").expect("daa must be emitted");
-    let restored = script
-        .rfind("core.std.SetFieldBased(clip, 2)")
-        .expect("the detected field order must be restored afterwards");
-
-    assert!(cleared < daa, "the clear must come before daa, not after");
+    assert!(marked < daa, "the mark must precede daa, or znedi3 still errors");
     assert!(
-        daa < restored,
-        "the restore must come after daa — a later resize still needs the mark"
+        !script.contains("{{AA_FIELD_BASED_VALUE}}"),
+        "the placeholder must not survive into the script"
     );
 }
 
 #[test]
-fn test_140_anti_alias_emits_no_field_guard_when_nothing_was_detected() {
-    // With no field order known the pipeline never sets _FieldBased, so the
-    // guard would be restoring a property that was never there. Keeps the
-    // generated script identical to what it was before the guard existed for
-    // the common progressive case.
+fn test_140_anti_alias_marks_progressive_after_deinterlacing() {
+    // With deinterlacing on, the clip reaching the pass IS progressive, so the
+    // mark must be 0 — stamping the source's original field order back on would
+    // tell every later filter the deinterlaced output is still interlaced.
     create_output_dir();
-    let mut job = create_base_job("test_140_aa_no_field_guard");
+    let mut job = create_base_job("test_140_aa_after_deint");
+    job.detected_field_order = Some(FieldOrder::TopFieldFirst);
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: true, tff: Some(true), ..Default::default() },
+        anti_alias: AntiAliasParameters {
+            enabled: true,
+            method: AntiAliasMethod::Daa,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let script = script_text(&job);
+    let daa = script.find("haf.daa(").expect("daa must be emitted");
+    let mark = script[..daa]
+        .rfind("core.std.SetFieldBased(clip, ")
+        .expect("the pass must mark the clip");
+    let line_end = script[mark..].find(')').unwrap() + mark;
+    assert_eq!(
+        &script[mark..=line_end],
+        "core.std.SetFieldBased(clip, 0)",
+        "after deinterlacing the clip is progressive"
+    );
+}
+
+#[test]
+fn test_141_anti_alias_keeps_the_detected_order_when_not_deinterlacing() {
+    // Deinterlacing off and a field order known: the clip really is fielded, so
+    // daa needs the true parity to pair fields correctly.
+    create_output_dir();
+    let mut job = create_base_job("test_141_aa_keeps_order");
     job.qtgmc_parameters.enabled = false;
-    job.detected_field_order = None;
+    job.detected_field_order = Some(FieldOrder::BottomFieldFirst);
     job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
         anti_alias: AntiAliasParameters {
@@ -5032,13 +5058,9 @@ fn test_140_anti_alias_emits_no_field_guard_when_nothing_was_detected() {
     });
 
     let script = script_text(&job);
-    assert!(script.contains("haf.daa("), "daa must still be emitted");
+    let daa = script.find("haf.daa(").expect("daa must be emitted");
     assert!(
-        !script.contains("SetFieldBased"),
-        "no field order was detected, so nothing should touch _FieldBased"
-    );
-    assert!(
-        !script.contains("{{AA_FIELD_BASED_VALUE}}"),
-        "the guard's placeholder must not survive into the script"
+        script[..daa].contains("core.std.SetFieldBased(clip, 1)"),
+        "BFF must reach the pass as 1, not be flattened to progressive"
     );
 }
