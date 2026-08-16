@@ -787,6 +787,35 @@ Two orderings are load-bearing and asserted from both sides
 > the bundled module is the check that would have caught it — the same lesson as
 > aWarpSharp2's `chroma`, one level deeper.
 
+> **A terse plugin error naming a property tells you the property is involved,
+> not in which direction.** `daa` failed on macOS x64 and Linux x64 with
+> `Failed to retrieve frame 0 with error: znedi3: _FieldBased`. Read as "znedi3
+> rejects field-based clips", it produced a fix that cleared the property — and
+> changed nothing, because the truth is the opposite. Probed against the bundled
+> plugin:
+>
+> | `field` | no `_FieldBased` | `=0` | `=2` |
+> |---|---|---|---|
+> | 1 | OK | OK | OK |
+> | **3** | **ERROR** | OK | OK |
+>
+> znedi3's **double-rate** mode *requires* the property; havsfunc's `daa` uses
+> `field=3`, and this pipeline only sets `_FieldBased` when a field order is
+> **known** — so an ordinary source with none killed the pass. The Anti-Aliasing
+> block therefore always marks the clip: `0` after deinterlacing (that output is
+> progressive) or when nothing was detected, the detected order otherwise.
+> `test_139`–`test_141` pin all three cases.
+>
+> It survived on macOS arm64 (nnedi3 via patch 6) and on Windows (whose
+> *prebuilt* znedi3 tolerates the absence) and died on the two bundles that
+> build znedi3 from source — the worst shape a bug can have, since the same job
+> worked or failed depending on the user's machine. **Two platforms passing is
+> not evidence**; that is the same trap as a green Windows deps build.
+>
+> The whole detour cost two nightly cycles and would have been avoided by a
+> two-minute `vspipe` probe against `deps/` — which is what the two notes above
+> already say to do.
+
 > **The heavy tests run the worker BINARY, not the library.** `cargo test`
 > compiles `src/` into its own test executable, so the Rust suite can pass
 > against new code while `app/test/integration_*` exercises a stale
