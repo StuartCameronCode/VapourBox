@@ -1432,20 +1432,65 @@ README's platform table. The app and whisper builds deliberately stay on
 floor there costs nothing — but the effective requirement is the highest of the
 components, which is the deps.
 
-### Testing a deps change before publishing: release-candidate tags
+### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and
-`nightly.yml` download the bundle named by `app/assets/deps-version.json` from a
-**published** release, so a deps change cannot be tested until it is published —
-and publishing an untested bundle is what you were trying to avoid.
+`nightly.yml` download the bundle named by `app/assets/deps-version.json`, so a
+deps change could not be tested until it was published — and publishing an
+untested bundle is what you were trying to avoid.
 
-**Draft releases do not solve it** (their assets need an authenticated API call,
-so neither CI nor the app can fetch them). **Prereleases do**: they are publicly
-downloadable at the ordinary `releases/download/<tag>/<asset>` URL, and every
-consumer here is tag-driven — `getDownloadUrl()` builds the URL from
-`releaseTag`, and nothing in the repo uses `/releases/latest`. So a prerelease
-is indistinguishable from a stable release to CI, the nightly suite *and* a real
-app build.
+There are two ways out, and **the artifact one is now the default answer**
+because nothing about it is public.
+
+#### 1. `deps_run_id` — test an unpublished bundle (preferred)
+
+Both `ci-test.yml` and `nightly.yml` take an optional `deps_run_id`
+`workflow_dispatch` input. Set it, and `.github/scripts/fetch-deps-bundle.sh`
+pulls the zip from that `build-deps-*` **workflow run's artifact** instead of
+from a release. No tag, no release, nothing publicly visible, and nothing to
+clean up — artifacts expire on their own.
+
+```bash
+# 1. Build the bundle with NO release upload (leave release_tag empty).
+gh workflow run build-deps-macos.yml -f version=1.9.0 -f arch=both
+gh run list --workflow=build-deps-macos.yml --limit 1   # note the run ID
+
+# 2. Point a CI run at it. Must be workflow_dispatch — a push/PR trigger
+#    cannot carry an input, so it always takes the release path.
+gh workflow run ci-test.yml --ref <branch> -f deps_run_id=<run-id>
+```
+
+Three things to know:
+
+- **It needs `actions: read`**, which the repo's *restricted* default workflow
+  token (`contents` + `packages` read, everything else none) does **not** grant.
+  Both workflows therefore declare an explicit read-only `permissions:` block.
+  Don't "simplify" it away — the failure is a 404 on the artifact fetch.
+- **One run ID covers one platform family.** `build-deps-macos.yml` produces
+  both arches in one run, but Windows and Linux are separate workflows and
+  therefore separate run IDs. Dispatch CI once per bundle you want to exercise.
+- **The version isn't cross-checked** against `deps-version.json`, deliberately —
+  the bundle under test is unreleased and may carry a throwaway version. The
+  script logs a `::warning::` naming the run, so a green tick can't be mistaken
+  for a run against the released bundle.
+
+> **Draft releases were the obvious idea and are the wrong one.** Not for the
+> reason this section used to give — CI *does* authenticate (`gh release
+> download` with `GH_TOKEN`), so the old claim that "neither CI nor the app can
+> fetch them" was only ever true of the app. The real blocker is narrower: draft
+> assets need **push** access, and the default token is read-only, so it would
+> take widening the token to `contents: write` on a workflow that runs against
+> pull requests. The artifact route gets the same privacy for a read-only scope.
+
+#### 2. Release-candidate prereleases — when the download path itself is the thing under test
+
+A prerelease is publicly downloadable at the ordinary
+`releases/download/<tag>/<asset>` URL, and every consumer here is tag-driven —
+`getDownloadUrl()` builds the URL from `releaseTag`, and nothing in the repo uses
+`/releases/latest`. So a prerelease is indistinguishable from a stable release to
+CI, the nightly suite *and* a real app build. That last one is what `deps_run_id`
+can't do: an installed app has no token and cannot read artifacts, so **testing
+the actual first-run download flow still needs an rc**.
 
 The workflow:
 

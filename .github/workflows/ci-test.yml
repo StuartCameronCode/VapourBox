@@ -13,10 +13,24 @@ on:
   pull_request:
     paths-ignore: ['**.md', 'docs/**', 'licenses/**']
   workflow_dispatch:
+    inputs:
+      deps_run_id:
+        description: 'Optional build-deps-* run ID to take the deps bundle from, instead of the release named in deps-version.json'
+        required: false
+        type: string
 
 concurrency:
   group: ci-test-${{ github.ref }}
   cancel-in-progress: true
+
+# `actions: read` is what `gh run download` needs for the deps_run_id path
+# below. The repo default is the restricted token (contents + packages read,
+# everything else none), so without this an artifact fetch 404s. Deliberately
+# read-only: pulling an unpublished bundle must not require a write-scoped
+# token on a workflow that runs against pull requests.
+permissions:
+  contents: read
+  actions: read
 
 env:
   WHISPER_MODEL_URL: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
@@ -58,14 +72,15 @@ jobs:
       - name: Download dependencies (${{ matrix.arch }})
         env:
           GH_TOKEN: ${{ github.token }}
+          DEPS_RUN_ID: ${{ inputs.deps_run_id }}
         run: |
-          VER="${{ steps.deps.outputs.ver }}"
-          ZIP="VapourBox-deps-${VER}-macos-${{ matrix.arch }}.zip"
-          mkdir -p deps/macos-${{ matrix.arch }}
-          gh release download "${{ steps.deps.outputs.tag }}" --pattern "$ZIP" --dir . --clobber
-          unzip -q -o "$ZIP" -d deps/macos-${{ matrix.arch }}
-          rm -f "$ZIP"
-          xattr -cr deps/macos-${{ matrix.arch }} 2>/dev/null || true
+          PLATFORM="macos-${{ matrix.arch }}"
+          mkdir -p "deps/$PLATFORM"
+          ZIP=$(bash .github/scripts/fetch-deps-bundle.sh "$PLATFORM" \
+            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}")
+          unzip -q -o "$ZIP" -d "deps/$PLATFORM"
+          rm -rf "$ZIP" .deps-artifact
+          xattr -cr "deps/$PLATFORM" 2>/dev/null || true
 
       # The whisper small model (~466 MB) is architecture-independent; cache it.
       - name: Cache whisper model
@@ -132,15 +147,15 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          DEPS_RUN_ID: ${{ inputs.deps_run_id }}
         run: |
-          VER="${{ steps.deps.outputs.ver }}"
-          ZIP="VapourBox-deps-${VER}-windows-x64.zip"
           mkdir -p deps/windows-x64
-          gh release download "${{ steps.deps.outputs.tag }}" --pattern "$ZIP" --dir . --clobber
+          ZIP=$(bash .github/scripts/fetch-deps-bundle.sh windows-x64 \
+            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}")
           # The Windows deps zip uses backslash separators; 7-Zip handles that
           # (info-zip `unzip` warns and exits non-zero, tripping `set -e`).
           7z x "$ZIP" -o"deps/windows-x64" -y >/dev/null
-          rm -f "$ZIP"
+          rm -rf "$ZIP" .deps-artifact
 
       - name: Cache whisper model
         uses: actions/cache@v5
@@ -214,13 +229,13 @@ jobs:
       - name: Download dependencies (linux-x64)
         env:
           GH_TOKEN: ${{ github.token }}
+          DEPS_RUN_ID: ${{ inputs.deps_run_id }}
         run: |
-          VER="${{ steps.deps.outputs.ver }}"
-          ZIP="VapourBox-deps-${VER}-linux-x64.zip"
           mkdir -p deps/linux-x64
-          gh release download "${{ steps.deps.outputs.tag }}" --pattern "$ZIP" --dir . --clobber
+          ZIP=$(bash .github/scripts/fetch-deps-bundle.sh linux-x64 \
+            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}")
           unzip -q -o "$ZIP" -d deps/linux-x64
-          rm -f "$ZIP"
+          rm -rf "$ZIP" .deps-artifact
 
       - name: Cache whisper model
         uses: actions/cache@v5
