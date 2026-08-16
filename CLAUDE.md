@@ -709,6 +709,47 @@ What an effort-2 addition actually costs, beyond the usual filter wiring:
 > macOS and Linux scripts call the compiler directly — one line, no new
 > toolchain, and identical output.
 
+### The download scripts do NOT share a vocabulary — porting a block costs four checks
+
+Adding these three plugins took **four** red deps builds, each a different cause
+with the same symptom (`deps-expected-plugins.json` reporting missing plugins).
+Every one came from writing a block in one platform's script and copying it to
+another, carrying an assumption that silently did not hold. Before assuming a
+copied block works, check all four:
+
+| | macOS | Linux |
+|---|---|---|
+| VS headers | `$VS_INC_DIR` | **`$VS_INCLUDE_DIR`** |
+| pkg-config for meson | `build_plugin` sets it internally | must prefix **`$PLUGIN_BUILD_ENV`** |
+| `<vapoursynth/X.h>` include style | farm added 2026-08-16 (was absent) | permanent symlink farm |
+| arch handling | **split**: x64 pre-built / arm64 from-source | both from source, no split |
+
+The failures, in the order they appeared:
+
+1. **`$VS_INC_DIR` is unset on Linux**, so it reached `cc` as a bare `-I`
+   ("missing path after '-I'"). Both direct-compile blocks now assert
+   `${VS_INCLUDE_DIR:?}` so a rename fails naming the plugin and the variable.
+2. **retinex lost `$PLUGIN_BUILD_ENV`** on Linux — macOS has no such prefix, so
+   copying its `build_plugin` call across dropped `PKG_CONFIG_PATH` and meson
+   could not see VapourSynth at all.
+3. **retinex includes `<vapoursynth/VapourSynth.h>`**, so pkg-config *finding*
+   VapourSynth is not sufficient — the include root needs a child directory
+   named `vapoursynth`. Linux had kept one for years; macOS had none, which is
+   why bifrost staged a private tree and retinex (which resolves through
+   pkg-config and cannot be handed one) could not work at all. macOS now mirrors
+   the farm, so a single `-I"$VS_INC_DIR"` satisfies both include styles.
+   Note this needs the **API3** headers: R78 installs only the API4 set, and
+   both scripts top up `VapourSynth.h` from the source tree.
+4. **The blocks sat inside the macOS arch split's arm64 branch**, so x64 never
+   reached them — invisible on arm64, where everything passed. Anything built
+   from source on *both* arches belongs after
+   `fi  # end plugin arch split`, where zsmooth already lives.
+
+> **A green Windows deps build proves nothing about the other two.**
+> `download-deps-windows.ps1` only downloads published binaries, so it passed on
+> the first attempt and every attempt after, while macOS and Linux were failing
+> for three different reasons. Don't read it as a signal.
+
 ### Second filter batch (2026-08-15): two new passes
 
 **Anti-Aliasing** (`daa`, `santiag`) and **Stabilize** (`Stab`) are the first
@@ -1700,7 +1741,14 @@ version skew between platforms would change chroma per-OS.
 2. **JSON mismatch**: Compare Rust and Dart model serialization
 3. **Plugin load failures**: Check environment variables in `DependencyLocator`
 4. **Encoding fails**: Run generated .vpy script manually with vspipe
-5. **Template not found**: Check search paths in `script_generator.rs`
+5. **Template not found**: Check search paths in `script_generator.rs`. Note
+   that `load_template_by_name` **normalizes CRLF to LF** on read: a Windows
+   checkout gives the `.vpy` files CRLF, so any substitution whose pattern spans
+   a line break silently stops matching there, leaving a plausible-looking
+   script rather than an error. That shipped once — the SmoothLevels path elides
+   the plain `std.Levels` call with a two-line `replace()`, and on Windows alone
+   both calls survived. `templates_load_with_lf_endings_only` guards it on every
+   platform; prefer single-line patterns regardless.
 6. **Filter not appearing**: Check JSON syntax, verify `id` is unique
 7. **macOS build fails with "Unable to find module dependency"**: Build Pods-Runner scheme first, then Runner for arm64 only (see Build Commands)
 8. **App crashes silently on video drop (release build)**: Bundle is incomplete. Use packaging scripts. Run from terminal to see errors.

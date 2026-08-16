@@ -169,7 +169,17 @@ impl ScriptGenerator {
             if path.exists() {
                 if let Ok(content) = fs::read_to_string(path) {
                     eprintln!("Loaded template from: {:?}", path);
-                    return Ok(content);
+                    // Normalize to LF. A Windows checkout gives the .vpy
+                    // templates CRLF endings, so any substitution whose pattern
+                    // spans more than one line stops matching there — silently,
+                    // because a missed replace leaves valid-looking script
+                    // behind rather than an error. That shipped once: the
+                    // SmoothLevels path elides the plain std.Levels call with
+                    // `replace("core.std.Levels(\n    clip,\n)", "clip")`, and
+                    // on Windows alone both calls survived into the script.
+                    // Normalizing here fixes the whole class rather than that
+                    // one pattern; Python does not care about the endings.
+                    return Ok(content.replace("\r\n", "\n"));
                 }
             }
         }
@@ -1797,6 +1807,23 @@ fn remove_block(start_tag: &str, end_tag: &str, mut script: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn templates_load_with_lf_endings_only() {
+        // Guards the CRLF normalization in load_template_by_name. Without it,
+        // any substitution spanning a line break stops matching on a Windows
+        // checkout — and does so silently, leaving a plausible-looking script.
+        // This assertion is the cheap counterpart to test_132, which only
+        // catches it on the platform that has the problem.
+        for name in ["pipeline_template.vpy", "preview_template.vpy"] {
+            let t = ScriptGenerator::load_template_by_name(name)
+                .unwrap_or_else(|e| panic!("load {name}: {e}"));
+            assert!(
+                !t.contains('\r'),
+                "{name} kept CR characters — CRLF normalization was dropped"
+            );
+        }
+    }
 
     #[test]
     fn test_remove_block() {
