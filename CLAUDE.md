@@ -604,6 +604,37 @@ now the first step, and it disqualifies about half of them:
 > so `-I"$VS_INC_DIR"` is not enough — the scripts stage an include root with a
 > `vapoursynth/` subdirectory and pass its parent.
 
+### Subtitles: transcribe first, mux last
+
+The order is load-bearing and was wrong until 2026-08-17.
+
+```
+transcribe the source  ->  encode (burning in if asked)  ->  mux as a post-pass
+```
+
+Whisper used to run only *after* the encode, which made burn-in structurally
+impossible — the encoder needs the file while it is running. Muxing genuinely
+must be a post-pass, because the file it goes into does not exist until the
+encode finishes. So the two ends of the pipeline both have subtitle work in
+them, and neither can move.
+
+> **Transcribing the source means honouring the trim, or every cue lands
+> early.** The encoder seeks the audio input to the trim point
+> (`-ss start/fps` on input 1), so the output's audio starts there. A transcript
+> of the *whole* source is offset by exactly the trimmed-off head, with no error
+> anywhere — `extract_audio_range` takes the same window the encode uses.
+>
+> What makes this safe is that **nothing in the pipeline retimes audio**. IVTC
+> and frame-rate conversion change the video timeline and leave audio at its
+> original duration; audio is only ever `-ss` seeked and `-shortest` truncated.
+> If a pass is ever added that *does* retime audio (an `atempo` for a declared
+> frame-rate change, say), this breaks and the subtitles drift.
+
+`SubtitleOutput::{burns_in, muxes, keeps_srt_file}` answer the three independent
+questions rather than matching the enum in three places. A test asserts every
+mode does at least one of them, because a mode that does none produces no
+subtitles at all and looks like a silent failure.
+
 ### The 2026-08-17 build-out: 18 filters, 4 new passes, deps 1.9.0
 
 The plan from the probe rounds was executed in full. Pipeline went from 16
