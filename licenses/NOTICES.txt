@@ -266,12 +266,53 @@ Bifrost — WTFPL
   created by Fredrik Mellbin
   https://github.com/dubhater/vapoursynth-bifrost
 
+Bwdif — LGPL-3.0-or-later
+  Copyright (C) 2016 Thomas Mundt <loudmax@yahoo.de>
+  Copyright (C) 2020-2021 HolyWu
+  Based on YADIF: Copyright (C) 2006-2011 Michael Niedermayer
+  <michaelni@gmx.at>, 2010 James Darnley <james.darnley@gmail.com>
+  With use of the Weston 3 Field Deinterlacing Filter algorithm:
+  Copyright (C) 2012 British Broadcasting Corporation, All Rights Reserved
+  (algorithm by Jim Easterbrook for BBC R&D, after the process described by
+  Martin Weston)
+  https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Bwdif
+  Licence text: LGPL-3.0.txt
+  BobWeaver motion-adaptive deinterlacer, ported from FFmpeg's libavfilter.
+  Distributed as an unmodified binary taken from the project's published wheel,
+  and dynamically linked — the LGPL relinking right is satisfied by replacing
+  that binary in the bundle's plugin directory.
+
+FillBorders — WTFPL
+  VapourSynth plugin by dubhater. The project asserts no copyright line in its
+  source or repository; its readme states only "The license is WTFPL."
+  https://github.com/dubhater/vapoursynth-fillborders
+
+RemoveDirt — GPL-2.0-or-later
+  By Rainer Wittmann <gorw@gmx.de>
+  Additional work by Ferenc Pintér
+  https://github.com/pinterf/RemoveDirt
+  Licence text: GPL-2.0.txt
+
+DeDot — GPL-2.0
+  The project declares its author as Fredrik Mellbin (pyproject.toml) and its
+  licence as "GNU GPL v2, like the Avisynth plugin" (readme). A port of the
+  AviSynth DeDot filter; upstream names no author for that original.
+  https://github.com/dubhatervapoursynth/vapoursynth-dedot
+  Licence text: GPL-2.0.txt
+
+LGhost — GPL-3.0-or-later
+  VapourSynth port by HolyWu
+  LGhost.dll v0.3.01 Copyright (C) 2002, 2003 minamina (the original AviSynth
+  Ghost Reduction plugin)
+  https://github.com/HomeOfVapourSynthEvolution/VapourSynth-LGhost
+  Licence text: GPL-3.0.txt
+
 Vector Class Library (VCL) — Apache-2.0
   Copyright (c) Agner Fog
   https://github.com/vectorclass/version2
   Not a plugin of its own: several of the HolyWu-maintained plugins above
-  (CAS, CTMF, DCTFilter, Deblock, DFTTest, TCanny, TTempSmooth, AddGrain)
-  compile it in for their SIMD paths.
+  (CAS, CTMF, DCTFilter, Deblock, DFTTest, TCanny, TTempSmooth, AddGrain,
+  Bwdif, LGhost) compile it in for their SIMD paths.
 
 
 -------------------------------------------------------------------------------

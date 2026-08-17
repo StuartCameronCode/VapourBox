@@ -1061,6 +1061,247 @@ else
 fi
 
 # ============================================================================
+# Bwdif / FillBorders / RemoveDirt / DeDot / LGhost
+# ============================================================================
+# Two of these come from PyPI wheels, one is compiled directly, and two split by
+# arch. Note the vocabulary differences from download-deps-macos.sh, which is
+# where a copied block goes wrong: the include variable is VS_INCLUDE_DIR here
+# (VS_INC_DIR there), and every meson build needs the $PLUGIN_BUILD_ENV prefix
+# (macOS's build_plugin sets PKG_CONFIG_PATH internally and has no equivalent).
+
+# Fetch a pre-built Linux plugin .so from a Stefan-Olt/vs-plugin-build release
+# asset, relink it against our layout, and report a failure rather than leaving
+# a silent gap (deps-expected-plugins.json turns that into a red build).
+download_prebuilt_plugin_linux() {
+    local label="$1" out_name="$2" url="$3"
+
+    if [ "$FORCE" = false ] && [ -f "$PLUGINS_DIR/$out_name" ]; then
+        echo "  $label already exists, skipping"
+        return 0
+    fi
+
+    local tmp="$BUILD_DIR/prebuilt-$out_name"
+    rm -rf "$tmp"; mkdir -p "$tmp"
+    if curl -sL "$url" -o "$tmp/plugin.zip" && unzip -q -o "$tmp/plugin.zip" -d "$tmp"; then
+        local found
+        found=$(find "$tmp" -name "*.so" -type f 2>/dev/null | head -1)
+        if [ -n "$found" ]; then
+            cp "$found" "$PLUGINS_DIR/$out_name"
+            patchelf --set-rpath '$ORIGIN:$ORIGIN/../../lib' "$PLUGINS_DIR/$out_name" 2>/dev/null || true
+            rm -rf "$tmp"
+            echo "  Downloaded pre-built $label -> $out_name"
+            BUILT_PLUGINS+=("$label")
+            return 0
+        fi
+    fi
+    rm -rf "$tmp"
+    echo "  Warning: failed to fetch pre-built $label"
+    FAILED_PLUGINS+=("$label")
+    return 1
+}
+
+# Bwdif (core.bwdif.Bwdif) — BobWeaver deinterlacer, ported from FFmpeg's
+# libavfilter. Taken from the PyPI wheel: upstream publishes no GitHub release
+# assets, and a wheel is just a zip holding vapoursynth/plugins/bwdif.so. Only
+# the *musllinux* wheels carry private libgcc/libstdc++ copies; the manylinux
+# ones we take link nothing beyond the system C++ runtime, so unlike akarin
+# there is nothing to stage into lib/ and nothing to relink. manylinux_2_28 is
+# satisfied by our glibc 2.39 floor (ubuntu-24.04).
+BWDIF_VERSION="5.1"
+echo ""
+echo "=== Downloading Bwdif $BWDIF_VERSION ==="
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libbwdif.so" ]; then
+    BWDIF_URL=$("$PYTHON_BIN" - "$BWDIF_VERSION" "$ARCH" <<'PYEOF'
+import json, sys, urllib.request
+ver, arch = sys.argv[1], sys.argv[2]
+d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/vapoursynth-bwdif/{ver}/json"))
+print(next(f["url"] for f in d["urls"]
+           if f["filename"].endswith(f"manylinux_2_28_{arch}.whl")))
+PYEOF
+)
+    rm -rf "$BUILD_DIR/bwdif" "$BUILD_DIR/bwdif.whl"
+    mkdir -p "$BUILD_DIR/bwdif"
+    if curl -fL -o "$BUILD_DIR/bwdif.whl" "$BWDIF_URL" \
+       && unzip -q "$BUILD_DIR/bwdif.whl" -d "$BUILD_DIR/bwdif" \
+       && [ -f "$BUILD_DIR/bwdif/vapoursynth/plugins/bwdif.so" ]; then
+        cp "$BUILD_DIR/bwdif/vapoursynth/plugins/bwdif.so" "$PLUGINS_DIR/libbwdif.so"
+        chmod u+w "$PLUGINS_DIR/libbwdif.so"
+        patchelf --set-rpath '$ORIGIN:$ORIGIN/../../lib' "$PLUGINS_DIR/libbwdif.so" 2>/dev/null || true
+        echo "  Installed Bwdif -> libbwdif.so"
+        BUILT_PLUGINS+=("bwdif")
+    else
+        echo "  Failed to install Bwdif"
+        FAILED_PLUGINS+=("bwdif")
+    fi
+    rm -rf "$BUILD_DIR/bwdif" "$BUILD_DIR/bwdif.whl"
+else
+    echo "  Bwdif already exists, skipping"
+fi
+
+# FillBorders (core.fb.FillBorders) — fills dead edges left by a capture.
+#
+# Pinned to v2: v3 and v4 exist as tags but publish NO release assets, and
+# download-deps-windows.ps1 has no from-source path, so every platform tracks
+# the newest version Windows can get (the same rule fluxsmooth and bifrost
+# follow). One C++ file including <VapourSynth.h> / <VSHelper.h> (API3), so it
+# is compiled directly rather than through its autotools or meson build.
+FILLBORDERS_TAG="v2"
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfillborders.so" ]; then
+    echo ""
+    echo "=== Building FillBorders ($FILLBORDERS_TAG) ==="
+    rm -rf fillborders
+    # Fail loudly if the include variable is ever renamed: an empty one reaches
+    # the compiler as a bare `-I` ("missing path after '-I'"), an error that
+    # names neither the plugin nor the variable.
+    : "${VS_INCLUDE_DIR:?VS_INCLUDE_DIR is unset — FillBorders cannot find the VapourSynth headers}"
+    if git clone --depth 1 --branch "$FILLBORDERS_TAG" -q \
+        https://github.com/dubhater/vapoursynth-fillborders.git fillborders 2>/dev/null \
+       && c++ -std=c++11 -O2 -fPIC -shared \
+            -o "$PLUGINS_DIR/libfillborders.so" \
+            fillborders/src/fillborders.cpp -I"$VS_INCLUDE_DIR"; then
+        patchelf --set-rpath '$ORIGIN:$ORIGIN/../../lib' "$PLUGINS_DIR/libfillborders.so" 2>/dev/null || true
+        echo "  Built FillBorders -> libfillborders.so"
+        BUILT_PLUGINS+=("fillborders")
+    else
+        echo "  Failed to build FillBorders"
+        FAILED_PLUGINS+=("fillborders")
+    fi
+else
+    echo "  FillBorders already exists, skipping"
+fi
+
+# RemoveDirt (core.removedirt.RestoreMotionBlocks / SCSelect) — dirt and spot
+# removal for film scans. Pinned to v1.1.
+#
+# x86_64 takes the pre-built Stefan-Olt binary (max symbol requirement
+# GLIBC_2.14, so our 2.39 floor covers it); aarch64 has no such build and
+# compiles from source. Its CMake detects the target processor and turns the
+# Intel SIMD translation units off on anything non-x86 by itself, so no flag is
+# needed. The repo vendors its own VapourSynth4.h/VSHelper4.h, so unlike every
+# other from-source plugin here it needs no include or pkg-config wiring.
+REMOVEDIRT_TAG="v1.1"
+echo ""
+if [ "$ARCH" = "x86_64" ]; then
+    echo "=== Downloading RemoveDirt $REMOVEDIRT_TAG ==="
+    download_prebuilt_plugin_linux "RemoveDirt" "libremovedirt.so" \
+        "https://github.com/Stefan-Olt/vs-plugin-build/releases/download/vsplugin/com.vapoursynth.removedirt/v1.1/linux-glibc-x86_64/2026-01-07T00.36.36%2B00.00Z/RemoveDirt-v1.1-linux-glibc-x86_64.zip"
+elif [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libremovedirt.so" ]; then
+    echo "=== Building RemoveDirt $REMOVEDIRT_TAG ==="
+    rm -rf removedirt
+    if git clone --depth 1 --branch "$REMOVEDIRT_TAG" -q \
+        https://github.com/pinterf/RemoveDirt.git removedirt 2>/dev/null; then
+        cd removedirt
+        if cmake -B build -S . -DCMAKE_BUILD_TYPE=Release \
+           && cmake --build build --config Release -j"$NPROC"; then
+            so_path=$(find build -name "libremovedirt.so" -type f 2>/dev/null | head -1)
+            if [ -n "$so_path" ]; then
+                cp "$so_path" "$PLUGINS_DIR/libremovedirt.so"
+                patchelf --set-rpath '$ORIGIN:$ORIGIN/../../lib' "$PLUGINS_DIR/libremovedirt.so" 2>/dev/null || true
+                echo "  Built RemoveDirt -> libremovedirt.so"
+                BUILT_PLUGINS+=("removedirt")
+            else
+                echo "  Warning: no libremovedirt.so found after build"
+                FAILED_PLUGINS+=("removedirt")
+            fi
+        else
+            echo "  Failed to build RemoveDirt"
+            FAILED_PLUGINS+=("removedirt")
+        fi
+        cd "$BUILD_DIR"
+    else
+        echo "  Failed to clone RemoveDirt"
+        FAILED_PLUGINS+=("removedirt")
+    fi
+else
+    echo "  RemoveDirt already exists, skipping"
+fi
+
+# DeDot (core.dedot.Dedot) — temporal cross-colour (rainbow) and cross-luma
+# (dotcrawl) reduction for composite captures. From the PyPI wheel, like Bwdif;
+# wheel 3.0 and git tag v3 are the same release. macOS x64 has to build this
+# from source because its wheel is minos 15.0, but the manylinux wheels carry
+# no such floor, so both Linux arches take the wheel.
+DEDOT_VERSION="3.0"
+echo ""
+echo "=== Downloading DeDot $DEDOT_VERSION ==="
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libdedot.so" ]; then
+    DEDOT_URL=$("$PYTHON_BIN" - "$DEDOT_VERSION" "$ARCH" <<'PYEOF'
+import json, sys, urllib.request
+ver, arch = sys.argv[1], sys.argv[2]
+d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/vapoursynth-dedot/{ver}/json"))
+print(next(f["url"] for f in d["urls"]
+           if f["filename"].endswith(f"manylinux_2_28_{arch}.whl")))
+PYEOF
+)
+    rm -rf "$BUILD_DIR/dedot" "$BUILD_DIR/dedot.whl"
+    mkdir -p "$BUILD_DIR/dedot"
+    if curl -fL -o "$BUILD_DIR/dedot.whl" "$DEDOT_URL" \
+       && unzip -q "$BUILD_DIR/dedot.whl" -d "$BUILD_DIR/dedot" \
+       && [ -f "$BUILD_DIR/dedot/vapoursynth/plugins/dedot.so" ]; then
+        cp "$BUILD_DIR/dedot/vapoursynth/plugins/dedot.so" "$PLUGINS_DIR/libdedot.so"
+        chmod u+w "$PLUGINS_DIR/libdedot.so"
+        patchelf --set-rpath '$ORIGIN:$ORIGIN/../../lib' "$PLUGINS_DIR/libdedot.so" 2>/dev/null || true
+        echo "  Installed DeDot -> libdedot.so"
+        BUILT_PLUGINS+=("dedot")
+    else
+        echo "  Failed to install DeDot"
+        FAILED_PLUGINS+=("dedot")
+    fi
+    rm -rf "$BUILD_DIR/dedot" "$BUILD_DIR/dedot.whl"
+else
+    echo "  DeDot already exists, skipping"
+fi
+
+# LGhost (core.lghost.LGhost) — luminance-ghost / edge-ghost (ringing)
+# reduction, the classic fix for RF and long-cable analogue captures. Pinned to
+# r1, the only tag upstream has published.
+#
+# x86_64 takes the pre-built Stefan-Olt binary; aarch64 builds from source,
+# where its meson skips the whole VCL2 x86 SIMD stack (`host_machine
+# .cpu_family().startswith('x86')`) and compiles the scalar path only. It is
+# cloned by tag rather than through build_plugin, which can only clone a default
+# branch — pinning matters because Windows can only get r1. It resolves
+# VapourSynth through pkg-config and reads `libdir` out of the .pc file, so the
+# $PLUGIN_BUILD_ENV prefix is required (dropping it is how retinex once failed
+# with 'Dependency "vapoursynth" not found').
+LGHOST_TAG="r1"
+echo ""
+if [ "$ARCH" = "x86_64" ]; then
+    echo "=== Downloading LGhost $LGHOST_TAG ==="
+    download_prebuilt_plugin_linux "LGhost" "liblghost.so" \
+        "https://github.com/Stefan-Olt/vs-plugin-build/releases/download/vsplugin/com.holywu.lghost/r1/linux-glibc-x86_64/2024-09-30T20.53.59%2B00.00Z/LGhost-r1-linux-glibc-x86_64.zip"
+elif [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/liblghost.so" ]; then
+    echo "=== Building LGhost $LGHOST_TAG ==="
+    rm -rf lghost
+    if git clone --depth 1 --branch "$LGHOST_TAG" -q \
+        https://github.com/HomeOfVapourSynthEvolution/VapourSynth-LGhost.git lghost 2>/dev/null; then
+        cd lghost
+        if env $PLUGIN_BUILD_ENV meson setup build --buildtype=release \
+           && ninja -C build; then
+            so_path=$(find build -name "*.so" -type f 2>/dev/null | head -1)
+            if [ -n "$so_path" ]; then
+                cp "$so_path" "$PLUGINS_DIR/liblghost.so"
+                patchelf --set-rpath '$ORIGIN:$ORIGIN/../../lib' "$PLUGINS_DIR/liblghost.so" 2>/dev/null || true
+                echo "  Built LGhost -> liblghost.so"
+                BUILT_PLUGINS+=("lghost")
+            else
+                echo "  Warning: no .so found after building LGhost"
+                FAILED_PLUGINS+=("lghost")
+            fi
+        else
+            echo "  Failed to build LGhost"
+            FAILED_PLUGINS+=("lghost")
+        fi
+        cd "$BUILD_DIR"
+    else
+        echo "  Failed to clone LGhost"
+        FAILED_PLUGINS+=("lghost")
+    fi
+else
+    echo "  LGhost already exists, skipping"
+fi
+
+# ============================================================================
 # akarin — LLVM JIT for std.Expr
 # ============================================================================
 # VapourSynth's own Expr JIT is wrapped in #ifdef VS_TARGET_CPU_X86, so on ARM
