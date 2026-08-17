@@ -186,31 +186,43 @@ Stuart Cameron — [stuart-cameron.com](https://stuart-cameron.com)
 
 ## Acknowledgments
 
-- **QTGMC** by Vit — the deinterlacing algorithm
+- **QTGMC** by Vit, originally based on TempGaussMC_beta2 by Didée — the deinterlacing algorithm
 - **VIVTC** by Fredrik Mellbin — VFM field matching and VDecimate for inverse telecine
 - **VapourSynth** by Fredrik Mellbin — video processing framework
-- **havsfunc** by HolyWu — QTGMC VapourSynth port
-- **mvtools** by Manao, Fizick, Pinterf and dubhater — the motion estimation QTGMC is built on
+- **havsfunc**, maintained by HolyWu — the VapourSynth script library QTGMC and many other passes come from
+- **MVTools** — the motion estimation QTGMC is built on; VapourSynth port by dubhater, from the AviSynth plugin by Manao with later work by Fizick, Pinterf and the SVP team
 - **NNEDI3** by Kevin Stone (tritical) — the edge-directed interpolator behind QTGMC, via **znedi3** by sekrit-twc and dubhater's **nnedi3**, whose NEON kernels are what make it fast on Apple Silicon and ARM Linux
-- **akarin** — an LLVM-JIT expression evaluator. VapourSynth's own compiler for filter expressions is x86-only, so on ARM every expression was interpreted once per pixel; this is the single biggest reason Apple Silicon is now several times faster
-- **fmtconv** by Firesledge — format conversion and resampling
-- **zsmooth** by Adrian Woracz — chroma denoising (CCD) and the RemoveGrain family
-- **whisper.cpp** by Georgi Gerganov — speech recognition for subtitle generation
+- **akarin** by Akarin, now maintained by the Jaded Encoding Thaumaturgy project — an LLVM-JIT expression evaluator. VapourSynth's own compiler for filter expressions is x86-only, so on ARM every expression was interpreted once per pixel; this is the single biggest reason Apple Silicon is now several times faster
+- **fmtconv** by Firesledge (Laurent de Soras) — format conversion and resampling
+- **zsmooth** by Austin Dworaczyk Wiltshire — chroma denoising (CCD, originally written by Sergey Stolyarevsky for VirtualDub) and the RemoveGrain family
+- **dubhater** — a long list of VapourSynth ports this app relies on: MVTools, nnedi3, AWarpSharp2, TemporalMedian, FluxSmooth, Bifrost and the `adjust` Tweak port
+- **HolyWu** — the VapourSynth ports of DFTTest, TTempSmooth, TCanny, CTMF, DCTFilter, Deblock, AddGrain, CAS, EEDI3 and NNEDI3CL
+- **mawen1250** — Retinex, BM3D and mvsfunc
+- **whisper.cpp** by the ggml authors — speech recognition for subtitle generation
 - **libdvdread** by VideoLAN — DVD reading and navigation
 - **FFmpeg** project — video encoding
 - **Hybrid** by Selur — inspiration for this project
 
-Full licence texts and the complete list of bundled components are in
-[`licenses/NOTICES.txt`](licenses/NOTICES.txt).
+Full licence texts, copyright holders and the complete list of bundled
+components are in [`licenses/NOTICES.txt`](licenses/NOTICES.txt). If any
+attribution there is wrong or names you incorrectly, please
+[open an issue](https://github.com/StuartCameronCode/VapourBox/issues) — it will
+be fixed.
 
 <details>
 <summary><b>Pre-built binary sources</b></summary>
 
-macOS plugins and binaries sourced from:
+Where a component is taken pre-built rather than compiled from source, it comes
+unmodified from one of these, and thanks are owed to the people who maintain
+them:
 
 - **[yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins)** — pre-built ARM64 VapourSynth plugins for macOS
 - **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** — cross-platform VapourSynth plugins (arm64 + x86_64; used for `tmedian`)
 - **[evermeet.cx](https://evermeet.cx/ffmpeg/)** — static x86_64 FFmpeg/FFprobe builds for the Intel macOS bundle
+- **[ffmpeg.martin-riedl.de](https://ffmpeg.martin-riedl.de)** — static arm64 FFmpeg/FFprobe builds for the Apple Silicon bundle
+- **[BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)** — static FFmpeg/FFprobe builds for Windows and Linux
+- **[python-build-standalone](https://github.com/astral-sh/python-build-standalone)** — the relocatable CPython used on macOS and Linux
+- **[Homebrew](https://brew.sh)** — the `whisper-cpp` bottle used for the macOS speech-recognition add-on
 
 The Intel (x64) bundle additionally builds its support libraries (zimg, fftw, libdvdread, boost) from source targeting **macOS 12**, so it runs on Monterey; the Apple Silicon (arm64) bundle is built for the current macOS and targets **macOS 15**.
 

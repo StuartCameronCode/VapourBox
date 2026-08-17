@@ -340,6 +340,11 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
   download URL becomes a red build instead of a silently-incomplete bundle.
 - For local testing, run the download script to populate `deps/` (e.g.
   `deps/windows-x64/vapoursynth/vs-plugins/`, `deps/macos-arm64/vapoursynth/plugins/`).
+- **Credit it**: add an entry to `licenses/NOTICES.txt` and a `_ComponentTile`
+  to `app/lib/views/about_dialog.dart`, then map the binary's filename in
+  `app/test/attribution_test.dart` — that test fails until all three exist.
+  Take the copyright holder and licence from upstream, never from the handle or
+  the repo owner (see "Attribution" below).
 
 ### Regenerating the App Icon
 
@@ -794,7 +799,9 @@ cd app && flutter test                          # everything, incl. heavy (local
 
 Headless Dart-VM tests. Three groups:
 - **Pure unit tests** — `dynamic_parameters`, `filter_schema`,
-  `parameter_converter`, `widget_test`, `scan_type_detection`.
+  `parameter_converter`, `widget_test`, `scan_type_detection`,
+  `attribution` (NOTICES/About-dialog/deps-manifest agreement — see
+  "Attribution" below).
 - **Shell-out tests** — `vapoursynth_integration_test`,
   `schema_converter_integration_test`; need the per-arch `deps/` and (for whisper)
   `addons/`.
@@ -867,6 +874,55 @@ integration tests. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
 - The heavy full-encode integration tests (`@Tags(['heavy'])`) are **not** in this
   gate — they run in `.github/workflows/nightly.yml` (cron + `workflow_dispatch`)
   via `flutter test --tags heavy` on the same 4-platform matrix.
+
+## Attribution — never write a name you have not read upstream
+
+Third-party credit lives in **three** places that must agree:
+`licenses/NOTICES.txt` (shipped in every package), the About dialog
+(`app/lib/views/about_dialog.dart`), and the README's Acknowledgments.
+`app/test/attribution_test.dart` lints the first two against
+`Scripts/deps-expected-plugins.json`, so **adding a plugin without crediting it
+fails the build** — the map in that test has to gain an entry too.
+
+What the test cannot catch, and what actually shipped
+([issue #72](https://github.com/StuartCameronCode/VapourBox/issues/72)):
+
+> **zsmooth was credited to "Adrian Woracz" — a name that does not exist.** The
+> author's GitHub handle is `adworacz`; his LICENSE says **Austin Dworaczyk
+> Wiltshire**. The handle was expanded into a plausible-looking human name
+> instead of being looked up, and it went out in the README, the About dialog
+> and NOTICES simultaneously. The author found it and opened an issue.
+>
+> **Every copyright line must come from the upstream LICENSE file or a source
+> header, fetched at the time of writing.** A GitHub handle is not a name. A
+> repo owner is not necessarily the copyright holder. `gh api repos/<r>` gives
+> the SPDX id, and the LICENSE / first 40 lines of the main source file give the
+> holder — that is a 30-second check per component.
+
+The 2026-08-17 audit that fixed it found the same class of error throughout,
+which is why the whole file was rebuilt from upstream rather than patched:
+
+- **Licences were wrong, not just names.** CTMF is GPL-3.0 (listed as 2.0),
+  DCTFilter is MIT (listed as GPL-2.0), AWarpSharp2 is ISC and RemoveGrain is
+  WTFPL (both listed as GPL-2.0). The bundled FFmpeg is built
+  `--enable-gpl --enable-version3`, so it is **GPL-3.0**, not the LGPL the file
+  claimed.
+- **Year ranges were invented.** "Copyright (c) 2012-2024 …" appeared on
+  components whose upstream states no such range, including projects that
+  assert no copyright at all (havsfunc is Unlicense; FluxSmooth's author
+  explicitly disclaimed copyright).
+- **It credited something not shipped** (ffms2, removed with BestSource) and
+  **omitted about fifteen plugins that are, or shortly will be** — Retinex,
+  bifrost, fluxsmooth, DeScratch, VIVTC, TCanny, TTempSmooth, AddGrain,
+  FFT3DFilter, KNLMeansCL, MiscFilters, TemporalMedian, BM3D, zimg, Zstandard,
+  and the Agner Fog VCL that eight HolyWu plugins compile in. Both directions
+  are now asserted.
+- **`mvsfunc` has no licence at all upstream** — no LICENSE, no header. That is
+  now stated plainly rather than guessed as "Unlicense". Don't "tidy" it into a
+  licence name.
+
+When a project genuinely states nothing, say so and offer to remove it on
+request. An honest "no licence stated" is worth more than a confident guess.
 
 ## Code Style
 

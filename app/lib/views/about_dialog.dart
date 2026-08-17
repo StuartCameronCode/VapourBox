@@ -154,17 +154,39 @@ class _AboutDialogState extends State<AboutDialog> {
                   child: ListView(
                     padding: const EdgeInsets.all(8),
                     children: const [
+                      // Every entry here is taken from the upstream project's
+                      // own LICENSE file or source headers, and must match
+                      // licenses/NOTICES.txt. Do not guess a name: if a project
+                      // states no copyright holder, say so or name the project.
                       _ComponentTile(
                         name: 'VapourSynth',
-                        license: 'LGPL 2.1',
+                        license: 'LGPL 2.1+',
                         copyright: 'Fredrik Mellbin',
                         url: 'https://github.com/vapoursynth/vapoursynth',
                       ),
                       _ComponentTile(
+                        name: 'zimg',
+                        license: 'WTFPL',
+                        copyright: 'sekrit-twc',
+                        url: 'https://github.com/sekrit-twc/zimg',
+                      ),
+                      _ComponentTile(
                         name: 'havsfunc',
                         license: 'Unlicense',
-                        copyright: 'HolyWu',
+                        copyright: 'Public domain; maintained by HolyWu',
                         url: 'https://github.com/HomeOfVapourSynthEvolution/havsfunc',
+                      ),
+                      _ComponentTile(
+                        name: 'mvsfunc',
+                        license: 'No licence stated',
+                        copyright: 'mawen1250',
+                        url: 'https://github.com/HomeOfVapourSynthEvolution/mvsfunc',
+                      ),
+                      _ComponentTile(
+                        name: 'adjust',
+                        license: 'WTFPL',
+                        copyright: 'dubhater',
+                        url: 'https://github.com/dubhater/vapoursynth-adjust',
                       ),
                       _ComponentTile(
                         name: 'VIVTC',
@@ -173,9 +195,23 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/vapoursynth/vivtc',
                       ),
                       _ComponentTile(
-                        name: 'mvtools',
+                        name: 'MiscFilters',
+                        license: 'LGPL 2.1',
+                        copyright: 'Fredrik Mellbin and contributors',
+                        url: 'https://github.com/vapoursynth/vs-miscfilters-obsolete',
+                      ),
+                      _ComponentTile(
+                        name: 'RemoveGrain / Repair',
+                        license: 'WTFPL',
+                        copyright: 'Laurent de Soras, Fredrik Mellbin; '
+                            'Clense by Victor Efimov (MIT)',
+                        url: 'https://github.com/vapoursynth/vs-removegrain',
+                      ),
+                      _ComponentTile(
+                        name: 'MVTools',
                         license: 'GPL 2.0',
-                        copyright: 'Manao, Fizick, Pinterf, dubhater',
+                        copyright: 'Port by dubhater, from Manao\'s AviSynth '
+                            'plugin with work by Fizick and Pinterf',
                         url: 'https://github.com/dubhater/vapoursynth-mvtools',
                       ),
                       _ComponentTile(
@@ -187,50 +223,28 @@ class _AboutDialogState extends State<AboutDialog> {
                       _ComponentTile(
                         name: 'znedi3',
                         license: 'GPL 2.0',
-                        copyright: 'sekrit-twc',
+                        copyright: 'sekrit-twc, after Kevin Stone, dubhater '
+                            'and Loren Merritt',
                         url: 'https://github.com/sekrit-twc/znedi3',
+                      ),
+                      _ComponentTile(
+                        name: 'NNEDI3CL',
+                        license: 'GPL 2.0',
+                        copyright: 'Kevin Stone (tritical); port by HolyWu',
+                        url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL',
                       ),
                       _ComponentTile(
                         name: 'EEDI3',
                         license: 'GPL 2.0',
-                        copyright: 'tritical, HolyWu',
+                        copyright: 'Kevin Stone (tritical); port by HolyWu',
                         url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3',
                       ),
                       _ComponentTile(
                         name: 'akarin',
                         license: 'LGPL 3.0',
-                        copyright: 'The akarin plugin authors',
+                        copyright: 'Akarin; maintained by Jaded Encoding '
+                            'Thaumaturgy. Statically links LLVM',
                         url: 'https://github.com/Jaded-Encoding-Thaumaturgy/akarin-vapoursynth-plugin',
-                      ),
-                      _ComponentTile(
-                        name: 'zsmooth',
-                        license: 'MIT',
-                        copyright: 'Adrian Woracz',
-                        url: 'https://github.com/adworacz/zsmooth',
-                      ),
-                      _ComponentTile(
-                        name: 'FFmpeg',
-                        license: 'LGPL 2.1+',
-                        copyright: 'FFmpeg contributors',
-                        url: 'https://github.com/FFmpeg/FFmpeg',
-                      ),
-                      _ComponentTile(
-                        name: 'DFTTest',
-                        license: 'GPL 3.0',
-                        copyright: 'HolyWu',
-                        url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest',
-                      ),
-                      _ComponentTile(
-                        name: 'neo-f3kdb',
-                        license: 'GPL 3.0',
-                        copyright: 'HomeOfAviSynthPlusEvolution',
-                        url: 'https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb',
-                      ),
-                      _ComponentTile(
-                        name: 'CAS',
-                        license: 'MIT',
-                        copyright: 'HolyWu',
-                        url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CAS',
                       ),
                       _ComponentTile(
                         name: 'fmtconv',
@@ -239,16 +253,172 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://gitlab.com/EleonoreMizo/fmtconv',
                       ),
                       _ComponentTile(
+                        name: 'zsmooth',
+                        license: 'MIT',
+                        copyright: 'Austin Dworaczyk Wiltshire; CCD originally '
+                            'by Sergey Stolyarevsky',
+                        url: 'https://github.com/adworacz/zsmooth',
+                      ),
+                      _ComponentTile(
+                        name: 'DFTTest',
+                        license: 'GPL 3.0',
+                        copyright: 'Kevin Stone (tritical); port by HolyWu',
+                        url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest',
+                      ),
+                      _ComponentTile(
+                        name: 'FFT3DFilter',
+                        license: 'GPL 2.0',
+                        copyright: 'Fizick (A.G. Balakhnin); port by '
+                            'Yusuke Nakamura',
+                        url: 'https://github.com/myrsloik/VapourSynth-FFT3DFilter',
+                      ),
+                      _ComponentTile(
+                        name: 'TTempSmooth',
+                        license: 'GPL 3.0',
+                        copyright: 'Kevin Stone (tritical); port by HolyWu',
+                        url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TTempSmooth',
+                      ),
+                      _ComponentTile(
+                        name: 'TCanny',
+                        license: 'GPL 3.0',
+                        copyright: 'Kevin Stone (tritical); port by HolyWu',
+                        url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TCanny',
+                      ),
+                      _ComponentTile(
+                        name: 'CTMF',
+                        license: 'GPL 3.0',
+                        copyright: 'Simon Perreault; port by HolyWu',
+                        url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF',
+                      ),
+                      _ComponentTile(
+                        name: 'CAS',
+                        license: 'MIT',
+                        copyright: 'Holy Wu',
+                        url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CAS',
+                      ),
+                      _ComponentTile(
+                        name: 'DCTFilter',
+                        license: 'MIT',
+                        copyright: 'HolyWu',
+                        url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DCTFilter',
+                      ),
+                      _ComponentTile(
+                        name: 'Deblock',
+                        license: 'GPL 2.0',
+                        copyright: 'Manao and Fizick; port by HolyWu',
+                        url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Deblock',
+                      ),
+                      _ComponentTile(
+                        name: 'AddGrain',
+                        license: 'GPL 3.0',
+                        copyright: 'Tom Barry; port by HolyWu',
+                        url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain',
+                      ),
+                      _ComponentTile(
+                        name: 'neo_f3kdb',
+                        license: 'GPL 3.0',
+                        copyright: 'Xinyue Lu, from flash3kyuu_deband by '
+                            'SAPikachu',
+                        url: 'https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb',
+                      ),
+                      _ComponentTile(
+                        name: 'Retinex',
+                        license: 'GPL 3.0',
+                        copyright: 'mawen1250',
+                        url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Retinex',
+                      ),
+                      _ComponentTile(
+                        name: 'BM3D',
+                        license: 'MIT',
+                        copyright: 'mawen1250',
+                        url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-BM3D',
+                      ),
+                      _ComponentTile(
+                        name: 'KNLMeansCL',
+                        license: 'GPL 3.0',
+                        copyright: 'Edoardo Brunetti',
+                        url: 'https://github.com/Khanattila/KNLMeansCL',
+                      ),
+                      _ComponentTile(
+                        name: 'DeScratch',
+                        license: 'GPL 2.0',
+                        copyright: 'Fizick (Alexander G. Balakhnin)',
+                        url: 'https://github.com/vapoursynth/descratch',
+                      ),
+                      _ComponentTile(
+                        name: 'AWarpSharp2',
+                        license: 'ISC',
+                        copyright: 'dubhater, after the AviSynth filter by SEt',
+                        url: 'https://github.com/dubhater/vapoursynth-awarpsharp2',
+                      ),
+                      _ComponentTile(
+                        name: 'TemporalMedian',
+                        license: 'ISC',
+                        copyright: 'dubhater',
+                        url: 'https://github.com/dubhater/vapoursynth-temporalmedian',
+                      ),
+                      _ComponentTile(
+                        name: 'FluxSmooth',
+                        license: 'No copyright asserted',
+                        copyright: 'Port by dubhater',
+                        url: 'https://github.com/dubhater/vapoursynth-fluxsmooth',
+                      ),
+                      _ComponentTile(
+                        name: 'Bifrost',
+                        license: 'WTFPL',
+                        copyright: 'Port by dubhater; original by '
+                            'Fredrik Mellbin',
+                        url: 'https://github.com/dubhater/vapoursynth-bifrost',
+                      ),
+                      _ComponentTile(
+                        name: 'Vector Class Library',
+                        license: 'Apache 2.0',
+                        copyright: 'Agner Fog — SIMD code inside several '
+                            'plugins above',
+                        url: 'https://github.com/vectorclass/version2',
+                      ),
+                      _ComponentTile(
+                        name: 'FFmpeg',
+                        license: 'GPL 3.0+',
+                        copyright: 'The FFmpeg developers — built with '
+                            '--enable-gpl --enable-version3',
+                        url: 'https://ffmpeg.org',
+                      ),
+                      _ComponentTile(
                         name: 'whisper.cpp',
                         license: 'MIT',
-                        copyright: 'Georgi Gerganov',
-                        url: 'https://github.com/ggerganov/whisper.cpp',
+                        copyright: 'The ggml authors',
+                        url: 'https://github.com/ggml-org/whisper.cpp',
                       ),
                       _ComponentTile(
                         name: 'libdvdread',
                         license: 'GPL 2.0+',
                         copyright: 'VideoLAN and contributors',
                         url: 'https://code.videolan.org/videolan/libdvdread',
+                      ),
+                      _ComponentTile(
+                        name: 'FFTW',
+                        license: 'GPL 2.0+',
+                        copyright: 'Matteo Frigo and MIT',
+                        url: 'https://www.fftw.org',
+                      ),
+                      _ComponentTile(
+                        name: 'Boost',
+                        license: 'BSL 1.0',
+                        copyright: 'The Boost authors',
+                        url: 'https://www.boost.org',
+                      ),
+                      _ComponentTile(
+                        name: 'zlib',
+                        license: 'zlib',
+                        copyright: 'Jean-loup Gailly and Mark Adler',
+                        url: 'https://zlib.net',
+                      ),
+                      _ComponentTile(
+                        name: 'Zstandard',
+                        license: 'BSD 3-Clause',
+                        copyright: 'Meta Platforms, Inc. and affiliates',
+                        url: 'https://github.com/facebook/zstd',
                       ),
                       _ComponentTile(
                         name: 'Flutter',
@@ -274,8 +444,9 @@ class _AboutDialogState extends State<AboutDialog> {
               // Both are acknowledged in README.md, so neither gets a licence
               // badge here.
               Text(
-                'QTGMC deinterlacing algorithm by Vit. '
-                'Inspired by Hybrid by Selur.',
+                'QTGMC deinterlacing algorithm by Vit, originally based on '
+                'TempGaussMC_beta2 by Didée. Inspired by Hybrid by Selur. '
+                'If any attribution here is wrong, please open an issue.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context)
                           .colorScheme

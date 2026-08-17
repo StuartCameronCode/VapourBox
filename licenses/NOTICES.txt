@@ -1,184 +1,544 @@
-VapourBox - Third Party Licenses
-===================================
+VapourBox — Third-Party Notices
+===============================
 
-This application includes the following third-party components:
+VapourBox itself is Copyright (c) Stuart Cameron and is distributed under the
+GNU General Public License, version 3 or (at your option) any later version.
+See LICENSE in the repository root.
 
+This file lists the third-party components distributed with VapourBox — either
+inside the application bundle or inside the separately downloaded dependency
+bundle (deps-vX.Y.Z). Every copyright line and licence below was taken from the
+upstream project's own LICENSE file or source headers. Where a project makes no
+copyright or licence statement, that is said so plainly rather than guessed at.
 
-VapourSynth (LGPL 2.1)
-----------------------
-Copyright (c) 2012-2024 Fredrik Mellbin
-https://github.com/vapoursynth/vapoursynth
-License: See LGPL-2.1.txt
+Some components are shipped only on some platforms; that is noted per entry.
 
-
-havsfunc (Unlicense)
---------------------
-Copyright (c) 2012-2024 HolyWu
-https://github.com/HomeOfVapourSynthEvolution/havsfunc
-License: Public Domain (Unlicense)
-
-
-mvsfunc (Unlicense)
--------------------
-Copyright (c) 2014-2024 mawen1250
-https://github.com/HomeOfVapourSynthEvolution/mvsfunc
-License: Public Domain (Unlicense)
+Full texts of the longer licences are in the accompanying files:
+  GPL-2.0.txt, GPL-3.0.txt, LGPL-2.1.txt, LGPL-3.0.txt,
+  Apache-2.0-LLVM-Exception.txt
+The short permissive licences (MIT, ISC, BSD 3-Clause, WTFPL, Boost, zlib,
+Unlicense) are reproduced in full in the appendix at the end of this file.
 
 
-mvtools (GPL 2.0)
------------------
-Copyright (c) 2005-2024 Manao, Fizick, Pinterf, dubhater
-https://github.com/dubhater/vapoursynth-mvtools
-License: See GPL-2.0.txt
+-------------------------------------------------------------------------------
+1. Framework and runtime
+-------------------------------------------------------------------------------
+
+VapourSynth — LGPL-2.1-or-later
+  Copyright (c) 2012-2024 Fredrik Mellbin
+  https://github.com/vapoursynth/vapoursynth
+  Licence text: LGPL-2.1.txt
+  The video processing framework. Includes libvapoursynth, libvapoursynthfilters
+  (the core std/resize/text filters), libvsscript and the vspipe tool.
+
+zimg — WTFPL
+  Copyright (c) sekrit-twc
+  https://github.com/sekrit-twc/zimg
+  The scaling/format-conversion library behind core.resize. Bundled because
+  VapourSynth links it.
+
+Python (CPython) — Python Software Foundation License 2.0
+  Copyright (c) 2001-2024 Python Software Foundation
+  https://github.com/python/cpython
+  Licence: https://docs.python.org/3/license.html
+  macOS/Linux use a python-build-standalone distribution
+  (https://github.com/astral-sh/python-build-standalone, MPL-2.0 for its own
+  build scripts); Windows uses the official embeddable package.
+
+Flutter — BSD 3-Clause
+  Copyright (c) 2014 The Flutter Authors
+  https://github.com/flutter/flutter
+  The UI toolkit the application is written in.
 
 
-nnedi3 (GPL 2.0)
-----------------
-Copyright (c) 2010-2011 Kevin Stone (tritical); VapourSynth port by dubhater
-https://github.com/dubhater/vapoursynth-nnedi3
-License: See GPL-2.0.txt
-The same neural network as znedi3, from the same nnedi3_weights.bin, but with
-NEON kernels. Shipped on the ARM bundles only, where znedi3's x86-only SIMD
-leaves it running scalar; havsfunc and both templates select it at runtime on
-arm64/aarch64. x86 bundles ship znedi3 alone.
+-------------------------------------------------------------------------------
+2. VapourSynth Python modules
+-------------------------------------------------------------------------------
 
-znedi3 (GPL 2.0)
-----------------
-Copyright (c) 2018-2024 sekrit-twc
-https://github.com/sekrit-twc/znedi3
-License: See GPL-2.0.txt
+havsfunc — Unlicense (public domain dedication)
+  https://github.com/HomeOfVapourSynthEvolution/havsfunc
+  Maintained by HolyWu. The upstream LICENSE is the Unlicense, which dedicates
+  the work to the public domain, so no copyright is asserted.
+  Contains QTGMC 3.33 by Vit (2012), itself originally based on
+  TempGaussMC_beta2 by Didee, along with daa, santiag, Stab, SMDegrain,
+  DeHalo_alpha, FineDehalo, LSFmod, STPresso, SmoothLevels, LUTDeCrawl,
+  LUTDeRainbow, Deblock_QED, EdgeCleaner, YAHR and others used by VapourBox.
+  VapourBox applies small compatibility patches to this file at dependency
+  build time; they are listed in Scripts/download-deps-*.
 
+mvsfunc — no licence stated upstream
+  Copyright (c) mawen1250 <mawen1250@gmail.com>
+  https://github.com/HomeOfVapourSynthEvolution/mvsfunc
+  The upstream repository contains no LICENSE file and no licence header in the
+  source. It is bundled unmodified because havsfunc imports it. If the author
+  would prefer it not be redistributed, please open an issue and it will be
+  removed.
 
-EEDI3 (GPL 2.0)
----------------
-Copyright (c) 2010-2024 tritical, HolyWu
-https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3
-License: See GPL-2.0.txt
-
-
-fmtconv (WTFPL)
----------------
-Copyright (c) 2012-2024 Firesledge (Laurent de Soras)
-https://github.com/EleonoreMizo/fmtconv
-License: WTFPL (Do What The F*ck You Want To Public License)
-
-
-FFmpeg (LGPL 2.1+)
-------------------
-Copyright (c) 2000-2024 FFmpeg contributors
-https://github.com/FFmpeg/FFmpeg
-License: See LGPL-2.1.txt (or GPL depending on build configuration)
+adjust — WTFPL
+  Copyright (c) dubhater
+  https://github.com/dubhater/vapoursynth-adjust
+  A port of the AviSynth Tweak filter; provides adjust.Tweak, used by the
+  Colour Correction pass.
 
 
-ffms2 (MIT)
+-------------------------------------------------------------------------------
+3. VapourSynth plugins
+-------------------------------------------------------------------------------
+
+MVTools — GPL-2.0
+  VapourSynth port by dubhater
+  https://github.com/dubhater/vapoursynth-mvtools
+  A port of the AviSynth plugin by Manao, with later work by Fizick
+  (Alexander G. Balakhnin), Pinterf and the SVP team. Licence text: GPL-2.0.txt
+  Motion estimation and compensation — the engine QTGMC and SMDegrain use.
+
+nnedi3 — GPL-2.0
+  Copyright (C) 2010-2011 Kevin Stone (tritical); VapourSynth port by dubhater
+  https://github.com/dubhater/vapoursynth-nnedi3
+  Licence text: GPL-2.0.txt
+  Shipped on the ARM bundles only (macos-arm64, linux-arm64), where its NEON
+  kernels are several times faster than znedi3's scalar fallback. The x86
+  bundles ship znedi3 alone.
+
+znedi3 — GPL-2.0
+  Copyright (c) sekrit-twc; based on work by dubhater, Kevin Stone and
+  Loren Merritt (per the project's AUTHORS.txt)
+  https://github.com/sekrit-twc/znedi3
+  Licence text: GPL-2.0.txt
+  The same neural network as nnedi3, from the same nnedi3_weights.bin.
+
+NNEDI3CL — GPL-2.0
+  Copyright (C) 2010-2011 Kevin Stone (tritical); OpenCL VapourSynth port by
+  HolyWu
+  https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL
+  Licence text: GPL-2.0.txt
+
+EEDI3 (eedi3m) — GPL-2.0
+  Copyright (C) tritical (Kevin Stone); VapourSynth port by HolyWu
+  https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3
+  Licence text: GPL-2.0.txt
+
+VIVTC — LGPL-2.1
+  Copyright (c) 2012-2020 Fredrik Mellbin
+  https://github.com/vapoursynth/vivtc
+  Licence text: LGPL-2.1.txt
+  VFM field matching and VDecimate, used by the inverse-telecine pass.
+
+MiscFilters (Miscellaneous Filters, namespace misc) — LGPL-2.1
+  Copyright (c) 2016 Fredrik Mellbin & other contributors
+  https://github.com/vapoursynth/vs-miscfilters-obsolete
+  Licence text: LGPL-2.1.txt
+
+RemoveGrain / Repair (rgvs) — WTFPL, with one MIT component
+  AvsFilterRemoveGrain/Repair16 by Laurent de Soras (2012), modified for
+  VapourSynth by Fredrik Mellbin (2013) — WTFPL
+  Clense: Copyright (c) 2013 Victor Efimov — MIT
+  https://github.com/vapoursynth/vs-removegrain
+
+fmtconv — WTFPL
+  Copyright (c) Firesledge (Laurent de Soras)
+  https://gitlab.com/EleonoreMizo/fmtconv
+  Format conversion and resampling. Pinned to r31 on every platform.
+  VapourBox applies Scripts/patches/fmtconv-r31-arm-int-scaler.patch on the
+  from-source (macOS/Linux) builds, fixing a bug in the non-SIMD integer scaler
+  that produced black output on ARM. The patch header carries the analysis.
+
+akarin — LGPL-3.0
+  Copyright (c) Akarin <i@akarin.info>; now maintained by the Jaded Encoding
+  Thaumaturgy project
+  https://github.com/Jaded-Encoding-Thaumaturgy/akarin-vapoursynth-plugin
+  Licence text: LGPL-3.0.txt
+  Provides core.akarin.Expr, an LLVM-JIT implementation of std.Expr.
+  VapourSynth's own Expr JIT is x86-only, so on ARM every expression is
+  otherwise interpreted once per pixel; akarin supplies the JIT those platforms
+  lack. Distributed as an unmodified binary taken from the project's published
+  wheel, and dynamically linked — the LGPL relinking right is satisfied by
+  replacing that binary in deps/<platform>/vapoursynth/plugins/.
+  Not shipped on macOS x64.
+
+LLVM — Apache-2.0 WITH LLVM-exception
+  Copyright (c) the LLVM Project contributors
+  https://llvm.org
+  Licence text: Apache-2.0-LLVM-Exception.txt
+  LLVM 22.1.2 is statically linked into the akarin plugin above, which is where
+  its JIT comes from. Listed here because that binary carries LLVM code.
+
+zsmooth — MIT
+  Copyright (c) 2024 Austin Dworaczyk Wiltshire
+  https://github.com/adworacz/zsmooth
+  Provides core.zsmooth.CCD (used by the Chroma Denoise pass), Cnr4, and a set
+  of RemoveGrain/TemporalMedian/FluxSmooth-family filters.
+  CCD — Camcorder Colour Denoiser — was originally written by Sergey
+  Stolyarevsky for VirtualDub.
+
+DFTTest — GPL-3.0
+  Copyright (C) 2007-2010 Kevin Stone (tritical); VapourSynth port by HolyWu
+  https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest
+  Licence text: GPL-3.0.txt
+
+FFT3DFilter — GPL-2.0
+  Copyright (C) 2004-2006 A.G. Balakhnin aka Fizick
+  Copyright (C) 2015 Yusuke Nakamura (VapourSynth port)
+  https://github.com/myrsloik/VapourSynth-FFT3DFilter
+  Licence text: GPL-2.0.txt
+
+TTempSmooth — GPL-3.0
+  Copyright (C) 2004-2005 Kevin Stone (tritical); VapourSynth port by HolyWu
+  https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TTempSmooth
+  Licence text: GPL-3.0.txt
+
+TCanny — GPL-3.0
+  Copyright (C) 2009 Kevin Stone (tritical); VapourSynth port by HolyWu
+  https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TCanny
+  Licence text: GPL-3.0.txt
+
+CTMF — GPL-3.0
+  Copyright (C) 2006 Simon Perreault (constant-time median filtering);
+  VapourSynth port by HolyWu
+  https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF
+  Licence text: GPL-3.0.txt
+
+CAS — MIT
+  Copyright (c) 2020 Holy Wu
+  https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CAS
+  Contrast Adaptive Sharpening, after AMD's FidelityFX CAS.
+
+DCTFilter — MIT
+  Copyright (c) 2017 HolyWu
+  https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DCTFilter
+
+Deblock — GPL-2.0
+  Copyright (c) 2004 Manao (originally a function in MVTools 0.9.6.2)
+  Copyright (c) 2006 Alexander Balakhnin aka Fizick (separate plugin)
+  VapourSynth port by HolyWu
+  https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Deblock
+  Licence text: GPL-2.0.txt
+
+AddGrain — GPL-3.0
+  Copyright (c) 2002 Tom Barry; VapourSynth port by HolyWu
+  https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain
+  Licence text: GPL-3.0.txt
+
+neo_f3kdb — GPL-3.0
+  Copyright (c) 2020 Xinyue Lu; forked from flash3kyuu_deband by SAPikachu
+  https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb
+  Licence text: GPL-3.0.txt
+
+Retinex — GPL-3.0
+  Copyright (C) 2014 mawen1250
+  https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Retinex
+  Licence text: GPL-3.0.txt
+
+BM3D — MIT
+  Copyright (c) 2015-2016 mawen1250
+  https://github.com/HomeOfVapourSynthEvolution/VapourSynth-BM3D
+  Shipped on macOS arm64 only.
+
+KNLMeansCL — GPL-3.0
+  Copyright (C) 2015-2020 Edoardo Brunetti
+  https://github.com/Khanattila/KNLMeansCL
+  Licence text: GPL-3.0.txt
+  OpenCL non-local-means denoising; degrades gracefully where no OpenCL device
+  is available.
+
+DeScratch — GPL-2.0
+  Copyright (C) 2003-2016 Alexander G. Balakhnin aka Fizick
+  https://github.com/vapoursynth/descratch
+  Licence text: GPL-2.0.txt
+
+AWarpSharp2 — ISC
+  Copyright (c) dubhater; a rewrite of the AviSynth filter (re)written by SEt
+  https://github.com/dubhater/vapoursynth-awarpsharp2
+
+TemporalMedian — ISC
+  Copyright (c) dubhater
+  https://github.com/dubhater/vapoursynth-temporalmedian
+
+FluxSmooth — no copyright asserted
+  VapourSynth port by dubhater
+  https://github.com/dubhater/vapoursynth-fluxsmooth
+  The project's readme records the original FluxSmooth author's statement:
+  "There is no copyright on this code, and there are no conditions on its
+  distribution or use. Do with it what you will."
+
+Bifrost — WTFPL
+  VapourSynth port by dubhater; the original AviSynth derainbowing filter was
+  created by Fredrik Mellbin
+  https://github.com/dubhater/vapoursynth-bifrost
+
+Vector Class Library (VCL) — Apache-2.0
+  Copyright (c) Agner Fog
+  https://github.com/vectorclass/version2
+  Not a plugin of its own: several of the HolyWu-maintained plugins above
+  (CAS, CTMF, DCTFilter, Deblock, DFTTest, TCanny, TTempSmooth, AddGrain)
+  compile it in for their SIMD paths.
+
+
+-------------------------------------------------------------------------------
+4. Media tools and libraries
+-------------------------------------------------------------------------------
+
+FFmpeg — GPL-3.0-or-later (as built)
+  Copyright (c) 2000-2026 the FFmpeg developers
+  https://ffmpeg.org — https://github.com/FFmpeg/FFmpeg
+  Licence text: GPL-3.0.txt
+  FFmpeg is LGPL-2.1-or-later at its core, but the builds VapourBox bundles are
+  configured with --enable-gpl --enable-version3, which makes the resulting
+  binaries GPL-3.0-or-later. They also link, among others, x264 and x265
+  (GPL-2.0-or-later), which is why the GPL configuration is used.
+  Binaries are taken pre-built and unmodified from:
+    - macOS arm64: https://ffmpeg.martin-riedl.de
+    - macOS x64:   https://evermeet.cx/ffmpeg/
+    - Windows and Linux: https://github.com/BtbN/FFmpeg-Builds
+  Run `ffmpeg -version` on the bundled binary for its exact configuration, and
+  see https://ffmpeg.org/legal.html for source availability.
+
+whisper.cpp — MIT
+  Copyright (c) 2023-2026 The ggml authors (project started by Georgi Gerganov)
+  https://github.com/ggml-org/whisper.cpp
+  Speech recognition for subtitle generation. Distributed as a separately
+  downloaded optional add-on, not inside the application bundle: on macOS from
+  the Homebrew whisper-cpp bottle, on Windows from the project's own release,
+  on Linux from an unmodified build published on this repository's releases.
+
+libdvdread — GPL-2.0-or-later
+  Copyright (c) VideoLAN and contributors
+  https://code.videolan.org/videolan/libdvdread
+  Licence text: GPL-2.0.txt
+  DVD reading and navigation. libdvdcss is deliberately NOT bundled; users who
+  need it install it themselves.
+
+FFTW — GPL-2.0-or-later
+  Copyright (c) Matteo Frigo and the Massachusetts Institute of Technology
+  https://www.fftw.org
+  Licence text: GPL-2.0.txt
+  Required by MVTools and FFT3DFilter.
+
+Boost — Boost Software License 1.0
+  Copyright (c) the Boost authors
+  https://www.boost.org
+  Linked by the OpenCL plugins.
+
+zlib — zlib licence
+  Copyright (c) 1995-2024 Jean-loup Gailly and Mark Adler
+  https://zlib.net
+
+Zstandard — BSD 3-Clause (dual-licensed BSD/GPL-2.0 upstream)
+  Copyright (c) Meta Platforms, Inc. and affiliates
+  https://github.com/facebook/zstd
+  Shipped on Windows and Linux only, as a private dependency of the akarin
+  plugin's published wheel.
+
+
+-------------------------------------------------------------------------------
+5. Build tooling present in the dependency bundle
+-------------------------------------------------------------------------------
+
+The bundled Python installation carries the tools its own build needed. They
+are not used at runtime but are distributed, so they are listed here.
+
+Cython — Apache-2.0        https://github.com/cython/cython
+Meson  — Apache-2.0        https://github.com/mesonbuild/meson
+pip    — MIT               https://github.com/pypa/pip
+
+
+-------------------------------------------------------------------------------
+6. Application packages
+-------------------------------------------------------------------------------
+
+The Flutter application and the Rust worker link a number of permissively
+licensed packages from pub.dev and crates.io (BSD 3-Clause, MIT or Apache-2.0).
+The authoritative lists, with versions, are app/pubspec.yaml (resolved in
+app/pubspec.lock) and worker/Cargo.toml (resolved in worker/Cargo.lock).
+Direct dependencies:
+
+  Dart/Flutter: provider, file_picker, desktop_drop, path_provider, path,
+                json_annotation, uuid, shared_preferences, url_launcher,
+                window_manager, rhttp, archive, crypto, package_info_plus
+  Rust:         serde, serde_json, uuid, clap, thiserror, anyhow, ctrlc, which,
+                chrono, libloading
+
+
+-------------------------------------------------------------------------------
+7. Acknowledged, but not distributed
+-------------------------------------------------------------------------------
+
+Hybrid by Selur (https://www.selur.de) is the inspiration for this project.
+No Hybrid code is used or distributed.
+
+
+===============================================================================
+Appendix — full text of the short permissive licences
+===============================================================================
+
+MIT License
 -----------
-Copyright (c) 2007-2024 FFMS contributors
-https://github.com/FFMS/ffms2
-License: MIT License
+(Applies to zsmooth, CAS, DCTFilter, BM3D, whisper.cpp, pip and the Clense
+filter in vs-removegrain, each under the copyright notice given in its entry
+above.)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
-DFTTest (GPL 3.0)
------------------
-Copyright (c) 2015-2024 HolyWu
-https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest
-License: See GPL-3.0.txt
+ISC License
+-----------
+(Applies to AWarpSharp2 and TemporalMedian.)
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
 
 
-neo-f3kdb (GPL 3.0)
--------------------
-Copyright (c) 2019-2024 HomeOfAviSynthPlusEvolution
-https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb
-License: See GPL-3.0.txt
+DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE, Version 2
+------------------------------------------------------
+(Applies to fmtconv, zimg, RemoveGrain/Repair, Bifrost and adjust.)
+
+            DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
+                    Version 2, December 2004
+
+ Copyright (C) 2004 Sam Hocevar <sam@hocevar.net>
+
+ Everyone is permitted to copy and distribute verbatim or modified
+ copies of this license document, and changing it is allowed as long
+ as the name is changed.
+
+            DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE
+   TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION
+
+  0. You just DO WHAT THE FUCK YOU WANT TO.
 
 
-CAS - Contrast Adaptive Sharpening (MIT)
-----------------------------------------
-Copyright (c) 2019-2024 HolyWu
-https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CAS
-License: MIT License
-
-
-DCTFilter (GPL 2.0)
--------------------
-Copyright (c) 2014-2024 HolyWu
-https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DCTFilter
-License: See GPL-2.0.txt
-
-
-Deblock (GPL 2.0)
------------------
-Copyright (c) 2004-2024 Manao, Fizick
-https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Deblock
-License: See GPL-2.0.txt
-
-
-AWarpSharp2 (GPL 2.0)
----------------------
-Copyright (c) 2015-2024 dubhater
-https://github.com/dubhater/vapoursynth-awarpsharp2
-License: See GPL-2.0.txt
-
-
-RemoveGrain (GPL 2.0)
----------------------
-https://github.com/vapoursynth/vs-removegrain
-License: See GPL-2.0.txt
-
-
-CTMF (GPL 2.0)
---------------
-Copyright (c) 2014-2024 HolyWu
-https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF
-License: See GPL-2.0.txt
-
-
-zsmooth (MIT)
--------------
-Copyright (c) 2025 Adrian Woracz
-https://github.com/adworacz/zsmooth
-License: MIT License
-Provides core.zsmooth.CCD (Camcorder Colour Denoise), used by the Chroma
-Denoise pass. CCD itself originates as a VirtualDub filter by Sergey
-Stolyarevsky.
-
-
-akarin (LGPL-3.0)
------------------
-Copyright (c) the akarin plugin authors
-https://github.com/Jaded-Encoding-Thaumaturgy/akarin-vapoursynth-plugin
-License: See LGPL-3.0.txt
-Provides core.akarin.Expr, an LLVM-JIT implementation of std.Expr. VapourSynth's
-own Expr JIT is x86-only, so on ARM every expression is otherwise interpreted
-once per pixel; akarin supplies the JIT those platforms lack. Distributed as an
-unmodified binary taken from the project's published wheel, and dynamically
-linked -- the LGPL relinking right is satisfied by replacing that binary in
-deps/<platform>/vapoursynth/plugins/. Not shipped on macOS x64.
-
-LLVM (Apache-2.0 WITH LLVM-exception)
--------------------------------------
-Copyright (c) the LLVM Project contributors
-https://llvm.org
-License: See Apache-2.0-LLVM-Exception.txt
-LLVM 22.1.2 is statically linked into the akarin plugin above, which is where
-its JIT comes from. Included here because that binary carries LLVM code.
-
-
-Flutter (BSD 3-Clause)
-----------------------
-Copyright (c) 2014-2024 The Flutter Authors
-https://github.com/flutter/flutter
-License: BSD 3-Clause License
-
-
-Python (PSF License)
+BSD 3-Clause License
 --------------------
-Copyright (c) 2001-2024 Python Software Foundation
-https://github.com/python/cpython
-License: Python Software Foundation License
+(Applies to Flutter and Zstandard, under the copyright notices given above.)
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors
+   may be used to endorse or promote products derived from this software
+   without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-===================================
-Full license texts are provided in the accompanying license files:
-- GPL-2.0.txt
-- GPL-3.0.txt
-- LGPL-2.1.txt
+Boost Software License 1.0
+--------------------------
+
+Permission is hereby granted, free of charge, to any person or organization
+obtaining a copy of the software and accompanying documentation covered by
+this license (the "Software") to use, reproduce, display, distribute, execute,
+and transmit the Software, and to prepare derivative works of the Software,
+and to permit third-parties to whom the Software is furnished to do so, all
+subject to the following:
+
+The copyright notices in the Software and this entire statement, including the
+above license grant, this restriction and the following disclaimer, must be
+included in all copies of the Software, in whole or in part, and all
+derivative works of the Software, unless such copies or derivative works are
+solely in the form of machine-executable object code generated by a source
+language processor.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE AND NON-INFRINGEMENT. IN NO EVENT
+SHALL THE COPYRIGHT HOLDERS OR ANYONE DISTRIBUTING THE SOFTWARE BE LIABLE FOR
+ANY DAMAGES OR OTHER LIABILITY, WHETHER IN CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+zlib License
+------------
+
+This software is provided 'as-is', without any express or implied warranty. In
+no event will the authors be held liable for any damages arising from the use
+of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it freely,
+subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not claim
+   that you wrote the original software. If you use this software in a
+   product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+3. This notice may not be removed or altered from any source distribution.
+
+
+The Unlicense
+-------------
+(Applies to havsfunc.)
+
+This is free and unencumbered software released into the public domain.
+
+Anyone is free to copy, modify, publish, use, compile, sell, or distribute
+this software, either in source code form or as a compiled binary, for any
+purpose, commercial or non-commercial, and by any means.
+
+In jurisdictions that recognize copyright laws, the author or authors of this
+software dedicate any and all copyright interest in the software to the public
+domain. We make this dedication for the benefit of the public at large and to
+the detriment of our heirs and successors. We intend this dedication to be an
+overt act of relinquishment in perpetuity of all present and future rights to
+this software under copyright law.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+For more information, please refer to <https://unlicense.org/>
+
+
+===============================================================================
+Corrections
+===============================================================================
+
+If any attribution here is wrong, incomplete, or names you incorrectly, please
+open an issue at https://github.com/StuartCameronCode/VapourBox/issues and it
+will be fixed.
