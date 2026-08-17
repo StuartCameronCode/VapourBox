@@ -177,6 +177,8 @@ class ParameterConverter {
       filterId: 'noise_reduction',
       enabled: params.enabled,
       values: {
+        'contraSharpen': params.contraSharpen,
+        'contraSharpenRep': params.contraSharpenRep,
         'method': method,
         'smDegrainTr': params.smDegrainTr,
         'smDegrainThSAD': params.smDegrainThSAD,
@@ -581,6 +583,12 @@ class ParameterConverter {
       filterId: 'color_correction',
       enabled: params.enabled,
       values: {
+        'applyAutoLevels': params.applyAutoLevels,
+        'autoLevelsBlack': params.autoLevelsBlack,
+        'autoLevelsWhite': params.autoLevelsWhite,
+        'autoLevelsStrength': params.autoLevelsStrength,
+        'applyAutoWhiteBalance': params.applyAutoWhiteBalance,
+        'autoWhiteBalanceStrength': params.autoWhiteBalanceStrength,
         'method': 'tweak',
         'brightness': params.brightness,
         'contrast': params.contrast,
@@ -887,6 +895,8 @@ class ParameterConverter {
     }
 
     return NoiseReductionParameters(
+      contraSharpen: v['contraSharpen'] as bool? ?? false,
+      contraSharpenRep: _asInt(v['contraSharpenRep']) ?? 13,
       enabled: params.enabled,
       preset: params.enabled ? NoiseReductionPreset.custom : NoiseReductionPreset.off,
       method: method,
@@ -1118,6 +1128,12 @@ class ParameterConverter {
   static ColorCorrectionParameters toColorCorrection(DynamicParameters params) {
     final v = params.values;
     return ColorCorrectionParameters(
+      applyAutoLevels: v['applyAutoLevels'] as bool? ?? false,
+      autoLevelsBlack: _asInt(v['autoLevelsBlack']) ?? 16,
+      autoLevelsWhite: _asInt(v['autoLevelsWhite']) ?? 235,
+      autoLevelsStrength: (v['autoLevelsStrength'] as num?)?.toDouble() ?? 1.0,
+      applyAutoWhiteBalance: v['applyAutoWhiteBalance'] as bool? ?? false,
+      autoWhiteBalanceStrength: (v['autoWhiteBalanceStrength'] as num?)?.toDouble() ?? 1.0,
       enabled: params.enabled,
       brightness: (v['brightness'] as num?)?.toDouble() ?? 0.0,
       contrast: (v['contrast'] as num?)?.toDouble() ?? 1.0,

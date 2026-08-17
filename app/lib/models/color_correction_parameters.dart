@@ -23,6 +23,20 @@ class ColorCorrectionParameters {
   /// Whether this pass is enabled.
   final bool enabled;
 
+  /// Stretch luma so the darkest and brightest parts land on the targets.
+  final bool applyAutoLevels;
+  /// Target black point, 8-bit units (scaled to the clip format in-script).
+  final int autoLevelsBlack;
+  /// Target white point, 8-bit units.
+  final int autoLevelsWhite;
+  /// 0-1 blend against the untouched picture.
+  final double autoLevelsStrength;
+
+  /// Grey-world automatic white balance.
+  final bool applyAutoWhiteBalance;
+  /// 0-1 blend for the chroma shift.
+  final double autoWhiteBalanceStrength;
+
   /// Preset level for simple mode.
   final ColorCorrectionPreset preset;
 
@@ -96,6 +110,12 @@ class ColorCorrectionParameters {
 
   const ColorCorrectionParameters({
     this.enabled = false,
+    this.applyAutoLevels = false,
+    this.autoLevelsBlack = 16,
+    this.autoLevelsWhite = 235,
+    this.autoLevelsStrength = 1.0,
+    this.applyAutoWhiteBalance = false,
+    this.autoWhiteBalanceStrength = 1.0,
     this.preset = ColorCorrectionPreset.off,
     // Tweak defaults
     this.brightness = 0.0,

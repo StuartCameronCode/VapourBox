@@ -23,6 +23,26 @@ pub struct ColorCorrectionParameters {
     #[serde(default)]
     pub enabled: bool,
 
+    /// Stretch luma to the target black/white points, measured per frame.
+    #[serde(default)]
+    pub apply_auto_levels: bool,
+    /// Target black point, 8-bit UI units; scaled to the clip format in-script.
+    #[serde(default = "default_auto_black")]
+    pub auto_levels_black: i32,
+    /// Target white point, 8-bit UI units.
+    #[serde(default = "default_auto_white_point")]
+    pub auto_levels_white: i32,
+    /// 0-1 blend against the untouched clip.
+    #[serde(default = "default_auto_strength")]
+    pub auto_levels_strength: f64,
+
+    /// Grey-world automatic white balance.
+    #[serde(default)]
+    pub apply_auto_white_balance: bool,
+    /// 0-1 blend for the chroma shift.
+    #[serde(default = "default_auto_strength")]
+    pub auto_white_balance_strength: f64,
+
     /// Preset level for simple mode.
     #[serde(default)]
     pub preset: ColorCorrectionPreset,
@@ -150,10 +170,20 @@ fn default_shadow_upper() -> f64 { 0.001 }
 fn default_one_f64() -> f64 { 1.0 }
 fn default_255() -> i32 { 255 }
 
+fn default_auto_black() -> i32 { 16 }
+fn default_auto_white_point() -> i32 { 235 }
+fn default_auto_strength() -> f64 { 1.0 }
+
 impl Default for ColorCorrectionParameters {
     fn default() -> Self {
         Self {
             enabled: false,
+            apply_auto_levels: false,
+            auto_levels_black: default_auto_black(),
+            auto_levels_white: default_auto_white_point(),
+            auto_levels_strength: default_auto_strength(),
+            apply_auto_white_balance: false,
+            auto_white_balance_strength: default_auto_strength(),
             preset: ColorCorrectionPreset::default(),
             brightness: 0.0,
             contrast: 1.0,

@@ -4,7 +4,7 @@
   "version": "1.1.0",
   "name": "Noise Reduction",
   "description": "Remove video noise and grain",
-  "longDescription": "Reduces grain, analog noise and colour speckle while trying to keep real detail. Temporal denoisers average across neighbouring frames and are best for steady grain; spatial ones smooth within a single frame and cope better with motion.\n\nUse it on VHS, Hi8 and other noisy captures, and before sharpening or encoding — clean footage compresses far better at the same bitrate. Too much strength smears motion and flattens texture into plastic.",
+  "longDescription": "Reduces grain, analog noise and colour speckle while trying to keep real detail. Temporal denoisers average across neighbouring frames and are best for steady grain; spatial ones smooth within a single frame and cope better with motion.\n\nUse it on VHS, Hi8 and other noisy captures, and before sharpening or encoding \u2014 clean footage compresses far better at the same bitrate. Too much strength smears motion and flattens texture into plastic.",
   "category": "cleanup",
   "icon": "grain",
   "order": 2,
@@ -36,7 +36,7 @@
     {
       "id": "mc_temporal_denoise",
       "name": "MCTemporalDenoise",
-      "description": "For heavy noise SMDegrain can't settle — VHS and off-air captures. Slowest option",
+      "description": "For heavy noise SMDegrain can't settle \u2014 VHS and off-air captures. Slowest option",
       "function": "haf.MCTemporalDenoise",
       "parameters": [
         "mcTemporalProfile",
@@ -47,7 +47,7 @@
     {
       "id": "mcdegrainsharp",
       "name": "MCDegrainSharp",
-      "description": "Didée's motion-compensated degrain: sharpens where the motion match is good, blurs where it is poor. Also written MDegrainSharpen",
+      "description": "Did\u00e9e's motion-compensated degrain: sharpens where the motion match is good, blurs where it is poor. Also written MDegrainSharpen",
       "function": "core.mv.Degrain",
       "parameters": [
         "mcdsFrames",
@@ -69,7 +69,7 @@
     {
       "id": "dfttest",
       "name": "DFTTest",
-      "description": "Frequency-domain denoiser. The cleanest option on fine, even grain — separates it from detail better than the motion-compensated methods. Moderate speed",
+      "description": "Frequency-domain denoiser. The cleanest option on fine, even grain \u2014 separates it from detail better than the motion-compensated methods. Moderate speed",
       "function": "core.dfttest.DFTTest",
       "parameters": [
         "dfttestSigma",
@@ -93,7 +93,7 @@
     {
       "id": "ttempsmooth",
       "name": "TTempSmooth",
-      "description": "Very gentle temporal smoother — leaves anything that moves alone. A finishing pass for residual shimmer, not a primary denoiser",
+      "description": "Very gentle temporal smoother \u2014 leaves anything that moves alone. A finishing pass for residual shimmer, not a primary denoiser",
       "function": "core.ttmpsm.TTempSmooth",
       "parameters": [
         "ttempMaxr",
@@ -106,7 +106,7 @@
     {
       "id": "fluxsmooth_t",
       "name": "FluxSmoothT",
-      "description": "Averages a pixel with its neighbours in time only where they bracket it in value, so motion is left alone almost for free. Very fast — a common first pass on tape",
+      "description": "Averages a pixel with its neighbours in time only where they bracket it in value, so motion is left alone almost for free. Very fast \u2014 a common first pass on tape",
       "function": "core.flux.SmoothT",
       "parameters": [
         "fluxTemporalThreshold"
@@ -577,7 +577,7 @@
       "step": 0.1,
       "ui": {
         "label": "Strength",
-        "description": "Higher removes more noise. FFT3D is aggressive — small changes matter",
+        "description": "Higher removes more noise. FFT3D is aggressive \u2014 small changes matter",
         "widget": "slider",
         "precision": 1,
         "visibleWhen": {
@@ -784,7 +784,7 @@
       "step": 1,
       "ui": {
         "label": "Radius",
-        "description": "Half the window size. Wider removes bigger blemishes and more detail with them — and costs almost nothing extra",
+        "description": "Half the window size. Wider removes bigger blemishes and more detail with them \u2014 and costs almost nothing extra",
         "widget": "slider",
         "visibleWhen": {
           "method": [
@@ -810,6 +810,27 @@
             "ctmf"
           ]
         }
+      }
+    },
+    "contraSharpen": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Restore detail after denoising",
+        "description": "Adds back the fine detail the denoiser removed. Unlike a sharpener it cannot invent detail that was not there, so it is safe to leave on when denoising hard.",
+        "widget": "checkbox"
+      }
+    },
+    "contraSharpenRep": {
+      "type": "integer",
+      "default": 13,
+      "min": 0,
+      "max": 24,
+      "step": 1,
+      "ui": {
+        "label": "Detail restore mode",
+        "description": "Repair mode used when restoring detail. The default suits almost everything.",
+        "widget": "slider"
       }
     }
   },
@@ -907,6 +928,21 @@
           "ctmfPlanes"
         ],
         "expanded": true
+      },
+      {
+        "title": "Detail restore",
+        "parameters": [
+          "contraSharpen"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Detail restore tuning",
+        "parameters": [
+          "contraSharpenRep"
+        ],
+        "expanded": false,
+        "advancedOnly": true
       }
     ]
   },

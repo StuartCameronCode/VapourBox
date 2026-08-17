@@ -52,6 +52,16 @@ pub struct NoiseReductionParameters {
     #[serde(default)]
     pub enabled: bool,
 
+    /// Restore the fine detail the denoiser removed, by bracketing the pass
+    /// with havsfunc's ContraSharpening. Not a Sharpen method: it needs the
+    /// pre- and post-denoise clip, so it cannot sit in the linear chain.
+    #[serde(default)]
+    pub contra_sharpen: bool,
+
+    /// ContraSharpening's Repair mode. 13 is havsfunc's own default.
+    #[serde(default = "default_contra_sharpen_rep")]
+    pub contra_sharpen_rep: i32,
+
     /// Preset level for simple mode.
     #[serde(default)]
     pub preset: NoiseReductionPreset,
@@ -246,10 +256,14 @@ fn default_stpresso_tthr() -> i32 { 12 }
 fn default_ctmf_radius() -> i32 { 2 }
 fn default_ctmf_planes() -> i32 { 2 }
 
+fn default_contra_sharpen_rep() -> i32 { 13 }
+
 impl Default for NoiseReductionParameters {
     fn default() -> Self {
         Self {
             enabled: false,
+            contra_sharpen: false,
+            contra_sharpen_rep: default_contra_sharpen_rep(),
             preset: NoiseReductionPreset::default(),
             method: NoiseReductionMethod::default(),
             sm_degrain_tr: default_sm_degrain_tr(),

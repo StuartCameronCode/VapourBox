@@ -56,6 +56,13 @@ class NoiseReductionParameters {
   /// Whether this pass is enabled.
   final bool enabled;
 
+  /// Restore fine detail the denoiser removed. Brackets the denoise rather
+  /// than following it, so it is a checkbox here and not a Sharpen method.
+  final bool contraSharpen;
+
+  /// ContraSharpening's Repair mode; 13 is havsfunc's own default.
+  final int contraSharpenRep;
+
   /// Preset level for simple mode.
   final NoiseReductionPreset preset;
 
@@ -186,6 +193,8 @@ class NoiseReductionParameters {
 
   const NoiseReductionParameters({
     this.enabled = false,
+    this.contraSharpen = false,
+    this.contraSharpenRep = 13,
     this.preset = NoiseReductionPreset.off,
     this.method = NoiseReductionMethod.smDegrain,
     // SMDegrain defaults

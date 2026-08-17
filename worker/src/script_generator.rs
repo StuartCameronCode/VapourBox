@@ -646,6 +646,18 @@ impl ScriptGenerator {
         // ====================================================================
         let nr = &pipeline.noise_reduction;
         if nr.enabled {
+            // ContraSharpening brackets the denoise, so it is emitted as two blocks
+            // around it rather than as a method.
+            if nr.contra_sharpen {
+                script = script.replace("{{#NR_POST_CONTRASHARP}}", "");
+                script = script.replace("{{/NR_POST_CONTRASHARP}}", "");
+                script = script.replace(
+                    "{{NR_POST_CONTRASHARP_REP}}",
+                    &nr.contra_sharpen_rep.to_string(),
+                );
+            } else {
+                script = remove_block("{{#NR_POST_CONTRASHARP}}", "{{/NR_POST_CONTRASHARP}}", script);
+            }
             script = script.replace("{{#NOISE_REDUCTION}}", "");
             script = script.replace("{{/NOISE_REDUCTION}}", "");
 
@@ -1444,6 +1456,22 @@ impl ScriptGenerator {
         // ====================================================================
         let color = &pipeline.color_correction;
         if color.enabled {
+            if color.apply_auto_levels {
+                script = script.replace("{{#CC_AUTO_LEVELS}}", "");
+                script = script.replace("{{/CC_AUTO_LEVELS}}", "");
+                script = script.replace("{{CC_AUTO_LEVELS_BLACK}}", &color.auto_levels_black.clamp(0, 255).to_string());
+                script = script.replace("{{CC_AUTO_LEVELS_WHITE}}", &color.auto_levels_white.clamp(0, 255).to_string());
+                script = script.replace("{{CC_AUTO_LEVELS_STRENGTH}}", &format_double(color.auto_levels_strength.clamp(0.0, 1.0)));
+            } else {
+                script = remove_block("{{#CC_AUTO_LEVELS}}", "{{/CC_AUTO_LEVELS}}", script);
+            }
+            if color.apply_auto_white_balance {
+                script = script.replace("{{#CC_AUTO_WHITE}}", "");
+                script = script.replace("{{/CC_AUTO_WHITE}}", "");
+                script = script.replace("{{CC_AUTO_WHITE_STRENGTH}}", &format_double(color.auto_white_balance_strength.clamp(0.0, 1.0)));
+            } else {
+                script = remove_block("{{#CC_AUTO_WHITE}}", "{{/CC_AUTO_WHITE}}", script);
+            }
             script = script.replace("{{#COLOR_CORRECTION}}", "");
             script = script.replace("{{/COLOR_CORRECTION}}", "");
 

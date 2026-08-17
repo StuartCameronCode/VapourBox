@@ -4,7 +4,7 @@
   "version": "1.1.0",
   "name": "Color Correction",
   "description": "Adjust brightness, contrast, saturation and levels",
-  "longDescription": "Adjusts brightness, contrast, saturation and the black and white levels.\n\nUse it to rescue washed-out or crushed transfers, to fix a capture made at the wrong levels (limited 16-235 read as full 0-255, or the reverse), or to lift colour from faded film. Small moves go a long way — check the before/after preview rather than judging by numbers.",
+  "longDescription": "Adjusts brightness, contrast, saturation and the black and white levels.\n\nUse it to rescue washed-out or crushed transfers, to fix a capture made at the wrong levels (limited 16-235 read as full 0-255, or the reverse), or to lift colour from faded film. Small moves go a long way \u2014 check the before/after preview rather than judging by numbers.",
   "category": "color",
   "icon": "tune",
   "order": 7,
@@ -261,7 +261,7 @@
       },
       "ui": {
         "label": "Tint",
-        "description": "Green/magenta white balance. Negative shifts toward green, positive toward magenta — the axis VHS and telecine casts usually sit on",
+        "description": "Green/magenta white balance. Negative shifts toward green, positive toward magenta \u2014 the axis VHS and telecine casts usually sit on",
         "widget": "slider",
         "precision": 0
       }
@@ -282,7 +282,7 @@
       "default": false,
       "ui": {
         "label": "Lift Shadow Detail",
-        "description": "Opens up detail hidden in dark areas of underexposed footage, by comparing each part of the picture to its surroundings rather than raising the black level. Brightness only — colour is untouched"
+        "description": "Opens up detail hidden in dark areas of underexposed footage, by comparing each part of the picture to its surroundings rather than raising the black level. Brightness only \u2014 colour is untouched"
       }
     },
     "shadowSigma": {
@@ -300,10 +300,110 @@
           "applyShadowDetail": true
         }
       }
+    },
+    "applyAutoLevels": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Auto levels",
+        "description": "Stretch the picture so its darkest and brightest parts reach the target black and white. The usual fix for a washed-out capture.",
+        "widget": "checkbox"
+      }
+    },
+    "autoLevelsBlack": {
+      "type": "integer",
+      "default": 16,
+      "min": 0,
+      "max": 64,
+      "step": 1,
+      "visibleWhen": {
+        "applyAutoLevels": [
+          true
+        ]
+      },
+      "ui": {
+        "label": "Target black",
+        "description": "Where the darkest part of the picture should land. 16 is broadcast black.",
+        "widget": "slider"
+      }
+    },
+    "autoLevelsWhite": {
+      "type": "integer",
+      "default": 235,
+      "min": 192,
+      "max": 255,
+      "step": 1,
+      "visibleWhen": {
+        "applyAutoLevels": [
+          true
+        ]
+      },
+      "ui": {
+        "label": "Target white",
+        "description": "Where the brightest part should land. 235 is broadcast white.",
+        "widget": "slider"
+      }
+    },
+    "autoLevelsStrength": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "visibleWhen": {
+        "applyAutoLevels": [
+          true
+        ]
+      },
+      "ui": {
+        "label": "Strength",
+        "description": "Lower this if the correction moves too much between shots.",
+        "widget": "slider",
+        "precision": 2
+      }
+    },
+    "applyAutoWhiteBalance": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Auto white balance",
+        "description": "Remove an overall colour cast by assuming the scene should average out to neutral grey. The automatic counterpart to the temperature and tint sliders.",
+        "widget": "checkbox"
+      }
+    },
+    "autoWhiteBalanceStrength": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "visibleWhen": {
+        "applyAutoWhiteBalance": [
+          true
+        ]
+      },
+      "ui": {
+        "label": "Strength",
+        "description": "Lower this to keep some of the original cast \u2014 useful when the cast is meant to be there, like firelight.",
+        "widget": "slider",
+        "precision": 2
+      }
     }
   },
   "ui": {
     "sections": [
+      {
+        "title": "Automatic",
+        "parameters": [
+          "applyAutoLevels",
+          "autoLevelsBlack",
+          "autoLevelsWhite",
+          "autoLevelsStrength",
+          "applyAutoWhiteBalance",
+          "autoWhiteBalanceStrength"
+        ],
+        "expanded": true
+      },
       {
         "title": "Basic Adjustments",
         "parameters": [

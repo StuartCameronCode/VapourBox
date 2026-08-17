@@ -4,6 +4,7 @@ Reads raw frames piped from FFmpeg for fast preview generation.
 Uses the same filter pipeline as the main template.
 """
 
+import functools
 import vapoursynth as vs
 import sys
 import os
@@ -447,6 +448,12 @@ clip = _SpotLess(
 # PASS 5: NOISE REDUCTION
 # ============================================================================
 {{#NOISE_REDUCTION}}
+{{#NR_POST_CONTRASHARP}}
+# ContraSharpening needs BOTH the pre- and post-denoise clip, so it cannot sit
+# in the linear pass chain like a Sharpen method — it has to bracket the
+# denoise. Capture the input here.
+_nr_presharp_src = clip
+{{/NR_POST_CONTRASHARP}}
 import mvsfunc as mvf
 
 {{#NR_SMDEGRAIN}}
@@ -663,6 +670,15 @@ clip = mvf.BM3D(
 {{/NR_BM3D_RADIUS}}
 )
 {{/NR_BM3D}}
+{{#NR_POST_CONTRASHARP}}
+# Give back the fine detail the denoiser removed, by adding back only the
+# high-frequency difference that survives a Repair against the original. This
+# is the standard companion to a strong denoise, and unlike a plain sharpener it
+# cannot introduce detail that was not there before.
+#
+# No depth scaling needed: its only constant is derived from clip.format.
+clip = haf.ContraSharpening(clip, _nr_presharp_src, rep={{NR_POST_CONTRASHARP_REP}})
+{{/NR_POST_CONTRASHARP}}
 {{/NOISE_REDUCTION}}
 
 # ============================================================================
@@ -1198,6 +1214,69 @@ clip = haf.Vinverse(
 # PASS 9: COLOR CORRECTION
 # ============================================================================
 {{#COLOR_CORRECTION}}
+{{#CC_AUTO_LEVELS}}
+# Auto levels — stretch luma so the darkest and brightest parts of the picture
+# land on the target black and white points. The common fix for a washed-out
+# capture, and the one thing a non-expert can ask for by name.
+#
+# Stats are measured on a heavily downscaled copy, not the full frame. Min and
+# max of a full frame are set by single outlier pixels — one hot specular or one
+# dead pixel re-grades the whole shot, and because those outliers come and go the
+# result flickers frame to frame. Averaging them away first is what makes this
+# usable on real footage.
+#
+# PlaneStatsMin/Max come back in the CLIP's own depth, so they are used raw;
+# only the user's targets, which are in 8-bit UI units, get scaled to the format.
+def _auto_levels(c, black_8bit, white_8bit, strength):
+    peak = (1 << c.format.bits_per_sample) - 1
+    to_fmt = lambda v: int(round(v * peak / 255.0))
+    lo_t, hi_t = to_fmt(black_8bit), to_fmt(white_8bit)
+    small = core.resize.Bilinear(c, 64, 48) if c.width > 128 else c
+    stats = core.std.PlaneStats(small, plane=0)
+
+    def _apply(n, f, clip_in):
+        lo = int(f.props['PlaneStatsMin'])
+        hi = int(f.props['PlaneStatsMax'])
+        if hi <= lo:
+            return clip_in  # flat frame: nothing to stretch, and avoids /0
+        out = core.std.Levels(
+            clip_in, min_in=lo, max_in=hi, min_out=lo_t, max_out=hi_t, planes=[0]
+        )
+        if strength >= 1.0:
+            return out
+        return core.std.Merge(clip_in, out, weight=strength)
+
+    return core.std.FrameEval(c, functools.partial(_apply, clip_in=c), prop_src=stats)
+
+clip = _auto_levels(clip, {{CC_AUTO_LEVELS_BLACK}}, {{CC_AUTO_LEVELS_WHITE}}, {{CC_AUTO_LEVELS_STRENGTH}})
+{{/CC_AUTO_LEVELS}}
+{{#CC_AUTO_WHITE}}
+# Auto white balance, grey-world: assume the scene averages to neutral, and
+# shift each chroma plane's mean onto the neutral point. In YUV that is the
+# whole of the grey-world assumption — there is no second thing to compute, and
+# unlike Retinex it needs no 4:4:4 round trip because it never leaves the native
+# plane geometry.
+#
+# Chroma means are averages already, so they are far steadier frame to frame
+# than the luma min/max above and need no outlier handling.
+def _auto_white(c, strength):
+    if c.format.num_planes < 3:
+        return c  # GRAY: PlaneStats(plane=1) would error
+    bits = c.format.bits_per_sample
+    peak = (1 << bits) - 1
+    neutral = 1 << (bits - 1)
+    su = core.std.PlaneStats(c, plane=1)
+    sv = core.std.PlaneStats(c, plane=2)
+
+    def _apply(n, f, clip_in):
+        du = (neutral - f[0].props['PlaneStatsAverage'] * peak) * strength
+        dv = (neutral - f[1].props['PlaneStatsAverage'] * peak) * strength
+        return _expr(clip_in, ['', 'x {:.6f} +'.format(du), 'x {:.6f} +'.format(dv)])
+
+    return core.std.FrameEval(c, functools.partial(_apply, clip_in=c), prop_src=[su, sv])
+
+clip = _auto_white(clip, {{CC_AUTO_WHITE_STRENGTH}})
+{{/CC_AUTO_WHITE}}
 import adjust
 
 {{#COLOR_TWEAK}}
