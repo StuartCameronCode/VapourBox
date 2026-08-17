@@ -64,6 +64,7 @@ fn create_base_job(output_name: &str) -> VideoJob {
         input_color_primaries: None,
         input_color_transfer: None,
         input_color_range: None,
+        burn_in_subtitle_path: None,
     }
 }
 
@@ -1271,6 +1272,7 @@ fn create_ivtc_base_job(output_name: &str) -> VideoJob {
         input_color_primaries: None,
         input_color_transfer: None,
         input_color_range: None,
+        burn_in_subtitle_path: None,
     }
 }
 
@@ -5186,4 +5188,118 @@ fn test_143_chroma_denoise_methods_are_mutually_exclusive() {
             "{method:?} left an unsubstituted placeholder"
         );
     }
+}
+
+/// Every new pass emits its own call and nothing else's, and leaves no
+/// unsubstituted placeholder. A surviving `{{...}}` is a bare Python
+/// SyntaxError from vspipe that reads like a template bug.
+#[test]
+fn test_144_new_passes_emit_cleanly() {
+    create_output_dir();
+
+    // Prefix-scoped, not a bare "{{" search: the template's own docstring
+    // documents the placeholder syntax with {{PARAMETER_NAME}} examples.
+    let cases: Vec<(&str, Box<dyn Fn(&mut ProcessingPipeline)>, &str, &[&str])> = vec![
+        ("edge_repair", Box::new(|p: &mut ProcessingPipeline| {
+            p.edge_repair = EdgeRepairParameters {
+                enabled: true, left: 2, right: 2, top: 2, bottom: 2,
+                ..Default::default()
+            };
+        }), "core.fb.FillBorders(", &["{{ER_", "{{#EDGE_REPAIR", "{{/EDGE_REPAIR"]),
+        ("ghost_removal", Box::new(|p: &mut ProcessingPipeline| {
+            p.ghost_removal = GhostRemovalParameters {
+                enabled: true,
+                ghosts: vec![GhostSpec { mode: 2, shift: 6, intensity: 24 }],
+            };
+        }), "core.lghost.LGhost(", &["{{LG_", "{{#GHOST_REMOVAL", "{{/GHOST_REMOVAL"]),
+        ("deflicker", Box::new(|p: &mut ProcessingPipeline| {
+            p.deflicker = DeflickerParameters { enabled: true, ..Default::default() };
+        }), "global_deflicker(", &["{{DEFLICKER_", "{{#DEFLICKER", "{{/DEFLICKER"]),
+        ("frame_rate", Box::new(|p: &mut ProcessingPipeline| {
+            p.frame_rate = FrameRateParameters {
+                enabled: true, source_fps_num: Some(25), source_fps_den: Some(1),
+                ..Default::default()
+            };
+        }), "core.mv.FlowFPS(", &["{{FPS_", "{{#FRAME_RATE", "{{/FRAME_RATE"]),
+    ];
+
+    for (name, apply, expected, prefixes) in cases {
+        let mut job = create_base_job(&format!("test_144_{name}"));
+        job.qtgmc_parameters.enabled = false;
+        let mut pipeline = ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            ..ProcessingPipeline::default()
+        };
+        apply(&mut pipeline);
+        job.processing_pipeline = Some(pipeline);
+
+        let script = script_text(&job);
+        assert!(script.contains(expected), "{name} must emit {expected}");
+        for prefix in prefixes {
+            assert!(
+                !script.contains(prefix),
+                "{name} left an unsubstituted {prefix} placeholder"
+            );
+        }
+    }
+}
+
+/// Edge repair rounds every width down to an even number.
+///
+/// The bundle pins FillBorders v2, which is bit-identical to v4 at even widths
+/// and differs only at odd ones, where it leaves subsampled chroma unrepaired.
+#[test]
+fn test_145_edge_repair_widths_are_always_even() {
+    create_output_dir();
+    let mut job = create_base_job("test_145_edge_repair_even");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        edge_repair: EdgeRepairParameters {
+            enabled: true, left: 3, right: 5, top: 1, bottom: 7,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let script = script_text(&job);
+    assert!(script.contains("left=2"), "3 must round to 2");
+    assert!(script.contains("right=4"), "5 must round to 4");
+    assert!(script.contains("top=0"), "1 must round to 0");
+    assert!(script.contains("bottom=6"), "7 must round to 6");
+}
+
+/// Custom VapourSynth is bracketed by a frame-count assertion.
+///
+/// A snippet that trims desynchronises the progress total AND makes
+/// frame-accurate preview show a different frame than its label — both
+/// silently. The script refuses rather than letting that happen.
+#[test]
+fn test_146_custom_vapoursynth_guards_the_frame_count() {
+    create_output_dir();
+    let mut job = create_base_job("test_146_custom_vs");
+    job.qtgmc_parameters.enabled = false;
+    job.encoding_settings.custom_vapoursynth =
+        "clip = core.std.Invert(clip)".to_string();
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        ..ProcessingPipeline::default()
+    });
+
+    let script = script_text(&job);
+    let code = script.find("core.std.Invert").expect("snippet must be injected");
+    assert!(
+        script[..code].contains("_custom_vs_frames_before = len(clip)"),
+        "the frame count must be captured before the snippet"
+    );
+    assert!(
+        script[code..].contains("changed the frame count"),
+        "and asserted after it"
+    );
+
+    // Empty means the whole block goes, not an empty one left behind.
+    let mut clean = create_base_job("test_146_custom_vs_off");
+    clean.qtgmc_parameters.enabled = false;
+    let script = script_text(&clean);
+    assert!(!script.contains("_custom_vs_frames_before"));
 }

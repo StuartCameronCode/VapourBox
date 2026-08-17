@@ -1596,6 +1596,7 @@ mod tests {
             input_color_primaries: None,
             input_color_transfer: None,
             input_color_range: None,
+            burn_in_subtitle_path: None,
         }
     }
 
