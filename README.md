@@ -20,7 +20,7 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg —
 
 **Correcting how the picture is stored.** Most consumer and broadcast video recorded before the 2010s is interlaced — VHS, Video8 and Hi8, DV camcorders, DVDs, off-air recordings — and needs converting to progressive to display properly on a modern screen. Film transferred to video was padded with pulldown instead, which can be reversed to recover the original 23.976 fps frames. VapourBox detects which case applies and handles both: QTGMC for deinterlacing, IVTC for telecined film.
 
-**Cleanup, when the source needs it.** Seventeen optional filters covering tape noise and smeared color, dust and scratches on scanned film, blocking from a heavily compressed disc or recorder, jagged diagonal edges, camera shake, and halos, banding and color balance. All off by default; you turn on what a given source actually needs.
+**Cleanup, when the source needs it.** Twenty-one optional filters covering tape noise and smeared color, dust and scratches on scanned film, the dirty rows at the edge of a capture, ghosting from an aerial, the brightness flicker of scanned cine film, blocking from a heavily compressed disc or recorder, jagged diagonal edges, camera shake, and halos, banding and color balance. All off by default, and the presets turn on what a given kind of source actually needs.
 
 **Subtitles.** Speech is transcribed with Whisper AI to a separate `.srt`, embedded in the output, or both.
 
@@ -91,11 +91,14 @@ GPU-accelerated deinterlacing (NNEDI3CL) needs your GPU's OpenCL driver installe
 
 ## The filter pipeline
 
-Seventeen filters, each switchable independently, applied in a fixed order. Most sources need none or a few.
+Twenty-one filters, each switchable independently, applied in a fixed order. Most sources need none or a few.
 
 | Filter | What it addresses |
 |--------|-------------------|
-| **Deinterlace** | Comb-like jagged edges on moving objects. QTGMC for interlaced video, or IVTC to recover the original film frames from telecined DVD. |
+| **Deinterlace** | Comb-like jagged edges on moving objects. QTGMC for interlaced video, IVTC to recover the original film frames from telecined DVD, or Bwdif when you want it done in a fraction of the time. |
+| **Edge Repair** | The dirty rows and columns at the very edge of a tape capture — rebuilt from the picture just inside, instead of cropped away. |
+| **Ghost Removal** | A faint second copy of the picture shifted sideways, left behind by an aerial or a long cable run. |
+| **Deflicker** | Brightness pulsing between frames, which is what scanned cine film almost always has. |
 | **DeScratch** | Vertical scratch lines on scanned film. |
 | **SpotLess** | Dust, dirt and single-frame specks. |
 | **Noise Reduction** | Grain and video noise across the whole frame. Motion-compensated by default; DFTTest, FFT3DFilter, TTempSmooth, FluxSmooth, STPresso and a large-window median are available under advanced options for noise the default handles badly. |
@@ -111,6 +114,7 @@ Seventeen filters, each switchable independently, applied in a fixed order. Most
 | **Chroma Fixes** | Color bleeding past edges, rainbowing and dot crawl — including the shimmering kind that only shows when the picture moves — and residual combing. |
 | **Color Correction** | Brightness, contrast, saturation, hue, levels, white balance (warm/cool, green/magenta), and lifting detail out of the shadows of underexposed footage. |
 | **Crop & Resize** | Trimming overscan, scaling, and edge-directed upscaling. |
+| **Frame Rate** | Converting between PAL and NTSC rates, for a tape that was already converted once and now plays at the wrong speed. |
 | **Subtitles** | Whisper AI speech-to-text, to `.srt`, embedded, or both. |
 
 Each filter leads with a plain-language summary and a **More** expander describing what it does and when it's the right choice, so the settings can be understood in place rather than looked up elsewhere.
