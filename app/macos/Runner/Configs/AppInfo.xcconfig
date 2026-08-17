@@ -11,4 +11,4 @@ PRODUCT_NAME = vapourbox
 PRODUCT_BUNDLE_IDENTIFIER = com.stuartcameron.vapourbox
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 Stuart Cameron. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 Stuart Cameron. Licensed under the GNU General Public License v3 or later.
