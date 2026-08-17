@@ -604,6 +604,68 @@ now the first step, and it disqualifies about half of them:
 > so `-I"$VS_INC_DIR"` is not enough — the scripts stage an include root with a
 > `vapoursynth/` subdirectory and pass its parent.
 
+### The 2026-08-17 build-out: 18 filters, 4 new passes, deps 1.9.0
+
+The plan from the probe rounds was executed in full. Pipeline went from 16
+passes to 20 — **Edge Repair**, **Deflicker**, **Ghost Removal** and
+**Frame Rate** — plus methods inside existing passes (Bwdif, Cnr4, RemoveDirt,
+mClean, TemporalDegrain2, Auto Gain, Auto White Balance, ContraSharpening,
+DeDot, automatic chroma alignment), subtitle burn-in, custom VapourSynth
+injection, and an app-side histogram.
+
+Traps found by writing it, none of which the probing predicted:
+
+> **The `-vf` slot was single-use, and nothing would have caught it.**
+> `build_ffmpeg_args` appended either `setsar` **or** `setdar` — and ffmpeg
+> takes the **last** `-vf` and silently drops earlier ones. Adding subtitle
+> burn-in as a second `-vf` would have thrown away the aspect stamp, re-breaking
+> issue #50's third leg with no error anywhere. Filters now accumulate into a
+> `Vec<String>` joined with commas. **Never append a bare `-vf`** — push onto
+> that vec. Verified: a 16:11 anamorphic source with burnt-in subtitles comes
+> out still tagged 16:11.
+
+> **Adding a `remove_block` by pattern-matching on a sibling line misses an
+> arm.** The new blocks were added by appending to
+> `remove_block("{{#NR_STPRESSO}}"...)`, which appears in every method arm
+> *except STPresso's own* — so STPresso alone left unsubstituted placeholders.
+> A missed `remove_block` chains two denoisers silently: valid VapourSynth,
+> twice the runtime, not what the user asked for. `test_115` caught it. When a
+> method is added, walk **every** arm programmatically.
+
+> **Whisper burn-in is not a harder version of burn-in, it is a different
+> feature.** `SubtitleGenerator` runs *after* the encode (`main.rs`:
+> "Post-encode subtitle generation"), so the transcript does not exist when the
+> encoder needs it. Burn-in ships for a **user-supplied** file; the two
+> burn-in output modes deliberately fall back to writing the sidecar. Moving
+> transcription before the encode is separate work.
+
+> **The frame count is the hazard in custom code, not the code.** Arbitrary
+> execution is not a new risk in a process that already loads arbitrary plugins
+> — `custom_ffmpeg_args` predates this. But a snippet calling `Trim` or
+> `SelectEvery` changes the real output length while the declared total stays
+> put, which makes the progress bar lie *and* makes frame-accurate preview show
+> a different frame than its label, both silently. The generated script captures
+> `len(clip)` before the snippet and raises afterwards if it changed. Do not
+> relax that without giving the user a way to declare a `FrameMap`.
+
+> **`FrameMap::Retime` existed and nothing emitted one.** Before adding a
+> variant, check whether the one you need is already there. FlowFPS was chosen
+> over BlockFPS specifically because its output count matches
+> `Retime::output_count` exactly across 35 combinations while BlockFPS is off by
+> one in 14 — the arithmetic decided the filter, not the picture quality. Also
+> **reduce the ratio**: 25 → 29.97 is 1200/1001, not the plugin's 30000/1001,
+> and `Retime` multiplies a frame count by that pair.
+
+> **A wheel's macOS tag is a floor, not a promise.** `vapoursynth_dedot` 3.0
+> publishes `macosx_15_0_x86_64`, which fails the x64 bundle's 12.0
+> `STRICT_MIN_OS` guard — so that arch builds from source while every other
+> platform takes the wheel. Check `minos` on the actual binary, not the filename.
+
+> **Enum values and schema options are asserted against each other.**
+> `schema_converter_integration_test` failed the moment two subtitle modes were
+> added to the Dart enum without adding them to `subtitles.json`. That test
+> earns its place; do not weaken it.
+
 ### The 2026-08-17 probe round: measure the premise, not just the plugin
 
 Seven parallel read-only agents probed all 25 unshipped Core/Strong candidates
