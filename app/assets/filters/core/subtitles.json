@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "name": "Subtitles",
   "description": "Generate subtitles from speech using Whisper AI",
-  "longDescription": "Transcribes the spoken audio with the Whisper speech-recognition model and writes it out as a subtitle track alongside the video.\n\nUse it to caption footage that has no subtitles of its own — home video, interviews, lectures. Larger models are more accurate but considerably slower, and accuracy falls away with heavy background noise or overlapping speakers. This pass runs after the encode and never alters the picture.",
+  "longDescription": "Transcribes the spoken audio with the Whisper speech-recognition model and writes it out as a subtitle track alongside the video.\n\nUse it to caption footage that has no subtitles of its own \u2014 home video, interviews, lectures. Larger models are more accurate but considerably slower, and accuracy falls away with heavy background noise or overlapping speakers. This pass runs after the encode and never alters the picture.",
   "category": "enhancement",
   "icon": "subtitles",
   "order": 100,
@@ -14,25 +14,39 @@
       "name": "Whisper",
       "description": "OpenAI Whisper speech-to-text",
       "function": "whisper",
-      "parameters": ["model", "output", "language"]
+      "parameters": [
+        "model",
+        "output",
+        "language"
+      ]
     }
   ],
   "parameters": {
     "enabled": {
       "type": "boolean",
       "default": false,
-      "ui": { "hidden": true }
+      "ui": {
+        "hidden": true
+      }
     },
     "method": {
       "type": "enum",
       "default": "whisper",
-      "options": ["whisper"],
-      "ui": { "hidden": true }
+      "options": [
+        "whisper"
+      ],
+      "ui": {
+        "hidden": true
+      }
     },
     "model": {
       "type": "enum",
       "default": "medium",
-      "options": ["small", "medium", "large-v3-turbo"],
+      "options": [
+        "small",
+        "medium",
+        "large-v3-turbo"
+      ],
       "ui": {
         "label": "Model",
         "description": "Small (466 MB), Medium (1.5 GB), High (1.6 GB). Larger = more accurate but slower",
@@ -42,7 +56,13 @@
     "output": {
       "type": "enum",
       "default": "srt_file",
-      "options": ["srt_file", "embed", "both"],
+      "options": [
+        "srt_file",
+        "embed",
+        "both",
+        "burn_in",
+        "burn_in_and_srt"
+      ],
       "ui": {
         "label": "Output",
         "description": "SRT writes alongside video; Embed muxes into container (MKV/MP4)",
@@ -52,11 +72,37 @@
     "language": {
       "type": "enum",
       "default": "auto",
-      "options": ["auto", "en", "es", "fr", "de", "it", "pt", "ja", "zh", "ko"],
+      "options": [
+        "auto",
+        "en",
+        "es",
+        "fr",
+        "de",
+        "it",
+        "pt",
+        "ja",
+        "zh",
+        "ko"
+      ],
       "ui": {
         "label": "Language",
         "description": "Hint for speech recognition language",
         "widget": "dropdown"
+      }
+    },
+    "burnInPath": {
+      "type": "string",
+      "default": "",
+      "visibleWhen": {
+        "output": [
+          "burn_in",
+          "burn_in_and_srt"
+        ]
+      },
+      "ui": {
+        "label": "Subtitle file to burn in",
+        "description": "Path to an .srt or .ass file to draw into the picture. Transcribed subtitles cannot be burnt in on the same pass, because transcription runs after the encode \u2014 use this for a file you already have.",
+        "widget": "textfield"
       }
     }
   },
@@ -64,7 +110,12 @@
     "sections": [
       {
         "title": "Whisper Settings",
-        "parameters": ["model", "output", "language"],
+        "parameters": [
+          "model",
+          "output",
+          "burnInPath",
+          "language"
+        ],
         "expanded": true
       }
     ]

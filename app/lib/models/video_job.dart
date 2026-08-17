@@ -54,6 +54,11 @@ class VideoJob {
   final String? inputColorTransfer;
   final String? inputColorRange;
 
+  /// A subtitle file to burn into the picture, per job. Deliberately not an
+  /// encoding setting: a path baked into settings would apply one file's
+  /// subtitles to every video in a batch.
+  final String? burnInSubtitlePath;
+
   VideoJob({
     String? id,
     required this.inputPath,
@@ -76,6 +81,7 @@ class VideoJob {
     this.inputColorPrimaries,
     this.inputColorTransfer,
     this.inputColorRange,
+    this.burnInSubtitlePath,
   })  : id = id ?? const Uuid().v4(),
         qtgmcParameters = qtgmcParameters ?? QTGMCParameters(),
         encodingSettings = encodingSettings ?? EncodingSettings();
@@ -111,6 +117,7 @@ class VideoJob {
     String? inputColorPrimaries,
     String? inputColorTransfer,
     String? inputColorRange,
+    String? burnInSubtitlePath,
   }) {
     return VideoJob(
       id: id ?? this.id,
@@ -134,6 +141,7 @@ class VideoJob {
       inputColorPrimaries: inputColorPrimaries ?? this.inputColorPrimaries,
       inputColorTransfer: inputColorTransfer ?? this.inputColorTransfer,
       inputColorRange: inputColorRange ?? this.inputColorRange,
+      burnInSubtitlePath: burnInSubtitlePath ?? this.burnInSubtitlePath,
     );
   }
 }

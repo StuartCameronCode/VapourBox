@@ -1252,6 +1252,12 @@ class MainViewModel extends ChangeNotifier {
       inputColorPrimaries: item.videoInfo?.colorPrimaries,
       inputColorTransfer: item.videoInfo?.colorTransfer,
       inputColorRange: item.videoInfo?.colorRange,
+      // Burn-in is per job by design: a path held in settings would apply one
+      // file's subtitles to every video in a batch.
+      burnInSubtitlePath:
+          _processingPipeline.subtitles.burnInPath.trim().isEmpty
+              ? null
+              : _processingPipeline.subtitles.burnInPath.trim(),
     );
 
     // Record the audio config each file is actually encoded with. If a file's

@@ -25,7 +25,11 @@ enum SubtitleOutput {
   @JsonValue('embed')
   embed('embed', 'Embed in Video'),
   @JsonValue('both')
-  both('both', 'Both');
+  both('both', 'Both'),
+  @JsonValue('burn_in')
+  burnIn('burn_in', 'Burn into the picture'),
+  @JsonValue('burn_in_and_srt')
+  burnInAndSrt('burn_in_and_srt', 'Burn in and keep the file');
 
   const SubtitleOutput(this.value, this.displayName);
   final String value;
@@ -38,6 +42,10 @@ class SubtitleParameters {
   /// Whether this pass is enabled.
   final bool enabled;
 
+  /// A subtitle file to draw into the picture. Per job, not a global setting:
+  /// one file's subtitles must not be applied to every video in a batch.
+  final String burnInPath;
+
   /// Whisper model to use.
   final WhisperModel model;
 
@@ -49,6 +57,7 @@ class SubtitleParameters {
 
   const SubtitleParameters({
     this.enabled = false,
+    this.burnInPath = '',
     this.model = WhisperModel.medium,
     this.output = SubtitleOutput.srtFile,
     this.language,

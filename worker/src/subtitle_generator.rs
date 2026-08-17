@@ -107,6 +107,22 @@ impl SubtitleGenerator {
 
         // 4. Handle output mode
         match settings.output {
+            // Whisper runs AFTER the encode, so its output cannot be burnt in
+            // on this pass — the encoder has already finished. Burn-in is
+            // therefore only offered for a user-supplied file, handled in
+            // pipeline_executor; here these modes fall back to the sidecar so
+            // the transcription is not thrown away.
+            SubtitleOutput::BurnIn | SubtitleOutput::BurnInAndSrt => {
+                self.reporter.send_log(
+                    LogLevel::Info,
+                    &format!(
+                        "Subtitles saved to: {} (burn-in applies to a supplied \
+                         subtitle file; transcription runs after the encode)",
+                        srt_path.display()
+                    ),
+                );
+                Ok(Some(srt_path))
+            }
             SubtitleOutput::SrtFile => {
                 self.reporter.send_log(
                     LogLevel::Info,

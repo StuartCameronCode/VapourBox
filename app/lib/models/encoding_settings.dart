@@ -118,6 +118,10 @@ class EncodingSettings {
   final ChromaSubsampling chromaSubsampling;
 
   final String customFfmpegArgs;
+
+  /// User-supplied VapourSynth, injected after every built-in pass. Same
+  /// footing as customFfmpegArgs, and gated behind advanced mode.
+  final String customVapoursynth;
   final ContainerFormat container;
 
   /// Output directory. If null, uses the same directory as the input file.
@@ -139,6 +143,7 @@ class EncodingSettings {
     this.audioQuality = AudioQuality.high,
     this.chromaSubsampling = ChromaSubsampling.original,
     this.customFfmpegArgs = '',
+    this.customVapoursynth = '',
     this.container = ContainerFormat.mkv,
     this.outputDirectory,
     this.filenamePattern = '{input_filename}_processed',
@@ -222,6 +227,7 @@ class EncodingSettings {
     AudioQuality? audioQuality,
     ChromaSubsampling? chromaSubsampling,
     String? customFfmpegArgs,
+    String? customVapoursynth,
     ContainerFormat? container,
     String? outputDirectory,
     bool clearOutputDirectory = false,
@@ -245,6 +251,7 @@ class EncodingSettings {
       audioQuality: audioQuality ?? this.audioQuality,
       chromaSubsampling: chromaSubsampling ?? this.chromaSubsampling,
       customFfmpegArgs: customFfmpegArgs ?? this.customFfmpegArgs,
+      customVapoursynth: customVapoursynth ?? this.customVapoursynth,
       container: container ?? this.container,
       outputDirectory: clearOutputDirectory ? null : (outputDirectory ?? this.outputDirectory),
       filenamePattern: filenamePattern ?? this.filenamePattern,

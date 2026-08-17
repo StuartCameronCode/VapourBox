@@ -83,6 +83,13 @@ pub struct VideoJob {
     pub input_color_transfer: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_color_range: Option<String>,
+
+    /// A subtitle file to burn into the picture. Separate from the Whisper
+    /// path: transcription currently runs *after* the encode, so its output
+    /// cannot reach the encoder. A user-supplied file has no such problem.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub burn_in_subtitle_path: Option<String>,
+
 }
 
 impl VideoJob {
@@ -133,6 +140,10 @@ pub enum SubtitleOutput {
     SrtFile,
     Embed,
     Both,
+    /// Draw the subtitles into the picture itself.
+    BurnIn,
+    /// Draw them in AND keep the sidecar file.
+    BurnInAndSrt,
 }
 
 /// Video encoding settings for FFmpeg output.
@@ -170,6 +181,12 @@ pub struct EncodingSettings {
     /// Additional FFmpeg arguments
     #[serde(default)]
     pub custom_ffmpeg_args: String,
+
+    /// User-supplied VapourSynth, injected after every built-in pass. Same
+    /// footing as custom_ffmpeg_args: an escape hatch for someone who knows
+    /// what they are doing, gated behind advanced mode in the UI.
+    #[serde(default)]
+    pub custom_vapoursynth: String,
 
     /// Output container format
     #[serde(default)]
@@ -359,6 +376,7 @@ impl Default for EncodingSettings {
             audio_quality: AudioQuality::default(),
             chroma_subsampling: ChromaSubsampling::default(),
             custom_ffmpeg_args: String::new(),
+            custom_vapoursynth: String::new(),
             container: ContainerFormat::default(),
             video_bitrate_kbps: None,
         }

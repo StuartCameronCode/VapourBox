@@ -1646,6 +1646,20 @@ impl ScriptGenerator {
         }
 
         // ====================================================================
+        // CUSTOM VAPOURSYNTH
+        // ====================================================================
+        match Some(job.encoding_settings.custom_vapoursynth.trim()) {
+            Some(code) if !code.is_empty() => {
+                script = script.replace("{{#CUSTOM_VS}}", "");
+                script = script.replace("{{/CUSTOM_VS}}", "");
+                script = script.replace("{{CUSTOM_VS_CODE}}", code);
+            }
+            _ => {
+                script = remove_block("{{#CUSTOM_VS}}", "{{/CUSTOM_VS}}", script);
+            }
+        }
+
+        // ====================================================================
         // FRAME RATE PASS
         // ====================================================================
         let fr = &pipeline.frame_rate;

@@ -893,6 +893,7 @@ class ParameterConverter {
       filterId: 'subtitles',
       enabled: params.enabled,
       values: {
+        'burnInPath': params.burnInPath,
         'method': 'whisper',
         'model': params.model.value,
         'output': params.output.value,
@@ -1473,6 +1474,7 @@ class ParameterConverter {
     final languageStr = v['language'] as String? ?? 'auto';
 
     return SubtitleParameters(
+      burnInPath: v['burnInPath'] as String? ?? '',
       enabled: params.enabled,
       model: WhisperModel.values.firstWhere(
         (m) => m.value == modelStr,

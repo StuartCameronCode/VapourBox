@@ -860,18 +860,45 @@ impl PipelineExecutor {
         // describes the source no longer describes the rotated frame. Adjust it
         // before declaring it, or a rotated anamorphic source is stretched by
         // the square of its own aspect.
+        //
+        // Filters accumulate into one chain. ffmpeg takes the LAST -vf and
+        // silently drops any earlier one, so appending a second would throw
+        // away the aspect stamp — which is exactly how burnt-in subtitles
+        // would have broken issue #50's third leg.
+        let mut vf: Vec<String> = Vec::new();
+
         let rotated_sar = pipeline.geometry.adjusted_sar(input_sar);
         match pipeline.crop_resize.aspect_declaration(rotated_sar.as_deref()) {
             AspectDeclaration::Sar(sar) => {
                 // '/' as the ratio separator — ':' is ffmpeg's filter option separator.
-                args.extend(["-vf".to_string(), format!("setsar={}", sar.replace(':', "/"))]);
+                vf.push(format!("setsar={}", sar.replace(':', "/")));
             }
             AspectDeclaration::Dar(dar) => {
                 // ffmpeg derives the SAR from the actual frame size, which only
                 // it knows: the dimensions are computed inside the .vpy.
-                args.extend(["-vf".to_string(), format!("setdar={}", dar)]);
+                vf.push(format!("setdar={}", dar));
             }
             AspectDeclaration::None => {}
+        }
+
+        // Burn subtitles into the picture, if a file was supplied. This runs
+        // after the whole VapourSynth graph, which for subtitles is correct
+        // rather than merely tolerable — they are the last thing applied.
+        if let Some(path) = job.burn_in_subtitle_path.as_deref() {
+            if !path.trim().is_empty() {
+                // Escape for ffmpeg's filter-argument parser: backslash, colon
+                // and single quote all terminate or alter the argument, and a
+                // Windows path contains the first two by construction.
+                let escaped = path
+                    .replace('\\', "/")
+                    .replace('\'', "\\\\'")
+                    .replace(':', "\\\\:");
+                vf.push(format!("subtitles='{}'", escaped));
+            }
+        }
+
+        if !vf.is_empty() {
+            args.extend(["-vf".to_string(), vf.join(",")]);
         }
 
         // Re-declare the source's colour tags for exactly the same reason as the

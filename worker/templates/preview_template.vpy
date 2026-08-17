@@ -1965,6 +1965,38 @@ if clip.format.id != _fps_src_format:
 {{/FRAME_RATE}}
 
 # ============================================================================
+# CUSTOM VAPOURSYNTH
+# ============================================================================
+{{#CUSTOM_VS}}
+# User-supplied code, on the same footing as Custom FFmpeg Arguments. Placed
+# after every built-in pass, so `clip` is the only contract it has to honour.
+#
+# The hazard here is NOT arbitrary code — this process already loads arbitrary
+# plugins. It is the frame count. A snippet calling Trim, SelectEvery or
+# Interleave changes the true output length while the declared total stays put,
+# which makes the progress bar lie and, worse, makes frame-accurate preview show
+# a different frame than its label. Both fail silently. So the length is
+# asserted rather than trusted.
+_custom_vs_frames_before = len(clip)
+# --- user code begins ---
+{{CUSTOM_VS_CODE}}
+# --- user code ends ---
+if not isinstance(clip, vs.VideoNode):
+    raise ValueError(
+        "Custom VapourSynth: `clip` must still be a VideoNode when your code "
+        "finishes. Assign your result back to `clip`."
+    )
+if len(clip) != _custom_vs_frames_before:
+    raise ValueError(
+        "Custom VapourSynth: your code changed the frame count from "
+        f"{_custom_vs_frames_before} to {len(clip)}. That would desynchronise "
+        "the progress total and make the preview show a different frame than "
+        "its label, so it is refused rather than allowed to fail silently. "
+        "Use the Trim controls instead."
+    )
+{{/CUSTOM_VS}}
+
+# ============================================================================
 # OUTPUT FORMAT CONVERSION
 #
 # The preview applies the output colour format too, so it shows what the render
