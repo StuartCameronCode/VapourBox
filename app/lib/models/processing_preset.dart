@@ -1,6 +1,7 @@
 import 'package:json_annotation/json_annotation.dart';
 import 'package:uuid/uuid.dart';
 
+import 'chroma_denoise_parameters.dart';
 import 'chroma_fix_parameters.dart';
 import 'deband_parameters.dart';
 import 'deblock_parameters.dart';
@@ -9,6 +10,8 @@ import 'descratch_parameters.dart';
 import 'encoding_settings.dart';
 import 'noise_reduction_parameters.dart';
 import 'qtgmc_parameters.dart';
+import 'sharpen_parameters.dart';
+import 'stabilize_parameters.dart';
 import 'processing_pipeline.dart';
 import 'spotless_parameters.dart';
 import 'video_job.dart';
@@ -189,11 +192,29 @@ class ProcessingPreset {
           smDegrainRefine: true,
           smDegrainPrefilter: 2,
         ),
+        // CCD is the filter the restoration community reaches for first on
+        // tape, and it was shipping unused: chroma noise on VHS is a different
+        // failure from the luma grain SMDegrain handles, so one does not cover
+        // the other.
+        chromaDenoise: ChromaDenoiseParameters(
+          enabled: true,
+          threshold: 5.0,
+        ),
         dehalo: DehaloParameters(
           enabled: true,
           method: DehaloMethod.dehaloAlpha,
           rx: 3.0,
           ry: 3.0,
+        ),
+        // Composite captures are soft, and LSFmod is the sharpener that suits
+        // them because it is built not to add halos — which matters here more
+        // than usual, since the dehalo pass above has just removed some.
+        // Modest strength: this runs after a denoise, and sharpening a denoised
+        // picture hard is how tape captures end up looking artificial.
+        sharpen: SharpenParameters(
+          enabled: true,
+          method: SharpenMethod.lsfmod,
+          strength: 80,
         ),
       ),
       encodingSettings: EncodingSettings(
@@ -289,6 +310,13 @@ class ProcessingPreset {
           preset: ChromaFixPreset.custom,
           applyChromaBleedingFix: true,
         ),
+        // DV's chroma is heavily subsampled and noisy with it, and the light
+        // luma denoise above deliberately leaves it alone. Gentler than the VHS
+        // setting: DV chroma is misaligned more than it is dirty.
+        chromaDenoise: ChromaDenoiseParameters(
+          enabled: true,
+          threshold: 3.0,
+        ),
       ),
       encodingSettings: EncodingSettings(
         encoderPreset: 'medium',
@@ -320,6 +348,11 @@ class ProcessingPreset {
         spotless: SpotLessParameters(enabled: true),
         noiseReduction:
             NoiseReductionParameters.fromPreset(NoiseReductionPreset.moderate),
+        // Gate weave is the first thing anyone notices on a cine scan, and this
+        // pass shipped for exactly this source while no preset used it. The
+        // pipeline already runs Stabilize last before Crop/Resize, so the thin
+        // empty edges it exposes can be cropped afterwards.
+        stabilize: StabilizeParameters(enabled: true),
       ),
       encodingSettings: EncodingSettings(
         codec: VideoCodec.ffv1,
@@ -355,6 +388,13 @@ class ProcessingPreset {
           method: DehaloMethod.fineDehalo,
         ),
         deband: DebandParameters(enabled: true),
+        // Composite-mastered anime discs are notorious for rainbowing on fine
+        // line art. LUTDeRainbow shipped for this and was used by nothing.
+        chromaFixes: ChromaFixParameters(
+          enabled: true,
+          preset: ChromaFixPreset.custom,
+          applyDeRainbow: true,
+        ),
       ),
       encodingSettings: EncodingSettings(
         encoderPreset: 'medium',

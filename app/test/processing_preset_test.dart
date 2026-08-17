@@ -15,6 +15,7 @@ import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/processing_preset.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
+import 'package:vapourbox/models/sharpen_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 
 void main() {
@@ -137,6 +138,11 @@ void main() {
       // What film has instead is physical damage.
       expect(preset.pipeline.descratch.enabled, true);
       expect(preset.pipeline.spotless.enabled, true);
+      // Gate weave is the first thing anyone notices on a cine scan. This pass
+      // shipped for exactly this source and no preset used it for two batches.
+      expect(preset.pipeline.stabilize.enabled, true,
+          reason: 'a film scan without stabilisation is the most obviously '
+              'incomplete preset in the set');
       // And a scan is a master, so it should be archival.
       expect(preset.encodingSettings.codec, VideoCodec.ffv1);
     });
@@ -149,6 +155,9 @@ void main() {
       expect(preset.pipeline.dehalo.enabled, true);
       expect(preset.pipeline.dehalo.method, DehaloMethod.fineDehalo);
       expect(preset.pipeline.deband.enabled, true);
+      // Composite-mastered discs rainbow on fine line art.
+      expect(preset.pipeline.chromaFixes.enabled, true);
+      expect(preset.pipeline.chromaFixes.applyDeRainbow, true);
     });
 
     test('PAL DVD deblocks but does not denoise', () {
@@ -166,6 +175,9 @@ void main() {
       expect(preset.pipeline.chromaFixes.applyChromaBleedingFix, true);
       // 4:1:1 / 4:2:0 chroma is stored per field, so upsample before bobbing.
       expect(preset.pipeline.deinterlace.chromaUpsampleFix, true);
+      // The light luma denoise deliberately leaves chroma alone, so chroma
+      // noise needs its own pass.
+      expect(preset.pipeline.chromaDenoise.enabled, true);
     });
 
     test('VHS cleanup is the heaviest denoise of the tape presets', () {
@@ -179,6 +191,27 @@ void main() {
         reason: 'VHS is far noisier than DV tape; if these ever match, one of '
             'the two presets is miscalibrated',
       );
+    });
+
+    test('VHS cleanup uses the two filters the community prescribes most', () {
+      // CCD and LSFmod are what restoration regulars reach for on tape, and
+      // both shipped unused while this preset ran SMDegrain and DeHalo_alpha
+      // alone. Chroma noise is a different failure from luma grain, so the
+      // denoiser above does not cover it.
+      final vhs = byId('builtin-vhs-cleanup');
+      expect(vhs.pipeline.chromaDenoise.enabled, true);
+      expect(vhs.pipeline.sharpen.enabled, true);
+      expect(vhs.pipeline.sharpen.method, SharpenMethod.lsfmod,
+          reason: 'LSFmod is chosen because it does not add halos, which '
+              'matters when the dehalo pass has just removed some');
+    });
+
+    test('sharpening a tape preset stays modest, because it follows a denoise', () {
+      // Sharpening a denoised picture hard is how a capture ends up looking
+      // artificial. This bounds it rather than pinning an exact value.
+      final vhs = byId('builtin-vhs-cleanup');
+      expect(vhs.pipeline.sharpen.strength, lessThan(100),
+          reason: 'default strength or above, after SMDegrain, oversharpens');
     });
 
     test('the quality tiers differ in quality, not in what they fix', () {
