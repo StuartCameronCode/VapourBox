@@ -653,6 +653,59 @@ simple-vs-advanced calls and the preset defaults are in the artifact — see
 > of the removal. The filter is worth shipping for the axis the forums actually
 > praised it on, and would have been wasted effort on the other.
 
+### Second probe round (2026-08-17): the Useful tier, 21 of 22 deferred
+
+The same seven-agent treatment over every remaining Useful-tier candidate.
+**One promotion out of twenty-two** — MVTools `FlowFPS` as a Frame Rate pass —
+and that ratio is the finding, not a disappointment: the Useful tier is where
+second answers live, and measuring is how you learn they are second. Lessons
+that generalise:
+
+> **A "new" filter is often the shipped one with different arguments.**
+> `KillerSpots` measured **bit-identical** to `spotless.py` (max diff 0.0) with
+> three mvtools arguments changed — the third instance of this after
+> `lostfunc.DeSpot` and `GrayWorld`. But those arguments are *better*: spot MAE
+> 10.49 → 9.33 at 318 → 424 fps, i.e. **a three-line change to shipped code is
+> worth more than the filter was**. Diff the algorithm before costing the port.
+
+> **An automatic filter must be tested on the material it should ignore.**
+> `AutoDeblock`'s detection is *inverted*: on genuinely blocked MPEG-2 it never
+> escalated past "weak" and altered the picture **less** than it altered clean
+> footage, while on grainy-but-unblocked content it fired strong on 99% of
+> frames. Heavy quantisation collapses inter-frame detail, so the temporal gate
+> it keys on drops exactly when blocking rises. Any "auto" filter gets a
+> three-way test — damaged, clean, and noisy-but-clean — and the clean cases
+> matter more than the damaged one.
+
+> **Check the filter against the content this app's presets create.**
+> `FillDrops` cannot distinguish a dropped frame from a held animation cel —
+> both are bit-exact duplicates — so it destroyed 39 of 80 held frames at
+> *every* threshold, since none can be below zero. VapourBox ships **Anime DVD**
+> and **DVD IVTC** presets where duplicated frames are normal. A filter that is
+> safe on live action can be destructive on the sources we advertise.
+
+> **Prefer a crash you can catch.** `vs-placebo` constructs its node with no
+> exception when Vulkan is absent and then **segfaults on the first frame** —
+> no error to detect, no fallback possible, and vspipe dies as "signal 11" for
+> both job and preview. That is strictly worse than KNLMeansCL, which at least
+> raises. macOS has no Vulkan driver and the wheels ship no MoltenVK, so it can
+> never work on either Mac bundle.
+
+> **`FrameMap::Retime` exists and nothing emits one.** `frame_map_for` produces
+> only `Identity`, `Fanout` and `Decimate`. FlowFPS's output count matches
+> `Retime::output_count` exactly across 35 combinations; BlockFPS is off by one
+> in 14 of them. Choosing FlowFPS makes existing code correct as written —
+> check for an unused variant before adding one.
+
+> **Synthetic uniform grain is a bad fixture for a motion-compensated
+> denoiser.** A probe reported `SMDegrain` as a near no-op "at the app's
+> defaults"; reproducing it showed the repro omitted `RefineMotion` and
+> `prefilter`, which the template always emits. With the real defaults it
+> removes 3.34 of 4.36 grain, and the reachable parameter space (27
+> combinations) is well-behaved throughout. **No bug** — but bare `SMDegrain`
+> on uniform noise finds perfect motion matches everywhere and gates everything
+> out, so use real footage when validating MC denoisers.
+
 ### Fourth filter batch (2026-08-15): probe agents, and what they caught
 
 Five more effort-1 filters: **CTMF** (Noise Reduction), **DCTFilter** (Deblock),
