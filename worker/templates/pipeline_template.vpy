@@ -498,6 +498,7 @@ if _descratch_orig_format.bits_per_sample != 8:
 # PASS 4: SPOTLESS (temporal spot/dirt removal)
 # ============================================================================
 {{#SPOTLESS}}
+{{#SPOTLESS_CLASSIC}}
 import sys as _spotless_sys
 _spotless_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
 from spotless import SpotLess as _SpotLess
@@ -519,6 +520,25 @@ clip = _SpotLess(
     pel={{SPOTLESS_PEL}},
 {{/SPOTLESS_PEL}}
 )
+{{/SPOTLESS_CLASSIC}}
+{{#SPOTLESS_REMOVEDIRT}}
+# RemoveDirt — the fast alternative to SpotLess. Measured 908 fps against
+# SpotLess's 143 for about 60% of the spot removal, which is the entire reason
+# it is here: on a long capture SpotLess takes hours. The motion-compensated
+# variant is deliberately NOT offered — measured, it lands on the same quality
+# point as SpotLess and runs slower, so it adds nothing.
+import sys as _rd_sys
+_rd_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
+from removedirt import remove_dirt as _remove_dirt
+clip = _remove_dirt(
+    clip,
+    gmthreshold={{RD_GMTHRESHOLD}},
+    noise={{RD_NOISE}},
+    noisy={{RD_NOISY}},
+    dist={{RD_DIST}},
+    post_denoise={{RD_POST_DENOISE}},
+)
+{{/SPOTLESS_REMOVEDIRT}}
 {{/SPOTLESS}}
 
 # ============================================================================
@@ -1168,6 +1188,35 @@ clip = core.warp.AWarpSharp2(
 # PASS 8: CHROMA FIXES
 # ============================================================================
 {{#CHROMA_FIXES}}
+
+def _dedot_8bit_format(c):
+    """The clip's own layout at 8 bits — DeDot is 8-bit only."""
+    return core.get_video_format(c.format.id).replace(bits_per_sample=8).id
+
+{{#CF_DEDOT}}
+# DeDot — temporal dot crawl and rainbow removal, working on BOTH planes and
+# skipping moving objects. Complementary to LUTDeCrawl rather than a
+# replacement: measured on a line-alternating crawl pattern, LUTDeCrawl reached
+# 0.00 residual where DeDot left 11.69, while on a phase-inverting checkerboard
+# DeDot reached 0.24/0.00 (luma/chroma) where LUTDeCrawl left chroma untouched.
+# Different geometries, so both are worth having.
+#
+# 8-bit only: "the input clip must be 8 bit YUV or Gray with constant format and
+# dimensions", measured failing at 10/12/16-bit on both 4:2:0 and 4:2:2. Same
+# convert-down-and-restore guard as DeScratch and BiFrost.
+_dedot_src_format = clip.format.id
+if clip.format.bits_per_sample != 8:
+    clip = core.resize.Bicubic(clip, format=_dedot_8bit_format(clip))
+clip = core.dedot.Dedot(
+    clip,
+    luma_2d={{DEDOT_LUMA_2D}},
+    luma_t={{DEDOT_LUMA_T}},
+    chroma_t1={{DEDOT_CHROMA_T1}},
+    chroma_t2={{DEDOT_CHROMA_T2}},
+)
+if clip.format.id != _dedot_src_format:
+    clip = core.resize.Bicubic(clip, format=_dedot_src_format, dither_type="error_diffusion")
+{{/CF_DEDOT}}
 
 {{#CHROMA_SHIFT}}
 # Chroma Shift (Y/C Delay) - shift chroma planes to correct timing misalignment

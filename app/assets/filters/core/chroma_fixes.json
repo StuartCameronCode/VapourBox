@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "name": "Chroma Fixes",
   "description": "Fix chroma bleeding, rainbows, and dot crawl",
-  "longDescription": "Repairs colour-specific damage from analog and composite video: chroma shifted sideways from the luma it belongs to, colour bleeding past edges, rainbow shimmer over fine patterns, and dots crawling along edges.\n\nUse it for VHS, Video8 and other composite captures. Each fix is enabled separately, so turn on only the ones matching what you can actually see in the preview — every one of them costs some colour detail.",
+  "longDescription": "Repairs colour-specific damage from analog and composite video: chroma shifted sideways from the luma it belongs to, colour bleeding past edges, rainbow shimmer over fine patterns, and dots crawling along edges.\n\nUse it for VHS, Video8 and other composite captures. Each fix is enabled separately, so turn on only the ones matching what you can actually see in the preview \u2014 every one of them costs some colour detail.",
   "category": "cleanup",
   "icon": "palette",
   "order": 8,
@@ -369,6 +369,83 @@
           "applyBifrost": true
         }
       }
+    },
+    "applyDedot": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Remove dot crawl (DeDot)",
+        "description": "Removes the crawling dotted pattern along sharp colour edges on composite captures. Works on brightness and colour together, and skips anything that is moving.",
+        "widget": "checkbox"
+      }
+    },
+    "dedotLuma2d": {
+      "type": "integer",
+      "default": 20,
+      "min": 0,
+      "max": 510,
+      "step": 1,
+      "visibleWhen": {
+        "applyDedot": [
+          true
+        ]
+      },
+      "ui": {
+        "label": "Brightness (within a frame)",
+        "description": "How different a pixel must be from its neighbours to count as dot crawl.",
+        "widget": "slider"
+      }
+    },
+    "dedotLumaT": {
+      "type": "integer",
+      "default": 20,
+      "min": 0,
+      "max": 255,
+      "step": 1,
+      "visibleWhen": {
+        "applyDedot": [
+          true
+        ]
+      },
+      "ui": {
+        "label": "Brightness (between frames)",
+        "description": "How much a pixel may change between frames and still be treated as dot crawl rather than motion.",
+        "widget": "slider"
+      }
+    },
+    "dedotChromaT1": {
+      "type": "integer",
+      "default": 15,
+      "min": 0,
+      "max": 255,
+      "step": 1,
+      "visibleWhen": {
+        "applyDedot": [
+          true
+        ]
+      },
+      "ui": {
+        "label": "Colour threshold",
+        "description": "How strongly colour is corrected.",
+        "widget": "slider"
+      }
+    },
+    "dedotChromaT2": {
+      "type": "integer",
+      "default": 5,
+      "min": 0,
+      "max": 255,
+      "step": 1,
+      "visibleWhen": {
+        "applyDedot": [
+          true
+        ]
+      },
+      "ui": {
+        "label": "Colour motion limit",
+        "description": "Raise towards 255 to leave colour alone entirely.",
+        "widget": "slider"
+      }
     }
   },
   "ui": {
@@ -417,6 +494,29 @@
           "vinverseAmnt"
         ],
         "expanded": true
+      },
+      {
+        "title": "Dot crawl (DeDot)",
+        "parameters": [
+          "applyDedot",
+          "dedotLuma2d",
+          "dedotLumaT"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Dot crawl tuning",
+        "parameters": [
+          "dedotChromaT1",
+          "dedotChromaT2"
+        ],
+        "expanded": false,
+        "advancedOnly": true,
+        "visibleWhen": {
+          "applyDedot": [
+            true
+          ]
+        }
       }
     ]
   },

@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use crate::models::{
     AntiAliasMethod, GrainMethod,
     VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod, CCD_REFERENCE_HEIGHT,
-    ChromaDenoiseMethod, FrameRateMethod,
+    ChromaDenoiseMethod, FrameRateMethod, SpotLessMethod,
     parse_ratio,
     DehaloMethod, DeblockMethod, SharpenMethod, DeinterlaceMethod,
     FieldOrder,
@@ -662,6 +662,24 @@ impl ScriptGenerator {
         // ====================================================================
         let spotless = &pipeline.spotless;
         if spotless.enabled {
+            match pipeline.spotless.method {
+                SpotLessMethod::SpotLess => {
+                    script = script.replace("{{#SPOTLESS_CLASSIC}}", "");
+                    script = script.replace("{{/SPOTLESS_CLASSIC}}", "");
+                    script = remove_block("{{#SPOTLESS_REMOVEDIRT}}", "{{/SPOTLESS_REMOVEDIRT}}", script);
+                }
+                SpotLessMethod::RemoveDirt => {
+                    script = remove_block("{{#SPOTLESS_CLASSIC}}", "{{/SPOTLESS_CLASSIC}}", script);
+                    script = script.replace("{{#SPOTLESS_REMOVEDIRT}}", "");
+                    script = script.replace("{{/SPOTLESS_REMOVEDIRT}}", "");
+                    let sl = &pipeline.spotless;
+                    script = script.replace("{{RD_GMTHRESHOLD}}", &sl.rd_gmthreshold.clamp(0, 255).to_string());
+                    script = script.replace("{{RD_NOISE}}", &sl.rd_noise.clamp(0, 255).to_string());
+                    script = script.replace("{{RD_NOISY}}", &sl.rd_noisy.clamp(0, 255).to_string());
+                    script = script.replace("{{RD_DIST}}", &sl.rd_dist.clamp(0, 8).to_string());
+                    script = script.replace("{{RD_POST_DENOISE}}", if sl.rd_post_denoise { "True" } else { "False" });
+                }
+            }
             script = script.replace("{{#SPOTLESS}}", "");
             script = script.replace("{{/SPOTLESS}}", "");
 
@@ -1401,6 +1419,16 @@ impl ScriptGenerator {
         // ====================================================================
         let chroma = &pipeline.chroma_fixes;
         if chroma.enabled {
+            if chroma.apply_dedot {
+                script = script.replace("{{#CF_DEDOT}}", "");
+                script = script.replace("{{/CF_DEDOT}}", "");
+                script = script.replace("{{DEDOT_LUMA_2D}}", &chroma.dedot_luma_2d.clamp(0, 510).to_string());
+                script = script.replace("{{DEDOT_LUMA_T}}", &chroma.dedot_luma_t.clamp(0, 255).to_string());
+                script = script.replace("{{DEDOT_CHROMA_T1}}", &chroma.dedot_chroma_t1.clamp(0, 255).to_string());
+                script = script.replace("{{DEDOT_CHROMA_T2}}", &chroma.dedot_chroma_t2.clamp(0, 255).to_string());
+            } else {
+                script = remove_block("{{#CF_DEDOT}}", "{{/CF_DEDOT}}", script);
+            }
             script = script.replace("{{#CHROMA_FIXES}}", "");
             script = script.replace("{{/CHROMA_FIXES}}", "");
 

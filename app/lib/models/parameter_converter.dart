@@ -553,7 +553,15 @@ class ParameterConverter {
     return DynamicParameters(
       filterId: 'spotless',
       enabled: params.enabled,
-      values: {},
+      values: {
+        'method': params.method == SpotLessMethod.removeDirt
+            ? 'removeDirt'
+            : 'spotless',
+        'rdGmthreshold': params.rdGmthreshold,
+        'rdNoise': params.rdNoise,
+        'rdNoisy': params.rdNoisy,
+        'rdDist': params.rdDist,
+        'rdPostDenoise': params.rdPostDenoise,},
       lastOptionalValues: {
         'chroma': params.chroma,
         'rec': params.rec,
@@ -655,6 +663,11 @@ class ParameterConverter {
       filterId: 'chroma_fixes',
       enabled: params.enabled,
       values: {
+        'applyDedot': params.applyDedot,
+        'dedotLuma2d': params.dedotLuma2d,
+        'dedotLumaT': params.dedotLumaT,
+        'dedotChromaT1': params.dedotChromaT1,
+        'dedotChromaT2': params.dedotChromaT2,
         'applyChromaShift': params.applyChromaShift,
         'chromaShiftH': params.chromaShiftH,
         'chromaShiftV': params.chromaShiftV,
@@ -1112,6 +1125,14 @@ class ParameterConverter {
   static SpotLessParameters toSpotLess(DynamicParameters params) {
     final v = params.values;
     return SpotLessParameters(
+      method: (params.values['method'] as String?) == 'removeDirt'
+          ? SpotLessMethod.removeDirt
+          : SpotLessMethod.spotless,
+      rdGmthreshold: _asInt(params.values['rdGmthreshold']) ?? 70,
+      rdNoise: _asInt(params.values['rdNoise']) ?? 50,
+      rdNoisy: _asInt(params.values['rdNoisy']) ?? 12,
+      rdDist: _asInt(params.values['rdDist']) ?? 1,
+      rdPostDenoise: params.values['rdPostDenoise'] as bool? ?? false,
       enabled: params.enabled,
       chroma: v['chroma'] as bool? ?? true,
       rec: v['rec'] as bool? ?? false,
@@ -1202,6 +1223,11 @@ class ParameterConverter {
   static ChromaFixParameters toChromaFixes(DynamicParameters params) {
     final v = params.values;
     return ChromaFixParameters(
+      applyDedot: v['applyDedot'] as bool? ?? false,
+      dedotLuma2d: _asInt(v['dedotLuma2d']) ?? 20,
+      dedotLumaT: _asInt(v['dedotLumaT']) ?? 20,
+      dedotChromaT1: _asInt(v['dedotChromaT1']) ?? 15,
+      dedotChromaT2: _asInt(v['dedotChromaT2']) ?? 5,
       enabled: params.enabled,
       applyChromaShift: v['applyChromaShift'] as bool? ?? false,
       chromaShiftH: (v['chromaShiftH'] as num?)?.toDouble() ?? 0.0,

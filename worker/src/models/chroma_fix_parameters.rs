@@ -87,6 +87,22 @@ pub struct ChromaFixParameters {
     #[serde(default)]
     pub apply_de_rainbow: bool,
 
+    /// DeDot — temporal dot crawl / rainbow removal on both planes.
+    #[serde(default)]
+    pub apply_dedot: bool,
+    /// Spatial luma threshold (0-510).
+    #[serde(default = "default_dedot_luma_2d")]
+    pub dedot_luma_2d: i32,
+    /// Temporal luma threshold (0-255).
+    #[serde(default = "default_dedot_luma_t")]
+    pub dedot_luma_t: i32,
+    /// Chroma threshold 1 (0-255).
+    #[serde(default = "default_dedot_chroma_t1")]
+    pub dedot_chroma_t1: i32,
+    /// Chroma threshold 2 (0-255). 255 bypasses chroma entirely.
+    #[serde(default = "default_dedot_chroma_t2")]
+    pub dedot_chroma_t2: i32,
+
     /// Chroma difference threshold for detecting rainbowing.
     #[serde(default = "default_de_rainbow_cthresh")]
     pub de_rainbow_c_thresh: i32,
@@ -152,6 +168,11 @@ fn default_bifrost_variation() -> i32 { 5 }
 fn default_vinverse_sstr() -> f64 { 2.7 }
 fn default_255() -> i32 { 255 }
 
+fn default_dedot_luma_2d() -> i32 { 20 }
+fn default_dedot_luma_t() -> i32 { 20 }
+fn default_dedot_chroma_t1() -> i32 { 15 }
+fn default_dedot_chroma_t2() -> i32 { 5 }
+
 impl Default for ChromaFixParameters {
     fn default() -> Self {
         Self {
@@ -167,6 +188,11 @@ impl Default for ChromaFixParameters {
             chroma_bleed_strength: default_chroma_bleed_strength(),
             apply_de_crawl: false,
             apply_de_rainbow: false,
+            apply_dedot: false,
+            dedot_luma_2d: default_dedot_luma_2d(),
+            dedot_luma_t: default_dedot_luma_t(),
+            dedot_chroma_t1: default_dedot_chroma_t1(),
+            dedot_chroma_t2: default_dedot_chroma_t2(),
             de_rainbow_c_thresh: default_de_rainbow_cthresh(),
             de_rainbow_y_thresh: default_de_rainbow_ythresh(),
             de_rainbow_use_luma: true,
