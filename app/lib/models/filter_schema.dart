@@ -28,6 +28,11 @@ enum WidgetType {
   textfield,
   @JsonValue('number')
   number,
+
+  /// A path, with a Browse button beside the field. Never inferred — a string
+  /// parameter still defaults to [textfield], so a schema opts in explicitly.
+  @JsonValue('filepicker')
+  filepicker,
 }
 
 /// VapourSynth-specific parameter configuration.
@@ -69,6 +74,10 @@ class ParameterUiConfig {
   /// Example: {"true": "Top Field First", "false": "Bottom Field First"}
   final Map<String, String>? booleanLabels;
 
+  /// Extensions the file picker offers, without dots — `["srt", "ass"]`.
+  /// Only meaningful for [WidgetType.filepicker]; null means any file.
+  final List<String>? fileExtensions;
+
   const ParameterUiConfig({
     this.label,
     this.description,
@@ -77,6 +86,7 @@ class ParameterUiConfig {
     this.hidden,
     this.visibleWhen,
     this.booleanLabels,
+    this.fileExtensions,
   });
 
   factory ParameterUiConfig.fromJson(Map<String, dynamic> json) =>

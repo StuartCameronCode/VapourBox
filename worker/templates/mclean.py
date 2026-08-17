@@ -52,6 +52,17 @@ Each was measured against the plugins VapourBox actually bundles.
 6. The correctly-guarded ``hasattr(core, 'zsmooth')`` around
    ``core.vcm.Median`` is kept as upstream wrote it - zsmooth is bundled, so
    the vcm branch never fires, but the guard is right and costs nothing.
+
+7. **``depth`` is deliberately not exposed.** The template never passes it, so
+   it always runs at 0. Above 0 the function takes the difference of two
+   ``AWarpSharp2`` warps, and ``thresh`` is hard-capped at 255 by the plugin,
+   so it cannot be depth-scaled the way everything else here is: at
+   ``depth=2`` the 8-bit and 16-bit results diverge by **3.09/255** mean
+   absolute difference, against a ~0.6 rounding floor, because quantisation
+   noise flips the warp's edge decisions. That is inherent to the operation
+   rather than a scaling bug, so exposing the knob means accepting output that
+   changes with the source's bit depth. Don't add it to the schema without
+   deciding that is acceptable.
 """
 
 from typing import Optional

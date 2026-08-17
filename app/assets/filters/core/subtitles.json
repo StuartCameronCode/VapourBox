@@ -101,8 +101,13 @@
       },
       "ui": {
         "label": "Subtitle file to burn in",
-        "description": "Path to an .srt or .ass file to draw into the picture. Transcribed subtitles cannot be burnt in on the same pass, because transcription runs after the encode \u2014 use this for a file you already have.",
-        "widget": "textfield"
+        "description": "Path to a subtitle file you already have. Leave this empty to burn in what Whisper transcribes \u2014 transcription runs before the encode, so its subtitles can be drawn into the picture. Setting a file here skips transcription entirely and burns in this file instead.",
+        "widget": "filepicker",
+        "fileExtensions": [
+          "srt",
+          "ass",
+          "ssa"
+        ]
       }
     }
   },

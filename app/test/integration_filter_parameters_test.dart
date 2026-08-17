@@ -522,6 +522,8 @@ void main() {
       expect(script, contains('core.mv.Degrain3('));
       final actual = parseFilterParams(script, 'core.mv.Degrain3(');
       print('  Parsed ${actual.length} params');
+      // mvtools spells it thsad here; mClean's call spells it thSAD. The parser
+      // preserves case, so the two are not interchangeable.
       expect(actual['thsad'], '500');
       expect(actual['plane'], '3');
       // Blur/sharpen references must cover the same planes as the degrain.
@@ -765,6 +767,58 @@ void main() {
       final script = await generateScriptViaWorker(job);
       final actual = parseFilterParams(script, 'core.dfttest.DFTTest(');
       expect(actual['tbsize'], '5');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // mClean and TemporalDegrain2 both shipped with the script generator
+    // removing their own template block before enabling it, so the pass ran and
+    // emitted no denoiser at all. `test_149` in the Rust suite now enumerates
+    // every method, but it builds the Rust struct directly — only going through
+    // the worker binary proves the Dart enum's JsonValue and the Rust serde name
+    // still agree.
+    test('noise reduction: mClean reaches the script with its params', () async {
+      loadSchema('noise_reduction');
+      final typed = const NoiseReductionParameters(
+        enabled: true,
+        method: NoiseReductionMethod.mClean,
+        mcleanStrength: 17,
+        mcleanSharp: 9,
+        mcleanRn: 11,
+        mcleanThsad: 320,
+      );
+      final job = buildJob(testName: 'nr_mclean', noiseReduction: typed);
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('from mclean import mClean'));
+      expect(script, contains('_mClean('));
+      final actual = parseFilterParams(script, '_mClean(');
+      expect(actual['strength'], '17');
+      expect(actual['sharp'], '9');
+      expect(actual['rn'], '11');
+      expect(actual['thSAD'], '320');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('noise reduction: TemporalDegrain2 reaches the script with its params',
+        () async {
+      loadSchema('noise_reduction');
+      final typed = const NoiseReductionParameters(
+        enabled: true,
+        method: NoiseReductionMethod.temporalDegrain2,
+        td2DegrainTr: 2,
+        td2GrainLevel: 1,
+        td2PostFft: 3,
+        td2PostMix: 40,
+      );
+      final job = buildJob(testName: 'nr_td2', noiseReduction: typed);
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('from temporaldegrain2 import TemporalDegrain2'));
+      expect(script, contains('_TemporalDegrain2('));
+      final actual = parseFilterParams(script, '_TemporalDegrain2(');
+      expect(actual['degrainTR'], '2');
+      expect(actual['grainLevel'], '1');
+      // 4 and 5 abort the process rather than raising, so the clamp matters.
+      expect(actual['postFFT'], '3');
+      expect(actual['postMix'], '40');
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 

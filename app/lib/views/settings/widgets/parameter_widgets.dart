@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -46,6 +47,13 @@ class ParameterWidgetFactory {
         );
       case WidgetType.number:
         return _NumberParameterWidget(
+          paramId: paramId,
+          param: param,
+          value: value,
+          onChanged: onChanged,
+        );
+      case WidgetType.filepicker:
+        return _FilePickerParameterWidget(
           paramId: paramId,
           param: param,
           value: value,
@@ -422,6 +430,116 @@ class _TextFieldParameterWidget extends StatelessWidget {
             hintText: param.ui?.description,
           ),
           onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+}
+
+/// A path, with a Browse button beside the field.
+///
+/// Stateful with a controller rather than `TextFormField(initialValue:)` like
+/// the plain text field above: `initialValue` is read once, so a path written
+/// back by the picker would not appear in the field.
+class _FilePickerParameterWidget extends StatefulWidget {
+  final String paramId;
+  final ParameterDefinition param;
+  final dynamic value;
+  final ValueChanged<dynamic> onChanged;
+
+  const _FilePickerParameterWidget({
+    required this.paramId,
+    required this.param,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  State<_FilePickerParameterWidget> createState() =>
+      _FilePickerParameterWidgetState();
+}
+
+class _FilePickerParameterWidgetState
+    extends State<_FilePickerParameterWidget> {
+  late final TextEditingController _controller;
+
+  String get _current =>
+      widget.value?.toString() ?? widget.param.defaultValue?.toString() ?? '';
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: _current);
+  }
+
+  @override
+  void didUpdateWidget(_FilePickerParameterWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Only when it actually differs — assigning unconditionally would move the
+    // caret to the end on every keystroke the user types.
+    if (_current != _controller.text) {
+      _controller.text = _current;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _browse() async {
+    final extensions = widget.param.ui?.fileExtensions;
+    final result = await FilePicker.platform.pickFiles(
+      dialogTitle: widget.param.ui?.label ?? 'Select File',
+      type: extensions == null || extensions.isEmpty
+          ? FileType.any
+          : FileType.custom,
+      allowedExtensions:
+          extensions == null || extensions.isEmpty ? null : extensions,
+    );
+
+    // A cancelled picker returns null; leave whatever is already there.
+    final path =
+        (result == null || result.files.isEmpty) ? null : result.files.first.path;
+    if (path != null) {
+      _controller.text = path;
+      widget.onChanged(path);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final label = widget.param.ui?.label ?? _formatParamName(widget.paramId);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              // Typing or pasting a path still works — the button is an
+              // addition, not a replacement.
+              child: TextField(
+                controller: _controller,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                  hintText: widget.param.ui?.description,
+                ),
+                onChanged: widget.onChanged,
+              ),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: _browse,
+              icon: const Icon(Icons.folder_open, size: 18),
+              label: const Text('Browse…'),
+            ),
+          ],
         ),
       ],
     );

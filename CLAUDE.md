@@ -1056,6 +1056,21 @@ Two orderings are load-bearing and asserted from both sides
 > `worker/src` or `worker/templates` — **run `cargo build` before the heavy
 > suite**.
 
+> **The same trap on the Dart side: a stale `.g.dart`.** `app/lib/**/*.g.dart`
+> is gitignored and every CI job runs `dart run build_runner build` immediately
+> before testing, so **CI can never reproduce this** — it is purely a
+> developer-machine failure. Add a field to a model, forget to rebuild, and
+> `toJson()` keeps emitting the old key set; the worker's serde models carry
+> `#[serde(default)]`, so the field arrives as its default and the pass runs
+> with the wrong settings, with no error anywhere. You end up debugging the
+> template. `app/test/generated_code_freshness_test.dart` fails the push gate
+> when a declared field has no generated code, naming the field and the fix.
+>
+> It checks **field names, not mtimes**: build_runner is incremental and leaves
+> a generated file alone when its output is unchanged, so an mtime comparison
+> reports eight models stale straight after a clean build. Don't "simplify" it
+> back to timestamps.
+
 ### Advanced mode is one app-wide setting, and it is the complexity lever
 
 `AdvancedModeService` (**Settings → General → Show advanced options**, persisted
@@ -1072,6 +1087,33 @@ it aggressively enough to matter. Adding filters to this app means adding
 *methods to existing passes* far more often than new passes, so `advancedOnly`
 on a method is what keeps a slot's dropdown short. Field reference and the three
 rules for using it: **[docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md)**.
+
+### A method dispatch that removes N-1 blocks is quadratic, and it fails silently
+
+`script_generator.rs` selects a filter method with one `match` arm per method,
+each *removing* every sibling template block and then enabling its own. So a
+pass with twelve methods has twelve arms each naming eleven blocks, and adding a
+method means editing all twelve. A blanket edit that appends the new
+`remove_block` to every arm therefore also appends it to the **new arm**, which
+then deletes its own block before the `replace` that would have enabled it.
+
+**mClean and TemporalDegrain2 both shipped that way** and were completely
+unreachable: the pass was on, the script contained no denoiser at all, and the
+encode produced a passthrough. Nothing failed — not the job, not the preview,
+not `cargo test`, because neither method had a script-generation test. It was
+found only because the parity suite asserts each pass differs from a
+passthrough frame.
+
+`test_149_every_noise_reduction_method_emits_its_filter` now walks the whole
+enum and asserts each method's own call appears. **Enumerate the enum** — a test
+per method only covers the method you thought to write one for, which is never
+the broken one. `integration_filter_parameters_test.dart` carries the two
+methods too, because the Rust test builds the struct directly and so cannot
+catch a Dart `@JsonValue` drifting from the Rust serde name.
+
+> The parameter-name parser in that Dart suite **preserves case**, and the
+> spellings genuinely differ between plugins: mvtools takes `thsad`, mClean's
+> wrapper takes `thSAD`. Don't "normalise" one to the other.
 
 ### Suggestions and advice are hints, and must stay hints
 

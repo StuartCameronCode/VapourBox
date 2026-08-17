@@ -5303,3 +5303,153 @@ fn test_146_custom_vapoursynth_guards_the_frame_count() {
     let script = script_text(&clean);
     assert!(!script.contains("_custom_vs_frames_before"));
 }
+
+/// mClean reaches the script with its own parameters, not a stale default set.
+///
+/// The vendored module is the only denoiser here with no havsfunc equivalent to
+/// fall back on, so a broken substitution shows up as a filter that runs and
+/// does nothing rather than as an error.
+#[test]
+fn test_147_mclean_noise_reduction() {
+    create_output_dir();
+    let mut job = create_base_job("test_147_mclean");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::MClean,
+            preset: NoiseReductionPreset::Moderate,
+            mclean_strength: 17,
+            mclean_sharp: 9,
+            mclean_rn: 11,
+            mclean_thsad: 320,
+            mclean_chroma: false,
+            ..NoiseReductionParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let script = script_text(&job);
+    assert!(script.contains("from mclean import mClean"), "module import");
+    assert!(script.contains("strength=17"), "strength substituted");
+    assert!(script.contains("sharp=9"), "sharp substituted");
+    assert!(script.contains("rn=11"), "rn substituted");
+    assert!(script.contains("thSAD=320"), "thSAD substituted");
+    assert!(script.contains("chroma=False"), "chroma substituted");
+    assert!(
+        !script.contains("{{NR_MCLEAN"),
+        "no placeholder may survive:\n{script}"
+    );
+}
+
+/// TemporalDegrain2 likewise, including the two values the module clamps.
+#[test]
+fn test_148_temporal_degrain2_noise_reduction() {
+    create_output_dir();
+    let mut job = create_base_job("test_148_td2");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::TemporalDegrain2,
+            preset: NoiseReductionPreset::Moderate,
+            td2_degrain_tr: 2,
+            td2_grain_level: 1,
+            td2_post_fft: 3,
+            td2_post_sigma: 1.5,
+            td2_post_mix: 40,
+            td2_chroma_motion: false,
+            ..NoiseReductionParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let script = script_text(&job);
+    assert!(
+        script.contains("from temporaldegrain2 import TemporalDegrain2"),
+        "module import"
+    );
+    assert!(script.contains("degrainTR=2"), "degrainTR substituted");
+    assert!(script.contains("grainLevel=1"), "grainLevel substituted");
+    assert!(script.contains("postFFT=3"), "postFFT substituted");
+    assert!(script.contains("postMix=40"), "postMix substituted");
+    assert!(script.contains("ChromaMotion=False"), "ChromaMotion substituted");
+    assert!(
+        !script.contains("{{NR_TD2"),
+        "no placeholder may survive:\n{script}"
+    );
+}
+
+/// Every noise reduction method actually reaches the script.
+///
+/// This exists because two of them didn't. The dispatch is one `match` arm per
+/// method, each removing the eleven blocks it isn't and enabling the one it is
+/// — so adding a method means editing every arm, and a blanket edit that also
+/// hits the new arm makes it remove its *own* block. `MClean` and
+/// `TemporalDegrain2` both shipped that way: the pass ran, produced a script
+/// with no denoiser in it, and encoded a passthrough with no error anywhere.
+///
+/// Enumerating the whole enum is the only shape that catches it. A test per
+/// method catches the method you thought to test.
+#[test]
+fn test_149_every_noise_reduction_method_emits_its_filter() {
+    create_output_dir();
+
+    // The call that proves this method, and only this method, was emitted.
+    let expected: &[(NoiseReductionMethod, &str)] = &[
+        (NoiseReductionMethod::SmDegrain, "haf.SMDegrain("),
+        (NoiseReductionMethod::McTemporalDenoise, "haf.MCTemporalDenoise("),
+        // Its Degrain1/2/3 call is chosen by temporal radius, so match the
+        // super clip it always builds instead.
+        (NoiseReductionMethod::McDegrainSharp, "_mcds_super_search"),
+        (NoiseReductionMethod::DfTtest, "core.dfttest.DFTTest("),
+        (NoiseReductionMethod::Fft3dFilter, "core.fft3dfilter.FFT3DFilter("),
+        (NoiseReductionMethod::TTempSmooth, "core.ttmpsm.TTempSmooth("),
+        (NoiseReductionMethod::FluxSmoothT, "core.flux.SmoothT("),
+        (NoiseReductionMethod::FluxSmoothSt, "core.flux.SmoothST("),
+        (NoiseReductionMethod::StPresso, "haf.STPresso("),
+        (NoiseReductionMethod::Ctmf, "core.ctmf.CTMF("),
+        (NoiseReductionMethod::MClean, "_mClean("),
+        (NoiseReductionMethod::TemporalDegrain2, "_TemporalDegrain2("),
+    ];
+
+    for (method, call) in expected {
+        let mut job = create_base_job("test_149_nr_methods");
+        job.qtgmc_parameters.enabled = false;
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            noise_reduction: NoiseReductionParameters {
+                enabled: true,
+                method: *method,
+                preset: NoiseReductionPreset::Moderate,
+                ..NoiseReductionParameters::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+
+        let script = script_text(&job);
+        assert!(
+            script.contains(call),
+            "{method:?} generated a script without {call} — the pass would run \
+             and do nothing"
+        );
+        assert!(
+            !script.contains("{{NR_"),
+            "{method:?} left an unsubstituted NR placeholder in the script"
+        );
+    }
+
+    // And the whole set is off when the pass is.
+    let mut off = create_base_job("test_149_nr_off");
+    off.qtgmc_parameters.enabled = false;
+    off.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        ..ProcessingPipeline::default()
+    });
+    let script = script_text(&off);
+    for (_, call) in expected {
+        assert!(!script.contains(call), "{call} survived a disabled pass");
+    }
+}

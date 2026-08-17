@@ -67,6 +67,16 @@ Each was measured against the plugins VapourBox actually bundles.
    left behind ``hasattr`` guards that can never fire. bm3d is never reached by
    this function (the only upstream mention is a TODO comment), so it needs no
    deps addition.
+
+7. **``rec`` is deliberately not exposed.** The template never passes it, so it
+   always runs at False. With ``rec=True`` the vectors go through
+   ``MV.Recalculate`` at half the block size, and that refinement is sensitive
+   to quantisation: the 8-bit and 16-bit results diverge by **2.03/255** mean
+   absolute difference, against a ~0.6 rounding floor, where at the default
+   they track each other. Nothing is mis-scaled — a finer block search simply
+   makes different choices on a finer input — but it does mean the output
+   depends on the source's bit depth, which is worth a decision rather than a
+   slider.
 """
 
 from typing import Optional

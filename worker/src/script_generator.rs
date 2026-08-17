@@ -968,10 +968,8 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
-                    script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
                     script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
                     script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
-                    script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
                     script = script.replace("{{#NR_MCLEAN}}", "");
                     script = script.replace("{{/NR_MCLEAN}}", "");
                     script = script.replace("{{NR_MCLEAN_THSAD}}", &nr.mclean_thsad.clamp(0, 10000).to_string());
@@ -992,9 +990,7 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
                     script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
-                    script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
                     script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
-                    script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
                     script = script.replace("{{#NR_TD2}}", "");
                     script = script.replace("{{/NR_TD2}}", "");
                     script = script.replace("{{NR_TD2_TR}}", &nr.td2_degrain_tr.clamp(1, 3).to_string());
