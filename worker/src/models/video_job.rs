@@ -146,6 +146,75 @@ pub enum SubtitleOutput {
     BurnInAndSrt,
 }
 
+impl SubtitleOutput {
+    /// The subtitles are drawn into the picture during the encode, so the
+    /// transcript has to exist before it starts.
+    pub fn burns_in(self) -> bool {
+        matches!(self, SubtitleOutput::BurnIn | SubtitleOutput::BurnInAndSrt)
+    }
+
+    /// The transcript is multiplexed into the finished file as a selectable
+    /// track — a post-pass, because the file has to exist first.
+    pub fn muxes(self) -> bool {
+        matches!(self, SubtitleOutput::Embed | SubtitleOutput::Both)
+    }
+
+    /// The `.srt` is left beside the video rather than cleaned up.
+    pub fn keeps_srt_file(self) -> bool {
+        matches!(
+            self,
+            SubtitleOutput::SrtFile | SubtitleOutput::Both | SubtitleOutput::BurnInAndSrt
+        )
+    }
+}
+
+#[cfg(test)]
+mod subtitle_output_tests {
+    use super::SubtitleOutput;
+
+    /// Every mode must do at least one of the three things, or choosing it
+    /// silently produces nothing.
+    #[test]
+    fn every_mode_does_something() {
+        for mode in [
+            SubtitleOutput::SrtFile,
+            SubtitleOutput::Embed,
+            SubtitleOutput::Both,
+            SubtitleOutput::BurnIn,
+            SubtitleOutput::BurnInAndSrt,
+        ] {
+            assert!(
+                mode.burns_in() || mode.muxes() || mode.keeps_srt_file(),
+                "{mode:?} would produce no subtitles at all"
+            );
+        }
+    }
+
+    #[test]
+    fn burning_in_and_muxing_are_independent() {
+        // Burn-in draws pixels; muxing adds a track the player can switch off.
+        // A mode may do either, and "both" here means sidecar + track.
+        assert!(SubtitleOutput::BurnIn.burns_in());
+        assert!(!SubtitleOutput::BurnIn.muxes());
+        assert!(!SubtitleOutput::BurnIn.keeps_srt_file());
+
+        assert!(SubtitleOutput::Both.muxes());
+        assert!(SubtitleOutput::Both.keeps_srt_file());
+        assert!(!SubtitleOutput::Both.burns_in());
+
+        assert!(SubtitleOutput::BurnInAndSrt.burns_in());
+        assert!(SubtitleOutput::BurnInAndSrt.keeps_srt_file());
+    }
+
+    /// Embed must not also leave a stray sidecar — that was the old behaviour
+    /// and it is why the file is deleted after muxing.
+    #[test]
+    fn embed_alone_leaves_no_sidecar() {
+        assert!(SubtitleOutput::Embed.muxes());
+        assert!(!SubtitleOutput::Embed.keeps_srt_file());
+    }
+}
+
 /// Video encoding settings for FFmpeg output.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

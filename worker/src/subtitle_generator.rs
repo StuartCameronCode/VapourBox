@@ -79,7 +79,7 @@ impl SubtitleGenerator {
             &whisper_path,
             &model_path,
             &temp_wav,
-            target_video,
+            &target.with_extension("srt"),
             settings,
             &on_cancel,
         );
@@ -149,6 +149,69 @@ impl SubtitleGenerator {
     }
 
     /// Check if video has an audio track using ffprobe.
+    /// Transcribe to an SRT and stop there — no muxing, no output-mode
+    /// handling.
+    ///
+    /// This is what runs *before* the encode, so burn-in has something to draw.
+    /// `window` is the trim applied to the encode, in seconds.
+    pub fn transcribe<F>(
+        &self,
+        video_path: &str,
+        settings: &SubtitleSettings,
+        window: Option<(f64, Option<f64>)>,
+        srt_path: &Path,
+        on_cancel: F,
+    ) -> Result<Option<PathBuf>>
+    where
+        F: Fn() -> bool,
+    {
+        if !Path::new(video_path).exists() {
+            bail!("Video file not found: {}", video_path);
+        }
+        if !self.has_audio_track(video_path)? {
+            self.reporter.send_log(
+                LogLevel::Warning,
+                "No audio track found — skipping subtitle generation",
+            );
+            return Ok(None);
+        }
+
+        let whisper_path = self.deps.whisper_path()?;
+        let model_path = self.deps.whisper_model_path(&settings.model)?;
+
+        self.reporter
+            .send_log(LogLevel::Info, "Extracting audio for subtitle generation...");
+        let temp_wav = self.extract_audio_range(video_path, window, &on_cancel)?;
+        if on_cancel() {
+            let _ = std::fs::remove_file(&temp_wav);
+            return Ok(None);
+        }
+
+        let result = self.run_whisper(
+            &whisper_path,
+            &model_path,
+            &temp_wav,
+            srt_path,
+            settings,
+            &on_cancel,
+        );
+        let _ = std::fs::remove_file(&temp_wav);
+        result?;
+
+        if !srt_path.exists() {
+            bail!("whisper produced no subtitle file at {}", srt_path.display());
+        }
+        Ok(Some(srt_path.to_path_buf()))
+    }
+
+    /// Multiplex an existing SRT into a finished video as a subtitle track.
+    pub fn mux<F>(&self, video: &Path, srt_path: &Path, on_cancel: F) -> Result<()>
+    where
+        F: Fn() -> bool,
+    {
+        self.embed_subtitles(&video.to_string_lossy(), srt_path, video, &on_cancel)
+    }
+
     fn has_audio_track(&self, video_path: &str) -> Result<bool> {
         let ffprobe_path = self.deps.ffprobe_path()?;
         let env = self.deps.build_environment();
@@ -197,24 +260,56 @@ impl SubtitleGenerator {
     where
         F: Fn() -> bool,
     {
+        self.extract_audio_range(video_path, None, on_cancel)
+    }
+
+    /// Extract 16 kHz mono WAV, optionally only a `(start, duration)` window.
+    ///
+    /// The window matters when transcribing the *source* rather than the
+    /// finished file. The encoder seeks the audio input to the trim point, so
+    /// the output's audio starts there — a transcript of the whole source would
+    /// be offset by exactly the trimmed-off head, and every cue would land
+    /// early. Nothing else in the pipeline retimes audio: IVTC and frame-rate
+    /// conversion change the video timeline only, and the audio keeps its
+    /// original duration, so trim is the one correction needed.
+    fn extract_audio_range<F>(
+        &self,
+        video_path: &str,
+        window: Option<(f64, Option<f64>)>,
+        on_cancel: &F,
+    ) -> Result<PathBuf>
+    where
+        F: Fn() -> bool,
+    {
         let ffmpeg_path = self.deps.ffmpeg_path()?;
         let env = self.deps.build_environment();
 
         let video = Path::new(video_path);
         let temp_wav = video.with_extension("whisper.wav");
 
+        let mut args: Vec<String> = Vec::new();
+        // Seek before -i so ffmpeg does not decode the discarded head.
+        if let Some((start, _)) = window {
+            if start > 0.0 {
+                args.extend(["-ss".to_string(), format!("{start:.6}")]);
+            }
+        }
+        args.extend(["-i".to_string(), video_path.to_string()]);
+        if let Some((_, Some(duration))) = window {
+            if duration > 0.0 {
+                args.extend(["-t".to_string(), format!("{duration:.6}")]);
+            }
+        }
+        args.extend([
+            "-ar".to_string(), "16000".to_string(),
+            "-ac".to_string(), "1".to_string(),
+            "-vn".to_string(),
+            "-y".to_string(),
+            temp_wav.to_string_lossy().to_string(),
+        ]);
+
         let mut child = Command::new(&ffmpeg_path)
-            .args([
-                "-i",
-                video_path,
-                "-ar",
-                "16000",
-                "-ac",
-                "1",
-                "-vn",
-                "-y",
-                &temp_wav.to_string_lossy(),
-            ])
+            .args(&args)
             .envs(&env)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -248,19 +343,18 @@ impl SubtitleGenerator {
         whisper_path: &Path,
         model_path: &Path,
         wav_path: &Path,
-        video_path: &str,
+        srt_path: &Path,
         settings: &SubtitleSettings,
         on_cancel: &F,
     ) -> Result<PathBuf>
     where
         F: Fn() -> bool,
     {
-        let video = Path::new(video_path);
-        let srt_path = video.with_extension("srt");
+        let srt_path = srt_path.to_path_buf();
 
-        // whisper-cli outputs to <input>.srt when --output-srt is used
-        // We need to specify -of (output file base) to control the output path
-        let output_base = video.with_extension("");
+        // whisper-cli appends .srt to -of when --output-srt is used, so the
+        // base is the target with its extension stripped.
+        let output_base = srt_path.with_extension("");
 
         let mut args = vec![
             "-m".to_string(),
