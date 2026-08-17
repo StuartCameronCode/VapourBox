@@ -1,0 +1,156 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "deflicker",
+  "version": "1.0.0",
+  "name": "Deflicker",
+  "description": "Even out brightness pulsing between frames",
+  "longDescription": "Film shot on a cine camera often pulses in brightness, because the shutter and the film advance were never perfectly in step. Scanned, that pulsing survives as a flicker that is far more obvious on a screen than it ever was on a projector.\n\n\"Whole frame\" is the one to reach for: it measures each frame's exposure against its neighbours and corrects both the brightness and the contrast. It removes about 83% of typical cine flicker.\n\n\"Across the frame\" handles the case where different parts of the picture flicker differently, which the whole-frame measurement cannot see. It is gentler and less complete; use it when the first option leaves something behind.\n\nRuns after deinterlacing and before the cleanup passes, which all assume the exposure is steady.",
+  "category": "cleanup",
+  "methods": [
+    {
+      "id": "global",
+      "name": "Whole frame",
+      "description": "Corrects each frame's overall exposure against its neighbours \u2014 the usual cine-film case",
+      "function": "deflicker.global_deflicker",
+      "parameters": [
+        "strength",
+        "window"
+      ]
+    },
+    {
+      "id": "local",
+      "name": "Across the frame",
+      "description": "For flicker that varies from one part of the picture to another",
+      "function": "deflicker.reduce_flicker",
+      "parameters": [
+        "localStrength",
+        "aggressive"
+      ]
+    }
+  ],
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "hidden": true
+      }
+    },
+    "method": {
+      "type": "enum",
+      "default": "global",
+      "options": [
+        "global",
+        "local"
+      ],
+      "ui": {
+        "label": "Method",
+        "description": "Whole-frame is the usual choice for scanned film.",
+        "widget": "dropdown"
+      }
+    },
+    "strength": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "visibleWhen": {
+        "method": [
+          "global"
+        ]
+      },
+      "ui": {
+        "label": "Strength",
+        "description": "Lower this if the correction is over-eager on a shot with a genuine brightness change, like a lamp being switched on.",
+        "widget": "slider",
+        "precision": 2
+      }
+    },
+    "window": {
+      "type": "integer",
+      "default": 5,
+      "min": 1,
+      "max": 12,
+      "step": 1,
+      "visibleWhen": {
+        "method": [
+          "global"
+        ]
+      },
+      "ui": {
+        "label": "Frames compared",
+        "description": "How many frames either side are averaged to decide what the exposure should have been.",
+        "widget": "slider"
+      }
+    },
+    "localStrength": {
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 3,
+      "step": 1,
+      "visibleWhen": {
+        "method": [
+          "local"
+        ]
+      },
+      "ui": {
+        "label": "Strength",
+        "description": "Higher compares against more distant frames.",
+        "widget": "slider"
+      }
+    },
+    "aggressive": {
+      "type": "boolean",
+      "default": false,
+      "visibleWhen": {
+        "method": [
+          "local"
+        ]
+      },
+      "ui": {
+        "label": "Aggressive",
+        "description": "Corrects harder, at more risk of smearing genuine movement.",
+        "widget": "checkbox"
+      }
+    }
+  },
+  "ui": {
+    "sections": [
+      {
+        "title": "Method",
+        "parameters": [
+          "method"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Whole frame",
+        "parameters": [
+          "strength",
+          "window"
+        ],
+        "expanded": true,
+        "visibleWhen": {
+          "method": [
+            "global"
+          ]
+        }
+      },
+      {
+        "title": "Across the frame",
+        "parameters": [
+          "localStrength",
+          "aggressive"
+        ],
+        "expanded": true,
+        "visibleWhen": {
+          "method": [
+            "local"
+          ]
+        }
+      }
+    ]
+  }
+}

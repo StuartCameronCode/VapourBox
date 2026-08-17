@@ -33,7 +33,14 @@ class PassListPanel extends StatelessWidget {
   static const List<({String title, List<PassType> passes})> stages = [
     (
       title: 'Deinterlace & Film Damage',
-      passes: [PassType.deinterlace, PassType.descratch, PassType.spotless],
+      passes: [
+        PassType.deinterlace,
+        PassType.edgeRepair,
+        PassType.ghostRemoval,
+        PassType.deflicker,
+        PassType.descratch,
+        PassType.spotless,
+      ],
     ),
     (
       title: 'Noise & Artifacts',
@@ -142,6 +149,15 @@ class PassListPanel extends StatelessWidget {
             case PassType.frameRate:
               return item(passType, 'Frame Rate', pipeline.frameRate.summary,
                   pipeline.frameRate.enabled);
+            case PassType.deflicker:
+              return item(passType, 'Deflicker', pipeline.deflicker.summary,
+                  pipeline.deflicker.enabled);
+            case PassType.edgeRepair:
+              return item(passType, 'Edge Repair', pipeline.edgeRepair.summary,
+                  pipeline.edgeRepair.enabled);
+            case PassType.ghostRemoval:
+              return item(passType, 'Ghost Removal',
+                  pipeline.ghostRemoval.summary, pipeline.ghostRemoval.enabled);
             case PassType.chromaFixes:
               return item(passType, 'Chroma Fixes', pipeline.chromaFixes.summary,
                   pipeline.chromaFixes.enabled);

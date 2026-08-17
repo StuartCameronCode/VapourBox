@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use crate::models::{
     AntiAliasMethod, GrainMethod,
     VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod, CCD_REFERENCE_HEIGHT,
-    ChromaDenoiseMethod, FrameRateMethod, SpotLessMethod,
+    ChromaDenoiseMethod, FrameRateMethod, SpotLessMethod, DeflickerMethod, EdgeRepairParameters,
     parse_ratio,
     DehaloMethod, DeblockMethod, SharpenMethod, DeinterlaceMethod,
     FieldOrder,
@@ -978,6 +978,61 @@ impl ScriptGenerator {
             }
         } else {
             script = remove_block("{{#NOISE_REDUCTION}}", "{{/NOISE_REDUCTION}}", script);
+        }
+
+        // ====================================================================
+        // EDGE REPAIR / GHOST REMOVAL PASSES
+        // ====================================================================
+        let er = &pipeline.edge_repair;
+        if er.has_effect() {
+            script = script.replace("{{#EDGE_REPAIR}}", "");
+            script = script.replace("{{/EDGE_REPAIR}}", "");
+            script = script.replace("{{ER_LEFT}}", &EdgeRepairParameters::even(er.left).to_string());
+            script = script.replace("{{ER_RIGHT}}", &EdgeRepairParameters::even(er.right).to_string());
+            script = script.replace("{{ER_TOP}}", &EdgeRepairParameters::even(er.top).to_string());
+            script = script.replace("{{ER_BOTTOM}}", &EdgeRepairParameters::even(er.bottom).to_string());
+            script = script.replace("{{ER_MODE}}", er.effective_mode());
+        } else {
+            script = remove_block("{{#EDGE_REPAIR}}", "{{/EDGE_REPAIR}}", script);
+        }
+
+        let gr = &pipeline.ghost_removal;
+        if gr.has_effect() {
+            let (modes, shifts, intensities) = gr.literals();
+            script = script.replace("{{#GHOST_REMOVAL}}", "");
+            script = script.replace("{{/GHOST_REMOVAL}}", "");
+            script = script.replace("{{LG_MODE}}", &modes);
+            script = script.replace("{{LG_SHIFT}}", &shifts);
+            script = script.replace("{{LG_INTENSITY}}", &intensities);
+        } else {
+            script = remove_block("{{#GHOST_REMOVAL}}", "{{/GHOST_REMOVAL}}", script);
+        }
+
+        // ====================================================================
+        // DEFLICKER PASS
+        // ====================================================================
+        let dfl = &pipeline.deflicker;
+        if dfl.enabled {
+            script = script.replace("{{#DEFLICKER}}", "");
+            script = script.replace("{{/DEFLICKER}}", "");
+            match dfl.method {
+                DeflickerMethod::Global => {
+                    script = script.replace("{{#DEFLICKER_GLOBAL}}", "");
+                    script = script.replace("{{/DEFLICKER_GLOBAL}}", "");
+                    script = remove_block("{{#DEFLICKER_LOCAL}}", "{{/DEFLICKER_LOCAL}}", script);
+                    script = script.replace("{{DEFLICKER_STRENGTH}}", &format_double(dfl.strength.clamp(0.0, 1.0)));
+                    script = script.replace("{{DEFLICKER_WINDOW}}", &dfl.effective_window().to_string());
+                }
+                DeflickerMethod::Local => {
+                    script = remove_block("{{#DEFLICKER_GLOBAL}}", "{{/DEFLICKER_GLOBAL}}", script);
+                    script = script.replace("{{#DEFLICKER_LOCAL}}", "");
+                    script = script.replace("{{/DEFLICKER_LOCAL}}", "");
+                    script = script.replace("{{DEFLICKER_LOCAL_STRENGTH}}", &dfl.effective_local_strength().to_string());
+                    script = script.replace("{{DEFLICKER_AGGRESSIVE}}", if dfl.aggressive { "True" } else { "False" });
+                }
+            }
+        } else {
+            script = remove_block("{{#DEFLICKER}}", "{{/DEFLICKER}}", script);
         }
 
         // ====================================================================

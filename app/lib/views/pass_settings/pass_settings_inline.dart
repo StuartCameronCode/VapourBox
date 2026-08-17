@@ -55,6 +55,12 @@ class PassSettingsInline extends StatelessWidget {
         return 'grain';
       case PassType.frameRate:
         return 'frame_rate';
+      case PassType.deflicker:
+        return 'deflicker';
+      case PassType.edgeRepair:
+        return 'edge_repair';
+      case PassType.ghostRemoval:
+        return 'ghost_removal';
       case PassType.colorCorrection:
         return 'color_correction';
       case PassType.chromaFixes:

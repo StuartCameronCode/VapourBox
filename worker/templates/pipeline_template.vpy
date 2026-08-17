@@ -435,6 +435,71 @@ clip = core.vivtc.VDecimate(clip)
 # ============================================================================
 # PASS 3: DESCRATCH (scratch removal)
 # ============================================================================
+# PASS 1c: EDGE REPAIR / GHOST REMOVAL
+# ============================================================================
+{{#EDGE_REPAIR}}
+# Rebuild the dirty rows and columns tape captures leave at the frame border.
+# Must precede every spatial filter, or denoising and sharpening smear the bad
+# rows inward, and must precede the resize, or resampling spreads them.
+#
+# Widths are always even. The bundle pins FillBorders v2 (the newest tag with
+# published binaries), and v2 is bit-identical to v4 at even widths — they
+# differ only at odd widths, where v2 leaves subsampled chroma unrepaired.
+#
+# interlaced=-1 reads _FieldBased, so a clip whose field order this pipeline
+# knows is handled per-field without a second control.
+clip = core.fb.FillBorders(
+    clip,
+    left={{ER_LEFT}}, right={{ER_RIGHT}}, top={{ER_TOP}}, bottom={{ER_BOTTOM}},
+    mode="{{ER_MODE}}",
+    interlaced=-1,
+)
+{{/EDGE_REPAIR}}
+{{#GHOST_REMOVAL}}
+# Cancel the displaced echo RF and cable distribution leave behind. Each ghost
+# is a (mode, shift, intensity) triple and the three arrays must be the same
+# length — the worker drops any entry the plugin would reject rather than
+# letting it fail at script evaluation.
+#
+# No format limits were found for this plugin at any depth or subsampling, so
+# there is no guard. `opt` is deliberately not passed: on arm64 every value
+# produces byte-identical output, so it is inert here and a footgun on x86.
+clip = core.lghost.LGhost(
+    clip,
+    mode={{LG_MODE}},
+    shift={{LG_SHIFT}},
+    intensity={{LG_INTENSITY}},
+)
+{{/GHOST_REMOVAL}}
+
+# ============================================================================
+# PASS 1b: DEFLICKER
+# ============================================================================
+{{#DEFLICKER}}
+# Even out brightness pulsing. Runs after deinterlacing — field-doubled frames
+# break every temporal comparison this makes — and before the dirt and denoise
+# passes, which all assume a stable exposure.
+import sys as _dfl_sys
+_dfl_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
+import deflicker as _deflicker
+{{#DEFLICKER_GLOBAL}}
+# Whole-frame exposure correction: fits a gain AND an offset per frame against a
+# windowed neighbourhood average. Measured 83.5% of injected flicker removed.
+# Both terms are fitted because neither alone works on every fault: gain-only
+# manages 46% on additive flicker, offset-only 46% on multiplicative.
+clip = _deflicker.global_deflicker(clip, strength={{DEFLICKER_STRENGTH}}, window={{DEFLICKER_WINDOW}})
+{{/DEFLICKER_GLOBAL}}
+{{#DEFLICKER_LOCAL}}
+# Local oscillation damper, for flicker that varies across the frame — which a
+# whole-frame statistic cannot represent. Transcribed from the ReduceFlicker
+# algorithm rather than using the plugin: its non-SIMD path reads the wrong
+# neighbour frame and aarch64 has no other path, so the ARM bundles would
+# render differently from x86.
+clip = _deflicker.reduce_flicker(clip, strength={{DEFLICKER_LOCAL_STRENGTH}}, aggressive={{DEFLICKER_AGGRESSIVE}})
+{{/DEFLICKER_LOCAL}}
+{{/DEFLICKER}}
+
+# ============================================================================
 {{#DESCRATCH}}
 # DeScratch - remove vertical scratches from film
 # DeScratch only supports 8-bit YUV (YV12/YV16/YV24) - convert if needed

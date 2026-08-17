@@ -1,0 +1,117 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "edge_repair",
+  "version": "1.0.0",
+  "name": "Edge Repair",
+  "description": "Rebuild the dirty rows and columns at the frame border",
+  "longDescription": "Tape captures almost always have a few bad rows or columns right at the edge of the frame \u2014 black, half-black, or a smear of the wrong colour. Cropping them away works, but throws picture away with them.\n\nThis rebuilds them from the pixels just inside instead, so the frame stays the size it was. Set each edge to the number of bad rows or columns you can see; the counts move in twos, which is what keeps colour aligned on subsampled video.\n\nIt runs before the cleanup passes on purpose. Denoising or sharpening a bad edge first smears it inward, and resizing spreads it across the picture.",
+  "category": "cleanup",
+  "methods": [
+    {
+      "id": "fillborders",
+      "name": "Fill borders",
+      "description": "Rebuilds the edge from the pixels just inside it",
+      "function": "core.fb.FillBorders",
+      "parameters": [
+        "left",
+        "right",
+        "top",
+        "bottom",
+        "mode"
+      ]
+    }
+  ],
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "hidden": true
+      }
+    },
+    "left": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 16,
+      "step": 2,
+      "ui": {
+        "label": "Left",
+        "description": "Rows to rebuild on the left edge.",
+        "widget": "slider"
+      }
+    },
+    "right": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 16,
+      "step": 2,
+      "ui": {
+        "label": "Right",
+        "description": "Rows to rebuild on the right edge.",
+        "widget": "slider"
+      }
+    },
+    "top": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 16,
+      "step": 2,
+      "ui": {
+        "label": "Top",
+        "description": "Rows to rebuild along the top.",
+        "widget": "slider"
+      }
+    },
+    "bottom": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 16,
+      "step": 2,
+      "ui": {
+        "label": "Bottom",
+        "description": "Rows to rebuild along the bottom.",
+        "widget": "slider"
+      }
+    },
+    "mode": {
+      "type": "enum",
+      "default": "fillmargins",
+      "options": [
+        "fillmargins",
+        "repeat",
+        "mirror"
+      ],
+      "ui": {
+        "label": "Fill method",
+        "description": "How the rebuilt pixels are derived. The default suits almost everything \u2014 measured, the alternatives score the same.",
+        "widget": "dropdown"
+      }
+    }
+  },
+  "ui": {
+    "sections": [
+      {
+        "title": "Edges",
+        "parameters": [
+          "left",
+          "right",
+          "top",
+          "bottom"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Advanced",
+        "parameters": [
+          "mode"
+        ],
+        "expanded": false,
+        "advancedOnly": true
+      }
+    ]
+  }
+}

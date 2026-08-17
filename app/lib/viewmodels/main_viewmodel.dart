@@ -198,6 +198,12 @@ class MainViewModel extends ChangeNotifier {
         return ParameterConverter.fromGrain(_processingPipeline.grain);
       case 'frame_rate':
         return ParameterConverter.fromFrameRate(_processingPipeline.frameRate);
+      case 'deflicker':
+        return ParameterConverter.fromDeflicker(_processingPipeline.deflicker);
+      case 'edge_repair':
+        return ParameterConverter.fromEdgeRepair(_processingPipeline.edgeRepair);
+      case 'ghost_removal':
+        return ParameterConverter.fromGhostRemoval(_processingPipeline.ghostRemoval);
       case 'color_correction':
         return ParameterConverter.fromColorCorrection(_processingPipeline.colorCorrection);
       case 'chroma_fixes':
@@ -277,6 +283,26 @@ class MainViewModel extends ChangeNotifier {
       case 'grain':
         _processingPipeline = _processingPipeline.copyWith(
           grain: ParameterConverter.toGrain(params),
+        );
+        break;
+      case 'deflicker':
+        _processingPipeline = _processingPipeline.copyWith(
+          deflicker: ParameterConverter.toDeflicker(params),
+        );
+        break;
+      case 'edge_repair':
+        _processingPipeline = _processingPipeline.copyWith(
+          edgeRepair: ParameterConverter.toEdgeRepair(params),
+        );
+        break;
+      case 'ghost_removal':
+        // `custom` keeps the job's existing ghost list, so a hand-built one
+        // survives a round trip through the preset dropdown.
+        _processingPipeline = _processingPipeline.copyWith(
+          ghostRemoval: ParameterConverter.toGhostRemoval(
+            params,
+            existing: _processingPipeline.ghostRemoval.ghosts,
+          ),
         );
         break;
       case 'frame_rate':
@@ -1088,6 +1114,12 @@ class MainViewModel extends ChangeNotifier {
         return 'grain';
       case PassType.frameRate:
         return 'frame_rate';
+      case PassType.deflicker:
+        return 'deflicker';
+      case PassType.edgeRepair:
+        return 'edge_repair';
+      case PassType.ghostRemoval:
+        return 'ghost_removal';
       case PassType.colorCorrection:
         return 'color_correction';
       case PassType.chromaFixes:

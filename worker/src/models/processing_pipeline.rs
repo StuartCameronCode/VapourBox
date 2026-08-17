@@ -6,7 +6,7 @@ use super::{
     AntiAliasParameters, GeometryParameters, GrainParameters, StabilizeParameters,
     ChromaDenoiseParameters, ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
     DebandParameters, DeblockParameters, DehaloParameters, DeinterlaceMethod, DeScratchParameters,
-    SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters, FrameRateParameters, FrameRateMethod,};
+    SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters, FrameRateParameters, FrameRateMethod, DeflickerParameters, EdgeRepairParameters, GhostRemovalParameters,};
 
 /// Minimum temporal context (frames on each side of the target) a windowed
 /// preview decodes, regardless of which filters are enabled. Motion-compensated
@@ -126,6 +126,12 @@ pub enum PassType {
     Stabilize,
     Geometry,
     Grain,
+    /// Remove brightness pulsing between frames.
+    Deflicker,
+    /// Remove the displaced echo RF and cable distribution leave behind.
+    GhostRemoval,
+    /// Rebuild the dirty rows and columns at the frame border.
+    EdgeRepair,
     /// Frame-rate conversion (standards conversion, not smoothing).
     FrameRate,
     ColorCorrection,
@@ -151,6 +157,9 @@ impl PassType {
             PassType::Stabilize => "Stabilize",
             PassType::Geometry => "Rotate / Flip",
             PassType::Grain => "Film Grain",
+            PassType::Deflicker => "Deflicker",
+            PassType::GhostRemoval => "Ghost Removal",
+            PassType::EdgeRepair => "Edge Repair",
             PassType::FrameRate => "Frame Rate",
             PassType::ColorCorrection => "Color Correction",
             PassType::ChromaFixes => "Chroma Fixes",
@@ -174,6 +183,9 @@ impl PassType {
             PassType::Stabilize => "Remove shake and weave from the picture",
             PassType::Geometry => "Rotate or mirror the picture",
             PassType::Grain => "Add film grain back after denoising",
+            PassType::Deflicker => "Even out brightness pulsing between frames",
+            PassType::GhostRemoval => "Remove the displaced echo RF and cable distribution leave behind",
+            PassType::EdgeRepair => "Rebuild the dirty rows and columns at the frame border",
             PassType::FrameRate => "Convert between PAL and NTSC frame rates",
             PassType::ColorCorrection => "Adjust brightness, contrast, and colors",
             PassType::ChromaFixes => "Fix chroma bleeding and crawl artifacts",
@@ -239,6 +251,16 @@ pub struct ProcessingPipeline {
     #[serde(default)]
     pub grain: GrainParameters,
 
+    /// Brightness flicker removal. Off by default.
+    #[serde(default)]
+    pub deflicker: DeflickerParameters,
+
+    #[serde(default)]
+    pub ghost_removal: GhostRemovalParameters,
+
+    #[serde(default)]
+    pub edge_repair: EdgeRepairParameters,
+
     /// Frame-rate conversion. Off by default.
     #[serde(default)]
     pub frame_rate: FrameRateParameters,
@@ -272,6 +294,9 @@ impl Default for ProcessingPipeline {
             stabilize: StabilizeParameters::default(),
             geometry: GeometryParameters::default(),
             grain: GrainParameters::default(),
+            deflicker: DeflickerParameters::default(),
+            ghost_removal: GhostRemovalParameters::default(),
+            edge_repair: EdgeRepairParameters::default(),
             frame_rate: FrameRateParameters::default(),
             color_correction: ColorCorrectionParameters::default(),
             chroma_fixes: ChromaFixParameters::default(),
@@ -298,6 +323,9 @@ impl ProcessingPipeline {
             stabilize: StabilizeParameters { enabled: false, ..Default::default() },
             geometry: GeometryParameters { enabled: false, ..Default::default() },
             grain: GrainParameters { enabled: false, ..Default::default() },
+            deflicker: DeflickerParameters { enabled: false, ..Default::default() },
+            ghost_removal: GhostRemovalParameters { enabled: false, ..Default::default() },
+            edge_repair: EdgeRepairParameters { enabled: false, ..Default::default() },
             frame_rate: FrameRateParameters { enabled: false, ..Default::default() },
             color_correction: ColorCorrectionParameters { enabled: false, ..Default::default() },
             chroma_fixes: ChromaFixParameters { enabled: false, ..Default::default() },
@@ -315,6 +343,24 @@ impl ProcessingPipeline {
         }
         if self.deinterlace_enabled() {
             passes.push(PassType::Deinterlace);
+        }
+        // Edge repair must precede every spatial filter, or denoising and
+        // sharpening smear the bad rows inward — and it must precede the resize,
+        // or resampling spreads them. After deinterlacing rather than first, so
+        // it works on progressive output when deinterlacing is on.
+        if self.edge_repair.has_effect() {
+            passes.push(PassType::EdgeRepair);
+        }
+        // Ghosting is a per-line echo in luma; removing it before the denoise
+        // stops the denoiser averaging the echo into the picture.
+        if self.ghost_removal.has_effect() {
+            passes.push(PassType::GhostRemoval);
+        }
+        // Deflicker must follow deinterlacing — field-doubled frames break
+        // every temporal comparison it makes — and precede the dirt and
+        // denoise passes, which all assume a stable exposure.
+        if self.deflicker.enabled {
+            passes.push(PassType::Deflicker);
         }
         if self.descratch.enabled {
             passes.push(PassType::DeScratch);
@@ -434,6 +480,9 @@ impl ProcessingPipeline {
             },
             PassType::SpotLess => FrameMap::Identity { radius: 2 },
             PassType::DeScratch => FrameMap::Identity { radius: 1 },
+            PassType::Deflicker => FrameMap::Identity { radius: self.deflicker.radius() },
+            PassType::EdgeRepair => FrameMap::Identity { radius: 0 },
+            PassType::GhostRemoval => FrameMap::Identity { radius: 0 },
             // The one pass that emits a Retime. The ratio is known up front, so
             // the count is exact; `synthesizes` is true only for the
             // interpolating method, where an output frame has no single source.
@@ -547,6 +596,9 @@ impl ProcessingPipeline {
             PassType::Stabilize => self.stabilize.enabled,
             PassType::Geometry => self.geometry.has_effect(),
             PassType::Grain => self.grain.has_effect(),
+            PassType::Deflicker => self.deflicker.enabled,
+            PassType::GhostRemoval => self.ghost_removal.has_effect(),
+            PassType::EdgeRepair => self.edge_repair.has_effect(),
             PassType::FrameRate => self.frame_rate.enabled,
             PassType::ColorCorrection => self.color_correction.enabled,
             PassType::ChromaFixes => self.chroma_fixes.enabled,

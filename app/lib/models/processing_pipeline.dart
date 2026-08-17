@@ -2,7 +2,10 @@ import 'package:json_annotation/json_annotation.dart';
 
 import 'anti_alias_parameters.dart';
 import 'geometry_parameters.dart';
+import 'deflicker_parameters.dart';
+import 'edge_repair_parameters.dart';
 import 'frame_rate_parameters.dart';
+import 'ghost_removal_parameters.dart';
 import 'grain_parameters.dart';
 import 'chroma_fix_parameters.dart';
 import 'color_correction_parameters.dart';
@@ -39,6 +42,9 @@ enum PassType {
   geometry,
   grain,
   frameRate,
+  deflicker,
+  edgeRepair,
+  ghostRemoval,
   colorCorrection,
   chromaFixes,
   cropResize,
@@ -77,6 +83,12 @@ extension PassTypeExtension on PassType {
         return 'Film Grain';
       case PassType.frameRate:
         return 'Frame Rate';
+      case PassType.deflicker:
+        return 'Deflicker';
+      case PassType.edgeRepair:
+        return 'Edge Repair';
+      case PassType.ghostRemoval:
+        return 'Ghost Removal';
       case PassType.colorCorrection:
         return 'Color Correction';
       case PassType.chromaFixes:
@@ -118,6 +130,12 @@ extension PassTypeExtension on PassType {
         return 'Add film grain back after denoising';
       case PassType.frameRate:
         return 'Convert between PAL and NTSC frame rates';
+      case PassType.deflicker:
+        return 'Even out brightness pulsing between frames';
+      case PassType.edgeRepair:
+        return 'Rebuild the dirty rows and columns at the frame border';
+      case PassType.ghostRemoval:
+        return 'Remove the displaced echo RF and cable distribution leave behind';
       case PassType.colorCorrection:
         return 'Adjust brightness, contrast, and colors';
       case PassType.chromaFixes:
@@ -165,6 +183,9 @@ class ProcessingPipeline {
   final GeometryParameters geometry;
   final GrainParameters grain;
   final FrameRateParameters frameRate;
+  final DeflickerParameters deflicker;
+  final EdgeRepairParameters edgeRepair;
+  final GhostRemovalParameters ghostRemoval;
 
   /// Color correction pass parameters.
   final ColorCorrectionParameters colorCorrection;
@@ -193,6 +214,9 @@ class ProcessingPipeline {
     this.geometry = const GeometryParameters(),
     this.grain = const GrainParameters(),
     this.frameRate = const FrameRateParameters(),
+    this.deflicker = const DeflickerParameters(),
+    this.edgeRepair = const EdgeRepairParameters(),
+    this.ghostRemoval = const GhostRemovalParameters(),
     this.colorCorrection = const ColorCorrectionParameters(),
     this.chromaFixes = const ChromaFixParameters(),
     this.cropResize = const CropResizeParameters(),
@@ -217,6 +241,9 @@ class ProcessingPipeline {
       geometry: const GeometryParameters(enabled: false),
       grain: const GrainParameters(enabled: false),
       frameRate: const FrameRateParameters(enabled: false),
+      deflicker: const DeflickerParameters(enabled: false),
+      edgeRepair: const EdgeRepairParameters(enabled: false),
+      ghostRemoval: const GhostRemovalParameters(enabled: false),
       colorCorrection: const ColorCorrectionParameters(enabled: false),
       chromaFixes: const ChromaFixParameters(enabled: false),
       cropResize: const CropResizeParameters(enabled: false),
@@ -233,6 +260,21 @@ class ProcessingPipeline {
     }
     if (deinterlace.enabled) {
       passes.add(PassType.deinterlace);
+    }
+    // Edge repair precedes every spatial filter, or denoising and sharpening
+    // smear the bad rows inward; and precedes the resize, or resampling spreads
+    // them. Ghost removal follows it and precedes the denoise, so the denoiser
+    // does not average the echo into the picture. Deflicker follows
+    // deinterlacing (field-doubled frames break its temporal comparisons) and
+    // precedes the dirt and denoise passes, which assume a stable exposure.
+    if (edgeRepair.hasEffect) {
+      passes.add(PassType.edgeRepair);
+    }
+    if (ghostRemoval.hasEffect) {
+      passes.add(PassType.ghostRemoval);
+    }
+    if (deflicker.enabled) {
+      passes.add(PassType.deflicker);
     }
     if (descratch.enabled) {
       passes.add(PassType.descratch);
@@ -319,6 +361,9 @@ class ProcessingPipeline {
     if (geometry.hasEffect) count++;
     if (grain.hasEffect) count++;
     if (frameRate.enabled) count++;
+    if (deflicker.enabled) count++;
+    if (edgeRepair.hasEffect) count++;
+    if (ghostRemoval.hasEffect) count++;
     if (colorCorrection.enabled) count++;
     if (chromaFixes.enabled) count++;
     if (cropResize.enabled) count++;
@@ -343,6 +388,9 @@ class ProcessingPipeline {
     if (geometry.hasEffect) count++;
     if (grain.hasEffect) count++;
     if (frameRate.enabled) count++;
+    if (deflicker.enabled) count++;
+    if (edgeRepair.hasEffect) count++;
+    if (ghostRemoval.hasEffect) count++;
     if (colorCorrection.enabled) count++;
     if (chromaFixes.enabled) count++;
     if (cropResize.enabled) count++;
@@ -380,6 +428,12 @@ class ProcessingPipeline {
         return grain.hasEffect;
       case PassType.frameRate:
         return frameRate.enabled;
+      case PassType.deflicker:
+        return deflicker.enabled;
+      case PassType.edgeRepair:
+        return edgeRepair.hasEffect;
+      case PassType.ghostRemoval:
+        return ghostRemoval.hasEffect;
       case PassType.colorCorrection:
         return colorCorrection.enabled;
       case PassType.chromaFixes:
@@ -424,6 +478,12 @@ class ProcessingPipeline {
         return grain.summary;
       case PassType.frameRate:
         return frameRate.summary;
+      case PassType.deflicker:
+        return deflicker.summary;
+      case PassType.edgeRepair:
+        return edgeRepair.summary;
+      case PassType.ghostRemoval:
+        return ghostRemoval.summary;
       case PassType.colorCorrection:
         return colorCorrection.summary;
       case PassType.chromaFixes:
@@ -450,6 +510,9 @@ class ProcessingPipeline {
     GeometryParameters? geometry,
     GrainParameters? grain,
     FrameRateParameters? frameRate,
+    DeflickerParameters? deflicker,
+    EdgeRepairParameters? edgeRepair,
+    GhostRemovalParameters? ghostRemoval,
     ColorCorrectionParameters? colorCorrection,
     ChromaFixParameters? chromaFixes,
     CropResizeParameters? cropResize,
@@ -470,6 +533,9 @@ class ProcessingPipeline {
       geometry: geometry ?? this.geometry,
       grain: grain ?? this.grain,
       frameRate: frameRate ?? this.frameRate,
+      deflicker: deflicker ?? this.deflicker,
+      edgeRepair: edgeRepair ?? this.edgeRepair,
+      ghostRemoval: ghostRemoval ?? this.ghostRemoval,
       colorCorrection: colorCorrection ?? this.colorCorrection,
       chromaFixes: chromaFixes ?? this.chromaFixes,
       cropResize: cropResize ?? this.cropResize,
@@ -535,6 +601,14 @@ class ProcessingPipeline {
       case PassType.frameRate:
         return copyWith(
           frameRate: frameRate.copyWith(enabled: enabled),
+        );
+      case PassType.deflicker:
+        return copyWith(deflicker: deflicker.copyWith(enabled: enabled));
+      case PassType.edgeRepair:
+        return copyWith(edgeRepair: edgeRepair.copyWith(enabled: enabled));
+      case PassType.ghostRemoval:
+        return copyWith(
+          ghostRemoval: ghostRemoval.copyWith(enabled: enabled),
         );
       case PassType.colorCorrection:
         return copyWith(

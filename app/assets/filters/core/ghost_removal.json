@@ -1,0 +1,55 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "ghost_removal",
+  "version": "1.0.0",
+  "name": "Ghost Removal",
+  "description": "Remove the displaced echo RF and cable distribution leave behind",
+  "longDescription": "A faint second copy of the picture, shifted sideways, is the signature of a signal that arrived by aerial or a long cable run \u2014 the same image reaching the tuner twice, a fraction of a microsecond apart.\n\nPick the preset that matches what you can see. Each one cancels an echo at a typical offset and strength; if none of them fits, the advanced editor lets you set the offset and strength directly, and add more than one.\n\nA ghost that is very strong, or that varies across the picture, will not come out cleanly \u2014 this cancels a fixed echo, it does not separate two overlapping images.",
+  "category": "cleanup",
+  "methods": [
+    {
+      "id": "lghost",
+      "name": "LGhost",
+      "description": "Cancels a fixed horizontal echo",
+      "function": "core.lghost.LGhost",
+      "parameters": [
+        "preset"
+      ]
+    }
+  ],
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "hidden": true
+      }
+    },
+    "preset": {
+      "type": "enum",
+      "default": "light",
+      "options": [
+        "light",
+        "medium",
+        "strong",
+        "custom"
+      ],
+      "ui": {
+        "label": "Ghost strength",
+        "description": "How pronounced the echo is. Choose Custom to set the offset and strength yourself.",
+        "widget": "dropdown"
+      }
+    }
+  },
+  "ui": {
+    "sections": [
+      {
+        "title": "Ghost",
+        "parameters": [
+          "preset"
+        ],
+        "expanded": true
+      }
+    ]
+  }
+}

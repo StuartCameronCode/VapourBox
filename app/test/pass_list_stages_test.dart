@@ -37,6 +37,9 @@ void main() {
     // fails, confirm against script_generator.rs before changing it.
     expect(flattened, [
       PassType.deinterlace,
+      PassType.edgeRepair,
+      PassType.ghostRemoval,
+      PassType.deflicker,
       PassType.descratch,
       PassType.spotless,
       PassType.noiseReduction,
@@ -101,6 +104,27 @@ void main() {
     // Frame rate conversion is last of the video passes. It resamples the
     // timeline, so any temporal pass after it would be working on invented
     // frames rather than photographed ones.
+    // Edge repair must precede every spatial filter, or denoising and
+    // sharpening smear the bad rows inward, and must precede the resize, or
+    // resampling spreads them across the picture.
+    for (final later in [
+      PassType.noiseReduction,
+      PassType.sharpen,
+      PassType.cropResize,
+    ]) {
+      expect(flattened.indexOf(PassType.edgeRepair),
+          lessThan(flattened.indexOf(later)),
+          reason: 'edge repair must precede $later');
+    }
+
+    // Deflicker must follow deinterlacing — field-doubled frames break every
+    // temporal comparison it makes — and precede the passes that assume a
+    // stable exposure.
+    expect(flattened.indexOf(PassType.deflicker),
+        greaterThan(flattened.indexOf(PassType.deinterlace)));
+    expect(flattened.indexOf(PassType.deflicker),
+        lessThan(flattened.indexOf(PassType.noiseReduction)));
+
     for (final earlier in [
       PassType.deinterlace,
       PassType.noiseReduction,

@@ -149,6 +149,9 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info) {
     // Frame rate conversion is a deliberate choice about the delivery
     // format, not something detection can recommend — a 25 fps source is not
     // evidence that anyone wants it at 29.97.
+    case PassType.deflicker:
+    case PassType.edgeRepair:
+    case PassType.ghostRemoval:
     case PassType.frameRate:
     case PassType.grain:
       return PassRelevanceResult.neutral;

@@ -1,7 +1,10 @@
 import 'chroma_denoise_parameters.dart';
 import 'anti_alias_parameters.dart';
 import 'geometry_parameters.dart';
+import 'deflicker_parameters.dart';
+import 'edge_repair_parameters.dart';
 import 'frame_rate_parameters.dart';
+import 'ghost_removal_parameters.dart';
 import 'grain_parameters.dart';
 import 'chroma_fix_parameters.dart';
 import 'color_correction_parameters.dart';
@@ -417,6 +420,78 @@ class ParameterConverter {
 
   /// Convert grain parameters to dynamic format.
   /// Convert frame rate parameters to dynamic format.
+  /// Convert deflicker parameters to dynamic format.
+  static DynamicParameters fromDeflicker(DeflickerParameters params) {
+    return DynamicParameters(
+      filterId: 'deflicker',
+      enabled: params.enabled,
+      values: {
+        'method': params.method == DeflickerMethod.local ? 'local' : 'global',
+        'strength': params.strength,
+        'window': params.window,
+        'localStrength': params.localStrength,
+        'aggressive': params.aggressive,
+      },
+    );
+  }
+
+  /// Convert edge repair parameters to dynamic format.
+  static DynamicParameters fromEdgeRepair(EdgeRepairParameters params) {
+    return DynamicParameters(
+      filterId: 'edge_repair',
+      enabled: params.enabled,
+      values: {
+        'left': params.left,
+        'right': params.right,
+        'top': params.top,
+        'bottom': params.bottom,
+        'mode': params.mode,
+      },
+    );
+  }
+
+  /// Convert ghost removal parameters to dynamic format.
+  ///
+  /// The presets map to (mode, shift, intensity) triples the plugin accepts.
+  /// A saved job carrying its own ghost list keeps it: `custom` is resolved
+  /// back to whatever was stored rather than to a preset.
+  static DynamicParameters fromGhostRemoval(GhostRemovalParameters params) {
+    return DynamicParameters(
+      filterId: 'ghost_removal',
+      enabled: params.enabled,
+      values: {'preset': ghostPresetFor(params.ghosts)},
+    );
+  }
+
+  /// Named ghost presets. Mode 2 is luminance ghosting, which is what RF and
+  /// cable echoes look like; the offsets are typical for SD line timing.
+  static const Map<String, List<GhostSpec>> ghostPresets = {
+    'light': [GhostSpec(mode: 2, shift: 4, intensity: 12)],
+    'medium': [GhostSpec(mode: 2, shift: 6, intensity: 24)],
+    'strong': [
+      GhostSpec(mode: 2, shift: 6, intensity: 36),
+      GhostSpec(mode: 1, shift: 12, intensity: 12),
+    ],
+  };
+
+  static String ghostPresetFor(List<GhostSpec> ghosts) {
+    for (final entry in ghostPresets.entries) {
+      final preset = entry.value;
+      if (preset.length != ghosts.length) continue;
+      var same = true;
+      for (var i = 0; i < preset.length; i++) {
+        if (preset[i].mode != ghosts[i].mode ||
+            preset[i].shift != ghosts[i].shift ||
+            preset[i].intensity != ghosts[i].intensity) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return entry.key;
+    }
+    return ghosts.isEmpty ? 'light' : 'custom';
+  }
+
   static DynamicParameters fromFrameRate(FrameRateParameters params) {
     return DynamicParameters(
       filterId: 'frame_rate',
@@ -454,6 +529,48 @@ class ParameterConverter {
 
   /// Convert dynamic parameters to grain parameters.
   /// Convert dynamic parameters to frame rate parameters.
+  /// Convert dynamic parameters to deflicker parameters.
+  static DeflickerParameters toDeflicker(DynamicParameters params) {
+    final v = params.values;
+    return DeflickerParameters(
+      enabled: params.enabled,
+      method: (v['method'] as String?) == 'local'
+          ? DeflickerMethod.local
+          : DeflickerMethod.global,
+      strength: (v['strength'] as num?)?.toDouble() ?? 1.0,
+      window: _asInt(v['window']) ?? 5,
+      localStrength: _asInt(v['localStrength']) ?? 2,
+      aggressive: v['aggressive'] as bool? ?? false,
+    );
+  }
+
+  /// Convert dynamic parameters to edge repair parameters.
+  static EdgeRepairParameters toEdgeRepair(DynamicParameters params) {
+    final v = params.values;
+    return EdgeRepairParameters(
+      enabled: params.enabled,
+      left: _asInt(v['left']) ?? 0,
+      right: _asInt(v['right']) ?? 0,
+      top: _asInt(v['top']) ?? 0,
+      bottom: _asInt(v['bottom']) ?? 0,
+      mode: v['mode'] as String? ?? 'fillmargins',
+    );
+  }
+
+  /// Convert dynamic parameters to ghost removal parameters.
+  static GhostRemovalParameters toGhostRemoval(
+    DynamicParameters params, {
+    List<GhostSpec> existing = const [],
+  }) {
+    final preset = params.values['preset'] as String? ?? 'light';
+    // `custom` means "keep whatever the job already carried" — resolving it to
+    // a preset would silently discard a hand-built ghost list.
+    final ghosts = preset == 'custom'
+        ? existing
+        : (ghostPresets[preset] ?? ghostPresets['light']!);
+    return GhostRemovalParameters(enabled: params.enabled, ghosts: ghosts);
+  }
+
   static FrameRateParameters toFrameRate(DynamicParameters params) {
     final v = params.values;
     final target = FrameRateTarget.values.firstWhere(
@@ -776,6 +893,9 @@ class ParameterConverter {
         'geometry': fromGeometry(pipeline.geometry),
         'grain': fromGrain(pipeline.grain),
         'frame_rate': fromFrameRate(pipeline.frameRate),
+        'deflicker': fromDeflicker(pipeline.deflicker),
+        'edge_repair': fromEdgeRepair(pipeline.edgeRepair),
+        'ghost_removal': fromGhostRemoval(pipeline.ghostRemoval),
         'chroma_denoise': fromChromaDenoise(pipeline.chromaDenoise),
         'dehalo': fromDehalo(pipeline.dehalo),
         'deblock': fromDeblock(pipeline.deblock),
@@ -1342,6 +1462,15 @@ class ParameterConverter {
       geometry: dynamic.get('geometry') != null
           ? toGeometry(dynamic.get('geometry')!)
           : const GeometryParameters(),
+      deflicker: dynamic.get('deflicker') != null
+          ? toDeflicker(dynamic.get('deflicker')!)
+          : const DeflickerParameters(),
+      edgeRepair: dynamic.get('edge_repair') != null
+          ? toEdgeRepair(dynamic.get('edge_repair')!)
+          : const EdgeRepairParameters(),
+      ghostRemoval: dynamic.get('ghost_removal') != null
+          ? toGhostRemoval(dynamic.get('ghost_removal')!)
+          : const GhostRemovalParameters(),
       frameRate: dynamic.get('frame_rate') != null
           ? toFrameRate(dynamic.get('frame_rate')!)
           : const FrameRateParameters(),
