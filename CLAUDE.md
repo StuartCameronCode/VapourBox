@@ -374,6 +374,17 @@ reliable way to check.
 their own. The design rationale — and two rejected concepts, so they are not
 tried again — is in the renderer's header comment.
 
+> **Audit the presets whenever a pass ships.** Measured 2026-08-17: **8 of the
+> 16 shipped passes are used by no built-in preset at all** — Chroma Denoise,
+> Sharpen, Anti-Aliasing, Stabilize, Rotate/Flip, Film Grain, Colour Correction
+> and Crop/Resize. Every batch added capability that nothing turns on. The
+> sharpest case: **Stabilize shipped specifically for film scans and the
+> "8mm / Super 8 Film Scan" preset does not use it**, while gate weave is the
+> first thing anyone notices on a cine scan; and Chroma Denoise (CCD) — the
+> single filter VideoHelp prescribes most for tape — is in no preset, including
+> "VHS Cleanup". Wiring an existing pass into the preset that names its source
+> costs no new code and is the cheapest capability this project has.
+
 ### Adding a New Built-in Preset
 
 1. Edit `app/lib/models/processing_preset.dart`
@@ -593,6 +604,55 @@ now the first step, and it disqualifies about half of them:
 > so `-I"$VS_INC_DIR"` is not enough — the scripts stage an include root with a
 > `vapoursynth/` subdirectory and pass its parent.
 
+### The 2026-08-17 probe round: measure the premise, not just the plugin
+
+Seven parallel read-only agents probed all 25 unshipped Core/Strong candidates
+from the gap analysis against `deps/macos-arm64` before any plan was written.
+**Probing changed the verdict on nine of the twenty-five.** The plan, the
+simple-vs-advanced calls and the preset defaults are in the artifact — see
+[[reference-hybrid-filter-gap-analysis]]. The transferable lessons:
+
+> **A forum consensus about AviSynth is not evidence about this pipeline.**
+> `TIVTC` was the top-rated candidate on the strength of "TIVTC is definitely
+> better for complex DVDs than VIVTC", repeated across VideoHelp. Measured
+> against the repo's own `hard_telecine_test.avi`, TFM+TDecimate and the
+> `vivtc` VFM+VDecimate path already shipping are **bit-identical** — 0.0000/255
+> after matching and after decimation, same 90→72 frames. On a deliberately
+> broken cadence they differ by 0.0002. The claim is true; it is true of
+> AviSynth's TIVTC against AviSynth's alternatives, not of this app. **Measure
+> the premise before pricing the work**, especially when the rating came from
+> reading rather than running.
+
+> **Two candidates were already implemented.** EDI upscaling is complete in
+> `pipeline_template.vpy` with per-plane centroid correction and measured within
+> 0.055 px of a reference resample — it is invisible because its whole schema
+> section is `advancedOnly, expanded: false` and reaching it needs two separate
+> checkboxes. And `GrayWorld` is not a second filter: in YUV the grey-world
+> assumption reduces exactly to shifting the U/V plane means onto neutral, which
+> is what AutoWhite does. **Check whether the thing exists before costing it.**
+
+> **Upstream defaults can be no-ops or hard failures — probe the default call,
+> not just the function.** `zsmooth.Cnr4` defaults `scenechange=True` and needs
+> frame properties this pipeline never sets, so a naive `core.zsmooth.Cnr4(clip)`
+> fails **100% of jobs on every platform**; prepend `misc.SCDetect`. `Checkmate`
+> is the mirror image: at its own default `tthr2=0` it measured 0.000 difference
+> on every dot-crawl pattern tested — shipping upstream's default gives a filter
+> that silently does nothing.
+
+> **A plugin can carry a bug that only bites one architecture.** ReduceFlicker's
+> `proc_filter.h` reads `prevp[0]/[2]` where its SIMD path correctly reads
+> `nextp[0]/[2]`, and the SIMD block is `#if defined(__SSE2__)` — so aarch64 has
+> no path but the buggy one, and the ARM bundles would have rendered differently
+> from x86. Same failure shape as the znedi3 `_FieldBased` trap that cost two
+> nightly cycles. It is transcribed to `Expr` instead, validated against a numpy
+> model of the C source at max 1 level difference.
+
+> **"Faster" and "better" are different claims and both need measuring.**
+> RemoveDirtMC is *not* additive over the shipped SpotLess (9.99 MAE vs 9.21,
+> and 1.4x slower) — but plain RemoveDirt runs **908 fps against 143** for 60%
+> of the removal. The filter is worth shipping for the axis the forums actually
+> praised it on, and would have been wasted effort on the other.
+
 ### Fourth filter batch (2026-08-15): probe agents, and what they caught
 
 Five more effort-1 filters: **CTMF** (Noise Reduction), **DCTFilter** (Deblock),
@@ -691,6 +751,30 @@ What an effort-2 addition actually costs, beyond the usual filter wiring:
 > that only exist in the newer source. Check
 > `gh api repos/<owner>/<repo>/releases --jq '.[] | "\(.tag_name) \(.assets|length)"'`
 > **before** planning any effort-2 addition.
+>
+> **But that check is no longer sufficient on its own — plugins are migrating to
+> PyPI.** Re-probing on 2026-08-17 found the rule intact and *three of its
+> conclusions stale*, because upstream had changed distribution channel rather
+> than stopping:
+>
+> | plugin | GitHub releases say | reality |
+> |---|---|---|
+> | **Bwdif** | last asset r4.1 (2021) | r5 moved to PyPI; `vapoursynth-bwdif` 5.1 ships wheels for **all five** targets |
+> | **DeDot** | v2/v3 have no assets | `vapoursynth_dedot` 3.0 ships wheels for all five |
+> | **EdgeFixer** | (assumed absent) | r3 (2026-07-22) **does** ship `EdgeFixer_r3.7z`, and it is the newest tag |
+>
+> So the check is now **two** commands, and the second is the one that was
+> missing: `curl -s https://pypi.org/pypi/vapoursynth-<name>/json`. The akarin
+> block in `download-deps-windows.ps1` is already a working PyPI-wheel fetcher
+> (resolve the hashed URL through the JSON API; a wheel is a zip) — copy it
+> rather than concluding a plugin is unavailable.
+>
+> Two caveats found the same day: a wheel's macOS tag is a **floor, not a
+> promise** — dedot's `macosx_15_0_x86_64` fails this bundle's `STRICT_MIN_OS=1`
+> 12.0 guard, so x64 still builds from source — and **FillBorders v2 vs v4 is
+> still real**, but measured bit-identical at even border widths, differing only
+> at odd widths where v2 leaves subsampled chroma unrepaired. Constraining the UI
+> to `step: 2` (as every crop control already is) erases the difference.
 
 > **Yes, one filter justified this deps release — that was a deliberate call.**
 > zsmooth already provides `FluxSmoothT`/`FluxSmoothST`, so those two methods
@@ -920,6 +1004,39 @@ anamorphic source silently dropped it and the picture came out the wrong shape.
 Whichever axis you change, `parse_ratio` accepts `16:9`, `16/9` and `1.7778`, and
 returns `None` for anything else so a typo falls back to the source's own aspect
 rather than reaching ffmpeg as a broken filter argument.
+
+### Colour metadata is dropped end to end (found 2026-08-17, NOT yet fixed)
+
+Same shape as the SAR bug, same cause, same fix site — and still open. Matrix,
+primaries, transfer and range are:
+
+1. **Never read.** `field_order_detector.dart` runs ffprobe with no
+   `-show_entries` filter, so `color_space`/`color_transfer`/`color_primaries`/
+   `color_range` are all *present in the JSON* — and the parser takes width,
+   height, `pix_fmt`, SAR and field order and discards them.
+2. **Never carried.** Neither `VideoInfo` nor either `VideoJob` has a field for
+   them.
+3. **Never stamped.** `build_ffmpeg_args` emits no `-color*` flag of any kind.
+   `grep -rn "color_space\|color_trc\|color_primaries\|color_range"` over
+   `app/lib`, `worker/src` and `worker/templates` returns **nothing**.
+
+So a BT.709 or full-range source is written out **untagged**, which every player
+then reads as BT.601 limited. `pipe_source.py` also maps `yuvj420p` → `YUV420P8`,
+silently dropping full-range.
+
+> **A `std.SetFrameProps` pass would be inert.** The Y4M pipe strips frame
+> properties exactly as it strips SAR — verified: a clip carrying `_Matrix=5`
+> etc. produces a header with no matrix, primaries or transfer. The fix is
+> **output-stream flags on the encoder** (`-colorspace`/`-color_primaries`/
+> `-color_trc`/`-color_range`), appended beside the existing `setsar` in
+> `pipeline_executor.rs`. Mirror it into `build_ffmpeg_args_for_test`, which
+> already omits the SAR block and would otherwise not see it.
+
+Companion bug in the preview: the PNG conversion hardcodes
+`-vf scale=in_range=tv:out_range=pc` with **no `in_color_matrix`**, so swscale
+guesses — while the "before" thumbnail comes from a different ffmpeg call on the
+original file that *does* see the real tags. On a 709-tagged source the
+comparison therefore shows a hue shift no filter caused.
 
 ### Source Pixel Formats (issue #50)
 
@@ -1435,6 +1552,12 @@ Three things to keep straight:
   `test_93` fails the build if either calls `core.std.Expr` directly, and also
   if the helper's fallback calls *itself* (a blanket search-and-replace made it
   infinitely recursive once — the fallback must name `core.std.Expr`).
+  **`test_93` only scans the two `.vpy` templates**, not vendored `.py` modules
+  in `worker/templates/`. That has never mattered because `spotless.py` uses no
+  `Expr` at all — but TemporalDegrain2 and mClean both do, so vendoring either
+  as-is would silently take the 21x scalar-interpreter path on ARM with nothing
+  failing. Extend the assertion to `worker/templates/*.py` before vendoring
+  anything that calls `Expr`.
 - **macOS x64 deliberately does not get it.** The only wheel is
   `macosx_14_0_x86_64` and that bundle targets **12.0** (issue #39), so shipping
   it would raise the Intel floor to macOS 14 — for a platform that already has
