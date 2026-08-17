@@ -15,5 +15,6 @@
   "anti_alias.json",
   "stabilize.json",
   "geometry.json",
-  "grain.json"
+  "grain.json",
+  "frame_rate.json"
 ]

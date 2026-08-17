@@ -237,6 +237,8 @@ class PassListItem extends StatelessWidget {
         return Icons.rotate_90_degrees_cw;
       case PassType.grain:
         return Icons.grain;
+      case PassType.frameRate:
+        return Icons.speed;
       case PassType.colorCorrection:
         return Icons.palette;
       case PassType.chromaFixes:

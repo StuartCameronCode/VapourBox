@@ -196,6 +196,8 @@ class MainViewModel extends ChangeNotifier {
         return ParameterConverter.fromGeometry(_processingPipeline.geometry);
       case 'grain':
         return ParameterConverter.fromGrain(_processingPipeline.grain);
+      case 'frame_rate':
+        return ParameterConverter.fromFrameRate(_processingPipeline.frameRate);
       case 'color_correction':
         return ParameterConverter.fromColorCorrection(_processingPipeline.colorCorrection);
       case 'chroma_fixes':
@@ -275,6 +277,17 @@ class MainViewModel extends ChangeNotifier {
       case 'grain':
         _processingPipeline = _processingPipeline.copyWith(
           grain: ParameterConverter.toGrain(params),
+        );
+        break;
+      case 'frame_rate':
+        // The source rate is carried through rather than round-tripped: it
+        // comes from detection, not from the UI, and the worker needs it to
+        // report a correct frame map.
+        _processingPipeline = _processingPipeline.copyWith(
+          frameRate: ParameterConverter.toFrameRate(params).copyWith(
+            sourceFpsNum: _processingPipeline.frameRate.sourceFpsNum,
+            sourceFpsDen: _processingPipeline.frameRate.sourceFpsDen,
+          ),
         );
         break;
       case 'color_correction':
@@ -1073,6 +1086,8 @@ class MainViewModel extends ChangeNotifier {
         return 'geometry';
       case PassType.grain:
         return 'grain';
+      case PassType.frameRate:
+        return 'frame_rate';
       case PassType.colorCorrection:
         return 'color_correction';
       case PassType.chromaFixes:

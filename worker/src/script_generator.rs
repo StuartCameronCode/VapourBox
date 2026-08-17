@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use crate::models::{
     AntiAliasMethod, GrainMethod,
     VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod, CCD_REFERENCE_HEIGHT,
-    ChromaDenoiseMethod,
+    ChromaDenoiseMethod, FrameRateMethod,
     parse_ratio,
     DehaloMethod, DeblockMethod, SharpenMethod, DeinterlaceMethod,
     FieldOrder,
@@ -1449,6 +1449,34 @@ impl ScriptGenerator {
             }
         } else {
             script = remove_block("{{#CHROMA_FIXES}}", "{{/CHROMA_FIXES}}", script);
+        }
+
+        // ====================================================================
+        // FRAME RATE PASS
+        // ====================================================================
+        let fr = &pipeline.frame_rate;
+        if fr.enabled {
+            script = script.replace("{{#FRAME_RATE}}", "");
+            script = script.replace("{{/FRAME_RATE}}", "");
+            let (num, den) = fr.target.as_fraction();
+            script = script.replace("{{FPS_TARGET_NUM}}", &num.to_string());
+            script = script.replace("{{FPS_TARGET_DEN}}", &den.to_string());
+            match fr.method {
+                FrameRateMethod::FlowFps => {
+                    script = script.replace("{{#FRAME_RATE_FLOWFPS}}", "");
+                    script = script.replace("{{/FRAME_RATE_FLOWFPS}}", "");
+                    script = remove_block("{{#FRAME_RATE_DUPLICATE}}", "{{/FRAME_RATE_DUPLICATE}}", script);
+                    script = script.replace("{{FPS_BLOCK_SIZE}}", &fr.block_size.to_string());
+                    script = script.replace("{{FPS_OVERLAP}}", &fr.effective_overlap().to_string());
+                }
+                FrameRateMethod::Duplicate => {
+                    script = remove_block("{{#FRAME_RATE_FLOWFPS}}", "{{/FRAME_RATE_FLOWFPS}}", script);
+                    script = script.replace("{{#FRAME_RATE_DUPLICATE}}", "");
+                    script = script.replace("{{/FRAME_RATE_DUPLICATE}}", "");
+                }
+            }
+        } else {
+            script = remove_block("{{#FRAME_RATE}}", "{{/FRAME_RATE}}", script);
         }
 
         // ====================================================================

@@ -52,6 +52,7 @@ void main() {
       PassType.geometry,
       PassType.cropResize,
       PassType.grain,
+      PassType.frameRate,
       PassType.subtitles,
     ]);
   });
@@ -96,6 +97,21 @@ void main() {
         greaterThan(flattened.indexOf(PassType.cropResize)));
     expect(flattened.indexOf(PassType.grain),
         greaterThan(flattened.indexOf(PassType.deband)));
+
+    // Frame rate conversion is last of the video passes. It resamples the
+    // timeline, so any temporal pass after it would be working on invented
+    // frames rather than photographed ones.
+    for (final earlier in [
+      PassType.deinterlace,
+      PassType.noiseReduction,
+      PassType.stabilize,
+      PassType.cropResize,
+      PassType.grain,
+    ]) {
+      expect(flattened.indexOf(PassType.frameRate),
+          greaterThan(flattened.indexOf(earlier)),
+          reason: 'frame rate must follow $earlier');
+    }
   });
 
   test('every stage has a title and at least one pass', () {

@@ -60,7 +60,7 @@ class PassListPanel extends StatelessWidget {
     ),
     (
       title: 'Finishing',
-      passes: [PassType.grain],
+      passes: [PassType.grain, PassType.frameRate],
     ),
     (
       title: 'Post-Processing',
@@ -139,6 +139,9 @@ class PassListPanel extends StatelessWidget {
             case PassType.grain:
               return item(passType, 'Film Grain', pipeline.grain.summary,
                   pipeline.grain.enabled);
+            case PassType.frameRate:
+              return item(passType, 'Frame Rate', pipeline.frameRate.summary,
+                  pipeline.frameRate.enabled);
             case PassType.chromaFixes:
               return item(passType, 'Chroma Fixes', pipeline.chromaFixes.summary,
                   pipeline.chromaFixes.enabled);

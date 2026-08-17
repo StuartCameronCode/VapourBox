@@ -2,6 +2,7 @@ import 'package:json_annotation/json_annotation.dart';
 
 import 'anti_alias_parameters.dart';
 import 'geometry_parameters.dart';
+import 'frame_rate_parameters.dart';
 import 'grain_parameters.dart';
 import 'chroma_fix_parameters.dart';
 import 'color_correction_parameters.dart';
@@ -37,6 +38,7 @@ enum PassType {
   stabilize,
   geometry,
   grain,
+  frameRate,
   colorCorrection,
   chromaFixes,
   cropResize,
@@ -73,6 +75,8 @@ extension PassTypeExtension on PassType {
         return 'Rotate / Flip';
       case PassType.grain:
         return 'Film Grain';
+      case PassType.frameRate:
+        return 'Frame Rate';
       case PassType.colorCorrection:
         return 'Color Correction';
       case PassType.chromaFixes:
@@ -112,6 +116,8 @@ extension PassTypeExtension on PassType {
         return 'Rotate or mirror the picture';
       case PassType.grain:
         return 'Add film grain back after denoising';
+      case PassType.frameRate:
+        return 'Convert between PAL and NTSC frame rates';
       case PassType.colorCorrection:
         return 'Adjust brightness, contrast, and colors';
       case PassType.chromaFixes:
@@ -158,6 +164,7 @@ class ProcessingPipeline {
   final StabilizeParameters stabilize;
   final GeometryParameters geometry;
   final GrainParameters grain;
+  final FrameRateParameters frameRate;
 
   /// Color correction pass parameters.
   final ColorCorrectionParameters colorCorrection;
@@ -185,6 +192,7 @@ class ProcessingPipeline {
     this.stabilize = const StabilizeParameters(),
     this.geometry = const GeometryParameters(),
     this.grain = const GrainParameters(),
+    this.frameRate = const FrameRateParameters(),
     this.colorCorrection = const ColorCorrectionParameters(),
     this.chromaFixes = const ChromaFixParameters(),
     this.cropResize = const CropResizeParameters(),
@@ -208,6 +216,7 @@ class ProcessingPipeline {
       stabilize: const StabilizeParameters(enabled: false),
       geometry: const GeometryParameters(enabled: false),
       grain: const GrainParameters(enabled: false),
+      frameRate: const FrameRateParameters(enabled: false),
       colorCorrection: const ColorCorrectionParameters(enabled: false),
       chromaFixes: const ChromaFixParameters(enabled: false),
       cropResize: const CropResizeParameters(enabled: false),
@@ -284,6 +293,11 @@ class ProcessingPipeline {
     if (grain.hasEffect) {
       passes.add(PassType.grain);
     }
+    // Genuinely last: it resamples the timeline, so anything after it would
+    // be working on invented frames rather than photographed ones.
+    if (frameRate.enabled) {
+      passes.add(PassType.frameRate);
+    }
 
     return passes;
   }
@@ -304,6 +318,7 @@ class ProcessingPipeline {
     if (stabilize.enabled) count++;
     if (geometry.hasEffect) count++;
     if (grain.hasEffect) count++;
+    if (frameRate.enabled) count++;
     if (colorCorrection.enabled) count++;
     if (chromaFixes.enabled) count++;
     if (cropResize.enabled) count++;
@@ -327,6 +342,7 @@ class ProcessingPipeline {
     if (stabilize.enabled) count++;
     if (geometry.hasEffect) count++;
     if (grain.hasEffect) count++;
+    if (frameRate.enabled) count++;
     if (colorCorrection.enabled) count++;
     if (chromaFixes.enabled) count++;
     if (cropResize.enabled) count++;
@@ -362,6 +378,8 @@ class ProcessingPipeline {
         return geometry.hasEffect;
       case PassType.grain:
         return grain.hasEffect;
+      case PassType.frameRate:
+        return frameRate.enabled;
       case PassType.colorCorrection:
         return colorCorrection.enabled;
       case PassType.chromaFixes:
@@ -404,6 +422,8 @@ class ProcessingPipeline {
         return geometry.summary;
       case PassType.grain:
         return grain.summary;
+      case PassType.frameRate:
+        return frameRate.summary;
       case PassType.colorCorrection:
         return colorCorrection.summary;
       case PassType.chromaFixes:
@@ -429,6 +449,7 @@ class ProcessingPipeline {
     StabilizeParameters? stabilize,
     GeometryParameters? geometry,
     GrainParameters? grain,
+    FrameRateParameters? frameRate,
     ColorCorrectionParameters? colorCorrection,
     ChromaFixParameters? chromaFixes,
     CropResizeParameters? cropResize,
@@ -448,6 +469,7 @@ class ProcessingPipeline {
       stabilize: stabilize ?? this.stabilize,
       geometry: geometry ?? this.geometry,
       grain: grain ?? this.grain,
+      frameRate: frameRate ?? this.frameRate,
       colorCorrection: colorCorrection ?? this.colorCorrection,
       chromaFixes: chromaFixes ?? this.chromaFixes,
       cropResize: cropResize ?? this.cropResize,
@@ -509,6 +531,10 @@ class ProcessingPipeline {
       case PassType.grain:
         return copyWith(
           grain: grain.copyWith(enabled: enabled),
+        );
+      case PassType.frameRate:
+        return copyWith(
+          frameRate: frameRate.copyWith(enabled: enabled),
         );
       case PassType.colorCorrection:
         return copyWith(

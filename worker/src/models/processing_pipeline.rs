@@ -6,8 +6,7 @@ use super::{
     AntiAliasParameters, GeometryParameters, GrainParameters, StabilizeParameters,
     ChromaDenoiseParameters, ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
     DebandParameters, DeblockParameters, DehaloParameters, DeinterlaceMethod, DeScratchParameters,
-    SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters,
-};
+    SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters, FrameRateParameters, FrameRateMethod,};
 
 /// Minimum temporal context (frames on each side of the target) a windowed
 /// preview decodes, regardless of which filters are enabled. Motion-compensated
@@ -127,6 +126,8 @@ pub enum PassType {
     Stabilize,
     Geometry,
     Grain,
+    /// Frame-rate conversion (standards conversion, not smoothing).
+    FrameRate,
     ColorCorrection,
     ChromaFixes,
     CropResize,
@@ -150,6 +151,7 @@ impl PassType {
             PassType::Stabilize => "Stabilize",
             PassType::Geometry => "Rotate / Flip",
             PassType::Grain => "Film Grain",
+            PassType::FrameRate => "Frame Rate",
             PassType::ColorCorrection => "Color Correction",
             PassType::ChromaFixes => "Chroma Fixes",
             PassType::CropResize => "Crop / Resize",
@@ -172,6 +174,7 @@ impl PassType {
             PassType::Stabilize => "Remove shake and weave from the picture",
             PassType::Geometry => "Rotate or mirror the picture",
             PassType::Grain => "Add film grain back after denoising",
+            PassType::FrameRate => "Convert between PAL and NTSC frame rates",
             PassType::ColorCorrection => "Adjust brightness, contrast, and colors",
             PassType::ChromaFixes => "Fix chroma bleeding and crawl artifacts",
             PassType::CropResize => "Crop borders and resize output",
@@ -236,6 +239,10 @@ pub struct ProcessingPipeline {
     #[serde(default)]
     pub grain: GrainParameters,
 
+    /// Frame-rate conversion. Off by default.
+    #[serde(default)]
+    pub frame_rate: FrameRateParameters,
+
     /// Color correction pass parameters.
     #[serde(default)]
     pub color_correction: ColorCorrectionParameters,
@@ -265,6 +272,7 @@ impl Default for ProcessingPipeline {
             stabilize: StabilizeParameters::default(),
             geometry: GeometryParameters::default(),
             grain: GrainParameters::default(),
+            frame_rate: FrameRateParameters::default(),
             color_correction: ColorCorrectionParameters::default(),
             chroma_fixes: ChromaFixParameters::default(),
             crop_resize: CropResizeParameters::default(),
@@ -290,6 +298,7 @@ impl ProcessingPipeline {
             stabilize: StabilizeParameters { enabled: false, ..Default::default() },
             geometry: GeometryParameters { enabled: false, ..Default::default() },
             grain: GrainParameters { enabled: false, ..Default::default() },
+            frame_rate: FrameRateParameters { enabled: false, ..Default::default() },
             color_correction: ColorCorrectionParameters { enabled: false, ..Default::default() },
             chroma_fixes: ChromaFixParameters { enabled: false, ..Default::default() },
             crop_resize: CropResizeParameters { enabled: false, ..Default::default() },
@@ -370,6 +379,13 @@ impl ProcessingPipeline {
             passes.push(PassType::Grain);
         }
 
+        // Frame rate conversion is genuinely last. It resamples the timeline, so
+        // running it before anything temporal would have every later pass work
+        // on invented frames rather than photographed ones.
+        if self.frame_rate.enabled {
+            passes.push(PassType::FrameRate);
+        }
+
         passes
     }
 
@@ -418,8 +434,35 @@ impl ProcessingPipeline {
             },
             PassType::SpotLess => FrameMap::Identity { radius: 2 },
             PassType::DeScratch => FrameMap::Identity { radius: 1 },
+            // The one pass that emits a Retime. The ratio is known up front, so
+            // the count is exact; `synthesizes` is true only for the
+            // interpolating method, where an output frame has no single source.
+            PassType::FrameRate => self.frame_rate_frame_map(),
             // Purely spatial passes.
             _ => FrameMap::Identity { radius: 0 },
+        }
+    }
+
+    /// Frame mapping for the frame rate pass.
+    ///
+    /// The source rate is not known to the pipeline, so this reports the
+    /// identity and the executor substitutes the real ratio once vspipe has
+    /// reported the input rate. Reporting a wrong fixed ratio here would make
+    /// the progress total and the preview seek disagree with the output.
+    fn frame_rate_frame_map(&self) -> FrameMap {
+        // Without a source rate we cannot know the ratio, and a wrong fixed
+        // ratio is worse than none: it would make the progress total and the
+        // preview index disagree with what the encoder actually receives.
+        match self.frame_rate.ratio() {
+            Some((num, den)) => FrameMap::Retime {
+                num,
+                den,
+                // Interpolated frames have no single source origin, so the
+                // preview's inverse mapping is a blended range, not a frame.
+                synthesizes: matches!(self.frame_rate.method, FrameRateMethod::FlowFps),
+                radius: 1,
+            },
+            None => FrameMap::Identity { radius: 1 },
         }
     }
 
@@ -493,6 +536,7 @@ impl ProcessingPipeline {
             PassType::Stabilize => self.stabilize.enabled,
             PassType::Geometry => self.geometry.has_effect(),
             PassType::Grain => self.grain.has_effect(),
+            PassType::FrameRate => self.frame_rate.enabled,
             PassType::ColorCorrection => self.color_correction.enabled,
             PassType::ChromaFixes => self.chroma_fixes.enabled,
             PassType::CropResize => self.crop_resize.enabled,

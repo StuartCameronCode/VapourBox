@@ -1798,6 +1798,46 @@ clip = haf.GrainFactory3(
 {{/GRAIN}}
 
 # ============================================================================
+# PASS 11: FRAME RATE CONVERSION
+# ============================================================================
+{{#FRAME_RATE}}
+# Standards conversion, not smoothing. Runs genuinely last of the video passes:
+# it resamples the timeline, so anything after it would be working on invented
+# frames rather than photographed ones.
+#
+# FlowFPS rather than BlockFPS deliberately. Measured over 35 combinations,
+# FlowFPS emits floor(n_in * ratio), which is exactly what FrameMap::Retime
+# computes; BlockFPS emits floor((n_in-1) * ratio) + 1 and is off by one in 14
+# of them, which would desynchronise the progress total and the preview index.
+#
+# mvtools rejects 4:1:1 at Super ("input clip must be GRAY, 420, 422, 440, or
+# 444") and 4:1:1 is NTSC DV — precisely the tape an NTSC->PAL conversion
+# targets — so convert up and restore, as the chroma denoise pass does.
+_fps_src_format = clip.format.id
+if clip.format.subsampling_w == 2:
+    clip = core.resize.Bicubic(
+        clip,
+        format=vs.YUV422P8 if clip.format.bits_per_sample == 8 else vs.YUV422P16,
+    )
+{{#FRAME_RATE_FLOWFPS}}
+_fps_super = core.mv.Super(clip, pel=2)
+_fps_bw = core.mv.Analyse(_fps_super, isb=True, blksize={{FPS_BLOCK_SIZE}}, overlap={{FPS_OVERLAP}})
+_fps_fw = core.mv.Analyse(_fps_super, isb=False, blksize={{FPS_BLOCK_SIZE}}, overlap={{FPS_OVERLAP}})
+clip = core.mv.FlowFPS(
+    clip, _fps_super, _fps_bw, _fps_fw,
+    num={{FPS_TARGET_NUM}}, den={{FPS_TARGET_DEN}},
+)
+{{/FRAME_RATE_FLOWFPS}}
+{{#FRAME_RATE_DUPLICATE}}
+# No invented pixels — whole frames are repeated or dropped. Visible judder, but
+# every frame in the output was photographed. The honest choice for a master.
+clip = haf.ChangeFPS(clip, {{FPS_TARGET_NUM}}, {{FPS_TARGET_DEN}})
+{{/FRAME_RATE_DUPLICATE}}
+if clip.format.id != _fps_src_format:
+    clip = core.resize.Bicubic(clip, format=_fps_src_format)
+{{/FRAME_RATE}}
+
+# ============================================================================
 # OUTPUT FORMAT CONVERSION
 # ============================================================================
 {{#CHROMA_CONVERT}}

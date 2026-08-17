@@ -146,6 +146,10 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info) {
     // ffprobe reports — a rotation flag in the container is not the same as
     // the picture being the wrong way round.
     case PassType.geometry:
+    // Frame rate conversion is a deliberate choice about the delivery
+    // format, not something detection can recommend — a 25 fps source is not
+    // evidence that anyone wants it at 29.97.
+    case PassType.frameRate:
     case PassType.grain:
       return PassRelevanceResult.neutral;
   }

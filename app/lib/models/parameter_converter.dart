@@ -1,6 +1,7 @@
 import 'chroma_denoise_parameters.dart';
 import 'anti_alias_parameters.dart';
 import 'geometry_parameters.dart';
+import 'frame_rate_parameters.dart';
 import 'grain_parameters.dart';
 import 'chroma_fix_parameters.dart';
 import 'color_correction_parameters.dart';
@@ -411,6 +412,22 @@ class ParameterConverter {
   }
 
   /// Convert grain parameters to dynamic format.
+  /// Convert frame rate parameters to dynamic format.
+  static DynamicParameters fromFrameRate(FrameRateParameters params) {
+    return DynamicParameters(
+      filterId: 'frame_rate',
+      enabled: params.enabled,
+      values: {
+        'method': params.method == FrameRateMethod.duplicate
+            ? 'duplicate'
+            : 'flowFps',
+        'target': params.target.name,
+        'blockSize': params.blockSize,
+        'overlap': params.overlap,
+      },
+    );
+  }
+
   static DynamicParameters fromGrain(GrainParameters params) {
     return DynamicParameters(
       filterId: 'grain',
@@ -432,6 +449,24 @@ class ParameterConverter {
   }
 
   /// Convert dynamic parameters to grain parameters.
+  /// Convert dynamic parameters to frame rate parameters.
+  static FrameRateParameters toFrameRate(DynamicParameters params) {
+    final v = params.values;
+    final target = FrameRateTarget.values.firstWhere(
+      (t) => t.name == v['target'],
+      orElse: () => FrameRateTarget.pal25,
+    );
+    return FrameRateParameters(
+      enabled: params.enabled,
+      method: (v['method'] as String?) == 'duplicate'
+          ? FrameRateMethod.duplicate
+          : FrameRateMethod.flowFps,
+      target: target,
+      blockSize: _asInt(v['blockSize']) ?? 16,
+      overlap: _asInt(v['overlap']) ?? 8,
+    );
+  }
+
   static GrainParameters toGrain(DynamicParameters params) {
     final v = params.values;
     return GrainParameters(
@@ -723,6 +758,7 @@ class ParameterConverter {
         'stabilize': fromStabilize(pipeline.stabilize),
         'geometry': fromGeometry(pipeline.geometry),
         'grain': fromGrain(pipeline.grain),
+        'frame_rate': fromFrameRate(pipeline.frameRate),
         'chroma_denoise': fromChromaDenoise(pipeline.chromaDenoise),
         'dehalo': fromDehalo(pipeline.dehalo),
         'deblock': fromDeblock(pipeline.deblock),
@@ -1272,6 +1308,9 @@ class ParameterConverter {
       geometry: dynamic.get('geometry') != null
           ? toGeometry(dynamic.get('geometry')!)
           : const GeometryParameters(),
+      frameRate: dynamic.get('frame_rate') != null
+          ? toFrameRate(dynamic.get('frame_rate')!)
+          : const FrameRateParameters(),
       grain: dynamic.get('grain') != null
           ? toGrain(dynamic.get('grain')!)
           : const GrainParameters(),
