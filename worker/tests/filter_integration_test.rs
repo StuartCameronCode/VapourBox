@@ -60,6 +60,10 @@ fn create_base_job(output_name: &str) -> VideoJob {
         input_width: None,
         input_height: None,
         input_pixel_format: None,
+        input_color_matrix: None,
+        input_color_primaries: None,
+        input_color_transfer: None,
+        input_color_range: None,
     }
 }
 
@@ -1263,6 +1267,10 @@ fn create_ivtc_base_job(output_name: &str) -> VideoJob {
         input_width: None,
         input_height: None,
         input_pixel_format: None,
+        input_color_matrix: None,
+        input_color_primaries: None,
+        input_color_transfer: None,
+        input_color_range: None,
     }
 }
 

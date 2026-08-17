@@ -1058,38 +1058,56 @@ Whichever axis you change, `parse_ratio` accepts `16:9`, `16/9` and `1.7778`, an
 returns `None` for anything else so a typo falls back to the source's own aspect
 rather than reaching ffmpeg as a broken filter argument.
 
-### Colour metadata is dropped end to end (found 2026-08-17, NOT yet fixed)
+### Colour metadata: read it, carry it, re-stamp it (fixed 2026-08-17)
 
-Same shape as the SAR bug, same cause, same fix site — and still open. Matrix,
-primaries, transfer and range are:
+Same shape as the SAR bug and the same fix site. Colour tags used to be dropped
+at all three stages — never read (ffprobe returns them; the parser discarded
+them), never carried on either `VideoJob`, never stamped. So **every file this
+app wrote was untagged**, and an untagged file is read as BT.601 limited by
+every player, silently shifting the colours of any BT.709 or full-range source.
 
-1. **Never read.** `field_order_detector.dart` runs ffprobe with no
-   `-show_entries` filter, so `color_space`/`color_transfer`/`color_primaries`/
-   `color_range` are all *present in the JSON* — and the parser takes width,
-   height, `pix_fmt`, SAR and field order and discards them.
-2. **Never carried.** Neither `VideoInfo` nor either `VideoJob` has a field for
-   them.
-3. **Never stamped.** `build_ffmpeg_args` emits no `-color*` flag of any kind.
-   `grep -rn "color_space\|color_trc\|color_primaries\|color_range"` over
-   `app/lib`, `worker/src` and `worker/templates` returns **nothing**.
+Measured before and after on a `bt709` + full-range source, end to end through
+the worker:
 
-So a BT.709 or full-range source is written out **untagged**, which every player
-then reads as BT.601 limited. `pipe_source.py` also maps `yuvj420p` → `YUV420P8`,
-silently dropping full-range.
+| | `color_space`, `color_range` |
+|---|---|
+| source | `bt709, pc` |
+| output **before** | `unknown, tv` |
+| output **after** | `bt709, pc` |
 
-> **A `std.SetFrameProps` pass would be inert.** The Y4M pipe strips frame
-> properties exactly as it strips SAR — verified: a clip carrying `_Matrix=5`
-> etc. produces a header with no matrix, primaries or transfer. The fix is
-> **output-stream flags on the encoder** (`-colorspace`/`-color_primaries`/
-> `-color_trc`/`-color_range`), appended beside the existing `setsar` in
-> `pipeline_executor.rs`. Mirror it into `build_ffmpeg_args_for_test`, which
-> already omits the SAR block and would otherwise not see it.
+Three things to keep in mind if you touch this:
 
-Companion bug in the preview: the PNG conversion hardcodes
+- **`SetFrameProps` in the script would be inert.** The Y4M pipe strips frame
+  properties exactly as it strips SAR — verified: a clip carrying `_Matrix=5`
+  produces a header with no matrix, primaries or transfer. The tags have to be
+  **output-stream flags on the encoder** (`-colorspace`/`-color_primaries`/
+  `-color_trc`/`-color_range`), which is where they now are, immediately after
+  the `setsar` block in `pipeline_executor.rs`.
+- **Values are validated, not forwarded.** `ColorMetadata::from_raw`
+  (`worker/src/models/color_metadata.rs`) drops anything not on FFmpeg's own
+  accepted list, on the same principle as `parse_ratio`. ffprobe says
+  `"unknown"` for an untagged stream, and forwarding that would fail the whole
+  encode on an argument the user can neither see nor fix. Each tag is
+  independent: a source declaring only a matrix gets only `-colorspace`, and an
+  untagged source is left untagged rather than guessed at.
+- **`build_ffmpeg_args_for_test` duplicates `build_ffmpeg_args`** rather than
+  calling it, so anything added to one must be added to the other. The SAR block
+  was missed that way and is *still* absent from the test helper; the colour
+  block is mirrored, and there is a comment saying so.
+
+This also fixed a companion bug in the preview. It hardcoded
 `-vf scale=in_range=tv:out_range=pc` with **no `in_color_matrix`**, so swscale
-guesses — while the "before" thumbnail comes from a different ffmpeg call on the
-original file that *does* see the real tags. On a 709-tagged source the
-comparison therefore shows a hue shift no filter caused.
+guessed the matrix — while the app's "before" thumbnail comes from a separate
+ffmpeg call on the original file that *does* see the real tags. On a 709-tagged
+source the comparison therefore showed a hue shift no filter had caused, and a
+full-range source was range-stretched twice. `swscale_input_opts()` now supplies
+both from the source's own tags.
+
+Guarded by `models::color_metadata` unit tests, three `pipeline_executor` tests
+on the emitted arguments, `app/test/color_metadata_test.dart` for the ffprobe
+side, and a heavy end-to-end round trip in
+`integration_chroma_subsampling_test.dart` — which is the only level that can
+prove ffmpeg honoured the flags.
 
 ### Source Pixel Formats (issue #50)
 

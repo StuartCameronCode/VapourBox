@@ -1201,6 +1201,10 @@ class MainViewModel extends ChangeNotifier {
           : null,
       subtitleOnly: isSubtitleOnly,
       inputSar: item.videoInfo?.sar,
+      inputColorMatrix: item.videoInfo?.colorMatrix,
+      inputColorPrimaries: item.videoInfo?.colorPrimaries,
+      inputColorTransfer: item.videoInfo?.colorTransfer,
+      inputColorRange: item.videoInfo?.colorRange,
     );
 
     // Record the audio config each file is actually encoded with. If a file's

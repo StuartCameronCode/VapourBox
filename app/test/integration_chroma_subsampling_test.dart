@@ -351,6 +351,57 @@ void main() {
     });
 
     // ===========================================================================
+    // COLOUR METADATA
+    // ===========================================================================
+    //
+    // The Y4M pipe from vspipe strips colour tags exactly as it strips SAR, so
+    // an output that is not explicitly re-tagged comes out untagged — and an
+    // untagged file is read as BT.601 limited by every player. Every file this
+    // app wrote was untagged until the fix; measured before/after on a
+    // bt709 + full-range source, the output went from `tv, unknown` to
+    // `pc, bt709`.
+    //
+    // This asserts the round trip end to end, because nothing cheaper can: the
+    // tags are encoder arguments, so a generated-script test cannot see them,
+    // and the args-level unit tests in the worker cannot prove ffmpeg honoured
+    // them.
+    group('Colour metadata', () {
+      test('source colour tags are re-declared on the output', () async {
+        final job = createChromaTestJob(
+          '${TestConfig.outputDir}/test_color_tags.mkv',
+          ChromaSubsampling.original,
+        ).copyWith(
+          inputColorMatrix: 'bt709',
+          inputColorPrimaries: 'bt709',
+          inputColorTransfer: 'bt709',
+          inputColorRange: 'tv',
+        );
+
+        final result = await runFilterTest('Colour tag round trip', job);
+        expect(result.success, isTrue, reason: result.error);
+
+        final out = await getVideoFormatInfo(result.outputPath!);
+        expect(out.colorSpace, 'bt709',
+            reason: 'matrix must survive the pipe, or players read it as 601');
+        expect(out.colorRange, 'tv');
+      }, timeout: const Timeout(Duration(minutes: 5)));
+
+      test('an untagged source stays untagged rather than being guessed', () async {
+        final job = createChromaTestJob(
+          '${TestConfig.outputDir}/test_color_untagged.mkv',
+          ChromaSubsampling.original,
+        );
+
+        final result = await runFilterTest('Untagged passthrough', job);
+        expect(result.success, isTrue, reason: result.error);
+
+        final out = await getVideoFormatInfo(result.outputPath!);
+        expect(out.colorSpace, anyOf(isNull, 'unknown'),
+            reason: 'we must not invent a matrix the source never declared');
+      }, timeout: const Timeout(Duration(minutes: 5)));
+    });
+
+    // ===========================================================================
     // CHROMA SUBSAMPLING: YUV420
     // ===========================================================================
     group('ChromaSubsampling.yuv420', () {

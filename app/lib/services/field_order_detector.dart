@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../models/video_job.dart';
 import 'tool_locator.dart';
 
@@ -124,6 +126,10 @@ class FieldOrderDetector {
         scanType: scanType,
         hasAudio: audioStream != null,
         sar: sar,
+        colorMatrix: colorTag(videoStream, 'color_space'),
+        colorPrimaries: colorTag(videoStream, 'color_primaries'),
+        colorTransfer: colorTag(videoStream, 'color_transfer'),
+        colorRange: colorTag(videoStream, 'color_range'),
       );
     } catch (e) {
       return null;
@@ -558,6 +564,21 @@ enum ScanType {
   }
 }
 
+/// Read one ffprobe colour tag, treating "unknown"/"N/A" as absent.
+///
+/// ffprobe reports the literal string `unknown` for an untagged stream, and
+/// forwarding that as though it were a value would put nonsense on the encoder
+/// command line. Anything unrecognised is dropped again worker-side, in
+/// `ColorMetadata::from_raw`, so a surprising value cannot reach ffmpeg.
+@visibleForTesting
+String? colorTag(Map<String, dynamic> stream, String key) {
+  final value = (stream[key] as String?)?.trim();
+  if (value == null || value.isEmpty || value == 'unknown' || value == 'N/A') {
+    return null;
+  }
+  return value;
+}
+
 /// Video file information.
 class VideoInfo {
   final int width;
@@ -573,6 +594,15 @@ class VideoInfo {
   /// Sample aspect ratio from the input (e.g. "10:11"), null if 1:1 or unknown.
   final String? sar;
 
+  /// Colour tags as reported by ffprobe, null when the stream is untagged.
+  /// These are carried to the encoder and re-declared there: the Y4M pipe from
+  /// vspipe strips them exactly as it strips SAR, and an untagged output is
+  /// read as BT.601 limited by every player.
+  final String? colorMatrix;
+  final String? colorPrimaries;
+  final String? colorTransfer;
+  final String? colorRange;
+
   const VideoInfo({
     required this.width,
     required this.height,
@@ -585,6 +615,10 @@ class VideoInfo {
     this.scanType = ScanType.unknown,
     required this.hasAudio,
     this.sar,
+    this.colorMatrix,
+    this.colorPrimaries,
+    this.colorTransfer,
+    this.colorRange,
   });
 
   String get resolution => '${width}x$height';

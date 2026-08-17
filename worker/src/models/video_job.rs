@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::{QTGMCParameters, ProcessingPipeline};
+use super::{QTGMCParameters, ProcessingPipeline, ColorMetadata};
 
 /// Represents a complete video processing job.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,9 +71,31 @@ pub struct VideoJob {
     /// Input pixel format string (e.g. "yuv420p", "yuv422p"). For pipe source.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_pixel_format: Option<String>,
+
+    /// Source colour tags, read from ffprobe and re-declared on the output.
+    /// The Y4M pipe strips them exactly as it strips SAR, so without these the
+    /// output is untagged and every player reads it as BT.601 limited.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_color_matrix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_color_primaries: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_color_transfer: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_color_range: Option<String>,
 }
 
 impl VideoJob {
+    /// The source's colour tags, validated. Empty when the source was untagged.
+    pub fn color_metadata(&self) -> ColorMetadata {
+        ColorMetadata::from_raw(
+            self.input_color_matrix.as_deref(),
+            self.input_color_primaries.as_deref(),
+            self.input_color_transfer.as_deref(),
+            self.input_color_range.as_deref(),
+        )
+    }
+
     /// Get the effective processing pipeline.
     /// Uses processing_pipeline if set, otherwise creates one from legacy qtgmc_parameters.
     pub fn effective_pipeline(&self) -> ProcessingPipeline {
