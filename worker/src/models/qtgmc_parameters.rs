@@ -16,6 +16,10 @@ pub enum DeinterlaceMethod {
     Ivtc,
     /// Soft telecine: relabel frame rate for DVD sources with soft telecine flags.
     SoftTelecine,
+    /// Bwdif — bob-weave deinterlacer with a cubic interpolator. Measured
+    /// 622 fps against QTGMC Fast's 150 on the same clip, at most of the
+    /// quality. The speed tier, for long captures and quick proofs.
+    Bwdif,
 }
 
 /// All QTGMC parameters supported by the VapourSynth implementation.
@@ -47,6 +51,12 @@ pub struct QTGMCParameters {
     /// Output frame rate divisor. 1=double-rate (50i->50p), 2=single-rate (50i->25p)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fps_divisor: Option<i32>,
+
+    /// Hand Bwdif an nnedi3 interpolator instead of its own cubic one. Measured
+    /// 0.524 against 0.585 plain — better than Yadifmod+nnedi3 at the same
+    /// cost, which is why Yadifmod is not a separate method.
+    #[serde(default)]
+    pub bwdif_edeint: bool,
 
     // === Working Format (issue #49) ===
     /// Upsample 4:2:0 chroma to 4:2:2 with field-aware resampling before
@@ -453,6 +463,7 @@ impl Default for QTGMCParameters {
             input_type: None,
             tff: None,
             fps_divisor: None,
+            bwdif_edeint: false,
             chroma_upsample_fix: None,
             high_precision: None,
             tr0: None,

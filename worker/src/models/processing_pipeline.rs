@@ -480,6 +480,17 @@ impl ProcessingPipeline {
                     FrameMap::Identity { radius: 3 }
                 }
             }
+            // Bwdif's field argument decides this exactly as QTGMC's
+            // fps_divisor does: double rate emits one frame per field.
+            // Radius 1 rather than 3 — it reads one neighbour each side, not
+            // QTGMC's temporal window.
+            DeinterlaceMethod::Bwdif => {
+                if d.fps_divisor.unwrap_or(1) == 1 {
+                    FrameMap::Fanout { factor: 2, radius: 1 }
+                } else {
+                    FrameMap::Identity { radius: 1 }
+                }
+            }
             DeinterlaceMethod::Ivtc | DeinterlaceMethod::SoftTelecine => {
                 let cycle = d.ivtc_cycle.unwrap_or(5).max(2) as u32;
                 FrameMap::Decimate { cycle, keep: cycle - 1 }

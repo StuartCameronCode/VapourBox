@@ -34,6 +34,9 @@ class ParameterConverter {
       case DeinterlaceMethod.softTelecine:
         method = 'soft_telecine';
         break;
+      case DeinterlaceMethod.bwdif:
+        method = 'bwdif';
+        break;
     }
 
     return DynamicParameters(
@@ -44,6 +47,7 @@ class ParameterConverter {
         'preset': params.preset.displayName,
         'tff': params.tff,
         'fpsDivisor': params.fpsDivisor,
+        'bwdifEdeint': params.bwdifEdeint,
         // Null means "not set" in the model; surface the effective default so
         // the checkbox always reflects what the worker will actually do.
         'chromaUpsampleFix': params.chromaUpsampleFix ?? false,
@@ -789,6 +793,9 @@ class ParameterConverter {
       case 'soft_telecine':
         method = DeinterlaceMethod.softTelecine;
         break;
+      case 'bwdif':
+        method = DeinterlaceMethod.bwdif;
+        break;
       default:
         method = DeinterlaceMethod.qtgmc;
     }
@@ -802,6 +809,7 @@ class ParameterConverter {
       ),
       tff: v['tff'] as bool?,
       fpsDivisor: v['fpsDivisor'] as int?,
+      bwdifEdeint: v['bwdifEdeint'] as bool? ?? false,
       chromaUpsampleFix: v['chromaUpsampleFix'] as bool?,
       highPrecision: v['highPrecision'] as bool?,
       inputType: v['inputType'] as int?,

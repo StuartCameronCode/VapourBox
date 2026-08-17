@@ -352,12 +352,44 @@ impl ScriptGenerator {
             script = script.replace("{{/DEINTERLACE}}", "");
 
             match params.method {
+                DeinterlaceMethod::Bwdif => {
+                    script = remove_block("{{#DEINT_QTGMC}}", "{{/DEINT_QTGMC}}", script);
+                    script = remove_block("{{#DEINT_IVTC}}", "{{/DEINT_IVTC}}", script);
+                    script = remove_block("{{#DEINT_SOFT_TELECINE}}", "{{/DEINT_SOFT_TELECINE}}", script);
+                    script = script.replace("{{#DEINT_BWDIF}}", "");
+                    script = script.replace("{{/DEINT_BWDIF}}", "");
+
+                    // field: 0/1 keep one field per input frame (single rate),
+                    // 2/3 emit one per field (double rate). The parity half is
+                    // the same TFF value QTGMC uses, so the two methods cannot
+                    // disagree about field order.
+                    let tff = params.tff.unwrap_or(true);
+                    let double_rate = params.fps_divisor.unwrap_or(1) == 1;
+                    let field = match (double_rate, tff) {
+                        (true, true) => 3,
+                        (true, false) => 2,
+                        (false, true) => 1,
+                        (false, false) => 0,
+                    };
+                    script = script.replace("{{BWDIF_FIELD}}", &field.to_string());
+
+                    if params.bwdif_edeint {
+                        script = script.replace("{{#DEINT_BWDIF_EDEINT}}", "");
+                        script = script.replace("{{/DEINT_BWDIF_EDEINT}}", "");
+                        script = remove_block("{{#DEINT_BWDIF_PLAIN}}", "{{/DEINT_BWDIF_PLAIN}}", script);
+                    } else {
+                        script = remove_block("{{#DEINT_BWDIF_EDEINT}}", "{{/DEINT_BWDIF_EDEINT}}", script);
+                        script = script.replace("{{#DEINT_BWDIF_PLAIN}}", "");
+                        script = script.replace("{{/DEINT_BWDIF_PLAIN}}", "");
+                    }
+                }
                 DeinterlaceMethod::Qtgmc => {
                     // Enable QTGMC block, remove IVTC and Soft Telecine blocks
                     script = script.replace("{{#DEINT_QTGMC}}", "");
                     script = script.replace("{{/DEINT_QTGMC}}", "");
                     script = remove_block("{{#DEINT_IVTC}}", "{{/DEINT_IVTC}}", script);
                     script = remove_block("{{#DEINT_SOFT_TELECINE}}", "{{/DEINT_SOFT_TELECINE}}", script);
+                    script = remove_block("{{#DEINT_BWDIF}}", "{{/DEINT_BWDIF}}", script);
 
                     // Working format around the QTGMC call (issue #49): 4:2:2
                     // chroma and/or 16-bit, restored to the source format after.
@@ -564,6 +596,7 @@ impl ScriptGenerator {
                     script = script.replace("{{#DEINT_IVTC}}", "");
                     script = script.replace("{{/DEINT_IVTC}}", "");
                     script = remove_block("{{#DEINT_SOFT_TELECINE}}", "{{/DEINT_SOFT_TELECINE}}", script);
+                    script = remove_block("{{#DEINT_BWDIF}}", "{{/DEINT_BWDIF}}", script);
 
                     // Derive IVTC_ORDER from tff field (TFF→1, BFF→0), falling back to ivtc_order
                     let order = match params.tff {

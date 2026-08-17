@@ -10,7 +10,9 @@ enum DeinterlaceMethod {
   @JsonValue('ivtc')
   ivtc,
   @JsonValue('softTelecine')
-  softTelecine;
+  softTelecine,
+  @JsonValue('bwdif')
+  bwdif;
 
   String get displayName {
     switch (this) {
@@ -20,6 +22,8 @@ enum DeinterlaceMethod {
         return 'IVTC';
       case DeinterlaceMethod.softTelecine:
         return 'Soft Telecine';
+      case DeinterlaceMethod.bwdif:
+        return 'Bwdif (fast)';
     }
   }
 
@@ -31,6 +35,8 @@ enum DeinterlaceMethod {
         return 'Inverse telecine for DVD 3:2 pulldown sources';
       case DeinterlaceMethod.softTelecine:
         return 'Fix frame rate for DVD soft telecine sources';
+      case DeinterlaceMethod.bwdif:
+        return 'Much faster than QTGMC, at most of the quality';
     }
   }
 }
@@ -132,6 +138,9 @@ class QTGMCParameters {
   final int? inputType;
   final bool? tff;
   final int? fpsDivisor;
+
+  /// Hand Bwdif an nnedi3 interpolator instead of its own cubic one.
+  final bool bwdifEdeint;
 
   // === Working Format (issue #49) ===
   /// Upsample 4:2:0 chroma to 4:2:2 (field-aware) before deinterlacing and
@@ -269,6 +278,7 @@ class QTGMCParameters {
     this.inputType,
     this.tff,
     this.fpsDivisor,
+    this.bwdifEdeint = false,
     this.chromaUpsampleFix,
     this.highPrecision,
     this.tr0,

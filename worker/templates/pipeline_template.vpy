@@ -359,6 +359,32 @@ if clip.format.id != _deint_src_format.id:
                                dither_type="error_diffusion")
 {{/DEINT_RESTORE_FORMAT}}
 {{/DEINT_QTGMC}}
+{{#DEINT_BWDIF}}
+# Bwdif — the fast tier. Roughly 4-5x QTGMC Fast on the same clip, for long
+# captures where QTGMC's hours are not justified.
+#
+# Two things measured against the bundled plugin, both negative results and both
+# the point:
+#   * No format limits at all — 8/9/10/12/16-bit, 4:2:0/4:2:2/4:4:4, GRAY, RGB
+#     and even 4:1:1 all pass. Unique among recent additions; no guard needed.
+#   * No _FieldBased sensitivity. field=1 and field=3 both work with the
+#     property absent, 0, 1 or 2, so it does NOT repeat the znedi3 trap that
+#     cost two nightly cycles.
+#
+# `field` is required, not optional: 0/1 keep the bottom/top field (single
+# rate), 2/3 double the rate. The parity half comes from the same field-order
+# derivation QTGMC uses, so the two methods cannot disagree about it.
+{{#DEINT_BWDIF_EDEINT}}
+# An external interpolator. Bwdif accepts one directly, which is why Yadifmod
+# is not a separate method: measured, Bwdif+nnedi3 (0.524) beats Yadifmod+nnedi3
+# (0.532) at the same cost. EEDI3 here is 11x slower for no gain.
+_bwdif_edi = _nnedi3(clip, field={{BWDIF_FIELD}}, dh=False)
+clip = core.bwdif.Bwdif(clip, field={{BWDIF_FIELD}}, edeint=_bwdif_edi)
+{{/DEINT_BWDIF_EDEINT}}
+{{#DEINT_BWDIF_PLAIN}}
+clip = core.bwdif.Bwdif(clip, field={{BWDIF_FIELD}})
+{{/DEINT_BWDIF_PLAIN}}
+{{/DEINT_BWDIF}}
 {{#DEINT_IVTC}}
 # IVTC: Inverse Telecine (VFM field matching + VDecimate)
 # VFM only accepts 8-bit YUV/GRAY. For higher bit-depth sources (e.g. 10-bit
