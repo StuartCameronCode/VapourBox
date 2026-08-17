@@ -723,6 +723,8 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
+                    script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
+                    script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
@@ -744,6 +746,8 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
+                    script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
+                    script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
@@ -762,6 +766,8 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
+                    script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
+                    script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
@@ -806,6 +812,8 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
+                    script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
+                    script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
                     script = script.replace("{{#NR_DFTTEST}}", "");
@@ -835,6 +843,8 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
+                    script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
+                    script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
                     script = script.replace("{{#NR_FFT3D}}", "");
@@ -865,6 +875,8 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
+                    script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
+                    script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = script.replace("{{#NR_TTEMPSMOOTH}}", "");
@@ -899,6 +911,8 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
+                    script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
+                    script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
 
                     let spatial = nr.method == NoiseReductionMethod::FluxSmoothSt;
                     let (keep, drop) = if spatial {
@@ -929,6 +943,8 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
                     script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
                     script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
+                    script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
+                    script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
@@ -941,6 +957,55 @@ impl ScriptGenerator {
                     script = script.replace("{{NR_STPRESSO_BIAS}}", &nr.stpresso_bias.to_string());
                     script = script.replace("{{NR_STPRESSO_TTHR}}", &nr.stpresso_tthr.to_string());
                 }
+                NoiseReductionMethod::MClean => {
+                    script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
+                    script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
+                    script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
+                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
+                    script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
+                    script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
+                    script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
+                    script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
+                    script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
+                    script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
+                    script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
+                    script = script.replace("{{#NR_MCLEAN}}", "");
+                    script = script.replace("{{/NR_MCLEAN}}", "");
+                    script = script.replace("{{NR_MCLEAN_THSAD}}", &nr.mclean_thsad.clamp(0, 10000).to_string());
+                    script = script.replace("{{NR_MCLEAN_CHROMA}}", if nr.mclean_chroma { "True" } else { "False" });
+                    script = script.replace("{{NR_MCLEAN_SHARP}}", &nr.mclean_sharp.clamp(0, 24).to_string());
+                    script = script.replace("{{NR_MCLEAN_RN}}", &nr.mclean_rn.clamp(0, 20).to_string());
+                    script = script.replace("{{NR_MCLEAN_STRENGTH}}", &nr.mclean_strength.clamp(0, 20).to_string());
+                }
+                NoiseReductionMethod::TemporalDegrain2 => {
+                    script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
+                    script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
+                    script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
+                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+                    script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
+                    script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
+                    script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
+                    script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
+                    script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
+                    script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
+                    script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
+                    script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
+                    script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
+                    script = script.replace("{{#NR_TD2}}", "");
+                    script = script.replace("{{/NR_TD2}}", "");
+                    script = script.replace("{{NR_TD2_TR}}", &nr.td2_degrain_tr.clamp(1, 3).to_string());
+                    script = script.replace("{{NR_TD2_GRAIN_LEVEL}}", &nr.td2_grain_level.clamp(-2, 3).to_string());
+                    // 4 and 5 abort the process rather than raising; the
+                    // module clamps too, but never send them.
+                    script = script.replace("{{NR_TD2_POST_FFT}}", &nr.td2_post_fft.clamp(0, 3).to_string());
+                    script = script.replace("{{NR_TD2_POST_SIGMA}}", &format_double(nr.td2_post_sigma.clamp(0.0, 16.0)));
+                    script = script.replace("{{NR_TD2_POST_MIX}}", &nr.td2_post_mix.clamp(0, 100).to_string());
+                    script = script.replace("{{NR_TD2_CHROMA_MOTION}}", if nr.td2_chroma_motion { "True" } else { "False" });
+                }
                 NoiseReductionMethod::Ctmf => {
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
@@ -952,6 +1017,8 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
+                    script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
+                    script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
                     script = script.replace("{{#NR_CTMF}}", "");
                     script = script.replace("{{/NR_CTMF}}", "");
 
@@ -971,6 +1038,8 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
                     script = remove_block("{{#NR_STPRESSO}}", "{{/NR_STPRESSO}}", script);
+                    script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
+                    script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
@@ -1474,6 +1543,15 @@ impl ScriptGenerator {
         // ====================================================================
         let chroma = &pipeline.chroma_fixes;
         if chroma.enabled {
+            if chroma.apply_auto_chroma {
+                script = script.replace("{{#CF_AUTO_CHROMA}}", "");
+                script = script.replace("{{/CF_AUTO_CHROMA}}", "");
+                script = script.replace("{{ACF_MAX_SHIFT}}", &chroma.auto_chroma_max_shift.clamp(1, 16).to_string());
+                script = script.replace("{{ACF_ACCURACY}}", &format_double(chroma.auto_chroma_accuracy.clamp(0.05, 1.0)));
+                script = script.replace("{{ACF_REFERENCE_FRAME}}", &chroma.auto_chroma_reference_frame.max(-1).to_string());
+            } else {
+                script = remove_block("{{#CF_AUTO_CHROMA}}", "{{/CF_AUTO_CHROMA}}", script);
+            }
             if chroma.apply_dedot {
                 script = script.replace("{{#CF_DEDOT}}", "");
                 script = script.replace("{{/CF_DEDOT}}", "");

@@ -30,6 +30,13 @@ pub enum NoiseReductionMethod {
     /// Constant-time median filter. Large-radius median for blotches and
     /// impulse noise, at a cost that barely moves with radius.
     Ctmf,
+    /// mClean: an opinionated all-in-one — denoise, then restore detail and
+    /// grain so the result does not look plastic. The only candidate that is a
+    /// goal rather than a mechanism, which is why it gets the last simple slot.
+    MClean,
+    /// TemporalDegrain2: the heavyweight multi-pass motion-compensated
+    /// denoiser. Slow (about 21 fps) and the most capable thing here.
+    TemporalDegrain2,
 }
 
 /// Noise reduction preset levels.
@@ -57,6 +64,44 @@ pub struct NoiseReductionParameters {
     /// pre- and post-denoise clip, so it cannot sit in the linear chain.
     #[serde(default)]
     pub contra_sharpen: bool,
+
+    // ---- mClean -----------------------------------------------------------
+    /// Overall denoise strength, 0-20.
+    #[serde(default = "default_mclean_strength")]
+    pub mclean_strength: i32,
+    /// Detail restore, 0-20 (21-24 overboosts).
+    #[serde(default = "default_mclean_sharp")]
+    pub mclean_sharp: i32,
+    /// Grain restore, 0-20.
+    #[serde(default = "default_mclean_rn")]
+    pub mclean_rn: i32,
+    /// Motion search threshold.
+    #[serde(default = "default_mclean_thsad")]
+    pub mclean_thsad: i32,
+    /// Also denoise chroma.
+    #[serde(default = "default_true_nr")]
+    pub mclean_chroma: bool,
+
+    // ---- TemporalDegrain2 -------------------------------------------------
+    /// Temporal radius, 1-3.
+    #[serde(default = "default_td2_tr")]
+    pub td2_degrain_tr: i32,
+    /// How noisy the source is, -2..3.
+    #[serde(default = "default_td2_grain_level")]
+    pub td2_grain_level: i32,
+    /// Post-processing denoiser: 0 none, 1-3 progressively stronger.
+    /// Clamped in the module too — 4 and 5 abort the process.
+    #[serde(default)]
+    pub td2_post_fft: i32,
+    /// Post-processing strength.
+    #[serde(default = "default_td2_post_sigma")]
+    pub td2_post_sigma: f64,
+    /// Blend the post-processed result back, 0-100.
+    #[serde(default)]
+    pub td2_post_mix: i32,
+    /// Use chroma for motion estimation.
+    #[serde(default = "default_true_nr")]
+    pub td2_chroma_motion: bool,
 
     /// ContraSharpening's Repair mode. 13 is havsfunc's own default.
     #[serde(default = "default_contra_sharpen_rep")]
@@ -257,6 +302,14 @@ fn default_ctmf_radius() -> i32 { 2 }
 fn default_ctmf_planes() -> i32 { 2 }
 
 fn default_contra_sharpen_rep() -> i32 { 13 }
+fn default_true_nr() -> bool { true }
+fn default_mclean_strength() -> i32 { 20 }
+fn default_mclean_sharp() -> i32 { 10 }
+fn default_mclean_rn() -> i32 { 14 }
+fn default_mclean_thsad() -> i32 { 400 }
+fn default_td2_tr() -> i32 { 1 }
+fn default_td2_grain_level() -> i32 { 2 }
+fn default_td2_post_sigma() -> f64 { 1.0 }
 
 impl Default for NoiseReductionParameters {
     fn default() -> Self {
@@ -264,6 +317,17 @@ impl Default for NoiseReductionParameters {
             enabled: false,
             contra_sharpen: false,
             contra_sharpen_rep: default_contra_sharpen_rep(),
+            mclean_strength: default_mclean_strength(),
+            mclean_sharp: default_mclean_sharp(),
+            mclean_rn: default_mclean_rn(),
+            mclean_thsad: default_mclean_thsad(),
+            mclean_chroma: true,
+            td2_degrain_tr: default_td2_tr(),
+            td2_grain_level: default_td2_grain_level(),
+            td2_post_fft: 0,
+            td2_post_sigma: default_td2_post_sigma(),
+            td2_post_mix: 0,
+            td2_chroma_motion: true,
             preset: NoiseReductionPreset::default(),
             method: NoiseReductionMethod::default(),
             sm_degrain_tr: default_sm_degrain_tr(),

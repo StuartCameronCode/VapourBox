@@ -30,7 +30,11 @@ enum NoiseReductionMethod {
   @JsonValue('stPresso')
   stPresso('STPresso'),
   @JsonValue('ctmf')
-  ctmf('CTMF');
+  ctmf('CTMF'),
+  @JsonValue('mClean')
+  mClean('mClean'),
+  @JsonValue('temporalDegrain2')
+  temporalDegrain2('TemporalDegrain2');
 
   const NoiseReductionMethod(this.displayName);
   final String displayName;
@@ -59,6 +63,21 @@ class NoiseReductionParameters {
   /// Restore fine detail the denoiser removed. Brackets the denoise rather
   /// than following it, so it is a checkbox here and not a Sharpen method.
   final bool contraSharpen;
+
+  // mClean
+  final int mcleanStrength;
+  final int mcleanSharp;
+  final int mcleanRn;
+  final int mcleanThsad;
+  final bool mcleanChroma;
+
+  // TemporalDegrain2
+  final int td2DegrainTr;
+  final int td2GrainLevel;
+  final int td2PostFft;
+  final double td2PostSigma;
+  final int td2PostMix;
+  final bool td2ChromaMotion;
 
   /// ContraSharpening's Repair mode; 13 is havsfunc's own default.
   final int contraSharpenRep;
@@ -194,6 +213,17 @@ class NoiseReductionParameters {
   const NoiseReductionParameters({
     this.enabled = false,
     this.contraSharpen = false,
+    this.mcleanStrength = 20,
+    this.mcleanSharp = 10,
+    this.mcleanRn = 14,
+    this.mcleanThsad = 400,
+    this.mcleanChroma = true,
+    this.td2DegrainTr = 1,
+    this.td2GrainLevel = 2,
+    this.td2PostFft = 0,
+    this.td2PostSigma = 1.0,
+    this.td2PostMix = 0,
+    this.td2ChromaMotion = true,
     this.contraSharpenRep = 13,
     this.preset = NoiseReductionPreset.off,
     this.method = NoiseReductionMethod.smDegrain,

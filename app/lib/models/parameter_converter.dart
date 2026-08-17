@@ -179,12 +179,29 @@ class ParameterConverter {
       case NoiseReductionMethod.ctmf:
         method = 'ctmf';
         break;
+      case NoiseReductionMethod.mClean:
+        method = 'mclean';
+        break;
+      case NoiseReductionMethod.temporalDegrain2:
+        method = 'temporal_degrain2';
+        break;
     }
 
     return DynamicParameters(
       filterId: 'noise_reduction',
       enabled: params.enabled,
       values: {
+        'mcleanStrength': params.mcleanStrength,
+        'mcleanSharp': params.mcleanSharp,
+        'mcleanRn': params.mcleanRn,
+        'mcleanThsad': params.mcleanThsad,
+        'mcleanChroma': params.mcleanChroma,
+        'td2DegrainTr': params.td2DegrainTr,
+        'td2GrainLevel': params.td2GrainLevel,
+        'td2PostFft': params.td2PostFft,
+        'td2PostSigma': params.td2PostSigma,
+        'td2PostMix': params.td2PostMix,
+        'td2ChromaMotion': params.td2ChromaMotion,
         'contraSharpen': params.contraSharpen,
         'contraSharpenRep': params.contraSharpenRep,
         'method': method,
@@ -780,6 +797,10 @@ class ParameterConverter {
       filterId: 'chroma_fixes',
       enabled: params.enabled,
       values: {
+        'applyAutoChroma': params.applyAutoChroma,
+        'autoChromaMaxShift': params.autoChromaMaxShift,
+        'autoChromaAccuracy': params.autoChromaAccuracy,
+        'autoChromaReferenceFrame': params.autoChromaReferenceFrame,
         'applyDedot': params.applyDedot,
         'dedotLuma2d': params.dedotLuma2d,
         'dedotLumaT': params.dedotLumaT,
@@ -1067,11 +1088,28 @@ class ParameterConverter {
       case 'ctmf':
         method = NoiseReductionMethod.ctmf;
         break;
+      case 'mclean':
+        method = NoiseReductionMethod.mClean;
+        break;
+      case 'temporal_degrain2':
+        method = NoiseReductionMethod.temporalDegrain2;
+        break;
       default:
         method = NoiseReductionMethod.smDegrain;
     }
 
     return NoiseReductionParameters(
+      mcleanStrength: _asInt(v['mcleanStrength']) ?? 20,
+      mcleanSharp: _asInt(v['mcleanSharp']) ?? 10,
+      mcleanRn: _asInt(v['mcleanRn']) ?? 14,
+      mcleanThsad: _asInt(v['mcleanThsad']) ?? 400,
+      mcleanChroma: v['mcleanChroma'] as bool? ?? true,
+      td2DegrainTr: _asInt(v['td2DegrainTr']) ?? 1,
+      td2GrainLevel: _asInt(v['td2GrainLevel']) ?? 2,
+      td2PostFft: _asInt(v['td2PostFft']) ?? 0,
+      td2PostSigma: (v['td2PostSigma'] as num?)?.toDouble() ?? 1.0,
+      td2PostMix: _asInt(v['td2PostMix']) ?? 0,
+      td2ChromaMotion: v['td2ChromaMotion'] as bool? ?? true,
       contraSharpen: v['contraSharpen'] as bool? ?? false,
       contraSharpenRep: _asInt(v['contraSharpenRep']) ?? 13,
       enabled: params.enabled,
@@ -1343,6 +1381,10 @@ class ParameterConverter {
   static ChromaFixParameters toChromaFixes(DynamicParameters params) {
     final v = params.values;
     return ChromaFixParameters(
+      applyAutoChroma: v['applyAutoChroma'] as bool? ?? false,
+      autoChromaMaxShift: _asInt(v['autoChromaMaxShift']) ?? 2,
+      autoChromaAccuracy: (v['autoChromaAccuracy'] as num?)?.toDouble() ?? 0.25,
+      autoChromaReferenceFrame: _asInt(v['autoChromaReferenceFrame']) ?? 0,
       applyDedot: v['applyDedot'] as bool? ?? false,
       dedotLuma2d: _asInt(v['dedotLuma2d']) ?? 20,
       dedotLumaT: _asInt(v['dedotLumaT']) ?? 20,

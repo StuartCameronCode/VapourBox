@@ -78,6 +78,11 @@ class ChromaFixParameters {
   final bool applyDeRainbow;
 
   /// DeDot — temporal dot crawl / rainbow removal on both planes.
+  final bool applyAutoChroma;
+  final int autoChromaMaxShift;
+  final double autoChromaAccuracy;
+  final int autoChromaReferenceFrame;
+
   final bool applyDedot;
   final int dedotLuma2d;
   final int dedotLumaT;
@@ -143,6 +148,10 @@ class ChromaFixParameters {
     this.deCrawlMaxDiff = 50,
     // Vinverse defaults
     this.applyDeRainbow = false,
+    this.applyAutoChroma = false,
+    this.autoChromaMaxShift = 2,
+    this.autoChromaAccuracy = 0.25,
+    this.autoChromaReferenceFrame = 0,
     this.applyDedot = false,
     this.dedotLuma2d = 20,
     this.dedotLumaT = 20,

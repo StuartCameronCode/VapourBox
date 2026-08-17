@@ -781,6 +781,43 @@ clip = mvf.BM3D(
 {{/NR_BM3D_RADIUS}}
 )
 {{/NR_BM3D}}
+{{#NR_MCLEAN}}
+# mClean — denoise, then put detail and grain back, so the result does not look
+# plastic. The only method here that is a goal rather than a mechanism.
+import sys as _mclean_sys
+_mclean_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
+from mclean import mClean as _mClean
+clip = _mClean(
+    clip,
+    thSAD={{NR_MCLEAN_THSAD}},
+    chroma={{NR_MCLEAN_CHROMA}},
+    sharp={{NR_MCLEAN_SHARP}},
+    rn={{NR_MCLEAN_RN}},
+    strength={{NR_MCLEAN_STRENGTH}},
+)
+{{/NR_MCLEAN}}
+{{#NR_TD2}}
+# TemporalDegrain2 — the heavyweight. Multi-pass motion-compensated degraining
+# with an optional frequency-domain cleanup on top. About 21 fps, and the most
+# capable denoiser in the app.
+#
+# The vendored module clamps postFFT to 0-3 and grainLevel to -2..3, and scales
+# its depth-dependent limits from clip.format. Those are not cosmetic: postFFT
+# 4 and 5 abort the process rather than raising, and without the depth scaling
+# the filter is a near no-op at 12-bit and above.
+import sys as _td2_sys
+_td2_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
+from temporaldegrain2 import TemporalDegrain2 as _TemporalDegrain2
+clip = _TemporalDegrain2(
+    clip,
+    degrainTR={{NR_TD2_TR}},
+    grainLevel={{NR_TD2_GRAIN_LEVEL}},
+    postFFT={{NR_TD2_POST_FFT}},
+    postSigma={{NR_TD2_POST_SIGMA}},
+    postMix={{NR_TD2_POST_MIX}},
+    ChromaMotion={{NR_TD2_CHROMA_MOTION}},
+)
+{{/NR_TD2}}
 {{#NR_POST_CONTRASHARP}}
 # Give back the fine detail the denoiser removed, by adding back only the
 # high-frequency difference that survives a Repair against the original. This
@@ -1189,6 +1226,25 @@ def _dedot_8bit_format(c):
     """The clip's own layout at 8 bits — DeDot is 8-bit only."""
     return core.get_video_format(c.format.id).replace(bits_per_sample=8).id
 
+{{#CF_AUTO_CHROMA}}
+# Measure the chroma misalignment and correct it, instead of asking the user to
+# guess it on the manual sliders below. Measured on real PAL footage it recovers
+# an injected whole-pixel shift exactly, at 4:2:0 and 4:2:2 and 8-16 bit, in
+# about 0.07s using a single reference frame.
+#
+# It refuses to invent a shift when chroma carries no measurable edge structure
+# — a score curve spanning under 5% of its peak reports zero rather than
+# guessing. A very soft VHS chroma channel is exactly that case.
+import sys as _acf_sys
+_acf_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
+from autochromafix import auto_chroma_fix as _auto_chroma_fix
+clip = _auto_chroma_fix(
+    clip,
+    max_shift={{ACF_MAX_SHIFT}},
+    accuracy={{ACF_ACCURACY}},
+    reference_frame={{ACF_REFERENCE_FRAME}},
+)
+{{/CF_AUTO_CHROMA}}
 {{#CF_DEDOT}}
 # DeDot — temporal dot crawl and rainbow removal, working on BOTH planes and
 # skipping moving objects. Complementary to LUTDeCrawl rather than a

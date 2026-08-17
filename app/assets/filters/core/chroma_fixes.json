@@ -446,10 +446,79 @@
         "description": "Raise towards 255 to leave colour alone entirely.",
         "widget": "slider"
       }
+    },
+    "applyAutoChroma": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Detect colour alignment automatically",
+        "description": "Measures how far the colour has slipped from the picture and corrects it, instead of you guessing on the sliders below. If it cannot measure the source reliably it leaves it alone rather than guessing.",
+        "widget": "checkbox"
+      }
+    },
+    "autoChromaMaxShift": {
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "visibleWhen": {
+        "applyAutoChroma": [
+          true
+        ]
+      },
+      "ui": {
+        "label": "Search range",
+        "description": "The largest misalignment to look for, in pixels.",
+        "widget": "slider"
+      }
+    },
+    "autoChromaAccuracy": {
+      "type": "number",
+      "default": 0.25,
+      "min": 0.05,
+      "max": 1.0,
+      "step": 0.05,
+      "visibleWhen": {
+        "applyAutoChroma": [
+          true
+        ]
+      },
+      "ui": {
+        "label": "Precision",
+        "description": "Smaller finds sub-pixel shifts, at some cost.",
+        "widget": "slider",
+        "precision": 2
+      }
+    },
+    "autoChromaReferenceFrame": {
+      "type": "integer",
+      "default": 0,
+      "min": -1,
+      "max": 100000,
+      "step": 1,
+      "visibleWhen": {
+        "applyAutoChroma": [
+          true
+        ]
+      },
+      "ui": {
+        "label": "Reference frame",
+        "description": "Measure once on this frame. -1 measures every frame, which is about 23 times slower and rarely worth it.",
+        "widget": "number"
+      }
     }
   },
   "ui": {
     "sections": [
+      {
+        "title": "Automatic alignment",
+        "parameters": [
+          "applyAutoChroma",
+          "autoChromaMaxShift"
+        ],
+        "expanded": true
+      },
       {
         "title": "Y/C Delay (Chroma Shift)",
         "parameters": [
@@ -514,6 +583,20 @@
         "advancedOnly": true,
         "visibleWhen": {
           "applyDedot": [
+            true
+          ]
+        }
+      },
+      {
+        "title": "Automatic alignment tuning",
+        "parameters": [
+          "autoChromaAccuracy",
+          "autoChromaReferenceFrame"
+        ],
+        "expanded": false,
+        "advancedOnly": true,
+        "visibleWhen": {
+          "applyAutoChroma": [
             true
           ]
         }

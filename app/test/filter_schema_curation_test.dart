@@ -102,14 +102,29 @@ void main() {
 
     test('the filters added from the gap analysis are behind advanced mode', () {
       // Each is an alternative for when the default is not the right tool, not
-      // a better default — which is exactly what advanced mode is for. SMDegrain
-      // still covers the common case, so simple mode does not grow.
+      // a better default — which is exactly what advanced mode is for.
+      //
+      // mClean is the one deliberate exception, and it spends the schema's last
+      // simple-mode slot. It is the only candidate that is a *goal* — denoise,
+      // restore detail, restore grain, behind one control — rather than another
+      // mechanism, which is the distinction this whole lint exists to enforce.
+      // Noise Reduction is now at the 4-method cap and cannot grow again
+      // without something else moving behind advanced.
       final nr = schemas.firstWhere((s) => s.id == 'noise_reduction');
       expect(
         nr.visibleMethods(showAdvanced: false).map((m) => m.id),
-        ['smdegrain', 'mc_temporal_denoise', 'qtgmc_builtin'],
+        ['smdegrain', 'mc_temporal_denoise', 'qtgmc_builtin', 'mclean'],
       );
-      for (final id in ['dfttest', 'fft3dfilter', 'ttempsmooth']) {
+      // TemporalDegrain2 is the most-requested filter in the gap analysis and
+      // is still advanced: 21 fps, a dozen interacting parameters, and three
+      // values that break it outright. An expert asks for it by name; a novice
+      // should never land on it by scrolling.
+      for (final id in [
+        'dfttest',
+        'fft3dfilter',
+        'ttempsmooth',
+        'temporal_degrain2',
+      ]) {
         expect(nr.getMethod(id)?.advancedOnly, true, reason: id);
       }
 

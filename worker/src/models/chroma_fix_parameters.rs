@@ -90,6 +90,19 @@ pub struct ChromaFixParameters {
     /// DeDot — temporal dot crawl / rainbow removal on both planes.
     #[serde(default)]
     pub apply_dedot: bool,
+
+    /// Measure the chroma misalignment and correct it automatically.
+    #[serde(default)]
+    pub apply_auto_chroma: bool,
+    /// Largest shift to search for, in pixels.
+    #[serde(default = "default_acf_max_shift")]
+    pub auto_chroma_max_shift: i32,
+    /// Sub-pixel search step.
+    #[serde(default = "default_acf_accuracy")]
+    pub auto_chroma_accuracy: f64,
+    /// Measure once on this frame (-1 measures every frame, ~23x the cost).
+    #[serde(default)]
+    pub auto_chroma_reference_frame: i32,
     /// Spatial luma threshold (0-510).
     #[serde(default = "default_dedot_luma_2d")]
     pub dedot_luma_2d: i32,
@@ -168,6 +181,8 @@ fn default_bifrost_variation() -> i32 { 5 }
 fn default_vinverse_sstr() -> f64 { 2.7 }
 fn default_255() -> i32 { 255 }
 
+fn default_acf_max_shift() -> i32 { 2 }
+fn default_acf_accuracy() -> f64 { 0.25 }
 fn default_dedot_luma_2d() -> i32 { 20 }
 fn default_dedot_luma_t() -> i32 { 20 }
 fn default_dedot_chroma_t1() -> i32 { 15 }
@@ -189,6 +204,10 @@ impl Default for ChromaFixParameters {
             apply_de_crawl: false,
             apply_de_rainbow: false,
             apply_dedot: false,
+            apply_auto_chroma: false,
+            auto_chroma_max_shift: default_acf_max_shift(),
+            auto_chroma_accuracy: default_acf_accuracy(),
+            auto_chroma_reference_frame: 0,
             dedot_luma_2d: default_dedot_luma_2d(),
             dedot_luma_t: default_dedot_luma_t(),
             dedot_chroma_t1: default_dedot_chroma_t1(),
