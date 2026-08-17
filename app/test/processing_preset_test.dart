@@ -214,6 +214,43 @@ void main() {
           reason: 'default strength or above, after SMDegrain, oversharpens');
     });
 
+    test('Fast actually is fast, not just a cheaper QTGMC', () {
+      // Measured 622 fps against QTGMC Fast's 150. Before Bwdif this tier was
+      // only a lower QTGMC preset, which is not what the name promises.
+      final fast = byId('builtin-fast');
+      expect(fast.pipeline.deinterlace.method, DeinterlaceMethod.bwdif);
+    });
+
+    test('VHS cleanup repairs the edges rather than cropping them', () {
+      final vhs = byId('builtin-vhs-cleanup');
+      expect(vhs.pipeline.edgeRepair.hasEffect, true,
+          reason: 'dirty edge rows are near-universal on tape, and cropping '
+              'them throws picture away');
+      // Even counts, which is what keeps chroma aligned on subsampled video.
+      for (final v in [
+        vhs.pipeline.edgeRepair.left,
+        vhs.pipeline.edgeRepair.right,
+        vhs.pipeline.edgeRepair.top,
+        vhs.pipeline.edgeRepair.bottom,
+      ]) {
+        expect(v.isEven, true, reason: 'edge widths must be even');
+      }
+      expect(vhs.pipeline.chromaFixes.applyDedot, true,
+          reason: 'dot crawl is the signature composite-capture artefact');
+    });
+
+    test('the film scan preset fixes both faults cine film has', () {
+      // Gate weave and brightness pulsing. It addressed neither until now.
+      final film = byId('builtin-film-scan');
+      expect(film.pipeline.stabilize.enabled, true);
+      expect(film.pipeline.deflicker.enabled, true);
+    });
+
+    test('DV camcorder measures its chroma shift rather than guessing', () {
+      final dv = byId('builtin-dv-camcorder');
+      expect(dv.pipeline.chromaFixes.applyAutoChroma, true);
+    });
+
     test('the quality tiers differ in quality, not in what they fix', () {
       final fast = byId('builtin-fast');
       final balanced = byId('builtin-balanced');
