@@ -1834,6 +1834,7 @@ fn test_52_spotless() {
             blksize: 16,
             overlap: 8,
             pel: 2,
+            ..SpotLessParameters::default()
         },
         ..ProcessingPipeline::default()
     });
@@ -3471,16 +3472,27 @@ fn test_92_templates_do_not_hardcode_an_nnedi3_implementation() {
 fn test_93_templates_do_not_call_std_expr_directly() {
     let templates_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
 
-    for name in ["pipeline_template.vpy", "preview_template.vpy"] {
-        let path = templates_dir.join(name);
-        // Normalise line endings: git checks these out CRLF on Windows.
-        let body = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
-            .replace("\r\n", "\n");
-
-        let helper_start = body
-            .find("def _expr(")
-            .unwrap_or_else(|| panic!("{name} is missing the _expr() helper"));
+    /// Assert one file either has no direct `core.std.Expr` call at all, or
+    /// confines it to a well-formed `_expr()` helper.
+    fn check(name: &str, body: &str, helper_required: bool) {
+        let helper_start = match body.find("def _expr(") {
+            Some(at) => at,
+            None => {
+                assert!(
+                    !helper_required,
+                    "{name} is missing the _expr() helper"
+                );
+                // No helper is fine for a module that evaluates no expressions,
+                // but then it must not reach for std.Expr either.
+                assert!(
+                    !body.contains("core.std.Expr("),
+                    "{name} calls core.std.Expr with no _expr() helper to route \
+                     it through; copy the helper from pipeline_template.vpy so \
+                     ARM gets akarin's JIT instead of the per-pixel interpreter"
+                );
+                return;
+            }
+        };
         let helper_end = helper_start
             + body[helper_start..]
                 .find("\n\n")
@@ -3510,6 +3522,41 @@ fn test_93_templates_do_not_call_std_expr_directly() {
             body.matches("_expr(").count() > body.matches("_akarin_expr(").count() + 1,
             "{name} defines _expr() but never calls it"
         );
+    }
+
+    // Normalise line endings throughout: git checks these out CRLF on Windows.
+    for name in ["pipeline_template.vpy", "preview_template.vpy"] {
+        let path = templates_dir.join(name);
+        let body = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+            .replace("\r\n", "\n");
+        check(name, &body, true);
+    }
+
+    // The vendored Python modules the templates import are the same code path
+    // and the same trap: an `Expr` inside one of them is just as much a
+    // per-pixel interpreter on ARM as an `Expr` in the .vpy. The rule went
+    // uncovered for as long as it did only because spotless.py, the first
+    // vendored module, evaluates no expressions at all.
+    let mut modules: Vec<_> = std::fs::read_dir(&templates_dir)
+        .expect("read templates dir")
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            (path.extension()? == "py").then_some(path)
+        })
+        .collect();
+    modules.sort();
+    assert!(
+        !modules.is_empty(),
+        "no vendored .py modules found in worker/templates — the scan below \
+         would pass vacuously"
+    );
+    for path in modules {
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let body = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+            .replace("\r\n", "\n");
+        check(&name, &body, false);
     }
 }
 
