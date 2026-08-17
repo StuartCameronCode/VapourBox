@@ -11,6 +11,7 @@ use anyhow::{Context, Result};
 use crate::models::{
     AntiAliasMethod, GrainMethod,
     VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod, CCD_REFERENCE_HEIGHT,
+    ChromaDenoiseMethod,
     parse_ratio,
     DehaloMethod, DeblockMethod, SharpenMethod, DeinterlaceMethod,
     FieldOrder,
@@ -923,6 +924,42 @@ impl ScriptGenerator {
         if chroma_denoise.enabled {
             script = script.replace("{{#CHROMA_DENOISE}}", "");
             script = script.replace("{{/CHROMA_DENOISE}}", "");
+
+            // One method runs; the other block is removed entirely rather than
+            // left with unsubstituted placeholders.
+            match chroma_denoise.method {
+                ChromaDenoiseMethod::Ccd => {
+                    script = script.replace("{{#CHROMA_DENOISE_CCD}}", "");
+                    script = script.replace("{{/CHROMA_DENOISE_CCD}}", "");
+                    script = remove_block(
+                        "{{#CHROMA_DENOISE_CNR4}}",
+                        "{{/CHROMA_DENOISE_CNR4}}",
+                        script,
+                    );
+                }
+                ChromaDenoiseMethod::Cnr4 => {
+                    script = remove_block(
+                        "{{#CHROMA_DENOISE_CCD}}",
+                        "{{/CHROMA_DENOISE_CCD}}",
+                        script,
+                    );
+                    script = script.replace("{{#CHROMA_DENOISE_CNR4}}", "");
+                    script = script.replace("{{/CHROMA_DENOISE_CNR4}}", "");
+                    script = script
+                        .replace("{{CNR4_SENSE}}", &chroma_denoise.cnr4_sense_literal());
+                    script = script
+                        .replace("{{CNR4_STRENGTH}}", &chroma_denoise.cnr4_strength_literal());
+                    script = script.replace(
+                        "{{CNR4_RADIUS}}",
+                        &chroma_denoise.effective_cnr4_radius().to_string(),
+                    );
+                    script = script
+                        .replace("{{CNR4_TMODE}}", &chroma_denoise.cnr4_tmode.clamp(0, 3).to_string());
+                    script = script
+                        .replace("{{CNR4_WMODE}}", &chroma_denoise.cnr4_wmode.clamp(0, 2).to_string());
+                }
+            }
+
             script = script.replace("{{CCD_THRESHOLD}}", &format_double(chroma_denoise.threshold));
             script = script.replace(
                 "{{CCD_TEMPORAL_RADIUS}}",

@@ -5072,3 +5072,71 @@ fn test_141_anti_alias_keeps_the_detected_order_when_not_deinterlacing() {
         "BFF must reach the pass as 1, not be flattened to progressive"
     );
 }
+
+/// Cnr4 must be preceded by SCDetect, or it fails every job on every platform.
+///
+/// `scenechange` defaults to True and requires the _SceneChangePrev/Next frame
+/// properties, which this pipeline never sets — measured against the bundled
+/// plugin, a bare `Cnr4(clip)` errors on every format tested. SCDetect is the
+/// right supplier rather than `scenechange=False`, because it is also what
+/// stops the filter smearing chroma across a cut.
+#[test]
+fn test_142_cnr4_is_preceded_by_scene_detection() {
+    create_output_dir();
+    let mut job = create_base_job("test_142_cnr4_scdetect");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        chroma_denoise: ChromaDenoiseParameters {
+            enabled: true,
+            method: ChromaDenoiseMethod::Cnr4,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let script = script_text(&job);
+    let cnr4 = script.find("zsmooth.Cnr4(").expect("Cnr4 must be emitted");
+    let scd = script[..cnr4]
+        .rfind("core.misc.SCDetect(")
+        .expect("SCDetect must precede Cnr4 or every job fails");
+    assert!(scd < cnr4);
+    // 4:1:1 is NTSC DV and pipe_source maps it natively; Cnr4 rejects it.
+    assert!(
+        script[..cnr4].contains("subsampling_w == 2"),
+        "the 4:1:1 guard must run before Cnr4"
+    );
+    // CCD must not also be emitted — one method runs, not both.
+    assert!(!script.contains("zsmooth.CCD("));
+}
+
+/// Selecting CCD must leave no Cnr4 remnants, and vice versa. A surviving
+/// placeholder is a bare Python SyntaxError from vspipe that reads like a
+/// template bug.
+#[test]
+fn test_143_chroma_denoise_methods_are_mutually_exclusive() {
+    create_output_dir();
+    for (method, present, absent) in [
+        (ChromaDenoiseMethod::Ccd, "zsmooth.CCD(", "zsmooth.Cnr4("),
+        (ChromaDenoiseMethod::Cnr4, "zsmooth.Cnr4(", "zsmooth.CCD("),
+    ] {
+        let mut job = create_base_job("test_143_chroma_denoise_exclusive");
+        job.qtgmc_parameters.enabled = false;
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            chroma_denoise: ChromaDenoiseParameters {
+                enabled: true,
+                method,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        let script = script_text(&job);
+        assert!(script.contains(present), "{method:?} must emit {present}");
+        assert!(!script.contains(absent), "{method:?} must not emit {absent}");
+        assert!(
+            !script.contains("{{CNR4_") && !script.contains("{{CCD_"),
+            "{method:?} left an unsubstituted placeholder"
+        );
+    }
+}

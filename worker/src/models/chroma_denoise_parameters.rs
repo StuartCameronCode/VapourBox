@@ -2,6 +2,20 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Which chroma denoiser to run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ChromaDenoiseMethod {
+    /// CCD — spatial (optionally temporal), averages over a wide radius.
+    #[default]
+    #[serde(rename = "ccd")]
+    Ccd,
+    /// Cnr4 — temporal, luma-gated. A different failure mode from CCD: it
+    /// targets chroma that swims or shimmers over time rather than blotches
+    /// that sit still.
+    #[serde(rename = "cnr4")]
+    Cnr4,
+}
+
 /// Frame height CCD was designed for. Its automatic `scale` is derived from the
 /// source height relative to this, and the plugin rejects a scale below 1.0 —
 /// so any source shorter than this needs an explicit clamped scale or the job
@@ -20,6 +34,10 @@ pub struct ChromaDenoiseParameters {
     /// Whether this pass is enabled.
     #[serde(default)]
     pub enabled: bool,
+
+    /// Which denoiser to run.
+    #[serde(default)]
+    pub method: ChromaDenoiseMethod,
 
     /// Euclidean RGB distance below which a neighbouring pixel joins the
     /// average. Higher denoises more.
@@ -46,10 +64,37 @@ pub struct ChromaDenoiseParameters {
     /// same rule the plugin uses, but clamped so short sources still run.
     #[serde(default)]
     pub scale: Option<f64>,
+
+    // ---- Cnr4 ----------------------------------------------------------
+    /// Motion sensitivity. Higher tolerates more movement before it stops
+    /// correcting, so higher also risks smearing moving colour.
+    #[serde(default = "default_cnr4_sense")]
+    pub cnr4_sense: i32,
+
+    /// How far chroma is pulled toward the temporal average. The plugin's own
+    /// default sits near the top of the range, so there is far more headroom
+    /// downward than up.
+    #[serde(default = "default_cnr4_strength")]
+    pub cnr4_strength: i32,
+
+    /// Temporal radius, 1-8.
+    #[serde(default = "default_cnr4_radius")]
+    pub cnr4_radius: i32,
+
+    /// Detail-retention mode, 0-3.
+    #[serde(default)]
+    pub cnr4_tmode: i32,
+
+    /// Weighting mode, 0-2.
+    #[serde(default)]
+    pub cnr4_wmode: i32,
 }
 
 fn default_threshold() -> f64 { 4.0 }
 fn default_true() -> bool { true }
+fn default_cnr4_sense() -> i32 { 35 }
+fn default_cnr4_strength() -> i32 { 192 }
+fn default_cnr4_radius() -> i32 { 2 }
 
 impl Default for ChromaDenoiseParameters {
     fn default() -> Self {
@@ -61,6 +106,12 @@ impl Default for ChromaDenoiseParameters {
             points_medium: true,
             points_high: false,
             scale: None,
+            method: ChromaDenoiseMethod::default(),
+            cnr4_sense: default_cnr4_sense(),
+            cnr4_strength: default_cnr4_strength(),
+            cnr4_radius: default_cnr4_radius(),
+            cnr4_tmode: 0,
+            cnr4_wmode: 0,
         }
     }
 }
@@ -79,7 +130,34 @@ impl ChromaDenoiseParameters {
 
     /// Frames of temporal context this pass needs on each side.
     pub fn radius(&self) -> u32 {
-        self.temporal_radius.max(0) as u32
+        match self.method {
+            ChromaDenoiseMethod::Ccd => self.temporal_radius.max(0) as u32,
+            ChromaDenoiseMethod::Cnr4 => self.effective_cnr4_radius() as u32,
+        }
+    }
+
+    /// Cnr4's radius, clamped to what the plugin accepts. Out of range is a
+    /// hard error at script evaluation, not a clamp.
+    pub fn effective_cnr4_radius(&self) -> i32 {
+        self.cnr4_radius.clamp(1, 8)
+    }
+
+    /// Per-plane `sense`. Chroma planes get the plugin's own higher defaults
+    /// scaled by the user's single control, because exposing three numbers for
+    /// what reads as one idea is how this pass would stop being usable.
+    pub fn cnr4_sense_literal(&self) -> String {
+        let luma = self.cnr4_sense.clamp(0, 255);
+        // The plugin's defaults are [35, 47, 47]: chroma is less sensitive than
+        // luma by a fixed ratio, preserved here as the slider moves.
+        let chroma = ((luma as f64) * 47.0 / 35.0).round().clamp(0.0, 255.0) as i32;
+        format!("[{luma}, {chroma}, {chroma}]")
+    }
+
+    /// Per-plane `str`, same reasoning as `sense`. Defaults are [192, 255, 255].
+    pub fn cnr4_strength_literal(&self) -> String {
+        let luma = self.cnr4_strength.clamp(0, 255);
+        let chroma = ((luma as f64) * 255.0 / 192.0).round().clamp(0.0, 255.0) as i32;
+        format!("[{luma}, {chroma}, {chroma}]")
     }
 }
 

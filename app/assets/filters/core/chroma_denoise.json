@@ -3,26 +3,45 @@
   "id": "chroma_denoise",
   "version": "1.0.0",
   "name": "Chroma Denoise",
-  "description": "Remove blotchy colour noise (CCD)",
-  "longDescription": "CCD — Camcorder Colour Denoise — cleans up noisy colour while leaving detail in the picture alone. It averages each pixel's colour with nearby pixels whose colour is close enough to be the same thing, so flat areas smooth out and edges stay put.\n\nUse it when the picture is watchable but the colour is a mess: the crawling red and blue blotches on VHS captures, and the chroma noise old camcorders produce in low light. Because it never touches luma, it can be pushed much harder than a general denoiser before the picture looks soft.\n\nRun it after deinterlacing. Raising Temporal Radius above 0 pulls in neighbouring frames, which cleans up more but can smear fast colour movement.",
+  "description": "Remove blotchy or swimming colour noise",
+  "longDescription": "CCD \u2014 Camcorder Colour Denoise \u2014 cleans up noisy colour while leaving detail in the picture alone. It averages each pixel's colour with nearby pixels whose colour is close enough to be the same thing, so flat areas smooth out and edges stay put.\n\nUse it when the picture is watchable but the colour is a mess: the crawling red and blue blotches on VHS captures, and the chroma noise old camcorders produce in low light. Because it never touches luma, it can be pushed much harder than a general denoiser before the picture looks soft.\n\nRun it after deinterlacing. Raising Temporal Radius above 0 pulls in neighbouring frames, which cleans up more but can smear fast colour movement.",
   "category": "cleanup",
   "icon": "palette",
   "order": 6,
-
   "dependencies": {
-    "vs_plugins": ["zsmooth.dll"]
+    "vs_plugins": [
+      "zsmooth.dll"
+    ]
   },
-
   "methods": [
     {
       "id": "ccd",
       "name": "CCD",
-      "description": "Camcorder Colour Denoise — chroma-only spatial/temporal denoiser",
+      "description": "Camcorder Colour Denoise \u2014 spatial, for blotches that stay put",
       "function": "core.zsmooth.CCD",
-      "parameters": ["threshold", "temporalRadius", "pointsLow", "pointsMedium", "pointsHigh", "scale"]
+      "parameters": [
+        "threshold",
+        "temporalRadius",
+        "pointsLow",
+        "pointsMedium",
+        "pointsHigh",
+        "scale"
+      ]
+    },
+    {
+      "id": "cnr4",
+      "name": "Cnr4",
+      "description": "Temporal, gated on movement \u2014 for colour that swims or shimmers frame to frame rather than sitting still",
+      "function": "core.zsmooth.Cnr4",
+      "parameters": [
+        "cnr4Sense",
+        "cnr4Strength",
+        "cnr4Radius",
+        "cnr4Tmode",
+        "cnr4Wmode"
+      ]
     }
   ],
-
   "parameters": {
     "enabled": {
       "type": "boolean",
@@ -34,8 +53,15 @@
     "method": {
       "type": "enum",
       "default": "ccd",
-      "options": ["ccd"],
-      "ui": { "hidden": true }
+      "options": [
+        "ccd",
+        "cnr4"
+      ],
+      "ui": {
+        "label": "Method",
+        "description": "CCD smooths blotchy colour in place. Cnr4 settles colour that shifts between frames.",
+        "widget": "dropdown"
+      }
     },
     "threshold": {
       "type": "number",
@@ -113,25 +139,161 @@
         "widget": "slider",
         "precision": 1
       }
+    },
+    "cnr4Strength": {
+      "type": "integer",
+      "default": 192,
+      "min": 0,
+      "max": 255,
+      "step": 8,
+      "visibleWhen": {
+        "method": [
+          "cnr4"
+        ]
+      },
+      "ui": {
+        "label": "Strength",
+        "description": "How far colour is pulled toward the surrounding frames. The default already sits near the top of the range, so there is far more room downward than up.",
+        "widget": "slider"
+      }
+    },
+    "cnr4Sense": {
+      "type": "integer",
+      "default": 35,
+      "min": 0,
+      "max": 255,
+      "step": 5,
+      "visibleWhen": {
+        "method": [
+          "cnr4"
+        ]
+      },
+      "ui": {
+        "label": "Motion sensitivity",
+        "description": "How much movement is tolerated before the filter stops correcting. Raise it if noise survives in moving areas; lower it if moving colour smears.",
+        "widget": "slider"
+      }
+    },
+    "cnr4Radius": {
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "visibleWhen": {
+        "method": [
+          "cnr4"
+        ]
+      },
+      "ui": {
+        "label": "Temporal radius",
+        "description": "How many frames either side are considered. Higher is stronger and slower.",
+        "widget": "slider"
+      }
+    },
+    "cnr4Tmode": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 3,
+      "step": 1,
+      "visibleWhen": {
+        "method": [
+          "cnr4"
+        ]
+      },
+      "ui": {
+        "label": "Detail retention",
+        "description": "Higher settings protect fine chroma detail at the cost of some smoothing.",
+        "widget": "slider"
+      }
+    },
+    "cnr4Wmode": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 2,
+      "step": 1,
+      "visibleWhen": {
+        "method": [
+          "cnr4"
+        ]
+      },
+      "ui": {
+        "label": "Weighting",
+        "description": "How neighbouring frames are weighted against the current one.",
+        "widget": "slider"
+      }
     }
   },
-
   "ui": {
     "sections": [
       {
-        "title": "Settings",
-        "parameters": ["threshold", "temporalRadius"],
+        "title": "Method",
+        "parameters": [
+          "method"
+        ],
         "expanded": true
       },
       {
+        "title": "Settings",
+        "parameters": [
+          "threshold",
+          "temporalRadius"
+        ],
+        "expanded": true,
+        "visibleWhen": {
+          "method": [
+            "ccd"
+          ]
+        }
+      },
+      {
         "title": "Sampling",
-        "parameters": ["pointsLow", "pointsMedium", "pointsHigh", "scale"],
+        "parameters": [
+          "pointsLow",
+          "pointsMedium",
+          "pointsHigh",
+          "scale"
+        ],
         "expanded": false,
-        "advancedOnly": true
+        "advancedOnly": true,
+        "visibleWhen": {
+          "method": [
+            "ccd"
+          ]
+        }
+      },
+      {
+        "title": "Cnr4 settings",
+        "parameters": [
+          "cnr4Strength",
+          "cnr4Sense",
+          "cnr4Radius"
+        ],
+        "expanded": true,
+        "visibleWhen": {
+          "method": [
+            "cnr4"
+          ]
+        }
+      },
+      {
+        "title": "Cnr4 tuning",
+        "parameters": [
+          "cnr4Tmode",
+          "cnr4Wmode"
+        ],
+        "expanded": false,
+        "advancedOnly": true,
+        "visibleWhen": {
+          "method": [
+            "cnr4"
+          ]
+        }
       }
     ]
   },
-
   "codeTemplate": {
     "imports": [],
     "generate": "method"

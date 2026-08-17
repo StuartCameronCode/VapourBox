@@ -459,6 +459,45 @@ void main() {
       // CCD rejects a scale below 1.0, and its own automatic value is below 1.0
       // for anything shorter than 480 lines — so we derive it with a floor.
       expect(script, contains('max(1.0, clip.height / 480.0)'));
+      // The other method must not also be emitted.
+      expect(script, isNot(contains('core.zsmooth.Cnr4(')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // Cnr4 — the second Chroma Denoise method. It targets colour that swims
+    // between frames, where CCD targets blotches that sit still.
+    test('chroma_denoise: Cnr4 needs SCDetect and a 4:1:1 guard', () async {
+      final job = buildJob(
+        testName: 'chroma_denoise_cnr4',
+        chromaDenoise: const ChromaDenoiseParameters(
+          enabled: true,
+          method: ChromaDenoiseMethod.cnr4,
+          cnr4Strength: 160,
+          cnr4Sense: 50,
+          cnr4Radius: 3,
+        ),
+      );
+      print('  Generating Cnr4 script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.zsmooth.Cnr4('));
+      expect(script, isNot(contains('core.zsmooth.CCD(')));
+
+      // scenechange defaults to True and needs frame properties this pipeline
+      // never sets, so without SCDetect in front this fails EVERY job on every
+      // platform. Measured against the bundled plugin.
+      final cnr4At = script.indexOf('core.zsmooth.Cnr4(');
+      expect(script.substring(0, cnr4At), contains('core.misc.SCDetect('),
+          reason: 'Cnr4 without SCDetect fails at frame request, not at parse');
+
+      // 4:1:1 is NTSC DV and pipe_source maps it natively; Cnr4 rejects it.
+      expect(script.substring(0, cnr4At), contains('subsampling_w == 2'));
+
+      final actual = parseFilterParams(script, 'core.zsmooth.Cnr4(');
+      expect(actual['radius'], '3');
+      // One slider drives all three planes, preserving the plugin's own ratio
+      // between luma and chroma rather than exposing three numbers.
+      expect(actual['sense'], '[50, 67, 67]');
+      expect(actual['str'], '[160, 213, 213]');
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 

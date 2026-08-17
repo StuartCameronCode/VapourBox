@@ -669,6 +669,7 @@ clip = mvf.BM3D(
 # PASS 5b: CHROMA DENOISE (CCD - Camcorder Colour Denoise)
 # ============================================================================
 {{#CHROMA_DENOISE}}
+{{#CHROMA_DENOISE_CCD}}
 # CCD averages chroma over neighbours whose RGB distance is within `threshold`,
 # leaving luma untouched — the standard fix for the blotchy colour noise on VHS
 # captures and old camcorder footage.
@@ -693,6 +694,39 @@ clip = core.zsmooth.CCD(
     points={{CCD_POINTS}},
     scale=_ccd_scale,
 )
+{{/CHROMA_DENOISE_CCD}}
+{{#CHROMA_DENOISE_CNR4}}
+# Cnr4 — temporal chroma denoise, gated on luma motion. A different failure mode
+# from CCD: it targets chroma that swims or shimmers frame to frame rather than
+# blotches that sit still, so the two are complementary rather than alternatives.
+#
+# TWO TRAPS, both measured against the bundled plugin:
+#
+# 1. `scenechange` defaults to True and REQUIRES the _SceneChangePrev/Next frame
+#    properties, which this pipeline never sets. A bare Cnr4(clip) therefore
+#    fails 100% of jobs on every platform with "Scene change handling enabled,
+#    but input frame is missing scene change properties". misc.SCDetect supplies
+#    them, and is the better answer than scenechange=False because it is what
+#    stops the filter smearing chroma across a cut.
+#
+# 2. It rejects 4:1:1 outright ("must be integer YUV420, YUV422, YUV440, or
+#    YUV444"), and 4:1:1 is NTSC DV, which pipe_source maps natively. Convert
+#    up to 4:2:2 and restore afterwards, as DeScratch does for bit depth.
+_cnr4_src_format = clip.format.id
+if clip.format.subsampling_w == 2:
+    clip = core.resize.Bicubic(clip, format=vs.YUV422P8 if clip.format.bits_per_sample == 8 else vs.YUV422P16)
+clip = core.misc.SCDetect(clip)
+clip = core.zsmooth.Cnr4(
+    clip,
+    sense={{CNR4_SENSE}},
+    str={{CNR4_STRENGTH}},
+    radius={{CNR4_RADIUS}},
+    tmode={{CNR4_TMODE}},
+    wmode={{CNR4_WMODE}},
+)
+if clip.format.id != _cnr4_src_format:
+    clip = core.resize.Bicubic(clip, format=_cnr4_src_format)
+{{/CHROMA_DENOISE_CNR4}}
 {{/CHROMA_DENOISE}}
 
 # ============================================================================

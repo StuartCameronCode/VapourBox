@@ -245,13 +245,18 @@ class ParameterConverter {
       filterId: 'chroma_denoise',
       enabled: params.enabled,
       values: {
-        'method': 'ccd',
+        'method': params.method == ChromaDenoiseMethod.cnr4 ? 'cnr4' : 'ccd',
         'threshold': params.threshold,
         'temporalRadius': params.temporalRadius,
         'pointsLow': params.pointsLow,
         'pointsMedium': params.pointsMedium,
         'pointsHigh': params.pointsHigh,
         if (params.scale != null) 'scale': params.scale,
+        'cnr4Strength': params.cnr4Strength,
+        'cnr4Sense': params.cnr4Sense,
+        'cnr4Radius': params.cnr4Radius,
+        'cnr4Tmode': params.cnr4Tmode,
+        'cnr4Wmode': params.cnr4Wmode,
       },
       // Left off, scale is derived from the frame height at run time — which is
       // both the plugin's own behaviour and the only value that works on short
@@ -926,6 +931,9 @@ class ParameterConverter {
     final v = params.values;
     return ChromaDenoiseParameters(
       enabled: params.enabled,
+      method: (v['method'] as String?) == 'cnr4'
+          ? ChromaDenoiseMethod.cnr4
+          : ChromaDenoiseMethod.ccd,
       threshold: (v['threshold'] as num?)?.toDouble() ?? 4.0,
       temporalRadius: _asInt(v['temporalRadius']) ?? 0,
       pointsLow: v['pointsLow'] as bool? ?? true,
@@ -933,6 +941,11 @@ class ParameterConverter {
       pointsHigh: v['pointsHigh'] as bool? ?? false,
       // Absent means "derive from the frame height".
       scale: (v['scale'] as num?)?.toDouble(),
+      cnr4Strength: _asInt(v['cnr4Strength']) ?? 192,
+      cnr4Sense: _asInt(v['cnr4Sense']) ?? 35,
+      cnr4Radius: _asInt(v['cnr4Radius']) ?? 2,
+      cnr4Tmode: _asInt(v['cnr4Tmode']) ?? 0,
+      cnr4Wmode: _asInt(v['cnr4Wmode']) ?? 0,
     );
   }
 
