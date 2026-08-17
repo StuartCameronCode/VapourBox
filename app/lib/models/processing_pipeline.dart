@@ -1,5 +1,12 @@
 import 'package:json_annotation/json_annotation.dart';
 
+import 'anti_alias_parameters.dart';
+import 'geometry_parameters.dart';
+import 'deflicker_parameters.dart';
+import 'edge_repair_parameters.dart';
+import 'frame_rate_parameters.dart';
+import 'ghost_removal_parameters.dart';
+import 'grain_parameters.dart';
 import 'chroma_fix_parameters.dart';
 import 'color_correction_parameters.dart';
 import 'crop_resize_parameters.dart';
@@ -7,6 +14,7 @@ import 'deband_parameters.dart';
 import 'deblock_parameters.dart';
 import 'descratch_parameters.dart';
 import 'spotless_parameters.dart';
+import 'stabilize_parameters.dart';
 import 'dehalo_parameters.dart';
 import 'dynamic_parameters.dart';
 import 'chroma_denoise_parameters.dart';
@@ -29,6 +37,14 @@ enum PassType {
   deblock,
   deband,
   sharpen,
+  antiAlias,
+  stabilize,
+  geometry,
+  grain,
+  frameRate,
+  deflicker,
+  edgeRepair,
+  ghostRemoval,
   colorCorrection,
   chromaFixes,
   cropResize,
@@ -57,6 +73,22 @@ extension PassTypeExtension on PassType {
         return 'Deband';
       case PassType.sharpen:
         return 'Sharpen';
+      case PassType.antiAlias:
+        return 'Anti-Aliasing';
+      case PassType.stabilize:
+        return 'Stabilize';
+      case PassType.geometry:
+        return 'Rotate / Flip';
+      case PassType.grain:
+        return 'Film Grain';
+      case PassType.frameRate:
+        return 'Frame Rate';
+      case PassType.deflicker:
+        return 'Deflicker';
+      case PassType.edgeRepair:
+        return 'Edge Repair';
+      case PassType.ghostRemoval:
+        return 'Ghost Removal';
       case PassType.colorCorrection:
         return 'Color Correction';
       case PassType.chromaFixes:
@@ -88,6 +120,22 @@ extension PassTypeExtension on PassType {
         return 'Remove color banding from gradients';
       case PassType.sharpen:
         return 'Sharpen edges and enhance detail';
+      case PassType.antiAlias:
+        return 'Smooth stair-stepping on diagonal edges';
+      case PassType.stabilize:
+        return 'Remove shake and weave from the picture';
+      case PassType.geometry:
+        return 'Rotate or mirror the picture';
+      case PassType.grain:
+        return 'Add film grain back after denoising';
+      case PassType.frameRate:
+        return 'Convert between PAL and NTSC frame rates';
+      case PassType.deflicker:
+        return 'Even out brightness pulsing between frames';
+      case PassType.edgeRepair:
+        return 'Rebuild the dirty rows and columns at the frame border';
+      case PassType.ghostRemoval:
+        return 'Remove the displaced echo RF and cable distribution leave behind';
       case PassType.colorCorrection:
         return 'Adjust brightness, contrast, and colors';
       case PassType.chromaFixes:
@@ -130,6 +178,14 @@ class ProcessingPipeline {
 
   /// Sharpening pass parameters.
   final SharpenParameters sharpen;
+  final AntiAliasParameters antiAlias;
+  final StabilizeParameters stabilize;
+  final GeometryParameters geometry;
+  final GrainParameters grain;
+  final FrameRateParameters frameRate;
+  final DeflickerParameters deflicker;
+  final EdgeRepairParameters edgeRepair;
+  final GhostRemovalParameters ghostRemoval;
 
   /// Color correction pass parameters.
   final ColorCorrectionParameters colorCorrection;
@@ -153,6 +209,14 @@ class ProcessingPipeline {
     this.deblock = const DeblockParameters(),
     this.deband = const DebandParameters(),
     this.sharpen = const SharpenParameters(),
+    this.antiAlias = const AntiAliasParameters(),
+    this.stabilize = const StabilizeParameters(),
+    this.geometry = const GeometryParameters(),
+    this.grain = const GrainParameters(),
+    this.frameRate = const FrameRateParameters(),
+    this.deflicker = const DeflickerParameters(),
+    this.edgeRepair = const EdgeRepairParameters(),
+    this.ghostRemoval = const GhostRemovalParameters(),
     this.colorCorrection = const ColorCorrectionParameters(),
     this.chromaFixes = const ChromaFixParameters(),
     this.cropResize = const CropResizeParameters(),
@@ -172,6 +236,14 @@ class ProcessingPipeline {
       deblock: const DeblockParameters(enabled: false),
       deband: const DebandParameters(enabled: false),
       sharpen: const SharpenParameters(enabled: false),
+      antiAlias: const AntiAliasParameters(enabled: false),
+      stabilize: const StabilizeParameters(enabled: false),
+      geometry: const GeometryParameters(enabled: false),
+      grain: const GrainParameters(enabled: false),
+      frameRate: const FrameRateParameters(enabled: false),
+      deflicker: const DeflickerParameters(enabled: false),
+      edgeRepair: const EdgeRepairParameters(enabled: false),
+      ghostRemoval: const GhostRemovalParameters(enabled: false),
       colorCorrection: const ColorCorrectionParameters(enabled: false),
       chromaFixes: const ChromaFixParameters(enabled: false),
       cropResize: const CropResizeParameters(enabled: false),
@@ -188,6 +260,21 @@ class ProcessingPipeline {
     }
     if (deinterlace.enabled) {
       passes.add(PassType.deinterlace);
+    }
+    // Edge repair precedes every spatial filter, or denoising and sharpening
+    // smear the bad rows inward; and precedes the resize, or resampling spreads
+    // them. Ghost removal follows it and precedes the denoise, so the denoiser
+    // does not average the echo into the picture. Deflicker follows
+    // deinterlacing (field-doubled frames break its temporal comparisons) and
+    // precedes the dirt and denoise passes, which assume a stable exposure.
+    if (edgeRepair.hasEffect) {
+      passes.add(PassType.edgeRepair);
+    }
+    if (ghostRemoval.hasEffect) {
+      passes.add(PassType.ghostRemoval);
+    }
+    if (deflicker.enabled) {
+      passes.add(PassType.deflicker);
     }
     if (descratch.enabled) {
       passes.add(PassType.descratch);
@@ -212,6 +299,11 @@ class ProcessingPipeline {
     if (deband.enabled) {
       passes.add(PassType.deband);
     }
+    // Anti-aliasing before sharpening: sharpening stair-stepped edges makes
+    // the stepping more visible, not less.
+    if (antiAlias.enabled) {
+      passes.add(PassType.antiAlias);
+    }
     if (sharpen.enabled) {
       passes.add(PassType.sharpen);
     }
@@ -221,12 +313,34 @@ class ProcessingPipeline {
     if (colorCorrection.enabled) {
       passes.add(PassType.colorCorrection);
     }
+    // Stabilisation shifts the picture within the frame, so it runs last
+    // before framing — a crop can then remove the edges it exposes.
+    if (stabilize.enabled) {
+      passes.add(PassType.stabilize);
+    }
+    // Rotation swaps width and height, so it settles before any framing
+    // decision. It also follows deinterlacing: fields run horizontally, so
+    // turning a still-interlaced clip shears them.
+    if (geometry.hasEffect) {
+      passes.add(PassType.geometry);
+    }
     if (cropResize.enabled && cropResize.resizeEnabled) {
       // Resize (post-processing) - if not already added for crop
       if (!passes.contains(PassType.cropResize)) {
         passes.add(PassType.cropResize);
       }
     }
+    // Grain goes last of the video passes: added before the resize it is
+    // resampled away, before the deband it is smoothed away.
+    if (grain.hasEffect) {
+      passes.add(PassType.grain);
+    }
+    // Genuinely last: it resamples the timeline, so anything after it would
+    // be working on invented frames rather than photographed ones.
+    if (frameRate.enabled) {
+      passes.add(PassType.frameRate);
+    }
+
     return passes;
   }
 
@@ -242,6 +356,14 @@ class ProcessingPipeline {
     if (deblock.enabled) count++;
     if (deband.enabled) count++;
     if (sharpen.enabled) count++;
+    if (antiAlias.enabled) count++;
+    if (stabilize.enabled) count++;
+    if (geometry.hasEffect) count++;
+    if (grain.hasEffect) count++;
+    if (frameRate.enabled) count++;
+    if (deflicker.enabled) count++;
+    if (edgeRepair.hasEffect) count++;
+    if (ghostRemoval.hasEffect) count++;
     if (colorCorrection.enabled) count++;
     if (chromaFixes.enabled) count++;
     if (cropResize.enabled) count++;
@@ -261,6 +383,14 @@ class ProcessingPipeline {
     if (deblock.enabled) count++;
     if (deband.enabled) count++;
     if (sharpen.enabled) count++;
+    if (antiAlias.enabled) count++;
+    if (stabilize.enabled) count++;
+    if (geometry.hasEffect) count++;
+    if (grain.hasEffect) count++;
+    if (frameRate.enabled) count++;
+    if (deflicker.enabled) count++;
+    if (edgeRepair.hasEffect) count++;
+    if (ghostRemoval.hasEffect) count++;
     if (colorCorrection.enabled) count++;
     if (chromaFixes.enabled) count++;
     if (cropResize.enabled) count++;
@@ -288,6 +418,22 @@ class ProcessingPipeline {
         return deband.enabled;
       case PassType.sharpen:
         return sharpen.enabled;
+      case PassType.antiAlias:
+        return antiAlias.enabled;
+      case PassType.stabilize:
+        return stabilize.enabled;
+      case PassType.geometry:
+        return geometry.hasEffect;
+      case PassType.grain:
+        return grain.hasEffect;
+      case PassType.frameRate:
+        return frameRate.enabled;
+      case PassType.deflicker:
+        return deflicker.enabled;
+      case PassType.edgeRepair:
+        return edgeRepair.hasEffect;
+      case PassType.ghostRemoval:
+        return ghostRemoval.hasEffect;
       case PassType.colorCorrection:
         return colorCorrection.enabled;
       case PassType.chromaFixes:
@@ -322,6 +468,22 @@ class ProcessingPipeline {
         return deband.summary;
       case PassType.sharpen:
         return sharpen.summary;
+      case PassType.antiAlias:
+        return antiAlias.summary;
+      case PassType.stabilize:
+        return stabilize.summary;
+      case PassType.geometry:
+        return geometry.summary;
+      case PassType.grain:
+        return grain.summary;
+      case PassType.frameRate:
+        return frameRate.summary;
+      case PassType.deflicker:
+        return deflicker.summary;
+      case PassType.edgeRepair:
+        return edgeRepair.summary;
+      case PassType.ghostRemoval:
+        return ghostRemoval.summary;
       case PassType.colorCorrection:
         return colorCorrection.summary;
       case PassType.chromaFixes:
@@ -343,6 +505,14 @@ class ProcessingPipeline {
     DeblockParameters? deblock,
     DebandParameters? deband,
     SharpenParameters? sharpen,
+    AntiAliasParameters? antiAlias,
+    StabilizeParameters? stabilize,
+    GeometryParameters? geometry,
+    GrainParameters? grain,
+    FrameRateParameters? frameRate,
+    DeflickerParameters? deflicker,
+    EdgeRepairParameters? edgeRepair,
+    GhostRemovalParameters? ghostRemoval,
     ColorCorrectionParameters? colorCorrection,
     ChromaFixParameters? chromaFixes,
     CropResizeParameters? cropResize,
@@ -358,6 +528,14 @@ class ProcessingPipeline {
       deblock: deblock ?? this.deblock,
       deband: deband ?? this.deband,
       sharpen: sharpen ?? this.sharpen,
+      antiAlias: antiAlias ?? this.antiAlias,
+      stabilize: stabilize ?? this.stabilize,
+      geometry: geometry ?? this.geometry,
+      grain: grain ?? this.grain,
+      frameRate: frameRate ?? this.frameRate,
+      deflicker: deflicker ?? this.deflicker,
+      edgeRepair: edgeRepair ?? this.edgeRepair,
+      ghostRemoval: ghostRemoval ?? this.ghostRemoval,
       colorCorrection: colorCorrection ?? this.colorCorrection,
       chromaFixes: chromaFixes ?? this.chromaFixes,
       cropResize: cropResize ?? this.cropResize,
@@ -403,6 +581,34 @@ class ProcessingPipeline {
       case PassType.sharpen:
         return copyWith(
           sharpen: sharpen.copyWith(enabled: enabled),
+        );
+      case PassType.antiAlias:
+        return copyWith(
+          antiAlias: antiAlias.copyWith(enabled: enabled),
+        );
+      case PassType.stabilize:
+        return copyWith(
+          stabilize: stabilize.copyWith(enabled: enabled),
+        );
+      case PassType.geometry:
+        return copyWith(
+          geometry: geometry.copyWith(enabled: enabled),
+        );
+      case PassType.grain:
+        return copyWith(
+          grain: grain.copyWith(enabled: enabled),
+        );
+      case PassType.frameRate:
+        return copyWith(
+          frameRate: frameRate.copyWith(enabled: enabled),
+        );
+      case PassType.deflicker:
+        return copyWith(deflicker: deflicker.copyWith(enabled: enabled));
+      case PassType.edgeRepair:
+        return copyWith(edgeRepair: edgeRepair.copyWith(enabled: enabled));
+      case PassType.ghostRemoval:
+        return copyWith(
+          ghostRemoval: ghostRemoval.copyWith(enabled: enabled),
         );
       case PassType.colorCorrection:
         return copyWith(

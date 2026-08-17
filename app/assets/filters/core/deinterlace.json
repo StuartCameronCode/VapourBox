@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "name": "Deinterlace",
   "description": "QTGMC deinterlacing or IVTC inverse telecine",
-  "longDescription": "Turns interlaced video — where each frame holds two half-height fields captured at different moments — into whole progressive frames, or removes the pulldown pattern from film that was telecined to video. QTGMC rebuilds every field into a full frame for the smoothest motion; IVTC instead recovers the original film frames and drops the duplicates.\n\nUse it on anything from tape or broadcast — VHS, Video8, DV, DVD — where moving edges show comb teeth. Leave it off for footage that is already progressive. Run it first: every other filter works better on whole frames.",
+  "longDescription": "Turns interlaced video \u2014 where each frame holds two half-height fields captured at different moments \u2014 into whole progressive frames, or removes the pulldown pattern from film that was telecined to video. QTGMC rebuilds every field into a full frame for the smoothest motion; IVTC instead recovers the original film frames and drops the duplicates.\n\nUse it on anything from tape or broadcast \u2014 VHS, Video8, DV, DVD \u2014 where moving edges show comb teeth. Leave it off for footage that is already progressive. Run it first: every other filter works better on whole frames.",
   "category": "deinterlace",
   "icon": "layers",
   "order": 1,
@@ -113,7 +113,7 @@
     {
       "id": "ivtc",
       "name": "IVTC",
-      "description": "Inverse telecine for DVD sources with 3:2 pulldown (29.97i → 23.976p)",
+      "description": "Inverse telecine for DVD sources with 3:2 pulldown (29.97i \u2192 23.976p)",
       "function": "core.vivtc.VFM + core.vivtc.VDecimate",
       "parameters": [
         "ivtcOrder",
@@ -133,6 +133,17 @@
       "description": "Fix frame rate for DVD soft telecine sources misdetected as 29.97fps",
       "function": "core.std.AssumeFPS",
       "parameters": []
+    },
+    {
+      "id": "bwdif",
+      "name": "Bwdif (fast)",
+      "description": "Four to five times faster than QTGMC at most of the quality \u2014 for long captures, or a quick look before committing to a full run",
+      "function": "core.bwdif.Bwdif",
+      "parameters": [
+        "tff",
+        "fpsDivisor",
+        "bwdifEdeint"
+      ]
     }
   ],
   "parameters": {
@@ -149,7 +160,8 @@
       "options": [
         "qtgmc",
         "ivtc",
-        "soft_telecine"
+        "soft_telecine",
+        "bwdif"
       ],
       "ui": {
         "hidden": true
@@ -1935,6 +1947,20 @@
           ]
         }
       }
+    },
+    "bwdifEdeint": {
+      "type": "boolean",
+      "default": false,
+      "visibleWhen": {
+        "method": [
+          "bwdif"
+        ]
+      },
+      "ui": {
+        "label": "High-quality interpolation",
+        "description": "Use the NNEDI3 neural interpolator instead of the built-in one. Sharper edges, noticeably slower \u2014 still far quicker than QTGMC.",
+        "widget": "checkbox"
+      }
     }
   },
   "parameterPresets": {
@@ -1943,7 +1969,9 @@
       "description": "Which field comes first in the interlaced source",
       "default": "Top Field First",
       "visibleWhen": {
-        "method": ["qtgmc"]
+        "method": [
+          "qtgmc"
+        ]
       },
       "options": {
         "Top Field First": {
@@ -2229,6 +2257,18 @@
         ],
         "expanded": false,
         "advancedOnly": true
+      },
+      {
+        "title": "Bwdif",
+        "parameters": [
+          "bwdifEdeint"
+        ],
+        "expanded": true,
+        "visibleWhen": {
+          "method": [
+            "bwdif"
+          ]
+        }
       }
     ]
   },

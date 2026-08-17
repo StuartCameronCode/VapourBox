@@ -3,10 +3,10 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
+    AntiAliasParameters, GeometryParameters, GrainParameters, StabilizeParameters,
     ChromaDenoiseParameters, ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
     DebandParameters, DeblockParameters, DehaloParameters, DeinterlaceMethod, DeScratchParameters,
-    SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters,
-};
+    SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters, FrameRateParameters, FrameRateMethod, DeflickerParameters, EdgeRepairParameters, GhostRemovalParameters,};
 
 /// Minimum temporal context (frames on each side of the target) a windowed
 /// preview decodes, regardless of which filters are enabled. Motion-compensated
@@ -122,6 +122,18 @@ pub enum PassType {
     Deblock,
     Deband,
     Sharpen,
+    AntiAlias,
+    Stabilize,
+    Geometry,
+    Grain,
+    /// Remove brightness pulsing between frames.
+    Deflicker,
+    /// Remove the displaced echo RF and cable distribution leave behind.
+    GhostRemoval,
+    /// Rebuild the dirty rows and columns at the frame border.
+    EdgeRepair,
+    /// Frame-rate conversion (standards conversion, not smoothing).
+    FrameRate,
     ColorCorrection,
     ChromaFixes,
     CropResize,
@@ -141,6 +153,14 @@ impl PassType {
             PassType::Deblock => "Deblock",
             PassType::Deband => "Deband",
             PassType::Sharpen => "Sharpen",
+            PassType::AntiAlias => "Anti-Aliasing",
+            PassType::Stabilize => "Stabilize",
+            PassType::Geometry => "Rotate / Flip",
+            PassType::Grain => "Film Grain",
+            PassType::Deflicker => "Deflicker",
+            PassType::GhostRemoval => "Ghost Removal",
+            PassType::EdgeRepair => "Edge Repair",
+            PassType::FrameRate => "Frame Rate",
             PassType::ColorCorrection => "Color Correction",
             PassType::ChromaFixes => "Chroma Fixes",
             PassType::CropResize => "Crop / Resize",
@@ -159,6 +179,14 @@ impl PassType {
             PassType::Deblock => "Remove compression block artifacts",
             PassType::Deband => "Remove color banding from gradients",
             PassType::Sharpen => "Sharpen edges and enhance detail",
+            PassType::AntiAlias => "Smooth stair-stepping on diagonal edges",
+            PassType::Stabilize => "Remove shake and weave from the picture",
+            PassType::Geometry => "Rotate or mirror the picture",
+            PassType::Grain => "Add film grain back after denoising",
+            PassType::Deflicker => "Even out brightness pulsing between frames",
+            PassType::GhostRemoval => "Remove the displaced echo RF and cable distribution leave behind",
+            PassType::EdgeRepair => "Rebuild the dirty rows and columns at the frame border",
+            PassType::FrameRate => "Convert between PAL and NTSC frame rates",
             PassType::ColorCorrection => "Adjust brightness, contrast, and colors",
             PassType::ChromaFixes => "Fix chroma bleeding and crawl artifacts",
             PassType::CropResize => "Crop borders and resize output",
@@ -207,6 +235,36 @@ pub struct ProcessingPipeline {
     #[serde(default)]
     pub sharpen: SharpenParameters,
 
+    /// Anti-aliasing pass parameters.
+    #[serde(default)]
+    pub anti_alias: AntiAliasParameters,
+
+    /// Stabilisation pass parameters.
+    #[serde(default)]
+    pub stabilize: StabilizeParameters,
+
+    /// Rotate/flip pass parameters.
+    #[serde(default)]
+    pub geometry: GeometryParameters,
+
+    /// Film grain pass parameters.
+    #[serde(default)]
+    pub grain: GrainParameters,
+
+    /// Brightness flicker removal. Off by default.
+    #[serde(default)]
+    pub deflicker: DeflickerParameters,
+
+    #[serde(default)]
+    pub ghost_removal: GhostRemovalParameters,
+
+    #[serde(default)]
+    pub edge_repair: EdgeRepairParameters,
+
+    /// Frame-rate conversion. Off by default.
+    #[serde(default)]
+    pub frame_rate: FrameRateParameters,
+
     /// Color correction pass parameters.
     #[serde(default)]
     pub color_correction: ColorCorrectionParameters,
@@ -232,6 +290,14 @@ impl Default for ProcessingPipeline {
             deblock: DeblockParameters::default(),
             deband: DebandParameters::default(),
             sharpen: SharpenParameters::default(),
+            anti_alias: AntiAliasParameters::default(),
+            stabilize: StabilizeParameters::default(),
+            geometry: GeometryParameters::default(),
+            grain: GrainParameters::default(),
+            deflicker: DeflickerParameters::default(),
+            ghost_removal: GhostRemovalParameters::default(),
+            edge_repair: EdgeRepairParameters::default(),
+            frame_rate: FrameRateParameters::default(),
             color_correction: ColorCorrectionParameters::default(),
             chroma_fixes: ChromaFixParameters::default(),
             crop_resize: CropResizeParameters::default(),
@@ -253,6 +319,14 @@ impl ProcessingPipeline {
             deblock: DeblockParameters { enabled: false, ..Default::default() },
             deband: DebandParameters { enabled: false, ..Default::default() },
             sharpen: SharpenParameters { enabled: false, ..Default::default() },
+            anti_alias: AntiAliasParameters { enabled: false, ..Default::default() },
+            stabilize: StabilizeParameters { enabled: false, ..Default::default() },
+            geometry: GeometryParameters { enabled: false, ..Default::default() },
+            grain: GrainParameters { enabled: false, ..Default::default() },
+            deflicker: DeflickerParameters { enabled: false, ..Default::default() },
+            ghost_removal: GhostRemovalParameters { enabled: false, ..Default::default() },
+            edge_repair: EdgeRepairParameters { enabled: false, ..Default::default() },
+            frame_rate: FrameRateParameters { enabled: false, ..Default::default() },
             color_correction: ColorCorrectionParameters { enabled: false, ..Default::default() },
             chroma_fixes: ChromaFixParameters { enabled: false, ..Default::default() },
             crop_resize: CropResizeParameters { enabled: false, ..Default::default() },
@@ -269,6 +343,24 @@ impl ProcessingPipeline {
         }
         if self.deinterlace_enabled() {
             passes.push(PassType::Deinterlace);
+        }
+        // Edge repair must precede every spatial filter, or denoising and
+        // sharpening smear the bad rows inward — and it must precede the resize,
+        // or resampling spreads them. After deinterlacing rather than first, so
+        // it works on progressive output when deinterlacing is on.
+        if self.edge_repair.has_effect() {
+            passes.push(PassType::EdgeRepair);
+        }
+        // Ghosting is a per-line echo in luma; removing it before the denoise
+        // stops the denoiser averaging the echo into the picture.
+        if self.ghost_removal.has_effect() {
+            passes.push(PassType::GhostRemoval);
+        }
+        // Deflicker must follow deinterlacing — field-doubled frames break
+        // every temporal comparison it makes — and precede the dirt and
+        // denoise passes, which all assume a stable exposure.
+        if self.deflicker.enabled {
+            passes.push(PassType::Deflicker);
         }
         if self.descratch.enabled {
             passes.push(PassType::DeScratch);
@@ -293,6 +385,11 @@ impl ProcessingPipeline {
         if self.deband.enabled {
             passes.push(PassType::Deband);
         }
+        // Anti-aliasing before sharpening: sharpening stair-stepped edges
+        // makes the stepping more visible, not less.
+        if self.anti_alias.enabled {
+            passes.push(PassType::AntiAlias);
+        }
         if self.sharpen.enabled {
             passes.push(PassType::Sharpen);
         }
@@ -302,11 +399,37 @@ impl ProcessingPipeline {
         if self.color_correction.enabled {
             passes.push(PassType::ColorCorrection);
         }
+        // Stabilisation shifts the picture within the frame, so it runs last
+        // before framing — that way a crop can remove the edges it exposes.
+        if self.stabilize.enabled {
+            passes.push(PassType::Stabilize);
+        }
+        // Rotation swaps width and height, so it has to settle before any
+        // framing decision is made. It also must follow deinterlacing: fields
+        // run horizontally, so turning a still-interlaced clip shears them.
+        if self.geometry.has_effect() {
+            passes.push(PassType::Geometry);
+        }
         if self.crop_resize.enabled && self.crop_resize.resize_enabled {
             // Resize (post-processing) - if not already added for crop
             if !passes.contains(&PassType::CropResize) {
                 passes.push(PassType::CropResize);
             }
+        }
+
+        // Grain goes last of the video passes. Added before the resize it is
+        // resampled away; before the deband it is smoothed away. Measured, and
+        // the reason this pass sits after framing rather than with the other
+        // enhancement steps.
+        if self.grain.has_effect() {
+            passes.push(PassType::Grain);
+        }
+
+        // Frame rate conversion is genuinely last. It resamples the timeline, so
+        // running it before anything temporal would have every later pass work
+        // on invented frames rather than photographed ones.
+        if self.frame_rate.enabled {
+            passes.push(PassType::FrameRate);
         }
 
         passes
@@ -357,8 +480,38 @@ impl ProcessingPipeline {
             },
             PassType::SpotLess => FrameMap::Identity { radius: 2 },
             PassType::DeScratch => FrameMap::Identity { radius: 1 },
+            PassType::Deflicker => FrameMap::Identity { radius: self.deflicker.radius() },
+            PassType::EdgeRepair => FrameMap::Identity { radius: 0 },
+            PassType::GhostRemoval => FrameMap::Identity { radius: 0 },
+            // The one pass that emits a Retime. The ratio is known up front, so
+            // the count is exact; `synthesizes` is true only for the
+            // interpolating method, where an output frame has no single source.
+            PassType::FrameRate => self.frame_rate_frame_map(),
             // Purely spatial passes.
             _ => FrameMap::Identity { radius: 0 },
+        }
+    }
+
+    /// Frame mapping for the frame rate pass.
+    ///
+    /// The source rate is not known to the pipeline, so this reports the
+    /// identity and the executor substitutes the real ratio once vspipe has
+    /// reported the input rate. Reporting a wrong fixed ratio here would make
+    /// the progress total and the preview seek disagree with the output.
+    fn frame_rate_frame_map(&self) -> FrameMap {
+        // Without a source rate we cannot know the ratio, and a wrong fixed
+        // ratio is worse than none: it would make the progress total and the
+        // preview index disagree with what the encoder actually receives.
+        match self.frame_rate.ratio() {
+            Some((num, den)) => FrameMap::Retime {
+                num,
+                den,
+                // Interpolated frames have no single source origin, so the
+                // preview's inverse mapping is a blended range, not a frame.
+                synthesizes: matches!(self.frame_rate.method, FrameRateMethod::FlowFps),
+                radius: 1,
+            },
+            None => FrameMap::Identity { radius: 1 },
         }
     }
 
@@ -374,6 +527,17 @@ impl ProcessingPipeline {
                     FrameMap::Fanout { factor: 2, radius: 3 }
                 } else {
                     FrameMap::Identity { radius: 3 }
+                }
+            }
+            // Bwdif's field argument decides this exactly as QTGMC's
+            // fps_divisor does: double rate emits one frame per field.
+            // Radius 1 rather than 3 — it reads one neighbour each side, not
+            // QTGMC's temporal window.
+            DeinterlaceMethod::Bwdif => {
+                if d.fps_divisor.unwrap_or(1) == 1 {
+                    FrameMap::Fanout { factor: 2, radius: 1 }
+                } else {
+                    FrameMap::Identity { radius: 1 }
                 }
             }
             DeinterlaceMethod::Ivtc | DeinterlaceMethod::SoftTelecine => {
@@ -428,6 +592,14 @@ impl ProcessingPipeline {
             PassType::Deblock => self.deblock.enabled,
             PassType::Deband => self.deband.enabled,
             PassType::Sharpen => self.sharpen.enabled,
+            PassType::AntiAlias => self.anti_alias.enabled,
+            PassType::Stabilize => self.stabilize.enabled,
+            PassType::Geometry => self.geometry.has_effect(),
+            PassType::Grain => self.grain.has_effect(),
+            PassType::Deflicker => self.deflicker.enabled,
+            PassType::GhostRemoval => self.ghost_removal.has_effect(),
+            PassType::EdgeRepair => self.edge_repair.has_effect(),
+            PassType::FrameRate => self.frame_rate.enabled,
             PassType::ColorCorrection => self.color_correction.enabled,
             PassType::ChromaFixes => self.chroma_fixes.enabled,
             PassType::CropResize => self.crop_resize.enabled,

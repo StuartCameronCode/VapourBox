@@ -68,6 +68,55 @@ class ChromaFixParameters {
   /// Maximum difference allowed.
   final int deCrawlMaxDiff;
 
+  // --- LUTDeRainbow Parameters ---
+
+  /// Whether to apply LUTDeRainbow (cross-luminance / rainbowing removal).
+  ///
+  /// Same 8-10 bit limit as LUTDeCrawl — havsfunc rejects anything above 10-bit
+  /// outright, so the worker runs the pass at 10-bit and restores the source
+  /// format afterwards.
+  final bool applyDeRainbow;
+
+  /// DeDot — temporal dot crawl / rainbow removal on both planes.
+  final bool applyAutoChroma;
+  final int autoChromaMaxShift;
+  final double autoChromaAccuracy;
+  final int autoChromaReferenceFrame;
+
+  final bool applyDedot;
+  final int dedotLuma2d;
+  final int dedotLumaT;
+  final int dedotChromaT1;
+  final int dedotChromaT2;
+
+  /// Chroma difference threshold for detecting rainbowing.
+  final int deRainbowCThresh;
+
+  /// Luma difference threshold. Areas moving more than this are left alone.
+  final int deRainbowYThresh;
+
+  /// Use the luma difference in the decision as well as chroma.
+  final bool deRainbowUseLuma;
+
+  /// Require both chroma planes to agree before treating a pixel.
+  final bool deRainbowLinkUv;
+
+  // --- Bifrost (temporal rainbow removal) ---
+
+  /// Apply Bifrost. Where LUTDeRainbow decides within a frame, this compares
+  /// across frames, so it catches rainbowing that shimmers rather than sits
+  /// still. 8-bit only — the worker converts down and restores.
+  final bool applyBifrost;
+
+  /// Luma difference above which a block is treated as motion and left alone.
+  final double bifrostLumaThresh;
+
+  /// How many neighbouring blocks must agree before a pixel is treated.
+  final int bifrostVariation;
+
+  /// Treat the source as interlaced, comparing fields rather than frames.
+  final bool bifrostInterlaced;
+
   // --- Vinverse Parameters ---
 
   /// Whether to apply Vinverse (inverted telecine/chroma fix).
@@ -98,6 +147,24 @@ class ChromaFixParameters {
     this.deCrawlCThresh = 10,
     this.deCrawlMaxDiff = 50,
     // Vinverse defaults
+    this.applyDeRainbow = false,
+    this.applyAutoChroma = false,
+    this.autoChromaMaxShift = 2,
+    this.autoChromaAccuracy = 0.25,
+    this.autoChromaReferenceFrame = 0,
+    this.applyDedot = false,
+    this.dedotLuma2d = 20,
+    this.dedotLumaT = 20,
+    this.dedotChromaT1 = 15,
+    this.dedotChromaT2 = 5,
+    this.deRainbowCThresh = 10,
+    this.deRainbowYThresh = 10,
+    this.deRainbowUseLuma = true,
+    this.deRainbowLinkUv = true,
+    this.applyBifrost = false,
+    this.bifrostLumaThresh = 10.0,
+    this.bifrostVariation = 5,
+    this.bifrostInterlaced = true,
     this.applyVinverse = false,
     this.vinverseSstr = 2.7,
     this.vinverseAmnt = 255,
@@ -162,6 +229,15 @@ class ChromaFixParameters {
     int? deCrawlYThresh,
     int? deCrawlCThresh,
     int? deCrawlMaxDiff,
+    bool? applyDeRainbow,
+    int? deRainbowCThresh,
+    int? deRainbowYThresh,
+    bool? deRainbowUseLuma,
+    bool? deRainbowLinkUv,
+    bool? applyBifrost,
+    double? bifrostLumaThresh,
+    int? bifrostVariation,
+    bool? bifrostInterlaced,
     bool? applyVinverse,
     double? vinverseSstr,
     int? vinverseAmnt,
@@ -181,6 +257,15 @@ class ChromaFixParameters {
       deCrawlYThresh: deCrawlYThresh ?? this.deCrawlYThresh,
       deCrawlCThresh: deCrawlCThresh ?? this.deCrawlCThresh,
       deCrawlMaxDiff: deCrawlMaxDiff ?? this.deCrawlMaxDiff,
+      applyDeRainbow: applyDeRainbow ?? this.applyDeRainbow,
+      deRainbowCThresh: deRainbowCThresh ?? this.deRainbowCThresh,
+      deRainbowYThresh: deRainbowYThresh ?? this.deRainbowYThresh,
+      deRainbowUseLuma: deRainbowUseLuma ?? this.deRainbowUseLuma,
+      deRainbowLinkUv: deRainbowLinkUv ?? this.deRainbowLinkUv,
+      applyBifrost: applyBifrost ?? this.applyBifrost,
+      bifrostLumaThresh: bifrostLumaThresh ?? this.bifrostLumaThresh,
+      bifrostVariation: bifrostVariation ?? this.bifrostVariation,
+      bifrostInterlaced: bifrostInterlaced ?? this.bifrostInterlaced,
       applyVinverse: applyVinverse ?? this.applyVinverse,
       vinverseSstr: vinverseSstr ?? this.vinverseSstr,
       vinverseAmnt: vinverseAmnt ?? this.vinverseAmnt,

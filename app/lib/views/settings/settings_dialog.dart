@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../about_dialog.dart' as about;
 import '../../models/encoding_settings.dart';
 import '../../models/video_job.dart';
+import '../../services/advanced_mode_service.dart';
 import '../../services/dependency_manager.dart';
 import '../../services/hardware_encoder_detector.dart';
 import '../../services/temp_directory_service.dart';
@@ -345,6 +346,7 @@ class _OutputSettingsTab extends StatefulWidget {
 class _OutputSettingsTabState extends State<_OutputSettingsTab> {
   late TextEditingController _filenamePatternController;
   late TextEditingController _customFfmpegArgsController;
+  late TextEditingController _customVapoursynthController;
 
   // Intel-Mac VideoToolbox uses a native target-bitrate control (no -q:v mode).
   final TextEditingController _vtBitrateController = TextEditingController();
@@ -367,6 +369,7 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     super.initState();
     _filenamePatternController = TextEditingController();
     _customFfmpegArgsController = TextEditingController();
+    _customVapoursynthController = TextEditingController();
     _isIntelMac = Platform.isMacOS &&
         DependencyManager.instance.platformId == 'macos-x64';
     // Kick off (idempotent) encoder detection and rebuild as probes resolve so
@@ -389,6 +392,7 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     HardwareEncoderDetector.instance.removeListener(_onEncoderDetectionChanged);
     _filenamePatternController.dispose();
     _customFfmpegArgsController.dispose();
+    _customVapoursynthController.dispose();
     _vtBitrateController.dispose();
     _vtBitrateFocus.dispose();
     super.dispose();
@@ -406,6 +410,9 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
         }
         if (_customFfmpegArgsController.text != settings.customFfmpegArgs) {
           _customFfmpegArgsController.text = settings.customFfmpegArgs;
+        }
+        if (_customVapoursynthController.text != settings.customVapoursynth) {
+          _customVapoursynthController.text = settings.customVapoursynth;
         }
 
         return ListView(
@@ -889,6 +896,48 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                   Text(
                     'Additional FFmpeg arguments appended to the encoding command. '
                     'These are added after all other settings and can override them.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.6),
+                        ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Custom VapourSynth — the escape hatch for anyone who needs
+            // something the pass list does not offer. Same footing as the
+            // FFmpeg arguments above.
+            _buildSection(
+              context,
+              title: 'Custom VapourSynth',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: _customVapoursynthController,
+                    maxLines: 4,
+                    minLines: 2,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      hintText: 'clip = core.std.Crop(clip, left=2)',
+                    ),
+                    onChanged: (value) {
+                      viewModel.updateEncodingSettings(
+                        settings.copyWith(customVapoursynth: value),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Runs after every filter, with your result assigned back to '
+                    '"clip". It cannot change the number of frames — that would '
+                    'make the progress bar and the preview disagree with the '
+                    'output, so it is refused rather than allowed to fail '
+                    'quietly. Use the trim controls instead.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context)
                               .colorScheme
@@ -1415,6 +1464,23 @@ class _GeneralSettingsTabState extends State<_GeneralSettingsTab> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        _buildSection(
+          context,
+          title: 'Filter Options',
+          child: SwitchListTile(
+            title: const Text('Show advanced options'),
+            subtitle: const Text(
+              'Reveal every filter method and parameter. Leave off for a '
+              'shorter, curated set of choices.',
+            ),
+            value: context.watch<AdvancedModeService>().enabled,
+            onChanged: (value) =>
+                AdvancedModeService.instance.setEnabled(value),
+          ),
+        ),
+
+        const SizedBox(height: 24),
+
         _buildSection(
           context,
           title: 'Updates',

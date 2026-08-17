@@ -20,10 +20,20 @@ on:
           - windows
           - linux
         default: all
+      deps_run_id:
+        description: 'Optional build-deps-* run IDs (comma-separated) to take the deps bundles from, instead of the release named in deps-version.json'
+        required: false
+        type: string
 
 concurrency:
   group: nightly-${{ github.ref }}
   cancel-in-progress: true
+
+# See ci-test.yml: `actions: read` is what the deps_run_id path needs, and the
+# repo's default token does not grant it.
+permissions:
+  contents: read
+  actions: read
 
 env:
   WHISPER_MODEL_URL: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
@@ -64,14 +74,15 @@ jobs:
       - name: Download dependencies (${{ matrix.arch }})
         env:
           GH_TOKEN: ${{ github.token }}
+          DEPS_RUN_ID: ${{ inputs.deps_run_id }}
         run: |
-          VER="${{ steps.deps.outputs.ver }}"
-          ZIP="VapourBox-deps-${VER}-macos-${{ matrix.arch }}.zip"
-          mkdir -p deps/macos-${{ matrix.arch }}
-          gh release download "${{ steps.deps.outputs.tag }}" --pattern "$ZIP" --dir . --clobber
-          unzip -q -o "$ZIP" -d deps/macos-${{ matrix.arch }}
-          rm -f "$ZIP"
-          xattr -cr deps/macos-${{ matrix.arch }} 2>/dev/null || true
+          PLATFORM="macos-${{ matrix.arch }}"
+          mkdir -p "deps/$PLATFORM"
+          ZIP=$(bash .github/scripts/fetch-deps-bundle.sh "$PLATFORM" \
+            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}")
+          unzip -q -o "$ZIP" -d "deps/$PLATFORM"
+          rm -rf "$ZIP" .deps-artifact
+          xattr -cr "deps/$PLATFORM" 2>/dev/null || true
 
       - name: Cache whisper model
         uses: actions/cache@v5
@@ -139,13 +150,13 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          DEPS_RUN_ID: ${{ inputs.deps_run_id }}
         run: |
-          VER="${{ steps.deps.outputs.ver }}"
-          ZIP="VapourBox-deps-${VER}-windows-x64.zip"
           mkdir -p deps/windows-x64
-          gh release download "${{ steps.deps.outputs.tag }}" --pattern "$ZIP" --dir . --clobber
+          ZIP=$(bash .github/scripts/fetch-deps-bundle.sh windows-x64 \
+            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}")
           7z x "$ZIP" -o"deps/windows-x64" -y >/dev/null
-          rm -f "$ZIP"
+          rm -rf "$ZIP" .deps-artifact
 
       - name: Cache whisper model
         uses: actions/cache@v5
@@ -217,13 +228,13 @@ jobs:
       - name: Download dependencies (linux-x64)
         env:
           GH_TOKEN: ${{ github.token }}
+          DEPS_RUN_ID: ${{ inputs.deps_run_id }}
         run: |
-          VER="${{ steps.deps.outputs.ver }}"
-          ZIP="VapourBox-deps-${VER}-linux-x64.zip"
           mkdir -p deps/linux-x64
-          gh release download "${{ steps.deps.outputs.tag }}" --pattern "$ZIP" --dir . --clobber
+          ZIP=$(bash .github/scripts/fetch-deps-bundle.sh linux-x64 \
+            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}")
           unzip -q -o "$ZIP" -d deps/linux-x64
-          rm -f "$ZIP"
+          rm -rf "$ZIP" .deps-artifact
 
       - name: Cache whisper model
         uses: actions/cache@v5

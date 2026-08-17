@@ -358,6 +358,58 @@ fn run_worker(
     // Resolve deps once for the pre-generation probes below.
     let deps = dependency_locator::DependencyLocator::new().ok();
 
+    // ------------------------------------------------------------------
+    // Pre-encode transcription
+    // ------------------------------------------------------------------
+    // Whisper used to run only after the encode, which made burn-in
+    // impossible: the encoder needs the subtitle file while it is running, and
+    // a transcript that does not exist yet cannot be drawn into the picture.
+    //
+    // Transcribing the SOURCE instead means honouring the trim. The encoder
+    // seeks the audio input to the trim point, so the output's audio starts
+    // there — a transcript of the whole source would put every cue early by
+    // exactly the trimmed-off head. Nothing else retimes audio: IVTC and
+    // frame-rate conversion change the video timeline only.
+    let mut whisper_srt: Option<std::path::PathBuf> = None;
+    if let Some(ref sub_settings) = job.subtitle_settings {
+        if sub_settings.enabled && job.burn_in_subtitle_path.is_none() {
+            let fps = job.input_frame_rate.unwrap_or(29.97);
+            let window = match (job.start_frame, job.end_frame) {
+                (Some(start), Some(end)) if end >= start => Some((
+                    start as f64 / fps,
+                    Some((end - start + 1) as f64 / fps),
+                )),
+                (Some(start), None) => Some((start as f64 / fps, None)),
+                (None, Some(end)) => Some((0.0, Some((end + 1) as f64 / fps))),
+                _ => None,
+            };
+            let srt_target = std::path::Path::new(&job.output_path).with_extension("srt");
+            match dependency_locator::DependencyLocator::new().and_then(|d| {
+                SubtitleGenerator::new(reporter.clone(), d).transcribe(
+                    &job.input_path,
+                    sub_settings,
+                    window,
+                    &srt_target,
+                    || cancelled.load(Ordering::SeqCst),
+                )
+            }) {
+                Ok(Some(path)) => {
+                    // Burn-in reads this during the encode; the mux pass below
+                    // reads it afterwards.
+                    if sub_settings.output.burns_in() {
+                        job.burn_in_subtitle_path = Some(path.to_string_lossy().to_string());
+                    }
+                    whisper_srt = Some(path);
+                }
+                Ok(None) => {}
+                Err(e) => reporter.send_log(
+                    models::LogLevel::Warning,
+                    &format!("Subtitle generation failed: {e}"),
+                ),
+            }
+        }
+    }
+
     // Resolve the frame count if the caller didn't supply one. The Flutter app
     // probes and sets total_frames; direct callers (tests, CLI) may omit it, and
     // the script's pipe_source needs an exact length (it builds a fixed-size
@@ -447,12 +499,54 @@ fn run_worker(
 
     reporter.send_log(models::LogLevel::Info, "Encoding complete!");
 
-    // Post-encode subtitle generation (warnings only — video already encoded)
+    // ------------------------------------------------------------------
+    // Post-encode subtitle handling (warnings only — the video is already made)
+    // ------------------------------------------------------------------
     if let Some(ref sub_settings) = job.subtitle_settings {
         if sub_settings.enabled {
-            let _ = run_subtitle_generation(
-                &job.output_path, sub_settings, reporter, &cancelled, false, None,
-            );
+            match whisper_srt {
+                // Transcribed before the encode. Apply whatever the output mode
+                // asks for on top of what already happened during it.
+                Some(srt) => {
+                    let mode = sub_settings.output;
+                    if mode.muxes() {
+                        reporter.send_log(
+                            models::LogLevel::Info,
+                            "Adding subtitle track to the output...",
+                        );
+                        if let Err(e) = dependency_locator::DependencyLocator::new()
+                            .and_then(|d| {
+                                SubtitleGenerator::new(reporter.clone(), d).mux(
+                                    std::path::Path::new(&job.output_path),
+                                    &srt,
+                                    || cancelled.load(Ordering::SeqCst),
+                                )
+                            })
+                        {
+                            reporter.send_log(
+                                models::LogLevel::Warning,
+                                &format!("Could not add the subtitle track: {e}"),
+                            );
+                        }
+                    }
+                    if mode.keeps_srt_file() {
+                        reporter.send_log(
+                            models::LogLevel::Info,
+                            &format!("Subtitles saved to: {}", srt.display()),
+                        );
+                    } else {
+                        let _ = std::fs::remove_file(&srt);
+                    }
+                }
+                // Nothing was transcribed — a user-supplied burn-in file, or the
+                // source had no audio. Fall back to the original path.
+                None if job.burn_in_subtitle_path.is_none() => {
+                    let _ = run_subtitle_generation(
+                        &job.output_path, sub_settings, reporter, &cancelled, false, None,
+                    );
+                }
+                None => {}
+            }
         }
     }
 

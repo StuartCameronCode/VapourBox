@@ -13,6 +13,30 @@ pub enum NoiseReductionMethod {
     /// the motion match is good and blurs where it is poor.
     McDegrainSharp,
     QtgmcBuiltin,
+    /// Frequency-domain (DFT) denoiser. Very clean on fine, even grain.
+    DfTtest,
+    /// Classic 3D FFT spatio-temporal denoiser. Fast and aggressive.
+    Fft3dFilter,
+    /// Motion-adaptive temporal smoother. Very gentle — a finishing pass.
+    TTempSmooth,
+    /// FluxSmooth temporal-only: averages a pixel with its neighbours in time,
+    /// but only where they bracket it in value. Cheap and motion-safe.
+    FluxSmoothT,
+    /// FluxSmooth spatio-temporal: as above plus the eight spatial neighbours.
+    FluxSmoothSt,
+    /// STPresso (havsfunc): limits how far any pixel may move, so detail
+    /// survives almost intact. Calls FluxSmoothT internally.
+    StPresso,
+    /// Constant-time median filter. Large-radius median for blotches and
+    /// impulse noise, at a cost that barely moves with radius.
+    Ctmf,
+    /// mClean: an opinionated all-in-one — denoise, then restore detail and
+    /// grain so the result does not look plastic. The only candidate that is a
+    /// goal rather than a mechanism, which is why it gets the last simple slot.
+    MClean,
+    /// TemporalDegrain2: the heavyweight multi-pass motion-compensated
+    /// denoiser. Slow (about 21 fps) and the most capable thing here.
+    TemporalDegrain2,
 }
 
 /// Noise reduction preset levels.
@@ -34,6 +58,54 @@ pub struct NoiseReductionParameters {
     /// Whether this pass is enabled.
     #[serde(default)]
     pub enabled: bool,
+
+    /// Restore the fine detail the denoiser removed, by bracketing the pass
+    /// with havsfunc's ContraSharpening. Not a Sharpen method: it needs the
+    /// pre- and post-denoise clip, so it cannot sit in the linear chain.
+    #[serde(default)]
+    pub contra_sharpen: bool,
+
+    // ---- mClean -----------------------------------------------------------
+    /// Overall denoise strength, 0-20.
+    #[serde(default = "default_mclean_strength")]
+    pub mclean_strength: i32,
+    /// Detail restore, 0-20 (21-24 overboosts).
+    #[serde(default = "default_mclean_sharp")]
+    pub mclean_sharp: i32,
+    /// Grain restore, 0-20.
+    #[serde(default = "default_mclean_rn")]
+    pub mclean_rn: i32,
+    /// Motion search threshold.
+    #[serde(default = "default_mclean_thsad")]
+    pub mclean_thsad: i32,
+    /// Also denoise chroma.
+    #[serde(default = "default_true_nr")]
+    pub mclean_chroma: bool,
+
+    // ---- TemporalDegrain2 -------------------------------------------------
+    /// Temporal radius, 1-3.
+    #[serde(default = "default_td2_tr")]
+    pub td2_degrain_tr: i32,
+    /// How noisy the source is, -2..3.
+    #[serde(default = "default_td2_grain_level")]
+    pub td2_grain_level: i32,
+    /// Post-processing denoiser: 0 none, 1-3 progressively stronger.
+    /// Clamped in the module too — 4 and 5 abort the process.
+    #[serde(default)]
+    pub td2_post_fft: i32,
+    /// Post-processing strength.
+    #[serde(default = "default_td2_post_sigma")]
+    pub td2_post_sigma: f64,
+    /// Blend the post-processed result back, 0-100.
+    #[serde(default)]
+    pub td2_post_mix: i32,
+    /// Use chroma for motion estimation.
+    #[serde(default = "default_true_nr")]
+    pub td2_chroma_motion: bool,
+
+    /// ContraSharpening's Repair mode. 13 is havsfunc's own default.
+    #[serde(default = "default_contra_sharpen_rep")]
+    pub contra_sharpen_rep: i32,
 
     /// Preset level for simple mode.
     #[serde(default)]
@@ -115,6 +187,88 @@ pub struct NoiseReductionParameters {
     /// EZKeepGrain amount (0.0 to 1.0).
     #[serde(default)]
     pub qtgmc_ez_keep_grain: f64,
+
+    // --- DFTTest Parameters ---
+
+    /// Denoising strength. DFTTest's own default is 8.0.
+    #[serde(default = "default_dfttest_sigma")]
+    pub dfttest_sigma: f64,
+
+    /// Temporal window in frames; must be odd. 1 makes it purely spatial.
+    #[serde(default = "default_dfttest_tbsize")]
+    pub dfttest_tbsize: i32,
+
+    /// Spatial block size. Larger separates frequencies better but is slower.
+    #[serde(default = "default_dfttest_sbsize")]
+    pub dfttest_sbsize: i32,
+
+    // --- FFT3DFilter Parameters ---
+
+    /// Denoising strength.
+    #[serde(default = "default_fft3d_sigma")]
+    pub fft3d_sigma: f64,
+
+    /// Temporal window in frames (1-5). 1 makes it purely spatial.
+    #[serde(default = "default_fft3d_bt")]
+    pub fft3d_bt: i32,
+
+    /// Post-denoise sharpening (0.0-1.0), applied inside the same transform.
+    #[serde(default)]
+    pub fft3d_sharpen: f64,
+
+    // --- TTempSmooth Parameters ---
+
+    /// Temporal radius (1-7).
+    #[serde(default = "default_ttemp_maxr")]
+    pub ttemp_maxr: i32,
+
+    /// Per-pixel difference threshold, above which a pixel is left alone.
+    #[serde(default = "default_ttemp_thresh")]
+    pub ttemp_thresh: i32,
+
+    /// Motion-difference threshold. Must stay below [`Self::ttemp_thresh`].
+    #[serde(default = "default_ttemp_mdiff")]
+    pub ttemp_mdiff: i32,
+
+    /// Weighting strength (1-8). Higher weights the current frame more.
+    #[serde(default = "default_ttemp_strength")]
+    pub ttemp_strength: i32,
+
+    // --- FluxSmooth Parameters ---
+
+    /// Temporal threshold: a pixel is averaged only when its neighbours in time
+    /// differ by no more than this. Higher smooths more and risks motion.
+    #[serde(default = "default_flux_temporal")]
+    pub flux_temporal_threshold: i32,
+
+    /// Spatial threshold for the ST variant. -1 disables the spatial half.
+    #[serde(default = "default_flux_spatial")]
+    pub flux_spatial_threshold: i32,
+
+    // --- STPresso Parameters ---
+
+    /// How far a pixel may move, in 8-bit levels. The whole point of the filter.
+    #[serde(default = "default_stpresso_limit")]
+    pub stpresso_limit: i32,
+
+    /// Bias toward the original pixel (0-100). Higher keeps more of it.
+    #[serde(default = "default_stpresso_bias")]
+    pub stpresso_bias: i32,
+
+    /// Temporal threshold handed to the FluxSmoothT it runs internally.
+    #[serde(default = "default_stpresso_tthr")]
+    pub stpresso_tthr: i32,
+
+    // --- CTMF Parameters ---
+
+    /// Median window radius. The filter is constant-time, so this costs almost
+    /// nothing — measured, radius 1 to 127 is a ~20% difference.
+    #[serde(default = "default_ctmf_radius")]
+    pub ctmf_radius: i32,
+
+    /// Planes to filter: 0 luma only, 1 chroma only, 2 both.
+    #[serde(default = "default_ctmf_planes")]
+    pub ctmf_planes: i32,
 }
 
 fn default_sm_degrain_tr() -> i32 { 2 }
@@ -130,11 +284,50 @@ fn default_mcds_blur() -> f64 { 0.3 }
 fn default_mcds_sharp() -> f64 { 0.3 }
 fn default_mcds_th_sad() -> i32 { 400 }
 fn default_mcds_plane() -> i32 { 4 }
+fn default_dfttest_sigma() -> f64 { 8.0 }
+fn default_dfttest_tbsize() -> i32 { 3 }
+fn default_dfttest_sbsize() -> i32 { 16 }
+fn default_fft3d_sigma() -> f64 { 2.0 }
+fn default_fft3d_bt() -> i32 { 3 }
+fn default_ttemp_maxr() -> i32 { 3 }
+fn default_ttemp_thresh() -> i32 { 4 }
+fn default_ttemp_mdiff() -> i32 { 2 }
+fn default_ttemp_strength() -> i32 { 2 }
+fn default_flux_temporal() -> i32 { 7 }
+fn default_flux_spatial() -> i32 { 7 }
+fn default_stpresso_limit() -> i32 { 3 }
+fn default_stpresso_bias() -> i32 { 24 }
+fn default_stpresso_tthr() -> i32 { 12 }
+fn default_ctmf_radius() -> i32 { 2 }
+fn default_ctmf_planes() -> i32 { 2 }
+
+fn default_contra_sharpen_rep() -> i32 { 13 }
+fn default_true_nr() -> bool { true }
+fn default_mclean_strength() -> i32 { 20 }
+fn default_mclean_sharp() -> i32 { 10 }
+fn default_mclean_rn() -> i32 { 14 }
+fn default_mclean_thsad() -> i32 { 400 }
+fn default_td2_tr() -> i32 { 1 }
+fn default_td2_grain_level() -> i32 { 2 }
+fn default_td2_post_sigma() -> f64 { 1.0 }
 
 impl Default for NoiseReductionParameters {
     fn default() -> Self {
         Self {
             enabled: false,
+            contra_sharpen: false,
+            contra_sharpen_rep: default_contra_sharpen_rep(),
+            mclean_strength: default_mclean_strength(),
+            mclean_sharp: default_mclean_sharp(),
+            mclean_rn: default_mclean_rn(),
+            mclean_thsad: default_mclean_thsad(),
+            mclean_chroma: true,
+            td2_degrain_tr: default_td2_tr(),
+            td2_grain_level: default_td2_grain_level(),
+            td2_post_fft: 0,
+            td2_post_sigma: default_td2_post_sigma(),
+            td2_post_mix: 0,
+            td2_chroma_motion: true,
             preset: NoiseReductionPreset::default(),
             method: NoiseReductionMethod::default(),
             sm_degrain_tr: default_sm_degrain_tr(),
@@ -153,6 +346,23 @@ impl Default for NoiseReductionParameters {
             mcds_plane: default_mcds_plane(),
             qtgmc_ez_denoise: 0.0,
             qtgmc_ez_keep_grain: 0.0,
+            dfttest_sigma: default_dfttest_sigma(),
+            dfttest_tbsize: default_dfttest_tbsize(),
+            dfttest_sbsize: default_dfttest_sbsize(),
+            fft3d_sigma: default_fft3d_sigma(),
+            fft3d_bt: default_fft3d_bt(),
+            fft3d_sharpen: 0.0,
+            ttemp_maxr: default_ttemp_maxr(),
+            ttemp_thresh: default_ttemp_thresh(),
+            ttemp_mdiff: default_ttemp_mdiff(),
+            ttemp_strength: default_ttemp_strength(),
+            flux_temporal_threshold: default_flux_temporal(),
+            flux_spatial_threshold: default_flux_spatial(),
+            stpresso_limit: default_stpresso_limit(),
+            stpresso_bias: default_stpresso_bias(),
+            stpresso_tthr: default_stpresso_tthr(),
+            ctmf_radius: default_ctmf_radius(),
+            ctmf_planes: default_ctmf_planes(),
         }
     }
 }
@@ -190,6 +400,77 @@ impl NoiseReductionParameters {
     /// Degrain frames, clamped to the 1-3 mvtools provides.
     pub fn mcds_effective_frames(&self) -> i32 {
         self.mcds_frames.clamp(1, 3)
+    }
+
+    /// DFTTest's temporal window, forced odd.
+    ///
+    /// `tbsize` must be odd — the window is centred on the current frame. An
+    /// even value is not rejected, it just makes DFTTest process a window that
+    /// isn't centred, so the fix has to happen here rather than being left to
+    /// the plugin.
+    pub fn dfttest_effective_tbsize(&self) -> i32 {
+        let clamped = self.dfttest_tbsize.clamp(1, 15);
+        if clamped % 2 == 0 {
+            clamped - 1
+        } else {
+            clamped
+        }
+    }
+
+    /// FFT3DFilter's temporal window, clamped to the 1-5 it implements.
+    pub fn fft3d_effective_bt(&self) -> i32 {
+        self.fft3d_bt.clamp(1, 5)
+    }
+
+    /// TTempSmooth's `mdiff`, kept below `thresh`.
+    ///
+    /// The plugin requires `mdiff < thresh`; equal or greater is accepted but
+    /// disables the motion protection the parameter exists for, so a wrong
+    /// pairing smooths through motion instead of erroring.
+    pub fn ttemp_effective_mdiff(&self) -> i32 {
+        let thresh = self.ttemp_effective_thresh();
+        self.ttemp_mdiff.clamp(0, (thresh - 1).max(0))
+    }
+
+    /// TTempSmooth's `thresh`, clamped to the 1-256 it accepts.
+    pub fn ttemp_effective_thresh(&self) -> i32 {
+        self.ttemp_thresh.clamp(1, 256)
+    }
+
+    /// TTempSmooth's temporal radius, clamped to the 1-7 it implements.
+    pub fn ttemp_effective_maxr(&self) -> i32 {
+        self.ttemp_maxr.clamp(1, 7)
+    }
+
+    /// FluxSmooth's temporal threshold, clamped to the -1..255 it accepts.
+    ///
+    /// -1 disables that half of the filter; below that the plugin errors.
+    pub fn flux_effective_temporal(&self) -> i32 {
+        self.flux_temporal_threshold.clamp(-1, 255)
+    }
+
+    /// FluxSmooth's spatial threshold, same range.
+    pub fn flux_effective_spatial(&self) -> i32 {
+        self.flux_spatial_threshold.clamp(-1, 255)
+    }
+
+    /// CTMF's radius, clamped to what the plugin accepts.
+    ///
+    /// The plugin's own limit is 1-127, but `2*radius+1` must also fit inside
+    /// every processed plane — on a 4:2:0 clip that is the half-size chroma
+    /// plane. 12 is well inside both for any real video and past the point of
+    /// visual usefulness.
+    pub fn ctmf_effective_radius(&self) -> i32 {
+        self.ctmf_radius.clamp(1, 12)
+    }
+
+    /// The `planes` list literal for CTMF.
+    pub fn ctmf_planes_literal(&self) -> &'static str {
+        match self.ctmf_planes {
+            0 => "[0]",
+            1 => "[1, 2]",
+            _ => "[0, 1, 2]",
+        }
     }
 }
 
@@ -254,5 +535,122 @@ mod tests {
         let json = serde_json::to_string(&params).unwrap();
         assert!(json.contains("\"enabled\":false"));
         assert!(json.contains("\"smDegrainTr\":2"));
+        // The added methods' parameters have to reach the worker under the same
+        // camelCase names the Dart side writes.
+        assert!(json.contains("\"dfttestSigma\":8.0"));
+        assert!(json.contains("\"fft3dSigma\":2.0"));
+        assert!(json.contains("\"ttempMaxr\":3"));
+    }
+
+    #[test]
+    fn test_method_wire_names_match_the_dart_enum() {
+        // These strings are the wire format between the app and the worker. A
+        // mismatch does not error — serde falls back to the default method — so
+        // the job silently runs SMDegrain instead of what the user picked.
+        let name = |m: NoiseReductionMethod| {
+            serde_json::to_string(&NoiseReductionParameters {
+                method: m,
+                ..Default::default()
+            })
+            .unwrap()
+        };
+        for (method, expected) in [
+            (NoiseReductionMethod::SmDegrain, "smDegrain"),
+            (NoiseReductionMethod::McTemporalDenoise, "mcTemporalDenoise"),
+            (NoiseReductionMethod::McDegrainSharp, "mcDegrainSharp"),
+            (NoiseReductionMethod::QtgmcBuiltin, "qtgmcBuiltin"),
+            (NoiseReductionMethod::DfTtest, "dfTtest"),
+            (NoiseReductionMethod::Fft3dFilter, "fft3dFilter"),
+            (NoiseReductionMethod::TTempSmooth, "tTempSmooth"),
+            (NoiseReductionMethod::FluxSmoothT, "fluxSmoothT"),
+            (NoiseReductionMethod::FluxSmoothSt, "fluxSmoothSt"),
+            (NoiseReductionMethod::StPresso, "stPresso"),
+            (NoiseReductionMethod::Ctmf, "ctmf"),
+        ] {
+            let json = name(method);
+            assert!(
+                json.contains(&format!("\"method\":\"{expected}\"")),
+                "expected method {expected:?} in {json}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_ctmf_radius_is_clamped_to_what_fits_a_chroma_plane() {
+        // The plugin's own limit is 1-127, but 2*radius+1 must also fit inside
+        // every processed plane, and on 4:2:0 that is the half-size chroma one.
+        let with = |r: i32| NoiseReductionParameters {
+            ctmf_radius: r,
+            ..Default::default()
+        };
+        assert_eq!(with(0).ctmf_effective_radius(), 1);
+        assert_eq!(with(2).ctmf_effective_radius(), 2);
+        assert_eq!(with(99).ctmf_effective_radius(), 12);
+    }
+
+    #[test]
+    fn test_ctmf_planes_literal() {
+        let with = |p: i32| NoiseReductionParameters {
+            ctmf_planes: p,
+            ..Default::default()
+        };
+        assert_eq!(with(0).ctmf_planes_literal(), "[0]");
+        assert_eq!(with(1).ctmf_planes_literal(), "[1, 2]");
+        assert_eq!(with(2).ctmf_planes_literal(), "[0, 1, 2]");
+        // Anything unexpected filters everything rather than nothing.
+        assert_eq!(with(9).ctmf_planes_literal(), "[0, 1, 2]");
+    }
+
+    #[test]
+    fn test_dfttest_tbsize_is_forced_odd() {
+        // An even window isn't rejected by DFTTest, it just isn't centred on the
+        // current frame — so it has to be fixed here.
+        let with_tbsize = |tbsize: i32| NoiseReductionParameters {
+            dfttest_tbsize: tbsize,
+            ..Default::default()
+        };
+        assert_eq!(with_tbsize(1).dfttest_effective_tbsize(), 1);
+        assert_eq!(with_tbsize(3).dfttest_effective_tbsize(), 3);
+        assert_eq!(with_tbsize(4).dfttest_effective_tbsize(), 3);
+        assert_eq!(with_tbsize(6).dfttest_effective_tbsize(), 5);
+        assert_eq!(with_tbsize(0).dfttest_effective_tbsize(), 1);
+        assert_eq!(with_tbsize(99).dfttest_effective_tbsize(), 15);
+    }
+
+    #[test]
+    fn test_fft3d_bt_is_clamped() {
+        let with_bt = |bt: i32| NoiseReductionParameters {
+            fft3d_bt: bt,
+            ..Default::default()
+        };
+        assert_eq!(with_bt(0).fft3d_effective_bt(), 1);
+        assert_eq!(with_bt(3).fft3d_effective_bt(), 3);
+        assert_eq!(with_bt(9).fft3d_effective_bt(), 5);
+    }
+
+    #[test]
+    fn test_ttempsmooth_mdiff_stays_below_thresh() {
+        // mdiff >= thresh is accepted by the plugin but disables the motion
+        // protection the parameter exists for.
+        let with = |thresh: i32, mdiff: i32| NoiseReductionParameters {
+            ttemp_thresh: thresh,
+            ttemp_mdiff: mdiff,
+            ..Default::default()
+        };
+        assert_eq!(with(4, 2).ttemp_effective_mdiff(), 2);
+        assert_eq!(with(4, 4).ttemp_effective_mdiff(), 3);
+        assert_eq!(with(4, 9).ttemp_effective_mdiff(), 3);
+        assert_eq!(with(1, 5).ttemp_effective_mdiff(), 0);
+    }
+
+    #[test]
+    fn test_ttempsmooth_maxr_is_clamped() {
+        let with_maxr = |maxr: i32| NoiseReductionParameters {
+            ttemp_maxr: maxr,
+            ..Default::default()
+        };
+        assert_eq!(with_maxr(0).ttemp_effective_maxr(), 1);
+        assert_eq!(with_maxr(3).ttemp_effective_maxr(), 3);
+        assert_eq!(with_maxr(12).ttemp_effective_maxr(), 7);
     }
 }

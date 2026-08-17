@@ -46,6 +46,19 @@ class VideoJob {
   final int? inputHeight;
   final String? inputPixelFormat;
 
+  /// Source colour tags, re-declared on the output by the worker. The Y4M pipe
+  /// strips them as it strips SAR, so without these every output is untagged
+  /// and read as BT.601 limited.
+  final String? inputColorMatrix;
+  final String? inputColorPrimaries;
+  final String? inputColorTransfer;
+  final String? inputColorRange;
+
+  /// A subtitle file to burn into the picture, per job. Deliberately not an
+  /// encoding setting: a path baked into settings would apply one file's
+  /// subtitles to every video in a batch.
+  final String? burnInSubtitlePath;
+
   VideoJob({
     String? id,
     required this.inputPath,
@@ -64,6 +77,11 @@ class VideoJob {
     this.inputWidth,
     this.inputHeight,
     this.inputPixelFormat,
+    this.inputColorMatrix,
+    this.inputColorPrimaries,
+    this.inputColorTransfer,
+    this.inputColorRange,
+    this.burnInSubtitlePath,
   })  : id = id ?? const Uuid().v4(),
         qtgmcParameters = qtgmcParameters ?? QTGMCParameters(),
         encodingSettings = encodingSettings ?? EncodingSettings();
@@ -95,6 +113,11 @@ class VideoJob {
     int? inputWidth,
     int? inputHeight,
     String? inputPixelFormat,
+    String? inputColorMatrix,
+    String? inputColorPrimaries,
+    String? inputColorTransfer,
+    String? inputColorRange,
+    String? burnInSubtitlePath,
   }) {
     return VideoJob(
       id: id ?? this.id,
@@ -114,6 +137,11 @@ class VideoJob {
       inputWidth: inputWidth ?? this.inputWidth,
       inputHeight: inputHeight ?? this.inputHeight,
       inputPixelFormat: inputPixelFormat ?? this.inputPixelFormat,
+      inputColorMatrix: inputColorMatrix ?? this.inputColorMatrix,
+      inputColorPrimaries: inputColorPrimaries ?? this.inputColorPrimaries,
+      inputColorTransfer: inputColorTransfer ?? this.inputColorTransfer,
+      inputColorRange: inputColorRange ?? this.inputColorRange,
+      burnInSubtitlePath: burnInSubtitlePath ?? this.burnInSubtitlePath,
     );
   }
 }

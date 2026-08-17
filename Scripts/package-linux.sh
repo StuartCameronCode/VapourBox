@@ -107,7 +107,8 @@ chmod +x "$PACKAGE_DIR/vapourbox-worker"
 # Copy VapourSynth templates
 mkdir -p "$PACKAGE_DIR/templates"
 cp "$PROJECT_ROOT/worker/templates/"*.vpy "$PACKAGE_DIR/templates/"
-cp "$PROJECT_ROOT/worker/templates/pipe_source.py" "$PACKAGE_DIR/templates/"
+# Glob, not a list of names — see the note in package-macos.sh.
+cp "$PROJECT_ROOT/worker/templates/"*.py "$PACKAGE_DIR/templates/"
 cp "$PROJECT_ROOT/worker/templates/spotless.py" "$PACKAGE_DIR/templates/"
 
 # Copy licenses

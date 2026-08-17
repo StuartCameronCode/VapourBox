@@ -206,6 +206,8 @@ class WorkerHarness {
       );
     }
 
+    _warnIfWorkerIsStale();
+
     if (!File(inputFile).existsSync()) {
       throw StateError('Test input not found at $inputFile');
     }
@@ -801,6 +803,58 @@ class WorkerHarness {
       throw StateError('too many redirects for $url');
     } finally {
       client.close(force: true);
+    }
+  }
+
+  /// Warn when the worker binary predates the Rust sources or templates.
+  ///
+  /// These tests exec `worker/target/{release,debug}/vapourbox-worker`, whereas
+  /// `cargo test` compiles the *library* into its own test binary. So the Rust
+  /// suite can pass against new code while this suite silently exercises an old
+  /// executable — and the symptom is misleading: a generated script full of
+  /// unsubstituted `{{PLACEHOLDER}}` and a bare Python SyntaxError out of
+  /// vspipe, which reads like a template bug rather than a stale build.
+  ///
+  /// A warning rather than a throw: CI builds immediately before running, and a
+  /// clock-skewed checkout shouldn't fail the suite over it.
+  static void _warnIfWorkerIsStale() {
+    final worker = File(_workerPath!);
+    if (!worker.existsSync()) return;
+    final built = worker.lastModifiedSync();
+
+    DateTime? newest;
+    String? newestPath;
+    for (final dir in [
+      p.join(repoRoot, 'worker', 'src'),
+      p.join(repoRoot, 'worker', 'templates'),
+    ]) {
+      final d = Directory(dir);
+      if (!d.existsSync()) continue;
+      for (final file in d.listSync(recursive: true).whereType<File>()) {
+        final path = file.path;
+        if (!path.endsWith('.rs') &&
+            !path.endsWith('.vpy') &&
+            !path.endsWith('.py')) {
+          continue;
+        }
+        final modified = file.lastModifiedSync();
+        if (newest == null || modified.isAfter(newest)) {
+          newest = modified;
+          newestPath = path;
+        }
+      }
+    }
+
+    if (newest != null && newest.isAfter(built)) {
+      stderr.writeln(
+        '\n*** WARNING: the worker binary is older than the sources ***\n'
+        '  binary: $_workerPath\n'
+        '          built $built\n'
+        '  newer:  $newestPath\n'
+        '          saved $newest\n'
+        '  These tests run the BINARY, not the library, so they are about to\n'
+        '  exercise stale code. Rebuild first:  (cd worker && cargo build)\n',
+      );
     }
   }
 }

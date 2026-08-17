@@ -1,0 +1,127 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "frame_rate",
+  "version": "1.0.0",
+  "name": "Frame Rate",
+  "description": "Convert between PAL and NTSC frame rates",
+  "longDescription": "Changes how many frames per second the output runs at. This is for standards conversion \u2014 a tape that was converted from NTSC to PAL (or the reverse) at some point in its life, and now needs to play at the right speed on your equipment.\n\nIt is deliberately not a \"make motion smooth\" feature. Interpolating a master to a higher rate invents frames that were never photographed, which makes the file a worse record of what was shot. Converting an already-converted tape is the opposite case: the damage is already in the source, and leaving it alone means either judder or a 4% speed error.\n\nMotion interpolation gives the smoothest result and is usually invisible on a pan, but it can warp edges where something passes in front of something else. Repeat frames invents nothing at all and judders instead \u2014 the honest choice for an archival master.\n\nThis pass runs last, after everything else.",
+  "category": "enhancement",
+  "methods": [
+    {
+      "id": "flowFps",
+      "name": "Motion interpolation",
+      "description": "Builds the new frames from the motion between the real ones. Smoothest result; can warp edges where objects overlap.",
+      "function": "core.mv.FlowFPS",
+      "parameters": [
+        "blockSize",
+        "overlap"
+      ]
+    },
+    {
+      "id": "duplicate",
+      "name": "Repeat frames",
+      "description": "Repeats or drops whole frames. Invents nothing, but motion judders.",
+      "function": "havsfunc.ChangeFPS",
+      "parameters": []
+    }
+  ],
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "hidden": true
+      }
+    },
+    "method": {
+      "type": "enum",
+      "default": "flowFps",
+      "options": [
+        "flowFps",
+        "duplicate"
+      ],
+      "ui": {
+        "label": "Method",
+        "description": "How the new frames are produced.",
+        "widget": "dropdown"
+      }
+    },
+    "target": {
+      "type": "enum",
+      "default": "pal25",
+      "options": [
+        "pal25",
+        "ntsc2997",
+        "film23976",
+        "film24",
+        "pal50",
+        "ntsc5994"
+      ],
+      "ui": {
+        "label": "Target rate",
+        "description": "The frame rate the output should run at.",
+        "widget": "dropdown"
+      }
+    },
+    "blockSize": {
+      "type": "integer",
+      "default": 16,
+      "min": 4,
+      "max": 32,
+      "step": 4,
+      "visibleWhen": {
+        "method": [
+          "flowFps"
+        ]
+      },
+      "ui": {
+        "label": "Block size",
+        "description": "Motion is estimated in blocks of this size. Larger is faster and coarser.",
+        "widget": "slider"
+      }
+    },
+    "overlap": {
+      "type": "integer",
+      "default": 8,
+      "min": 0,
+      "max": 16,
+      "step": 2,
+      "visibleWhen": {
+        "method": [
+          "flowFps"
+        ]
+      },
+      "ui": {
+        "label": "Block overlap",
+        "description": "How much neighbouring blocks overlap. More overlap hides block edges at some cost in speed.",
+        "widget": "slider"
+      }
+    }
+  },
+  "ui": {
+    "sections": [
+      {
+        "title": "Conversion",
+        "parameters": [
+          "target",
+          "method"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Motion estimation",
+        "parameters": [
+          "blockSize",
+          "overlap"
+        ],
+        "expanded": false,
+        "advancedOnly": true,
+        "visibleWhen": {
+          "method": [
+            "flowFps"
+          ]
+        }
+      }
+    ]
+  }
+}

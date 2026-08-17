@@ -11,7 +11,30 @@ enum NoiseReductionMethod {
   @JsonValue('mcDegrainSharp')
   mcDegrainSharp('MCDegrainSharp'),
   @JsonValue('qtgmcBuiltin')
-  qtgmcBuiltin('QTGMC Built-in');
+  qtgmcBuiltin('QTGMC Built-in'),
+  // These three JsonValues are the wire format to the worker and must match
+  // serde's camelCase spelling of the Rust variants exactly. A mismatch does
+  // not error — serde falls back to the default — so the job would silently run
+  // SMDegrain instead. Pinned on the Rust side by
+  // test_method_wire_names_match_the_dart_enum.
+  @JsonValue('dfTtest')
+  dfttest('DFTTest'),
+  @JsonValue('fft3dFilter')
+  fft3dFilter('FFT3DFilter'),
+  @JsonValue('tTempSmooth')
+  tTempSmooth('TTempSmooth'),
+  @JsonValue('fluxSmoothT')
+  fluxSmoothT('FluxSmoothT'),
+  @JsonValue('fluxSmoothSt')
+  fluxSmoothSt('FluxSmoothST'),
+  @JsonValue('stPresso')
+  stPresso('STPresso'),
+  @JsonValue('ctmf')
+  ctmf('CTMF'),
+  @JsonValue('mClean')
+  mClean('mClean'),
+  @JsonValue('temporalDegrain2')
+  temporalDegrain2('TemporalDegrain2');
 
   const NoiseReductionMethod(this.displayName);
   final String displayName;
@@ -36,6 +59,28 @@ enum NoiseReductionPreset {
 class NoiseReductionParameters {
   /// Whether this pass is enabled.
   final bool enabled;
+
+  /// Restore fine detail the denoiser removed. Brackets the denoise rather
+  /// than following it, so it is a checkbox here and not a Sharpen method.
+  final bool contraSharpen;
+
+  // mClean
+  final int mcleanStrength;
+  final int mcleanSharp;
+  final int mcleanRn;
+  final int mcleanThsad;
+  final bool mcleanChroma;
+
+  // TemporalDegrain2
+  final int td2DegrainTr;
+  final int td2GrainLevel;
+  final int td2PostFft;
+  final double td2PostSigma;
+  final int td2PostMix;
+  final bool td2ChromaMotion;
+
+  /// ContraSharpening's Repair mode; 13 is havsfunc's own default.
+  final int contraSharpenRep;
 
   /// Preset level for simple mode.
   final NoiseReductionPreset preset;
@@ -101,8 +146,85 @@ class NoiseReductionParameters {
   /// EZKeepGrain amount (0.0 to 1.0).
   final double qtgmcEzKeepGrain;
 
+  // --- DFTTest Parameters ---
+
+  /// Denoising strength. DFTTest's own default is 8.0.
+  final double dfttestSigma;
+
+  /// Temporal window in frames; forced odd by the worker. 1 is purely spatial.
+  final int dfttestTbsize;
+
+  /// Spatial block size. Larger separates frequencies better but is slower.
+  final int dfttestSbsize;
+
+  // --- FFT3DFilter Parameters ---
+
+  /// Denoising strength.
+  final double fft3dSigma;
+
+  /// Temporal window in frames (1-5). 1 is purely spatial.
+  final int fft3dBt;
+
+  /// Post-denoise sharpening (0.0-1.0), omitted at 0.
+  final double fft3dSharpen;
+
+  // --- TTempSmooth Parameters ---
+
+  /// Temporal radius (1-7).
+  final int ttempMaxr;
+
+  /// Per-pixel difference threshold, above which a pixel is left alone.
+  final int ttempThresh;
+
+  /// Motion-difference threshold; the worker holds it below [ttempThresh].
+  final int ttempMdiff;
+
+  /// Weighting strength (1-8). Higher weights the current frame more.
+  final int ttempStrength;
+
+  // --- FluxSmooth Parameters ---
+
+  /// Temporal threshold: a pixel is averaged only where its neighbours in time
+  /// bracket it in value. Higher smooths more and risks motion. -1 disables.
+  final int fluxTemporalThreshold;
+
+  /// Spatial threshold for the ST variant. -1 disables the spatial half.
+  final int fluxSpatialThreshold;
+
+  // --- STPresso Parameters ---
+
+  /// How far a pixel may move, in 8-bit levels. The whole point of the filter.
+  final int stpressoLimit;
+
+  /// Bias toward the original pixel (0-100). Higher keeps more of it.
+  final int stpressoBias;
+
+  /// Temporal threshold for the FluxSmoothT it runs internally.
+  final int stpressoTthr;
+
+  // --- CTMF Parameters ---
+
+  /// Median window radius. Constant-time, so this costs almost nothing.
+  final int ctmfRadius;
+
+  /// Planes to filter: 0 luma only, 1 chroma only, 2 both.
+  final int ctmfPlanes;
+
   const NoiseReductionParameters({
     this.enabled = false,
+    this.contraSharpen = false,
+    this.mcleanStrength = 20,
+    this.mcleanSharp = 10,
+    this.mcleanRn = 14,
+    this.mcleanThsad = 400,
+    this.mcleanChroma = true,
+    this.td2DegrainTr = 1,
+    this.td2GrainLevel = 2,
+    this.td2PostFft = 0,
+    this.td2PostSigma = 1.0,
+    this.td2PostMix = 0,
+    this.td2ChromaMotion = true,
+    this.contraSharpenRep = 13,
     this.preset = NoiseReductionPreset.off,
     this.method = NoiseReductionMethod.smDegrain,
     // SMDegrain defaults
@@ -125,6 +247,23 @@ class NoiseReductionParameters {
     // QTGMC built-in defaults
     this.qtgmcEzDenoise = 0.0,
     this.qtgmcEzKeepGrain = 0.0,
+    this.dfttestSigma = 8.0,
+    this.dfttestTbsize = 3,
+    this.dfttestSbsize = 16,
+    this.fft3dSigma = 2.0,
+    this.fft3dBt = 3,
+    this.fft3dSharpen = 0.0,
+    this.ttempMaxr = 3,
+    this.ttempThresh = 4,
+    this.ttempMdiff = 2,
+    this.ttempStrength = 2,
+    this.fluxTemporalThreshold = 7,
+    this.fluxSpatialThreshold = 7,
+    this.stpressoLimit = 3,
+    this.stpressoBias = 24,
+    this.stpressoTthr = 12,
+    this.ctmfRadius = 2,
+    this.ctmfPlanes = 2,
   });
 
   /// Create parameters from a preset.
@@ -190,6 +329,23 @@ class NoiseReductionParameters {
     int? mcdsPlane,
     double? qtgmcEzDenoise,
     double? qtgmcEzKeepGrain,
+    double? dfttestSigma,
+    int? dfttestTbsize,
+    int? dfttestSbsize,
+    double? fft3dSigma,
+    int? fft3dBt,
+    double? fft3dSharpen,
+    int? ttempMaxr,
+    int? ttempThresh,
+    int? ttempMdiff,
+    int? ttempStrength,
+    int? fluxTemporalThreshold,
+    int? fluxSpatialThreshold,
+    int? stpressoLimit,
+    int? stpressoBias,
+    int? stpressoTthr,
+    int? ctmfRadius,
+    int? ctmfPlanes,
   }) {
     return NoiseReductionParameters(
       enabled: enabled ?? this.enabled,
@@ -211,6 +367,24 @@ class NoiseReductionParameters {
       mcdsPlane: mcdsPlane ?? this.mcdsPlane,
       qtgmcEzDenoise: qtgmcEzDenoise ?? this.qtgmcEzDenoise,
       qtgmcEzKeepGrain: qtgmcEzKeepGrain ?? this.qtgmcEzKeepGrain,
+      dfttestSigma: dfttestSigma ?? this.dfttestSigma,
+      dfttestTbsize: dfttestTbsize ?? this.dfttestTbsize,
+      dfttestSbsize: dfttestSbsize ?? this.dfttestSbsize,
+      fft3dSigma: fft3dSigma ?? this.fft3dSigma,
+      fft3dBt: fft3dBt ?? this.fft3dBt,
+      fft3dSharpen: fft3dSharpen ?? this.fft3dSharpen,
+      ttempMaxr: ttempMaxr ?? this.ttempMaxr,
+      ttempThresh: ttempThresh ?? this.ttempThresh,
+      ttempMdiff: ttempMdiff ?? this.ttempMdiff,
+      ttempStrength: ttempStrength ?? this.ttempStrength,
+      fluxTemporalThreshold:
+          fluxTemporalThreshold ?? this.fluxTemporalThreshold,
+      fluxSpatialThreshold: fluxSpatialThreshold ?? this.fluxSpatialThreshold,
+      stpressoLimit: stpressoLimit ?? this.stpressoLimit,
+      stpressoBias: stpressoBias ?? this.stpressoBias,
+      stpressoTthr: stpressoTthr ?? this.stpressoTthr,
+      ctmfRadius: ctmfRadius ?? this.ctmfRadius,
+      ctmfPlanes: ctmfPlanes ?? this.ctmfPlanes,
     );
   }
 

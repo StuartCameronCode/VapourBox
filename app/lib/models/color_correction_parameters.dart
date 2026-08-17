@@ -23,6 +23,20 @@ class ColorCorrectionParameters {
   /// Whether this pass is enabled.
   final bool enabled;
 
+  /// Stretch luma so the darkest and brightest parts land on the targets.
+  final bool applyAutoLevels;
+  /// Target black point, 8-bit units (scaled to the clip format in-script).
+  final int autoLevelsBlack;
+  /// Target white point, 8-bit units.
+  final int autoLevelsWhite;
+  /// 0-1 blend against the untouched picture.
+  final double autoLevelsStrength;
+
+  /// Grey-world automatic white balance.
+  final bool applyAutoWhiteBalance;
+  /// 0-1 blend for the chroma shift.
+  final double autoWhiteBalanceStrength;
+
   /// Preset level for simple mode.
   final ColorCorrectionPreset preset;
 
@@ -47,6 +61,29 @@ class ColorCorrectionParameters {
 
   /// Whether to apply levels adjustment.
   final bool applyLevels;
+
+  /// Use SmoothLevels instead of plain Levels: the same curve, but dithered and
+  /// limited as it goes, so stretching a narrow range does not band.
+  ///
+  /// Off by default so existing presets keep the behaviour they were saved with.
+  final bool smoothLevels;
+
+  /// Lift shadow detail with multi-scale retinex, on luma only.
+  ///
+  /// The plugin rejects subsampled formats, and every source this app handles
+  /// is one — so the luma plane is processed on its own and colour is left
+  /// untouched, rather than resampling chroma twice for a brightness operation.
+  final bool applyShadowDetail;
+
+  /// Retinex scale in pixels. Larger lifts broad shadow areas; smaller favours
+  /// local texture.
+  final double shadowSigma;
+
+  /// Fraction of the darkest pixels ignored when rescaling.
+  final double shadowLowerThr;
+
+  /// Same at the bright end.
+  final double shadowUpperThr;
 
   /// Input black level (0-255).
   final int inputLow;
@@ -73,6 +110,12 @@ class ColorCorrectionParameters {
 
   const ColorCorrectionParameters({
     this.enabled = false,
+    this.applyAutoLevels = false,
+    this.autoLevelsBlack = 16,
+    this.autoLevelsWhite = 235,
+    this.autoLevelsStrength = 1.0,
+    this.applyAutoWhiteBalance = false,
+    this.autoWhiteBalanceStrength = 1.0,
     this.preset = ColorCorrectionPreset.off,
     // Tweak defaults
     this.brightness = 0.0,
@@ -82,6 +125,11 @@ class ColorCorrectionParameters {
     this.coring = false,
     // Levels defaults
     this.applyLevels = false,
+    this.smoothLevels = false,
+    this.applyShadowDetail = false,
+    this.shadowSigma = 100.0,
+    this.shadowLowerThr = 0.001,
+    this.shadowUpperThr = 0.001,
     this.inputLow = 0,
     this.inputHigh = 255,
     this.outputLow = 0,
@@ -145,6 +193,11 @@ class ColorCorrectionParameters {
     double? saturation,
     bool? coring,
     bool? applyLevels,
+    bool? smoothLevels,
+    bool? applyShadowDetail,
+    double? shadowSigma,
+    double? shadowLowerThr,
+    double? shadowUpperThr,
     int? inputLow,
     int? inputHigh,
     int? outputLow,
@@ -162,6 +215,11 @@ class ColorCorrectionParameters {
       saturation: saturation ?? this.saturation,
       coring: coring ?? this.coring,
       applyLevels: applyLevels ?? this.applyLevels,
+      smoothLevels: smoothLevels ?? this.smoothLevels,
+      applyShadowDetail: applyShadowDetail ?? this.applyShadowDetail,
+      shadowSigma: shadowSigma ?? this.shadowSigma,
+      shadowLowerThr: shadowLowerThr ?? this.shadowLowerThr,
+      shadowUpperThr: shadowUpperThr ?? this.shadowUpperThr,
       inputLow: inputLow ?? this.inputLow,
       inputHigh: inputHigh ?? this.inputHigh,
       outputLow: outputLow ?? this.outputLow,

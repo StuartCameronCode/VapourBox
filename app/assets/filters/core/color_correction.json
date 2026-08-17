@@ -11,6 +11,9 @@
   "dependencies": {
     "plugins": [
       "havsfunc"
+    ],
+    "vs_plugins": [
+      "Retinex.dll"
     ]
   },
   "methods": [
@@ -262,10 +265,145 @@
         "widget": "slider",
         "precision": 0
       }
+    },
+    "smoothLevels": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Smooth Levels",
+        "description": "Dithers and limits the adjustment as it goes, so stretching a narrow range does not leave visible steps in skies and fades. Slower, and it cannot lift the black point and change gamma at the same time",
+        "visibleWhen": {
+          "applyLevels": true
+        }
+      }
+    },
+    "applyShadowDetail": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Lift Shadow Detail",
+        "description": "Opens up detail hidden in dark areas of underexposed footage, by comparing each part of the picture to its surroundings rather than raising the black level. Brightness only \u2014 colour is untouched"
+      }
+    },
+    "shadowSigma": {
+      "type": "number",
+      "default": 100.0,
+      "min": 1.0,
+      "max": 500.0,
+      "step": 10.0,
+      "ui": {
+        "label": "Area Size",
+        "description": "How wide a neighbourhood each pixel is judged against. Larger opens up broad shadows; smaller brings out local texture",
+        "widget": "slider",
+        "precision": 0,
+        "visibleWhen": {
+          "applyShadowDetail": true
+        }
+      }
+    },
+    "applyAutoLevels": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Auto levels",
+        "description": "Stretch the picture so its darkest and brightest parts reach the target black and white. The usual fix for a washed-out capture.",
+        "widget": "checkbox"
+      }
+    },
+    "autoLevelsBlack": {
+      "type": "integer",
+      "default": 16,
+      "min": 0,
+      "max": 64,
+      "step": 1,
+      "visibleWhen": {
+        "applyAutoLevels": [
+          true
+        ]
+      },
+      "ui": {
+        "label": "Target black",
+        "description": "Where the darkest part of the picture should land. 16 is broadcast black.",
+        "widget": "slider"
+      }
+    },
+    "autoLevelsWhite": {
+      "type": "integer",
+      "default": 235,
+      "min": 192,
+      "max": 255,
+      "step": 1,
+      "visibleWhen": {
+        "applyAutoLevels": [
+          true
+        ]
+      },
+      "ui": {
+        "label": "Target white",
+        "description": "Where the brightest part should land. 235 is broadcast white.",
+        "widget": "slider"
+      }
+    },
+    "autoLevelsStrength": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "visibleWhen": {
+        "applyAutoLevels": [
+          true
+        ]
+      },
+      "ui": {
+        "label": "Strength",
+        "description": "Lower this if the correction moves too much between shots.",
+        "widget": "slider",
+        "precision": 2
+      }
+    },
+    "applyAutoWhiteBalance": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Auto white balance",
+        "description": "Remove an overall colour cast by assuming the scene should average out to neutral grey. The automatic counterpart to the temperature and tint sliders.",
+        "widget": "checkbox"
+      }
+    },
+    "autoWhiteBalanceStrength": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "visibleWhen": {
+        "applyAutoWhiteBalance": [
+          true
+        ]
+      },
+      "ui": {
+        "label": "Strength",
+        "description": "Lower this to keep some of the original cast \u2014 useful when the cast is meant to be there, like firelight.",
+        "widget": "slider",
+        "precision": 2
+      }
     }
   },
   "ui": {
     "sections": [
+      {
+        "title": "Automatic",
+        "parameters": [
+          "applyAutoLevels",
+          "autoLevelsBlack",
+          "autoLevelsWhite",
+          "autoLevelsStrength",
+          "applyAutoWhiteBalance",
+          "autoWhiteBalanceStrength"
+        ],
+        "expanded": true
+      },
       {
         "title": "Basic Adjustments",
         "parameters": [
@@ -273,7 +411,9 @@
           "contrast",
           "saturation",
           "hue",
-          "coring"
+          "coring",
+          "applyShadowDetail",
+          "shadowSigma"
         ],
         "expanded": true
       },
@@ -285,7 +425,8 @@
           "inputHigh",
           "outputLow",
           "outputHigh",
-          "gamma"
+          "gamma",
+          "smoothLevels"
         ],
         "expanded": false
       },

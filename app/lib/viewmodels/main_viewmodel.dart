@@ -188,6 +188,22 @@ class MainViewModel extends ChangeNotifier {
         return ParameterConverter.fromDeband(_processingPipeline.deband);
       case 'sharpen':
         return ParameterConverter.fromSharpen(_processingPipeline.sharpen);
+      case 'anti_alias':
+        return ParameterConverter.fromAntiAlias(_processingPipeline.antiAlias);
+      case 'stabilize':
+        return ParameterConverter.fromStabilize(_processingPipeline.stabilize);
+      case 'geometry':
+        return ParameterConverter.fromGeometry(_processingPipeline.geometry);
+      case 'grain':
+        return ParameterConverter.fromGrain(_processingPipeline.grain);
+      case 'frame_rate':
+        return ParameterConverter.fromFrameRate(_processingPipeline.frameRate);
+      case 'deflicker':
+        return ParameterConverter.fromDeflicker(_processingPipeline.deflicker);
+      case 'edge_repair':
+        return ParameterConverter.fromEdgeRepair(_processingPipeline.edgeRepair);
+      case 'ghost_removal':
+        return ParameterConverter.fromGhostRemoval(_processingPipeline.ghostRemoval);
       case 'color_correction':
         return ParameterConverter.fromColorCorrection(_processingPipeline.colorCorrection);
       case 'chroma_fixes':
@@ -247,6 +263,57 @@ class MainViewModel extends ChangeNotifier {
       case 'sharpen':
         _processingPipeline = _processingPipeline.copyWith(
           sharpen: ParameterConverter.toSharpen(params),
+        );
+        break;
+      case 'anti_alias':
+        _processingPipeline = _processingPipeline.copyWith(
+          antiAlias: ParameterConverter.toAntiAlias(params),
+        );
+        break;
+      case 'stabilize':
+        _processingPipeline = _processingPipeline.copyWith(
+          stabilize: ParameterConverter.toStabilize(params),
+        );
+        break;
+      case 'geometry':
+        _processingPipeline = _processingPipeline.copyWith(
+          geometry: ParameterConverter.toGeometry(params),
+        );
+        break;
+      case 'grain':
+        _processingPipeline = _processingPipeline.copyWith(
+          grain: ParameterConverter.toGrain(params),
+        );
+        break;
+      case 'deflicker':
+        _processingPipeline = _processingPipeline.copyWith(
+          deflicker: ParameterConverter.toDeflicker(params),
+        );
+        break;
+      case 'edge_repair':
+        _processingPipeline = _processingPipeline.copyWith(
+          edgeRepair: ParameterConverter.toEdgeRepair(params),
+        );
+        break;
+      case 'ghost_removal':
+        // `custom` keeps the job's existing ghost list, so a hand-built one
+        // survives a round trip through the preset dropdown.
+        _processingPipeline = _processingPipeline.copyWith(
+          ghostRemoval: ParameterConverter.toGhostRemoval(
+            params,
+            existing: _processingPipeline.ghostRemoval.ghosts,
+          ),
+        );
+        break;
+      case 'frame_rate':
+        // The source rate is carried through rather than round-tripped: it
+        // comes from detection, not from the UI, and the worker needs it to
+        // report a correct frame map.
+        _processingPipeline = _processingPipeline.copyWith(
+          frameRate: ParameterConverter.toFrameRate(params).copyWith(
+            sourceFpsNum: _processingPipeline.frameRate.sourceFpsNum,
+            sourceFpsDen: _processingPipeline.frameRate.sourceFpsDen,
+          ),
         );
         break;
       case 'color_correction':
@@ -1037,6 +1104,22 @@ class MainViewModel extends ChangeNotifier {
         return 'deband';
       case PassType.sharpen:
         return 'sharpen';
+      case PassType.antiAlias:
+        return 'anti_alias';
+      case PassType.stabilize:
+        return 'stabilize';
+      case PassType.geometry:
+        return 'geometry';
+      case PassType.grain:
+        return 'grain';
+      case PassType.frameRate:
+        return 'frame_rate';
+      case PassType.deflicker:
+        return 'deflicker';
+      case PassType.edgeRepair:
+        return 'edge_repair';
+      case PassType.ghostRemoval:
+        return 'ghost_removal';
       case PassType.colorCorrection:
         return 'color_correction';
       case PassType.chromaFixes:
@@ -1165,6 +1248,16 @@ class MainViewModel extends ChangeNotifier {
           : null,
       subtitleOnly: isSubtitleOnly,
       inputSar: item.videoInfo?.sar,
+      inputColorMatrix: item.videoInfo?.colorMatrix,
+      inputColorPrimaries: item.videoInfo?.colorPrimaries,
+      inputColorTransfer: item.videoInfo?.colorTransfer,
+      inputColorRange: item.videoInfo?.colorRange,
+      // Burn-in is per job by design: a path held in settings would apply one
+      // file's subtitles to every video in a batch.
+      burnInSubtitlePath:
+          _processingPipeline.subtitles.burnInPath.trim().isEmpty
+              ? null
+              : _processingPipeline.subtitles.burnInPath.trim(),
     );
 
     // Record the audio config each file is actually encoded with. If a file's

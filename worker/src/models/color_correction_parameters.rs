@@ -23,6 +23,26 @@ pub struct ColorCorrectionParameters {
     #[serde(default)]
     pub enabled: bool,
 
+    /// Stretch luma to the target black/white points, measured per frame.
+    #[serde(default)]
+    pub apply_auto_levels: bool,
+    /// Target black point, 8-bit UI units; scaled to the clip format in-script.
+    #[serde(default = "default_auto_black")]
+    pub auto_levels_black: i32,
+    /// Target white point, 8-bit UI units.
+    #[serde(default = "default_auto_white_point")]
+    pub auto_levels_white: i32,
+    /// 0-1 blend against the untouched clip.
+    #[serde(default = "default_auto_strength")]
+    pub auto_levels_strength: f64,
+
+    /// Grey-world automatic white balance.
+    #[serde(default)]
+    pub apply_auto_white_balance: bool,
+    /// 0-1 blend for the chroma shift.
+    #[serde(default = "default_auto_strength")]
+    pub auto_white_balance_strength: f64,
+
     /// Preset level for simple mode.
     #[serde(default)]
     pub preset: ColorCorrectionPreset,
@@ -54,6 +74,40 @@ pub struct ColorCorrectionParameters {
     /// Whether to apply levels adjustment.
     #[serde(default)]
     pub apply_levels: bool,
+
+    /// Use havsfunc's SmoothLevels instead of plain `std.Levels`.
+    ///
+    /// Same curve, but dithered and limited as it goes, so stretching a narrow
+    /// range does not band. Measured on a shallow gradient stretched to full
+    /// range: distinct output levels go from 47 to 135.
+    #[serde(default)]
+    pub smooth_levels: bool,
+
+    // --- Retinex (shadow detail) ---
+
+    /// Lift shadow detail with multi-scale retinex.
+    ///
+    /// Run on luma only. `retinex.MSRCP` rejects subsampled formats outright
+    /// ("sub-sampled format is not supported"), and every source this app
+    /// handles is 4:2:0 or 4:2:2 — so rather than round-trip the whole clip
+    /// through 4:4:4 and resample chroma twice, the luma plane is extracted as
+    /// greyscale, processed, and put back. Colour is left bit-identical.
+    #[serde(default)]
+    pub apply_shadow_detail: bool,
+
+    /// Retinex scale, in pixels. Larger looks at a wider neighbourhood, so it
+    /// lifts broad shadow areas rather than local texture.
+    #[serde(default = "default_shadow_sigma")]
+    pub shadow_sigma: f64,
+
+    /// Fraction of the darkest pixels ignored when rescaling, which stops a few
+    /// black pixels dragging the whole result.
+    #[serde(default = "default_shadow_lower")]
+    pub shadow_lower_thr: f64,
+
+    /// Same at the bright end.
+    #[serde(default = "default_shadow_upper")]
+    pub shadow_upper_thr: f64,
 
     /// Input black level (0-255).
     #[serde(default)]
@@ -110,13 +164,26 @@ impl ColorCorrectionParameters {
     }
 }
 
+fn default_shadow_sigma() -> f64 { 100.0 }
+fn default_shadow_lower() -> f64 { 0.001 }
+fn default_shadow_upper() -> f64 { 0.001 }
 fn default_one_f64() -> f64 { 1.0 }
 fn default_255() -> i32 { 255 }
+
+fn default_auto_black() -> i32 { 16 }
+fn default_auto_white_point() -> i32 { 235 }
+fn default_auto_strength() -> f64 { 1.0 }
 
 impl Default for ColorCorrectionParameters {
     fn default() -> Self {
         Self {
             enabled: false,
+            apply_auto_levels: false,
+            auto_levels_black: default_auto_black(),
+            auto_levels_white: default_auto_white_point(),
+            auto_levels_strength: default_auto_strength(),
+            apply_auto_white_balance: false,
+            auto_white_balance_strength: default_auto_strength(),
             preset: ColorCorrectionPreset::default(),
             brightness: 0.0,
             contrast: 1.0,
@@ -124,6 +191,11 @@ impl Default for ColorCorrectionParameters {
             saturation: 1.0,
             coring: false,
             apply_levels: false,
+            smooth_levels: false,
+            apply_shadow_detail: false,
+            shadow_sigma: default_shadow_sigma(),
+            shadow_lower_thr: default_shadow_lower(),
+            shadow_upper_thr: default_shadow_upper(),
             input_low: 0,
             input_high: 255,
             output_low: 0,
@@ -183,5 +255,141 @@ mod tests {
         let json = serde_json::to_string(&params).unwrap();
         assert!(json.contains("\"enabled\":false"));
         assert!(json.contains("\"contrast\":1.0"));
+    }
+}
+
+impl ColorCorrectionParameters {
+    /// The black point actually passed to SmoothLevels.
+    ///
+    /// havsfunc builds its lookup table over the whole `0..peak` domain and
+    /// raises `x - input_low` to `1/gamma`. For `x < input_low` that base is
+    /// negative, and a fractional exponent on a negative base yields a Python
+    /// `complex` — which fails the LUT with `TypeError: must be real number, not
+    /// complex`. Measured: it crashes whenever `input_low > 0` and `1/gamma` is
+    /// not an integer, i.e. for essentially every useful gamma.
+    ///
+    /// Rather than refuse the combination, the black point is dropped for that
+    /// case. Losing the lift is visible; a failed job is worse, and the plain
+    /// Levels mode still does both together.
+    pub fn smooth_levels_input_low(&self) -> i32 {
+        if (self.gamma - 1.0).abs() > f64::EPSILON {
+            0
+        } else {
+            self.input_low
+        }
+    }
+
+    /// Whether the gamma guard above actually dropped anything, so the UI can
+    /// say so rather than silently ignoring a control the user set.
+    pub fn smooth_levels_drops_black_point(&self) -> bool {
+        self.smooth_levels
+            && self.apply_levels
+            && self.input_low > 0
+            && (self.gamma - 1.0).abs() > f64::EPSILON
+    }
+}
+
+#[cfg(test)]
+mod smooth_levels_tests {
+    use super::*;
+
+    #[test]
+    fn test_black_point_survives_when_gamma_is_neutral() {
+        let p = ColorCorrectionParameters {
+            input_low: 16,
+            gamma: 1.0,
+            ..Default::default()
+        };
+        assert_eq!(p.smooth_levels_input_low(), 16);
+        assert!(!p.smooth_levels_drops_black_point());
+    }
+
+    #[test]
+    fn test_black_point_is_dropped_when_gamma_would_crash_the_lut() {
+        // havsfunc raises a negative base to a fractional power for x below
+        // input_low, which yields a complex number and fails the LUT.
+        for gamma in [0.6, 0.8, 1.2, 2.2] {
+            let p = ColorCorrectionParameters {
+                apply_levels: true,
+                smooth_levels: true,
+                input_low: 16,
+                gamma,
+                ..Default::default()
+            };
+            assert_eq!(p.smooth_levels_input_low(), 0, "gamma {gamma}");
+            assert!(p.smooth_levels_drops_black_point(), "gamma {gamma}");
+        }
+    }
+
+    #[test]
+    fn test_nothing_is_dropped_when_the_black_point_is_already_zero() {
+        let p = ColorCorrectionParameters {
+            apply_levels: true,
+            smooth_levels: true,
+            input_low: 0,
+            gamma: 0.6,
+            ..Default::default()
+        };
+        assert_eq!(p.smooth_levels_input_low(), 0);
+        assert!(!p.smooth_levels_drops_black_point());
+    }
+
+    #[test]
+    fn test_plain_levels_mode_never_reports_a_dropped_black_point() {
+        let p = ColorCorrectionParameters {
+            apply_levels: true,
+            smooth_levels: false,
+            apply_shadow_detail: false,
+            shadow_sigma: default_shadow_sigma(),
+            shadow_lower_thr: default_shadow_lower(),
+            shadow_upper_thr: default_shadow_upper(),
+            input_low: 16,
+            gamma: 0.6,
+            ..Default::default()
+        };
+        assert!(!p.smooth_levels_drops_black_point());
+    }
+}
+
+impl ColorCorrectionParameters {
+    /// Retinex scale, clamped to something meaningful for SD and HD frames.
+    pub fn shadow_effective_sigma(&self) -> f64 {
+        self.shadow_sigma.clamp(1.0, 500.0)
+    }
+
+    /// The clipping thresholds, kept inside the 0-1 fraction the plugin wants
+    /// and away from the degenerate ends.
+    pub fn shadow_effective_lower(&self) -> f64 {
+        self.shadow_lower_thr.clamp(0.0, 0.1)
+    }
+
+    /// See [`Self::shadow_effective_lower`].
+    pub fn shadow_effective_upper(&self) -> f64 {
+        self.shadow_upper_thr.clamp(0.0, 0.1)
+    }
+}
+
+#[cfg(test)]
+mod shadow_detail_tests {
+    use super::*;
+
+    #[test]
+    fn test_defaults_are_off_and_conservative() {
+        let p = ColorCorrectionParameters::default();
+        assert!(!p.apply_shadow_detail);
+        assert_eq!(p.shadow_sigma, 100.0);
+    }
+
+    #[test]
+    fn test_sigma_and_thresholds_are_clamped() {
+        let p = ColorCorrectionParameters {
+            shadow_sigma: 9000.0,
+            shadow_lower_thr: 0.9,
+            shadow_upper_thr: -1.0,
+            ..Default::default()
+        };
+        assert_eq!(p.shadow_effective_sigma(), 500.0);
+        assert_eq!(p.shadow_effective_lower(), 0.1);
+        assert_eq!(p.shadow_effective_upper(), 0.0);
     }
 }

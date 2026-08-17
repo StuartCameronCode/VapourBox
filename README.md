@@ -20,14 +20,14 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg —
 
 **Correcting how the picture is stored.** Most consumer and broadcast video recorded before the 2010s is interlaced — VHS, Video8 and Hi8, DV camcorders, DVDs, off-air recordings — and needs converting to progressive to display properly on a modern screen. Film transferred to video was padded with pulldown instead, which can be reversed to recover the original 23.976 fps frames. VapourBox detects which case applies and handles both: QTGMC for deinterlacing, IVTC for telecined film.
 
-**Cleanup, when the source needs it.** Thirteen optional filters covering tape noise and smeared color, dust and scratches on scanned film, blocking from a heavily compressed disc or recorder, and halos, banding and color balance. All off by default; you turn on what a given source actually needs.
+**Cleanup, when the source needs it.** Twenty-one optional filters covering tape noise and smeared color, dust and scratches on scanned film, the dirty rows at the edge of a capture, ghosting from an aerial, the brightness flicker of scanned cine film, blocking from a heavily compressed disc or recorder, jagged diagonal edges, camera shake, and halos, banding and color balance. All off by default, and the presets turn on what a given kind of source actually needs.
 
 **Subtitles.** Speech is transcribed with Whisper AI to a separate `.srt`, embedded in the output, or both.
 
 ## How it works
 
 1. **Add the source.** Drop in a file, a folder of files, a `VIDEO_TS` folder, or open a DVD in the drive. VapourBox inspects it and reports what it found — interlaced, telecined or progressive — so the choice isn't guesswork.
-2. **Set the output and any processing.** Pick a codec and container, then either start from a preset (Fast, Balanced, High Quality, VHS Cleanup, DVD IVTC) or switch individual filters on. Each filter's controls open in place beneath it, with a summary of what it does and when it applies.
+2. **Set the output and any processing.** Pick a codec and container, then either start from a preset — three quality tiers, plus six named after the source, from VHS Cleanup to 8mm / Super 8 Film Scan — or switch individual filters on. Each filter's controls open in place beneath it, with a summary of what it does and when it applies.
 3. **Check the preview, then run it.** The preview shows source and processed output side by side and updates as settings change, so settings can be judged before a long encode. Multiple files queue up and process unattended.
 
 ## Download
@@ -91,25 +91,37 @@ GPU-accelerated deinterlacing (NNEDI3CL) needs your GPU's OpenCL driver installe
 
 ## The filter pipeline
 
-Thirteen filters, each switchable independently, applied in a fixed order. Most sources need none or a few.
+Twenty-one filters, each switchable independently, applied in a fixed order. Most sources need none or a few.
 
 | Filter | What it addresses |
 |--------|-------------------|
-| **Deinterlace** | Comb-like jagged edges on moving objects. QTGMC for interlaced video, or IVTC to recover the original film frames from telecined DVD. |
+| **Deinterlace** | Comb-like jagged edges on moving objects. QTGMC for interlaced video, IVTC to recover the original film frames from telecined DVD, or Bwdif when you want it done in a fraction of the time. |
+| **Edge Repair** | The dirty rows and columns at the very edge of a tape capture — rebuilt from the picture just inside, instead of cropped away. |
+| **Ghost Removal** | A faint second copy of the picture shifted sideways, left behind by an aerial or a long cable run. |
+| **Deflicker** | Brightness pulsing between frames, which is what scanned cine film almost always has. |
 | **DeScratch** | Vertical scratch lines on scanned film. |
 | **SpotLess** | Dust, dirt and single-frame specks. |
-| **Noise Reduction** | Grain and video noise across the whole frame. Motion-compensated, so detail is preserved. |
+| **Noise Reduction** | Grain and video noise across the whole frame. Motion-compensated by default; DFTTest, FFT3DFilter, TTempSmooth, FluxSmooth, STPresso and a large-window median are available under advanced options for noise the default handles badly. |
 | **Chroma Denoise** | Blotchy, smeared color — common on VHS captures and old camcorder footage. Leaves luma detail untouched. |
-| **Dehalo** | Bright outlines around edges, ringing, and residual ghosting left by a deinterlacer. |
-| **Deblock** | Square blocking from heavy compression. |
+| **Dehalo** | Bright outlines around edges, ringing, and residual ghosting left by a deinterlacer. HQDeringmod targets ringing specifically. |
+| **Deblock** | Square blocking from heavy compression, and the ringing around edges that comes with it. |
 | **Deband** | Visible steps in gradients and skies. |
-| **Sharpen** | Soft sources needing edge and fine detail recovery. |
-| **Chroma Fixes** | Color bleeding past edges, rainbowing, dot crawl. |
-| **Color Correction** | Brightness, contrast, saturation, hue, levels, and white balance (warm/cool, green/magenta). |
+| **Anti-Aliasing** | Stair-stepping on diagonal edges, left by deinterlacing or upscaling. Runs before sharpening, which would otherwise make the steps more visible. |
+| **Stabilize** | Shake and weave — telecine wobble, jittery film scans, handheld footage. Runs last before cropping, so a small crop removes the edges it exposes. |
+| **Film Grain** | Grain added back after denoising, so the picture is not left plastic — and to hide banding in skies and fades. |
+| **Rotate / Flip** | Footage shot sideways, mirrored captures, scans that came off the scanner the wrong way round. |
+| **Sharpen** | Soft sources needing edge and fine detail recovery. aWarpSharp2 sharpens by warping edges instead of raising contrast, so it adds no halos. |
+| **Chroma Fixes** | Color bleeding past edges, rainbowing and dot crawl — including the shimmering kind that only shows when the picture moves — and residual combing. |
+| **Color Correction** | Brightness, contrast, saturation, hue, levels, white balance (warm/cool, green/magenta), and lifting detail out of the shadows of underexposed footage. |
 | **Crop & Resize** | Trimming overscan, scaling, and edge-directed upscaling. |
+| **Frame Rate** | Converting between PAL and NTSC rates, for a tape that was already converted once and now plays at the wrong speed. |
 | **Subtitles** | Whisper AI speech-to-text, to `.srt`, embedded, or both. |
 
 Each filter leads with a plain-language summary and a **More** expander describing what it does and when it's the right choice, so the settings can be understood in place rather than looked up elsewhere.
+
+The list also reacts to the file you dropped in. Filters that match what was detected in your source are marked **Suggested** with the reason — "source is hard telecine (3:2 pulldown)", "anamorphic source (10:11) — check pixel aspect" — and ones that can't apply say so, such as deinterlacing a progressive file. Nothing is switched on or off for you; detection is sometimes wrong, so it stays a hint. Filters whose problems can't be spotted from the file alone — dirt, scratches, grain, halos — say nothing either way.
+
+Where two filters work against each other, the one that loses out says so when you open it: sharpening ahead of a denoiser that will undo it, for instance.
 
 ## Details
 
@@ -157,7 +169,22 @@ VapourBox decides between the two by looking for a DVD IFO: a folder is only tre
 <details>
 <summary><b>Presets</b></summary>
 
-Presets store the whole pipeline plus encoding settings. Built-in: Fast, Balanced, High Quality, VHS Cleanup, DVD IVTC. Your own save alongside them and persist across sessions.
+Presets store the whole pipeline plus encoding settings, and the menu splits them by the question they answer.
+
+**For Your Source** — pick the one matching what you have and you can ignore the pass list entirely: VHS Cleanup, DV Camcorder Tape, PAL DVD / Broadcast, DVD IVTC, Anime DVD, 8mm / Super 8 Film Scan.
+
+**Quality Only** — Fast, Balanced and High Quality just deinterlace, at three levels of effort. Use one when the picture is already clean.
+
+Your own presets save alongside them and persist across sessions.
+
+</details>
+
+<details>
+<summary><b>Advanced options</b></summary>
+
+Each filter shows a short, curated set of choices by default. **Settings → General → Show advanced options** reveals the rest — every method and every parameter, in every filter. The switch beside a filter's options does the same thing; either way it applies everywhere and is remembered.
+
+Turning it off never changes what a filter is doing: if a preset selected an advanced method, that method stays selected and stays visible.
 
 </details>
 

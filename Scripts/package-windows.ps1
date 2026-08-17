@@ -100,8 +100,8 @@ Copy-Item $WorkerExe "$PackageDir\"
 # Copy VapourSynth script templates
 Copy-Item (Join-Path $ProjectRoot "worker\templates\pipeline_template.vpy") "$PackageDir\templates\"
 Copy-Item (Join-Path $ProjectRoot "worker\templates\preview_template.vpy") "$PackageDir\templates\"
-Copy-Item (Join-Path $ProjectRoot "worker\templates\pipe_source.py") "$PackageDir\templates\"
-Copy-Item (Join-Path $ProjectRoot "worker\templates\spotless.py") "$PackageDir\templates\"
+# Glob, not a list of names — see the note in package-macos.sh.
+Copy-Item (Join-Path $ProjectRoot "worker\templates\*.py") "$PackageDir\templates\"
 
 # Copy licenses
 Write-Host "    Copying licenses..."

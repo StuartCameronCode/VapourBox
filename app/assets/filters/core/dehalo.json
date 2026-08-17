@@ -4,7 +4,7 @@
   "version": "1.1.0",
   "name": "Dehalo",
   "description": "Remove halo, ringing and ghosting around edges",
-  "longDescription": "Removes the bright outline that sits alongside high-contrast edges \u2014 the ringing left by over-sharpening, upscaling or heavy compression.\n\nUse it when edges look traced with a light pen: common on VHS run through a sharpening time-base corrector, and on upscaled or hard-compressed material. Apply it after deinterlacing and denoising. Too much strength eats the fine detail right next to the edge.\n\nThe two Vinverse methods target a different artifact: the vertical comb or ghost residue a deinterlacer leaves behind. They blur vertically, so only run them on progressive frames \u2014 after the deinterlace pass, never instead of it.",
+  "longDescription": "Removes the bright outline that sits alongside high-contrast edges — the ringing left by over-sharpening, upscaling or heavy compression.\n\nUse it when edges look traced with a light pen: common on VHS run through a sharpening time-base corrector, and on upscaled or hard-compressed material. Apply it after deinterlacing and denoising. Too much strength eats the fine detail right next to the edge.\n\nThe two Vinverse methods target a different artifact: the vertical comb or ghost residue a deinterlacer leaves behind. They blur vertically, so only run them on progressive frames — after the deinterlace pass, never instead of it.",
   "category": "cleanup",
   "icon": "blur_off",
   "order": 4,
@@ -24,7 +24,7 @@
     {
       "id": "dehalo_alpha",
       "name": "DeHalo Alpha",
-      "description": "General purpose dehalo, good for most sources",
+      "description": "Best first choice. Handles the bright outlines left by over-sharpening on most sources",
       "function": "haf.DeHalo_alpha",
       "parameters": [
         "rx",
@@ -39,7 +39,7 @@
     {
       "id": "fine_dehalo",
       "name": "Fine Dehalo",
-      "description": "More precise, better edge preservation",
+      "description": "Masked, so it keeps real edges better than DeHalo Alpha. Slower. Use when DeHalo Alpha softens the picture",
       "function": "haf.FineDehalo",
       "parameters": [
         "rx",
@@ -58,14 +58,15 @@
     {
       "id": "fine_dehalo2",
       "name": "Fine Dehalo 2",
-      "description": "Removes the ringing left on sharp edges \u2014 run after Fine Dehalo",
+      "description": "Removes the ringing left on sharp edges. A follow-up pass — run it after Fine Dehalo, not instead of it",
       "function": "haf.FineDehalo2",
-      "parameters": []
+      "parameters": [],
+      "advancedOnly": true
     },
     {
       "id": "yahr",
       "name": "YAHR",
-      "description": "Yet Another Halo Remover - fast and effective",
+      "description": "Fastest option, and good on halos that come with ringing. Can soften fine texture",
       "function": "haf.YAHR",
       "parameters": [
         "yahrBlur",
@@ -75,7 +76,7 @@
     {
       "id": "edge_cleaner",
       "name": "Edge Cleaner",
-      "description": "Cleans edge noise and weak halos (aWarpSharp2)",
+      "description": "Cleans edge noise and weak halos by warping edges (aWarpSharp2). Niche — for line art rather than live action",
       "function": "haf.EdgeCleaner",
       "parameters": [
         "edgeStrength",
@@ -83,28 +84,44 @@
         "edgeRepairMode",
         "edgeSmallMode",
         "edgeHotPixels"
-      ]
+      ],
+      "advancedOnly": true
     },
     {
       "id": "vinverse",
       "name": "Vinverse (de-ghost)",
-      "description": "Removes comb/ghost residue left by deinterlacing",
+      "description": "Removes comb/ghost residue left by deinterlacing. Also offered in Chroma Fixes, which is the better place for it",
       "function": "haf.Vinverse",
       "parameters": [
         "vinverseStrength",
         "vinverseAmount",
         "vinverseChroma"
-      ]
+      ],
+      "advancedOnly": true
     },
     {
       "id": "vinverse2",
       "name": "Vinverse 2 (de-ghost)",
-      "description": "Like Vinverse but keeps more vertical detail",
+      "description": "Like Vinverse but keeps more vertical detail. Also offered in Chroma Fixes",
       "function": "haf.Vinverse2",
       "parameters": [
         "vinverseStrength",
         "vinverseAmount",
         "vinverseChroma"
+      ],
+      "advancedOnly": true
+    },
+    {
+      "id": "hq_deringmod",
+      "name": "HQDeringmod",
+      "description": "Removes ringing — the overshoot immediately beside an edge — while a mask protects the edge itself. A narrower target than dehalo, for over-sharpened or heavily compressed sources",
+      "function": "haf.HQDeringmod",
+      "parameters": [
+        "deringMrad",
+        "deringMsmooth",
+        "deringMthr",
+        "deringThr",
+        "deringDarkthr"
       ]
     }
   ],
@@ -126,7 +143,8 @@
         "yahr",
         "edge_cleaner",
         "vinverse",
-        "vinverse2"
+        "vinverse2",
+        "hq_deringmod"
       ],
       "ui": {
         "hidden": true
@@ -190,7 +208,7 @@
       },
       "ui": {
         "label": "Dark Halo Strength",
-        "description": "Strength of dark halo removal. Above 1.0 overshoots \u2014 it pushes past the original pixel rather than blending back to it",
+        "description": "Strength of dark halo removal. Above 1.0 overshoots — it pushes past the original pixel rather than blending back to it",
         "widget": "slider",
         "precision": 2,
         "visibleWhen": {
@@ -213,7 +231,7 @@
       },
       "ui": {
         "label": "Bright Halo Strength",
-        "description": "Strength of bright halo removal. Above 1.0 overshoots \u2014 it pushes past the original pixel rather than blending back to it",
+        "description": "Strength of bright halo removal. Above 1.0 overshoots — it pushes past the original pixel rather than blending back to it",
         "widget": "slider",
         "precision": 2,
         "visibleWhen": {
@@ -342,7 +360,7 @@
       },
       "ui": {
         "label": "Limit Low",
-        "description": "Below this edge strength, dehaloing is fully limited \u2014 protects faint detail",
+        "description": "Below this edge strength, dehaloing is fully limited — protects faint detail",
         "widget": "slider",
         "visibleWhen": {
           "method": [
@@ -638,6 +656,98 @@
           ]
         }
       }
+    },
+    "deringMrad": {
+      "type": "integer",
+      "default": 1,
+      "min": 1,
+      "max": 3,
+      "step": 1,
+      "optional": true,
+      "ui": {
+        "label": "Ring Radius",
+        "description": "How wide a band beside each edge to treat",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "hq_deringmod"
+          ]
+        }
+      }
+    },
+    "deringMsmooth": {
+      "type": "integer",
+      "default": 1,
+      "min": 0,
+      "max": 4,
+      "step": 1,
+      "optional": true,
+      "ui": {
+        "label": "Mask Smoothing",
+        "description": "Softens where the mask takes effect",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "hq_deringmod"
+          ]
+        }
+      }
+    },
+    "deringMthr": {
+      "type": "integer",
+      "default": 60,
+      "min": 0,
+      "max": 255,
+      "step": 5,
+      "optional": true,
+      "ui": {
+        "label": "Edge Threshold",
+        "description": "Lower finds more edges to protect",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "hq_deringmod"
+          ]
+        }
+      }
+    },
+    "deringThr": {
+      "type": "number",
+      "default": 12.0,
+      "min": 0.0,
+      "max": 64.0,
+      "step": 0.5,
+      "optional": true,
+      "ui": {
+        "label": "Limit",
+        "description": "How far a pixel may be changed, in 8-bit levels",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "hq_deringmod"
+          ]
+        }
+      }
+    },
+    "deringDarkthr": {
+      "type": "number",
+      "default": 3.0,
+      "min": 0.0,
+      "max": 64.0,
+      "step": 0.5,
+      "optional": true,
+      "ui": {
+        "label": "Dark Limit",
+        "description": "Separate limit for the dark side of an edge. Left off, havsfunc uses a quarter of the main limit",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "hq_deringmod"
+          ]
+        }
+      }
     }
   },
   "ui": {
@@ -657,7 +767,10 @@
           "edgeRepair",
           "vinverseStrength",
           "vinverseAmount",
-          "vinverseChroma"
+          "vinverseChroma",
+          "deringMrad",
+          "deringMsmooth",
+          "deringThr"
         ],
         "expanded": true
       },
@@ -674,7 +787,9 @@
           "edgeProc",
           "edgeRepairMode",
           "edgeSmallMode",
-          "edgeHotPixels"
+          "edgeHotPixels",
+          "deringMthr",
+          "deringDarkthr"
         ],
         "expanded": false,
         "advancedOnly": true

@@ -79,6 +79,11 @@ fn test_preview_10bit_422_matches_source_frame() {
         input_width: Some(WIDTH),
         input_height: Some(HEIGHT),
         input_pixel_format: Some(PIX_FMT.to_string()),
+        input_color_matrix: None,
+        input_color_primaries: None,
+        input_color_transfer: None,
+        input_color_range: None,
+        burn_in_subtitle_path: None,
     };
 
     let cfg_path = out_dir.join("preview_pal_job.json");

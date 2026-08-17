@@ -28,6 +28,11 @@ enum WidgetType {
   textfield,
   @JsonValue('number')
   number,
+
+  /// A path, with a Browse button beside the field. Never inferred — a string
+  /// parameter still defaults to [textfield], so a schema opts in explicitly.
+  @JsonValue('filepicker')
+  filepicker,
 }
 
 /// VapourSynth-specific parameter configuration.
@@ -69,6 +74,10 @@ class ParameterUiConfig {
   /// Example: {"true": "Top Field First", "false": "Bottom Field First"}
   final Map<String, String>? booleanLabels;
 
+  /// Extensions the file picker offers, without dots — `["srt", "ass"]`.
+  /// Only meaningful for [WidgetType.filepicker]; null means any file.
+  final List<String>? fileExtensions;
+
   const ParameterUiConfig({
     this.label,
     this.description,
@@ -77,6 +86,7 @@ class ParameterUiConfig {
     this.hidden,
     this.visibleWhen,
     this.booleanLabels,
+    this.fileExtensions,
   });
 
   factory ParameterUiConfig.fromJson(Map<String, dynamic> json) =>
@@ -178,12 +188,23 @@ class MethodDefinition {
   /// List of parameter IDs that this method uses.
   final List<String> parameters;
 
+  /// Whether this method only appears in advanced mode.
+  ///
+  /// Lets one filter offer a short, curated method list to everyone and the
+  /// full set to someone who has asked for it — the mechanism that keeps a
+  /// "Noise Reduction" row from becoming a dropdown of sixteen names. A method
+  /// the user has actually selected is always shown regardless, so a preset or
+  /// saved job never silently loses its method; see
+  /// [FilterSchema.visibleMethods].
+  final bool advancedOnly;
+
   const MethodDefinition({
     required this.id,
     required this.name,
     this.description,
     required this.function,
     required this.parameters,
+    this.advancedOnly = false,
   });
 
   factory MethodDefinition.fromJson(Map<String, dynamic> json) =>
@@ -425,6 +446,28 @@ class FilterSchema {
       return null;
     }
   }
+
+  /// The methods to offer in the UI.
+  ///
+  /// In simple mode ([showAdvanced] false) advanced-only methods are dropped —
+  /// except [selectedId], which is always kept. Hiding a value the user has
+  /// already chosen would both lie about what the pipeline is doing and, in a
+  /// dropdown, crash on a value that isn't among its items.
+  ///
+  /// Order is preserved, so the schema decides what a regular user sees first.
+  List<MethodDefinition> visibleMethods({
+    required bool showAdvanced,
+    String? selectedId,
+  }) {
+    if (showAdvanced) return methods;
+    return methods
+        .where((m) => !m.advancedOnly || m.id == selectedId)
+        .toList();
+  }
+
+  /// Whether any method is advanced-only, so the UI knows there is more to
+  /// reveal even when every parameter is basic.
+  bool get hasAdvancedMethods => methods.any((m) => m.advancedOnly);
 
   /// Get default values for all parameters.
   /// Optional parameters are excluded (they start as null/disabled).

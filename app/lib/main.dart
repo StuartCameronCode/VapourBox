@@ -4,6 +4,7 @@ import 'package:rhttp/rhttp.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'models/filter_registry.dart';
+import 'services/advanced_mode_service.dart';
 import 'services/dependency_manager.dart';
 import 'services/hardware_encoder_detector.dart';
 import 'services/preset_service.dart';
@@ -24,6 +25,10 @@ void main() async {
   // Load the temp directory override before anything writes a scratch file
   // (the dependency download on first run is the earliest of them).
   await TempDirectoryService.instance.initialize();
+
+  // Load the advanced-mode choice before the first panel builds, so the filter
+  // settings don't flash from simple to advanced on startup.
+  await AdvancedModeService.instance.initialize();
 
   // Initialize window manager for desktop
   await windowManager.ensureInitialized();
@@ -54,6 +59,21 @@ class VapourBoxApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Above the MaterialApp on purpose, not inside `home`. `showDialog` pushes
+    // onto the MaterialApp's Navigator, so a provider placed below it is out of
+    // scope for every dialog route — which is how the Settings dialog's
+    // advanced-mode switch first came out as a "Could not find the correct
+    // Provider" error box. It's a dependency-free singleton, so there is no
+    // reason to scope it any lower; anything scoped to the main window (i.e.
+    // MainViewModel) still has to be re-provided per dialog, as
+    // MainWindow._showSettings does.
+    return ChangeNotifierProvider<AdvancedModeService>.value(
+      value: AdvancedModeService.instance,
+      child: _buildApp(),
+    );
+  }
+
+  Widget _buildApp() {
     return MaterialApp(
       title: 'VapourBox',
       debugShowCheckedModeBanner: false,
@@ -220,6 +240,8 @@ class _AppStartupWrapperState extends State<AppStartupWrapper> {
           .addPostFrameCallback((_) => _showDepsWarningAsync());
     }
 
+    // AdvancedModeService is provided above the MaterialApp, so it is in scope
+    // here and in every dialog route without being repeated.
     return ChangeNotifierProvider(
       create: (_) => MainViewModel(),
       child: const MainWindow(),

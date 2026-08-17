@@ -33,7 +33,7 @@
     {
       "id": "nnedi3_2x",
       "name": "NNEDI3 Upscale",
-      "description": "Edge-directed integer doubling",
+      "description": "Doubles size with far cleaner edges than a resampler. Best choice for upscaling. Slow",
       "function": "core.znedi3.nnedi3",
       "parameters": [
         "upscaleNsize",
@@ -46,7 +46,7 @@
     {
       "id": "eedi3_2x",
       "name": "EEDI3 Upscale",
-      "description": "Edge-directed integer doubling, guided by NNEDI3",
+      "description": "Doubling guided by NNEDI3. Marginally better on hard diagonals, several times slower",
       "function": "core.eedi3m.EEDI3",
       "parameters": [
         "upscaleAlpha",
@@ -54,7 +54,8 @@
         "upscaleGamma",
         "upscaleNrad",
         "upscaleMdis"
-      ]
+      ],
+      "advancedOnly": true
     }
   ],
   "parameters": {
@@ -725,11 +726,18 @@
         "expanded": true
       },
       {
-        "title": "Upscale (NNEDI3 / EEDI3)",
+        "title": "Upscale",
+        "description": "Enlarge using an edge-directed interpolator rather than a plain resize. Doubles at a time, so pick the factor that reaches or exceeds your target and set a Resize below to land on it exactly.",
         "parameters": [
           "useIntegerUpscale",
           "upscaleMethod",
-          "upscaleFactor",
+          "upscaleFactor"
+        ],
+        "expanded": false
+      },
+      {
+        "title": "Upscale tuning",
+        "parameters": [
           "upscaleNsize",
           "upscaleNeurons",
           "upscaleQual",

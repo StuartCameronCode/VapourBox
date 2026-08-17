@@ -18,14 +18,22 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
+import 'package:vapourbox/models/anti_alias_parameters.dart';
 import 'package:vapourbox/models/chroma_denoise_parameters.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
+import 'package:vapourbox/models/chroma_fix_parameters.dart';
+import 'package:vapourbox/models/color_correction_parameters.dart';
 import 'package:vapourbox/models/descratch_parameters.dart';
+import 'package:vapourbox/models/deblock_parameters.dart';
+import 'package:vapourbox/models/grain_parameters.dart';
+import 'package:vapourbox/models/geometry_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/noise_reduction_parameters.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
+import 'package:vapourbox/models/sharpen_parameters.dart';
 import 'package:vapourbox/models/spotless_parameters.dart';
+import 'package:vapourbox/models/stabilize_parameters.dart';
 import 'package:vapourbox/models/subtitle_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 
@@ -123,6 +131,530 @@ void main() {
         skip: WorkerHarness.whisperAvailable
             ? false
             : 'whisper add-on not present (set VAPOURBOX_ADDONS_DIR or install the add-on)');
+
+
+    // --- Filters added from the Hybrid gap analysis -----------------------
+    //
+    // Script generation for these is covered cheaply in
+    // integration_filter_parameters_test; what only a real encode proves is that
+    // the plugin actually loads and processes the source. Each of these plugins
+    // was already in the deps bundle but had never been called by the product,
+    // so "it is in deps-expected-plugins.json" was not evidence that it works.
+    //
+    // Deinterlacing is off in these: the point is to exercise the filter, and a
+    // QTGMC pass would dominate the runtime without testing anything new.
+
+    test('noise reduction: DFTTest runs end-to-end', () async {
+      final job = _baseJob(
+        'nr_dfttest',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.dfttest,
+            dfttestSigma: 8.0,
+            dfttestTbsize: 3,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'nr_dfttest');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('noise reduction: DFTTest spatial-only (tbsize 1) runs end-to-end',
+        () async {
+      // tbsize=1 takes a different path inside DFTTest — no temporal window at
+      // all — so it is worth exercising separately.
+      final job = _baseJob(
+        'nr_dfttest_spatial',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.dfttest,
+            dfttestTbsize: 1,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'nr_dfttest_spatial');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('noise reduction: FFT3DFilter runs end-to-end', () async {
+      final job = _baseJob(
+        'nr_fft3d',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.fft3dFilter,
+            fft3dSigma: 2.0,
+            fft3dBt: 3,
+            fft3dSharpen: 0.3,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'nr_fft3d');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('noise reduction: TTempSmooth runs end-to-end', () async {
+      final job = _baseJob(
+        'nr_ttempsmooth',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.tTempSmooth,
+            ttempMaxr: 3,
+            ttempThresh: 4,
+            ttempMdiff: 2,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'nr_ttempsmooth');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('sharpen: aWarpSharp2 runs end-to-end', () async {
+      final job = _baseJob(
+        'sharpen_awarpsharp2',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          sharpen: SharpenParameters(
+            enabled: true,
+            method: SharpenMethod.aWarpSharp2,
+            warpDepth: 16,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'sharpen_awarpsharp2');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('dehalo: HQDeringmod runs end-to-end', () async {
+      final job = _baseJob(
+        'dehalo_hqderingmod',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          dehalo: DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.hqDeringmod,
+            deringMrad: 1,
+            deringThr: 12.0,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'dehalo_hqderingmod');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('the added filters render in the preview path too', () async {
+      // Preview and encode are separate scripts AND separate ffmpeg
+      // invocations, so a filter can encode fine and still fail the preview.
+      for (final entry in <String, ProcessingPipeline>{
+        'dfttest': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.dfttest,
+          ),
+        ),
+        'fft3d': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.fft3dFilter,
+          ),
+        ),
+        'ttempsmooth': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.tTempSmooth,
+          ),
+        ),
+        'awarpsharp2': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          sharpen: SharpenParameters(
+            enabled: true,
+            method: SharpenMethod.aWarpSharp2,
+          ),
+        ),
+        'hqderingmod': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          dehalo: DehaloParameters(
+            enabled: true,
+            method: DehaloMethod.hqDeringmod,
+          ),
+        ),
+      }.entries) {
+        final job = _baseJob('preview_${entry.key}', pipeline: entry.value);
+        final preview = await WorkerHarness.runPreview(
+          job.toJson(),
+          frame: 10,
+          label: 'preview_${entry.key}',
+        );
+        expect(preview.success, isTrue,
+            reason: '${entry.key} preview failed: ${preview.errorTail}');
+        print('  ${entry.key}: preview frame rendered '
+            '(${preview.png!.length} bytes)');
+      }
+    }, timeout: const Timeout(Duration(minutes: 8)));
+
+
+    // --- Second batch: whole categories the app had nothing in --------------
+
+    test('anti-alias: daa runs end-to-end', () async {
+      final job = _baseJob(
+        'aa_daa',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          antiAlias: AntiAliasParameters(
+            enabled: true,
+            method: AntiAliasMethod.daa,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'aa_daa');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('anti-alias: santiag runs end-to-end', () async {
+      final job = _baseJob(
+        'aa_santiag',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          antiAlias: AntiAliasParameters(
+            enabled: true,
+            method: AntiAliasMethod.santiag,
+            santiagStrh: 1,
+            santiagStrv: 1,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'aa_santiag');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 8)));
+
+    test('stabilize: Stab runs end-to-end', () async {
+      final job = _baseJob(
+        'stabilize',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          stabilize: StabilizeParameters(enabled: true, mirror: 3),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'stabilize');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 8)));
+
+    test('chroma_fixes: LUTDeRainbow runs end-to-end', () async {
+      final job = _baseJob(
+        'derainbow',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          chromaFixes: ChromaFixParameters(
+            enabled: true,
+            applyDeRainbow: true,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'derainbow');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('the second batch renders in the preview path too', () async {
+      for (final entry in <String, ProcessingPipeline>{
+        'aa_daa': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          antiAlias: AntiAliasParameters(enabled: true),
+        ),
+        'aa_santiag': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          antiAlias: AntiAliasParameters(
+            enabled: true,
+            method: AntiAliasMethod.santiag,
+          ),
+        ),
+        'stabilize': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          stabilize: StabilizeParameters(enabled: true),
+        ),
+        'derainbow': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          chromaFixes: ChromaFixParameters(
+            enabled: true,
+            applyDeRainbow: true,
+          ),
+        ),
+      }.entries) {
+        final job = _baseJob('preview2_${entry.key}', pipeline: entry.value);
+        final preview = await WorkerHarness.runPreview(
+          job.toJson(),
+          frame: 10,
+          label: 'preview2_${entry.key}',
+        );
+        expect(preview.success, isTrue,
+            reason: '${entry.key} preview failed: ${preview.errorTail}');
+        print('  ${entry.key}: preview frame rendered '
+            '(${preview.png!.length} bytes)');
+      }
+    }, timeout: const Timeout(Duration(minutes: 10)));
+
+
+    // --- Third batch: proves the new fluxsmooth plugin actually loads --------
+    //
+    // These are the first tests in the suite that depend on a plugin added by a
+    // DEPS change rather than one already in the bundle, so a failure here means
+    // the bundle, not the wiring.
+
+    test('noise reduction: FluxSmoothT runs end-to-end', () async {
+      final job = _baseJob(
+        'nr_flux_t',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.fluxSmoothT,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'nr_flux_t');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('noise reduction: FluxSmoothST runs end-to-end', () async {
+      final job = _baseJob(
+        'nr_flux_st',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.fluxSmoothSt,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'nr_flux_st');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('noise reduction: STPresso runs end-to-end', () async {
+      // STPresso calls core.flux.SmoothT internally, so this fails with
+      // "No attribute with the name flux exists" on a bundle without the
+      // plugin — which is exactly why it was dropped from the previous batch.
+      final job = _baseJob(
+        'nr_stpresso',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.stPresso,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'nr_stpresso');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+
+    // --- Batch four --------------------------------------------------------
+
+    test('noise reduction: CTMF runs end-to-end', () async {
+      final job = _baseJob(
+        'nr_ctmf',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.ctmf,
+            ctmfRadius: 3,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'nr_ctmf');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('deblock: DCTFilter runs end-to-end', () async {
+      final job = _baseJob(
+        'deblock_dctfilter',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          deblock: DeblockParameters(
+            enabled: true,
+            method: DeblockMethod.dctFilter,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'deblock_dctfilter');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('grain: AddGrain and GrainFactory3 both run end-to-end', () async {
+      for (final entry in <String, GrainParameters>{
+        'grain_add': const GrainParameters(enabled: true, var_: 6.0, uvar: 2.0),
+        'grain_gf3': const GrainParameters(
+          enabled: true,
+          method: GrainMethod.grainFactory3,
+        ),
+      }.entries) {
+        final job = _baseJob(
+          entry.key,
+          pipeline: ProcessingPipeline(
+            deinterlace: const QTGMCParameters(enabled: false),
+            grain: entry.value,
+          ),
+        );
+        final result =
+            await WorkerHarness.runJob(job.toJson(), label: entry.key);
+        await _expectValidVideo(result);
+      }
+    }, timeout: const Timeout(Duration(minutes: 10)));
+
+    test('geometry: every rotation and flip runs end-to-end', () async {
+      // The quarter turns are the ones that matter: they change the pixel
+      // format (4:2:2 becomes 4:4:0), which ffmpeg rejects outright unless the
+      // script converts back. Script generation cannot catch that.
+      for (final entry in <String, GeometryParameters>{
+        'geo_cw90': const GeometryParameters(
+          enabled: true,
+          rotation: Rotation.cw90,
+        ),
+        'geo_180': const GeometryParameters(
+          enabled: true,
+          rotation: Rotation.rotate180,
+        ),
+        'geo_ccw90': const GeometryParameters(
+          enabled: true,
+          rotation: Rotation.ccw90,
+        ),
+        'geo_flips': const GeometryParameters(
+          enabled: true,
+          flipHorizontal: true,
+          flipVertical: true,
+        ),
+      }.entries) {
+        final job = _baseJob(
+          entry.key,
+          pipeline: ProcessingPipeline(
+            deinterlace: const QTGMCParameters(enabled: false),
+            geometry: entry.value,
+          ),
+        );
+        final result =
+            await WorkerHarness.runJob(job.toJson(), label: entry.key);
+        await _expectValidVideo(result);
+      }
+    }, timeout: const Timeout(Duration(minutes: 12)));
+
+    test('batch four renders in the preview path too', () async {
+      for (final entry in <String, ProcessingPipeline>{
+        'ctmf': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.ctmf,
+          ),
+        ),
+        'dctfilter': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          deblock: DeblockParameters(
+            enabled: true,
+            method: DeblockMethod.dctFilter,
+          ),
+        ),
+        'grain': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          grain: GrainParameters(enabled: true),
+        ),
+        'rotate': const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          geometry: GeometryParameters(
+            enabled: true,
+            rotation: Rotation.cw90,
+          ),
+        ),
+      }.entries) {
+        final job = _baseJob('preview4_${entry.key}', pipeline: entry.value);
+        final preview = await WorkerHarness.runPreview(
+          job.toJson(),
+          frame: 10,
+          label: 'preview4_${entry.key}',
+        );
+        expect(preview.success, isTrue,
+            reason: '${entry.key} preview failed: ${preview.errorTail}');
+        print('  ${entry.key}: preview frame rendered '
+            '(${preview.png!.length} bytes)');
+      }
+    }, timeout: const Timeout(Duration(minutes: 10)));
+
+
+    test('color: SmoothLevels runs end-to-end', () async {
+      // The default useDB=True raises "no attribute named f3kdb" on every
+      // format against this bundle, so this proves the pin actually holds.
+      final job = _baseJob(
+        'color_smooth_levels',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          colorCorrection: ColorCorrectionParameters(
+            enabled: true,
+            applyLevels: true,
+            smoothLevels: true,
+            inputLow: 16,
+            inputHigh: 235,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'color_smooth_levels');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+
+    // --- Batch five: proves bifrost and retinex actually load ---------------
+
+    test('chroma_fixes: Bifrost runs end-to-end', () async {
+      final job = _baseJob(
+        'chroma_bifrost',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          chromaFixes: ChromaFixParameters(
+            enabled: true,
+            applyBifrost: true,
+          ),
+        ),
+      );
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'chroma_bifrost');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('color: shadow detail runs end-to-end', () async {
+      final job = _baseJob(
+        'color_shadow_detail',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          colorCorrection: ColorCorrectionParameters(
+            enabled: true,
+            applyShadowDetail: true,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(),
+          label: 'color_shadow_detail');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
 
     // Issue #37: QTGMC with EZ Denoise + the knlmeanscl denoiser must never
     // crash the job. KNLMeansCL is OpenCL-only; on a headless CI runner (no

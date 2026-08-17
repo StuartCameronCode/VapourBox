@@ -15,14 +15,15 @@
     ],
     "vs_plugins": [
       "libmvtools.dll",
-      "DFTTest.dll"
+      "DFTTest.dll",
+      "libfluxsmooth.dll"
     ]
   },
   "methods": [
     {
       "id": "smdegrain",
       "name": "SMDegrain",
-      "description": "Motion-compensated denoising - excellent quality",
+      "description": "Best first choice. Motion-compensated, so it cleans noise without smearing movement. Moderate speed",
       "function": "haf.SMDegrain",
       "parameters": [
         "smDegrainTr",
@@ -35,7 +36,7 @@
     {
       "id": "mc_temporal_denoise",
       "name": "MCTemporalDenoise",
-      "description": "Advanced temporal denoising - best for heavy noise",
+      "description": "For heavy noise SMDegrain can't settle \u2014 VHS and off-air captures. Slowest option",
       "function": "haf.MCTemporalDenoise",
       "parameters": [
         "mcTemporalProfile",
@@ -55,14 +56,124 @@
         "mcdsSharp",
         "mcdsBlurSearch",
         "mcdsPlane"
-      ]
+      ],
+      "advancedOnly": true
     },
     {
       "id": "qtgmc_builtin",
       "name": "QTGMC Built-in",
-      "description": "Use QTGMC's integrated denoising - fastest option",
+      "description": "Reuses the motion search QTGMC already ran, so it is nearly free. Only useful when deinterlacing is on",
       "function": "qtgmc_internal",
       "parameters": []
+    },
+    {
+      "id": "dfttest",
+      "name": "DFTTest",
+      "description": "Frequency-domain denoiser. The cleanest option on fine, even grain \u2014 separates it from detail better than the motion-compensated methods. Moderate speed",
+      "function": "core.dfttest.DFTTest",
+      "parameters": [
+        "dfttestSigma",
+        "dfttestTbsize",
+        "dfttestSbsize"
+      ],
+      "advancedOnly": true
+    },
+    {
+      "id": "fft3dfilter",
+      "name": "FFT3DFilter",
+      "description": "The traditional first stop for VHS luma noise. Fast and aggressive, with optional sharpening built in",
+      "function": "core.fft3dfilter.FFT3DFilter",
+      "parameters": [
+        "fft3dSigma",
+        "fft3dBt",
+        "fft3dSharpen"
+      ],
+      "advancedOnly": true
+    },
+    {
+      "id": "ttempsmooth",
+      "name": "TTempSmooth",
+      "description": "Very gentle temporal smoother \u2014 leaves anything that moves alone. A finishing pass for residual shimmer, not a primary denoiser",
+      "function": "core.ttmpsm.TTempSmooth",
+      "parameters": [
+        "ttempMaxr",
+        "ttempThresh",
+        "ttempMdiff",
+        "ttempStrength"
+      ],
+      "advancedOnly": true
+    },
+    {
+      "id": "fluxsmooth_t",
+      "name": "FluxSmoothT",
+      "description": "Averages a pixel with its neighbours in time only where they bracket it in value, so motion is left alone almost for free. Very fast \u2014 a common first pass on tape",
+      "function": "core.flux.SmoothT",
+      "parameters": [
+        "fluxTemporalThreshold"
+      ],
+      "advancedOnly": true
+    },
+    {
+      "id": "fluxsmooth_st",
+      "name": "FluxSmoothST",
+      "description": "As FluxSmoothT plus the eight spatial neighbours. Stronger, and a little more willing to soften fine detail",
+      "function": "core.flux.SmoothST",
+      "parameters": [
+        "fluxTemporalThreshold",
+        "fluxSpatialThreshold"
+      ],
+      "advancedOnly": true
+    },
+    {
+      "id": "stpresso",
+      "name": "STPresso",
+      "description": "Caps how far any pixel may move, so detail survives almost intact. A finishing pass for when a real denoiser is too destructive but the picture still crawls",
+      "function": "haf.STPresso",
+      "parameters": [
+        "stpressoLimit",
+        "stpressoBias",
+        "stpressoTthr"
+      ],
+      "advancedOnly": true
+    },
+    {
+      "id": "ctmf",
+      "name": "CTMF (median)",
+      "description": "Median filter with a large window. Good on blotches, dropouts and speckle that averaging leaves behind. Constant-time, so a wide radius costs no more than a narrow one",
+      "function": "core.ctmf.CTMF",
+      "parameters": [
+        "ctmfRadius",
+        "ctmfPlanes"
+      ],
+      "advancedOnly": true
+    },
+    {
+      "id": "mclean",
+      "name": "mClean",
+      "description": "Denoise, then put detail and grain back so the picture does not look plastic \u2014 the one to try first if you are not sure",
+      "function": "mclean.mClean",
+      "parameters": [
+        "mcleanStrength",
+        "mcleanSharp",
+        "mcleanRn",
+        "mcleanThsad",
+        "mcleanChroma"
+      ]
+    },
+    {
+      "id": "temporal_degrain2",
+      "name": "TemporalDegrain2",
+      "description": "The heavyweight \u2014 slow, and the most capable thing here for badly noisy analogue captures",
+      "advancedOnly": true,
+      "function": "temporaldegrain2.TemporalDegrain2",
+      "parameters": [
+        "td2DegrainTr",
+        "td2GrainLevel",
+        "td2PostFft",
+        "td2PostSigma",
+        "td2PostMix",
+        "td2ChromaMotion"
+      ]
     }
   ],
   "parameters": {
@@ -80,7 +191,16 @@
         "smdegrain",
         "mc_temporal_denoise",
         "mcdegrainsharp",
-        "qtgmc_builtin"
+        "qtgmc_builtin",
+        "dfttest",
+        "fft3dfilter",
+        "ttempsmooth",
+        "fluxsmooth_t",
+        "fluxsmooth_st",
+        "stpresso",
+        "ctmf",
+        "mclean",
+        "temporal_degrain2"
       ],
       "ui": {
         "hidden": true
@@ -426,6 +546,504 @@
           ]
         }
       }
+    },
+    "dfttestSigma": {
+      "type": "number",
+      "default": 8.0,
+      "min": 0.0,
+      "max": 64.0,
+      "step": 0.5,
+      "ui": {
+        "label": "Strength",
+        "description": "Higher removes more noise and more fine detail with it",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "dfttest"
+          ]
+        }
+      }
+    },
+    "dfttestTbsize": {
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 7,
+      "step": 2,
+      "ui": {
+        "label": "Temporal Window",
+        "description": "Frames considered together. 1 is purely spatial; even values are rounded down so the window stays centred",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "dfttest"
+          ]
+        }
+      }
+    },
+    "dfttestSbsize": {
+      "type": "integer",
+      "default": 16,
+      "min": 8,
+      "max": 32,
+      "step": 4,
+      "ui": {
+        "label": "Block Size",
+        "description": "Larger blocks separate noise from detail better but are slower",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "dfttest"
+          ]
+        }
+      }
+    },
+    "fft3dSigma": {
+      "type": "number",
+      "default": 2.0,
+      "min": 0.1,
+      "max": 16.0,
+      "step": 0.1,
+      "ui": {
+        "label": "Strength",
+        "description": "Higher removes more noise. FFT3D is aggressive \u2014 small changes matter",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "fft3dfilter"
+          ]
+        }
+      }
+    },
+    "fft3dBt": {
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 5,
+      "step": 1,
+      "ui": {
+        "label": "Temporal Window",
+        "description": "Frames considered together. 1 is purely spatial",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "fft3dfilter"
+          ]
+        }
+      }
+    },
+    "fft3dSharpen": {
+      "type": "number",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "ui": {
+        "label": "Sharpen",
+        "description": "Sharpening applied inside the same transform. 0 leaves it off",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": {
+          "method": [
+            "fft3dfilter"
+          ]
+        }
+      }
+    },
+    "ttempMaxr": {
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 7,
+      "step": 1,
+      "ui": {
+        "label": "Temporal Radius",
+        "description": "Frames on each side to average over",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "ttempsmooth"
+          ]
+        }
+      }
+    },
+    "ttempThresh": {
+      "type": "integer",
+      "default": 4,
+      "min": 1,
+      "max": 32,
+      "step": 1,
+      "ui": {
+        "label": "Threshold",
+        "description": "Pixels differing by more than this are left alone. Higher smooths more",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "ttempsmooth"
+          ]
+        }
+      }
+    },
+    "ttempMdiff": {
+      "type": "integer",
+      "default": 2,
+      "min": 0,
+      "max": 31,
+      "step": 1,
+      "ui": {
+        "label": "Motion Threshold",
+        "description": "Protects moving pixels. Held below Threshold automatically",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "ttempsmooth"
+          ]
+        }
+      }
+    },
+    "ttempStrength": {
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "ui": {
+        "label": "Strength",
+        "description": "Higher weights the current frame more, so smooths less",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "ttempsmooth"
+          ]
+        }
+      }
+    },
+    "fluxTemporalThreshold": {
+      "type": "integer",
+      "default": 7,
+      "min": -1,
+      "max": 64,
+      "step": 1,
+      "ui": {
+        "label": "Temporal Threshold",
+        "description": "How different a neighbouring frame may be and still be averaged in. -1 turns the temporal half off",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "fluxsmooth_t",
+            "fluxsmooth_st"
+          ]
+        }
+      }
+    },
+    "fluxSpatialThreshold": {
+      "type": "integer",
+      "default": 7,
+      "min": -1,
+      "max": 64,
+      "step": 1,
+      "ui": {
+        "label": "Spatial Threshold",
+        "description": "Same, for the eight neighbouring pixels. -1 turns the spatial half off",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "fluxsmooth_st"
+          ]
+        }
+      }
+    },
+    "stpressoLimit": {
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 16,
+      "step": 1,
+      "ui": {
+        "label": "Limit",
+        "description": "Furthest any pixel may move, in 8-bit levels. The control that matters",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "stpresso"
+          ]
+        }
+      }
+    },
+    "stpressoBias": {
+      "type": "integer",
+      "default": 24,
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "ui": {
+        "label": "Bias",
+        "description": "How strongly the original pixel is favoured. Higher keeps more of it",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "stpresso"
+          ]
+        }
+      }
+    },
+    "stpressoTthr": {
+      "type": "integer",
+      "default": 12,
+      "min": 1,
+      "max": 64,
+      "step": 1,
+      "ui": {
+        "label": "Temporal Threshold",
+        "description": "Passed to the FluxSmooth it runs internally",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "stpresso"
+          ]
+        }
+      }
+    },
+    "ctmfRadius": {
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 12,
+      "step": 1,
+      "ui": {
+        "label": "Radius",
+        "description": "Half the window size. Wider removes bigger blemishes and more detail with them \u2014 and costs almost nothing extra",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "ctmf"
+          ]
+        }
+      }
+    },
+    "ctmfPlanes": {
+      "type": "enum",
+      "default": "2",
+      "options": [
+        "0",
+        "1",
+        "2"
+      ],
+      "ui": {
+        "label": "Apply To",
+        "description": "Brightness only, colour only, or both",
+        "widget": "dropdown",
+        "visibleWhen": {
+          "method": [
+            "ctmf"
+          ]
+        }
+      }
+    },
+    "contraSharpen": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Restore detail after denoising",
+        "description": "Adds back the fine detail the denoiser removed. Unlike a sharpener it cannot invent detail that was not there, so it is safe to leave on when denoising hard.",
+        "widget": "checkbox"
+      }
+    },
+    "contraSharpenRep": {
+      "type": "integer",
+      "default": 13,
+      "min": 0,
+      "max": 24,
+      "step": 1,
+      "ui": {
+        "label": "Detail restore mode",
+        "description": "Repair mode used when restoring detail. The default suits almost everything.",
+        "widget": "slider"
+      }
+    },
+    "mcleanStrength": {
+      "type": "integer",
+      "default": 20,
+      "min": 0,
+      "max": 20,
+      "step": 1,
+      "visibleWhen": {
+        "method": [
+          "mclean"
+        ]
+      },
+      "ui": {
+        "label": "Strength",
+        "description": "How hard to denoise.",
+        "widget": "slider"
+      }
+    },
+    "mcleanSharp": {
+      "type": "integer",
+      "default": 10,
+      "min": 0,
+      "max": 20,
+      "step": 1,
+      "visibleWhen": {
+        "method": [
+          "mclean"
+        ]
+      },
+      "ui": {
+        "label": "Detail restore",
+        "description": "How much fine detail to put back afterwards.",
+        "widget": "slider"
+      }
+    },
+    "mcleanRn": {
+      "type": "integer",
+      "default": 14,
+      "min": 0,
+      "max": 20,
+      "step": 1,
+      "visibleWhen": {
+        "method": [
+          "mclean"
+        ]
+      },
+      "ui": {
+        "label": "Grain restore",
+        "description": "How much grain to put back, so the result does not look plastic.",
+        "widget": "slider"
+      }
+    },
+    "mcleanThsad": {
+      "type": "integer",
+      "default": 400,
+      "min": 50,
+      "max": 1200,
+      "step": 50,
+      "visibleWhen": {
+        "method": [
+          "mclean"
+        ]
+      },
+      "ui": {
+        "label": "Motion threshold",
+        "description": "How much movement is tolerated when matching frames.",
+        "widget": "slider"
+      }
+    },
+    "mcleanChroma": {
+      "type": "boolean",
+      "default": true,
+      "visibleWhen": {
+        "method": [
+          "mclean"
+        ]
+      },
+      "ui": {
+        "label": "Denoise colour too",
+        "description": "Leave on unless colour is already clean.",
+        "widget": "checkbox"
+      }
+    },
+    "td2DegrainTr": {
+      "type": "integer",
+      "default": 1,
+      "min": 1,
+      "max": 3,
+      "step": 1,
+      "visibleWhen": {
+        "method": [
+          "temporal_degrain2"
+        ]
+      },
+      "ui": {
+        "label": "Temporal radius",
+        "description": "How many frames either side are used. Higher is stronger and much slower.",
+        "widget": "slider"
+      }
+    },
+    "td2GrainLevel": {
+      "type": "integer",
+      "default": 2,
+      "min": -2,
+      "max": 3,
+      "step": 1,
+      "visibleWhen": {
+        "method": [
+          "temporal_degrain2"
+        ]
+      },
+      "ui": {
+        "label": "Source noise level",
+        "description": "How noisy the source is. Higher tunes everything for a dirtier picture.",
+        "widget": "slider"
+      }
+    },
+    "td2PostFft": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 3,
+      "step": 1,
+      "visibleWhen": {
+        "method": [
+          "temporal_degrain2"
+        ]
+      },
+      "ui": {
+        "label": "Extra cleanup",
+        "description": "A second frequency-domain pass on top. 0 is off.",
+        "widget": "slider"
+      }
+    },
+    "td2PostSigma": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 16.0,
+      "step": 0.5,
+      "visibleWhen": {
+        "method": [
+          "temporal_degrain2"
+        ]
+      },
+      "ui": {
+        "label": "Cleanup strength",
+        "description": "How hard the extra pass works.",
+        "widget": "slider",
+        "precision": 1
+      }
+    },
+    "td2PostMix": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "visibleWhen": {
+        "method": [
+          "temporal_degrain2"
+        ]
+      },
+      "ui": {
+        "label": "Blend back",
+        "description": "Mix some of the un-cleaned picture back in, to keep texture.",
+        "widget": "slider"
+      }
+    },
+    "td2ChromaMotion": {
+      "type": "boolean",
+      "default": true,
+      "visibleWhen": {
+        "method": [
+          "temporal_degrain2"
+        ]
+      },
+      "ui": {
+        "label": "Use colour for motion",
+        "description": "Usually helps on analogue captures.",
+        "widget": "checkbox"
+      }
     }
   },
   "ui": {
@@ -469,6 +1087,120 @@
           "mcdsPlane"
         ],
         "expanded": true
+      },
+      {
+        "title": "DFTTest",
+        "parameters": [
+          "dfttestSigma",
+          "dfttestTbsize",
+          "dfttestSbsize"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "FFT3DFilter",
+        "parameters": [
+          "fft3dSigma",
+          "fft3dBt",
+          "fft3dSharpen"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "TTempSmooth",
+        "parameters": [
+          "ttempMaxr",
+          "ttempThresh",
+          "ttempMdiff",
+          "ttempStrength"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "FluxSmooth",
+        "parameters": [
+          "fluxTemporalThreshold",
+          "fluxSpatialThreshold"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "STPresso",
+        "parameters": [
+          "stpressoLimit",
+          "stpressoBias",
+          "stpressoTthr"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "CTMF",
+        "parameters": [
+          "ctmfRadius",
+          "ctmfPlanes"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Detail restore",
+        "parameters": [
+          "contraSharpen"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Detail restore tuning",
+        "parameters": [
+          "contraSharpenRep"
+        ],
+        "expanded": false,
+        "advancedOnly": true
+      },
+      {
+        "title": "mClean",
+        "parameters": [
+          "mcleanStrength",
+          "mcleanSharp",
+          "mcleanRn",
+          "mcleanChroma"
+        ],
+        "expanded": true,
+        "visibleWhen": {
+          "method": [
+            "mclean"
+          ]
+        }
+      },
+      {
+        "title": "mClean tuning",
+        "parameters": [
+          "mcleanThsad"
+        ],
+        "expanded": false,
+        "advancedOnly": true,
+        "visibleWhen": {
+          "method": [
+            "mclean"
+          ]
+        }
+      },
+      {
+        "title": "TemporalDegrain2",
+        "parameters": [
+          "td2DegrainTr",
+          "td2GrainLevel",
+          "td2PostFft",
+          "td2PostSigma",
+          "td2PostMix",
+          "td2ChromaMotion"
+        ],
+        "expanded": true,
+        "advancedOnly": true,
+        "visibleWhen": {
+          "method": [
+            "temporal_degrain2"
+          ]
+        }
       }
     ]
   },

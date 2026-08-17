@@ -236,6 +236,101 @@ void main() {
       expect(method.description, 'A test method');
       expect(method.function, 'module.TestFunction');
       expect(method.parameters, ['param1', 'param2']);
+      expect(method.advancedOnly, false);
+    });
+
+    test('parses advancedOnly', () {
+      final method = MethodDefinition.fromJson({
+        'id': 'exotic',
+        'name': 'Exotic',
+        'function': 'module.Exotic',
+        'parameters': <String>[],
+        'advancedOnly': true,
+      });
+
+      expect(method.advancedOnly, true);
+    });
+  });
+
+  group('FilterSchema.visibleMethods', () {
+    FilterSchema schemaWith(List<MethodDefinition> methods) => FilterSchema(
+          id: 'test',
+          version: '1.0.0',
+          name: 'Test',
+          methods: methods,
+          parameters: const {},
+        );
+
+    MethodDefinition method(String id, {bool advanced = false}) =>
+        MethodDefinition(
+          id: id,
+          name: id,
+          function: 'module.$id',
+          parameters: const [],
+          advancedOnly: advanced,
+        );
+
+    test('simple mode drops advanced-only methods', () {
+      final schema = schemaWith([
+        method('basic'),
+        method('exotic', advanced: true),
+      ]);
+
+      expect(
+        schema.visibleMethods(showAdvanced: false).map((m) => m.id),
+        ['basic'],
+      );
+    });
+
+    test('advanced mode shows everything', () {
+      final schema = schemaWith([
+        method('basic'),
+        method('exotic', advanced: true),
+      ]);
+
+      expect(
+        schema.visibleMethods(showAdvanced: true).map((m) => m.id),
+        ['basic', 'exotic'],
+      );
+    });
+
+    test('keeps the selected method even when it is advanced-only', () {
+      // A preset or saved job can select an advanced method; hiding it would
+      // misreport the pipeline, and would hand a dropdown a value that isn't
+      // among its items.
+      final schema = schemaWith([
+        method('basic'),
+        method('exotic', advanced: true),
+      ]);
+
+      expect(
+        schema
+            .visibleMethods(showAdvanced: false, selectedId: 'exotic')
+            .map((m) => m.id),
+        ['basic', 'exotic'],
+      );
+    });
+
+    test('preserves schema order, so the curated choice comes first', () {
+      final schema = schemaWith([
+        method('first'),
+        method('exotic', advanced: true),
+        method('second'),
+      ]);
+
+      expect(
+        schema.visibleMethods(showAdvanced: true).map((m) => m.id),
+        ['first', 'exotic', 'second'],
+      );
+    });
+
+    test('hasAdvancedMethods reports whether there is more to reveal', () {
+      expect(schemaWith([method('basic')]).hasAdvancedMethods, false);
+      expect(
+        schemaWith([method('basic'), method('exotic', advanced: true)])
+            .hasAdvancedMethods,
+        true,
+      );
     });
   });
 

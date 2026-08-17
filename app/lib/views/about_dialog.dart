@@ -371,6 +371,41 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/dubhater/vapoursynth-bifrost',
                       ),
                       _ComponentTile(
+                        name: 'Bwdif',
+                        license: 'LGPL 3.0+',
+                        copyright: 'Thomas Mundt and HolyWu, based on YADIF by '
+                            'Michael Niedermayer and James Darnley, using the '
+                            'BBC Weston 3-field algorithm',
+                        url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Bwdif',
+                      ),
+                      _ComponentTile(
+                        name: 'FillBorders',
+                        license: 'WTFPL',
+                        copyright: 'dubhater — no copyright asserted upstream',
+                        url: 'https://github.com/dubhater/vapoursynth-fillborders',
+                      ),
+                      _ComponentTile(
+                        name: 'RemoveDirt',
+                        license: 'GPL 2.0+',
+                        copyright: 'Rainer Wittmann; additional work by '
+                            'Ferenc Pintér',
+                        url: 'https://github.com/pinterf/RemoveDirt',
+                      ),
+                      _ComponentTile(
+                        name: 'DeDot',
+                        license: 'GPL 2.0',
+                        copyright: 'Fredrik Mellbin, after the AviSynth DeDot '
+                            'filter',
+                        url: 'https://github.com/dubhatervapoursynth/vapoursynth-dedot',
+                      ),
+                      _ComponentTile(
+                        name: 'LGhost',
+                        license: 'GPL 3.0+',
+                        copyright: 'Port by HolyWu; original AviSynth plugin by '
+                            'minamina',
+                        url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-LGhost',
+                      ),
+                      _ComponentTile(
                         name: 'Vector Class Library',
                         license: 'Apache 2.0',
                         copyright: 'Agner Fog — SIMD code inside several '

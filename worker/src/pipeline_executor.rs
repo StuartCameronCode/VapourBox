@@ -856,18 +856,56 @@ impl PipelineExecutor {
         // a resize ran, which used to drop it and leave an anamorphic source
         // squashed (#50).
         let pipeline = job.effective_pipeline();
-        match pipeline.crop_resize.aspect_declaration(input_sar) {
+        // A quarter turn exchanges pixel width and height, so the SAR that
+        // describes the source no longer describes the rotated frame. Adjust it
+        // before declaring it, or a rotated anamorphic source is stretched by
+        // the square of its own aspect.
+        //
+        // Filters accumulate into one chain. ffmpeg takes the LAST -vf and
+        // silently drops any earlier one, so appending a second would throw
+        // away the aspect stamp — which is exactly how burnt-in subtitles
+        // would have broken issue #50's third leg.
+        let mut vf: Vec<String> = Vec::new();
+
+        let rotated_sar = pipeline.geometry.adjusted_sar(input_sar);
+        match pipeline.crop_resize.aspect_declaration(rotated_sar.as_deref()) {
             AspectDeclaration::Sar(sar) => {
                 // '/' as the ratio separator — ':' is ffmpeg's filter option separator.
-                args.extend(["-vf".to_string(), format!("setsar={}", sar.replace(':', "/"))]);
+                vf.push(format!("setsar={}", sar.replace(':', "/")));
             }
             AspectDeclaration::Dar(dar) => {
                 // ffmpeg derives the SAR from the actual frame size, which only
                 // it knows: the dimensions are computed inside the .vpy.
-                args.extend(["-vf".to_string(), format!("setdar={}", dar)]);
+                vf.push(format!("setdar={}", dar));
             }
             AspectDeclaration::None => {}
         }
+
+        // Burn subtitles into the picture, if a file was supplied. This runs
+        // after the whole VapourSynth graph, which for subtitles is correct
+        // rather than merely tolerable — they are the last thing applied.
+        if let Some(path) = job.burn_in_subtitle_path.as_deref() {
+            if !path.trim().is_empty() {
+                // Escape for ffmpeg's filter-argument parser: backslash, colon
+                // and single quote all terminate or alter the argument, and a
+                // Windows path contains the first two by construction.
+                let escaped = path
+                    .replace('\\', "/")
+                    .replace('\'', "\\\\'")
+                    .replace(':', "\\\\:");
+                vf.push(format!("subtitles='{}'", escaped));
+            }
+        }
+
+        if !vf.is_empty() {
+            args.extend(["-vf".to_string(), vf.join(",")]);
+        }
+
+        // Re-declare the source's colour tags for exactly the same reason as the
+        // SAR above: the Y4M pipe strips them, so an untagged output results and
+        // every player then reads it as BT.601 limited. Nothing in the pipeline
+        // re-matrixes the samples, so the source's tags still describe them.
+        args.extend(job.color_metadata().to_ffmpeg_args());
 
         // Audio handling
         match settings.audio_mode {
@@ -1173,13 +1211,22 @@ impl PipelineExecutor {
         let vspipe_stdout = vspipe.stdout.take().context("Failed to get vspipe stdout")?;
         let vspipe_stderr = vspipe.stderr.take();
 
-        // Start encoder FFmpeg — converts Y4M to PNG
+        // Start encoder FFmpeg — converts Y4M to PNG.
+        //
+        // The Y4M pipe carries no colour information, so swscale would guess the
+        // matrix here — while the app's "before" thumbnail comes from a separate
+        // ffmpeg call on the original file that does see the real tags. That
+        // mismatch showed a hue shift no filter had caused. `in_range` was also
+        // hardcoded to `tv`, which stretched a full-range source a second time.
+        let mut scale_opts = job.color_metadata().swscale_input_opts();
+        scale_opts.push("out_range=pc".to_string());
+        let scale_filter = format!("scale={}", scale_opts.join(":"));
         let ffmpeg_enc = Command::new(&ffmpeg_path)
             .args([
                 "-f", "yuv4mpegpipe",
                 "-i", "pipe:0",
                 "-vframes", "1",
-                "-vf", "scale=in_range=tv:out_range=pc",
+                "-vf", &scale_filter,
                 "-f", "image2pipe",
                 "-vcodec", "png",
                 "pipe:1",
@@ -1492,6 +1539,11 @@ mod tests {
             args.extend(["-movflags".to_string(), "+faststart".to_string()]);
         }
 
+        // Colour tags. This helper duplicates build_ffmpeg_args rather than
+        // calling it, so anything added there has to be added here too — the
+        // SAR block was missed that way and is still absent below.
+        args.extend(job.color_metadata().to_ffmpeg_args());
+
         // Audio handling
         match settings.audio_mode {
             AudioMode::Passthrough => {
@@ -1540,7 +1592,60 @@ mod tests {
             input_width: None,
             input_height: None,
             input_pixel_format: None,
+            input_color_matrix: None,
+            input_color_primaries: None,
+            input_color_transfer: None,
+            input_color_range: None,
+            burn_in_subtitle_path: None,
         }
+    }
+
+    /// Colour tags survive the pipe and reach the encoder.
+    ///
+    /// The Y4M pipe from vspipe strips colour metadata exactly as it strips
+    /// SAR, so an output that is not explicitly re-tagged is read as BT.601
+    /// limited by every player. Every file this app wrote was untagged until
+    /// this landed, which silently shifted the colours of any BT.709 or
+    /// full-range source.
+    #[test]
+    fn test_color_tags_are_declared_on_the_output() {
+        let mut job = create_test_job("out.mkv");
+        job.input_color_matrix = Some("bt709".to_string());
+        job.input_color_primaries = Some("bt709".to_string());
+        job.input_color_transfer = Some("bt709".to_string());
+        job.input_color_range = Some("tv".to_string());
+
+        let args = build_ffmpeg_args_for_test(&job);
+        let pair = |flag: &str| {
+            args.iter().position(|a| a == flag).map(|i| args[i + 1].clone())
+        };
+        assert_eq!(pair("-colorspace").as_deref(), Some("bt709"));
+        assert_eq!(pair("-color_primaries").as_deref(), Some("bt709"));
+        assert_eq!(pair("-color_trc").as_deref(), Some("bt709"));
+        assert_eq!(pair("-color_range").as_deref(), Some("tv"));
+    }
+
+    /// An untagged source must stay untagged rather than being guessed at.
+    #[test]
+    fn test_untagged_source_declares_nothing() {
+        let job = create_test_job("out.mkv");
+        let args = build_ffmpeg_args_for_test(&job);
+        for flag in ["-colorspace", "-color_primaries", "-color_trc", "-color_range"] {
+            assert!(!args.iter().any(|a| a == flag), "{flag} should be absent");
+        }
+    }
+
+    /// ffprobe says "unknown" for an untagged stream; that must not be
+    /// forwarded as if it were a value, or the encode fails on an argument the
+    /// user can neither see nor fix.
+    #[test]
+    fn test_unknown_from_ffprobe_is_not_forwarded() {
+        let mut job = create_test_job("out.mkv");
+        job.input_color_matrix = Some("unknown".to_string());
+        job.input_color_range = Some("unknown".to_string());
+        let args = build_ffmpeg_args_for_test(&job);
+        assert!(!args.iter().any(|a| a == "-colorspace"));
+        assert!(!args.iter().any(|a| a == "-color_range"));
     }
 
     #[test]

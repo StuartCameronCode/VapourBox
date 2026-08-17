@@ -843,6 +843,25 @@ if [ -n "$VS_INC_DIR" ] && [ -d "$VS_BUILD_DIR/include" ]; then
     done
 fi
 
+# Some plugins spell their includes <vapoursynth/VapourSynth.h> rather than
+# <VapourSynth.h> — retinex (API3) and bifrost (API4) both do — so they need an
+# include root whose CHILD is a directory called vapoursynth. Mirror the
+# permanent symlink farm download-deps-linux.sh keeps, so that on both platforms
+# a single -I"$VS_INC_DIR" satisfies either include style and no plugin has to
+# stage a private include tree.
+#
+# retinex resolves its headers through pkg-config, which yields this same
+# directory, so it needs no build-command change once the subdirectory exists.
+if [ -n "$VS_INC_DIR" ]; then
+    mkdir -p "$VS_INC_DIR/vapoursynth"
+    for hdr in "$VS_INC_DIR"/*.h; do
+        [ -f "$hdr" ] || continue
+        ln -sf "../$(basename "$hdr")" "$VS_INC_DIR/vapoursynth/$(basename "$hdr")"
+    done
+    [ -f "$VS_INC_DIR/vapoursynth/VapourSynth.h" ] || \
+        echo "  WARNING: no API3 header to link into $VS_INC_DIR/vapoursynth (retinex will fail)"
+fi
+
 if [ "$ARCH" = "x86_64" ]; then
     # ========================================================================
     # x86_64 plugins: download pre-built darwin-x86_64 binaries from
@@ -1170,6 +1189,7 @@ build_plugin "removegrain" \
     "libremovegrain.dylib" \
     "meson setup build --buildtype=release && ninja -C build"
 
+
 # AddGrain
 build_plugin "addgrain" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain.git" \
@@ -1338,6 +1358,87 @@ download_prebuilt_plugin "TemporalMedian" "libtmedian.dylib" "$TMEDIAN_URL"
 
 fi  # end plugin arch split (x86_64 pre-built / arm64 from-source)
 
+# The three plugins below are built from source on BOTH arches, so they sit
+# outside the arch split above. They started inside its arm64 branch, where
+# x64 never reached them and the packaging guard failed on all three missing
+# dylibs. x64 takes pre-built binaries for most plugins, but Stefan-Olt ships
+# none of these, and building them is cheap: two single C files and one small
+# meson project. MACOSX_DEPLOYMENT_TARGET is exported near the top, so the x64
+# builds inherit the 12.0 floor and pass the minos guard (issue #39).
+
+# FluxSmooth (core.flux.SmoothT / SmoothST). Also what havsfunc's STPresso calls
+# internally — without this plugin STPresso raises "No attribute with the name
+# flux exists", which is why it is not offered without it.
+#
+# Pinned to v2, the newest tag with a published Windows binary. Windows has no
+# from-source build path here (download-deps-windows.ps1 only fetches release
+# archives), so every platform tracks the version Windows can get; a version
+# skew would make the same job denoise differently per OS.
+#
+# Built by invoking the compiler directly rather than through its autotools
+# build: it is one C file, and autoconf/automake/libtool are not otherwise
+# required by any deps build.
+FLUXSMOOTH_TAG="v2"
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfluxsmooth.dylib" ]; then
+    echo ""
+    echo "=== Building fluxsmooth ($FLUXSMOOTH_TAG) ==="
+    rm -rf fluxsmooth
+    if git clone --depth 1 --branch "$FLUXSMOOTH_TAG" -q \
+        https://github.com/dubhater/vapoursynth-fluxsmooth.git fluxsmooth 2>/dev/null \
+       && cc -std=c99 -O2 -fPIC -shared \
+            -o "$PLUGINS_DIR/libfluxsmooth.dylib" \
+            fluxsmooth/src/fluxsmooth.c -I"$VS_INC_DIR"; then
+        codesign -s - -f "$PLUGINS_DIR/libfluxsmooth.dylib" 2>/dev/null || true
+        echo "  Built fluxsmooth -> libfluxsmooth.dylib"
+        BUILT_PLUGINS+=("fluxsmooth")
+    else
+        echo "  Failed to build fluxsmooth"
+        FAILED_PLUGINS+=("fluxsmooth")
+    fi
+else
+    echo "  fluxsmooth already exists, skipping"
+fi
+
+# Bifrost (core.bifrost.Bifrost) - temporal rainbow / dot-crawl removal for
+# composite captures. Pinned to v3.0, the newest tag with a published Windows
+# binary; see the fluxsmooth note above for why every platform tracks that.
+#
+# Its source is one C file, so it is compiled directly rather than through its
+# autotools build — no autoconf/automake/libtool needed in CI. It includes
+# <vapoursynth/VapourSynth4.h>, so the include path has to be the PARENT of a
+# directory called vapoursynth — which is what the symlink farm created next to
+# VS_INC_DIR above provides.
+BIFROST_TAG="v3.0"
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libbifrost.dylib" ]; then
+    echo ""
+    echo "=== Building bifrost ($BIFROST_TAG) ==="
+    rm -rf bifrost
+    if git clone --depth 1 --branch "$BIFROST_TAG" -q \
+        https://github.com/dubhater/vapoursynth-bifrost.git bifrost 2>/dev/null \
+       && cc -std=c99 -O2 -fPIC -shared \
+            -o "$PLUGINS_DIR/libbifrost.dylib" \
+            bifrost/src/bifrost.c -I"$VS_INC_DIR"; then
+        codesign -s - -f "$PLUGINS_DIR/libbifrost.dylib" 2>/dev/null || true
+        echo "  Built bifrost -> libbifrost.dylib"
+        BUILT_PLUGINS+=("bifrost")
+    else
+        echo "  Failed to build bifrost"
+        FAILED_PLUGINS+=("bifrost")
+    fi
+else
+    echo "  bifrost already exists, skipping"
+fi
+
+# Retinex (core.retinex.MSRCP) - multi-scale retinex, used here to lift shadow
+# detail out of underexposed footage. Pinned to r4, the newest tag with a
+# published Windows binary. Ordinary meson build; it finds the VapourSynth
+# headers through pkg-config, which build_plugin already points at our
+# from-source install.
+build_plugin "retinex" \
+    "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Retinex.git" \
+    "libretinex.dylib" \
+    "meson setup build --buildtype=release && ninja -C build"
+
 # zsmooth (core.zsmooth.CCD - chroma denoiser; also Cnr4 and a set of
 # RemoveGrain/TemporalMedian-family filters).
 #
@@ -1408,6 +1509,180 @@ else
         echo "  zsmooth already exists, skipping"
     fi
 fi
+
+# ============================================================================
+# Bwdif / FillBorders / RemoveDirt / DeDot / LGhost
+# ============================================================================
+# All five sit OUTSIDE the arch split above (see the fluxsmooth note): a block
+# placed inside the arm64 branch never runs on x64, which is how three plugins
+# once shipped missing from the Intel bundle. Each one below picks its own
+# per-arch source where the arches differ, in the same shape as TemporalMedian
+# and zsmooth.
+
+# Bwdif (core.bwdif.Bwdif) — BobWeaver deinterlacer, ported from FFmpeg's
+# libavfilter. Taken from the PyPI wheel: upstream publishes no GitHub release
+# assets, and the wheel is just a zip holding vapoursynth/plugins/bwdif.dylib.
+# Unlike akarin's wheel it bundles no private dylibs — it links only
+# /usr/lib/libc++ and libSystem — so nothing needs repointing or staging into
+# lib/. Wheel tags differ per arch (macosx_10_15_x86_64 / macosx_11_0_arm64),
+# both comfortably under this bundle's floor on either arch.
+BWDIF_VERSION="5.1"
+if [ "$ARCH" = "arm64" ]; then
+    BWDIF_WHEEL_TAG="macosx_11_0_arm64"
+else
+    BWDIF_WHEEL_TAG="macosx_10_15_x86_64"
+fi
+echo ""
+echo "=== Downloading Bwdif $BWDIF_VERSION ==="
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libbwdif.dylib" ]; then
+    BWDIF_URL=$("$PYTHON_BIN" - "$BWDIF_VERSION" "$BWDIF_WHEEL_TAG" <<'PYEOF'
+import json, sys, urllib.request
+ver, tag = sys.argv[1], sys.argv[2]
+d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/vapoursynth-bwdif/{ver}/json"))
+print(next(f["url"] for f in d["urls"] if f["filename"].endswith(tag + ".whl")))
+PYEOF
+)
+    rm -rf "$BUILD_DIR/bwdif" "$BUILD_DIR/bwdif.whl"
+    mkdir -p "$BUILD_DIR/bwdif"
+    # A wheel is a zip; take the plugin binary only, never pip install it into
+    # the embedded interpreter.
+    if curl -fL -o "$BUILD_DIR/bwdif.whl" "$BWDIF_URL" \
+       && unzip -q "$BUILD_DIR/bwdif.whl" -d "$BUILD_DIR/bwdif" \
+       && [ -f "$BUILD_DIR/bwdif/vapoursynth/plugins/bwdif.dylib" ]; then
+        cp "$BUILD_DIR/bwdif/vapoursynth/plugins/bwdif.dylib" "$PLUGINS_DIR/libbwdif.dylib"
+        chmod u+w "$PLUGINS_DIR/libbwdif.dylib"
+        install_name_tool -id "@loader_path/libbwdif.dylib" "$PLUGINS_DIR/libbwdif.dylib" 2>/dev/null || true
+        codesign -s - -f "$PLUGINS_DIR/libbwdif.dylib" 2>/dev/null || true
+        echo "  Installed Bwdif -> libbwdif.dylib"
+        BUILT_PLUGINS+=("bwdif")
+    else
+        echo "  Failed to install Bwdif"
+        FAILED_PLUGINS+=("bwdif")
+    fi
+    rm -rf "$BUILD_DIR/bwdif" "$BUILD_DIR/bwdif.whl"
+else
+    echo "  Bwdif already exists, skipping"
+fi
+
+# FillBorders (core.fb.FillBorders) — fills dead edges left by a capture.
+#
+# Pinned to v2: v3 and v4 exist as tags but publish NO release assets, and
+# download-deps-windows.ps1 has no from-source path, so every platform tracks
+# the newest version Windows can get (the same rule fluxsmooth and bifrost
+# follow). One C++ file including <VapourSynth.h> / <VSHelper.h> (API3), so it
+# is compiled directly rather than through its autotools or meson build — no
+# new toolchain in CI, and MACOSX_DEPLOYMENT_TARGET (exported near the top)
+# gives the x64 build the 12.0 floor the minos guard demands.
+FILLBORDERS_TAG="v2"
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfillborders.dylib" ]; then
+    echo ""
+    echo "=== Building FillBorders ($FILLBORDERS_TAG) ==="
+    rm -rf fillborders
+    # Fail loudly if the include variable is ever renamed: an empty one reaches
+    # the compiler as a bare `-I` and the error says nothing about which
+    # variable was wrong. Note this is VS_INC_DIR here and VS_INCLUDE_DIR in
+    # download-deps-linux.sh — the two scripts do not share a vocabulary.
+    : "${VS_INC_DIR:?VS_INC_DIR is unset — FillBorders cannot find the VapourSynth headers}"
+    if git clone --depth 1 --branch "$FILLBORDERS_TAG" -q \
+        https://github.com/dubhater/vapoursynth-fillborders.git fillborders 2>/dev/null \
+       && c++ -std=c++11 -O2 -fPIC -shared \
+            -o "$PLUGINS_DIR/libfillborders.dylib" \
+            fillborders/src/fillborders.cpp -I"$VS_INC_DIR"; then
+        install_name_tool -id "@loader_path/libfillborders.dylib" \
+            "$PLUGINS_DIR/libfillborders.dylib" 2>/dev/null || true
+        codesign -s - -f "$PLUGINS_DIR/libfillborders.dylib" 2>/dev/null || true
+        echo "  Built FillBorders -> libfillborders.dylib"
+        BUILT_PLUGINS+=("fillborders")
+    else
+        echo "  Failed to build FillBorders"
+        FAILED_PLUGINS+=("fillborders")
+    fi
+else
+    echo "  FillBorders already exists, skipping"
+fi
+
+# RemoveDirt (core.removedirt.RestoreMotionBlocks / SCSelect) — dirt and spot
+# removal for film scans. Taken pre-built from Stefan-Olt/vs-plugin-build on
+# both arches, the same source TemporalMedian uses. Both builds link only
+# /usr/lib/libc++ and libSystem, and the x86_64 one is LC_VERSION_MIN_MACOSX
+# 10.11, so it passes the STRICT_MIN_OS=1 guard at the end of this script.
+if [ "$ARCH" = "arm64" ]; then
+    REMOVEDIRT_URL="$STEFANOLT/com.vapoursynth.removedirt/v1.1/darwin-aarch64/2026-01-07T00.39.06%2B00.00Z/RemoveDirt-v1.1-darwin-aarch64.zip"
+else
+    REMOVEDIRT_URL="$STEFANOLT/com.vapoursynth.removedirt/v1.1/darwin-x86_64/2026-01-07T00.39.26%2B00.00Z/RemoveDirt-v1.1-darwin-x86_64.zip"
+fi
+echo ""
+download_prebuilt_plugin "RemoveDirt" "libremovedirt.dylib" "$REMOVEDIRT_URL"
+
+# DeDot (core.dedot.Dedot) — temporal cross-colour (rainbow) and cross-luma
+# (dotcrawl) reduction for composite captures.
+#
+# arm64 takes the PyPI wheel; x64 must NOT. Both dedot wheels are built minos
+# 15.0, and this bundle's Intel floor is 12.0 with STRICT_MIN_OS=1 — the wheel
+# would fail the guard and, shipped anyway, would refuse to load on Monterey
+# (issue #39). It is one C++ file with no SIMD and no dependencies, so the x64
+# branch compiles it directly, exactly as zsmooth splits for the same reason.
+# Wheel 3.0 and git tag v3 are the same release; keep the two in step.
+DEDOT_VERSION="3.0"
+DEDOT_TAG="v3"
+echo ""
+echo "=== Installing DeDot $DEDOT_VERSION ==="
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libdedot.dylib" ]; then
+    if [ "$ARCH" = "arm64" ]; then
+        DEDOT_URL=$("$PYTHON_BIN" - "$DEDOT_VERSION" "macosx_15_0_arm64" <<'PYEOF'
+import json, sys, urllib.request
+ver, tag = sys.argv[1], sys.argv[2]
+d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/vapoursynth-dedot/{ver}/json"))
+print(next(f["url"] for f in d["urls"] if f["filename"].endswith(tag + ".whl")))
+PYEOF
+)
+        rm -rf "$BUILD_DIR/dedot-whl" "$BUILD_DIR/dedot.whl"
+        mkdir -p "$BUILD_DIR/dedot-whl"
+        if curl -fL -o "$BUILD_DIR/dedot.whl" "$DEDOT_URL" \
+           && unzip -q "$BUILD_DIR/dedot.whl" -d "$BUILD_DIR/dedot-whl" \
+           && [ -f "$BUILD_DIR/dedot-whl/vapoursynth/plugins/dedot.dylib" ]; then
+            cp "$BUILD_DIR/dedot-whl/vapoursynth/plugins/dedot.dylib" "$PLUGINS_DIR/libdedot.dylib"
+            chmod u+w "$PLUGINS_DIR/libdedot.dylib"
+            echo "  Installed DeDot (wheel) -> libdedot.dylib"
+        fi
+        rm -rf "$BUILD_DIR/dedot-whl" "$BUILD_DIR/dedot.whl"
+    else
+        : "${VS_INC_DIR:?VS_INC_DIR is unset — DeDot cannot find the VapourSynth headers}"
+        rm -rf dedot
+        if git clone --depth 1 --branch "$DEDOT_TAG" -q \
+            https://github.com/dubhatervapoursynth/vapoursynth-dedot.git dedot 2>/dev/null \
+           && c++ -std=c++17 -O2 -fPIC -shared \
+                -o "$PLUGINS_DIR/libdedot.dylib" \
+                dedot/src/dedot.cpp -I"$VS_INC_DIR"; then
+            echo "  Built DeDot ($DEDOT_TAG) -> libdedot.dylib"
+        fi
+    fi
+
+    if [ -f "$PLUGINS_DIR/libdedot.dylib" ]; then
+        install_name_tool -id "@loader_path/libdedot.dylib" "$PLUGINS_DIR/libdedot.dylib" 2>/dev/null || true
+        codesign -s - -f "$PLUGINS_DIR/libdedot.dylib" 2>/dev/null || true
+        BUILT_PLUGINS+=("dedot")
+    else
+        echo "  Failed to install DeDot"
+        FAILED_PLUGINS+=("dedot")
+    fi
+else
+    echo "  DeDot already exists, skipping"
+fi
+
+# LGhost (core.lghost.LGhost) — luminance-ghost / edge-ghost (ringing)
+# reduction, the classic fix for RF and long-cable analogue captures. Pinned to
+# r1, the only tag upstream has published. Taken pre-built from
+# Stefan-Olt/vs-plugin-build on both arches: its meson build compiles a stack of
+# x86 SIMD translation units through VCL2, which is dead weight here, and both
+# published dylibs link nothing outside /usr/lib.
+if [ "$ARCH" = "arm64" ]; then
+    LGHOST_URL="$STEFANOLT/com.holywu.lghost/r1/darwin-aarch64/2024-09-30T20.54.34%2B00.00Z/LGhost-r1-darwin-aarch64.zip"
+else
+    LGHOST_URL="$STEFANOLT/com.holywu.lghost/r1/darwin-x86_64/2024-09-30T20.57.30%2B00.00Z/LGhost-r1-darwin-x86_64.zip"
+fi
+echo ""
+download_prebuilt_plugin "LGhost" "liblghost.dylib" "$LGHOST_URL"
 
 # ============================================================================
 # akarin — LLVM JIT for std.Expr (arm64 only)

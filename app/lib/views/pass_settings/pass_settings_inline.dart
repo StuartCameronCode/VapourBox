@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../models/dynamic_parameters.dart';
 import '../../models/filter_registry.dart';
 import '../../models/filter_schema.dart';
+import '../../models/pass_advice.dart';
 import '../../models/processing_pipeline.dart';
 import '../../services/whisper_addon_manager.dart';
 import '../../utils/pixel_format.dart';
@@ -44,6 +45,22 @@ class PassSettingsInline extends StatelessWidget {
         return 'deband';
       case PassType.sharpen:
         return 'sharpen';
+      case PassType.antiAlias:
+        return 'anti_alias';
+      case PassType.stabilize:
+        return 'stabilize';
+      case PassType.geometry:
+        return 'geometry';
+      case PassType.grain:
+        return 'grain';
+      case PassType.frameRate:
+        return 'frame_rate';
+      case PassType.deflicker:
+        return 'deflicker';
+      case PassType.edgeRepair:
+        return 'edge_repair';
+      case PassType.ghostRemoval:
+        return 'ghost_removal';
       case PassType.colorCorrection:
         return 'color_correction';
       case PassType.chromaFixes:
@@ -74,6 +91,7 @@ class PassSettingsInline extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildDescription(context, schema),
+            _buildInteractionAdvice(context, viewModel),
             _buildOpenCLWarning(context, viewModel, filterId, params),
             _buildBitDepthWarning(context, viewModel, schema, params),
             DynamicFilterPanelCompact(
@@ -94,6 +112,16 @@ class PassSettingsInline extends StatelessWidget {
   /// expander. See [_FilterDescription].
   Widget _buildDescription(BuildContext context, FilterSchema schema) {
     return _FilterDescription(schema: schema);
+  }
+
+  /// How this pass interacts with the others that are switched on — a denoiser
+  /// that will undo the sharpening, a setting the chosen method ignores. Shown
+  /// in the advisory (not error) style, because every combination it comments on
+  /// still renders. See [adviceFor].
+  Widget _buildInteractionAdvice(BuildContext context, MainViewModel viewModel) {
+    final message = adviceFor(passType, viewModel.processingPipeline);
+    if (message == null) return const SizedBox.shrink();
+    return WarningBanner(message: message);
   }
 
   /// Warning shown when the deinterlace pass uses an OpenCL-only option that

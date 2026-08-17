@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::{QTGMCParameters, ProcessingPipeline};
+use super::{QTGMCParameters, ProcessingPipeline, ColorMetadata};
 
 /// Represents a complete video processing job.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,9 +71,38 @@ pub struct VideoJob {
     /// Input pixel format string (e.g. "yuv420p", "yuv422p"). For pipe source.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_pixel_format: Option<String>,
+
+    /// Source colour tags, read from ffprobe and re-declared on the output.
+    /// The Y4M pipe strips them exactly as it strips SAR, so without these the
+    /// output is untagged and every player reads it as BT.601 limited.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_color_matrix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_color_primaries: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_color_transfer: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_color_range: Option<String>,
+
+    /// A subtitle file to burn into the picture. Separate from the Whisper
+    /// path: transcription currently runs *after* the encode, so its output
+    /// cannot reach the encoder. A user-supplied file has no such problem.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub burn_in_subtitle_path: Option<String>,
+
 }
 
 impl VideoJob {
+    /// The source's colour tags, validated. Empty when the source was untagged.
+    pub fn color_metadata(&self) -> ColorMetadata {
+        ColorMetadata::from_raw(
+            self.input_color_matrix.as_deref(),
+            self.input_color_primaries.as_deref(),
+            self.input_color_transfer.as_deref(),
+            self.input_color_range.as_deref(),
+        )
+    }
+
     /// Get the effective processing pipeline.
     /// Uses processing_pipeline if set, otherwise creates one from legacy qtgmc_parameters.
     pub fn effective_pipeline(&self) -> ProcessingPipeline {
@@ -111,6 +140,79 @@ pub enum SubtitleOutput {
     SrtFile,
     Embed,
     Both,
+    /// Draw the subtitles into the picture itself.
+    BurnIn,
+    /// Draw them in AND keep the sidecar file.
+    BurnInAndSrt,
+}
+
+impl SubtitleOutput {
+    /// The subtitles are drawn into the picture during the encode, so the
+    /// transcript has to exist before it starts.
+    pub fn burns_in(self) -> bool {
+        matches!(self, SubtitleOutput::BurnIn | SubtitleOutput::BurnInAndSrt)
+    }
+
+    /// The transcript is multiplexed into the finished file as a selectable
+    /// track — a post-pass, because the file has to exist first.
+    pub fn muxes(self) -> bool {
+        matches!(self, SubtitleOutput::Embed | SubtitleOutput::Both)
+    }
+
+    /// The `.srt` is left beside the video rather than cleaned up.
+    pub fn keeps_srt_file(self) -> bool {
+        matches!(
+            self,
+            SubtitleOutput::SrtFile | SubtitleOutput::Both | SubtitleOutput::BurnInAndSrt
+        )
+    }
+}
+
+#[cfg(test)]
+mod subtitle_output_tests {
+    use super::SubtitleOutput;
+
+    /// Every mode must do at least one of the three things, or choosing it
+    /// silently produces nothing.
+    #[test]
+    fn every_mode_does_something() {
+        for mode in [
+            SubtitleOutput::SrtFile,
+            SubtitleOutput::Embed,
+            SubtitleOutput::Both,
+            SubtitleOutput::BurnIn,
+            SubtitleOutput::BurnInAndSrt,
+        ] {
+            assert!(
+                mode.burns_in() || mode.muxes() || mode.keeps_srt_file(),
+                "{mode:?} would produce no subtitles at all"
+            );
+        }
+    }
+
+    #[test]
+    fn burning_in_and_muxing_are_independent() {
+        // Burn-in draws pixels; muxing adds a track the player can switch off.
+        // A mode may do either, and "both" here means sidecar + track.
+        assert!(SubtitleOutput::BurnIn.burns_in());
+        assert!(!SubtitleOutput::BurnIn.muxes());
+        assert!(!SubtitleOutput::BurnIn.keeps_srt_file());
+
+        assert!(SubtitleOutput::Both.muxes());
+        assert!(SubtitleOutput::Both.keeps_srt_file());
+        assert!(!SubtitleOutput::Both.burns_in());
+
+        assert!(SubtitleOutput::BurnInAndSrt.burns_in());
+        assert!(SubtitleOutput::BurnInAndSrt.keeps_srt_file());
+    }
+
+    /// Embed must not also leave a stray sidecar — that was the old behaviour
+    /// and it is why the file is deleted after muxing.
+    #[test]
+    fn embed_alone_leaves_no_sidecar() {
+        assert!(SubtitleOutput::Embed.muxes());
+        assert!(!SubtitleOutput::Embed.keeps_srt_file());
+    }
 }
 
 /// Video encoding settings for FFmpeg output.
@@ -148,6 +250,12 @@ pub struct EncodingSettings {
     /// Additional FFmpeg arguments
     #[serde(default)]
     pub custom_ffmpeg_args: String,
+
+    /// User-supplied VapourSynth, injected after every built-in pass. Same
+    /// footing as custom_ffmpeg_args: an escape hatch for someone who knows
+    /// what they are doing, gated behind advanced mode in the UI.
+    #[serde(default)]
+    pub custom_vapoursynth: String,
 
     /// Output container format
     #[serde(default)]
@@ -337,6 +445,7 @@ impl Default for EncodingSettings {
             audio_quality: AudioQuality::default(),
             chroma_subsampling: ChromaSubsampling::default(),
             custom_ffmpeg_args: String::new(),
+            custom_vapoursynth: String::new(),
             container: ContainerFormat::default(),
             video_bitrate_kbps: None,
         }

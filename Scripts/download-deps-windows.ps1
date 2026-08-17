@@ -248,6 +248,30 @@ $Plugins7z = @(
         Check = "libawarpsharp2.dll"
     },
     @{
+        # Bifrost (core.bifrost.Bifrost) - temporal rainbow / dot-crawl removal.
+        # The archive ships x86\ and x64\ folders; the loop below prefers x64.
+        Name = "bifrost"
+        Url = "https://github.com/dubhater/vapoursynth-bifrost/releases/download/v3.0/Bifrost-3.0.7z"
+        Check = "bifrost.dll"
+    },
+    @{
+        # Retinex (core.retinex.MSRCP) - lifts shadow detail out of
+        # underexposed footage. Ships Win32\ and x64\ folders.
+        Name = "retinex"
+        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Retinex/releases/download/r4/Retinex-r4.7z"
+        Check = "Retinex.dll"
+    },
+    @{
+        # FluxSmooth (core.flux.SmoothT / SmoothST), and what havsfunc's STPresso
+        # calls internally. Pinned to v2 on every platform: this is the newest
+        # tag with a published Windows binary, and Windows has no from-source
+        # build path here, so macOS/Linux track the version Windows can get
+        # rather than letting the same job denoise differently per OS.
+        Name = "fluxsmooth"
+        Url = "https://github.com/dubhater/vapoursynth-fluxsmooth/releases/download/v2/vapoursynth-fluxsmooth-v2-win64.7z"
+        Check = "libfluxsmooth.dll"
+    },
+    @{
         Name = "removegrain"
         Url = "https://github.com/vapoursynth/vs-removegrain/releases/download/R1/removegrain-r1.7z"
         Check = "RemoveGrainVS.dll"
@@ -289,6 +313,37 @@ $Plugins7z = @(
         Name = "temporalmedian"
         Url = "https://github.com/dubhater/vapoursynth-temporalmedian/releases/download/v1/vapoursynth-temporalmedian-v1-win64.7z"
         Check = "libtemporalmedian.dll"
+    },
+    @{
+        # core.fb.FillBorders - fills dead edges left by a capture.
+        # Pinned to v2: tags v3 and v4 exist but publish NO release assets, and
+        # this script has no from-source path, so macOS/Linux track v2 too
+        # rather than letting the same job fill borders differently per OS.
+        Name = "fillborders"
+        Url = "https://github.com/dubhater/vapoursynth-fillborders/releases/download/v2/vapoursynth-fillborders-v2-win64.7z"
+        Check = "libfillborders.dll"
+    },
+    @{
+        # core.removedirt.RestoreMotionBlocks / SCSelect - dirt and spot removal.
+        # The archive ships FOUR builds of the same DLL name: x64\, x64_Clang\,
+        # x86\ and x86_Clang\. The generic $Win64 filter matches both x64 dirs,
+        # so without Prefer the winner is decided by copy order and could change
+        # between runs. Upstream states no preference between the MSVC and Clang
+        # builds; pinning one is about determinism, not about which is better.
+        Name = "removedirt"
+        Url = "https://github.com/pinterf/RemoveDirt/releases/download/v1.1/RemoveDirt-1.1.7z"
+        Check = "RemoveDirt.dll"
+        Prefer = '(?i)x64_Clang'
+    },
+    @{
+        # core.lghost.LGhost - luminance/edge ghost (ringing) reduction for RF
+        # and long-cable analogue captures. r1 is upstream's only tag. Its DLL
+        # sits under plugins64\, which the generic $Win64 filter does NOT match
+        # (no 'x64'/'win64' in the name) - harmless here because the archive
+        # ships nothing else, and the PE-arch verifier would catch it if it did.
+        Name = "lghost"
+        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-LGhost/releases/download/r1/LGhost-r1.7z"
+        Check = "LGhost.dll"
     }
 )
 
@@ -355,6 +410,13 @@ foreach ($Plugin in $Plugins7z) {
             $Dlls = Get-ChildItem -Path $ExtractDir -Recurse -Filter "*.dll"
             $Win64 = $Dlls | Where-Object { $_.DirectoryName -match '(?i)win64|x64|amd64|x86_64' }
             if ($Win64) { $Dlls = $Win64 }
+            # An archive can ship several x64 builds of the same DLL (RemoveDirt
+            # has x64\ and x64_Clang\), in which case the filter above leaves the
+            # choice to copy order. Prefer pins one.
+            if ($Plugin.Prefer) {
+                $Preferred = $Dlls | Where-Object { $_.FullName -match $Plugin.Prefer }
+                if ($Preferred) { $Dlls = $Preferred }
+            }
             $Dlls | ForEach-Object {
                 Copy-Item $_.FullName $PluginsDir -Force
                 Write-Host "    Copied: $($_.Name)" -ForegroundColor Gray
@@ -391,6 +453,10 @@ foreach ($Plugin in $PluginsZip) {
             $Dlls = Get-ChildItem -Path $ExtractDir -Recurse -Filter "*.dll"
             $Win64 = $Dlls | Where-Object { $_.DirectoryName -match '(?i)win64|x64|amd64|x86_64' }
             if ($Win64) { $Dlls = $Win64 }
+            if ($Plugin.Prefer) {
+                $Preferred = $Dlls | Where-Object { $_.FullName -match $Plugin.Prefer }
+                if ($Preferred) { $Dlls = $Preferred }
+            }
             $Dlls | ForEach-Object {
                 Copy-Item $_.FullName $PluginsDir -Force
                 Write-Host "    Copied: $($_.Name)" -ForegroundColor Gray
@@ -559,6 +625,62 @@ if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
     }
 } else {
     Write-Host "  akarin already installed" -ForegroundColor Gray
+}
+
+# =============================================================================
+# Bwdif + DeDot - PyPI wheels
+# =============================================================================
+# Neither upstream publishes a Windows release asset, so both come from their
+# PyPI wheel, resolved through the JSON API the same way akarin is (never
+# hardcode the hashed file URL, and never pip install into the embedded
+# interpreter - a wheel is just a zip).
+#
+# Unlike akarin's wheel, neither of these bundles a private DLL: each holds
+# exactly vapoursynth\plugins\<name>.dll, linking only the system runtime, so
+# there is nothing to place beside the plugin.
+#
+# Keep these versions in step with download-deps-{macos,linux}.sh. macOS x64
+# builds DeDot from source instead of taking its wheel - that wheel is minos
+# 15.0 and the Intel bundle floor is 12.0 (issue #39) - but it is the same
+# upstream release (wheel 3.0 == git tag v3), so the versions still match.
+$WheelPlugins = @(
+    @{ Name = "bwdif"; Package = "vapoursynth-bwdif"; Version = "5.1"; Dll = "bwdif.dll" },
+    @{ Name = "dedot"; Package = "vapoursynth-dedot"; Version = "3.0"; Dll = "dedot.dll" }
+)
+
+foreach ($W in $WheelPlugins) {
+    Write-Host ""
+    Write-Host "Downloading $($W.Name) $($W.Version) (PyPI wheel)..." -ForegroundColor Yellow
+    if (-not (Test-Path "$PluginsDir\$($W.Dll)")) {
+        try {
+            $Meta = Invoke-RestMethod -Uri "https://pypi.org/pypi/$($W.Package)/$($W.Version)/json"
+            $Url = ($Meta.urls | Where-Object { $_.filename -like "*win_amd64.whl" } |
+                    Select-Object -First 1).url
+            if (-not $Url) { throw "no win_amd64 wheel for $($W.Package) $($W.Version)" }
+
+            $Whl = Join-Path $TempDir "$($W.Name).whl"
+            $Zip = Join-Path $TempDir "$($W.Name)-wheel.zip"
+            $Out = Join-Path $TempDir "$($W.Name)-extract"
+            Invoke-WebRequest -Uri $Url -OutFile $Whl -UseBasicParsing
+            # Expand-Archive validates the *extension* and refuses .whl outright.
+            Copy-Item $Whl $Zip -Force
+            Remove-Item $Out -Recurse -Force -ErrorAction SilentlyContinue
+            Expand-Archive -Path $Zip -DestinationPath $Out -Force
+
+            $Src = Join-Path $Out "vapoursynth\plugins\$($W.Dll)"
+            if (-not (Test-Path $Src)) { throw "$($W.Dll) missing from the $($W.Package) wheel" }
+            Copy-Item $Src (Join-Path $PluginsDir $W.Dll) -Force
+            Write-Host "    Copied: $($W.Dll)" -ForegroundColor Gray
+
+            Remove-Item $Whl, $Zip -Force -ErrorAction SilentlyContinue
+            Remove-Item $Out -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "  $($W.Name) installed" -ForegroundColor Green
+        } catch {
+            Write-Host "    Failed: $_" -ForegroundColor Red
+        }
+    } else {
+        Write-Host "  $($W.Name) already installed" -ForegroundColor Gray
+    }
 }
 
 # =============================================================================

@@ -237,8 +237,12 @@ chmod +x "$CONTENTS/MacOS/vapourbox-worker"
 # everything in MacOS/ to be signed Mach-O binaries)
 cp "$PROJECT_ROOT/worker/templates/pipeline_template.vpy" "$CONTENTS/Resources/templates/"
 cp "$PROJECT_ROOT/worker/templates/preview_template.vpy" "$CONTENTS/Resources/templates/"
-cp "$PROJECT_ROOT/worker/templates/pipe_source.py" "$CONTENTS/Resources/templates/"
-cp "$PROJECT_ROOT/worker/templates/spotless.py" "$CONTENTS/Resources/templates/"
+# Glob, not a list of names. Naming each file individually meant every new
+# vendored module was silently left out of the package — the filter works in
+# development (where the worker finds worker/templates/ by searching upward)
+# and dies with ModuleNotFoundError in a release build. packaging_test.dart
+# guards this now.
+cp "$PROJECT_ROOT/worker/templates/"*.py "$CONTENTS/Resources/templates/"
 
 # Copy licenses
 cp -r "$PROJECT_ROOT/licenses/"* "$CONTENTS/Resources/licenses/"

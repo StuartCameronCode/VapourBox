@@ -1,0 +1,87 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "geometry",
+  "version": "1.0.0",
+  "name": "Rotate / Flip",
+  "description": "Rotate or mirror the picture",
+  "longDescription": "Turns the picture in quarter steps and mirrors it. For footage shot sideways on a phone, camcorder captures that came out mirrored, and film scans that came off the scanner the wrong way round.\n\nIt runs after deinterlacing and before cropping, and both of those matter. Fields run in horizontal lines, so turning a frame that has not been deinterlaced yet shears them into nonsense — deinterlace first. And a quarter turn swaps the width and height, so it has to settle before anything decides how to crop, scale or shape the output.",
+  "category": "transform",
+  "icon": "rotate_90_degrees_cw",
+  "order": 12,
+  "methods": [
+    {
+      "id": "transform",
+      "name": "Rotate / Flip",
+      "description": "Quarter-turn rotation and mirroring, applied in that order. Lossless — it moves samples without changing their values",
+      "function": "core.std.Turn90",
+      "parameters": [
+        "rotation",
+        "flipHorizontal",
+        "flipVertical"
+      ]
+    }
+  ],
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "hidden": true
+      }
+    },
+    "method": {
+      "type": "enum",
+      "default": "transform",
+      "options": [
+        "transform"
+      ],
+      "ui": {
+        "hidden": true
+      }
+    },
+    "rotation": {
+      "type": "enum",
+      "default": "none",
+      "options": [
+        "none",
+        "cw90",
+        "rotate180",
+        "ccw90"
+      ],
+      "ui": {
+        "label": "Rotation",
+        "description": "A quarter turn swaps the width and height, so the output shape changes",
+        "widget": "dropdown"
+      }
+    },
+    "flipHorizontal": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Mirror Left-Right",
+        "description": "Applied after the rotation"
+      }
+    },
+    "flipVertical": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Mirror Top-Bottom",
+        "description": "Applied after the rotation"
+      }
+    }
+  },
+  "ui": {
+    "sections": [
+      {
+        "title": "Settings",
+        "parameters": [
+          "rotation",
+          "flipHorizontal",
+          "flipVertical"
+        ],
+        "expanded": true
+      }
+    ]
+  }
+}

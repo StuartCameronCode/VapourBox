@@ -1,0 +1,224 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "grain",
+  "version": "1.0.0",
+  "name": "Film Grain",
+  "description": "Add film grain back after denoising",
+  "longDescription": "Adds grain to a picture that has had its own removed. Denoising strips the fine texture that made the image look photographic, and what is left often reads as plastic or waxy — a little grain puts the life back.\n\nIt also hides banding. The noise in an original recording was dithering its own gradients; take it away and skies and fades break into visible steps. Grain restores that dithering, and it survives the encoder better than the banding does.\n\nThis runs last of all the video steps, after resizing and debanding. Anything else would remove what it just added — grain applied before a resize is resampled away, and before debanding is smoothed away.",
+  "category": "enhancement",
+  "icon": "grain",
+  "order": 13,
+  "dependencies": {
+    "plugins": [
+      "havsfunc"
+    ],
+    "vs_plugins": [
+      "AddGrain.dll"
+    ]
+  },
+  "methods": [
+    {
+      "id": "add_grain",
+      "name": "Simple",
+      "description": "Best first choice. One strength control, grains colour as well as brightness, and can hold a static pattern. Very fast",
+      "function": "core.grain.Add",
+      "parameters": [
+        "var",
+        "uvar",
+        "corr",
+        "constant"
+      ]
+    },
+    {
+      "id": "grain_factory3",
+      "name": "Film stock (3-layer)",
+      "description": "Three grain layers chosen by brightness, so shadows are grainier than highlights — closer to real film. Brightness only: it leaves colour untouched, and it cannot hold a static pattern",
+      "function": "haf.GrainFactory3",
+      "parameters": [
+        "g1str",
+        "g2str",
+        "g3str",
+        "tempAvg"
+      ]
+    }
+  ],
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "hidden": true
+      }
+    },
+    "method": {
+      "type": "enum",
+      "default": "add_grain",
+      "options": [
+        "add_grain",
+        "grain_factory3"
+      ],
+      "ui": {
+        "hidden": true
+      }
+    },
+    "var": {
+      "type": "number",
+      "default": 4.0,
+      "min": 0.0,
+      "max": 36.0,
+      "step": 0.5,
+      "ui": {
+        "label": "Strength",
+        "description": "2 is barely visible, 4 is subtle film grain, 9 is clearly visible, 25 is heavy",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "add_grain"
+          ]
+        }
+      }
+    },
+    "uvar": {
+      "type": "number",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 36.0,
+      "step": 0.5,
+      "optional": true,
+      "ui": {
+        "label": "Colour Strength",
+        "description": "Grain in the colour channels. Off leaves colour untouched — worth turning on when the banding is in a coloured gradient",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "add_grain"
+          ]
+        }
+      }
+    },
+    "corr": {
+      "type": "number",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 0.9,
+      "step": 0.05,
+      "optional": true,
+      "ui": {
+        "label": "Grain Size",
+        "description": "Coarser, clumpier grain. It also weakens the grain, so raise the strength to compensate",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": {
+          "method": [
+            "add_grain"
+          ]
+        }
+      }
+    },
+    "constant": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Static Grain",
+        "description": "Hold the same pattern on every frame. Usually leave off — static grain over moving video reads as dirt on the lens",
+        "visibleWhen": {
+          "method": [
+            "add_grain"
+          ]
+        }
+      }
+    },
+    "g1str": {
+      "type": "number",
+      "default": 4.0,
+      "min": 0.0,
+      "max": 25.0,
+      "step": 0.5,
+      "ui": {
+        "label": "Shadows",
+        "description": "Grain in the darkest parts, where real film shows the most",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "grain_factory3"
+          ]
+        }
+      }
+    },
+    "g2str": {
+      "type": "number",
+      "default": 3.0,
+      "min": 0.0,
+      "max": 25.0,
+      "step": 0.5,
+      "ui": {
+        "label": "Midtones",
+        "description": "Grain through the middle of the range",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "grain_factory3"
+          ]
+        }
+      }
+    },
+    "g3str": {
+      "type": "number",
+      "default": 2.0,
+      "min": 0.0,
+      "max": 25.0,
+      "step": 0.5,
+      "ui": {
+        "label": "Highlights",
+        "description": "Grain in the brightest parts, where film shows the least",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "grain_factory3"
+          ]
+        }
+      }
+    },
+    "tempAvg": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "optional": true,
+      "ui": {
+        "label": "Steadiness",
+        "description": "Calms the frame-to-frame movement of the grain. It cannot stop it — this method is always animated",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "grain_factory3"
+          ]
+        }
+      }
+    }
+  },
+  "ui": {
+    "sections": [
+      {
+        "title": "Settings",
+        "parameters": [
+          "var",
+          "uvar",
+          "corr",
+          "constant",
+          "g1str",
+          "g2str",
+          "g3str",
+          "tempAvg"
+        ],
+        "expanded": true
+      }
+    ]
+  }
+}

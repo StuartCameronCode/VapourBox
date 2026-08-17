@@ -81,6 +81,78 @@ pub struct ChromaFixParameters {
     #[serde(default = "default_de_crawl_max_diff")]
     pub de_crawl_max_diff: i32,
 
+    // --- LUTDeRainbow (cross-luminance / rainbowing) ---
+
+    /// Apply LUTDeRainbow.
+    #[serde(default)]
+    pub apply_de_rainbow: bool,
+
+    /// DeDot — temporal dot crawl / rainbow removal on both planes.
+    #[serde(default)]
+    pub apply_dedot: bool,
+
+    /// Measure the chroma misalignment and correct it automatically.
+    #[serde(default)]
+    pub apply_auto_chroma: bool,
+    /// Largest shift to search for, in pixels.
+    #[serde(default = "default_acf_max_shift")]
+    pub auto_chroma_max_shift: i32,
+    /// Sub-pixel search step.
+    #[serde(default = "default_acf_accuracy")]
+    pub auto_chroma_accuracy: f64,
+    /// Measure once on this frame (-1 measures every frame, ~23x the cost).
+    #[serde(default)]
+    pub auto_chroma_reference_frame: i32,
+    /// Spatial luma threshold (0-510).
+    #[serde(default = "default_dedot_luma_2d")]
+    pub dedot_luma_2d: i32,
+    /// Temporal luma threshold (0-255).
+    #[serde(default = "default_dedot_luma_t")]
+    pub dedot_luma_t: i32,
+    /// Chroma threshold 1 (0-255).
+    #[serde(default = "default_dedot_chroma_t1")]
+    pub dedot_chroma_t1: i32,
+    /// Chroma threshold 2 (0-255). 255 bypasses chroma entirely.
+    #[serde(default = "default_dedot_chroma_t2")]
+    pub dedot_chroma_t2: i32,
+
+    /// Chroma difference threshold for detecting rainbowing.
+    #[serde(default = "default_de_rainbow_cthresh")]
+    pub de_rainbow_c_thresh: i32,
+
+    /// Luma difference threshold. Areas moving more than this are left alone.
+    #[serde(default = "default_de_rainbow_ythresh")]
+    pub de_rainbow_y_thresh: i32,
+
+    /// Use the luma difference in the decision as well as chroma.
+    #[serde(default = "default_true")]
+    pub de_rainbow_use_luma: bool,
+
+    /// Require both chroma planes to agree before treating a pixel.
+    #[serde(default = "default_true")]
+    pub de_rainbow_link_uv: bool,
+
+    // --- Bifrost (temporal rainbow removal) ---
+
+    /// Apply Bifrost. Where LUTDeRainbow works within a frame, this compares
+    /// across frames, so it catches rainbowing that shimmers rather than sits
+    /// still.
+    #[serde(default)]
+    pub apply_bifrost: bool,
+
+    /// Luma difference above which a block is treated as motion and left alone.
+    #[serde(default = "default_bifrost_luma_thresh")]
+    pub bifrost_luma_thresh: f64,
+
+    /// How many neighbouring blocks must agree before a pixel is treated
+    /// (0-3). Higher is more conservative.
+    #[serde(default = "default_bifrost_variation")]
+    pub bifrost_variation: i32,
+
+    /// Treat the source as interlaced, comparing fields rather than frames.
+    #[serde(default = "default_true")]
+    pub bifrost_interlaced: bool,
+
     // --- Vinverse Parameters ---
 
     /// Whether to apply Vinverse (inverted telecine/chroma fix).
@@ -101,8 +173,20 @@ fn default_chroma_bleed_blur() -> f64 { 0.7 }
 fn default_chroma_bleed_strength() -> f64 { 0.8 }
 fn default_de_crawl_thresh() -> i32 { 10 }
 fn default_de_crawl_max_diff() -> i32 { 50 }
+fn default_true() -> bool { true }
+fn default_de_rainbow_cthresh() -> i32 { 10 }
+fn default_de_rainbow_ythresh() -> i32 { 10 }
+fn default_bifrost_luma_thresh() -> f64 { 10.0 }
+fn default_bifrost_variation() -> i32 { 5 }
 fn default_vinverse_sstr() -> f64 { 2.7 }
 fn default_255() -> i32 { 255 }
+
+fn default_acf_max_shift() -> i32 { 2 }
+fn default_acf_accuracy() -> f64 { 0.25 }
+fn default_dedot_luma_2d() -> i32 { 20 }
+fn default_dedot_luma_t() -> i32 { 20 }
+fn default_dedot_chroma_t1() -> i32 { 15 }
+fn default_dedot_chroma_t2() -> i32 { 5 }
 
 impl Default for ChromaFixParameters {
     fn default() -> Self {
@@ -118,6 +202,24 @@ impl Default for ChromaFixParameters {
             chroma_bleed_c_blur: default_chroma_bleed_blur(),
             chroma_bleed_strength: default_chroma_bleed_strength(),
             apply_de_crawl: false,
+            apply_de_rainbow: false,
+            apply_dedot: false,
+            apply_auto_chroma: false,
+            auto_chroma_max_shift: default_acf_max_shift(),
+            auto_chroma_accuracy: default_acf_accuracy(),
+            auto_chroma_reference_frame: 0,
+            dedot_luma_2d: default_dedot_luma_2d(),
+            dedot_luma_t: default_dedot_luma_t(),
+            dedot_chroma_t1: default_dedot_chroma_t1(),
+            dedot_chroma_t2: default_dedot_chroma_t2(),
+            de_rainbow_c_thresh: default_de_rainbow_cthresh(),
+            de_rainbow_y_thresh: default_de_rainbow_ythresh(),
+            de_rainbow_use_luma: true,
+            de_rainbow_link_uv: true,
+            apply_bifrost: false,
+            bifrost_luma_thresh: default_bifrost_luma_thresh(),
+            bifrost_variation: default_bifrost_variation(),
+            bifrost_interlaced: true,
             de_crawl_y_thresh: default_de_crawl_thresh(),
             de_crawl_c_thresh: default_de_crawl_thresh(),
             de_crawl_max_diff: default_de_crawl_max_diff(),
@@ -151,5 +253,12 @@ mod tests {
         let json = serde_json::to_string(&params).unwrap();
         assert!(json.contains("\"enabled\":false"));
         assert!(json.contains("\"chromaBleedCx\":4"));
+    }
+}
+
+impl ChromaFixParameters {
+    /// Bifrost's `variation`, clamped to the range it accepts.
+    pub fn bifrost_effective_variation(&self) -> i32 {
+        self.bifrost_variation.clamp(0, 10)
     }
 }

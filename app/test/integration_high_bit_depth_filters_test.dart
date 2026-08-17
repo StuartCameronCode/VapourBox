@@ -48,8 +48,12 @@ import 'package:vapourbox/models/crop_resize_parameters.dart';
 import 'package:vapourbox/models/deband_parameters.dart';
 import 'package:vapourbox/models/deblock_parameters.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
+import 'package:vapourbox/models/deflicker_parameters.dart';
 import 'package:vapourbox/models/descratch_parameters.dart';
+import 'package:vapourbox/models/edge_repair_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
+import 'package:vapourbox/models/frame_rate_parameters.dart';
+import 'package:vapourbox/models/ghost_removal_parameters.dart';
 import 'package:vapourbox/models/noise_reduction_parameters.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
@@ -270,6 +274,10 @@ ProcessingPipeline _only({
   ColorCorrectionParameters colorCorrection = const ColorCorrectionParameters(),
   ChromaFixParameters chromaFixes = const ChromaFixParameters(),
   CropResizeParameters cropResize = const CropResizeParameters(),
+  DeflickerParameters deflicker = const DeflickerParameters(),
+  EdgeRepairParameters edgeRepair = const EdgeRepairParameters(),
+  GhostRemovalParameters ghostRemoval = const GhostRemovalParameters(),
+  FrameRateParameters frameRate = const FrameRateParameters(),
 }) {
   return ProcessingPipeline(
     deinterlace: deinterlace,
@@ -284,6 +292,10 @@ ProcessingPipeline _only({
     colorCorrection: colorCorrection,
     chromaFixes: chromaFixes,
     cropResize: cropResize,
+    deflicker: deflicker,
+    edgeRepair: edgeRepair,
+    ghostRemoval: ghostRemoval,
+    frameRate: frameRate,
   );
 }
 
@@ -377,6 +389,85 @@ List<_Pass> _passes() => [
             enabled: true,
             method: NoiseReductionMethod.mcDegrainSharp,
             preset: NoiseReductionPreset.moderate,
+          ),
+        ),
+      ),
+
+      // The two vendored denoisers. Both live in worker/templates as Python
+      // modules rather than coming from havsfunc, so they carry their own depth
+      // handling and nothing upstream is scaling their thresholds for them.
+      _Pass(
+        'noise_mclean',
+        _only(
+          noiseReduction: const NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.mClean,
+            preset: NoiseReductionPreset.moderate,
+          ),
+        ),
+      ),
+      _Pass(
+        'noise_temporaldegrain2',
+        _only(
+          noiseReduction: const NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.temporalDegrain2,
+            preset: NoiseReductionPreset.moderate,
+          ),
+        ),
+      ),
+
+      // Deflicker measures frame brightness against a windowed average, so its
+      // correction is a ratio and should be depth-independent by construction.
+      _Pass(
+        'deflicker',
+        _only(
+          deflicker: const DeflickerParameters(
+            enabled: true,
+            strength: 1.0,
+            window: 5,
+          ),
+        ),
+      ),
+
+      // LGhost rejects mode 0 and intensity 0 — with either, the pass is inert
+      // and would pass the parity check trivially while failing changesPicture.
+      _Pass(
+        'ghost_removal',
+        _only(
+          ghostRemoval: const GhostRemovalParameters(
+            enabled: true,
+            ghosts: [GhostSpec(mode: 2, shift: 6, intensity: 60)],
+          ),
+        ),
+      ),
+
+      // Widths are always even (see EdgeRepairParameters.even) — FillBorders v2
+      // leaves subsampled chroma unrepaired at odd ones.
+      _Pass(
+        'edge_repair',
+        _only(
+          edgeRepair: const EdgeRepairParameters(
+            enabled: true,
+            left: 4,
+            right: 4,
+            top: 2,
+            bottom: 2,
+          ),
+        ),
+      ),
+
+      // The fixture is 25 fps, so 23.976 actually retimes. The source rate has
+      // to be supplied — the pipeline can't see the job, and without it the
+      // FrameMap ratio is unknown and the pass does nothing.
+      _Pass(
+        'frame_rate',
+        _only(
+          frameRate: const FrameRateParameters(
+            enabled: true,
+            target: FrameRateTarget.film23976,
+            sourceFpsNum: 25,
+            sourceFpsDen: 1,
           ),
         ),
       ),

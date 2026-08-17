@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../models/dynamic_parameters.dart';
 import '../../models/filter_schema.dart';
+import '../../services/advanced_mode_service.dart';
 import 'widgets/parameter_widgets.dart';
 
 /// A dynamically-generated settings panel based on a filter schema.
@@ -184,7 +186,12 @@ class DynamicFilterPanel extends StatelessWidget {
 }
 
 /// A variant of DynamicFilterPanel that can be used inside a pass container.
-class DynamicFilterPanelCompact extends StatefulWidget {
+///
+/// Advanced mode is read from [AdvancedModeService], not held here: it is one
+/// app-wide, persisted choice, so flipping it in any panel affects them all and
+/// it survives collapsing the pass. It gates advanced-only sections,
+/// preset-controlled parameters and advanced-only *methods*.
+class DynamicFilterPanelCompact extends StatelessWidget {
   final FilterSchema schema;
   final DynamicParameters params;
   final ValueChanged<DynamicParameters> onChanged;
@@ -197,20 +204,20 @@ class DynamicFilterPanelCompact extends StatefulWidget {
   });
 
   @override
-  State<DynamicFilterPanelCompact> createState() => _DynamicFilterPanelCompactState();
-}
-
-class _DynamicFilterPanelCompactState extends State<DynamicFilterPanelCompact> {
-  bool _advancedMode = false;
-
-  FilterSchema get schema => widget.schema;
-  DynamicParameters get params => widget.params;
-  ValueChanged<DynamicParameters> get onChanged => widget.onChanged;
-
-  @override
   Widget build(BuildContext context) {
-    // Build method dropdown first if the filter has methods
-    final hasMultipleMethods = schema.methods.length > 1;
+    final advancedMode = context.watch<AdvancedModeService>().enabled;
+
+    // The method the pipeline is actually using, which is always offered even
+    // when it's advanced-only.
+    final selectedMethod = params.method.isNotEmpty
+        ? params.method
+        : schema.methods.first.id;
+    final visibleMethods = schema.visibleMethods(
+      showAdvanced: advancedMode,
+      selectedId: selectedMethod,
+    );
+
+    final hasMultipleMethods = visibleMethods.length > 1;
     final hasAdvancedContent = _hasAdvancedContent();
 
     return Column(
@@ -221,22 +228,22 @@ class _DynamicFilterPanelCompactState extends State<DynamicFilterPanelCompact> {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              Text(
-                'Advanced',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+              Tooltip(
+                message: 'Show advanced options for every filter',
+                child: Text(
+                  'Advanced',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               SizedBox(
                 height: 24,
                 child: Switch(
-                  value: _advancedMode,
-                  onChanged: (value) {
-                    setState(() {
-                      _advancedMode = value;
-                    });
-                  },
+                  value: advancedMode,
+                  onChanged: (value) =>
+                      AdvancedModeService.instance.setEnabled(value),
                 ),
               ),
             ],
@@ -249,16 +256,18 @@ class _DynamicFilterPanelCompactState extends State<DynamicFilterPanelCompact> {
           Text('Method', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            value: params.method.isNotEmpty ? params.method : schema.methods.first.id,
+            value: selectedMethod,
             isExpanded: true,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             ),
-            items: schema.methods.map((method) {
+            items: visibleMethods.map((method) {
               return DropdownMenuItem(
                 value: method.id,
-                child: Text(method.name),
+                child: Text(
+                  method.advancedOnly ? '${method.name} (advanced)' : method.name,
+                ),
               );
             }).toList(),
             onChanged: (value) {
@@ -272,8 +281,25 @@ class _DynamicFilterPanelCompactState extends State<DynamicFilterPanelCompact> {
           const SizedBox(height: 16),
         ],
 
+        // Sits outside the dropdown block on purpose: when simple mode filters
+        // a filter down to a single method there is no dropdown to hang this
+        // off, and that is precisely when the user most needs telling that more
+        // exist.
+        if (!advancedMode && schema.hasAdvancedMethods) ...[
+          Text(
+            'More methods are available in advanced mode.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.5),
+                ),
+          ),
+          const SizedBox(height: 16),
+        ],
+
         // Get parameters for the current method
-        ..._buildMethodParameters(context),
+        ..._buildMethodParameters(context, advancedMode),
       ],
     );
   }
@@ -284,6 +310,8 @@ class _DynamicFilterPanelCompactState extends State<DynamicFilterPanelCompact> {
     if (schema.parameterPresets != null && schema.parameterPresets!.isNotEmpty) {
       return true;
     }
+    // Has methods that only appear in advanced mode
+    if (schema.hasAdvancedMethods) return true;
     // Has advanced-only sections
     final sections = schema.ui?.sections;
     if (sections != null) {
@@ -306,13 +334,13 @@ class _DynamicFilterPanelCompactState extends State<DynamicFilterPanelCompact> {
     return controlled;
   }
 
-  List<Widget> _buildMethodParameters(BuildContext context) {
+  List<Widget> _buildMethodParameters(BuildContext context, bool advancedMode) {
     final widgets = <Widget>[];
     final presetControlledParams = _getPresetControlledParams();
 
     // In simple mode, show parameter preset selectors
     // In advanced mode, hide them and show the raw parameters
-    if (!_advancedMode) {
+    if (!advancedMode) {
       final presets = schema.parameterPresets;
       if (presets != null) {
         for (final entry in presets.entries) {
@@ -341,15 +369,15 @@ class _DynamicFilterPanelCompactState extends State<DynamicFilterPanelCompact> {
     if (sections != null && sections.isNotEmpty) {
       for (final section in sections) {
         // In simple mode, skip advanced-only sections
-        if (!_advancedMode && section.advancedOnly) continue;
+        if (!advancedMode && section.advancedOnly) continue;
 
         // Collect visible parameter widgets for this section first
         final sectionWidgets = <Widget>[];
         for (final paramId in section.parameters) {
           // In simple mode, skip parameters controlled by presets
-          if (!_advancedMode && presetControlledParams.contains(paramId)) continue;
+          if (!advancedMode && presetControlledParams.contains(paramId)) continue;
 
-          final widget = _buildParameterWidget(context, paramId, showHidden: _advancedMode);
+          final widget = _buildParameterWidget(context, paramId, showHidden: advancedMode);
           if (widget != null) {
             sectionWidgets.add(widget);
           }
@@ -359,7 +387,7 @@ class _DynamicFilterPanelCompactState extends State<DynamicFilterPanelCompact> {
         if (sectionWidgets.isEmpty) continue;
 
         // In advanced mode with sections, show section headers
-        if (_advancedMode && section.advancedOnly) {
+        if (advancedMode && section.advancedOnly) {
           widgets.add(
             Padding(
               padding: const EdgeInsets.only(top: 16, bottom: 8),
@@ -382,9 +410,9 @@ class _DynamicFilterPanelCompactState extends State<DynamicFilterPanelCompact> {
 
       for (final paramId in method.parameters) {
         // In simple mode, skip parameters controlled by presets
-        if (!_advancedMode && presetControlledParams.contains(paramId)) continue;
+        if (!advancedMode && presetControlledParams.contains(paramId)) continue;
 
-        final widget = _buildParameterWidget(context, paramId, showHidden: _advancedMode);
+        final widget = _buildParameterWidget(context, paramId, showHidden: advancedMode);
         if (widget != null) {
           widgets.add(widget);
         }

@@ -1,4 +1,11 @@
 import 'chroma_denoise_parameters.dart';
+import 'anti_alias_parameters.dart';
+import 'geometry_parameters.dart';
+import 'deflicker_parameters.dart';
+import 'edge_repair_parameters.dart';
+import 'frame_rate_parameters.dart';
+import 'ghost_removal_parameters.dart';
+import 'grain_parameters.dart';
 import 'chroma_fix_parameters.dart';
 import 'color_correction_parameters.dart';
 import 'crop_resize_parameters.dart';
@@ -6,6 +13,7 @@ import 'deband_parameters.dart';
 import 'deblock_parameters.dart';
 import 'descratch_parameters.dart';
 import 'spotless_parameters.dart';
+import 'stabilize_parameters.dart';
 import 'dehalo_parameters.dart';
 import 'dynamic_parameters.dart';
 import 'noise_reduction_parameters.dart';
@@ -29,6 +37,9 @@ class ParameterConverter {
       case DeinterlaceMethod.softTelecine:
         method = 'soft_telecine';
         break;
+      case DeinterlaceMethod.bwdif:
+        method = 'bwdif';
+        break;
     }
 
     return DynamicParameters(
@@ -39,6 +50,7 @@ class ParameterConverter {
         'preset': params.preset.displayName,
         'tff': params.tff,
         'fpsDivisor': params.fpsDivisor,
+        'bwdifEdeint': params.bwdifEdeint,
         // Null means "not set" in the model; surface the effective default so
         // the checkbox always reflects what the worker will actually do.
         'chromaUpsampleFix': params.chromaUpsampleFix ?? false,
@@ -146,12 +158,52 @@ class ParameterConverter {
       case NoiseReductionMethod.qtgmcBuiltin:
         method = 'qtgmc_builtin';
         break;
+      case NoiseReductionMethod.dfttest:
+        method = 'dfttest';
+        break;
+      case NoiseReductionMethod.fft3dFilter:
+        method = 'fft3dfilter';
+        break;
+      case NoiseReductionMethod.tTempSmooth:
+        method = 'ttempsmooth';
+        break;
+      case NoiseReductionMethod.fluxSmoothT:
+        method = 'fluxsmooth_t';
+        break;
+      case NoiseReductionMethod.fluxSmoothSt:
+        method = 'fluxsmooth_st';
+        break;
+      case NoiseReductionMethod.stPresso:
+        method = 'stpresso';
+        break;
+      case NoiseReductionMethod.ctmf:
+        method = 'ctmf';
+        break;
+      case NoiseReductionMethod.mClean:
+        method = 'mclean';
+        break;
+      case NoiseReductionMethod.temporalDegrain2:
+        method = 'temporal_degrain2';
+        break;
     }
 
     return DynamicParameters(
       filterId: 'noise_reduction',
       enabled: params.enabled,
       values: {
+        'mcleanStrength': params.mcleanStrength,
+        'mcleanSharp': params.mcleanSharp,
+        'mcleanRn': params.mcleanRn,
+        'mcleanThsad': params.mcleanThsad,
+        'mcleanChroma': params.mcleanChroma,
+        'td2DegrainTr': params.td2DegrainTr,
+        'td2GrainLevel': params.td2GrainLevel,
+        'td2PostFft': params.td2PostFft,
+        'td2PostSigma': params.td2PostSigma,
+        'td2PostMix': params.td2PostMix,
+        'td2ChromaMotion': params.td2ChromaMotion,
+        'contraSharpen': params.contraSharpen,
+        'contraSharpenRep': params.contraSharpenRep,
         'method': method,
         'smDegrainTr': params.smDegrainTr,
         'smDegrainThSAD': params.smDegrainThSAD,
@@ -169,6 +221,23 @@ class ParameterConverter {
         'mcdsPlane': params.mcdsPlane,
         'qtgmcEzDenoise': params.qtgmcEzDenoise,
         'qtgmcEzKeepGrain': params.qtgmcEzKeepGrain,
+        'dfttestSigma': params.dfttestSigma,
+        'dfttestTbsize': params.dfttestTbsize,
+        'dfttestSbsize': params.dfttestSbsize,
+        'fft3dSigma': params.fft3dSigma,
+        'fft3dBt': params.fft3dBt,
+        'fft3dSharpen': params.fft3dSharpen,
+        'ttempMaxr': params.ttempMaxr,
+        'ttempThresh': params.ttempThresh,
+        'ttempMdiff': params.ttempMdiff,
+        'ttempStrength': params.ttempStrength,
+        'fluxTemporalThreshold': params.fluxTemporalThreshold,
+        'fluxSpatialThreshold': params.fluxSpatialThreshold,
+        'stpressoLimit': params.stpressoLimit,
+        'stpressoBias': params.stpressoBias,
+        'stpressoTthr': params.stpressoTthr,
+        'ctmfRadius': params.ctmfRadius,
+        'ctmfPlanes': params.ctmfPlanes,
       },
     );
   }
@@ -194,6 +263,7 @@ class ParameterConverter {
         DehaloMethod.edgeCleaner => 'edge_cleaner',
         DehaloMethod.vinverse => 'vinverse',
         DehaloMethod.vinverse2 => 'vinverse2',
+        DehaloMethod.hqDeringmod => 'hq_deringmod',
       };
 
   /// Convert chroma denoise (CCD) parameters to dynamic format.
@@ -202,13 +272,18 @@ class ParameterConverter {
       filterId: 'chroma_denoise',
       enabled: params.enabled,
       values: {
-        'method': 'ccd',
+        'method': params.method == ChromaDenoiseMethod.cnr4 ? 'cnr4' : 'ccd',
         'threshold': params.threshold,
         'temporalRadius': params.temporalRadius,
         'pointsLow': params.pointsLow,
         'pointsMedium': params.pointsMedium,
         'pointsHigh': params.pointsHigh,
         if (params.scale != null) 'scale': params.scale,
+        'cnr4Strength': params.cnr4Strength,
+        'cnr4Sense': params.cnr4Sense,
+        'cnr4Radius': params.cnr4Radius,
+        'cnr4Tmode': params.cnr4Tmode,
+        'cnr4Wmode': params.cnr4Wmode,
       },
       // Left off, scale is derived from the frame height at run time — which is
       // both the plugin's own behaviour and the only value that works on short
@@ -263,12 +338,288 @@ class ParameterConverter {
     optional('vinverseStrength', params.vinverseStrength, 2.7);
     optional('vinverseAmount', params.vinverseAmount, 255);
     optional('vinverseChroma', params.vinverseChroma, true);
+    // HQDeringmod fallbacks mirror havsfunc's own defaults, so ticking a
+    // checkbox starts from the value the filter would have used anyway.
+    optional('deringMrad', params.deringMrad, 1);
+    optional('deringMsmooth', params.deringMsmooth, 1);
+    optional('deringMthr', params.deringMthr, 60);
+    optional('deringThr', params.deringThr, 12.0);
+    optional('deringDarkthr', params.deringDarkthr, 3.0);
 
     return DynamicParameters(
       filterId: 'dehalo',
       enabled: params.enabled,
       values: values,
       lastOptionalValues: lastOptional,
+    );
+  }
+
+  /// Convert anti-aliasing parameters to dynamic format.
+  static DynamicParameters fromAntiAlias(AntiAliasParameters params) {
+    return DynamicParameters(
+      filterId: 'anti_alias',
+      enabled: params.enabled,
+      values: {
+        'method': params.method == AntiAliasMethod.santiag ? 'santiag' : 'daa',
+        'santiagStrh': params.santiagStrh,
+        'santiagStrv': params.santiagStrv,
+      },
+    );
+  }
+
+  /// Convert dynamic parameters to anti-aliasing parameters.
+  static AntiAliasParameters toAntiAlias(DynamicParameters params) {
+    final v = params.values;
+    return AntiAliasParameters(
+      enabled: params.enabled,
+      method: v['method'] == 'santiag'
+          ? AntiAliasMethod.santiag
+          : AntiAliasMethod.daa,
+      santiagStrh: _asInt(v['santiagStrh']) ?? 1,
+      santiagStrv: _asInt(v['santiagStrv']) ?? 1,
+      // Not exposed: only nnedi3 is bundled, and the worker pins it there.
+    );
+  }
+
+  /// Convert stabilisation parameters to dynamic format.
+  static DynamicParameters fromStabilize(StabilizeParameters params) {
+    return DynamicParameters(
+      filterId: 'stabilize',
+      enabled: params.enabled,
+      values: {
+        'method': 'stab',
+        'dxmax': params.dxmax,
+        'dymax': params.dymax,
+        'mirror': params.mirror,
+      },
+    );
+  }
+
+  /// Convert dynamic parameters to stabilisation parameters.
+  static StabilizeParameters toStabilize(DynamicParameters params) {
+    final v = params.values;
+    return StabilizeParameters(
+      enabled: params.enabled,
+      dxmax: _asInt(v['dxmax']) ?? 4,
+      dymax: _asInt(v['dymax']) ?? 4,
+      mirror: _asInt(v['mirror']) ?? 0,
+    );
+  }
+
+  /// Convert rotate/flip parameters to dynamic format.
+  static DynamicParameters fromGeometry(GeometryParameters params) {
+    return DynamicParameters(
+      filterId: 'geometry',
+      enabled: params.enabled,
+      values: {
+        'method': 'transform',
+        'rotation': params.rotation.name,
+        'flipHorizontal': params.flipHorizontal,
+        'flipVertical': params.flipVertical,
+      },
+    );
+  }
+
+  /// Convert dynamic parameters to rotate/flip parameters.
+  static GeometryParameters toGeometry(DynamicParameters params) {
+    final v = params.values;
+    final name = v['rotation'] as String? ?? 'none';
+    return GeometryParameters(
+      enabled: params.enabled,
+      rotation: Rotation.values.firstWhere(
+        (r) => r.name == name,
+        orElse: () => Rotation.none,
+      ),
+      flipHorizontal: v['flipHorizontal'] as bool? ?? false,
+      flipVertical: v['flipVertical'] as bool? ?? false,
+    );
+  }
+
+  /// Convert grain parameters to dynamic format.
+  /// Convert frame rate parameters to dynamic format.
+  /// Convert deflicker parameters to dynamic format.
+  static DynamicParameters fromDeflicker(DeflickerParameters params) {
+    return DynamicParameters(
+      filterId: 'deflicker',
+      enabled: params.enabled,
+      values: {
+        'method': params.method == DeflickerMethod.local ? 'local' : 'global',
+        'strength': params.strength,
+        'window': params.window,
+        'localStrength': params.localStrength,
+        'aggressive': params.aggressive,
+      },
+    );
+  }
+
+  /// Convert edge repair parameters to dynamic format.
+  static DynamicParameters fromEdgeRepair(EdgeRepairParameters params) {
+    return DynamicParameters(
+      filterId: 'edge_repair',
+      enabled: params.enabled,
+      values: {
+        'left': params.left,
+        'right': params.right,
+        'top': params.top,
+        'bottom': params.bottom,
+        'mode': params.mode,
+      },
+    );
+  }
+
+  /// Convert ghost removal parameters to dynamic format.
+  ///
+  /// The presets map to (mode, shift, intensity) triples the plugin accepts.
+  /// A saved job carrying its own ghost list keeps it: `custom` is resolved
+  /// back to whatever was stored rather than to a preset.
+  static DynamicParameters fromGhostRemoval(GhostRemovalParameters params) {
+    return DynamicParameters(
+      filterId: 'ghost_removal',
+      enabled: params.enabled,
+      values: {'preset': ghostPresetFor(params.ghosts)},
+    );
+  }
+
+  /// Named ghost presets. Mode 2 is luminance ghosting, which is what RF and
+  /// cable echoes look like; the offsets are typical for SD line timing.
+  static const Map<String, List<GhostSpec>> ghostPresets = {
+    'light': [GhostSpec(mode: 2, shift: 4, intensity: 12)],
+    'medium': [GhostSpec(mode: 2, shift: 6, intensity: 24)],
+    'strong': [
+      GhostSpec(mode: 2, shift: 6, intensity: 36),
+      GhostSpec(mode: 1, shift: 12, intensity: 12),
+    ],
+  };
+
+  static String ghostPresetFor(List<GhostSpec> ghosts) {
+    for (final entry in ghostPresets.entries) {
+      final preset = entry.value;
+      if (preset.length != ghosts.length) continue;
+      var same = true;
+      for (var i = 0; i < preset.length; i++) {
+        if (preset[i].mode != ghosts[i].mode ||
+            preset[i].shift != ghosts[i].shift ||
+            preset[i].intensity != ghosts[i].intensity) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return entry.key;
+    }
+    return ghosts.isEmpty ? 'light' : 'custom';
+  }
+
+  static DynamicParameters fromFrameRate(FrameRateParameters params) {
+    return DynamicParameters(
+      filterId: 'frame_rate',
+      enabled: params.enabled,
+      values: {
+        'method': params.method == FrameRateMethod.duplicate
+            ? 'duplicate'
+            : 'flowFps',
+        'target': params.target.name,
+        'blockSize': params.blockSize,
+        'overlap': params.overlap,
+      },
+    );
+  }
+
+  static DynamicParameters fromGrain(GrainParameters params) {
+    return DynamicParameters(
+      filterId: 'grain',
+      enabled: params.enabled,
+      values: {
+        'method': params.method == GrainMethod.grainFactory3
+            ? 'grain_factory3'
+            : 'add_grain',
+        'var': params.var_,
+        'uvar': params.uvar,
+        'corr': params.corr,
+        'constant': params.constant,
+        'g1str': params.g1str,
+        'g2str': params.g2str,
+        'g3str': params.g3str,
+        'tempAvg': params.tempAvg,
+      },
+    );
+  }
+
+  /// Convert dynamic parameters to grain parameters.
+  /// Convert dynamic parameters to frame rate parameters.
+  /// Convert dynamic parameters to deflicker parameters.
+  static DeflickerParameters toDeflicker(DynamicParameters params) {
+    final v = params.values;
+    return DeflickerParameters(
+      enabled: params.enabled,
+      method: (v['method'] as String?) == 'local'
+          ? DeflickerMethod.local
+          : DeflickerMethod.global,
+      strength: (v['strength'] as num?)?.toDouble() ?? 1.0,
+      window: _asInt(v['window']) ?? 5,
+      localStrength: _asInt(v['localStrength']) ?? 2,
+      aggressive: v['aggressive'] as bool? ?? false,
+    );
+  }
+
+  /// Convert dynamic parameters to edge repair parameters.
+  static EdgeRepairParameters toEdgeRepair(DynamicParameters params) {
+    final v = params.values;
+    return EdgeRepairParameters(
+      enabled: params.enabled,
+      left: _asInt(v['left']) ?? 0,
+      right: _asInt(v['right']) ?? 0,
+      top: _asInt(v['top']) ?? 0,
+      bottom: _asInt(v['bottom']) ?? 0,
+      mode: v['mode'] as String? ?? 'fillmargins',
+    );
+  }
+
+  /// Convert dynamic parameters to ghost removal parameters.
+  static GhostRemovalParameters toGhostRemoval(
+    DynamicParameters params, {
+    List<GhostSpec> existing = const [],
+  }) {
+    final preset = params.values['preset'] as String? ?? 'light';
+    // `custom` means "keep whatever the job already carried" — resolving it to
+    // a preset would silently discard a hand-built ghost list.
+    final ghosts = preset == 'custom'
+        ? existing
+        : (ghostPresets[preset] ?? ghostPresets['light']!);
+    return GhostRemovalParameters(enabled: params.enabled, ghosts: ghosts);
+  }
+
+  static FrameRateParameters toFrameRate(DynamicParameters params) {
+    final v = params.values;
+    final target = FrameRateTarget.values.firstWhere(
+      (t) => t.name == v['target'],
+      orElse: () => FrameRateTarget.pal25,
+    );
+    return FrameRateParameters(
+      enabled: params.enabled,
+      method: (v['method'] as String?) == 'duplicate'
+          ? FrameRateMethod.duplicate
+          : FrameRateMethod.flowFps,
+      target: target,
+      blockSize: _asInt(v['blockSize']) ?? 16,
+      overlap: _asInt(v['overlap']) ?? 8,
+    );
+  }
+
+  static GrainParameters toGrain(DynamicParameters params) {
+    final v = params.values;
+    return GrainParameters(
+      enabled: params.enabled,
+      method: v['method'] == 'grain_factory3'
+          ? GrainMethod.grainFactory3
+          : GrainMethod.addGrain,
+      var_: (v['var'] as num?)?.toDouble() ?? 4.0,
+      uvar: (v['uvar'] as num?)?.toDouble() ?? 0.0,
+      corr: (v['corr'] as num?)?.toDouble() ?? 0.0,
+      constant: v['constant'] as bool? ?? false,
+      g1str: (v['g1str'] as num?)?.toDouble() ?? 4.0,
+      g2str: (v['g2str'] as num?)?.toDouble() ?? 3.0,
+      g3str: (v['g3str'] as num?)?.toDouble() ?? 2.0,
+      tempAvg: _asInt(v['tempAvg']) ?? 0,
     );
   }
 
@@ -282,6 +633,9 @@ class ParameterConverter {
       case DeblockMethod.deblock:
         method = 'deblock';
         break;
+      case DeblockMethod.dctFilter:
+        method = 'dctfilter';
+        break;
     }
 
     return DynamicParameters(
@@ -293,6 +647,9 @@ class ParameterConverter {
         'quant2': params.quant2,
         'aOffset1': params.aOffset1,
         'aOffset2': params.aOffset2,
+        'dctCutoff': params.dctCutoff,
+        'dctStrength': params.dctStrength,
+        'dctPlanes': params.dctPlanes,
       },
     );
   }
@@ -330,7 +687,15 @@ class ParameterConverter {
     return DynamicParameters(
       filterId: 'spotless',
       enabled: params.enabled,
-      values: {},
+      values: {
+        'method': params.method == SpotLessMethod.removeDirt
+            ? 'removeDirt'
+            : 'spotless',
+        'rdGmthreshold': params.rdGmthreshold,
+        'rdNoise': params.rdNoise,
+        'rdNoisy': params.rdNoisy,
+        'rdDist': params.rdDist,
+        'rdPostDenoise': params.rdPostDenoise,},
       lastOptionalValues: {
         'chroma': params.chroma,
         'rec': params.rec,
@@ -370,6 +735,9 @@ class ParameterConverter {
       case SharpenMethod.cas:
         method = 'cas';
         break;
+      case SharpenMethod.aWarpSharp2:
+        method = 'awarpsharp2';
+        break;
     }
 
     return DynamicParameters(
@@ -382,6 +750,10 @@ class ParameterConverter {
         'undershoot': params.undershoot,
         'softEdge': params.softEdge,
         'casSharpness': params.casSharpness,
+        'warpDepth': params.warpDepth,
+        'warpThresh': params.warpThresh,
+        'warpBlur': params.warpBlur,
+        'warpType': params.warpType,
       },
     );
   }
@@ -392,6 +764,12 @@ class ParameterConverter {
       filterId: 'color_correction',
       enabled: params.enabled,
       values: {
+        'applyAutoLevels': params.applyAutoLevels,
+        'autoLevelsBlack': params.autoLevelsBlack,
+        'autoLevelsWhite': params.autoLevelsWhite,
+        'autoLevelsStrength': params.autoLevelsStrength,
+        'applyAutoWhiteBalance': params.applyAutoWhiteBalance,
+        'autoWhiteBalanceStrength': params.autoWhiteBalanceStrength,
         'method': 'tweak',
         'brightness': params.brightness,
         'contrast': params.contrast,
@@ -399,6 +777,9 @@ class ParameterConverter {
         'saturation': params.saturation,
         'coring': params.coring,
         'applyLevels': params.applyLevels,
+        'smoothLevels': params.smoothLevels,
+        'applyShadowDetail': params.applyShadowDetail,
+        'shadowSigma': params.shadowSigma,
         'inputLow': params.inputLow,
         'inputHigh': params.inputHigh,
         'outputLow': params.outputLow,
@@ -416,6 +797,15 @@ class ParameterConverter {
       filterId: 'chroma_fixes',
       enabled: params.enabled,
       values: {
+        'applyAutoChroma': params.applyAutoChroma,
+        'autoChromaMaxShift': params.autoChromaMaxShift,
+        'autoChromaAccuracy': params.autoChromaAccuracy,
+        'autoChromaReferenceFrame': params.autoChromaReferenceFrame,
+        'applyDedot': params.applyDedot,
+        'dedotLuma2d': params.dedotLuma2d,
+        'dedotLumaT': params.dedotLumaT,
+        'dedotChromaT1': params.dedotChromaT1,
+        'dedotChromaT2': params.dedotChromaT2,
         'applyChromaShift': params.applyChromaShift,
         'chromaShiftH': params.chromaShiftH,
         'chromaShiftV': params.chromaShiftV,
@@ -425,6 +815,13 @@ class ParameterConverter {
         'chromaBleedCBlur': params.chromaBleedCBlur,
         'chromaBleedStrength': params.chromaBleedStrength,
         'applyDeCrawl': params.applyDeCrawl,
+        'applyDeRainbow': params.applyDeRainbow,
+        'applyBifrost': params.applyBifrost,
+        'bifrostLumaThresh': params.bifrostLumaThresh,
+        'bifrostVariation': params.bifrostVariation,
+        'bifrostInterlaced': params.bifrostInterlaced,
+        'deRainbowCThresh': params.deRainbowCThresh,
+        'deRainbowYThresh': params.deRainbowYThresh,
         'deCrawlYThresh': params.deCrawlYThresh,
         'deCrawlCThresh': params.deCrawlCThresh,
         'deCrawlMaxDiff': params.deCrawlMaxDiff,
@@ -496,6 +893,7 @@ class ParameterConverter {
       filterId: 'subtitles',
       enabled: params.enabled,
       values: {
+        'burnInPath': params.burnInPath,
         'method': 'whisper',
         'model': params.model.value,
         'output': params.output.value,
@@ -512,6 +910,14 @@ class ParameterConverter {
         'descratch': fromDeScratch(pipeline.descratch),
         'spotless': fromSpotLess(pipeline.spotless),
         'noise_reduction': fromNoiseReduction(pipeline.noiseReduction),
+        'anti_alias': fromAntiAlias(pipeline.antiAlias),
+        'stabilize': fromStabilize(pipeline.stabilize),
+        'geometry': fromGeometry(pipeline.geometry),
+        'grain': fromGrain(pipeline.grain),
+        'frame_rate': fromFrameRate(pipeline.frameRate),
+        'deflicker': fromDeflicker(pipeline.deflicker),
+        'edge_repair': fromEdgeRepair(pipeline.edgeRepair),
+        'ghost_removal': fromGhostRemoval(pipeline.ghostRemoval),
         'chroma_denoise': fromChromaDenoise(pipeline.chromaDenoise),
         'dehalo': fromDehalo(pipeline.dehalo),
         'deblock': fromDeblock(pipeline.deblock),
@@ -542,6 +948,9 @@ class ParameterConverter {
       case 'soft_telecine':
         method = DeinterlaceMethod.softTelecine;
         break;
+      case 'bwdif':
+        method = DeinterlaceMethod.bwdif;
+        break;
       default:
         method = DeinterlaceMethod.qtgmc;
     }
@@ -555,6 +964,7 @@ class ParameterConverter {
       ),
       tff: v['tff'] as bool?,
       fpsDivisor: v['fpsDivisor'] as int?,
+      bwdifEdeint: v['bwdifEdeint'] as bool? ?? false,
       chromaUpsampleFix: v['chromaUpsampleFix'] as bool?,
       highPrecision: v['highPrecision'] as bool?,
       inputType: v['inputType'] as int?,
@@ -658,11 +1068,51 @@ class ParameterConverter {
       case 'qtgmc_builtin':
         method = NoiseReductionMethod.qtgmcBuiltin;
         break;
+      case 'dfttest':
+        method = NoiseReductionMethod.dfttest;
+        break;
+      case 'fft3dfilter':
+        method = NoiseReductionMethod.fft3dFilter;
+        break;
+      case 'ttempsmooth':
+        method = NoiseReductionMethod.tTempSmooth;
+        break;
+      case 'fluxsmooth_t':
+        method = NoiseReductionMethod.fluxSmoothT;
+        break;
+      case 'fluxsmooth_st':
+        method = NoiseReductionMethod.fluxSmoothSt;
+        break;
+      case 'stpresso':
+        method = NoiseReductionMethod.stPresso;
+        break;
+      case 'ctmf':
+        method = NoiseReductionMethod.ctmf;
+        break;
+      case 'mclean':
+        method = NoiseReductionMethod.mClean;
+        break;
+      case 'temporal_degrain2':
+        method = NoiseReductionMethod.temporalDegrain2;
+        break;
       default:
         method = NoiseReductionMethod.smDegrain;
     }
 
     return NoiseReductionParameters(
+      mcleanStrength: _asInt(v['mcleanStrength']) ?? 20,
+      mcleanSharp: _asInt(v['mcleanSharp']) ?? 10,
+      mcleanRn: _asInt(v['mcleanRn']) ?? 14,
+      mcleanThsad: _asInt(v['mcleanThsad']) ?? 400,
+      mcleanChroma: v['mcleanChroma'] as bool? ?? true,
+      td2DegrainTr: _asInt(v['td2DegrainTr']) ?? 1,
+      td2GrainLevel: _asInt(v['td2GrainLevel']) ?? 2,
+      td2PostFft: _asInt(v['td2PostFft']) ?? 0,
+      td2PostSigma: (v['td2PostSigma'] as num?)?.toDouble() ?? 1.0,
+      td2PostMix: _asInt(v['td2PostMix']) ?? 0,
+      td2ChromaMotion: v['td2ChromaMotion'] as bool? ?? true,
+      contraSharpen: v['contraSharpen'] as bool? ?? false,
+      contraSharpenRep: _asInt(v['contraSharpenRep']) ?? 13,
       enabled: params.enabled,
       preset: params.enabled ? NoiseReductionPreset.custom : NoiseReductionPreset.off,
       method: method,
@@ -682,6 +1132,23 @@ class ParameterConverter {
       mcTemporalProfile: v['mcTemporalProfile'] as String? ?? 'medium',
       qtgmcEzDenoise: (v['qtgmcEzDenoise'] as num?)?.toDouble() ?? 0.0,
       qtgmcEzKeepGrain: (v['qtgmcEzKeepGrain'] as num?)?.toDouble() ?? 0.0,
+      dfttestSigma: (v['dfttestSigma'] as num?)?.toDouble() ?? 8.0,
+      dfttestTbsize: _asInt(v['dfttestTbsize']) ?? 3,
+      dfttestSbsize: _asInt(v['dfttestSbsize']) ?? 16,
+      fft3dSigma: (v['fft3dSigma'] as num?)?.toDouble() ?? 2.0,
+      fft3dBt: _asInt(v['fft3dBt']) ?? 3,
+      fft3dSharpen: (v['fft3dSharpen'] as num?)?.toDouble() ?? 0.0,
+      ttempMaxr: _asInt(v['ttempMaxr']) ?? 3,
+      ttempThresh: _asInt(v['ttempThresh']) ?? 4,
+      ttempMdiff: _asInt(v['ttempMdiff']) ?? 2,
+      ttempStrength: _asInt(v['ttempStrength']) ?? 2,
+      fluxTemporalThreshold: _asInt(v['fluxTemporalThreshold']) ?? 7,
+      fluxSpatialThreshold: _asInt(v['fluxSpatialThreshold']) ?? 7,
+      stpressoLimit: _asInt(v['stpressoLimit']) ?? 3,
+      stpressoBias: _asInt(v['stpressoBias']) ?? 24,
+      stpressoTthr: _asInt(v['stpressoTthr']) ?? 12,
+      ctmfRadius: _asInt(v['ctmfRadius']) ?? 2,
+      ctmfPlanes: _asInt(v['ctmfPlanes']) ?? 2,
     );
   }
 
@@ -690,6 +1157,9 @@ class ParameterConverter {
     final v = params.values;
     return ChromaDenoiseParameters(
       enabled: params.enabled,
+      method: (v['method'] as String?) == 'cnr4'
+          ? ChromaDenoiseMethod.cnr4
+          : ChromaDenoiseMethod.ccd,
       threshold: (v['threshold'] as num?)?.toDouble() ?? 4.0,
       temporalRadius: _asInt(v['temporalRadius']) ?? 0,
       pointsLow: v['pointsLow'] as bool? ?? true,
@@ -697,6 +1167,11 @@ class ParameterConverter {
       pointsHigh: v['pointsHigh'] as bool? ?? false,
       // Absent means "derive from the frame height".
       scale: (v['scale'] as num?)?.toDouble(),
+      cnr4Strength: _asInt(v['cnr4Strength']) ?? 192,
+      cnr4Sense: _asInt(v['cnr4Sense']) ?? 35,
+      cnr4Radius: _asInt(v['cnr4Radius']) ?? 2,
+      cnr4Tmode: _asInt(v['cnr4Tmode']) ?? 0,
+      cnr4Wmode: _asInt(v['cnr4Wmode']) ?? 0,
     );
   }
 
@@ -711,6 +1186,7 @@ class ParameterConverter {
       'edge_cleaner' => DehaloMethod.edgeCleaner,
       'vinverse' => DehaloMethod.vinverse,
       'vinverse2' => DehaloMethod.vinverse2,
+      'hq_deringmod' => DehaloMethod.hqDeringmod,
       _ => DehaloMethod.dehaloAlpha,
     };
 
@@ -742,6 +1218,11 @@ class ParameterConverter {
       vinverseStrength: (v['vinverseStrength'] as num?)?.toDouble(),
       vinverseAmount: (v['vinverseAmount'] as num?)?.toInt(),
       vinverseChroma: v['vinverseChroma'] as bool?,
+      deringMrad: _asInt(v['deringMrad']),
+      deringMsmooth: _asInt(v['deringMsmooth']),
+      deringMthr: _asInt(v['deringMthr']),
+      deringThr: (v['deringThr'] as num?)?.toDouble(),
+      deringDarkthr: (v['deringDarkthr'] as num?)?.toDouble(),
     );
   }
 
@@ -754,6 +1235,9 @@ class ParameterConverter {
       case 'deblock':
         method = DeblockMethod.deblock;
         break;
+      case 'dctfilter':
+        method = DeblockMethod.dctFilter;
+        break;
       default:
         method = DeblockMethod.deblockQed;
     }
@@ -765,6 +1249,11 @@ class ParameterConverter {
       quant2: v['quant2'] as int? ?? 26,
       aOffset1: v['aOffset1'] as int? ?? 1,
       aOffset2: v['aOffset2'] as int? ?? 1,
+      dctCutoff: _asInt(v['dctCutoff']) ?? 5,
+      // Guarded on the Rust side too, but a NaN here would reach a plugin whose
+      // own range check lets it through and blackens the frame.
+      dctStrength: (v['dctStrength'] as num?)?.toDouble() ?? 0.6,
+      dctPlanes: _asInt(v['dctPlanes']) ?? 0,
     );
   }
 
@@ -795,6 +1284,14 @@ class ParameterConverter {
   static SpotLessParameters toSpotLess(DynamicParameters params) {
     final v = params.values;
     return SpotLessParameters(
+      method: (params.values['method'] as String?) == 'removeDirt'
+          ? SpotLessMethod.removeDirt
+          : SpotLessMethod.spotless,
+      rdGmthreshold: _asInt(params.values['rdGmthreshold']) ?? 70,
+      rdNoise: _asInt(params.values['rdNoise']) ?? 50,
+      rdNoisy: _asInt(params.values['rdNoisy']) ?? 12,
+      rdDist: _asInt(params.values['rdDist']) ?? 1,
+      rdPostDenoise: params.values['rdPostDenoise'] as bool? ?? false,
       enabled: params.enabled,
       chroma: v['chroma'] as bool? ?? true,
       rec: v['rec'] as bool? ?? false,
@@ -829,6 +1326,9 @@ class ParameterConverter {
       case 'cas':
         method = SharpenMethod.cas;
         break;
+      case 'awarpsharp2':
+        method = SharpenMethod.aWarpSharp2;
+        break;
       default:
         method = SharpenMethod.lsfmod;
     }
@@ -841,6 +1341,10 @@ class ParameterConverter {
       undershoot: v['undershoot'] as int? ?? 1,
       softEdge: v['softEdge'] as int? ?? 0,
       casSharpness: (v['casSharpness'] as num?)?.toDouble() ?? 0.5,
+      warpDepth: _asInt(v['warpDepth']) ?? 16,
+      warpThresh: _asInt(v['warpThresh']) ?? 128,
+      warpBlur: _asInt(v['warpBlur']) ?? 2,
+      warpType: _asInt(v['warpType']) ?? 0,
     );
   }
 
@@ -848,6 +1352,12 @@ class ParameterConverter {
   static ColorCorrectionParameters toColorCorrection(DynamicParameters params) {
     final v = params.values;
     return ColorCorrectionParameters(
+      applyAutoLevels: v['applyAutoLevels'] as bool? ?? false,
+      autoLevelsBlack: _asInt(v['autoLevelsBlack']) ?? 16,
+      autoLevelsWhite: _asInt(v['autoLevelsWhite']) ?? 235,
+      autoLevelsStrength: (v['autoLevelsStrength'] as num?)?.toDouble() ?? 1.0,
+      applyAutoWhiteBalance: v['applyAutoWhiteBalance'] as bool? ?? false,
+      autoWhiteBalanceStrength: (v['autoWhiteBalanceStrength'] as num?)?.toDouble() ?? 1.0,
       enabled: params.enabled,
       brightness: (v['brightness'] as num?)?.toDouble() ?? 0.0,
       contrast: (v['contrast'] as num?)?.toDouble() ?? 1.0,
@@ -855,6 +1365,9 @@ class ParameterConverter {
       saturation: (v['saturation'] as num?)?.toDouble() ?? 1.0,
       coring: v['coring'] as bool? ?? false,
       applyLevels: v['applyLevels'] as bool? ?? false,
+      smoothLevels: v['smoothLevels'] as bool? ?? false,
+      applyShadowDetail: v['applyShadowDetail'] as bool? ?? false,
+      shadowSigma: (v['shadowSigma'] as num?)?.toDouble() ?? 100.0,
       inputLow: v['inputLow'] as int? ?? 0,
       inputHigh: v['inputHigh'] as int? ?? 255,
       outputLow: v['outputLow'] as int? ?? 0,
@@ -869,6 +1382,15 @@ class ParameterConverter {
   static ChromaFixParameters toChromaFixes(DynamicParameters params) {
     final v = params.values;
     return ChromaFixParameters(
+      applyAutoChroma: v['applyAutoChroma'] as bool? ?? false,
+      autoChromaMaxShift: _asInt(v['autoChromaMaxShift']) ?? 2,
+      autoChromaAccuracy: (v['autoChromaAccuracy'] as num?)?.toDouble() ?? 0.25,
+      autoChromaReferenceFrame: _asInt(v['autoChromaReferenceFrame']) ?? 0,
+      applyDedot: v['applyDedot'] as bool? ?? false,
+      dedotLuma2d: _asInt(v['dedotLuma2d']) ?? 20,
+      dedotLumaT: _asInt(v['dedotLumaT']) ?? 20,
+      dedotChromaT1: _asInt(v['dedotChromaT1']) ?? 15,
+      dedotChromaT2: _asInt(v['dedotChromaT2']) ?? 5,
       enabled: params.enabled,
       applyChromaShift: v['applyChromaShift'] as bool? ?? false,
       chromaShiftH: (v['chromaShiftH'] as num?)?.toDouble() ?? 0.0,
@@ -879,6 +1401,13 @@ class ParameterConverter {
       chromaBleedCBlur: (v['chromaBleedCBlur'] as num?)?.toDouble() ?? 0.7,
       chromaBleedStrength: (v['chromaBleedStrength'] as num?)?.toDouble() ?? 0.8,
       applyDeCrawl: v['applyDeCrawl'] as bool? ?? false,
+      applyDeRainbow: v['applyDeRainbow'] as bool? ?? false,
+      applyBifrost: v['applyBifrost'] as bool? ?? false,
+      bifrostLumaThresh: (v['bifrostLumaThresh'] as num?)?.toDouble() ?? 10.0,
+      bifrostVariation: _asInt(v['bifrostVariation']) ?? 5,
+      bifrostInterlaced: v['bifrostInterlaced'] as bool? ?? true,
+      deRainbowCThresh: _asInt(v['deRainbowCThresh']) ?? 10,
+      deRainbowYThresh: _asInt(v['deRainbowYThresh']) ?? 10,
       deCrawlYThresh: v['deCrawlYThresh'] as int? ?? 10,
       deCrawlCThresh: v['deCrawlCThresh'] as int? ?? 10,
       deCrawlMaxDiff: v['deCrawlMaxDiff'] as int? ?? 50,
@@ -945,6 +1474,7 @@ class ParameterConverter {
     final languageStr = v['language'] as String? ?? 'auto';
 
     return SubtitleParameters(
+      burnInPath: v['burnInPath'] as String? ?? '',
       enabled: params.enabled,
       model: WhisperModel.values.firstWhere(
         (m) => m.value == modelStr,
@@ -967,6 +1497,30 @@ class ParameterConverter {
       noiseReduction: dynamic.get('noise_reduction') != null
           ? toNoiseReduction(dynamic.get('noise_reduction')!)
           : const NoiseReductionParameters(),
+      antiAlias: dynamic.get('anti_alias') != null
+          ? toAntiAlias(dynamic.get('anti_alias')!)
+          : const AntiAliasParameters(),
+      stabilize: dynamic.get('stabilize') != null
+          ? toStabilize(dynamic.get('stabilize')!)
+          : const StabilizeParameters(),
+      geometry: dynamic.get('geometry') != null
+          ? toGeometry(dynamic.get('geometry')!)
+          : const GeometryParameters(),
+      deflicker: dynamic.get('deflicker') != null
+          ? toDeflicker(dynamic.get('deflicker')!)
+          : const DeflickerParameters(),
+      edgeRepair: dynamic.get('edge_repair') != null
+          ? toEdgeRepair(dynamic.get('edge_repair')!)
+          : const EdgeRepairParameters(),
+      ghostRemoval: dynamic.get('ghost_removal') != null
+          ? toGhostRemoval(dynamic.get('ghost_removal')!)
+          : const GhostRemovalParameters(),
+      frameRate: dynamic.get('frame_rate') != null
+          ? toFrameRate(dynamic.get('frame_rate')!)
+          : const FrameRateParameters(),
+      grain: dynamic.get('grain') != null
+          ? toGrain(dynamic.get('grain')!)
+          : const GrainParameters(),
       chromaDenoise: dynamic.get('chroma_denoise') != null
           ? toChromaDenoise(dynamic.get('chroma_denoise')!)
           : const ChromaDenoiseParameters(),

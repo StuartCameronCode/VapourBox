@@ -10,7 +10,10 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:vapourbox/models/anti_alias_parameters.dart';
 import 'package:vapourbox/models/chroma_denoise_parameters.dart';
+import 'package:vapourbox/models/grain_parameters.dart';
+import 'package:vapourbox/models/geometry_parameters.dart';
 import 'package:vapourbox/models/chroma_fix_parameters.dart';
 import 'package:vapourbox/models/color_correction_parameters.dart';
 import 'package:vapourbox/models/crop_resize_parameters.dart';
@@ -27,6 +30,7 @@ import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/sharpen_parameters.dart';
 import 'package:vapourbox/models/spotless_parameters.dart';
+import 'package:vapourbox/models/stabilize_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 
 import 'support/worker_harness.dart';
@@ -165,6 +169,10 @@ VideoJob buildJob({
   SpotLessParameters? spotless,
   CropResizeParameters? cropResize,
   ChromaDenoiseParameters? chromaDenoise,
+  AntiAliasParameters? antiAlias,
+  StabilizeParameters? stabilize,
+  GeometryParameters? geometry,
+  GrainParameters? grain,
 }) => VideoJob(
   id: const Uuid().v4(),
   inputPath: TestConfig.inputFile,
@@ -182,6 +190,10 @@ VideoJob buildJob({
     colorCorrection: colorCorrection ?? const ColorCorrectionParameters(),
     cropResize: cropResize ?? const CropResizeParameters(),
     chromaDenoise: chromaDenoise ?? const ChromaDenoiseParameters(),
+    antiAlias: antiAlias ?? const AntiAliasParameters(),
+    stabilize: stabilize ?? const StabilizeParameters(),
+    geometry: geometry ?? const GeometryParameters(),
+    grain: grain ?? const GrainParameters(),
   ),
   encodingSettings: const EncodingSettings(
     codec: VideoCodec.h264, container: ContainerFormat.mkv, audioMode: AudioMode.none,
@@ -447,6 +459,45 @@ void main() {
       // CCD rejects a scale below 1.0, and its own automatic value is below 1.0
       // for anything shorter than 480 lines — so we derive it with a floor.
       expect(script, contains('max(1.0, clip.height / 480.0)'));
+      // The other method must not also be emitted.
+      expect(script, isNot(contains('core.zsmooth.Cnr4(')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // Cnr4 — the second Chroma Denoise method. It targets colour that swims
+    // between frames, where CCD targets blotches that sit still.
+    test('chroma_denoise: Cnr4 needs SCDetect and a 4:1:1 guard', () async {
+      final job = buildJob(
+        testName: 'chroma_denoise_cnr4',
+        chromaDenoise: const ChromaDenoiseParameters(
+          enabled: true,
+          method: ChromaDenoiseMethod.cnr4,
+          cnr4Strength: 160,
+          cnr4Sense: 50,
+          cnr4Radius: 3,
+        ),
+      );
+      print('  Generating Cnr4 script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.zsmooth.Cnr4('));
+      expect(script, isNot(contains('core.zsmooth.CCD(')));
+
+      // scenechange defaults to True and needs frame properties this pipeline
+      // never sets, so without SCDetect in front this fails EVERY job on every
+      // platform. Measured against the bundled plugin.
+      final cnr4At = script.indexOf('core.zsmooth.Cnr4(');
+      expect(script.substring(0, cnr4At), contains('core.misc.SCDetect('),
+          reason: 'Cnr4 without SCDetect fails at frame request, not at parse');
+
+      // 4:1:1 is NTSC DV and pipe_source maps it natively; Cnr4 rejects it.
+      expect(script.substring(0, cnr4At), contains('subsampling_w == 2'));
+
+      final actual = parseFilterParams(script, 'core.zsmooth.Cnr4(');
+      expect(actual['radius'], '3');
+      // One slider drives all three planes, preserving the plugin's own ratio
+      // between luma and chroma rather than exposing three numbers.
+      expect(actual['sense'], '[50, 67, 67]');
+      expect(actual['str'], '[160, 213, 213]');
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
@@ -471,6 +522,8 @@ void main() {
       expect(script, contains('core.mv.Degrain3('));
       final actual = parseFilterParams(script, 'core.mv.Degrain3(');
       print('  Parsed ${actual.length} params');
+      // mvtools spells it thsad here; mClean's call spells it thSAD. The parser
+      // preserves case, so the two are not interchangeable.
       expect(actual['thsad'], '500');
       expect(actual['plane'], '3');
       // Blur/sharpen references must cover the same planes as the degrain.
@@ -668,6 +721,554 @@ void main() {
       expect(actual['blksize'], '8');
       expect(actual['overlap'], '4');
       expect(actual['pel'], '1');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+
+    // --- Filters added from the Hybrid gap analysis -----------------------
+    //
+    // Each of these was already installed in the deps bundle and merely
+    // unexposed, so the risk here is not the plugin — it is the wiring. These
+    // assert the parameters survive the whole trip (Dart typed model ->
+    // converter -> job JSON -> Rust model -> generated .vpy), which is the part
+    // that fails silently: a name mismatch anywhere and the filter runs with
+    // its defaults while the UI shows the user's values.
+
+    test('noise reduction: DFTTest params', () async {
+      loadSchema('noise_reduction');
+      final typed = const NoiseReductionParameters(
+        enabled: true,
+        method: NoiseReductionMethod.dfttest,
+        dfttestSigma: 12.5,
+        dfttestTbsize: 5,
+        dfttestSbsize: 12,
+      );
+      final job = buildJob(testName: 'nr_dfttest', noiseReduction: typed);
+      print('  Generating DFTTest script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.dfttest.DFTTest('));
+      final actual = parseFilterParams(script, 'core.dfttest.DFTTest(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['sigma'], '12.5');
+      expect(actual['tbsize'], '5');
+      expect(actual['sbsize'], '12');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('noise reduction: DFTTest temporal window is forced odd', () async {
+      // An even tbsize is accepted by DFTTest but processes a window that isn't
+      // centred on the current frame, so the worker rounds it down.
+      final typed = const NoiseReductionParameters(
+        enabled: true,
+        method: NoiseReductionMethod.dfttest,
+        dfttestTbsize: 6,
+      );
+      final job = buildJob(testName: 'nr_dfttest_even', noiseReduction: typed);
+      final script = await generateScriptViaWorker(job);
+      final actual = parseFilterParams(script, 'core.dfttest.DFTTest(');
+      expect(actual['tbsize'], '5');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // mClean and TemporalDegrain2 both shipped with the script generator
+    // removing their own template block before enabling it, so the pass ran and
+    // emitted no denoiser at all. `test_149` in the Rust suite now enumerates
+    // every method, but it builds the Rust struct directly — only going through
+    // the worker binary proves the Dart enum's JsonValue and the Rust serde name
+    // still agree.
+    test('noise reduction: mClean reaches the script with its params', () async {
+      loadSchema('noise_reduction');
+      final typed = const NoiseReductionParameters(
+        enabled: true,
+        method: NoiseReductionMethod.mClean,
+        mcleanStrength: 17,
+        mcleanSharp: 9,
+        mcleanRn: 11,
+        mcleanThsad: 320,
+      );
+      final job = buildJob(testName: 'nr_mclean', noiseReduction: typed);
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('from mclean import mClean'));
+      expect(script, contains('_mClean('));
+      final actual = parseFilterParams(script, '_mClean(');
+      expect(actual['strength'], '17');
+      expect(actual['sharp'], '9');
+      expect(actual['rn'], '11');
+      expect(actual['thSAD'], '320');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('noise reduction: TemporalDegrain2 reaches the script with its params',
+        () async {
+      loadSchema('noise_reduction');
+      final typed = const NoiseReductionParameters(
+        enabled: true,
+        method: NoiseReductionMethod.temporalDegrain2,
+        td2DegrainTr: 2,
+        td2GrainLevel: 1,
+        td2PostFft: 3,
+        td2PostMix: 40,
+      );
+      final job = buildJob(testName: 'nr_td2', noiseReduction: typed);
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('from temporaldegrain2 import TemporalDegrain2'));
+      expect(script, contains('_TemporalDegrain2('));
+      final actual = parseFilterParams(script, '_TemporalDegrain2(');
+      expect(actual['degrainTR'], '2');
+      expect(actual['grainLevel'], '1');
+      // 4 and 5 abort the process rather than raising, so the clamp matters.
+      expect(actual['postFFT'], '3');
+      expect(actual['postMix'], '40');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('noise reduction: FFT3DFilter params', () async {
+      loadSchema('noise_reduction');
+      final typed = const NoiseReductionParameters(
+        enabled: true,
+        method: NoiseReductionMethod.fft3dFilter,
+        fft3dSigma: 3.5,
+        fft3dBt: 4,
+        fft3dSharpen: 0.4,
+      );
+      final job = buildJob(testName: 'nr_fft3d', noiseReduction: typed);
+      print('  Generating FFT3DFilter script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.fft3dfilter.FFT3DFilter('));
+      final actual = parseFilterParams(script, 'core.fft3dfilter.FFT3DFilter(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['sigma'], '3.5');
+      expect(actual['bt'], '4');
+      expect(actual['sharpen'], '0.4');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('noise reduction: TTempSmooth params, mdiff held below thresh',
+        () async {
+      loadSchema('noise_reduction');
+      // mdiff deliberately set above thresh: the plugin accepts that but it
+      // silently disables the motion protection the parameter exists for.
+      final typed = const NoiseReductionParameters(
+        enabled: true,
+        method: NoiseReductionMethod.tTempSmooth,
+        ttempMaxr: 4,
+        ttempThresh: 6,
+        ttempMdiff: 9,
+        ttempStrength: 3,
+      );
+      final job = buildJob(testName: 'nr_ttempsmooth', noiseReduction: typed);
+      print('  Generating TTempSmooth script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.ttmpsm.TTempSmooth('));
+      final actual = parseFilterParams(script, 'core.ttmpsm.TTempSmooth(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['maxr'], '4');
+      expect(actual['thresh'], '6');
+      expect(actual['mdiff'], '5', reason: 'clamped to thresh - 1');
+      expect(actual['strength'], '3');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('sharpen: aWarpSharp2 params', () async {
+      loadSchema('sharpen');
+      final typed = const SharpenParameters(
+        enabled: true,
+        method: SharpenMethod.aWarpSharp2,
+        warpDepth: 20,
+        warpThresh: 100,
+        warpBlur: 3,
+        warpType: 1,
+      );
+      final job = buildJob(testName: 'sharpen_awarpsharp2', sharpen: typed);
+      print('  Generating aWarpSharp2 script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.warp.AWarpSharp2('));
+      final actual = parseFilterParams(script, 'core.warp.AWarpSharp2(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['depth'], '20');
+      expect(actual['thresh'], '100');
+      expect(actual['blur'], '3');
+      expect(actual['type'], '1');
+      // `chroma` is deliberately absent: this port accepts only 0 or 1 and
+      // rejects anything else at script evaluation. The block first shipped with
+      // Avisynth's chroma=4, which killed vspipe — caught by the heavy
+      // end-to-end test, not by script generation, which is why this assertion
+      // is here as well.
+      expect(actual.containsKey('chroma'), isFalse);
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('dehalo: HQDeringmod params', () async {
+      loadSchema('dehalo');
+      final typed = const DehaloParameters(
+        enabled: true,
+        method: DehaloMethod.hqDeringmod,
+        deringMrad: 2,
+        deringMsmooth: 2,
+        deringMthr: 70,
+        deringThr: 16.0,
+        deringDarkthr: 4.0,
+      );
+      final job = buildJob(testName: 'dehalo_hqderingmod', dehalo: typed);
+      print('  Generating HQDeringmod script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.HQDeringmod('));
+      final actual = parseFilterParams(script, 'haf.HQDeringmod(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['mrad'], '2');
+      expect(actual['msmooth'], '2');
+      expect(actual['mthr'], '70');
+      // format_double emits a trailing .0 for whole numbers; assert the exact
+      // text so a change in numeric formatting is visible rather than hidden by
+      // a substring match.
+      expect(actual['thr'], '16.0');
+      expect(actual['darkthr'], '4.0');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('dehalo: HQDeringmod omits unset params so havsfunc defaults apply',
+        () async {
+      final typed = const DehaloParameters(
+        enabled: true,
+        method: DehaloMethod.hqDeringmod,
+      );
+      final job = buildJob(testName: 'dehalo_hqdering_defaults', dehalo: typed);
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.HQDeringmod('));
+      final actual = parseFilterParams(script, 'haf.HQDeringmod(');
+      expect(actual, isEmpty,
+          reason: 'passing our own values would override upstream tuning');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+
+    // --- Second batch: anti-aliasing, stabilisation, rainbow removal --------
+
+    test('anti-alias: daa', () async {
+      loadSchema('anti_alias');
+      final job = buildJob(
+        testName: 'aa_daa',
+        antiAlias: const AntiAliasParameters(
+          enabled: true,
+          method: AntiAliasMethod.daa,
+        ),
+      );
+      print('  Generating daa script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.daa('));
+      expect(script, isNot(contains('haf.santiag(')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('anti-alias: santiag params, interpolator pinned to nnedi3', () async {
+      loadSchema('anti_alias');
+      final job = buildJob(
+        testName: 'aa_santiag',
+        antiAlias: const AntiAliasParameters(
+          enabled: true,
+          method: AntiAliasMethod.santiag,
+          santiagStrh: 2,
+          santiagStrv: 3,
+        ),
+      );
+      print('  Generating santiag script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.santiag('));
+      final actual = parseFilterParams(script, 'haf.santiag(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['strh'], '2');
+      expect(actual['strv'], '3');
+      // eedi2 and sangnom are not in the deps bundle; naming one would fail at
+      // script evaluation rather than degrade.
+      expect(actual['type'], '"nnedi3"');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('stabilize: Stab params', () async {
+      loadSchema('stabilize');
+      final job = buildJob(
+        testName: 'stabilize',
+        stabilize: const StabilizeParameters(
+          enabled: true,
+          dxmax: 6,
+          dymax: 8,
+          mirror: 3,
+        ),
+      );
+      print('  Generating Stab script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.Stab('));
+      final actual = parseFilterParams(script, 'haf.Stab(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['dxmax'], '6');
+      expect(actual['dymax'], '8');
+      expect(actual['mirror'], '3');
+      // Stab(clp, dxmax, dymax, mirror) — there is no `range` argument, and
+      // passing one is a TypeError at script evaluation.
+      expect(actual.containsKey('range'), isFalse);
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('chroma_fixes: LUTDeRainbow with its 10-bit guard', () async {
+      loadSchema('chroma_fixes');
+      final job = buildJob(
+        testName: 'derainbow',
+        chromaFixes: const ChromaFixParameters(
+          enabled: true,
+          applyDeRainbow: true,
+          deRainbowCThresh: 12,
+          deRainbowYThresh: 14,
+        ),
+      );
+      print('  Generating LUTDeRainbow script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.LUTDeRainbow('));
+      final actual = parseFilterParams(script, 'haf.LUTDeRainbow(');
+      print('  Parsed ${actual.length} params');
+      expect(actual['cthresh'], '12');
+      expect(actual['ythresh'], '14');
+      // Same 8-10 bit limit as LUTDeCrawl, verified by probing the bundle.
+      expect(script, contains('_derainbow_orig_format'));
+      expect(script, contains('bits_per_sample > 10'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+
+    // --- Third batch: needs the fluxsmooth plugin (deps 1.9.0) --------------
+
+    test('noise reduction: FluxSmoothT params', () async {
+      loadSchema('noise_reduction');
+      final job = buildJob(
+        testName: 'nr_flux_t',
+        noiseReduction: const NoiseReductionParameters(
+          enabled: true,
+          method: NoiseReductionMethod.fluxSmoothT,
+          fluxTemporalThreshold: 9,
+        ),
+      );
+      print('  Generating FluxSmoothT script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.flux.SmoothT('));
+      expect(script, isNot(contains('core.flux.SmoothST(')));
+      final actual = parseFilterParams(script, 'core.flux.SmoothT(');
+      expect(actual['temporal_threshold'], '9');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('noise reduction: FluxSmoothST params', () async {
+      final job = buildJob(
+        testName: 'nr_flux_st',
+        noiseReduction: const NoiseReductionParameters(
+          enabled: true,
+          method: NoiseReductionMethod.fluxSmoothSt,
+          fluxTemporalThreshold: 9,
+          fluxSpatialThreshold: 11,
+        ),
+      );
+      print('  Generating FluxSmoothST script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.flux.SmoothST('));
+      final actual = parseFilterParams(script, 'core.flux.SmoothST(');
+      expect(actual['temporal_threshold'], '9');
+      expect(actual['spatial_threshold'], '11');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('noise reduction: STPresso params', () async {
+      final job = buildJob(
+        testName: 'nr_stpresso',
+        noiseReduction: const NoiseReductionParameters(
+          enabled: true,
+          method: NoiseReductionMethod.stPresso,
+          stpressoLimit: 5,
+          stpressoBias: 30,
+          stpressoTthr: 16,
+        ),
+      );
+      print('  Generating STPresso script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.STPresso('));
+      final actual = parseFilterParams(script, 'haf.STPresso(');
+      expect(actual['limit'], '5');
+      expect(actual['bias'], '30');
+      expect(actual['tthr'], '16');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+
+    // --- Batch four -------------------------------------------------------
+
+    test('noise reduction: CTMF, with its 9-bit guard and pinned memsize',
+        () async {
+      loadSchema('noise_reduction');
+      final job = buildJob(
+        testName: 'nr_ctmf',
+        noiseReduction: const NoiseReductionParameters(
+          enabled: true,
+          method: NoiseReductionMethod.ctmf,
+          ctmfRadius: 4,
+          ctmfPlanes: 0,
+        ),
+      );
+      print('  Generating CTMF script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.ctmf.CTMF('));
+      final actual = parseFilterParams(script, 'core.ctmf.CTMF(');
+      expect(actual['radius'], '4');
+      // 9-bit is rejected by the plugin and IS reachable: pixel_format.rs
+      // rounds an odd source depth up through 9.
+      expect(script, contains('bits_per_sample == 9'));
+      // At the plugin default, 16-bit radius 3 measures 0.79 fps against 42
+      // here, for bit-identical output.
+      expect(actual['memsize'], '16777216');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('deblock: DCTFilter builds exactly eight finite factors', () async {
+      loadSchema('deblock');
+      final job = buildJob(
+        testName: 'deblock_dctfilter',
+        deblock: const DeblockParameters(
+          enabled: true,
+          method: DeblockMethod.dctFilter,
+          dctCutoff: 5,
+          dctStrength: 0.6,
+        ),
+      );
+      print('  Generating DCTFilter script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.dctf.DCTFilter('));
+
+      final start = script.indexOf('factors=[') + 'factors=['.length;
+      final end = script.indexOf(']', start);
+      final factors = script.substring(start, end).split(',');
+      expect(factors.length, 8, reason: 'the plugin requires exactly 8');
+      for (final f in factors) {
+        final value = double.parse(f.trim());
+        expect(value, inInclusiveRange(0.0, 1.0));
+        expect(value.isFinite, isTrue,
+            reason: 'the plugin accepts NaN and blackens the frame');
+      }
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('grain: AddGrain params are not depth-scaled', () async {
+      loadSchema('grain');
+      final job = buildJob(
+        testName: 'grain_add',
+        grain: const GrainParameters(
+          enabled: true,
+          var_: 9.0,
+          uvar: 2.0,
+          constant: true,
+        ),
+      );
+      print('  Generating AddGrain script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.grain.Add('));
+      final actual = parseFilterParams(script, 'core.grain.Add(');
+      // `var` is already in 8-bit units and the plugin rescales internally, so
+      // applying the _levels_8bit() treatment would quadruple grain at 10-bit.
+      // format_double emits a trailing .0; assert the exact text so a change
+      // in numeric formatting is visible rather than hidden.
+      expect(actual['var'], '9.0');
+      expect(actual['uvar'], '2.0');
+      expect(actual['constant'], 'True');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('geometry: rotation restores the source pixel format', () async {
+      loadSchema('geometry');
+      final job = buildJob(
+        testName: 'geometry_rotate',
+        geometry: const GeometryParameters(
+          enabled: true,
+          rotation: Rotation.cw90,
+          flipHorizontal: true,
+        ),
+      );
+      print('  Generating rotate script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.std.Turn90('));
+      expect(script, contains('core.std.FlipHorizontal('));
+      expect(script, isNot(contains('core.std.FlipVertical(')));
+      // A quarter turn makes 4:2:2 into 4:4:0, which ffmpeg rejects outright,
+      // and 4:1:1 into a format with no y4m identifier at all.
+      expect(script, contains('_geom_src_format'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+
+    test('color: SmoothLevels scales to the clip depth and pins useDB',
+        () async {
+      loadSchema('color_correction');
+      final job = buildJob(
+        testName: 'color_smooth_levels',
+        colorCorrection: const ColorCorrectionParameters(
+          enabled: true,
+          applyLevels: true,
+          smoothLevels: true,
+          inputLow: 16,
+          inputHigh: 235,
+        ),
+      );
+      print('  Generating SmoothLevels script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('haf.SmoothLevels('));
+      // Same trap as std.Levels: SmoothLevels reads its levels in the clip's
+      // own range, so they are scaled in-script from clip.format.
+      expect(script, contains('input_low=_levels_8bit(16)'));
+      expect(script, contains('input_high=_levels_8bit(235)'));
+      // havsfunc calls core.f3kdb.Deband; this bundle ships neo_f3kdb, so the
+      // default useDB=True fails on every format.
+      expect(script, contains('useDB=False'));
+      expect(script, isNot(contains('clip = core.std.Levels(')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+
+    // --- Batch five: needs bifrost + retinex (deps 1.9.0) -------------------
+
+    test('chroma_fixes: Bifrost with its 8-bit guard', () async {
+      loadSchema('chroma_fixes');
+      final job = buildJob(
+        testName: 'chroma_bifrost',
+        chromaFixes: const ChromaFixParameters(
+          enabled: true,
+          applyBifrost: true,
+          bifrostLumaThresh: 12.0,
+          bifrostVariation: 3,
+          bifrostInterlaced: false,
+        ),
+      );
+      print('  Generating Bifrost script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.bifrost.Bifrost('));
+      final actual = parseFilterParams(script, 'core.bifrost.Bifrost(');
+      expect(actual['variation'], '3');
+      expect(actual['interlaced'], 'False');
+      // 8-bit only, verified against the bundle at 10/12/16-bit and 4:2:2.
+      expect(script, contains('_bifrost_src_format'));
+      expect(script, contains('bits_per_sample != 8'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('color: shadow detail runs on luma only', () async {
+      loadSchema('color_correction');
+      final job = buildJob(
+        testName: 'color_shadow_detail',
+        colorCorrection: const ColorCorrectionParameters(
+          enabled: true,
+          applyShadowDetail: true,
+          shadowSigma: 120.0,
+        ),
+      );
+      print('  Generating shadow detail script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.retinex.MSRCP('));
+      // MSRCP rejects subsampled formats and every source here is one, so the
+      // luma plane is processed alone rather than round-tripping via 4:4:4.
+      expect(script, contains('colorfamily=vs.GRAY'));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 

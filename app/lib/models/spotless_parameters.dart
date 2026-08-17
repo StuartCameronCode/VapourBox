@@ -2,12 +2,33 @@ import 'package:json_annotation/json_annotation.dart';
 
 part 'spotless_parameters.g.dart';
 
+/// Which spot remover to run.
+enum SpotLessMethod {
+  @JsonValue('spotless')
+  spotless('SpotLess'),
+  @JsonValue('removeDirt')
+  removeDirt('RemoveDirt (fast)');
+
+  const SpotLessMethod(this.displayName);
+  final String displayName;
+}
+
 /// Parameters for the SpotLess pass.
 /// Removes dust, dirt, and temporal spots using motion-compensated median.
 @JsonSerializable()
 class SpotLessParameters {
   /// Whether this pass is enabled.
   final bool enabled;
+
+  /// Which spot remover to run.
+  final SpotLessMethod method;
+
+  /// RemoveDirt tuning.
+  final int rdGmthreshold;
+  final int rdNoise;
+  final int rdNoisy;
+  final int rdDist;
+  final bool rdPostDenoise;
 
   /// Process chroma planes (default true).
   final bool chroma;
@@ -26,6 +47,12 @@ class SpotLessParameters {
 
   const SpotLessParameters({
     this.enabled = false,
+    this.method = SpotLessMethod.spotless,
+    this.rdGmthreshold = 70,
+    this.rdNoise = 50,
+    this.rdNoisy = 12,
+    this.rdDist = 1,
+    this.rdPostDenoise = false,
     this.chroma = true,
     this.rec = false,
     this.blksize = 16,

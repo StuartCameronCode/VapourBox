@@ -1,0 +1,110 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "anti_alias",
+  "version": "1.0.0",
+  "name": "Anti-Aliasing",
+  "description": "Smooth stair-stepping on diagonal edges",
+  "longDescription": "Removes the stair-stepping — \"jaggies\" — that appears along diagonal edges. Both methods work by re-interpolating the frame with an edge-directed kernel and keeping the smoother result, so the edge is rebuilt rather than blurred.\n\nUse it after deinterlacing and after upscaling, which are the two things that create the stepping. It runs before sharpening on purpose: sharpening a stair-stepped edge makes the steps more visible, not less. On a source with no diagonal detail it does nothing but cost time.",
+  "category": "enhancement",
+  "icon": "gesture",
+  "order": 7,
+  "dependencies": {
+    "plugins": [
+      "havsfunc"
+    ],
+    "vs_plugins": [
+      "vsznedi3.dll"
+    ]
+  },
+  "methods": [
+    {
+      "id": "daa",
+      "name": "daa",
+      "description": "Best first choice. Interpolates both fields and averages them — gentle, and rarely damages anything",
+      "function": "haf.daa",
+      "parameters": []
+    },
+    {
+      "id": "santiag",
+      "name": "santiag",
+      "description": "Stronger, with separate horizontal and vertical strength so it can be aimed at one axis. Slower",
+      "function": "haf.santiag",
+      "parameters": [
+        "santiagStrh",
+        "santiagStrv"
+      ]
+    }
+  ],
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "hidden": true
+      }
+    },
+    "method": {
+      "type": "enum",
+      "default": "daa",
+      "options": [
+        "daa",
+        "santiag"
+      ],
+      "ui": {
+        "hidden": true
+      }
+    },
+    "santiagStrh": {
+      "type": "integer",
+      "default": 1,
+      "min": 0,
+      "max": 3,
+      "step": 1,
+      "ui": {
+        "label": "Horizontal Strength",
+        "description": "0 skips the horizontal pass entirely",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "santiag"
+          ]
+        }
+      }
+    },
+    "santiagStrv": {
+      "type": "integer",
+      "default": 1,
+      "min": 0,
+      "max": 3,
+      "step": 1,
+      "ui": {
+        "label": "Vertical Strength",
+        "description": "0 skips the vertical pass entirely",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "santiag"
+          ]
+        }
+      }
+    }
+  },
+  "ui": {
+    "sections": [
+      {
+        "title": "Settings",
+        "parameters": [
+          "santiagStrh",
+          "santiagStrv"
+        ],
+        "expanded": true
+      }
+    ]
+  },
+  "codeTemplate": {
+    "imports": [
+      "import havsfunc as haf"
+    ],
+    "generate": "method"
+  }
+}

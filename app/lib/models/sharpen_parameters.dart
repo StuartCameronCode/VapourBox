@@ -8,7 +8,9 @@ enum SharpenMethod {
   @JsonValue('LSFmod')
   lsfmod('LSFmod', 'LSFmod'),
   @JsonValue('CAS')
-  cas('CAS', 'Contrast Adaptive Sharpening');
+  cas('CAS', 'Contrast Adaptive Sharpening'),
+  @JsonValue('AWarpSharp2')
+  aWarpSharp2('AWarpSharp2', 'aWarpSharp2');
 
   const SharpenMethod(this.value, this.displayName);
   final String value;
@@ -20,6 +22,9 @@ enum SharpenMethod {
         return 'Limited sharpening with overshoot control';
       case SharpenMethod.cas:
         return 'AMD Contrast Adaptive Sharpening';
+      case SharpenMethod.aWarpSharp2:
+        return 'Warps pixels toward edges instead of raising contrast, so it '
+            'adds no halos';
     }
   }
 }
@@ -52,6 +57,20 @@ class SharpenParameters {
   /// CAS sharpening amount (0.0-1.0).
   final double casSharpness;
 
+  // --- aWarpSharp2 parameters ---
+
+  /// How far pixels may be warped (0-255). The main strength control.
+  final int warpDepth;
+
+  /// Edge mask threshold (0-255). Lower finds more edges to warp toward.
+  final int warpThresh;
+
+  /// Mask blur passes (0-3). More blur warps more smoothly.
+  final int warpBlur;
+
+  /// Blur kernel: 0 = radius 6 box (per-pass), 1 = radius 2 box.
+  final int warpType;
+
   const SharpenParameters({
     this.enabled = false,
     this.method = SharpenMethod.lsfmod,
@@ -60,6 +79,10 @@ class SharpenParameters {
     this.undershoot = 1,
     this.softEdge = 0,
     this.casSharpness = 0.5,
+    this.warpDepth = 16,
+    this.warpThresh = 128,
+    this.warpBlur = 2,
+    this.warpType = 0,
   });
 
   SharpenParameters copyWith({
@@ -70,6 +93,10 @@ class SharpenParameters {
     int? undershoot,
     int? softEdge,
     double? casSharpness,
+    int? warpDepth,
+    int? warpThresh,
+    int? warpBlur,
+    int? warpType,
   }) {
     return SharpenParameters(
       enabled: enabled ?? this.enabled,
@@ -79,6 +106,10 @@ class SharpenParameters {
       undershoot: undershoot ?? this.undershoot,
       softEdge: softEdge ?? this.softEdge,
       casSharpness: casSharpness ?? this.casSharpness,
+      warpDepth: warpDepth ?? this.warpDepth,
+      warpThresh: warpThresh ?? this.warpThresh,
+      warpBlur: warpBlur ?? this.warpBlur,
+      warpType: warpType ?? this.warpType,
     );
   }
 

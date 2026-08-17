@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../viewmodels/main_viewmodel.dart';
 import '../widgets/before_after_comparison.dart';
+import 'histogram_scope.dart';
 
 class PreviewPanel extends StatefulWidget {
   const PreviewPanel({super.key});
@@ -16,6 +17,13 @@ class _PreviewPanelState extends State<PreviewPanel> {
   // Track visual pan offset during drag (in pixels)
   double _panOffsetPixels = 0.0;
   bool _isDragging = false;
+
+  /// Whether the histogram overlay is shown over the processed preview.
+  ///
+  /// Deliberately available in simple mode: the scope exists to make the
+  /// colour controls usable, so hiding it from the people who need those
+  /// controls would defeat it.
+  bool _showHistogram = false;
 
   @override
   Widget build(BuildContext context) {
@@ -59,14 +67,68 @@ class _PreviewPanelState extends State<PreviewPanel> {
       }
     }
 
+    // The scope reads the processed preview, falling back to the source frame
+    // before any pass has rendered — that is what the user is looking at.
+    final scopeImage = viewModel.processedPreview ?? viewModel.currentFrame;
+
     return Padding(
       padding: const EdgeInsets.all(16),
-      child: BeforeAfterComparisonWidget(
-        beforeImage: viewModel.currentFrame,
-        afterImage: viewModel.processedPreview ?? viewModel.currentFrame,
-        isBeforeLoading: viewModel.isAnalyzing,
-        isAfterLoading: viewModel.isGeneratingPreview,
-        displayAspectRatio: displayAspectRatio,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: BeforeAfterComparisonWidget(
+              beforeImage: viewModel.currentFrame,
+              afterImage: scopeImage,
+              isBeforeLoading: viewModel.isAnalyzing,
+              isAfterLoading: viewModel.isGeneratingPreview,
+              displayAspectRatio: displayAspectRatio,
+            ),
+          ),
+
+          // Histogram overlay and its toggle, top-right of the preview.
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (!_showHistogram) _buildHistogramToggle(context),
+                if (_showHistogram)
+                  HistogramScope(
+                    imageBytes: scopeImage,
+                    onClose: () => setState(() => _showHistogram = false),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistogramToggle(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Tooltip(
+      message: 'Show histogram',
+      child: Material(
+        color: colorScheme.surface.withValues(alpha: 0.85),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(6),
+          side: BorderSide(color: colorScheme.outline.withValues(alpha: 0.4)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => setState(() => _showHistogram = true),
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Icon(
+              Icons.bar_chart,
+              size: 18,
+              color: colorScheme.onSurface.withValues(alpha: 0.75),
+            ),
+          ),
+        ),
       ),
     );
   }
