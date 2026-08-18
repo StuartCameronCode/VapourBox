@@ -68,12 +68,14 @@ class SubtitleParameters {
     WhisperModel? model,
     SubtitleOutput? output,
     String? language,
+    String? burnInPath,
   }) {
     return SubtitleParameters(
       enabled: enabled ?? this.enabled,
       model: model ?? this.model,
       output: output ?? this.output,
       language: language ?? this.language,
+      burnInPath: burnInPath ?? this.burnInPath,
     );
   }
 

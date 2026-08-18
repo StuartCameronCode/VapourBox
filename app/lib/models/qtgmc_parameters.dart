@@ -460,6 +460,7 @@ class QTGMCParameters {
     int? ivtcCycle,
     double? ivtcDupthresh,
     double? ivtcScthresh,
+    bool? bwdifEdeint,
   }) {
     return QTGMCParameters(
       enabled: enabled ?? this.enabled,
@@ -552,6 +553,7 @@ class QTGMCParameters {
       ivtcCycle: ivtcCycle ?? this.ivtcCycle,
       ivtcDupthresh: ivtcDupthresh ?? this.ivtcDupthresh,
       ivtcScthresh: ivtcScthresh ?? this.ivtcScthresh,
+      bwdifEdeint: bwdifEdeint ?? this.bwdifEdeint,
     );
   }
 }

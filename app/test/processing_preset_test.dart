@@ -270,6 +270,27 @@ void main() {
     });
   });
 
+  group('switching a pass off and on keeps what the preset configured', () {
+    // togglePass rebuilds the pass through copyWith, so a copyWith missing a
+    // field silently discards it. ChromaFixParameters.copyWith never took
+    // applyAutoChroma or applyDedot, which meant flicking the Chroma Fixes
+    // switch threw away the DeDot that VHS Cleanup turns on and the automatic
+    // alignment that DV Camcorder Tape turns on — no error, and the pass
+    // afterwards just did nothing.
+    test('chroma fixes survives a round trip through togglePass', () {
+      for (final id in ['builtin-vhs-cleanup', 'builtin-dv-camcorder', 'builtin-anime-dvd']) {
+        final before = byId(id).pipeline;
+        final after = before
+            .togglePass(PassType.chromaFixes, false)
+            .togglePass(PassType.chromaFixes, true);
+
+        expect(after.chromaFixes.toJson(), before.chromaFixes.toJson(),
+            reason: '$id lost chroma-fix settings by switching the pass off '
+                'and on again');
+      }
+    });
+  });
+
   group('QTGMC presets are ordered fast to slow', () {
     // The source presets pick a QTGMC preset by name, so this pins the meaning
     // of those names not drifting underneath them.
