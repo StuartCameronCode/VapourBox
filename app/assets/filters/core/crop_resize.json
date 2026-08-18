@@ -15,47 +15,42 @@
   },
   "methods": [
     {
-      "id": "standard",
-      "name": "Resize",
-      "description": "Resample to a target size with a selectable kernel",
-      "function": "core.resize",
+      "id": "crop_resize",
+      "name": "Crop & Resize",
+      "description": "Cropping, resizing, aspect ratio and edge-directed upscaling, each switched on separately below",
+      "function": "custom",
       "parameters": [
+        "cropEnabled",
+        "cropLeft",
+        "cropRight",
+        "cropTop",
+        "cropBottom",
+        "resizeEnabled",
         "targetWidth",
         "targetHeight",
         "kernel",
         "bicubicB",
         "bicubicC",
         "lanczosTaps",
+        "maintainAspect",
+        "pixelAspect",
+        "customSar",
         "displayAspect",
-        "customSar"
-      ]
-    },
-    {
-      "id": "nnedi3_2x",
-      "name": "NNEDI3 Upscale",
-      "description": "Doubles size with far cleaner edges than a resampler. Best choice for upscaling. Slow",
-      "function": "core.znedi3.nnedi3",
-      "parameters": [
+        "padToAspect",
+        "useIntegerUpscale",
+        "upscaleMethod",
+        "upscaleFactor",
         "upscaleNsize",
         "upscaleNeurons",
         "upscaleQual",
         "upscaleEtype",
-        "upscalePscrn"
-      ]
-    },
-    {
-      "id": "eedi3_2x",
-      "name": "EEDI3 Upscale",
-      "description": "Doubling guided by NNEDI3. Marginally better on hard diagonals, several times slower",
-      "function": "core.eedi3m.EEDI3",
-      "parameters": [
+        "upscalePscrn",
         "upscaleAlpha",
         "upscaleBeta",
         "upscaleGamma",
         "upscaleNrad",
         "upscaleMdis"
-      ],
-      "advancedOnly": true
+      ]
     }
   ],
   "parameters": {

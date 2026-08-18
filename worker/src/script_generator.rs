@@ -1561,8 +1561,13 @@ impl ScriptGenerator {
             script = script.replace("{{#CHROMA_FIXES}}", "");
             script = script.replace("{{/CHROMA_FIXES}}", "");
 
-            // Chroma Shift (Y/C Delay)
-            if chroma.apply_chroma_shift && (chroma.chroma_shift_h != 0.0 || chroma.chroma_shift_v != 0.0) {
+            // Chroma Shift (Y/C Delay). Skipped when automatic alignment is on —
+            // that block above has already measured and applied the shift, so a
+            // manual one on top double-corrects. See
+            // ChromaFixParameters::effective_apply_chroma_shift.
+            if chroma.effective_apply_chroma_shift()
+                && (chroma.chroma_shift_h != 0.0 || chroma.chroma_shift_v != 0.0)
+            {
                 script = script.replace("{{#CHROMA_SHIFT}}", "");
                 script = script.replace("{{/CHROMA_SHIFT}}", "");
                 script = process_optional_double("CHROMA_SHIFT_H", Some(chroma.chroma_shift_h), script);
@@ -1724,21 +1729,21 @@ impl ScriptGenerator {
                 script = remove_block("{{#COLOR_TWEAK}}", "{{/COLOR_TWEAK}}", script);
             }
 
-            // Levels
-            let has_levels = color.input_low != 0
-                || color.input_high != 255
-                || color.output_low != 0
-                || color.output_high != 255
-                || (color.gamma - 1.0).abs() > 0.001;
+            // Levels. The switch decides whether this runs, and automatic
+            // levels supersedes the input/output points — see
+            // ColorCorrectionParameters::{effective_apply_levels,
+            // effective_levels_points}.
+            let levels = color.effective_levels_points();
+            let has_levels = color.effective_apply_levels();
 
             if has_levels && !color.smooth_levels {
                 script = script.replace("{{#COLOR_LEVELS}}", "");
                 script = script.replace("{{/COLOR_LEVELS}}", "");
                 script = remove_block("{{#COLOR_SMOOTH_LEVELS}}", "{{/COLOR_SMOOTH_LEVELS}}", script);
-                script = process_optional_int("LEVELS_INPUT_LOW", if color.input_low != 0 { Some(color.input_low) } else { None }, script);
-                script = process_optional_int("LEVELS_INPUT_HIGH", if color.input_high != 255 { Some(color.input_high) } else { None }, script);
-                script = process_optional_int("LEVELS_OUTPUT_LOW", if color.output_low != 0 { Some(color.output_low) } else { None }, script);
-                script = process_optional_int("LEVELS_OUTPUT_HIGH", if color.output_high != 255 { Some(color.output_high) } else { None }, script);
+                script = process_optional_int("LEVELS_INPUT_LOW", if levels.input_low != 0 { Some(levels.input_low) } else { None }, script);
+                script = process_optional_int("LEVELS_INPUT_HIGH", if levels.input_high != 255 { Some(levels.input_high) } else { None }, script);
+                script = process_optional_int("LEVELS_OUTPUT_LOW", if levels.output_low != 0 { Some(levels.output_low) } else { None }, script);
+                script = process_optional_int("LEVELS_OUTPUT_HIGH", if levels.output_high != 255 { Some(levels.output_high) } else { None }, script);
                 script = process_optional_double("LEVELS_GAMMA", if (color.gamma - 1.0).abs() > 0.001 { Some(color.gamma) } else { None }, script);
             } else if has_levels {
                 // SmoothLevels reuses the _levels_8bit() helper defined in the
@@ -1761,9 +1766,9 @@ impl ScriptGenerator {
                     "{{SMOOTH_INPUT_LOW}}",
                     &color.smooth_levels_input_low().to_string(),
                 );
-                script = script.replace("{{SMOOTH_INPUT_HIGH}}", &color.input_high.to_string());
-                script = script.replace("{{SMOOTH_OUTPUT_LOW}}", &color.output_low.to_string());
-                script = script.replace("{{SMOOTH_OUTPUT_HIGH}}", &color.output_high.to_string());
+                script = script.replace("{{SMOOTH_INPUT_HIGH}}", &levels.input_high.to_string());
+                script = script.replace("{{SMOOTH_OUTPUT_LOW}}", &levels.output_low.to_string());
+                script = script.replace("{{SMOOTH_OUTPUT_HIGH}}", &levels.output_high.to_string());
                 script = script.replace("{{SMOOTH_GAMMA}}", &format_double(color.gamma));
                 // -2 is havsfunc's own default and the best-measured setting.
                 script = script.replace("{{SMOOTH_MODE}}", "-2");

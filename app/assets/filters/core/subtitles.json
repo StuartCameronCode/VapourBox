@@ -93,12 +93,6 @@
     "burnInPath": {
       "type": "string",
       "default": "",
-      "visibleWhen": {
-        "output": [
-          "burn_in",
-          "burn_in_and_srt"
-        ]
-      },
       "ui": {
         "label": "Subtitle file to burn in",
         "description": "Path to a subtitle file you already have. Leave this empty to burn in what Whisper transcribes \u2014 transcription runs before the encode, so its subtitles can be drawn into the picture. Setting a file here skips transcription entirely and burns in this file instead.",
@@ -107,7 +101,13 @@
           "srt",
           "ass",
           "ssa"
-        ]
+        ],
+        "visibleWhen": {
+          "output": [
+            "burn_in",
+            "burn_in_and_srt"
+          ]
+        }
       }
     }
   },

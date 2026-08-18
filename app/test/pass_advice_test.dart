@@ -9,6 +9,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vapourbox/models/chroma_denoise_parameters.dart';
+import 'package:vapourbox/models/color_correction_parameters.dart';
 import 'package:vapourbox/models/deband_parameters.dart';
 import 'package:vapourbox/models/geometry_parameters.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
@@ -202,6 +203,99 @@ void main() {
         ),
         isNull,
       );
+    });
+  });
+
+  group('colour correction set both automatically and by hand', () {
+    test('says the manual levels points are not used', () {
+      final advice = adviceFor(
+        PassType.colorCorrection,
+        const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          colorCorrection: ColorCorrectionParameters(
+            enabled: true,
+            applyAutoLevels: true,
+            applyLevels: true,
+            inputLow: 16,
+          ),
+        ),
+      );
+      expect(advice, isNotNull);
+      expect(advice, contains('automatically'));
+    });
+
+    test('says which order white balance happens in', () {
+      final advice = adviceFor(
+        PassType.colorCorrection,
+        const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          colorCorrection: ColorCorrectionParameters(
+            enabled: true,
+            applyAutoWhiteBalance: true,
+            temperature: 20,
+          ),
+        ),
+      );
+      expect(advice, isNotNull);
+      expect(advice, contains('after'));
+    });
+
+    test('silent when only the automatic side is on', () {
+      expect(
+        adviceFor(
+          PassType.colorCorrection,
+          const ProcessingPipeline(
+            deinterlace: QTGMCParameters(enabled: false),
+            colorCorrection: ColorCorrectionParameters(
+              enabled: true,
+              applyAutoLevels: true,
+              applyAutoWhiteBalance: true,
+            ),
+          ),
+        ),
+        isNull,
+      );
+    });
+  });
+
+  group('a manual chroma shift the automatic measurement has superseded', () {
+    // The panel hides the manual sliders while automatic alignment is on, so a
+    // preset that saved both leaves the user nothing to look at — the advice is
+    // the only place the dropped shift is mentioned.
+    test('says the hand-set shift is not being used', () {
+      final advice = adviceFor(
+        PassType.chromaFixes,
+        const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          chromaFixes: ChromaFixParameters(
+            enabled: true,
+            applyAutoChroma: true,
+            applyChromaShift: true,
+            chromaShiftH: 2.0,
+          ),
+        ),
+      );
+      expect(advice, isNotNull);
+      expect(advice, contains('automatically'));
+    });
+
+    test('silent when only one of the two is on', () {
+      for (final chroma in const [
+        ChromaFixParameters(enabled: true, applyAutoChroma: true),
+        ChromaFixParameters(
+            enabled: true, applyChromaShift: true, chromaShiftH: 2.0),
+      ]) {
+        expect(
+          adviceFor(
+            PassType.chromaFixes,
+            ProcessingPipeline(
+              deinterlace: const QTGMCParameters(enabled: false),
+              chromaFixes: chroma,
+            ),
+          ),
+          isNull,
+        );
+      }
     });
   });
 

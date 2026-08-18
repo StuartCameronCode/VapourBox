@@ -56,7 +56,12 @@
       "optional": true,
       "ui": {
         "label": "Process Chroma",
-        "description": "Include chroma planes in spot removal (disable to avoid ghost artifacts)"
+        "description": "Include chroma planes in spot removal (disable to avoid ghost artifacts)",
+        "visibleWhen": {
+          "method": [
+            "spotless"
+          ]
+        }
       }
     },
     "rec": {
@@ -65,7 +70,12 @@
       "optional": true,
       "ui": {
         "label": "Recalculate Vectors",
-        "description": "Refine motion vectors at finer block size for more precision (slower)"
+        "description": "Refine motion vectors at finer block size for more precision (slower)",
+        "visibleWhen": {
+          "method": [
+            "spotless"
+          ]
+        }
       }
     },
     "blksize": {
@@ -79,7 +89,12 @@
         "label": "Block Size",
         "description": "Block size for motion analysis (auto: 32 for 4K, 16 for HD, 8 for SD)",
         "widget": "slider",
-        "advanced": true
+        "advanced": true,
+        "visibleWhen": {
+          "method": [
+            "spotless"
+          ]
+        }
       }
     },
     "overlap": {
@@ -93,7 +108,12 @@
         "label": "Overlap",
         "description": "Block overlap for motion analysis (default: half of block size)",
         "widget": "slider",
-        "advanced": true
+        "advanced": true,
+        "visibleWhen": {
+          "method": [
+            "spotless"
+          ]
+        }
       }
     },
     "pel": {
@@ -114,7 +134,12 @@
           "2": "2 (half-pixel)",
           "4": "4 (quarter-pixel)"
         },
-        "advanced": true
+        "advanced": true,
+        "visibleWhen": {
+          "method": [
+            "spotless"
+          ]
+        }
       }
     },
     "method": {
@@ -136,15 +161,15 @@
       "min": 0,
       "max": 255,
       "step": 5,
-      "visibleWhen": {
-        "method": [
-          "removeDirt"
-        ]
-      },
       "ui": {
         "label": "Spot size",
         "description": "How large a difference from its neighbours counts as dirt.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "removeDirt"
+          ]
+        }
       }
     },
     "rdNoisy": {
@@ -153,15 +178,15 @@
       "min": 0,
       "max": 64,
       "step": 1,
-      "visibleWhen": {
-        "method": [
-          "removeDirt"
-        ]
-      },
       "ui": {
         "label": "Spot density",
         "description": "How many neighbouring pixels must agree before it is treated as damage.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "removeDirt"
+          ]
+        }
       }
     },
     "rdGmthreshold": {
@@ -170,15 +195,15 @@
       "min": 0,
       "max": 255,
       "step": 5,
-      "visibleWhen": {
-        "method": [
-          "removeDirt"
-        ]
-      },
       "ui": {
         "label": "Motion tolerance",
         "description": "How much of the frame may be moving before it is treated as motion rather than damage.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "removeDirt"
+          ]
+        }
       }
     },
     "rdDist": {
@@ -187,67 +212,50 @@
       "min": 0,
       "max": 8,
       "step": 1,
-      "visibleWhen": {
-        "method": [
-          "removeDirt"
-        ]
-      },
       "ui": {
         "label": "Spread",
         "description": "How far around a detected spot to repair.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "removeDirt"
+          ]
+        }
       }
     },
     "rdPostDenoise": {
       "type": "boolean",
       "default": false,
-      "visibleWhen": {
-        "method": [
-          "removeDirt"
-        ]
-      },
       "ui": {
         "label": "Extra smoothing pass",
         "description": "The traditional final smoothing step. Off by default \u2014 measured, it alone triples the damage to clean parts of the picture.",
-        "widget": "checkbox"
+        "widget": "checkbox",
+        "visibleWhen": {
+          "method": [
+            "removeDirt"
+          ]
+        }
       }
     }
   },
   "ui": {
     "sections": [
       {
-        "title": "Method",
-        "parameters": [
-          "method"
-        ],
-        "expanded": true
-      },
-      {
-        "title": "Settings",
+        "title": "SpotLess settings",
         "parameters": [
           "chroma",
           "rec"
         ],
-        "expanded": true,
-        "visibleWhen": {
-          "method": [
-            "spotless"
-          ]
-        }
+        "expanded": true
       },
       {
-        "title": "Motion Analysis",
+        "title": "Motion analysis",
         "parameters": [
           "blksize",
           "overlap",
           "pel"
         ],
-        "expanded": false,
-        "visibleWhen": {
-          "method": [
-            "spotless"
-          ]
-        }
+        "expanded": false
       },
       {
         "title": "RemoveDirt settings",
@@ -256,12 +264,7 @@
           "rdNoisy",
           "rdGmthreshold"
         ],
-        "expanded": true,
-        "visibleWhen": {
-          "method": [
-            "removeDirt"
-          ]
-        }
+        "expanded": true
       },
       {
         "title": "RemoveDirt tuning",
@@ -270,12 +273,7 @@
           "rdPostDenoise"
         ],
         "expanded": false,
-        "advancedOnly": true,
-        "visibleWhen": {
-          "method": [
-            "removeDirt"
-          ]
-        }
+        "advancedOnly": true
       }
     ]
   },

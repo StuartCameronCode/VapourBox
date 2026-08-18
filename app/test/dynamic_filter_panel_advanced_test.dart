@@ -38,7 +38,7 @@ void main() {
         advancedOnly: advancedOnly,
       );
 
-  FilterSchema buildSchema() => FilterSchema(
+  FilterSchema buildSchema({List<UiSection>? sections}) => FilterSchema(
         id: 'test_filter',
         version: '1.0.0',
         name: 'Test Filter',
@@ -58,12 +58,21 @@ void main() {
             max: 10.0,
             ui: ParameterUiConfig(label: 'Strength'),
           ),
+          'depth': const ParameterDefinition(
+            type: ParameterType.number,
+            defaultValue: 1.0,
+            min: 0.0,
+            max: 10.0,
+            ui: ParameterUiConfig(label: 'Depth'),
+          ),
         },
+        ui: sections == null ? null : UiLayout(sections: sections),
       );
 
   Future<void> pumpPanel(
     WidgetTester tester, {
     required String selectedMethod,
+    List<UiSection>? sections,
   }) async {
     await tester.pumpWidget(
       ChangeNotifierProvider<AdvancedModeService>.value(
@@ -72,11 +81,15 @@ void main() {
           home: Scaffold(
             body: SingleChildScrollView(
               child: DynamicFilterPanelCompact(
-                schema: buildSchema(),
+                schema: buildSchema(sections: sections),
                 params: DynamicParameters(
                   filterId: 'test_filter',
                   enabled: true,
-                  values: {'method': selectedMethod, 'strength': 1.0},
+                  values: {
+                    'method': selectedMethod,
+                    'strength': 1.0,
+                    'depth': 1.0,
+                  },
                 ),
                 onChanged: (_) {},
               ),
@@ -146,6 +159,39 @@ void main() {
 
       expect(advanced.enabled, true);
       expect(find.text('Method'), findsOneWidget);
+    });
+  });
+
+  group('section headings', () {
+    // A section is only a heading when there is another one to tell it apart
+    // from. Most single-section schemas call theirs "Settings", which as a
+    // heading says nothing at all — and it would sit above every pass in the
+    // app.
+    testWidgets('one section gets no heading', (tester) async {
+      await advanced.initialize();
+      await pumpPanel(
+        tester,
+        selectedMethod: 'basic',
+        sections: const [UiSection(title: 'Settings', parameters: ['strength'])],
+      );
+
+      expect(find.text('Settings'), findsNothing);
+      expect(find.textContaining('Strength:'), findsOneWidget);
+    });
+
+    testWidgets('two sections are both named, in simple mode', (tester) async {
+      await advanced.initialize();
+      await pumpPanel(
+        tester,
+        selectedMethod: 'basic',
+        sections: const [
+          UiSection(title: 'Strength', parameters: ['strength']),
+          UiSection(title: 'Shape', parameters: ['depth']),
+        ],
+      );
+
+      expect(find.text('Strength'), findsOneWidget);
+      expect(find.text('Shape'), findsOneWidget);
     });
   });
 

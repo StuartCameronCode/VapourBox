@@ -4,7 +4,7 @@
   "version": "1.1.0",
   "name": "Dehalo",
   "description": "Remove halo, ringing and ghosting around edges",
-  "longDescription": "Removes the bright outline that sits alongside high-contrast edges — the ringing left by over-sharpening, upscaling or heavy compression.\n\nUse it when edges look traced with a light pen: common on VHS run through a sharpening time-base corrector, and on upscaled or hard-compressed material. Apply it after deinterlacing and denoising. Too much strength eats the fine detail right next to the edge.\n\nThe two Vinverse methods target a different artifact: the vertical comb or ghost residue a deinterlacer leaves behind. They blur vertically, so only run them on progressive frames — after the deinterlace pass, never instead of it.",
+  "longDescription": "Removes the bright outline that sits alongside high-contrast edges \u2014 the ringing left by over-sharpening, upscaling or heavy compression.\n\nUse it when edges look traced with a light pen: common on VHS run through a sharpening time-base corrector, and on upscaled or hard-compressed material. Apply it after deinterlacing and denoising. Too much strength eats the fine detail right next to the edge.\n\nThe two Vinverse methods target a different artifact: the vertical comb or ghost residue a deinterlacer leaves behind. They blur vertically, so only run them on progressive frames \u2014 after the deinterlace pass, never instead of it.",
   "category": "cleanup",
   "icon": "blur_off",
   "order": 4,
@@ -58,7 +58,7 @@
     {
       "id": "fine_dehalo2",
       "name": "Fine Dehalo 2",
-      "description": "Removes the ringing left on sharp edges. A follow-up pass — run it after Fine Dehalo, not instead of it",
+      "description": "Removes the ringing left on sharp edges. A follow-up pass \u2014 run it after Fine Dehalo, not instead of it",
       "function": "haf.FineDehalo2",
       "parameters": [],
       "advancedOnly": true
@@ -76,7 +76,7 @@
     {
       "id": "edge_cleaner",
       "name": "Edge Cleaner",
-      "description": "Cleans edge noise and weak halos by warping edges (aWarpSharp2). Niche — for line art rather than live action",
+      "description": "Cleans edge noise and weak halos by warping edges (aWarpSharp2). Niche \u2014 for line art rather than live action",
       "function": "haf.EdgeCleaner",
       "parameters": [
         "edgeStrength",
@@ -114,7 +114,7 @@
     {
       "id": "hq_deringmod",
       "name": "HQDeringmod",
-      "description": "Removes ringing — the overshoot immediately beside an edge — while a mask protects the edge itself. A narrower target than dehalo, for over-sharpened or heavily compressed sources",
+      "description": "Removes ringing \u2014 the overshoot immediately beside an edge \u2014 while a mask protects the edge itself. A narrower target than dehalo, for over-sharpened or heavily compressed sources",
       "function": "haf.HQDeringmod",
       "parameters": [
         "deringMrad",
@@ -208,7 +208,7 @@
       },
       "ui": {
         "label": "Dark Halo Strength",
-        "description": "Strength of dark halo removal. Above 1.0 overshoots — it pushes past the original pixel rather than blending back to it",
+        "description": "Strength of dark halo removal. Above 1.0 overshoots \u2014 it pushes past the original pixel rather than blending back to it",
         "widget": "slider",
         "precision": 2,
         "visibleWhen": {
@@ -231,7 +231,7 @@
       },
       "ui": {
         "label": "Bright Halo Strength",
-        "description": "Strength of bright halo removal. Above 1.0 overshoots — it pushes past the original pixel rather than blending back to it",
+        "description": "Strength of bright halo removal. Above 1.0 overshoots \u2014 it pushes past the original pixel rather than blending back to it",
         "widget": "slider",
         "precision": 2,
         "visibleWhen": {
@@ -360,7 +360,7 @@
       },
       "ui": {
         "label": "Limit Low",
-        "description": "Below this edge strength, dehaloing is fully limited — protects faint detail",
+        "description": "Below this edge strength, dehaloing is fully limited \u2014 protects faint detail",
         "widget": "slider",
         "visibleWhen": {
           "method": [
@@ -775,7 +775,7 @@
         "expanded": true
       },
       {
-        "title": "Advanced",
+        "title": "Dehalo tuning",
         "parameters": [
           "lowSens",
           "highSens",

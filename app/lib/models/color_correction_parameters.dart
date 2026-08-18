@@ -187,6 +187,12 @@ class ColorCorrectionParameters {
   ColorCorrectionParameters copyWith({
     bool? enabled,
     ColorCorrectionPreset? preset,
+    bool? applyAutoLevels,
+    int? autoLevelsBlack,
+    int? autoLevelsWhite,
+    double? autoLevelsStrength,
+    bool? applyAutoWhiteBalance,
+    double? autoWhiteBalanceStrength,
     double? brightness,
     double? contrast,
     double? hue,
@@ -209,6 +215,14 @@ class ColorCorrectionParameters {
     return ColorCorrectionParameters(
       enabled: enabled ?? this.enabled,
       preset: preset ?? this.preset,
+      applyAutoLevels: applyAutoLevels ?? this.applyAutoLevels,
+      autoLevelsBlack: autoLevelsBlack ?? this.autoLevelsBlack,
+      autoLevelsWhite: autoLevelsWhite ?? this.autoLevelsWhite,
+      autoLevelsStrength: autoLevelsStrength ?? this.autoLevelsStrength,
+      applyAutoWhiteBalance:
+          applyAutoWhiteBalance ?? this.applyAutoWhiteBalance,
+      autoWhiteBalanceStrength:
+          autoWhiteBalanceStrength ?? this.autoWhiteBalanceStrength,
       brightness: brightness ?? this.brightness,
       contrast: contrast ?? this.contrast,
       hue: hue ?? this.hue,
@@ -230,6 +244,28 @@ class ColorCorrectionParameters {
     );
   }
 
+  /// The input/output points the levels adjustment actually applies.
+  ///
+  /// Automatic levels measures the picture and places black and white itself,
+  /// running before this — so the manual points are dropped and only gamma
+  /// survives, which is the one thing automatic levels does not touch. The
+  /// panel hides those four sliders to match, and
+  /// `ColorCorrectionParameters::effective_levels_points` is the worker's twin
+  /// of this. The stored values are left alone, so unticking automatic levels
+  /// brings back what the user set by hand.
+  (int, int, int, int) get effectiveLevelsPoints => applyAutoLevels
+      ? (0, 255, 0, 255)
+      : (inputLow, inputHigh, outputLow, outputHigh);
+
+  /// Whether the levels adjustment will do anything: its switch, and a change
+  /// to make. `applyLevels` used to be a UI-only flag the worker ignored.
+  bool get effectiveApplyLevels {
+    if (!applyLevels) return false;
+    final (inLow, inHigh, outLow, outHigh) = effectiveLevelsPoints;
+    return inLow != 0 || inHigh != 255 || outLow != 0 || outHigh != 255 ||
+        gamma != 1.0;
+  }
+
   /// Get a human-readable summary of the current settings.
   String get summary {
     if (!enabled) return 'Off';
@@ -245,10 +281,17 @@ class ColorCorrectionParameters {
           return preset.name;
       }
     }
+    // Everything the pass will actually do. Auto levels, auto white balance,
+    // levels and shadow detail were all missing, so a pass doing four things
+    // could summarise itself as "Custom".
     final parts = <String>[];
+    if (applyAutoLevels) parts.add('Auto levels');
+    if (applyAutoWhiteBalance) parts.add('Auto WB');
     if (brightness != 0) parts.add('B:${brightness.toStringAsFixed(0)}');
     if (contrast != 1) parts.add('C:${contrast.toStringAsFixed(1)}');
     if (saturation != 1) parts.add('S:${saturation.toStringAsFixed(1)}');
+    if (effectiveApplyLevels) parts.add('Levels');
+    if (applyShadowDetail) parts.add('Shadows');
     if (temperature != 0) parts.add('Temp:${temperature.toStringAsFixed(0)}');
     if (tint != 0) parts.add('Tint:${tint.toStringAsFixed(0)}');
     return parts.isEmpty ? 'Custom' : parts.join(' ');

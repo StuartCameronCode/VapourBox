@@ -1951,15 +1951,15 @@
     "bwdifEdeint": {
       "type": "boolean",
       "default": false,
-      "visibleWhen": {
-        "method": [
-          "bwdif"
-        ]
-      },
       "ui": {
         "label": "High-quality interpolation",
         "description": "Use the NNEDI3 neural interpolator instead of the built-in one. Sharper edges, noticeably slower \u2014 still far quicker than QTGMC.",
-        "widget": "checkbox"
+        "widget": "checkbox",
+        "visibleWhen": {
+          "method": [
+            "bwdif"
+          ]
+        }
       }
     }
   },
@@ -2263,12 +2263,7 @@
         "parameters": [
           "bwdifEdeint"
         ],
-        "expanded": true,
-        "visibleWhen": {
-          "method": [
-            "bwdif"
-          ]
-        }
+        "expanded": true
       }
     ]
   },

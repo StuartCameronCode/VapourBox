@@ -3,8 +3,8 @@
   "id": "color_correction",
   "version": "1.1.0",
   "name": "Color Correction",
-  "description": "Adjust brightness, contrast, saturation and levels",
-  "longDescription": "Adjusts brightness, contrast, saturation and the black and white levels.\n\nUse it to rescue washed-out or crushed transfers, to fix a capture made at the wrong levels (limited 16-235 read as full 0-255, or the reverse), or to lift colour from faded film. Small moves go a long way \u2014 check the before/after preview rather than judging by numbers.",
+  "description": "Adjust brightness, contrast, saturation, levels and white balance",
+  "longDescription": "Adjusts brightness, contrast, saturation, the black and white levels, and the colour cast.\n\nUse it to rescue washed-out or crushed transfers, to fix a capture made at the wrong levels (limited 16-235 read as full 0-255, or the reverse), or to lift colour from faded film. Small moves go a long way \u2014 check the before/after preview rather than judging by numbers.\n\nLevels and white balance can each be set **automatically** or **by hand**, and the two sit together in the same group. The automatic pass measures the picture and runs first; anything you then set by hand is applied on top of the corrected picture, not the original.",
   "category": "color",
   "icon": "tune",
   "order": 7,
@@ -18,25 +18,33 @@
   },
   "methods": [
     {
-      "id": "tweak",
-      "name": "Tweak",
-      "description": "Basic color adjustments - brightness, contrast, saturation, hue",
-      "function": "haf.Tweak",
+      "id": "color_correction",
+      "name": "Color Correction",
+      "description": "Brightness and colour, levels, white balance and shadow detail, each set separately below",
+      "function": "custom",
       "parameters": [
         "brightness",
         "contrast",
         "saturation",
-        "hue"
-      ]
-    },
-    {
-      "id": "white_balance",
-      "name": "White Balance",
-      "description": "Temperature and tint, applied as a chroma offset",
-      "function": "core.std.Expr",
-      "parameters": [
+        "hue",
+        "coring",
+        "applyAutoLevels",
+        "autoLevelsStrength",
+        "autoLevelsBlack",
+        "autoLevelsWhite",
+        "applyLevels",
+        "inputLow",
+        "inputHigh",
+        "outputLow",
+        "outputHigh",
+        "gamma",
+        "smoothLevels",
+        "applyAutoWhiteBalance",
+        "autoWhiteBalanceStrength",
         "temperature",
-        "tint"
+        "tint",
+        "applyShadowDetail",
+        "shadowSigma"
       ]
     }
   ],
@@ -54,13 +62,12 @@
       "min": -50.0,
       "max": 50.0,
       "step": 1.0,
-      "optional": true,
       "vapoursynth": {
         "name": "bright"
       },
       "ui": {
         "label": "Brightness",
-        "description": "Brightness adjustment (-50 to +50)",
+        "description": "Raises or lowers the whole picture. 0 leaves it alone.",
         "widget": "slider",
         "precision": 0
       }
@@ -71,13 +78,12 @@
       "min": 0.5,
       "max": 2.0,
       "step": 0.05,
-      "optional": true,
       "vapoursynth": {
         "name": "cont"
       },
       "ui": {
         "label": "Contrast",
-        "description": "Contrast multiplier (1.0 = no change)",
+        "description": "Multiplier. 1.00 leaves it alone.",
         "widget": "slider",
         "precision": 2
       }
@@ -88,13 +94,12 @@
       "min": 0.0,
       "max": 3.0,
       "step": 0.05,
-      "optional": true,
       "vapoursynth": {
         "name": "sat"
       },
       "ui": {
         "label": "Saturation",
-        "description": "Saturation multiplier (1.0 = no change)",
+        "description": "Colour intensity. 1.00 leaves it alone, 0 is black and white.",
         "widget": "slider",
         "precision": 2
       }
@@ -105,13 +110,12 @@
       "min": -180.0,
       "max": 180.0,
       "step": 5.0,
-      "optional": true,
       "vapoursynth": {
         "name": "hue"
       },
       "ui": {
         "label": "Hue",
-        "description": "Hue rotation in degrees",
+        "description": "Rotates every colour, in degrees. For a colour cast use white balance below instead.",
         "widget": "slider",
         "precision": 0
       }
@@ -119,21 +123,94 @@
     "coring": {
       "type": "boolean",
       "default": false,
-      "optional": true,
       "vapoursynth": {
         "name": "coring"
       },
       "ui": {
-        "label": "Coring",
-        "description": "Clamp output to TV range (16-235)"
+        "label": "Clamp to broadcast range (16-235)",
+        "description": "Keeps the result inside the range broadcast equipment expects, at the cost of clipping anything beyond it."
+      }
+    },
+    "applyAutoLevels": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Set levels automatically",
+        "description": "Measures the picture and stretches it so its darkest and brightest parts reach the target black and white. The usual fix for a washed-out capture, and it replaces the input and output sliders below.",
+        "widget": "checkbox"
+      }
+    },
+    "autoLevelsStrength": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "ui": {
+        "label": "Strength",
+        "description": "Lower this if the correction moves too much between shots.",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": {
+          "applyAutoLevels": true
+        }
+      }
+    },
+    "autoLevelsBlack": {
+      "type": "integer",
+      "default": 16,
+      "min": 0,
+      "max": 64,
+      "step": 1,
+      "ui": {
+        "label": "Target black",
+        "description": "Where the darkest part of the picture should land. 16 is broadcast black.",
+        "widget": "slider",
+        "visibleWhen": {
+          "applyAutoLevels": true
+        }
+      }
+    },
+    "autoLevelsWhite": {
+      "type": "integer",
+      "default": 235,
+      "min": 192,
+      "max": 255,
+      "step": 1,
+      "ui": {
+        "label": "Target white",
+        "description": "Where the brightest part should land. 235 is broadcast white.",
+        "widget": "slider",
+        "visibleWhen": {
+          "applyAutoLevels": true
+        }
       }
     },
     "applyLevels": {
       "type": "boolean",
       "default": false,
       "ui": {
-        "label": "Enable Levels",
-        "description": "Enable input/output level adjustments"
+        "label": "Set levels by hand",
+        "description": "Map the input range onto the output range yourself, and adjust gamma. With automatic levels on, only gamma is left to set \u2014 the automatic pass has already placed black and white."
+      }
+    },
+    "gamma": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.1,
+      "max": 4.0,
+      "step": 0.1,
+      "vapoursynth": {
+        "name": "gamma"
+      },
+      "ui": {
+        "label": "Gamma",
+        "description": "Brightens or darkens the midtones without moving black or white. Above 1 brightens. Automatic levels does not touch this.",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "applyLevels": true
+        }
       }
     },
     "inputLow": {
@@ -142,15 +219,15 @@
       "min": 0,
       "max": 255,
       "step": 1,
-      "optional": true,
       "vapoursynth": {
         "name": "input_low"
       },
       "ui": {
-        "label": "Input Black",
-        "description": "Input black level",
+        "label": "Input black",
+        "description": "The level in the source that should become black. Raise it to deepen a washed-out picture.",
         "widget": "slider",
         "visibleWhen": {
+          "applyAutoLevels": false,
           "applyLevels": true
         }
       }
@@ -161,15 +238,15 @@
       "min": 0,
       "max": 255,
       "step": 1,
-      "optional": true,
       "vapoursynth": {
         "name": "input_high"
       },
       "ui": {
-        "label": "Input White",
-        "description": "Input white level",
+        "label": "Input white",
+        "description": "The level in the source that should become white.",
         "widget": "slider",
         "visibleWhen": {
+          "applyAutoLevels": false,
           "applyLevels": true
         }
       }
@@ -180,15 +257,15 @@
       "min": 0,
       "max": 255,
       "step": 1,
-      "optional": true,
       "vapoursynth": {
         "name": "output_low"
       },
       "ui": {
-        "label": "Output Black",
-        "description": "Output black level",
+        "label": "Output black",
+        "description": "What black becomes on the way out. 16 for broadcast-range output.",
         "widget": "slider",
         "visibleWhen": {
+          "applyAutoLevels": false,
           "applyLevels": true
         }
       }
@@ -199,36 +276,52 @@
       "min": 0,
       "max": 255,
       "step": 1,
-      "optional": true,
       "vapoursynth": {
         "name": "output_high"
       },
       "ui": {
-        "label": "Output White",
-        "description": "Output white level",
+        "label": "Output white",
+        "description": "What white becomes on the way out. 235 for broadcast-range output.",
         "widget": "slider",
+        "visibleWhen": {
+          "applyAutoLevels": false,
+          "applyLevels": true
+        }
+      }
+    },
+    "smoothLevels": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Smooth the adjustment",
+        "description": "Dithers and limits the adjustment as it goes, so stretching a narrow range does not leave visible steps in skies and fades. Slower, and it cannot lift the black point and change gamma at the same time.",
         "visibleWhen": {
           "applyLevels": true
         }
       }
     },
-    "gamma": {
+    "applyAutoWhiteBalance": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Set white balance automatically",
+        "description": "Assumes the scene should average out to neutral grey and shifts the colour until it does. Runs before the sliders below, so they offset the corrected picture rather than the original.",
+        "widget": "checkbox"
+      }
+    },
+    "autoWhiteBalanceStrength": {
       "type": "number",
       "default": 1.0,
-      "min": 0.1,
-      "max": 4.0,
-      "step": 0.1,
-      "optional": true,
-      "vapoursynth": {
-        "name": "gamma"
-      },
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
       "ui": {
-        "label": "Gamma",
-        "description": "Gamma correction",
+        "label": "Strength",
+        "description": "Lower this to keep some of the original cast \u2014 useful when the cast is meant to be there, like firelight.",
         "widget": "slider",
-        "precision": 1,
+        "precision": 2,
         "visibleWhen": {
-          "applyLevels": true
+          "applyAutoWhiteBalance": true
         }
       }
     },
@@ -238,13 +331,12 @@
       "min": -100.0,
       "max": 100.0,
       "step": 1.0,
-      "optional": true,
       "vapoursynth": {
         "name": "temperature"
       },
       "ui": {
         "label": "Temperature",
-        "description": "Warm/cool white balance. Negative is cooler (bluer), positive warmer (more amber). Corrects a colour cast rather than styling the image",
+        "description": "Warm/cool. Negative is cooler (bluer), positive warmer (more amber).",
         "widget": "slider",
         "precision": 0
       }
@@ -255,34 +347,22 @@
       "min": -100.0,
       "max": 100.0,
       "step": 1.0,
-      "optional": true,
       "vapoursynth": {
         "name": "tint"
       },
       "ui": {
         "label": "Tint",
-        "description": "Green/magenta white balance. Negative shifts toward green, positive toward magenta \u2014 the axis VHS and telecine casts usually sit on",
+        "description": "Green/magenta. Negative shifts toward green, positive toward magenta \u2014 the axis VHS and telecine casts usually sit on.",
         "widget": "slider",
         "precision": 0
-      }
-    },
-    "smoothLevels": {
-      "type": "boolean",
-      "default": false,
-      "ui": {
-        "label": "Smooth Levels",
-        "description": "Dithers and limits the adjustment as it goes, so stretching a narrow range does not leave visible steps in skies and fades. Slower, and it cannot lift the black point and change gamma at the same time",
-        "visibleWhen": {
-          "applyLevels": true
-        }
       }
     },
     "applyShadowDetail": {
       "type": "boolean",
       "default": false,
       "ui": {
-        "label": "Lift Shadow Detail",
-        "description": "Opens up detail hidden in dark areas of underexposed footage, by comparing each part of the picture to its surroundings rather than raising the black level. Brightness only \u2014 colour is untouched"
+        "label": "Lift shadow detail",
+        "description": "Opens up detail hidden in dark areas of underexposed footage, by comparing each part of the picture to its surroundings rather than raising the black level. Brightness only \u2014 colour is untouched."
       }
     },
     "shadowSigma": {
@@ -292,149 +372,75 @@
       "max": 500.0,
       "step": 10.0,
       "ui": {
-        "label": "Area Size",
-        "description": "How wide a neighbourhood each pixel is judged against. Larger opens up broad shadows; smaller brings out local texture",
+        "label": "Area size",
+        "description": "How wide a neighbourhood each pixel is judged against. Larger opens up broad shadows; smaller brings out local texture.",
         "widget": "slider",
         "precision": 0,
         "visibleWhen": {
           "applyShadowDetail": true
         }
       }
-    },
-    "applyAutoLevels": {
-      "type": "boolean",
-      "default": false,
-      "ui": {
-        "label": "Auto levels",
-        "description": "Stretch the picture so its darkest and brightest parts reach the target black and white. The usual fix for a washed-out capture.",
-        "widget": "checkbox"
-      }
-    },
-    "autoLevelsBlack": {
-      "type": "integer",
-      "default": 16,
-      "min": 0,
-      "max": 64,
-      "step": 1,
-      "visibleWhen": {
-        "applyAutoLevels": [
-          true
-        ]
-      },
-      "ui": {
-        "label": "Target black",
-        "description": "Where the darkest part of the picture should land. 16 is broadcast black.",
-        "widget": "slider"
-      }
-    },
-    "autoLevelsWhite": {
-      "type": "integer",
-      "default": 235,
-      "min": 192,
-      "max": 255,
-      "step": 1,
-      "visibleWhen": {
-        "applyAutoLevels": [
-          true
-        ]
-      },
-      "ui": {
-        "label": "Target white",
-        "description": "Where the brightest part should land. 235 is broadcast white.",
-        "widget": "slider"
-      }
-    },
-    "autoLevelsStrength": {
-      "type": "number",
-      "default": 1.0,
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.05,
-      "visibleWhen": {
-        "applyAutoLevels": [
-          true
-        ]
-      },
-      "ui": {
-        "label": "Strength",
-        "description": "Lower this if the correction moves too much between shots.",
-        "widget": "slider",
-        "precision": 2
-      }
-    },
-    "applyAutoWhiteBalance": {
-      "type": "boolean",
-      "default": false,
-      "ui": {
-        "label": "Auto white balance",
-        "description": "Remove an overall colour cast by assuming the scene should average out to neutral grey. The automatic counterpart to the temperature and tint sliders.",
-        "widget": "checkbox"
-      }
-    },
-    "autoWhiteBalanceStrength": {
-      "type": "number",
-      "default": 1.0,
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.05,
-      "visibleWhen": {
-        "applyAutoWhiteBalance": [
-          true
-        ]
-      },
-      "ui": {
-        "label": "Strength",
-        "description": "Lower this to keep some of the original cast \u2014 useful when the cast is meant to be there, like firelight.",
-        "widget": "slider",
-        "precision": 2
-      }
     }
   },
   "ui": {
     "sections": [
       {
-        "title": "Automatic",
-        "parameters": [
-          "applyAutoLevels",
-          "autoLevelsBlack",
-          "autoLevelsWhite",
-          "autoLevelsStrength",
-          "applyAutoWhiteBalance",
-          "autoWhiteBalanceStrength"
-        ],
-        "expanded": true
-      },
-      {
-        "title": "Basic Adjustments",
+        "title": "Brightness and colour",
         "parameters": [
           "brightness",
           "contrast",
           "saturation",
-          "hue",
-          "coring",
-          "applyShadowDetail",
-          "shadowSigma"
+          "hue"
         ],
         "expanded": true
       },
       {
+        "title": "Brightness and colour tuning",
+        "parameters": [
+          "coring"
+        ],
+        "expanded": false,
+        "advancedOnly": true
+      },
+      {
         "title": "Levels",
         "parameters": [
+          "applyAutoLevels",
+          "autoLevelsStrength",
+          "autoLevelsBlack",
+          "autoLevelsWhite",
           "applyLevels",
           "inputLow",
           "inputHigh",
           "outputLow",
           "outputHigh",
-          "gamma",
-          "smoothLevels"
+          "gamma"
         ],
-        "expanded": false
+        "expanded": true
       },
       {
-        "title": "White Balance",
+        "title": "Levels tuning",
         "parameters": [
+          "smoothLevels"
+        ],
+        "expanded": false,
+        "advancedOnly": true
+      },
+      {
+        "title": "White balance",
+        "parameters": [
+          "applyAutoWhiteBalance",
+          "autoWhiteBalanceStrength",
           "temperature",
           "tint"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Shadow detail",
+        "parameters": [
+          "applyShadowDetail",
+          "shadowSigma"
         ],
         "expanded": true
       }
@@ -444,6 +450,6 @@
     "imports": [
       "import havsfunc as haf"
     ],
-    "generate": "method"
+    "generate": "custom"
   }
 }

@@ -140,6 +140,15 @@ pub struct ColorCorrectionParameters {
     pub tint: f64,
 }
 
+/// The four input/output points of a levels adjustment, in 8-bit UI units.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LevelsPoints {
+    pub input_low: i32,
+    pub input_high: i32,
+    pub output_low: i32,
+    pub output_high: i32,
+}
+
 /// Chroma levels shifted per unit of temperature/tint, at 8-bit scale.
 ///
 /// A full-scale slider therefore moves chroma by 25 levels — a strong but still
@@ -259,6 +268,52 @@ mod tests {
 }
 
 impl ColorCorrectionParameters {
+    /// The input/output points the levels block actually applies.
+    ///
+    /// Automatic levels measures the picture and places black and white itself,
+    /// and it runs **before** this block — so a manual mapping on top is applied
+    /// to an already-graded picture, where the numbers no longer mean what their
+    /// labels say ("input black = 16" was measured against the original). The
+    /// panel hides those four sliders while automatic levels is on
+    /// (`visibleWhen: {"applyAutoLevels": false}` in color_correction.json) and
+    /// this is what keeps the script agreeing with it.
+    ///
+    /// Gamma is deliberately **not** dropped: automatic levels does not touch
+    /// the midtones, so it is the one levels control that still means something
+    /// afterwards — and the only place in the app to reach it.
+    pub fn effective_levels_points(&self) -> LevelsPoints {
+        if self.apply_auto_levels {
+            LevelsPoints { input_low: 0, input_high: 255, output_low: 0, output_high: 255 }
+        } else {
+            LevelsPoints {
+                input_low: self.input_low,
+                input_high: self.input_high,
+                output_low: self.output_low,
+                output_high: self.output_high,
+            }
+        }
+    }
+
+    /// Whether the manual levels block runs at all.
+    ///
+    /// `apply_levels` is the switch in the panel, and it used to be **ignored
+    /// here**: the block was emitted whenever any level differed from its
+    /// default, so unticking the switch left the adjustment running with no
+    /// control on screen that could turn it off. The switch decides now, and it
+    /// still needs something to do — an identity mapping is emitted as nothing
+    /// rather than as a no-op filter.
+    pub fn effective_apply_levels(&self) -> bool {
+        if !self.apply_levels {
+            return false;
+        }
+        let p = self.effective_levels_points();
+        p.input_low != 0
+            || p.input_high != 255
+            || p.output_low != 0
+            || p.output_high != 255
+            || (self.gamma - 1.0).abs() > 0.001
+    }
+
     /// The black point actually passed to SmoothLevels.
     ///
     /// havsfunc builds its lookup table over the whole `0..peak` domain and
@@ -275,7 +330,7 @@ impl ColorCorrectionParameters {
         if (self.gamma - 1.0).abs() > f64::EPSILON {
             0
         } else {
-            self.input_low
+            self.effective_levels_points().input_low
         }
     }
 
@@ -284,7 +339,7 @@ impl ColorCorrectionParameters {
     pub fn smooth_levels_drops_black_point(&self) -> bool {
         self.smooth_levels
             && self.apply_levels
-            && self.input_low > 0
+            && self.effective_levels_points().input_low > 0
             && (self.gamma - 1.0).abs() > f64::EPSILON
     }
 }

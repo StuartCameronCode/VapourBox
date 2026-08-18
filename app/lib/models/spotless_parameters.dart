@@ -67,6 +67,12 @@ class SpotLessParameters {
     int? blksize,
     int? overlap,
     int? pel,
+    SpotLessMethod? method,
+    int? rdNoise,
+    int? rdNoisy,
+    int? rdGmthreshold,
+    int? rdDist,
+    bool? rdPostDenoise,
   }) {
     return SpotLessParameters(
       enabled: enabled ?? this.enabled,
@@ -75,6 +81,12 @@ class SpotLessParameters {
       blksize: blksize ?? this.blksize,
       overlap: overlap ?? this.overlap,
       pel: pel ?? this.pel,
+      method: method ?? this.method,
+      rdNoise: rdNoise ?? this.rdNoise,
+      rdNoisy: rdNoisy ?? this.rdNoisy,
+      rdGmthreshold: rdGmthreshold ?? this.rdGmthreshold,
+      rdDist: rdDist ?? this.rdDist,
+      rdPostDenoise: rdPostDenoise ?? this.rdPostDenoise,
     );
   }
 

@@ -81,6 +81,15 @@ parameters that apply to it.
 | `parameters` | array | **Yes** | Parameter ids this method uses |
 | `advancedOnly` | boolean | No (`false`) | Method is only offered in advanced mode |
 
+> **A method must gate something, or it should not exist.** The listed
+> `parameters` do **not** drive the panel when the schema declares `ui.sections`
+> — sections take priority — so a method only changes what the user sees through
+> `visibleWhen: {"method": [...]}` on the parameters themselves, and only changes
+> the render if the worker has a matching field to switch on. `color_correction`
+> declared two methods with neither: the dropdown rendered, both groups of
+> controls stayed on screen, and the converter hardcoded one value the worker
+> never read. One method means no dropdown at all, which is the honest result.
+
 ### `advancedOnly` on a method
 
 This is how a filter offers a short list to everyone and the full set to someone
@@ -189,9 +198,26 @@ method (above).
 "visibleWhen": { "method": ["dehalo_alpha", "fine_dehalo"] }   // any of these
 "visibleWhen": { "method": "standard" }                         // single value
 "visibleWhen": { "enabled": true, "method": "advanced" }        // all must match
+"visibleWhen": { "applyAutoChroma": false }                     // booleans too
 ```
 
-Multiple keys are ANDed; a list of values for one key is ORed.
+Multiple keys are ANDed; a list of values for one key is ORed. `method` is read
+from the values map like any other key, so a condition on the selected method
+works the same way as one on a checkbox.
+
+> **It belongs at `parameters.<id>.ui.visibleWhen` and nowhere else.**
+> `ParameterDefinition` doesn't declare the key, so a copy written one level up
+> is dropped at parse time — no error, and the control is simply always visible.
+> **Eight of the shipped schemas had it in the wrong place** (35 parameters and
+> 12 sections), which is how Chroma Fixes came to show its automatic-alignment
+> sliders with automatic alignment switched off, and Noise Reduction its mClean
+> knobs under SMDegrain. Fixed 2026-08-18 and now linted by
+> `app/test/filter_schema_curation_test.dart`.
+>
+> The same test asserts the opposite failure: a condition naming a parameter
+> that doesn't exist, or a `method` condition naming a method the filter doesn't
+> offer, can *never* be satisfied — so the control it guards is invisible
+> forever, which is the worse of the two silent failures.
 
 ## Parameter Presets
 
@@ -244,8 +270,27 @@ A dropdown that writes several parameters at once — distinct from the top-leve
 | `expanded` | boolean | `true` | Initially expanded |
 | `advancedOnly` | boolean | `false` | Only in advanced mode |
 
-A section has **no `visibleWhen`** — `UiSection` doesn't declare one, so putting it
-there does nothing. Hide the individual parameters instead.
+A section has **no `visibleWhen`** — `UiSection` doesn't declare one, so putting
+it there does nothing. Put the condition on every parameter in the section
+instead; `filter_schema_curation_test.dart` fails if a section carries one.
+
+**A section is a heading, but only where there is more than one.**
+`DynamicFilterPanelCompact` prints `title` above the section's controls whenever
+the schema declares two or more sections, in both modes; an `advancedOnly` one is
+printed in the accent colour, so it stays obvious which controls appeared because
+advanced mode is on. A schema with a **single** section gets no heading at all —
+there is nothing to tell it apart from, and most of those call it "Settings".
+
+Order still carries the structure, because a heading is all you get — there is no
+indent, box or rule. Put the switch that turns a feature on first, the controls it
+reveals next, and its thresholds in an `advancedOnly` section immediately after.
+`chroma_fixes.json` is the worked example (a switch per repair, and a tuning
+section per filter directly after it).
+
+> Until 2026-08-18 the heading was printed **only** for an `advancedOnly` section
+> in advanced mode, so every ordinary section ran together into one flat list and
+> a `title` was, in practice, a comment. Don't assume a section groups anything
+> visually beyond its heading.
 
 ## Code Template
 
@@ -281,3 +326,15 @@ Read a real one rather than starting from this page:
 - **`deinterlace.json`** (2242 lines) — every QTGMC parameter; the extreme case.
 - **`spotless.json`** (112 lines) — near-minimal, a good starting skeleton.
 - **`descratch.json`** — the only user of `maxBitDepth`.
+- **`chroma_fixes.json`** — one pass holding five unrelated repairs: the model
+  for progressive disclosure (a switch per repair, controls gated on it, an
+  `advancedOnly` tuning section per repair) and for two controls that are
+  alternatives rather than a pair (`applyAutoChroma` hides the manual sliders,
+  and `ChromaFixParameters::effective_apply_chroma_shift` keeps the generated
+  script agreeing with what the panel shows).
+- **`color_correction.json`** — an adjustment offered both automatically and by
+  hand belongs in **one** section with the automatic control first, not in a
+  separate "Automatic" group. It also shows the two ways that pairing can go:
+  automatic levels hides the manual input/output points it supersedes but leaves
+  gamma, which it never touches, while automatic white balance leaves temperature
+  and tint alone because an offset still means what it says after a correction.

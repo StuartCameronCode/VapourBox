@@ -5453,3 +5453,130 @@ fn test_149_every_noise_reduction_method_emits_its_filter() {
         assert!(!script.contains(call), "{call} survived a disabled pass");
     }
 }
+
+#[test]
+fn test_150_automatic_chroma_alignment_supersedes_the_manual_shift() {
+    // Both blocks used to be emitted when both were set, with the automatic one
+    // running first — so the picture was shifted by a measured amount and then
+    // again by a guessed one, silently. The panel now hides the manual sliders
+    // while automatic alignment is on, and this keeps the generated script
+    // agreeing with what the panel shows.
+    create_output_dir();
+
+    let build = |auto: bool, manual: bool| {
+        let mut job = create_base_job("test_150_chroma_alignment");
+        job.qtgmc_parameters.enabled = false;
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            chroma_fixes: ChromaFixParameters {
+                enabled: true,
+                apply_auto_chroma: auto,
+                apply_chroma_shift: manual,
+                chroma_shift_h: 2.5,
+                chroma_shift_v: -1.0,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        script_text(&job)
+    };
+
+    // The manual shift is recognisable by the per-plane ShufflePlanes/Spline36
+    // pair the CHROMA_SHIFT block builds.
+    let manual_only = build(false, true);
+    assert!(!manual_only.contains("_auto_chroma_fix("));
+    assert!(manual_only.contains("_shift_h = 2.5"));
+
+    let auto_only = build(true, false);
+    assert!(auto_only.contains("_auto_chroma_fix("));
+    assert!(!auto_only.contains("_shift_h ="));
+
+    let both = build(true, true);
+    assert!(
+        both.contains("_auto_chroma_fix("),
+        "automatic alignment must still run"
+    );
+    assert!(
+        !both.contains("_shift_h ="),
+        "the manual shift must be dropped when automatic alignment is on, or the \
+         measured correction is applied twice"
+    );
+
+    let neither = build(false, false);
+    assert!(!neither.contains("_auto_chroma_fix("));
+    assert!(!neither.contains("_shift_h ="));
+}
+
+#[test]
+fn test_151_levels_honour_their_switch_and_yield_to_automatic_levels() {
+    // Two faults in the same block, both silent.
+    //
+    // `apply_levels` — the panel's "Set levels by hand" switch — was never read
+    // here: the block was emitted whenever any level differed from its default,
+    // so unticking the switch left the adjustment running with nothing on screen
+    // that could stop it.
+    //
+    // And automatic levels measures the picture and places black and white
+    // itself, running *before* this block, so manual input/output points on top
+    // grade an already-graded picture with numbers that were measured against
+    // the original. The panel hides them; the script drops them. Gamma survives,
+    // because automatic levels never touches the midtones and this is the only
+    // place to reach it.
+    create_output_dir();
+
+    let build = |apply_levels: bool, auto: bool, gamma: f64| {
+        let mut job = create_base_job("test_151_levels");
+        job.qtgmc_parameters.enabled = false;
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            color_correction: ColorCorrectionParameters {
+                enabled: true,
+                apply_levels,
+                apply_auto_levels: auto,
+                input_low: 16,
+                input_high: 235,
+                output_low: 0,
+                output_high: 255,
+                gamma,
+                ..ColorCorrectionParameters::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        script_text(&job)
+    };
+
+    // `_auto_levels` calls std.Levels internally, so the manual block is
+    // recognised by its own 8-bit scaling helper rather than by the call.
+    const MANUAL_LEVELS: &str = "def _levels_8bit";
+
+    let on = build(true, false, 1.0);
+    assert!(on.contains(MANUAL_LEVELS));
+    assert!(on.contains("min_in=_levels_8bit(16)"));
+
+    let off = build(false, false, 1.0);
+    assert!(
+        !off.contains(MANUAL_LEVELS),
+        "unticking the switch must actually stop the adjustment"
+    );
+
+    // Automatic levels on: its own block runs, the manual points do not, and a
+    // manual levels block is emitted only if gamma gives it something to do.
+    let auto_no_gamma = build(true, true, 1.0);
+    assert!(auto_no_gamma.contains("_auto_levels("));
+    assert!(
+        !auto_no_gamma.contains(MANUAL_LEVELS),
+        "with black and white measured, an identity mapping is nothing to emit"
+    );
+
+    let auto_with_gamma = build(true, true, 1.4);
+    assert!(auto_with_gamma.contains("_auto_levels("));
+    assert!(auto_with_gamma.contains(MANUAL_LEVELS));
+    assert!(
+        auto_with_gamma.contains("gamma=1.4"),
+        "gamma is the one levels control automatic levels does not supersede"
+    );
+    assert!(
+        !auto_with_gamma.contains("min_in=_levels_8bit(16)"),
+        "the manual input point must not be applied on top of the measured one"
+    );
+}

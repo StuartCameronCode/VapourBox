@@ -69,15 +69,15 @@
       "min": 4,
       "max": 32,
       "step": 4,
-      "visibleWhen": {
-        "method": [
-          "flowFps"
-        ]
-      },
       "ui": {
         "label": "Block size",
         "description": "Motion is estimated in blocks of this size. Larger is faster and coarser.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "flowFps"
+          ]
+        }
       }
     },
     "overlap": {
@@ -86,15 +86,15 @@
       "min": 0,
       "max": 16,
       "step": 2,
-      "visibleWhen": {
-        "method": [
-          "flowFps"
-        ]
-      },
       "ui": {
         "label": "Block overlap",
         "description": "How much neighbouring blocks overlap. More overlap hides block edges at some cost in speed.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "flowFps"
+          ]
+        }
       }
     }
   },
@@ -115,12 +115,7 @@
           "overlap"
         ],
         "expanded": false,
-        "advancedOnly": true,
-        "visibleWhen": {
-          "method": [
-            "flowFps"
-          ]
-        }
+        "advancedOnly": true
       }
     ]
   }

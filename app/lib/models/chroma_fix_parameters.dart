@@ -77,16 +77,39 @@ class ChromaFixParameters {
   /// format afterwards.
   final bool applyDeRainbow;
 
-  /// DeDot — temporal dot crawl / rainbow removal on both planes.
+  // --- Automatic chroma alignment ---
+
+  /// Measure the chroma misalignment and correct it, rather than asking the
+  /// user to guess it on the [chromaShiftH]/[chromaShiftV] sliders. Takes
+  /// precedence over them — see [effectiveApplyChromaShift].
   final bool applyAutoChroma;
+
+  /// Largest shift to search for, in pixels.
   final int autoChromaMaxShift;
+
+  /// Sub-pixel search step. Smaller is finer and slower.
   final double autoChromaAccuracy;
+
+  /// Measure once on this frame; -1 measures every frame (~23x the cost).
   final int autoChromaReferenceFrame;
 
+  // --- DeDot (temporal dot crawl removal, both planes) ---
+
+  /// Apply DeDot. Complementary to [applyDeCrawl] rather than an alternative:
+  /// it compares neighbouring frames where LUTDeCrawl works inside one, and
+  /// each reaches a crawl geometry the other leaves alone.
   final bool applyDedot;
+
+  /// Spatial luma threshold (0-510).
   final int dedotLuma2d;
+
+  /// Temporal luma threshold (0-255).
   final int dedotLumaT;
+
+  /// Chroma threshold (0-255).
   final int dedotChromaT1;
+
+  /// Chroma motion limit (0-255). 255 leaves chroma alone entirely.
   final int dedotChromaT2;
 
   /// Chroma difference threshold for detecting rainbowing.
@@ -146,8 +169,9 @@ class ChromaFixParameters {
     this.deCrawlYThresh = 10,
     this.deCrawlCThresh = 10,
     this.deCrawlMaxDiff = 50,
-    // Vinverse defaults
+    // LUTDeRainbow defaults
     this.applyDeRainbow = false,
+    // Automatic alignment defaults
     this.applyAutoChroma = false,
     this.autoChromaMaxShift = 2,
     this.autoChromaAccuracy = 0.25,
@@ -217,6 +241,10 @@ class ChromaFixParameters {
   ChromaFixParameters copyWith({
     bool? enabled,
     ChromaFixPreset? preset,
+    bool? applyAutoChroma,
+    int? autoChromaMaxShift,
+    double? autoChromaAccuracy,
+    int? autoChromaReferenceFrame,
     bool? applyChromaShift,
     double? chromaShiftH,
     double? chromaShiftV,
@@ -230,6 +258,11 @@ class ChromaFixParameters {
     int? deCrawlCThresh,
     int? deCrawlMaxDiff,
     bool? applyDeRainbow,
+    bool? applyDedot,
+    int? dedotLuma2d,
+    int? dedotLumaT,
+    int? dedotChromaT1,
+    int? dedotChromaT2,
     int? deRainbowCThresh,
     int? deRainbowYThresh,
     bool? deRainbowUseLuma,
@@ -245,6 +278,11 @@ class ChromaFixParameters {
     return ChromaFixParameters(
       enabled: enabled ?? this.enabled,
       preset: preset ?? this.preset,
+      applyAutoChroma: applyAutoChroma ?? this.applyAutoChroma,
+      autoChromaMaxShift: autoChromaMaxShift ?? this.autoChromaMaxShift,
+      autoChromaAccuracy: autoChromaAccuracy ?? this.autoChromaAccuracy,
+      autoChromaReferenceFrame:
+          autoChromaReferenceFrame ?? this.autoChromaReferenceFrame,
       applyChromaShift: applyChromaShift ?? this.applyChromaShift,
       chromaShiftH: chromaShiftH ?? this.chromaShiftH,
       chromaShiftV: chromaShiftV ?? this.chromaShiftV,
@@ -258,6 +296,11 @@ class ChromaFixParameters {
       deCrawlCThresh: deCrawlCThresh ?? this.deCrawlCThresh,
       deCrawlMaxDiff: deCrawlMaxDiff ?? this.deCrawlMaxDiff,
       applyDeRainbow: applyDeRainbow ?? this.applyDeRainbow,
+      applyDedot: applyDedot ?? this.applyDedot,
+      dedotLuma2d: dedotLuma2d ?? this.dedotLuma2d,
+      dedotLumaT: dedotLumaT ?? this.dedotLumaT,
+      dedotChromaT1: dedotChromaT1 ?? this.dedotChromaT1,
+      dedotChromaT2: dedotChromaT2 ?? this.dedotChromaT2,
       deRainbowCThresh: deRainbowCThresh ?? this.deRainbowCThresh,
       deRainbowYThresh: deRainbowYThresh ?? this.deRainbowYThresh,
       deRainbowUseLuma: deRainbowUseLuma ?? this.deRainbowUseLuma,
@@ -271,6 +314,17 @@ class ChromaFixParameters {
       vinverseAmnt: vinverseAmnt ?? this.vinverseAmnt,
     );
   }
+
+  /// Whether the manual Y/C delay sliders actually reach the render.
+  ///
+  /// Automatic alignment measures the shift and applies it, and it runs *before*
+  /// the manual shift in the script — so with both set the picture is corrected
+  /// twice. The automatic measurement wins: the manual controls are hidden in the
+  /// panel while it is on, [ScriptGenerator] omits the manual block, and this is
+  /// the single derivation everything else asks. It deliberately does not clear
+  /// [applyChromaShift], so turning automatic back off restores what the user
+  /// had set by hand.
+  bool get effectiveApplyChromaShift => applyChromaShift && !applyAutoChroma;
 
   /// Get a human-readable summary of the current settings.
   String get summary {
@@ -287,10 +341,17 @@ class ChromaFixParameters {
           return preset.name;
       }
     }
+    // Every repair the pass will actually perform. A fix missing from this list
+    // is a fix the pass row claims not to be doing — which is how DeDot and
+    // automatic alignment ran invisibly on the VHS Cleanup and DV presets.
     final fixes = <String>[];
-    if (applyChromaShift) fixes.add('Shift');
+    if (applyAutoChroma) fixes.add('Auto align');
+    if (effectiveApplyChromaShift) fixes.add('Shift');
     if (applyChromaBleedingFix) fixes.add('Bleed');
     if (applyDeCrawl) fixes.add('Crawl');
+    if (applyDedot) fixes.add('DeDot');
+    if (applyDeRainbow) fixes.add('Rainbow');
+    if (applyBifrost) fixes.add('Bifrost');
     if (applyVinverse) fixes.add('Vinv');
     return fixes.isEmpty ? 'Custom' : fixes.join('+');
   }

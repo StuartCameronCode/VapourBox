@@ -386,15 +386,28 @@ class DynamicFilterPanelCompact extends StatelessWidget {
         // Skip sections with no visible parameters
         if (sectionWidgets.isEmpty) continue;
 
-        // In advanced mode with sections, show section headers
-        if (advancedMode && section.advancedOnly) {
+        // Headings, so a section is a visible group and not merely an ordering.
+        // Only where there is more than one to tell apart: a schema with a
+        // single section has nothing to distinguish, and most of those call it
+        // "Settings", which is a heading that says nothing. Advanced-only
+        // sections keep the accent colour, so it stays obvious which controls
+        // appeared because advanced mode is on.
+        if (sections.length > 1) {
           widgets.add(
             Padding(
-              padding: const EdgeInsets.only(top: 16, bottom: 8),
+              padding: EdgeInsets.only(
+                top: widgets.isEmpty ? 0 : 16,
+                bottom: 8,
+              ),
               child: Text(
                 section.title,
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
+                  color: section.advancedOnly
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.7),
                 ),
               ),
             ),
