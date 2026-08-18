@@ -641,6 +641,49 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    // Chroma Fixes offers two ways to put the colour back where it belongs, and
+    // they are alternatives: the automatic pass measures the misalignment and
+    // corrects it, and it runs *before* the manual shift in the script, so both
+    // together shift the picture twice. The panel hides the manual sliders while
+    // automatic alignment is on (`visibleWhen: {applyAutoChroma: false}` in
+    // chroma_fixes.json) and the worker drops the manual block to match. This is
+    // the Dart-side half of test_150: the Rust test builds the struct directly,
+    // so only this one can catch a `@JsonValue`/serde name drifting apart.
+    test('chroma_fixes: automatic alignment supersedes the manual shift',
+        () async {
+      loadSchema('chroma_fixes');
+
+      Future<String> scriptFor({required bool auto, required bool manual}) {
+        return generateScriptViaWorker(buildJob(
+          testName: 'chroma_align_auto_${auto}_manual_$manual',
+          chromaFixes: ChromaFixParameters(
+            enabled: true,
+            applyAutoChroma: auto,
+            applyChromaShift: manual,
+            chromaShiftH: 2.5,
+            chromaShiftV: -1.0,
+          ),
+        ));
+      }
+
+      final manualOnly = await scriptFor(auto: false, manual: true);
+      expect(manualOnly, contains('_shift_h = 2.5'));
+      expect(manualOnly, isNot(contains('_auto_chroma_fix(')));
+
+      final autoOnly = await scriptFor(auto: true, manual: false);
+      expect(autoOnly, contains('_auto_chroma_fix('));
+      expect(autoOnly, isNot(contains('_shift_h =')));
+
+      final both = await scriptFor(auto: true, manual: true);
+      expect(both, contains('_auto_chroma_fix('),
+          reason: 'automatic alignment must still run');
+      expect(both, isNot(contains('_shift_h =')),
+          reason: 'the manual shift must not be applied on top of a measured '
+              'correction');
+
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     // --- COLOR CORRECTION (Tweak + Levels) ---
     test('color_correction: Tweak and Levels params', () async {
       loadSchema('color_correction'); // confirm schema parses
@@ -675,6 +718,59 @@ void main() {
       expect(levels['min_out'], '_levels_8bit(5)');
       expect(levels['max_out'], '_levels_8bit(250)');
       expect(levels['gamma'], '0.9');
+
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // The Levels switch used to be a UI-only flag: the worker emitted the block
+    // whenever a level differed from its default, so unticking it left the
+    // adjustment running. And automatic levels measures and places black and
+    // white before this block, so manual points on top graded an already-graded
+    // picture. Rust-side twin: test_151.
+    test('color_correction: levels honour their switch and yield to auto',
+        () async {
+      loadSchema('color_correction');
+
+      Future<String> scriptFor({
+        required bool applyLevels,
+        required bool auto,
+        double gamma = 1.0,
+      }) {
+        return generateScriptViaWorker(buildJob(
+          testName: 'levels_${applyLevels}_auto_${auto}_g$gamma',
+          colorCorrection: ColorCorrectionParameters(
+            enabled: true,
+            applyLevels: applyLevels,
+            applyAutoLevels: auto,
+            inputLow: 16,
+            inputHigh: 235,
+            gamma: gamma,
+          ),
+        ));
+      }
+
+      // _auto_levels calls std.Levels internally, so the manual block is
+      // recognised by its own 8-bit scaling helper.
+      const manualLevels = 'def _levels_8bit';
+
+      expect(await scriptFor(applyLevels: true, auto: false),
+          contains('min_in=_levels_8bit(16)'));
+
+      expect(await scriptFor(applyLevels: false, auto: false),
+          isNot(contains(manualLevels)),
+          reason: 'unticking the switch must stop the adjustment');
+
+      final autoOnly = await scriptFor(applyLevels: true, auto: true);
+      expect(autoOnly, contains('_auto_levels('));
+      expect(autoOnly, isNot(contains(manualLevels)),
+          reason: 'the measured black and white points supersede the manual '
+              'ones, leaving an identity mapping worth emitting as nothing');
+
+      final autoWithGamma =
+          await scriptFor(applyLevels: true, auto: true, gamma: 1.4);
+      expect(autoWithGamma, contains('_auto_levels('));
+      expect(autoWithGamma, contains('gamma=1.4'));
+      expect(autoWithGamma, isNot(contains('min_in=_levels_8bit(16)')));
 
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));

@@ -248,6 +248,26 @@ mod tests {
     }
 
     #[test]
+    fn test_automatic_alignment_supersedes_the_manual_shift() {
+        let mut params = ChromaFixParameters {
+            apply_chroma_shift: true,
+            chroma_shift_h: 2.0,
+            ..ChromaFixParameters::default()
+        };
+        assert!(params.effective_apply_chroma_shift());
+
+        params.apply_auto_chroma = true;
+        assert!(
+            !params.effective_apply_chroma_shift(),
+            "the automatic pass already corrects the shift; applying the manual \
+             one on top would double-correct it"
+        );
+        // The user's own setting survives, so unticking automatic restores it.
+        assert!(params.apply_chroma_shift);
+        assert_eq!(params.chroma_shift_h, 2.0);
+    }
+
+    #[test]
     fn test_serialization() {
         let params = ChromaFixParameters::default();
         let json = serde_json::to_string(&params).unwrap();
@@ -260,5 +280,22 @@ impl ChromaFixParameters {
     /// Bifrost's `variation`, clamped to the range it accepts.
     pub fn bifrost_effective_variation(&self) -> i32 {
         self.bifrost_variation.clamp(0, 10)
+    }
+
+    /// Whether the manual Y/C delay shift reaches the script.
+    ///
+    /// Automatic alignment measures the misalignment and corrects it, and its
+    /// block runs *before* the manual shift — so with both set the picture is
+    /// shifted twice, the second time by a number the user guessed on top of a
+    /// correction that was already measured. The automatic measurement wins:
+    /// the panel hides the manual controls while it is on
+    /// (`chroma_fixes.json`, `visibleWhen: {applyAutoChroma: false}`) and this
+    /// keeps the generated script agreeing with what the panel shows.
+    ///
+    /// It deliberately does not clear `apply_chroma_shift` in the job, so
+    /// turning automatic alignment off restores what the user set by hand.
+    /// `ChromaFixParameters.effectiveApplyChromaShift` is the Dart twin.
+    pub fn effective_apply_chroma_shift(&self) -> bool {
+        self.apply_chroma_shift && !self.apply_auto_chroma
     }
 }

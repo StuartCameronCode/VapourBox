@@ -111,6 +111,57 @@ List<PassAdvice> adviseOn(ProcessingPipeline pipeline) {
     ));
   }
 
+  // --- Levels set by hand on top of levels set automatically ---
+  // Automatic levels measures the picture and places black and white itself,
+  // and it runs first — so the manual input/output points are dropped (the
+  // panel hides them) and only gamma survives. Said out loud, because a preset
+  // can carry both and the user would otherwise see neither the sliders nor a
+  // reason for their absence.
+  if (on(PassType.colorCorrection) &&
+      pipeline.colorCorrection.applyAutoLevels &&
+      pipeline.colorCorrection.applyLevels) {
+    advice.add(const PassAdvice(
+      PassType.colorCorrection,
+      'Levels are being set automatically, so the input and output points here '
+      'are not used — the automatic pass has already placed black and white. '
+      'Gamma still applies, and switching automatic levels off brings the '
+      'sliders back.',
+    ));
+  }
+
+  // --- White balance by hand after white balance by measurement ---
+  // Unlike the levels pair these compose legitimately: the automatic pass
+  // neutralises the cast and the sliders then offset the result deliberately
+  // ("neutral, but a little warmer"). Worth saying which order they happen in,
+  // not worth preventing.
+  if (on(PassType.colorCorrection) &&
+      pipeline.colorCorrection.applyAutoWhiteBalance &&
+      (pipeline.colorCorrection.temperature != 0 ||
+          pipeline.colorCorrection.tint != 0)) {
+    advice.add(const PassAdvice(
+      PassType.colorCorrection,
+      'Temperature and tint are applied after the automatic white balance, so '
+      'they shift the corrected picture rather than the original.',
+    ));
+  }
+
+  // --- A manual chroma shift that automatic alignment has superseded ---
+  // The two are alternatives, and the panel hides the manual sliders while
+  // automatic alignment is on — so a preset or saved job that set both leaves
+  // the user no way to see that their hand-set shift is not being used.
+  // ChromaFixParameters.effectiveApplyChromaShift is what decides.
+  if (on(PassType.chromaFixes) &&
+      pipeline.chromaFixes.applyAutoChroma &&
+      pipeline.chromaFixes.applyChromaShift) {
+    advice.add(const PassAdvice(
+      PassType.chromaFixes,
+      'Colour alignment is being measured automatically, so the manual Y/C '
+      'delay shift saved with this preset is not applied — correcting a '
+      'measured shift again by hand would double it. Switch automatic '
+      'alignment off to go back to the sliders.',
+    ));
+  }
+
   // --- Rotating interlaced material destroys it ---
   // Fields are stored as alternating horizontal lines. A quarter turn puts them
   // in alternating COLUMNS, where no deinterlacer can find them: measured,
