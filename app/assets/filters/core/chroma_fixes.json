@@ -1,10 +1,10 @@
 {
   "$schema": "https://vapourbox.app/schemas/filter-v1.json",
   "id": "chroma_fixes",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Chroma Fixes",
-  "description": "Fix chroma bleeding, rainbows, and dot crawl",
-  "longDescription": "Repairs colour-specific damage from analog and composite video: chroma shifted sideways from the luma it belongs to, colour bleeding past edges, rainbow shimmer over fine patterns, and dots crawling along edges.\n\nUse it for VHS, Video8 and other composite captures. Each fix is enabled separately, so turn on only the ones matching what you can actually see in the preview \u2014 every one of them costs some colour detail.",
+  "description": "Fix colour alignment, bleeding, rainbows and dot crawl",
+  "longDescription": "Repairs colour-specific damage from analog and composite video. It covers five separate problems, each with its own switch, in the order they appear below:\n\n**Alignment** \u2014 the colour sits sideways or up/down from the picture it belongs to. Correct it automatically or by hand; these are alternatives, not a pair.\n\n**Bleeding** \u2014 colour smears past the edge it belongs to, most obviously on strong reds.\n\n**Dot crawl** \u2014 dots crawling along sharp colour edges.\n\n**Rainbowing** \u2014 shimmering colour bands over fine detail.\n\n**Chroma combing** \u2014 leftover comb teeth in the colour planes.\n\nDot crawl and rainbowing each offer a second removal that compares neighbouring frames rather than working inside one. They reach different patterns, so they are worth combining rather than choosing between.\n\nTurn on only what you can actually see in the preview \u2014 every one of these costs some colour detail.",
   "category": "cleanup",
   "icon": "palette",
   "order": 8,
@@ -20,21 +20,36 @@
     {
       "id": "chroma_fixes",
       "name": "Chroma Fixes",
-      "description": "Fix chroma bleeding, dot crawl, and combing artifacts (enable individually below)",
+      "description": "Alignment, bleeding, dot crawl, rainbowing and chroma combing, each switched on separately below",
       "function": "custom",
       "parameters": [
+        "applyAutoChroma",
+        "autoChromaMaxShift",
+        "autoChromaAccuracy",
+        "autoChromaReferenceFrame",
         "applyChromaShift",
         "chromaShiftH",
         "chromaShiftV",
         "applyChromaBleedingFix",
+        "chromaBleedStrength",
+        "chromaBleedCBlur",
         "chromaBleedCx",
         "chromaBleedCy",
-        "chromaBleedCBlur",
-        "chromaBleedStrength",
         "applyDeCrawl",
         "deCrawlYThresh",
         "deCrawlCThresh",
         "deCrawlMaxDiff",
+        "applyDedot",
+        "dedotLuma2d",
+        "dedotLumaT",
+        "dedotChromaT1",
+        "dedotChromaT2",
+        "applyDeRainbow",
+        "deRainbowCThresh",
+        "deRainbowYThresh",
+        "applyBifrost",
+        "bifrostLumaThresh",
+        "bifrostVariation",
         "applyVinverse",
         "vinverseSstr",
         "vinverseAmnt"
@@ -49,12 +64,71 @@
         "hidden": true
       }
     },
+    "applyAutoChroma": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Correct colour alignment automatically",
+        "description": "Measures how far the colour has slipped from the picture and shifts it back, so you do not have to guess it on a slider. If it cannot measure the source reliably it leaves the picture alone rather than guessing. This replaces the manual sliders \u2014 with it on, they are not used.",
+        "widget": "checkbox"
+      }
+    },
+    "autoChromaMaxShift": {
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "ui": {
+        "label": "Search range",
+        "description": "The largest misalignment to look for, in pixels.",
+        "widget": "slider",
+        "visibleWhen": {
+          "applyAutoChroma": true
+        }
+      }
+    },
+    "autoChromaAccuracy": {
+      "type": "number",
+      "default": 0.25,
+      "min": 0.05,
+      "max": 1.0,
+      "step": 0.05,
+      "ui": {
+        "label": "Precision",
+        "description": "Smaller finds sub-pixel shifts, at some cost.",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": {
+          "applyAutoChroma": true
+        }
+      }
+    },
+    "autoChromaReferenceFrame": {
+      "type": "integer",
+      "default": 0,
+      "min": -1,
+      "max": 100000,
+      "step": 1,
+      "ui": {
+        "label": "Reference frame",
+        "description": "Measure once on this frame. -1 measures every frame, which is about 23 times slower and rarely worth it.",
+        "widget": "number",
+        "visibleWhen": {
+          "applyAutoChroma": true
+        }
+      }
+    },
     "applyChromaShift": {
       "type": "boolean",
       "default": false,
       "ui": {
-        "label": "Adjust Y/C Delay",
-        "description": "Shift chroma planes to correct Y/C timing delay (common on VHS and analog sources)"
+        "label": "Correct colour alignment by hand (Y/C delay)",
+        "description": "Shift the colour back into place yourself. Use this when the automatic measurement finds nothing \u2014 very soft VHS colour is sometimes not measurable.",
+        "widget": "checkbox",
+        "visibleWhen": {
+          "applyAutoChroma": false
+        }
       }
     },
     "chromaShiftH": {
@@ -67,11 +141,12 @@
         "name": "src_left"
       },
       "ui": {
-        "label": "Horizontal Shift",
-        "description": "Shift chroma left/right in pixels (negative = left, positive = right)",
+        "label": "Horizontal shift",
+        "description": "Negative moves the colour left, positive moves it right, in pixels.",
         "widget": "slider",
         "precision": 2,
         "visibleWhen": {
+          "applyAutoChroma": false,
           "applyChromaShift": true
         }
       }
@@ -86,11 +161,12 @@
         "name": "src_top"
       },
       "ui": {
-        "label": "Vertical Shift",
-        "description": "Shift chroma up/down in pixels (negative = up, positive = down)",
+        "label": "Vertical shift",
+        "description": "Negative moves the colour up, positive moves it down, in pixels.",
         "widget": "slider",
         "precision": 2,
         "visibleWhen": {
+          "applyAutoChroma": false,
           "applyChromaShift": true
         }
       }
@@ -99,8 +175,47 @@
       "type": "boolean",
       "default": false,
       "ui": {
-        "label": "Fix Chroma Bleeding",
-        "description": "Apply chroma bleeding fix (common on VHS)"
+        "label": "Fix colour bleeding past edges",
+        "description": "Colour smeared beyond the edge it belongs to, most obvious on strong reds. Common on VHS and other composite captures.",
+        "widget": "checkbox"
+      }
+    },
+    "chromaBleedStrength": {
+      "type": "number",
+      "default": 0.8,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.1,
+      "vapoursynth": {
+        "name": "strength"
+      },
+      "ui": {
+        "label": "Strength",
+        "description": "How much of the correction to blend in.",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "applyChromaBleedingFix": true
+        }
+      }
+    },
+    "chromaBleedCBlur": {
+      "type": "number",
+      "default": 0.7,
+      "min": 0.0,
+      "max": 2.0,
+      "step": 0.1,
+      "vapoursynth": {
+        "name": "thr"
+      },
+      "ui": {
+        "label": "Colour blur",
+        "description": "Softens the colour before the correction. Higher hides more bleeding and loses more colour detail.",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "applyChromaBleedingFix": true
+        }
       }
     },
     "chromaBleedCx": {
@@ -109,13 +224,12 @@
       "min": 0,
       "max": 16,
       "step": 1,
-      "optional": true,
       "vapoursynth": {
         "name": "cx"
       },
       "ui": {
-        "label": "Horizontal Offset",
-        "description": "Chroma X offset correction",
+        "label": "Horizontal offset",
+        "description": "Whole-pixel colour offset the fix works from. Leave it alone unless the colour is misaligned as well as bleeding \u2014 the alignment controls above are the better tool for that.",
         "widget": "slider",
         "visibleWhen": {
           "applyChromaBleedingFix": true
@@ -128,54 +242,13 @@
       "min": 0,
       "max": 16,
       "step": 1,
-      "optional": true,
       "vapoursynth": {
         "name": "cy"
       },
       "ui": {
-        "label": "Vertical Offset",
-        "description": "Chroma Y offset correction",
+        "label": "Vertical offset",
+        "description": "Whole-pixel colour offset the fix works from, vertically.",
         "widget": "slider",
-        "visibleWhen": {
-          "applyChromaBleedingFix": true
-        }
-      }
-    },
-    "chromaBleedCBlur": {
-      "type": "number",
-      "default": 0.7,
-      "min": 0.0,
-      "max": 2.0,
-      "step": 0.1,
-      "optional": true,
-      "vapoursynth": {
-        "name": "thr"
-      },
-      "ui": {
-        "label": "Chroma Blur",
-        "description": "Chroma blur strength",
-        "widget": "slider",
-        "precision": 1,
-        "visibleWhen": {
-          "applyChromaBleedingFix": true
-        }
-      }
-    },
-    "chromaBleedStrength": {
-      "type": "number",
-      "default": 0.8,
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.1,
-      "optional": true,
-      "vapoursynth": {
-        "name": "strength"
-      },
-      "ui": {
-        "label": "Strength",
-        "description": "Fix strength",
-        "widget": "slider",
-        "precision": 1,
         "visibleWhen": {
           "applyChromaBleedingFix": true
         }
@@ -185,8 +258,9 @@
       "type": "boolean",
       "default": false,
       "ui": {
-        "label": "Apply DeCrawl",
-        "description": "Remove dot crawl artifacts (common on composite video)"
+        "label": "Remove dot crawl",
+        "description": "The pattern of dots crawling along sharp colour edges on composite captures. Decided within each frame.",
+        "widget": "checkbox"
       }
     },
     "deCrawlYThresh": {
@@ -195,13 +269,12 @@
       "min": 0,
       "max": 50,
       "step": 1,
-      "optional": true,
       "vapoursynth": {
         "name": "ythresh"
       },
       "ui": {
-        "label": "Luma Threshold",
-        "description": "Luma threshold for de-crawl",
+        "label": "Brightness threshold",
+        "description": "How much brightness variation still counts as dot crawl. Lower catches more.",
         "widget": "slider",
         "visibleWhen": {
           "applyDeCrawl": true
@@ -214,13 +287,12 @@
       "min": 0,
       "max": 50,
       "step": 1,
-      "optional": true,
       "vapoursynth": {
         "name": "cthresh"
       },
       "ui": {
-        "label": "Chroma Threshold",
-        "description": "Chroma threshold for de-crawl",
+        "label": "Colour threshold",
+        "description": "How much colour variation still counts as dot crawl. Lower catches more.",
         "widget": "slider",
         "visibleWhen": {
           "applyDeCrawl": true
@@ -233,63 +305,84 @@
       "min": 0,
       "max": 255,
       "step": 5,
-      "optional": true,
       "vapoursynth": {
         "name": "maxdiff"
       },
       "ui": {
-        "label": "Max Difference",
-        "description": "Maximum difference allowed",
+        "label": "Maximum change",
+        "description": "The most any pixel may be altered. Lower is safer on detailed pictures.",
         "widget": "slider",
         "visibleWhen": {
           "applyDeCrawl": true
         }
       }
     },
-    "applyVinverse": {
+    "applyDedot": {
       "type": "boolean",
       "default": false,
       "ui": {
-        "label": "Apply Vinverse",
-        "description": "Remove chroma combing artifacts"
+        "label": "Remove dot crawl across frames (DeDot)",
+        "description": "A second removal that compares neighbouring frames instead of working inside one, and skips anything that is moving. It reaches crawl patterns the one above leaves alone, so the two are worth combining. 8-bit only, so a deeper source is converted down for this step and restored after.",
+        "widget": "checkbox"
       }
     },
-    "vinverseSstr": {
-      "type": "number",
-      "default": 2.7,
-      "min": 0.0,
-      "max": 10.0,
-      "step": 0.1,
-      "optional": true,
-      "vapoursynth": {
-        "name": "sstr"
-      },
+    "dedotLuma2d": {
+      "type": "integer",
+      "default": 20,
+      "min": 0,
+      "max": 510,
+      "step": 1,
       "ui": {
-        "label": "Strength",
-        "description": "Spatial strength",
+        "label": "Brightness (within a frame)",
+        "description": "How different a pixel must be from its neighbours to count as dot crawl.",
         "widget": "slider",
-        "precision": 1,
         "visibleWhen": {
-          "applyVinverse": true
+          "applyDedot": true
         }
       }
     },
-    "vinverseAmnt": {
+    "dedotLumaT": {
       "type": "integer",
-      "default": 255,
+      "default": 20,
       "min": 0,
       "max": 255,
-      "step": 5,
-      "optional": true,
-      "vapoursynth": {
-        "name": "amnt"
-      },
+      "step": 1,
       "ui": {
-        "label": "Amount",
-        "description": "Blend amount (0-255)",
+        "label": "Brightness (between frames)",
+        "description": "How much a pixel may change between frames and still be treated as dot crawl rather than motion.",
         "widget": "slider",
         "visibleWhen": {
-          "applyVinverse": true
+          "applyDedot": true
+        }
+      }
+    },
+    "dedotChromaT1": {
+      "type": "integer",
+      "default": 15,
+      "min": 0,
+      "max": 255,
+      "step": 1,
+      "ui": {
+        "label": "Colour threshold",
+        "description": "How strongly colour is corrected.",
+        "widget": "slider",
+        "visibleWhen": {
+          "applyDedot": true
+        }
+      }
+    },
+    "dedotChromaT2": {
+      "type": "integer",
+      "default": 5,
+      "min": 0,
+      "max": 255,
+      "step": 1,
+      "ui": {
+        "label": "Colour motion limit",
+        "description": "Raise towards 255 to leave colour alone entirely.",
+        "widget": "slider",
+        "visibleWhen": {
+          "applyDedot": true
         }
       }
     },
@@ -297,8 +390,9 @@
       "type": "boolean",
       "default": false,
       "ui": {
-        "label": "Remove Rainbowing",
-        "description": "Shimmering colour bands over fine detail on composite captures. The companion to dot crawl removal, which targets the dots along colour edges"
+        "label": "Remove rainbow shimmer",
+        "description": "Shimmering colour bands over fine detail on composite captures \u2014 the companion to dot crawl, which sits along edges instead. Decided within each frame.",
+        "widget": "checkbox"
       }
     },
     "deRainbowCThresh": {
@@ -308,8 +402,8 @@
       "max": 255,
       "step": 1,
       "ui": {
-        "label": "Rainbow Chroma Threshold",
-        "description": "How different chroma must be before it is treated as rainbowing. Lower catches more",
+        "label": "Colour threshold",
+        "description": "How different colour must be before it is treated as rainbowing. Lower catches more.",
         "widget": "slider",
         "visibleWhen": {
           "applyDeRainbow": true
@@ -323,8 +417,8 @@
       "max": 255,
       "step": 1,
       "ui": {
-        "label": "Rainbow Luma Threshold",
-        "description": "Areas moving more than this are left alone, which protects real motion",
+        "label": "Motion threshold",
+        "description": "Areas whose brightness moves more than this are left alone, which protects real motion.",
         "widget": "slider",
         "visibleWhen": {
           "applyDeRainbow": true
@@ -335,8 +429,9 @@
       "type": "boolean",
       "default": false,
       "ui": {
-        "label": "Remove Shimmering Rainbows",
-        "description": "Compares across frames rather than within one, so it catches rainbowing that shimmers as the picture moves. Works alongside the other rainbow removal, not instead of it"
+        "label": "Remove rainbow shimmer across frames (Bifrost)",
+        "description": "Compares across frames rather than within one, so it catches rainbowing that shimmers as the picture moves. Works alongside the removal above, not instead of it. 8-bit only, so a deeper source is converted down for this step and restored after.",
+        "widget": "checkbox"
       }
     },
     "bifrostLumaThresh": {
@@ -346,8 +441,8 @@
       "max": 64.0,
       "step": 1.0,
       "ui": {
-        "label": "Motion Threshold",
-        "description": "Areas changing more than this between frames are treated as movement and left alone",
+        "label": "Motion threshold",
+        "description": "Areas changing more than this between frames are treated as movement and left alone.",
         "widget": "slider",
         "precision": 1,
         "visibleWhen": {
@@ -363,165 +458,66 @@
       "step": 1,
       "ui": {
         "label": "Caution",
-        "description": "How much agreement is needed before a pixel is changed. Higher is safer and removes less",
+        "description": "How much agreement is needed before a pixel is changed. Higher is safer and removes less.",
         "widget": "slider",
         "visibleWhen": {
           "applyBifrost": true
         }
       }
     },
-    "applyDedot": {
+    "applyVinverse": {
       "type": "boolean",
       "default": false,
       "ui": {
-        "label": "Remove dot crawl (DeDot)",
-        "description": "Removes the crawling dotted pattern along sharp colour edges on composite captures. Works on brightness and colour together, and skips anything that is moving.",
+        "label": "Remove chroma combing",
+        "description": "Leftover comb teeth in the colour planes, usually from a source that was deinterlaced or field-blended badly before it reached you.",
         "widget": "checkbox"
       }
     },
-    "dedotLuma2d": {
-      "type": "integer",
-      "default": 20,
-      "min": 0,
-      "max": 510,
-      "step": 1,
-      "visibleWhen": {
-        "applyDedot": [
-          true
-        ]
-      },
-      "ui": {
-        "label": "Brightness (within a frame)",
-        "description": "How different a pixel must be from its neighbours to count as dot crawl.",
-        "widget": "slider"
-      }
-    },
-    "dedotLumaT": {
-      "type": "integer",
-      "default": 20,
-      "min": 0,
-      "max": 255,
-      "step": 1,
-      "visibleWhen": {
-        "applyDedot": [
-          true
-        ]
-      },
-      "ui": {
-        "label": "Brightness (between frames)",
-        "description": "How much a pixel may change between frames and still be treated as dot crawl rather than motion.",
-        "widget": "slider"
-      }
-    },
-    "dedotChromaT1": {
-      "type": "integer",
-      "default": 15,
-      "min": 0,
-      "max": 255,
-      "step": 1,
-      "visibleWhen": {
-        "applyDedot": [
-          true
-        ]
-      },
-      "ui": {
-        "label": "Colour threshold",
-        "description": "How strongly colour is corrected.",
-        "widget": "slider"
-      }
-    },
-    "dedotChromaT2": {
-      "type": "integer",
-      "default": 5,
-      "min": 0,
-      "max": 255,
-      "step": 1,
-      "visibleWhen": {
-        "applyDedot": [
-          true
-        ]
-      },
-      "ui": {
-        "label": "Colour motion limit",
-        "description": "Raise towards 255 to leave colour alone entirely.",
-        "widget": "slider"
-      }
-    },
-    "applyAutoChroma": {
-      "type": "boolean",
-      "default": false,
-      "ui": {
-        "label": "Detect colour alignment automatically",
-        "description": "Measures how far the colour has slipped from the picture and corrects it, instead of you guessing on the sliders below. If it cannot measure the source reliably it leaves it alone rather than guessing.",
-        "widget": "checkbox"
-      }
-    },
-    "autoChromaMaxShift": {
-      "type": "integer",
-      "default": 2,
-      "min": 1,
-      "max": 8,
-      "step": 1,
-      "visibleWhen": {
-        "applyAutoChroma": [
-          true
-        ]
-      },
-      "ui": {
-        "label": "Search range",
-        "description": "The largest misalignment to look for, in pixels.",
-        "widget": "slider"
-      }
-    },
-    "autoChromaAccuracy": {
+    "vinverseSstr": {
       "type": "number",
-      "default": 0.25,
-      "min": 0.05,
-      "max": 1.0,
-      "step": 0.05,
-      "visibleWhen": {
-        "applyAutoChroma": [
-          true
-        ]
+      "default": 2.7,
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.1,
+      "vapoursynth": {
+        "name": "sstr"
       },
       "ui": {
-        "label": "Precision",
-        "description": "Smaller finds sub-pixel shifts, at some cost.",
+        "label": "Strength",
+        "description": "How hard to work on the combing. Higher softens more of the picture with it.",
         "widget": "slider",
-        "precision": 2
+        "precision": 1,
+        "visibleWhen": {
+          "applyVinverse": true
+        }
       }
     },
-    "autoChromaReferenceFrame": {
+    "vinverseAmnt": {
       "type": "integer",
-      "default": 0,
-      "min": -1,
-      "max": 100000,
-      "step": 1,
-      "visibleWhen": {
-        "applyAutoChroma": [
-          true
-        ]
+      "default": 255,
+      "min": 0,
+      "max": 255,
+      "step": 5,
+      "vapoursynth": {
+        "name": "amnt"
       },
       "ui": {
-        "label": "Reference frame",
-        "description": "Measure once on this frame. -1 measures every frame, which is about 23 times slower and rarely worth it.",
-        "widget": "number"
+        "label": "Maximum change",
+        "description": "The most any pixel may be altered. 255 places no limit.",
+        "widget": "slider",
+        "visibleWhen": {
+          "applyVinverse": true
+        }
       }
     }
   },
   "ui": {
     "sections": [
       {
-        "title": "Automatic alignment",
+        "title": "Colour alignment",
         "parameters": [
           "applyAutoChroma",
-          "autoChromaMaxShift"
-        ],
-        "expanded": true
-      },
-      {
-        "title": "Y/C Delay (Chroma Shift)",
-        "parameters": [
           "applyChromaShift",
           "chromaShiftH",
           "chromaShiftV"
@@ -529,77 +525,103 @@
         "expanded": true
       },
       {
-        "title": "Chroma Bleeding Fix",
+        "title": "Automatic alignment tuning",
+        "parameters": [
+          "autoChromaMaxShift",
+          "autoChromaAccuracy",
+          "autoChromaReferenceFrame"
+        ],
+        "expanded": false,
+        "advancedOnly": true
+      },
+      {
+        "title": "Colour bleeding",
         "parameters": [
           "applyChromaBleedingFix",
-          "chromaBleedCx",
-          "chromaBleedCy",
-          "chromaBleedCBlur",
-          "chromaBleedStrength"
+          "chromaBleedStrength",
+          "chromaBleedCBlur"
         ],
         "expanded": true
       },
       {
-        "title": "DeCrawl (Dot Crawl)",
+        "title": "Colour bleeding tuning",
+        "parameters": [
+          "chromaBleedCx",
+          "chromaBleedCy"
+        ],
+        "expanded": false,
+        "advancedOnly": true
+      },
+      {
+        "title": "Dot crawl",
         "parameters": [
           "applyDeCrawl",
-          "deCrawlYThresh",
-          "deCrawlCThresh",
-          "deCrawlMaxDiff",
-          "applyDeRainbow",
-          "deRainbowCThresh",
-          "deRainbowYThresh",
-          "applyBifrost",
-          "bifrostLumaThresh",
-          "bifrostVariation"
-        ],
-        "expanded": true
-      },
-      {
-        "title": "Vinverse (Combing Fix)",
-        "parameters": [
-          "applyVinverse",
-          "vinverseSstr",
-          "vinverseAmnt"
-        ],
-        "expanded": true
-      },
-      {
-        "title": "Dot crawl (DeDot)",
-        "parameters": [
-          "applyDedot",
-          "dedotLuma2d",
-          "dedotLumaT"
+          "applyDedot"
         ],
         "expanded": true
       },
       {
         "title": "Dot crawl tuning",
         "parameters": [
+          "deCrawlYThresh",
+          "deCrawlCThresh",
+          "deCrawlMaxDiff"
+        ],
+        "expanded": false,
+        "advancedOnly": true
+      },
+      {
+        "title": "Dot crawl (across frames) tuning",
+        "parameters": [
+          "dedotLuma2d",
+          "dedotLumaT",
           "dedotChromaT1",
           "dedotChromaT2"
         ],
         "expanded": false,
-        "advancedOnly": true,
-        "visibleWhen": {
-          "applyDedot": [
-            true
-          ]
-        }
+        "advancedOnly": true
       },
       {
-        "title": "Automatic alignment tuning",
+        "title": "Rainbowing",
         "parameters": [
-          "autoChromaAccuracy",
-          "autoChromaReferenceFrame"
+          "applyDeRainbow",
+          "applyBifrost"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Rainbow tuning",
+        "parameters": [
+          "deRainbowCThresh",
+          "deRainbowYThresh"
         ],
         "expanded": false,
-        "advancedOnly": true,
-        "visibleWhen": {
-          "applyAutoChroma": [
-            true
-          ]
-        }
+        "advancedOnly": true
+      },
+      {
+        "title": "Rainbow (across frames) tuning",
+        "parameters": [
+          "bifrostLumaThresh",
+          "bifrostVariation"
+        ],
+        "expanded": false,
+        "advancedOnly": true
+      },
+      {
+        "title": "Chroma combing",
+        "parameters": [
+          "applyVinverse",
+          "vinverseSstr"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Chroma combing tuning",
+        "parameters": [
+          "vinverseAmnt"
+        ],
+        "expanded": false,
+        "advancedOnly": true
       }
     ]
   },

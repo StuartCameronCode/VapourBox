@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "name": "Deblock",
   "description": "Remove blocking artifacts from compressed video",
-  "longDescription": "Smooths the square 8x8 block edges that low-bitrate compression leaves behind, without flattening the detail inside each block.\n\nUse it on heavily compressed MPEG sources — old DVDs, VCD, downloaded or streamed footage — especially in dark or flat areas where blocking shows most. Run it before sharpening, which would otherwise make the block edges crisper rather than softer.",
+  "longDescription": "Smooths the square 8x8 block edges that low-bitrate compression leaves behind, without flattening the detail inside each block.\n\nUse it on heavily compressed MPEG sources \u2014 old DVDs, VCD, downloaded or streamed footage \u2014 especially in dark or flat areas where blocking shows most. Run it before sharpening, which would otherwise make the block edges crisper rather than softer.",
   "category": "cleanup",
   "icon": "grid_off",
   "order": 3,
@@ -84,7 +84,13 @@
       "ui": {
         "label": "Quant 1",
         "description": "Quantization level for luma deblocking (20-28 for VHS)",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "deblock_qed",
+            "deblock"
+          ]
+        }
       }
     },
     "quant2": {
@@ -208,7 +214,7 @@
   "ui": {
     "sections": [
       {
-        "title": "Settings",
+        "title": "Deblock settings",
         "parameters": [
           "quant1",
           "quant2",

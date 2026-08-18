@@ -77,7 +77,12 @@
         "label": "Threshold",
         "description": "How different a neighbouring pixel's colour may be and still be averaged in. Higher cleans more and can bleed colour across edges",
         "widget": "slider",
-        "precision": 1
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "ccd"
+          ]
+        }
       }
     },
     "temporalRadius": {
@@ -93,7 +98,12 @@
       "ui": {
         "label": "Temporal Radius",
         "description": "Frames on each side to average with. 0 works on each frame alone; higher cleans more but can smear fast colour movement",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "ccd"
+          ]
+        }
       }
     },
     "pointsLow": {
@@ -102,7 +112,12 @@
       "optional": true,
       "ui": {
         "label": "Near Samples",
-        "description": "Include the closest ring of sample points"
+        "description": "Include the closest ring of sample points",
+        "visibleWhen": {
+          "method": [
+            "ccd"
+          ]
+        }
       }
     },
     "pointsMedium": {
@@ -111,7 +126,12 @@
       "optional": true,
       "ui": {
         "label": "Mid Samples",
-        "description": "Include the mid-distance ring of sample points"
+        "description": "Include the mid-distance ring of sample points",
+        "visibleWhen": {
+          "method": [
+            "ccd"
+          ]
+        }
       }
     },
     "pointsHigh": {
@@ -120,7 +140,12 @@
       "optional": true,
       "ui": {
         "label": "Far Samples",
-        "description": "Include the outermost ring of sample points. Cleans large blotches at the cost of speed and some colour bleed"
+        "description": "Include the outermost ring of sample points. Cleans large blotches at the cost of speed and some colour bleed",
+        "visibleWhen": {
+          "method": [
+            "ccd"
+          ]
+        }
       }
     },
     "scale": {
@@ -137,7 +162,12 @@
         "label": "Sample Scale",
         "description": "How far apart the sample points sit. Left off, this is derived from the frame height (CCD was written for 240p), which is almost always what you want",
         "widget": "slider",
-        "precision": 1
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "ccd"
+          ]
+        }
       }
     },
     "cnr4Strength": {
@@ -146,15 +176,15 @@
       "min": 0,
       "max": 255,
       "step": 8,
-      "visibleWhen": {
-        "method": [
-          "cnr4"
-        ]
-      },
       "ui": {
         "label": "Strength",
         "description": "How far colour is pulled toward the surrounding frames. The default already sits near the top of the range, so there is far more room downward than up.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "cnr4"
+          ]
+        }
       }
     },
     "cnr4Sense": {
@@ -163,15 +193,15 @@
       "min": 0,
       "max": 255,
       "step": 5,
-      "visibleWhen": {
-        "method": [
-          "cnr4"
-        ]
-      },
       "ui": {
         "label": "Motion sensitivity",
         "description": "How much movement is tolerated before the filter stops correcting. Raise it if noise survives in moving areas; lower it if moving colour smears.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "cnr4"
+          ]
+        }
       }
     },
     "cnr4Radius": {
@@ -180,15 +210,15 @@
       "min": 1,
       "max": 8,
       "step": 1,
-      "visibleWhen": {
-        "method": [
-          "cnr4"
-        ]
-      },
       "ui": {
         "label": "Temporal radius",
         "description": "How many frames either side are considered. Higher is stronger and slower.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "cnr4"
+          ]
+        }
       }
     },
     "cnr4Tmode": {
@@ -197,15 +227,15 @@
       "min": 0,
       "max": 3,
       "step": 1,
-      "visibleWhen": {
-        "method": [
-          "cnr4"
-        ]
-      },
       "ui": {
         "label": "Detail retention",
         "description": "Higher settings protect fine chroma detail at the cost of some smoothing.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "cnr4"
+          ]
+        }
       }
     },
     "cnr4Wmode": {
@@ -214,42 +244,30 @@
       "min": 0,
       "max": 2,
       "step": 1,
-      "visibleWhen": {
-        "method": [
-          "cnr4"
-        ]
-      },
       "ui": {
         "label": "Weighting",
         "description": "How neighbouring frames are weighted against the current one.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "cnr4"
+          ]
+        }
       }
     }
   },
   "ui": {
     "sections": [
       {
-        "title": "Method",
-        "parameters": [
-          "method"
-        ],
-        "expanded": true
-      },
-      {
-        "title": "Settings",
+        "title": "CCD settings",
         "parameters": [
           "threshold",
           "temporalRadius"
         ],
-        "expanded": true,
-        "visibleWhen": {
-          "method": [
-            "ccd"
-          ]
-        }
+        "expanded": true
       },
       {
-        "title": "Sampling",
+        "title": "CCD sampling",
         "parameters": [
           "pointsLow",
           "pointsMedium",
@@ -257,12 +275,7 @@
           "scale"
         ],
         "expanded": false,
-        "advancedOnly": true,
-        "visibleWhen": {
-          "method": [
-            "ccd"
-          ]
-        }
+        "advancedOnly": true
       },
       {
         "title": "Cnr4 settings",
@@ -271,12 +284,7 @@
           "cnr4Sense",
           "cnr4Radius"
         ],
-        "expanded": true,
-        "visibleWhen": {
-          "method": [
-            "cnr4"
-          ]
-        }
+        "expanded": true
       },
       {
         "title": "Cnr4 tuning",
@@ -285,12 +293,7 @@
           "cnr4Wmode"
         ],
         "expanded": false,
-        "advancedOnly": true,
-        "visibleWhen": {
-          "method": [
-            "cnr4"
-          ]
-        }
+        "advancedOnly": true
       }
     ]
   },

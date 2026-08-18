@@ -869,15 +869,15 @@
       "min": 0,
       "max": 20,
       "step": 1,
-      "visibleWhen": {
-        "method": [
-          "mclean"
-        ]
-      },
       "ui": {
         "label": "Strength",
         "description": "How hard to denoise.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "mclean"
+          ]
+        }
       }
     },
     "mcleanSharp": {
@@ -886,15 +886,15 @@
       "min": 0,
       "max": 20,
       "step": 1,
-      "visibleWhen": {
-        "method": [
-          "mclean"
-        ]
-      },
       "ui": {
         "label": "Detail restore",
         "description": "How much fine detail to put back afterwards.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "mclean"
+          ]
+        }
       }
     },
     "mcleanRn": {
@@ -903,15 +903,15 @@
       "min": 0,
       "max": 20,
       "step": 1,
-      "visibleWhen": {
-        "method": [
-          "mclean"
-        ]
-      },
       "ui": {
         "label": "Grain restore",
         "description": "How much grain to put back, so the result does not look plastic.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "mclean"
+          ]
+        }
       }
     },
     "mcleanThsad": {
@@ -920,29 +920,29 @@
       "min": 50,
       "max": 1200,
       "step": 50,
-      "visibleWhen": {
-        "method": [
-          "mclean"
-        ]
-      },
       "ui": {
         "label": "Motion threshold",
         "description": "How much movement is tolerated when matching frames.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "mclean"
+          ]
+        }
       }
     },
     "mcleanChroma": {
       "type": "boolean",
       "default": true,
-      "visibleWhen": {
-        "method": [
-          "mclean"
-        ]
-      },
       "ui": {
         "label": "Denoise colour too",
         "description": "Leave on unless colour is already clean.",
-        "widget": "checkbox"
+        "widget": "checkbox",
+        "visibleWhen": {
+          "method": [
+            "mclean"
+          ]
+        }
       }
     },
     "td2DegrainTr": {
@@ -951,15 +951,15 @@
       "min": 1,
       "max": 3,
       "step": 1,
-      "visibleWhen": {
-        "method": [
-          "temporal_degrain2"
-        ]
-      },
       "ui": {
         "label": "Temporal radius",
         "description": "How many frames either side are used. Higher is stronger and much slower.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "temporal_degrain2"
+          ]
+        }
       }
     },
     "td2GrainLevel": {
@@ -968,15 +968,15 @@
       "min": -2,
       "max": 3,
       "step": 1,
-      "visibleWhen": {
-        "method": [
-          "temporal_degrain2"
-        ]
-      },
       "ui": {
         "label": "Source noise level",
         "description": "How noisy the source is. Higher tunes everything for a dirtier picture.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "temporal_degrain2"
+          ]
+        }
       }
     },
     "td2PostFft": {
@@ -985,15 +985,15 @@
       "min": 0,
       "max": 3,
       "step": 1,
-      "visibleWhen": {
-        "method": [
-          "temporal_degrain2"
-        ]
-      },
       "ui": {
         "label": "Extra cleanup",
         "description": "A second frequency-domain pass on top. 0 is off.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "temporal_degrain2"
+          ]
+        }
       }
     },
     "td2PostSigma": {
@@ -1002,16 +1002,16 @@
       "min": 0.0,
       "max": 16.0,
       "step": 0.5,
-      "visibleWhen": {
-        "method": [
-          "temporal_degrain2"
-        ]
-      },
       "ui": {
         "label": "Cleanup strength",
         "description": "How hard the extra pass works.",
         "widget": "slider",
-        "precision": 1
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "temporal_degrain2"
+          ]
+        }
       }
     },
     "td2PostMix": {
@@ -1020,36 +1020,36 @@
       "min": 0,
       "max": 100,
       "step": 5,
-      "visibleWhen": {
-        "method": [
-          "temporal_degrain2"
-        ]
-      },
       "ui": {
         "label": "Blend back",
         "description": "Mix some of the un-cleaned picture back in, to keep texture.",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "temporal_degrain2"
+          ]
+        }
       }
     },
     "td2ChromaMotion": {
       "type": "boolean",
       "default": true,
-      "visibleWhen": {
-        "method": [
-          "temporal_degrain2"
-        ]
-      },
       "ui": {
         "label": "Use colour for motion",
         "description": "Usually helps on analogue captures.",
-        "widget": "checkbox"
+        "widget": "checkbox",
+        "visibleWhen": {
+          "method": [
+            "temporal_degrain2"
+          ]
+        }
       }
     }
   },
   "ui": {
     "sections": [
       {
-        "title": "SMDegrain Settings",
+        "title": "SMDegrain",
         "parameters": [
           "smDegrainTr",
           "smDegrainThSAD",
@@ -1060,7 +1060,7 @@
         "expanded": true
       },
       {
-        "title": "MCTemporalDenoise Settings",
+        "title": "MCTemporalDenoise",
         "parameters": [
           "mcTemporalProfile",
           "mcTemporalSigma",
@@ -1069,7 +1069,7 @@
         "expanded": true
       },
       {
-        "title": "QTGMC Built-in Settings",
+        "title": "QTGMC built-in",
         "parameters": [
           "qtgmcEzDenoise",
           "qtgmcEzKeepGrain"
@@ -1164,12 +1164,7 @@
           "mcleanRn",
           "mcleanChroma"
         ],
-        "expanded": true,
-        "visibleWhen": {
-          "method": [
-            "mclean"
-          ]
-        }
+        "expanded": true
       },
       {
         "title": "mClean tuning",
@@ -1177,12 +1172,7 @@
           "mcleanThsad"
         ],
         "expanded": false,
-        "advancedOnly": true,
-        "visibleWhen": {
-          "method": [
-            "mclean"
-          ]
-        }
+        "advancedOnly": true
       },
       {
         "title": "TemporalDegrain2",
@@ -1195,12 +1185,7 @@
           "td2ChromaMotion"
         ],
         "expanded": true,
-        "advancedOnly": true,
-        "visibleWhen": {
-          "method": [
-            "temporal_degrain2"
-          ]
-        }
+        "advancedOnly": true
       }
     ]
   },
