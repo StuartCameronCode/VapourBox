@@ -1115,6 +1115,239 @@ catch a Dart `@JsonValue` drifting from the Rust serde name.
 > spellings genuinely differ between plugins: mvtools takes `thsad`, mClean's
 > wrapper takes `thSAD`. Don't "normalise" one to the other.
 
+### `visibleWhen` only works inside `ui`, and 8 schemas had it outside
+
+Reviewed 2026-08-18 after Chroma Fixes was reported as unintuitive. The panel was
+showing every tuning slider for every repair at once, and the cause was not the
+grouping — it was that **none of the conditions were being read**.
+
+`ParameterDefinition` declares no `visibleWhen`; only `ParameterUiConfig` does.
+A schema that writes it one level up therefore has it **dropped at parse time**,
+and the control is always visible. Measured across the shipped schemas: **35
+parameters in 8 files**, plus **12 sections** — and `UiSection` has no
+`visibleWhen` either, so those did nothing at all. The pattern is a clean split by
+age: everything written before the 2026-08-17 build-out put it in `ui` correctly,
+everything added during it did not.
+
+What that shipped, beyond Chroma Fixes: Noise Reduction showed its mClean and
+TemporalDegrain2 knobs under SMDegrain, SpotLess showed RemoveDirt's, Chroma
+Denoise showed CCD's threshold and sampling sliders under Cnr4, Deflicker showed
+both methods' at once. All fixed by moving the key; section conditions were pushed
+down onto their member parameters, which is the only place they work.
+
+> **Both directions are now linted** in
+> `app/test/filter_schema_curation_test.dart`: nothing may declare `visibleWhen`
+> outside a parameter's `ui`, and every condition must name a parameter that
+> exists — a `method` condition naming a method the filter doesn't offer can
+> *never* be satisfied, so the control it guards would be invisible forever.
+> That is the worse of the two silent failures, and nothing else would catch it.
+
+> **Sections were not visible groups, and now they are.**
+> `DynamicFilterPanelCompact` used to render a heading **only** for an
+> `advancedOnly` section, and only in advanced mode — so every ordinary section's
+> parameters ran together as one undifferentiated list and a `title` was
+> effectively a comment. It now prints the title for every section, in both
+> modes, **when the schema declares more than one**; a single-section schema
+> still gets none, because there is nothing to tell it apart from and most of
+> them call it "Settings". `advancedOnly` headings keep the accent colour.
+> Pinned by `dynamic_filter_panel_advanced_test.dart`.
+
+### Chroma Fixes: five repairs, one switch each, tuning behind advanced mode
+
+The restructure that came out of the same review. The pass holds five unrelated
+repairs — alignment, bleeding, dot crawl, rainbowing, chroma combing — and it now
+reads as five: a switch, the one or two controls you would actually reach for, and
+an `advancedOnly` tuning section for the thresholds, per filter, in that order.
+(Per *filter*, not per repair — dot crawl and rainbowing each offer two, and
+several of their labels repeat, so a shared tuning section would give no way to
+tell which slider belonged to which.)
+Default state is eight checkboxes instead of ~25 always-on controls.
+
+Three things worth keeping:
+
+> **Automatic and manual alignment are alternatives, and the script has to agree
+> with the panel.** `_auto_chroma_fix` measures the misalignment and corrects it,
+> and its block runs **before** the manual Y/C shift — so with both set the
+> picture was shifted by a measured amount and then again by a number the user
+> guessed, silently. The schema hides the manual controls
+> (`visibleWhen: {"applyAutoChroma": false}`) and
+> `ChromaFixParameters::effective_apply_chroma_shift` (Rust) /
+> `effectiveApplyChromaShift` (Dart) is the single derivation both the generator
+> and the pass summary ask. It deliberately does **not** clear
+> `apply_chroma_shift`, so turning automatic off restores what the user set by
+> hand. `test_150` and the Dart twin in `integration_filter_parameters_test.dart`
+> pin all four combinations.
+
+> **`optional: true` was a lie on every one of these parameters.** It promises
+> "unticked → omitted → the plugin's own default applies", but
+> `script_generator.rs` passes `Some(...)` for all of them unconditionally, so
+> unticking silently substituted *our* default instead (havsfunc's `thr` default
+> is 4.0; ours is 0.7). Combined with each repair's own switch it also meant two
+> checkboxes per slider. All dropped, and the curation test now asserts nothing
+> in this schema is `optional`.
+
+> **`copyWith` silently reset two repairs.** It never gained parameters for
+> `applyAutoChroma`/`applyDedot` or their tuning, so it reconstructed them at
+> their defaults — and `ProcessingPipeline.togglePass` calls
+> `chromaFixes.copyWith(enabled: …)`. Switching the pass off and on again
+> therefore discarded the DeDot that **VHS Cleanup** turns on and the automatic
+> alignment that **DV Camcorder Tape** turns on, with no error. When a field is
+> added to a parameter model, `copyWith` is the third place to change, and it
+> fails quietly rather than not compiling.
+
+`bifrostInterlaced`, `deRainbowUseLuma` and `deRainbowLinkUv` are still
+deliberately UI-less — they are sent at their defaults and nothing exposes them.
+Note `bifrostInterlaced` defaults **true**, which is a question about progressive
+sources rather than about the panel.
+
+### The panel audit (2026-08-18): what the newly-visible headings exposed
+
+Making section titles render (above) put every schema's grouping on screen for
+the first time, so all 21 were audited together. Three defects, each in more than
+one schema, and each invisible until then:
+
+> **A method dropdown that gates nothing.** `color_correction` declared
+> `tweak` / `white_balance` and `crop_resize` declared
+> `standard` / `nnedi3_2x` / `eedi3_2x`. In both, **no parameter carried a
+> `method` condition**, neither model has a `method` field, and the converter
+> either hardcoded one value or emitted none — so the dropdown rendered,
+> responded, and changed nothing. Crop & Resize is the sharper case: its real
+> upscaler choice is the `upscaleMethod` *parameter*, which does gate its tuning,
+> so the dropdown was an inert duplicate of a working control. Both are single-
+> method now, which suppresses the dropdown entirely. Remember that a method's
+> `parameters` list does **not** drive the panel when `ui.sections` exists —
+> sections win — so listing parameters under a method is not gating them.
+
+> **A parameter only some methods use, shown for all of them.** `deblock`'s
+> `quant1` was ungated while DCTFilter — which does not take it — was one of the
+> three methods on offer. Now gated to the two that use it.
+
+> **Sections whose title was written as a comment, not a heading.** Three
+> schemas held a section containing only `method`, which renders nothing because
+> the panel draws the dropdown itself and always skips that parameter. And
+> `chroma_denoise` / `spotless` / `noise_reduction` mixed "Settings" with
+> siblings named after a filter ("Cnr4 settings", "RemoveDirt settings"), so the
+> generic one read as if it applied to everything. Titles now name the filter
+> whose controls they hold ("CCD settings", "SpotLess settings", "SMDegrain"),
+> and the dead sections are gone.
+
+All three are linted in `filter_schema_curation_test.dart`: at least one
+parameter conditional on `method` wherever a schema declares two or more, a
+method condition matching exactly the methods that list the parameter, and no
+section consisting solely of `method`.
+
+Deliberately **not** changed: `deinterlace`'s fourteen section titles (QTGMC's
+grouping is established, documented and heavily referenced), and the mixed
+Title Case / sentence case of parameter labels across schemas — now more visible
+side by side under headings, but a cosmetic sweep of several hundred strings that
+should be its own change.
+
+### Presets are the other way a hidden setting arrives
+
+A preset is the main route by which settings appear without anyone touching a
+control — so it is the main route by which a setting the user *cannot see*
+appears. The panel hides a parameter whose `visibleWhen` is unsatisfied and skips
+one no section lists, silently in both cases, so a preset can enable a filter that
+has no control on screen, cannot be adjusted and cannot be switched off.
+
+Audited 2026-08-18 against the panel changes above: **the nine built-ins map
+cleanly.** Worth recording why, because most of it is luck rather than design:
+
+- **No built-in uses Colour Correction at all**, so neither the `apply_levels`
+  fix nor the automatic-levels precedence can change what any of them render.
+  (That gap is itself noted under "Audit the presets whenever a pass ships".)
+- The three that use Chroma Fixes — VHS Cleanup (DeDot), DV Camcorder Tape
+  (bleeding + automatic alignment), Anime DVD (DeRainbow + DeDot) — set **no
+  manual chroma shift**, so nothing collides with the automatic pass.
+- PAL DVD's deblock uses Deblock_QED, so `quant1` is still on screen under its
+  new method gating.
+- Removing the inert methods from `color_correction` and `crop_resize` can't
+  affect a preset, built-in or user-saved: neither model has a `method` field, so
+  no stored pipeline ever names one.
+
+> **`builtin-fast` sets a QTGMC preset while selecting Bwdif, and that is
+> deliberate** — the source says so: "kept so that switching method in the UI
+> lands somewhere sensible". The panel hides it (a `method` condition), nothing
+> applies it, and `preset_visibility_test.dart` therefore exempts values hidden
+> **only** by a method condition. Don't "fix" it by clearing the value.
+
+`app/test/preset_visibility_test.dart` walks every built-in's enabled passes
+through the real converter and fails if a value differing from the schema default
+is not reachable in that preset's own state. Advanced-only values are allowed
+through a **named allowlist** — currently three, all QTGMC's, in a pass whose own
+control and summary say it is doing something expert — and a companion test fails
+if that list gains a stale entry, so it cannot quietly become a rubber stamp.
+
+### Color Correction: automatic and manual belong in the same group
+
+The pass reported as unintuitive (2026-08-18) — Chroma Fixes was reviewed first
+by mistake, and the same three faults turned out to be in both.
+
+It offers two adjustments that can be made **automatically or by hand**, levels
+and white balance, and the automatic halves used to sit together in an
+"Automatic" section at the top, three groups above the manual halves they
+supersede. Each pair now shares a section, automatic first, so the relationship
+is visible without reading the descriptions.
+
+Four things were wrong underneath, all silent:
+
+> **The Method dropdown changed nothing.** The schema declared `tweak` and
+> `white_balance` as methods, but **no parameter was conditional on the choice**,
+> neither model has a `method` field, and `fromColorCorrection` hardcodes
+> `'method': 'tweak'`. Both groups of controls rendered whatever was selected, and
+> the worker never saw the value. It is one method now, so no dropdown renders.
+> A method that gates nothing is worse than no method: it teaches the user the
+> panel responds to it.
+
+> **`apply_levels` was a UI-only flag.** `script_generator.rs` decided by value —
+> `has_levels` was true whenever any level differed from its default — so
+> unticking "Levels" left the adjustment running with nothing on screen able to
+> stop it (the sliders hide with the switch). `effective_apply_levels()` is the
+> switch now, and it still requires something to do, so an identity mapping emits
+> nothing. `test_151` pins both directions.
+
+> **Automatic levels supersedes the manual points, but not gamma.** The automatic
+> block runs first and places black and white itself, so manual input/output
+> points on top grade an already-graded picture with numbers measured against the
+> original. `effective_levels_points()` drops them and the panel hides them
+> (`visibleWhen: {"applyAutoLevels": false}`). **Gamma is deliberately kept** —
+> automatic levels never touches the midtones, and the Levels group is the only
+> place in the app to reach them. That asymmetry is the whole design; don't
+> "simplify" it into hiding the group.
+
+> **White balance is the opposite case and must stay composable.** Automatic
+> white balance neutralises the cast; temperature and tint then offset the
+> result deliberately ("neutral, but a little warmer"). Same shape as levels,
+> different answer, because an offset still means what its label says after a
+> correction while a mapping does not. `pass_advice.dart` says which order they
+> happen in rather than hiding anything.
+
+`copyWith` had dropped all six automatic fields, which is the systemic bug below.
+
+### `copyWith` silently resets what it forgets, in six models
+
+`ProcessingPipeline.togglePass` rebuilds a pass through `copyWith`, so a field the
+method never gained is a field that reverts to its default when the user flicks
+the pass switch. It compiles, it runs, and the pass then does something other than
+what the panel says.
+
+Audited 2026-08-18 across every parameter model: **26 fields in 6 models**, all
+added during the 2026-08-17 build-out — Colour Correction's six automatic fields,
+Chroma Fixes' automatic alignment and DeDot (which VHS Cleanup and DV Camcorder
+Tape turn on, so those presets lost settings to one click), thirteen in Noise
+Reduction including every mClean and TemporalDegrain2 value, SpotLess's `method`
+(so RemoveDirt silently reverted to SpotLess), QTGMC's `bwdifEdeint` and
+Subtitles' `burnInPath`.
+
+> **`app/test/parameter_copy_with_test.dart` checks it two ways, and it needs
+> both.** The behavioural pass fills every field through `fromJson`, calls
+> `copyWith()` and compares — but it cannot perturb a **string or enum** value
+> (an invented one would not decode), which is exactly the shape of the SpotLess
+> and Subtitles bugs. So a second pass reads the model source and asserts every
+> `final` field of the parameter class appears in the `copyWith` body. Deleting
+> either pass loses a real class of bug; both were verified against the actual
+> defects.
+
 ### Suggestions and advice are hints, and must stay hints
 
 Two small pure-function models sit beside the pass list, and both are

@@ -111,8 +111,8 @@ Twenty-one filters, each switchable independently, applied in a fixed order. Mos
 | **Film Grain** | Grain added back after denoising, so the picture is not left plastic — and to hide banding in skies and fades. |
 | **Rotate / Flip** | Footage shot sideways, mirrored captures, scans that came off the scanner the wrong way round. |
 | **Sharpen** | Soft sources needing edge and fine detail recovery. aWarpSharp2 sharpens by warping edges instead of raising contrast, so it adds no halos. |
-| **Chroma Fixes** | Color bleeding past edges, rainbowing and dot crawl — including the shimmering kind that only shows when the picture moves — and residual combing. |
-| **Color Correction** | Brightness, contrast, saturation, hue, levels, white balance (warm/cool, green/magenta), and lifting detail out of the shadows of underexposed footage. |
+| **Chroma Fixes** | Colour that sits sideways from the picture (corrected automatically or by hand), bleeding past edges, rainbowing and dot crawl — including the shimmering kind that only shows when the picture moves — and residual combing. Each repair has its own switch, and its settings appear only once it is on. |
+| **Color Correction** | Brightness, contrast, saturation, hue, levels, white balance (warm/cool, green/magenta), and lifting detail out of the shadows of underexposed footage. Levels and white balance can each be measured automatically or set by hand. |
 | **Crop & Resize** | Trimming overscan, scaling, and edge-directed upscaling. |
 | **Frame Rate** | Converting between PAL and NTSC rates, for a tape that was already converted once and now plays at the wrong speed. |
 | **Subtitles** | Whisper AI speech-to-text, to `.srt`, embedded, or both. |
