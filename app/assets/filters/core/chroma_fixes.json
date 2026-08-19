@@ -4,7 +4,7 @@
   "version": "1.1.0",
   "name": "Chroma Fixes",
   "description": "Fix colour alignment, bleeding, rainbows and dot crawl",
-  "longDescription": "Repairs colour-specific damage from analog and composite video. It covers five separate problems, each with its own switch, in the order they appear below:\n\n**Alignment** \u2014 the colour sits sideways or up/down from the picture it belongs to. Correct it automatically or by hand; these are alternatives, not a pair.\n\n**Bleeding** \u2014 colour smears past the edge it belongs to, most obviously on strong reds.\n\n**Dot crawl** \u2014 dots crawling along sharp colour edges.\n\n**Rainbowing** \u2014 shimmering colour bands over fine detail.\n\n**Chroma combing** \u2014 leftover comb teeth in the colour planes.\n\nDot crawl and rainbowing each offer a second removal that compares neighbouring frames rather than working inside one. They reach different patterns, so they are worth combining rather than choosing between.\n\nTurn on only what you can actually see in the preview \u2014 every one of these costs some colour detail.",
+  "longDescription": "Repairs colour-specific damage from analog and composite video. It covers five separate problems, each with its own switch, in the order they appear below:\n\n**Alignment** — the colour sits sideways or up/down from the picture it belongs to. Correct it automatically or by hand; these are alternatives, not a pair.\n\n**Bleeding** — colour smears past the edge it belongs to, most obviously on strong reds.\n\n**Dot crawl** — dots crawling along sharp colour edges.\n\n**Rainbowing** — shimmering colour bands over fine detail.\n\n**Chroma combing** — leftover comb teeth in the colour planes.\n\nDot crawl and rainbowing each offer a second removal that compares neighbouring frames rather than working inside one. They reach different patterns, so they are worth combining rather than choosing between.\n\nTurn on only what you can actually see in the preview — every one of these costs some colour detail.",
   "category": "cleanup",
   "icon": "palette",
   "order": 8,
@@ -69,7 +69,7 @@
       "default": false,
       "ui": {
         "label": "Correct colour alignment automatically",
-        "description": "Measures how far the colour has slipped from the picture and shifts it back, so you do not have to guess it on a slider. If it cannot measure the source reliably it leaves the picture alone rather than guessing. This replaces the manual sliders \u2014 with it on, they are not used.",
+        "description": "Measures how far the colour has slipped from the picture and shifts it back, so you do not have to guess it on a slider. If it cannot measure the source reliably it leaves the picture alone rather than guessing. This replaces the manual sliders — with it on, they are not used.",
         "widget": "checkbox"
       }
     },
@@ -124,7 +124,7 @@
       "default": false,
       "ui": {
         "label": "Correct colour alignment by hand (Y/C delay)",
-        "description": "Shift the colour back into place yourself. Use this when the automatic measurement finds nothing \u2014 very soft VHS colour is sometimes not measurable.",
+        "description": "Shift the colour back into place yourself. Use this when the automatic measurement finds nothing — very soft VHS colour is sometimes not measurable.",
         "widget": "checkbox",
         "visibleWhen": {
           "applyAutoChroma": false
@@ -229,7 +229,7 @@
       },
       "ui": {
         "label": "Horizontal offset",
-        "description": "Whole-pixel colour offset the fix works from. Leave it alone unless the colour is misaligned as well as bleeding \u2014 the alignment controls above are the better tool for that.",
+        "description": "Whole-pixel colour offset the fix works from. Leave it alone unless the colour is misaligned as well as bleeding — the alignment controls above are the better tool for that.",
         "widget": "slider",
         "visibleWhen": {
           "applyChromaBleedingFix": true
@@ -391,7 +391,7 @@
       "default": false,
       "ui": {
         "label": "Remove rainbow shimmer",
-        "description": "Shimmering colour bands over fine detail on composite captures \u2014 the companion to dot crawl, which sits along edges instead. Decided within each frame.",
+        "description": "Shimmering colour bands over fine detail on composite captures — the companion to dot crawl, which sits along edges instead. Decided within each frame.",
         "widget": "checkbox"
       }
     },
@@ -630,5 +630,64 @@
       "import havsfunc as haf"
     ],
     "generate": "custom"
-  }
+  },
+  "implementation": [
+    {
+      "function": "core.resize.Spline36",
+      "role": "chroma alignment, by a measured shift",
+      "activeWhen": {
+        "applyAutoChroma": true
+      }
+    },
+    {
+      "function": "core.resize.Spline36",
+      "role": "chroma alignment, by hand",
+      "activeWhen": {
+        "applyChromaShift": true,
+        "applyAutoChroma": false
+      }
+    },
+    {
+      "function": "haf.FixChromaBleedingMod",
+      "role": "colour bleeding past edges",
+      "activeWhen": {
+        "applyChromaBleedingFix": true
+      }
+    },
+    {
+      "function": "haf.LUTDeCrawl",
+      "role": "dot crawl",
+      "activeWhen": {
+        "applyDeCrawl": true
+      }
+    },
+    {
+      "function": "core.dedot.Dedot",
+      "role": "dot crawl, temporal",
+      "activeWhen": {
+        "applyDedot": true
+      }
+    },
+    {
+      "function": "haf.LUTDeRainbow",
+      "role": "rainbowing",
+      "activeWhen": {
+        "applyDeRainbow": true
+      }
+    },
+    {
+      "function": "core.bifrost.Bifrost",
+      "role": "rainbowing that only shows in motion",
+      "activeWhen": {
+        "applyBifrost": true
+      }
+    },
+    {
+      "function": "haf.Vinverse",
+      "role": "residual chroma combing",
+      "activeWhen": {
+        "applyVinverse": true
+      }
+    }
+  ]
 }

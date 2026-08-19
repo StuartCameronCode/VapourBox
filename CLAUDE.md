@@ -1242,6 +1242,48 @@ Title Case / sentence case of parameter labels across schemas — now more visib
 side by side under headings, but a cosmetic sweep of several hundred strings that
 should be its own change.
 
+### Every pass says which VapourSynth calls it makes
+
+Added 2026-08-19 on request: experts coming from Hybrid, StaxRip or AviSynth
+recognise `FixChromaBleedingMod` or `MSRCP` instantly and could not tell what a
+VapourBox pass was doing from its labels. Each pass now prints its calls in
+**advanced mode**, and only there — a plugin name is not actionable for someone
+who has not asked for that level, and advanced mode is the lever for exactly
+that judgement. Field reference: **[docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md)**.
+
+Two shapes, because filters come in two shapes:
+
+- **One call per method** — the readout prints the selected method's own
+  `function`. That data already existed on every method and had **never been
+  rendered anywhere**; this was mostly a display gap, not a data one.
+- **Composite passes** — Colour Correction, Chroma Fixes and Crop & Resize are
+  not one call. They declare an `implementation` list of everything they can
+  invoke, each entry optionally gated by an `activeWhen` that reuses the
+  `visibleWhen` matcher, and the readout shows the **whole repertoire with the
+  running calls emphasised**. Seeing the inactive ones is the point: it says
+  what the pass could do, not only what it is doing.
+
+> **Colour Correction was the reported case and is the sharpest one.** It has no
+> method dropdown at all (the inert one was removed in the panel audit), so
+> before this there was nothing anywhere in the UI naming any of the six things
+> it can run — `adjust.Tweak`, `std.Levels`, `haf.SmoothLevels`,
+> `retinex.MSRCP`, and the two `PlaneStats`-driven automatic passes.
+
+> **`activeWhen` takes more than one key, and that is load-bearing.**
+> `applyLevels` chooses *between* `std.Levels` and `haf.SmoothLevels`, so each is
+> gated on the pair `{applyLevels, smoothLevels}` and precisely one is ever
+> emphasised. Gating both on `applyLevels` alone would claim the pass runs two
+> levels operations. The same shape covers Chroma Fixes' automatic-supersedes-
+> manual alignment, where both entries are `core.resize.Spline36` and only the
+> `role` text tells them apart.
+
+Three rules linted by `filter_schema_curation_test.dart`: no method leaves
+`function` blank; a method declaring `"function": "custom"` must be explained by
+an `implementation` list (`custom` is bookkeeping and is never displayed); and
+every `activeWhen` key must name a real parameter, or the call reads as
+permanently inactive — the same silent failure as a `visibleWhen` naming a
+missing parameter.
+
 ### Presets are the other way a hidden setting arrives
 
 A preset is the main route by which settings appear without anyone touching a

@@ -4,7 +4,7 @@
   "version": "1.1.0",
   "name": "Noise Reduction",
   "description": "Remove video noise and grain",
-  "longDescription": "Reduces grain, analog noise and colour speckle while trying to keep real detail. Temporal denoisers average across neighbouring frames and are best for steady grain; spatial ones smooth within a single frame and cope better with motion.\n\nUse it on VHS, Hi8 and other noisy captures, and before sharpening or encoding \u2014 clean footage compresses far better at the same bitrate. Too much strength smears motion and flattens texture into plastic.",
+  "longDescription": "Reduces grain, analog noise and colour speckle while trying to keep real detail. Temporal denoisers average across neighbouring frames and are best for steady grain; spatial ones smooth within a single frame and cope better with motion.\n\nUse it on VHS, Hi8 and other noisy captures, and before sharpening or encoding — clean footage compresses far better at the same bitrate. Too much strength smears motion and flattens texture into plastic.",
   "category": "cleanup",
   "icon": "grain",
   "order": 2,
@@ -36,7 +36,7 @@
     {
       "id": "mc_temporal_denoise",
       "name": "MCTemporalDenoise",
-      "description": "For heavy noise SMDegrain can't settle \u2014 VHS and off-air captures. Slowest option",
+      "description": "For heavy noise SMDegrain can't settle — VHS and off-air captures. Slowest option",
       "function": "haf.MCTemporalDenoise",
       "parameters": [
         "mcTemporalProfile",
@@ -47,7 +47,7 @@
     {
       "id": "mcdegrainsharp",
       "name": "MCDegrainSharp",
-      "description": "Did\u00e9e's motion-compensated degrain: sharpens where the motion match is good, blurs where it is poor. Also written MDegrainSharpen",
+      "description": "Didée's motion-compensated degrain: sharpens where the motion match is good, blurs where it is poor. Also written MDegrainSharpen",
       "function": "core.mv.Degrain",
       "parameters": [
         "mcdsFrames",
@@ -63,13 +63,13 @@
       "id": "qtgmc_builtin",
       "name": "QTGMC Built-in",
       "description": "Reuses the motion search QTGMC already ran, so it is nearly free. Only useful when deinterlacing is on",
-      "function": "qtgmc_internal",
+      "function": "haf.QTGMC (NoiseProcess)",
       "parameters": []
     },
     {
       "id": "dfttest",
       "name": "DFTTest",
-      "description": "Frequency-domain denoiser. The cleanest option on fine, even grain \u2014 separates it from detail better than the motion-compensated methods. Moderate speed",
+      "description": "Frequency-domain denoiser. The cleanest option on fine, even grain — separates it from detail better than the motion-compensated methods. Moderate speed",
       "function": "core.dfttest.DFTTest",
       "parameters": [
         "dfttestSigma",
@@ -93,7 +93,7 @@
     {
       "id": "ttempsmooth",
       "name": "TTempSmooth",
-      "description": "Very gentle temporal smoother \u2014 leaves anything that moves alone. A finishing pass for residual shimmer, not a primary denoiser",
+      "description": "Very gentle temporal smoother — leaves anything that moves alone. A finishing pass for residual shimmer, not a primary denoiser",
       "function": "core.ttmpsm.TTempSmooth",
       "parameters": [
         "ttempMaxr",
@@ -106,7 +106,7 @@
     {
       "id": "fluxsmooth_t",
       "name": "FluxSmoothT",
-      "description": "Averages a pixel with its neighbours in time only where they bracket it in value, so motion is left alone almost for free. Very fast \u2014 a common first pass on tape",
+      "description": "Averages a pixel with its neighbours in time only where they bracket it in value, so motion is left alone almost for free. Very fast — a common first pass on tape",
       "function": "core.flux.SmoothT",
       "parameters": [
         "fluxTemporalThreshold"
@@ -150,7 +150,7 @@
     {
       "id": "mclean",
       "name": "mClean",
-      "description": "Denoise, then put detail and grain back so the picture does not look plastic \u2014 the one to try first if you are not sure",
+      "description": "Denoise, then put detail and grain back so the picture does not look plastic — the one to try first if you are not sure",
       "function": "mclean.mClean",
       "parameters": [
         "mcleanStrength",
@@ -163,7 +163,7 @@
     {
       "id": "temporal_degrain2",
       "name": "TemporalDegrain2",
-      "description": "The heavyweight \u2014 slow, and the most capable thing here for badly noisy analogue captures",
+      "description": "The heavyweight — slow, and the most capable thing here for badly noisy analogue captures",
       "advancedOnly": true,
       "function": "temporaldegrain2.TemporalDegrain2",
       "parameters": [
@@ -607,7 +607,7 @@
       "step": 0.1,
       "ui": {
         "label": "Strength",
-        "description": "Higher removes more noise. FFT3D is aggressive \u2014 small changes matter",
+        "description": "Higher removes more noise. FFT3D is aggressive — small changes matter",
         "widget": "slider",
         "precision": 1,
         "visibleWhen": {
@@ -814,7 +814,7 @@
       "step": 1,
       "ui": {
         "label": "Radius",
-        "description": "Half the window size. Wider removes bigger blemishes and more detail with them \u2014 and costs almost nothing extra",
+        "description": "Half the window size. Wider removes bigger blemishes and more detail with them — and costs almost nothing extra",
         "widget": "slider",
         "visibleWhen": {
           "method": [
