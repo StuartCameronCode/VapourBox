@@ -212,6 +212,42 @@ class MethodDefinition {
   Map<String, dynamic> toJson() => _$MethodDefinitionToJson(this);
 }
 
+/// One VapourSynth call a filter makes, for the "what is this actually doing"
+/// readout in advanced mode.
+///
+/// Most filters need none of this: a method already names its own [function],
+/// and the readout uses that. This exists for the passes that are not a single
+/// call — Colour Correction alone can invoke six different things depending on
+/// which of its switches are on — where naming one function would be a lie and
+/// naming none is what prompted the request.
+///
+/// [activeWhen] is evaluated against the filter's current parameter values with
+/// exactly the same matcher as `visibleWhen`, so the readout can distinguish
+/// what is running now from what the pass is merely capable of. An entry with
+/// no condition is always active.
+@JsonSerializable()
+class ImplementationEntry {
+  /// The call as it appears in the generated script, e.g. `core.retinex.MSRCP`.
+  final String function;
+
+  /// What this call contributes, in the user's vocabulary rather than the
+  /// plugin's — "shadow detail", not "multi-scale retinex".
+  final String? role;
+
+  /// Condition under which this call is actually made. Null means always.
+  final Map<String, dynamic>? activeWhen;
+
+  const ImplementationEntry({
+    required this.function,
+    this.role,
+    this.activeWhen,
+  });
+
+  factory ImplementationEntry.fromJson(Map<String, dynamic> json) =>
+      _$ImplementationEntryFromJson(json);
+  Map<String, dynamic> toJson() => _$ImplementationEntryToJson(this);
+}
+
 /// UI section grouping parameters together.
 @JsonSerializable()
 class UiSection {
@@ -410,6 +446,11 @@ class FilterSchema {
   /// Code generation configuration.
   final CodeTemplate? codeTemplate;
 
+  /// The VapourSynth calls this filter makes, when it is not simply the
+  /// selected method's own `function`. Declared only by the composite passes —
+  /// see [ImplementationEntry].
+  final List<ImplementationEntry>? implementation;
+
   /// Source of this schema: "builtin", "user", "community".
   @JsonKey(includeFromJson: false, includeToJson: false)
   String source;
@@ -432,6 +473,7 @@ class FilterSchema {
     this.presets,
     this.ui,
     this.codeTemplate,
+    this.implementation,
     this.source = 'builtin',
   });
 

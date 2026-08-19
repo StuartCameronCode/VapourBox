@@ -4,7 +4,7 @@
   "version": "1.2.0",
   "name": "Crop & Resize",
   "description": "Crop borders and resize or upscale video",
-  "longDescription": "Trims unwanted borders and changes the output resolution. Cropping happens first, then resizing.\n\nUse crop to cut the head-switching noise along the bottom of VHS captures and the black overscan edges of broadcast material \u2014 otherwise the encoder spends bitrate on them. Use resize for a target resolution, or the NNEDI3 upscaler for a much better 2x/4x enlargement than a plain kernel. Keep crop values even so they stay aligned with chroma subsampling.",
+  "longDescription": "Trims unwanted borders and changes the output resolution. Cropping happens first, then resizing.\n\nUse crop to cut the head-switching noise along the bottom of VHS captures and the black overscan edges of broadcast material — otherwise the encoder spends bitrate on them. Use resize for a target resolution, or the NNEDI3 upscaler for a much better 2x/4x enlargement than a plain kernel. Keep crop values even so they stay aligned with chroma subsampling.",
   "category": "transform",
   "icon": "crop",
   "order": 9,
@@ -752,5 +752,45 @@
   "codeTemplate": {
     "imports": [],
     "generate": "custom"
-  }
+  },
+  "implementation": [
+    {
+      "function": "core.std.Crop",
+      "role": "cropping",
+      "activeWhen": {
+        "cropEnabled": true
+      }
+    },
+    {
+      "function": "core.resize.*",
+      "role": "scaling, with the kernel selected above",
+      "activeWhen": {
+        "resizeEnabled": true
+      }
+    },
+    {
+      "function": "core.znedi3.nnedi3",
+      "role": "edge-directed doubling (core.nnedi3.nnedi3 on ARM, which has NEON kernels)",
+      "activeWhen": {
+        "useIntegerUpscale": true,
+        "upscaleMethod": "nnedi3Rpow2"
+      }
+    },
+    {
+      "function": "core.eedi3m.EEDI3",
+      "role": "edge-directed doubling",
+      "activeWhen": {
+        "useIntegerUpscale": true,
+        "upscaleMethod": "eedi3Rpow2"
+      }
+    },
+    {
+      "function": "core.resize.Spline36",
+      "role": "integer doubling, without edge direction",
+      "activeWhen": {
+        "useIntegerUpscale": true,
+        "upscaleMethod": "spline36"
+      }
+    }
+  ]
 }

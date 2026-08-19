@@ -150,6 +150,74 @@ void main() {
     });
   });
 
+  // The "what is this actually doing" readout in advanced mode is driven
+  // entirely by schema data, so it fails the same silent way conditional
+  // visibility does: a placeholder function name, or a condition naming a
+  // parameter that does not exist, produces a readout that is confidently
+  // wrong rather than absent.
+  group('every pass says what it calls', () {
+    rawSchemas.forEach((filename, raw) {
+      final id = raw['id'] as String;
+      final parameters = (raw['parameters'] as Map).cast<String, dynamic>();
+      final methods = (raw['methods'] as List).cast<Map<String, dynamic>>();
+      final implementation =
+          (raw['implementation'] as List?)?.cast<Map<String, dynamic>>();
+
+      test('$id: no method leaves its function blank', () {
+        for (final m in methods) {
+          expect(m['function'], isA<String>(),
+              reason: '${m['id']} declares no function at all');
+          expect((m['function'] as String).trim(), isNotEmpty,
+              reason: '${m['id']} declares an empty function');
+        }
+      });
+
+      test('$id: a "custom" method is explained by an implementation list', () {
+        // `custom` means "not one call" — which is fine, but only if the pass
+        // then says what it *is*. Otherwise the readout shows nothing and the
+        // expert is back to guessing, which is the whole complaint.
+        final custom = [
+          for (final m in methods)
+            if (m['function'] == 'custom') m['id'] as String,
+        ];
+        if (custom.isEmpty) return;
+        expect(implementation, isNotNull,
+            reason: '$custom declare function "custom" but $id declares no '
+                '`implementation`, so the readout would be empty');
+        expect(implementation, isNotEmpty);
+      });
+
+      if (implementation != null) {
+        test('$id: every declared call names a real condition', () {
+          for (final entry in implementation) {
+            expect((entry['function'] as String).trim(), isNotEmpty);
+            final activeWhen =
+                (entry['activeWhen'] as Map?)?.cast<String, dynamic>();
+            if (activeWhen == null) continue;
+            for (final key in activeWhen.keys) {
+              expect(parameters.containsKey(key), isTrue,
+                  reason: '${entry['function']} is gated on "$key", which is '
+                      'not a parameter of $id — the condition can never be '
+                      'satisfied, so the call would always read as inactive');
+            }
+          }
+        });
+
+        test('$id: at least one call is reachable', () {
+          // A list where every entry is gated on something impossible would
+          // render entirely greyed out, which reads as "this pass does
+          // nothing".
+          expect(implementation.any((e) => e['activeWhen'] == null), isTrue,
+              reason: 'no unconditional call, so with every switch off the '
+                  'readout is entirely inactive — acceptable only if that is '
+                  'genuinely true of $id');
+        }, skip: id == 'chroma_fixes' || id == 'crop_resize'
+            ? 'every repair is opt-in, so an all-off pass really does nothing'
+            : false);
+      }
+    });
+  });
+
   group('conditional visibility is where the model can see it', () {
     // Both halves matter: a condition in the wrong place never hides anything,
     // and a condition naming something that does not exist never shows

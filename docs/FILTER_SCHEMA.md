@@ -35,6 +35,7 @@ app means writing one of these. This is the field reference.
 | `presets` | object | No | Named value sets, `{"fast": {"tr0": 1}}` |
 | `ui` | object | No | Section layout |
 | `codeTemplate` | object | No | Code generation hints |
+| `implementation` | array | No | The VapourSynth calls this pass makes, for the advanced-mode readout. Only for passes that are not one call per method — see below |
 
 ## Dependencies
 
@@ -218,6 +219,67 @@ works the same way as one on a checkbox.
 > that doesn't exist, or a `method` condition naming a method the filter doesn't
 > offer, can *never* be satisfied — so the control it guards is invisible
 > forever, which is the worse of the two silent failures.
+
+## Implementation readout
+
+In advanced mode each pass shows the VapourSynth calls it makes, so someone who
+knows the plugins from other tools can identify the pipeline instead of
+inferring it from label wording.
+
+**Most filters need nothing here.** A method already declares its own
+`function`, and the readout uses that — it names whichever method is selected,
+and nothing else runs.
+
+`implementation` is for the passes that are *not* one call per method. Colour
+Correction has no method dropdown at all and can invoke six different things
+depending on which switches are on; naming one of them would be a lie, and
+naming none is what prompted this feature. Such a pass declares the whole
+repertoire, and the readout emphasises the calls currently running:
+
+```json
+"implementation": [
+  {
+    "function": "core.std.Levels",
+    "role": "automatic levels, measured per frame with core.std.PlaneStats",
+    "activeWhen": { "applyAutoLevels": true }
+  },
+  { "function": "adjust.Tweak", "role": "brightness, contrast, saturation, hue" },
+  {
+    "function": "haf.SmoothLevels",
+    "role": "levels, dithered and limited as it maps",
+    "activeWhen": { "applyLevels": true, "smoothLevels": true }
+  }
+]
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `function` | string | **Yes** | The call as it appears in the generated script |
+| `role` | string | No | What it contributes, in the user's vocabulary rather than the plugin's — "shadow detail", not "multi-scale retinex" |
+| `activeWhen` | object | No | Condition under which the call is actually made. Omit for a call that always runs |
+
+`activeWhen` uses **exactly the same matcher as `visibleWhen`** — keys are
+parameter ids, values are matched by equality or list membership, and multiple
+keys are ANDed. That is what lets one switch choose between two calls: `Levels`
+is `{"applyLevels": true, "smoothLevels": false}` and `SmoothLevels` is the same
+with `true`, so precisely one is ever emphasised.
+
+Three rules, all linted by `filter_schema_curation_test.dart`:
+
+- **No method may leave `function` blank.**
+- **A method declaring `"function": "custom"` requires an `implementation`
+  list.** `custom` means "not one call", which is fine — but a pass that then
+  says nothing renders an empty readout, which is the original complaint.
+  `custom` is never displayed.
+- **Every `activeWhen` key must name a real parameter.** A condition naming
+  something that does not exist can never be satisfied, so the call would read
+  as permanently inactive — the same silent failure as a `visibleWhen` naming a
+  missing parameter.
+
+> **The readout is advanced-mode only**, deliberately. A plugin name is not
+> actionable for someone who has not asked for that level of detail, and
+> advanced mode is the app-wide lever for exactly that judgement. Don't promote
+> it to simple mode.
 
 ## Parameter Presets
 

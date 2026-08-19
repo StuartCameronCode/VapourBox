@@ -298,6 +298,11 @@ class DynamicFilterPanelCompact extends StatelessWidget {
           const SizedBox(height: 16),
         ],
 
+        // What this pass actually calls. Advanced mode only: a plugin name is
+        // not actionable for someone who has not asked for that level, and
+        // advanced mode is the app-wide lever for exactly that judgement.
+        if (advancedMode) ..._buildImplementationReadout(context),
+
         // Get parameters for the current method
         ..._buildMethodParameters(context, advancedMode),
       ],
@@ -482,6 +487,100 @@ class DynamicFilterPanelCompact extends StatelessWidget {
             ),
       ),
     );
+  }
+
+  /// The VapourSynth calls this pass makes, for identifying it against other
+  /// tools ("this is FixChromaBleedingMod", "that is MSRCP").
+  ///
+  /// Two shapes, because filters come in two shapes. A pass that is one call
+  /// per method just shows the selected method's own `function`. A composite
+  /// pass — Colour Correction can invoke six things depending on its switches —
+  /// declares an `implementation` list instead, and the whole repertoire is
+  /// shown with the calls currently running emphasised. Seeing the inactive
+  /// ones is the point: it says what the pass could do, not only what it is
+  /// doing.
+  List<Widget> _buildImplementationReadout(BuildContext context) {
+    final entries = _implementationEntries();
+    if (entries.isEmpty) return const [];
+
+    final theme = Theme.of(context);
+    final dim = theme.colorScheme.onSurface.withValues(alpha: 0.45);
+    final bright = theme.colorScheme.onSurface.withValues(alpha: 0.85);
+
+    return [
+      Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'VapourSynth',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: dim,
+                letterSpacing: 0.6,
+              ),
+            ),
+            const SizedBox(height: 4),
+            for (final e in entries)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: RichText(
+                  text: TextSpan(
+                    style: theme.textTheme.bodySmall,
+                    children: [
+                      TextSpan(
+                        text: e.entry.function,
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11.5,
+                          color: e.active ? bright : dim,
+                          fontWeight:
+                              e.active ? FontWeight.w600 : FontWeight.normal,
+                        ),
+                      ),
+                      if (e.entry.role != null)
+                        TextSpan(
+                          text: '  — ${e.entry.role}',
+                          style: TextStyle(fontSize: 11.5, color: dim),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  /// The readout's rows, each flagged with whether it is running right now.
+  List<({ImplementationEntry entry, bool active})> _implementationEntries() {
+    final declared = schema.implementation;
+    if (declared != null && declared.isNotEmpty) {
+      return [
+        for (final e in declared)
+          (
+            entry: e,
+            active: e.activeWhen == null || _checkVisibleWhen(e.activeWhen!),
+          ),
+      ];
+    }
+
+    // Method-based pass: the selected method is the only thing that runs, so
+    // there is nothing to grey out. Fall back to the sole method when the
+    // filter has exactly one, which is how the single-method passes read.
+    final method = schema.getMethod(params.method) ??
+        (schema.methods.length == 1 ? schema.methods.first : null);
+    if (method == null || method.function.trim().isEmpty) return const [];
+    // `custom` is a placeholder meaning "declared in `implementation`
+    // instead"; showing it would be worse than showing nothing.
+    if (method.function == 'custom') return const [];
+    return [
+      (
+        entry: ImplementationEntry(function: method.function),
+        active: true,
+      ),
+    ];
   }
 
   bool _isVisible(String paramId) {

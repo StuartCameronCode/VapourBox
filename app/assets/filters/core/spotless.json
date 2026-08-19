@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "name": "SpotLess",
   "description": "Remove dust, dirt, and temporal spots from film",
-  "longDescription": "Removes single-frame blemishes: dust specks, hairs and emulsion flecks that flash up for one frame and vanish. It compares each frame against its neighbours and replaces anything that is present in only one of them.\n\nUse it on scanned or telecined film, after deinterlacing. Because the test is temporal, fast or erratic motion can be read as a spot \u2014 if you see smearing or ghosting on movement, ease off the strength.",
+  "longDescription": "Removes single-frame blemishes: dust specks, hairs and emulsion flecks that flash up for one frame and vanish. It compares each frame against its neighbours and replaces anything that is present in only one of them.\n\nUse it on scanned or telecined film, after deinterlacing. Because the test is temporal, fast or erratic motion can be read as a spot — if you see smearing or ghosting on movement, ease off the strength.",
   "category": "cleanup",
   "icon": "auto_fix_high",
   "order": 3,
@@ -19,7 +19,7 @@
       "id": "spotless",
       "name": "SpotLess",
       "description": "Motion-compensated temporal median for spot/dirt removal (live-action only)",
-      "function": "custom",
+      "function": "spotless.SpotLess",
       "parameters": [
         "chroma",
         "rec",
@@ -31,7 +31,7 @@
     {
       "id": "removeDirt",
       "name": "RemoveDirt (fast)",
-      "description": "About six times faster for most of the benefit \u2014 the one to use on a long capture",
+      "description": "About six times faster for most of the benefit — the one to use on a long capture",
       "function": "removedirt.RestoreMotionBlocks",
       "parameters": [
         "rdNoise",
@@ -228,7 +228,7 @@
       "default": false,
       "ui": {
         "label": "Extra smoothing pass",
-        "description": "The traditional final smoothing step. Off by default \u2014 measured, it alone triples the damage to clean parts of the picture.",
+        "description": "The traditional final smoothing step. Off by default — measured, it alone triples the damage to clean parts of the picture.",
         "widget": "checkbox",
         "visibleWhen": {
           "method": [
