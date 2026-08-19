@@ -158,6 +158,7 @@ void main() {
       // that forgets it would silently stop warning.
       expect(ChromaSubsampling.original.outputBitDepth, isNull);
       expect(ChromaSubsampling.yuv420.outputBitDepth, 8);
+      expect(ChromaSubsampling.yuv420p10.outputBitDepth, 10);
       expect(ChromaSubsampling.yuv422.outputBitDepth, 8);
       expect(ChromaSubsampling.yuv422p10.outputBitDepth, 10);
     });
@@ -168,6 +169,7 @@ void main() {
       // the wire format. A mismatch makes the worker reject the job config.
       expect(ChromaSubsampling.original.value, 'original');
       expect(ChromaSubsampling.yuv420.value, 'yuv420');
+      expect(ChromaSubsampling.yuv420p10.value, 'yuv420p10');
       expect(ChromaSubsampling.yuv422.value, 'yuv422');
       expect(ChromaSubsampling.yuv422p10.value, 'yuv422p10');
     });

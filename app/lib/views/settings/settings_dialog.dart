@@ -55,6 +55,10 @@ const List<(String, String)> chromaFormatHelpSections = [
         'refuse to open.\n\n'
         '4:2:0 8-bit — plays on everything. Use it for anything going to '
         "someone else's device, the web, or a TV.\n\n"
+        '4:2:0 10-bit — the same universal colour layout with the finer '
+        'grading. This is the one to pick for a 10-bit source on a GPU '
+        'encoder: NVENC, QSV and AMF can all encode it, and none of them can '
+        'encode 4:2:2 on most cards.\n\n'
         '4:2:2 8-bit — keeps the extra colour detail of a 4:2:2 or '
         'analogue-captured source, at 8-bit precision.\n\n'
         '4:2:2 10-bit — keeps the colour detail and the 10-bit grading. Best '
@@ -119,6 +123,148 @@ Future<void> showChromaFormatHelp(BuildContext context) {
                   style: theme.textTheme.bodyMedium,
                 ),
                 for (final (heading, body) in chromaFormatHelpSections) ...[
+                  const SizedBox(height: 20),
+                  Text(
+                    heading,
+                    style: theme.textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(body,
+                      style: theme.textTheme.bodyMedium?.copyWith(height: 1.4)),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+/// How the colour of a frame is carried from the source file to the output —
+/// the mechanics behind the dropdown above, for anyone who wants to know why
+/// their file came out the way it did.
+///
+/// Everything here is a real property of the pipeline, not a simplification.
+/// If any of it changes, this text is wrong and
+/// `settings_colour_pipeline_help_test.dart` cannot tell — it only checks the
+/// sections are present and well-formed.
+const List<(String, String)> colourPipelineHelpSections = [
+  (
+    'Reading the source',
+    'VapourBox does not open your file with a VapourSynth source filter. FFmpeg '
+        'decodes it and pipes raw planar frames in, which is what makes seeking '
+        'frame-accurate.\n\n'
+        'The pipe can carry most planar YUV formats directly, so a 10-bit 4:2:2 '
+        'ProRes or CineForm arrives at full precision. A format it cannot carry '
+        '(RGB, semi-planar, alpha, 4:1:1) is converted on the way in — always '
+        'upward, never to less chroma resolution or fewer bits, so reading a '
+        'file can never be the thing that degrades it.',
+  ),
+  (
+    'Processing',
+    'Filters run in whatever format the frame arrived in. Where a plugin cannot '
+        'handle the depth — a few are 8-bit only, one caps at 10 — the pipeline '
+        'converts down for that pass alone and restores the format immediately '
+        'after, rather than dropping the whole clip to 8-bit.\n\n'
+        'Every threshold, level and offset in the interface is expressed in '
+        '8-bit terms (0–255), because that is the vocabulary the filters were '
+        'documented in. Those values are rescaled to the actual depth inside the '
+        'script, so a brightness or levels adjustment does the same thing to a '
+        '10-bit source as to an 8-bit one.',
+  ),
+  (
+    'Converting for output',
+    'The colour format you choose above is applied last, after every filter, so '
+        'the whole graph runs at the source precision even when the output is '
+        '8-bit.\n\n'
+        'Reducing depth dithers rather than rounds. Plain rounding turns a '
+        'shallow gradient — a sky, a fade, a VHS luma ramp — into visible bands; '
+        'error diffusion keeps it smooth.',
+  ),
+  (
+    'What the pipe loses, and what puts it back',
+    'The Y4M pipe between VapourSynth and the encoder carries pixels and '
+        'nothing else. It strips the pixel aspect ratio and every colour tag — '
+        'matrix, primaries, transfer, range — so anything VapourSynth knew about '
+        'them is gone by the time the encoder sees the frames.\n\n'
+        'They are therefore re-declared on the encoder from the values read out '
+        'of your source. Without that the output would be untagged, and an '
+        'untagged file is read as BT.601 limited by every player: a BT.709 or '
+        'full-range source would come out subtly wrong in colour with nothing to '
+        'indicate why. Tags are carried through, never invented — a source that '
+        'declares nothing stays undeclared.',
+  ),
+  (
+    'The encoder has the last word',
+    'A hardware encoder advertises the formats its driver was built to support, '
+        'not the ones the card in your machine actually has. NVENC lists 4:2:2 '
+        'because the newest NVIDIA cards can do it; every earlier card rejects '
+        'it when the encode starts.\n\n'
+        'So the format is chosen for hardware encoders rather than negotiated: '
+        'anything they cannot take is converted to 4:2:0 first, keeping 10-bit '
+        'precision where the codec allows it (H.265 does, H.264 has no 10-bit '
+        'mode at all). The job log names the substitution whenever one happens. '
+        'A later -pix_fmt in Custom FFmpeg Arguments overrides it, which is the '
+        'way to use a mode your card really does have.',
+  ),
+];
+
+/// The second help affordance beside the colour format dropdown: the same
+/// click-to-open dialog pattern as [ChromaFormatHelpIcon], but answering a
+/// different question. That one explains what the formats *are* and which to
+/// choose; this one explains what the application *does* with them.
+///
+/// A distinct icon rather than a second `info_outline`, so two adjacent buttons
+/// don't look like the same thing twice.
+class ColourPipelineHelpIcon extends StatelessWidget {
+  const ColourPipelineHelpIcon({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      icon: const Icon(
+        Icons.schema_outlined,
+        size: 20,
+        semanticLabel: 'How VapourBox handles colour',
+      ),
+      color: Theme.of(context).colorScheme.primary,
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.only(left: 4),
+      constraints: const BoxConstraints(),
+      onPressed: () => showColourPipelineHelp(context),
+    );
+  }
+}
+
+/// Open the colour pipeline explanation. Same shape as [showChromaFormatHelp] —
+/// fixed width, scrollable, height-capped by the dialog itself.
+Future<void> showColourPipelineHelp(BuildContext context) {
+  return showDialog<void>(
+    context: context,
+    builder: (ctx) {
+      final theme = Theme.of(ctx);
+      return AlertDialog(
+        title: const Text('How VapourBox handles colour'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'What happens to a frame between your source file and the '
+                  'finished output.',
+                  style: theme.textTheme.bodyMedium,
+                ),
+                for (final (heading, body) in colourPipelineHelpSections) ...[
                   const SizedBox(height: 20),
                   Text(
                     heading,
@@ -850,6 +996,10 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                       // and which option to reach for. The short line below the
                       // dropdown is the summary; this is the explanation.
                       const ChromaFormatHelpIcon(),
+                      // A second dialog answering the other question people
+                      // ask here: not "which do I pick" but "what is the app
+                      // actually doing to my colour".
+                      const ColourPipelineHelpIcon(),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -867,6 +1017,7 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                         ),
                   ),
                   ..._buildChromaBitDepthWarning(viewModel, settings),
+                  ..._buildChromaEncoderWarning(viewModel, settings),
                 ],
               ),
             ),
@@ -964,6 +1115,22 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
   ) {
     final message = chromaConversionBitDepthWarning(
       targetBitDepth: settings.chromaSubsampling.outputBitDepth,
+      pixelFormat: viewModel.videoInfo?.pixelFormat,
+    );
+    if (message == null) return const [];
+    return [const SizedBox(height: 12), WarningBanner(message: message)];
+  }
+
+  /// Issue #74: warn when the selected colour format is one the selected
+  /// hardware encoder cannot take, so the substitution the worker performs is
+  /// visible before the job runs rather than only in its log.
+  List<Widget> _buildChromaEncoderWarning(
+    MainViewModel viewModel,
+    EncodingSettings settings,
+  ) {
+    final message = hardwareEncoderChromaWarning(
+      codec: settings.codec,
+      chromaSubsampling: settings.chromaSubsampling,
       pixelFormat: viewModel.videoInfo?.pixelFormat,
     );
     if (message == null) return const [];

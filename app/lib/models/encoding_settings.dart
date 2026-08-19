@@ -66,6 +66,10 @@ enum ChromaSubsampling {
   original('original', 'Match source', null, null),
   /// Convert to 8-bit YUV420 for maximum compatibility (smaller files).
   yuv420('yuv420', '4:2:0 8-bit', 'most compatible', 8),
+  /// Convert to 10-bit YUV420. The only 10-bit layout NVENC, QSV and AMF can
+  /// encode, so it is the way to keep a 10-bit source's grading on a GPU
+  /// encoder — 4:2:2 fails outright on most of them (issue #74).
+  yuv420p10('yuv420p10', '4:2:0 10-bit', 'best 10-bit for GPU encoders', 10),
   /// Convert to 8-bit YUV422 for higher chroma quality.
   yuv422('yuv422', '4:2:2 8-bit', 'more colour detail', 8),
   /// Convert to 10-bit YUV422: keeps a 10-bit source's precision while
