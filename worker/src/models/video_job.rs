@@ -103,6 +103,28 @@ impl VideoJob {
         )
     }
 
+    /// The pixel format the encoder ffmpeg is handed on stdin.
+    ///
+    /// The output conversion is the last thing the `.vpy` does, so when one is
+    /// selected it decides the format outright. With `Original` nothing
+    /// converts and the pipe carries the format the decoder was asked for —
+    /// which is the *pipe* format, not necessarily the source's own (see
+    /// `pixel_format`, where an unreadable source is normalised on the way in).
+    ///
+    /// A pass that changes format mid-graph always restores it (Turn90,
+    /// DeScratch, LUTDeCrawl all convert back), so the graph's output format is
+    /// its input format. Custom VapourSynth could break that assumption, and
+    /// like everything else about custom code, it is the user's to get right.
+    pub fn encoder_input_pix_fmt(&self) -> String {
+        self.encoding_settings
+            .chroma_subsampling
+            .ffmpeg_pix_fmt()
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                crate::pixel_format::decode_pixel_format(self.input_pixel_format.as_deref()).name
+            })
+    }
+
     /// Get the effective processing pipeline.
     /// Uses processing_pipeline if set, otherwise creates one from legacy qtgmc_parameters.
     pub fn effective_pipeline(&self) -> ProcessingPipeline {
@@ -414,6 +436,10 @@ pub enum ChromaSubsampling {
     Original,
     /// Convert to 8-bit YUV420 for maximum compatibility.
     Yuv420,
+    /// Convert to 10-bit YUV420 — the only 10-bit layout NVENC, QSV and AMF can
+    /// encode, so it keeps a 10-bit source's grading where 4:2:2 fails outright
+    /// on most GPUs (issue #74).
+    Yuv420P10,
     /// Convert to 8-bit YUV422 for higher chroma quality.
     Yuv422,
     /// Convert to 10-bit YUV422 — keeps a 10-bit source's precision while
@@ -428,8 +454,27 @@ impl ChromaSubsampling {
         match self {
             ChromaSubsampling::Original => None,
             ChromaSubsampling::Yuv420 => Some("vs.YUV420P8"),
+            ChromaSubsampling::Yuv420P10 => Some("vs.YUV420P10"),
             ChromaSubsampling::Yuv422 => Some("vs.YUV422P8"),
             ChromaSubsampling::Yuv422P10 => Some("vs.YUV422P10"),
+        }
+    }
+
+    /// The same format as an FFmpeg pixel-format name — what actually comes out
+    /// of the Y4M pipe once the conversion above has run. `None` for `Original`,
+    /// where the format is the source's and only the pipe knows it.
+    ///
+    /// Keep in step with [`vapoursynth_format`](Self::vapoursynth_format): the
+    /// two describe the same conversion, and
+    /// `chroma_subsampling_names_agree` fails if a variant gains one and not
+    /// the other.
+    pub fn ffmpeg_pix_fmt(&self) -> Option<&'static str> {
+        match self {
+            ChromaSubsampling::Original => None,
+            ChromaSubsampling::Yuv420 => Some("yuv420p"),
+            ChromaSubsampling::Yuv420P10 => Some("yuv420p10le"),
+            ChromaSubsampling::Yuv422 => Some("yuv422p"),
+            ChromaSubsampling::Yuv422P10 => Some("yuv422p10le"),
         }
     }
 }
@@ -577,23 +622,82 @@ impl VideoCodec {
         matches!(self.encoder_family(), EncoderFamily::Lossless)
     }
 
-    /// FFmpeg output pixel format to force for this codec, if it cannot accept
-    /// the pipeline's native format. Classic HuffYUV only supports yuv422p (not
-    /// yuv420p), so force conversion; ffvhuff and the others accept yuv420p.
-    pub fn forced_pix_fmt(&self) -> Option<&'static str> {
+    /// FFmpeg output pixel format to force for this codec, given the format the
+    /// pipeline will actually hand it (`encoder_input`, from
+    /// [`VideoJob::encoder_input_pix_fmt`]). `None` leaves the choice to
+    /// ffmpeg's own negotiation.
+    ///
+    /// Two of these are unconditional, because the encoder takes one format
+    /// whatever the source was. The NVENC/QSV arm is not: it must only fire
+    /// when the pipeline's format is genuinely unencodable, or it would drag a
+    /// perfectly good 10-bit 4:2:0 source down to 8-bit for no reason.
+    ///
+    /// **Do not assume ffmpeg's negotiation handles this.** An encoder's
+    /// declared pix_fmt list is static, but NVENC's real capabilities are
+    /// queried from the driver at `avcodec_open2`. A recent ffmpeg built
+    /// against NVENC SDK 13 advertises `yuv422p` on `h264_nvenc` for
+    /// Blackwell's 4:2:2 support, so negotiation happily picks it for a 4:2:2
+    /// source — and every pre-Blackwell card then fails the job outright with
+    /// "YUV422P not supported / No capable devices found" (issue #74, on an
+    /// RTX 4070 Super). Negotiation cannot avoid this, because the list it
+    /// negotiates against is wrong for the hardware in the machine.
+    ///
+    /// Custom FFmpeg Arguments still wins in every case: they are appended
+    /// last, so a later `-pix_fmt` overrides this one. That is the escape hatch
+    /// for someone whose card really does have the mode we refuse to assume.
+    pub fn forced_pix_fmt(&self, encoder_input: &str) -> Option<&'static str> {
         match self {
-            VideoCodec::Huffyuv => Some("yuv422p"),
+            // Classic HuffYUV only supports yuv422p (not yuv420p); ffvhuff and
+            // the others accept yuv420p.
+            VideoCodec::Huffyuv => return Some("yuv422p"),
             // AMF takes nv12 natively. Left to negotiate, ffmpeg will hand a
             // >8-bit source to the encoder as p010, and 10-bit HEVC encode is
             // only supported on some AMD ASICs — where it isn't, the AMF
             // runtime faults (0xC0000005) instead of failing cleanly, which is
             // one candidate for the crashes in issue #51. h264_amf has no
             // 10-bit mode at all. Pinning nv12 makes the conversion explicit
-            // and identical on every card. Custom FFmpeg Arguments still wins:
-            // a later -pix_fmt overrides this one.
-            VideoCodec::H264Amf | VideoCodec::H265Amf => Some("nv12"),
-            _ => None,
+            // and identical on every card.
+            VideoCodec::H264Amf | VideoCodec::H265Amf => return Some("nv12"),
+            _ => {}
         }
+
+        let family = self.encoder_family();
+        if !matches!(family, EncoderFamily::Nvenc | EncoderFamily::Qsv) {
+            return None;
+        }
+
+        let (class, depth) = crate::pixel_format::chroma_and_depth(encoder_input);
+
+        // 4:2:0 is the only chroma layout every NVENC and QSV part encodes.
+        // 4:2:2 is Blackwell-only on NVENC and needs a recent VDENC on QSV;
+        // 4:4:4 needs a profile this pipeline never selects (`build_encoder_
+        // quality_args` pins h264_nvenc to `-profile:v high`, which is 4:2:0).
+        let chroma_unsupported = class != crate::pixel_format::ChromaClass::C420;
+        // Neither family has a 10-bit H.264 mode at all.
+        let depth_unsupported = depth > 8 && self.is_h264();
+
+        if !chroma_unsupported && !depth_unsupported {
+            return None;
+        }
+
+        // NVENC names planar 4:2:0 `yuv420p`; QSV's native format is the
+        // semi-planar `nv12`. Both are 8-bit 4:2:0 and either encoder accepts
+        // either, but each family's own name is the one that avoids a
+        // needless swscale hop.
+        let planar = matches!(family, EncoderFamily::Nvenc);
+        Some(if self.is_h264() {
+            // H.264: 8-bit 4:2:0 is the only option on either family.
+            if planar { "yuv420p" } else { "nv12" }
+        } else if depth > 8 {
+            // HEVC: drop the chroma, but keep the source's precision. Every
+            // NVENC from Pascal on, and every QSV with an HEVC VDENC, takes
+            // 10-bit 4:2:0.
+            "p010le"
+        } else if planar {
+            "yuv420p"
+        } else {
+            "nv12"
+        })
     }
 
     /// Encoder presets this codec accepts. Mirrors `availablePresets` in
@@ -834,6 +938,132 @@ mod tests {
         assert!(VideoCodec::H264Amf.is_hardware());
         assert!(!VideoCodec::FFV1.is_hardware());
         assert!(!VideoCodec::ProResHQ.is_hardware());
+    }
+
+    /// Issue #74: a 4:2:2 source killed every NVENC job on pre-Blackwell
+    /// hardware, because a recent ffmpeg advertises `yuv422p` on `h264_nvenc`
+    /// and only the driver knows the card can't do it. The pipeline must pick
+    /// the format itself rather than leaving it to negotiation.
+    #[test]
+    fn test_nvenc_cannot_be_handed_422() {
+        // The exact case reported: CineForm yuv422p10le -> h264_nvenc.
+        assert_eq!(
+            VideoCodec::H264Nvenc.forced_pix_fmt("yuv422p10le"),
+            Some("yuv420p")
+        );
+        // HEVC drops the chroma but keeps the 10 bits.
+        assert_eq!(
+            VideoCodec::H265Nvenc.forced_pix_fmt("yuv422p10le"),
+            Some("p010le")
+        );
+        // 8-bit 4:2:2 needs no depth change, only the chroma.
+        assert_eq!(
+            VideoCodec::H265Nvenc.forced_pix_fmt("yuv422p"),
+            Some("yuv420p")
+        );
+        // 4:4:4 is equally unencodable: `build_encoder_quality_args` pins
+        // h264_nvenc to `-profile:v high`, which is a 4:2:0 profile.
+        assert_eq!(
+            VideoCodec::H264Nvenc.forced_pix_fmt("yuv444p"),
+            Some("yuv420p")
+        );
+    }
+
+    /// The guard must stay off for what already worked. Pinning NVENC
+    /// unconditionally (as AMF is pinned) would silently flatten a 10-bit
+    /// 4:2:0 source to 8-bit for everyone it currently serves correctly.
+    #[test]
+    fn test_nvenc_leaves_encodable_formats_alone() {
+        assert_eq!(VideoCodec::H264Nvenc.forced_pix_fmt("yuv420p"), None);
+        assert_eq!(VideoCodec::H265Nvenc.forced_pix_fmt("yuv420p"), None);
+        // 10-bit 4:2:0 into HEVC is exactly what NVENC is good at — untouched.
+        assert_eq!(VideoCodec::H265Nvenc.forced_pix_fmt("yuv420p10le"), None);
+        assert_eq!(VideoCodec::H265Nvenc.forced_pix_fmt("p010le"), None);
+    }
+
+    /// H.264 has no 10-bit mode on either hardware family, so depth alone is
+    /// enough to force a conversion even when the chroma is already fine.
+    #[test]
+    fn test_h264_hardware_has_no_10_bit_mode() {
+        assert_eq!(
+            VideoCodec::H264Nvenc.forced_pix_fmt("yuv420p10le"),
+            Some("yuv420p")
+        );
+        assert_eq!(
+            VideoCodec::H264Qsv.forced_pix_fmt("yuv420p10le"),
+            Some("nv12")
+        );
+    }
+
+    /// QSV is the same class of trap — `hevc_qsv` advertises 4:2:2 (`y210le`)
+    /// on builds where the hardware may not have it. Not reported, guarded on
+    /// the same reasoning. QSV's native layout is semi-planar, so it gets
+    /// nv12 where NVENC gets yuv420p.
+    #[test]
+    fn test_qsv_takes_its_own_native_formats() {
+        assert_eq!(VideoCodec::H264Qsv.forced_pix_fmt("yuv422p"), Some("nv12"));
+        assert_eq!(
+            VideoCodec::H265Qsv.forced_pix_fmt("yuv422p10le"),
+            Some("p010le")
+        );
+        assert_eq!(VideoCodec::H265Qsv.forced_pix_fmt("yuv422p"), Some("nv12"));
+        assert_eq!(VideoCodec::H264Qsv.forced_pix_fmt("yuv420p"), None);
+    }
+
+    /// The two unconditional pins predate this and must not become conditional:
+    /// they hold whatever the pipeline's format is.
+    #[test]
+    fn test_unconditional_pins_ignore_the_input_format() {
+        for fmt in ["yuv420p", "yuv422p10le", "yuv444p16le", "nv12"] {
+            assert_eq!(VideoCodec::Huffyuv.forced_pix_fmt(fmt), Some("yuv422p"));
+            assert_eq!(VideoCodec::H264Amf.forced_pix_fmt(fmt), Some("nv12"));
+            assert_eq!(VideoCodec::H265Amf.forced_pix_fmt(fmt), Some("nv12"));
+        }
+    }
+
+    /// Software, ProRes, lossless and VideoToolbox negotiate correctly on their
+    /// own — VideoToolbox never advertises a mode it lacks, which is the whole
+    /// difference from NVENC. Forcing a format on them would only throw away
+    /// chroma they can keep.
+    #[test]
+    fn test_negotiating_encoders_are_left_alone() {
+        for codec in [
+            VideoCodec::H264,
+            VideoCodec::H265,
+            VideoCodec::H264Videotoolbox,
+            VideoCodec::H265Videotoolbox,
+            VideoCodec::ProRes422,
+            VideoCodec::FFV1,
+            VideoCodec::Ffvhuff,
+        ] {
+            for fmt in ["yuv420p", "yuv422p10le", "yuv444p16le"] {
+                assert_eq!(
+                    codec.forced_pix_fmt(fmt),
+                    None,
+                    "{codec:?} should negotiate {fmt} itself"
+                );
+            }
+        }
+    }
+
+    /// The two names for the output conversion describe the same thing, so a
+    /// variant gaining one and not the other is a bug — the ffmpeg name is what
+    /// decides whether a hardware encoder can take it.
+    #[test]
+    fn chroma_subsampling_names_agree() {
+        for cs in [
+            ChromaSubsampling::Original,
+            ChromaSubsampling::Yuv420,
+            ChromaSubsampling::Yuv420P10,
+            ChromaSubsampling::Yuv422,
+            ChromaSubsampling::Yuv422P10,
+        ] {
+            assert_eq!(
+                cs.vapoursynth_format().is_some(),
+                cs.ffmpeg_pix_fmt().is_some(),
+                "{cs:?} declares one output format name but not the other"
+            );
+        }
     }
 
     #[test]

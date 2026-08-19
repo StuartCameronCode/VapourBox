@@ -1657,8 +1657,89 @@ value here shows up as "this GPU doesn't work" rather than as an error:
   (a later `-pix_fmt` wins), which is the escape hatch for 10-bit HEVC on
   hardware that supports it.
 
+- **A hardware encoder's declared pix_fmt list is not a statement about the
+  machine (issue #74).** The list ffmpeg negotiates against is compiled in;
+  NVENC's real capabilities are queried from the driver at `avcodec_open2`. A
+  recent ffmpeg built against NVENC SDK 13 advertises `yuv422p` on
+  `h264_nvenc` for Blackwell's 4:2:2 support, so negotiation picks it for any
+  4:2:2 source — and every pre-Blackwell card then fails the job outright with
+  *"YUV422P not supported / No capable devices found"*, zero frames written.
+  Reported on an RTX 4070 Super with a CineForm `yuv422p10le` capture at the
+  default "Match source" colour format. **ffmpeg cannot negotiate its way out
+  of this**, so `forced_pix_fmt` picks the format instead.
+
+`VideoCodec::forced_pix_fmt` therefore takes the format the pipeline will
+actually hand the encoder — `VideoJob::encoder_input_pix_fmt`, which is the
+output conversion when one is selected and the pipe format otherwise. Three
+things about it are load-bearing:
+
+- **The NVENC/QSV arm is conditional and the other two are not.** HuffYUV and
+  AMF take one format whatever the source was; NVENC does not. Pinning it
+  unconditionally the way AMF is pinned would flatten a 10-bit 4:2:0 source to
+  8-bit for everyone it already serves correctly, so the guard fires only on
+  4:2:2, 4:4:4, or >8-bit into an H.264 encoder (neither family has a 10-bit
+  H.264 mode). A 4:2:0 job emits no `-pix_fmt` at all, exactly as before.
+- **HEVC keeps the depth, H.264 cannot.** 4:2:2 10-bit into `hevc_nvenc`
+  becomes `p010le`, not `yuv420p` — only the chroma has to go. NVENC gets the
+  planar `yuv420p` and QSV the semi-planar `nv12`, each family's native name.
+- **VideoToolbox is deliberately excluded.** It never advertises a mode it
+  lacks, so its negotiation is trustworthy and forcing a format would only
+  throw away chroma it could have kept. QSV *is* included, preventively rather
+  than on a report: `hevc_qsv` advertises `y210le` on builds whose hardware may
+  not have it, which is the same trap.
+
 None of the AMF behaviour can be verified in CI or on macOS — there is no AMD
-hardware in the matrix — so changes here rest on reporter confirmation.
+hardware in the matrix — and the same is true of NVENC and QSV, so these rest
+on unit tests over the emitted arguments plus reporter confirmation. Note the
+functional probe in `HardwareEncoderDetector` cannot catch the #74 class at
+all: it encodes one `yuv420p` frame from lavfi, so it correctly reports NVENC
+as *available* — the device works, only the format doesn't. Don't try to fix a
+format problem in the device probe; the format isn't known until a file loads.
+
+### The user-facing half of #74
+
+The guard above keeps the job running, but silently changing someone's output
+is only acceptable if they can see it coming and choose otherwise. Two things
+shipped with it:
+
+**A 4:2:0 10-bit output format.** `ChromaSubsampling::Yuv420P10` /
+`ChromaSubsampling.yuv420p10` — the only 10-bit layout NVENC, QSV and AMF can
+encode, so it is how a 10-bit source keeps its grading through a GPU encoder by
+the user's own choice rather than by the guard's fallback. Verified end to end
+(`integration_high_bit_depth_filters_test`): a 10-bit 4:2:2 source comes out
+`yuv420p10le`, profile **High 10**. Adding an option touches four places —
+`vapoursynth_format`, `ffmpeg_pix_fmt`, the Dart enum with its `outputBitDepth`,
+and `chromaFormatHelpSections`, which `settings_chroma_help_test` fails on if
+the new label goes unmentioned.
+
+**A warning under the dropdown.** `hardwareEncoderChromaWarning` in
+`app/lib/utils/pixel_format.dart` says which format will be substituted and
+why, before the job runs. It covers both routes into #74 — a 4:2:2 *source* at
+"Match source", and an explicitly chosen 4:2:2 *output* — and it stays silent
+for everything encodable, for VideoToolbox and AMF, and until a file is loaded.
+
+> **It is a second implementation of the worker's decision, and that is the
+> risk.** If the two disagree the interface promises one thing and the encode
+> does another, which is worse than either being wrong alone. Both sides are
+> therefore pinned to **the same table of cases** — `substitutions match the
+> worker, case for case` in `hardware_encoder_chroma_warning_test.dart` against
+> `test_nvenc_cannot_be_handed_422` and its neighbours in `video_job.rs`. Change
+> one and change both. `pixelFormatChromaLayout` is likewise a coarse Dart twin
+> of `ChromaClass`; the Dart side already reimplements this kind of pix_fmt
+> parsing in `pixelFormatBitDepth`, so it follows that precedent rather than
+> inventing a new one.
+
+**A second help dialog**, `ColourPipelineHelpIcon` /
+`colourPipelineHelpSections`, beside the existing `ChromaFormatHelpIcon`. The
+two answer different questions and both are worth having: the first is *what
+are these formats and which do I pick*, the second is *what does the app do to
+my colour* — the pipe source normalising upward on the way in, filters
+converting down and back per pass, every UI threshold being in 8-bit units and
+rescaled to the clip depth, the output conversion dithering, the Y4M pipe
+stripping SAR and colour tags so they must be re-stamped, and the encoder
+having the last word. A deliberately distinct icon (`schema_outlined`, not a
+second `info_outline`), asserted, because two identical adjacent buttons read
+as one control repeated.
 
 ## QTGMC Parameters Reference
 

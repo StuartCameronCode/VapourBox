@@ -902,6 +902,17 @@ void main() {
       expect(out['profile'], 'High');
     }, timeout: const Timeout(Duration(minutes: 5)));
 
+    test('4:2:0 10-bit keeps the precision and drops only the chroma', () async {
+      // The option added for issue #74: NVENC, QSV and AMF can all encode
+      // 10-bit 4:2:0 and none of them can encode 4:2:2 on most hardware, so
+      // this is how a 10-bit source keeps its grading through a GPU encoder.
+      // High 10 rather than High, and 4:2:0 rather than 4:2:2 — getting either
+      // half wrong would defeat the purpose.
+      final out = await encodeWith(ChromaSubsampling.yuv420p10, 'yuv420p10');
+      expect(out['pix_fmt'], 'yuv420p10le');
+      expect(out['profile'], 'High 10');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
     test('4:2:2 gives an 8-bit 4:2:2 file', () async {
       final out = await encodeWith(ChromaSubsampling.yuv422, 'yuv422');
       expect(out['pix_fmt'], 'yuv422p');

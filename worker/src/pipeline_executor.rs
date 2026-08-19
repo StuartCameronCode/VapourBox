@@ -835,8 +835,24 @@ impl PipelineExecutor {
         Self::build_encoder_quality_args(&mut args, job);
 
         // Force a compatible output pixel format for codecs that can't accept the
-        // pipeline's native format (e.g. classic HuffYUV requires yuv422p).
-        if let Some(pix_fmt) = settings.codec.forced_pix_fmt() {
+        // pipeline's native format (e.g. classic HuffYUV requires yuv422p, and
+        // NVENC/QSV cannot encode 4:2:2 on most hardware — issue #74).
+        let encoder_input = job.encoder_input_pix_fmt();
+        if let Some(pix_fmt) = settings.codec.forced_pix_fmt(&encoder_input) {
+            if pix_fmt != encoder_input {
+                // Say so in the job log. A silent downconversion is the right
+                // behaviour — failing the whole encode helps nobody — but it
+                // changes the output, so it must not also be invisible.
+                self.reporter.send_log(
+                    LogLevel::Info,
+                    &format!(
+                        "{} cannot encode {}; converting to {} for output",
+                        settings.codec.display_name(),
+                        encoder_input,
+                        pix_fmt
+                    ),
+                );
+            }
             args.extend(["-pix_fmt".to_string(), pix_fmt.to_string()]);
         }
 
@@ -1332,7 +1348,7 @@ impl Drop for PipelineExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{AudioCodec, AudioQuality, EncodingSettings, QTGMCParameters, VideoCodec};
+    use crate::models::{AudioCodec, AudioQuality, ChromaSubsampling, EncodingSettings, QTGMCParameters, VideoCodec};
     use uuid::Uuid;
 
     /// A leftover `progress=end` must not end a run that has produced no frames.
@@ -1525,8 +1541,9 @@ mod tests {
         // Encoder-family-specific quality and preset args
         PipelineExecutor::build_encoder_quality_args(&mut args, job);
 
-        // Force a compatible output pixel format (e.g. HuffYUV requires yuv422p)
-        if let Some(pix_fmt) = settings.codec.forced_pix_fmt() {
+        // Force a compatible output pixel format (e.g. HuffYUV requires yuv422p,
+        // NVENC/QSV cannot encode 4:2:2 on most hardware)
+        if let Some(pix_fmt) = settings.codec.forced_pix_fmt(&job.encoder_input_pix_fmt()) {
             args.extend(["-pix_fmt".to_string(), pix_fmt.to_string()]);
         }
 
@@ -1946,6 +1963,106 @@ mod tests {
         // Lossless: no CRF or preset
         assert!(!args.contains(&"-crf".to_string()), "HuffYUV should not have -crf");
         assert!(!args.contains(&"-preset".to_string()), "HuffYUV should not have -preset");
+    }
+
+    /// Issue #74, end to end: the reported job was a CineForm `yuv422p10le`
+    /// source at the default "Match source" colour format, encoded with
+    /// h264_nvenc. With nothing forced, ffmpeg negotiated `yuv422p` (which the
+    /// encoder advertises) and the RTX 4070 Super rejected it at open, so the
+    /// job produced zero frames.
+    #[test]
+    fn test_nvenc_422_source_gets_an_encodable_pix_fmt() {
+        let mut job = create_test_job("output.mp4");
+        job.encoding_settings.codec = VideoCodec::H264Nvenc;
+        job.input_pixel_format = Some("yuv422p10le".to_string());
+        assert_eq!(
+            job.encoding_settings.chroma_subsampling,
+            ChromaSubsampling::Original,
+            "the reported job used the default colour format"
+        );
+
+        let args = build_ffmpeg_args_for_test(&job);
+        let idx = args
+            .iter()
+            .position(|a| a == "-pix_fmt")
+            .expect("NVENC must not be left to negotiate a 4:2:2 source");
+        assert_eq!(args[idx + 1], "yuv420p");
+    }
+
+    /// The same source into HEVC keeps its 10 bits — only the chroma has to go.
+    #[test]
+    fn test_hevc_nvenc_422_source_keeps_10_bits() {
+        let mut job = create_test_job("output.mp4");
+        job.encoding_settings.codec = VideoCodec::H265Nvenc;
+        job.input_pixel_format = Some("yuv422p10le".to_string());
+
+        let args = build_ffmpeg_args_for_test(&job);
+        let idx = args.iter().position(|a| a == "-pix_fmt").unwrap();
+        assert_eq!(args[idx + 1], "p010le");
+    }
+
+    /// Choosing a 4:2:2 output format explicitly is the other route to the same
+    /// failure: the conversion is done by the `.vpy`, so the source format never
+    /// enters into it.
+    #[test]
+    fn test_nvenc_422_output_format_is_also_guarded() {
+        let mut job = create_test_job("output.mp4");
+        job.encoding_settings.codec = VideoCodec::H265Nvenc;
+        job.encoding_settings.chroma_subsampling = ChromaSubsampling::Yuv422P10;
+        // An 8-bit 4:2:0 source — the pipeline is what makes it 4:2:2.
+        job.input_pixel_format = Some("yuv420p".to_string());
+
+        assert_eq!(job.encoder_input_pix_fmt(), "yuv422p10le");
+        let args = build_ffmpeg_args_for_test(&job);
+        let idx = args.iter().position(|a| a == "-pix_fmt").unwrap();
+        assert_eq!(args[idx + 1], "p010le");
+    }
+
+    /// A 4:2:0 source into NVENC must emit no `-pix_fmt` at all, so the fix
+    /// changes nothing for the jobs that already worked.
+    #[test]
+    fn test_nvenc_420_source_is_untouched() {
+        for fmt in ["yuv420p", "yuv420p10le"] {
+            let mut job = create_test_job("output.mp4");
+            job.encoding_settings.codec = VideoCodec::H265Nvenc;
+            job.input_pixel_format = Some(fmt.to_string());
+
+            let args = build_ffmpeg_args_for_test(&job);
+            assert!(
+                !args.contains(&"-pix_fmt".to_string()),
+                "{fmt} is encodable; NVENC should negotiate it"
+            );
+        }
+    }
+
+    /// x264 handles 4:2:2 natively. Forcing a format here would throw away
+    /// chroma the encoder was perfectly able to keep.
+    #[test]
+    fn test_software_encoder_keeps_422() {
+        let mut job = create_test_job("output.mkv");
+        job.encoding_settings.codec = VideoCodec::H264;
+        job.input_pixel_format = Some("yuv422p10le".to_string());
+
+        let args = build_ffmpeg_args_for_test(&job);
+        assert!(!args.contains(&"-pix_fmt".to_string()));
+    }
+
+    /// Custom FFmpeg Arguments are appended last, so a user who knows their
+    /// card really does have 4:2:2 can still ask for it — ffmpeg takes the
+    /// later `-pix_fmt`. That is the escape hatch this guard relies on.
+    #[test]
+    fn test_custom_args_can_override_the_forced_format() {
+        let mut job = create_test_job("output.mp4");
+        job.encoding_settings.codec = VideoCodec::H264Nvenc;
+        job.input_pixel_format = Some("yuv422p10le".to_string());
+        job.encoding_settings.custom_ffmpeg_args = "-pix_fmt yuv422p".to_string();
+
+        let args = build_ffmpeg_args_for_test(&job);
+        let last = args
+            .iter()
+            .rposition(|a| a == "-pix_fmt")
+            .expect("both formats should be present");
+        assert_eq!(args[last + 1], "yuv422p", "the user's choice must win");
     }
 
     #[test]

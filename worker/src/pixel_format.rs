@@ -49,7 +49,7 @@ pub const DEFAULT_FORMAT: &str = "yuv420p";
 /// Chroma resolution class of a source format. Ordered so that a source is
 /// always mapped to a class at least as detailed as its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ChromaClass {
+pub enum ChromaClass {
     C420,
     C422,
     C444,
@@ -76,6 +76,16 @@ impl PipeFormat {
             )
         })
     }
+}
+
+/// Chroma class and bit depth of an FFmpeg pixel format name.
+///
+/// Public counterpart of [`classify`]. `VideoCodec::forced_pix_fmt` needs it to
+/// decide whether the format the pipeline will hand a hardware encoder is one
+/// that encoder can actually take — a question about the *output* of the graph,
+/// where the rest of this module is about its input.
+pub fn chroma_and_depth(name: &str) -> (ChromaClass, u32) {
+    classify(&name.to_ascii_lowercase())
 }
 
 /// The raw pixel format to pipe for a source whose probed format is `probed`.
