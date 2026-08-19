@@ -100,8 +100,8 @@ Twenty-one filters, each switchable independently, applied in a fixed order. Mos
 | **Ghost Removal** | A faint second copy of the picture shifted sideways, left behind by an aerial or a long cable run. |
 | **Deflicker** | Brightness pulsing between frames, which is what scanned cine film almost always has. |
 | **DeScratch** | Vertical scratch lines on scanned film. |
-| **SpotLess** | Dust, dirt and single-frame specks. |
-| **Noise Reduction** | Grain and video noise across the whole frame. Motion-compensated by default; DFTTest, FFT3DFilter, TTempSmooth, FluxSmooth, STPresso and a large-window median are available under advanced options for noise the default handles badly. |
+| **SpotLess** | Dust, dirt and single-frame specks. RemoveDirt is the faster choice — around six times the speed for about 60% of the removal. |
+| **Noise Reduction** | Grain and video noise across the whole frame. Motion-compensated by default, with mClean as a gentler alternative that keeps more detail; DFTTest, FFT3DFilter, TTempSmooth, FluxSmooth, STPresso, TemporalDegrain2 and a large-window median are available under advanced options for noise the default handles badly. |
 | **Chroma Denoise** | Blotchy, smeared color — common on VHS captures and old camcorder footage. Leaves luma detail untouched. |
 | **Dehalo** | Bright outlines around edges, ringing, and residual ghosting left by a deinterlacer. HQDeringmod targets ringing specifically. |
 | **Deblock** | Square blocking from heavy compression, and the ringing around edges that comes with it. |
@@ -115,7 +115,7 @@ Twenty-one filters, each switchable independently, applied in a fixed order. Mos
 | **Color Correction** | Brightness, contrast, saturation, hue, levels, white balance (warm/cool, green/magenta), and lifting detail out of the shadows of underexposed footage. Levels and white balance can each be measured automatically or set by hand. |
 | **Crop & Resize** | Trimming overscan, scaling, and edge-directed upscaling. |
 | **Frame Rate** | Converting between PAL and NTSC rates, for a tape that was already converted once and now plays at the wrong speed. |
-| **Subtitles** | Whisper AI speech-to-text, to `.srt`, embedded, or both. |
+| **Subtitles** | Whisper AI speech-to-text — written alongside the video as `.srt`, embedded as a selectable track, burnt into the picture, or a combination. |
 
 Each filter leads with a plain-language summary and a **More** expander describing what it does and when it's the right choice, so the settings can be understood in place rather than looked up elsewhere.
 
