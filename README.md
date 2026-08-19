@@ -81,12 +81,12 @@ GPU-accelerated deinterlacing (NNEDI3CL) needs your GPU's OpenCL driver installe
 
 | | |
 |---|---|
-| **Video** | H.264, H.265, ProRes, FFV1 (lossless), with hardware encoding via VideoToolbox, NVENC, Quick Sync or AMF where available. A colour format the GPU can't encode is converted rather than failing the job, and the panel says which and why before you start |
+| **Video** | H.264, H.265, ProRes, FFV1 (lossless), with hardware encoding via VideoToolbox, NVENC, Quick Sync or AMF where available |
 | **Audio** | Passthrough, or re-encode to AAC, Opus or FLAC, or strip |
 | **Containers** | MKV, MP4, MOV, AVI |
 | **Reads** | `.dv` · `.mts` `.m2ts` (AVCHD) · `.vob` `.m2v` `.mpg` `.mpeg` · `.mxf` · `.avi` `.mov` `.mp4` `.mkv` `.ts` `.wmv` `.webm` `.flv`, plus DVD discs and `VIDEO_TS` folders |
 | **Source formats** | 4:1:1 (NTSC DV), 4:1:0, 4:2:0/4:2:2/4:4:4 up to 16-bit, RGB, grayscale |
-| **Colour format out** | Match the source, or convert to 4:2:0 8-bit (plays everywhere), 4:2:0 10-bit, 4:2:2 8-bit or 4:2:2 10-bit. Worth setting for a 10-bit source: matching it produces a 10-bit 4:2:2 file that some players and browsers refuse to open, and that no GPU encoder before the RTX 50 series can encode at all. 4:2:0 10-bit is the one that keeps the precision and still encodes everywhere |
+| **Colour format out** | Match the source, or convert to 4:2:0 8-bit (plays everywhere), 4:2:2 8-bit, or 4:2:2 10-bit. Worth setting for a 10-bit source: matching it produces a 10-bit file that some players and browsers refuse to open |
 | **Aspect ratio** | Non-square pixels preserved through the pipeline, including through a resize; or square up anamorphic pixels, force a display aspect, or letterbox to a target size |
 
 ## The filter pipeline
@@ -163,19 +163,6 @@ VapourBox decides between the two by looking for a DVD IFO: a folder is only tre
 - **Higher-precision deinterlacing**, both opt-in: interlaced 4:2:0 stores chroma per field, so the pass can upsample to 4:2:2 first; separately it can run at 16-bit, avoiding rounding accumulated across QTGMC's many internal steps. Both are off by default and each states what it costs.
 - **Soft telecine** pulldown flags can be stripped without re-encoding fields.
 - **Edge-directed upscaling** — NNEDI3 or EEDI3 integer doubling with full neuron, quality and prescreener control, plus seven resampling kernels with per-kernel tuning.
-
-</details>
-
-<details>
-<summary><b>How colour is handled</b></summary>
-
-Filters run in whatever format the source arrived in, and the output conversion is applied last — so the whole pipeline works at full precision even when the output is 8-bit. Where a filter can't handle the depth, only that pass is converted down and back, rather than the whole clip. Reducing depth dithers rather than rounds, so gradients stay smooth instead of breaking into bands.
-
-Every threshold and level in the interface is expressed in 8-bit terms (0–255), because that is the vocabulary the underlying filters were documented in. Those values are rescaled to the actual bit depth internally, so an adjustment does the same thing to a 10-bit source as to an 8-bit one.
-
-**Colour tags are carried through.** Matrix, primaries, transfer and range are read from the source and re-declared on the output. This matters more than it sounds: the connection between the processing stage and the encoder carries pixels only, so without this every output would be untagged — and an untagged file is read as BT.601 limited by every player, silently shifting the colours of any BT.709 or full-range source. Tags are never invented; a source that declares nothing stays undeclared.
-
-There is a fuller explanation in the app, next to the colour format setting.
 
 </details>
 
