@@ -552,6 +552,43 @@ class WorkerHarness {
     return total / a.length;
   }
 
+  /// One frame of a video as packed rgb24, addressed by absolute frame index.
+  ///
+  /// Decodes from the start and picks by index rather than seeking: an input
+  /// seek lands on the nearest keyframe, which for these comparisons would
+  /// silently compare the wrong frame. The fixtures are short enough that the
+  /// full decode costs little.
+  ///
+  /// Pairs with [imageToRgb24] and [meanAbsDiff] to answer "is this the frame
+  /// the pipeline says it is" rather than merely "did something render".
+  static Future<Uint8List> frameRgb24(String videoPath, int index,
+      {String label = 'frame'}) async {
+    final png = File(p.join(Directory.systemTemp.path,
+        'vb_${label}_${DateTime.now().microsecondsSinceEpoch}_$index.png'));
+    try {
+      final r = await Process.run(
+        ffmpegPath,
+        [
+          '-y', '-v', 'error',
+          '-i', videoPath,
+          '-vf', 'select=eq(n\\,$index)',
+          '-frames:v', '1',
+          png.path,
+        ],
+        environment: ffmpegEnv,
+      );
+      if (r.exitCode != 0) {
+        throw Exception('extracting frame $index from $videoPath: ${r.stderr}');
+      }
+      if (!await png.exists()) {
+        throw Exception('no frame $index in $videoPath (past the end?)');
+      }
+      return imageToRgb24(await png.readAsBytes(), label: '$label$index');
+    } finally {
+      if (await png.exists()) await png.delete().catchError((_) => png);
+    }
+  }
+
   /// Extract one frame as PNG and return its md5 hash.
   static Future<String> frameHash(String videoPath, {int frame = 5}) async {
     final framePath = p.join(Directory.systemTemp.path,
