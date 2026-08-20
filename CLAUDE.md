@@ -1390,6 +1390,62 @@ Subtitles' `burnInPath`.
 > either pass loses a real class of bug; both were verified against the actual
 > defects.
 
+### Frame counts and geometry are verified against the pipeline, not the model
+
+`FrameMap` was covered only as arithmetic — `output_count`, `inverse`,
+`total_radius` — which proves the model is self-consistent and says nothing
+about whether the plugins agree with it. `run_job` in the Rust suite cannot
+close that gap by design: it generates and inspects the `.vpy` and never runs
+`vspipe | ffmpeg`. Two heavy Dart files now do (added 2026-08-20):
+
+- **`integration_frame_mapping_test.dart`** — encodes and *counts* for every
+  pass that changes the count: double-rate QTGMC (31 -> 62), single-rate as the
+  control (31 -> 31), IVTC cycle 5 (90 -> 72), and FlowFPS 25 -> 23.976
+  (75 -> 71). Expected values are derived by hand from the FrameMap definitions
+  rather than read back from the model, so a change to the model cannot quietly
+  redefine "correct". The retime case is the one that pins why FlowFPS was
+  chosen over BlockFPS: `n*num/den` exactly, where BlockFPS gives
+  `floor((n-1)*r)+1` and every retimed job's progress total would be a frame out.
+- **Preview/render correspondence** in the same file, and for geometry in
+  `integration_upscale_resize_test.dart`. `--frame N` is a **source** index (the
+  worker logs "Preview: source frame N") and the target's output index is
+  `output_count(local)`, so under double-rate the preview of source frame S must
+  be output frame 2S. Measured **0.00** mean abs diff at the right frame against
+  8-30 at its neighbours, which is bit-exact; and 0.00 for crop, resize and
+  crop+resize. The geometry half also asserts the size, because a preview
+  rendered at a different resolution shows up as a buffer-length mismatch in
+  `meanAbsDiff` rather than as a pixel difference.
+- **Crop pixels, not just crop size.** A size assertion cannot tell a correct
+  crop from one that swaps left with right - both give the requested
+  dimensions. The offset test crops asymmetrically and compares against the
+  pipeline's own uncropped output cropped in Dart, so the swapped offsets are
+  available as negative controls (measured 1.06 correct against 9.65 and 15.97).
+
+> **`totalFrames` is the POST-TRIM count, and getting that wrong looks like a
+> filter bug.** Trimming is decoder-side (`-ss` + `-frames:v`) and
+> `pipe_source` builds a fixed-length clip from `totalFrames`, so the number has
+> to be what the decoder will actually pipe. The app sets it that way
+> (`main_viewmodel.dart`: `effectiveEnd - effectiveStart + 1`) and `main.rs`
+> computes the same thing when it is absent ("effective after trim"). Pass the
+> **full** source length alongside a trim and the script declares a clip longer
+> than the data: pipe_source hits EOF and repeats the last real frame to pad, so
+> the output is full-length with a frozen tail. The frame-mapping test was
+> written that way first and reported 150 frames for a 31-frame trim, which
+> reads exactly like FPSDivisor being ignored.
+
+> **`select=eq(n,N)` on a source is not the pipeline's frame N.**
+> `interlaced_test.avi` declares 79 frames and decodes 75: it carries null
+> frames, and the decoder's default CFR mode expands them onto the 25 fps grid
+> (measured: the first seven decoded frames come out 0,0,0,0,1,1,2). So `select`
+> counts *decoded* frames while the pipeline counts *timeline* positions, and
+> the two diverge wherever a null frame sits. That is correct behaviour —
+> pipe_source needs a fixed-length CFR clip — but it makes ffmpeg-side frame
+> indexing useless as a reference. Compare pipeline output against pipeline
+> output, which uses one decoder and one indexing scheme.
+> `WorkerHarness.frameRgb24` exists for that and decodes from the start rather
+> than seeking, because an input seek lands on the nearest keyframe and would
+> silently compare the wrong frame.
+
 ### Suggestions and advice are hints, and must stay hints
 
 Two small pure-function models sit beside the pass list, and both are
