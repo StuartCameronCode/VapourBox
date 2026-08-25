@@ -217,8 +217,38 @@ class WorkerHarness {
 
     // ignore: avoid_print
     print('WorkerHarness: platform=$platform\n'
-        '  deps=$_depsDir\n  worker=$_workerPath\n  input=$inputFile');
+        '  deps=$_depsDir\n  worker=$_workerPath\n  input=$inputFile\n'
+        '  cpu=${await describeCpu()}');
     _ready = true;
+  }
+
+  /// The CPU architecture and dispatch-relevant instruction set extensions,
+  /// asked of the worker binary itself (`--probe-cpu`) rather than derived
+  /// here, so the answer is the one the actual pipeline process sees.
+  ///
+  /// Printed in the banner so a run **states which hardware it tested**. That
+  /// is not cosmetic: bundled plugins pick a kernel from these bits, and
+  /// GitHub's hosted Windows fleet is mixed for AVX-512 — so two green Windows
+  /// runs can have exercised different code. `ctmf.CTMF`'s AVX-512 kernel for
+  /// 8-bit input crashes the process, and the nightly passed for three days on
+  /// non-AVX-512 runners before drawing one that had it, at which point it
+  /// looked like a spontaneous failure against a four-day-old tree.
+  ///
+  /// Never fails the run: this is diagnostic, and a harness that refuses to
+  /// start because a probe misbehaved would be worse than one that says
+  /// "unknown".
+  static Future<String> describeCpu() async {
+    try {
+      final result = await Process.run(_workerPath!, ['--probe-cpu']);
+      if (result.exitCode != 0) return 'unknown (probe exit ${result.exitCode})';
+      final json = jsonDecode(result.stdout as String) as Map<String, dynamic>;
+      final features = (json['features'] as List<dynamic>).cast<String>();
+      return '${json['arch']} [${features.isEmpty ? 'none detected' : features.join(' ')}]';
+    } catch (e) {
+      // An older worker predates --probe-cpu and exits non-zero on the unknown
+      // flag; that is reported above rather than thrown.
+      return 'unknown ($e)';
+    }
   }
 
   // ---------------------------------------------------------------------------
