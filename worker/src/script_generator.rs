@@ -17,6 +17,43 @@ use crate::models::{
     FieldOrder,
 };
 
+/// CPU dispatch level to hand `ctmf.CTMF`'s `opt` argument.
+///
+/// CTMF r5's AVX-512 kernel for 8-bit input crashes the process outright — an
+/// access violation with no message, so the encode surfaces as ffmpeg reading
+/// an empty pipe and the preview as a bare "exit code 1". `opt=0` (the plugin's
+/// default) auto-detects and picks AVX-512 wherever the CPU has it, so it is
+/// never safe to emit. The CTMF block in `pipeline_template.vpy` carries the
+/// full measurements.
+///
+/// The plugin does **not** verify that the CPU can run the level it is handed,
+/// so this has to be a real capability query rather than a constant: 3 (AVX2)
+/// where the CPU has it, otherwise 2 (SSE2, which every x86-64 CPU has by
+/// definition). The three non-AVX-512 levels are bit-identical, so this costs
+/// throughput and nothing else. Non-x86 builds of the plugin compile the
+/// dispatch out and ignore the value.
+///
+/// This belongs in the worker rather than in the script because it is a
+/// property of the machine, not of the clip — unlike the depth scalings, no
+/// preceding pass can change the answer.
+pub fn ctmf_opt() -> u8 {
+    if cpu_has_avx2() {
+        3
+    } else {
+        2
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn cpu_has_avx2() -> bool {
+    std::is_x86_feature_detected!("avx2")
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+fn cpu_has_avx2() -> bool {
+    false
+}
+
 /// Generates VapourSynth scripts from templates.
 pub struct ScriptGenerator {
     template: String,
@@ -1023,6 +1060,7 @@ impl ScriptGenerator {
                         &nr.ctmf_effective_radius().to_string(),
                     );
                     script = script.replace("{{NR_CTMF_PLANES}}", nr.ctmf_planes_literal());
+                    script = script.replace("{{NR_CTMF_OPT}}", &ctmf_opt().to_string());
                 }
                 NoiseReductionMethod::QtgmcBuiltin => {
                     // QTGMC built-in denoising is handled in the QTGMC pass itself

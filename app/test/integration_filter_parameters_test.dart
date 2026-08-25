@@ -1194,7 +1194,7 @@ void main() {
 
     // --- Batch four -------------------------------------------------------
 
-    test('noise reduction: CTMF, with its 9-bit guard and pinned memsize',
+    test('noise reduction: CTMF, with its 9-bit guard, pinned memsize and pinned dispatch',
         () async {
       loadSchema('noise_reduction');
       final job = buildJob(
@@ -1217,6 +1217,17 @@ void main() {
       // At the plugin default, 16-bit radius 3 measures 0.79 fps against 42
       // here, for bit-identical output.
       expect(actual['memsize'], '16777216');
+      // CTMF r5's AVX-512 kernel for 8-bit input crashes the process — vspipe
+      // dies with an access violation and prints nothing, so the failure
+      // arrives as ffmpeg reading an empty pipe, naming no filter. `opt=0` is
+      // the plugin's own auto-detect and is what selects AVX-512, so the worker
+      // always pins a level it has confirmed the CPU can run (2 = SSE2 or
+      // 3 = AVX2, which are bit-identical to each other).
+      expect(actual['opt'], anyOf('2', '3'),
+          reason: 'CTMF must be pinned to SSE2 or AVX2');
+      expect(script, isNot(contains('opt=0')),
+          reason: 'auto-detect is what picks the AVX-512 kernel that crashes');
+      expect(script, isNot(contains('opt=4')));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
