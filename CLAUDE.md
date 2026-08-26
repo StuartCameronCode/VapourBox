@@ -868,6 +868,72 @@ which any documentation would have shown:
 > is silently lost at 16-bit. Good news: bm3d is never reached, so it needs no
 > deps addition. Implementable, but effort 3 and blocked on the licence.
 
+### A plugin's own CPU auto-detect is not trustworthy (CTMF, 2026-08-25)
+
+`ctmf.CTMF`'s AVX-512 kernel for **8-bit** input
+(`ctmfHelper_avx512<uint8_t, 16>`) crashes the process. Not an exception — a
+**0xC0000005 access violation**, so vspipe dies having printed nothing at all.
+
+That makes the symptom actively misleading. The encode surfaces as the *encoder*
+ffmpeg failing to read the empty Y4M pipe:
+
+```
+[in#0] Header too large.
+[in#0] Error opening input: Invalid argument
+ffmpeg exited with exit code -22
+```
+
+and the preview as a bare `Preview generation failed (exit code 1)` whose log
+ends after the routine API3 plugin warnings. **Nothing anywhere names CTMF**, and
+"Header too large" reads like a muxer or template bug.
+
+Scope, measured against the bundle rather than assumed:
+
+| | 8-bit | ≥10-bit |
+|---|---|---|
+| `radius=2` | OK | OK |
+| every other radius | **crash** | OK |
+
+Radius 2 escapes because it has its own `filterRadius2_*` kernel; ≥10-bit
+escapes because it uses the `uint16_t` helpers. `opt=1` (C), `2` (SSE2) and `3`
+(AVX2) are **bit-identical to each other** and none of them crash.
+
+> **The plugin does not check that the CPU can run the level you ask for.**
+> `opt=3` on a pre-AVX2 machine installs the AVX2 kernels and crashes exactly as
+> `opt=4` does on an AVX-512 one — there is no guard in `ctmfCreate`, only a
+> `0..4` range check. So the fix cannot be a constant. `script_generator::ctmf_opt`
+> queries the CPU (`is_x86_feature_detected!`) and emits **3 where AVX2 exists,
+> else 2** — SSE2 being part of the x86-64 baseline. Never emit `0`: that is the
+> plugin's own auto-detect, and auto-detect is precisely what picks the broken
+> kernel. Non-x86 builds compile the dispatch out and ignore the value.
+>
+> This lives in the worker rather than in the script because it is a property of
+> the **machine**, not of the clip — unlike the depth scalings, no preceding pass
+> can change the answer. CTMF r5 (2020) is the newest upstream release, so there
+> is no fixed build to take instead.
+
+> **CI turned red with no diff, and the runner hardware was the variable.**
+> The nightly Windows job started failing 2026-08-24 against a tree unchanged
+> since 08-20. x264's capability line in the same logs is the tell: `... AVX2` on
+> the three passing nights, `... AVX2 AVX512` on the failing ones. When a job
+> fails with no commit to blame, grep the log for that line before bisecting.
+> (These machines also align VapourSynth frames to 64 bytes rather than 32 — a
+> 720-wide 8-bit plane gets stride 768.)
+
+> **Only CTMF is affected.** `cas`, `grain.Add`, `tcanny`, `dfttest`,
+> `warp.AWarpSharp2` and `eedi3m` expose the same `opt` parameter and the same
+> `instrset_detect()` dispatch; all six were swept at `opt=0` against `opt=3` on
+> an AVX-512 CPU, at 8-bit and 16-bit, and are clean. Do not pin them
+> pre-emptively — an unnecessary pin costs throughput and hides a real
+> regression later.
+
+`test_152`/`test_153` (Rust) assert both generated scripts carry the pin and that
+the value is one the CPU actually has; the Dart twin is in
+`integration_filter_parameters_test.dart`. Both matter: the Rust test would pass
+against a value no CPU here can run, and the heavy end-to-end
+`integration_new_passes_test` CTMF case is the only level that proves vspipe
+survives.
+
 ### Third filter batch (2026-08-15): the first deps change
 
 **fluxsmooth** is the first plugin this work has *added* to the bundle rather
@@ -2585,6 +2651,17 @@ version skew between platforms would change chroma per-OS.
    it. The app-side counterpart is in `worker_manager.dart`: exactly one
    completion event per job, so a worker that exits without reporting a result
    surfaces as a failure instead of leaving the UI on "processing" forever.
+11. **"Header too large" / vspipe exits with no message**: not a template or
+   muxer bug — that is a **native crash inside a plugin**. vspipe dies before
+   writing the Y4M header, so the encoder ffmpeg reports `Header too large` /
+   `Error opening input` and a preview reports a bare `exit code 1` with the log
+   ending after the routine API3 warnings. A Python-level fault would print a
+   traceback instead, so *absence* of an error is the diagnostic. Bisect by
+   generating the script (`--config`, keep the `.vpy`) and running it under
+   vspipe with passes commented out; on Windows confirm with `$LASTEXITCODE`
+   (`0xC0000005` = access violation, `0xC000001D` = illegal instruction, which
+   means the binary needs a CPU feature this machine lacks). See "A plugin's own
+   CPU auto-detect is not trustworthy" for the CTMF case.
 
 ## Platform-Specific Notes
 
