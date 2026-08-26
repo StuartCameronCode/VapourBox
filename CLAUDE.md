@@ -2222,6 +2222,46 @@ exception); both are in `licenses/NOTICES.txt`. It adds ~61 MB uncompressed per
 platform, but only about **21 MB to each deps zip** — the earlier "the zips
 roughly double" estimate was wrong, because it compared uncompressed size against
 compressed zips.
+
+### Every run states which hardware it tested
+
+`WorkerHarness`'s banner carries a `cpu=` line, from the worker's own
+`--probe-cpu` (`{"arch":..., "features":[...]}`) rather than derived Dart-side,
+so it reports what the actual pipeline process sees — including under emulation,
+where an x86_64 worker on Apple Silicon reports what Rosetta exposes rather than
+what the binary was compiled for.
+
+```
+WorkerHarness: platform=windows-x64
+  ...
+  cpu=x86_64 [sse2 sse4.1 avx avx2 fma avx512f]
+```
+
+> **A green run on unknown hardware is not evidence.** GitHub's hosted Windows
+> fleet is **mixed** for AVX-512 — not migrated — so which kernels a job
+> exercises is a draw. That is how the CTMF crash (see "A plugin's own CPU
+> auto-detect is not trustworthy") reached `main` and then looked spontaneous:
+> the nightly passed for three nights on non-AVX-512 runners, went red the night
+> it drew one that had it, and two deliberate re-rolls afterwards both landed
+> back on non-AVX-512 machines and passed **vacuously**. Before reading a green
+> Windows run as proof about anything CPU-dispatched, check this line.
+
+Two consequences worth keeping in mind:
+
+- **The durable guard for a dispatch bug is a script-generation assertion**, not
+  the heavy end-to-end test. `test_152` runs on every platform whatever hardware
+  it draws; the end-to-end CTMF case can only confirm opportunistically.
+- **Local hardware can beat CI here.** The AVX-512 crash reproduces
+  deterministically on a dev machine that has AVX-512, which is a more
+  controlled experiment than re-rolling runners.
+
+`describeCpu()` never throws — a diagnostic that fails the run would be worse
+than one that says "unknown" — so a broken probe would degrade silently exactly
+when it matters. `app/test/worker_cpu_probe_test.dart` (push gate) and
+`cpu_features_are_reported_and_plausible` (Rust) pin it from both sides: the
+feature list must be non-empty, must contain `sse2` on x86-64 (it is in the
+baseline, so its absence means a broken probe rather than a modest CPU), and
+must not claim AVX-512 without AVX2.
 ### Linux builds on ubuntu-24.04, and that sets the glibc floor
 
 The Linux **deps** builds and the runners that test against them

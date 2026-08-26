@@ -77,6 +77,17 @@ struct Args {
     /// when OpenCL-only options (knlmeanscl denoiser, QTGMC OpenCL) won't work.
     #[arg(long)]
     probe_opencl: bool,
+
+    /// Probe mode: report this machine's CPU architecture and the instruction
+    /// set extensions relevant to plugin dispatch, as JSON, and exit.
+    ///
+    /// Exists because a green test run is otherwise silent about the hardware
+    /// it ran on, and several bundled plugins pick a code path from exactly
+    /// these bits. GitHub's hosted Windows fleet is mixed for AVX-512, so a
+    /// passing Windows job may or may not have exercised the AVX-512 kernels —
+    /// which is how the CTMF crash reached main and then looked spontaneous.
+    #[arg(long)]
+    probe_cpu: bool,
 }
 
 fn main() -> ExitCode {
@@ -118,6 +129,10 @@ fn main() -> ExitCode {
     }
 
     // OpenCL probe mode: emit availability as JSON and exit (no progress stream).
+    if args.probe_cpu {
+        return run_probe_cpu();
+    }
+
     if args.probe_opencl {
         return run_probe_opencl();
     }
@@ -185,6 +200,71 @@ fn run_probe_opencl() -> ExitCode {
         .unwrap_or((false, false));
     println!("{}", serde_json::json!({ "opencl": opencl, "knlm": knlm }));
     ExitCode::SUCCESS
+}
+
+
+/// Report the CPU architecture and the dispatch-relevant instruction set
+/// extensions as JSON.
+///
+/// This is diagnostic, not a decision: nothing in the pipeline reads it. It
+/// exists so a test run can *state* which hardware it tested, because several
+/// bundled plugins select a code path from these bits and a green run is
+/// otherwise silent about which path it took.
+///
+/// The motivating case: `ctmf.CTMF`'s AVX-512 kernel for 8-bit input crashes
+/// the process, and GitHub's hosted Windows runners are a mixed fleet — so the
+/// nightly passed for days on non-AVX-512 machines, went red the night it drew
+/// an AVX-512 one, and looked like a spontaneous failure against an unchanged
+/// tree. Printing this next to the result turns "it passed" into "it passed on
+/// this hardware".
+fn run_probe_cpu() -> ExitCode {
+    let features = detected_cpu_features();
+    println!(
+        "{}",
+        serde_json::json!({
+            "arch": std::env::consts::ARCH,
+            "features": features,
+        })
+    );
+    ExitCode::SUCCESS
+}
+
+/// The instruction set extensions that bundled plugins actually dispatch on.
+///
+/// Deliberately a short list rather than everything detectable: these are the
+/// ones that change which kernel a plugin runs here. Detection is a runtime
+/// CPUID query, so it reports what the process can really execute — including
+/// under emulation, where an x86_64 worker on Apple Silicon correctly reports
+/// whatever Rosetta exposes rather than what the binary was compiled for.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn detected_cpu_features() -> Vec<&'static str> {
+    let mut features = Vec::new();
+    for (name, present) in [
+        ("sse2", std::is_x86_feature_detected!("sse2")),
+        ("sse4.1", std::is_x86_feature_detected!("sse4.1")),
+        ("avx", std::is_x86_feature_detected!("avx")),
+        ("avx2", std::is_x86_feature_detected!("avx2")),
+        ("fma", std::is_x86_feature_detected!("fma")),
+        ("avx512f", std::is_x86_feature_detected!("avx512f")),
+    ] {
+        if present {
+            features.push(name);
+        }
+    }
+    features
+}
+
+#[cfg(target_arch = "aarch64")]
+fn detected_cpu_features() -> Vec<&'static str> {
+    // NEON is architectural on aarch64, so it is reported unconditionally
+    // rather than probed. It is worth naming: it is why the ARM bundles prefer
+    // dubhater's nnedi3 over znedi3, whose SIMD kernels are x86-only.
+    vec!["neon"]
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+fn detected_cpu_features() -> Vec<&'static str> {
+    Vec::new()
 }
 
 /// Run DVD info mode: enumerate titles and output JSON to stdout.
@@ -626,6 +706,40 @@ fn run_subtitle_generation(
                 reporter.send_log(models::LogLevel::Warning, &msg);
                 Ok(())
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cpu_features_are_reported_and_plausible() {
+        let features = detected_cpu_features();
+
+        // Nothing here is a decision, so the assertion is only that the probe
+        // reports *something* real — a probe that silently returns nothing
+        // would leave every CI run claiming it tested unknown hardware, which
+        // is the whole failure this exists to prevent.
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        assert!(
+            features.contains(&"sse2"),
+            "SSE2 is part of the x86-64 baseline, so its absence means the \
+             probe is broken rather than the CPU being modest: {features:?}"
+        );
+
+        #[cfg(target_arch = "aarch64")]
+        assert!(features.contains(&"neon"), "{features:?}");
+
+        // AVX-512 implies AVX2 implies AVX: a set that breaks that ordering
+        // means the flags have been mis-wired to the wrong detections.
+        let has = |f: &str| features.contains(&f);
+        if has("avx512f") {
+            assert!(has("avx2"), "avx512f without avx2: {features:?}");
+        }
+        if has("avx2") {
+            assert!(has("avx"), "avx2 without avx: {features:?}");
         }
     }
 }
