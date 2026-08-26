@@ -677,7 +677,7 @@ clip = haf.STPresso(
 # impulse noise, at a cost that barely moves with radius (measured: radius 1 to
 # 127 is about 20% apart).
 #
-# Two guards, both measured against the bundle rather than assumed:
+# Three guards, all measured against the bundle rather than assumed:
 #
 #  - 9-BIT IS REJECTED outright ("only constant format 8, 10, 12, 14, 16 bit
 #    integer ... supported"), and 9-bit is reachable here: pixel_format.rs rounds
@@ -686,6 +686,19 @@ clip = haf.STPresso(
 #  - memsize is pinned to 16 MiB. At the plugin's 1 MiB default, 16-bit radius 3
 #    runs at 0.79 fps against 42 fps with this value — a 40x cliff — for
 #    BIT-IDENTICAL output.
+#  - opt IS PINNED AWAY FROM AVX-512. r5's AVX-512 kernel for 8-bit input
+#    (ctmfHelper_avx512<uint8_t, 16>) crashes the process — vspipe dies with an
+#    access violation and prints NOTHING, so a job surfaces as ffmpeg reading an
+#    empty pipe ("Header too large") and a preview as a bare "exit code 1", with
+#    nothing anywhere naming CTMF. It bites every radius except 2 (radius 2 has
+#    its own filterRadius2_* kernel) and only at 8 bits (10/12/14/16-bit use the
+#    uint16_t helpers, which are fine). Measured 2026-08-25; CTMF r5 is the
+#    newest upstream release, so there is no fixed build to take instead.
+#    NEVER leave this at 0 — the plugin's own auto-detect is what picks AVX-512.
+#    Never hardcode 3 either: the plugin does not check that the CPU supports
+#    the level it is handed, so opt=3 on a pre-AVX2 machine crashes the same
+#    way. `script_generator::ctmf_opt` queries the CPU and sends 3 or 2, which
+#    are bit-identical to each other and to the C path.
 _ctmf_src_format = clip.format
 if clip.format.bits_per_sample == 9:
     clip = core.resize.Point(clip, format=clip.format.replace(
@@ -695,6 +708,7 @@ clip = core.ctmf.CTMF(
     radius={{NR_CTMF_RADIUS}},
     planes={{NR_CTMF_PLANES}},
     memsize=16777216,
+    opt={{NR_CTMF_OPT}},
 )
 if _ctmf_src_format.bits_per_sample == 9:
     clip = core.resize.Point(clip, format=_ctmf_src_format.id)

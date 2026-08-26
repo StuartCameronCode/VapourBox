@@ -5580,3 +5580,71 @@ fn test_151_levels_honour_their_switch_and_yield_to_automatic_levels() {
         "the manual input point must not be applied on top of the measured one"
     );
 }
+
+#[test]
+fn test_152_ctmf_never_asks_for_the_avx512_kernel() {
+    // CTMF r5's AVX-512 kernel for 8-bit input crashes the process: vspipe dies
+    // with an access violation and prints NOTHING, so the job surfaces as
+    // ffmpeg reading an empty pipe ("Header too large") and the preview as a
+    // bare "exit code 1" — with nothing anywhere naming the filter. It bites
+    // every radius except 2 and only at 8 bits.
+    //
+    // Reproduced on an AVX-512 CPU 2026-08-25, and in CI the moment GitHub's
+    // Windows runners gained AVX-512 (the same nightly passed the three nights
+    // before on runners without it, against an unchanged tree). CTMF r5 is the
+    // newest upstream release, so there is nothing to upgrade to.
+    //
+    // So `opt` must always be emitted, and must never be 0 (the plugin's own
+    // auto-detect, which is what picks AVX-512) or 4.
+    create_output_dir();
+    let mut job = create_base_job("test_152_ctmf_opt");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::Ctmf,
+            ctmf_radius: 3,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    // Both scripts, because a preview that crashes is the half the reporter
+    // sees first.
+    let (encode, preview) = generate_both_scripts(&job);
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(
+            script.contains("core.ctmf.CTMF("),
+            "{name} script should call CTMF"
+        );
+        assert!(
+            script.contains(&format!("opt={}", vapourbox_worker::script_generator::ctmf_opt())),
+            "{name} script must pin CTMF's dispatch level"
+        );
+        assert!(
+            !script.contains("opt=0") && !script.contains("opt=4"),
+            "{name} script must never hand CTMF auto-detect or AVX-512"
+        );
+    }
+}
+
+#[test]
+fn test_153_ctmf_opt_is_a_level_the_cpu_can_actually_run() {
+    // The plugin does NOT verify that the CPU supports the level it is handed —
+    // opt=3 on a pre-AVX2 machine installs the AVX2 kernels and crashes exactly
+    // as opt=4 does on this one. So this has to stay a real capability query,
+    // not a constant: 3 only where AVX2 was detected, otherwise 2 (SSE2, which
+    // every x86-64 CPU has by definition). Both are bit-identical to the C path.
+    let opt = vapourbox_worker::script_generator::ctmf_opt();
+    assert!(
+        opt == 2 || opt == 3,
+        "opt must be SSE2 or AVX2, got {opt}"
+    );
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        let expected = if std::is_x86_feature_detected!("avx2") { 3 } else { 2 };
+        assert_eq!(opt, expected, "opt must follow what the CPU actually has");
+    }
+}
