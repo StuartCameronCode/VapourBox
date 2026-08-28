@@ -1439,25 +1439,65 @@ build_plugin "retinex" \
     "libretinex.dylib" \
     "meson setup build --buildtype=release && ninja -C build"
 
-# zsmooth (core.zsmooth.CCD - chroma denoiser; also Cnr4 and a set of
-# RemoveGrain/TemporalMedian-family filters).
+# zsmooth — one build per CPU baseline
+#
+# core.zsmooth.CCD (also Cnr4 and a set of RemoveGrain/TemporalMedian-family
+# filters). Upstream publishes only `haswell` (an AVX2 baseline) and `znver4`
+# x86 builds, compiled throughout with NO runtime dispatch, so on a pre-2013
+# CPU they die with an illegal instruction the instant a filter runs — issue
+# #82, silently, because vspipe prints nothing on a native crash.
+#
+# x86_64 therefore ships TWO builds outside the autoload directory and the
+# worker loads exactly one by path (DependencyLocator::zsmooth_plugin); they
+# cannot share a directory, because each registers the namespace `zsmooth` and
+# whichever autoloads second is rejected. arm64 has one NEON baseline and needs
+# no split.
+#
+# Note this arch was ALREADY affected in the other direction: the x64 build
+# below has always been compiled at Zig's default baseline (SSE2), which
+# measures 2.0x slower than haswell on CCD and 3.0x on Cnr4. Every Intel Mac
+# that can run macOS 12 is at least Nehalem and most are Haswell or newer, so
+# building both here makes the common case fast for the first time as well as
+# keeping the oldest ones working.
 #
 # Keep ZSMOOTH_VERSION in step across download-deps-{macos,linux}.sh and
 # download-deps-windows.ps1 — a version skew would make the same job produce
 # different chroma per OS.
 ZSMOOTH_VERSION="0.19.0"
+ZSMOOTH_DIR="$DEPS_DIR/vapoursynth/zsmooth"
+mkdir -p "$ZSMOOTH_DIR"
 
 if [ "$ARCH" = "arm64" ]; then
     # arm64 takes the author's build: it is minos 13, comfortably under this
-    # arch's 15.0 target.
-    download_prebuilt_plugin "zsmooth" "libzsmooth.dylib" \
-        "https://github.com/adworacz/zsmooth/releases/download/${ZSMOOTH_VERSION}/zsmooth-aarch64-macos.zip"
+    # arch's 15.0 target. One build, no variants.
+    if [ "$FORCE" = true ] || [ ! -f "$ZSMOOTH_DIR/libzsmooth.dylib" ]; then
+        tmp="$BUILD_DIR/prebuilt-zsmooth"
+        rm -rf "$tmp"; mkdir -p "$tmp"
+        zs_url="https://github.com/adworacz/zsmooth/releases/download/${ZSMOOTH_VERSION}/zsmooth-aarch64-macos.zip"
+        if curl -sL "$zs_url" -o "$tmp/plugin.zip" && unzip -q -o "$tmp/plugin.zip" -d "$tmp"; then
+            found=$(find "$tmp" -name "*.dylib" -type f 2>/dev/null | head -1)
+            if [ -n "$found" ]; then
+                cp "$found" "$ZSMOOTH_DIR/libzsmooth.dylib"
+                install_name_tool -id "@loader_path/libzsmooth.dylib" "$ZSMOOTH_DIR/libzsmooth.dylib" 2>/dev/null || true
+                codesign -s - -f "$ZSMOOTH_DIR/libzsmooth.dylib" 2>/dev/null || true
+                echo "  Downloaded pre-built zsmooth"
+            else
+                echo "  Warning: no dylib in the zsmooth archive"
+                FAILED_PLUGINS+=("zsmooth")
+            fi
+        else
+            echo "  Warning: failed to fetch pre-built zsmooth"
+            FAILED_PLUGINS+=("zsmooth")
+        fi
+        rm -rf "$tmp"
+    else
+        echo "  zsmooth already exists, skipping"
+    fi
 else
-    # x64 builds from source (issue #39). The author's x86_64 build is minos
-    # 13.0, and this bundle targets 12.0, so the pre-built binary is rejected by
-    # the minos guard at the end of this script — it would fail to load on
-    # Monterey with a dyld error, which is the exact failure #39 was opened for.
-    # Same reason zimg/fftw/boost are built from source in the x64 branch above.
+    # x64 builds from source, for two reasons: the author's x86_64 build is
+    # minos 13.0 and this bundle targets 12.0, so the minos guard at the end of
+    # this script rejects it (issue #39 — it would fail to load on Monterey);
+    # and upstream ships no build that runs without AVX2 at all.
     #
     # zsmooth is written in Zig, so this needs a Zig toolchain. It is fetched
     # here rather than installed globally: it is used for this one plugin, and
@@ -1466,48 +1506,61 @@ else
     # 0.19.0. `zig build` also fetches zsmooth's own Zig dependencies
     # (vapoursynth headers, fftw), so this step needs network access.
     ZIG_VERSION="0.15.2"
-    echo ""
-    echo "=== Building zsmooth from source (x64, targeting macOS $MACOS_MIN_VERSION) ==="
-    if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libzsmooth.dylib" ]; then
+    # Zig needs a full x.y version here: "x86_64-macos.12" is rejected as an
+    # invalid OS version, "x86_64-macos.12.0" is accepted. Tolerate a bare
+    # major from a $MACOS_MIN_VERSION override.
+    case "$MACOS_MIN_VERSION" in
+        *.*) ZIG_MACOS_MIN="$MACOS_MIN_VERSION" ;;
+        *)   ZIG_MACOS_MIN="${MACOS_MIN_VERSION}.0" ;;
+    esac
+
+    ZIG_BIN=""
+    # x86_64_v2 is SSE4.2/POPCNT — every Intel Mac that can run macOS 12.
+    # haswell is the fast path for 2013-and-later machines. Order matters only
+    # for the log; the worker picks by CPUID at job time.
+    for zs_target in haswell x86_64_v2; do
+        out="$ZSMOOTH_DIR/libzsmooth-${zs_target}.dylib"
+        if [ "$FORCE" = false ] && [ -f "$out" ]; then
+            echo "  zsmooth ($zs_target) already exists, skipping"
+            continue
+        fi
+        echo ""
+        echo "=== Building zsmooth $zs_target (x64, targeting macOS $MACOS_MIN_VERSION) ==="
         # Subshell so a failure here can't abort the whole script under `set -e`;
         # the file check below decides whether it worked.
         (
             set -e
             cd "$BUILD_DIR"
-            rm -rf zig-toolchain zsmooth
-            curl -fsSL -o zig.tar.xz \
-                "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-macos-${ZIG_VERSION}.tar.xz"
-            mkdir -p zig-toolchain
-            tar -xf zig.tar.xz -C zig-toolchain --strip-components=1
+            if [ -z "$ZIG_BIN" ]; then
+                rm -rf zig-toolchain zig.tar.xz
+                curl -fsSL -o zig.tar.xz \
+                    "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-macos-${ZIG_VERSION}.tar.xz"
+                mkdir -p zig-toolchain
+                tar -xf zig.tar.xz -C zig-toolchain --strip-components=1
+            fi
+            rm -rf zsmooth
             git clone --depth 1 --branch "$ZSMOOTH_VERSION" \
                 https://github.com/adworacz/zsmooth.git zsmooth
             cd zsmooth
-            # Zig needs a full x.y version here: "x86_64-macos.12" is rejected
-            # as an invalid OS version, "x86_64-macos.12.0" is accepted. Tolerate
-            # a bare major from a $MACOS_MIN_VERSION override.
-            case "$MACOS_MIN_VERSION" in
-                *.*) ZIG_MACOS_MIN="$MACOS_MIN_VERSION" ;;
-                *)   ZIG_MACOS_MIN="${MACOS_MIN_VERSION}.0" ;;
-            esac
             "$BUILD_DIR/zig-toolchain/zig" build \
                 -Doptimize=ReleaseFast \
-                -Dtarget="x86_64-macos.${ZIG_MACOS_MIN}"
-            cp zig-out/lib/libzsmooth.dylib "$PLUGINS_DIR/libzsmooth.dylib"
+                -Dtarget="x86_64-macos.${ZIG_MACOS_MIN}" \
+                -Dcpu="$zs_target"
+            cp zig-out/lib/libzsmooth.dylib "$out"
         ) || true
 
-        if [ -f "$PLUGINS_DIR/libzsmooth.dylib" ]; then
-            install_name_tool -id "@loader_path/libzsmooth.dylib" \
-                "$PLUGINS_DIR/libzsmooth.dylib" 2>/dev/null || true
-            codesign -s - -f "$PLUGINS_DIR/libzsmooth.dylib" 2>/dev/null || true
-            echo "  Built zsmooth -> libzsmooth.dylib"
+        if [ -f "$out" ]; then
+            ZIG_BIN="$BUILD_DIR/zig-toolchain/zig"
+            install_name_tool -id "@loader_path/$(basename "$out")" "$out" 2>/dev/null || true
+            codesign -s - -f "$out" 2>/dev/null || true
+            echo "  Built zsmooth -> $(basename "$out")"
         else
-            echo "  Warning: failed to build zsmooth"
-            FAILED_PLUGINS+=("zsmooth")
+            echo "  Warning: failed to build zsmooth ($zs_target)"
+            FAILED_PLUGINS+=("zsmooth-$zs_target")
         fi
-        rm -rf "$BUILD_DIR/zig-toolchain" "$BUILD_DIR/zsmooth" "$BUILD_DIR/zig.tar.xz"
-    else
-        echo "  zsmooth already exists, skipping"
-    fi
+        rm -rf "$BUILD_DIR/zsmooth"
+    done
+    rm -rf "$BUILD_DIR/zig-toolchain" "$BUILD_DIR/zig.tar.xz"
 fi
 
 # ============================================================================

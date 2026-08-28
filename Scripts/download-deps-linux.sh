@@ -984,24 +984,50 @@ build_plugin "tmedian" \
     "libtmedian.so" \
     "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
 
-# zsmooth (core.zsmooth.CCD - chroma denoiser; also Cnr4 and a set of
-# RemoveGrain/TemporalMedian-family filters).
+# zsmooth — one build per CPU baseline
 #
-# Taken pre-built rather than built from source: zsmooth is written in Zig, and
-# adding a Zig toolchain to every deps build for one plugin is not worth it. The
-# author publishes a binary for every platform/arch VapourBox targets.
+# core.zsmooth.CCD (also Cnr4 and a set of RemoveGrain/TemporalMedian-family
+# filters). Upstream publishes only `haswell` (an AVX2 baseline) and `znver4`
+# x86 builds, compiled throughout with NO runtime dispatch — so on a pre-2013
+# CPU the library loads fine and then dies with an illegal instruction the
+# instant a filter runs. That is issue #82 (reported on Windows, but this
+# bundle took the same haswell asset), and it is silent: vspipe prints nothing.
+#
+# So x86 ships both builds outside the autoload directory and the worker loads
+# exactly one by path (DependencyLocator::zsmooth_plugin). They cannot share a
+# directory: each registers the namespace `zsmooth`, so whichever autoloads
+# second is rejected. aarch64 has a single NEON baseline and needs no split.
+#
+# Measured at 720x576: `x86_64` is 2.0x slower than haswell on CCD and 3.0x on
+# Cnr4, `x86_64_v2` 1.4x on both — which is why the portable build is v2
+# (SSE4.2/POPCNT, everything from Nehalem 2009 on) and why the fast build is
+# still shipped rather than dropped for one portable binary.
 #
 # Keep ZSMOOTH_VERSION in step across download-deps-{macos,linux}.sh and
 # download-deps-windows.ps1 — a version skew would make the same job produce
 # different chroma per OS.
 ZSMOOTH_VERSION="0.19.0"
-case "$ARCH" in
-    aarch64|arm64) ZSMOOTH_ASSET="zsmooth-aarch64-linux-gnu.zip" ;;
-    *)             ZSMOOTH_ASSET="zsmooth-x86_64-linux-gnu.zip" ;;
-esac
+# Must satisfy zsmooth's build.zig.zon `minimum_zig_version` (0.15.2 for 0.19.0).
+ZIG_VERSION="0.15.2"
+ZSMOOTH_DIR="$DEPS_DIR/vapoursynth/zsmooth"
+mkdir -p "$ZSMOOTH_DIR"
+
 echo ""
-echo "=== Downloading zsmooth ==="
-if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libzsmooth.so" ]; then
+echo "=== Installing zsmooth ==="
+
+# The pre-built asset: haswell on x86, the only build on aarch64.
+case "$ARCH" in
+    aarch64|arm64)
+        ZSMOOTH_ASSET="zsmooth-aarch64-linux-gnu.zip"
+        ZSMOOTH_PREBUILT="$ZSMOOTH_DIR/libzsmooth.so"
+        ;;
+    *)
+        ZSMOOTH_ASSET="zsmooth-x86_64-linux-gnu.zip"
+        ZSMOOTH_PREBUILT="$ZSMOOTH_DIR/libzsmooth-haswell.so"
+        ;;
+esac
+
+if [ "$FORCE" = true ] || [ ! -f "$ZSMOOTH_PREBUILT" ]; then
     rm -rf "$BUILD_DIR/zsmooth"
     mkdir -p "$BUILD_DIR/zsmooth"
     if curl -sL -o "$BUILD_DIR/zsmooth/zsmooth.zip" \
@@ -1009,9 +1035,9 @@ if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libzsmooth.so" ]; then
         && unzip -q -o "$BUILD_DIR/zsmooth/zsmooth.zip" -d "$BUILD_DIR/zsmooth"; then
         so_path=$(find "$BUILD_DIR/zsmooth" -name "*.so" -type f 2>/dev/null | head -1)
         if [ -n "$so_path" ]; then
-            cp "$so_path" "$PLUGINS_DIR/libzsmooth.so"
-            patchelf --set-rpath '$ORIGIN:$ORIGIN/../../lib' "$PLUGINS_DIR/libzsmooth.so" 2>/dev/null || true
-            echo "  Downloaded pre-built zsmooth -> libzsmooth.so"
+            cp "$so_path" "$ZSMOOTH_PREBUILT"
+            patchelf --set-rpath '$ORIGIN:$ORIGIN/../../lib' "$ZSMOOTH_PREBUILT" 2>/dev/null || true
+            echo "  Downloaded pre-built zsmooth -> $(basename "$ZSMOOTH_PREBUILT")"
             BUILT_PLUGINS+=("zsmooth")
         else
             echo "  Failed: no .so in the zsmooth archive"
@@ -1023,8 +1049,50 @@ if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libzsmooth.so" ]; then
     fi
     rm -rf "$BUILD_DIR/zsmooth"
 else
-    echo "  zsmooth already exists, skipping"
+    echo "  $(basename "$ZSMOOTH_PREBUILT") already exists, skipping"
 fi
+
+# The portable x86 build has no upstream asset and must be compiled. Zig brings
+# its own libc and builds zsmooth's fftw dependency itself, so this adds no apt
+# package — only network access, since `zig build` fetches zsmooth's own Zig
+# dependencies.
+case "$ARCH" in
+    aarch64|arm64) : ;;
+    *)
+        ZSMOOTH_V2="$ZSMOOTH_DIR/libzsmooth-x86_64_v2.so"
+        if [ "$FORCE" = true ] || [ ! -f "$ZSMOOTH_V2" ]; then
+            echo "  Building zsmooth $ZSMOOTH_VERSION (x86_64_v2, runs without AVX2)..."
+            # Subshell so a failure cannot abort the script under `set -e`; the
+            # file check below decides whether it worked.
+            (
+                set -e
+                cd "$BUILD_DIR"
+                rm -rf zig-toolchain zsmooth-src zig.tar.xz
+                curl -fsSL -o zig.tar.xz \
+                    "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+                mkdir -p zig-toolchain
+                tar -xf zig.tar.xz -C zig-toolchain --strip-components=1
+                git clone --depth 1 --branch "$ZSMOOTH_VERSION" \
+                    https://github.com/adworacz/zsmooth.git zsmooth-src
+                cd zsmooth-src
+                "$BUILD_DIR/zig-toolchain/zig" build \
+                    -Doptimize=ReleaseFast -Dcpu=x86_64_v2
+                cp zig-out/lib/libzsmooth.so "$ZSMOOTH_V2"
+            ) || true
+
+            if [ -f "$ZSMOOTH_V2" ]; then
+                patchelf --set-rpath '$ORIGIN:$ORIGIN/../../lib' "$ZSMOOTH_V2" 2>/dev/null || true
+                echo "  Built zsmooth -> $(basename "$ZSMOOTH_V2")"
+            else
+                echo "  Warning: failed to build the portable zsmooth"
+                FAILED_PLUGINS+=("zsmooth-x86_64_v2")
+            fi
+            rm -rf "$BUILD_DIR/zig-toolchain" "$BUILD_DIR/zsmooth-src" "$BUILD_DIR/zig.tar.xz"
+        else
+            echo "  $(basename "$ZSMOOTH_V2") already exists, skipping"
+        fi
+        ;;
+esac
 
 # DeScratch (core.descratch.DeScratch - vertical scratch removal)
 # Built from source: the repo carries the VapourSynth + AviSynthPlus headers as

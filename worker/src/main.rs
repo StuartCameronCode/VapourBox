@@ -523,7 +523,8 @@ fn run_worker(
     let knlm_available = deps.as_ref().map(|d| d.knlm_available()).unwrap_or(true);
     let script_generator = ScriptGenerator::new()?
         .with_opencl_available(opencl_available)
-        .with_knlm_available(knlm_available);
+        .with_knlm_available(knlm_available)
+        .with_zsmooth_plugin(deps.as_ref().and_then(|d| d.zsmooth_plugin()));
     let script_path = script_generator
         .generate(&job)
         .with_context(|| "Failed to generate VapourSynth script")?;

@@ -152,7 +152,14 @@ Write-Host "[4b/5] Verifying required plugins..." -ForegroundColor Yellow
 $ManifestPath = Join-Path $ProjectRoot "Scripts\deps-expected-plugins.json"
 $ExpectedPlugins = (Get-Content $ManifestPath -Raw | ConvertFrom-Json)."windows-x64"
 $StagedPluginDir = Join-Path "$PackageDir\vapoursynth" "vs-plugins"
-$MissingPlugins = @($ExpectedPlugins | Where-Object { -not (Test-Path (Join-Path $StagedPluginDir $_)) })
+# An entry with a '/' is bundle-root-relative, not a plugin-directory filename.
+# zsmooth ships one build per CPU baseline outside the autoload directory (both
+# register the same namespace, so the worker loads exactly one by path), and a
+# guard that only ever looked in vs-plugins would stop covering it.
+$MissingPlugins = @($ExpectedPlugins | Where-Object {
+    $Target = if ($_ -match '/') { Join-Path $PackageDir ($_ -replace '/', '\') } else { Join-Path $StagedPluginDir $_ }
+    -not (Test-Path $Target)
+})
 if ($MissingPlugins.Count -gt 0) {
     Write-Host "ERROR: bundle is missing $($MissingPlugins.Count) required plugin(s):" -ForegroundColor Red
     $MissingPlugins | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }

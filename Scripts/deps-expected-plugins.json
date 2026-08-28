@@ -1,5 +1,5 @@
 {
-  "_comment": "Required VapourSynth plugin filenames per platform \u2014 the contract for a COMPLETE deps bundle. The package-deps-* scripts assert every file listed here exists in the staged bundle before zipping and FAIL the build if any are missing, so a silently-failed download (e.g. a dead upstream URL) becomes a red build instead of an incomplete bundle shipping. Plugin directory: windows-x64 = vapoursynth/vs-plugins, macos/linux = vapoursynth/plugins. Lists exclude data files (nnedi3 weights) and runtime libs (fftw); they cover the VapourSynth plugin binaries only. Update this when adding or removing a plugin.",
+  "_comment": "Required VapourSynth plugin filenames per platform — the contract for a COMPLETE deps bundle. The package-deps-* scripts assert every file listed here exists in the staged bundle before zipping and FAIL the build if any are missing, so a silently-failed download (e.g. a dead upstream URL) becomes a red build instead of an incomplete bundle shipping. Plugin directory: windows-x64 = vapoursynth/vs-plugins, macos/linux = vapoursynth/plugins. Lists exclude data files (nnedi3 weights) and runtime libs (fftw); they cover the VapourSynth plugin binaries only. Update this when adding or removing a plugin. An entry containing a '/' is a path relative to the BUNDLE ROOT rather than a filename in the plugin directory: zsmooth ships one build per CPU baseline in vapoursynth/zsmooth/, deliberately outside the autoload directory, because both builds register the same namespace and the worker loads exactly one by path (DependencyLocator::zsmooth_plugin).",
   "windows-x64": [
     "AddGrain.dll",
     "CAS.dll",
@@ -32,8 +32,9 @@
     "libtemporalmedian.dll",
     "libzstd.dll",
     "neo-f3kdb.dll",
-    "vsznedi3.dll",
-    "zsmooth.dll"
+    "vapoursynth/zsmooth/zsmooth-haswell.dll",
+    "vapoursynth/zsmooth/zsmooth-x86_64_v2.dll",
+    "vsznedi3.dll"
   ],
   "macos-arm64": [
     "libaddgrain.dylib",
@@ -69,7 +70,7 @@
     "libttempsmooth.dylib",
     "libvivtc.dylib",
     "libznedi3.dylib",
-    "libzsmooth.dylib"
+    "vapoursynth/zsmooth/libzsmooth.dylib"
   ],
   "macos-x64": [
     "libaddgrain.dylib",
@@ -102,7 +103,8 @@
     "libttempsmooth.dylib",
     "libvivtc.dylib",
     "libznedi3.dylib",
-    "libzsmooth.dylib"
+    "vapoursynth/zsmooth/libzsmooth-haswell.dylib",
+    "vapoursynth/zsmooth/libzsmooth-x86_64_v2.dylib"
   ],
   "linux-x64": [
     "libaddgrain.so",
@@ -136,7 +138,8 @@
     "libttempsmooth.so",
     "libvivtc.so",
     "libznedi3.so",
-    "libzsmooth.so"
+    "vapoursynth/zsmooth/libzsmooth-haswell.so",
+    "vapoursynth/zsmooth/libzsmooth-x86_64_v2.so"
   ],
   "linux-arm64": [
     "libaddgrain.so",
@@ -171,6 +174,6 @@
     "libttempsmooth.so",
     "libvivtc.so",
     "libznedi3.so",
-    "libzsmooth.so"
+    "vapoursynth/zsmooth/libzsmooth.so"
   ]
 }

@@ -15,6 +15,16 @@ core = vs.core
 # 1GB default, can be adjusted based on system memory
 core.max_cache_size = 1024
 
+{{#LOAD_ZSMOOTH}}
+# zsmooth is loaded here rather than autoloaded, because the bundle ships more
+# than one build of it and only one may register the namespace. Upstream
+# compiles it for an AVX2 baseline with no runtime dispatch, so that build dies
+# with an illegal instruction on a pre-2013 CPU (issue #82); the worker picks the
+# fastest build this machine can execute and substitutes its path. The block is
+# absent on a deps bundle old enough to autoload a single zsmooth.
+core.std.LoadPlugin(r"{{ZSMOOTH_PLUGIN}}")
+{{/LOAD_ZSMOOTH}}
+
 # Load input video from stdin pipe (FFmpeg decodes → raw frames → VapourSynth)
 # This eliminates FFMS2 indexing which blocks on large/NAS files.
 import os
