@@ -109,7 +109,11 @@ FFMPEG_MACOS_X64_VERSION="9.0.1"
 assert_ffmpeg_series() {
     local bin="$1"
     local reported
-    reported=$("$bin" -version 2>/dev/null | head -1 | sed -n 's/^ffmpeg version n\{0,1\}\([0-9]\{1,\}\.[0-9]\{1,\}\).*//p')
+    # No backslashes in this parser on purpose: a bracket expression [.]
+    # matches a literal dot without one. Written with sed backrefs first,
+    # the escapes were mangled into control characters in transit and the
+    # check silently reported an empty version.
+    reported=$("$bin" -version 2>/dev/null | head -1 | grep -oE "version n?[0-9]+[.][0-9]+" | grep -oE "[0-9]+[.][0-9]+" | head -1)
     if [ -z "$reported" ]; then
         echo "  ERROR: could not read a version from $bin" >&2
         exit 1
