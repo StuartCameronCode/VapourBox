@@ -149,7 +149,17 @@ Write-Host ""
 Write-Host "[2/7] Downloading FFmpeg..." -ForegroundColor Yellow
 
 $FFmpegZip = Join-Path $TempDir "ffmpeg.zip"
-$FFmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+# FFmpeg major.minor series. THIS MUST MATCH the same pin in
+# download-deps-{linux,macos}.sh — app/test/ffmpeg_version_pin_test.dart fails
+# the push gate if the three drift. A per-OS FFmpeg is a per-OS encoder: the
+# arguments in pipeline_executor.rs would then mean subtly different things
+# depending on where the job ran.
+#
+# This was `ffmpeg-master-latest-win64-gpl.zip` until 2026-08-31 — an UNPINNED
+# moving target, which is how Windows came to ship a post-9.0 master build
+# while Linux was still pinned at 7.1.
+$FFmpegSeries = "9.0"
+$FFmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n$FFmpegSeries-latest-win64-gpl-$FFmpegSeries.zip"
 
 if (-not (Test-Path "$FullTargetDir\ffmpeg\ffmpeg.exe")) {
     Download-File -Url $FFmpegUrl -OutFile $FFmpegZip
@@ -167,7 +177,20 @@ if (-not (Test-Path "$FullTargetDir\ffmpeg\ffmpeg.exe")) {
 
     Remove-Item $FFmpegZip -Force
     Remove-Item $FFmpegTempDir -Recurse -Force
-    Write-Host "  FFmpeg installed" -ForegroundColor Green
+
+    # Fail the build if what landed is not the series we pinned. Without this,
+    # an upstream URL change reintroduces cross-platform skew unnoticed.
+    $InstalledFFmpeg = Join-Path (Join-Path $FullTargetDir "ffmpeg") "ffmpeg.exe"
+    $FFmpegVersionLine = & $InstalledFFmpeg -version 2>$null | Select-Object -First 1
+    if ($FFmpegVersionLine -notmatch '^ffmpeg version n?(\d+\.\d+)') {
+        throw "Could not read a version from the installed ffmpeg.exe (got: $FFmpegVersionLine)"
+    }
+    if ($Matches[1] -ne $FFmpegSeries) {
+        throw ("FFmpeg is $($Matches[1]) but this bundle pins $FFmpegSeries. Upstream moved " +
+               "the URL to a different series. Update the series in ALL THREE " +
+               "download-deps-* scripts together, or platforms drift.")
+    }
+    Write-Host "  FFmpeg $($Matches[1]) installed (matches the pinned $FFmpegSeries series)" -ForegroundColor Green
 } else {
     Write-Host "  FFmpeg already installed" -ForegroundColor Gray
 }
@@ -372,18 +395,9 @@ $PluginsZip = @(
         Name = "knlmeanscl"
         Url = "https://github.com/Khanattila/KNLMeansCL/releases/download/v1.1.1/KNLMeansCL-v1.1.1.zip"
         Check = "KNLMeansCL.dll"
-    },
-    @{
-        # core.zsmooth.CCD - chroma denoiser (also Cnr4 and a set of
-        # RemoveGrain/TemporalMedian-family filters). Written in Zig, so it is
-        # taken pre-built on every platform rather than adding a Zig toolchain to
-        # the deps builds. Keep the version in step with ZSMOOTH_VERSION in
-        # download-deps-{macos,linux}.sh: a skew would make the same job produce
-        # different chroma per OS.
-        Name = "zsmooth"
-        Url = "https://github.com/adworacz/zsmooth/releases/download/0.19.0/zsmooth-x86_64-windows.zip"
-        Check = "zsmooth.dll"
     }
+    # zsmooth is NOT here: it ships as two CPU-specific builds outside the
+    # autoload directory. See section 4a below.
 )
 
 foreach ($Plugin in $Plugins7z) {
@@ -494,6 +508,124 @@ if ($BadArch.Count -gt 0) {
     throw "Non-x64 plugin DLL(s) detected - bundle would fail to load them: $($BadArch -join ', ')"
 }
 Write-Host "  All plugin DLLs are x64" -ForegroundColor Green
+
+# =============================================================================
+# 4a. zsmooth — one build per CPU baseline
+# =============================================================================
+# core.zsmooth.CCD (also Cnr4 and a set of RemoveGrain/TemporalMedian-family
+# filters). Upstream publishes only `haswell` (an AVX2 baseline) and `znver4`
+# builds, compiled throughout with NO runtime dispatch — so on a pre-2013 x86
+# CPU the DLL loads fine and then dies with an illegal instruction
+# (0xC000001D) the instant a filter runs. That is issue #82, reported on a
+# Celeron J4105 and a Core i7 870, and it is silent: vspipe prints nothing, so
+# the encode surfaces as ffmpeg reading an empty pipe.
+#
+# Both builds are therefore shipped and the worker loads exactly one by path
+# (DependencyLocator::zsmooth_plugin). They cannot both sit in vs-plugins —
+# each registers the namespace `zsmooth`, so whichever autoloads second is
+# rejected — hence the separate directory, which is deliberately not on the
+# plugin path.
+#
+# Why not just ship the portable build for everyone: measured on this plugin at
+# 720x576, `x86_64` is 2.0x slower than haswell on CCD and 3.0x on Cnr4
+# (`x86_64_v2` 1.4x and 1.4x). Paying that on every modern machine to serve the
+# rare old one is the wrong trade; picking at runtime costs ~4 MB of zip.
+#
+# Keep ZSMOOTH_VERSION in step with download-deps-{macos,linux}.sh: a skew
+# would make the same job produce different chroma per OS.
+Write-Host ""
+Write-Host "[4a/8] Installing zsmooth (per-CPU builds)..." -ForegroundColor Yellow
+
+$ZsmoothVersion = "0.19.0"
+# Must satisfy zsmooth's build.zig.zon `minimum_zig_version`; 0.15.2 for 0.19.0.
+$ZigVersion = "0.15.2"
+$ZsmoothDir = "$FullTargetDir\vapoursynth\zsmooth"
+if (-not (Test-Path $ZsmoothDir)) {
+    New-Item -ItemType Directory -Force -Path $ZsmoothDir | Out-Null
+}
+
+# The AVX2 build comes pre-built from upstream.
+$HaswellPath = "$ZsmoothDir\zsmooth-haswell.dll"
+if (-not (Test-Path $HaswellPath)) {
+    Write-Host "  Downloading zsmooth $ZsmoothVersion (haswell/AVX2)..." -ForegroundColor Gray
+    try {
+        $ZsZip = Join-Path $TempDir "zsmooth-haswell.zip"
+        $ZsExtract = Join-Path $TempDir "zsmooth-haswell-extract"
+        Download-File -Url "https://github.com/adworacz/zsmooth/releases/download/$ZsmoothVersion/zsmooth-x86_64-windows.zip" -OutFile $ZsZip
+        Expand-Archive -Path $ZsZip -DestinationPath $ZsExtract -Force
+        $Dll = Get-ChildItem -Path $ZsExtract -Recurse -Filter "zsmooth.dll" | Select-Object -First 1
+        if (-not $Dll) { throw "no zsmooth.dll in the upstream archive" }
+        Copy-Item $Dll.FullName $HaswellPath -Force
+        Remove-Item $ZsZip -Force -ErrorAction SilentlyContinue
+        Remove-Item $ZsExtract -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "    Installed: zsmooth-haswell.dll" -ForegroundColor Gray
+    } catch {
+        Write-Host "    Failed: $_" -ForegroundColor Red
+    }
+} else {
+    Write-Host "  zsmooth-haswell.dll already installed" -ForegroundColor Gray
+}
+
+# The portable build has no upstream asset and must be compiled. This is the
+# first from-source build in this script; Zig cross-compiles with its own libc
+# and builds zsmooth's fftw dependency itself, so it needs no MSVC — only git
+# and network access (zig build fetches zsmooth's own Zig dependencies).
+$V2Path = "$ZsmoothDir\zsmooth-x86_64_v2.dll"
+if (-not (Test-Path $V2Path)) {
+    Write-Host "  Building zsmooth $ZsmoothVersion (x86_64_v2, runs without AVX2)..." -ForegroundColor Gray
+    try {
+        $ZigDir = Join-Path $TempDir "zig-toolchain"
+        $ZigZip = Join-Path $TempDir "zig.zip"
+        $ZsSrc = Join-Path $TempDir "zsmooth-src"
+        Remove-Item $ZigDir, $ZsSrc -Recurse -Force -ErrorAction SilentlyContinue
+
+        Download-File -Url "https://ziglang.org/download/$ZigVersion/zig-x86_64-windows-$ZigVersion.zip" -OutFile $ZigZip
+        Expand-Archive -Path $ZigZip -DestinationPath $ZigDir -Force
+        $ZigExe = (Get-ChildItem -Path $ZigDir -Recurse -Filter "zig.exe" | Select-Object -First 1).FullName
+        if (-not $ZigExe) { throw "zig.exe not found in the toolchain archive" }
+
+        # No `2>&1` on a native command: this script runs with
+        # $ErrorActionPreference = "Stop", and in PowerShell 5.1 redirecting a
+        # native executable's stderr wraps every line in a NativeCommandError —
+        # so git's ordinary "Cloning into ..." progress becomes a terminating
+        # error and the build "fails" having worked. Let git write where it
+        # likes and judge it by its exit code.
+        & git -c advice.detachedHead=false clone --quiet --depth 1 --branch $ZsmoothVersion https://github.com/adworacz/zsmooth.git $ZsSrc
+        if ($LASTEXITCODE -ne 0) { throw "git clone of zsmooth failed (exit $LASTEXITCODE)" }
+
+        Push-Location $ZsSrc
+        try {
+            # -Dcpu=x86_64_v2 is SSE4.2/POPCNT: everything from Nehalem (2009)
+            # on, which covers both CPUs in issue #82. Plain `x86_64` would add
+            # pre-2009 chips at roughly half the CCD/Cnr4 throughput again.
+            & $ZigExe build -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu -Dcpu=x86_64_v2
+            if ($LASTEXITCODE -ne 0) { throw "zig build failed (exit $LASTEXITCODE)" }
+        } finally {
+            Pop-Location
+        }
+
+        $Built = Get-ChildItem -Path (Join-Path $ZsSrc "zig-out") -Recurse -Filter "zsmooth.dll" | Select-Object -First 1
+        if (-not $Built) { throw "zig build produced no zsmooth.dll" }
+        Copy-Item $Built.FullName $V2Path -Force
+        Remove-Item $ZigZip -Force -ErrorAction SilentlyContinue
+        Remove-Item $ZigDir, $ZsSrc -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "    Built: zsmooth-x86_64_v2.dll" -ForegroundColor Gray
+    } catch {
+        Write-Host "    Failed: $_" -ForegroundColor Red
+    }
+} else {
+    Write-Host "  zsmooth-x86_64_v2.dll already installed" -ForegroundColor Gray
+}
+
+# A missing build here is not a warning to scroll past: without the AVX2 one
+# every modern machine loses the pass, and without the portable one issue #82
+# comes straight back. deps-expected-plugins.json also covers both, so the
+# packaging step would fail — this just fails nearer the cause.
+$MissingZsmooth = @(@($HaswellPath, $V2Path) | Where-Object { -not (Test-Path $_) })
+if ($MissingZsmooth.Count -gt 0) {
+    throw "zsmooth build(s) missing: $(($MissingZsmooth | Split-Path -Leaf) -join ', ')"
+}
+Write-Host "  zsmooth: both CPU builds present" -ForegroundColor Green
 
 # =============================================================================
 # 4b. FFTW Library (required by DFTTest)

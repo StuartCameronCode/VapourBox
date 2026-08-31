@@ -90,6 +90,42 @@ BUILD_DIR="/tmp/vapourbox-build-$$"
 
 # Python version to embed
 PYTHON_VERSION="3.12.8"
+
+# FFmpeg major.minor series. THIS MUST MATCH the same pin in
+# download-deps-linux.sh and download-deps-windows.ps1 —
+# app/test/ffmpeg_version_pin_test.dart fails the push gate if they drift.
+# A per-OS FFmpeg is a per-OS encoder: the arguments in pipeline_executor.rs
+# would then mean subtly different things depending on where the job ran.
+FFMPEG_SERIES="9.0"
+# The exact evermeet build for x64. Full version rather than series because
+# evermeet publishes per-version URLs and keeps them reachable; must be within
+# $FFMPEG_SERIES, which assert_ffmpeg_series checks.
+FFMPEG_MACOS_X64_VERSION="9.0.1"
+
+# Fail the build if the FFmpeg we installed is not the series we pinned.
+# Without this, an upstream that moves `latest` onto a new series reintroduces
+# cross-platform skew with nothing to notice it — which is the whole reason
+# Linux sat two majors behind for months.
+assert_ffmpeg_series() {
+    local bin="$1"
+    local reported
+    # No backslashes in this parser on purpose: a bracket expression [.]
+    # matches a literal dot without one. Written with sed backrefs first,
+    # the escapes were mangled into control characters in transit and the
+    # check silently reported an empty version.
+    reported=$("$bin" -version 2>/dev/null | head -1 | grep -oE "version n?[0-9]+[.][0-9]+" | grep -oE "[0-9]+[.][0-9]+" | head -1)
+    if [ -z "$reported" ]; then
+        echo "  ERROR: could not read a version from $bin" >&2
+        exit 1
+    fi
+    if [ "$reported" != "$FFMPEG_SERIES" ]; then
+        echo "  ERROR: FFmpeg is $reported but this bundle pins $FFMPEG_SERIES." >&2
+        echo "  Upstream moved onto a different series. Update FFMPEG_SERIES in" >&2
+        echo "  ALL THREE download-deps-* scripts together, or platforms drift." >&2
+        exit 1
+    fi
+    echo "  FFmpeg $reported (matches the pinned $FFMPEG_SERIES series)"
+}
 PYTHON_MAJOR_MINOR="3.12"
 
 echo "=== VapourBox macOS Dependencies Builder ==="
@@ -567,14 +603,21 @@ if [ "$ARCH" = "x86_64" ]; then
     # evermeet.cx ships static x86_64 ffmpeg/ffprobe that link only system
     # frameworks (verified self-contained), so no dylib wrangling is needed.
     # This is the canonical pre-built source for Intel macOS ffmpeg.
-    echo "  Downloading static x86_64 FFmpeg from evermeet.cx..."
-    curl -sL "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip" -o "$BUILD_DIR/ffmpeg.zip"
-    curl -sL "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip" -o "$BUILD_DIR/ffprobe.zip"
+    #
+    # Pinned to an exact version rather than `getrelease`, which is whatever is
+    # newest and would silently drift onto a different series from the other
+    # platforms. evermeet keeps old versions reachable (verified: 7.1, 8.0 and
+    # 9.0.1 all still resolve), so a full-version pin is durable here — unlike
+    # BtbN, whose rolling tag garbage-collects old series.
+    echo "  Downloading static x86_64 FFmpeg $FFMPEG_MACOS_X64_VERSION from evermeet.cx..."
+    curl -fsSL "https://evermeet.cx/ffmpeg/ffmpeg-${FFMPEG_MACOS_X64_VERSION}.zip" -o "$BUILD_DIR/ffmpeg.zip"
+    curl -fsSL "https://evermeet.cx/ffmpeg/ffprobe-${FFMPEG_MACOS_X64_VERSION}.zip" -o "$BUILD_DIR/ffprobe.zip"
     unzip -q -o "$BUILD_DIR/ffmpeg.zip" -d "$DEPS_DIR/ffmpeg/"
     unzip -q -o "$BUILD_DIR/ffprobe.zip" -d "$DEPS_DIR/ffmpeg/"
     chmod +x "$DEPS_DIR/ffmpeg/ffmpeg" "$DEPS_DIR/ffmpeg/ffprobe"
     codesign -s - -f "$DEPS_DIR/ffmpeg/ffmpeg" 2>/dev/null || true
     codesign -s - -f "$DEPS_DIR/ffmpeg/ffprobe" 2>/dev/null || true
+    assert_ffmpeg_series "$DEPS_DIR/ffmpeg/ffmpeg"
     echo "  Installed evermeet.cx FFmpeg"
 else
     # arm64: Homebrew's ffmpeg is dynamically linked against ~17 Homebrew dylibs
@@ -584,13 +627,20 @@ else
     # frameworks, ~60 MB) - the same source the 1.3.0 deps shipped, and the
     # arm64 analogue of the evermeet.cx static build used for x64 above.
     echo "  Downloading static arm64 FFmpeg from martin-riedl.de..."
-    curl -sL "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip" -o "$BUILD_DIR/ffmpeg.zip"
-    curl -sL "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffprobe.zip" -o "$BUILD_DIR/ffprobe.zip"
+    #
+    # This host only publishes `latest` plus opaque build-id paths whose
+    # retention is unknown, so pinning a URL is not available. Take latest and
+    # let assert_ffmpeg_series below fail the build if it has moved off the
+    # pinned series — a red build naming the drift is better than silently
+    # shipping a different FFmpeg here than everywhere else.
+    curl -fsSL "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip" -o "$BUILD_DIR/ffmpeg.zip"
+    curl -fsSL "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffprobe.zip" -o "$BUILD_DIR/ffprobe.zip"
     unzip -q -o "$BUILD_DIR/ffmpeg.zip" -d "$DEPS_DIR/ffmpeg/"
     unzip -q -o "$BUILD_DIR/ffprobe.zip" -d "$DEPS_DIR/ffmpeg/"
     chmod +x "$DEPS_DIR/ffmpeg/ffmpeg" "$DEPS_DIR/ffmpeg/ffprobe"
     codesign -s - -f "$DEPS_DIR/ffmpeg/ffmpeg" 2>/dev/null || true
     codesign -s - -f "$DEPS_DIR/ffmpeg/ffprobe" 2>/dev/null || true
+    assert_ffmpeg_series "$DEPS_DIR/ffmpeg/ffmpeg"
     echo "  Installed static arm64 FFmpeg from martin-riedl.de"
 fi
 
@@ -1439,25 +1489,65 @@ build_plugin "retinex" \
     "libretinex.dylib" \
     "meson setup build --buildtype=release && ninja -C build"
 
-# zsmooth (core.zsmooth.CCD - chroma denoiser; also Cnr4 and a set of
-# RemoveGrain/TemporalMedian-family filters).
+# zsmooth — one build per CPU baseline
+#
+# core.zsmooth.CCD (also Cnr4 and a set of RemoveGrain/TemporalMedian-family
+# filters). Upstream publishes only `haswell` (an AVX2 baseline) and `znver4`
+# x86 builds, compiled throughout with NO runtime dispatch, so on a pre-2013
+# CPU they die with an illegal instruction the instant a filter runs — issue
+# #82, silently, because vspipe prints nothing on a native crash.
+#
+# x86_64 therefore ships TWO builds outside the autoload directory and the
+# worker loads exactly one by path (DependencyLocator::zsmooth_plugin); they
+# cannot share a directory, because each registers the namespace `zsmooth` and
+# whichever autoloads second is rejected. arm64 has one NEON baseline and needs
+# no split.
+#
+# Note this arch was ALREADY affected in the other direction: the x64 build
+# below has always been compiled at Zig's default baseline (SSE2), which
+# measures 2.0x slower than haswell on CCD and 3.0x on Cnr4. Every Intel Mac
+# that can run macOS 12 is at least Nehalem and most are Haswell or newer, so
+# building both here makes the common case fast for the first time as well as
+# keeping the oldest ones working.
 #
 # Keep ZSMOOTH_VERSION in step across download-deps-{macos,linux}.sh and
 # download-deps-windows.ps1 — a version skew would make the same job produce
 # different chroma per OS.
 ZSMOOTH_VERSION="0.19.0"
+ZSMOOTH_DIR="$DEPS_DIR/vapoursynth/zsmooth"
+mkdir -p "$ZSMOOTH_DIR"
 
 if [ "$ARCH" = "arm64" ]; then
     # arm64 takes the author's build: it is minos 13, comfortably under this
-    # arch's 15.0 target.
-    download_prebuilt_plugin "zsmooth" "libzsmooth.dylib" \
-        "https://github.com/adworacz/zsmooth/releases/download/${ZSMOOTH_VERSION}/zsmooth-aarch64-macos.zip"
+    # arch's 15.0 target. One build, no variants.
+    if [ "$FORCE" = true ] || [ ! -f "$ZSMOOTH_DIR/libzsmooth.dylib" ]; then
+        tmp="$BUILD_DIR/prebuilt-zsmooth"
+        rm -rf "$tmp"; mkdir -p "$tmp"
+        zs_url="https://github.com/adworacz/zsmooth/releases/download/${ZSMOOTH_VERSION}/zsmooth-aarch64-macos.zip"
+        if curl -sL "$zs_url" -o "$tmp/plugin.zip" && unzip -q -o "$tmp/plugin.zip" -d "$tmp"; then
+            found=$(find "$tmp" -name "*.dylib" -type f 2>/dev/null | head -1)
+            if [ -n "$found" ]; then
+                cp "$found" "$ZSMOOTH_DIR/libzsmooth.dylib"
+                install_name_tool -id "@loader_path/libzsmooth.dylib" "$ZSMOOTH_DIR/libzsmooth.dylib" 2>/dev/null || true
+                codesign -s - -f "$ZSMOOTH_DIR/libzsmooth.dylib" 2>/dev/null || true
+                echo "  Downloaded pre-built zsmooth"
+            else
+                echo "  Warning: no dylib in the zsmooth archive"
+                FAILED_PLUGINS+=("zsmooth")
+            fi
+        else
+            echo "  Warning: failed to fetch pre-built zsmooth"
+            FAILED_PLUGINS+=("zsmooth")
+        fi
+        rm -rf "$tmp"
+    else
+        echo "  zsmooth already exists, skipping"
+    fi
 else
-    # x64 builds from source (issue #39). The author's x86_64 build is minos
-    # 13.0, and this bundle targets 12.0, so the pre-built binary is rejected by
-    # the minos guard at the end of this script — it would fail to load on
-    # Monterey with a dyld error, which is the exact failure #39 was opened for.
-    # Same reason zimg/fftw/boost are built from source in the x64 branch above.
+    # x64 builds from source, for two reasons: the author's x86_64 build is
+    # minos 13.0 and this bundle targets 12.0, so the minos guard at the end of
+    # this script rejects it (issue #39 — it would fail to load on Monterey);
+    # and upstream ships no build that runs without AVX2 at all.
     #
     # zsmooth is written in Zig, so this needs a Zig toolchain. It is fetched
     # here rather than installed globally: it is used for this one plugin, and
@@ -1466,48 +1556,108 @@ else
     # 0.19.0. `zig build` also fetches zsmooth's own Zig dependencies
     # (vapoursynth headers, fftw), so this step needs network access.
     ZIG_VERSION="0.15.2"
-    echo ""
-    echo "=== Building zsmooth from source (x64, targeting macOS $MACOS_MIN_VERSION) ==="
-    if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libzsmooth.dylib" ]; then
+    # The fftw fork zsmooth depends on, pinned to the same ref its
+    # build.zig.zon names. Keep in step when ZSMOOTH_VERSION moves:
+    # a mismatch here would silently build a different fftw.
+    FFTW_FORK_TAG="v3.3.11-2"
+    # Zig needs a full x.y version here: "x86_64-macos.12" is rejected as an
+    # invalid OS version, "x86_64-macos.12.0" is accepted. Tolerate a bare
+    # major from a $MACOS_MIN_VERSION override.
+    case "$MACOS_MIN_VERSION" in
+        *.*) ZIG_MACOS_MIN="$MACOS_MIN_VERSION" ;;
+        *)   ZIG_MACOS_MIN="${MACOS_MIN_VERSION}.0" ;;
+    esac
+
+    ZIG_BIN=""
+    # x86_64_v2 is SSE4.2/POPCNT — every Intel Mac that can run macOS 12.
+    # haswell is the fast path for 2013-and-later machines. Order matters only
+    # for the log; the worker picks by CPUID at job time.
+    for zs_target in haswell x86_64_v2; do
+        out="$ZSMOOTH_DIR/libzsmooth-${zs_target}.dylib"
+        if [ "$FORCE" = false ] && [ -f "$out" ]; then
+            echo "  zsmooth ($zs_target) already exists, skipping"
+            continue
+        fi
+        echo ""
+        echo "=== Building zsmooth $zs_target (x64, targeting macOS $MACOS_MIN_VERSION) ==="
         # Subshell so a failure here can't abort the whole script under `set -e`;
         # the file check below decides whether it worked.
         (
             set -e
             cd "$BUILD_DIR"
-            rm -rf zig-toolchain zsmooth
-            curl -fsSL -o zig.tar.xz \
-                "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-macos-${ZIG_VERSION}.tar.xz"
-            mkdir -p zig-toolchain
-            tar -xf zig.tar.xz -C zig-toolchain --strip-components=1
+            if [ -z "$ZIG_BIN" ]; then
+                rm -rf zig-toolchain zig.tar.xz
+                curl -fsSL -o zig.tar.xz \
+                    "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-macos-${ZIG_VERSION}.tar.xz"
+                mkdir -p zig-toolchain
+                tar -xf zig.tar.xz -C zig-toolchain --strip-components=1
+            fi
+            rm -rf zsmooth fftw-patched
             git clone --depth 1 --branch "$ZSMOOTH_VERSION" \
                 https://github.com/adworacz/zsmooth.git zsmooth
+
+            # zsmooth's Zig fftw port declares HAVE_MEMALIGN on every non-Windows
+            # target, but macOS has no memalign() — it is declared in <malloc.h>,
+            # which the SAME file already knows macOS lacks (HAVE_MALLOC_H is
+            # gated on !is_mac). fftw's kalloc.c only reaches that branch when
+            # MIN_ALIGNMENT is 32, i.e. when AVX is enabled, so the bug is
+            # invisible at the SSE-level baselines and kills ONLY the haswell
+            # build, with a clang implicit-declaration error inside a dependency.
+            # HAVE_POSIX_MEMALIGN is already true, so clearing this falls through
+            # to posix_memalign, which macOS does have.
+            #
+            # Patched via a local path dependency rather than by editing Zig's
+            # global package cache: path deps take no hash, so this is
+            # deterministic and cannot be invalidated by a cache wipe.
+            git clone --depth 1 --branch "$FFTW_FORK_TAG" \
+                https://github.com/adworacz/fftw.git fftw-patched
+            if ! grep -q '.HAVE_MEMALIGN = if (!is_windows) true else null,' \
+                    fftw-patched/build.zig; then
+                echo "  ERROR: the fftw HAVE_MEMALIGN line is not what the patch expects." >&2
+                echo "  Upstream may have fixed it — re-check before removing this patch." >&2
+                exit 1
+            fi
+            # `is_mac` is already defined in that file.
+            sed -i.bak \
+                's/\.HAVE_MEMALIGN = if (!is_windows) true else null,/.HAVE_MEMALIGN = if (!is_windows and !is_mac) true else null,/' \
+                fftw-patched/build.zig
+            grep -q '.HAVE_MEMALIGN = if (!is_windows and !is_mac) true else null,' \
+                fftw-patched/build.zig || { echo "  ERROR: fftw memalign patch did not apply" >&2; exit 1; }
+
             cd zsmooth
-            # Zig needs a full x.y version here: "x86_64-macos.12" is rejected
-            # as an invalid OS version, "x86_64-macos.12.0" is accepted. Tolerate
-            # a bare major from a $MACOS_MIN_VERSION override.
-            case "$MACOS_MIN_VERSION" in
-                *.*) ZIG_MACOS_MIN="$MACOS_MIN_VERSION" ;;
-                *)   ZIG_MACOS_MIN="${MACOS_MIN_VERSION}.0" ;;
-            esac
+            # Repoint the fftw dependency at the patched clone. A path dependency
+            # carries no hash field, so the url+hash pair is replaced wholesale.
+            "$PYTHON_BIN" - <<'ZONEOF'
+import io, re
+p = "build.zig.zon"
+s = io.open(p, encoding="utf-8").read()
+pat = re.compile(r'\.fftw = \.\{[^}]*\}', re.S)
+if not pat.search(s):
+    raise SystemExit("ERROR: no .fftw dependency block in zsmooth build.zig.zon")
+s = pat.sub('.fftw = .{ .path = "../fftw-patched" }', s, count=1)
+io.open(p, "w", encoding="utf-8").write(s)
+print("  fftw repointed to the patched local clone")
+ZONEOF
+
             "$BUILD_DIR/zig-toolchain/zig" build \
                 -Doptimize=ReleaseFast \
-                -Dtarget="x86_64-macos.${ZIG_MACOS_MIN}"
-            cp zig-out/lib/libzsmooth.dylib "$PLUGINS_DIR/libzsmooth.dylib"
+                -Dtarget="x86_64-macos.${ZIG_MACOS_MIN}" \
+                -Dcpu="$zs_target"
+            cp zig-out/lib/libzsmooth.dylib "$out"
         ) || true
 
-        if [ -f "$PLUGINS_DIR/libzsmooth.dylib" ]; then
-            install_name_tool -id "@loader_path/libzsmooth.dylib" \
-                "$PLUGINS_DIR/libzsmooth.dylib" 2>/dev/null || true
-            codesign -s - -f "$PLUGINS_DIR/libzsmooth.dylib" 2>/dev/null || true
-            echo "  Built zsmooth -> libzsmooth.dylib"
+        if [ -f "$out" ]; then
+            ZIG_BIN="$BUILD_DIR/zig-toolchain/zig"
+            install_name_tool -id "@loader_path/$(basename "$out")" "$out" 2>/dev/null || true
+            codesign -s - -f "$out" 2>/dev/null || true
+            echo "  Built zsmooth -> $(basename "$out")"
         else
-            echo "  Warning: failed to build zsmooth"
-            FAILED_PLUGINS+=("zsmooth")
+            echo "  Warning: failed to build zsmooth ($zs_target)"
+            FAILED_PLUGINS+=("zsmooth-$zs_target")
         fi
-        rm -rf "$BUILD_DIR/zig-toolchain" "$BUILD_DIR/zsmooth" "$BUILD_DIR/zig.tar.xz"
-    else
-        echo "  zsmooth already exists, skipping"
-    fi
+        rm -rf "$BUILD_DIR/zsmooth" "$BUILD_DIR/fftw-patched"
+    done
+    rm -rf "$BUILD_DIR/zig-toolchain" "$BUILD_DIR/zig.tar.xz"
 fi
 
 # ============================================================================
