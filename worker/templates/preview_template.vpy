@@ -14,6 +14,13 @@ core = vs.core
 # Configure cache size for optimal performance with temporal filters
 core.max_cache_size = 1024
 
+{{#LOAD_ZSMOOTH}}
+# Same explicit zsmooth load as the encode template, from the same worker-side
+# choice — a preview that loaded a different build than the render would show a
+# different picture than it produced. See pipeline_template.vpy for why.
+core.std.LoadPlugin(r"{{ZSMOOTH_PLUGIN}}")
+{{/LOAD_ZSMOOTH}}
+
 # Load raw frames piped from FFmpeg via stdin
 sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
 from pipe_source import create_pipe_clip

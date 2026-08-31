@@ -69,6 +69,12 @@ pub struct ScriptGenerator {
     /// `knlm.KNLMeansCL: CL_INVALID_VALUE` / a missing-namespace error. Defaults
     /// to true; callers set it from `DependencyLocator::knlm_available()`.
     knlm_available: bool,
+    /// Absolute path to the zsmooth build this machine can execute, from
+    /// `DependencyLocator::zsmooth_plugin()`. `None` means the bundle predates
+    /// the per-CPU split and still autoloads a single zsmooth, so no
+    /// `LoadPlugin` is emitted — see that method for why that has to keep
+    /// working.
+    zsmooth_plugin: Option<PathBuf>,
 }
 
 /// Parameters for preview script generation.
@@ -95,7 +101,13 @@ impl ScriptGenerator {
     pub fn new() -> Result<Self> {
         let template = Self::load_template()?;
         let preview_template = Self::load_preview_template()?;
-        Ok(Self { template, preview_template, opencl_available: true, knlm_available: true })
+        Ok(Self {
+            template,
+            preview_template,
+            opencl_available: true,
+            knlm_available: true,
+            zsmooth_plugin: None,
+        })
     }
 
     /// Set whether OpenCL is available (probe result from `DependencyLocator`).
@@ -110,6 +122,18 @@ impl ScriptGenerator {
     /// downgraded to `"dfttest"` so QTGMC denoising doesn't crash.
     pub fn with_knlm_available(mut self, available: bool) -> Self {
         self.knlm_available = available;
+        self
+    }
+
+    /// Set the zsmooth build to load explicitly (from
+    /// `DependencyLocator::zsmooth_plugin()`).
+    ///
+    /// Both the encode and the preview path must be given the same value: they
+    /// are separate scripts, and a preview that loaded a different build than
+    /// the render would show a different picture than it produced — the same
+    /// class of split the field-order derivation exists to prevent.
+    pub fn with_zsmooth_plugin(mut self, plugin: Option<PathBuf>) -> Self {
+        self.zsmooth_plugin = plugin;
         self
     }
 
@@ -136,6 +160,7 @@ impl ScriptGenerator {
 
         // Start with preview template and substitute preview-specific params
         let mut script = self.preview_template.clone();
+        script = self.substitute_zsmooth(script);
 
         // Pipe source directory (same as main pipeline)
         let pipe_source_dir = Self::pipe_source_dir().unwrap_or_else(|_| env::temp_dir());
@@ -256,9 +281,30 @@ impl ScriptGenerator {
         }
     }
 
+    /// Emit (or elide) the explicit `LoadPlugin` for zsmooth.
+    ///
+    /// One function for both scripts on purpose: the encode and the preview must
+    /// load the same build, and doing this twice is how they would drift.
+    fn substitute_zsmooth(&self, script: String) -> String {
+        match self.zsmooth_plugin.as_ref() {
+            Some(path) => {
+                // The template uses r"..." so backslashes are literal, exactly
+                // as {{PIPE_SOURCE_DIR}} relies on.
+                let script = script.replace("{{ZSMOOTH_PLUGIN}}", &path.to_string_lossy());
+                script
+                    .replace("{{#LOAD_ZSMOOTH}}\n", "")
+                    .replace("{{/LOAD_ZSMOOTH}}\n", "")
+                    .replace("{{#LOAD_ZSMOOTH}}", "")
+                    .replace("{{/LOAD_ZSMOOTH}}", "")
+            }
+            None => remove_block("{{#LOAD_ZSMOOTH}}", "{{/LOAD_ZSMOOTH}}", script),
+        }
+    }
+
     /// Substitute parameters in a script string.
     fn substitute_parameters(&self, template: &str, job: &VideoJob, pipeline: &ProcessingPipeline, _input_path: &str) -> String {
         let mut script = template.to_string();
+        script = self.substitute_zsmooth(script);
 
         // Pipe source parameters — FFmpeg decodes, pipes raw frames to VapourSynth via stdin
         let pipe_source_dir = Self::pipe_source_dir().unwrap_or_else(|_| env::temp_dir());

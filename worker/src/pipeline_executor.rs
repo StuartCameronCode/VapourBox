@@ -52,9 +52,13 @@ fn progress_end_is_ours(current_frame: i32) -> bool {
     current_frame > 0
 }
 
-/// Format an exit status for error messages, including signal info on Unix.
+/// Format an exit status for error messages, including signal info on Unix and
+/// the NTSTATUS meaning of a Windows crash code.
 fn format_exit_status(status: &std::process::ExitStatus) -> String {
     if let Some(code) = status.code() {
+        if let Some(explanation) = windows_crash_explanation(code) {
+            return format!("exit code {} — {}", code, explanation);
+        }
         return format!("exit code {}", code);
     }
     #[cfg(unix)]
@@ -74,6 +78,34 @@ fn format_exit_status(status: &std::process::ExitStatus) -> String {
         }
     }
     "unknown status".to_string()
+}
+
+/// Plain-language meaning of a Windows NTSTATUS exit code, if it is one.
+///
+/// A native crash inside a plugin kills vspipe before it writes the Y4M header,
+/// so the *encoder* ffmpeg is what reports a failure ("Header too large") and
+/// the only trace of the real cause is this number. Reported as a bare
+/// `exit code -1073741795`, it names nothing at all: issue #82 took a round trip
+/// with the reporter to establish that it meant a plugin needing AVX2 on a CPU
+/// without it, and issue #83's CTMF crash reads almost identically.
+///
+/// Deliberately not `#[cfg(windows)]`: these are Windows codes, but a Unix
+/// process exit code is 0-255 so there is nothing to collide with, and decoding
+/// them everywhere keeps the mapping testable on every platform.
+fn windows_crash_explanation(code: i32) -> Option<&'static str> {
+    match code as u32 {
+        0xC000_0005 => Some(
+            "access violation inside vspipe or a plugin (a native crash, not a script error)",
+        ),
+        0xC000_001D => Some(
+            "illegal instruction: a plugin used a CPU feature this machine does not have. \
+             Run the worker with --probe-cpu to see what it has",
+        ),
+        0xC000_00FD => Some("stack overflow inside vspipe or a plugin"),
+        0xC000_0409 => Some("fail-fast: a plugin detected memory corruption and aborted"),
+        0xC000_0094 => Some("integer divide by zero inside vspipe or a plugin"),
+        _ => None,
+    }
 }
 
 /// True if the process was terminated by SIGPIPE (Unix only; always false
@@ -1148,7 +1180,8 @@ impl PipelineExecutor {
         // FPS as rational
         let script_generator = ScriptGenerator::new()?
             .with_opencl_available(self.deps.opencl_available())
-            .with_knlm_available(self.deps.knlm_available());
+            .with_knlm_available(self.deps.knlm_available())
+            .with_zsmooth_plugin(self.deps.zsmooth_plugin());
         let (fps_num, fps_den) = script_generator.frame_rate_to_rational(frame_rate);
 
         let preview_params = PreviewParams {
@@ -1350,6 +1383,39 @@ mod tests {
     use super::*;
     use crate::models::{AudioCodec, AudioQuality, ChromaSubsampling, EncodingSettings, QTGMCParameters, VideoCodec};
     use uuid::Uuid;
+
+    /// The two codes that have actually cost debugging time must be named in
+    /// the error, and an ordinary exit code must not be dressed up as a crash.
+    ///
+    /// `-1073741795` was all the reporter of issue #82 had to go on, and it took
+    /// a round trip to establish that it meant "a plugin needs AVX2 and this CPU
+    /// has none". `-1073741819` is the CTMF crash of issue #83. A tool exiting
+    /// 1 or 255 is not a fault code and must read as it always did.
+    #[test]
+    fn windows_crash_codes_are_named_in_the_error() {
+        let illegal = windows_crash_explanation(0xC000_001D_u32 as i32)
+            .expect("0xC000001D must be explained");
+        assert!(
+            illegal.contains("illegal instruction") && illegal.contains("CPU feature"),
+            "the AVX2 case must say what it means: {illegal}"
+        );
+        assert!(
+            illegal.contains("--probe-cpu"),
+            "and how to find out what this machine has: {illegal}"
+        );
+
+        let violation = windows_crash_explanation(0xC000_0005_u32 as i32)
+            .expect("0xC0000005 must be explained");
+        assert!(violation.contains("access violation"), "got: {violation}");
+
+        // Not fault codes: a real exit status from a tool that ran and failed.
+        for ordinary in [0, 1, 2, 130, 141, 255, -1] {
+            assert!(
+                windows_crash_explanation(ordinary).is_none(),
+                "{ordinary} is an exit code, not a crash"
+            );
+        }
+    }
 
     /// A leftover `progress=end` must not end a run that has produced no frames.
     ///

@@ -574,6 +574,83 @@ impl DependencyLocator {
         }
     }
 
+    /// Directory holding the zsmooth builds, which are deliberately NOT in the
+    /// autoload directory.
+    ///
+    /// Upstream publishes zsmooth only for `haswell` (an AVX2 baseline, no
+    /// runtime dispatch) and `znver4`, so the bundled binary hard-crashes with
+    /// an illegal instruction on any pre-2013 x86 CPU the moment a zsmooth
+    /// filter runs — issue #82, on a Celeron J4105 and a Core i7 870. A second
+    /// `x86_64_v2` build covers those machines, and it cannot simply sit beside
+    /// the first: both register the namespace `zsmooth`, so whichever autoloads
+    /// second is rejected. Exactly one is therefore loaded explicitly, by
+    /// [`Self::zsmooth_plugin`], from here.
+    pub fn zsmooth_dir(&self) -> PathBuf {
+        self.platform_dir().join("vapoursynth").join("zsmooth")
+    }
+
+    /// The zsmooth build this machine can actually execute, or `None` when the
+    /// bundle predates the split.
+    ///
+    /// `None` is not a failure: deps bundles up to 1.9.0 ship a single zsmooth
+    /// inside the autoload directory, and on those the generated script must
+    /// emit no `LoadPlugin` at all and let autoload do what it has always done.
+    /// That keeps a newer worker working against an older bundle, which matters
+    /// because the app can be upgraded before the deps download completes.
+    ///
+    /// The choice is made here, in the worker, rather than in the script for the
+    /// same reason as `script_generator::ctmf_opt`: it is a property of the
+    /// machine, and no preceding pass can change the answer.
+    pub fn zsmooth_plugin(&self) -> Option<PathBuf> {
+        let dir = self.zsmooth_dir();
+        for name in Self::zsmooth_candidates() {
+            let path = dir.join(name);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+        None
+    }
+
+    /// Candidate filenames in preference order: the fastest build this CPU can
+    /// run first, then the one that runs anywhere.
+    ///
+    /// Never fall back the other way. Choosing haswell where AVX2 is absent is
+    /// not a slow job, it is a dead one.
+    fn zsmooth_candidates() -> Vec<String> {
+        let ext = if cfg!(target_os = "windows") {
+            "dll"
+        } else if cfg!(target_os = "macos") {
+            "dylib"
+        } else {
+            "so"
+        };
+        let prefix = if cfg!(target_os = "windows") { "" } else { "lib" };
+
+        let mut variants: Vec<&str> = Vec::new();
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            if std::is_x86_feature_detected!("avx2") {
+                variants.push("haswell");
+            }
+            variants.push("x86_64_v2");
+        }
+        // A single build on non-x86: aarch64 has one NEON baseline and upstream
+        // publishes no variants for it.
+        variants.push("");
+
+        variants
+            .into_iter()
+            .map(|v| {
+                if v.is_empty() {
+                    format!("{}zsmooth.{}", prefix, ext)
+                } else {
+                    format!("{}zsmooth-{}.{}", prefix, v, ext)
+                }
+            })
+            .collect()
+    }
+
     /// Get the NNEDI3CL weights path.
     pub fn nnedi3cl_weights_path(&self) -> PathBuf {
         #[cfg(target_os = "windows")]
@@ -849,6 +926,62 @@ impl DependencyLocator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zsmooth_never_offers_a_build_this_cpu_cannot_run() {
+        // The whole point of the split: naming the AVX2 build on a machine
+        // without AVX2 is not a slow job, it is `0xC000001D` and a dead one
+        // (issue #82, on a Celeron J4105 and a Core i7 870). This assertion
+        // runs on every platform whatever hardware CI draws, which is the
+        // durable half of the guard — the end-to-end test can only confirm
+        // opportunistically, and GitHub's fleet is a mixed draw.
+        let candidates = DependencyLocator::zsmooth_candidates();
+        assert!(!candidates.is_empty(), "there must always be a candidate");
+
+        let haswell = candidates.iter().any(|c| c.contains("haswell"));
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            assert_eq!(
+                haswell,
+                std::is_x86_feature_detected!("avx2"),
+                "the haswell build may be offered only where AVX2 exists"
+            );
+            // The fallback has to be present on x86 regardless, or a non-AVX2
+            // machine has nothing to load.
+            assert!(
+                candidates.iter().any(|c| c.contains("x86_64_v2")),
+                "x86 must always offer the x86_64_v2 fallback: {candidates:?}"
+            );
+            if haswell {
+                assert!(
+                    candidates[0].contains("haswell"),
+                    "where AVX2 exists the fastest build must be preferred: {candidates:?}"
+                );
+            }
+        }
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        {
+            assert!(!haswell, "no x86 build may be offered off x86: {candidates:?}");
+        }
+    }
+
+    #[test]
+    fn zsmooth_candidates_use_this_platforms_library_naming() {
+        // A wrong prefix or extension makes every candidate miss, which
+        // degrades silently to the autoload path — i.e. to the bug.
+        let candidates = DependencyLocator::zsmooth_candidates();
+        let (prefix, ext) = if cfg!(target_os = "windows") {
+            ("", ".dll")
+        } else if cfg!(target_os = "macos") {
+            ("lib", ".dylib")
+        } else {
+            ("lib", ".so")
+        };
+        for c in &candidates {
+            assert!(c.starts_with(&format!("{prefix}zsmooth")), "bad prefix: {c}");
+            assert!(c.ends_with(ext), "bad extension: {c}");
+        }
+    }
 
     #[test]
     fn test_platform_suffix() {

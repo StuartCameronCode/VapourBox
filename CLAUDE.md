@@ -343,6 +343,9 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
   platform that ships it. The `package-deps-*` scripts assert this list is
   present before zipping and fail the build if any are missing, so a dead
   download URL becomes a red build instead of a silently-incomplete bundle.
+  A bare filename is looked up in the plugin directory; an entry containing a
+  `/` is resolved from the **bundle root** instead, which is how zsmooth's
+  per-CPU builds outside the autoload directory stay covered.
 - For local testing, run the download script to populate `deps/` (e.g.
   `deps/windows-x64/vapoursynth/vs-plugins/`, `deps/macos-arm64/vapoursynth/plugins/`).
 - **Credit it**: add an entry to `licenses/NOTICES.txt` and a `_ComponentTile`
@@ -868,6 +871,166 @@ which any documentation would have shown:
 > is silently lost at 16-bit. Good news: bm3d is never reached, so it needs no
 > deps addition. Implementable, but effort 3 and blocked on the licence.
 
+### FFmpeg is pinned to one series, and the pin is asserted (2026-08-31)
+
+The bundled FFmpeg is what actually interprets everything in
+`pipeline_executor.rs` — the accumulated `-vf` chain, the colour metadata
+flags, `-ss`/`-frames:v` trimming, the hardware-encoder options. So a version
+skew between platforms means the same job encodes differently depending on
+where it ran, silently. It is the same class of hazard as the fmtconv and
+zsmooth version pins, and it had been true for months without anyone noticing:
+
+| | FFmpeg, measured 2026-08-31 | how |
+|---|---|---|
+| Windows | **master N-125978** (post-9.0) | BtbN `master-latest`, **unpinned** |
+| macOS x64 | 9.0.1 | evermeet `getrelease`, **unpinned** |
+| macOS arm64 | 9.0.1 | martin-riedl `latest`, **unpinned** |
+| Linux | **7.1**, two majors behind | BtbN `n7.1`, pinned |
+
+Three floated on "latest" and the fourth was pinned to a series BtbN then
+garbage-collected, which 404'd the Linux deps build outright. All four now pin
+**9.0**.
+
+> **A version pin against a rolling tag is not a pin.** BtbN publish every
+> series to one `latest` tag and drop old ones as they age, so `n7.1` was always
+> going to become a 404 — it was a matter of when. Pin the **series**
+> (`n9.0-latest`, newest build of the 9.0 branch), which is how all three
+> upstreams actually publish, and treat a series bump as a deliberate,
+> all-platforms-together change.
+
+> **`curl` without `-f` writes the 404 body to the output file.** That is why
+> the failure surfaced as `tar: Error is not recoverable` half a step later
+> rather than as a download error naming the URL — the "tarball" was nine bytes
+> reading `Not Found`. Every FFmpeg fetch now uses `-f`.
+
+Pinning differs per host because their retention does, and that is deliberate:
+
+- **BtbN** (Windows, Linux) — series URL, rolls patches within 9.0.
+- **evermeet** (macOS x64) — an exact version, `FFMPEG_MACOS_X64_VERSION`. It
+  keeps old versions reachable (verified: 7.1, 8.0 and 9.0.1 all still resolve),
+  so a full-version pin is durable here.
+- **martin-riedl** (macOS arm64) — only `latest` plus opaque build-id paths of
+  unknown retention, so it takes latest and is **checked afterwards**.
+
+Two guards, and both are needed. `assert_ffmpeg_series` in each script runs
+`ffmpeg -version` on what was actually installed and fails the build if it is
+not the pinned series — that catches an upstream silently moving a URL, which
+no amount of pinning can prevent. And `app/test/ffmpeg_version_pin_test.dart`
+(push gate) reads all three scripts and fails if their pins disagree, if a pin
+is not a bare `major.minor`, or if a script stops asserting. Without the second,
+the pins are just comments.
+
+Note the version parser accepts `n9.0.1` and `9.0.1` and deliberately **rejects
+a `master` build** (`N-125978-...`), so reverting any platform to an unpinned
+master URL is a red build rather than a silent regression.
+
+### zsmooth ships once per CPU baseline, and is loaded by path (issue #82, 2026-08-28)
+
+A plugin can also have **no** dispatch at all. zsmooth is compiled for a whole
+CPU baseline — upstream publishes only `haswell` (AVX2) and `znver4` for x86,
+per the targeting essay in vapoursynth#1185 — so on a pre-2013 CPU the library
+**loads fine** and then dies the instant a filter runs.
+
+Reported on a Celeron J4105 and a Core i7 870, neither of which has AVX at all.
+The symptom is a bare `vspipe exited with exit code -1073741795`, which is
+`0xC000001D` **STATUS_ILLEGAL_INSTRUCTION** — a different fault from CTMF's
+`0xC0000005`, and worth knowing apart: illegal instruction means the binary
+needs a CPU feature this machine lacks, access violation means a genuine bug in
+the kernel that ran. Both print nothing else, so the encode surfaces as ffmpeg
+reading an empty pipe. `format_exit_status` now decodes both.
+
+Everything reaching `core.zsmooth.*` was affected: CCD, Cnr4, SpotLess →
+RemoveDirt, Noise Reduction → mClean and TemporalDegrain2, and hybrid_mv. QTGMC
+was not — havsfunc uses `rgvs`.
+
+> **Shipping one portable build for everyone is the obvious fix and the wrong
+> one.** Measured (Zig 0.15.2, same source, 720x576, fps, best of 3), as a
+> fraction of haswell speed:
+>
+> | | CCD r0 | CCD r1 | Cnr4 | CCD 16-bit | RemoveGrain | Repair | Median |
+> |---|---|---|---|---|---|---|---|
+> | `x86_64` | 0.50 | 0.33 | 0.33 | 0.39 | 0.68 | 0.66 | 0.73 |
+> | `x86_64_v2` | 0.72 | 0.63 | 0.71 | 0.69 | 0.69 | 0.65 | 0.73 |
+>
+> That is 2-3x on the two filters the Chroma Denoise pass is *made of*, charged
+> to every modern machine to serve the rare old one. Ratios hold at 1080p and
+> multithreaded. A locally built `-Dcpu=haswell` matched the shipped binary
+> within ±3%, so these are like-for-like and not a toolchain artefact.
+
+So x86 bundles ship **both** builds and the worker picks at load time. Three
+things about the mechanism:
+
+- **The builds cannot share a directory.** Each registers the namespace
+  `zsmooth`, so whichever autoloads second is rejected — and on macOS/Linux
+  `vapoursynth/plugins` is autoloaded implicitly by R78, so "just don't set the
+  env var" is not available either. They live in `vapoursynth/zsmooth/`, outside
+  any autoload path, and the generated script carries an explicit
+  `core.std.LoadPlugin`. `VAPOURSYNTH_EXTRA_PLUGIN_PATH` takes **one** directory
+  — verified, a `;`-separated pair silently loads only the first — so the second
+  plugin directory idea does not work.
+- **The namespace stays `zsmooth`, so no call site changed.** That is the whole
+  reason for loading by path rather than under a `forcens` alias: the vendored
+  `mclean.py`, `removedirt.py`, `temporaldegrain2.py` and `hybrid_mv.py` all say
+  `core.zsmooth.X`, and an alias would have needed a `_zs()` indirection through
+  every one of them (and left them on the slow build for AVX2 users).
+- **No selected build means no `LoadPlugin`.** Bundles up to 1.9.0 autoload a
+  single zsmooth, and the app can be upgraded before the deps download finishes,
+  so a worker that always emitted the line would fail every job in that window.
+  `DependencyLocator::zsmooth_plugin()` returns `None` there and the script is
+  byte-identical to the pre-split one. Verified both ways end to end.
+
+`x86_64_v2` (SSE4.2/POPCNT, Nehalem 2009 on) is the fallback rather than plain
+`x86_64`: it is 1.4-2.1x faster on the filters that matter, 0.6 MB smaller, and
+covers both CPUs in the report. Note v2 buys **nothing** over v1 on the
+RemoveGrain/Repair/Median kernels — the gain is specific to CCD and Cnr4.
+
+macOS x64 was already affected in the other direction: it builds from source for
+the issue #39 minos floor and had always used Zig's *default* baseline, i.e. the
+0.50/0.33 column. It now builds both, so Intel Macs get the fast path for the
+first time.
+
+> **The macOS haswell build needs an fftw patch, and the bug is one line
+> upstream.** zsmooth's Zig fftw port sets `HAVE_MEMALIGN` on every non-Windows
+> target, but macOS has no `memalign()` — it is declared in `<malloc.h>`, which
+> **the same file already knows macOS lacks** (`HAVE_MALLOC_H` is gated on
+> `!is_mac`). fftw's `kalloc.c` only reaches that branch when `MIN_ALIGNMENT` is
+> 32, i.e. when AVX is on, so it is invisible at every SSE-level baseline and
+> kills **only** the haswell build — with a clang implicit-declaration error
+> inside a dependency, which reads like a toolchain problem rather than a
+> one-line config bug. `HAVE_POSIX_MEMALIGN` is already true, so clearing it
+> falls through to `posix_memalign`.
+>
+> The patch clones the fftw fork at the ref `build.zig.zon` names, edits that
+> line, and repoints the dependency as a **path** dependency — path deps take no
+> hash, so this is deterministic and survives a cache wipe, unlike editing Zig's
+> global package cache. Both a pre-check and a post-check hard-fail, so an
+> upstream fix surfaces as a build error telling you to remove the patch rather
+> than silently doing nothing.
+>
+> Verified by **cross-compiling from Windows** (`-Dtarget=x86_64-macos.12.0
+> -Dcpu=haswell`), which reproduces the failure exactly and confirms the fix in
+> about four minutes — far cheaper than a macOS CI round trip, and worth
+> remembering for any Zig-built plugin: the target does not have to be the host.
+
+> **The fallback is not a different picture, only a slower one.** The two builds
+> produced identical chroma means (U=123.884, V=131.096) on the same clip, so
+> falling back costs throughput and nothing else. Do not treat the choice as
+> output-affecting.
+
+Guards: `test_154`/`test_155` (both scripts, both bundle layouts) and
+`zsmooth_never_offers_a_build_this_cpu_cannot_run` in `dependency_locator.rs` —
+which is the durable one, since it runs on every platform whatever hardware CI
+draws. The Dart side loads the chosen build and **renders a frame** (the fault is
+in the kernel, so constructing the node proves nothing), asking the worker's
+`--probe-cpu` for the CPU rather than deriving it. `deps-expected-plugins.json`
+entries for zsmooth are bundle-relative **paths**, and all three packaging guards
+understand that form now.
+
+**This is not verifiable in CI.** Every hosted runner has AVX2, so no CI job can
+exercise the fallback; the local check is to hide the haswell build and re-run.
+Intel SDE (`sde -nhm --`) is the only way to prove a build runs on a CPU you do
+not have.
+
 ### A plugin's own CPU auto-detect is not trustworthy (CTMF, 2026-08-25)
 
 `ctmf.CTMF`'s AVX-512 kernel for **8-bit** input
@@ -953,10 +1116,14 @@ What an effort-2 addition actually costs, beyond the usual filter wiring:
 5. **A deps release actually built and published**, which is CI work and cannot
    be done or verified locally — see the rc flow in "Testing a deps change".
 
-> **Windows has no from-source build path, and that decides the version.**
-> `download-deps-windows.ps1` only fetches published release archives, so a
-> plugin is only addable if upstream ships a Windows binary — and every platform
-> must then pin the version Windows can get. FillBorders and Bwdif were the first
+> **Windows has essentially no from-source build path, and that decides the
+> version.** `download-deps-windows.ps1` fetches published release archives, so
+> a plugin is only addable if upstream ships a Windows binary — and every
+> platform must then pin the version Windows can get. (The single exception,
+> added 2026-08-28: zsmooth's portable build compiles there with a pinned Zig
+> toolchain, because Zig brings its own libc and needs no MSVC. Do not read that
+> as a general from-source path — it exists because upstream ships no binary that
+> runs without AVX2, see the zsmooth section above.) FillBorders and Bwdif were the first
 > two candidates and were **rejected on this basis**: their newest Windows
 > binaries are several releases behind their source (FillBorders v2 vs v4, Bwdif
 > r4.1 vs r5.1), and pinning everything back that far would have cost features
@@ -2034,7 +2201,9 @@ Depth Sources".
 
 > `vapoursynth_integration_test`'s "all required plugins load" list is the
 > runtime contract for a **complete deps install**, and it must name every
-> namespace a filter can reach. `zsmooth` (Chroma Denoise / CCD) was added to the
+> namespace a filter can reach — except `zsmooth`, which is deliberately not
+> autoloaded any more and has its own load-and-render test beside that list.
+> `zsmooth` (Chroma Denoise / CCD) was added to the
 > bundle after that list was written and went uncovered for a while, so a bundle
 > missing it passed the suite while the filter failed at job time with "No
 > attribute with the name zsmooth exists". Add the namespace whenever you add a
@@ -2718,8 +2887,11 @@ version skew between platforms would change chroma per-OS.
    generating the script (`--config`, keep the `.vpy`) and running it under
    vspipe with passes commented out; on Windows confirm with `$LASTEXITCODE`
    (`0xC0000005` = access violation, `0xC000001D` = illegal instruction, which
-   means the binary needs a CPU feature this machine lacks). See "A plugin's own
-   CPU auto-detect is not trustworthy" for the CTMF case.
+   means the binary needs a CPU feature this machine lacks). Both codes are now
+   decoded into the reported error by `format_exit_status`, so a fresh report
+   should say which it was rather than just a negative number. See "A plugin's
+   own CPU auto-detect is not trustworthy" for the CTMF case (`0xC0000005`) and
+   "zsmooth ships once per CPU baseline" for the AVX2 one (`0xC000001D`).
 
 ## Platform-Specific Notes
 
@@ -2771,7 +2943,7 @@ version skew between platforms would change chroma per-OS.
 - Fully self-contained deps (no Homebrew at runtime): Python 3.12 (python-build-standalone), VS built from source
 - Worker sets: `PYTHONHOME`, `PYTHONPATH`, `VAPOURSYNTH_CONF_PATH`, `DYLD_LIBRARY_PATH`
 - `vspipe` is a wrapper script that generates config dynamically (needed because `VAPOURSYNTH_PLUGIN_PATH` is additive, not a replacement)
-- **FFmpeg** is sourced pre-built as a static binary that links only system frameworks: **x64** from evermeet.cx, **arm64** from martin-riedl.de (Homebrew's arm64 ffmpeg is dynamically linked to ~17 Homebrew dylibs and is NOT self-contained, so it can't be bundled). **x64 plugins** build from source under Rosetta, except `tmedian` which comes pre-built from Stefan-Olt/vs-plugin-build. **`zsmooth` is the one plugin built from source on x64 but taken pre-built on arm64**: the author's x86_64 binary is `minos 13.0` and this bundle targets 12.0, so the minos guard rejects it (it would fail to load on Monterey — exactly issue #39). It is written in Zig, so the x64 branch fetches a pinned Zig toolchain and builds with `-Dtarget=x86_64-macos.12.0`; `ZIG_VERSION` must satisfy zsmooth's `minimum_zig_version`, and the build needs network access for zsmooth's own Zig dependencies. arm64 keeps the pre-built binary, which is under its 15.0 target.
+- **FFmpeg** is sourced pre-built as a static binary that links only system frameworks: **x64** from evermeet.cx, **arm64** from martin-riedl.de (Homebrew's arm64 ffmpeg is dynamically linked to ~17 Homebrew dylibs and is NOT self-contained, so it can't be bundled). **x64 plugins** build from source under Rosetta, except `tmedian` which comes pre-built from Stefan-Olt/vs-plugin-build. **`zsmooth` is the one plugin built from source on x64 but taken pre-built on arm64**: the author's x86_64 binary is `minos 13.0` and this bundle targets 12.0, so the minos guard rejects it (it would fail to load on Monterey — exactly issue #39). It is written in Zig, so the x64 branch fetches a pinned Zig toolchain and builds with `-Dtarget=x86_64-macos.12.0`; `ZIG_VERSION` must satisfy zsmooth's `minimum_zig_version`, and the build needs network access for zsmooth's own Zig dependencies. arm64 keeps the pre-built binary, which is under its 15.0 target. Since 2026-08-28 the x64 branch builds it **twice**, `-Dcpu=haswell` and `-Dcpu=x86_64_v2`, into `vapoursynth/zsmooth/` rather than the plugin directory — see "zsmooth ships once per CPU baseline".
 - **x64 minimum macOS = 12.0 (Monterey), issue #39**: the only hosted Intel runner is `macos-15-intel` (`macos-13` was retired), so Homebrew bottles come out `minos 14/15` and won't load on 12. The x64 build therefore exports `MACOSX_DEPLOYMENT_TARGET=12.0` and **builds the bundled support libs from source** (zimg, fftw, libdvdread, xz, boost) so they target 12; the OpenCL plugins (`nnedi3cl`/`knlmeanscl`) are compiled against that source boost (`BOOST_ROOT="$SRCLIB"`) for ABI match. vspipe's `doubleToString` is patched off `std::to_chars` (needs 13.3+ libc++). A `minos` verification pass at the end fails the build under `STRICT_MIN_OS=1` (set in `build-deps-macos.yml`) if any bundled Mach-O exceeds 12.0. **arm64 is unchanged (still `minos 15`)** — it has no old runner and the prebuilt arm64 plugins are >12. The app/worker deployment target is **per-arch**: the x64 build targets **12.0** and the arm64 build targets **15.0** (matching its minos-15 deps). `build-macos.yml` resolves the target per matrix arch and threads it to rustc (`MACOSX_DEPLOYMENT_TARGET`) and xcodebuild (which overrides the `Runner.xcodeproj` 12.0 baseline); the `Podfile` reads `VAPOURBOX_DEPLOYMENT_TARGET` (default 12.0). `package-macos.sh` sets the same per-arch target for local builds.
 - **Code signing**: After `install_name_tool` modifications, binaries must be re-signed: `codesign -s - -f <binary>` (exit code 137 = SIGKILL means invalid signature)
 - Quarantine removal: `xattr -cr` on deps after download
@@ -3031,5 +3203,6 @@ Create the app-specific password at appleid.apple.com → Sign-In and Security �
 | 1.0.0 | 2025-01-15 | Initial release |
 | … | | (1.1.0–1.6.0 went unrecorded) |
 | 1.7.0 | 2026-08-01 | Fixes QTGMC Placebo/Very Slow brightening and near-black Draft on arm64, via `Scripts/patches/fmtconv-r31-arm-int-scaler.patch` (root cause: sign constants in fmtconv's non-SIMD integer scaler) plus havsfunc patch 5 as defence in depth; fmtconv r30 → **r31**, now pinned and sourced from GitLab on every platform. **Rebuilt 2026-08-02** to add the **zsmooth** plugin (MIT), providing `core.zsmooth.CCD` plus `Cnr4` and a set of RemoveGrain/TemporalMedian-family filters. Version pinned to 0.19.0 in all three download scripts — keep them in step so the same job can't produce different chroma per OS. Taken pre-built everywhere except macOS x64, which builds it with Zig to reach `minos 12.0` (see the macOS platform notes) |
+| 1.10.0 | 2026-08-31 | Fixes **issue #82**: zsmooth now ships **one build per CPU baseline** on x86 (`haswell` and `x86_64_v2`) in `vapoursynth/zsmooth/`, outside the autoload directory, with the worker loading exactly one by path. Upstream builds it for an AVX2 baseline with no runtime dispatch, so the shipped binary died with an illegal instruction (`0xC000001D`) on any pre-2013 CPU the instant a filter ran — silently, since vspipe prints nothing on a native crash. The portable build has no upstream asset, so Windows and Linux compile it with a pinned Zig toolchain (Windows' first from-source plugin; Zig needs no MSVC). macOS x64 builds both, which also makes Intel Macs fast for the first time — that arch had always used Zig's default SSE2 baseline, measured 2-3x slower on CCD/Cnr4. Same zsmooth version (0.19.0), so no output changes on any machine that already worked. Also brings **FFmpeg to 9.0 on all four platforms and pins it**: they had silently diverged (Windows on an unpinned post-9.0 master build, both macOS arches floating on 9.0.1, Linux pinned at 7.1), and BtbN garbage-collecting the n7.1 asset from its rolling `latest` tag 404'd the Linux deps build outright. Each script now verifies the installed binary's series and a push-gate test fails if the three pins disagree |
 | 1.9.0 | 2026-08-15 | Adds three plugins. **fluxsmooth** (`core.flux.SmoothT` / `SmoothST`), which also unlocks havsfunc's **STPresso** — it calls `core.flux.SmoothT` internally and raised "No attribute with the name flux exists" without it. Pinned to **v2** on every platform: that is the newest tag with a published Windows binary, and `download-deps-windows.ps1` has no from-source path, so macOS/Linux track the version Windows can get rather than letting the same job denoise differently per OS. Built on macOS/Linux by invoking the compiler directly on its single C file rather than through its autotools build, so no new build dependency (autoconf/automake/libtool) is added to CI. Also adds **bifrost** (`core.bifrost.Bifrost`, temporal rainbow/dot-crawl removal, pinned v3.0) and **retinex** (`core.retinex.MSRCP`, shadow-detail lift, pinned r4) — both chosen because their *newest* release ships a Windows binary, so no version skew, and both link nothing beyond system libraries. bifrost is another single C file compiled directly, but it includes `<vapoursynth/VapourSynth4.h>` so the scripts stage a small include root whose parent is passed to `-I`; retinex is an ordinary meson build resolving headers through pkg-config |
 | 1.8.0 | 2026-08-07 | VapourSynth **R73 → R78** on every platform, which moves Windows to a Python 3.12 wheel layout and makes `deps/<platform>/vapoursynth/` the Python package itself on macOS/Linux (see the R78 sections). Adds the **akarin** plugin (LGPL-3.0, statically links LLVM 22.1.2) supplying an LLVM JIT for `std.Expr`, routed in via havsfunc **patch 7** and the templates' `_expr()` helper — worth **4.1x** on arm64 QTGMC Slow, since VapourSynth's own Expr JIT is x86-only. **Not** shipped on macos-x64, whose only wheel would raise the Intel floor to macOS 14 (issue #39). Fixes the **nnedi3** build on linux-arm64, which had never produced a binary (`-mfpu=neon` and `HWCAP_ARM_*` are both 32-bit-ARM-only), and drops the plugin from linux-x64's expected list to match the other x86 bundles. **BestSource removed** — nothing had called it since the pipe source replaced it. Linux now needs **glibc 2.39** (ubuntu-24.04), so Ubuntu 22.04 and Debian 12 can no longer run it |

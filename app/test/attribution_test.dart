@@ -92,10 +92,20 @@ const _pluginToNotice = <String, String>{
 const _mustNotAppear = <String>['ffms2', 'BestSource'];
 
 String _stem(String filename) {
-  var s = filename.toLowerCase();
+  // A manifest entry may be a bundle-relative path rather than a bare filename
+  // (zsmooth ships outside the autoload directory), and may carry a CPU-target
+  // suffix because it ships once per baseline. Credit is owed to the project,
+  // not to each build of it, so both are normalised away.
+  var s = filename.toLowerCase().split('/').last;
   final dot = s.lastIndexOf('.');
   if (dot > 0) s = s.substring(0, dot);
   if (s.startsWith('lib') && s.length > 3) s = s.substring(3);
+  for (final variant in const ['-haswell', '-x86_64_v2']) {
+    if (s.endsWith(variant)) {
+      s = s.substring(0, s.length - variant.length);
+      break;
+    }
+  }
   return s;
 }
 

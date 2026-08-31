@@ -238,16 +238,48 @@ class WorkerHarness {
   /// start because a probe misbehaved would be worse than one that says
   /// "unknown".
   static Future<String> describeCpu() async {
+    final probe = await _probeCpu();
+    if (probe == null) return 'unknown';
+    final features = (probe['features'] as List<dynamic>).cast<String>();
+    return '${probe['arch']} [${features.isEmpty ? 'none detected' : features.join(' ')}]';
+  }
+
+  /// The instruction set extensions the worker process can actually execute,
+  /// as a set. Empty when the probe could not run at all.
+  ///
+  /// A test that needs to know whether a CPU-specific binary is safe to load
+  /// must ask this rather than parse `/proc/cpuinfo` or `sysctl` itself: a
+  /// second implementation of the same decision is how the interface and the
+  /// pipeline come to disagree, and the worker's answer is the one that governs
+  /// what the pipeline loads. Used by the zsmooth build check in
+  /// `vapoursynth_integration_test`.
+  static Future<Set<String>> cpuFeatures() async {
+    final probe = await _probeCpu();
+    if (probe == null) return <String>{};
+    return (probe['features'] as List<dynamic>).cast<String>().toSet();
+  }
+
+  /// True when the worker reports an x86 architecture (so the x86-specific
+  /// zsmooth builds are the relevant ones).
+  static Future<bool> isX86() async {
+    final probe = await _probeCpu();
+    final arch = probe?['arch'] as String?;
+    return arch != null && (arch.startsWith('x86') || arch == 'amd64');
+  }
+
+  /// Never throws: this is diagnostic, and it is asked for before
+  /// `ensureReady()` in at least one test, so it resolves the worker itself.
+  static Future<Map<String, dynamic>?> _probeCpu() async {
     try {
-      final result = await Process.run(_workerPath!, ['--probe-cpu']);
-      if (result.exitCode != 0) return 'unknown (probe exit ${result.exitCode})';
-      final json = jsonDecode(result.stdout as String) as Map<String, dynamic>;
-      final features = (json['features'] as List<dynamic>).cast<String>();
-      return '${json['arch']} [${features.isEmpty ? 'none detected' : features.join(' ')}]';
-    } catch (e) {
+      final worker = _workerPath ?? _resolveWorker();
+      if (worker == null) return null;
+      final result = await Process.run(worker, ['--probe-cpu']);
+      if (result.exitCode != 0) return null;
+      return jsonDecode(result.stdout as String) as Map<String, dynamic>;
+    } catch (_) {
       // An older worker predates --probe-cpu and exits non-zero on the unknown
-      // flag; that is reported above rather than thrown.
-      return 'unknown ($e)';
+      // flag, which lands here as "unknown" rather than as a failure.
+      return null;
     }
   }
 

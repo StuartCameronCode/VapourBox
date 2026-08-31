@@ -138,11 +138,17 @@ EOF
     echo "    Verifying required plugins for $ARCH_NAME..."
     local MANIFEST="$PROJECT_ROOT/Scripts/deps-expected-plugins.json"
     local MISSING
-    MISSING=$(python3 - "$MANIFEST" "linux-$ARCH_NAME" "$PACKAGE_DIR/vapoursynth/plugins" <<'PY'
+    MISSING=$(python3 - "$MANIFEST" "linux-$ARCH_NAME" "$PACKAGE_DIR/vapoursynth/plugins" "$PACKAGE_DIR" <<'PY'
 import json, os, sys
-manifest, key, plugin_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+manifest, key, plugin_dir, bundle_root = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 expected = json.load(open(manifest)).get(key, [])
-print("\n".join(f for f in expected if not os.path.isfile(os.path.join(plugin_dir, f))))
+# An entry with a "/" is bundle-root-relative, not a plugin-directory filename:
+# zsmooth ships one build per CPU baseline OUTSIDE the autoload directory (both
+# register the same namespace, so the worker loads exactly one by path), and a
+# guard that only looked in plugins/ would stop covering it.
+def target(f):
+    return os.path.join(bundle_root, *f.split("/")) if "/" in f else os.path.join(plugin_dir, f)
+print("\n".join(f for f in expected if not os.path.isfile(target(f))))
 PY
 )
     if [ -n "$MISSING" ]; then
