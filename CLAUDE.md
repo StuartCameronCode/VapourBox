@@ -2444,20 +2444,52 @@ could otherwise be picked up silently.)
 
 Three properties worth preserving if you touch this:
 
-- **Staged, then swapped.** The download is verified, extracted to
-  `<deps>.new`, checked with `executabilityProblem()` and stamped with its
-  `version.json` — and only then swapped in via two renames, with the old tree
-  moved to `<deps>.old` and deleted afterwards. It used to delete the live
-  install and extract over the top, which left the user with *nothing* if that
-  window was interrupted. If the second rename fails the first is undone.
-- **`version.json` is written last**, inside the staged tree. It is the commit
-  marker: a tree that never completed can never look valid.
+- **Staged, then swapped — but only when there is an install to protect.** An
+  *upgrade* is verified, extracted to `<deps>.new`, stamped with its
+  `version.json` and only then swapped in via two renames, with the old tree
+  moved to `<deps>.old` and deleted afterwards; if the second rename fails the
+  first is undone. It used to delete the live install and extract over the top,
+  which left the user with *nothing* if that window was interrupted. A **first
+  install** extracts straight into `<deps>` and performs no rename at all —
+  there is nothing to protect, and the rename is the fragile step (see below).
+- **`version.json` is written last**, inside whichever tree was written. It is
+  the commit marker: a tree that never completed can never look valid — which
+  is also what makes extracting a first install in place safe.
 - **Direction is checked, not just equality.** Installed *newer* than expected
   is `newerThanExpected` — kept, with a one-time warning at startup — not
   `outdated`. Treating it as outdated downgraded a deliberately newer bundle,
   and since installing wipes and replaces, that was destructive. Use
   `compareVersions`, not `!=` or a string compare: `"1.10.0"` sorts before
   `"1.9.0"` lexically.
+
+> **A Windows directory rename is refused while anything holds a handle inside
+> it, and that is not a permissions problem (issue #87).** Measured: an open
+> read handle on one descendant file, or a child process whose working directory
+> is inside the tree, is enough — both surface as
+> `PathAccessException … Access is denied, errno = 5`. A *running* `.exe` inside
+> the tree is **not** enough, and a destination that already exists gives
+> **errno 183** instead, so the two can be told apart. Straight after writing a
+> ~200 MB bundle there is routinely something holding a handle for a few hundred
+> milliseconds — a scanner, the search indexer, Explorer building a thumbnail —
+> and the reporter's install failed on that every time, throwing away the whole
+> download at the very last step.
+>
+> Both renames therefore go through `retryTransientFsOperation` (~7.5s over 12
+> attempts), as does the `.new`/`.old` cleanup at the start — a leftover `.new`
+> can still be held by whatever blocked the swap, and an unguarded delete there
+> failed the *next* attempt with a second, different error.
+> `PathExistsException`/`PathNotFoundException` are rethrown immediately: those
+> will not clear, and burning the budget on them delays a fault the user can act
+> on. `dependency_install_retry_test.dart` reproduces the real errno 5 on
+> Windows and skips elsewhere, because POSIX renames a directory happily with
+> its files open.
+>
+> **`executabilityProblem()` runs after the swap on Windows, before it
+> everywhere else.** The quarantine case it guards (issue #50) is macOS-only, so
+> on Windows all it can report is a generic "would not run" — while executing a
+> freshly written, unsigned 100 MB binary is exactly what makes a scanner open
+> the tree we are about to rename. A Windows failure rolls the previous bundle
+> back out of `<deps>.old`, so it still cannot leave the user worse off.
 
 The critical-file list also includes a file that exists **only** in the R78
 layout (`libvapoursynthfilters`, plus `vapoursynth/__init__.py` on Unix).

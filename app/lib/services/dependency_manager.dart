@@ -573,10 +573,30 @@ class DependencyManager {
       final staging = Directory('${depsDir.path}.new');
       final retired = Directory('${depsDir.path}.old');
       for (final d in [staging, retired]) {
-        if (await d.exists()) await d.delete(recursive: true);
+        // Retried: a leftover .new from a failed swap can still be held open by
+        // whatever blocked that swap, and an unguarded delete here would fail
+        // the next attempt with a second, different error.
+        if (await d.exists()) {
+          await retryTransientFsOperation(() => d.delete(recursive: true),
+              what: 'remove ${d.path}');
+        }
       }
 
-      await _extractZip(tempFile, targetOverride: staging);
+      // Staging only earns its cost when there is an install to protect. On a
+      // first install there is none, so extract straight into place and skip
+      // the swap entirely — which is what issue #87 needs: the rename is the
+      // fragile step, and on Windows it is refused outright (errno 5) while
+      // anything at all holds a handle on a file in the tree, which on that
+      // platform routinely means a scanner or the search indexer working
+      // through the ~200 MB we have just written.
+      //
+      // Safe to extract in place because version.json is still written last:
+      // an interrupted first install leaves a tree with no version file, which
+      // the next startup reads as missing rather than as installed.
+      final hadPrevious = await depsDir.exists();
+      final target = hadPrevious ? staging : depsDir;
+
+      await _extractZip(tempFile, targetOverride: target);
 
       // Prove the install is actually usable before declaring success. The
       // quarantine strip above can fail — silently, and it cannot succeed at all
@@ -587,29 +607,78 @@ class DependencyManager {
       //
       // Checked against the staged copy, so a bundle that fails here is thrown
       // away with the existing install still in place.
-      final problem = await executabilityProblem(depsDirOverride: staging);
-      if (problem != null) {
-        await staging.delete(recursive: true).catchError((_) => staging);
-        throw Exception(problem);
+      //
+      // Windows runs it *after* the swap instead (below). The quarantine case
+      // this guards is macOS-only, so on Windows all it can report is a generic
+      // "would not run" — while executing a freshly written, unsigned 100 MB
+      // binary is exactly what makes a scanner open the tree we are about to
+      // rename. See the rollback below for how a genuine failure is handled.
+      if (!Platform.isWindows) {
+        final problem = await executabilityProblem(depsDirOverride: target);
+        if (problem != null) {
+          await target.delete(recursive: true).catchError((_) => target);
+          throw Exception(problem);
+        }
       }
 
       // Write version file (per-platform version, so the next check matches).
       // Still the last thing written into the tree, so a staged directory that
       // never gets swapped in can never look complete.
       await _writeInstalledVersion(expected.versionFor(platformId),
-          depsDirOverride: staging);
+          depsDirOverride: target);
 
       // Swap. If the second rename fails we have already moved the old install
       // aside, so put it back rather than leaving the user with no deps at all.
-      final hadPrevious = await depsDir.exists();
-      if (hadPrevious) await depsDir.rename(retired.path);
-      try {
-        await staging.rename(depsDir.path);
-      } catch (e) {
-        if (hadPrevious) {
-          await retired.rename(depsDir.path);
+      //
+      // Both renames are retried. A directory rename on Windows fails with
+      // "Access is denied" (errno 5) whenever any descendant is open — a
+      // transient condition, and one the user cannot do anything about, but it
+      // lands at the very end of a ~200 MB download, so a single attempt costs
+      // them the whole thing (issue #87).
+      if (hadPrevious) {
+        await retryTransientFsOperation(() => depsDir.rename(retired.path),
+            what: 'move the existing install aside');
+        try {
+          await retryTransientFsOperation(() => staging.rename(depsDir.path),
+              what: 'move the new install into place');
+        } catch (_) {
+          // Best-effort: if putting the old tree back also fails the user is
+          // left with no deps and re-downloads next launch, which is recoverable
+          // — reporting why the swap failed is the more useful error.
+          await retryTransientFsOperation(() => retired.rename(depsDir.path),
+                  what: 'restore the previous install')
+              .catchError((_) => depsDir);
+          rethrow;
         }
-        rethrow;
+      }
+
+      // Windows' half of the executability check, against the live install.
+      // Restores the previous bundle if the new one will not run, so a blocked
+      // download can never leave the user worse off than before it.
+      if (Platform.isWindows) {
+        final problem = await executabilityProblem(depsDirOverride: depsDir);
+        if (problem != null) {
+          // All best-effort: whatever happens to the trees, the error the user
+          // needs is why the new bundle would not run.
+          if (hadPrevious) {
+            try {
+              await retryTransientFsOperation(
+                  () => depsDir.rename(staging.path),
+                  what: 'move the failed install aside');
+              await retryTransientFsOperation(
+                  () => retired.rename(depsDir.path),
+                  what: 'restore the previous install');
+              unawaited(
+                  staging.delete(recursive: true).catchError((_) => staging));
+            } catch (e) {
+              print('DependencyManager: could not restore the previous '
+                  'install after a failed one: $e');
+            }
+          } else {
+            await depsDir.delete(recursive: true).catchError((_) => depsDir);
+          }
+          throw Exception(problem);
+        }
       }
 
       // Best-effort: the install is already live, so failing to remove the old
@@ -630,6 +699,57 @@ class DependencyManager {
       try {
         await tempDir.delete(recursive: true);
       } catch (_) {}
+    }
+  }
+
+  /// Run [operation], retrying while it fails for a reason that may clear on
+  /// its own.
+  ///
+  /// Exists for the install swap. Windows refuses to rename or delete a
+  /// directory while **any** descendant is open — measured: an open read handle
+  /// on one file, or a child process whose working directory is inside the
+  /// tree, is enough, and both surface as `PathAccessException … errno = 5`.
+  /// (A running .exe inside the tree is *not* enough, and a destination that
+  /// already exists gives errno 183 instead, so those two can be told apart
+  /// from a genuine permissions fault.) Immediately after extracting a ~200 MB
+  /// bundle there is usually something holding one — a scanner, the search
+  /// indexer, Explorer building a thumbnail — for a few hundred milliseconds.
+  ///
+  /// A single attempt therefore threw away the entire download, every time, for
+  /// the user who reported issue #87. Waiting a few seconds costs nothing on a
+  /// machine where the first attempt succeeds.
+  ///
+  /// `PathExistsException` and `PathNotFoundException` are not transient — the
+  /// destination will not stop existing, and a missing source will not appear —
+  /// so they are rethrown immediately rather than burning the whole budget.
+  @visibleForTesting
+  static Future<T> retryTransientFsOperation<T>(
+    Future<T> Function() operation, {
+    int attempts = 12,
+    Duration firstDelay = const Duration(milliseconds: 50),
+    Duration maxDelay = const Duration(seconds: 1),
+    String? what,
+  }) async {
+    var delay = firstDelay;
+    for (var attempt = 1;; attempt++) {
+      try {
+        return await operation();
+      } on PathExistsException {
+        rethrow;
+      } on PathNotFoundException {
+        rethrow;
+      } on FileSystemException catch (e) {
+        if (attempt >= attempts) {
+          print('DependencyManager: gave up after $attempt attempts to '
+              '${what ?? 'complete a filesystem operation'}: $e');
+          rethrow;
+        }
+        print('DependencyManager: attempt $attempt to '
+            '${what ?? 'complete a filesystem operation'} failed ($e) - '
+            'retrying in ${delay.inMilliseconds}ms');
+        await Future<void>.delayed(delay);
+        delay = delay * 2 > maxDelay ? maxDelay : delay * 2;
+      }
     }
   }
 
