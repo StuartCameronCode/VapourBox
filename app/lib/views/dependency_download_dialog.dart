@@ -39,6 +39,11 @@ class _DependencyDownloadDialogState extends State<DependencyDownloadDialog> {
   bool _isDownloading = false;
   bool _hasError = false;
   String _errorMessage = '';
+
+  /// What to suggest, chosen from the failure rather than fixed. A rename
+  /// refused by a held file handle is not a network problem, and saying so sent
+  /// the reporter of issue #87 auditing folder permissions instead.
+  String _errorRemedy = '';
   DownloadProgress? _progress;
 
   @override
@@ -58,6 +63,11 @@ class _DependencyDownloadDialogState extends State<DependencyDownloadDialog> {
       _isDownloading = true;
       _hasError = false;
       _errorMessage = '';
+      _errorRemedy = '';
+      // A retry starts from whatever the manager reports next, which may be the
+      // cached-zip check rather than a fresh download. Leaving the previous
+      // attempt's final bar up would claim progress this attempt has not made.
+      _progress = null;
     });
 
     _progressSubscription = _manager.progressStream.listen(
@@ -73,13 +83,14 @@ class _DependencyDownloadDialogState extends State<DependencyDownloadDialog> {
       if (mounted) {
         Navigator.of(context).pop(true);
       }
-    }).catchError((error) {
+    }).catchError((Object error) {
       _progressSubscription?.cancel();
       if (mounted) {
         setState(() {
           _isDownloading = false;
           _hasError = true;
           _errorMessage = error.toString();
+          _errorRemedy = DependencyManager.remedyFor(error);
         });
       }
     });
@@ -128,7 +139,10 @@ class _DependencyDownloadDialogState extends State<DependencyDownloadDialog> {
             color: _hasError ? Colors.red : Theme.of(context).colorScheme.primary,
           ),
           const SizedBox(width: 12),
-          Text(_hasError ? 'Download Failed' : 'Installing Components'),
+          // Not "Download Failed": most of what can fail here happens after the
+          // download, and naming the wrong stage is what made issue #87 read as
+          // a network or permissions problem.
+          Text(_hasError ? 'Installation Failed' : 'Installing Components'),
         ],
       ),
       content: SizedBox(
@@ -139,7 +153,7 @@ class _DependencyDownloadDialogState extends State<DependencyDownloadDialog> {
           children: [
             if (_hasError) ...[
               Text(
-                'Failed to download dependencies:',
+                'VapourBox could not install its processing components:',
                 style: TextStyle(color: Colors.red[700]),
               ),
               const SizedBox(height: 8),
@@ -154,10 +168,10 @@ class _DependencyDownloadDialogState extends State<DependencyDownloadDialog> {
                   style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
                 ),
               ),
-              const SizedBox(height: 16),
-              const Text(
-                'Please check your internet connection and try again.',
-              ),
+              if (_errorRemedy.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text(_errorRemedy),
+              ],
             ] else if (_isDownloading) ...[
               Text(_getStatusMessage()),
               const SizedBox(height: 24),

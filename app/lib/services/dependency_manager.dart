@@ -62,6 +62,26 @@ class DownloadProgress {
   String get progressPercent => '${(progress * 100).toStringAsFixed(1)}%';
 }
 
+/// An install failure that already knows what to tell the user.
+///
+/// The download dialog used to print one fixed line — "Please check your
+/// internet connection and try again" — under whatever went wrong. That is
+/// wrong for everything past the download, and issue #87 is the case that
+/// showed it: a rename refused by a held file handle is not a network problem,
+/// and the advice sent the reporter auditing folder permissions instead.
+///
+/// [remedy] may be empty, meaning [message] already says what to do (the macOS
+/// quarantine text carries its own `xattr` command, for instance).
+class DependencyInstallException implements Exception {
+  final String message;
+  final String remedy;
+
+  DependencyInstallException(this.message, {required this.remedy});
+
+  @override
+  String toString() => message;
+}
+
 /// Metadata about dependencies from the bundled version file.
 class DepsVersionInfo {
   final String version;
@@ -534,18 +554,44 @@ class DependencyManager {
     final expectedSha256 =
         await _fetchExpectedSha256(expected.getManifestUrl(platformId));
 
-    // Create temp file for download
-    final tempDir =
-        await TempDirectoryService.instance.createTemp('vapourbox_deps_');
-    final tempFile = File(path.join(tempDir.path, filename));
+    // The zip is downloaded into a stable cache path rather than a throwaway
+    // temp directory, and kept if anything after the download fails. Everything
+    // past this point — extraction, verification, the swap — can fail for
+    // reasons that have nothing to do with the bytes we just fetched (issue
+    // #87), and making the user re-fetch ~200 MB to retry a rename is a poor
+    // trade for the disk the zip occupies until the install succeeds.
+    final tempFile = File(await _cachedDownloadPath(filename));
 
     try {
-      // Download with progress
-      await _downloadFile(
-        downloadUrl,
-        tempFile,
-        expectedSha256: expectedSha256,
-      );
+      // Reuse the cached zip only when the sidecar gave us a hash to check it
+      // against. Without one an interrupted download is indistinguishable from
+      // a complete one, and extracting a truncated zip would report a corrupt
+      // bundle rather than the missing bytes.
+      var reusable = false;
+      if (await tempFile.exists()) {
+        if (expectedSha256 != null) {
+          _progressController.add(DownloadProgress(
+            bytesReceived: 0,
+            totalBytes: 0,
+            status: 'Checking the downloaded file...',
+          ));
+          reusable = await _sha256OfFile(tempFile) == expectedSha256;
+          print('DependencyManager: cached download ${reusable ? 'matches the '
+              'expected hash - skipping the download' : 'does not match the '
+              'expected hash - downloading again'}');
+        }
+        if (!reusable) {
+          await tempFile.delete().catchError((_) => tempFile);
+        }
+      }
+
+      if (!reusable) {
+        await _downloadFile(
+          downloadUrl,
+          tempFile,
+          expectedSha256: expectedSha256,
+        );
+      }
 
       // Extract. _extractZip emits per-file extraction progress; this initial
       // event (0/0 -> indeterminate) covers the synchronous decode that precedes
@@ -578,7 +624,7 @@ class DependencyManager {
         // the next attempt with a second, different error.
         if (await d.exists()) {
           await retryTransientFsOperation(() => d.delete(recursive: true),
-              what: 'remove ${d.path}');
+              what: 'remove ${d.path}', onRetry: _reportInstallWait);
         }
       }
 
@@ -614,10 +660,11 @@ class DependencyManager {
       // binary is exactly what makes a scanner open the tree we are about to
       // rename. See the rollback below for how a genuine failure is handled.
       if (!Platform.isWindows) {
+        _reportInstallStep('Checking the new components...');
         final problem = await executabilityProblem(depsDirOverride: target);
         if (problem != null) {
           await target.delete(recursive: true).catchError((_) => target);
-          throw Exception(problem);
+          throw DependencyInstallException(problem, remedy: '');
         }
       }
 
@@ -636,11 +683,14 @@ class DependencyManager {
       // lands at the very end of a ~200 MB download, so a single attempt costs
       // them the whole thing (issue #87).
       if (hadPrevious) {
+        _reportInstallStep('Installing...');
         await retryTransientFsOperation(() => depsDir.rename(retired.path),
-            what: 'move the existing install aside');
+            what: 'move the existing install aside',
+            onRetry: _reportInstallWait);
         try {
           await retryTransientFsOperation(() => staging.rename(depsDir.path),
-              what: 'move the new install into place');
+              what: 'move the new install into place',
+              onRetry: _reportInstallWait);
         } catch (_) {
           // Best-effort: if putting the old tree back also fails the user is
           // left with no deps and re-downloads next launch, which is recoverable
@@ -656,6 +706,7 @@ class DependencyManager {
       // Restores the previous bundle if the new one will not run, so a blocked
       // download can never leave the user worse off than before it.
       if (Platform.isWindows) {
+        _reportInstallStep('Checking the new components...');
         final problem = await executabilityProblem(depsDirOverride: depsDir);
         if (problem != null) {
           // All best-effort: whatever happens to the trees, the error the user
@@ -677,7 +728,7 @@ class DependencyManager {
           } else {
             await depsDir.delete(recursive: true).catchError((_) => depsDir);
           }
-          throw Exception(problem);
+          throw DependencyInstallException(problem, remedy: '');
         }
       }
 
@@ -694,12 +745,107 @@ class DependencyManager {
       ));
 
       print('DependencyManager: Installation complete');
-    } finally {
-      // Cleanup temp files
-      try {
-        await tempDir.delete(recursive: true);
-      } catch (_) {}
+
+      // Only now is the zip dead weight. On any failure above it is deliberately
+      // left in place so Retry can skip the download.
+      await tempFile.delete().catchError((_) => tempFile);
+    } catch (e) {
+      print('DependencyManager: install failed ($e) - keeping the downloaded '
+          'zip at ${tempFile.path} so a retry can reuse it');
+      rethrow;
     }
+  }
+
+  /// What to suggest the user try, given the error that ended the install.
+  ///
+  /// One fixed line of connection advice was actively misleading for anything
+  /// that failed after the download (issue #87), which is most of the install.
+  /// Errors carrying their own advice are honoured; everything else is
+  /// classified by what the filesystem actually said, and only a genuinely
+  /// unrecognised failure falls back to the connection line.
+  ///
+  /// Windows error codes are the discriminating ones and are not
+  /// interchangeable: **5** (access denied) and **32** (sharing violation) mean
+  /// something holds the files open, **112** means the disk is full, **183**
+  /// means the destination is already there. See
+  /// [retryTransientFsOperation] for how 5 was pinned down.
+  static String remedyFor(Object error) {
+    if (error is DependencyInstallException) return error.remedy;
+
+    if (error is FileSystemException) {
+      final code = error.osError?.errorCode;
+      final noSpace = Platform.isWindows ? code == 112 : code == 28;
+      if (noSpace) {
+        return 'There is not enough free disk space to install the '
+            'components. Free some space and try again.';
+      }
+      if (error is PathAccessException || code == 5 || code == 32) {
+        if (Platform.isWindows) {
+          return 'Another program is holding the downloaded files open, which '
+              'stops VapourBox from moving them into place. This is usually '
+              'antivirus or file indexing, and is not a permissions problem.\n\n'
+              'Close any Explorer windows showing the VapourBox folder, then '
+              'try again. If it keeps happening, add the VapourBox folder to '
+              'your antivirus exclusions, or move VapourBox out of Downloads '
+              'and out of any synced folder (OneDrive, Dropbox).';
+        }
+        return 'VapourBox could not write to its components folder. Check that '
+            'you have permission to write there and that the disk is not full, '
+            'then try again.';
+      }
+      return 'VapourBox could not finish writing its components. Check the '
+          'free disk space and that the folder is writable, then try again.';
+    }
+
+    return 'Please check your internet connection and try again.';
+  }
+
+  /// Where the downloaded bundle is cached between attempts.
+  ///
+  /// A fixed name under the (user-configurable) temp directory, so a retry can
+  /// find it. Anything else in there is another version's leftovers and is
+  /// pruned, which is what stops the cache growing without bound.
+  Future<String> _cachedDownloadPath(String filename) async {
+    final dir = Directory(path.join(
+        (await TempDirectoryService.instance.resolve()).path,
+        'vapourbox-deps-cache'));
+    if (!await dir.exists()) await dir.create(recursive: true);
+    try {
+      await for (final entry in dir.list()) {
+        if (entry is File && path.basename(entry.path) != filename) {
+          await entry.delete().catchError((_) => entry);
+        }
+      }
+    } catch (e) {
+      print('DependencyManager: could not prune the download cache ($e)');
+    }
+    return path.join(dir.path, filename);
+  }
+
+  /// Lowercase hex sha256 of [file], in the same form the sidecar publishes.
+  Future<String> _sha256OfFile(File file) async {
+    final digest = await sha256.bind(file.openRead()).first;
+    return digest.toString();
+  }
+
+  /// Progress event for a step of the install that has no measurable size.
+  ///
+  /// Emitted with 0/0 so the dialog shows an indeterminate bar: the swap really
+  /// has no fraction to report, and leaving the previous step's full bar on
+  /// screen made the install phase look finished when it had not started.
+  void _reportInstallStep(String status) {
+    _progressController.add(
+        DownloadProgress(bytesReceived: 0, totalBytes: 0, status: status));
+  }
+
+  /// Progress event for a retried filesystem step.
+  ///
+  /// Without this the retry budget is a silent stall on a dialog that still
+  /// reads "Extracting... 100%", which is indistinguishable from a hang — and
+  /// the machines that need the retries are the ones that wait longest.
+  void _reportInstallWait(int attempt, Object error) {
+    _reportInstallStep('Waiting for another program to release the new '
+        'files... (attempt $attempt)');
   }
 
   /// Run [operation], retrying while it fails for a reason that may clear on
@@ -722,6 +868,9 @@ class DependencyManager {
   /// `PathExistsException` and `PathNotFoundException` are not transient — the
   /// destination will not stop existing, and a missing source will not appear —
   /// so they are rethrown immediately rather than burning the whole budget.
+  /// [onRetry] is called with the attempt number that just failed and its
+  /// error, so the caller can tell the user something is being waited on
+  /// rather than leaving the dialog on a stalled bar.
   @visibleForTesting
   static Future<T> retryTransientFsOperation<T>(
     Future<T> Function() operation, {
@@ -729,6 +878,7 @@ class DependencyManager {
     Duration firstDelay = const Duration(milliseconds: 50),
     Duration maxDelay = const Duration(seconds: 1),
     String? what,
+    void Function(int attempt, Object error)? onRetry,
   }) async {
     var delay = firstDelay;
     for (var attempt = 1;; attempt++) {
@@ -747,6 +897,7 @@ class DependencyManager {
         print('DependencyManager: attempt $attempt to '
             '${what ?? 'complete a filesystem operation'} failed ($e) - '
             'retrying in ${delay.inMilliseconds}ms');
+        onRetry?.call(attempt, e);
         await Future<void>.delayed(delay);
         delay = delay * 2 > maxDelay ? maxDelay : delay * 2;
       }
