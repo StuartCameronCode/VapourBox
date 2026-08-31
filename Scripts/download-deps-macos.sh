@@ -90,6 +90,38 @@ BUILD_DIR="/tmp/vapourbox-build-$$"
 
 # Python version to embed
 PYTHON_VERSION="3.12.8"
+
+# FFmpeg major.minor series. THIS MUST MATCH the same pin in
+# download-deps-linux.sh and download-deps-windows.ps1 —
+# app/test/ffmpeg_version_pin_test.dart fails the push gate if they drift.
+# A per-OS FFmpeg is a per-OS encoder: the arguments in pipeline_executor.rs
+# would then mean subtly different things depending on where the job ran.
+FFMPEG_SERIES="9.0"
+# The exact evermeet build for x64. Full version rather than series because
+# evermeet publishes per-version URLs and keeps them reachable; must be within
+# $FFMPEG_SERIES, which assert_ffmpeg_series checks.
+FFMPEG_MACOS_X64_VERSION="9.0.1"
+
+# Fail the build if the FFmpeg we installed is not the series we pinned.
+# Without this, an upstream that moves `latest` onto a new series reintroduces
+# cross-platform skew with nothing to notice it — which is the whole reason
+# Linux sat two majors behind for months.
+assert_ffmpeg_series() {
+    local bin="$1"
+    local reported
+    reported=$("$bin" -version 2>/dev/null | head -1 | sed -n 's/^ffmpeg version n\{0,1\}\([0-9]\{1,\}\.[0-9]\{1,\}\).*//p')
+    if [ -z "$reported" ]; then
+        echo "  ERROR: could not read a version from $bin" >&2
+        exit 1
+    fi
+    if [ "$reported" != "$FFMPEG_SERIES" ]; then
+        echo "  ERROR: FFmpeg is $reported but this bundle pins $FFMPEG_SERIES." >&2
+        echo "  Upstream moved onto a different series. Update FFMPEG_SERIES in" >&2
+        echo "  ALL THREE download-deps-* scripts together, or platforms drift." >&2
+        exit 1
+    fi
+    echo "  FFmpeg $reported (matches the pinned $FFMPEG_SERIES series)"
+}
 PYTHON_MAJOR_MINOR="3.12"
 
 echo "=== VapourBox macOS Dependencies Builder ==="
@@ -567,14 +599,21 @@ if [ "$ARCH" = "x86_64" ]; then
     # evermeet.cx ships static x86_64 ffmpeg/ffprobe that link only system
     # frameworks (verified self-contained), so no dylib wrangling is needed.
     # This is the canonical pre-built source for Intel macOS ffmpeg.
-    echo "  Downloading static x86_64 FFmpeg from evermeet.cx..."
-    curl -sL "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip" -o "$BUILD_DIR/ffmpeg.zip"
-    curl -sL "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip" -o "$BUILD_DIR/ffprobe.zip"
+    #
+    # Pinned to an exact version rather than `getrelease`, which is whatever is
+    # newest and would silently drift onto a different series from the other
+    # platforms. evermeet keeps old versions reachable (verified: 7.1, 8.0 and
+    # 9.0.1 all still resolve), so a full-version pin is durable here — unlike
+    # BtbN, whose rolling tag garbage-collects old series.
+    echo "  Downloading static x86_64 FFmpeg $FFMPEG_MACOS_X64_VERSION from evermeet.cx..."
+    curl -fsSL "https://evermeet.cx/ffmpeg/ffmpeg-${FFMPEG_MACOS_X64_VERSION}.zip" -o "$BUILD_DIR/ffmpeg.zip"
+    curl -fsSL "https://evermeet.cx/ffmpeg/ffprobe-${FFMPEG_MACOS_X64_VERSION}.zip" -o "$BUILD_DIR/ffprobe.zip"
     unzip -q -o "$BUILD_DIR/ffmpeg.zip" -d "$DEPS_DIR/ffmpeg/"
     unzip -q -o "$BUILD_DIR/ffprobe.zip" -d "$DEPS_DIR/ffmpeg/"
     chmod +x "$DEPS_DIR/ffmpeg/ffmpeg" "$DEPS_DIR/ffmpeg/ffprobe"
     codesign -s - -f "$DEPS_DIR/ffmpeg/ffmpeg" 2>/dev/null || true
     codesign -s - -f "$DEPS_DIR/ffmpeg/ffprobe" 2>/dev/null || true
+    assert_ffmpeg_series "$DEPS_DIR/ffmpeg/ffmpeg"
     echo "  Installed evermeet.cx FFmpeg"
 else
     # arm64: Homebrew's ffmpeg is dynamically linked against ~17 Homebrew dylibs
@@ -584,13 +623,20 @@ else
     # frameworks, ~60 MB) - the same source the 1.3.0 deps shipped, and the
     # arm64 analogue of the evermeet.cx static build used for x64 above.
     echo "  Downloading static arm64 FFmpeg from martin-riedl.de..."
-    curl -sL "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip" -o "$BUILD_DIR/ffmpeg.zip"
-    curl -sL "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffprobe.zip" -o "$BUILD_DIR/ffprobe.zip"
+    #
+    # This host only publishes `latest` plus opaque build-id paths whose
+    # retention is unknown, so pinning a URL is not available. Take latest and
+    # let assert_ffmpeg_series below fail the build if it has moved off the
+    # pinned series — a red build naming the drift is better than silently
+    # shipping a different FFmpeg here than everywhere else.
+    curl -fsSL "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip" -o "$BUILD_DIR/ffmpeg.zip"
+    curl -fsSL "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffprobe.zip" -o "$BUILD_DIR/ffprobe.zip"
     unzip -q -o "$BUILD_DIR/ffmpeg.zip" -d "$DEPS_DIR/ffmpeg/"
     unzip -q -o "$BUILD_DIR/ffprobe.zip" -d "$DEPS_DIR/ffmpeg/"
     chmod +x "$DEPS_DIR/ffmpeg/ffmpeg" "$DEPS_DIR/ffmpeg/ffprobe"
     codesign -s - -f "$DEPS_DIR/ffmpeg/ffmpeg" 2>/dev/null || true
     codesign -s - -f "$DEPS_DIR/ffmpeg/ffprobe" 2>/dev/null || true
+    assert_ffmpeg_series "$DEPS_DIR/ffmpeg/ffmpeg"
     echo "  Installed static arm64 FFmpeg from martin-riedl.de"
 fi
 
@@ -1506,6 +1552,10 @@ else
     # 0.19.0. `zig build` also fetches zsmooth's own Zig dependencies
     # (vapoursynth headers, fftw), so this step needs network access.
     ZIG_VERSION="0.15.2"
+    # The fftw fork zsmooth depends on, pinned to the same ref its
+    # build.zig.zon names. Keep in step when ZSMOOTH_VERSION moves:
+    # a mismatch here would silently build a different fftw.
+    FFTW_FORK_TAG="v3.3.11-2"
     # Zig needs a full x.y version here: "x86_64-macos.12" is rejected as an
     # invalid OS version, "x86_64-macos.12.0" is accepted. Tolerate a bare
     # major from a $MACOS_MIN_VERSION override.
@@ -1538,10 +1588,53 @@ else
                 mkdir -p zig-toolchain
                 tar -xf zig.tar.xz -C zig-toolchain --strip-components=1
             fi
-            rm -rf zsmooth
+            rm -rf zsmooth fftw-patched
             git clone --depth 1 --branch "$ZSMOOTH_VERSION" \
                 https://github.com/adworacz/zsmooth.git zsmooth
+
+            # zsmooth's Zig fftw port declares HAVE_MEMALIGN on every non-Windows
+            # target, but macOS has no memalign() — it is declared in <malloc.h>,
+            # which the SAME file already knows macOS lacks (HAVE_MALLOC_H is
+            # gated on !is_mac). fftw's kalloc.c only reaches that branch when
+            # MIN_ALIGNMENT is 32, i.e. when AVX is enabled, so the bug is
+            # invisible at the SSE-level baselines and kills ONLY the haswell
+            # build, with a clang implicit-declaration error inside a dependency.
+            # HAVE_POSIX_MEMALIGN is already true, so clearing this falls through
+            # to posix_memalign, which macOS does have.
+            #
+            # Patched via a local path dependency rather than by editing Zig's
+            # global package cache: path deps take no hash, so this is
+            # deterministic and cannot be invalidated by a cache wipe.
+            git clone --depth 1 --branch "$FFTW_FORK_TAG" \
+                https://github.com/adworacz/fftw.git fftw-patched
+            if ! grep -q '.HAVE_MEMALIGN = if (!is_windows) true else null,' \
+                    fftw-patched/build.zig; then
+                echo "  ERROR: the fftw HAVE_MEMALIGN line is not what the patch expects." >&2
+                echo "  Upstream may have fixed it — re-check before removing this patch." >&2
+                exit 1
+            fi
+            # `is_mac` is already defined in that file.
+            sed -i.bak \
+                's/\.HAVE_MEMALIGN = if (!is_windows) true else null,/.HAVE_MEMALIGN = if (!is_windows and !is_mac) true else null,/' \
+                fftw-patched/build.zig
+            grep -q '.HAVE_MEMALIGN = if (!is_windows and !is_mac) true else null,' \
+                fftw-patched/build.zig || { echo "  ERROR: fftw memalign patch did not apply" >&2; exit 1; }
+
             cd zsmooth
+            # Repoint the fftw dependency at the patched clone. A path dependency
+            # carries no hash field, so the url+hash pair is replaced wholesale.
+            "$PYTHON_BIN" - <<'ZONEOF'
+import io, re
+p = "build.zig.zon"
+s = io.open(p, encoding="utf-8").read()
+pat = re.compile(r'\.fftw = \.\{[^}]*\}', re.S)
+if not pat.search(s):
+    raise SystemExit("ERROR: no .fftw dependency block in zsmooth build.zig.zon")
+s = pat.sub('.fftw = .{ .path = "../fftw-patched" }', s, count=1)
+io.open(p, "w", encoding="utf-8").write(s)
+print("  fftw repointed to the patched local clone")
+ZONEOF
+
             "$BUILD_DIR/zig-toolchain/zig" build \
                 -Doptimize=ReleaseFast \
                 -Dtarget="x86_64-macos.${ZIG_MACOS_MIN}" \
@@ -1558,7 +1651,7 @@ else
             echo "  Warning: failed to build zsmooth ($zs_target)"
             FAILED_PLUGINS+=("zsmooth-$zs_target")
         fi
-        rm -rf "$BUILD_DIR/zsmooth"
+        rm -rf "$BUILD_DIR/zsmooth" "$BUILD_DIR/fftw-patched"
     done
     rm -rf "$BUILD_DIR/zig-toolchain" "$BUILD_DIR/zig.tar.xz"
 fi

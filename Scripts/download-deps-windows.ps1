@@ -149,7 +149,17 @@ Write-Host ""
 Write-Host "[2/7] Downloading FFmpeg..." -ForegroundColor Yellow
 
 $FFmpegZip = Join-Path $TempDir "ffmpeg.zip"
-$FFmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+# FFmpeg major.minor series. THIS MUST MATCH the same pin in
+# download-deps-{linux,macos}.sh — app/test/ffmpeg_version_pin_test.dart fails
+# the push gate if the three drift. A per-OS FFmpeg is a per-OS encoder: the
+# arguments in pipeline_executor.rs would then mean subtly different things
+# depending on where the job ran.
+#
+# This was `ffmpeg-master-latest-win64-gpl.zip` until 2026-08-31 — an UNPINNED
+# moving target, which is how Windows came to ship a post-9.0 master build
+# while Linux was still pinned at 7.1.
+$FFmpegSeries = "9.0"
+$FFmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n$FFmpegSeries-latest-win64-gpl-$FFmpegSeries.zip"
 
 if (-not (Test-Path "$FullTargetDir\ffmpeg\ffmpeg.exe")) {
     Download-File -Url $FFmpegUrl -OutFile $FFmpegZip
@@ -167,7 +177,19 @@ if (-not (Test-Path "$FullTargetDir\ffmpeg\ffmpeg.exe")) {
 
     Remove-Item $FFmpegZip -Force
     Remove-Item $FFmpegTempDir -Recurse -Force
-    Write-Host "  FFmpeg installed" -ForegroundColor Green
+
+    # Fail the build if what landed is not the series we pinned. Without this,
+    # an upstream URL change reintroduces cross-platform skew unnoticed.
+    $FFmpegVersionLine = & "$FullTargetDirfmpegfmpeg.exe" -version 2>$null | Select-Object -First 1
+    if ($FFmpegVersionLine -notmatch '^ffmpeg version n?(\d+\.\d+)') {
+        throw "Could not read a version from the installed ffmpeg.exe (got: $FFmpegVersionLine)"
+    }
+    if ($Matches[1] -ne $FFmpegSeries) {
+        throw ("FFmpeg is $($Matches[1]) but this bundle pins $FFmpegSeries. Upstream moved " +
+               "the URL to a different series. Update the series in ALL THREE " +
+               "download-deps-* scripts together, or platforms drift.")
+    }
+    Write-Host "  FFmpeg $($Matches[1]) installed (matches the pinned $FFmpegSeries series)" -ForegroundColor Green
 } else {
     Write-Host "  FFmpeg already installed" -ForegroundColor Gray
 }

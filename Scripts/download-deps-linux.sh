@@ -53,6 +53,38 @@ NPROC=$(nproc)
 PYTHON_VERSION="3.12.8"
 PYTHON_MAJOR_MINOR="3.12"
 
+# FFmpeg major.minor series. THIS MUST MATCH the same pin in
+# download-deps-macos.sh and download-deps-windows.ps1 —
+# app/test/ffmpeg_version_pin_test.dart fails the push gate if the three drift.
+# A per-OS FFmpeg is a per-OS encoder: the arguments in pipeline_executor.rs
+# would then mean subtly different things depending on where the job ran.
+#
+# Pinning the SERIES rather than a full version is deliberate. Every upstream
+# here publishes "latest build of the X.Y branch" and garbage-collects older
+# series, so a full-version pin cannot be held for long — that is precisely how
+# the previous n7.1 pin turned into a 404.
+FFMPEG_SERIES="9.0"
+
+# Fail the build if the FFmpeg we installed is not the series we pinned.
+# Without this, an upstream that silently redirects "latest" to a new series
+# reintroduces cross-platform skew with nothing to notice it.
+assert_ffmpeg_series() {
+    local bin="$1"
+    local reported
+    reported=$("$bin" -version 2>/dev/null | head -1 | sed -n 's/^ffmpeg version n\{0,1\}\([0-9]\{1,\}\.[0-9]\{1,\}\).*//p')
+    if [ -z "$reported" ]; then
+        echo "  ERROR: could not read a version from $bin" >&2
+        exit 1
+    fi
+    if [ "$reported" != "$FFMPEG_SERIES" ]; then
+        echo "  ERROR: FFmpeg is $reported but this bundle pins $FFMPEG_SERIES." >&2
+        echo "  Upstream moved the URL to a different series. Update FFMPEG_SERIES" >&2
+        echo "  in ALL THREE download-deps-* scripts together, or platforms drift." >&2
+        exit 1
+    fi
+    echo "  FFmpeg $reported (matches the pinned $FFMPEG_SERIES series)"
+}
+
 echo "=== VapourBox Linux Dependencies Builder ==="
 echo "Architecture: $ARCH"
 echo "Platform: $PLATFORM_DIR"
@@ -447,13 +479,16 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/ffmpeg/ffmpeg" ]; then
     # gracefully at init. (The previous John Van Sickle build had no hw accel.)
     BTBN_BASE="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest"
     if [ "$ARCH" = "x86_64" ]; then
-        FFMPEG_URL="$BTBN_BASE/ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz"
+        FFMPEG_URL="$BTBN_BASE/ffmpeg-n${FFMPEG_SERIES}-latest-linux64-gpl-${FFMPEG_SERIES}.tar.xz"
     else
-        FFMPEG_URL="$BTBN_BASE/ffmpeg-n7.1-latest-linuxarm64-gpl-7.1.tar.xz"
+        FFMPEG_URL="$BTBN_BASE/ffmpeg-n${FFMPEG_SERIES}-latest-linuxarm64-gpl-${FFMPEG_SERIES}.tar.xz"
     fi
 
-    echo "  Downloading static FFmpeg (BtbN, hardware-enabled)..."
-    curl -L -o "$BUILD_DIR/ffmpeg.tar.xz" "$FFMPEG_URL"
+    echo "  Downloading static FFmpeg $FFMPEG_SERIES (BtbN, hardware-enabled)..."
+    # -f, or a 404 body is written to the tarball and surfaces much later as an
+    # unexplained `tar: Error is not recoverable`. That is exactly how the n7.1
+    # asset ageing out of BtbN's rolling `latest` tag presented.
+    curl -fL -o "$BUILD_DIR/ffmpeg.tar.xz" "$FFMPEG_URL"
 
     echo "  Extracting..."
     tar -xJf "$BUILD_DIR/ffmpeg.tar.xz" -C "$BUILD_DIR"
@@ -468,6 +503,7 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/ffmpeg/ffmpeg" ]; then
     cp "$FFMPEG_DIR/ffmpeg" "$DEPS_DIR/ffmpeg/"
     cp "$FFMPEG_DIR/ffprobe" "$DEPS_DIR/ffmpeg/"
     chmod +x "$DEPS_DIR/ffmpeg/ffmpeg" "$DEPS_DIR/ffmpeg/ffprobe"
+    assert_ffmpeg_series "$DEPS_DIR/ffmpeg/ffmpeg"
     echo "  Downloaded FFmpeg"
 else
     echo "  FFmpeg already exists, skipping"

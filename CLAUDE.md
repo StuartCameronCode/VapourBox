@@ -871,6 +871,59 @@ which any documentation would have shown:
 > is silently lost at 16-bit. Good news: bm3d is never reached, so it needs no
 > deps addition. Implementable, but effort 3 and blocked on the licence.
 
+### FFmpeg is pinned to one series, and the pin is asserted (2026-08-31)
+
+The bundled FFmpeg is what actually interprets everything in
+`pipeline_executor.rs` — the accumulated `-vf` chain, the colour metadata
+flags, `-ss`/`-frames:v` trimming, the hardware-encoder options. So a version
+skew between platforms means the same job encodes differently depending on
+where it ran, silently. It is the same class of hazard as the fmtconv and
+zsmooth version pins, and it had been true for months without anyone noticing:
+
+| | FFmpeg, measured 2026-08-31 | how |
+|---|---|---|
+| Windows | **master N-125978** (post-9.0) | BtbN `master-latest`, **unpinned** |
+| macOS x64 | 9.0.1 | evermeet `getrelease`, **unpinned** |
+| macOS arm64 | 9.0.1 | martin-riedl `latest`, **unpinned** |
+| Linux | **7.1**, two majors behind | BtbN `n7.1`, pinned |
+
+Three floated on "latest" and the fourth was pinned to a series BtbN then
+garbage-collected, which 404'd the Linux deps build outright. All four now pin
+**9.0**.
+
+> **A version pin against a rolling tag is not a pin.** BtbN publish every
+> series to one `latest` tag and drop old ones as they age, so `n7.1` was always
+> going to become a 404 — it was a matter of when. Pin the **series**
+> (`n9.0-latest`, newest build of the 9.0 branch), which is how all three
+> upstreams actually publish, and treat a series bump as a deliberate,
+> all-platforms-together change.
+
+> **`curl` without `-f` writes the 404 body to the output file.** That is why
+> the failure surfaced as `tar: Error is not recoverable` half a step later
+> rather than as a download error naming the URL — the "tarball" was nine bytes
+> reading `Not Found`. Every FFmpeg fetch now uses `-f`.
+
+Pinning differs per host because their retention does, and that is deliberate:
+
+- **BtbN** (Windows, Linux) — series URL, rolls patches within 9.0.
+- **evermeet** (macOS x64) — an exact version, `FFMPEG_MACOS_X64_VERSION`. It
+  keeps old versions reachable (verified: 7.1, 8.0 and 9.0.1 all still resolve),
+  so a full-version pin is durable here.
+- **martin-riedl** (macOS arm64) — only `latest` plus opaque build-id paths of
+  unknown retention, so it takes latest and is **checked afterwards**.
+
+Two guards, and both are needed. `assert_ffmpeg_series` in each script runs
+`ffmpeg -version` on what was actually installed and fails the build if it is
+not the pinned series — that catches an upstream silently moving a URL, which
+no amount of pinning can prevent. And `app/test/ffmpeg_version_pin_test.dart`
+(push gate) reads all three scripts and fails if their pins disagree, if a pin
+is not a bare `major.minor`, or if a script stops asserting. Without the second,
+the pins are just comments.
+
+Note the version parser accepts `n9.0.1` and `9.0.1` and deliberately **rejects
+a `master` build** (`N-125978-...`), so reverting any platform to an unpinned
+master URL is a red build rather than a silent regression.
+
 ### zsmooth ships once per CPU baseline, and is loaded by path (issue #82, 2026-08-28)
 
 A plugin can also have **no** dispatch at all. zsmooth is compiled for a whole
@@ -935,6 +988,29 @@ macOS x64 was already affected in the other direction: it builds from source for
 the issue #39 minos floor and had always used Zig's *default* baseline, i.e. the
 0.50/0.33 column. It now builds both, so Intel Macs get the fast path for the
 first time.
+
+> **The macOS haswell build needs an fftw patch, and the bug is one line
+> upstream.** zsmooth's Zig fftw port sets `HAVE_MEMALIGN` on every non-Windows
+> target, but macOS has no `memalign()` — it is declared in `<malloc.h>`, which
+> **the same file already knows macOS lacks** (`HAVE_MALLOC_H` is gated on
+> `!is_mac`). fftw's `kalloc.c` only reaches that branch when `MIN_ALIGNMENT` is
+> 32, i.e. when AVX is on, so it is invisible at every SSE-level baseline and
+> kills **only** the haswell build — with a clang implicit-declaration error
+> inside a dependency, which reads like a toolchain problem rather than a
+> one-line config bug. `HAVE_POSIX_MEMALIGN` is already true, so clearing it
+> falls through to `posix_memalign`.
+>
+> The patch clones the fftw fork at the ref `build.zig.zon` names, edits that
+> line, and repoints the dependency as a **path** dependency — path deps take no
+> hash, so this is deterministic and survives a cache wipe, unlike editing Zig's
+> global package cache. Both a pre-check and a post-check hard-fail, so an
+> upstream fix surfaces as a build error telling you to remove the patch rather
+> than silently doing nothing.
+>
+> Verified by **cross-compiling from Windows** (`-Dtarget=x86_64-macos.12.0
+> -Dcpu=haswell`), which reproduces the failure exactly and confirms the fix in
+> about four minutes — far cheaper than a macOS CI round trip, and worth
+> remembering for any Zig-built plugin: the target does not have to be the host.
 
 > **The fallback is not a different picture, only a slower one.** The two builds
 > produced identical chroma means (U=123.884, V=131.096) on the same clip, so
@@ -3069,6 +3145,6 @@ Create the app-specific password at appleid.apple.com → Sign-In and Security �
 | 1.0.0 | 2025-01-15 | Initial release |
 | … | | (1.1.0–1.6.0 went unrecorded) |
 | 1.7.0 | 2026-08-01 | Fixes QTGMC Placebo/Very Slow brightening and near-black Draft on arm64, via `Scripts/patches/fmtconv-r31-arm-int-scaler.patch` (root cause: sign constants in fmtconv's non-SIMD integer scaler) plus havsfunc patch 5 as defence in depth; fmtconv r30 → **r31**, now pinned and sourced from GitLab on every platform. **Rebuilt 2026-08-02** to add the **zsmooth** plugin (MIT), providing `core.zsmooth.CCD` plus `Cnr4` and a set of RemoveGrain/TemporalMedian-family filters. Version pinned to 0.19.0 in all three download scripts — keep them in step so the same job can't produce different chroma per OS. Taken pre-built everywhere except macOS x64, which builds it with Zig to reach `minos 12.0` (see the macOS platform notes) |
-| 1.10.0 | 2026-08-28 | Fixes **issue #82**: zsmooth now ships **one build per CPU baseline** on x86 (`haswell` and `x86_64_v2`) in `vapoursynth/zsmooth/`, outside the autoload directory, with the worker loading exactly one by path. Upstream builds it for an AVX2 baseline with no runtime dispatch, so the shipped binary died with an illegal instruction (`0xC000001D`) on any pre-2013 CPU the instant a filter ran — silently, since vspipe prints nothing on a native crash. The portable build has no upstream asset, so Windows and Linux compile it with a pinned Zig toolchain (Windows' first from-source plugin; Zig needs no MSVC). macOS x64 builds both, which also makes Intel Macs fast for the first time — that arch had always used Zig's default SSE2 baseline, measured 2-3x slower on CCD/Cnr4. Same zsmooth version (0.19.0), so no output changes on any machine that already worked |
+| 1.10.0 | 2026-08-31 | Fixes **issue #82**: zsmooth now ships **one build per CPU baseline** on x86 (`haswell` and `x86_64_v2`) in `vapoursynth/zsmooth/`, outside the autoload directory, with the worker loading exactly one by path. Upstream builds it for an AVX2 baseline with no runtime dispatch, so the shipped binary died with an illegal instruction (`0xC000001D`) on any pre-2013 CPU the instant a filter ran — silently, since vspipe prints nothing on a native crash. The portable build has no upstream asset, so Windows and Linux compile it with a pinned Zig toolchain (Windows' first from-source plugin; Zig needs no MSVC). macOS x64 builds both, which also makes Intel Macs fast for the first time — that arch had always used Zig's default SSE2 baseline, measured 2-3x slower on CCD/Cnr4. Same zsmooth version (0.19.0), so no output changes on any machine that already worked. Also brings **FFmpeg to 9.0 on all four platforms and pins it**: they had silently diverged (Windows on an unpinned post-9.0 master build, both macOS arches floating on 9.0.1, Linux pinned at 7.1), and BtbN garbage-collecting the n7.1 asset from its rolling `latest` tag 404'd the Linux deps build outright. Each script now verifies the installed binary's series and a push-gate test fails if the three pins disagree |
 | 1.9.0 | 2026-08-15 | Adds three plugins. **fluxsmooth** (`core.flux.SmoothT` / `SmoothST`), which also unlocks havsfunc's **STPresso** — it calls `core.flux.SmoothT` internally and raised "No attribute with the name flux exists" without it. Pinned to **v2** on every platform: that is the newest tag with a published Windows binary, and `download-deps-windows.ps1` has no from-source path, so macOS/Linux track the version Windows can get rather than letting the same job denoise differently per OS. Built on macOS/Linux by invoking the compiler directly on its single C file rather than through its autotools build, so no new build dependency (autoconf/automake/libtool) is added to CI. Also adds **bifrost** (`core.bifrost.Bifrost`, temporal rainbow/dot-crawl removal, pinned v3.0) and **retinex** (`core.retinex.MSRCP`, shadow-detail lift, pinned r4) — both chosen because their *newest* release ships a Windows binary, so no version skew, and both link nothing beyond system libraries. bifrost is another single C file compiled directly, but it includes `<vapoursynth/VapourSynth4.h>` so the scripts stage a small include root whose parent is passed to `-I`; retinex is an ordinary meson build resolving headers through pkg-config |
 | 1.8.0 | 2026-08-07 | VapourSynth **R73 → R78** on every platform, which moves Windows to a Python 3.12 wheel layout and makes `deps/<platform>/vapoursynth/` the Python package itself on macOS/Linux (see the R78 sections). Adds the **akarin** plugin (LGPL-3.0, statically links LLVM 22.1.2) supplying an LLVM JIT for `std.Expr`, routed in via havsfunc **patch 7** and the templates' `_expr()` helper — worth **4.1x** on arm64 QTGMC Slow, since VapourSynth's own Expr JIT is x86-only. **Not** shipped on macos-x64, whose only wheel would raise the Intel floor to macOS 14 (issue #39). Fixes the **nnedi3** build on linux-arm64, which had never produced a binary (`-mfpu=neon` and `HWCAP_ARM_*` are both 32-bit-ARM-only), and drops the plugin from linux-x64's expected list to match the other x86 bundles. **BestSource removed** — nothing had called it since the pipe source replaced it. Linux now needs **glibc 2.39** (ubuntu-24.04), so Ubuntu 22.04 and Debian 12 can no longer run it |
