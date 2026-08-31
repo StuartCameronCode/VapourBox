@@ -180,7 +180,8 @@ if (-not (Test-Path "$FullTargetDir\ffmpeg\ffmpeg.exe")) {
 
     # Fail the build if what landed is not the series we pinned. Without this,
     # an upstream URL change reintroduces cross-platform skew unnoticed.
-    $FFmpegVersionLine = & "$FullTargetDirfmpegfmpeg.exe" -version 2>$null | Select-Object -First 1
+    $InstalledFFmpeg = Join-Path (Join-Path $FullTargetDir "ffmpeg") "ffmpeg.exe"
+    $FFmpegVersionLine = & $InstalledFFmpeg -version 2>$null | Select-Object -First 1
     if ($FFmpegVersionLine -notmatch '^ffmpeg version n?(\d+\.\d+)') {
         throw "Could not read a version from the installed ffmpeg.exe (got: $FFmpegVersionLine)"
     }
