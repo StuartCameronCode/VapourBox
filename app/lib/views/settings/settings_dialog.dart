@@ -810,10 +810,12 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
             if (settings.codec.availablePresets != null)
               const SizedBox(height: 24),
 
-            // Quality (not applicable for lossless codecs). Intel VideoToolbox has
-            // no constant-quality mode, so it gets a native target-bitrate control
+            // Quality. Three cases, because two codec families read nothing
+            // from `quality` (see VideoCodec.hasQualityControl) and must not be
+            // shown a slider that does nothing. Intel VideoToolbox has no
+            // constant-quality mode, so it gets a native target-bitrate control
             // instead of the CRF slider.
-            if (!settings.codec.isLossless)
+            if (settings.codec.hasQualityControl)
               _buildSection(
                 context,
                 title: 'Quality',
@@ -822,33 +824,18 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                     : _buildCrfQuality(context, viewModel, settings),
               ),
 
-            // Note for lossless codec
-            if (settings.codec.isLossless)
+            // Note for codecs whose quality is not ours to set.
+            if (!settings.codec.hasQualityControl)
               _buildSection(
                 context,
                 title: 'Quality',
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        size: 20,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'This is a lossless codec. No quality setting is needed.',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ),
-                    ],
-                  ),
+                child: _buildFixedQualityNote(
+                  context,
+                  settings.codec.isProRes
+                      ? '${settings.codec.displayName} encodes at a fixed quality '
+                          'set by the profile. There is no quality setting — pick a '
+                          'different profile for a different data rate.'
+                      : 'This is a lossless codec. No quality setting is needed.',
                 ),
               ),
 
@@ -1236,6 +1223,35 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
               fontWeight: FontWeight.bold,
               letterSpacing: 0.5,
             ),
+      ),
+    );
+  }
+
+  /// The panel shown in place of the quality slider for codecs whose quality
+  /// the worker does not set — lossless and ProRes. One helper for both so the
+  /// two cannot drift into looking like different kinds of message.
+  Widget _buildFixedQualityNote(BuildContext context, String message) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.info_outline,
+            size: 20,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ),
+        ],
       ),
     );
   }
