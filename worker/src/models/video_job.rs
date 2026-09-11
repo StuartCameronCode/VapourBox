@@ -445,9 +445,35 @@ pub enum ChromaSubsampling {
     /// Convert to 10-bit YUV422 — keeps a 10-bit source's precision while
     /// normalizing chroma, and gives an 8-bit source headroom for gradients.
     Yuv422P10,
+    /// Convert to 10-bit YUV444 — full chroma resolution. Needed by ProRes 4444
+    /// and 4444 XQ, which store 4:4:4; no hardware encoder in this app takes it.
+    ///
+    /// Verified end to end before shipping, because a format the Y4M pipe
+    /// cannot name is a hard job failure rather than an error (the `Turn90`
+    /// 4:4:0 trap): vspipe emits the header `C444p10` and ffmpeg's demuxer
+    /// accepts it. Note ffmpeg's Y4M *muxer* calls both this and the
+    /// already-shipping `yuv422p10le` "not an official yuv4mpegpipe pixel
+    /// format" — irrelevant here, because vspipe is the muxer, not ffmpeg.
+    Yuv444P10,
 }
 
 impl ChromaSubsampling {
+    /// Every variant, so tests can sweep them instead of hand-listing.
+    ///
+    /// The hand-written list this replaces had gone stale without failing —
+    /// `Yuv420P10` was missing from it, so that variant was never checked at
+    /// all. `every_chroma_subsampling_is_listed` keeps this honest from both
+    /// ends: a match with no catch-all makes a new variant a compile error, and
+    /// the length assertion then fails until it is added here too.
+    pub const ALL: &'static [ChromaSubsampling] = &[
+        ChromaSubsampling::Original,
+        ChromaSubsampling::Yuv420,
+        ChromaSubsampling::Yuv420P10,
+        ChromaSubsampling::Yuv422,
+        ChromaSubsampling::Yuv422P10,
+        ChromaSubsampling::Yuv444P10,
+    ];
+
     /// The VapourSynth format constant the pipeline converts to, or `None` for
     /// `Original` (no conversion at all).
     pub fn vapoursynth_format(&self) -> Option<&'static str> {
@@ -457,6 +483,7 @@ impl ChromaSubsampling {
             ChromaSubsampling::Yuv420P10 => Some("vs.YUV420P10"),
             ChromaSubsampling::Yuv422 => Some("vs.YUV422P8"),
             ChromaSubsampling::Yuv422P10 => Some("vs.YUV422P10"),
+            ChromaSubsampling::Yuv444P10 => Some("vs.YUV444P10"),
         }
     }
 
@@ -475,6 +502,7 @@ impl ChromaSubsampling {
             ChromaSubsampling::Yuv420P10 => Some("yuv420p10le"),
             ChromaSubsampling::Yuv422 => Some("yuv422p"),
             ChromaSubsampling::Yuv422P10 => Some("yuv422p10le"),
+            ChromaSubsampling::Yuv444P10 => Some("yuv444p10le"),
         }
     }
 }
@@ -1051,19 +1079,58 @@ mod tests {
     /// decides whether a hardware encoder can take it.
     #[test]
     fn chroma_subsampling_names_agree() {
-        for cs in [
-            ChromaSubsampling::Original,
-            ChromaSubsampling::Yuv420,
-            ChromaSubsampling::Yuv420P10,
-            ChromaSubsampling::Yuv422,
-            ChromaSubsampling::Yuv422P10,
-        ] {
+        for cs in ChromaSubsampling::ALL {
             assert_eq!(
                 cs.vapoursynth_format().is_some(),
                 cs.ffmpeg_pix_fmt().is_some(),
                 "{cs:?} declares one output format name but not the other"
             );
         }
+    }
+
+    /// Keeps `ChromaSubsampling::ALL` complete, so every table driven from it
+    /// really does cover the enum. The previous hand-written list had silently
+    /// lost `Yuv420P10`, which is the failure mode this closes: a skipped row
+    /// looks exactly like a passing one.
+    #[test]
+    fn every_chroma_subsampling_is_listed() {
+        // No catch-all arm: a new variant stops compiling here until it is
+        // handled, at which point the length assertion below demands it be
+        // added to ALL as well.
+        for cs in ChromaSubsampling::ALL {
+            match cs {
+                ChromaSubsampling::Original
+                | ChromaSubsampling::Yuv420
+                | ChromaSubsampling::Yuv420P10
+                | ChromaSubsampling::Yuv422
+                | ChromaSubsampling::Yuv422P10
+                | ChromaSubsampling::Yuv444P10 => {}
+            }
+        }
+        assert_eq!(
+            ChromaSubsampling::ALL.len(),
+            6,
+            "a ChromaSubsampling variant was added without listing it in ALL"
+        );
+    }
+
+    /// The 4:4:4 option exists for ProRes 4444, and both of its names have to
+    /// be right or the conversion silently does nothing useful.
+    #[test]
+    fn yuv444p10_declares_both_names() {
+        assert_eq!(
+            ChromaSubsampling::Yuv444P10.vapoursynth_format(),
+            Some("vs.YUV444P10")
+        );
+        assert_eq!(
+            ChromaSubsampling::Yuv444P10.ffmpeg_pix_fmt(),
+            Some("yuv444p10le")
+        );
+        // The wire name the Dart enum's `value` string must match.
+        assert_eq!(
+            serde_json::to_string(&ChromaSubsampling::Yuv444P10).unwrap(),
+            "\"yuv444p10\""
+        );
     }
 
     #[test]

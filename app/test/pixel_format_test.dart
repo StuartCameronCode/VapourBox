@@ -155,12 +155,20 @@ void main() {
   group('ChromaSubsampling output depth', () {
     test('every option declares the depth it converts to', () {
       // The warning above is driven entirely by this field, so a new option
-      // that forgets it would silently stop warning.
-      expect(ChromaSubsampling.original.outputBitDepth, isNull);
-      expect(ChromaSubsampling.yuv420.outputBitDepth, 8);
-      expect(ChromaSubsampling.yuv420p10.outputBitDepth, 10);
-      expect(ChromaSubsampling.yuv422.outputBitDepth, 8);
-      expect(ChromaSubsampling.yuv422p10.outputBitDepth, 10);
+      // that forgets it would silently stop warning. Driven by `values` rather
+      // than a hand-written list, which is how `yuv420p10` sat unchecked here.
+      for (final format in ChromaSubsampling.values) {
+        if (format == ChromaSubsampling.original) {
+          expect(format.outputBitDepth, isNull,
+              reason: '"Match source" converts nothing, so it has no depth');
+          continue;
+        }
+        expect(format.outputBitDepth, isNotNull,
+            reason: '${format.value} must declare its depth or it stops '
+                'warning about reducing a deeper source');
+        expect(format.label, contains('${format.outputBitDepth}-bit'),
+            reason: '${format.value}: the label and the field must agree');
+      }
     });
 
     test('values match the worker enum serde names', () {
@@ -172,6 +180,29 @@ void main() {
       expect(ChromaSubsampling.yuv420p10.value, 'yuv420p10');
       expect(ChromaSubsampling.yuv422.value, 'yuv422');
       expect(ChromaSubsampling.yuv422p10.value, 'yuv422p10');
+      expect(ChromaSubsampling.yuv444p10.value, 'yuv444p10');
+      // The count is the half that catches an option added here but never
+      // mirrored into the Rust enum — the assertions above only cover the
+      // names someone thought to write down.
+      expect(ChromaSubsampling.values.length, 6,
+          reason: 'a new option must also exist in ChromaSubsampling in '
+              'worker/src/models/video_job.rs, with a matching serde name');
+    });
+
+    test('the chroma layout of every option is read from its own name', () {
+      // Pins the fix to hardwareEncoderChromaWarning's `default:` arm, which
+      // used to return c422 for anything that was not 4:2:0 — so the 4:4:4
+      // option would have been described as 4:2:2 on screen.
+      expect(pixelFormatChromaLayout(ChromaSubsampling.yuv420.value),
+          ChromaLayout.c420);
+      expect(pixelFormatChromaLayout(ChromaSubsampling.yuv420p10.value),
+          ChromaLayout.c420);
+      expect(pixelFormatChromaLayout(ChromaSubsampling.yuv422.value),
+          ChromaLayout.c422);
+      expect(pixelFormatChromaLayout(ChromaSubsampling.yuv422p10.value),
+          ChromaLayout.c422);
+      expect(pixelFormatChromaLayout(ChromaSubsampling.yuv444p10.value),
+          ChromaLayout.c444);
     });
   });
 }

@@ -74,7 +74,11 @@ enum ChromaSubsampling {
   yuv422('yuv422', '4:2:2 8-bit', 'more colour detail', 8),
   /// Convert to 10-bit YUV422: keeps a 10-bit source's precision while
   /// normalizing chroma, and gives an 8-bit source headroom for gradients.
-  yuv422p10('yuv422p10', '4:2:2 10-bit', 'keeps 10-bit precision', 10);
+  yuv422p10('yuv422p10', '4:2:2 10-bit', 'keeps 10-bit precision', 10),
+  /// Convert to 10-bit YUV444: full chroma resolution, no subsampling at all.
+  /// What ProRes 4444 stores, and what the software x264/x265 encoders can
+  /// take. No GPU encoder in this app can (see [hardwareEncoderChromaWarning]).
+  yuv444p10('yuv444p10', '4:4:4 10-bit', 'full chroma, no GPU encoders', 10);
 
   const ChromaSubsampling(
       this.value, this.label, this.blurb, this.outputBitDepth);
