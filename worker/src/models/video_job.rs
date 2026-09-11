@@ -585,6 +585,12 @@ pub enum VideoCodec {
 
     #[serde(rename = "prores_ks -profile:v 3")]
     ProResHQ,
+
+    #[serde(rename = "prores_ks -profile:v 4")]
+    ProRes4444,
+
+    #[serde(rename = "prores_ks -profile:v 5")]
+    ProRes4444Xq,
 }
 
 /// Encoder family for grouping quality/preset logic.
@@ -621,6 +627,8 @@ impl VideoCodec {
             VideoCodec::ProResLT => "prores_ks",
             VideoCodec::ProRes422 => "prores_ks",
             VideoCodec::ProResHQ => "prores_ks",
+            VideoCodec::ProRes4444 => "prores_ks",
+            VideoCodec::ProRes4444Xq => "prores_ks",
         }
     }
 
@@ -644,6 +652,8 @@ impl VideoCodec {
         VideoCodec::ProResLT,
         VideoCodec::ProRes422,
         VideoCodec::ProResHQ,
+        VideoCodec::ProRes4444,
+        VideoCodec::ProRes4444Xq,
     ];
 
     /// Get the ProRes profile value, if applicable.
@@ -660,6 +670,8 @@ impl VideoCodec {
             VideoCodec::ProResLT => Some(1),
             VideoCodec::ProRes422 => Some(2),
             VideoCodec::ProResHQ => Some(3),
+            VideoCodec::ProRes4444 => Some(4),
+            VideoCodec::ProRes4444Xq => Some(5),
             VideoCodec::H264
             | VideoCodec::H265
             | VideoCodec::H264Nvenc
@@ -866,7 +878,9 @@ impl VideoCodec {
             VideoCodec::ProResProxy
             | VideoCodec::ProResLT
             | VideoCodec::ProRes422
-            | VideoCodec::ProResHQ => EncoderFamily::ProRes,
+            | VideoCodec::ProResHQ
+            | VideoCodec::ProRes4444
+            | VideoCodec::ProRes4444Xq => EncoderFamily::ProRes,
         }
     }
 
@@ -901,6 +915,8 @@ impl VideoCodec {
             VideoCodec::ProResLT => "ProRes LT",
             VideoCodec::ProRes422 => "ProRes 422",
             VideoCodec::ProResHQ => "ProRes 422 HQ",
+            VideoCodec::ProRes4444 => "ProRes 4444",
+            VideoCodec::ProRes4444Xq => "ProRes 4444 XQ",
         }
     }
 }
@@ -988,6 +1004,14 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&VideoCodec::ProResHQ).unwrap(),
             "\"prores_ks -profile:v 3\""
+        );
+        assert_eq!(
+            serde_json::to_string(&VideoCodec::ProRes4444).unwrap(),
+            "\"prores_ks -profile:v 4\""
+        );
+        assert_eq!(
+            serde_json::to_string(&VideoCodec::ProRes4444Xq).unwrap(),
+            "\"prores_ks -profile:v 5\""
         );
         assert_eq!(
             serde_json::to_string(&VideoCodec::H264Nvenc).unwrap(),
@@ -1178,6 +1202,36 @@ mod tests {
                     "{codec:?} stores 4:2:2 whatever {fmt} was"
                 );
             }
+            for codec in [VideoCodec::ProRes4444, VideoCodec::ProRes4444Xq] {
+                assert_eq!(
+                    codec.forced_pix_fmt(fmt),
+                    Some("yuv444p10le"),
+                    "{codec:?} stores 4:4:4 whatever {fmt} was — unpinned, \
+                     ffmpeg hands it 4:2:2 and the 4444 stamp becomes a lie"
+                );
+            }
+        }
+    }
+
+    /// The pin and the profile have to agree, or the container says one thing
+    /// and the samples are another. Derived from the profile number rather than
+    /// listed per codec, so a profile added later cannot be missed.
+    #[test]
+    fn prores_pin_matches_the_profile_it_claims() {
+        for codec in VideoCodec::ALL.iter().copied() {
+            let Some(profile) = codec.prores_profile() else {
+                continue;
+            };
+            let expected = if profile >= 4 {
+                "yuv444p10le"
+            } else {
+                "yuv422p10le"
+            };
+            assert_eq!(
+                codec.forced_pix_fmt("yuv420p"),
+                Some(expected),
+                "{codec:?} is profile {profile}"
+            );
         }
     }
 
@@ -1227,7 +1281,7 @@ mod tests {
         );
         assert_eq!(
             VideoCodec::ALL.len(),
-            17,
+            19,
             "a VideoCodec variant was added without listing it in ALL"
         );
     }
