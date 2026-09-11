@@ -871,19 +871,13 @@ impl PipelineExecutor {
         // NVENC/QSV cannot encode 4:2:2 on most hardware — issue #74).
         let encoder_input = job.encoder_input_pix_fmt();
         if let Some(pix_fmt) = settings.codec.forced_pix_fmt(&encoder_input) {
-            if pix_fmt != encoder_input {
-                // Say so in the job log. A silent downconversion is the right
-                // behaviour — failing the whole encode helps nobody — but it
-                // changes the output, so it must not also be invisible.
-                self.reporter.send_log(
-                    LogLevel::Info,
-                    &format!(
-                        "{} cannot encode {}; converting to {} for output",
-                        settings.codec.display_name(),
-                        encoder_input,
-                        pix_fmt
-                    ),
-                );
+            // Say so in the job log. A silent conversion is the right behaviour
+            // — failing the whole encode helps nobody — but it changes the
+            // output, so it must not also be invisible.
+            if let Some(note) =
+                Self::pix_fmt_change_note(settings.codec, &encoder_input, pix_fmt)
+            {
+                self.reporter.send_log(LogLevel::Info, &note);
             }
             args.extend(["-pix_fmt".to_string(), pix_fmt.to_string()]);
         }
@@ -1031,6 +1025,53 @@ impl PipelineExecutor {
         }
         let bps = w * h * fps * bpp;
         ((bps / 1000.0).round() as u32).max(500)
+    }
+
+    /// What to tell the user when [`VideoCodec::forced_pix_fmt`] overrides the
+    /// format the pipeline produced, or `None` when there is nothing to say.
+    ///
+    /// Split out of `build_ffmpeg_args` so it can be tested: the arg-building
+    /// mirror used by the unit tests does not log, so any message written
+    /// inline there ships as unverified prose.
+    ///
+    /// The wording matters because the two reasons a format is overridden are
+    /// opposites. For a hardware encoder it is a genuine limitation and
+    /// something is lost. For ProRes it is the profile's definition — the
+    /// encoder could take the source format perfectly well, and a 4:2:0 source
+    /// into ProRes 4444 is *padded up*, losing nothing. The original single
+    /// sentence ("X cannot encode Y") was written for the first case and would
+    /// have told ProRes users their encoder was broken while it did exactly
+    /// what they asked.
+    fn pix_fmt_change_note(codec: VideoCodec, from: &str, to: &str) -> Option<String> {
+        if from == to {
+            return None;
+        }
+
+        let (from_chroma, from_depth) = pixel_format::chroma_and_depth(from);
+        let (to_chroma, to_depth) = pixel_format::chroma_and_depth(to);
+
+        if codec.is_prores() {
+            // Nothing is lost when both chroma and depth are kept or widened,
+            // which is the common case for a ProRes job: say nothing rather
+            // than report a conversion as if it were a cost.
+            if to_chroma >= from_chroma && to_depth >= from_depth {
+                return None;
+            }
+            return Some(format!(
+                "{} stores {}; converting {} to {} for output",
+                codec.display_name(),
+                to_chroma.label(),
+                from,
+                to
+            ));
+        }
+
+        Some(format!(
+            "{} cannot encode {}; converting to {} for output",
+            codec.display_name(),
+            from,
+            to
+        ))
     }
 
     /// Build encoder-family-specific quality and preset arguments.
@@ -2082,6 +2123,81 @@ mod tests {
         let args = build_ffmpeg_args_for_test(&job);
         let idx = args.iter().position(|a| a == "-pix_fmt").unwrap();
         assert_eq!(args[idx + 1], "p010le");
+    }
+
+    /// The ProRes pin has to reach the actual argument list, not just
+    /// `forced_pix_fmt` — that is the whole point of it.
+    #[test]
+    fn test_prores_pin_reaches_the_args() {
+        for (codec, expected) in [
+            (VideoCodec::ProResProxy, "yuv422p10le"),
+            (VideoCodec::ProResHQ, "yuv422p10le"),
+        ] {
+            let mut job = create_test_job("output.mov");
+            job.encoding_settings.codec = codec;
+            job.encoding_settings.container = ContainerFormat::Mov;
+            job.input_pixel_format = Some("yuv420p".to_string());
+
+            let args = build_ffmpeg_args_for_test(&job);
+            let idx = args
+                .iter()
+                .position(|a| a == "-pix_fmt")
+                .unwrap_or_else(|| panic!("{codec:?} emitted no -pix_fmt"));
+            assert_eq!(args[idx + 1], expected, "{codec:?}");
+
+            // And the profile still goes out alongside it.
+            let p = args.iter().position(|a| a == "-profile:v").unwrap();
+            assert_eq!(args[p + 1], codec.prores_profile().unwrap().to_string());
+        }
+    }
+
+    /// The job log must not tell a ProRes user their encoder "cannot encode"
+    /// a format it simply stores differently — and must say nothing at all when
+    /// the pin costs them nothing, which is the common case.
+    #[test]
+    fn test_prores_pin_message_does_not_claim_a_loss() {
+        // Padding 4:2:0 up to 4:2:2 loses nothing: stay quiet.
+        assert_eq!(
+            PipelineExecutor::pix_fmt_change_note(
+                VideoCodec::ProResHQ,
+                "yuv420p",
+                "yuv422p10le"
+            ),
+            None
+        );
+        // Same format in and out: nothing to report either.
+        assert_eq!(
+            PipelineExecutor::pix_fmt_change_note(
+                VideoCodec::ProRes422,
+                "yuv422p10le",
+                "yuv422p10le"
+            ),
+            None
+        );
+
+        // Dropping 4:4:4 to 4:2:2 is a real loss and must be reported — but as
+        // what ProRes stores, not as an encoder limitation.
+        let note = PipelineExecutor::pix_fmt_change_note(
+            VideoCodec::ProResHQ,
+            "yuv444p10le",
+            "yuv422p10le",
+        )
+        .expect("a chroma reduction must be logged");
+        assert!(note.contains("4:2:2"), "note should name the layout: {note}");
+        assert!(note.contains("yuv444p10le") && note.contains("yuv422p10le"));
+        assert!(
+            !note.contains("cannot encode"),
+            "ProRes can encode it; the profile decides the layout: {note}"
+        );
+
+        // A hardware encoder keeps the original wording, which is accurate there.
+        let hw = PipelineExecutor::pix_fmt_change_note(
+            VideoCodec::H265Nvenc,
+            "yuv422p10le",
+            "p010le",
+        )
+        .expect("a hardware substitution must be logged");
+        assert!(hw.contains("cannot encode"), "{hw}");
     }
 
     /// A 4:2:0 source into NVENC must emit no `-pix_fmt` at all, so the fix
