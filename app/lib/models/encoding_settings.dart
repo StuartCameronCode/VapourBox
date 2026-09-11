@@ -203,6 +203,14 @@ class EncodingSettings {
 
   /// Human-readable quality description.
   String get qualityDescription {
+    // Codecs whose quality the worker never reads must not be described in
+    // terms of a number that does nothing. ProRes is set by its profile;
+    // lossless has no quality at all.
+    if (!codec.hasQualityControl) {
+      return codec.isProRes
+          ? 'Fixed by the ${codec.displayName} profile'
+          : 'Lossless';
+    }
     if (codec == VideoCodec.h264Videotoolbox || codec == VideoCodec.h265Videotoolbox) {
       // VideoToolbox: CRF is remapped to q:v (inverted scale) in the worker.
       // Show quality in user-friendly terms based on the CRF value.
