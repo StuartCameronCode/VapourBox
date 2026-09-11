@@ -81,12 +81,12 @@ GPU-accelerated deinterlacing (NNEDI3CL) needs your GPU's OpenCL driver installe
 
 | | |
 |---|---|
-| **Video** | H.264, H.265, ProRes, FFV1 (lossless), with hardware encoding via VideoToolbox, NVENC, Quick Sync or AMF where available |
+| **Video** | H.264, H.265, ProRes (Proxy, LT, 422, 422 HQ, 4444, 4444 XQ), FFV1 (lossless), with hardware encoding via VideoToolbox, NVENC, Quick Sync or AMF where available |
 | **Audio** | Passthrough, or re-encode to AAC, Opus or FLAC, or strip |
 | **Containers** | MKV, MP4, MOV, AVI |
 | **Reads** | `.dv` · `.mts` `.m2ts` (AVCHD) · `.vob` `.m2v` `.mpg` `.mpeg` · `.mxf` · `.avi` `.mov` `.mp4` `.mkv` `.ts` `.wmv` `.webm` `.flv`, plus DVD discs and `VIDEO_TS` folders |
 | **Source formats** | 4:1:1 (NTSC DV), 4:1:0, 4:2:0/4:2:2/4:4:4 up to 16-bit, RGB, grayscale |
-| **Colour format out** | Match the source, or convert to 4:2:0 8-bit (plays everywhere), 4:2:2 8-bit, or 4:2:2 10-bit. Worth setting for a 10-bit source: matching it produces a 10-bit file that some players and browsers refuse to open |
+| **Colour format out** | Match the source, or convert to 4:2:0 8-bit (plays everywhere), 4:2:0 10-bit (the only 10-bit layout GPU encoders take), 4:2:2 8-bit, 4:2:2 10-bit, or 4:4:4 10-bit (ProRes 4444 and the software encoders). Worth setting for a 10-bit source: matching it produces a 10-bit file that some players and browsers refuse to open |
 | **Aspect ratio** | Non-square pixels preserved through the pipeline, including through a resize; or square up anamorphic pixels, force a display aspect, or letterbox to a target size |
 
 ## The filter pipeline
