@@ -205,7 +205,9 @@ enum VideoCodec {
   proresProxy('prores_ks -profile:v 0', 'ProRes Proxy'),
   proresLT('prores_ks -profile:v 1', 'ProRes LT'),
   prores422('prores_ks -profile:v 2', 'ProRes 422'),
-  proresHQ('prores_ks -profile:v 3', 'ProRes 422 HQ');
+  proresHQ('prores_ks -profile:v 3', 'ProRes 422 HQ'),
+  prores4444('prores_ks -profile:v 4', 'ProRes 4444'),
+  prores4444Xq('prores_ks -profile:v 5', 'ProRes 4444 XQ');
 
   const VideoCodec(this.value, this.displayName);
 
@@ -247,7 +249,11 @@ enum VideoCodec {
       case VideoCodec.prores422:
         return 'Broadcast quality';
       case VideoCodec.proresHQ:
-        return 'Highest ProRes quality';
+        return 'Highest 4:2:2 ProRes quality';
+      case VideoCodec.prores4444:
+        return 'Full 4:4:4 colour, for compositing';
+      case VideoCodec.prores4444Xq:
+        return 'Full 4:4:4 colour at the highest data rate';
     }
   }
 

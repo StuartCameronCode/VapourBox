@@ -1011,6 +1011,7 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                   ),
                   ..._buildChromaBitDepthWarning(viewModel, settings),
                   ..._buildChromaEncoderWarning(viewModel, settings),
+                  ..._buildProresChromaWarning(viewModel, settings),
                 ],
               ),
             ),
@@ -1130,6 +1131,22 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     return [const SizedBox(height: 12), WarningBanner(message: message)];
   }
 
+  /// Issue #81: a ProRes profile stores a chroma layout of its own, and the
+  /// worker pins it — so say when that overrides the selected colour format,
+  /// in either direction.
+  List<Widget> _buildProresChromaWarning(
+    MainViewModel viewModel,
+    EncodingSettings settings,
+  ) {
+    final message = proresChromaPinWarning(
+      codec: settings.codec,
+      chromaSubsampling: settings.chromaSubsampling,
+      pixelFormat: viewModel.videoInfo?.pixelFormat,
+    );
+    if (message == null) return const [];
+    return [const SizedBox(height: 12), WarningBanner(message: message)];
+  }
+
   /// Whether a hardware encoder is relevant to the current platform's GPU APIs:
   /// VideoToolbox is macOS-only; QSV/NVENC/AMF apply to Windows and Linux.
   /// (Software/ProRes/lossless codecs are platform-agnostic.)
@@ -1159,10 +1176,12 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
       VideoCodec.h264Videotoolbox, VideoCodec.h265Videotoolbox,
       VideoCodec.h264Amf, VideoCodec.h265Amf,
     ];
-    final proresCodecs = <VideoCodec>[
-      VideoCodec.proresProxy, VideoCodec.proresLT,
-      VideoCodec.prores422, VideoCodec.proresHQ,
-    ];
+    // Every ProRes codec, derived rather than hand-listed: this was the one
+    // place the group was enumerated, so a profile missing from it existed in
+    // the model and was unreachable in the UI, with no error. Order follows the
+    // enum, which runs Proxy -> 4444 XQ by ascending data rate.
+    final proresCodecs =
+        VideoCodec.values.where((c) => c.isProRes).toList(growable: false);
     final losslessCodecs = <VideoCodec>[
       VideoCodec.ffv1, VideoCodec.huffyuv, VideoCodec.ffvhuff,
     ];
