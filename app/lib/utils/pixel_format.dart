@@ -199,10 +199,13 @@ String? hardwareEncoderChromaWarning({
       depth = pixelFormatBitDepth(pixelFormat);
       describedAs = 'Your source is $pixelFormat, and "Match source" keeps it';
     default:
-      layout = chromaSubsampling == ChromaSubsampling.yuv420 ||
-              chromaSubsampling == ChromaSubsampling.yuv420p10
-          ? ChromaLayout.c420
-          : ChromaLayout.c422;
+      // Derived from the option's own format name rather than enumerated.
+      // The hand-written test this replaces returned c422 for anything that
+      // was not one of the two 4:2:0 variants, so the 4:4:4 option would have
+      // reported "cannot encode 4:2:2 on most GPUs" — the right advice under
+      // the wrong reason. `value` is exactly the shape the parser expects
+      // (`yuv444p10` -> c444), so a format added later cannot repeat this.
+      layout = pixelFormatChromaLayout(chromaSubsampling.value);
       depth = chromaSubsampling.outputBitDepth ?? 8;
       describedAs = '${chromaSubsampling.label} is selected';
   }

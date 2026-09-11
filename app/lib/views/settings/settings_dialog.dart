@@ -63,7 +63,13 @@ const List<(String, String)> chromaFormatHelpSections = [
         'analogue-captured source, at 8-bit precision.\n\n'
         '4:2:2 10-bit — keeps the colour detail and the 10-bit grading. Best '
         'when the file is going on for more work; needs a player that handles '
-        '10-bit.',
+        '10-bit.\n\n'
+        '4:4:4 10-bit — no chroma subsampling at all. ProRes 4444 and the '
+        'software H.264/H.265 encoders can store it; no GPU encoder here can. '
+        'Reach for it when the output is going into compositing or keying, '
+        'where subsampled chroma shows up on edges. It will not recover colour '
+        'a subsampled source never had — on an ordinary capture it just makes '
+        'a larger file.',
   ),
 ];
 
