@@ -61,6 +61,27 @@ enum AudioQuality {
 /// Mirrors `ChromaSubsampling` in `worker/src/models/video_job.rs` — the [value]
 /// strings must match that enum's serde names.
 @JsonEnum(valueField: 'value')
+/// The quantisation matrices `prores_ks` accepts by name.
+///
+/// Mirrors `ProResQuantMat` in `worker/src/models/video_job.rs` — the `value`
+/// strings here are the wire format. An enum rather than a free string because
+/// ffmpeg rejects an unknown value outright and kills the encode, so a typo in
+/// a saved preset would fail the whole job on an option nobody can see.
+@JsonEnum(valueField: 'value')
+enum ProResQuantMat {
+  /// Match the profile — what the encoder does with no option at all.
+  auto('auto', 'Auto (match profile)'),
+  proxy('proxy', 'Proxy'),
+  lt('lt', 'LT'),
+  standard('standard', 'Standard'),
+  hq('hq', 'HQ');
+
+  const ProResQuantMat(this.value, this.label);
+
+  final String value;
+  final String label;
+}
+
 enum ChromaSubsampling {
   /// Keep original format (no conversion), bit depth included.
   original('original', 'Match source', null, null),
@@ -125,6 +146,20 @@ class EncodingSettings {
   /// Output chroma subsampling format.
   final ChromaSubsampling chromaSubsampling;
 
+  /// Write `apl0` as the ProRes vendor tag instead of ffmpeg's `Lavc`.
+  /// A compatibility flag, not a quality one — some Avid and Apple tooling
+  /// reads this field, and the decoded frames are identical either way.
+  /// Ignored by every non-ProRes codec.
+  final bool proresVendorApl0;
+
+  /// ProRes `-bits_per_mb`: the ceiling the encoder may spend per macroblock.
+  /// Null leaves it to the profile. Only affects Proxy and LT in practice.
+  final int? proresBitsPerMb;
+
+  /// ProRes `-quant_mat`. Null leaves the encoder on `auto`, which picks the
+  /// matrix matching the profile.
+  final ProResQuantMat? proresQuantMat;
+
   final String customFfmpegArgs;
 
   /// User-supplied VapourSynth, injected after every built-in pass. Same
@@ -150,6 +185,9 @@ class EncodingSettings {
     this.audioCodec = AudioCodec.aac,
     this.audioQuality = AudioQuality.high,
     this.chromaSubsampling = ChromaSubsampling.original,
+    this.proresVendorApl0 = false,
+    this.proresBitsPerMb,
+    this.proresQuantMat,
     this.customFfmpegArgs = '',
     this.customVapoursynth = '',
     this.container = ContainerFormat.mkv,
@@ -242,6 +280,16 @@ class EncodingSettings {
     AudioCodec? audioCodec,
     AudioQuality? audioQuality,
     ChromaSubsampling? chromaSubsampling,
+    bool? proresVendorApl0,
+    int? proresBitsPerMb,
+    // Nullable settings need an explicit clear, or unticking the override in
+    // the UI can never put them back to null and the value sticks forever,
+    // silently applied to every later ProRes encode. `outputDirectory` is the
+    // precedent; `videoBitrateKbps` is the counter-example that has to work
+    // around its own absence in _buildCodecRadio.
+    bool clearProresBitsPerMb = false,
+    ProResQuantMat? proresQuantMat,
+    bool clearProresQuantMat = false,
     String? customFfmpegArgs,
     String? customVapoursynth,
     ContainerFormat? container,
@@ -266,6 +314,12 @@ class EncodingSettings {
       audioCodec: audioCodec ?? this.audioCodec,
       audioQuality: audioQuality ?? this.audioQuality,
       chromaSubsampling: chromaSubsampling ?? this.chromaSubsampling,
+      proresVendorApl0: proresVendorApl0 ?? this.proresVendorApl0,
+      proresBitsPerMb: clearProresBitsPerMb
+          ? null
+          : (proresBitsPerMb ?? this.proresBitsPerMb),
+      proresQuantMat:
+          clearProresQuantMat ? null : (proresQuantMat ?? this.proresQuantMat),
       customFfmpegArgs: customFfmpegArgs ?? this.customFfmpegArgs,
       customVapoursynth: customVapoursynth ?? this.customVapoursynth,
       container: container ?? this.container,

@@ -152,12 +152,19 @@ void main() {
   // shape, and Subtitles dropped a plain `String`. So the same rule is also
   // checked against the source, where the type does not matter.
   group('copyWith() names every field, whatever its type', () {
-    final files = Directory('lib/models')
-        .listSync()
-        .whereType<File>()
-        .where((f) => f.path.endsWith('_parameters.dart'))
-        .toList()
-      ..sort((a, b) => a.path.compareTo(b.path));
+    final files = [
+      ...Directory('lib/models')
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('_parameters.dart')),
+      // Not a *_parameters.dart file, and so invisible to this sweep until
+      // 2026-08-29 — but it has exactly the same failure mode and a worse
+      // blast radius. Every edit in the settings dialog goes through
+      // `updateEncodingSettings(settings.copyWith(...))`, so a field this
+      // method forgets is reset on the user's very next click, not merely on a
+      // pass toggle. `videoBitrateKbps` had already been added without one.
+      File('lib/models/encoding_settings.dart'),
+    ]..sort((a, b) => a.path.compareTo(b.path));
 
     for (final file in files) {
       final name = file.uri.pathSegments.last;
@@ -169,7 +176,7 @@ void main() {
         // `final` members of their own (`displayName`, `value`), and those are
         // no business of copyWith.
         final classBody = RegExp(
-          r'^class (\w*Parameters) \{$(.*?)^\}$',
+          r'^class (EncodingSettings|\w*Parameters) \{$(.*?)^\}$',
           multiLine: true,
           dotAll: true,
         ).firstMatch(source);

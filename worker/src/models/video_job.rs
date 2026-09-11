@@ -289,6 +289,69 @@ pub struct EncodingSettings {
     /// estimate; ignored by all other encoder families.
     #[serde(default)]
     pub video_bitrate_kbps: Option<u32>,
+
+    /// Write `apl0` as the ProRes vendor tag instead of ffmpeg's `Lavc`.
+    ///
+    /// A compatibility flag, not a quality one — some Avid and Apple tooling
+    /// reads this field. Measured: it changes four bytes per frame header and
+    /// nothing else, the decoded frames being bit-identical either way.
+    /// Defaults off so existing output is unchanged.
+    #[serde(default)]
+    pub prores_vendor_apl0: bool,
+
+    /// ProRes `-bits_per_mb`: the ceiling the encoder may spend per macroblock.
+    ///
+    /// Only worth setting on the low profiles. Measured on pal-sd-25.mov at
+    /// profile 0, `8000` bought +3.6 dB for 2.8% more size; at profile 2 and
+    /// above the encoder is already below the cap and the output is
+    /// byte-identical. `None` (and `Some(0)`, which is the plugin's "use the
+    /// profile default") emit nothing.
+    #[serde(default)]
+    pub prores_bits_per_mb: Option<u32>,
+
+    /// ProRes `-quant_mat`: which quantisation matrix to use.
+    ///
+    /// `None` means don't pass the option, which leaves the encoder on `auto`
+    /// — it then picks the matrix matching the profile. Choosing `Hq` on a
+    /// Proxy or LT encode measured +5.5 dB for 19% more size.
+    #[serde(default)]
+    pub prores_quant_mat: Option<ProResQuantMat>,
+}
+
+/// The quantisation matrices `prores_ks` accepts by name.
+///
+/// An enum rather than a free string on purpose: ffmpeg rejects an unknown
+/// value outright ("Undefined constant") and kills the encode, so a preset or
+/// imported job config carrying a typo would fail the whole job on an option
+/// the user cannot see. Same reasoning as `ColorMetadata::from_raw` and
+/// `parse_ratio` — validate, never forward.
+///
+/// The plugin also offers `default` (the flat matrix), deliberately not exposed:
+/// it is not what anyone reaching for this wants, and every option in a curated
+/// dropdown has to earn its place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProResQuantMat {
+    /// Match the profile — what the encoder does with no option at all.
+    Auto,
+    Proxy,
+    Lt,
+    Standard,
+    Hq,
+}
+
+impl ProResQuantMat {
+    /// The name to pass to `-quant_mat`. All five verified accepted by the
+    /// bundled encoder.
+    pub fn ffmpeg_name(&self) -> &'static str {
+        match self {
+            ProResQuantMat::Auto => "auto",
+            ProResQuantMat::Proxy => "proxy",
+            ProResQuantMat::Lt => "lt",
+            ProResQuantMat::Standard => "standard",
+            ProResQuantMat::Hq => "hq",
+        }
+    }
 }
 
 fn default_encoder_preset() -> String {
@@ -521,6 +584,9 @@ impl Default for EncodingSettings {
             custom_vapoursynth: String::new(),
             container: ContainerFormat::default(),
             video_bitrate_kbps: None,
+            prores_vendor_apl0: false,
+            prores_bits_per_mb: None,
+            prores_quant_mat: None,
         }
     }
 }
