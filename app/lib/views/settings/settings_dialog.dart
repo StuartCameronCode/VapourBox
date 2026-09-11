@@ -508,6 +508,15 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
   /// Default target bitrate (kbps) applied when an Intel-VT codec is selected.
   static const int _kDefaultVtBitrateKbps = 20000;
 
+  /// `prores_ks` declares `bits_per_mb` with this maximum; above it ffmpeg
+  /// rejects the option outright. Mirrors `PRORES_MAX_BITS_PER_MB` in
+  /// `worker/src/pipeline_executor.rs`, which clamps rather than trusting this.
+  static const int _kMaxProresBitsPerMb = 8192;
+
+  /// What the override starts at when first ticked — the value the guide this
+  /// came from recommends, and the one the +3.6 dB measurement was taken at.
+  static const int _kDefaultProresBitsPerMb = 8000;
+
   /// Bitrate preset shortcuts (label -> Mb/s) for Intel VideoToolbox.
   static const Map<String, int> _kVtBitratePresetsMbps = {
     'Low': 5,
@@ -1016,6 +1025,20 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
               ),
             ),
 
+            // ProRes-only encoder options, behind advanced mode. They are
+            // narrow enough that showing them to everyone would cost more in
+            // clutter than they return — two of the three do nothing at all on
+            // the profiles most people pick.
+            if (settings.codec.isProRes &&
+                context.watch<AdvancedModeService>().enabled) ...[
+              const SizedBox(height: 24),
+              _buildSection(
+                context,
+                title: 'ProRes Options',
+                child: _buildProresOptions(context, viewModel, settings),
+              ),
+            ],
+
             const SizedBox(height: 24),
 
             // Custom FFmpeg Arguments
@@ -1249,6 +1272,124 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
               letterSpacing: 0.5,
             ),
       ),
+    );
+  }
+
+  /// The three ProRes encoder options, with the measurements that justify
+  /// them. Two of the three do nothing on 422 and HQ, and the copy says so —
+  /// presenting them as general quality controls would repeat the overstatement
+  /// in the guide these came from (issue #81).
+  Widget _buildProresOptions(
+      BuildContext context, MainViewModel viewModel, EncodingSettings settings) {
+    final hint = Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+        );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CheckboxListTile(
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          value: settings.proresVendorApl0,
+          title: const Text('Write the Apple vendor tag (apl0)'),
+          subtitle: Text(
+            'Identifies the file as Apple-encoded rather than FFmpeg-encoded. '
+            'Some Avid and Apple tooling checks this field. It does not change '
+            'the picture — the frames are identical either way.',
+            style: hint,
+          ),
+          onChanged: (value) => viewModel.updateEncodingSettings(
+            settings.copyWith(proresVendorApl0: value ?? false),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Bits per macroblock: an override, so it needs an explicit off state.
+        CheckboxListTile(
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          value: settings.proresBitsPerMb != null,
+          title: const Text('Raise the bits-per-macroblock ceiling'),
+          subtitle: Text(
+            'Lets the encoder spend more on each macroblock. Worth about '
+            '3.6 dB for 3% more size on Proxy and LT; on 422 and 422 HQ the '
+            'encoder is already below the ceiling and this changes nothing.',
+            style: hint,
+          ),
+          onChanged: (value) => viewModel.updateEncodingSettings(
+            (value ?? false)
+                ? settings.copyWith(proresBitsPerMb: _kDefaultProresBitsPerMb)
+                : settings.copyWith(clearProresBitsPerMb: true),
+          ),
+        ),
+        if (settings.proresBitsPerMb != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 32, top: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Slider(
+                    value: settings.proresBitsPerMb!
+                        .clamp(1, _kMaxProresBitsPerMb)
+                        .toDouble(),
+                    min: 1,
+                    max: _kMaxProresBitsPerMb.toDouble(),
+                    divisions: 32,
+                    label: '${settings.proresBitsPerMb}',
+                    onChanged: (value) => viewModel.updateEncodingSettings(
+                      settings.copyWith(proresBitsPerMb: value.round()),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 56,
+                  child: Text(
+                    '${settings.proresBitsPerMb}',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                    textAlign: TextAlign.end,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 16),
+
+        DropdownButtonFormField<ProResQuantMat?>(
+          value: settings.proresQuantMat,
+          decoration: const InputDecoration(
+            labelText: 'Quantisation matrix',
+            border: OutlineInputBorder(),
+          ),
+          items: [
+            const DropdownMenuItem<ProResQuantMat?>(
+              value: null,
+              child: Text('Auto (match profile)'),
+            ),
+            // `auto` is offered explicitly as well as by omission, because the
+            // two are the same thing to ffmpeg and hiding one would make the
+            // dropdown disagree with a preset that saved it.
+            ...ProResQuantMat.values.map(
+              (m) => DropdownMenuItem<ProResQuantMat?>(
+                value: m,
+                child: Text(m.label),
+              ),
+            ),
+          ],
+          onChanged: (value) => viewModel.updateEncodingSettings(
+            value == null
+                ? settings.copyWith(clearProresQuantMat: true)
+                : settings.copyWith(proresQuantMat: value),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Auto picks the matrix that matches the profile. Choosing HQ on a '
+          'Proxy or LT encode spends about 19% more size for roughly 5.5 dB; '
+          'on 422 and 422 HQ it is already the matrix in use.',
+          style: hint,
+        ),
+      ],
     );
   }
 

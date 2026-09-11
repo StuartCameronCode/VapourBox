@@ -21,6 +21,11 @@ use anyhow::{bail, Context, Result};
 /// succeeds. Kept as a stable substring so `main` can match it on the error.
 pub const PLUGIN_AUTOLOAD_MARKER: &str = "[plugin-autoload-failed]";
 
+/// `prores_ks` declares `bits_per_mb` with this maximum. Above it ffmpeg
+/// rejects the option and the encode dies having written nothing, so a value
+/// arriving from a preset or an imported config is clamped rather than passed.
+pub const PRORES_MAX_BITS_PER_MB: u32 = 8192;
+
 /// True if a vspipe stderr line is VapourSynth's plugin-autoload-skip signature
 /// (e.g. "There is no attribute or namespace named fmtc. Did you mistype a
 /// plugin namespace or forget to install a plugin?").
@@ -1083,6 +1088,32 @@ impl PipelineExecutor {
         if let Some(profile) = settings.codec.prores_profile() {
             args.push("-profile:v".to_string());
             args.push(profile.to_string());
+
+            // The three advanced ProRes options, each omitted when unset so the
+            // default command line is exactly what it was before they existed.
+            if settings.prores_vendor_apl0 {
+                args.extend(["-vendor".to_string(), "apl0".to_string()]);
+            }
+            if let Some(bits) = settings.prores_bits_per_mb {
+                // 0 is the plugin's own "use the profile default", which is
+                // what omitting the option already does — and the encoder
+                // rejects anything above 8192 outright, killing the job on a
+                // value the user cannot see. Clamped here rather than only in
+                // the UI, because a saved preset or an imported job config can
+                // carry either. Same reasoning as `normalized_preset`.
+                if bits > 0 {
+                    args.extend([
+                        "-bits_per_mb".to_string(),
+                        bits.min(PRORES_MAX_BITS_PER_MB).to_string(),
+                    ]);
+                }
+            }
+            if let Some(mat) = settings.prores_quant_mat {
+                args.extend([
+                    "-quant_mat".to_string(),
+                    mat.ffmpeg_name().to_string(),
+                ]);
+            }
         } else {
             match settings.codec.encoder_family() {
                 EncoderFamily::Software => {
@@ -1422,7 +1453,7 @@ impl Drop for PipelineExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{AudioCodec, AudioQuality, ChromaSubsampling, EncodingSettings, QTGMCParameters, VideoCodec};
+    use crate::models::{AudioCodec, AudioQuality, ChromaSubsampling, EncodingSettings, ProResQuantMat, QTGMCParameters, VideoCodec};
     use uuid::Uuid;
 
     /// The two codes that have actually cost debugging time must be named in
@@ -2148,6 +2179,89 @@ mod tests {
             // And the profile still goes out alongside it.
             let p = args.iter().position(|a| a == "-profile:v").unwrap();
             assert_eq!(args[p + 1], codec.prores_profile().unwrap().to_string());
+        }
+    }
+
+    /// The three advanced ProRes options must be absent unless asked for, so a
+    /// job that does not use them produces exactly the command line it always
+    /// did — and must be clamped when they are, because ffmpeg rejects an
+    /// out-of-range `bits_per_mb` and kills the encode.
+    #[test]
+    fn test_prores_advanced_flags_are_emitted_only_when_set() {
+        let base = || {
+            let mut job = create_test_job("output.mov");
+            job.encoding_settings.codec = VideoCodec::ProResHQ;
+            job.encoding_settings.container = ContainerFormat::Mov;
+            job
+        };
+
+        // Default: the profile, and none of the three.
+        let args = build_ffmpeg_args_for_test(&base());
+        assert!(args.contains(&"-profile:v".to_string()));
+        for flag in ["-vendor", "-bits_per_mb", "-quant_mat"] {
+            assert!(
+                !args.contains(&flag.to_string()),
+                "{flag} must not appear unless set"
+            );
+        }
+
+        // Vendor tag.
+        let mut job = base();
+        job.encoding_settings.prores_vendor_apl0 = true;
+        let args = build_ffmpeg_args_for_test(&job);
+        let i = args.iter().position(|a| a == "-vendor").expect("-vendor");
+        assert_eq!(args[i + 1], "apl0");
+
+        // Bits per macroblock, in range.
+        let mut job = base();
+        job.encoding_settings.prores_bits_per_mb = Some(8000);
+        let args = build_ffmpeg_args_for_test(&job);
+        let i = args.iter().position(|a| a == "-bits_per_mb").unwrap();
+        assert_eq!(args[i + 1], "8000");
+
+        // Zero is the plugin's "use the profile default", which is what
+        // omitting the option already does — so emit nothing rather than a
+        // value that reads as a deliberate choice.
+        let mut job = base();
+        job.encoding_settings.prores_bits_per_mb = Some(0);
+        let args = build_ffmpeg_args_for_test(&job);
+        assert!(!args.contains(&"-bits_per_mb".to_string()));
+
+        // Out of range is clamped, not forwarded: ffmpeg would reject it and
+        // the whole encode would fail on an option the user cannot see.
+        let mut job = base();
+        job.encoding_settings.prores_bits_per_mb = Some(99_999);
+        let args = build_ffmpeg_args_for_test(&job);
+        let i = args.iter().position(|a| a == "-bits_per_mb").unwrap();
+        assert_eq!(args[i + 1], PRORES_MAX_BITS_PER_MB.to_string());
+
+        // Quantisation matrix.
+        let mut job = base();
+        job.encoding_settings.prores_quant_mat = Some(ProResQuantMat::Hq);
+        let args = build_ffmpeg_args_for_test(&job);
+        let i = args.iter().position(|a| a == "-quant_mat").unwrap();
+        assert_eq!(args[i + 1], "hq");
+    }
+
+    /// The options are ProRes-only. Emitting them beside another encoder would
+    /// be an ffmpeg error at best and a silently ignored option at worst.
+    #[test]
+    fn test_prores_advanced_flags_never_reach_another_encoder() {
+        for codec in [VideoCodec::H264, VideoCodec::H265Nvenc, VideoCodec::FFV1] {
+            let mut job = create_test_job("output.mkv");
+            job.encoding_settings.codec = codec;
+            job.encoding_settings.container = ContainerFormat::Mkv;
+            job.encoding_settings.prores_vendor_apl0 = true;
+            job.encoding_settings.prores_bits_per_mb = Some(8000);
+            job.encoding_settings.prores_quant_mat = Some(ProResQuantMat::Hq);
+
+            let args = build_ffmpeg_args_for_test(&job);
+            for flag in ["-vendor", "-bits_per_mb", "-quant_mat"] {
+                assert!(
+                    !args.contains(&flag.to_string()),
+                    "{codec:?} must not be given {flag}"
+                );
+            }
         }
     }
 
