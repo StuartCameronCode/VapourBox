@@ -30,7 +30,12 @@ if [ -z "$GITHUB_REPO" ]; then
     GITHUB_REPO="StuartCameronCode/VapourBox"
 fi
 
-LAST_DEPS_TAG=$(gh release list --repo "$GITHUB_REPO" --limit 50 2>/dev/null | grep -E '^deps-v[0-9]' | head -1 | awk '{print $1}')
+# gh release list format: "TITLE<tab>STATUS<tab>TAG<tab>DATE" - extract the tag
+# column (not the title) before matching, same as get-github-version.sh. A
+# release's title doesn't have to start with "deps-v" (and usually doesn't -
+# e.g. "VapourBox Dependencies 1.9.0"), so matching the raw line only ever hit
+# a one-off release literally titled "deps-v1.5.0 (test)".
+LAST_DEPS_TAG=$(gh release list --repo "$GITHUB_REPO" --limit 50 2>/dev/null | awk -F'\t' '{print $3}' | grep -E '^deps-v[0-9]' | head -1)
 
 if [ -z "$LAST_DEPS_TAG" ]; then
     if $VERBOSE; then
