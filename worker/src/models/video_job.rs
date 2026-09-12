@@ -289,6 +289,69 @@ pub struct EncodingSettings {
     /// estimate; ignored by all other encoder families.
     #[serde(default)]
     pub video_bitrate_kbps: Option<u32>,
+
+    /// Write `apl0` as the ProRes vendor tag instead of ffmpeg's `Lavc`.
+    ///
+    /// A compatibility flag, not a quality one — some Avid and Apple tooling
+    /// reads this field. Measured: it changes four bytes per frame header and
+    /// nothing else, the decoded frames being bit-identical either way.
+    /// Defaults off so existing output is unchanged.
+    #[serde(default)]
+    pub prores_vendor_apl0: bool,
+
+    /// ProRes `-bits_per_mb`: the ceiling the encoder may spend per macroblock.
+    ///
+    /// Only worth setting on the low profiles. Measured on pal-sd-25.mov at
+    /// profile 0, `8000` bought +3.6 dB for 2.8% more size; at profile 2 and
+    /// above the encoder is already below the cap and the output is
+    /// byte-identical. `None` (and `Some(0)`, which is the plugin's "use the
+    /// profile default") emit nothing.
+    #[serde(default)]
+    pub prores_bits_per_mb: Option<u32>,
+
+    /// ProRes `-quant_mat`: which quantisation matrix to use.
+    ///
+    /// `None` means don't pass the option, which leaves the encoder on `auto`
+    /// — it then picks the matrix matching the profile. Choosing `Hq` on a
+    /// Proxy or LT encode measured +5.5 dB for 19% more size.
+    #[serde(default)]
+    pub prores_quant_mat: Option<ProResQuantMat>,
+}
+
+/// The quantisation matrices `prores_ks` accepts by name.
+///
+/// An enum rather than a free string on purpose: ffmpeg rejects an unknown
+/// value outright ("Undefined constant") and kills the encode, so a preset or
+/// imported job config carrying a typo would fail the whole job on an option
+/// the user cannot see. Same reasoning as `ColorMetadata::from_raw` and
+/// `parse_ratio` — validate, never forward.
+///
+/// The plugin also offers `default` (the flat matrix), deliberately not exposed:
+/// it is not what anyone reaching for this wants, and every option in a curated
+/// dropdown has to earn its place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProResQuantMat {
+    /// Match the profile — what the encoder does with no option at all.
+    Auto,
+    Proxy,
+    Lt,
+    Standard,
+    Hq,
+}
+
+impl ProResQuantMat {
+    /// The name to pass to `-quant_mat`. All five verified accepted by the
+    /// bundled encoder.
+    pub fn ffmpeg_name(&self) -> &'static str {
+        match self {
+            ProResQuantMat::Auto => "auto",
+            ProResQuantMat::Proxy => "proxy",
+            ProResQuantMat::Lt => "lt",
+            ProResQuantMat::Standard => "standard",
+            ProResQuantMat::Hq => "hq",
+        }
+    }
 }
 
 fn default_encoder_preset() -> String {
@@ -445,9 +508,41 @@ pub enum ChromaSubsampling {
     /// Convert to 10-bit YUV422 — keeps a 10-bit source's precision while
     /// normalizing chroma, and gives an 8-bit source headroom for gradients.
     Yuv422P10,
+    /// Convert to 10-bit YUV444 — full chroma resolution. Needed by ProRes 4444
+    /// and 4444 XQ, which store 4:4:4; no hardware encoder in this app takes it.
+    ///
+    /// Verified end to end before shipping, because a format the Y4M pipe
+    /// cannot name is a hard job failure rather than an error (the `Turn90`
+    /// 4:4:0 trap): vspipe emits the header `C444p10` and ffmpeg's demuxer
+    /// accepts it. Note ffmpeg's Y4M *muxer* calls both this and the
+    /// already-shipping `yuv422p10le` "not an official yuv4mpegpipe pixel
+    /// format" — irrelevant here, because vspipe is the muxer, not ffmpeg.
+    Yuv444P10,
 }
 
 impl ChromaSubsampling {
+    /// Every variant, so tests can sweep them instead of hand-listing.
+    ///
+    /// The hand-written list this replaces had gone stale without failing —
+    /// `Yuv420P10` was missing from it, so that variant was never checked at
+    /// all. `every_chroma_subsampling_is_listed` keeps this honest from both
+    /// ends: a match with no catch-all makes a new variant a compile error, and
+    /// the length assertion then fails until it is added here too.
+    ///
+    /// Only tests read it, and `#[cfg(test)]` would not do — the integration
+    /// tests in `worker/tests/` are a separate crate linking this library
+    /// normally, so it has to exist in an ordinary build. `impl VideoCodec`
+    /// carries the same attribute across its whole block for the same reason.
+    #[allow(dead_code)]
+    pub const ALL: &'static [ChromaSubsampling] = &[
+        ChromaSubsampling::Original,
+        ChromaSubsampling::Yuv420,
+        ChromaSubsampling::Yuv420P10,
+        ChromaSubsampling::Yuv422,
+        ChromaSubsampling::Yuv422P10,
+        ChromaSubsampling::Yuv444P10,
+    ];
+
     /// The VapourSynth format constant the pipeline converts to, or `None` for
     /// `Original` (no conversion at all).
     pub fn vapoursynth_format(&self) -> Option<&'static str> {
@@ -457,6 +552,7 @@ impl ChromaSubsampling {
             ChromaSubsampling::Yuv420P10 => Some("vs.YUV420P10"),
             ChromaSubsampling::Yuv422 => Some("vs.YUV422P8"),
             ChromaSubsampling::Yuv422P10 => Some("vs.YUV422P10"),
+            ChromaSubsampling::Yuv444P10 => Some("vs.YUV444P10"),
         }
     }
 
@@ -475,6 +571,7 @@ impl ChromaSubsampling {
             ChromaSubsampling::Yuv420P10 => Some("yuv420p10le"),
             ChromaSubsampling::Yuv422 => Some("yuv422p"),
             ChromaSubsampling::Yuv422P10 => Some("yuv422p10le"),
+            ChromaSubsampling::Yuv444P10 => Some("yuv444p10le"),
         }
     }
 }
@@ -493,6 +590,9 @@ impl Default for EncodingSettings {
             custom_vapoursynth: String::new(),
             container: ContainerFormat::default(),
             video_bitrate_kbps: None,
+            prores_vendor_apl0: false,
+            prores_bits_per_mb: None,
+            prores_quant_mat: None,
         }
     }
 }
@@ -557,6 +657,12 @@ pub enum VideoCodec {
 
     #[serde(rename = "prores_ks -profile:v 3")]
     ProResHQ,
+
+    #[serde(rename = "prores_ks -profile:v 4")]
+    ProRes4444,
+
+    #[serde(rename = "prores_ks -profile:v 5")]
+    ProRes4444Xq,
 }
 
 /// Encoder family for grouping quality/preset logic.
@@ -593,17 +699,64 @@ impl VideoCodec {
             VideoCodec::ProResLT => "prores_ks",
             VideoCodec::ProRes422 => "prores_ks",
             VideoCodec::ProResHQ => "prores_ks",
+            VideoCodec::ProRes4444 => "prores_ks",
+            VideoCodec::ProRes4444Xq => "prores_ks",
         }
     }
 
+    /// Every variant, so tests can sweep them instead of hand-listing.
+    /// Kept complete by `every_video_codec_is_listed`.
+    pub const ALL: &'static [VideoCodec] = &[
+        VideoCodec::H264,
+        VideoCodec::H265,
+        VideoCodec::H264Nvenc,
+        VideoCodec::H265Nvenc,
+        VideoCodec::H264Qsv,
+        VideoCodec::H265Qsv,
+        VideoCodec::H264Videotoolbox,
+        VideoCodec::H265Videotoolbox,
+        VideoCodec::H264Amf,
+        VideoCodec::H265Amf,
+        VideoCodec::FFV1,
+        VideoCodec::Huffyuv,
+        VideoCodec::Ffvhuff,
+        VideoCodec::ProResProxy,
+        VideoCodec::ProResLT,
+        VideoCodec::ProRes422,
+        VideoCodec::ProResHQ,
+        VideoCodec::ProRes4444,
+        VideoCodec::ProRes4444Xq,
+    ];
+
     /// Get the ProRes profile value, if applicable.
+    ///
+    /// Deliberately exhaustive — no catch-all arm. `build_encoder_quality_args`
+    /// dispatches on this while its fallthrough dispatches on
+    /// `encoder_family()`, so a new ProRes variant that reached the family but
+    /// not this table would emit no `-profile:v` at all and `prores_ks` would
+    /// silently default to profile 2. A compile error is the right way to find
+    /// that out.
     pub fn prores_profile(&self) -> Option<i32> {
         match self {
             VideoCodec::ProResProxy => Some(0),
             VideoCodec::ProResLT => Some(1),
             VideoCodec::ProRes422 => Some(2),
             VideoCodec::ProResHQ => Some(3),
-            _ => None,
+            VideoCodec::ProRes4444 => Some(4),
+            VideoCodec::ProRes4444Xq => Some(5),
+            VideoCodec::H264
+            | VideoCodec::H265
+            | VideoCodec::H264Nvenc
+            | VideoCodec::H265Nvenc
+            | VideoCodec::H264Qsv
+            | VideoCodec::H265Qsv
+            | VideoCodec::H264Videotoolbox
+            | VideoCodec::H265Videotoolbox
+            | VideoCodec::H264Amf
+            | VideoCodec::H265Amf
+            | VideoCodec::FFV1
+            | VideoCodec::Huffyuv
+            | VideoCodec::Ffvhuff => None,
         }
     }
 
@@ -646,6 +799,28 @@ impl VideoCodec {
     /// last, so a later `-pix_fmt` overrides this one. That is the escape hatch
     /// for someone whose card really does have the mode we refuse to assume.
     pub fn forced_pix_fmt(&self, encoder_input: &str) -> Option<&'static str> {
+        // ProRes: the profile decides the chroma, and ffmpeg's negotiation does
+        // not know that. Measured against the bundled build — `prores_ks` with
+        // `-profile:v 4` auto-selects `yuv422p10le` from a yuv420p input,
+        // exactly as `-profile:v 2` does, because format negotiation never
+        // looks at the profile. Left alone, ProRes 4444 therefore writes a file
+        // stamped 4444 that carries 4:2:2, which is the profile's whole point
+        // discarded silently.
+        //
+        // The 4:2:2 profiles are pinned for symmetry rather than necessity:
+        // `yuv422p10le` is the only 4:2:2 format the encoder has, so it is what
+        // negotiation already picks. Verified on pal-sd-25.mov at all four
+        // profiles — identical `framemd5` with and without the flag, so this
+        // changes nothing for anyone already encoding ProRes.
+        if let Some(profile) = self.prores_profile() {
+            return Some(if profile >= 4 {
+                "yuv444p10le" // 4444 and 4444 XQ. Alpha is never carried here,
+                              // so the plain 444 format, not yuva444p10le.
+            } else {
+                "yuv422p10le" // Proxy, LT, 422, 422 HQ.
+            });
+        }
+
         match self {
             // Classic HuffYUV only supports yuv422p (not yuv420p); ffvhuff and
             // the others accept yuv420p.
@@ -769,7 +944,15 @@ impl VideoCodec {
             VideoCodec::H264Videotoolbox | VideoCodec::H265Videotoolbox => EncoderFamily::Videotoolbox,
             VideoCodec::H264Amf | VideoCodec::H265Amf => EncoderFamily::Amf,
             VideoCodec::FFV1 | VideoCodec::Huffyuv | VideoCodec::Ffvhuff => EncoderFamily::Lossless,
-            _ => EncoderFamily::ProRes,
+            // Exhaustive, not a catch-all: a non-ProRes variant added later
+            // would otherwise be silently classified as ProRes and take the
+            // `-profile:v` branch in `build_encoder_quality_args`.
+            VideoCodec::ProResProxy
+            | VideoCodec::ProResLT
+            | VideoCodec::ProRes422
+            | VideoCodec::ProResHQ
+            | VideoCodec::ProRes4444
+            | VideoCodec::ProRes4444Xq => EncoderFamily::ProRes,
         }
     }
 
@@ -804,6 +987,8 @@ impl VideoCodec {
             VideoCodec::ProResLT => "ProRes LT",
             VideoCodec::ProRes422 => "ProRes 422",
             VideoCodec::ProResHQ => "ProRes 422 HQ",
+            VideoCodec::ProRes4444 => "ProRes 4444",
+            VideoCodec::ProRes4444Xq => "ProRes 4444 XQ",
         }
     }
 }
@@ -891,6 +1076,14 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&VideoCodec::ProResHQ).unwrap(),
             "\"prores_ks -profile:v 3\""
+        );
+        assert_eq!(
+            serde_json::to_string(&VideoCodec::ProRes4444).unwrap(),
+            "\"prores_ks -profile:v 4\""
+        );
+        assert_eq!(
+            serde_json::to_string(&VideoCodec::ProRes4444Xq).unwrap(),
+            "\"prores_ks -profile:v 5\""
         );
         assert_eq!(
             serde_json::to_string(&VideoCodec::H264Nvenc).unwrap(),
@@ -1021,10 +1214,16 @@ mod tests {
         }
     }
 
-    /// Software, ProRes, lossless and VideoToolbox negotiate correctly on their
-    /// own — VideoToolbox never advertises a mode it lacks, which is the whole
+    /// Software, lossless and VideoToolbox negotiate correctly on their own —
+    /// VideoToolbox never advertises a mode it lacks, which is the whole
     /// difference from NVENC. Forcing a format on them would only throw away
     /// chroma they can keep.
+    ///
+    /// ProRes used to be in this list and is deliberately no longer. It does
+    /// negotiate a format successfully; it just negotiates one that contradicts
+    /// the profile number stamped into the container, because ffmpeg's format
+    /// selection never looks at `-profile:v`. See
+    /// `prores_profile_decides_the_chroma`.
     #[test]
     fn test_negotiating_encoders_are_left_alone() {
         for codec in [
@@ -1032,7 +1231,6 @@ mod tests {
             VideoCodec::H265,
             VideoCodec::H264Videotoolbox,
             VideoCodec::H265Videotoolbox,
-            VideoCodec::ProRes422,
             VideoCodec::FFV1,
             VideoCodec::Ffvhuff,
         ] {
@@ -1046,24 +1244,177 @@ mod tests {
         }
     }
 
+    /// ProRes stores a chroma layout fixed by its profile, and ffmpeg's format
+    /// negotiation does not know that — measured against the bundled build,
+    /// `prores_ks -profile:v 4` auto-selects `yuv422p10le` from a yuv420p input
+    /// exactly as `-profile:v 2` does. Unpinned, ProRes 4444 therefore writes a
+    /// file stamped 4444 carrying 4:2:2.
+    ///
+    /// Like the HuffYUV and AMF pins, this holds whatever the pipeline produced
+    /// — the profile is the whole input to the decision.
+    #[test]
+    fn prores_profile_decides_the_chroma() {
+        for fmt in [
+            "yuv420p",
+            "yuv422p",
+            "yuv422p10le",
+            "yuv444p16le",
+            "yuva444p10le",
+            "rgb24",
+        ] {
+            for codec in [
+                VideoCodec::ProResProxy,
+                VideoCodec::ProResLT,
+                VideoCodec::ProRes422,
+                VideoCodec::ProResHQ,
+            ] {
+                assert_eq!(
+                    codec.forced_pix_fmt(fmt),
+                    Some("yuv422p10le"),
+                    "{codec:?} stores 4:2:2 whatever {fmt} was"
+                );
+            }
+            for codec in [VideoCodec::ProRes4444, VideoCodec::ProRes4444Xq] {
+                assert_eq!(
+                    codec.forced_pix_fmt(fmt),
+                    Some("yuv444p10le"),
+                    "{codec:?} stores 4:4:4 whatever {fmt} was — unpinned, \
+                     ffmpeg hands it 4:2:2 and the 4444 stamp becomes a lie"
+                );
+            }
+        }
+    }
+
+    /// The pin and the profile have to agree, or the container says one thing
+    /// and the samples are another. Derived from the profile number rather than
+    /// listed per codec, so a profile added later cannot be missed.
+    #[test]
+    fn prores_pin_matches_the_profile_it_claims() {
+        for codec in VideoCodec::ALL.iter().copied() {
+            let Some(profile) = codec.prores_profile() else {
+                continue;
+            };
+            let expected = if profile >= 4 {
+                "yuv444p10le"
+            } else {
+                "yuv422p10le"
+            };
+            assert_eq!(
+                codec.forced_pix_fmt("yuv420p"),
+                Some(expected),
+                "{codec:?} is profile {profile}"
+            );
+        }
+    }
+
+    /// Every ProRes codec must declare a profile, or `build_encoder_quality_args`
+    /// takes the wrong branch: it dispatches on `prores_profile()` while the
+    /// fallthrough dispatches on `encoder_family()`, which produces `ProRes` via
+    /// a catch-all. A variant that has the family but no profile emits no
+    /// `-profile:v` at all, and `prores_ks` then silently defaults to profile 2
+    /// (standard) — a "ProRes 4444" file that is really 422.
+    #[test]
+    fn every_prores_codec_declares_a_profile() {
+        for codec in VideoCodec::ALL.iter().copied() {
+            assert_eq!(
+                codec.is_prores(),
+                codec.encoder_family() == EncoderFamily::ProRes,
+                "{codec:?}: is_prores() and encoder_family() disagree, so the \
+                 quality-args branch and the fallthrough branch disagree too"
+            );
+            if codec.is_prores() {
+                assert!(
+                    codec.prores_profile().is_some(),
+                    "{codec:?} would emit no -profile:v and encode as standard"
+                );
+                assert!(
+                    codec.forced_pix_fmt("yuv420p").is_some(),
+                    "{codec:?} would let ffmpeg negotiate a chroma layout that \
+                     contradicts its profile"
+                );
+            }
+        }
+    }
+
+    /// Keeps `VideoCodec::ALL` complete, so the sweeps driven from it really do
+    /// cover the enum rather than the subset someone remembered.
+    #[test]
+    fn every_video_codec_is_listed() {
+        // `ffmpeg_codec()` is already exhaustive with no catch-all, so a new
+        // variant cannot compile without an arm there; this pins that it also
+        // reaches ALL. Names are unique, so the count is enough.
+        let mut names: Vec<&str> = VideoCodec::ALL.iter().map(|c| c.display_name()).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(
+            names.len(),
+            VideoCodec::ALL.len(),
+            "VideoCodec::ALL lists the same codec twice"
+        );
+        assert_eq!(
+            VideoCodec::ALL.len(),
+            19,
+            "a VideoCodec variant was added without listing it in ALL"
+        );
+    }
+
     /// The two names for the output conversion describe the same thing, so a
     /// variant gaining one and not the other is a bug — the ffmpeg name is what
     /// decides whether a hardware encoder can take it.
     #[test]
     fn chroma_subsampling_names_agree() {
-        for cs in [
-            ChromaSubsampling::Original,
-            ChromaSubsampling::Yuv420,
-            ChromaSubsampling::Yuv420P10,
-            ChromaSubsampling::Yuv422,
-            ChromaSubsampling::Yuv422P10,
-        ] {
+        for cs in ChromaSubsampling::ALL {
             assert_eq!(
                 cs.vapoursynth_format().is_some(),
                 cs.ffmpeg_pix_fmt().is_some(),
                 "{cs:?} declares one output format name but not the other"
             );
         }
+    }
+
+    /// Keeps `ChromaSubsampling::ALL` complete, so every table driven from it
+    /// really does cover the enum. The previous hand-written list had silently
+    /// lost `Yuv420P10`, which is the failure mode this closes: a skipped row
+    /// looks exactly like a passing one.
+    #[test]
+    fn every_chroma_subsampling_is_listed() {
+        // No catch-all arm: a new variant stops compiling here until it is
+        // handled, at which point the length assertion below demands it be
+        // added to ALL as well.
+        for cs in ChromaSubsampling::ALL {
+            match cs {
+                ChromaSubsampling::Original
+                | ChromaSubsampling::Yuv420
+                | ChromaSubsampling::Yuv420P10
+                | ChromaSubsampling::Yuv422
+                | ChromaSubsampling::Yuv422P10
+                | ChromaSubsampling::Yuv444P10 => {}
+            }
+        }
+        assert_eq!(
+            ChromaSubsampling::ALL.len(),
+            6,
+            "a ChromaSubsampling variant was added without listing it in ALL"
+        );
+    }
+
+    /// The 4:4:4 option exists for ProRes 4444, and both of its names have to
+    /// be right or the conversion silently does nothing useful.
+    #[test]
+    fn yuv444p10_declares_both_names() {
+        assert_eq!(
+            ChromaSubsampling::Yuv444P10.vapoursynth_format(),
+            Some("vs.YUV444P10")
+        );
+        assert_eq!(
+            ChromaSubsampling::Yuv444P10.ffmpeg_pix_fmt(),
+            Some("yuv444p10le")
+        );
+        // The wire name the Dart enum's `value` string must match.
+        assert_eq!(
+            serde_json::to_string(&ChromaSubsampling::Yuv444P10).unwrap(),
+            "\"yuv444p10\""
+        );
     }
 
     #[test]

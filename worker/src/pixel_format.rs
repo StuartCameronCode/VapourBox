@@ -48,11 +48,25 @@ pub const DEFAULT_FORMAT: &str = "yuv420p";
 
 /// Chroma resolution class of a source format. Ordered so that a source is
 /// always mapped to a class at least as detailed as its own.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// `Ord` follows that declaration order, so `C420 < C422 < C444` and a
+/// comparison reads as "carries at least as much chroma as".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ChromaClass {
     C420,
     C422,
     C444,
+}
+
+impl ChromaClass {
+    /// How this reads in a message to the user.
+    pub fn label(&self) -> &'static str {
+        match self {
+            ChromaClass::C420 => "4:2:0",
+            ChromaClass::C422 => "4:2:2",
+            ChromaClass::C444 => "4:4:4",
+        }
+    }
 }
 
 /// The pipe format for a job, plus what it was converted from (if anything).
