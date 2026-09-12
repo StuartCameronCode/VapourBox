@@ -528,6 +528,12 @@ impl ChromaSubsampling {
     /// all. `every_chroma_subsampling_is_listed` keeps this honest from both
     /// ends: a match with no catch-all makes a new variant a compile error, and
     /// the length assertion then fails until it is added here too.
+    ///
+    /// Only tests read it, and `#[cfg(test)]` would not do — the integration
+    /// tests in `worker/tests/` are a separate crate linking this library
+    /// normally, so it has to exist in an ordinary build. `impl VideoCodec`
+    /// carries the same attribute across its whole block for the same reason.
+    #[allow(dead_code)]
     pub const ALL: &'static [ChromaSubsampling] = &[
         ChromaSubsampling::Original,
         ChromaSubsampling::Yuv420,
