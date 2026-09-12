@@ -175,7 +175,9 @@ Presets store the whole pipeline plus encoding settings, and the menu splits the
 
 **Quality Only** — Fast, Balanced and High Quality just deinterlace, at three levels of effort. Use one when the picture is already clean.
 
-Your own presets save alongside them and persist across sessions.
+Your own presets save alongside them and persist across sessions, and can be **exported to a file and imported** — so a setup that works for a particular camcorder or capture card can be handed to someone else.
+
+An imported preset is shown to you before it is installed, because a preset can carry custom VapourSynth and FFmpeg arguments, and those run on your machine when you process a video. If it does, the code is displayed and you can import the preset without it.
 
 </details>
 
