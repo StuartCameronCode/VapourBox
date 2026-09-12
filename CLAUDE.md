@@ -1281,6 +1281,13 @@ placement and a version skew would change chroma per-OS.
 - **Apple Silicon app build for x64**: `app/macos/Podfile` reads
   `VAPOURBOX_ARCHS` (default `arm64`); set to `x86_64` + `ARCHS=x86_64` on
   xcodebuild to cross-compile the Intel Runner.
+- **Impeller is force-disabled** (`FLTEnableImpeller = false` in
+  `app/macos/Runner/Info.plist`). CI floats on `channel: stable` with no
+  Flutter version pin, so Flutter 3.47 (2026-08-12) making Impeller the
+  default macOS renderer reached a VapourBox release with no code change on
+  our side, and corrupted the window on Intel GPUs (issue #91). Re-evaluate
+  once Impeller's Intel-Mac path is solid — don't remove this to silence a
+  lint or "modernize" without re-testing on real Intel hardware first.
 
 ### Linux
 
