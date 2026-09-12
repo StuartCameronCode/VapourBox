@@ -9,6 +9,7 @@ import '../models/processing_preset.dart';
 import '../models/progress_info.dart';
 import '../models/queue_item.dart';
 import '../services/audio_compatibility_service.dart';
+import '../services/overwrite_behavior_service.dart';
 import '../services/preset_service.dart';
 import '../viewmodels/main_viewmodel.dart';
 import '../services/disc_detector.dart';
@@ -787,15 +788,30 @@ class MainWindow extends StatelessWidget {
     MainViewModel viewModel,
   ) async {
     // Check for existing output files that would be overwritten
-    final existingFiles = await _getExistingOutputFiles(viewModel.queue);
-    if (existingFiles.isNotEmpty) {
-      if (!context.mounted) return;
-      final shouldOverwrite = await OverwriteWarningDialog.show(
-        context: context,
-        existingFiles: existingFiles,
-      );
-      if (!shouldOverwrite) {
-        return; // User cancelled
+    final conflictingItems = await _getConflictingItems(viewModel.queue);
+    if (conflictingItems.isNotEmpty) {
+      switch (OverwriteBehaviorService.instance.behavior) {
+        case OverwriteBehavior.overwrite:
+          // Proceed silently - the existing files will be replaced.
+          break;
+        case OverwriteBehavior.rename:
+          // Give each conflicting item a fresh, non-colliding output path
+          // instead of touching what's already there.
+          for (final item in conflictingItems) {
+            item.outputPath = await OverwriteBehaviorService.instance
+                .uniquePath(item.outputPath);
+          }
+          viewModel.notifyOutputPathsChanged();
+          break;
+        case OverwriteBehavior.ask:
+          if (!context.mounted) return;
+          final shouldOverwrite = await OverwriteWarningDialog.show(
+            context: context,
+            existingFiles: conflictingItems.map((i) => i.outputPath).toList(),
+          );
+          if (!shouldOverwrite) {
+            return; // User cancelled
+          }
       }
     }
 
@@ -865,17 +881,18 @@ class MainWindow extends StatelessWidget {
     viewModel.startProcessing();
   }
 
-  /// Returns list of output file paths that already exist.
-  Future<List<String>> _getExistingOutputFiles(List<QueueItem> queue) async {
-    final existingFiles = <String>[];
+  /// Returns queue items (from those that will be processed) whose output
+  /// file already exists on disk.
+  Future<List<QueueItem>> _getConflictingItems(List<QueueItem> queue) async {
+    final conflicting = <QueueItem>[];
     for (final item in queue) {
       // Check items that will be processed (ready, failed, completed, cancelled)
       if (item.canProcess || item.canReprocess) {
         if (await File(item.outputPath).exists()) {
-          existingFiles.add(item.outputPath);
+          conflicting.add(item);
         }
       }
     }
-    return existingFiles;
+    return conflicting;
   }
 }

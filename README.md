@@ -195,6 +195,13 @@ Scratch files — generated scripts, preview frames, job files, extracted DVD ti
 
 </details>
 
+<details>
+<summary><b>Existing output files</b></summary>
+
+When a job's output file already exists, VapourBox asks what to do by default. **Settings → General → Existing Output Files** can change that to always overwrite, or always write to a new, numbered filename (`name (2).ext`, `name (3).ext`, …) instead of touching the existing file. The dialog itself links back here.
+
+</details>
+
 ## Feedback and bug reports
 
 **Settings → General → "Report a bug or give feedback"** opens the issue tracker. Reports about specific problem sources are useful — several fixes in VapourBox came from them.
