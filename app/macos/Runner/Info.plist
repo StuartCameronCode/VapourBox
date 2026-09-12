@@ -28,5 +28,11 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<!-- Flutter 3.47 (2026-08-12) made Impeller the default macOS renderer;
+	     CI builds float on `channel: stable` with no pin, so v1.0.0 picked it
+	     up with no VapourBox code change and it corrupted the window on Intel
+	     GPUs (issue #91). Force Skia until Impeller's Intel-Mac path is solid. -->
+	<key>FLTEnableImpeller</key>
+	<false/>
 </dict>
 </plist>
