@@ -7,6 +7,7 @@ import 'models/filter_registry.dart';
 import 'services/advanced_mode_service.dart';
 import 'services/dependency_manager.dart';
 import 'services/hardware_encoder_detector.dart';
+import 'services/overwrite_behavior_service.dart';
 import 'services/preset_service.dart';
 import 'services/temp_directory_service.dart';
 import 'services/tool_locator.dart';
@@ -29,6 +30,10 @@ void main() async {
   // Load the advanced-mode choice before the first panel builds, so the filter
   // settings don't flash from simple to advanced on startup.
   await AdvancedModeService.instance.initialize();
+
+  // Load the saved default for existing output files (issue #85) before the
+  // first job can be started.
+  await OverwriteBehaviorService.instance.initialize();
 
   // Initialize window manager for desktop
   await windowManager.ensureInitialized();

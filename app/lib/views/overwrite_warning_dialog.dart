@@ -109,6 +109,14 @@ class OverwriteWarningDialog extends StatelessWidget {
                 },
               ),
             ),
+            const SizedBox(height: 12),
+            Text(
+              'You can change this behavior in Settings → General → '
+              'Existing Output Files.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
           ],
         ),
       ),
