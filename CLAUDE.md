@@ -10,6 +10,12 @@
 
 Both files should stay synchronized - README.md is for humans, CLAUDE.md is for AI assistants.
 
+**This file states current rules.** The investigation, measurements, and dates
+behind non-obvious ones live in [docs/ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md) —
+check it when you need the *why*, are touching an area it covers, or are deciding
+whether a similar probe-before-building investigation is warranted before adding
+a new filter or plugin.
+
 ## Project Overview
 
 VapourBox is a **cross-platform** (macOS + Windows + Linux) video processing application using VapourSynth. It provides a simple drag-and-drop interface for deinterlacing, denoising, sharpening, and other video processing tasks as an alternative to more complex tools like Hybrid.
@@ -228,10 +234,9 @@ dart run build_runner build
 > Step 3 is not optional and it fails silently. `exe_dir/templates` is the
 > **first** path `ScriptGenerator` searches, so the copy sitting next to the
 > debug exe **shadows** `worker/templates/` — a `.vpy` change you just made has
-> no effect on the running app, with no error to suggest why. (Measured: a
-> months-old `Debug/templates/pipeline_template.vpy` was still being used after
-> a fresh `cargo build`.) Anything that edits a template must re-copy, or delete
-> `Debug/templates/` so the upward search finds the repo's copy.
+> no effect on the running app, with no error to suggest why. Anything that
+> edits a template must re-copy, or delete `Debug/templates/` so the upward
+> search finds the repo's copy.
 
 **Linux: Use the debug script:**
 
@@ -321,12 +326,18 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 - If any parameter is a **level, threshold or offset expressed in 8-bit units**
   (which is how the UI presents them), scale it to `clip.format` *in the script*.
   A filter working in the clip's own range is silently wrong on a 10-bit source
-  otherwise, with no error to go on — the failure mode that broke Levels and
-  Tweak brightness
+  otherwise, with no error to go on
 - Add the plugin's **namespace** to the required list in
   `app/test/vapoursynth_integration_test.dart`, or a deps bundle missing it will
   pass CI and fail at job time
 - If the plugin fails on field-based clips, note this — both templates set field-based via `{{#SET_FIELD_BASED}}`, emitted whenever `ScriptGenerator::field_based_for` returns a value (see "Field Order" below)
+- **Probe the bundled plugin before wiring it up** — run it against `deps/` at
+  8/10/12/16-bit, check its argument vocabulary matches the VapourSynth port (not
+  the AviSynth one), and check its own defaults actually do something. A plugin
+  that looks like a one-line win on paper has repeatedly turned out to have a
+  format restriction, a broken default, or an Avisynth-only argument that only a
+  real run against the bundle reveals — see docs/ENGINEERING_NOTES.md for the
+  specific traps found this way.
 
 **9. Integration Tests** — required, BOTH suites (see "Integration Tests for Filter Changes" below):
 - Add a numbered Rust test in `worker/tests/filter_integration_test.rs`.
@@ -338,7 +349,12 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 
 **10. Plugin Binaries**
 - Add a download/build block to each `Scripts/download-deps-*` script (deps
-  binaries are **not** committed — the scripts are the source of truth).
+  binaries are **not** committed — the scripts are the source of truth). Before
+  planning an addition, check whether the plugin's *newest* release ships a
+  Windows binary (`gh api repos/<owner>/<repo>/releases`) — Windows has
+  essentially no from-source path, so every platform must pin the version
+  Windows can get. Also check PyPI (`pypi.org/pypi/<name>/json`): several
+  plugins have migrated to publishing wheels there instead of GitHub releases.
 - **Add the plugin filename to `Scripts/deps-expected-plugins.json`** for every
   platform that ships it. The `package-deps-*` scripts assert this list is
   present before zipping and fail the build if any are missing, so a dead
@@ -353,6 +369,12 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
   `app/test/attribution_test.dart` — that test fails until all three exist.
   Take the copyright holder and licence from upstream, never from the handle or
   the repo owner (see "Attribution" below).
+- **A copied `download-deps-*` block does not port as-is** — macOS and Linux use
+  different env var names for the VapourSynth include dir (`$VS_INC_DIR` vs
+  `$VS_INCLUDE_DIR`), different pkg-config wiring, and macOS needed a
+  `vapoursynth/` include-farm subdirectory added for parity with Linux's. Check
+  all four before assuming a block copied from one platform's script works on
+  another; see docs/ENGINEERING_NOTES.md for the specific failures.
 
 ### Regenerating the App Icon
 
@@ -377,16 +399,11 @@ reliable way to check.
 their own. The design rationale — and two rejected concepts, so they are not
 tried again — is in the renderer's header comment.
 
-> **Audit the presets whenever a pass ships.** Measured 2026-08-17: **8 of the
-> 16 shipped passes are used by no built-in preset at all** — Chroma Denoise,
-> Sharpen, Anti-Aliasing, Stabilize, Rotate/Flip, Film Grain, Colour Correction
-> and Crop/Resize. Every batch added capability that nothing turns on. The
-> sharpest case: **Stabilize shipped specifically for film scans and the
-> "8mm / Super 8 Film Scan" preset does not use it**, while gate weave is the
-> first thing anyone notices on a cine scan; and Chroma Denoise (CCD) — the
-> single filter VideoHelp prescribes most for tape — is in no preset, including
-> "VHS Cleanup". Wiring an existing pass into the preset that names its source
-> costs no new code and is the cheapest capability this project has.
+> **Audit the presets whenever a pass ships.** A shipped pass is easy to forget
+> to wire into any built-in preset, which means it never gets used by a normal
+> user. When adding a pass, check whether an existing preset named after the
+> source it targets (e.g. a film-scan preset and a Stabilize pass) should turn
+> it on.
 
 ### Adding a New Built-in Preset
 
@@ -398,8 +415,7 @@ tried again — is in the renderer's header comment.
 4. Add it to the list returned by `ProcessingPreset.builtInPresets()` — nothing
    picks it up otherwise
 5. Assert in `app/test/processing_preset_test.dart` that it does what its **name**
-   says. That file is where two real bugs in the source presets were caught, both
-   of them silent:
+   says.
 
 > **`ProcessingPipeline()`'s default deinterlaces.** `QTGMCParameters.enabled`
 > defaults to **`true`**, so a preset that simply doesn't mention deinterlacing
@@ -416,19 +432,13 @@ tried again — is in the renderer's header comment.
 **Name presets after the source, not the technique.** The user knows they
 captured a DV tape; they don't know it wants SMDegrain with a chroma-bleed fix.
 That is why the set includes `DV Camcorder Tape`, `PAL DVD / Broadcast`,
-`Anime DVD` and `8mm / Super 8 Film Scan` alongside the three quality tiers, and
-it is the cheapest way to add capability — a preset costs no UI complexity at
-all.
+`Anime DVD` and `8mm / Super 8 Film Scan` alongside the three quality tiers.
 
 **Set `category`.** `PresetCategory.quality` for a speed/quality tier,
 `PresetCategory.source` for one shaped around a kind of source; the menu in
-`main_window.dart` groups on it ("For Your Source" / "Quality Only"). It is
-declared by the factory rather than looked up from a list of ids, so a new
-preset cannot land in the wrong group — but one that omits it defaults to
-`custom` and files itself under the source presets, so
-`processing_preset_test.dart` asserts every built-in declares one. The default is
-right for user-saved presets and for presets on disk from before the field
-existed.
+`main_window.dart` groups on it ("For Your Source" / "Quality Only"). One that
+omits it defaults to `custom` and files itself under the source presets, so
+`processing_preset_test.dart` asserts every built-in declares one.
 
 ### Adding a New QTGMC Parameter
 
@@ -509,8 +519,7 @@ Use `run_job_and_verify` when you want to confirm specific VapourSynth function 
 ## Filter Schema System
 
 Built-in filters are defined as JSON schemas in `app/assets/filters/core/`, listed
-in `app/assets/filters/manifest.json`. See existing filters for full examples. Key
-structure:
+in `app/assets/filters/manifest.json`. See existing filters for full examples.
 
 Full field reference: **[docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md)**.
 
@@ -545,1184 +554,112 @@ Full field reference: **[docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md)**.
 **Parameter types**: `boolean`, `integer`, `number`, `string`, `enum` (with `options` array).
 **Widgets**: `slider`, `dropdown`, `checkbox`, `textfield`, `number`.
 **`optional: true`**: Shows enable checkbox; when disabled, parameter is omitted (uses VS default).
-**`visibleWhen`**: Conditional visibility, e.g. `{ "method": ["method_a"] }`.
-
-### Filters added from the gap analysis (2026-08-15)
-
-Five filters whose plugins were **already in the deps bundle and unused**, so no
-deps release was needed: **DFTTest**, **FFT3DFilter** and **TTempSmooth** as
-Noise Reduction methods, **aWarpSharp2** as a Sharpen method, and
-**HQDeringmod** as a Dehalo method. The three new denoisers are `advancedOnly`;
-aWarpSharp2 and HQDeringmod are visible, because each is a different *mechanism*
-rather than a variant (and Dehalo's pass name already covers ringing).
-
-Two lessons from doing it, both of which cost a debugging cycle:
-
-> **Probe the bundled plugin, don't read about it.** Running each candidate
-> against `deps/macos-arm64` at 8/10/12/16-bit before writing any wiring is what
-> kept **KNLMeansCL** out of the batch: its OpenCL path does not initialise
-> everywhere (the app's own `knlm-probe.json` reports `false` on the development
-> Mac), CI deliberately excludes OpenCL-only plugins from
-> `vapoursynth_integration_test`'s required list, and `channels="YUV"` demands
-> 4:4:4 — which none of this app's sources are. It looked like a one-line win and
-> was not low risk at all.
->
-> **A plugin's VapourSynth port may not share its Avisynth parameter
-> vocabulary.** `warp.AWarpSharp2` takes `chroma` as **0 or 1** and rejects
-> anything else at script evaluation; Avisynth's takes 0-6, where 4 means "warp
-> chroma with the luma mask". Shipping the Avisynth value killed vspipe outright.
-> Script-generation tests passed the whole time — only the **heavy end-to-end
-> test** caught it, which is the argument for keeping that suite. `chroma` is now
-> deliberately not passed at all, asserted from both sides, in line with how
-> every other optional plugin argument here is treated.
-
-### Fifth filter batch (2026-08-15): two more deps plugins
-
-**Bifrost** (Chroma Fixes) and **Retinex** (Color Correction), joining the
-already-pending deps 1.9.0 rather than forcing another bump — the tag was still
-unpublished, so it was free to grow.
-
-Screening the remaining effort-2 candidates against the Windows-binary rule is
-now the first step, and it disqualifies about half of them:
-
-| plugin | latest release ships a Windows binary? |
-|---|---|
-| Bifrost v3.0, Retinex r4, MiniDeen v2, MSmooth v1.1, Descale r8 | yes |
-| DeDot v3, FillBorders v4, EEDI2 r7.1, EdgeFixer r3, TDeintMod r10.1 | **no** |
-
-> **Bifrost is 8-bit only** — "Only constant format 8 bit integer YUV input
-> supported", verified at 10/12/16-bit and 4:2:2. It gets DeScratch's
-> convert-down-and-restore guard. Low impact in practice: the composite captures
-> it targets are 8-bit anyway. Measured on an alternating-chroma clip, it halves
-> the frame-to-frame chroma swing.
->
-> **Retinex rejects subsampled formats outright** ("sub-sampled format is not
-> supported"), and *every* source this app handles is 4:2:0 or 4:2:2. Rather
-> than round-trip the clip through 4:4:4 and resample chroma twice for what is a
-> brightness operation, the luma plane is extracted as greyscale, processed, and
-> put back — colour comes through bit-identical. Verified working that way at
-> 8/10/12/16-bit and 4:2:2.
->
-> **bifrost includes `<vapoursynth/VapourSynth4.h>`**, not `<VapourSynth4.h>`,
-> so `-I"$VS_INC_DIR"` is not enough — the scripts stage an include root with a
-> `vapoursynth/` subdirectory and pass its parent.
-
-### Subtitles: transcribe first, mux last
-
-The order is load-bearing and was wrong until 2026-08-17.
-
-```
-transcribe the source  ->  encode (burning in if asked)  ->  mux as a post-pass
-```
-
-Whisper used to run only *after* the encode, which made burn-in structurally
-impossible — the encoder needs the file while it is running. Muxing genuinely
-must be a post-pass, because the file it goes into does not exist until the
-encode finishes. So the two ends of the pipeline both have subtitle work in
-them, and neither can move.
-
-> **Transcribing the source means honouring the trim, or every cue lands
-> early.** The encoder seeks the audio input to the trim point
-> (`-ss start/fps` on input 1), so the output's audio starts there. A transcript
-> of the *whole* source is offset by exactly the trimmed-off head, with no error
-> anywhere — `extract_audio_range` takes the same window the encode uses.
->
-> What makes this safe is that **nothing in the pipeline retimes audio**. IVTC
-> and frame-rate conversion change the video timeline and leave audio at its
-> original duration; audio is only ever `-ss` seeked and `-shortest` truncated.
-> If a pass is ever added that *does* retime audio (an `atempo` for a declared
-> frame-rate change, say), this breaks and the subtitles drift.
-
-`SubtitleOutput::{burns_in, muxes, keeps_srt_file}` answer the three independent
-questions rather than matching the enum in three places. A test asserts every
-mode does at least one of them, because a mode that does none produces no
-subtitles at all and looks like a silent failure.
-
-### The 2026-08-17 build-out: 18 filters, 4 new passes, deps 1.9.0
-
-The plan from the probe rounds was executed in full. Pipeline went from 16
-passes to 20 — **Edge Repair**, **Deflicker**, **Ghost Removal** and
-**Frame Rate** — plus methods inside existing passes (Bwdif, Cnr4, RemoveDirt,
-mClean, TemporalDegrain2, Auto Gain, Auto White Balance, ContraSharpening,
-DeDot, automatic chroma alignment), subtitle burn-in, custom VapourSynth
-injection, and an app-side histogram.
-
-Traps found by writing it, none of which the probing predicted:
-
-> **The `-vf` slot was single-use, and nothing would have caught it.**
-> `build_ffmpeg_args` appended either `setsar` **or** `setdar` — and ffmpeg
-> takes the **last** `-vf` and silently drops earlier ones. Adding subtitle
-> burn-in as a second `-vf` would have thrown away the aspect stamp, re-breaking
-> issue #50's third leg with no error anywhere. Filters now accumulate into a
-> `Vec<String>` joined with commas. **Never append a bare `-vf`** — push onto
-> that vec. Verified: a 16:11 anamorphic source with burnt-in subtitles comes
-> out still tagged 16:11.
-
-> **Adding a `remove_block` by pattern-matching on a sibling line misses an
-> arm.** The new blocks were added by appending to
-> `remove_block("{{#NR_STPRESSO}}"...)`, which appears in every method arm
-> *except STPresso's own* — so STPresso alone left unsubstituted placeholders.
-> A missed `remove_block` chains two denoisers silently: valid VapourSynth,
-> twice the runtime, not what the user asked for. `test_115` caught it. When a
-> method is added, walk **every** arm programmatically.
-
-> **Whisper burn-in is not a harder version of burn-in, it is a different
-> feature.** `SubtitleGenerator` runs *after* the encode (`main.rs`:
-> "Post-encode subtitle generation"), so the transcript does not exist when the
-> encoder needs it. Burn-in ships for a **user-supplied** file; the two
-> burn-in output modes deliberately fall back to writing the sidecar. Moving
-> transcription before the encode is separate work.
-
-> **The frame count is the hazard in custom code, not the code.** Arbitrary
-> execution is not a new risk in a process that already loads arbitrary plugins
-> — `custom_ffmpeg_args` predates this. But a snippet calling `Trim` or
-> `SelectEvery` changes the real output length while the declared total stays
-> put, which makes the progress bar lie *and* makes frame-accurate preview show
-> a different frame than its label, both silently. The generated script captures
-> `len(clip)` before the snippet and raises afterwards if it changed. Do not
-> relax that without giving the user a way to declare a `FrameMap`.
-
-> **`FrameMap::Retime` existed and nothing emitted one.** Before adding a
-> variant, check whether the one you need is already there. FlowFPS was chosen
-> over BlockFPS specifically because its output count matches
-> `Retime::output_count` exactly across 35 combinations while BlockFPS is off by
-> one in 14 — the arithmetic decided the filter, not the picture quality. Also
-> **reduce the ratio**: 25 → 29.97 is 1200/1001, not the plugin's 30000/1001,
-> and `Retime` multiplies a frame count by that pair.
-
-> **A wheel's macOS tag is a floor, not a promise.** `vapoursynth_dedot` 3.0
-> publishes `macosx_15_0_x86_64`, which fails the x64 bundle's 12.0
-> `STRICT_MIN_OS` guard — so that arch builds from source while every other
-> platform takes the wheel. Check `minos` on the actual binary, not the filename.
-
-> **Enum values and schema options are asserted against each other.**
-> `schema_converter_integration_test` failed the moment two subtitle modes were
-> added to the Dart enum without adding them to `subtitles.json`. That test
-> earns its place; do not weaken it.
-
-### The 2026-08-17 probe round: measure the premise, not just the plugin
-
-Seven parallel read-only agents probed all 25 unshipped Core/Strong candidates
-from the gap analysis against `deps/macos-arm64` before any plan was written.
-**Probing changed the verdict on nine of the twenty-five.** The plan, the
-simple-vs-advanced calls and the preset defaults are in the artifact — see
-[[reference-hybrid-filter-gap-analysis]]. The transferable lessons:
-
-> **A forum consensus about AviSynth is not evidence about this pipeline.**
-> `TIVTC` was the top-rated candidate on the strength of "TIVTC is definitely
-> better for complex DVDs than VIVTC", repeated across VideoHelp. Measured
-> against the repo's own `hard_telecine_test.avi`, TFM+TDecimate and the
-> `vivtc` VFM+VDecimate path already shipping are **bit-identical** — 0.0000/255
-> after matching and after decimation, same 90→72 frames. On a deliberately
-> broken cadence they differ by 0.0002. The claim is true; it is true of
-> AviSynth's TIVTC against AviSynth's alternatives, not of this app. **Measure
-> the premise before pricing the work**, especially when the rating came from
-> reading rather than running.
-
-> **Two candidates were already implemented.** EDI upscaling is complete in
-> `pipeline_template.vpy` with per-plane centroid correction and measured within
-> 0.055 px of a reference resample — it is invisible because its whole schema
-> section is `advancedOnly, expanded: false` and reaching it needs two separate
-> checkboxes. And `GrayWorld` is not a second filter: in YUV the grey-world
-> assumption reduces exactly to shifting the U/V plane means onto neutral, which
-> is what AutoWhite does. **Check whether the thing exists before costing it.**
-
-> **Upstream defaults can be no-ops or hard failures — probe the default call,
-> not just the function.** `zsmooth.Cnr4` defaults `scenechange=True` and needs
-> frame properties this pipeline never sets, so a naive `core.zsmooth.Cnr4(clip)`
-> fails **100% of jobs on every platform**; prepend `misc.SCDetect`. `Checkmate`
-> is the mirror image: at its own default `tthr2=0` it measured 0.000 difference
-> on every dot-crawl pattern tested — shipping upstream's default gives a filter
-> that silently does nothing.
-
-> **A plugin can carry a bug that only bites one architecture.** ReduceFlicker's
-> `proc_filter.h` reads `prevp[0]/[2]` where its SIMD path correctly reads
-> `nextp[0]/[2]`, and the SIMD block is `#if defined(__SSE2__)` — so aarch64 has
-> no path but the buggy one, and the ARM bundles would have rendered differently
-> from x86. Same failure shape as the znedi3 `_FieldBased` trap that cost two
-> nightly cycles. It is transcribed to `Expr` instead, validated against a numpy
-> model of the C source at max 1 level difference.
-
-> **"Faster" and "better" are different claims and both need measuring.**
-> RemoveDirtMC is *not* additive over the shipped SpotLess (9.99 MAE vs 9.21,
-> and 1.4x slower) — but plain RemoveDirt runs **908 fps against 143** for 60%
-> of the removal. The filter is worth shipping for the axis the forums actually
-> praised it on, and would have been wasted effort on the other.
-
-### Second probe round (2026-08-17): the Useful tier, 21 of 22 deferred
-
-The same seven-agent treatment over every remaining Useful-tier candidate.
-**One promotion out of twenty-two** — MVTools `FlowFPS` as a Frame Rate pass —
-and that ratio is the finding, not a disappointment: the Useful tier is where
-second answers live, and measuring is how you learn they are second. Lessons
-that generalise:
-
-> **A "new" filter is often the shipped one with different arguments.**
-> `KillerSpots` measured **bit-identical** to `spotless.py` (max diff 0.0) with
-> three mvtools arguments changed — the third instance of this after
-> `lostfunc.DeSpot` and `GrayWorld`. But those arguments are *better*: spot MAE
-> 10.49 → 9.33 at 318 → 424 fps, i.e. **a three-line change to shipped code is
-> worth more than the filter was**. Diff the algorithm before costing the port.
-
-> **An automatic filter must be tested on the material it should ignore.**
-> `AutoDeblock`'s detection is *inverted*: on genuinely blocked MPEG-2 it never
-> escalated past "weak" and altered the picture **less** than it altered clean
-> footage, while on grainy-but-unblocked content it fired strong on 99% of
-> frames. Heavy quantisation collapses inter-frame detail, so the temporal gate
-> it keys on drops exactly when blocking rises. Any "auto" filter gets a
-> three-way test — damaged, clean, and noisy-but-clean — and the clean cases
-> matter more than the damaged one.
-
-> **Check the filter against the content this app's presets create.**
-> `FillDrops` cannot distinguish a dropped frame from a held animation cel —
-> both are bit-exact duplicates — so it destroyed 39 of 80 held frames at
-> *every* threshold, since none can be below zero. VapourBox ships **Anime DVD**
-> and **DVD IVTC** presets where duplicated frames are normal. A filter that is
-> safe on live action can be destructive on the sources we advertise.
-
-> **Prefer a crash you can catch.** `vs-placebo` constructs its node with no
-> exception when Vulkan is absent and then **segfaults on the first frame** —
-> no error to detect, no fallback possible, and vspipe dies as "signal 11" for
-> both job and preview. That is strictly worse than KNLMeansCL, which at least
-> raises. macOS has no Vulkan driver and the wheels ship no MoltenVK, so it can
-> never work on either Mac bundle.
-
-> **`FrameMap::Retime` exists and nothing emits one.** `frame_map_for` produces
-> only `Identity`, `Fanout` and `Decimate`. FlowFPS's output count matches
-> `Retime::output_count` exactly across 35 combinations; BlockFPS is off by one
-> in 14 of them. Choosing FlowFPS makes existing code correct as written —
-> check for an unused variant before adding one.
-
-> **Synthetic uniform grain is a bad fixture for a motion-compensated
-> denoiser.** A probe reported `SMDegrain` as a near no-op "at the app's
-> defaults"; reproducing it showed the repro omitted `RefineMotion` and
-> `prefilter`, which the template always emits. With the real defaults it
-> removes 3.34 of 4.36 grain, and the reachable parameter space (27
-> combinations) is well-behaved throughout. **No bug** — but bare `SMDegrain`
-> on uniform noise finds perfect motion matches everywhere and gates everything
-> out, so use real footage when validating MC denoisers.
-
-### Fourth filter batch (2026-08-15): probe agents, and what they caught
-
-Five more effort-1 filters: **CTMF** (Noise Reduction), **DCTFilter** (Deblock),
-a **Film Grain** pass (AddGrain + GrainFactory3), a **Rotate / Flip** pass, and
-**SmoothLevels** as an option on the existing Levels control. All from plugins
-already in the bundle, so no deps change.
-
-This batch was probed by parallel read-only agents before any wiring was
-written, and that is the only reason it works. The traps they found, none of
-which any documentation would have shown:
-
-> **A quarter turn changes the pixel FORMAT, and ffmpeg refuses the result.**
-> `std.Turn90` swaps the chroma subsampling axes, so 4:2:2 becomes 4:4:0 — which
-> vspipe emits as `C440` and ffmpeg rejects with "YUV4MPEG stream contains an
-> unknown pixel format" — and 4:1:1 becomes a format with no y4m identifier at
-> all, killing vspipe itself. Both are hard job failures and 4:2:2 is the common
-> 10-bit ProRes case. The template captures `clip.format.id` before the turn and
-> converts back after, like the LUTDeCrawl guard.
->
-> **SAR must be inverted on a quarter turn, in TWO places.** SAR is pixel width
-> : height, so turning exchanges them. `GeometryParameters::adjusted_sar` feeds
-> both the ffmpeg-side declaration in `pipeline_executor.rs` *and* the
-> `{{SOURCE_SAR}}` used by the square-pixel fitting path in the template. Miss
-> either and an anamorphic source comes out the wrong shape.
->
-> **Turning interlaced material is unrecoverable, not merely lossy.** Fields are
-> alternating rows; a quarter turn puts them in alternating *columns*, where
-> `SeparateFields` returns two "fields" that each still contain both. No
-> deinterlacer can fix it afterwards, and `_FieldBased` still claims the clip is
-> fine. `pass_advice.dart` warns when a quarter turn is set with deinterlacing
-> off — the pass order already puts deinterlacing first.
->
-> **CTMF rejects 9-bit, and 9-bit is reachable.** `pixel_format.rs` rounds an odd
-> source depth up through `[8, 9, 10, 12, 14, 16]` and `pipe_source` maps
-> `yuv420p9le`, so a 9-bit source would kill the job. Guarded in both templates.
-> Its `memsize` is also pinned to 16 MiB: at the plugin's 1 MiB default, 16-bit
-> radius 3 measures **0.79 fps against 42 fps**, for bit-identical output.
->
-> **DCTFilter accepts NaN and silently blackens the frame.** Its own range check
-> is `factor < 0.0 || factor > 1.0`, and both are false for NaN. The worker
-> builds the eight factors from a cutoff and a strength and guarantees every one
-> is finite. Its coefficient mapping is also **separable** (`factors[u] *
-> factors[v]`), not the `max(u, v)` the Avisynth filter of the same name uses.
->
-> **`grain.Add`'s `var` must NOT be depth-scaled**, unlike every other level in
-> this app. It is already in 8-bit units and the plugin rescales internally;
-> applying the `_levels_8bit()` treatment would quadruple the grain at 10-bit.
-> Measured identical 8-bit-equivalent output at 8/10/12/16-bit.
->
-> **SmoothLevels' default configuration cannot run at all.** havsfunc calls
-> `core.f3kdb.Deband` and this bundle ships **`neo_f3kdb`** under a different
-> namespace, so `useDB=True` — the default — raises "no attribute named f3kdb"
-> on every format. It is pinned `False`; fixing it properly needs a havsfunc
-> patch 8 and therefore a deps release. Its levels are also read in the clip's
-> own range, so six arguments are scaled in-script; and it **crashes** when
-> `input_low > 0` and `1/gamma` is not an integer (a negative base to a
-> fractional power yields a Python complex), so the worker drops the black point
-> for that combination.
-
-> **TemporalDegrain2 was requested and is NOT effort 1.** Its upstream repo
-> declares **no licence**, so vendoring ~4,300 lines of it is a legal decision
-> rather than a technical one. Beyond that: it needs five modules, not one;
-> `postFFT=5` **aborts the process** rather than raising; `postFFT=4` is broken
-> two ways; `extraSharp=True` is a `NameError` at exactly 16-bit; and both
-> `limitSigma` and mvtools' `limit=255` default are depth-dependent, so
-> `outputStage=0` is a **complete no-op at >=12-bit** and 73% of the degraining
-> is silently lost at 16-bit. Good news: bm3d is never reached, so it needs no
-> deps addition. Implementable, but effort 3 and blocked on the licence.
-
-### FFmpeg is pinned to one series, and the pin is asserted (2026-08-31)
-
-The bundled FFmpeg is what actually interprets everything in
-`pipeline_executor.rs` — the accumulated `-vf` chain, the colour metadata
-flags, `-ss`/`-frames:v` trimming, the hardware-encoder options. So a version
-skew between platforms means the same job encodes differently depending on
-where it ran, silently. It is the same class of hazard as the fmtconv and
-zsmooth version pins, and it had been true for months without anyone noticing:
-
-| | FFmpeg, measured 2026-08-31 | how |
-|---|---|---|
-| Windows | **master N-125978** (post-9.0) | BtbN `master-latest`, **unpinned** |
-| macOS x64 | 9.0.1 | evermeet `getrelease`, **unpinned** |
-| macOS arm64 | 9.0.1 | martin-riedl `latest`, **unpinned** |
-| Linux | **7.1**, two majors behind | BtbN `n7.1`, pinned |
-
-Three floated on "latest" and the fourth was pinned to a series BtbN then
-garbage-collected, which 404'd the Linux deps build outright. All four now pin
-**9.0**.
-
-> **A version pin against a rolling tag is not a pin.** BtbN publish every
-> series to one `latest` tag and drop old ones as they age, so `n7.1` was always
-> going to become a 404 — it was a matter of when. Pin the **series**
-> (`n9.0-latest`, newest build of the 9.0 branch), which is how all three
-> upstreams actually publish, and treat a series bump as a deliberate,
-> all-platforms-together change.
-
-> **`curl` without `-f` writes the 404 body to the output file.** That is why
-> the failure surfaced as `tar: Error is not recoverable` half a step later
-> rather than as a download error naming the URL — the "tarball" was nine bytes
-> reading `Not Found`. Every FFmpeg fetch now uses `-f`.
-
-Pinning differs per host because their retention does, and that is deliberate:
-
-- **BtbN** (Windows, Linux) — series URL, rolls patches within 9.0.
-- **evermeet** (macOS x64) — an exact version, `FFMPEG_MACOS_X64_VERSION`. It
-  keeps old versions reachable (verified: 7.1, 8.0 and 9.0.1 all still resolve),
-  so a full-version pin is durable here.
-- **martin-riedl** (macOS arm64) — only `latest` plus opaque build-id paths of
-  unknown retention, so it takes latest and is **checked afterwards**.
-
-Two guards, and both are needed. `assert_ffmpeg_series` in each script runs
-`ffmpeg -version` on what was actually installed and fails the build if it is
-not the pinned series — that catches an upstream silently moving a URL, which
-no amount of pinning can prevent. And `app/test/ffmpeg_version_pin_test.dart`
-(push gate) reads all three scripts and fails if their pins disagree, if a pin
-is not a bare `major.minor`, or if a script stops asserting. Without the second,
-the pins are just comments.
-
-Note the version parser accepts `n9.0.1` and `9.0.1` and deliberately **rejects
-a `master` build** (`N-125978-...`), so reverting any platform to an unpinned
-master URL is a red build rather than a silent regression.
-
-### zsmooth ships once per CPU baseline, and is loaded by path (issue #82, 2026-08-28)
-
-A plugin can also have **no** dispatch at all. zsmooth is compiled for a whole
-CPU baseline — upstream publishes only `haswell` (AVX2) and `znver4` for x86,
-per the targeting essay in vapoursynth#1185 — so on a pre-2013 CPU the library
-**loads fine** and then dies the instant a filter runs.
-
-Reported on a Celeron J4105 and a Core i7 870, neither of which has AVX at all.
-The symptom is a bare `vspipe exited with exit code -1073741795`, which is
-`0xC000001D` **STATUS_ILLEGAL_INSTRUCTION** — a different fault from CTMF's
-`0xC0000005`, and worth knowing apart: illegal instruction means the binary
-needs a CPU feature this machine lacks, access violation means a genuine bug in
-the kernel that ran. Both print nothing else, so the encode surfaces as ffmpeg
-reading an empty pipe. `format_exit_status` now decodes both.
-
-Everything reaching `core.zsmooth.*` was affected: CCD, Cnr4, SpotLess →
-RemoveDirt, Noise Reduction → mClean and TemporalDegrain2, and hybrid_mv. QTGMC
-was not — havsfunc uses `rgvs`.
-
-> **Shipping one portable build for everyone is the obvious fix and the wrong
-> one.** Measured (Zig 0.15.2, same source, 720x576, fps, best of 3), as a
-> fraction of haswell speed:
->
-> | | CCD r0 | CCD r1 | Cnr4 | CCD 16-bit | RemoveGrain | Repair | Median |
-> |---|---|---|---|---|---|---|---|
-> | `x86_64` | 0.50 | 0.33 | 0.33 | 0.39 | 0.68 | 0.66 | 0.73 |
-> | `x86_64_v2` | 0.72 | 0.63 | 0.71 | 0.69 | 0.69 | 0.65 | 0.73 |
->
-> That is 2-3x on the two filters the Chroma Denoise pass is *made of*, charged
-> to every modern machine to serve the rare old one. Ratios hold at 1080p and
-> multithreaded. A locally built `-Dcpu=haswell` matched the shipped binary
-> within ±3%, so these are like-for-like and not a toolchain artefact.
-
-So x86 bundles ship **both** builds and the worker picks at load time. Three
-things about the mechanism:
-
-- **The builds cannot share a directory.** Each registers the namespace
-  `zsmooth`, so whichever autoloads second is rejected — and on macOS/Linux
-  `vapoursynth/plugins` is autoloaded implicitly by R78, so "just don't set the
-  env var" is not available either. They live in `vapoursynth/zsmooth/`, outside
-  any autoload path, and the generated script carries an explicit
-  `core.std.LoadPlugin`. `VAPOURSYNTH_EXTRA_PLUGIN_PATH` takes **one** directory
-  — verified, a `;`-separated pair silently loads only the first — so the second
-  plugin directory idea does not work.
-- **The namespace stays `zsmooth`, so no call site changed.** That is the whole
-  reason for loading by path rather than under a `forcens` alias: the vendored
-  `mclean.py`, `removedirt.py`, `temporaldegrain2.py` and `hybrid_mv.py` all say
-  `core.zsmooth.X`, and an alias would have needed a `_zs()` indirection through
-  every one of them (and left them on the slow build for AVX2 users).
-- **No selected build means no `LoadPlugin`.** Bundles up to 1.9.0 autoload a
-  single zsmooth, and the app can be upgraded before the deps download finishes,
-  so a worker that always emitted the line would fail every job in that window.
-  `DependencyLocator::zsmooth_plugin()` returns `None` there and the script is
-  byte-identical to the pre-split one. Verified both ways end to end.
-
-`x86_64_v2` (SSE4.2/POPCNT, Nehalem 2009 on) is the fallback rather than plain
-`x86_64`: it is 1.4-2.1x faster on the filters that matter, 0.6 MB smaller, and
-covers both CPUs in the report. Note v2 buys **nothing** over v1 on the
-RemoveGrain/Repair/Median kernels — the gain is specific to CCD and Cnr4.
-
-macOS x64 was already affected in the other direction: it builds from source for
-the issue #39 minos floor and had always used Zig's *default* baseline, i.e. the
-0.50/0.33 column. It now builds both, so Intel Macs get the fast path for the
-first time.
-
-> **The macOS haswell build needs an fftw patch, and the bug is one line
-> upstream.** zsmooth's Zig fftw port sets `HAVE_MEMALIGN` on every non-Windows
-> target, but macOS has no `memalign()` — it is declared in `<malloc.h>`, which
-> **the same file already knows macOS lacks** (`HAVE_MALLOC_H` is gated on
-> `!is_mac`). fftw's `kalloc.c` only reaches that branch when `MIN_ALIGNMENT` is
-> 32, i.e. when AVX is on, so it is invisible at every SSE-level baseline and
-> kills **only** the haswell build — with a clang implicit-declaration error
-> inside a dependency, which reads like a toolchain problem rather than a
-> one-line config bug. `HAVE_POSIX_MEMALIGN` is already true, so clearing it
-> falls through to `posix_memalign`.
->
-> The patch clones the fftw fork at the ref `build.zig.zon` names, edits that
-> line, and repoints the dependency as a **path** dependency — path deps take no
-> hash, so this is deterministic and survives a cache wipe, unlike editing Zig's
-> global package cache. Both a pre-check and a post-check hard-fail, so an
-> upstream fix surfaces as a build error telling you to remove the patch rather
-> than silently doing nothing.
->
-> Verified by **cross-compiling from Windows** (`-Dtarget=x86_64-macos.12.0
-> -Dcpu=haswell`), which reproduces the failure exactly and confirms the fix in
-> about four minutes — far cheaper than a macOS CI round trip, and worth
-> remembering for any Zig-built plugin: the target does not have to be the host.
-
-> **The fallback is not a different picture, only a slower one.** The two builds
-> produced identical chroma means (U=123.884, V=131.096) on the same clip, so
-> falling back costs throughput and nothing else. Do not treat the choice as
-> output-affecting.
-
-Guards: `test_154`/`test_155` (both scripts, both bundle layouts) and
-`zsmooth_never_offers_a_build_this_cpu_cannot_run` in `dependency_locator.rs` —
-which is the durable one, since it runs on every platform whatever hardware CI
-draws. The Dart side loads the chosen build and **renders a frame** (the fault is
-in the kernel, so constructing the node proves nothing), asking the worker's
-`--probe-cpu` for the CPU rather than deriving it. `deps-expected-plugins.json`
-entries for zsmooth are bundle-relative **paths**, and all three packaging guards
-understand that form now.
-
-**This is not verifiable in CI.** Every hosted runner has AVX2, so no CI job can
-exercise the fallback; the local check is to hide the haswell build and re-run.
-Intel SDE (`sde -nhm --`) is the only way to prove a build runs on a CPU you do
-not have.
-
-### A plugin's own CPU auto-detect is not trustworthy (CTMF, 2026-08-25)
-
-`ctmf.CTMF`'s AVX-512 kernel for **8-bit** input
-(`ctmfHelper_avx512<uint8_t, 16>`) crashes the process. Not an exception — a
-**0xC0000005 access violation**, so vspipe dies having printed nothing at all.
-
-That makes the symptom actively misleading. The encode surfaces as the *encoder*
-ffmpeg failing to read the empty Y4M pipe:
-
-```
-[in#0] Header too large.
-[in#0] Error opening input: Invalid argument
-ffmpeg exited with exit code -22
-```
-
-and the preview as a bare `Preview generation failed (exit code 1)` whose log
-ends after the routine API3 plugin warnings. **Nothing anywhere names CTMF**, and
-"Header too large" reads like a muxer or template bug.
-
-Scope, measured against the bundle rather than assumed:
-
-| | 8-bit | ≥10-bit |
-|---|---|---|
-| `radius=2` | OK | OK |
-| every other radius | **crash** | OK |
-
-Radius 2 escapes because it has its own `filterRadius2_*` kernel; ≥10-bit
-escapes because it uses the `uint16_t` helpers. `opt=1` (C), `2` (SSE2) and `3`
-(AVX2) are **bit-identical to each other** and none of them crash.
-
-> **The plugin does not check that the CPU can run the level you ask for.**
-> `opt=3` on a pre-AVX2 machine installs the AVX2 kernels and crashes exactly as
-> `opt=4` does on an AVX-512 one — there is no guard in `ctmfCreate`, only a
-> `0..4` range check. So the fix cannot be a constant. `script_generator::ctmf_opt`
-> queries the CPU (`is_x86_feature_detected!`) and emits **3 where AVX2 exists,
-> else 2** — SSE2 being part of the x86-64 baseline. Never emit `0`: that is the
-> plugin's own auto-detect, and auto-detect is precisely what picks the broken
-> kernel. Non-x86 builds compile the dispatch out and ignore the value.
->
-> This lives in the worker rather than in the script because it is a property of
-> the **machine**, not of the clip — unlike the depth scalings, no preceding pass
-> can change the answer. CTMF r5 (2020) is the newest upstream release, so there
-> is no fixed build to take instead.
-
-> **CI turned red with no diff, and the runner hardware was the variable.**
-> The nightly Windows job started failing 2026-08-24 against a tree unchanged
-> since 08-20. x264's capability line in the same logs is the tell: `... AVX2` on
-> the three passing nights, `... AVX2 AVX512` on the failing ones. When a job
-> fails with no commit to blame, grep the log for that line before bisecting.
-> (These machines also align VapourSynth frames to 64 bytes rather than 32 — a
-> 720-wide 8-bit plane gets stride 768.)
-
-> **Only CTMF is affected.** `cas`, `grain.Add`, `tcanny`, `dfttest`,
-> `warp.AWarpSharp2` and `eedi3m` expose the same `opt` parameter and the same
-> `instrset_detect()` dispatch; all six were swept at `opt=0` against `opt=3` on
-> an AVX-512 CPU, at 8-bit and 16-bit, and are clean. Do not pin them
-> pre-emptively — an unnecessary pin costs throughput and hides a real
-> regression later.
-
-`test_152`/`test_153` (Rust) assert both generated scripts carry the pin and that
-the value is one the CPU actually has; the Dart twin is in
-`integration_filter_parameters_test.dart`. Both matter: the Rust test would pass
-against a value no CPU here can run, and the heavy end-to-end
-`integration_new_passes_test` CTMF case is the only level that proves vspipe
-survives.
-
-### Third filter batch (2026-08-15): the first deps change
-
-**fluxsmooth** is the first plugin this work has *added* to the bundle rather
-than found already in it, so it is the first batch that needs a **deps release**
-(1.8.0 → **1.9.0**). It unlocks three Noise Reduction methods: `FluxSmoothT`,
-`FluxSmoothST`, and **STPresso**, which was dropped from the second batch for
-exactly this missing dependency.
-
-What an effort-2 addition actually costs, beyond the usual filter wiring:
-
-1. A build block in **all three** `download-deps-*` scripts.
-2. An entry per platform in `Scripts/deps-expected-plugins.json` — the packaging
-   guard that turns a dead download URL into a red build.
-3. The namespace in `app/test/vapoursynth_integration_test.dart`'s required
-   list, or a bundle missing it passes CI and fails at job time.
-4. A version + tag bump in `app/assets/deps-version.json`.
-5. **A deps release actually built and published**, which is CI work and cannot
-   be done or verified locally — see the rc flow in "Testing a deps change".
-
-> **Windows has essentially no from-source build path, and that decides the
-> version.** `download-deps-windows.ps1` fetches published release archives, so
-> a plugin is only addable if upstream ships a Windows binary — and every
-> platform must then pin the version Windows can get. (The single exception,
-> added 2026-08-28: zsmooth's portable build compiles there with a pinned Zig
-> toolchain, because Zig brings its own libc and needs no MSVC. Do not read that
-> as a general from-source path — it exists because upstream ships no binary that
-> runs without AVX2, see the zsmooth section above.) FillBorders and Bwdif were the first
-> two candidates and were **rejected on this basis**: their newest Windows
-> binaries are several releases behind their source (FillBorders v2 vs v4, Bwdif
-> r4.1 vs r5.1), and pinning everything back that far would have cost features
-> that only exist in the newer source. Check
-> `gh api repos/<owner>/<repo>/releases --jq '.[] | "\(.tag_name) \(.assets|length)"'`
-> **before** planning any effort-2 addition.
->
-> **But that check is no longer sufficient on its own — plugins are migrating to
-> PyPI.** Re-probing on 2026-08-17 found the rule intact and *three of its
-> conclusions stale*, because upstream had changed distribution channel rather
-> than stopping:
->
-> | plugin | GitHub releases say | reality |
-> |---|---|---|
-> | **Bwdif** | last asset r4.1 (2021) | r5 moved to PyPI; `vapoursynth-bwdif` 5.1 ships wheels for **all five** targets |
-> | **DeDot** | v2/v3 have no assets | `vapoursynth_dedot` 3.0 ships wheels for all five |
-> | **EdgeFixer** | (assumed absent) | r3 (2026-07-22) **does** ship `EdgeFixer_r3.7z`, and it is the newest tag |
->
-> So the check is now **two** commands, and the second is the one that was
-> missing: `curl -s https://pypi.org/pypi/vapoursynth-<name>/json`. The akarin
-> block in `download-deps-windows.ps1` is already a working PyPI-wheel fetcher
-> (resolve the hashed URL through the JSON API; a wheel is a zip) — copy it
-> rather than concluding a plugin is unavailable.
->
-> Two caveats found the same day: a wheel's macOS tag is a **floor, not a
-> promise** — dedot's `macosx_15_0_x86_64` fails this bundle's `STRICT_MIN_OS=1`
-> 12.0 guard, so x64 still builds from source — and **FillBorders v2 vs v4 is
-> still real**, but measured bit-identical at even border widths, differing only
-> at odd widths where v2 leaves subsampled chroma unrepaired. Constraining the UI
-> to `step: 2` (as every crop control already is) erases the difference.
-
-> **Yes, one filter justified this deps release — that was a deliberate call.**
-> zsmooth already provides `FluxSmoothT`/`FluxSmoothST`, so those two methods
-> never needed the plugin; they call the canonical `flux` namespace only because
-> it is present. **STPresso is the only filter that actually required it**,
-> because havsfunc hardcodes `core.flux.SmoothT` and cannot see zsmooth's
-> equivalent. The alternative — point the two FluxSmooth methods at zsmooth, drop
-> STPresso, revert to deps 1.8.0 — was considered and rejected on 2026-08-15:
-> STPresso is well regarded, the plugin is 34 KB, and a deps release is a
-> one-time cost. Don't re-litigate this; if the plugin ever needs removing, it is
-> STPresso that goes with it.
-
-> **Prefer compiling a small plugin directly over running its build system.**
-> fluxsmooth is autotools, and adding autoconf/automake/libtool to three CI
-> deps workflows for one plugin is a poor trade. It is a single C file, so the
-> macOS and Linux scripts call the compiler directly — one line, no new
-> toolchain, and identical output.
-
-### The download scripts do NOT share a vocabulary — porting a block costs four checks
-
-Adding these three plugins took **four** red deps builds, each a different cause
-with the same symptom (`deps-expected-plugins.json` reporting missing plugins).
-Every one came from writing a block in one platform's script and copying it to
-another, carrying an assumption that silently did not hold. Before assuming a
-copied block works, check all four:
-
-| | macOS | Linux |
-|---|---|---|
-| VS headers | `$VS_INC_DIR` | **`$VS_INCLUDE_DIR`** |
-| pkg-config for meson | `build_plugin` sets it internally | must prefix **`$PLUGIN_BUILD_ENV`** |
-| `<vapoursynth/X.h>` include style | farm added 2026-08-16 (was absent) | permanent symlink farm |
-| arch handling | **split**: x64 pre-built / arm64 from-source | both from source, no split |
-
-The failures, in the order they appeared:
-
-1. **`$VS_INC_DIR` is unset on Linux**, so it reached `cc` as a bare `-I`
-   ("missing path after '-I'"). Both direct-compile blocks now assert
-   `${VS_INCLUDE_DIR:?}` so a rename fails naming the plugin and the variable.
-2. **retinex lost `$PLUGIN_BUILD_ENV`** on Linux — macOS has no such prefix, so
-   copying its `build_plugin` call across dropped `PKG_CONFIG_PATH` and meson
-   could not see VapourSynth at all.
-3. **retinex includes `<vapoursynth/VapourSynth.h>`**, so pkg-config *finding*
-   VapourSynth is not sufficient — the include root needs a child directory
-   named `vapoursynth`. Linux had kept one for years; macOS had none, which is
-   why bifrost staged a private tree and retinex (which resolves through
-   pkg-config and cannot be handed one) could not work at all. macOS now mirrors
-   the farm, so a single `-I"$VS_INC_DIR"` satisfies both include styles.
-   Note this needs the **API3** headers: R78 installs only the API4 set, and
-   both scripts top up `VapourSynth.h` from the source tree.
-4. **The blocks sat inside the macOS arch split's arm64 branch**, so x64 never
-   reached them — invisible on arm64, where everything passed. Anything built
-   from source on *both* arches belongs after
-   `fi  # end plugin arch split`, where zsmooth already lives.
-
-> **A green Windows deps build proves nothing about the other two.**
-> `download-deps-windows.ps1` only downloads published binaries, so it passed on
-> the first attempt and every attempt after, while macOS and Linux were failing
-> for three different reasons. Don't read it as a signal.
-
-### Second filter batch (2026-08-15): two new passes
-
-**Anti-Aliasing** (`daa`, `santiag`) and **Stabilize** (`Stab`) are the first
-whole *categories* added rather than alternatives inside an existing pass, plus
-**LUTDeRainbow** as a Chroma Fixes toggle. All three come from `havsfunc` and
-MVTools, already in the bundle, so again no deps release.
-
-Two orderings are load-bearing and asserted from both sides
-(`test_110` in Rust, `pass_list_stages_test.dart` in Dart):
-
-- **Anti-aliasing runs before Sharpen.** Sharpening a stair-stepped edge makes
-  the stepping more visible, not less.
-- **Stabilize runs last before Crop/Resize.** It shifts the picture within the
-  frame and exposes thin empty edges, so a crop afterwards removes them.
-
-> **`santiag`'s `type` is pinned to `nnedi3`.** havsfunc also accepts `eedi2`
-> and `sangnom`; **neither is in the deps bundle**, and naming an absent one
-> fails at script evaluation with a bare "no attribute" error. `AntiAliasParameters::effective_santiag_type`
-> drops anything else. The same shape as `normalized_chroma_edi` — don't bypass it.
->
-> **LUTDeRainbow shares LUTDeCrawl's 8-10 bit limit** ("This is not an 8-10 bit
-> YUV or YCoCg clip"), so it gets the same convert-down-and-restore guard in both
-> templates. Found by probing the bundle, not from documentation.
->
-> **STPresso was dropped from this batch.** havsfunc implements it with
-> `core.flux.SmoothT`, and the **fluxsmooth plugin is not bundled** — zsmooth
-> provides `FluxSmoothT` under a different namespace, which havsfunc does not
-> know about. That makes it effort 2, not 1.
-
-> **Probe the signature, not just the call.** `Stab` shipped with a `range`
-> argument that the bundled havsfunc does not have
-> (`Stab(clp, dxmax, dymax, mirror)`), so every job using it died with a
-> `TypeError`. The earlier probe called `haf.Stab(clip)` with no arguments and
-> passed, which proved only that the function exists. `inspect.signature` against
-> the bundled module is the check that would have caught it — the same lesson as
-> aWarpSharp2's `chroma`, one level deeper.
-
-> **A terse plugin error naming a property tells you the property is involved,
-> not in which direction.** `daa` failed on macOS x64 and Linux x64 with
-> `Failed to retrieve frame 0 with error: znedi3: _FieldBased`. Read as "znedi3
-> rejects field-based clips", it produced a fix that cleared the property — and
-> changed nothing, because the truth is the opposite. Probed against the bundled
-> plugin:
->
-> | `field` | no `_FieldBased` | `=0` | `=2` |
-> |---|---|---|---|
-> | 1 | OK | OK | OK |
-> | **3** | **ERROR** | OK | OK |
->
-> znedi3's **double-rate** mode *requires* the property; havsfunc's `daa` uses
-> `field=3`, and this pipeline only sets `_FieldBased` when a field order is
-> **known** — so an ordinary source with none killed the pass. The Anti-Aliasing
-> block therefore always marks the clip: `0` after deinterlacing (that output is
-> progressive) or when nothing was detected, the detected order otherwise.
-> `test_139`–`test_141` pin all three cases.
->
-> It survived on macOS arm64 (nnedi3 via patch 6) and on Windows (whose
-> *prebuilt* znedi3 tolerates the absence) and died on the two bundles that
-> build znedi3 from source — the worst shape a bug can have, since the same job
-> worked or failed depending on the user's machine. **Two platforms passing is
-> not evidence**; that is the same trap as a green Windows deps build.
->
-> The whole detour cost two nightly cycles and would have been avoided by a
-> two-minute `vspipe` probe against `deps/` — which is what the two notes above
-> already say to do.
-
-> **The heavy tests run the worker BINARY, not the library.** `cargo test`
-> compiles `src/` into its own test executable, so the Rust suite can pass
-> against new code while `app/test/integration_*` exercises a stale
-> `worker/target/debug/vapourbox-worker`. The symptom is badly misleading:
-> generated scripts full of unsubstituted `{{PLACEHOLDER}}` and a bare Python
-> `SyntaxError` from vspipe, which reads like a template bug. `WorkerHarness`
-> now prints a loud warning when the binary is older than anything in
-> `worker/src` or `worker/templates` — **run `cargo build` before the heavy
-> suite**.
-
-> **The same trap on the Dart side: a stale `.g.dart`.** `app/lib/**/*.g.dart`
-> is gitignored and every CI job runs `dart run build_runner build` immediately
-> before testing, so **CI can never reproduce this** — it is purely a
-> developer-machine failure. Add a field to a model, forget to rebuild, and
-> `toJson()` keeps emitting the old key set; the worker's serde models carry
-> `#[serde(default)]`, so the field arrives as its default and the pass runs
-> with the wrong settings, with no error anywhere. You end up debugging the
-> template. `app/test/generated_code_freshness_test.dart` fails the push gate
-> when a declared field has no generated code, naming the field and the fix.
->
-> It checks **field names, not mtimes**: build_runner is incremental and leaves
-> a generated file alone when its output is unchanged, so an mtime comparison
-> reports eight models stale straight after a clean build. Don't "simplify" it
-> back to timestamps.
-
-### Advanced mode is one app-wide setting, and it is the complexity lever
-
-`AdvancedModeService` (**Settings → General → Show advanced options**, persisted
-under `showAdvancedOptions`) gates three things: `advancedOnly` **sections**,
-preset-controlled parameters, and `advancedOnly` **methods**. It is provided
-through `MultiProvider` in `main.dart` and read with
-`context.watch<AdvancedModeService>()`, so every panel agrees and the choice
-survives collapsing a pass.
-
-It used to be `bool _advancedMode` inside `_DynamicFilterPanelCompactState` —
-per-panel, defaulting off, **reset on every collapse**. That made it useless as
-a lever: an expert re-flipped it constantly, so nothing could be hidden behind
-it aggressively enough to matter. Adding filters to this app means adding
-*methods to existing passes* far more often than new passes, so `advancedOnly`
-on a method is what keeps a slot's dropdown short. Field reference and the three
-rules for using it: **[docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md)**.
-
-### A method dispatch that removes N-1 blocks is quadratic, and it fails silently
-
-`script_generator.rs` selects a filter method with one `match` arm per method,
-each *removing* every sibling template block and then enabling its own. So a
-pass with twelve methods has twelve arms each naming eleven blocks, and adding a
-method means editing all twelve. A blanket edit that appends the new
-`remove_block` to every arm therefore also appends it to the **new arm**, which
-then deletes its own block before the `replace` that would have enabled it.
-
-**mClean and TemporalDegrain2 both shipped that way** and were completely
-unreachable: the pass was on, the script contained no denoiser at all, and the
-encode produced a passthrough. Nothing failed — not the job, not the preview,
-not `cargo test`, because neither method had a script-generation test. It was
-found only because the parity suite asserts each pass differs from a
-passthrough frame.
-
-`test_149_every_noise_reduction_method_emits_its_filter` now walks the whole
-enum and asserts each method's own call appears. **Enumerate the enum** — a test
-per method only covers the method you thought to write one for, which is never
-the broken one. `integration_filter_parameters_test.dart` carries the two
-methods too, because the Rust test builds the struct directly and so cannot
-catch a Dart `@JsonValue` drifting from the Rust serde name.
-
-> The parameter-name parser in that Dart suite **preserves case**, and the
-> spellings genuinely differ between plugins: mvtools takes `thsad`, mClean's
-> wrapper takes `thSAD`. Don't "normalise" one to the other.
-
-### `visibleWhen` only works inside `ui`, and 8 schemas had it outside
-
-Reviewed 2026-08-18 after Chroma Fixes was reported as unintuitive. The panel was
-showing every tuning slider for every repair at once, and the cause was not the
-grouping — it was that **none of the conditions were being read**.
-
-`ParameterDefinition` declares no `visibleWhen`; only `ParameterUiConfig` does.
-A schema that writes it one level up therefore has it **dropped at parse time**,
-and the control is always visible. Measured across the shipped schemas: **35
-parameters in 8 files**, plus **12 sections** — and `UiSection` has no
-`visibleWhen` either, so those did nothing at all. The pattern is a clean split by
-age: everything written before the 2026-08-17 build-out put it in `ui` correctly,
-everything added during it did not.
-
-What that shipped, beyond Chroma Fixes: Noise Reduction showed its mClean and
-TemporalDegrain2 knobs under SMDegrain, SpotLess showed RemoveDirt's, Chroma
-Denoise showed CCD's threshold and sampling sliders under Cnr4, Deflicker showed
-both methods' at once. All fixed by moving the key; section conditions were pushed
-down onto their member parameters, which is the only place they work.
-
-> **Both directions are now linted** in
-> `app/test/filter_schema_curation_test.dart`: nothing may declare `visibleWhen`
-> outside a parameter's `ui`, and every condition must name a parameter that
-> exists — a `method` condition naming a method the filter doesn't offer can
-> *never* be satisfied, so the control it guards would be invisible forever.
-> That is the worse of the two silent failures, and nothing else would catch it.
-
-> **Sections were not visible groups, and now they are.**
-> `DynamicFilterPanelCompact` used to render a heading **only** for an
-> `advancedOnly` section, and only in advanced mode — so every ordinary section's
-> parameters ran together as one undifferentiated list and a `title` was
-> effectively a comment. It now prints the title for every section, in both
-> modes, **when the schema declares more than one**; a single-section schema
-> still gets none, because there is nothing to tell it apart from and most of
-> them call it "Settings". `advancedOnly` headings keep the accent colour.
-> Pinned by `dynamic_filter_panel_advanced_test.dart`.
-
-### Chroma Fixes: five repairs, one switch each, tuning behind advanced mode
-
-The restructure that came out of the same review. The pass holds five unrelated
-repairs — alignment, bleeding, dot crawl, rainbowing, chroma combing — and it now
-reads as five: a switch, the one or two controls you would actually reach for, and
-an `advancedOnly` tuning section for the thresholds, per filter, in that order.
-(Per *filter*, not per repair — dot crawl and rainbowing each offer two, and
-several of their labels repeat, so a shared tuning section would give no way to
-tell which slider belonged to which.)
-Default state is eight checkboxes instead of ~25 always-on controls.
-
-Three things worth keeping:
-
-> **Automatic and manual alignment are alternatives, and the script has to agree
-> with the panel.** `_auto_chroma_fix` measures the misalignment and corrects it,
-> and its block runs **before** the manual Y/C shift — so with both set the
-> picture was shifted by a measured amount and then again by a number the user
-> guessed, silently. The schema hides the manual controls
-> (`visibleWhen: {"applyAutoChroma": false}`) and
-> `ChromaFixParameters::effective_apply_chroma_shift` (Rust) /
-> `effectiveApplyChromaShift` (Dart) is the single derivation both the generator
-> and the pass summary ask. It deliberately does **not** clear
-> `apply_chroma_shift`, so turning automatic off restores what the user set by
-> hand. `test_150` and the Dart twin in `integration_filter_parameters_test.dart`
-> pin all four combinations.
-
-> **`optional: true` was a lie on every one of these parameters.** It promises
-> "unticked → omitted → the plugin's own default applies", but
-> `script_generator.rs` passes `Some(...)` for all of them unconditionally, so
-> unticking silently substituted *our* default instead (havsfunc's `thr` default
-> is 4.0; ours is 0.7). Combined with each repair's own switch it also meant two
-> checkboxes per slider. All dropped, and the curation test now asserts nothing
-> in this schema is `optional`.
-
-> **`copyWith` silently reset two repairs.** It never gained parameters for
-> `applyAutoChroma`/`applyDedot` or their tuning, so it reconstructed them at
-> their defaults — and `ProcessingPipeline.togglePass` calls
-> `chromaFixes.copyWith(enabled: …)`. Switching the pass off and on again
-> therefore discarded the DeDot that **VHS Cleanup** turns on and the automatic
-> alignment that **DV Camcorder Tape** turns on, with no error. When a field is
-> added to a parameter model, `copyWith` is the third place to change, and it
-> fails quietly rather than not compiling.
-
-`bifrostInterlaced`, `deRainbowUseLuma` and `deRainbowLinkUv` are still
-deliberately UI-less — they are sent at their defaults and nothing exposes them.
-Note `bifrostInterlaced` defaults **true**, which is a question about progressive
-sources rather than about the panel.
-
-### The panel audit (2026-08-18): what the newly-visible headings exposed
-
-Making section titles render (above) put every schema's grouping on screen for
-the first time, so all 21 were audited together. Three defects, each in more than
-one schema, and each invisible until then:
-
-> **A method dropdown that gates nothing.** `color_correction` declared
-> `tweak` / `white_balance` and `crop_resize` declared
-> `standard` / `nnedi3_2x` / `eedi3_2x`. In both, **no parameter carried a
-> `method` condition**, neither model has a `method` field, and the converter
-> either hardcoded one value or emitted none — so the dropdown rendered,
-> responded, and changed nothing. Crop & Resize is the sharper case: its real
-> upscaler choice is the `upscaleMethod` *parameter*, which does gate its tuning,
-> so the dropdown was an inert duplicate of a working control. Both are single-
-> method now, which suppresses the dropdown entirely. Remember that a method's
-> `parameters` list does **not** drive the panel when `ui.sections` exists —
-> sections win — so listing parameters under a method is not gating them.
-
-> **A parameter only some methods use, shown for all of them.** `deblock`'s
-> `quant1` was ungated while DCTFilter — which does not take it — was one of the
-> three methods on offer. Now gated to the two that use it.
-
-> **Sections whose title was written as a comment, not a heading.** Three
-> schemas held a section containing only `method`, which renders nothing because
-> the panel draws the dropdown itself and always skips that parameter. And
-> `chroma_denoise` / `spotless` / `noise_reduction` mixed "Settings" with
-> siblings named after a filter ("Cnr4 settings", "RemoveDirt settings"), so the
-> generic one read as if it applied to everything. Titles now name the filter
-> whose controls they hold ("CCD settings", "SpotLess settings", "SMDegrain"),
-> and the dead sections are gone.
-
-All three are linted in `filter_schema_curation_test.dart`: at least one
-parameter conditional on `method` wherever a schema declares two or more, a
-method condition matching exactly the methods that list the parameter, and no
-section consisting solely of `method`.
-
-Deliberately **not** changed: `deinterlace`'s fourteen section titles (QTGMC's
-grouping is established, documented and heavily referenced), and the mixed
-Title Case / sentence case of parameter labels across schemas — now more visible
-side by side under headings, but a cosmetic sweep of several hundred strings that
-should be its own change.
-
-### Every pass says which VapourSynth calls it makes
-
-Added 2026-08-19 on request: experts coming from Hybrid, StaxRip or AviSynth
-recognise `FixChromaBleedingMod` or `MSRCP` instantly and could not tell what a
-VapourBox pass was doing from its labels. Each pass now prints its calls in
-**advanced mode**, and only there — a plugin name is not actionable for someone
-who has not asked for that level, and advanced mode is the lever for exactly
-that judgement. Field reference: **[docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md)**.
-
-Two shapes, because filters come in two shapes:
-
-- **One call per method** — the readout prints the selected method's own
-  `function`. That data already existed on every method and had **never been
-  rendered anywhere**; this was mostly a display gap, not a data one.
-- **Composite passes** — Colour Correction, Chroma Fixes and Crop & Resize are
-  not one call. They declare an `implementation` list of everything they can
-  invoke, each entry optionally gated by an `activeWhen` that reuses the
-  `visibleWhen` matcher, and the readout shows the **whole repertoire with the
-  running calls emphasised**. Seeing the inactive ones is the point: it says
-  what the pass could do, not only what it is doing.
-
-> **Colour Correction was the reported case and is the sharpest one.** It has no
-> method dropdown at all (the inert one was removed in the panel audit), so
-> before this there was nothing anywhere in the UI naming any of the six things
-> it can run — `adjust.Tweak`, `std.Levels`, `haf.SmoothLevels`,
-> `retinex.MSRCP`, and the two `PlaneStats`-driven automatic passes.
-
-> **`activeWhen` takes more than one key, and that is load-bearing.**
-> `applyLevels` chooses *between* `std.Levels` and `haf.SmoothLevels`, so each is
-> gated on the pair `{applyLevels, smoothLevels}` and precisely one is ever
-> emphasised. Gating both on `applyLevels` alone would claim the pass runs two
-> levels operations. The same shape covers Chroma Fixes' automatic-supersedes-
-> manual alignment, where both entries are `core.resize.Spline36` and only the
-> `role` text tells them apart.
-
-Three rules linted by `filter_schema_curation_test.dart`: no method leaves
-`function` blank; a method declaring `"function": "custom"` must be explained by
-an `implementation` list (`custom` is bookkeeping and is never displayed); and
-every `activeWhen` key must name a real parameter, or the call reads as
-permanently inactive — the same silent failure as a `visibleWhen` naming a
-missing parameter.
-
-### Presets are the other way a hidden setting arrives
-
-A preset is the main route by which settings appear without anyone touching a
-control — so it is the main route by which a setting the user *cannot see*
-appears. The panel hides a parameter whose `visibleWhen` is unsatisfied and skips
-one no section lists, silently in both cases, so a preset can enable a filter that
-has no control on screen, cannot be adjusted and cannot be switched off.
-
-Audited 2026-08-18 against the panel changes above: **the nine built-ins map
-cleanly.** Worth recording why, because most of it is luck rather than design:
-
-- **No built-in uses Colour Correction at all**, so neither the `apply_levels`
-  fix nor the automatic-levels precedence can change what any of them render.
-  (That gap is itself noted under "Audit the presets whenever a pass ships".)
-- The three that use Chroma Fixes — VHS Cleanup (DeDot), DV Camcorder Tape
-  (bleeding + automatic alignment), Anime DVD (DeRainbow + DeDot) — set **no
-  manual chroma shift**, so nothing collides with the automatic pass.
-- PAL DVD's deblock uses Deblock_QED, so `quant1` is still on screen under its
-  new method gating.
-- Removing the inert methods from `color_correction` and `crop_resize` can't
-  affect a preset, built-in or user-saved: neither model has a `method` field, so
-  no stored pipeline ever names one.
-
-> **`builtin-fast` sets a QTGMC preset while selecting Bwdif, and that is
-> deliberate** — the source says so: "kept so that switching method in the UI
-> lands somewhere sensible". The panel hides it (a `method` condition), nothing
-> applies it, and `preset_visibility_test.dart` therefore exempts values hidden
-> **only** by a method condition. Don't "fix" it by clearing the value.
-
-`app/test/preset_visibility_test.dart` walks every built-in's enabled passes
-through the real converter and fails if a value differing from the schema default
-is not reachable in that preset's own state. Advanced-only values are allowed
-through a **named allowlist** — currently three, all QTGMC's, in a pass whose own
-control and summary say it is doing something expert — and a companion test fails
-if that list gains a stale entry, so it cannot quietly become a rubber stamp.
-
-### Color Correction: automatic and manual belong in the same group
-
-The pass reported as unintuitive (2026-08-18) — Chroma Fixes was reviewed first
-by mistake, and the same three faults turned out to be in both.
-
-It offers two adjustments that can be made **automatically or by hand**, levels
-and white balance, and the automatic halves used to sit together in an
-"Automatic" section at the top, three groups above the manual halves they
-supersede. Each pair now shares a section, automatic first, so the relationship
-is visible without reading the descriptions.
-
-Four things were wrong underneath, all silent:
-
-> **The Method dropdown changed nothing.** The schema declared `tweak` and
-> `white_balance` as methods, but **no parameter was conditional on the choice**,
-> neither model has a `method` field, and `fromColorCorrection` hardcodes
-> `'method': 'tweak'`. Both groups of controls rendered whatever was selected, and
-> the worker never saw the value. It is one method now, so no dropdown renders.
-> A method that gates nothing is worse than no method: it teaches the user the
-> panel responds to it.
-
-> **`apply_levels` was a UI-only flag.** `script_generator.rs` decided by value —
-> `has_levels` was true whenever any level differed from its default — so
-> unticking "Levels" left the adjustment running with nothing on screen able to
-> stop it (the sliders hide with the switch). `effective_apply_levels()` is the
-> switch now, and it still requires something to do, so an identity mapping emits
-> nothing. `test_151` pins both directions.
-
-> **Automatic levels supersedes the manual points, but not gamma.** The automatic
-> block runs first and places black and white itself, so manual input/output
-> points on top grade an already-graded picture with numbers measured against the
-> original. `effective_levels_points()` drops them and the panel hides them
-> (`visibleWhen: {"applyAutoLevels": false}`). **Gamma is deliberately kept** —
-> automatic levels never touches the midtones, and the Levels group is the only
-> place in the app to reach them. That asymmetry is the whole design; don't
-> "simplify" it into hiding the group.
-
-> **White balance is the opposite case and must stay composable.** Automatic
-> white balance neutralises the cast; temperature and tint then offset the
-> result deliberately ("neutral, but a little warmer"). Same shape as levels,
-> different answer, because an offset still means what its label says after a
-> correction while a mapping does not. `pass_advice.dart` says which order they
-> happen in rather than hiding anything.
-
-`copyWith` had dropped all six automatic fields, which is the systemic bug below.
-
-### `copyWith` silently resets what it forgets, in six models
-
-`ProcessingPipeline.togglePass` rebuilds a pass through `copyWith`, so a field the
-method never gained is a field that reverts to its default when the user flicks
-the pass switch. It compiles, it runs, and the pass then does something other than
-what the panel says.
-
-Audited 2026-08-18 across every parameter model: **26 fields in 6 models**, all
-added during the 2026-08-17 build-out — Colour Correction's six automatic fields,
-Chroma Fixes' automatic alignment and DeDot (which VHS Cleanup and DV Camcorder
-Tape turn on, so those presets lost settings to one click), thirteen in Noise
-Reduction including every mClean and TemporalDegrain2 value, SpotLess's `method`
-(so RemoveDirt silently reverted to SpotLess), QTGMC's `bwdifEdeint` and
-Subtitles' `burnInPath`.
-
-> **`app/test/parameter_copy_with_test.dart` checks it two ways, and it needs
-> both.** The behavioural pass fills every field through `fromJson`, calls
-> `copyWith()` and compares — but it cannot perturb a **string or enum** value
-> (an invented one would not decode), which is exactly the shape of the SpotLess
-> and Subtitles bugs. So a second pass reads the model source and asserts every
-> `final` field of the parameter class appears in the `copyWith` body. Deleting
-> either pass loses a real class of bug; both were verified against the actual
-> defects.
-
-### Frame counts and geometry are verified against the pipeline, not the model
-
-`FrameMap` was covered only as arithmetic — `output_count`, `inverse`,
-`total_radius` — which proves the model is self-consistent and says nothing
-about whether the plugins agree with it. `run_job` in the Rust suite cannot
-close that gap by design: it generates and inspects the `.vpy` and never runs
-`vspipe | ffmpeg`. Two heavy Dart files now do (added 2026-08-20):
-
-- **`integration_frame_mapping_test.dart`** — encodes and *counts* for every
-  pass that changes the count: double-rate QTGMC (31 -> 62), single-rate as the
-  control (31 -> 31), IVTC cycle 5 (90 -> 72), and FlowFPS 25 -> 23.976
-  (75 -> 71). Expected values are derived by hand from the FrameMap definitions
-  rather than read back from the model, so a change to the model cannot quietly
-  redefine "correct". The retime case is the one that pins why FlowFPS was
-  chosen over BlockFPS: `n*num/den` exactly, where BlockFPS gives
-  `floor((n-1)*r)+1` and every retimed job's progress total would be a frame out.
-- **Preview/render correspondence** in the same file, and for geometry in
-  `integration_upscale_resize_test.dart`. `--frame N` is a **source** index (the
-  worker logs "Preview: source frame N") and the target's output index is
-  `output_count(local)`, so under double-rate the preview of source frame S must
-  be output frame 2S. Measured **0.00** mean abs diff at the right frame against
-  8-30 at its neighbours, which is bit-exact; and 0.00 for crop, resize and
-  crop+resize. The geometry half also asserts the size, because a preview
-  rendered at a different resolution shows up as a buffer-length mismatch in
-  `meanAbsDiff` rather than as a pixel difference.
-- **Crop pixels, not just crop size.** A size assertion cannot tell a correct
-  crop from one that swaps left with right - both give the requested
-  dimensions. The offset test crops asymmetrically and compares against the
-  pipeline's own uncropped output cropped in Dart, so the swapped offsets are
-  available as negative controls (measured 1.06 correct against 9.65 and 15.97).
-
-> **`totalFrames` is the POST-TRIM count, and getting that wrong looks like a
-> filter bug.** Trimming is decoder-side (`-ss` + `-frames:v`) and
-> `pipe_source` builds a fixed-length clip from `totalFrames`, so the number has
-> to be what the decoder will actually pipe. The app sets it that way
-> (`main_viewmodel.dart`: `effectiveEnd - effectiveStart + 1`) and `main.rs`
-> computes the same thing when it is absent ("effective after trim"). Pass the
-> **full** source length alongside a trim and the script declares a clip longer
-> than the data: pipe_source hits EOF and repeats the last real frame to pad, so
-> the output is full-length with a frozen tail. The frame-mapping test was
-> written that way first and reported 150 frames for a 31-frame trim, which
-> reads exactly like FPSDivisor being ignored.
-
-> **`select=eq(n,N)` on a source is not the pipeline's frame N.**
-> `interlaced_test.avi` declares 79 frames and decodes 75: it carries null
-> frames, and the decoder's default CFR mode expands them onto the 25 fps grid
-> (measured: the first seven decoded frames come out 0,0,0,0,1,1,2). So `select`
-> counts *decoded* frames while the pipeline counts *timeline* positions, and
-> the two diverge wherever a null frame sits. That is correct behaviour —
-> pipe_source needs a fixed-length CFR clip — but it makes ffmpeg-side frame
-> indexing useless as a reference. Compare pipeline output against pipeline
-> output, which uses one decoder and one indexing scheme.
-> `WorkerHarness.frameRgb24` exists for that and decodes from the start rather
-> than seeking, because an input seek lands on the nearest keyframe and would
-> silently compare the wrong frame.
-
-### Suggestions and advice are hints, and must stay hints
-
-Two small pure-function models sit beside the pass list, and both are
-deliberately toothless — neither blocks a job, disables a control or changes a
-value:
-
-- **`pass_relevance.dart`** (`relevanceFor`) decides whether a pass is
-  `recommended` / `neutral` / `notApplicable` for the loaded file, from the
-  `VideoInfo` detection already does (scan type, height, codec, SAR). It drives a
-  "Suggested" badge and a reason line, and **never reorders the list** — row
-  order is pipeline order, asserted by `pass_list_stages_test.dart`.
-  The load-bearing property is restraint: a badge on nine of thirteen rows is
-  decoration, not a recommendation, so passes detection cannot judge (dirt,
-  scratches, grain, halos, banding, colour) return `neutral` and say nothing.
-  `pass_relevance_test.dart` bounds the number of suggestions per source and
-  asserts those nine stay silent for every scan type / height / codec
-  combination. `ScanType.unknown` must stay neutral too — detection failed, so
-  claiming either way is worse than silence.
-- **`pass_advice.dart`** (`adviseOn` / `adviceFor`) comments on pass
-  *combinations*, which is the complexity that actually bites: sharpening that
-  the denoiser will undo, an FPS divisor that IVTC ignores, Vinverse with
-  deinterlacing off. Rendered through the existing `WarningBanner` in
-  `pass_settings_inline.dart`. Every combination it mentions still produces a
-  valid render, so none of it is validation. Advice must only ever attach to an
-  **enabled** pass — a banner on a pass the user isn't using is how advisory UI
-  gets learned-to-ignore — and `pass_advice_test.dart` asserts that, plus that a
-  default pipeline is completely silent.
-
-**Curation is asserted, not just recommended.**
-`app/test/filter_schema_curation_test.dart` lints every shipped schema: the first
-method is never `advancedOnly` (it is the resolved default), at least one method
-survives simple mode, every method carries a description (the only guidance the
-dropdown shows), and **no schema offers more than 4 methods in simple mode**.
-That last one is the load-bearing assertion — adding methods is expected, letting
-a simple-mode dropdown grow without curating is what it catches. Currently
-curated: dehalo 7 → 3, noise_reduction 4 → 3, crop_resize 3 → 2.
-
-> The one trap: `FilterSchema.visibleMethods` **always keeps the currently
-> selected method**, advanced-only or not. A preset can select one, and hiding it
-> would both misreport the pipeline and hand `DropdownButtonFormField` a value
-> that isn't in its items — a thrown assertion, not a graceful fallback. Don't
-> "simplify" that argument away; `dynamic_filter_panel_advanced_test.dart`
-> asserts it, along with the case that a filter filtered down to a single method
-> still tells the user more exist.
+**`visibleWhen`**: Conditional visibility, e.g. `{ "method": ["method_a"] }` — only
+works when declared **inside a parameter's `ui` block**, not on `ParameterDefinition`
+or `UiSection` directly (both silently drop it if written one level up).
+`filter_schema_curation_test.dart` lints for this both ways: nothing may declare
+`visibleWhen` outside `ui`, and every condition must name a parameter/method the
+filter actually has.
+
+Several ongoing rules for schemas and the panel that renders them, each guarded by
+`filter_schema_curation_test.dart` unless noted — see
+docs/ENGINEERING_NOTES.md for the audits that found violations of each:
+
+- **A method dropdown must gate something.** If no parameter is conditional on
+  `method` (and the model has no `method` field), the dropdown is inert — remove
+  it rather than leave a control that changes nothing.
+- **A parameter used by only some methods must be gated to those methods.**
+- **No section may consist solely of the `method` control** — the panel already
+  draws the dropdown itself and skips it, so such a section renders nothing;
+  give every section a title naming the filter/repair it configures.
+- **No shipped schema may offer more than 4 methods in simple mode**; the first
+  method is never `advancedOnly` (it's the resolved default); every method needs
+  a description (the only guidance the dropdown shows).
+- **`FilterSchema.visibleMethods` always keeps the currently selected method**,
+  advanced-only or not, so a preset-selected method is never hidden out from
+  under a `DropdownButtonFormField`.
+- **Every pass prints the VapourSynth call(s) it makes, in advanced mode only**
+  (`ui.sections` gates it the same way as other advanced-only content). A
+  single-method pass shows the method's own `function`; a composite pass (e.g.
+  Colour Correction, Chroma Fixes, Crop & Resize) declares an `implementation`
+  list gated per-entry by `activeWhen`, showing the whole repertoire with the
+  active calls emphasised. A method's `function` must never be blank, and
+  `"function": "custom"` must be explained by an `implementation` list.
+
+**`copyWith` silently resets any field it forgets.** `ProcessingPipeline.togglePass`
+rebuilds a pass through `copyWith`, so a parameter field added to a model but not
+to its `copyWith` reverts to its default the moment the pass is toggled off and
+on — compiles fine, runs fine, silently does the wrong thing. When adding a field
+to a parameter model, `copyWith` is a required third edit alongside the
+constructor and `fromJson`/`toJson`. `app/test/parameter_copy_with_test.dart`
+checks this two ways (round-trip every field, and statically assert every
+`final` field appears in the `copyWith` body) because a string/enum field can't
+be perturbed through the round-trip check alone.
+
+**A preset is the main route by which a setting the user cannot see gets
+enabled.** The panel hides a parameter whose `visibleWhen` is unsatisfied and
+skips one no section lists — so a preset can turn on a filter with no reachable
+control. `app/test/preset_visibility_test.dart` walks every built-in preset's
+enabled passes through the real converter and fails if a non-default value isn't
+reachable in that preset's own state (an allowlist covers a handful of
+deliberately advanced-only QTGMC values).
+
+**Frame counts and geometry are verified against the running pipeline, not just
+the model.** `run_job` in the Rust suite only generates and inspects the
+`.vpy` — it never proves the plugins agree with `FrameMap`'s arithmetic or that a
+preview frame matches its labelled source frame. `integration_frame_mapping_test.dart`
+and `integration_upscale_resize_test.dart` (both heavy) encode real jobs and count
+output frames / diff pixels for exactly this reason — see docs/ENGINEERING_NOTES.md
+if you're touching `FrameMap`, trim/frame-count plumbing, or crop/resize geometry,
+since the "obviously correct" arithmetic has been wrong in ways only an actual
+encode caught.
+
+**Advisory UI (`pass_relevance.dart`, `pass_advice.dart`) must stay advisory.**
+Neither may block a job, disable a control, or change a value — they only badge
+suggestions and warn about pass *combinations* (e.g. sharpening a pass the
+denoiser will undo). Advice must only ever attach to an **enabled** pass, and a
+default pipeline must be completely silent — both are asserted in
+`pass_advice_test.dart` / `pass_relevance_test.dart`.
+
+**Subtitles: transcribe first, mux last.** The pipeline order is
+`transcribe the source -> encode (burning in if asked) -> mux as a post-pass`,
+and it is load-bearing: burn-in needs the transcript before the encoder runs;
+muxing needs the encoded file to exist first. Transcription must run against the
+same trimmed audio window the encode uses (`extract_audio_range`), or cues drift
+by exactly the trimmed-off head — this is safe only because **nothing in the
+pipeline retimes audio**; a future audio-retiming pass would need to account for
+it. `SubtitleOutput::{burns_in, muxes, keeps_srt_file}` are asserted to cover
+every mode, so a mode that does none of the three can't silently produce nothing.
+
+**FFmpeg's `-vf` chain accumulates into one `Vec<String>` joined with commas —
+never push a second bare `-vf`.** ffmpeg only honours the *last* `-vf`, so two
+separate pushes (e.g. aspect stamping and subtitle burn-in) would silently drop
+the first one's effect.
+
+**FFmpeg is pinned to one series (currently 9.0) across all four platforms, and
+the pin is asserted, not just documented.** Each `download-deps-*` script
+verifies the installed binary's series after fetching it, and
+`app/test/ffmpeg_version_pin_test.dart` fails if the three scripts' pins
+disagree. Pin the **series** against a rolling host tag (e.g. BtbN's
+`n9.0-latest`), never an exact old build — a fixed old tag gets garbage-collected
+off a rolling `latest` alias and 404s the deps build outright.
+
+**zsmooth ships one build per x86 CPU baseline (`haswell`, `x86_64_v2`), loaded
+by explicit path, not autoloaded.** Upstream's single AVX2-baseline build
+crashes with an illegal instruction on any pre-2013 CPU the instant a zsmooth
+filter runs (`CCD`, `Cnr4`, `SpotLess`→`RemoveDirt`, `mClean`,
+`TemporalDegrain2`, hybrid_mv all reach it). `DependencyLocator::zsmooth_plugin()`
+returns `None` on an older bundle lacking the split, and the generated script
+must stay byte-identical to the pre-split form in that case.
+
+**CTMF's `opt` (SIMD level) must be chosen by the worker from the CPU, never
+left at the plugin's own auto-detect (`opt=0`).** Its AVX-512 kernel for 8-bit
+input crashes with an access violation on real hardware — auto-detect is
+exactly what selects that broken kernel. `script_generator::ctmf_opt` picks 3
+(AVX2) or 2 (SSE2) based on `is_x86_feature_detected!`, never 0.
+
+See docs/ENGINEERING_NOTES.md for the specific plugin-by-plugin decisions,
+probe-round methodology, and dated write-ups behind all of the above.
 
 ### Aspect Ratio (issue #50)
 
@@ -1731,164 +668,85 @@ Three things decide the shape of the output, and they live in different places:
 1. **The stored frame size** — computed in the `.vpy`, because only the script
    knows the clip's dimensions after cropping and deinterlacing.
 2. **The declared aspect** — applied by ffmpeg (`setsar` / `setdar`), because the
-   Y4M pipe from vspipe **strips aspect metadata entirely**. Whatever the
-   pipeline did, something has to re-stamp it.
+   Y4M pipe from vspipe **strips aspect metadata entirely**.
 3. **`CropResizeParameters::aspect_declaration`** — the single decision of *what*
    to stamp, unit-tested, used by the encode path.
-
-The bug this replaced: SAR was re-applied only when no resize ran, so resizing an
-anamorphic source silently dropped it and the picture came out the wrong shape.
 
 - **`pixelAspect: preserve`** (default) — leave the grid alone, re-stamp the
   source's SAR. Fitting a target box uses the **stored** aspect.
 - **`pixelAspect: square`** — resample so the output is square-pixel at the same
-  display shape (what an anamorphic DVD needs for most players). Fitting uses the
-  **display** aspect, `clip.width * SAR / clip.height`. Works with no target size
-  at all: keep the height, change the width.
+  display shape. Fitting uses the **display** aspect, `clip.width * SAR / clip.height`.
 - **`pixelAspect: custom`** — stamp a given SAR verbatim.
-- **`displayAspect`** — force the shape on screen. Declared to ffmpeg as a
-  **`setdar`**, not a `setsar`, because the SAR that produces a given DAR depends
-  on the final frame size, which is computed in the script and unknown to the
-  worker.
-- **`padToAspect`** — letterbox/pillarbox out to the exact target box instead of
-  leaving the picture short in one axis.
+- **`displayAspect`** — force the shape on screen, declared as **`setdar`**
+  (not `setsar`) because the SAR that produces a given DAR depends on the final
+  frame size, known only to the script.
+- **`padToAspect`** — letterbox/pillarbox to the exact target box.
 
-Whichever axis you change, `parse_ratio` accepts `16:9`, `16/9` and `1.7778`, and
-returns `None` for anything else so a typo falls back to the source's own aspect
-rather than reaching ffmpeg as a broken filter argument.
+`parse_ratio` accepts `16:9`, `16/9` and `1.7778`, returning `None` for anything
+else so a typo falls back to the source's own aspect rather than reaching ffmpeg
+as a broken filter argument.
 
-### Colour metadata: read it, carry it, re-stamp it (fixed 2026-08-17)
+### Colour metadata: read it, carry it, re-stamp it
 
-Same shape as the SAR bug and the same fix site. Colour tags used to be dropped
-at all three stages — never read (ffprobe returns them; the parser discarded
-them), never carried on either `VideoJob`, never stamped. So **every file this
-app wrote was untagged**, and an untagged file is read as BT.601 limited by
-every player, silently shifting the colours of any BT.709 or full-range source.
-
-Measured before and after on a `bt709` + full-range source, end to end through
-the worker:
-
-| | `color_space`, `color_range` |
-|---|---|
-| source | `bt709, pc` |
-| output **before** | `unknown, tv` |
-| output **after** | `bt709, pc` |
-
-Three things to keep in mind if you touch this:
-
-- **`SetFrameProps` in the script would be inert.** The Y4M pipe strips frame
-  properties exactly as it strips SAR — verified: a clip carrying `_Matrix=5`
-  produces a header with no matrix, primaries or transfer. The tags have to be
-  **output-stream flags on the encoder** (`-colorspace`/`-color_primaries`/
-  `-color_trc`/`-color_range`), which is where they now are, immediately after
-  the `setsar` block in `pipeline_executor.rs`.
-- **Values are validated, not forwarded.** `ColorMetadata::from_raw`
-  (`worker/src/models/color_metadata.rs`) drops anything not on FFmpeg's own
-  accepted list, on the same principle as `parse_ratio`. ffprobe says
-  `"unknown"` for an untagged stream, and forwarding that would fail the whole
-  encode on an argument the user can neither see nor fix. Each tag is
-  independent: a source declaring only a matrix gets only `-colorspace`, and an
-  untagged source is left untagged rather than guessed at.
-- **`build_ffmpeg_args_for_test` duplicates `build_ffmpeg_args`** rather than
-  calling it, so anything added to one must be added to the other. The SAR block
-  was missed that way and is *still* absent from the test helper; the colour
-  block is mirrored, and there is a comment saying so.
-
-This also fixed a companion bug in the preview. It hardcoded
-`-vf scale=in_range=tv:out_range=pc` with **no `in_color_matrix`**, so swscale
-guessed the matrix — while the app's "before" thumbnail comes from a separate
-ffmpeg call on the original file that *does* see the real tags. On a 709-tagged
-source the comparison therefore showed a hue shift no filter had caused, and a
-full-range source was range-stretched twice. `swscale_input_opts()` now supplies
-both from the source's own tags.
-
-Guarded by `models::color_metadata` unit tests, three `pipeline_executor` tests
-on the emitted arguments, `app/test/color_metadata_test.dart` for the ffprobe
-side, and a heavy end-to-end round trip in
-`integration_chroma_subsampling_test.dart` — which is the only level that can
-prove ffmpeg honoured the flags.
+Same shape as the SAR handling above, same fix site. Colour tags (`color_space`,
+`color_range`, etc.) must be read from ffprobe, carried on `VideoJob`, and
+re-stamped as **encoder output-stream flags** (`-colorspace`/`-color_primaries`/
+`-color_trc`/`-color_range`) — `SetFrameProps` in the script is inert, because
+the Y4M pipe strips frame properties the same way it strips SAR. `ColorMetadata::from_raw`
+validates against FFmpeg's own accepted values rather than forwarding ffprobe's
+`"unknown"` verbatim. `build_ffmpeg_args_for_test` duplicates `build_ffmpeg_args`
+rather than calling it, so anything added to one must be added to the other.
+The preview path needs the same source tags fed to swscale
+(`swscale_input_opts()`) or it guesses the matrix and shows a colour shift the
+real encode doesn't have.
 
 ### Source Pixel Formats (issue #50)
 
-`templates/pipe_source.py` reads **raw planar frames off stdin**, so it can only
-handle the formats in its `_FORMAT_MAP`. The app passes ffprobe's `pix_fmt`
-straight through (`field_order_detector.dart` → `VideoJob.inputPixelFormat`), and
-ffprobe reports plenty of formats that aren't in that map — so **any unlisted
-format used to fail the entire job** at script evaluation with "Unsupported pixel
-format: …". NTSC DV (`yuv411p`) was the reported case; `yuva444p10le` (ProRes
-4444), `gbrp`, `rgb24`, `gray`, `nv12` and `p010le` had the same problem.
-
-`worker/src/pixel_format.rs::decode_pixel_format` is now the **single** decider
-of the pipe format, and **all four** call sites must use it — the decoder args
-and the generated script, on both the encode and the preview path. If they
-disagree, the raw byte stream desyncs from the frame geometry pipe_source expects
-and the output is garbage rather than an error.
+`templates/pipe_source.py` reads **raw planar frames off stdin** and can only
+handle the formats in its `_FORMAT_MAP`. `worker/src/pixel_format.rs::decode_pixel_format`
+is the **single** decider of the pipe format, and **all four** call sites
+(decoder args + generated script, on both encode and preview paths) must use
+it — if they disagree, the byte stream desyncs from the frame geometry
+`pipe_source` expects and the output is garbage rather than an error.
 
 - Readable formats pass through unchanged.
 - Anything else is converted **by the decoder ffmpeg** to the nearest readable
-  format, always a superset (never less chroma resolution or bit depth), so
-  normalization can't degrade the image. 4:1:0 and 4:4:0 therefore go to 4:2:2,
-  not 4:2:0; depth rounds *up* to a depth VapourSynth has (8/9/10/12/14/16);
-  unrecognized names fall back to `yuv444p16le`.
+  superset format (never less chroma resolution or bit depth): 4:1:0/4:4:0 go to
+  4:2:2; depth rounds *up* to 8/9/10/12/14/16; unrecognized names fall back to
+  `yuv444p16le`.
 
 `NATIVE_FORMATS` (Rust) and `_FORMAT_MAP` (Python) must stay in step —
 `test_native_formats_match_pipe_source` parses the Python file and fails if they
-drift. pipe_source derives plane geometry and bytes-per-sample from the
-VapourSynth format itself (`core.get_video_format`), so adding a format is a
-one-line change on each side.
+drift.
 
 ### High Bit Depth Sources (10-bit ProRes 422 and deeper)
 
-A >8-bit source (`yuv422p10le` from ProRes 422, `yuv444p12le` from ProRes 4444 XQ)
-is read natively off the pipe — the format work above covers *getting* it in. What
-breaks is what happens **after**, in two different ways, and only one of them is
-loud:
+A >8-bit source is read natively off the pipe. Two ways this breaks after that:
 
-1. **The filter rejects the depth** and vspipe dies, taking the whole job or
-   preview with it. Known cases, all now guarded in **both** templates:
-   `vivtc.VFM` is 8-bit only (runs on a downconverted metrics clip, pixels come
-   from the full-depth clip via `clip2`); `descratch.DeScratch` is 8-bit only
-   (converts down and back); `havsfunc.LUTDeCrawl` refuses **anything above
-   10-bit** (runs at 10-bit and restores the source format).
-2. **The filter accepts the depth and quietly misapplies its parameters.** Every
-   threshold and offset in the UI is expressed in **8-bit levels (0-255)**, so
-   anything handed to a filter that works in the clip's own range is wrong by a
-   factor of 4 at 10-bit and 256 at 16-bit — with no error anywhere. Two were
-   found this way:
-   - **`std.Levels`** — `max_in=235` on a 10-bit clip mapped everything above
-     235/1023 to white. Measured mean error **93/255** against the same edit at
-     8-bit: a blown-out picture. Now scaled by `_levels_8bit()` in the template,
-     against *peak* (havsfunc's `scale()` convention) so 255 lands exactly on the
-     format maximum.
-   - **`adjust.Tweak(bright=…)`** — the module scales its own hue/sat/coring
-     constants but adds `bright` in raw sample units, making the brightness
-     slider ~4x weaker at 10-bit. Now scaled by `_tweak_bright_scale`. Contrast,
-     saturation and hue are **ratios and must not be scaled**.
+1. **The filter rejects the depth** and vspipe dies. Known 8-bit-only cases
+   (`vivtc.VFM`, `descratch.DeScratch`) and 10-bit-max cases (`havsfunc.LUTDeCrawl`)
+   are guarded in **both** templates: convert down, run the filter, restore the
+   source format.
+2. **The filter accepts the depth and misapplies 8-bit-unit parameters.** Every
+   threshold/offset in the UI is expressed in 8-bit levels (0-255), so a filter
+   working in the clip's own range is silently wrong by 4x at 10-bit, 256x at
+   16-bit — found in `std.Levels` (scaled by `_levels_8bit()`, against *peak*)
+   and `adjust.Tweak(bright=…)` (scaled by `_tweak_bright_scale`; contrast/
+   saturation/hue are ratios and must **not** be scaled). Both scalings are
+   computed **in the script from `clip.format`**, since a preceding pass may
+   have changed the depth.
 
-Both scalings are computed **in the script from `clip.format`**, not by the
-worker: a preceding pass may have changed the depth, so only the script knows what
-the pass will actually see. The white-balance block is the precedent.
-
-**Testing this class of bug needs a reference, not an expected value.** A filter
-whose parameters are correctly depth-scaled produces the *same picture* at 10-bit
-as at 8-bit, to within rounding — so `app/test/integration_high_bit_depth_filters_test.dart`
-(heavy, nightly) runs every pass on identical 8-bit and 10-bit fixtures and
-compares the resulting preview frames (mean abs diff, passthrough baseline ~0.6,
-tolerance 2.0). That is what caught both scaling bugs; a "did it run" assertion
-passes happily on all of them. It also runs every pass at 12- and 16-bit (the
-depth-rejection class) and checks the preview PNG stays decodable. The cheap
-counterpart — the guards and scalings being present in **both** generated
-scripts — is `test_84`…`test_88` in `worker/tests/filter_integration_test.rs`,
-which run on every push.
-
-Note that for a >8-bit source the preview PNG comes out **`rgb48be`** (16-bit per
-channel) rather than `rgb24`, because vspipe emits 10-bit Y4M. `Image.memory`
-handles it; don't "fix" it by forcing 8-bit.
+**Test this class of bug with a reference, not an expected value** — a
+correctly-scaled filter produces the same picture at 10-bit as at 8-bit, to
+within rounding. `app/test/integration_high_bit_depth_filters_test.dart` (heavy)
+runs every pass on identical 8/10-bit fixtures and diffs the preview frames; it
+also runs 12/16-bit to check the depth-rejection guards. A >8-bit preview PNG
+comes out `rgb48be`, not `rgb24` — that's expected, don't force 8-bit.
 
 ### Output Colour Format
 
 `ChromaSubsampling` (**Settings → Color Format**) is the last thing the script
-does, and it decides bit depth as well as chroma:
+does, and decides bit depth as well as chroma:
 
 | Option | Output | For |
 |---|---|---|
@@ -1899,274 +757,120 @@ does, and it decides bit depth as well as chroma:
 | `yuv422p10` | `vs.YUV422P10` | normalize chroma without dropping to 8-bit |
 | `yuv444p10` | `vs.YUV444P10` | full chroma — ProRes 4444, x264/x265; no GPU encoder |
 
-> **This table had gone stale, and so had three tests driven from the same
-> hand-written lists** — `yuv420p10` was missing from all of them, so that
-> option's script substitution, its serde name and its declared depth were
-> checked nowhere. A skipped row looks exactly like a passing one. Both sides
-> now sweep the enum: `ChromaSubsampling::ALL` (kept complete by a
-> catch-all-free match plus a count assertion) and `ChromaSubsampling.values`.
-> Add a format to the enum, not to a list.
+Tests must **sweep the enum** (`ChromaSubsampling::ALL` in Rust, kept complete
+by a catch-all-free match plus a count assertion; `ChromaSubsampling.values` in
+Dart) rather than a hand-written list — `yuv420p10` was once missing from three
+such lists at once, and a skipped row looks exactly like a passing one. Before
+wiring up a new format, verify the Y4M pipe can actually name it (vspipe writes
+the header, not ffmpeg's muxer — the muxer calling a format "not official" is
+irrelevant, only what vspipe emits matters); an unnameable format is a hard job
+failure with no error, the same trap as `Turn90`'s 4:4:0 case.
 
-> **Verify the Y4M pipe can name a new format before wiring anything.** vspipe
-> writes the header, so the question is what *it* emits — measured for 4:4:4,
-> `C444p10`, which ffmpeg's demuxer accepts. Note ffmpeg's own Y4M **muxer**
-> calls `yuv444p10le` "not an official yuv4mpegpipe pixel format" and says the
-> same of the long-shipping `yuv422p10le`, which is the proof that the muxer's
-> opinion is irrelevant here. A format the pipe cannot name is a hard job
-> failure with no error — the `Turn90` 4:4:0 trap.
+- The default can produce a file many players refuse (10-bit 4:2:2 → H.264
+  High 4:2:2 / HEVC Rext) — deliberate, the user picks the format.
+- The 8-bit conversion **must dither** (`dither_type` left at its
+  `"error_diffusion"`-capable default, not `"none"`) or shallow gradients band.
+- The block lives in **both** templates, or a preview never shows the output
+  format's banding. Add new formats in `ChromaSubsampling::vapoursynth_format`,
+  not as a new match arm in `script_generator.rs`.
 
-Three things to keep in mind:
-
-- **The default produces a file many players refuse.** A 10-bit 4:2:2 source
-  encoded with `original` gives H.264 **High 4:2:2** (HEVC: **Rext**), which is
-  correct but not openable in QuickTime, most browsers or phones. That is
-  deliberate — the user picks a format — and `test_..._matching_the_input_keeps_the_source_format`
-  pins it so changing the default is a decision, not a drift.
-- **The conversion is the one place a deep source is reduced to 8 bits, so it
-  must dither.** `resize` defaults to `dither_type="none"`; plain rounding bands
-  shallow gradients (skies, fades). Verified against vspipe: omitting the
-  argument is byte-identical to explicit `"none"` and differs from
-  `"error_diffusion"`. The end-to-end test feeds a ramp that is constant down
-  every column — rounding leaves **0%** of columns varying, error diffusion
-  **~75%** — and it encodes losslessly, because x264 at the default CRF smooths
-  the dither away and the measurement then proves nothing.
-- **The block lives in BOTH templates.** It was in `pipeline_template.vpy` only,
-  so a preview never showed the output format or its banding. `Yuv422P10` was
-  added by one line in `ChromaSubsampling::vapoursynth_format` — put new formats
-  there rather than adding a match arm in `script_generator.rs`.
-
-The Rust enum's serde names and the Dart enum's `value` strings are the wire
-format (`test_91` and `pixel_format_test.dart` assert the same list from both
-sides). The Dart enum also carries `outputBitDepth`, which drives the
-"your N-bit source will be output as M-bit" warning — a new option that omits it
-silently stops warning.
+Rust's serde names and Dart's `value` strings are the wire format
+(`test_91` / `pixel_format_test.dart` assert the same list both sides). The
+Dart enum's `outputBitDepth` drives the "your N-bit source will be output as
+M-bit" warning.
 
 ### Temporary Files Directory
 
-Scratch files default to the system temp directory, and the user can redirect
-them in **Settings → General → Temporary Files** (✕ resets to the default). The
-choice is persisted in shared_preferences under `tempDirectoryOverride` and
-loaded by `TempDirectoryService.initialize()` in `main()`, before the first-run
-dependency download — the earliest thing that writes a temp file.
+Scratch files default to the system temp directory; the user can redirect them
+in **Settings → General → Temporary Files**, persisted as `tempDirectoryOverride`
+and loaded by `TempDirectoryService.initialize()` before the first-run deps
+download.
 
-Two mechanisms cover the two processes, and both matter:
-
-- **Dart** call sites use `TempDirectoryService.instance` (`resolve()`,
-  `filePath()`, `createTemp()`). **Don't add new `Directory.systemTemp` uses** —
-  they would ignore the setting. Current users: worker job config
-  (`worker_manager`), preview frames/config (`preview_generator`), DVD
-  extraction (`main_viewmodel`), deps and whisper downloads.
+- **Dart** call sites must use `TempDirectoryService.instance` (`resolve()`,
+  `filePath()`, `createTemp()`) — never `Directory.systemTemp` directly.
 - **Rust** needs no per-path plumbing: `ToolLocator.workerEnvironment` sets
-  `TMPDIR` (Unix) and `TMP`/`TEMP` (Windows) from the effective path, so every
-  `env::temp_dir()` in the worker — generated `.vpy` scripts, progress files,
-  preview raw frames, OpenCL/KNLM probes, the macOS vspipe conf — follows it,
-  as do the ffmpeg and vspipe children. Those vars are applied per call rather
-  than baked into the cached env map, so a change takes effect immediately.
-  **Any new worker/tool spawn must pass `workerEnvironment`** or it silently
-  reverts to the system temp directory.
+  `TMPDIR`/`TMP`/`TEMP` from the effective path, so every `env::temp_dir()` in
+  the worker and its ffmpeg/vspipe children follows it. **Any new worker/tool
+  spawn must pass `workerEnvironment`** or it silently reverts to system temp.
 
-`resolve()` recreates the directory if missing and falls back to system temp if
-it can't (external drive unplugged) — a job in the wrong temp directory beats a
-job that can't run. `setOverride` verifies writability by writing a probe file,
-so a read-only volume is rejected at selection time rather than at job time.
-Covered by `app/test/temp_directory_service_test.dart`.
+`resolve()` falls back to system temp if the configured directory can't be
+recreated; `setOverride` verifies writability with a probe file before accepting
+a path.
 
 ### Preset System
 
-Presets save complete filter pipeline + encoding settings. The five built-ins
-(Fast, Balanced, High Quality, VHS Cleanup, DVD IVTC) are static factories in
-`app/lib/models/processing_preset.dart`, collected by
-`ProcessingPreset.builtInPresets()`, which `PresetService` calls in `initialize()`
-and `reload()`. User presets save to `~/.vapourbox/presets/*.json`.
-
----
+Presets save complete filter pipeline + encoding settings. The built-in presets
+are static factories in `app/lib/models/processing_preset.dart`, collected by
+`ProcessingPreset.builtInPresets()`, which `PresetService` calls in
+`initialize()`/`reload()`. User presets save to `~/.vapourbox/presets/*.json`.
 
 ## Hardware Encoders (issue #51)
 
-Three invariants that are easy to break and hard to notice, because a wrong
-value here shows up as "this GPU doesn't work" rather than as an error:
+Three invariants that show up as "this GPU doesn't work" rather than as an
+error when broken:
 
-- **The availability probe must use a large enough frame.** Hardware encoders
-  have minimum dimensions, and below them they fail — so a too-small probe
-  reports a *working* encoder as broken. AMD AMF rejects 64x64, which is exactly
-  what the probe used to send. `HardwareEncoderDetector.probeFrameSize` is now
-  512 (AMF's floor is 192x128 on some ASICs); `hardware_encoder_probe_test.dart`
-  keeps it there.
-- **Presets are per-family vocabularies and must not cross over.** x264 takes
-  `ultrafast…placebo`, NVENC `p1…p7`, QSV `veryfast…veryslow`, AMF
-  `speed|balanced|quality`. A saved preset or imported job config can pair a
-  codec with the wrong family's preset; ffmpeg then rejects the option and the
-  whole encode dies. `VideoCodec::normalized_preset` (Rust) substitutes the
-  family default — the Rust `available_presets`/`default_preset` must stay in
-  step with `availablePresets`/`defaultPreset` in `app/lib/models/video_job.dart`.
-- **AMF is pinned to `nv12`.** Left to negotiate, a >8-bit source reaches the
-  encoder as p010; 10-bit HEVC encode exists only on some AMD ASICs, and where
-  it doesn't the AMF runtime faults (0xC0000005) instead of failing cleanly.
-  h264_amf has no 10-bit mode at all. Custom FFmpeg Arguments still override it
-  (a later `-pix_fmt` wins), which is the escape hatch for 10-bit HEVC on
-  hardware that supports it.
-
+- **The availability probe must use a large enough frame** — hardware encoders
+  reject frames below their minimum dimensions. `HardwareEncoderDetector.probeFrameSize`
+  is 512.
+- **Presets are per-family vocabularies** (x264 `ultrafast…placebo`, NVENC
+  `p1…p7`, QSV `veryfast…veryslow`, AMF `speed|balanced|quality`) — a saved
+  preset/job config can pair the wrong family with a codec, so
+  `VideoCodec::normalized_preset` substitutes the family default. Rust's
+  `available_presets`/`default_preset` must stay in step with Dart's
+  `availablePresets`/`defaultPreset`.
+- **AMF is pinned to `nv12`** — a >8-bit source left to negotiate reaches AMF
+  as p010, and where the ASIC has no 10-bit HEVC mode the runtime hard-faults
+  rather than failing cleanly. `h264_amf` has no 10-bit mode at all. Custom
+  FFmpeg Arguments can still override it (a later `-pix_fmt` wins).
 - **A hardware encoder's declared pix_fmt list is not a statement about the
-  machine (issue #74).** The list ffmpeg negotiates against is compiled in;
-  NVENC's real capabilities are queried from the driver at `avcodec_open2`. A
-  recent ffmpeg built against NVENC SDK 13 advertises `yuv422p` on
-  `h264_nvenc` for Blackwell's 4:2:2 support, so negotiation picks it for any
-  4:2:2 source — and every pre-Blackwell card then fails the job outright with
-  *"YUV422P not supported / No capable devices found"*, zero frames written.
-  Reported on an RTX 4070 Super with a CineForm `yuv422p10le` capture at the
-  default "Match source" colour format. **ffmpeg cannot negotiate its way out
-  of this**, so `forced_pix_fmt` picks the format instead.
+  machine (issue #74).** ffmpeg's negotiation is against a compiled-in list, not
+  the driver's real capability, so a build that advertises 4:2:2 support for
+  newer hardware fails outright on older cards of the same family.
+  `VideoCodec::forced_pix_fmt` picks the format for the pipeline instead of
+  trusting negotiation, whenever the source/output would hand an H.264/HEVC
+  hardware encoder 4:2:2, 4:4:4, or >8-bit — HEVC keeps depth (`p010le`), H.264
+  cannot (drops to 8-bit `yuv420p`/`nv12`). VideoToolbox is excluded (its
+  negotiation is trustworthy); QSV is included preventively.
+- **The user-facing warning (`hardwareEncoderChromaWarning`) is a second
+  implementation of the same decision** and must be pinned to the same table of
+  cases as the worker's (`hardware_encoder_chroma_warning_test.dart` against
+  `video_job.rs`) — the two disagreeing is worse than either being wrong alone.
 
-`VideoCodec::forced_pix_fmt` therefore takes the format the pipeline will
-actually hand the encoder — `VideoJob::encoder_input_pix_fmt`, which is the
-output conversion when one is selected and the pipe format otherwise. Three
-things about it are load-bearing:
-
-- **The NVENC/QSV arm is conditional and the other two are not.** HuffYUV and
-  AMF take one format whatever the source was; NVENC does not. Pinning it
-  unconditionally the way AMF is pinned would flatten a 10-bit 4:2:0 source to
-  8-bit for everyone it already serves correctly, so the guard fires only on
-  4:2:2, 4:4:4, or >8-bit into an H.264 encoder (neither family has a 10-bit
-  H.264 mode). A 4:2:0 job emits no `-pix_fmt` at all, exactly as before.
-- **HEVC keeps the depth, H.264 cannot.** 4:2:2 10-bit into `hevc_nvenc`
-  becomes `p010le`, not `yuv420p` — only the chroma has to go. NVENC gets the
-  planar `yuv420p` and QSV the semi-planar `nv12`, each family's native name.
-- **VideoToolbox is deliberately excluded.** It never advertises a mode it
-  lacks, so its negotiation is trustworthy and forcing a format would only
-  throw away chroma it could have kept. QSV *is* included, preventively rather
-  than on a report: `hevc_qsv` advertises `y210le` on builds whose hardware may
-  not have it, which is the same trap.
-
-None of the AMF behaviour can be verified in CI or on macOS — there is no AMD
-hardware in the matrix — and the same is true of NVENC and QSV, so these rest
-on unit tests over the emitted arguments plus reporter confirmation. Note the
-functional probe in `HardwareEncoderDetector` cannot catch the #74 class at
-all: it encodes one `yuv420p` frame from lavfi, so it correctly reports NVENC
-as *available* — the device works, only the format doesn't. Don't try to fix a
-format problem in the device probe; the format isn't known until a file loads.
-
-### The user-facing half of #74
-
-The guard above keeps the job running, but silently changing someone's output
-is only acceptable if they can see it coming and choose otherwise. Two things
-shipped with it:
-
-**A 4:2:0 10-bit output format.** `ChromaSubsampling::Yuv420P10` /
-`ChromaSubsampling.yuv420p10` — the only 10-bit layout NVENC, QSV and AMF can
-encode, so it is how a 10-bit source keeps its grading through a GPU encoder by
-the user's own choice rather than by the guard's fallback. Verified end to end
-(`integration_high_bit_depth_filters_test`): a 10-bit 4:2:2 source comes out
-`yuv420p10le`, profile **High 10**. Adding an option touches four places —
-`vapoursynth_format`, `ffmpeg_pix_fmt`, the Dart enum with its `outputBitDepth`,
-and `chromaFormatHelpSections`, which `settings_chroma_help_test` fails on if
-the new label goes unmentioned.
-
-**A warning under the dropdown.** `hardwareEncoderChromaWarning` in
-`app/lib/utils/pixel_format.dart` says which format will be substituted and
-why, before the job runs. It covers both routes into #74 — a 4:2:2 *source* at
-"Match source", and an explicitly chosen 4:2:2 *output* — and it stays silent
-for everything encodable, for VideoToolbox and AMF, and until a file is loaded.
-
-> **It is a second implementation of the worker's decision, and that is the
-> risk.** If the two disagree the interface promises one thing and the encode
-> does another, which is worse than either being wrong alone. Both sides are
-> therefore pinned to **the same table of cases** — `substitutions match the
-> worker, case for case` in `hardware_encoder_chroma_warning_test.dart` against
-> `test_nvenc_cannot_be_handed_422` and its neighbours in `video_job.rs`. Change
-> one and change both. `pixelFormatChromaLayout` is likewise a coarse Dart twin
-> of `ChromaClass`; the Dart side already reimplements this kind of pix_fmt
-> parsing in `pixelFormatBitDepth`, so it follows that precedent rather than
-> inventing a new one.
-
-**A second help dialog**, `ColourPipelineHelpIcon` /
-`colourPipelineHelpSections`, beside the existing `ChromaFormatHelpIcon`. The
-two answer different questions and both are worth having: the first is *what
-are these formats and which do I pick*, the second is *what does the app do to
-my colour* — the pipe source normalising upward on the way in, filters
-converting down and back per pass, every UI threshold being in 8-bit units and
-rescaled to the clip depth, the output conversion dithering, the Y4M pipe
-stripping SAR and colour tags so they must be re-stamped, and the encoder
-having the last word. A deliberately distinct icon (`schema_outlined`, not a
-second `info_outline`), asserted, because two identical adjacent buttons read
-as one control repeated.
+None of the AMF behaviour (and little of NVENC/QSV's) can be verified in CI —
+there's no matching hardware in the runner matrix — so this rests on unit tests
+over emitted arguments; the functional probe encodes one `yuv420p` frame and
+so cannot catch the #74 class at all. See docs/ENGINEERING_NOTES.md for the
+full case table and the two help dialogs that explain this to the user.
 
 ### ProRes: the profile decides the chroma, not ffmpeg (issue #81)
 
-Reported as "please add ProRes", when Proxy/LT/422/HQ had shipped for months.
-Most of what was wrong was that the app said otherwise, so this is mostly a
-correctness change with two profiles added on the end.
+**ffmpeg's pixel-format negotiation never looks at `-profile:v`** — left alone,
+`prores_ks` auto-selects `yuv422p10le` for *every* profile including 4444/4444 XQ,
+so an unpinned encode silently writes a file stamped 4444 that actually carries
+4:2:2. `VideoCodec::forced_pix_fmt` decides from the profile instead (4/5 →
+`yuv444p10le`, 0-3 → `yuv422p10le`), the same pattern as the HuffYUV/AMF/#74
+pins: an encoder's declared format list is not a statement about what the
+output should be. The decoder reports ProRes 4444 as 12-bit
+(`yuv444p12le`) regardless of what 10-bit format it was fed — assert on the
+chroma part of the name, not the depth, and never claim "12-bit" in UI copy,
+since `prores_ks` has no 12-bit pixel format at all.
 
-> **ffmpeg's pixel-format negotiation never looks at `-profile:v`.** Measured
-> against the bundled build: `prores_ks -profile:v 4` and `-profile:v 5`
-> auto-select `yuv422p10le` from a `yuv420p` input, exactly as `-profile:v 2`
-> does. So ProRes 4444 shipped without a pin writes a file **stamped 4444
-> carrying 4:2:2** — valid, playable, and the profile's entire point discarded
-> with no error anywhere. `VideoCodec::forced_pix_fmt` now decides from the
-> profile (4/5 → `yuv444p10le`, 0-3 → `yuv422p10le`), joining the HuffYUV and
-> AMF pins. Issue #74's lesson generalises: an encoder's declared format list
-> is not a statement about what the output should be.
->
-> Pinning 0-3 is a measured no-op, not an assumed one — `pal-sd-25.mov` at all
-> four profiles gives identical `framemd5` with and without the flag, because
-> `yuv422p10le` is the only 4:2:2 format the encoder has.
->
-> **The decoder reports ProRes 4444 as 12-bit** (`yuv444p12le`) whatever 10-bit
-> format the encoder was handed, so assert on the chroma part of the name. And
-> `prores_ks` offers no 12-bit pixel format at all: **4444 XQ is 10-bit here**,
-> whatever Apple's spec says. Don't write "12-bit" in any UI copy.
+`proresChromaPinWarning` is a **sibling** of `hardwareEncoderChromaWarning`,
+not an extension — it says "nothing is lost" rather than "something is lost,"
+because 4444 pads 4:2:0 chroma *up* rather than discarding anything. Both
+warnings are second implementations of a worker-side decision and both must be
+pinned case-for-case against it (see the Hardware Encoders section above).
 
-> **ProRes was showing a CRF slider wired to nothing.** It is not `isLossless`,
-> so the dialog rendered one labelled "High (CRF 18)" while
-> `build_encoder_quality_args` took the `prores_profile()` branch and never read
-> `settings.quality`. The decision is now `VideoCodec.hasQualityControl`, a
-> getter rather than a widget condition, so it can be asserted across
-> `VideoCodec.values` — a hand-written list only covers the codecs someone
-> thought of, which is never the broken one.
+`VideoCodec.hasQualityControl` (not `isLossless`) decides whether the quality
+slider applies, and is asserted across `VideoCodec.values` rather than a
+hand-written per-codec list — ProRes previously showed a CRF slider wired to
+nothing. `bits_per_mb` (advanced-mode, ProRes-only) is clamped to 8192 **in the
+worker**, not just the UI, since ffmpeg rejects anything above it and dies
+having written nothing.
 
-> **`prores_profile()` and `encoder_family()` lost their catch-all arms.** They
-> dispatch two halves of one decision — the quality-args branch uses the first,
-> its fallthrough the second — so a ProRes variant reaching the family but not
-> the profile table would emit no `-profile:v` and encode as profile 2 while
-> claiming otherwise. Adding the two new variants then produced four compile
-> errors naming exactly the sites that mattered, which is the point.
-
-> **`proresCodecs` in `settings_dialog.dart` was the only place the ProRes UI
-> group was enumerated.** A profile missing from it exists in the model and is
-> unreachable on screen, silently. Derived from `isProRes` now.
-
-The three advanced options (`-vendor apl0`, `-bits_per_mb`, `-quant_mat`) are
-behind advanced mode, ProRes-only, default off. Their copy carries measurements
-rather than the linked guide's framing, because **at profile 3 the guide's four
-flags produce bit-identical frames** — `quant_mat auto` already resolves to the
-HQ matrix and the bitrate is already under the cap. They only do anything on
-Proxy/LT (+3.6 dB for 2.8% size, +5.5 dB for 19%), and `-vendor apl0` is a
-compatibility flag: four bytes per frame header, identical pixels.
-
-`bits_per_mb` is clamped to 8192 **in the worker**, not just the UI — ffmpeg
-rejects anything above it and the encode dies having written nothing, so a saved
-preset can otherwise fail a job on an option nobody can see. `quant_mat` is an
-enum on both sides for the same reason ("Undefined constant" kills the encode).
-
-> **`copyWith` needed explicit clear flags, and `parameter_copy_with_test` could
-> not have caught it.** That test globs `lib/models/*_parameters.dart`, so it had
-> never seen `encoding_settings.dart` — now added, and confirmed live by dropping
-> a field and watching it fail by name. The blast radius here is worse than in a
-> pass model: **every** edit in the settings dialog goes through
-> `updateEncodingSettings(settings.copyWith(...))`, so a forgotten field resets on
-> the user's next click, not on a pass toggle. `x ?? this.x` can only set a
-> nullable field, never clear it, so an unticked override would stick forever —
-> `videoBitrateKbps` still has that defect and works around it in
-> `_buildCodecRadio`.
-
-`proresChromaPinWarning` is a **sibling** of `hardwareEncoderChromaWarning`, not
-an extension. The two make opposite claims — one says the hardware cannot encode
-what you asked and something is lost; the other says the profile defines what is
-stored, and 4444 pads 4:2:0 *up*, costing size rather than detail. The message
-says "Nothing is lost" explicitly, asserted, because a warning that reads as a
-quality problem pushes people off a profile doing exactly what they asked. Both
-are second implementations of the worker's decision and both are pinned
-case-for-case to it. Depth is deliberately not warned about alone: ProRes is
-always 10-bit, so that would fire on most ProRes jobs and become wallpaper.
+See docs/ENGINEERING_NOTES.md for the specific measurements (which profiles are
+bit-identical with/without the pin, the dB gain from the advanced quant-matrix
+options) and the `copyWith`/enum-dispatch traps this shipped with.
 
 ## QTGMC Parameters Reference
 
@@ -2183,44 +887,29 @@ The most important parameters:
 
 `std.SeparateFields` **ignores its `tff` argument whenever the `_FieldBased`
 frame property is set** — the property wins, so QTGMC's `TFF=` parameter is
-inert on a marked clip. Both must therefore come from one value:
-`ScriptGenerator::field_based_for` is that single derivation, used by the encode
-path *and* the preview path. Deriving them separately lets autodetection
-silently override the user's field-order choice and lets the preview deinterlace
-differently from the final render.
+inert on a marked clip. `ScriptGenerator::field_based_for` is the single
+derivation both the encode and preview paths must use.
 
 - Deinterlacing enabled → `_FieldBased` comes from `pipeline.deinterlace.tff`.
-- Deinterlacing disabled → falls back to `job.detected_field_order`, so
-  field-aware chroma resampling in a later `resize` is still correct
-  (zimg **does** honour `_FieldBased`).
+- Deinterlacing disabled → falls back to `job.detected_field_order` (zimg
+  honours `_FieldBased` for chroma resampling too).
 
 ### Deinterlace Working Format (issue #49)
 
-Two QTGMC options wrap the deinterlace pass in a format conversion, restoring
-the source format immediately afterwards (`{{#DEINT_WORKING_FORMAT}}` /
-`{{#DEINT_RESTORE_FORMAT}}` in both templates):
+Two **opt-in** QTGMC options wrap the deinterlace pass in a format conversion,
+restoring the source format after (`{{#DEINT_WORKING_FORMAT}}` /
+`{{#DEINT_RESTORE_FORMAT}}` in both templates), independent of each other:
 
-Both are **opt-in** — they trade throughput for quality, so the choice is the
-user's:
+- **`chromaUpsampleFix`** (default off): convert 4:2:0 to 4:2:2 before
+  deinterlacing (field-aware). ~30% throughput cost; no-op on 4:2:2/4:4:4.
+- **`highPrecision`** (default off): run at 16-bit, dither back. ~2x time/memory.
 
-- **`chromaUpsampleFix`** (default **off**): interlaced 4:2:0 stores chroma per
-  field, so convert to 4:2:2 before deinterlacing — field-aware, because zimg
-  honours `_FieldBased`. Costs roughly 30% throughput (measured 35 → 24 fps).
-  No-op on 4:2:2/4:4:4 sources.
-- **`highPrecision`** (default **off**): run the pass at 16-bit and dither back,
-  avoiding accumulated 8-bit rounding across QTGMC's many merge/expr steps.
-  Roughly doubles time and memory.
+With both off, the generated script is byte-for-byte what it was before the
+block existed.
 
-The two are independent — enabling one must not pull in the other. With both
-off (the default) the generated script is byte-for-byte what it was before the
-block existed, asserted by `test_58_deinterlace_working_format_default` and
-`test_60_deinterlace_working_format_disabled`.
-
-**`ChromaEdi` is validated, not passed through.** havsfunc implements only
-`''`, `'nnedi3'` and `'bob'`; any other non-empty value disables chroma EDI
-(`planes=[0]`) and then returns the luma-only interpolation without ever
-restoring chroma, badly corrupting it. `QTGMCParameters::normalized_chroma_edi`
-drops unsupported values — don't bypass it.
+**`ChromaEdi` is validated, not passed through** — havsfunc implements only
+`''`, `'nnedi3'` and `'bob'`; `QTGMCParameters::normalized_chroma_edi` drops
+anything else, since an unsupported value silently corrupts chroma.
 
 ## Testing
 
@@ -2235,11 +924,10 @@ cd worker && cargo test --test subtitle_integration_test -- --nocapture
 ```
 
 - `filter_integration_test.rs` — **every filter/parameter change must add a
-  numbered test here** (see "Adding a New Filter"). Note that despite the name,
-  `run_job` **only generates and inspects the `.vpy` script** — it does not run
-  `vspipe | ffmpeg` (see its body: "For now, just verify script generation
-  works"). So this suite validates *script generation*, and cannot catch runtime
-  or plugin-behaviour bugs; those need the Dart shell-out/integration tests.
+  numbered test here** (see "Adding a New Filter"). Despite the name, `run_job`
+  **only generates and inspects the `.vpy` script** — it does not run
+  `vspipe | ffmpeg`, so it validates script generation only; runtime/plugin
+  bugs need the Dart shell-out/integration tests.
 - `subtitle_integration_test.rs` — runs `whisper-cli` on
   `Tests/TestResources/small_clip.mp4`; needs the whisper add-on + ffmpeg.
 - In **debug** builds `DependencyLocator` finds repo-root `deps/`/`addons/` by
@@ -2265,58 +953,52 @@ Headless Dart-VM tests. Three groups:
 - **Shell-out tests** — `vapoursynth_integration_test`,
   `schema_converter_integration_test`; need the per-arch `deps/` and (for whisper)
   `addons/`.
-- **Integration tests** — `integration_*_test.dart` (formerly the standalone
-  `integration_test/` suite, now headless + cross-platform). They spawn the
-  worker end-to-end via `app/test/support/worker_harness.dart`. The encode-heavy
-  ones are `@Tags(['heavy'])`: the **push gate** runs `--exclude-tags heavy`
+- **Integration tests** — `integration_*_test.dart`. They spawn the worker
+  end-to-end via `app/test/support/worker_harness.dart`. The encode-heavy ones
+  are `@Tags(['heavy'])`: the **push gate** runs `--exclude-tags heavy`
   (script-only: `integration_filter_parameters_test`,
   `integration_qtgmc_parameters_test`); **nightly.yml** runs `--tags heavy`.
-  The heavy set grows, so `grep -l "Tags(\['heavy'\])" app/test/*.dart` is the
-  authority — 12 files as of Aug 2026: `integration_filter_pipeline`,
-  `_audio_conversion`, `_chroma_subsampling`, `_interlacing_status`,
-  `_video_trimming`, `_new_passes`, `_aspect_ratio`, `_high_bit_depth`,
-  `_high_bit_depth_filters`, `_source_formats`, `_upscale_resize`,
-  `_white_balance`.
+  `grep -l "Tags(\['heavy'\])" app/test/*.dart` is the authority for which files
+  those are.
 
 > **Feeding a test clip to vspipe's stdin: start draining stdout/stderr BEFORE
 > writing, and never `await` the write.** These scripts request a single frame,
-> so vspipe reads a fraction of the raw file and exits; awaiting `stdin.close()`
-> first deadlocks, because the write blocks on a pipe nobody is reading and the
-> drain that would let vspipe finish never starts. R73 hid this by spending
-> ~1.4s in script evaluation — long enough for the whole payload to land in the
-> OS pipe buffer. R78 evaluates in ~0.01s and lost the race every time, turning
-> all ten stdin-piping tests in `vapoursynth_integration_test.dart` into 30s
-> timeouts. It was always a race, not a version difference.
+> so vspipe reads only a fraction of the payload and exits; awaiting
+> `stdin.close()` first deadlocks on a pipe nobody is reading. This is always a
+> race (whether it's hit depends on how long script evaluation takes), not a
+> version difference.
 
 `WorkerHarness` also runs the worker in **preview** mode (`runPreview`) and
-compares rendered frames (`imageToRgb24` + `meanAbsDiff`). Preview and encode are
-separate scripts *and* separate ffmpeg invocations, so a filter can render fine
-and still fail the preview — assert both. Comparing frames is the only way to
-catch a filter that runs cleanly and produces the wrong picture; see "High Bit
-Depth Sources".
+compares rendered frames (`imageToRgb24` + `meanAbsDiff`) — preview and encode
+are separate scripts and separate ffmpeg invocations, so assert both; a filter
+can render fine and still fail the preview.
 
 > `vapoursynth_integration_test`'s "all required plugins load" list is the
-> runtime contract for a **complete deps install**, and it must name every
+> runtime contract for a **complete deps install** and must name every
 > namespace a filter can reach — except `zsmooth`, which is deliberately not
-> autoloaded any more and has its own load-and-render test beside that list.
-> `zsmooth` (Chroma Denoise / CCD) was added to the
-> bundle after that list was written and went uncovered for a while, so a bundle
-> missing it passed the suite while the filter failed at job time with "No
-> attribute with the name zsmooth exists". Add the namespace whenever you add a
-> plugin. OpenCL-only plugins (`nnedi3cl`, `knlm`) stay **out** of the list — the
-> app degrades to a CPU path without them.
+> autoloaded and has its own load-and-render test. Add the namespace whenever
+> you add a plugin, or a bundle missing it passes CI and fails at job time.
+> OpenCL-only plugins (`nnedi3cl`, `knlm`) stay **out** of the list — the app
+> degrades to a CPU path without them.
 
 The harness honors `$VAPOURBOX_DEPS_DIR`, else uses repo-root `deps/<platform>`,
 else **downloads the deps release pinned in `app/assets/deps-version.json`**
 (opt out with `$VAPOURBOX_SKIP_DEPS_DOWNLOAD=1`). The worker binary is found under
 `worker/target/{release,debug}` (CI's `cargo test`/`cargo build` produces debug).
-Subtitle heavy tests skip when the whisper add-on is absent. Put new shell-out or
-integration Dart tests here so CI covers them; tag full-encode tests `heavy`.
+Subtitle heavy tests skip when the whisper add-on is absent.
 
 ```bash
 # Run the worker standalone (no test harness)
 cd worker && cargo run --release -- --config test_job.json
 ```
+
+> **The heavy tests run the worker BINARY, not the library**, and
+> `app/lib/**/*.g.dart` is gitignored — **run `cargo build` before the heavy
+> suite** and `dart run build_runner build` before any Dart test, or you'll
+> debug a stale binary/generated-code mismatch that reads like a template or
+> serialization bug. `generated_code_freshness_test.dart` catches the Dart half
+> in CI (which always rebuilds first, so it can't reproduce this locally-only
+> trap); nothing catches the Rust half but discipline.
 
 ### CI test gate (`.github/workflows/ci-test.yml`)
 
@@ -2325,17 +1007,20 @@ Each job pulls the published deps bundle + the whisper add-on, then runs
 **suite #1 (`cargo test`) and suite #2 (`flutter test --exclude-tags heavy`)** —
 including the subtitle integration test, excluding the heavy full-encode
 integration tests. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
-(`macos-15-intel`), **Windows x64**, **Linux x64** (`ubuntu-24.04`). Notes:
+(`macos-15-intel`), **Windows x64**, **Linux x64** (`ubuntu-24.04`). The heavy
+full-encode integration tests run separately in `.github/workflows/nightly.yml`
+(cron + `workflow_dispatch`) via `flutter test --tags heavy` on the same
+4-platform matrix. Fixtures (`small_clip.mp4`, telecine/interlaced clips) are
+committed under `Tests/TestResources/`.
 
-- whisper-cli is provisioned from the **same source the app uses at runtime**
-  (`app/assets/whisper-addon.json`): macOS via a Homebrew bottle, Windows/Linux
-  by downloading the published release zip/tarball (Linux from `whisper-vX.Y.Z`,
-  built by `build-whisper.yml`).
-- Fixtures (`small_clip.mp4`, telecine/interlaced clips) are committed under
-  `Tests/TestResources/`.
-- The heavy full-encode integration tests (`@Tags(['heavy'])`) are **not** in this
-  gate — they run in `.github/workflows/nightly.yml` (cron + `workflow_dispatch`)
-  via `flutter test --tags heavy` on the same 4-platform matrix.
+> **A green CI run on hosted hardware is not proof about CPU-dispatched code.**
+> The runner fleet is mixed for features like AVX-512, so a filter that only
+> crashes on that instruction set can pass for days and then fail on no code
+> change at all when the draw changes. Prefer a script-generation assertion
+> (which runs on every draw) over relying on the heavy end-to-end test to catch
+> a CPU-dispatch bug. `WorkerHarness`'s banner reports the actual CPU features
+> the pipeline process saw (`--probe-cpu`), so check it before reading a green
+> run as evidence either way.
 
 ## Attribution — never write a name you have not read upstream
 
@@ -2344,47 +1029,17 @@ Third-party credit lives in **three** places that must agree:
 (`app/lib/views/about_dialog.dart`), and the README's Acknowledgments.
 `app/test/attribution_test.dart` lints the first two against
 `Scripts/deps-expected-plugins.json`, so **adding a plugin without crediting it
-fails the build** — the map in that test has to gain an entry too.
+fails the build**.
 
-What the test cannot catch, and what actually shipped
-([issue #72](https://github.com/StuartCameronCode/VapourBox/issues/72)):
-
-> **zsmooth was credited to "Adrian Woracz" — a name that does not exist.** The
-> author's GitHub handle is `adworacz`; his LICENSE says **Austin Dworaczyk
-> Wiltshire**. The handle was expanded into a plausible-looking human name
-> instead of being looked up, and it went out in the README, the About dialog
-> and NOTICES simultaneously. The author found it and opened an issue.
->
-> **Every copyright line must come from the upstream LICENSE file or a source
-> header, fetched at the time of writing.** A GitHub handle is not a name. A
-> repo owner is not necessarily the copyright holder. `gh api repos/<r>` gives
-> the SPDX id, and the LICENSE / first 40 lines of the main source file give the
-> holder — that is a 30-second check per component.
-
-The 2026-08-17 audit that fixed it found the same class of error throughout,
-which is why the whole file was rebuilt from upstream rather than patched:
-
-- **Licences were wrong, not just names.** CTMF is GPL-3.0 (listed as 2.0),
-  DCTFilter is MIT (listed as GPL-2.0), AWarpSharp2 is ISC and RemoveGrain is
-  WTFPL (both listed as GPL-2.0). The bundled FFmpeg is built
-  `--enable-gpl --enable-version3`, so it is **GPL-3.0**, not the LGPL the file
-  claimed.
-- **Year ranges were invented.** "Copyright (c) 2012-2024 …" appeared on
-  components whose upstream states no such range, including projects that
-  assert no copyright at all (havsfunc is Unlicense; FluxSmooth's author
-  explicitly disclaimed copyright).
-- **It credited something not shipped** (ffms2, removed with BestSource) and
-  **omitted about fifteen plugins that are, or shortly will be** — Retinex,
-  bifrost, fluxsmooth, DeScratch, VIVTC, TCanny, TTempSmooth, AddGrain,
-  FFT3DFilter, KNLMeansCL, MiscFilters, TemporalMedian, BM3D, zimg, Zstandard,
-  and the Agner Fog VCL that eight HolyWu plugins compile in. Both directions
-  are now asserted.
-- **`mvsfunc` has no licence at all upstream** — no LICENSE, no header. That is
-  now stated plainly rather than guessed as "Unlicense". Don't "tidy" it into a
-  licence name.
-
-When a project genuinely states nothing, say so and offer to remove it on
-request. An honest "no licence stated" is worth more than a confident guess.
+**Every copyright line must come from the upstream LICENSE file or a source
+header, fetched at the time of writing — never from a GitHub handle expanded
+into a plausible name, and never assumed from the repo owner.** `gh api
+repos/<r>` gives the SPDX id; the LICENSE / first 40 lines of the main source
+file give the actual holder. This has gone wrong before ([issue #72](https://github.com/StuartCameronCode/VapourBox/issues/72):
+zsmooth was credited to a name that doesn't exist, invented from the author's
+GitHub handle) and cost a public correction. When a project genuinely states no
+licence, say so plainly rather than guessing one — see docs/ENGINEERING_NOTES.md
+for the full audit and the specific licence/year errors it found.
 
 ## Code Style
 
@@ -2402,537 +1057,145 @@ request. An honest "no licence stated" is worth more than a confident guess.
 
 All three `download-deps-*` scripts apply these automatically, and they must stay
 **identical across platforms** — a patch applied on only some platforms makes the
-same job produce different output per OS. Seven patches:
+same job produce different output per OS. Each is a **literal string match**
+against havsfunc r31, so if upstream ever changes one of those lines the patch
+silently does nothing — behavioural tests matter more than usual here (see
+`app/test/vapoursynth_integration_test.dart`).
 
 1. **mvtools API**: Renamed `_lambda`→`lambda`, `_global`→`global` parameters
 2. **DFTTest API**: `sstring` parameter removed, replaced with `sigma=10.0`
 3. **VapourSynth YCOCG removal**: `vs.YCOCG` removed, simplify to `!= vs.YUV`
+   (known gap: `KNLMeansCL`'s own YCOCG check is unpatched, but unreachable —
+   only hit by a non-default denoiser/chroma combination that's never shipped)
 4. **EEDI3CL fallback**: modern `eedi3m` dropped `EEDI3CL`, so `opencl=True` fell
    over; fall back to CPU `EEDI3` (NNEDI3CL still uses the GPU)
-5. **`Bob()` 16-bit resample** — see below
-6. **ARM nnedi3 preference** — see "The ARM interpolator choice" below
-7. **akarin Expr routing** — rebinds havsfunc's `core` to a proxy that sends
-   `.std.Expr` to `akarin.Expr`; see "`std.Expr` on ARM" below
+5. **`Bob()` 16-bit resample** — defence in depth for the fmtconv aarch64
+   integer-scaler bug (see docs/ENGINEERING_NOTES.md); redundant now that fmtconv
+   is patched, but also covers the prebuilt Windows DLL
+6. **ARM interpolator preference** — routes every nnedi3 call site to the
+   bundled dubhater `nnedi3` (real NEON kernels) instead of `znedi3` (x86-only
+   SIMD, scalar fallback on ARM) on **ARM builds only**; x86 is unaffected.
+   **Never call `core.znedi3.nnedi3`/`core.nnedi3.nnedi3` directly** — always go
+   through the templates' `_nnedi3()` helper (`test_92` enforces this). Measured
+   ~6x CPU-time win on arm64 QTGMC for a picture within 0.045/255 of znedi3's.
+7. **akarin Expr routing** — on ARM, rebinds havsfunc's `core` so `.std.Expr`
+   calls go to `akarin.Expr` (a real LLVM JIT) instead of VapourSynth's own
+   x86-only Expr JIT, which falls back to a scalar per-pixel interpreter on
+   ARM (measured ~20x slower). **Never call `core.std.Expr` directly in a
+   template** — use the `_expr()` helper (`test_93` enforces this, and only
+   scans the two `.vpy` templates — extend it before vendoring any `.py` module
+   that calls `Expr`, e.g. TemporalDegrain2 or mClean). Not applied on macOS
+   x64: the only akarin wheel would raise that arch's Intel-compatibility floor
+   to macOS 14, and x64 already has VapourSynth's own JIT. Not bit-identical to
+   `std.Expr` in every case (one known 1-level difference in a dehalo mask, see
+   docs/ENGINEERING_NOTES.md) — `akarin_expr_parity_test.dart` (heavy) bounds it.
 
-Each patch is a **literal string match** against havsfunc r31. If upstream ever
-changes one of those lines the patch silently does nothing, so behavioural tests
-matter more than usual (see `app/test/vapoursynth_integration_test.dart`).
-
-> Known gap: patch 3 only rewrites the `input.format...` YCOCG check, so
-> `KNLMeansCL`'s `clip.format.color_family not in [vs.YUV, vs.YCOCG]` survives and
-> would `AttributeError`. Only reachable with `Denoiser='knlmeanscl'` **and**
-> `ChromaNoise=True` (both non-default), so it has never been hit.
-
-### The ARM interpolator choice: nnedi3, not znedi3 (patch 6)
-
-**Never name an nnedi3 implementation directly.** Both templates define a
-`_nnedi3()` helper and havsfunc gets an `_nnedi3_impl()` via patch 6; every call
-site goes through one of those. `test_92` fails the build if a template
-reintroduces a direct `core.znedi3.nnedi3` / `core.nnedi3.nnedi3` call.
-
-The reason is a pure-performance trap that produces a **correct picture**, so
-nothing but a benchmark or that assertion catches it:
-
-- znedi3's SIMD kernels are x86-only, so `download-deps-{macos,linux}.sh` build it
-  `make X86=0 X86_AVX512=0` and ARM gets the scalar `PredictorC`/`PrescreenerOldC`
-  path. The bundled dubhater **`nnedi3` has real NEON kernels**
-  (`computeNetwork0_neon`, `dotProd_neon`, …).
-- Measured on an M1, QTGMC Slow, 400 frames of 720x576: **37.8s of CPU for znedi3
-  vs 5.95s for nnedi3 — 6.3x**, and 30% of the entire arm64 QTGMC cost. End to end
-  the swap is worth **+10% (Faster) to +40% (Slow)**.
-- havsfunc hardcoded `core.znedi3.nnedi3 if hasattr(core, 'znedi3')` at three call
-  sites (daa, santiag, QTGMC), so *every* ARM deinterlace paid it.
-
-The two plugins implement the same network from the same `nnedi3_weights.bin` and
-their signatures are identical for every argument used, so this is a drop-in swap:
-measured mean output difference **0.045/255** for the interpolator alone and
-**0.072/255** end-to-end through QTGMC (tolerance is 2.0). Worst single pixel is
-~48/255 on hard edges, where the two implementations' float rounding flips a
-prescreener decision — expected for independent implementations of the same net.
-
-The choice is made **at runtime** (`platform.machine()`), not by the build, so the
-patch text stays identical on every platform and **x86 keeps using znedi3
-unchanged**. nnedi3 is therefore required only on the **ARM** bundles —
-`deps-expected-plugins.json` lists it for `macos-arm64` and `linux-arm64` and
-deliberately **not** for the three x86 ones, which never call it. Requiring it on
-x86 just fails the packaging guard on a plugin nothing would load (nnedi3's x86
-path also needs `yasm`, which the runners don't have).
-
-> **Building nnedi3 on aarch64 needs two source patches**, because dubhater's
-> build system treats every ARM as 32-bit ARMv7. `-mfpu=neon` is an ARMv7 option
-> that aarch64 gcc rejects outright, and `cpufeatures.cpp` reads `HWCAP_ARM_*`
-> from `getauxval()` — constants that exist only for 32-bit ARM. macOS only ever
-> hit the first (it takes the `__APPLE__` branch in `cpufeatures.cpp`), which is
-> why Linux arm64 shipped without the plugin until 2026-08-07. Both edits, and a
-> guard that hard-fails if either stops matching, are in the nnedi3 block of
-> `download-deps-linux.sh`; keep the `-mfpu` expression identical to the macOS
-> one. The second patch is the one to be careful with: `nnedi3.cpp` only does
-> `if (!cpu.neon) d->opt = 0`, so a wrong answer there yields a **correct picture
-> at scalar speed** — the same silent failure this whole section is about.
-
-> This is one instance of a much larger arm64 gap: native arm64 QTGMC runs
-> **3–4.5x slower than the x64 bundle under Rosetta**. The dominant cause is not
-> this but `std.Expr` — VapourSynth's `compile_jit()`
-> (`src/core/expr/jitcompiler.cpp`) is wrapped in `#ifdef VS_TARGET_CPU_X86`, so on
-> aarch64 it returns no compiler and `exprfilter.cpp` falls back to
-> `ExprInterpreter::eval()`, a scalar switch-dispatch interpreter run **once per
-> pixel**: 69.5s vs 3.3s of CPU on the same job, **21x**. Most of VS core is
-> x86-SIMD-only the same way (genericfilters, mergefilters, averageframes,
-> planestats). Not a cause: mvtools is *faster* natively (it compiles its SSE2
-> paths through simde). **That Expr gap is now closed by akarin** — see below.
-
-### `std.Expr` on ARM goes through akarin's LLVM JIT
-
-VapourSynth's `compile_jit()` is x86-only, so on ARM every expression is walked
-**once per pixel** by `ExprInterpreter::eval()`. Measured on an M1 under R78,
-`Expr` costs **550–640 CPU-seconds** in a QTGMC Slow graph against the
-interpolator's **30** — it is not one cost among several, it is the cost.
-`akarin.Expr` is a real LLVM JIT that works on aarch64: **QTGMC Slow 11.5s →
-2.8s, 4.1x** (3 runs each, 720x576, 120 output frames).
-
-Three things to keep straight:
-
-- **The routing is a shim, not 116 edits.** havsfunc has 116 `core.std.Expr`
-  call sites, so **patch 7** rebinds its module-level `core` to a proxy that
-  swaps *only* `.std.Expr` and forwards everything else. The proxy installs
-  **only when `core.akarin` exists**, so where it doesn't, `core` stays the real
-  core — no wrapper, no overhead, no behaviour change. Both templates get an
-  `_expr()` helper for their own two call sites each, mirroring `_nnedi3()`;
-  `test_93` fails the build if either calls `core.std.Expr` directly, and also
-  if the helper's fallback calls *itself* (a blanket search-and-replace made it
-  infinitely recursive once — the fallback must name `core.std.Expr`).
-  **`test_93` only scans the two `.vpy` templates**, not vendored `.py` modules
-  in `worker/templates/`. That has never mattered because `spotless.py` uses no
-  `Expr` at all — but TemporalDegrain2 and mClean both do, so vendoring either
-  as-is would silently take the 21x scalar-interpreter path on ARM with nothing
-  failing. Extend the assertion to `worker/templates/*.py` before vendoring
-  anything that calls `Expr`.
-- **macOS x64 deliberately does not get it.** The only wheel is
-  `macosx_14_0_x86_64` and that bundle targets **12.0** (issue #39), so shipping
-  it would raise the Intel floor to macOS 14 — for a platform that already has
-  the JIT. It keeps `std.Expr` through the fallback. The namespace requirement in
-  `vapoursynth_integration_test.dart` is therefore **conditional**, like `nnedi3`.
-- **It is not bit-identical, and the one difference is known.** Of the **46**
-  expressions havsfunc actually generates, 45 match exactly. The exception is the
-  `DeHalo_alpha`/`FineDehalo` edge-**mask** scale `x {thmi} - {i} / 255 *`, where
-  one input value lands on an exact `.5` tie: `std.Expr` rounds half-to-even,
-  akarin rounds down — one level, in a mask. So macOS x64 differs from every
-  other platform by that one level. That is far smaller than the ARM/x86
-  difference already accepted for nnedi3 vs znedi3 (mean 0.045/255, worst pixel
-  27/255).
-
-**Test the corpus, not a sample.** The expressions are mostly f-strings with
-computed thresholds, so a static scan of havsfunc finds **11** of the 46.
-`app/test/akarin_expr_parity_test.dart` (heavy) collects them *at runtime* across
-every QTGMC preset plus daa/santiag/LSFmod/DeHalo_alpha/FineDehalo/SMDegrain/
-Deblock_QED/EdgeCleaner/YAHR, then compares both implementations over inputs
-covering all 256 values. It asserts `corpus >= 40` so a broken collector fails
-rather than passing vacuously, and bounds the difference at exactly what is
-measured today (worst ≤ 1 level, ≤ 1 differing expression).
-
-The plugin comes from the `vapoursynth-akarin` **PyPI wheel** (a wheel is a zip;
-never pip-install it into the embedded interpreter), pinned to a version and
-resolved through the PyPI JSON API so the hashed file URL is never hardcoded.
-Per-platform placement differs and matters:
-
-| | plugin | its private libs |
-|---|---|---|
-| macOS arm64 | `vapoursynth/plugins/` | `lib/`, repointed from `@loader_path/../../../vapoursynth_akarin.dylibs` and **re-signed** |
-| Linux x64/arm64 | `vapoursynth/plugins/` | `lib/`, via `patchelf --set-rpath` |
-| Windows x64 | `vapoursynth/vs-plugins/` | **beside the plugin** |
-
-On Unix the private libs go in `lib/` rather than `plugins/`, because `plugins/`
-is autoloaded and a non-plugin `.so` there gets probed on every core init. `lib/`
-is deliberately **not** on `DYLD_LIBRARY_PATH`, so the bundled libz cannot shadow
-the system one for ffmpeg. Linux's zstd carries a **per-arch build hash** in its
-filename (`libzstd-5df4f4df…` on x64, `-a1561916…` on arm64), so glob it — and
-the ELF `NEEDED` entry uses that exact hashed name.
-
-akarin is **LGPL-3.0** and statically links **LLVM 22.1.2** (Apache-2.0 with LLVM
-exception); both are in `licenses/NOTICES.txt`. It adds ~61 MB uncompressed per
-platform, but only about **21 MB to each deps zip** — the earlier "the zips
-roughly double" estimate was wrong, because it compared uncompressed size against
-compressed zips.
-
-### Every run states which hardware it tested
-
-`WorkerHarness`'s banner carries a `cpu=` line, from the worker's own
-`--probe-cpu` (`{"arch":..., "features":[...]}`) rather than derived Dart-side,
-so it reports what the actual pipeline process sees — including under emulation,
-where an x86_64 worker on Apple Silicon reports what Rosetta exposes rather than
-what the binary was compiled for.
-
-```
-WorkerHarness: platform=windows-x64
-  ...
-  cpu=x86_64 [sse2 sse4.1 avx avx2 fma avx512f]
-```
-
-> **A green run on unknown hardware is not evidence.** GitHub's hosted Windows
-> fleet is **mixed** for AVX-512 — not migrated — so which kernels a job
-> exercises is a draw. That is how the CTMF crash (see "A plugin's own CPU
-> auto-detect is not trustworthy") reached `main` and then looked spontaneous:
-> the nightly passed for three nights on non-AVX-512 runners, went red the night
-> it drew one that had it, and two deliberate re-rolls afterwards both landed
-> back on non-AVX-512 machines and passed **vacuously**. Before reading a green
-> Windows run as proof about anything CPU-dispatched, check this line.
-
-Two consequences worth keeping in mind:
-
-- **The durable guard for a dispatch bug is a script-generation assertion**, not
-  the heavy end-to-end test. `test_152` runs on every platform whatever hardware
-  it draws; the end-to-end CTMF case can only confirm opportunistically.
-- **Local hardware can beat CI here.** The AVX-512 crash reproduces
-  deterministically on a dev machine that has AVX-512, which is a more
-  controlled experiment than re-rolling runners.
-
-`describeCpu()` never throws — a diagnostic that fails the run would be worse
-than one that says "unknown" — so a broken probe would degrade silently exactly
-when it matters. `app/test/worker_cpu_probe_test.dart` (push gate) and
-`cpu_features_are_reported_and_plausible` (Rust) pin it from both sides: the
-feature list must be non-empty, must contain `sse2` on x86-64 (it is in the
-baseline, so its absence means a broken probe rather than a modest CPU), and
-must not claim AVX-512 without AVX2.
 ### Linux builds on ubuntu-24.04, and that sets the glibc floor
 
-The Linux **deps** builds and the runners that test against them
-(`ci-test.yml`, `nightly.yml`) all run on `ubuntu-24.04`. They must stay in
-step: the deps binaries need the glibc they were built against, so testing them
-on an older runner fails at load, and `ci-test.yml` carries a comment saying so.
-
-This was forced by R78. ubuntu-22.04 could not build it at all, and not for one
-reason but four, each only visible once the previous was cleared: no `_Float16`
-in C++ (needs GCC >= 13, jammy has 11 and no gcc-13 package), no
-`__builtin_roundevenf` under its clang, Cython 0.29 against a `.pyx` using
-Cython 3 syntax, and meson preferring the apt `cython3` over a pip-installed
-Cython 3. Noble ships all of it.
-
-**The cost is user-facing**: the bundle now needs **glibc 2.39**, so Ubuntu
-22.04 (2.35) and Debian 12 (2.36) can no longer run it. That is recorded in the
-README's platform table. The app and whisper builds deliberately stay on
-`ubuntu-22.04` — their binaries run on newer systems regardless, so a lower
-floor there costs nothing — but the effective requirement is the highest of the
-components, which is the deps.
+The Linux **deps** builds and the CI runners that test against them must stay on
+`ubuntu-24.04` in step — the deps binaries need R78's toolchain requirements
+(GCC ≥13, Cython 3), which ubuntu-22.04 cannot build at all. This means the
+shipped Linux bundle needs **glibc 2.39**, so Ubuntu 22.04 and Debian 12 can no
+longer run it (documented in the README's platform table). The app and whisper
+builds deliberately stay on `ubuntu-22.04` since their binaries run fine on
+newer systems regardless — the effective floor is set by whichever component
+needs the newest glibc, currently the deps bundle.
 
 ### Testing a deps change before publishing
 
-A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and
-`nightly.yml` download the bundle named by `app/assets/deps-version.json`, so a
-deps change could not be tested until it was published — and publishing an
-untested bundle is what you were trying to avoid.
+`ci-test.yml`/`nightly.yml` download the bundle named by
+`app/assets/deps-version.json`, so a `deps/` change can't be tested until it's
+published. Two ways around that:
 
-There are two ways out, and **the artifact one is now the default answer**
-because nothing about it is public.
-
-#### 1. `deps_run_id` — test an unpublished bundle (preferred)
-
-Both `ci-test.yml` and `nightly.yml` take an optional `deps_run_id`
-`workflow_dispatch` input. Set it, and `.github/scripts/fetch-deps-bundle.sh`
-pulls the zip from that `build-deps-*` **workflow run's artifact** instead of
-from a release. No tag, no release, nothing publicly visible, and nothing to
-clean up — artifacts expire on their own.
+**1. `deps_run_id` (preferred)** — both workflows take an optional
+`workflow_dispatch` input pointing at unpublished `build-deps-*` workflow-run
+artifacts instead of a release, so nothing is public and nothing needs cleanup:
 
 ```bash
-# 1. Build the bundles. release_tag may be empty (artifact only) or name a
-#    draft release to stage the assets in — the artifact is uploaded either way.
 gh workflow run build-deps-macos.yml   -f version=1.9.0 -f arch=both
 gh workflow run build-deps-windows.yml -f version=1.9.0
 gh workflow run build-deps-linux.yml   -f version=1.9.0 -f arch=both
 
-# 2. Point a CI run at all three runs at once. Must be workflow_dispatch — a
-#    push/PR trigger cannot carry an input, so it always takes the release path.
 gh workflow run ci-test.yml --ref <branch> \
   -f deps_run_id="<macos-run>,<windows-run>,<linux-run>"
 ```
 
-Three things to know:
+It's a comma-separated list because macOS/Windows/Linux are three separate
+`build-deps-*` workflow runs; each CI job tries every ID and takes the first
+holding its platform's artifact. The bundle version is deliberately not
+cross-checked against `deps-version.json` — it logs a `::warning::` instead, so
+a green run against an unreleased bundle can't be mistaken for one against the
+released bundle.
 
-- **It needs `actions: read`**, which the repo's *restricted* default workflow
-  token (`contents` + `packages` read, everything else none) does **not** grant.
-  Both workflows therefore declare an explicit read-only `permissions:` block.
-  Don't "simplify" it away — the failure is a 404 on the artifact fetch.
-- **`deps_run_id` is a list, and has to be.** One CI dispatch runs all four
-  platform jobs, but macOS, Windows and Linux are three separate `build-deps-*`
-  workflows and therefore three separate run IDs (macOS produces both arches in
-  one run). Each job tries every ID and takes the first holding an artifact for
-  *its* platform, so order doesn't matter and a partial list is fine — the jobs
-  whose platform is missing fail with `no <platform> deps artifact in any of:`
-  rather than silently testing the wrong thing.
-- **The version isn't cross-checked** against `deps-version.json`, deliberately —
-  the bundle under test is unreleased and may carry a throwaway version. The
-  script logs a `::warning::` naming the run, so a green tick can't be mistaken
-  for a run against the released bundle.
+**2. Release-candidate prereleases** — needed only when the thing under test is
+the download path itself (an installed app has no token and can't read
+artifacts): `gh release create deps-vX.Y.Z-rc1 --prerelease`, point
+`deps-version.json` at it on the PR branch only, iterate, then publish the real
+tag and repoint before merge. `Scripts/release.sh` refuses to cut an app release
+while `deps-version.json` names an `-rc` tag.
 
-> **Draft releases were the obvious idea and are the wrong one.** Not for the
-> reason this section used to give — CI *does* authenticate (`gh release
-> download` with `GH_TOKEN`), so the old claim that "neither CI nor the app can
-> fetch them" was only ever true of the app. The real blocker is narrower: draft
-> assets need **push** access, and the default token is read-only, so it would
-> take widening the token to `contents: write` on a workflow that runs against
-> pull requests. The artifact route gets the same privacy for a read-only scope.
+See docs/ENGINEERING_NOTES.md for why draft releases don't work for this and
+the full mechanics of both flows.
 
-#### 2. Release-candidate prereleases — when the download path itself is the thing under test
+### Installing a deps bundle
 
-A prerelease is publicly downloadable at the ordinary
-`releases/download/<tag>/<asset>` URL, and every consumer here is tag-driven —
-`getDownloadUrl()` builds the URL from `releaseTag`, and nothing in the repo uses
-`/releases/latest`. So a prerelease is indistinguishable from a stable release to
-CI, the nightly suite *and* a real app build. That last one is what `deps_run_id`
-can't do: an installed app has no token and cannot read artifacts, so **testing
-the actual first-run download flow still needs an rc**.
+`DependencyManager` **replaces** a bundle rather than merging into one — an
+upgrade is verified, extracted to `<deps>.new`, stamped with `version.json`, and
+only then swapped in via two renames (old tree to `<deps>.old`, deleted after);
+a **first install** extracts straight into `<deps>` with no rename, since
+there's nothing to protect. `version.json` is written **last**, as the commit
+marker. Direction is checked with `compareVersions`, not `!=`/string compare — a
+deliberately newer install must never be treated as outdated and overwritten.
 
-The workflow:
-
-1. `gh release create deps-vX.Y.Z-rc1 --prerelease` on the PR branch.
-2. Run the three `build-deps-*` workflows with `version: X.Y.Z-rc1` and
-   `release_tag: deps-vX.Y.Z-rc1`. They upload the zip and its `.sha256.json`
-   sidecar. (They also always upload a workflow artifact, so `release_tag` can
-   be left empty for a build-only run.)
-3. Point `deps-version.json` at the rc **on the PR branch only**.
-4. Iterate — rc bundles are disposable, because the rule about never reusing a
-   deps version only binds once a *released app* references one.
-5. Before merge, publish the final `deps-vX.Y.Z` and repoint.
-
-`Scripts/release.sh` refuses to cut an app release while `deps-version.json`
-names an `-rc` tag. That is the one way this bites: an rc escaping into a shipped
-build, where later deleting the prerelease breaks the download for everyone who
-installed it.
-
-### Installing a deps bundle: staged, swapped, and version-directional
-
-`DependencyManager` **replaces** a bundle rather than merging into one, which is
-what makes a layout change like R73 → R78 safe: no `libvapoursynth-script`,
-`vapoursynth.conf`, `libbestsource`, `python38.*` or stale `VSPipe.exe` survives
-into the new install. (That last one matters — `dependency_locator.rs` keeps a
-deliberate fallback to the old top-level `VSPipe.exe`, so a leftover R73 binary
-could otherwise be picked up silently.)
-
-Three properties worth preserving if you touch this:
-
-- **Staged, then swapped — but only when there is an install to protect.** An
-  *upgrade* is verified, extracted to `<deps>.new`, stamped with its
-  `version.json` and only then swapped in via two renames, with the old tree
-  moved to `<deps>.old` and deleted afterwards; if the second rename fails the
-  first is undone. It used to delete the live install and extract over the top,
-  which left the user with *nothing* if that window was interrupted. A **first
-  install** extracts straight into `<deps>` and performs no rename at all —
-  there is nothing to protect, and the rename is the fragile step (see below).
-- **`version.json` is written last**, inside whichever tree was written. It is
-  the commit marker: a tree that never completed can never look valid — which
-  is also what makes extracting a first install in place safe.
-- **Direction is checked, not just equality.** Installed *newer* than expected
-  is `newerThanExpected` — kept, with a one-time warning at startup — not
-  `outdated`. Treating it as outdated downgraded a deliberately newer bundle,
-  and since installing wipes and replaces, that was destructive. Use
-  `compareVersions`, not `!=` or a string compare: `"1.10.0"` sorts before
-  `"1.9.0"` lexically.
-
-> **A Windows directory rename is refused while anything holds a handle inside
-> it, and that is not a permissions problem (issue #87).** Measured: an open
-> read handle on one descendant file, or a child process whose working directory
-> is inside the tree, is enough — both surface as
-> `PathAccessException … Access is denied, errno = 5`. A *running* `.exe` inside
-> the tree is **not** enough, and a destination that already exists gives
-> **errno 183** instead, so the two can be told apart. Straight after writing a
-> ~200 MB bundle there is routinely something holding a handle for a few hundred
-> milliseconds — a scanner, the search indexer, Explorer building a thumbnail —
-> and the reporter's install failed on that every time, throwing away the whole
-> download at the very last step.
->
-> Both renames therefore go through `retryTransientFsOperation` (~7.5s over 12
-> attempts), as does the `.new`/`.old` cleanup at the start — a leftover `.new`
-> can still be held by whatever blocked the swap, and an unguarded delete there
-> failed the *next* attempt with a second, different error.
-> `PathExistsException`/`PathNotFoundException` are rethrown immediately: those
-> will not clear, and burning the budget on them delays a fault the user can act
-> on. `dependency_install_retry_test.dart` reproduces the real errno 5 on
-> Windows and skips elsewhere, because POSIX renames a directory happily with
-> its files open.
->
-> **`executabilityProblem()` runs after the swap on Windows, before it
-> everywhere else.** The quarantine case it guards (issue #50) is macOS-only, so
-> on Windows all it can report is a generic "would not run" — while executing a
-> freshly written, unsigned 100 MB binary is exactly what makes a scanner open
-> the tree we are about to rename. A Windows failure rolls the previous bundle
-> back out of `<deps>.old`, so it still cannot leave the user worse off.
-
-**The zip survives a failed install, and the dialog says what is happening.**
-Three things about the feedback, all of which #87 exposed:
-
-- **The download is cached, not thrown away.** It lands in
-  `<temp>/vapourbox-deps-cache/<filename>` and is deleted **only after the
-  install succeeds**, so Retry skips a ~200 MB re-download of bytes that were
-  never the problem. It is reused only when the sidecar supplied a sha256 to
-  check it against — without one, a truncated download is indistinguishable
-  from a complete one and would surface as a corrupt bundle. Anything in that
-  directory under another name is another version's leftovers and is pruned,
-  which is what bounds the cache.
-- **The install phase emits progress.** It used to emit nothing between the last
-  extraction tick and `Complete`, so the swap happened under a bar reading
-  "Extracting… 100%" — and the retry budget added to that would have been
-  indistinguishable from a hang. `_reportInstallStep` sends 0/0 events (an
-  indeterminate bar, deliberately: the swap has no fraction to report) and
-  `retryTransientFsOperation`'s `onRetry` names the wait.
-- **The remedy is chosen from the failure.** `DependencyManager.remedyFor` maps
-  the error to advice — held handles, a full disk, a permissions fault, or the
-  connection line as the fallback — and `DependencyInstallException` carries its
-  own for messages that already say what to do (macOS quarantine ships its
-  `xattr` command). The dialog used one fixed line of *connection* advice under
-  every failure, which is why the reporter went looking at folder ACLs. The
-  headings were wrong for the same reason and now say **Installation Failed**,
-  not "Download Failed" — most of what can fail here happens after the download.
-
-The critical-file list also includes a file that exists **only** in the R78
-layout (`libvapoursynthfilters`, plus `vapoursynth/__init__.py` on Unix).
-`vspipe`, `plugins/` and `ffmpeg` all exist in both layouts, so without an
-R78-only marker a stale tree carrying a newer `version.json` passes every check
-and fails later at job time.
+On Windows, both renames go through a retry loop (`retryTransientFsOperation`)
+because a directory rename fails with **errno 5** (not a permissions error) if
+anything — a scanner, the search indexer — briefly holds a handle inside it
+right after a ~200MB bundle is written; `PathExistsException`/`PathNotFoundException`
+are rethrown immediately since those won't clear. The downloaded zip is cached
+and only deleted after a successful install, so Retry doesn't re-download.
+`DependencyManager.remedyFor` maps the failure to specific advice rather than
+one fixed "check your connection" message.
 
 ### R78: `deps/<platform>/vapoursynth/` IS the Python package (macOS/Linux)
 
-R78 ships VapourSynth as a Python package, and this is not cosmetic. `vsscript`
-resolves the Python library through a config file at
-`$XDG_CONFIG_HOME/vapoursynth/vapoursynth.toml`, **keyed by the absolute path of
-`libvsscript`**. That file is written by `vapoursynth config`, which records the
-`libvsscript` belonging to the *imported package*. So the copy `vspipe-bin`
-loads and the copy the module reports must be the same file, or every script
-dies with:
+VapourSynth R78 ships as a Python package on macOS/Linux; `vsscript` resolves
+its library through a config file keyed by the **absolute path** of the
+imported package's `libvsscript`, so the copy `vspipe-bin` loads and the copy
+the Python module reports must be the same file. Consequences:
 
-> Python executable and library path couldn't be determined despite automatic
-> configuration. Run `vapoursynth config` ...
+- Ship the pure-Python files (`__init__.py`, `_cli.py`, …) alongside the
+  compiled libraries in `deps/<platform>/vapoursynth/` — without them,
+  `vapoursynth config`'s automatic configuration has nothing to call.
+- `XDG_CONFIG_HOME` must point somewhere writable (`deps/<platform>/config`);
+  the worker, app, and vspipe wrapper all set it.
+- **Do not set `VAPOURSYNTH_EXTRA_PLUGIN_PATH` on macOS/Linux** — R78 autoloads
+  `vapoursynth/plugins` itself, and setting it too double-loads every plugin.
+  **Windows still needs the variable** (its plugins live in `vs-plugins`, not
+  the autoload directory).
 
-Hence the layout: the libraries, `vapoursynth.abi3.so` and the pure-Python files
-(`__init__.py`, `_cli.py`, `_utils.py`, …) all live in
-`deps/<platform>/vapoursynth/`, and the **platform directory is on `PYTHONPATH`**
-so `import vapoursynth` resolves there. Four consequences:
+No source-indexing plugin is bundled — sources are read as raw frames piped
+from ffmpeg (`templates/pipe_source.py`); BestSource was removed in 2026-08-07
+once nothing called it. If a source filter is ever needed again, add it back
+deliberately with a call site — don't reintroduce it into the preview path.
 
-- **Ship the `.py` files too.** Without them `vapoursynth config` cannot run and
-  vsscript's automatic configuration has nothing to call.
-- **A `vapoursynth` shim goes in `python/bin/`.** vsscript self-configures by
-  literally running `system("vapoursynth config")`; a from-source build creates
-  no console script, so we provide one.
-- **`XDG_CONFIG_HOME` must point somewhere writable** (`deps/<platform>/config`).
-  The worker, the app and the vspipe wrapper all set it.
-- **Do not set `VAPOURSYNTH_EXTRA_PLUGIN_PATH` on macOS/Linux.** The plugins are
-  at `vapoursynth/plugins`, which is `<libdir>/plugins` — R78 autoloads it. With
-  both, every plugin loads twice and warns `Plugin ... already loaded`. Windows
-  still needs the variable: its plugins are in `vs-plugins`, which is not the
-  autoload directory.
+### fmtconv's aarch64 integer scaler bug (already patched)
 
-`_has_implicit_config()` returns true **only on Windows** (where `python.exe`
-sits next to the package), which is why the Windows bundle needs none of this and
-why a Windows-only test pass does not prove the Unix path works.
+`fmtc.resample`'s C++ (non-SIMD) integer kernel returned black output on
+`macos-arm64`/`linux-arm64` whenever the source bit depth was below 16 — x86
+never hit it because the SSE2/AVX2 scalers replace that code path there. This
+broke havsfunc's `Bob()` (used by QTGMC's noise-restore and `EdiMode='bob'`),
+producing brightened or near-black frames on those two Placebo/Very Slow/Draft
+QTGMC presets on Apple Silicon and Linux ARM. Fixed by
+`Scripts/patches/fmtconv-r31-arm-int-scaler.patch`, applied by
+`download-deps-{macos,linux}.sh` right after cloning fmtconv — it **hard-fails
+the build** if it stops applying. Not submitted upstream (needs a GitLab
+account); see docs/ENGINEERING_NOTES.md for the root-cause analysis if
+resubmitting or re-checking against a newer fmtconv release.
 
-### No source-indexing plugin is bundled
-
-Sources are read as **raw frames piped from ffmpeg** (`templates/pipe_source.py`),
-so nothing in the product opens a file through a VapourSynth source filter.
-
-FFMS2 went first, replaced by **BestSource**; then the pipe source replaced that,
-and BestSource stayed in the macOS bundle for years afterwards calling itself
-"bundled for parity" — parity with nothing, since Windows and Linux never shipped
-it. Removed 2026-08-07: no `core.bs.` call site existed anywhere in the
-templates, worker, app or tests.
-
-It was worth removing rather than leaving alone. At **16.9 MB** it was four times
-the next largest plugin and about a sixth of the macOS deps zip, and it was the
-**only** consumer of `liblzma` — so it also carried the `xz` from-source build on
-x64, two `install_name_tool` repoint blocks (its arm64 build links the *system*
-liblzma, its x64 build Homebrew's), and their codesign steps, all of which went
-with it.
-
-If a source filter is ever needed again, add it back deliberately with a call
-site — don't reintroduce it into the preview path, which is pipe-source-based for
-frame-accuracy reasons.
-
-### fmtconv's aarch64 integer scaler bug (fixed by our own patch)
-
-**Symptom.** `fmtc.resample` returned **black** whenever fmtconv's integer kernel
-ran with a source bitdepth below 16. Only **macos-arm64** and **linux-arm64** were
-affected: on x86 the SSE2/AVX2 scalers replace the offending function in the
-`Scaler` constructor, so there it is dead code. Measured by scaling a flat plane
-by two:
-
-| source | axis | kernel | result |
-|---|---|---|---|
-| 8-bit | horizontal | `SB=16 DB=16` | correct |
-| 8-bit | vertical | `SB=8 DB=16` | **black** |
-| 10-bit | either | `SB=10 DB=16` | **black** |
-| 12-bit | either | `SB=12 DB=16` | **black** |
-| 16-bit | either | `SB=16 DB=16` | correct |
-
-It is **not** vertical-only: 10- and 12-bit sources broke on both axes. 8-bit
-horizontal is the single case that escaped, because that route converts to 16-bit
-*before* the scaler and so lands on `SB = DB = 16`. Same-size resampling and float
-sources were never affected. (Deinterlacing hit it via the vertical axis, which is
-why it first looked like a vertical-only bug.)
-
-**Root cause** (`src/fmtcl/Scaler.cpp`, `process_plane_int_cpp`). That kernel
-applied the same sign-conversion constants as its SSE2/AVX2 siblings:
-
-```c
-s_in  = (SB < 16) ? -(0x8000 << (SHIFT_INT + SB - DB)) : 0;
-```
-
-The vector kernels need those because they accumulate in **signed** 16-bit lanes
-and their proxy (`ProxyRwSse2<SplFmt_INT16>::S16<CLIP_FLAG, SIGN_FLAG>`) XORs bit
-15 back on read/write. The C++ kernel has no such counterpart — it accumulates in
-a plain `int` and `ProxyRwCpp` is **unsigned** at both ends (`read()` returns the
-raw value, `write_clip<DB>()` clamps to `[0, 2^DB-1]`). So the bias was applied
-with nothing to undo it and every output clamped to 0. For 8→16-bit,
-flat input 120: `120*4096 - 524288 + 8 = -32760`, `>>4 = -2048`, clamped to `0`.
-`SPAN_I` covers SB = 16, 14, 12, 10, 9, 8 with DB always 16, so only SB = DB = 16
-was correct — there the constants are already 0.
-
-**Fix.** `Scripts/patches/fmtconv-r31-arm-int-scaler.patch` drops the sign
-constants from the C++ kernel. Applied by `download-deps-{macos,linux}.sh` right
-after the clone, and it **hard-fails the build** if it stops applying rather than
-silently shipping the bug back. Windows needs nothing (prebuilt x86 DLL).
-
-Not submitted upstream — that needs a GitLab account. If anyone wants to send it
-later, the patch is the whole change and its header carries the full analysis.
-
-**How it surfaced.** havsfunc's `Bob()` bobs fields via
-`fmtc.resample(scalev=2, ...)`, so on Apple Silicon it destroyed the image:
-
-- **Placebo / Very Slow** came out **~+10/255 brighter**. They are the only
-  presets that default `NoiseProcess=2`, and that noise pass calls `Bob()` to
-  expand fields before extracting noise. The near-black "denoised" clip made
-  `MakeDiff` clip hard, so `GrainRestore`/`NoiseRestore` merged a large positive
-  bias back in.
-- **Draft** came out nearly black (`EdiMode='bob'` interpolates via `Bob()`).
-- **Slower and below** were fine: their only fmtconv use is the same-size `Sbb`
-  gauss blur, which doesn't scale vertically.
-
-havsfunc patch 5 (`Bob()` at 16-bit) is kept as **defence in depth** — it is
-redundant now that fmtconv is fixed, and both routes were measured to produce the
-same output, but it also covers the prebuilt Windows DLL and any future build
-where the fmtconv patch is dropped. Removing it would be safe; removing the
-fmtconv patch would not, since `Bob()` is far from the only sub-16-bit
-resample in havsfunc.
-
-**Upstream status.** Not fixed as of r31. Its changelog has a promising "program
-path without x86 SIMD: fixed wrong conversions (noticed on ARM/Apple)" entry, but
-r31 reproduces the failure exactly — as do yuygfgg's prebuilt arm64 binary and a
-local `-O0` build. Worth re-checking on the next release so the patch can be
-dropped; the tests assert pixel behaviour, not patch text, so they stay valid
-either way.
-
-### fmtconv version is pinned, and upstream moved to GitLab
-
-fmtconv development moved to **`gitlab.com/EleonoreMizo/fmtconv`** in Aug 2023.
-The GitHub repo is an abandoned mirror whose last commit is literally
-*"Repository moved to Gitlab"*, so cloning its `master` silently pinned us to a
-stale post-r30 snapshot. All platforms now use **r31**, pinned:
-
-- macOS / Linux: `FMTCONV_TAG` in `download-deps-{macos,linux}.sh` (GitLab tag)
-- Windows: the r31 zip in `download-deps-windows.ps1` (from the author's site —
-  GitHub release assets stopped at r30, and that URL is what the official GitLab
-  r31 release links to)
-
-**Keep these in step.** r31 changed interlaced PAL-DV chroma placement (U/V
-vertical positions were swapped, vertical subsampling > 2 unhandled), so a
-version skew between platforms would change chroma per-OS.
+fmtconv is pinned to **r31**, sourced from GitLab (the GitHub mirror is
+abandoned and stale) on every platform — keep macOS/Linux's `FMTCONV_TAG` and
+the Windows zip URL in step, since r31 changed interlaced PAL-DV chroma
+placement and a version skew would change chroma per-OS.
 
 ## Debugging Tips
 
@@ -2944,107 +1207,80 @@ version skew between platforms would change chroma per-OS.
    that `load_template_by_name` **normalizes CRLF to LF** on read: a Windows
    checkout gives the `.vpy` files CRLF, so any substitution whose pattern spans
    a line break silently stops matching there, leaving a plausible-looking
-   script rather than an error. That shipped once — the SmoothLevels path elides
-   the plain `std.Levels` call with a two-line `replace()`, and on Windows alone
-   both calls survived. `templates_load_with_lf_endings_only` guards it on every
-   platform; prefer single-line patterns regardless.
+   script rather than an error. `templates_load_with_lf_endings_only` guards it
+   on every platform; prefer single-line substitution patterns regardless.
 6. **Filter not appearing**: Check JSON syntax, verify `id` is unique
 7. **macOS build fails with "Unable to find module dependency"**: Build Pods-Runner scheme first, then Runner for arm64 only (see Build Commands)
 8. **App crashes silently on video drop (release build)**: Bundle is incomplete. Use packaging scripts. Run from terminal to see errors.
 9. **macOS debug build and the shipped app must stay unsandboxed** (issue #50):
-   `packaging/macos/distribution.entitlements` — what `package-macos.sh` actually
-   signs with, and therefore what ships — has **no** `app-sandbox`, verified
-   against the released DMG. `DebugProfile.entitlements` and
-   `Release.entitlements` deliberately omit it too. Re-adding it redirects `HOME`
-   into `~/Library/Containers/com.stuartcameron.vapourbox/Data/...`, so deps
-   install to a different directory than the shipped app uses, **and** a
-   sandboxed process cannot remove `com.apple.quarantine` from what it
-   downloads — macOS then SIGKILLs ffmpeg/vspipe, surfacing as "ffmpeg exited
-   with signal 9" or a Gatekeeper "not opened" dialog. `DependencyManager`
-   now catches this class of problem by *running* ffmpeg after install and on
-   every startup (`executabilityProblem()` → `DependencyStatus.blocked`), which
-   reports the `xattr -cr` fix instead of failing at job time.
-10. **Job appears to hang**: the worker now fails instead. `StallWatchdog` in
-   `pipeline_executor.rs` gives up after **600s with no frame progress** and
-   reports how far it got ("Stalled: no progress for Ns while encoding (last
-   frame N)"), killing the children so the post-loop `wait()`s can't block on the
-   same wedged process. Raise or disable it with
-   `VAPOURBOX_STALL_TIMEOUT_SECS=<secs>` (`0` waits forever) when debugging an
-   actual stall — otherwise the watchdog will end the job before you can inspect
-   it. The app-side counterpart is in `worker_manager.dart`: exactly one
-   completion event per job, so a worker that exits without reporting a result
-   surfaces as a failure instead of leaving the UI on "processing" forever.
-11. **"Header too large" / vspipe exits with no message**: not a template or
-   muxer bug — that is a **native crash inside a plugin**. vspipe dies before
-   writing the Y4M header, so the encoder ffmpeg reports `Header too large` /
-   `Error opening input` and a preview reports a bare `exit code 1` with the log
-   ending after the routine API3 warnings. A Python-level fault would print a
-   traceback instead, so *absence* of an error is the diagnostic. Bisect by
-   generating the script (`--config`, keep the `.vpy`) and running it under
-   vspipe with passes commented out; on Windows confirm with `$LASTEXITCODE`
-   (`0xC0000005` = access violation, `0xC000001D` = illegal instruction, which
-   means the binary needs a CPU feature this machine lacks). Both codes are now
-   decoded into the reported error by `format_exit_status`, so a fresh report
-   should say which it was rather than just a negative number. See "A plugin's
-   own CPU auto-detect is not trustworthy" for the CTMF case (`0xC0000005`) and
-   "zsmooth ships once per CPU baseline" for the AVX2 one (`0xC000001D`).
+   `packaging/macos/distribution.entitlements` has **no** `app-sandbox`, and
+   must not gain one — sandboxing redirects `HOME`, splitting deps installs from
+   what the shipped app uses, and a sandboxed process can't remove
+   `com.apple.quarantine` from downloads, so macOS SIGKILLs ffmpeg/vspipe.
+   `DependencyManager.executabilityProblem()` catches this class by *running*
+   ffmpeg after install and on every startup, reporting the `xattr -cr` fix.
+10. **Job appears to hang**: `StallWatchdog` in `pipeline_executor.rs` fails the
+    job after **600s with no frame progress** rather than hanging forever.
+    Raise/disable with `VAPOURBOX_STALL_TIMEOUT_SECS=<secs>` (`0` = wait
+    forever) when deliberately debugging a stall.
+11. **"Header too large" / vspipe exits with no message**: this is a **native
+    crash inside a plugin**, not a template or muxer bug — vspipe dies before
+    writing the Y4M header, so absence of a Python traceback is the diagnostic.
+    Bisect by generating the script (`--config`, keep the `.vpy`) and running it
+    under vspipe with passes commented out; on Windows, `$LASTEXITCODE`
+    `0xC0000005` = access violation, `0xC000001D` = illegal instruction (CPU
+    feature the machine lacks) — both are decoded by `format_exit_status`.
 
 ## Platform-Specific Notes
 
 ### Windows
 
-- **VapourSynth R78 ships Windows purely as a Python wheel.**
-  `VapourSynth64-Portable-R78.zip` holds only `wheel\`, `vspipe.bat`, `pip.bat`
-  and docs — no `VSPipe.exe`, no DLLs, no Python. `download-deps-windows.ps1`
-  therefore follows upstream's own installer: unpack the **Python 3.12.10
-  embeddable**, add `Lib\site-packages` to its `._pth`, then expand the wheel
-  (a wheel is a zip, but `Expand-Archive` rejects the `.whl` extension, so it is
-  copied to a `.zip` name first).
-- Layout moved with it — anything hardcoding the old paths breaks silently:
-
-  | | R73 | R78 |
-  |---|---|---|
-  | Python | 3.8.10 embeddable | **3.12.10** embeddable (wheel is cp312-abi3) |
-  | vspipe | `vapoursynth\VSPipe.exe` | `vapoursynth\Lib\site-packages\vapoursynth\vspipe.exe` |
-  | plugin path var | `VAPOURSYNTH_PLUGIN_PATH` | **`VAPOURSYNTH_EXTRA_PLUGIN_PATH`** |
-  | core filters | inside `libvapoursynth` | separate `libvapoursynthfilters.dll` |
-  | vsscript | `VSScriptPython38.dll` | `vsscript.dll` (Python-version independent) |
-
-- `libvapoursynthfilters.dll` matters more than it looks: R78 moved **every core
-  filter** (`std`, `resize`, …) out of `libvapoursynth` into it, so a bundle
-  without it fails every job at script evaluation with missing namespaces.
-  `package-deps-windows.ps1` guards on it.
+- **VapourSynth R78 ships Windows purely as a Python wheel** (no `VSPipe.exe`,
+  no DLLs, no Python in the zip). `download-deps-windows.ps1` unpacks the Python
+  3.12.10 embeddable, adds `Lib\site-packages` to its `._pth`, then expands the
+  wheel (copied to a `.zip` name first, since `Expand-Archive` rejects `.whl`).
+- Layout moved from R73: vspipe is now at
+  `vapoursynth\Lib\site-packages\vapoursynth\vspipe.exe`; the plugin path var is
+  **`VAPOURSYNTH_EXTRA_PLUGIN_PATH`** (the old `VAPOURSYNTH_PLUGIN_PATH` is
+  inert from R74 on); core filters (`std`, `resize`, …) live in a separate
+  **`libvapoursynthfilters.dll`**, without which every job fails at script
+  evaluation with missing namespaces (`package-deps-windows.ps1` guards on it).
 - Worker sets env vars via `DependencyLocator`: `PYTHONHOME`, `PYTHONPATH`,
-  `VAPOURSYNTH_EXTRA_PLUGIN_PATH`, `PATH`. The old `VAPOURSYNTH_PLUGIN_PATH`
-  name is inert from R74 on — plugins are simply never autoloaded and every
-  filter dies with "No attribute with the name `<ns>` exists". `ToolLocator`
-  (Dart), `DependencyLocator` (Rust) and the test harnesses must all use the new
-  name; the harnesses were missed in the migration and only the Dart
-  integration suite caught it.
+  `VAPOURSYNTH_EXTRA_PLUGIN_PATH`, `PATH`.
 - Plugins in `deps/windows-x64/vapoursynth/vs-plugins/`, Python packages in `Lib/site-packages/`
 - Plain `nnedi3` is **not** in the Windows bundle; it ships `znedi3` +
-  `nnedi3cl`. The authoritative required-namespace list is in
-  `app/test/vapoursynth_integration_test.dart` — check there before "fixing" an
-  apparently missing plugin. **BestSource is no longer bundled anywhere** (see
-  "No source-indexing plugin" below).
-- The script writes `deps/windows-x64/version.json` (as macOS and Linux do).
-  Without it the app reports "Version file missing" on startup and downloads the
-  **published** bundle over the local one — which silently restored R73 over a
-  locally built R78 tree.
+  `nnedi3cl`. The authoritative required-namespace list is
+  `app/test/vapoursynth_integration_test.dart`.
+- The script writes `deps/windows-x64/version.json` (as macOS and Linux do) —
+  without it the app reports "Version file missing" and re-downloads the
+  published bundle over a locally built one.
 - Show in Folder: `cmd /c explorer /select, <path>`
 
 ### macOS
 
-- Two arches: `deps/macos-arm64` and `deps/macos-x64`, each built natively (arm64 on Apple Silicon, x64 on an Intel Mac / `macos-15-intel`; Rosetta 2 is an optional fallback for building x64 on Apple Silicon — see Download Dependencies). The Flutter `DependencyLocator` and Rust runtime pick the arch at runtime via `uname`.
-- Fully self-contained deps (no Homebrew at runtime): Python 3.12 (python-build-standalone), VS built from source
+- Two arches: `deps/macos-arm64` and `deps/macos-x64`, each built natively
+  (arm64 on Apple Silicon, x64 on `macos-15-intel`). `DependencyLocator` picks
+  the arch at runtime via `uname`.
+- Fully self-contained deps (no Homebrew at runtime): Python 3.12
+  (python-build-standalone), VapourSynth built from source.
 - Worker sets: `PYTHONHOME`, `PYTHONPATH`, `VAPOURSYNTH_CONF_PATH`, `DYLD_LIBRARY_PATH`
-- `vspipe` is a wrapper script that generates config dynamically (needed because `VAPOURSYNTH_PLUGIN_PATH` is additive, not a replacement)
-- **FFmpeg** is sourced pre-built as a static binary that links only system frameworks: **x64** from evermeet.cx, **arm64** from martin-riedl.de (Homebrew's arm64 ffmpeg is dynamically linked to ~17 Homebrew dylibs and is NOT self-contained, so it can't be bundled). **x64 plugins** build from source under Rosetta, except `tmedian` which comes pre-built from Stefan-Olt/vs-plugin-build. **`zsmooth` is the one plugin built from source on x64 but taken pre-built on arm64**: the author's x86_64 binary is `minos 13.0` and this bundle targets 12.0, so the minos guard rejects it (it would fail to load on Monterey — exactly issue #39). It is written in Zig, so the x64 branch fetches a pinned Zig toolchain and builds with `-Dtarget=x86_64-macos.12.0`; `ZIG_VERSION` must satisfy zsmooth's `minimum_zig_version`, and the build needs network access for zsmooth's own Zig dependencies. arm64 keeps the pre-built binary, which is under its 15.0 target. Since 2026-08-28 the x64 branch builds it **twice**, `-Dcpu=haswell` and `-Dcpu=x86_64_v2`, into `vapoursynth/zsmooth/` rather than the plugin directory — see "zsmooth ships once per CPU baseline".
-- **x64 minimum macOS = 12.0 (Monterey), issue #39**: the only hosted Intel runner is `macos-15-intel` (`macos-13` was retired), so Homebrew bottles come out `minos 14/15` and won't load on 12. The x64 build therefore exports `MACOSX_DEPLOYMENT_TARGET=12.0` and **builds the bundled support libs from source** (zimg, fftw, libdvdread, xz, boost) so they target 12; the OpenCL plugins (`nnedi3cl`/`knlmeanscl`) are compiled against that source boost (`BOOST_ROOT="$SRCLIB"`) for ABI match. vspipe's `doubleToString` is patched off `std::to_chars` (needs 13.3+ libc++). A `minos` verification pass at the end fails the build under `STRICT_MIN_OS=1` (set in `build-deps-macos.yml`) if any bundled Mach-O exceeds 12.0. **arm64 is unchanged (still `minos 15`)** — it has no old runner and the prebuilt arm64 plugins are >12. The app/worker deployment target is **per-arch**: the x64 build targets **12.0** and the arm64 build targets **15.0** (matching its minos-15 deps). `build-macos.yml` resolves the target per matrix arch and threads it to rustc (`MACOSX_DEPLOYMENT_TARGET`) and xcodebuild (which overrides the `Runner.xcodeproj` 12.0 baseline); the `Podfile` reads `VAPOURBOX_DEPLOYMENT_TARGET` (default 12.0). `package-macos.sh` sets the same per-arch target for local builds.
-- **Code signing**: After `install_name_tool` modifications, binaries must be re-signed: `codesign -s - -f <binary>` (exit code 137 = SIGKILL means invalid signature)
+- `vspipe` is a wrapper script that generates config dynamically.
+- **FFmpeg** is a pre-built static binary linking only system frameworks: x64
+  from evermeet.cx, arm64 from martin-riedl.de (Homebrew's arm64 build is
+  dynamically linked to Homebrew dylibs and can't be bundled).
+- **x64 minimum macOS = 12.0 (Monterey), issue #39**: the only hosted Intel
+  runner is `macos-15-intel`, so the x64 build exports
+  `MACOSX_DEPLOYMENT_TARGET=12.0` and builds bundled support libs from source
+  to target it. **arm64 targets 15.0** (matching its prebuilt plugins). The
+  app/worker deployment target is set per-arch in `build-macos.yml`/`package-macos.sh`.
+- **Code signing**: after `install_name_tool` modifications, binaries must be
+  re-signed: `codesign -s - -f <binary>` (exit code 137 = SIGKILL means invalid
+  signature).
 - Quarantine removal: `xattr -cr` on deps after download
 - Show in Folder: `open -R <path>`
-- **Apple Silicon app build for x64**: the `app/macos/Podfile` reads `VAPOURBOX_ARCHS` (default `arm64`); set it to `x86_64` and pass `ARCHS=x86_64` to xcodebuild to cross-compile the Intel Runner.
+- **Apple Silicon app build for x64**: `app/macos/Podfile` reads
+  `VAPOURBOX_ARCHS` (default `arm64`); set to `x86_64` + `ARCHS=x86_64` on
+  xcodebuild to cross-compile the Intel Runner.
 
 ### Linux
 
@@ -3064,21 +1300,18 @@ Plugin lists for all platforms: see `deps/` directories or download scripts.
 
 Dependencies are versioned separately from the app via `app/assets/deps-version.json` and distributed as separate GitHub releases (tag: `deps-vX.Y.Z`). The app auto-downloads deps on launch if missing or outdated.
 
-`deps-version.json` is a **slim pointer** — `{version, releaseTag, githubRepo}` (plus optional per-platform `version`/`releaseTag` overrides). The zip filename is derived (`VapourBox-deps-<version>-<platform>.zip`), and integrity metadata is **not** stored here. Instead each `package-deps-*` script writes a **sidecar** `<zip>.sha256.json` (`{filename, sha256, size, version}`) that is uploaded next to the zip; at download time the app fetches `<zipURL>.sha256.json`, verifies the zip's sha256 (corruption check; download is HTTPS), and installs. If the sidecar can't be fetched it installs without the hash check (best-effort). **Net effect: a new deps release only needs a `version`/`releaseTag` bump — no re-filling sha256/size.**
+`deps-version.json` is a **slim pointer** — `{version, releaseTag, githubRepo}`. Integrity metadata is **not** stored here: each `package-deps-*` script writes a **sidecar** `<zip>.sha256.json` uploaded next to the zip, which the app fetches and verifies at download time (best-effort if the sidecar is missing). **Net effect: a new deps release only needs a `version`/`releaseTag` bump.**
 
-**Key files**: `app/assets/deps-version.json` (slim pointer), `app/lib/services/dependency_manager.dart` (check/download/verify/extract — `getManifestUrl`/`_fetchExpectedSha256`), `app/lib/views/dependency_download_dialog.dart` (progress UI).
+**Key files**: `app/assets/deps-version.json`, `app/lib/services/dependency_manager.dart`, `app/lib/views/dependency_download_dialog.dart`.
 
-App and deps use **separate release tags** so unchanged deps aren't re-uploaded on every app release. Download URLs are constructed from `releaseTag` in `deps-version.json`.
+App and deps use **separate release tags** so unchanged deps aren't re-uploaded on every app release.
 
 > **Rebuilding a version in place doesn't refresh anyone's install.** The
-> up-to-date check is a **string comparison against the installed version**, so
-> re-uploading different contents under an existing tag (as 1.7.0 was on
-> 2026-08-02, to add zsmooth) leaves every machine that already downloaded that
-> version on the old bundle, with no prompt and no error until a filter's plugin
-> turns up missing. Only reuse a version while **no released app references it**,
-> and delete `deps/<platform>` (or `~/.local/share/VapourBox/deps` on Linux)
-> locally to pick the rebuild up. Once an app release points at a version, adding
-> anything to the bundle needs a **new** version.
+> up-to-date check is a string comparison against the installed version, so
+> re-uploading different contents under an existing tag leaves every machine
+> that already downloaded it on the old bundle, silently. Only reuse a version
+> while **no released app references it**; once one does, adding anything needs
+> a **new** version.
 
 ---
 
@@ -3137,23 +1370,14 @@ gh release edit v0.9.10 --draft=false
 Notes:
 - **Order matters**: the draft release (step 3) must exist *before* running
   `ci-build-and-release.sh` (step 4) — the script aborts if it can't find it.
-- `ci-build-and-release.sh` triggers the workflows named **"Build Windows"**,
-  **"Build macOS"** (`-f arch=`), **"Build Linux"** (`-f arch=both`), each with
-  `-f version=` and `-f deps_tag=`, then `gh run watch`es each, downloads every
-  run's artifacts, and `gh release upload --clobber`s them to `vX.Y.Z`.
 - Re-run just the upload against existing green runs with `--skip-trigger`
-  (it takes the latest run per workflow, does **not** re-watch, and downloads +
-  uploads immediately — so only run it once all three builds have completed).
-- **`gh run watch` false-failure gotcha**: the watch step can exit non-zero on a
-  transient `HTTP 401: Bad credentials` while fetching annotations, and `set -e`
-  then aborts the script with "macOS build failed" even though the build is
-  still running fine. Confirm the real state with
-  `gh run view <id> --json status,conclusion` before assuming a build failed; if
-  the builds are actually green, just re-run with `--skip-trigger` to finish the
-  upload.
-- macOS DMGs are signed + notarized inside `build-macos.yml` (notarization adds
-  several minutes after the build); Windows/Linux are unsigned. See "macOS Code
-  Signing & Notarization" for the required secrets.
+  once all three builds have completed.
+- **`gh run watch` false-failure gotcha**: it can exit non-zero on a transient
+  `HTTP 401: Bad credentials`, aborting the script even though the build is
+  fine. Confirm with `gh run view <id> --json status,conclusion` before
+  assuming a build failed; if actually green, re-run with `--skip-trigger`.
+- macOS DMGs are signed + notarized inside `build-macos.yml`; Windows/Linux are
+  unsigned. See "macOS Code Signing & Notarization" for required secrets.
 
 ### Release Scripts
 
@@ -3176,80 +1400,55 @@ Notes:
 ### Release Checklist
 
 1. **Confirm version** — ask user, update `pubspec.yaml`
-2. **Check deps** — run `check-deps-changed.sh`; if changed, bump `version`/`releaseTag` in `deps-version.json` (that's the only deps edit needed — no sha256/size to fill).
-3. **Build & package** — use packaging scripts (or `release.sh` for full automation). Each `package-deps-*` writes the zip **and** its `<zip>.sha256.json` sidecar.
-4. **Upload deps assets** — upload each platform's zip **and its `.sha256.json` sidecar** to the deps release. The app fetches the sidecar at download time to verify integrity, so there is **nothing to paste back into `deps-version.json`** (it's a slim `version`/`releaseTag` pointer). The build-deps workflows upload both automatically.
+2. **Check deps** — run `check-deps-changed.sh`; if changed, bump `version`/`releaseTag` in `deps-version.json`.
+3. **Build & package** — use packaging scripts (or `release.sh`). Each `package-deps-*` writes the zip **and** its `<zip>.sha256.json` sidecar.
+4. **Upload deps assets** — upload each platform's zip **and its `.sha256.json` sidecar** to the deps release.
 5. **Test** — fresh install + upgrade test
 6. **Create GitHub releases** — deps release first (if changed, tag `deps-vX.Y.Z`), then app release (tag `vX.Y.Z`)
 
 > ### NEVER mark a deps release as "Latest"
 >
-> **Always pass `--latest=false` when creating or editing a `deps-v*` release.**
+> **Always pass `--latest=false` when creating or editing a `deps-v*` release** —
+> `gh release create` defaults to Latest, and deps are cut *after* the paired
+> app release, so the default silently demotes the app release from Latest.
+> The scripts already do this correctly; the trap is a hand-rolled
+> `gh release create` (an rc being promoted, a rebuild, a one-off).
 >
-> ```bash
-> gh release create deps-vX.Y.Z --latest=false --title "..." --notes "..."
-> ```
->
-> `gh release create` marks the new release as Latest **by default**, and deps
-> releases are cut *after* the app release they pair with — so the default
-> silently demotes the app. "Latest" is what a visitor to the repo lands on and
-> what `/releases/latest` resolves to, so a deps bundle sitting there points
-> people at a 200MB zip of internal binaries instead of the app they came for.
->
-> **The scripts already do this correctly** — `Scripts/release.sh` and
-> `build-whisper.yml` both pass `--latest=false`. The trap is the *hand-rolled*
-> `gh release create`, which is how a deps tag gets cut when publishing one
-> outside the normal flow (an rc being promoted, a rebuild, a one-off). That path
-> has been got wrong repeatedly.
->
-> If it happens, fix **both** halves — clearing the flag does not hand Latest
-> back to the app release, it just leaves nothing marked:
->
+> If it happens, fix **both** halves:
 > ```bash
 > gh release edit deps-vX.Y.Z --latest=false
 > gh release edit vX.Y.Z      --latest        # put it back on the app release
 > ```
->
-> Prereleases (`--prerelease`, the rc flow above) are never marked Latest, so
-> only stable deps tags are affected. Same rule applies to the whisper add-on
-> releases (`whisper-vX.Y.Z`) for the same reason.
+> Same rule applies to whisper add-on releases (`whisper-vX.Y.Z`).
 
 ### macOS Code Signing & Notarization
 
-The macOS app is signed with a **Developer ID Application** certificate and notarized by Apple so it launches without Gatekeeper warnings. Signing happens **in CI** (`build-macos.yml`) — the runner imports the cert into a temporary keychain, then `package-macos.sh --notarize` signs every Mach-O inner-out (dylibs → frameworks → `.so` → worker → app), signs the DMG, submits to the notary service, and staples the ticket. `ci-build-and-release.sh` just downloads the finished signed/notarized DMG and uploads it — no local signing step.
+The macOS app is signed with a **Developer ID Application** certificate and
+notarized by Apple. Signing happens **in CI** (`build-macos.yml`) —
+`package-macos.sh --notarize` signs every Mach-O inner-out, signs the DMG,
+submits to the notary service, and staples the ticket.
 
-`package-macos.sh` also works locally: with a Developer ID cert in your keychain it signs, and `--notarize` uses a stored `notarytool` keychain profile (default name `VapourBox`). In CI there is no keychain profile, so it falls back to `NOTARY_APPLE_ID` / `NOTARY_PASSWORD` / `NOTARY_TEAM_ID` env vars. Use `--no-sign` for ad-hoc local test builds.
+`package-macos.sh` also works locally with a Developer ID cert in your
+keychain; `--notarize` uses a stored `notarytool` keychain profile (default
+`VapourBox`), falling back to `NOTARY_APPLE_ID`/`NOTARY_PASSWORD`/`NOTARY_TEAM_ID`
+env vars in CI. Use `--no-sign` for ad-hoc local test builds.
 
 > **Every helper executable needs the entitlements too, not just the app.**
-> Entitlements are per-Mach-O and the app bundle's set does **not** reach a
-> child process, so `vapourbox-worker` must be signed with
-> `--entitlements packaging/macos/distribution.entitlements` in its own right.
-> Signed hardened without them it gets **library validation**, and the worker
-> `dlopen`s the downloaded, **ad-hoc-signed** `libdvdread.dylib` from
-> `deps/<arch>/lib/` (`worker/src/dvd_reader.rs`) — which then fails with
-> *"mapping process and mapped file (non-platform) have different Team IDs"* and
-> DVD import is dead in the shipped app. It shipped that way through 0.9.12.
->
-> Nothing else catches this: the debug build is **ad-hoc signed**, so it has no
-> Team ID to mismatch and DVD extraction works fine locally; `codesign --verify
-> --deep --strict` passes, and notarization passes. `package-macos.sh` now
-> asserts after signing that both `vapourbox` and `vapourbox-worker` carry
-> `disable-library-validation`, and fails the package if either doesn't. Add any
-> future bundled helper to that loop.
+> Entitlements are per-Mach-O, so `vapourbox-worker` must be signed with
+> `--entitlements packaging/macos/distribution.entitlements` in its own right —
+> without them it gets library validation and can't `dlopen` the ad-hoc-signed
+> `libdvdread.dylib` it needs for DVD import, failing with a Team ID mismatch.
+> Debug builds are ad-hoc signed (no Team ID to mismatch) so this only shows up
+> in a released build; `package-macos.sh` asserts `disable-library-validation`
+> on both `vapourbox` and `vapourbox-worker` after signing.
 
 > **A notarization `403` is not necessarily your account.** The notary service
-> returns *"HTTP status code: 403. Invalid or inaccessible developer team ID for
-> the provided Apple ID"* during Apple-side outages, which reads like a
-> permissions or credential fault and sends you auditing the developer account.
-> It cost a long detour on 2026-08-08; the build was fine and succeeded on a
-> straight re-run once Apple recovered.
->
-> Check for an outage **first** (<https://developer.apple.com/system-status/>),
-> then rule out the cheap account causes in this order: membership renewal date,
-> pending Program License Agreement, and the app-specific password (changing your
-> Apple ID password silently revokes every one of them). The strongest signal
-> that it is *not* us: `git log` shows no change to `build-macos.yml` or
-> `package-macos.sh` since the last successful notarization.
+> can return a permissions-shaped 403 during Apple-side outages. Check
+> <https://developer.apple.com/system-status/> first, then account causes
+> (membership renewal, pending license agreement, app-specific password
+> revoked by an Apple ID password change) before assuming the credentials are
+> wrong — `git log` showing no change to the signing scripts since the last
+> success is the strongest signal it isn't us.
 
 **Required GitHub repo secrets** (Settings → Secrets and variables → Actions):
 
@@ -3283,22 +1482,24 @@ Create the app-specific password at appleid.apple.com → Sign-In and Security �
 
 - Flutter Windows can't build on macOS — use GitHub Actions
 - Flutter Linux can't build on macOS — use GitHub Actions or a Linux VM
-- Deps for every platform are built in CI by their own workflow: `build-deps-macos.yml` (arm64 + x64), `build-deps-linux.yml` (x64 + arm64), `build-deps-windows.yml` (x64, on `windows-latest` — everything is fetched from upstream release URLs by `download-deps-windows.ps1`, so no local checkout is needed). All take `version` + optional `release_tag` (leave empty to skip the release upload).
+- Deps for every platform are built in CI by their own workflow: `build-deps-macos.yml` (arm64 + x64), `build-deps-linux.yml` (x64 + arm64), `build-deps-windows.yml` (x64, on `windows-latest`). All take `version` + optional `release_tag` (leave empty to skip the release upload).
 - Windows deps can also be zipped on macOS if `deps/windows-x64/` exists (`Scripts/package-deps-windows.ps1` via pwsh), but the CI workflow is the canonical path.
 - Linux deps must be built on Linux (`./Scripts/download-deps-linux.sh`) or via `build-deps-linux.yml`
-- The macOS CI build (`build-macos.yml`) signs with the Developer ID cert and notarizes — see "macOS Code Signing & Notarization" below. Windows and Linux CI builds remain unsigned.
-- macOS ships as **two separate per-arch DMGs** (arm64 + x64), not a universal binary. `build-macos.yml` takes an `arch` input (`both` | `arm64` | `x64`, default `both`) and fans out via a matrix, one DMG per arch. Each arch uses its own deployment target — **arm64 → 15.0, x64 → 12.0** (see the x64/#39 note above). The x64 slice cross-compiles on the `macos-15` (arm64) runner.
-- Deps are **not** bundled — the app downloads `macos-arm64` or `macos-x64` deps at runtime per `uname`, so both deps bundles must be published. macOS deps are built by `build-deps-macos.yml` (arm64 on `macos-15`, x64 natively on `macos-15-intel`).
+- macOS ships as **two separate per-arch DMGs** (arm64 + x64), not a universal binary — `build-macos.yml` takes an `arch` input (`both` | `arm64` | `x64`, default `both`), one DMG per arch, each with its own deployment target (arm64 → 15.0, x64 → 12.0; the x64 slice cross-compiles on the `macos-15` runner).
+- Deps are **not** bundled — the app downloads `macos-arm64` or `macos-x64` deps at runtime per `uname`, so both deps bundles must be published.
 - `app/macos/Podfile` reads `VAPOURBOX_ARCHS` (default `arm64`; set to `x86_64` for the Intel build) and `VAPOURBOX_DEPLOYMENT_TARGET` (default `12.0`; the arm64 build sets `15.0`).
-- Publishing a new x64 deps zip needs no `deps-version.json` edit — upload the zip and its `.sha256.json` sidecar (the app verifies via the sidecar at download time).
+- Publishing a new x64 deps zip needs no `deps-version.json` edit — upload the zip and its `.sha256.json` sidecar.
 
 ### Dependency Version History
+
+Full write-ups (root causes, measurements) for each entry are in
+[docs/ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md).
 
 | Deps Version | Date | Changes |
 |--------------|------|---------|
 | 1.0.0 | 2025-01-15 | Initial release |
 | … | | (1.1.0–1.6.0 went unrecorded) |
-| 1.7.0 | 2026-08-01 | Fixes QTGMC Placebo/Very Slow brightening and near-black Draft on arm64, via `Scripts/patches/fmtconv-r31-arm-int-scaler.patch` (root cause: sign constants in fmtconv's non-SIMD integer scaler) plus havsfunc patch 5 as defence in depth; fmtconv r30 → **r31**, now pinned and sourced from GitLab on every platform. **Rebuilt 2026-08-02** to add the **zsmooth** plugin (MIT), providing `core.zsmooth.CCD` plus `Cnr4` and a set of RemoveGrain/TemporalMedian-family filters. Version pinned to 0.19.0 in all three download scripts — keep them in step so the same job can't produce different chroma per OS. Taken pre-built everywhere except macOS x64, which builds it with Zig to reach `minos 12.0` (see the macOS platform notes) |
-| 1.10.0 | 2026-08-31 | Fixes **issue #82**: zsmooth now ships **one build per CPU baseline** on x86 (`haswell` and `x86_64_v2`) in `vapoursynth/zsmooth/`, outside the autoload directory, with the worker loading exactly one by path. Upstream builds it for an AVX2 baseline with no runtime dispatch, so the shipped binary died with an illegal instruction (`0xC000001D`) on any pre-2013 CPU the instant a filter ran — silently, since vspipe prints nothing on a native crash. The portable build has no upstream asset, so Windows and Linux compile it with a pinned Zig toolchain (Windows' first from-source plugin; Zig needs no MSVC). macOS x64 builds both, which also makes Intel Macs fast for the first time — that arch had always used Zig's default SSE2 baseline, measured 2-3x slower on CCD/Cnr4. Same zsmooth version (0.19.0), so no output changes on any machine that already worked. Also brings **FFmpeg to 9.0 on all four platforms and pins it**: they had silently diverged (Windows on an unpinned post-9.0 master build, both macOS arches floating on 9.0.1, Linux pinned at 7.1), and BtbN garbage-collecting the n7.1 asset from its rolling `latest` tag 404'd the Linux deps build outright. Each script now verifies the installed binary's series and a push-gate test fails if the three pins disagree |
-| 1.9.0 | 2026-08-15 | Adds three plugins. **fluxsmooth** (`core.flux.SmoothT` / `SmoothST`), which also unlocks havsfunc's **STPresso** — it calls `core.flux.SmoothT` internally and raised "No attribute with the name flux exists" without it. Pinned to **v2** on every platform: that is the newest tag with a published Windows binary, and `download-deps-windows.ps1` has no from-source path, so macOS/Linux track the version Windows can get rather than letting the same job denoise differently per OS. Built on macOS/Linux by invoking the compiler directly on its single C file rather than through its autotools build, so no new build dependency (autoconf/automake/libtool) is added to CI. Also adds **bifrost** (`core.bifrost.Bifrost`, temporal rainbow/dot-crawl removal, pinned v3.0) and **retinex** (`core.retinex.MSRCP`, shadow-detail lift, pinned r4) — both chosen because their *newest* release ships a Windows binary, so no version skew, and both link nothing beyond system libraries. bifrost is another single C file compiled directly, but it includes `<vapoursynth/VapourSynth4.h>` so the scripts stage a small include root whose parent is passed to `-I`; retinex is an ordinary meson build resolving headers through pkg-config |
-| 1.8.0 | 2026-08-07 | VapourSynth **R73 → R78** on every platform, which moves Windows to a Python 3.12 wheel layout and makes `deps/<platform>/vapoursynth/` the Python package itself on macOS/Linux (see the R78 sections). Adds the **akarin** plugin (LGPL-3.0, statically links LLVM 22.1.2) supplying an LLVM JIT for `std.Expr`, routed in via havsfunc **patch 7** and the templates' `_expr()` helper — worth **4.1x** on arm64 QTGMC Slow, since VapourSynth's own Expr JIT is x86-only. **Not** shipped on macos-x64, whose only wheel would raise the Intel floor to macOS 14 (issue #39). Fixes the **nnedi3** build on linux-arm64, which had never produced a binary (`-mfpu=neon` and `HWCAP_ARM_*` are both 32-bit-ARM-only), and drops the plugin from linux-x64's expected list to match the other x86 bundles. **BestSource removed** — nothing had called it since the pipe source replaced it. Linux now needs **glibc 2.39** (ubuntu-24.04), so Ubuntu 22.04 and Debian 12 can no longer run it |
+| 1.7.0 | 2026-08-01/02 | fmtconv r30→**r31** (pinned, from GitLab) + patch fixing an aarch64 integer-scaler bug that brightened/blackened QTGMC Placebo/Very Slow/Draft on arm64. Rebuilt 2026-08-02 to add **zsmooth** (MIT: CCD, Cnr4, RemoveGrain/TemporalMedian family), pinned 0.19.0 |
+| 1.8.0 | 2026-08-07 | VapourSynth **R73 → R78** everywhere (Windows Python-wheel layout; `deps/<platform>/vapoursynth/` is the Python package on macOS/Linux). Adds **akarin** (LLVM JIT for `std.Expr`, ~4x on arm64 QTGMC; not on macos-x64). Fixes nnedi3 on linux-arm64. Removes BestSource. Linux now needs glibc 2.39 |
+| 1.9.0 | 2026-08-15 | Adds **fluxsmooth** (unlocks havsfunc's STPresso), **bifrost** (temporal rainbow/dot-crawl removal), **retinex** (shadow-detail lift) — all pinned to the newest release with a published Windows binary |
+| 1.10.0 | 2026-08-31 | **Issue #82**: zsmooth now ships one build per x86 CPU baseline (haswell, x86_64_v2), fixing an illegal-instruction crash on pre-2013 CPUs. **FFmpeg pinned to 9.0 on all four platforms** (they had silently diverged: Windows on an unpinned post-9.0 master, macOS on floating 9.0.1, Linux stuck at 7.1 after BtbN garbage-collected the pinned tag) |
