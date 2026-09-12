@@ -1733,7 +1733,26 @@ class MainViewModel extends ChangeNotifier {
     );
 
     await PresetService.instance.savePreset(preset);
+    // The preset menu is built from the service, so it has to be told — this
+    // was missing, and a newly saved preset only appeared after some unrelated
+    // change happened to rebuild the toolbar.
+    notifyListeners();
     return preset;
+  }
+
+  /// Install a preset read from a file, and tell the UI it exists.
+  ///
+  /// Deliberately does not apply it: importing is "add this to my presets",
+  /// and replacing the user's current pipeline as a side effect of that would
+  /// be destructive with no undo. The menu is one click away.
+  Future<ProcessingPreset> importPreset(
+    PresetImportPreview preview, {
+    bool stripCustomCode = false,
+  }) async {
+    final imported = await PresetService.instance
+        .commitImport(preview, stripCustomCode: stripCustomCode);
+    notifyListeners();
+    return imported;
   }
 
   /// Update an existing user preset with current settings.
