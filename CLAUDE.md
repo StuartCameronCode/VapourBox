@@ -113,6 +113,7 @@ VapourBox/
 | `app/lib/services/filter_loader.dart` | Load filter schemas from JSON |
 | `app/lib/services/preset_service.dart` | Save/load user presets |
 | `app/lib/services/temp_directory_service.dart` | Configurable scratch-file directory (see "Temporary Files Directory") |
+| `app/lib/services/overwrite_behavior_service.dart` | Default action for existing output files (see "Existing Output Files") |
 | `app/assets/filters/core/*.json` | Built-in filter schema definitions |
 
 ## Build Commands
@@ -796,6 +797,23 @@ download.
 `resolve()` falls back to system temp if the configured directory can't be
 recreated; `setOverride` verifies writability with a probe file before accepting
 a path.
+
+### Existing Output Files (issue #85)
+
+Before a job starts, `_getConflictingItems` (`main_window.dart`) checks whether
+any queued item's `outputPath` already exists. What happens next is decided by
+`OverwriteBehaviorService` (persisted as `overwriteBehavior`, default `ask`,
+configurable in **Settings → General → Existing Output Files**):
+
+- **`ask`** (default) — shows `OverwriteWarningDialog`, which now also notes
+  where to change the default. Cancelling aborts the job.
+- **`overwrite`** — proceeds silently; the existing file is replaced.
+- **`rename`** — `OverwriteBehaviorService.uniquePath` picks the first free
+  `name (2).ext`, `name (3).ext`, … and each conflicting item's `outputPath` is
+  updated to it before the job starts; the existing file is untouched. Mutating
+  `QueueItem.outputPath` directly needs a `notifyListeners()` call afterward —
+  `MainViewModel.notifyOutputPathsChanged()` is that call for callers outside
+  the view model.
 
 ### Preset System
 

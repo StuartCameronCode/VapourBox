@@ -737,6 +737,12 @@ class MainViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Call after mutating one or more queue items' `outputPath` directly
+  /// (e.g. auto-renaming to avoid an overwrite) so the UI reflects it.
+  void notifyOutputPathsChanged() {
+    notifyListeners();
+  }
+
   /// Clears the current input (alias for clearQueue).
   void clearInput() {
     clearQueue();

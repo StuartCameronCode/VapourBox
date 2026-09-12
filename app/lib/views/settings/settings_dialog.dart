@@ -12,6 +12,7 @@ import '../../models/video_job.dart';
 import '../../services/advanced_mode_service.dart';
 import '../../services/dependency_manager.dart';
 import '../../services/hardware_encoder_detector.dart';
+import '../../services/overwrite_behavior_service.dart';
 import '../../services/temp_directory_service.dart';
 import '../../services/update_checker.dart';
 import '../../utils/pixel_format.dart';
@@ -1748,11 +1749,24 @@ class _GeneralSettingsTabState extends State<_GeneralSettingsTab> {
   /// [TempDirectoryService] so the row repaints as soon as it's changed.
   String? _tempOverride;
 
+  /// Mirrors [OverwriteBehaviorService] so the row repaints as soon as it's
+  /// changed.
+  OverwriteBehavior _overwriteBehavior = OverwriteBehavior.ask;
+
   @override
   void initState() {
     super.initState();
     _tempOverride = TempDirectoryService.instance.override;
+    _overwriteBehavior = OverwriteBehaviorService.instance.behavior;
     _loadSettings();
+  }
+
+  Future<void> _setOverwriteBehavior(OverwriteBehavior? value) async {
+    if (value == null) return;
+    await OverwriteBehaviorService.instance.setBehavior(value);
+    if (mounted) {
+      setState(() => _overwriteBehavior = value);
+    }
   }
 
   /// Pick a directory for scratch files.
@@ -1889,6 +1903,38 @@ class _GeneralSettingsTabState extends State<_GeneralSettingsTab> {
                 'extracted DVD titles are written here. Point it at a fast '
                 'drive with room to spare — DVD extraction alone can need '
                 'several GB. Takes effect for the next job.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.6),
+                    ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 24),
+
+        _buildSection(
+          context,
+          title: 'Existing Output Files',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final behavior in OverwriteBehavior.values)
+                RadioListTile<OverwriteBehavior>(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: Text(behavior.label),
+                  subtitle: Text(behavior.description),
+                  value: behavior,
+                  groupValue: _overwriteBehavior,
+                  onChanged: _setOverwriteBehavior,
+                ),
+              const SizedBox(height: 4),
+              Text(
+                'What to do when a job\'s output file already exists on disk.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context)
                           .colorScheme
