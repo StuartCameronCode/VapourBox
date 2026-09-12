@@ -199,10 +199,13 @@ String? hardwareEncoderChromaWarning({
       depth = pixelFormatBitDepth(pixelFormat);
       describedAs = 'Your source is $pixelFormat, and "Match source" keeps it';
     default:
-      layout = chromaSubsampling == ChromaSubsampling.yuv420 ||
-              chromaSubsampling == ChromaSubsampling.yuv420p10
-          ? ChromaLayout.c420
-          : ChromaLayout.c422;
+      // Derived from the option's own format name rather than enumerated.
+      // The hand-written test this replaces returned c422 for anything that
+      // was not one of the two 4:2:0 variants, so the 4:4:4 option would have
+      // reported "cannot encode 4:2:2 on most GPUs" — the right advice under
+      // the wrong reason. `value` is exactly the shape the parser expects
+      // (`yuv444p10` -> c444), so a format added later cannot repeat this.
+      layout = pixelFormatChromaLayout(chromaSubsampling.value);
       depth = chromaSubsampling.outputBitDepth ?? 8;
       describedAs = '${chromaSubsampling.label} is selected';
   }
@@ -229,4 +232,74 @@ String? hardwareEncoderChromaWarning({
 
   return '$describedAs, but $reason, so the output will be converted to '
       '$substitute.$advice';
+}
+
+/// Warning message when the selected ProRes profile stores a different chroma
+/// layout than the chosen output colour format, or `null` when they agree.
+///
+/// A deliberate sibling of [hardwareEncoderChromaWarning] rather than an
+/// extension of it, because the two make opposite claims. That one says the
+/// hardware *cannot* encode what you asked for and something will be lost.
+/// This one says the profile *defines* what is stored — ProRes 4444 pads 4:2:0
+/// up rather than losing anything, and the cost is file size, not detail.
+/// Folding them together would blur both messages and would drag ProRes into a
+/// test table pinned specifically to the NVENC/QSV arms of `forced_pix_fmt`.
+///
+/// **It is a second implementation of the worker's decision, and that is the
+/// risk.** If the two disagree the interface promises one thing and the encode
+/// does another, which is worse than either being wrong alone. Both sides are
+/// pinned to the same table of cases: `prores_profile_decides_the_chroma` in
+/// `worker/src/models/video_job.rs` against
+/// `app/test/prores_chroma_pin_warning_test.dart`. Change one, change both.
+///
+/// Deliberately silent about bit depth on its own. ProRes is always 10-bit, so
+/// an 8-bit selection into any profile is "converted" — warning about that
+/// would fire on the majority of ProRes jobs, and a banner that is always
+/// there is wallpaper.
+String? proresChromaPinWarning({
+  required VideoCodec codec,
+  required ChromaSubsampling chromaSubsampling,
+  String? pixelFormat,
+}) {
+  if (!codec.isProRes) return null;
+
+  // What the encoder will actually be handed: the output conversion when one
+  // is selected, the source's own format otherwise.
+  final ChromaLayout chosen;
+  final String describedAs;
+  if (chromaSubsampling == ChromaSubsampling.original) {
+    // Nothing to say until a file is loaded and we know its format.
+    if (pixelFormat == null) return null;
+    chosen = pixelFormatChromaLayout(pixelFormat);
+    describedAs = 'Your source is $pixelFormat, and "Match source" keeps it';
+  } else {
+    chosen = pixelFormatChromaLayout(chromaSubsampling.value);
+    describedAs = '${chromaSubsampling.label} is selected';
+  }
+
+  // Mirrors VideoCodec::forced_pix_fmt: profiles 4 and 5 store 4:4:4,
+  // everything below them 4:2:2.
+  final storesC444 =
+      codec == VideoCodec.prores4444 || codec == VideoCodec.prores4444Xq;
+  final stored = storesC444 ? ChromaLayout.c444 : ChromaLayout.c422;
+  if (chosen == stored) return null;
+
+  if (storesC444) {
+    // Padding up. Nothing is lost, so the cost to name is size.
+    return '$describedAs, but ${codec.displayName} always stores 4:4:4, so the '
+        'chroma will be padded up to it. Nothing is lost, but the file is '
+        'much larger than the colour detail in it warrants — ProRes 422 HQ is '
+        'the 4:2:2 equivalent.';
+  }
+
+  if (chosen == ChromaLayout.c444) {
+    // The only case where the user's choice is genuinely discarded.
+    return '$describedAs, but ${codec.displayName} stores 4:2:2, so the '
+        'output will be resampled back down to it. Choose ProRes 4444 to keep '
+        'the full chroma.';
+  }
+
+  // 4:2:0 into a 4:2:2 profile: padded up, same reasoning as above but far
+  // less costly, so this stays quiet.
+  return null;
 }

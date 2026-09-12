@@ -3343,12 +3343,13 @@ fn test_90_output_colour_format_reaches_the_preview_too() {
         ..ProcessingPipeline::default()
     });
 
-    // Every convertible format, in both scripts.
-    for (subsampling, expected) in [
-        (ChromaSubsampling::Yuv420, "vs.YUV420P8"),
-        (ChromaSubsampling::Yuv422, "vs.YUV422P8"),
-        (ChromaSubsampling::Yuv422P10, "vs.YUV422P10"),
-    ] {
+    // Every convertible format, in both scripts. Driven by ALL rather than a
+    // hand-written list: this table had silently lost Yuv420P10, so that
+    // option's substitution was never checked in either script.
+    for subsampling in ChromaSubsampling::ALL.iter().copied() {
+        let Some(expected) = subsampling.vapoursynth_format() else {
+            continue; // Original converts nothing; asserted separately below.
+        };
         job.encoding_settings.chroma_subsampling = subsampling;
         let (encode, preview) = generate_both_scripts(&job);
         for (label, script) in [("encode", &encode), ("preview", &preview)] {
@@ -3385,8 +3386,10 @@ fn test_91_chroma_subsampling_serde_names_match_the_app() {
     for (subsampling, expected) in [
         (ChromaSubsampling::Original, "\"original\""),
         (ChromaSubsampling::Yuv420, "\"yuv420\""),
+        (ChromaSubsampling::Yuv420P10, "\"yuv420p10\""),
         (ChromaSubsampling::Yuv422, "\"yuv422\""),
         (ChromaSubsampling::Yuv422P10, "\"yuv422p10\""),
+        (ChromaSubsampling::Yuv444P10, "\"yuv444p10\""),
     ] {
         let json = serde_json::to_string(&subsampling).expect("serialize");
         assert_eq!(json, expected, "{:?} serializes wrong", subsampling);
@@ -3396,10 +3399,25 @@ fn test_91_chroma_subsampling_serde_names_match_the_app() {
     }
 
     // Only Original means "no conversion"; everything else names a format.
+    // Swept over ALL rather than spot-checked, so an option that gains a wire
+    // name but no format is caught here rather than at job time.
     assert_eq!(ChromaSubsampling::Original.vapoursynth_format(), None);
+    for cs in ChromaSubsampling::ALL {
+        if *cs == ChromaSubsampling::Original {
+            continue;
+        }
+        assert!(
+            cs.vapoursynth_format().is_some(),
+            "{cs:?} names no VapourSynth format, so selecting it converts nothing"
+        );
+    }
     assert_eq!(
         ChromaSubsampling::Yuv422P10.vapoursynth_format(),
         Some("vs.YUV422P10")
+    );
+    assert_eq!(
+        ChromaSubsampling::Yuv444P10.vapoursynth_format(),
+        Some("vs.YUV444P10")
     );
 }
 

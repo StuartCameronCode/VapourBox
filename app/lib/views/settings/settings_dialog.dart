@@ -63,7 +63,13 @@ const List<(String, String)> chromaFormatHelpSections = [
         'analogue-captured source, at 8-bit precision.\n\n'
         '4:2:2 10-bit — keeps the colour detail and the 10-bit grading. Best '
         'when the file is going on for more work; needs a player that handles '
-        '10-bit.',
+        '10-bit.\n\n'
+        '4:4:4 10-bit — no chroma subsampling at all. ProRes 4444 and the '
+        'software H.264/H.265 encoders can store it; no GPU encoder here can. '
+        'Reach for it when the output is going into compositing or keying, '
+        'where subsampled chroma shows up on edges. It will not recover colour '
+        'a subsampled source never had — on an ordinary capture it just makes '
+        'a larger file.',
   ),
 ];
 
@@ -502,6 +508,15 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
   /// Default target bitrate (kbps) applied when an Intel-VT codec is selected.
   static const int _kDefaultVtBitrateKbps = 20000;
 
+  /// `prores_ks` declares `bits_per_mb` with this maximum; above it ffmpeg
+  /// rejects the option outright. Mirrors `PRORES_MAX_BITS_PER_MB` in
+  /// `worker/src/pipeline_executor.rs`, which clamps rather than trusting this.
+  static const int _kMaxProresBitsPerMb = 8192;
+
+  /// What the override starts at when first ticked — the value the guide this
+  /// came from recommends, and the one the +3.6 dB measurement was taken at.
+  static const int _kDefaultProresBitsPerMb = 8000;
+
   /// Bitrate preset shortcuts (label -> Mb/s) for Intel VideoToolbox.
   static const Map<String, int> _kVtBitratePresetsMbps = {
     'Low': 5,
@@ -810,10 +825,12 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
             if (settings.codec.availablePresets != null)
               const SizedBox(height: 24),
 
-            // Quality (not applicable for lossless codecs). Intel VideoToolbox has
-            // no constant-quality mode, so it gets a native target-bitrate control
+            // Quality. Three cases, because two codec families read nothing
+            // from `quality` (see VideoCodec.hasQualityControl) and must not be
+            // shown a slider that does nothing. Intel VideoToolbox has no
+            // constant-quality mode, so it gets a native target-bitrate control
             // instead of the CRF slider.
-            if (!settings.codec.isLossless)
+            if (settings.codec.hasQualityControl)
               _buildSection(
                 context,
                 title: 'Quality',
@@ -822,33 +839,18 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                     : _buildCrfQuality(context, viewModel, settings),
               ),
 
-            // Note for lossless codec
-            if (settings.codec.isLossless)
+            // Note for codecs whose quality is not ours to set.
+            if (!settings.codec.hasQualityControl)
               _buildSection(
                 context,
                 title: 'Quality',
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        size: 20,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'This is a lossless codec. No quality setting is needed.',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ),
-                    ],
-                  ),
+                child: _buildFixedQualityNote(
+                  context,
+                  settings.codec.isProRes
+                      ? '${settings.codec.displayName} encodes at a fixed quality '
+                          'set by the profile. There is no quality setting — pick a '
+                          'different profile for a different data rate.'
+                      : 'This is a lossless codec. No quality setting is needed.',
                 ),
               ),
 
@@ -1018,9 +1020,24 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                   ),
                   ..._buildChromaBitDepthWarning(viewModel, settings),
                   ..._buildChromaEncoderWarning(viewModel, settings),
+                  ..._buildProresChromaWarning(viewModel, settings),
                 ],
               ),
             ),
+
+            // ProRes-only encoder options, behind advanced mode. They are
+            // narrow enough that showing them to everyone would cost more in
+            // clutter than they return — two of the three do nothing at all on
+            // the profiles most people pick.
+            if (settings.codec.isProRes &&
+                context.watch<AdvancedModeService>().enabled) ...[
+              const SizedBox(height: 24),
+              _buildSection(
+                context,
+                title: 'ProRes Options',
+                child: _buildProresOptions(context, viewModel, settings),
+              ),
+            ],
 
             const SizedBox(height: 24),
 
@@ -1137,6 +1154,22 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     return [const SizedBox(height: 12), WarningBanner(message: message)];
   }
 
+  /// Issue #81: a ProRes profile stores a chroma layout of its own, and the
+  /// worker pins it — so say when that overrides the selected colour format,
+  /// in either direction.
+  List<Widget> _buildProresChromaWarning(
+    MainViewModel viewModel,
+    EncodingSettings settings,
+  ) {
+    final message = proresChromaPinWarning(
+      codec: settings.codec,
+      chromaSubsampling: settings.chromaSubsampling,
+      pixelFormat: viewModel.videoInfo?.pixelFormat,
+    );
+    if (message == null) return const [];
+    return [const SizedBox(height: 12), WarningBanner(message: message)];
+  }
+
   /// Whether a hardware encoder is relevant to the current platform's GPU APIs:
   /// VideoToolbox is macOS-only; QSV/NVENC/AMF apply to Windows and Linux.
   /// (Software/ProRes/lossless codecs are platform-agnostic.)
@@ -1166,10 +1199,12 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
       VideoCodec.h264Videotoolbox, VideoCodec.h265Videotoolbox,
       VideoCodec.h264Amf, VideoCodec.h265Amf,
     ];
-    final proresCodecs = <VideoCodec>[
-      VideoCodec.proresProxy, VideoCodec.proresLT,
-      VideoCodec.prores422, VideoCodec.proresHQ,
-    ];
+    // Every ProRes codec, derived rather than hand-listed: this was the one
+    // place the group was enumerated, so a profile missing from it existed in
+    // the model and was unreachable in the UI, with no error. Order follows the
+    // enum, which runs Proxy -> 4444 XQ by ascending data rate.
+    final proresCodecs =
+        VideoCodec.values.where((c) => c.isProRes).toList(growable: false);
     final losslessCodecs = <VideoCodec>[
       VideoCodec.ffv1, VideoCodec.huffyuv, VideoCodec.ffvhuff,
     ];
@@ -1236,6 +1271,153 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
               fontWeight: FontWeight.bold,
               letterSpacing: 0.5,
             ),
+      ),
+    );
+  }
+
+  /// The three ProRes encoder options, with the measurements that justify
+  /// them. Two of the three do nothing on 422 and HQ, and the copy says so —
+  /// presenting them as general quality controls would repeat the overstatement
+  /// in the guide these came from (issue #81).
+  Widget _buildProresOptions(
+      BuildContext context, MainViewModel viewModel, EncodingSettings settings) {
+    final hint = Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+        );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CheckboxListTile(
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          value: settings.proresVendorApl0,
+          title: const Text('Write the Apple vendor tag (apl0)'),
+          subtitle: Text(
+            'Identifies the file as Apple-encoded rather than FFmpeg-encoded. '
+            'Some Avid and Apple tooling checks this field. It does not change '
+            'the picture — the frames are identical either way.',
+            style: hint,
+          ),
+          onChanged: (value) => viewModel.updateEncodingSettings(
+            settings.copyWith(proresVendorApl0: value ?? false),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Bits per macroblock: an override, so it needs an explicit off state.
+        CheckboxListTile(
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          value: settings.proresBitsPerMb != null,
+          title: const Text('Raise the bits-per-macroblock ceiling'),
+          subtitle: Text(
+            'Lets the encoder spend more on each macroblock. Worth about '
+            '3.6 dB for 3% more size on Proxy and LT; on 422 and 422 HQ the '
+            'encoder is already below the ceiling and this changes nothing.',
+            style: hint,
+          ),
+          onChanged: (value) => viewModel.updateEncodingSettings(
+            (value ?? false)
+                ? settings.copyWith(proresBitsPerMb: _kDefaultProresBitsPerMb)
+                : settings.copyWith(clearProresBitsPerMb: true),
+          ),
+        ),
+        if (settings.proresBitsPerMb != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 32, top: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Slider(
+                    value: settings.proresBitsPerMb!
+                        .clamp(1, _kMaxProresBitsPerMb)
+                        .toDouble(),
+                    min: 1,
+                    max: _kMaxProresBitsPerMb.toDouble(),
+                    divisions: 32,
+                    label: '${settings.proresBitsPerMb}',
+                    onChanged: (value) => viewModel.updateEncodingSettings(
+                      settings.copyWith(proresBitsPerMb: value.round()),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 56,
+                  child: Text(
+                    '${settings.proresBitsPerMb}',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                    textAlign: TextAlign.end,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 16),
+
+        DropdownButtonFormField<ProResQuantMat?>(
+          value: settings.proresQuantMat,
+          decoration: const InputDecoration(
+            labelText: 'Quantisation matrix',
+            border: OutlineInputBorder(),
+          ),
+          items: [
+            const DropdownMenuItem<ProResQuantMat?>(
+              value: null,
+              child: Text('Auto (match profile)'),
+            ),
+            // `auto` is offered explicitly as well as by omission, because the
+            // two are the same thing to ffmpeg and hiding one would make the
+            // dropdown disagree with a preset that saved it.
+            ...ProResQuantMat.values.map(
+              (m) => DropdownMenuItem<ProResQuantMat?>(
+                value: m,
+                child: Text(m.label),
+              ),
+            ),
+          ],
+          onChanged: (value) => viewModel.updateEncodingSettings(
+            value == null
+                ? settings.copyWith(clearProresQuantMat: true)
+                : settings.copyWith(proresQuantMat: value),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Auto picks the matrix that matches the profile. Choosing HQ on a '
+          'Proxy or LT encode spends about 19% more size for roughly 5.5 dB; '
+          'on 422 and 422 HQ it is already the matrix in use.',
+          style: hint,
+        ),
+      ],
+    );
+  }
+
+  /// The panel shown in place of the quality slider for codecs whose quality
+  /// the worker does not set — lossless and ProRes. One helper for both so the
+  /// two cannot drift into looking like different kinds of message.
+  Widget _buildFixedQualityNote(BuildContext context, String message) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.info_outline,
+            size: 20,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ),
+        ],
       ),
     );
   }

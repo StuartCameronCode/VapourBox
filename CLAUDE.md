@@ -1894,8 +1894,26 @@ does, and it decides bit depth as well as chroma:
 |---|---|---|
 | `original` (default) | source format, depth included | archival; a 10-bit source stays 10-bit |
 | `yuv420` | `vs.YUV420P8` | compatibility — the only one every player opens |
+| `yuv420p10` | `vs.YUV420P10` | the only 10-bit layout NVENC/QSV/AMF encode (issue #74) |
 | `yuv422` | `vs.YUV422P8` | more chroma detail, 8-bit |
 | `yuv422p10` | `vs.YUV422P10` | normalize chroma without dropping to 8-bit |
+| `yuv444p10` | `vs.YUV444P10` | full chroma — ProRes 4444, x264/x265; no GPU encoder |
+
+> **This table had gone stale, and so had three tests driven from the same
+> hand-written lists** — `yuv420p10` was missing from all of them, so that
+> option's script substitution, its serde name and its declared depth were
+> checked nowhere. A skipped row looks exactly like a passing one. Both sides
+> now sweep the enum: `ChromaSubsampling::ALL` (kept complete by a
+> catch-all-free match plus a count assertion) and `ChromaSubsampling.values`.
+> Add a format to the enum, not to a list.
+
+> **Verify the Y4M pipe can name a new format before wiring anything.** vspipe
+> writes the header, so the question is what *it* emits — measured for 4:4:4,
+> `C444p10`, which ffmpeg's demuxer accepts. Note ffmpeg's own Y4M **muxer**
+> calls `yuv444p10le` "not an official yuv4mpegpipe pixel format" and says the
+> same of the long-shipping `yuv422p10le`, which is the proof that the muxer's
+> opinion is irrelevant here. A format the pipe cannot name is a hard job
+> failure with no error — the `Turn90` 4:4:0 trap.
 
 Three things to keep in mind:
 
@@ -2071,6 +2089,84 @@ stripping SAR and colour tags so they must be re-stamped, and the encoder
 having the last word. A deliberately distinct icon (`schema_outlined`, not a
 second `info_outline`), asserted, because two identical adjacent buttons read
 as one control repeated.
+
+### ProRes: the profile decides the chroma, not ffmpeg (issue #81)
+
+Reported as "please add ProRes", when Proxy/LT/422/HQ had shipped for months.
+Most of what was wrong was that the app said otherwise, so this is mostly a
+correctness change with two profiles added on the end.
+
+> **ffmpeg's pixel-format negotiation never looks at `-profile:v`.** Measured
+> against the bundled build: `prores_ks -profile:v 4` and `-profile:v 5`
+> auto-select `yuv422p10le` from a `yuv420p` input, exactly as `-profile:v 2`
+> does. So ProRes 4444 shipped without a pin writes a file **stamped 4444
+> carrying 4:2:2** — valid, playable, and the profile's entire point discarded
+> with no error anywhere. `VideoCodec::forced_pix_fmt` now decides from the
+> profile (4/5 → `yuv444p10le`, 0-3 → `yuv422p10le`), joining the HuffYUV and
+> AMF pins. Issue #74's lesson generalises: an encoder's declared format list
+> is not a statement about what the output should be.
+>
+> Pinning 0-3 is a measured no-op, not an assumed one — `pal-sd-25.mov` at all
+> four profiles gives identical `framemd5` with and without the flag, because
+> `yuv422p10le` is the only 4:2:2 format the encoder has.
+>
+> **The decoder reports ProRes 4444 as 12-bit** (`yuv444p12le`) whatever 10-bit
+> format the encoder was handed, so assert on the chroma part of the name. And
+> `prores_ks` offers no 12-bit pixel format at all: **4444 XQ is 10-bit here**,
+> whatever Apple's spec says. Don't write "12-bit" in any UI copy.
+
+> **ProRes was showing a CRF slider wired to nothing.** It is not `isLossless`,
+> so the dialog rendered one labelled "High (CRF 18)" while
+> `build_encoder_quality_args` took the `prores_profile()` branch and never read
+> `settings.quality`. The decision is now `VideoCodec.hasQualityControl`, a
+> getter rather than a widget condition, so it can be asserted across
+> `VideoCodec.values` — a hand-written list only covers the codecs someone
+> thought of, which is never the broken one.
+
+> **`prores_profile()` and `encoder_family()` lost their catch-all arms.** They
+> dispatch two halves of one decision — the quality-args branch uses the first,
+> its fallthrough the second — so a ProRes variant reaching the family but not
+> the profile table would emit no `-profile:v` and encode as profile 2 while
+> claiming otherwise. Adding the two new variants then produced four compile
+> errors naming exactly the sites that mattered, which is the point.
+
+> **`proresCodecs` in `settings_dialog.dart` was the only place the ProRes UI
+> group was enumerated.** A profile missing from it exists in the model and is
+> unreachable on screen, silently. Derived from `isProRes` now.
+
+The three advanced options (`-vendor apl0`, `-bits_per_mb`, `-quant_mat`) are
+behind advanced mode, ProRes-only, default off. Their copy carries measurements
+rather than the linked guide's framing, because **at profile 3 the guide's four
+flags produce bit-identical frames** — `quant_mat auto` already resolves to the
+HQ matrix and the bitrate is already under the cap. They only do anything on
+Proxy/LT (+3.6 dB for 2.8% size, +5.5 dB for 19%), and `-vendor apl0` is a
+compatibility flag: four bytes per frame header, identical pixels.
+
+`bits_per_mb` is clamped to 8192 **in the worker**, not just the UI — ffmpeg
+rejects anything above it and the encode dies having written nothing, so a saved
+preset can otherwise fail a job on an option nobody can see. `quant_mat` is an
+enum on both sides for the same reason ("Undefined constant" kills the encode).
+
+> **`copyWith` needed explicit clear flags, and `parameter_copy_with_test` could
+> not have caught it.** That test globs `lib/models/*_parameters.dart`, so it had
+> never seen `encoding_settings.dart` — now added, and confirmed live by dropping
+> a field and watching it fail by name. The blast radius here is worse than in a
+> pass model: **every** edit in the settings dialog goes through
+> `updateEncodingSettings(settings.copyWith(...))`, so a forgotten field resets on
+> the user's next click, not on a pass toggle. `x ?? this.x` can only set a
+> nullable field, never clear it, so an unticked override would stick forever —
+> `videoBitrateKbps` still has that defect and works around it in
+> `_buildCodecRadio`.
+
+`proresChromaPinWarning` is a **sibling** of `hardwareEncoderChromaWarning`, not
+an extension. The two make opposite claims — one says the hardware cannot encode
+what you asked and something is lost; the other says the profile defines what is
+stored, and 4444 pads 4:2:0 *up*, costing size rather than detail. The message
+says "Nothing is lost" explicitly, asserted, because a warning that reads as a
+quality problem pushes people off a profile doing exactly what they asked. Both
+are second implementations of the worker's decision and both are pinned
+case-for-case to it. Depth is deliberately not warned about alone: ProRes is
+always 10-bit, so that would fire on most ProRes jobs and become wallpaper.
 
 ## QTGMC Parameters Reference
 

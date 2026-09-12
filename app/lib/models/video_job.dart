@@ -205,7 +205,9 @@ enum VideoCodec {
   proresProxy('prores_ks -profile:v 0', 'ProRes Proxy'),
   proresLT('prores_ks -profile:v 1', 'ProRes LT'),
   prores422('prores_ks -profile:v 2', 'ProRes 422'),
-  proresHQ('prores_ks -profile:v 3', 'ProRes 422 HQ');
+  proresHQ('prores_ks -profile:v 3', 'ProRes 422 HQ'),
+  prores4444('prores_ks -profile:v 4', 'ProRes 4444'),
+  prores4444Xq('prores_ks -profile:v 5', 'ProRes 4444 XQ');
 
   const VideoCodec(this.value, this.displayName);
 
@@ -247,7 +249,11 @@ enum VideoCodec {
       case VideoCodec.prores422:
         return 'Broadcast quality';
       case VideoCodec.proresHQ:
-        return 'Highest ProRes quality';
+        return 'Highest 4:2:2 ProRes quality';
+      case VideoCodec.prores4444:
+        return 'Full 4:4:4 colour, for compositing';
+      case VideoCodec.prores4444Xq:
+        return 'Full 4:4:4 colour at the highest data rate';
     }
   }
 
@@ -257,6 +263,21 @@ enum VideoCodec {
   /// Whether this is a lossless codec (FFV1, HuffYUV, FFVHuff).
   bool get isLossless =>
       this == VideoCodec.ffv1 || this == VideoCodec.huffyuv || this == VideoCodec.ffvhuff;
+
+  /// Whether a quality/bitrate control means anything for this codec.
+  ///
+  /// The worker decides quality per encoder family in
+  /// `build_encoder_quality_args`, and two families read nothing from
+  /// `EncodingSettings.quality`: the lossless codecs (there is no quality to
+  /// set) and ProRes (the profile fixes it — the ProRes branch emits
+  /// `-profile:v N` and returns). Showing a CRF slider for either is a control
+  /// that responds and changes nothing, which is worse than showing none:
+  /// ProRes used to present one labelled "High (CRF 18)".
+  ///
+  /// This lives on the model rather than inline in the settings dialog so it
+  /// can be asserted across `VideoCodec.values` — a codec added later cannot
+  /// quietly acquire a slider the worker ignores.
+  bool get hasQualityControl => !isLossless && !isProRes;
 
   /// Whether this codec produces H.264 output (software or hardware).
   bool get isH264 => this == h264 || this == h264Nvenc || this == h264Qsv ||

@@ -45,12 +45,19 @@ class VideoFormatInfo {
   final String? colorSpace;
   final String? colorRange;
 
+  /// The codec profile ffprobe reports, e.g. "4444" or "Standard" for ProRes.
+  /// Needed because a ProRes file stamped 4444 can still carry 4:2:2 samples —
+  /// that is exactly the bug the chroma pin exists to prevent, and only the
+  /// profile and the pix_fmt together can tell the two apart.
+  final String? profile;
+
   VideoFormatInfo({
     this.pixelFormat,
     this.width,
     this.height,
     this.colorSpace,
     this.colorRange,
+    this.profile,
   });
 
   /// Check if this is a 4:2:0 format
@@ -86,7 +93,7 @@ Future<VideoFormatInfo> getVideoFormatInfo(String videoPath) async {
     [
       '-v', 'error',
       '-select_streams', 'v:0',
-      '-show_entries', 'stream=pix_fmt,width,height,color_space,color_range',
+      '-show_entries', 'stream=pix_fmt,width,height,color_space,color_range,profile',
       '-of', 'json',
       videoPath,
     ],
@@ -113,6 +120,7 @@ Future<VideoFormatInfo> getVideoFormatInfo(String videoPath) async {
     height: stream['height'] as int?,
     colorSpace: stream['color_space'] as String?,
     colorRange: stream['color_range'] as String?,
+    profile: stream['profile'] as String?,
   );
 }
 
@@ -694,11 +702,106 @@ void main() {
         expect(result.success, isTrue, reason: result.error);
 
         final outputInfo = await getVideoFormatInfo(result.outputPath!);
-        // ProRes is naturally 4:2:2
-        expect(outputInfo.isYuv422, isTrue,
-            reason: 'ProRes should output 4:2:2 format');
+        // ProRes is naturally 4:2:2, and the worker now pins that explicitly
+        // rather than leaving it to negotiation. yuv422p10le is the only 4:2:2
+        // format prores_ks has, so this is what it produced before the pin too
+        // — verified identical framemd5 with and without the flag.
+        expect(outputInfo.pixelFormat, 'yuv422p10le',
+            reason: 'ProRes 422 must store exactly 4:2:2 10-bit');
 
         print('  PASS: YUV422 works with ProRes codec');
+      }, timeout: const Timeout(Duration(minutes: 5)));
+
+      /// The test that proves the whole premise of the ProRes chroma pin
+      /// (issue #81). ffmpeg's format negotiation never looks at `-profile:v`,
+      /// so without the pin this comes back stamped 4444 while carrying 4:2:2
+      /// — a valid file that silently throws away the profile's entire point.
+      /// Only a real encode can catch that; a script or argument assertion
+      /// cannot.
+      ///
+      /// Note the decoder reports ProRes 4444 as 12-bit (`yuv444p12le`)
+      /// regardless of the 10-bit format we hand the encoder, so the assertion
+      /// is on the chroma part of the name, not the whole string.
+      test('ProRes 4444 really stores 4:4:4, not just the 4444 stamp', () async {
+        final job = VideoJob(
+          id: const Uuid().v4(),
+          outputPath: '${TestConfig.outputDir}/test_chroma_444_prores4444.mov',
+          inputPath: TestConfig.inputFile,
+          qtgmcParameters: const QTGMCParameters(
+            preset: QTGMCPreset.superFast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          processingPipeline: const ProcessingPipeline(
+            deinterlace: QTGMCParameters(
+              preset: QTGMCPreset.superFast,
+              tff: true,
+              fpsDivisor: 2,
+            ),
+          ),
+          encodingSettings: const EncodingSettings(
+            codec: VideoCodec.prores4444,
+            container: ContainerFormat.mov,
+            audioMode: AudioMode.none,
+            chromaSubsampling: ChromaSubsampling.yuv444p10,
+          ),
+          startFrame: 10,
+          endFrame: 40,
+        );
+
+        final result = await runFilterTest('YUV444 + ProRes 4444', job);
+        expect(result.success, isTrue, reason: result.error);
+
+        final outputInfo = await getVideoFormatInfo(result.outputPath!);
+        expect(outputInfo.isYuv444, isTrue,
+            reason: 'unpinned, ffmpeg hands profile 4 yuv422p10le and this '
+                'comes back 4:2:2 — got ${outputInfo.pixelFormat}');
+        expect(outputInfo.profile, '4444',
+            reason: 'the container must agree with the samples');
+
+        print('  PASS: ProRes 4444 stores ${outputInfo.pixelFormat}');
+      }, timeout: const Timeout(Duration(minutes: 5)));
+
+      /// The negative control for the test above: a 4:2:2 profile must hold
+      /// 4:2:2 even when 4:4:4 is explicitly selected, because the profile is
+      /// what the container declares. Without this, a pin that simply forced
+      /// 4:4:4 everywhere would pass the positive test.
+      test('ProRes 422 HQ stays 4:2:2 even when 4:4:4 is selected', () async {
+        final job = VideoJob(
+          id: const Uuid().v4(),
+          outputPath: '${TestConfig.outputDir}/test_chroma_444_prores422.mov',
+          inputPath: TestConfig.inputFile,
+          qtgmcParameters: const QTGMCParameters(
+            preset: QTGMCPreset.superFast,
+            tff: true,
+            fpsDivisor: 2,
+          ),
+          processingPipeline: const ProcessingPipeline(
+            deinterlace: QTGMCParameters(
+              preset: QTGMCPreset.superFast,
+              tff: true,
+              fpsDivisor: 2,
+            ),
+          ),
+          encodingSettings: const EncodingSettings(
+            codec: VideoCodec.proresHQ,
+            container: ContainerFormat.mov,
+            audioMode: AudioMode.none,
+            chromaSubsampling: ChromaSubsampling.yuv444p10,
+          ),
+          startFrame: 10,
+          endFrame: 40,
+        );
+
+        final result = await runFilterTest('YUV444 + ProRes 422 HQ', job);
+        expect(result.success, isTrue, reason: result.error);
+
+        final outputInfo = await getVideoFormatInfo(result.outputPath!);
+        expect(outputInfo.isYuv422, isTrue,
+            reason: 'ProRes 422 HQ stores 4:2:2 whatever was selected — '
+                'got ${outputInfo.pixelFormat}');
+
+        print('  PASS: ProRes 422 HQ held 4:2:2 (${outputInfo.pixelFormat})');
       }, timeout: const Timeout(Duration(minutes: 5)));
     });
   });
