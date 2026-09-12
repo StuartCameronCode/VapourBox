@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -23,6 +24,7 @@ import 'progress_panel.dart';
 import 'queue_panel.dart';
 import 'settings/settings_dialog.dart';
 import '../widgets/resizable_split.dart';
+import '../widgets/warning_banner.dart';
 
 class MainWindow extends StatelessWidget {
   const MainWindow({super.key});
@@ -97,6 +99,18 @@ class MainWindow extends StatelessWidget {
             onSelected: (value) async {
               if (value == 'save') {
                 _showSavePresetDialog(context, viewModel);
+              } else if (value == 'import') {
+                await _importPreset(context, viewModel);
+              } else if (value == 'loadErrors') {
+                await _showPresetLoadFailures(context);
+              } else if (value.startsWith('export:')) {
+                final presetId = value.substring(7);
+                final preset = viewModel.availablePresets
+                    .where((p) => p.id == presetId)
+                    .firstOrNull;
+                if (preset != null) {
+                  await _exportPreset(context, preset);
+                }
               } else if (value.startsWith('load:')) {
                 final presetId = value.substring(5);
                 final preset = viewModel.availablePresets.where((p) => p.id == presetId).firstOrNull;
@@ -143,6 +157,7 @@ class MainWindow extends StatelessWidget {
             },
             itemBuilder: (context) {
               final presets = viewModel.availablePresets;
+              final failures = PresetService.instance.loadFailures;
               final user = presets.where((p) => !p.isBuiltIn).toList();
 
               // Split the built-ins by what question they answer. "How hard
@@ -217,7 +232,15 @@ class MainWindow extends StatelessWidget {
                               },
                             ),
                             IconButton(
+                              icon: const Icon(Icons.ios_share, size: 18),
+                              tooltip: 'Export to a file',
+                              onPressed: () {
+                                Navigator.pop(context, 'export:${p.id}');
+                              },
+                            ),
+                            IconButton(
                               icon: const Icon(Icons.delete, size: 18),
+                              tooltip: 'Delete',
                               onPressed: () {
                                 Navigator.pop(context, 'delete:${p.id}');
                               },
@@ -236,6 +259,37 @@ class MainWindow extends StatelessWidget {
                     title: Text('Save Current Settings...'),
                   ),
                 ),
+                const PopupMenuItem<String>(
+                  value: 'import',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    leading: Icon(Icons.file_open),
+                    title: Text('Import Preset...'),
+                  ),
+                ),
+                // Preset files that could not be read. Silence here is what
+                // made a corrupt or hand-edited preset indistinguishable from
+                // one that was never saved.
+                if (failures.isNotEmpty) ...[
+                  const PopupMenuDivider(),
+                  PopupMenuItem<String>(
+                    value: 'loadErrors',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      leading: Icon(Icons.error_outline,
+                          color: Theme.of(context).colorScheme.error),
+                      title: Text(
+                        failures.length == 1
+                            ? '1 preset could not be loaded'
+                            : '${failures.length} presets could not be loaded',
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.error),
+                      ),
+                    ),
+                  ),
+                ],
               ];
             },
           ),
@@ -694,6 +748,252 @@ class MainWindow extends StatelessWidget {
     }
   }
 
+  /// Write a preset to a file the user picks, so it can be shared.
+  Future<void> _exportPreset(BuildContext context, ProcessingPreset preset) async {
+    final messenger = ScaffoldMessenger.of(context);
+    // Captured before any await: the context may be gone by the time a
+    // failure needs reporting.
+    final errorColour = Theme.of(context).colorScheme.error;
+    try {
+      final destination = await FilePicker.platform.saveFile(
+        dialogTitle: 'Export "${preset.name}"',
+        fileName: PresetService.suggestedExportFilename(preset),
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+      );
+      // A cancelled picker returns null; that is not a failure.
+      if (destination == null) return;
+
+      // Some platforms return the name without the extension the filter implies.
+      final path =
+          destination.toLowerCase().endsWith('.json') ? destination : '$destination.json';
+
+      await PresetService.instance.exportPreset(preset, path);
+      messenger.showSnackBar(
+        SnackBar(content: Text('Exported "${preset.name}"')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(
+        content: Text('Could not export the preset: $e'),
+        backgroundColor: errorColour,
+      ));
+    }
+  }
+
+  /// Read a preset file the user picks, confirm anything executable in it, and
+  /// install it.
+  Future<void> _importPreset(BuildContext context, MainViewModel viewModel) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final errorColour = Theme.of(context).colorScheme.error;
+
+    final result = await FilePicker.platform.pickFiles(
+      dialogTitle: 'Import a preset',
+      type: FileType.custom,
+      allowedExtensions: const ['json'],
+    );
+    if (result == null || result.files.isEmpty) return;
+    final sourcePath = result.files.first.path;
+    if (sourcePath == null) return;
+
+    final preview = await PresetService.instance.inspectPresetFile(sourcePath);
+    if (!preview.ok) {
+      messenger.showSnackBar(SnackBar(
+        content: Text(preview.error ?? 'That file is not a preset.'),
+        backgroundColor: errorColour,
+      ));
+      return;
+    }
+
+    if (!context.mounted) return;
+    final decision = await _confirmImport(context, preview);
+    if (decision == null) return;
+
+    try {
+      final imported = await viewModel.importPreset(
+        preview,
+        stripCustomCode: decision == _ImportChoice.withoutCustomCode,
+      );
+      messenger.showSnackBar(SnackBar(
+        content: Text(preview.existingWithSameId != null
+            ? 'Updated "${imported.name}"'
+            : 'Imported "${imported.name}"'),
+      ));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(
+        content: Text('Could not import the preset: $e'),
+        backgroundColor: errorColour,
+      ));
+    }
+  }
+
+  /// Ask before installing an imported preset.
+  ///
+  /// A plain preset gets a short confirmation. One carrying custom VapourSynth
+  /// gets the code shown verbatim, because that is Python the worker will run
+  /// — importing someone's preset is closer to running their script than to
+  /// loading their settings, and nothing else in the app would reveal it: the
+  /// custom-code fields are hidden unless advanced mode is on.
+  Future<_ImportChoice?> _confirmImport(
+      BuildContext context, PresetImportPreview preview) async {
+    final preset = preview.preset!;
+    final theme = Theme.of(context);
+
+    return showDialog<_ImportChoice>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(preview.existingWithSameId != null
+            ? 'Update "${preview.existingWithSameId!.name}"?'
+            : 'Import "${preset.name}"?'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (preset.description != null &&
+                    preset.description!.trim().isNotEmpty) ...[
+                  Text(preset.description!),
+                  const SizedBox(height: 12),
+                ],
+                Text(
+                  '${preset.pipeline.enabledPassCount} processing '
+                  '${preset.pipeline.enabledPassCount == 1 ? "pass" : "passes"}, '
+                  'output as ${preset.encodingSettings.codec.displayName}.',
+                  style: theme.textTheme.bodySmall,
+                ),
+                if (preview.existingWithSameId != null) ...[
+                  const SizedBox(height: 12),
+                  const WarningBanner(
+                    message: 'You already have this preset. Importing replaces '
+                        'it with the version in this file.',
+                  ),
+                ] else if (preview.existingWithSameName != null) ...[
+                  const SizedBox(height: 12),
+                  WarningBanner(
+                    message: 'You already have a different preset called '
+                        '"${preset.name}". Both will be kept, so the menu will '
+                        'show the name twice.',
+                  ),
+                ],
+                if (preview.carriesCustomCode) ...[
+                  const SizedBox(height: 16),
+                  const WarningBanner(
+                    message: 'This preset carries custom code, which runs on '
+                        'your machine when you process a video. Only accept it '
+                        'from someone you trust.',
+                  ),
+                  const SizedBox(height: 12),
+                  if (preview.customVapoursynth.trim().isNotEmpty)
+                    _codeBlock(context, 'Custom VapourSynth (Python)',
+                        preview.customVapoursynth),
+                  if (preview.customFfmpegArgs.trim().isNotEmpty)
+                    _codeBlock(context, 'Custom FFmpeg arguments',
+                        preview.customFfmpegArgs),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          // Offered only when there is something to leave out. Taking the
+          // filter settings without the code is the useful middle option, and
+          // without it the choice is trust-everything or nothing.
+          if (preview.carriesCustomCode)
+            TextButton(
+              onPressed: () =>
+                  Navigator.pop(context, _ImportChoice.withoutCustomCode),
+              child: const Text('Import without the code'),
+            ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, _ImportChoice.asIs),
+            child: Text(preview.existingWithSameId != null ? 'Replace' : 'Import'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _codeBlock(BuildContext context, String label, String code) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: theme.textTheme.labelSmall),
+          const SizedBox(height: 4),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: SelectableText(
+              code.trim(),
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// List the preset files that could not be read, and where they are.
+  Future<void> _showPresetLoadFailures(BuildContext context) async {
+    final failures = PresetService.instance.loadFailures;
+    if (failures.isEmpty) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(failures.length == 1
+            ? 'A preset could not be loaded'
+            : '${failures.length} presets could not be loaded'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final f in failures) ...[
+                  Text(f.filename,
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text(f.reason),
+                  const SizedBox(height: 4),
+                  SelectableText(
+                    f.path,
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.6),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showSavePresetDialog(BuildContext context, MainViewModel viewModel) {
     final nameController = TextEditingController();
     final descriptionController = TextEditingController();
@@ -895,4 +1195,14 @@ class MainWindow extends StatelessWidget {
     }
     return conflicting;
   }
+}
+
+/// What the user chose in the import confirmation.
+enum _ImportChoice {
+  /// Install the preset exactly as the file describes it.
+  asIs,
+
+  /// Install it without the custom VapourSynth and FFmpeg arguments — the
+  /// useful middle option between trusting everything and importing nothing.
+  withoutCustomCode,
 }

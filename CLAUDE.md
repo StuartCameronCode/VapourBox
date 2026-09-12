@@ -820,7 +820,49 @@ configurable in **Settings → General → Existing Output Files**):
 Presets save complete filter pipeline + encoding settings. The built-in presets
 are static factories in `app/lib/models/processing_preset.dart`, collected by
 `ProcessingPreset.builtInPresets()`, which `PresetService` calls in
-`initialize()`/`reload()`. User presets save to `~/.vapourbox/presets/*.json`.
+`initialize()`/`reload()`. User presets save to `~/.vapourbox/presets/*.json`,
+and can be exported to and imported from any file (issue #81).
+
+> **A preset is executable, and import has to say so.** It carries
+> `customVapoursynth` — Python the worker runs — and `customFfmpegArgs`, both of
+> which survive a round trip. Importing someone else's preset is closer to
+> running their script than to loading their settings, and **nothing else in the
+> app would reveal it**: those fields only render in advanced mode. So import is
+> two-phase. `inspectPresetFile` reads and validates without committing;
+> the dialog shows any custom code verbatim; `commitImport` installs it, with
+> `stripCustomCode` as the middle option between trusting everything and
+> importing nothing. Don't collapse that into a one-shot `importPreset`.
+
+> **Never take `isBuiltIn` from a file** — the flag survives `fromJson`, and a
+> built-in cannot be deleted or overwritten, so a preset claiming to be one
+> would be stuck in the menu permanently. Both the load path and the import
+> path force it false.
+
+> **The on-disk filename is the preset's id, not its name.** It used to be
+> `<sanitized-name>.json`, and the sanitizer lowercases and collapses
+> whitespace and separators — so `VHS Cleanup`, `vhs cleanup`, `VHS/Cleanup`
+> and `VHS  Cleanup` all produced `vhs_cleanup.json`. Saving one destroyed
+> another; renaming left the original behind as a duplicate; and `deletePreset`
+> removed the name-derived file *before* looking by id, so deleting one preset
+> took a similarly-named one's file with it. Import makes all three easy to hit,
+> since an imported preset is very likely to be named like an existing one.
+> `savePreset` now also sweeps any other file carrying the same id, which
+> migrates legacy name-based files as they are touched.
+
+> **Load failures are collected, not printed.** `_loadUserPresets` used to
+> `print()` per bad file, which in a release build means the preset silently
+> never appears — indistinguishable from one that was never saved. They now land
+> in `PresetService.loadFailures` and the preset menu shows a red row. Tolerable
+> when the app wrote every preset itself; wrong once files arrive from elsewhere.
+
+`app/test/preset_service_test.dart` is the first test over this service — set
+`directoryOverride` to a temp dir, since the real path comes from `$HOME`. All
+three filename bugs above have a regression test named after the behaviour.
+
+**Not done:** encoder-only profiles. A preset always carries the whole pipeline,
+so "just my ProRes output settings" cannot be expressed without also pinning
+someone's deinterlacer. That needs an optional-pipeline model change and is its
+own piece of work.
 
 ## Hardware Encoders (issue #51)
 
