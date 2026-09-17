@@ -562,6 +562,14 @@ or `UiSection` directly (both silently drop it if written one level up).
 `visibleWhen` outside `ui`, and every condition must name a parameter/method the
 filter actually has.
 
+**`sinceAppVersion`** (filter-level or per-parameter, e.g. `"1.2.0"`): tags
+when a filter or parameter shipped, purely so `WhatsNewService` can draw a
+"NEW" badge next to it — persisting across every launch of the current app
+version, and only advancing on the next real update, not clearing after one
+run. Stamp it when you ship the feature, not retroactively on anything already
+out — see "NEW badges" in
+[docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md).
+
 Several ongoing rules for schemas and the panel that renders them, each guarded by
 `filter_schema_curation_test.dart` unless noted — see
 docs/ENGINEERING_NOTES.md for the audits that found violations of each:

@@ -12,6 +12,7 @@ import 'services/preset_service.dart';
 import 'services/temp_directory_service.dart';
 import 'services/tool_locator.dart';
 import 'services/update_checker.dart';
+import 'services/whats_new_service.dart';
 import 'viewmodels/main_viewmodel.dart';
 import 'views/dependency_download_dialog.dart';
 import 'views/main_window.dart';
@@ -30,6 +31,11 @@ void main() async {
   // Load the advanced-mode choice before the first panel builds, so the filter
   // settings don't flash from simple to advanced on startup.
   await AdvancedModeService.instance.initialize();
+
+  // Records the previously-installed version (before overwriting it with the
+  // current one) so "NEW" badges on filters/parameters can compare against
+  // it. Must happen before the first pass list or settings panel builds.
+  await WhatsNewService.instance.initialize();
 
   // Load the saved default for existing output files (issue #85) before the
   // first job can be started.

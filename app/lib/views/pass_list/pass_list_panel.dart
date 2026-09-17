@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../models/filter_registry.dart';
 import '../../models/pass_relevance.dart';
 import '../../models/processing_pipeline.dart';
+import '../../services/whats_new_service.dart';
 import '../../services/whisper_addon_manager.dart';
 import '../../viewmodels/main_viewmodel.dart';
 import '../pass_settings/pass_settings_inline.dart';
@@ -90,6 +92,8 @@ class PassListPanel extends StatelessWidget {
           ValueChanged<bool>? onToggle,
         }) {
           final isExpanded = viewModel.selectedPass == passType;
+          final schema =
+              FilterRegistry.instance.get(PassSettingsInline.filterIdFor(passType));
           return PassListItem(
             passType: passType,
             title: title,
@@ -97,6 +101,7 @@ class PassListPanel extends StatelessWidget {
             isEnabled: isEnabled,
             isExpanded: isExpanded,
             relevance: relevanceFor(passType, viewModel.videoInfo),
+            isNew: WhatsNewService.instance.isNew(schema?.sinceAppVersion),
             onToggle: onToggle ?? (enabled) => viewModel.togglePass(passType, enabled),
             onTap: () => viewModel.selectPass(passType),
             expandedChild: isExpanded ? PassSettingsInline(passType: passType) : null,

@@ -24,8 +24,11 @@ class PassSettingsInline extends StatelessWidget {
 
   const PassSettingsInline({super.key, required this.passType});
 
-  /// Maps PassType to filter schema ID.
-  static String _getFilterId(PassType passType) {
+  /// Maps PassType to filter schema ID. Public because `pass_list_panel.dart`
+  /// needs the same mapping to look up a pass's [FilterSchema] for its "NEW"
+  /// badge — kept in one place rather than a second switch to fall out of
+  /// sync with this one.
+  static String filterIdFor(PassType passType) {
     switch (passType) {
       case PassType.deinterlace:
         return 'deinterlace';
@@ -76,7 +79,7 @@ class PassSettingsInline extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<MainViewModel>(
       builder: (context, viewModel, child) {
-        final filterId = _getFilterId(passType);
+        final filterId = filterIdFor(passType);
         final schema = FilterRegistry.instance.get(filterId);
 
         // If schema not found, show a fallback message
