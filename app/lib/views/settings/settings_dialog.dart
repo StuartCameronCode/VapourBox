@@ -15,8 +15,11 @@ import '../../services/hardware_encoder_detector.dart';
 import '../../services/overwrite_behavior_service.dart';
 import '../../services/temp_directory_service.dart';
 import '../../services/update_checker.dart';
+import '../../services/whats_new_service.dart';
 import '../../utils/pixel_format.dart';
 import '../../viewmodels/main_viewmodel.dart';
+import '../../widgets/new_badge.dart';
+import '../../widgets/release_notes_text.dart';
 import '../../widgets/warning_banner.dart';
 
 /// The output colour format explanation, shown in a scrollable dialog.
@@ -311,7 +314,7 @@ class _SettingsDialogState extends State<SettingsDialog>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -363,6 +366,7 @@ class _SettingsDialogState extends State<SettingsDialog>
                 Tab(text: 'General'),
                 Tab(text: 'Output'),
                 Tab(text: 'Input'),
+                Tab(text: 'Changes'),
               ],
             ),
 
@@ -374,6 +378,7 @@ class _SettingsDialogState extends State<SettingsDialog>
                   _GeneralSettingsTab(),
                   _OutputSettingsTab(),
                   _InputSettingsTab(),
+                  _ChangesSettingsTab(),
                 ],
               ),
             ),
@@ -485,6 +490,213 @@ class _InputSettingsTab extends StatelessWidget {
         const SizedBox(height: 12),
         child,
       ],
+    );
+  }
+}
+
+/// The app's release history, browsable by version — a vertical list of
+/// versions on the left (the "sub-tabs"), the selected one's notes on the
+/// right. Only the version list is fetched up front; each release's notes
+/// are pulled lazily the first time it's actually selected, and cached in
+/// memory afterward so re-selecting is instant.
+class _ChangesSettingsTab extends StatefulWidget {
+  const _ChangesSettingsTab();
+
+  @override
+  State<_ChangesSettingsTab> createState() => _ChangesSettingsTabState();
+}
+
+class _ChangesSettingsTabState extends State<_ChangesSettingsTab> {
+  List<AppRelease>? _releases;
+  bool _loadingList = true;
+
+  String? _selectedTag;
+  final Map<String, String?> _notesCache = {};
+  bool _loadingNotes = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadReleases();
+  }
+
+  Future<void> _loadReleases() async {
+    final releases = await UpdateChecker.instance.listReleases();
+    if (!mounted) return;
+    setState(() {
+      _releases = releases;
+      _loadingList = false;
+    });
+    if (releases != null && releases.isNotEmpty) {
+      _selectRelease(releases.first.tagName);
+    }
+  }
+
+  Future<void> _selectRelease(String tagName) async {
+    setState(() => _selectedTag = tagName);
+    if (_notesCache.containsKey(tagName)) return;
+
+    setState(() => _loadingNotes = true);
+    final notes = await UpdateChecker.instance.fetchReleaseNotes(tagName);
+    if (!mounted) return;
+    setState(() {
+      _notesCache[tagName] = notes;
+      _loadingNotes = false;
+    });
+  }
+
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.year.toString().padLeft(4, '0')}-'
+        '${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loadingList) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final releases = _releases;
+    if (releases == null || releases.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            releases == null
+                ? "Couldn't load release history. Check your connection and "
+                    'reopen Settings to try again.'
+                : 'No release history found.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color:
+                      Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: 140,
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border(
+                right: BorderSide(
+                  color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
+                ),
+              ),
+            ),
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemCount: releases.length,
+              itemBuilder: (context, index) =>
+                  _buildVersionRow(context, releases[index]),
+            ),
+          ),
+        ),
+        Expanded(child: _buildDetail(context)),
+      ],
+    );
+  }
+
+  Widget _buildVersionRow(BuildContext context, AppRelease release) {
+    final selected = release.tagName == _selectedTag;
+    final isNew = WhatsNewService.instance.isNew(release.version);
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return InkWell(
+      onTap: () => _selectRelease(release.tagName),
+      child: Container(
+        color: selected
+            ? colorScheme.primaryContainer.withValues(alpha: 0.4)
+            : null,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                'v${release.version}',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                    ),
+              ),
+            ),
+            if (isNew) ...[
+              const SizedBox(width: 6),
+              const NewBadge(),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetail(BuildContext context) {
+    final selectedTag = _selectedTag;
+    if (selectedTag == null) return const SizedBox.shrink();
+
+    final release = _releases!.firstWhere((r) => r.tagName == selectedTag);
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  (release.name?.trim().isNotEmpty ?? false)
+                      ? release.name!
+                      : 'v${release.version}',
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.open_in_new, size: 18),
+                tooltip: 'View on GitHub',
+                onPressed: () => _openUrl(release.htmlUrl),
+              ),
+            ],
+          ),
+          if (release.publishedAt != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, bottom: 12),
+              child: Text(
+                _formatDate(release.publishedAt!),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+            ),
+          Expanded(
+            child: _loadingNotes
+                ? const Center(child: CircularProgressIndicator())
+                : SingleChildScrollView(
+                    child: _notesCache[selectedTag] != null
+                        ? ReleaseNotesText(markdown: _notesCache[selectedTag]!)
+                        : Text(
+                            'No release notes for this version.',
+                            style: theme.textTheme.bodyMedium
+                                ?.copyWith(height: 1.4),
+                          ),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }

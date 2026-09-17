@@ -2,7 +2,7 @@
 # Build and run VapourBox debug app on macOS.
 # Usage: ./Scripts/run-debug-macos.sh [--skip-worker] [--skip-app] [--run-only]
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -46,42 +46,53 @@ pkill -f "vapourbox.app" 2>/dev/null || true
 # Build Rust worker (debug)
 if ! $SKIP_WORKER; then
   echo "==> Building worker (debug)..."
-  cd "$WORKER_DIR"
-  cargo build
+  (cd "$WORKER_DIR" && cargo build)
   echo "    Worker built."
 fi
 
-# Build Flutter app (debug) via xcodebuild
+# Build Flutter app (debug).
+#
+# This calls `flutter build macos --debug` directly, not a raw `xcodebuild`
+# invocation against Runner.xcworkspace — recent Flutter versions resolve
+# several plugins (file_picker, package_info_plus, screen_retriever_macos,
+# shared_preferences_foundation, url_launcher_macos, as of Flutter 3.47) via
+# Swift Package Manager rather than CocoaPods, and only `flutter build`
+# drives that resolution. A raw `xcodebuild -scheme Runner` call fails on
+# those with "Unable to resolve module dependency", even with Pods-Runner
+# built first (the fix for the *different*, older module-resolution issue
+# this script used to work around).
 if ! $SKIP_APP; then
   echo "==> Building Flutter app (debug)..."
   cd "$APP_DIR"
-  flutter pub get --no-example > /dev/null 2>&1
+  flutter pub get --no-example > /dev/null
 
-  cd "$APP_DIR/macos"
-  xcodebuild -workspace Runner.xcworkspace \
-    -scheme Runner \
-    -configuration Debug \
-    build \
-    ARCHS=arm64 \
-    ONLY_ACTIVE_ARCH=YES \
-    2>&1 | grep -E '(error:|warning:|BUILD|Compiling)' || true
+  # Remove what a previous run of *this script* injected below (worker
+  # binary, templates) before rebuilding. Left in place, they confuse
+  # Xcode's code-signing pass — "code object is not signed at all" on a
+  # leftover .vpy file it never created — which fails the whole build.
+  # Removing only these two paths (not the whole bundle) keeps Xcode's own
+  # incremental build cache intact.
+  rm -f "$DEBUG_APP/Contents/MacOS/vapourbox-worker"
+  rm -rf "$DEBUG_APP/Contents/MacOS/templates"
 
+  # No `|| true` and no piping through `grep` here: either of those would
+  # swallow a real build failure (this is exactly how a previous version of
+  # this script silently fell back to launching a stale, months-old app
+  # bundle after `xcodebuild` failed). `set -e` above means a nonzero exit
+  # here stops the script immediately, with Flutter's own error output
+  # printed in full.
+  flutter build macos --debug
   echo "    Flutter app built."
 fi
 
-# Copy app bundle from DerivedData to Flutter build location
-echo "==> Assembling debug bundle..."
-DERIVED_APP=$(find ~/Library/Developer/Xcode/DerivedData -path "*/Runner-*/Build/Products/Debug/vapourbox.app" -maxdepth 5 2>/dev/null | head -1)
-if [ -z "$DERIVED_APP" ]; then
-  echo "ERROR: Could not find built app in DerivedData. Build the app first."
+if [ ! -d "$DEBUG_APP" ]; then
+  echo "ERROR: $DEBUG_APP does not exist." >&2
+  echo "Run without --skip-app / --run-only first to build it." >&2
   exit 1
 fi
 
-mkdir -p "$APP_DIR/build/macos/Build/Products/Debug"
-rm -rf "$DEBUG_APP"
-cp -R "$DERIVED_APP" "$DEBUG_APP"
-
 # Copy worker binary
+echo "==> Assembling debug bundle..."
 cp "$WORKER_DIR/target/debug/vapourbox-worker" "$DEBUG_APP/Contents/MacOS/"
 
 # Copy templates (includes pipe_source.py used by VapourSynth scripts)
