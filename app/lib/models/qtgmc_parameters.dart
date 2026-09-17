@@ -271,6 +271,19 @@ class QTGMCParameters {
   /// VDecimate scene change threshold
   final double? ivtcScthresh;
 
+  /// Whether to patch frames VFM couldn't cleanly field-match (a broken
+  /// cadence at a scene change, a blended dissolve) with a QTGMC
+  /// deinterlace of that frame instead of leaving them combed. IVTC method
+  /// only; roughly doubles the deinterlace pass's cost, so it defaults off.
+  final bool ivtcFallbackDeinterlace;
+
+  /// QTGMC preset for the fallback pass, independent of [preset] (which
+  /// governs the QTGMC *method*, not used while [method] is
+  /// [DeinterlaceMethod.ivtc]). Null resolves to [QTGMCPreset.fast] on the
+  /// worker side — not the general [QTGMCPreset.slower] default, since this
+  /// runs a full second QTGMC pass on top of an already-slow IVTC one.
+  final QTGMCPreset? ivtcFallbackPreset;
+
   const QTGMCParameters({
     this.enabled = true,
     this.method = DeinterlaceMethod.qtgmc,
@@ -363,6 +376,8 @@ class QTGMCParameters {
     this.ivtcCycle,
     this.ivtcDupthresh,
     this.ivtcScthresh,
+    this.ivtcFallbackDeinterlace = false,
+    this.ivtcFallbackPreset,
   });
 
   factory QTGMCParameters.fromJson(Map<String, dynamic> json) =>
@@ -460,6 +475,8 @@ class QTGMCParameters {
     int? ivtcCycle,
     double? ivtcDupthresh,
     double? ivtcScthresh,
+    bool? ivtcFallbackDeinterlace,
+    QTGMCPreset? ivtcFallbackPreset,
     bool? bwdifEdeint,
   }) {
     return QTGMCParameters(
@@ -553,6 +570,8 @@ class QTGMCParameters {
       ivtcCycle: ivtcCycle ?? this.ivtcCycle,
       ivtcDupthresh: ivtcDupthresh ?? this.ivtcDupthresh,
       ivtcScthresh: ivtcScthresh ?? this.ivtcScthresh,
+      ivtcFallbackDeinterlace: ivtcFallbackDeinterlace ?? this.ivtcFallbackDeinterlace,
+      ivtcFallbackPreset: ivtcFallbackPreset ?? this.ivtcFallbackPreset,
       bwdifEdeint: bwdifEdeint ?? this.bwdifEdeint,
     );
   }

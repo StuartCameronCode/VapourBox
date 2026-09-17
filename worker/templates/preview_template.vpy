@@ -385,6 +385,25 @@ clip = core.vivtc.VFM(_ivtc_metrics, order={{IVTC_ORDER}},
     blocky={{IVTC_BLOCK_Y}},
 {{/IVTC_BLOCK_Y}}
     clip2=_ivtc_src)
+{{#IVTC_FALLBACK}}
+# Same fallback as the encode path (see pipeline_template.vpy): a QTGMC
+# deinterlace of this frame patches in wherever VFM flagged it combed, so the
+# preview doesn't show combing the real encode won't have. No VDecimate here
+# (preview is single-frame — nothing to decimate), so the hybrid becomes the
+# clip directly rather than feeding VDecimate's clip2.
+_ivtc_fallback_deint = haf.QTGMC(_ivtc_src, Preset="{{IVTC_FALLBACK_PRESET}}",
+{{#IVTC_FALLBACK_TFF}}
+    TFF={{IVTC_FALLBACK_TFF}},
+{{/IVTC_FALLBACK_TFF}}
+    FPSDivisor=2)
+def _ivtc_fallback_apply(n, f, combed_clip, fallback_clip):
+    return fallback_clip if f.props.get('_Combed') else combed_clip
+clip = core.std.FrameEval(
+    clip,
+    functools.partial(_ivtc_fallback_apply, combed_clip=clip, fallback_clip=_ivtc_fallback_deint),
+    prop_src=clip,
+)
+{{/IVTC_FALLBACK}}
 {{/DEINT_IVTC}}
 {{/DEINTERLACE}}
 

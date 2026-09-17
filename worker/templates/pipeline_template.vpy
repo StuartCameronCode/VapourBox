@@ -420,6 +420,29 @@ clip = core.vivtc.VFM(_ivtc_metrics, order={{IVTC_ORDER}},
     blocky={{IVTC_BLOCK_Y}},
 {{/IVTC_BLOCK_Y}}
     clip2=_ivtc_src)
+{{#IVTC_FALLBACK}}
+# Fallback deinterlace: a frame VFM couldn't cleanly field-match (a broken
+# cadence at a scene change, a blended dissolve) gets a QTGMC deinterlace of
+# that same frame instead of being left combed. VFM already stamped _Combed
+# on every frame above. QTGMC runs on the full-depth source in parallel at
+# single rate (FPSDivisor=2, matching VFM's own untouched frame count), and
+# FrameEval swaps its frame in wherever _Combed is set. VDecimate below takes
+# its drop decisions from the plain VFM clip and its output frames from this
+# hybrid via clip2 — the same clip2 idiom VFM itself used above for the
+# bit-depth split — so which frames get dropped is unaffected by the patch.
+_ivtc_fallback_deint = haf.QTGMC(_ivtc_src, Preset="{{IVTC_FALLBACK_PRESET}}",
+{{#IVTC_FALLBACK_TFF}}
+    TFF={{IVTC_FALLBACK_TFF}},
+{{/IVTC_FALLBACK_TFF}}
+    FPSDivisor=2)
+def _ivtc_fallback_apply(n, f, combed_clip, fallback_clip):
+    return fallback_clip if f.props.get('_Combed') else combed_clip
+_ivtc_hybrid = core.std.FrameEval(
+    clip,
+    functools.partial(_ivtc_fallback_apply, combed_clip=clip, fallback_clip=_ivtc_fallback_deint),
+    prop_src=clip,
+)
+{{/IVTC_FALLBACK}}
 # VFM output is full-depth again; VDecimate accepts 8..16 bit natively.
 clip = core.vivtc.VDecimate(clip,
 {{#IVTC_CYCLE}}
@@ -431,6 +454,9 @@ clip = core.vivtc.VDecimate(clip,
 {{#IVTC_SCTHRESH}}
     scthresh={{IVTC_SCTHRESH}},
 {{/IVTC_SCTHRESH}}
+{{#IVTC_FALLBACK}}
+    clip2=_ivtc_hybrid,
+{{/IVTC_FALLBACK}}
 )
 {{/DEINT_IVTC}}
 {{#DEINT_SOFT_TELECINE}}

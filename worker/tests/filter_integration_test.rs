@@ -5786,3 +5786,130 @@ fn test_155_a_bundle_without_the_split_still_autoloads_zsmooth() {
         }
     }
 }
+
+#[test]
+fn test_156_ivtc_fallback_deinterlace_script() {
+    // Frames VFM couldn't cleanly field-match get patched with a QTGMC
+    // deinterlace of that frame instead of being left combed. Verifies the
+    // encode script builds the fallback QTGMC pass, the _Combed-driven
+    // FrameEval swap, and feeds the hybrid into VDecimate via clip2 — while
+    // VDecimate's own drop decisions still come from the plain VFM clip.
+    create_output_dir();
+
+    let mut job = create_ivtc_base_job("test_156_ivtc_fallback");
+    job.qtgmc_parameters.ivtc_fallback_deinterlace = true;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "IVTC - Fallback Deinterlace", &[
+        "core.vivtc.VFM",
+        "_ivtc_fallback_deint = haf.QTGMC(_ivtc_src",
+        // Unset ivtc_fallback_preset resolves to Fast, not the general
+        // Slower default — this pass runs on top of an already-slow IVTC.
+        "Preset=\"Fast\"",
+        "f.props.get('_Combed')",
+        "_ivtc_hybrid = core.std.FrameEval(",
+        "core.vivtc.VDecimate(clip,",
+        "clip2=_ivtc_hybrid,",
+    ]).unwrap();
+}
+
+#[test]
+fn test_157_ivtc_fallback_deinterlace_respects_explicit_preset_and_tff() {
+    create_output_dir();
+
+    let mut job = create_ivtc_base_job("test_157_ivtc_fallback_preset");
+    job.qtgmc_parameters.ivtc_fallback_deinterlace = true;
+    job.qtgmc_parameters.ivtc_fallback_preset = Some(QTGMCPreset::Placebo);
+    job.qtgmc_parameters.tff = Some(false);
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+
+    run_job_and_verify(&job, "IVTC - Fallback Deinterlace Custom Preset", &[
+        "_ivtc_fallback_deint = haf.QTGMC(_ivtc_src",
+        "Preset=\"Placebo\"",
+        "TFF=False",
+    ]).unwrap();
+}
+
+#[test]
+fn test_158_ivtc_fallback_deinterlace_preview_script() {
+    // The preview must show the same patched frame the encode would produce
+    // (#49-style preview/encode parity) — no VDecimate call exists in the
+    // preview template (single frame, nothing to decimate), so the hybrid
+    // clip replaces `clip` directly rather than feeding a clip2 kwarg.
+    create_output_dir();
+
+    let mut job = create_ivtc_base_job("test_158_ivtc_fallback_preview");
+    job.qtgmc_parameters.ivtc_fallback_deinterlace = true;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+
+    let generator = ScriptGenerator::new().expect("create generator");
+    let params = PreviewParams {
+        width: 720,
+        height: 480,
+        pix_fmt: "yuv420p".to_string(),
+        num_frames: 11,
+        fps_num: 30000,
+        fps_den: 1001,
+        output_index: 3,
+    };
+    let script_path = generator
+        .generate_preview(&job, &params)
+        .expect("generate preview script");
+    let script = std::fs::read_to_string(&script_path).expect("read preview script");
+
+    assert!(
+        script.contains("_ivtc_fallback_deint = haf.QTGMC(_ivtc_src"),
+        "preview must build the same fallback QTGMC pass as the encode, script was:\n{}",
+        script
+    );
+    assert!(
+        script.contains("f.props.get('_Combed')"),
+        "preview must gate the swap on _Combed the same way the encode does"
+    );
+    assert!(
+        !script.contains("core.vivtc.VDecimate"),
+        "preview has nothing to decimate — a VDecimate call here would be new, unintended behaviour"
+    );
+    assert!(
+        !script.contains("clip2=_ivtc_hybrid"),
+        "no VDecimate call exists in preview to take a clip2 kwarg"
+    );
+}
+
+#[test]
+fn test_159_ivtc_fallback_deinterlace_off_by_default() {
+    // With the toggle off (the default), the script must be exactly what it
+    // was before this feature existed — no leftover template markers, no
+    // fallback QTGMC pass, and VDecimate's call unchanged.
+    create_output_dir();
+
+    let job = create_ivtc_base_job("test_159_ivtc_fallback_off");
+    let mut job = job;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+    assert!(!job.qtgmc_parameters.ivtc_fallback_deinterlace, "fallback must default off");
+
+    let generator = ScriptGenerator::new().expect("create generator");
+    let script_path = generator.generate(&job).expect("generate script");
+    let script = std::fs::read_to_string(&script_path).expect("read script");
+
+    for leftover in ["{{#IVTC_FALLBACK}}", "{{/IVTC_FALLBACK}}", "{{IVTC_FALLBACK_PRESET}}"] {
+        assert!(!script.contains(leftover), "script left {leftover} unsubstituted");
+    }
+    assert!(!script.contains("_ivtc_fallback_deint"), "fallback pass must not be built when off");
+    assert!(!script.contains("_ivtc_hybrid"), "hybrid clip must not be built when off");
+    assert!(!script.contains("clip2=_ivtc_hybrid"), "VDecimate must not take a clip2 kwarg when off");
+    assert!(script.contains("core.vivtc.VFM"), "VFM must still be present");
+    assert!(script.contains("core.vivtc.VDecimate"), "VDecimate must still be present");
+}

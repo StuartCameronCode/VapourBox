@@ -979,6 +979,45 @@ block existed.
 `''`, `'nnedi3'` and `'bob'`; `QTGMCParameters::normalized_chroma_edi` drops
 anything else, since an unsupported value silently corrupts chroma.
 
+### IVTC Fallback Deinterlace
+
+**`ivtcFallbackDeinterlace`** (default off, IVTC method only) patches frames
+`VFM` couldn't cleanly field-match — a broken cadence at a scene change, a
+blended dissolve — with a QTGMC deinterlace of that frame, instead of leaving
+them combed. Off by default: it roughly doubles the pass's cost by running a
+full second QTGMC deinterlace of the source in parallel.
+
+The mechanism relies on two `vivtc` behaviors confirmed against the actual
+bundled plugin (not assumed from memory) before wiring this up:
+
+- `VFM` stamps a `_Combed` frame property on every frame, which is already
+  true regardless of this feature — it is simply unused elsewhere.
+- `VDecimate` accepts a `clip2` kwarg: its *drop decisions* still come from
+  the clip passed as `clip`, but its *output frames* come from `clip2`. VFM
+  itself already uses this same idiom above it in the script, to run field
+  matching on an 8-bit metrics copy while emitting full-depth pixels.
+
+Script shape (both `pipeline_template.vpy` and `preview_template.vpy`,
+`{{#IVTC_FALLBACK}}` gated in `script_generator.rs`):
+
+1. `VFM` runs as it always does — its `_Combed` prop is now read, not new.
+2. `haf.QTGMC(_ivtc_src, Preset=..., FPSDivisor=2)` runs on the full-depth
+   source at single rate, matching VFM's own untouched frame count.
+3. `FrameEval` swaps the QTGMC frame in wherever `_Combed` is set, producing
+   a hybrid clip.
+4. Encode path only: `VDecimate(clip, clip2=hybrid, ...)` — decimation timing
+   is unaffected by the patch, since the drop decisions still come from the
+   plain VFM clip. The preview template has no `VDecimate` call at all
+   (single-frame, nothing to decimate), so the hybrid clip replaces `clip`
+   directly instead.
+
+**`ivtcFallbackPreset`** defaults to `Fast`, not the general `QTGMCPreset`
+default (`Slower`) — this pass runs on top of an already-slow IVTC pass, so
+inheriting the general default would make the fallback more expensive than
+the pass it patches. Resolved worker-side by
+`QTGMCParameters::ivtc_fallback_preset_or_default`, not by the schema alone,
+since the field is optional and a saved job may predate it.
+
 ## Testing
 
 VapourBox has **three distinct test suites**. Know which is which before adding

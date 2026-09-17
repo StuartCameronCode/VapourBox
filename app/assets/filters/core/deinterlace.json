@@ -124,7 +124,9 @@
         "ivtcBlockY",
         "ivtcCycle",
         "ivtcDupthresh",
-        "ivtcScthresh"
+        "ivtcScthresh",
+        "ivtcFallbackDeinterlace",
+        "ivtcFallbackPreset"
       ]
     },
     {
@@ -1948,6 +1950,48 @@
         }
       }
     },
+    "ivtcFallbackDeinterlace": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Fix Leftover Combing",
+        "description": "Detects frames VFM couldn't cleanly field-match — a broken cadence at a scene change, a blended dissolve — and replaces just those frames with a QTGMC deinterlace instead of leaving them combed. Roughly doubles processing time for this pass.",
+        "widget": "checkbox",
+        "visibleWhen": {
+          "method": [
+            "ivtc"
+          ]
+        }
+      }
+    },
+    "ivtcFallbackPreset": {
+      "type": "enum",
+      "default": "Fast",
+      "options": [
+        "Placebo",
+        "Very Slow",
+        "Slower",
+        "Slow",
+        "Medium",
+        "Fast",
+        "Faster",
+        "Very Fast",
+        "Super Fast",
+        "Ultra Fast",
+        "Draft"
+      ],
+      "ui": {
+        "label": "Fallback Speed",
+        "description": "QTGMC preset used only for the frames being patched — separate from the main pipeline's deinterlace preset, since this runs on top of an already-slow IVTC pass.",
+        "widget": "dropdown",
+        "visibleWhen": {
+          "method": [
+            "ivtc"
+          ],
+          "ivtcFallbackDeinterlace": true
+        }
+      }
+    },
     "bwdifEdeint": {
       "type": "boolean",
       "default": false,
@@ -2095,7 +2139,9 @@
         "title": "IVTC Settings",
         "parameters": [
           "ivtcMode",
-          "ivtcCycle"
+          "ivtcCycle",
+          "ivtcFallbackDeinterlace",
+          "ivtcFallbackPreset"
         ],
         "expanded": true
       },
