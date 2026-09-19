@@ -1398,5 +1398,45 @@ void main() {
       expect(script, contains('core.vivtc.VDecimate(clip'));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // --- IVTC fallback deinterlace: patch frames VFM couldn't cleanly
+    // field-match with a QTGMC deinterlace of that frame, instead of leaving
+    // them combed. ---
+    test('ivtc: fallback deinterlace builds the hybrid clip', () async {
+      final job = buildJob(
+        testName: 'ivtc_fallback',
+        deinterlace: const QTGMCParameters(
+          enabled: true,
+          method: DeinterlaceMethod.ivtc,
+          tff: true,
+          ivtcFallbackDeinterlace: true,
+          ivtcFallbackPreset: QTGMCPreset.placebo,
+        ),
+      );
+      print('  Generating IVTC fallback script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('_ivtc_fallback_deint = haf.QTGMC(_ivtc_src'));
+      expect(script, contains('Preset="Placebo"'));
+      expect(script, contains("f.props.get('_Combed')"));
+      expect(script, contains('_ivtc_hybrid = core.std.FrameEval('));
+      expect(script, contains('clip2=_ivtc_hybrid'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('ivtc: fallback deinterlace off by default leaves the script unchanged',
+        () async {
+      final job = buildJob(
+        testName: 'ivtc_fallback_off',
+        deinterlace: const QTGMCParameters(
+          enabled: true, method: DeinterlaceMethod.ivtc, tff: true,
+        ),
+      );
+      final script = await generateScriptViaWorker(job);
+      expect(script, isNot(contains('_ivtc_fallback_deint')));
+      expect(script, isNot(contains('_ivtc_hybrid')));
+      expect(script, isNot(contains('clip2=_ivtc_hybrid')));
+      expect(script, contains('core.vivtc.VDecimate(clip'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
   });
 }

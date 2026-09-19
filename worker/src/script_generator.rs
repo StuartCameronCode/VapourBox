@@ -700,6 +700,20 @@ impl ScriptGenerator {
                     script = process_optional_int("IVTC_CYCLE", params.ivtc_cycle, script);
                     script = process_optional_double("IVTC_DUPTHRESH", params.ivtc_dupthresh, script);
                     script = process_optional_double("IVTC_SCTHRESH", params.ivtc_scthresh, script);
+
+                    // Fallback deinterlace for frames VFM couldn't cleanly
+                    // field-match (see the template for the mechanism).
+                    if params.ivtc_fallback_deinterlace {
+                        script = script.replace("{{#IVTC_FALLBACK}}", "");
+                        script = script.replace("{{/IVTC_FALLBACK}}", "");
+                        script = script.replace(
+                            "{{IVTC_FALLBACK_PRESET}}",
+                            params.ivtc_fallback_preset_or_default().as_str(),
+                        );
+                        script = process_optional_bool("IVTC_FALLBACK_TFF", params.tff, script);
+                    } else {
+                        script = remove_block("{{#IVTC_FALLBACK}}", "{{/IVTC_FALLBACK}}", script);
+                    }
                 }
                 DeinterlaceMethod::SoftTelecine => {
                     // Enable Soft Telecine block, remove QTGMC and IVTC blocks

@@ -411,6 +411,21 @@ pub struct QTGMCParameters {
     /// VDecimate scene change threshold
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ivtc_scthresh: Option<f64>,
+
+    /// Whether to patch frames VFM couldn't cleanly field-match (a broken
+    /// cadence at a scene change, a blended dissolve) with a QTGMC
+    /// deinterlace of that frame instead of leaving them combed. IVTC method
+    /// only; roughly doubles the deinterlace pass's cost, so it defaults off.
+    #[serde(default)]
+    pub ivtc_fallback_deinterlace: bool,
+
+    /// QTGMC preset for the fallback pass, independent of `preset` above
+    /// (which governs the QTGMC *method*, not used while method=IVTC).
+    /// `None` resolves to `Fast` (see `ivtc_fallback_preset_or_default`) —
+    /// deliberately not the general `Slower` default, since this runs a full
+    /// second QTGMC pass on top of an already-slow IVTC one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ivtc_fallback_preset: Option<QTGMCPreset>,
 }
 
 // Default value functions
@@ -451,6 +466,15 @@ impl QTGMCParameters {
         } else {
             None
         }
+    }
+
+    /// The preset the IVTC fallback QTGMC pass runs at. `Fast` rather than
+    /// `QTGMCPreset::default()` (`Slower`) when unset, since this pass runs
+    /// on top of an already-slow IVTC pass and only patches a minority of
+    /// frames — the general QTGMC default would make the fallback more
+    /// expensive than the pass it is patching.
+    pub fn ivtc_fallback_preset_or_default(&self) -> QTGMCPreset {
+        self.ivtc_fallback_preset.unwrap_or(QTGMCPreset::Fast)
     }
 }
 
@@ -548,6 +572,8 @@ impl Default for QTGMCParameters {
             ivtc_cycle: None,
             ivtc_dupthresh: None,
             ivtc_scthresh: None,
+            ivtc_fallback_deinterlace: false,
+            ivtc_fallback_preset: None,
         }
     }
 }

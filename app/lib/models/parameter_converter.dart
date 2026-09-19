@@ -138,6 +138,11 @@ class ParameterConverter {
         'ivtcCycle': params.ivtcCycle,
         'ivtcDupthresh': params.ivtcDupthresh,
         'ivtcScthresh': params.ivtcScthresh,
+        'ivtcFallbackDeinterlace': params.ivtcFallbackDeinterlace,
+        // Null means "use the worker's default" (Fast) — surface that
+        // default so the dropdown shows what will actually run.
+        'ivtcFallbackPreset':
+            (params.ivtcFallbackPreset ?? QTGMCPreset.fast).displayName,
       },
     );
   }
@@ -1050,6 +1055,13 @@ class ParameterConverter {
       ivtcCycle: v['ivtcCycle'] as int?,
       ivtcDupthresh: (v['ivtcDupthresh'] as num?)?.toDouble(),
       ivtcScthresh: (v['ivtcScthresh'] as num?)?.toDouble(),
+      ivtcFallbackDeinterlace: v['ivtcFallbackDeinterlace'] as bool? ?? false,
+      ivtcFallbackPreset: v['ivtcFallbackPreset'] == null
+          ? null
+          : QTGMCPreset.values.firstWhere(
+              (p) => p.displayName == v['ivtcFallbackPreset'],
+              orElse: () => QTGMCPreset.fast,
+            ),
     );
   }
 
