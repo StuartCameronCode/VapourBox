@@ -566,9 +566,12 @@ filter actually has.
 when a filter or parameter shipped, purely so `WhatsNewService` can draw a
 "NEW" badge next to it — persisting across every launch of the current app
 version, and only advancing on the next real update, not clearing after one
-run. Stamp it when you ship the feature, not retroactively on anything already
-out — see "NEW badges" in
-[docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md).
+run. **Stamp it in the same change that adds or modifies the property, using
+the version that change will actually ship in** (a minor bump on the latest
+public release, or whatever's already in `app/pubspec.yaml` if that's ahead)
+— not retroactively at release time, which is exactly how properties get
+missed. Never touch the stamp on anything already shipped — see "NEW badges"
+in [docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md).
 
 Several ongoing rules for schemas and the panel that renders them, each guarded by
 `filter_schema_curation_test.dart` unless noted — see
