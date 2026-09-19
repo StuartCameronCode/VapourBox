@@ -262,11 +262,23 @@ the settings panel, whenever `sinceAppVersion` is newer than that.
 - **A fresh install sees no badges at all.** There's no "since you last
   updated" for someone who has never had a previous version, so a first
   launch would otherwise badge the entire app.
-- **Set it once, when the feature ships** — a bump to the app version alone
+- **Stamp it in the same commit that adds or meaningfully changes the
+  property — not later, at release time.** A bump to the app version alone
   doesn't move any badge; only editing (or adding) `sinceAppVersion` on the
-  specific filter/parameter does. Stamp it at the same time you bump
-  `pubspec.yaml`'s version for the release, and leave everything already
-  shipped alone.
+  specific filter/parameter does. Deferring it to whenever a release gets cut
+  was tried and dropped: with dozens of parameters touched between releases,
+  it was too easy to forget which ones actually needed a stamp by the time
+  release day arrived. Stamping it at the point of change means the person
+  with the most context — the one who just wrote the property — is the one
+  who tags it.
+- **Use the version this change will actually ship in**, not the currently
+  published one: a minor bump on top of the latest public release (check
+  `gh release list`), or the version already in `app/pubspec.yaml` if that's
+  already ahead of it (someone else on the same unreleased version already
+  bumped it). If the target version changes before release — a bigger bump
+  turns out to be needed, or this work slips a release — update every
+  `sinceAppVersion` stamped for it to match, in the same pass as the actual
+  version bump. Leave everything already shipped alone.
 
 ## Implementation readout
 
