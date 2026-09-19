@@ -3,7 +3,32 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../models/filter_schema.dart';
+import '../../../services/whats_new_service.dart';
 import '../../../viewmodels/main_viewmodel.dart';
+import '../../../widgets/new_badge.dart';
+
+/// A parameter's label, with a "NEW" badge appended when
+/// [WhatsNewService.isNew] flags [param.sinceAppVersion]. Every widget below
+/// renders its label through this instead of a bare `Text` so the badge shows
+/// up consistently regardless of widget type.
+Widget _paramLabel(
+  BuildContext context,
+  String label,
+  ParameterDefinition param, {
+  TextStyle? style,
+}) {
+  final text = Text(label, style: style);
+  if (!WhatsNewService.instance.isNew(param.sinceAppVersion)) return text;
+
+  return Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Flexible(child: text),
+      const SizedBox(width: 6),
+      const NewBadge(),
+    ],
+  );
+}
 
 /// Factory for creating parameter widgets based on schema definition.
 class ParameterWidgetFactory {
@@ -236,8 +261,10 @@ class _SliderParameterWidget extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
+        _paramLabel(
+          context,
           '$label: ${doubleValue.toStringAsFixed(precision)}',
+          param,
           style: Theme.of(context).textTheme.labelLarge,
         ),
         Slider(
@@ -293,7 +320,8 @@ class _DropdownParameterWidget extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: Theme.of(context).textTheme.labelLarge),
+        _paramLabel(context, label, param,
+            style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           value: matchedOption ?? options.firstOrNull,
@@ -356,7 +384,8 @@ class _CheckboxParameterWidget extends StatelessWidget {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: Theme.of(context).textTheme.labelLarge),
+          _paramLabel(context, label, param,
+              style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 8),
           DropdownButtonFormField<bool>(
             value: boolValue,
@@ -390,7 +419,7 @@ class _CheckboxParameterWidget extends StatelessWidget {
 
     // Default: render as switch
     return SwitchListTile(
-      title: Text(label),
+      title: _paramLabel(context, label, param),
       subtitle: param.ui?.description != null ? Text(param.ui!.description!) : null,
       value: boolValue,
       contentPadding: EdgeInsets.zero,
@@ -421,7 +450,8 @@ class _TextFieldParameterWidget extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: Theme.of(context).textTheme.labelLarge),
+        _paramLabel(context, label, param,
+            style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 8),
         TextFormField(
           initialValue: stringValue,
@@ -515,7 +545,8 @@ class _FilePickerParameterWidgetState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: Theme.of(context).textTheme.labelLarge),
+        _paramLabel(context, label, widget.param,
+            style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 8),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -568,7 +599,8 @@ class _NumberParameterWidget extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: Theme.of(context).textTheme.labelLarge),
+        _paramLabel(context, label, param,
+            style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 8),
         TextFormField(
           initialValue: numValue.toString(),

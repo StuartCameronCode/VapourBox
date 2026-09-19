@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/update_checker.dart';
+import '../widgets/release_notes_text.dart';
 
 /// Dialog shown when a new version is available.
 class UpdateAvailableDialog extends StatelessWidget {
@@ -94,6 +95,26 @@ class UpdateAvailableDialog extends StatelessWidget {
                 ],
               ),
             ),
+
+            if (updateInfo.releaseNotes != null &&
+                updateInfo.releaseNotes!.trim().isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text(
+                "What's new",
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 220),
+                child: Scrollbar(
+                  child: SingleChildScrollView(
+                    child: ReleaseNotesText(markdown: updateInfo.releaseNotes!),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),

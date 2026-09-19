@@ -126,6 +126,13 @@ class ParameterDefinition {
   /// When disabled (null value), the parameter is not passed to VapourSynth.
   final bool? optional;
 
+  /// The app version (e.g. `"1.2.0"`, matching `pubspec.yaml`) this parameter
+  /// was added or last meaningfully changed in. Purely cosmetic — it only
+  /// feeds [WhatsNewService.isNew] to decide whether a "NEW" badge shows next
+  /// to this control; nothing else reads it. Leave unset for anything that
+  /// isn't worth flagging (most edits aren't).
+  final String? sinceAppVersion;
+
   const ParameterDefinition({
     required this.type,
     required this.defaultValue,
@@ -136,6 +143,7 @@ class ParameterDefinition {
     this.vapoursynth,
     this.ui,
     this.optional,
+    this.sinceAppVersion,
   });
 
   /// Get the VapourSynth parameter name (falls back to schema name if not specified).
@@ -396,8 +404,15 @@ class FilterSchema {
   /// Unique identifier for this filter.
   final String id;
 
-  /// Schema version.
+  /// Schema version — this JSON file's own revision, unrelated to the app.
   final String version;
+
+  /// The app version (e.g. `"1.2.0"`, matching `pubspec.yaml`) this filter was
+  /// introduced in. Not the same thing as [version] above: that tracks this
+  /// schema file, this tracks the shipping app. Feeds a "NEW" badge in the
+  /// pass list via [WhatsNewService.isNew] — leave unset for anything already
+  /// shipped before this mechanism existed.
+  final String? sinceAppVersion;
 
   /// Display name.
   final String name;
@@ -459,6 +474,7 @@ class FilterSchema {
     this.schema,
     required this.id,
     required this.version,
+    this.sinceAppVersion,
     required this.name,
     this.description,
     this.longDescription,

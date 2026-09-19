@@ -20,7 +20,8 @@ app means writing one of these. This is the field reference.
 |-------|------|----------|-------------|
 | `$schema` | string | No | Schema URL, informational only |
 | `id` | string | **Yes** | Unique identifier (snake_case), must match the filter id used in the UI wiring |
-| `version` | string | **Yes** | Semantic version, e.g. `"1.0.0"` |
+| `version` | string | **Yes** | Semantic version, e.g. `"1.0.0"` — **this schema file's own revision**, unrelated to the app version below |
+| `sinceAppVersion` | string | No | The **app** version (matching `pubspec.yaml`, e.g. `"1.2.0"`) this filter was introduced in. Purely cosmetic — see "NEW badges" below |
 | `name` | string | **Yes** | Display name |
 | `description` | string | No | One-line summary shown under the name |
 | `longDescription` | string | No | The **More** expander text — what the filter does and when to reach for it. Supports `\n\n` paragraphs |
@@ -171,6 +172,7 @@ entirely and replaced by a line telling the user more exist in advanced mode.
 | `optional` | boolean | Adds an enable checkbox; when unticked the parameter is **omitted** from the generated script so the VapourSynth default applies |
 | `vapoursynth` | object | `{"name": "…"}` — the argument name in the function, when it differs from the schema key. **`name` is the only field**; there is no type-transform option |
 | `ui` | object | See below |
+| `sinceAppVersion` | string | The app version this parameter was added/last meaningfully changed in, e.g. `"1.2.0"`. Purely cosmetic — see "NEW badges" below |
 
 > **`optional: true` has a converter consequence.** For a parameter that should
 > default to *off*, the `fromX()` converter in
@@ -219,6 +221,64 @@ works the same way as one on a checkbox.
 > that doesn't exist, or a `method` condition naming a method the filter doesn't
 > offer, can *never* be satisfied — so the control it guards is invisible
 > forever, which is the worse of the two silent failures.
+
+## NEW badges
+
+`sinceAppVersion` on a filter (top-level) or a parameter tags it with the app
+version it shipped in. `WhatsNewService` (`app/lib/services/whats_new_service.dart`)
+compares it against the version the user had installed *before this launch* —
+not the current one — and a "NEW" pill (`app/lib/widgets/new_badge.dart`) is
+drawn next to the pass in the pass list, or next to the parameter's control in
+the settings panel, whenever `sinceAppVersion` is newer than that.
+
+```json
+{
+  "sinceAppVersion": "1.2.0",
+  "parameters": {
+    "someNewOption": {
+      "type": "boolean",
+      "default": false,
+      "sinceAppVersion": "1.2.0",
+      "ui": { "label": "Some New Option" }
+    }
+  }
+}
+```
+
+- **Purely cosmetic.** Nothing else reads this field — omitting it or getting
+  it wrong doesn't break the pipeline, it just badges (or fails to badge)
+  something in the UI.
+- **Format matters for the comparison, even though nothing validates it at
+  parse time.** Use the same dotted-numeric form as `pubspec.yaml`'s version
+  (`"1.2.0"`, not `"v1.2.0"` or `"1.2"`) — `filter_schema_curation_test.dart`
+  lints shipped schemas for this.
+- **Badges persist across every launch of the current version, and only
+  advance on the next real update** — `WhatsNewService` tracks the version
+  that was actually running last launch separately from the comparison
+  baseline, so the baseline only moves the moment those two differ (an update
+  just happened), then holds steady through as many future launches as the
+  user stays on that version. There's no "mark as seen" action to wire up, and
+  no badge that silently disappears after someone glances at the app once.
+- **A fresh install sees no badges at all.** There's no "since you last
+  updated" for someone who has never had a previous version, so a first
+  launch would otherwise badge the entire app.
+- **Stamp it in the same commit that adds or meaningfully changes the
+  property — not later, at release time.** A bump to the app version alone
+  doesn't move any badge; only editing (or adding) `sinceAppVersion` on the
+  specific filter/parameter does. Deferring it to whenever a release gets cut
+  was tried and dropped: with dozens of parameters touched between releases,
+  it was too easy to forget which ones actually needed a stamp by the time
+  release day arrived. Stamping it at the point of change means the person
+  with the most context — the one who just wrote the property — is the one
+  who tags it.
+- **Use the version this change will actually ship in**, not the currently
+  published one: a minor bump on top of the latest public release (check
+  `gh release list`), or the version already in `app/pubspec.yaml` if that's
+  already ahead of it (someone else on the same unreleased version already
+  bumped it). If the target version changes before release — a bigger bump
+  turns out to be needed, or this work slips a release — update every
+  `sinceAppVersion` stamped for it to match, in the same pass as the actual
+  version bump. Leave everything already shipped alone.
 
 ## Implementation readout
 

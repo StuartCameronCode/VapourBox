@@ -22,6 +22,10 @@
 //     or a `method` condition naming no method, can never be satisfied, so the
 //     control it guards is invisible forever — the same silent failure in the
 //     other direction.
+//   - `sinceAppVersion` (filter- or parameter-level) feeds a version compare
+//     that parses each dot-separated component as a plain integer, so a
+//     malformed value like "v1.2" or "1.2+3" doesn't error, it just compares
+//     wrong and mis-badges the "NEW" tag silently.
 //
 // Run with: flutter test test/filter_schema_curation_test.dart
 
@@ -58,6 +62,39 @@ void main() {
 
     expect(onDisk.difference(manifest.toSet()), isEmpty,
         reason: 'a schema file exists but nothing loads it');
+  });
+
+  group('sinceAppVersion is a comparable version string', () {
+    // WhatsNewService compares this against the app's own dotted-numeric
+    // version with plain integer parsing per component, not semver rules — a
+    // stray "v" prefix or a build suffix like "1.2+3" doesn't fail to parse,
+    // it silently compares as if a bare "1" (or "0"), badging the wrong things
+    // instead of erroring. Cheap to catch here since nothing else would.
+    final versionPattern = RegExp(r'^\d+\.\d+\.\d+$');
+
+    rawSchemas.forEach((filename, raw) {
+      final id = raw['id'] as String;
+      final parameters = (raw['parameters'] as Map).cast<String, dynamic>();
+
+      test('$id: filter-level sinceAppVersion, if set, looks like "1.2.0"', () {
+        final since = raw['sinceAppVersion'];
+        if (since == null) return;
+        expect(since, isA<String>());
+        expect(versionPattern.hasMatch(since as String), isTrue,
+            reason: '"$since" is not dotted-numeric X.Y.Z');
+      });
+
+      test('$id: every parameter\'s sinceAppVersion, if set, looks like "1.2.0"',
+          () {
+        for (final entry in parameters.entries) {
+          final since = (entry.value as Map)['sinceAppVersion'];
+          if (since == null) continue;
+          expect(since, isA<String>());
+          expect(versionPattern.hasMatch(since as String), isTrue,
+              reason: '${entry.key}: "$since" is not dotted-numeric X.Y.Z');
+        }
+      });
+    });
   });
 
   group('method curation', () {

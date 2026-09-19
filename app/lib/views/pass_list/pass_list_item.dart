@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/pass_relevance.dart';
 import '../../models/processing_pipeline.dart';
+import '../../widgets/new_badge.dart';
 
 /// A single item in the pass list showing a processing pass.
 ///
@@ -22,6 +23,10 @@ class PassListItem extends StatelessWidget {
   /// detection is a hint and is sometimes wrong.
   final PassRelevanceResult relevance;
 
+  /// Whether the filter behind this pass is tagged with a `sinceAppVersion`
+  /// that [WhatsNewService.isNew] considers new for this session.
+  final bool isNew;
+
   /// Settings shown inline while expanded. Only built for the expanded item.
   final Widget? expandedChild;
 
@@ -35,6 +40,7 @@ class PassListItem extends StatelessWidget {
     required this.onToggle,
     required this.onTap,
     this.relevance = PassRelevanceResult.neutral,
+    this.isNew = false,
     this.expandedChild,
   });
 
@@ -141,6 +147,10 @@ class PassListItem extends StatelessWidget {
                               ),
                         ),
                       ),
+                      if (isNew) ...[
+                        const SizedBox(width: 8),
+                        const NewBadge(),
+                      ],
                       if (relevance.isRecommended) ...[
                         const SizedBox(width: 8),
                         _buildSuggestedBadge(context, colorScheme),
