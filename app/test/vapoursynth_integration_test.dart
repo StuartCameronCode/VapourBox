@@ -10,7 +10,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 
-import 'support/worker_harness.dart';
 
 void main() {
   late String depsDir;
@@ -117,17 +116,15 @@ core = vs.core
 # for on the paths the app exposes. A plugin missing here is a FILTER that fails
 # at job time with "No attribute with the name <ns> exists" — which is what an
 # incomplete or stale deps install looks like from the user's side. `zsmooth`
-# (Chroma Denoise / CCD) was added to the bundle after this list was written and
-# went uncovered, so a bundle without it passed the suite and failed the filter.
-# It is no longer in THIS list because it is deliberately not autoloaded — it
-# ships once per CPU baseline and the worker loads one by path. The test below
-# covers it.
+# (Chroma Denoise / CCD) was once missed here, so a bundle without it passed the
+# suite and failed the filter. Since the x86 bundles split by CPU tier (#92)
+# each ships exactly one zsmooth build, autoloaded like the rest.
 required = ['std', 'resize', 'mv', 'znedi3', 'eedi3m', 'fmtc',
             'dfttest', 'neo_f3kdb', 'cas', 'dctf', 'deblock', 'rgvs',
             'ctmf', 'warp', 'misc', 'grain', 'tcanny',
             'descratch', 'vivtc', 'ttmpsm', 'tmedian',
             'fft3dfilter', 'flux', 'bifrost', 'retinex',
-            'bwdif', 'fb', 'removedirt', 'dedot', 'lghost']
+            'bwdif', 'fb', 'removedirt', 'dedot', 'lghost', 'zsmooth']
 
 # On ARM, `nnedi3` is load-bearing and `znedi3` is only the fallback: znedi3's
 # SIMD is x86-only, so the ARM bundles build it scalar and both the templates'
@@ -173,66 +170,17 @@ else:
       expect(result.stdout.toString(), contains('All plugins loaded'));
     });
 
-    test('the zsmooth build for this CPU loads and runs', () async {
-      // zsmooth is deliberately OUTSIDE the autoload directory: upstream builds
-      // it for an AVX2 baseline with no runtime dispatch, so that binary dies
-      // with an illegal instruction on a pre-2013 CPU the instant a filter runs
-      // (issue #82). The bundle ships one build per CPU baseline and the worker
-      // loads exactly one by path.
-      //
-      // The Rust side (test_154) proves the generated script asks for the right
-      // file on any hardware; only running it proves the file is there and
-      // executes — and only ever for the CPU that ran it, which is why the
-      // choice itself is asserted in Rust and not here.
-      final zsmoothDir = Directory(path.join(depsDir, 'vapoursynth', 'zsmooth'));
-      expect(
-        zsmoothDir.existsSync(),
-        isTrue,
-        reason: 'deps bundle has no vapoursynth/zsmooth directory: '
-            '${zsmoothDir.path} — a bundle older than deps 1.10.0, or a failed '
-            'zsmooth build',
-      );
-
-      // Asked of the worker, never derived here: loading the AVX2 build on a
-      // CPU without AVX2 is the crash this whole split exists to prevent, so a
-      // second-guessed answer is worse than none.
-      final features = await WorkerHarness.cpuFeatures();
-      final isX86 = await WorkerHarness.isX86();
-      final ext = Platform.isWindows
-          ? 'dll'
-          : Platform.isMacOS
-              ? 'dylib'
-              : 'so';
-      final prefix = Platform.isWindows ? '' : 'lib';
-      // Same preference order as DependencyLocator::zsmooth_candidates. With no
-      // probe (worker not built), only the portable build is considered — it
-      // runs everywhere, so the check degrades rather than risking the crash.
-      final candidates = <String>[
-        if (isX86 && features.contains('avx2')) '${prefix}zsmooth-haswell.$ext',
-        if (isX86) '${prefix}zsmooth-x86_64_v2.$ext',
-        '${prefix}zsmooth.$ext',
-      ];
-      final chosen = candidates
-          .map((f) => File(path.join(zsmoothDir.path, f)))
-          .where((f) => f.existsSync())
-          .firstOrNull;
-      expect(
-        chosen,
-        isNotNull,
-        reason: 'no zsmooth build this CPU can run in ${zsmoothDir.path}: '
-            'looked for $candidates, found '
-            '${zsmoothDir.listSync().map((e) => path.basename(e.path)).toList()} '
-            '(CPU features: $features)',
-      );
-
+    test('the bundled zsmooth build runs on this CPU', () async {
+      // zsmooth has no runtime dispatch: a build above this CPU's baseline
+      // loads fine and then dies with an illegal instruction the instant a
+      // filter runs (issue #82). Each x86 bundle tier ships the one build its
+      // CPUs can run, so the autoloaded namespace must render here.
+      // Constructing the node is not enough — the fault is in the kernel, so a
+      // frame has to be rendered.
       final script = '''
 import vapoursynth as vs
 core = vs.core
-core.std.LoadPlugin(r"${chosen!.path}")
 clip = core.std.BlankClip(width=160, height=120, format=vs.YUV420P8, length=2)
-# CCD is what the Chroma Denoise pass is made of and what #82 was reported
-# against. Constructing the node is not enough: the fault is in the kernel, so a
-# frame has to be rendered.
 clip = core.zsmooth.CCD(clip, threshold=4, scale=1)
 clip.get_frame(0)
 print("zsmooth OK")
