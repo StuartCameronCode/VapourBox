@@ -102,7 +102,7 @@ path, render = sys.argv[1], sys.argv[2]
 for dep in sys.argv[3:]:
     core.std.LoadPlugin(dep)
 new_ns = []
-if path:
+if path != "-":
     before = {p.namespace for p in core.plugins()}
     try:
         core.std.LoadPlugin(path)
@@ -314,7 +314,9 @@ def main():
     for line in header:
         emit(line)
 
-    tests = [("(core: VapourSynth, zimg, Expr)", "", CORE_RENDER)]
+    # "-" rather than "" for "no plugin": sde.exe drops empty arguments when
+    # it relaunches the child, which shifted every later argument.
+    tests = [("(core: VapourSynth, zimg, Expr)", "-", CORE_RENDER)]
     for f in files:
         stem = os.path.basename(f)
         tests.append((stem, f, None))
