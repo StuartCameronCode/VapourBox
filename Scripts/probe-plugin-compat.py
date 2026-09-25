@@ -126,7 +126,14 @@ for i in range(len(c)):
 print("RENDERED", flush=True)
 '''
 
-ILLEGAL_INSTRUCTION = 0xC000001D
+# Under SDE on Windows, Microsoft's runtime DLLs pick SIMD paths from what the
+# *host* kernel reports (IsProcessorFeaturePresent reads shared kernel memory,
+# which SDE cannot virtualise), so they execute AVX that SDE then flags — on
+# code that is fine on real pre-AVX hardware. A fault in one of these says
+# nothing about the plugin under test.
+EMULATION_ARTIFACT_IMAGES = ("vcruntime140", "ucrtbase", "msvcp140", "ntdll",
+                             "kernelbase", "kernel32")
+
 WINDOWS_CRASH_NAMES = {
     0xC000001D: "illegal instruction",
     0xC0000005: "access violation",
@@ -196,7 +203,14 @@ def classify(proc, sde_wrapped):
     tail = "\n".join(err.strip().splitlines()[-6:])
 
     if sde_wrapped and ("SDE-ERROR" in err or "not valid for specified chip" in err):
-        return "CRASHED", "illegal instruction (SDE)", namespaces, tail
+        image = next((l.split("Image:", 1)[1].strip() for l in err.splitlines()
+                      if "Image:" in l), "")
+        where = os.path.basename(image.replace("\\", "/")) or "unknown image"
+        if any(a in where.lower() for a in EMULATION_ARTIFACT_IMAGES):
+            return ("INCONCLUSIVE",
+                    f"SDE flagged the OS runtime ({where}), not this plugin",
+                    namespaces, tail)
+        return "CRASHED", f"illegal instruction in {where}", namespaces, tail
     if code < 0:
         sig = -code
         try:
@@ -259,7 +273,7 @@ def main():
     ap.add_argument("--wrap", default="", help='prefix for each test, e.g. "sde64 -nhm --"')
     ap.add_argument("--timeout", type=int, default=600)
     ap.add_argument("--fail-on-crash", action="store_true",
-                    help="exit 1 if anything crashed (for CI gates)")
+                    help="exit 1 if anything crashed, errored or was inconclusive (for CI gates)")
     args = ap.parse_args()
 
     deps = os.path.abspath(args.deps or default_deps_dir())
@@ -336,7 +350,7 @@ def main():
                 emit(f"    {t}")
 
     counts = {s: sum(r["status"] == s for r in results)
-              for s in ("PASS", "LOADED", "CRASHED", "ERROR", "SKIPPED")}
+              for s in ("PASS", "LOADED", "CRASHED", "ERROR", "INCONCLUSIVE", "SKIPPED")}
     emit("=" * 72)
     emit("Summary: " + ", ".join(f"{n} {s.lower()}" for s, n in counts.items()))
     report.close()
@@ -345,7 +359,7 @@ def main():
     if args.json:
         with open(args.json, "w") as f:
             json.dump({"deps": deps, "bundle": version, "results": results}, f, indent=2)
-    if args.fail_on_crash and (counts["CRASHED"] or counts["ERROR"]):
+    if args.fail_on_crash and (counts["CRASHED"] or counts["ERROR"] or counts["INCONCLUSIVE"]):
         sys.exit(1)
 
 

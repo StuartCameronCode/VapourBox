@@ -5,12 +5,15 @@ name: Probe CPU compatibility (SDE)
 # hosted runner has AVX2, so this is the only CI-side way to see what a
 # pre-AVX2 machine would do with the bundle (issue #92).
 #
-# Two controls make a result trustworthy rather than merely green:
-#   - a native run on the runner itself, which must pass everything; an error
-#     there is a probe bug, not a CPU finding.
-#   - zsmooth's haswell build (AVX2, no runtime dispatch — issue #82) must
-#     CRASH under SDE. If it passes, SDE is not trapping and the run proves
-#     nothing, so the job fails.
+# A run only counts if its controls hold:
+#   - native: the runner itself must pass everything; an error there is a
+#     probe bug, not a CPU finding.
+#   - core under SDE: VapourSynth with no plugins must pass. If it doesn't, the
+#     emulation itself is broken for this OS/chip and every plugin result is
+#     meaningless. (Windows at pre-AVX chips fails this: Microsoft's runtime
+#     picks AVX from what the host kernel reports, which SDE cannot emulate.)
+#   - positive: zsmooth's haswell build (AVX2, no runtime dispatch — issue #82)
+#     must crash inside its own image under a pre-AVX2 chip, proving SDE traps.
 
 on:
   # Also runs when the probe or this workflow changes, which re-validates the
@@ -26,10 +29,6 @@ on:
         description: 'Optional build-deps-* run IDs (comma-separated); default is the release named in deps-version.json'
         required: false
         default: ''
-      chip:
-        description: 'SDE chip to emulate (wsm = Westmere, the Mac Pro 5,1 in #92; nhm = Nehalem; snb = Sandy Bridge, AVX without AVX2)'
-        required: false
-        default: 'wsm'
 
 permissions:
   contents: read
@@ -37,19 +36,24 @@ permissions:
 
 jobs:
   probe:
-    name: ${{ matrix.platform }}
+    name: ${{ matrix.platform }} (-${{ matrix.chip }})
     strategy:
       fail-fast: false
       matrix:
         include:
+          # wsm = Westmere, the Mac Pro 5,1 in #92: no AVX at all.
           - platform: linux-x64
             runner: ubuntu-24.04
             sde: sde64
             python: python/bin/python3
+            chip: wsm
+          # snb = Sandy Bridge: AVX without AVX2 — the v3/v2 tier boundary.
+          # Windows can only be probed here; see the header.
           - platform: windows-x64
             runner: windows-latest
             sde: sde.exe
             python: vapoursynth/python.exe
+            chip: snb
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     defaults:
@@ -87,14 +91,14 @@ jobs:
           "$D/${{ matrix.python }}" Scripts/probe-plugin-compat.py "$D" \
             --report native.txt --json native.json --fail-on-crash
 
-      - name: SDE run (-${{ inputs.chip || 'wsm' }})
+      - name: SDE run (-${{ matrix.chip }})
         run: |
           SDE_DIR=$(cygpath -m "$SDE_PATH" 2>/dev/null || echo "$SDE_PATH")
           "$D/${{ matrix.python }}" Scripts/probe-plugin-compat.py "$D" \
             --report sde.txt --json sde.json --timeout 1800 \
-            --wrap "\"$SDE_DIR/${{ matrix.sde }}\" -${{ inputs.chip || 'wsm' }} --"
+            --wrap "\"$SDE_DIR/${{ matrix.sde }}\" -${{ matrix.chip }} --"
 
-      - name: Check the positive control and summarise
+      - name: Check the controls and summarise
         run: |
           "$D/${{ matrix.python }}" - <<'EOF'
           import json, os, sys
@@ -103,22 +107,30 @@ jobs:
           rows += [f"| {r['file']} | {r['namespaces']} | {r['status']} {r['detail']} |" for r in sde]
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
               f.write("\n".join(rows) + "\n")
+
+          core = next(r for r in sde if r["file"].startswith("(core"))
+          if core["status"] != "PASS":
+              sys.exit(f"core control failed under SDE ({core['status']}: {core['detail']}); "
+                       "the emulation is not valid for this OS/chip, so no plugin result means anything")
           control = [r for r in sde if "zsmooth-haswell" in r["file"]]
           if not control:
               sys.exit("positive control missing: no zsmooth-haswell build in this bundle")
-          if control[0]["status"] != "CRASHED":
-              sys.exit("SDE did not trap the AVX2-only zsmooth-haswell build; results are meaningless")
-          crashed = [r for r in sde if r["status"] == "CRASHED"]
-          print(f"control OK; {len(crashed)} file(s) crashed under SDE:")
-          for r in crashed:
-              print(f"  {r['file']} [{r['namespaces']}] {r['detail']}")
+          c = control[0]
+          if c["status"] != "CRASHED" or "zsmooth-haswell" not in c["detail"]:
+              sys.exit(f"SDE did not trap the AVX2-only zsmooth-haswell build in its own code "
+                       f"({c['status']}: {c['detail']}); results are meaningless")
+
+          bad = [r for r in sde if r["status"] in ("CRASHED", "INCONCLUSIVE") and r is not c]
+          print(f"controls OK; {len(bad)} other file(s) crashed or were inconclusive:")
+          for r in bad:
+              print(f"  {r['file']} [{r['namespaces']}] {r['status']}: {r['detail']}")
           EOF
 
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: cpu-compat-${{ matrix.platform }}-${{ inputs.chip || 'wsm' }}
+          name: cpu-compat-${{ matrix.platform }}-${{ matrix.chip }}
           path: |
             native.txt
             native.json
