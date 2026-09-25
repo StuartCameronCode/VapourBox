@@ -1,0 +1,120 @@
+diff --git a/meson.build b/meson.build
+index f24a406..63b0298 100644
+--- a/meson.build
++++ b/meson.build
+@@ -150,18 +150,13 @@ if host_cpu_family.startswith('x86')
+ 
+ 
+   libavx2_sources = [
+-    'src/MaskFun_AVX2.cpp',
+-    'src/MVDegrains_AVX2.cpp',
+-    'src/MVFrame_AVX2.cpp',
+-    'src/Overlap_AVX2.cpp',
+-    'src/SADFunctions_AVX2.cpp',
+-    'src/SimpleResize_AVX2.cpp',
++    'src/AVX2_stubs.cpp',
+   ]
+ 
+   helper_libs += static_library('avx2',
+                                 libavx2_sources,
+                                 dependencies: vapoursynth_dep,
+-                                cpp_args: [cflags, '-mavx2', '-mtune=haswell'],
++                                cpp_args: cflags,
+                                 install: false)
+ endif
+ 
+diff --git a/src/AVX2_stubs.cpp b/src/AVX2_stubs.cpp
+new file mode 100644
+index 0000000..96a5503
+--- /dev/null
++++ b/src/AVX2_stubs.cpp
+@@ -0,0 +1,77 @@
++// VapourBox v2-tier build: the AVX2 translation units are replaced by these
++// stubs, compiled at the baseline like everything else (issue #92).
++//
++// Upstream builds six files with -mavx2. Their static initializers (the
++// kernel lookup tables) then contain VEX instructions, which run inside dlopen,
++// before any CPU check, and fault with SIGILL on every CPU without AVX. The
++// shared template code those files instantiate can also win the linker's
++// choice of copy and leak AVX2 into callers that are not guarded at all.
++//
++// So the v2 build contains no AVX2-compiled code, and EntryPoint.c masks
++// X264_CPU_AVX2 out of g_cpuinfo so no dispatch site ever selects these. They
++// abort rather than do nothing: reaching one means the mask was lost, and a
++// silent no-op would render blank frames instead of failing.
++
++#include <cstdint>
++#include <cstdio>
++#include <cstdlib>
++
++#include "MaskFun.h"
++#include "MVDegrains.h"
++#include "Overlap.h"
++#include "SADFunctions.h"
++#include "SimpleResize.h"
++
++[[noreturn]] static void mvtools_avx2_unreachable(const char *name) {
++    std::fprintf(stderr, "MVTools (VapourBox v2 build): AVX2 path %s reached; "
++                         "the X264_CPU_AVX2 mask in EntryPoint.c is missing\n", name);
++    std::abort();
++}
++
++void selectFlowInterFunctions_AVX2(FlowInterSimpleFunction *, FlowInterFunction *, FlowInterExtraFunction *, int) {
++    mvtools_avx2_unreachable(__func__);
++}
++
++DenoiseFunction selectDegrainFunctionAVX2(unsigned, unsigned, unsigned, unsigned) {
++    mvtools_avx2_unreachable(__func__);
++}
++
++OverlapsFunction selectOverlapsFunctionAVX2(unsigned, unsigned, unsigned) {
++    mvtools_avx2_unreachable(__func__);
++}
++
++SADFunction selectSADFunctionAVX2(unsigned, unsigned, unsigned) {
++    mvtools_avx2_unreachable(__func__);
++}
++
++void Average2_avx2(uint8_t *, const uint8_t *, const uint8_t *, intptr_t, intptr_t, intptr_t) {
++    mvtools_avx2_unreachable(__func__);
++}
++
++void VerticalBilinear_avx2(uint8_t *, const uint8_t *, intptr_t, intptr_t, intptr_t, intptr_t) {
++    mvtools_avx2_unreachable(__func__);
++}
++
++void HorizontalBilinear_avx2(uint8_t *, const uint8_t *, intptr_t, intptr_t, intptr_t, intptr_t) {
++    mvtools_avx2_unreachable(__func__);
++}
++
++void DiagonalBilinear_avx2(uint8_t *, const uint8_t *, intptr_t, intptr_t, intptr_t, intptr_t) {
++    mvtools_avx2_unreachable(__func__);
++}
++
++void VerticalWiener_avx2(uint8_t *, const uint8_t *, intptr_t, intptr_t, intptr_t, intptr_t) {
++    mvtools_avx2_unreachable(__func__);
++}
++
++void HorizontalWiener_avx2(uint8_t *, const uint8_t *, intptr_t, intptr_t, intptr_t, intptr_t) {
++    mvtools_avx2_unreachable(__func__);
++}
++
++void simpleResize_uint8_t_avx2(const SimpleResize *, uint8_t *, int, const uint8_t *, int, int) {
++    mvtools_avx2_unreachable(__func__);
++}
++
++void simpleResize_int16_t_avx2(const SimpleResize *, int16_t *, int, const int16_t *, int, int) {
++    mvtools_avx2_unreachable(__func__);
++}
+diff --git a/src/EntryPoint.c b/src/EntryPoint.c
+index 6b34eab..ca30663 100644
+--- a/src/EntryPoint.c
++++ b/src/EntryPoint.c
+@@ -44,5 +44,6 @@ VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegisterFunction registerFunc
+     mvscdetectionRegister(registerFunc, plugin);
+     mvdepanRegister(registerFunc, plugin);
+ 
+-    g_cpuinfo = cpu_detect();
++    // VapourBox v2 tier: no AVX2 code is built (see AVX2_stubs.cpp).
++    g_cpuinfo = cpu_detect() & ~X264_CPU_AVX2;
+ }

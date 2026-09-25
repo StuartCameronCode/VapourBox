@@ -9,20 +9,25 @@
 #     libfftw3-dev libboost-filesystem-dev libboost-atomic-dev \
 #     ocl-icd-opencl-dev libdvdread-dev
 #
-# Usage: ./Scripts/download-deps-linux.sh [--force]
+# Usage: ./Scripts/download-deps-linux.sh [--force] [--tier v3|v2]
 
 set -e
 
 FORCE=false
+TIER=v3
 while [[ $# -gt 0 ]]; do
     case $1 in
         --force)
             FORCE=true
             shift
             ;;
+        --tier)
+            TIER="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--force]"
+            echo "Usage: $0 [--force] [--tier v3|v2]"
             exit 1
             ;;
     esac
@@ -39,10 +44,47 @@ else
     exit 1
 fi
 
+# CPU tier (issue #92). The x86 bundle ships twice: v3 for x86-64-v3 CPUs
+# (Haswell, 2013, and later) and v2 for anything older, chosen by the app from
+# `vapourbox-worker --probe-cpu`. This block is the ONLY place the tier is
+# interpreted; everything below reads these variables and never $TIER itself.
+#   ZSMOOTH_CPU   zsmooth's baseline (upstream has no runtime dispatch)
+# That is the whole difference on Linux: every other plugin in this bundle
+# renders under Intel SDE emulating Westmere (no AVX at all) — see
+# .github/workflows/probe-cpu-compat.yml — including MVTools, whose macOS
+# prebuilt is the one that does not.
+if [ "$ARCH" = "x86_64" ]; then
+    case "$TIER" in
+        v3) ZSMOOTH_CPU=haswell ;;
+        v2) ZSMOOTH_CPU=x86_64_v2 ;;
+        *)  echo "Unknown tier: $TIER (expected v3 or v2)"; exit 1 ;;
+    esac
+else
+    if [ "$TIER" != "v3" ]; then
+        echo "--tier is x86-only; the arm64 bundle is not tiered."
+        exit 1
+    fi
+    TIER=""
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DEPS_DIR="$PROJECT_ROOT/deps/$PLATFORM_DIR"
 PLUGINS_DIR="$DEPS_DIR/vapoursynth/plugins"
+
+# Both tiers build into the same deps/<platform> directory (the tier lives in
+# version.json, not the path), and most steps skip what already exists. So a
+# tier switch without --force would keep the previous tier's zsmooth and
+# silently produce a mixed bundle.
+if [ -n "$TIER" ] && [ "$FORCE" = false ] && [ -f "$DEPS_DIR/version.json" ]; then
+    EXISTING_TIER=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('tier','v3'))" \
+        "$DEPS_DIR/version.json" 2>/dev/null || echo "v3")
+    if [ "$EXISTING_TIER" != "$TIER" ]; then
+        echo "ERROR: $DEPS_DIR holds the $EXISTING_TIER bundle; building $TIER over it"
+        echo "would mix the two. Re-run with --force."
+        exit 1
+    fi
+fi
 PYTHON_DIR="$DEPS_DIR/python"
 PYTHON_PACKAGES_DIR="$DEPS_DIR/python-packages"
 BUILD_DIR="/tmp/vapourbox-build-$$"
@@ -1024,24 +1066,22 @@ build_plugin "tmedian" \
     "libtmedian.so" \
     "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
 
-# zsmooth — one build per CPU baseline
+# zsmooth — exactly one build, in the autoload directory
 #
 # core.zsmooth.CCD (also Cnr4 and a set of RemoveGrain/TemporalMedian-family
-# filters). Upstream publishes only `haswell` (an AVX2 baseline) and `znver4`
-# x86 builds, compiled throughout with NO runtime dispatch — so on a pre-2013
-# CPU the library loads fine and then dies with an illegal instruction the
-# instant a filter runs. That is issue #82 (reported on Windows, but this
-# bundle took the same haswell asset), and it is silent: vspipe prints nothing.
+# filters). zsmooth has NO runtime dispatch: each build is compiled for one CPU
+# baseline throughout, so a build above the machine's baseline loads fine and
+# then dies with an illegal instruction the instant a filter runs — issue #82,
+# silently, because vspipe prints nothing.
 #
-# So x86 ships both builds outside the autoload directory and the worker loads
-# exactly one by path (DependencyLocator::zsmooth_plugin). They cannot share a
-# directory: each registers the namespace `zsmooth`, so whichever autoloads
-# second is rejected. aarch64 has a single NEON baseline and needs no split.
-#
-# Measured at 720x576: `x86_64` is 2.0x slower than haswell on CCD and 3.0x on
-# Cnr4, `x86_64_v2` 1.4x on both — which is why the portable build is v2
-# (SSE4.2/POPCNT, everything from Nehalem 2009 on) and why the fast build is
-# still shipped rather than dropped for one portable binary.
+# aarch64 has a single NEON baseline and takes the author's build. x86 takes
+# the $ZSMOOTH_CPU chosen by the tier block at the top of this script: the
+# author's haswell asset for v3, or an x86_64_v2 build compiled here for v2
+# (SSE4.2/POPCNT, everything from Nehalem 2009 on; measured 1.4x slower than
+# haswell on CCD and Cnr4, against 2-3x for plain x86_64). One build per bundle
+# means it autoloads like any other plugin; bundles up to 1.10.0 shipped both
+# x86 builds in a separate zsmooth/ directory for the worker to load by path,
+# which the tiers replace.
 #
 # Keep ZSMOOTH_VERSION in step across download-deps-{macos,linux}.sh and
 # download-deps-windows.ps1 — a version skew would make the same job produce
@@ -1049,25 +1089,51 @@ build_plugin "tmedian" \
 ZSMOOTH_VERSION="0.19.0"
 # Must satisfy zsmooth's build.zig.zon `minimum_zig_version` (0.15.2 for 0.19.0).
 ZIG_VERSION="0.15.2"
-ZSMOOTH_DIR="$DEPS_DIR/vapoursynth/zsmooth"
-mkdir -p "$ZSMOOTH_DIR"
+ZSMOOTH_OUT="$PLUGINS_DIR/libzsmooth.so"
+rm -rf "$DEPS_DIR/vapoursynth/zsmooth"
 
 echo ""
 echo "=== Installing zsmooth ==="
 
-# The pre-built asset: haswell on x86, the only build on aarch64.
 case "$ARCH" in
-    aarch64|arm64)
-        ZSMOOTH_ASSET="zsmooth-aarch64-linux-gnu.zip"
-        ZSMOOTH_PREBUILT="$ZSMOOTH_DIR/libzsmooth.so"
-        ;;
-    *)
-        ZSMOOTH_ASSET="zsmooth-x86_64-linux-gnu.zip"
-        ZSMOOTH_PREBUILT="$ZSMOOTH_DIR/libzsmooth-haswell.so"
-        ;;
+    aarch64|arm64) ZSMOOTH_ASSET="zsmooth-aarch64-linux-gnu.zip" ;;
+    *)             ZSMOOTH_ASSET="zsmooth-x86_64-linux-gnu.zip" ;;  # the haswell build
 esac
 
-if [ "$FORCE" = true ] || [ ! -f "$ZSMOOTH_PREBUILT" ]; then
+if [ "$FORCE" = false ] && [ -f "$ZSMOOTH_OUT" ]; then
+    echo "  libzsmooth.so already exists, skipping"
+elif [ "${ZSMOOTH_CPU:-}" = "x86_64_v2" ]; then
+    # No upstream asset for this baseline. Zig brings its own libc and builds
+    # zsmooth's fftw dependency itself, so this adds no apt package — only
+    # network access, since `zig build` fetches zsmooth's own Zig dependencies.
+    echo "  Building zsmooth $ZSMOOTH_VERSION (x86_64_v2, runs without AVX2)..."
+    # Subshell so a failure cannot abort the script under `set -e`; the file
+    # check below decides whether it worked.
+    (
+        set -e
+        cd "$BUILD_DIR"
+        rm -rf zig-toolchain zsmooth-src zig.tar.xz
+        curl -fsSL -o zig.tar.xz \
+            "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+        mkdir -p zig-toolchain
+        tar -xf zig.tar.xz -C zig-toolchain --strip-components=1
+        git clone --depth 1 --branch "$ZSMOOTH_VERSION" \
+            https://github.com/adworacz/zsmooth.git zsmooth-src
+        cd zsmooth-src
+        "$BUILD_DIR/zig-toolchain/zig" build \
+            -Doptimize=ReleaseFast -Dcpu=x86_64_v2
+        cp zig-out/lib/libzsmooth.so "$ZSMOOTH_OUT"
+    ) || true
+    if [ -f "$ZSMOOTH_OUT" ]; then
+        patchelf --set-rpath '$ORIGIN:$ORIGIN/../../lib' "$ZSMOOTH_OUT" 2>/dev/null || true
+        echo "  Built zsmooth (x86_64_v2)"
+        BUILT_PLUGINS+=("zsmooth")
+    else
+        echo "  Warning: failed to build zsmooth (x86_64_v2)"
+        FAILED_PLUGINS+=("zsmooth")
+    fi
+    rm -rf "$BUILD_DIR/zig-toolchain" "$BUILD_DIR/zsmooth-src" "$BUILD_DIR/zig.tar.xz"
+else
     rm -rf "$BUILD_DIR/zsmooth"
     mkdir -p "$BUILD_DIR/zsmooth"
     if curl -sL -o "$BUILD_DIR/zsmooth/zsmooth.zip" \
@@ -1075,9 +1141,9 @@ if [ "$FORCE" = true ] || [ ! -f "$ZSMOOTH_PREBUILT" ]; then
         && unzip -q -o "$BUILD_DIR/zsmooth/zsmooth.zip" -d "$BUILD_DIR/zsmooth"; then
         so_path=$(find "$BUILD_DIR/zsmooth" -name "*.so" -type f 2>/dev/null | head -1)
         if [ -n "$so_path" ]; then
-            cp "$so_path" "$ZSMOOTH_PREBUILT"
-            patchelf --set-rpath '$ORIGIN:$ORIGIN/../../lib' "$ZSMOOTH_PREBUILT" 2>/dev/null || true
-            echo "  Downloaded pre-built zsmooth -> $(basename "$ZSMOOTH_PREBUILT")"
+            cp "$so_path" "$ZSMOOTH_OUT"
+            patchelf --set-rpath '$ORIGIN:$ORIGIN/../../lib' "$ZSMOOTH_OUT" 2>/dev/null || true
+            echo "  Downloaded pre-built zsmooth"
             BUILT_PLUGINS+=("zsmooth")
         else
             echo "  Failed: no .so in the zsmooth archive"
@@ -1088,51 +1154,7 @@ if [ "$FORCE" = true ] || [ ! -f "$ZSMOOTH_PREBUILT" ]; then
         FAILED_PLUGINS+=("zsmooth")
     fi
     rm -rf "$BUILD_DIR/zsmooth"
-else
-    echo "  $(basename "$ZSMOOTH_PREBUILT") already exists, skipping"
 fi
-
-# The portable x86 build has no upstream asset and must be compiled. Zig brings
-# its own libc and builds zsmooth's fftw dependency itself, so this adds no apt
-# package — only network access, since `zig build` fetches zsmooth's own Zig
-# dependencies.
-case "$ARCH" in
-    aarch64|arm64) : ;;
-    *)
-        ZSMOOTH_V2="$ZSMOOTH_DIR/libzsmooth-x86_64_v2.so"
-        if [ "$FORCE" = true ] || [ ! -f "$ZSMOOTH_V2" ]; then
-            echo "  Building zsmooth $ZSMOOTH_VERSION (x86_64_v2, runs without AVX2)..."
-            # Subshell so a failure cannot abort the script under `set -e`; the
-            # file check below decides whether it worked.
-            (
-                set -e
-                cd "$BUILD_DIR"
-                rm -rf zig-toolchain zsmooth-src zig.tar.xz
-                curl -fsSL -o zig.tar.xz \
-                    "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
-                mkdir -p zig-toolchain
-                tar -xf zig.tar.xz -C zig-toolchain --strip-components=1
-                git clone --depth 1 --branch "$ZSMOOTH_VERSION" \
-                    https://github.com/adworacz/zsmooth.git zsmooth-src
-                cd zsmooth-src
-                "$BUILD_DIR/zig-toolchain/zig" build \
-                    -Doptimize=ReleaseFast -Dcpu=x86_64_v2
-                cp zig-out/lib/libzsmooth.so "$ZSMOOTH_V2"
-            ) || true
-
-            if [ -f "$ZSMOOTH_V2" ]; then
-                patchelf --set-rpath '$ORIGIN:$ORIGIN/../../lib' "$ZSMOOTH_V2" 2>/dev/null || true
-                echo "  Built zsmooth -> $(basename "$ZSMOOTH_V2")"
-            else
-                echo "  Warning: failed to build the portable zsmooth"
-                FAILED_PLUGINS+=("zsmooth-x86_64_v2")
-            fi
-            rm -rf "$BUILD_DIR/zig-toolchain" "$BUILD_DIR/zsmooth-src" "$BUILD_DIR/zig.tar.xz"
-        else
-            echo "  $(basename "$ZSMOOTH_V2") already exists, skipping"
-        fi
-        ;;
-esac
 
 # DeScratch (core.descratch.DeScratch - vertical scratch removal)
 # Built from source: the repo carries the VapourSynth + AviSynthPlus headers as
@@ -1794,7 +1816,7 @@ cat > "$DEPS_DIR/version.json" << EOF
   "version": "$EXPECTED_DEPS_VERSION",
   "installedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "platform": "$PLATFORM_DIR",
-  "architecture": "$ARCH",
+  "architecture": "$ARCH",$([ -n "$TIER" ] && printf '\n  "tier": "%s",' "$TIER")
   "buildType": "source"
 }
 EOF

@@ -216,94 +216,25 @@ fi
 
 echo ""
 
-# Step 1: Package and release dependencies if changed
+# Step 1: Dependencies, if changed.
+#
+# Deps are built and published by CI only. The x64 bundles ship in two CPU
+# tiers (issue #92), each built into the same deps/<platform> directory, so a
+# local tree only ever holds ONE tier of each — packaging it here would publish
+# a release missing the other, and every machine on that tier would fail to
+# download. (Windows deps cannot be built on macOS at all.) The build-deps-*
+# workflows build every tier, gate the v2 bundles, and upload to the release.
 if $DEPS_CHANGED; then
-    echo -e "${BLUE}[1/6] Packaging dependencies...${NC}"
-
-    # Package macOS deps
-    if [ -d "$PROJECT_ROOT/deps/macos-arm64" ] || [ -d "$PROJECT_ROOT/deps/macos-x64" ]; then
-        "$SCRIPT_DIR/package-deps-macos.sh" --version "$DEPS_VERSION" --arch both || true
-    fi
-
-    # Package Windows deps (if on Windows or deps exist)
-    if [ -d "$PROJECT_ROOT/deps/windows-x64" ]; then
-        echo -e "${YELLOW}Windows deps found. Package manually on Windows or copy existing.${NC}"
-        # On macOS we can still create the zip if deps directory exists
-        WINDOWS_PACKAGE_DIR="$PROJECT_ROOT/dist/VapourBox-deps-$DEPS_VERSION-windows-x64"
-        rm -rf "$WINDOWS_PACKAGE_DIR"
-        mkdir -p "$WINDOWS_PACKAGE_DIR"
-        cp -r "$PROJECT_ROOT/deps/windows-x64/"* "$WINDOWS_PACKAGE_DIR/"
-
-        # Create version file
-        cat > "$WINDOWS_PACKAGE_DIR/version.json" << EOF
-{
-  "version": "$DEPS_VERSION",
-  "installedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-EOF
-
-        # Create zip
-        cd "$PROJECT_ROOT/dist"
-        zip -r -q "VapourBox-deps-$DEPS_VERSION-windows-x64.zip" "VapourBox-deps-$DEPS_VERSION-windows-x64"
-        rm -rf "$WINDOWS_PACKAGE_DIR"
-        echo "Created: dist/VapourBox-deps-$DEPS_VERSION-windows-x64.zip"
-
-        # Integrity sidecar (matches package-deps-windows.ps1 output) so the app
-        # can verify the download. This manual path bypasses the PowerShell
-        # packager, so write the sidecar here too.
-        WIN_ZIP="$PROJECT_ROOT/dist/VapourBox-deps-$DEPS_VERSION-windows-x64.zip"
-        WIN_SHA=$(shasum -a 256 "$WIN_ZIP" | cut -d' ' -f1)
-        WIN_SIZE=$(stat -f%z "$WIN_ZIP" 2>/dev/null || stat -c%s "$WIN_ZIP")
-        cat > "$WIN_ZIP.sha256.json" << EOF
-{
-  "filename": "VapourBox-deps-$DEPS_VERSION-windows-x64.zip",
-  "sha256": "$WIN_SHA",
-  "size": $WIN_SIZE,
-  "version": "$DEPS_VERSION"
-}
-EOF
-    fi
-
-    # Package Linux deps (if deps exist)
-    if [ -d "$PROJECT_ROOT/deps/linux-x64" ] || [ -d "$PROJECT_ROOT/deps/linux-arm64" ]; then
-        "$SCRIPT_DIR/package-deps-linux.sh" --version "$DEPS_VERSION" --arch both || true
-    fi
-
+    echo -e "${RED}Dependencies changed: build and publish them with CI first.${NC}"
     echo ""
-    echo -e "${BLUE}[2/6] Creating deps release on GitHub...${NC}"
-
-    # Create deps release
-    DEPS_NOTES="## VapourBox Dependencies $DEPS_VERSION
-
-This release contains pre-built dependencies for VapourBox.
-
-### Contents
-- VapourSynth portable with plugins
-- FFmpeg
-- Python packages (havsfunc, mvsfunc, etc.)
-
-### Downloads
-- \`VapourBox-deps-$DEPS_VERSION-windows-x64.zip\` - Windows x64
-- \`VapourBox-deps-$DEPS_VERSION-macos-arm64.zip\` - macOS Apple Silicon
-- \`VapourBox-deps-$DEPS_VERSION-macos-x64.zip\` - macOS Intel
-
-These dependencies are automatically downloaded by the app on first launch."
-
-    gh release create "$DEPS_TAG" \
-        --repo "$GITHUB_REPO" \
-        --title "Dependencies $DEPS_VERSION" \
-        --notes "$DEPS_NOTES" \
-        --latest=false \
-        "$PROJECT_ROOT/dist/VapourBox-deps-$DEPS_VERSION-"*.zip \
-        "$PROJECT_ROOT/dist/VapourBox-deps-$DEPS_VERSION-"*.zip.sha256.json 2>/dev/null || {
-            echo -e "${YELLOW}Uploading assets to existing release...${NC}"
-            for f in "$PROJECT_ROOT/dist/VapourBox-deps-$DEPS_VERSION-"*.zip \
-                     "$PROJECT_ROOT/dist/VapourBox-deps-$DEPS_VERSION-"*.zip.sha256.json; do
-                [ -f "$f" ] && gh release upload "$DEPS_TAG" "$f" --repo "$GITHUB_REPO" --clobber
-            done
-        }
-
-    echo -e "${GREEN}Deps release created: $DEPS_TAG${NC}"
+    echo "  gh release create $DEPS_TAG --repo $GITHUB_REPO --title \"VapourBox deps $DEPS_VERSION\" \\"
+    echo "      --notes \"Dependencies $DEPS_VERSION\" --latest=false"
+    echo "  gh workflow run build-deps-macos.yml   -f version=$DEPS_VERSION -f release_tag=$DEPS_TAG -f arch=both"
+    echo "  gh workflow run build-deps-windows.yml -f version=$DEPS_VERSION -f release_tag=$DEPS_TAG"
+    echo "  gh workflow run build-deps-linux.yml   -f version=$DEPS_VERSION -f release_tag=$DEPS_TAG -f arch=both"
+    echo ""
+    echo "Then re-run this script with --skip-deps-check."
+    exit 1
 else
     echo -e "${BLUE}[1/6] Skipping deps packaging (unchanged)${NC}"
     echo -e "${BLUE}[2/6] Skipping deps release (unchanged)${NC}"

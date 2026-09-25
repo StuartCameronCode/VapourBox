@@ -2,8 +2,14 @@ name: Probe CPU compatibility (SDE)
 
 # Loads and renders every plugin in a deps bundle under Intel SDE emulating an
 # older CPU, one plugin per process (Scripts/probe-plugin-compat.py). Every
-# hosted runner has AVX2, so this is the only CI-side way to see what a
-# pre-AVX2 machine would do with the bundle (issue #92).
+# hosted runner has AVX2, so this is the only CI-side way to see what an older
+# machine would do with a bundle (issue #92).
+#
+# Two modes:
+#   - survey (push / workflow_dispatch): reports what the bundle does; crashes
+#     are findings, not failures.
+#   - gate (workflow_call from build-deps-*.yml with gate: true): the v2 bundle
+#     promises to run on these CPUs, so any crash fails the build.
 #
 # A run only counts if its controls hold:
 #   - native: the runner itself must pass everything; an error there is a
@@ -11,9 +17,11 @@ name: Probe CPU compatibility (SDE)
 #   - core under SDE: VapourSynth with no plugins must pass. If it doesn't, the
 #     emulation itself is broken for this OS/chip and every plugin result is
 #     meaningless. (Windows at pre-AVX chips fails this: Microsoft's runtime
-#     picks AVX from what the host kernel reports, which SDE cannot emulate.)
-#   - positive: zsmooth's haswell build (AVX2, no runtime dispatch — issue #82)
-#     must crash inside its own image under a pre-AVX2 chip, proving SDE traps.
+#     picks AVX from what the host kernel reports, which SDE cannot emulate —
+#     so Windows is probed at Sandy Bridge, AVX without AVX2.)
+#   - positive: upstream's zsmooth haswell build (AVX2, no runtime dispatch,
+#     issue #82), fetched here independently of the bundle, must crash inside
+#     its own image — proving SDE actually traps.
 
 on:
   # Also runs when the probe or this workflow changes, which re-validates the
@@ -29,31 +37,44 @@ on:
         description: 'Optional build-deps-* run IDs (comma-separated); default is the release named in deps-version.json'
         required: false
         default: ''
+      tier:
+        description: 'x64 bundle tier to probe'
+        type: choice
+        options: [v3, v2]
+        default: v3
+  workflow_call:
+    inputs:
+      artifact_prefix:
+        description: 'Take the bundle from THIS run''s artifacts: <prefix><asset id>'
+        type: string
+        required: true
+      tier:
+        type: string
+        default: v2
+      matrix_json:
+        description: 'JSON list of {platform, runner, sde, python, chip} entries'
+        type: string
+        required: true
+      gate:
+        type: boolean
+        default: true
 
 permissions:
   contents: read
   actions: read
 
+env:
+  ZSMOOTH_VERSION: '0.19.0'
+
 jobs:
   probe:
-    name: ${{ matrix.platform }} (-${{ matrix.chip }})
+    name: ${{ matrix.platform }}${{ (inputs.tier || 'v3') == 'v2' && '-v2' || '' }} (-${{ matrix.chip }})
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # wsm = Westmere, the Mac Pro 5,1 in #92: no AVX at all.
-          - platform: linux-x64
-            runner: ubuntu-24.04
-            sde: sde64
-            python: python/bin/python3
-            chip: wsm
-          # snb = Sandy Bridge: AVX without AVX2 — the v3/v2 tier boundary.
-          # Windows can only be probed here; see the header.
-          - platform: windows-x64
-            runner: windows-latest
-            sde: sde.exe
-            python: vapoursynth/python.exe
-            chip: snb
+        # wsm = Westmere (the Mac Pro 5,1 in #92): no AVX at all.
+        # snb = Sandy Bridge: AVX without AVX2 — the v3/v2 tier boundary.
+        include: ${{ fromJSON(inputs.matrix_json || '[{"platform":"linux-x64","runner":"ubuntu-24.04","sde":"sde64","python":"python/bin/python3","chip":"wsm"},{"platform":"windows-x64","runner":"windows-latest","sde":"sde.exe","python":"vapoursynth/python.exe","chip":"snb"}]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     defaults:
@@ -61,17 +82,31 @@ jobs:
         shell: bash
     env:
       D: deps/${{ matrix.platform }}
+      ASSET_ID: ${{ matrix.platform }}${{ (inputs.tier || 'v3') == 'v2' && '-v2' || '' }}
     steps:
       - uses: actions/checkout@v5
 
-      - name: Download dependencies (${{ matrix.platform }})
+      # Gate mode: the bundle was built earlier in this same run.
+      - name: Take the bundle from this run
+        if: inputs.artifact_prefix != ''
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ inputs.artifact_prefix }}${{ env.ASSET_ID }}
+          path: .deps-artifact
+
+      - name: Download dependencies (${{ env.ASSET_ID }})
         env:
           GH_TOKEN: ${{ github.token }}
           DEPS_RUN_ID: ${{ inputs.deps_run_id }}
         run: |
-          TAG=$(sed -n 's/.*"releaseTag": *"\([^"]*\)".*/\1/p' app/assets/deps-version.json)
           mkdir -p "$D"
-          ZIP=$(bash .github/scripts/fetch-deps-bundle.sh "${{ matrix.platform }}" "$TAG" "${TAG#deps-v}")
+          if [ -d .deps-artifact ]; then
+            ZIP=$(find .deps-artifact -name "*-$ASSET_ID.zip" | head -1)
+          else
+            TAG=$(sed -n 's/.*"releaseTag": *"\([^"]*\)".*/\1/p' app/assets/deps-version.json)
+            ZIP=$(bash .github/scripts/fetch-deps-bundle.sh "$ASSET_ID" "$TAG" "${TAG#deps-v}")
+          fi
+          [ -f "$ZIP" ] || { echo "no bundle zip for $ASSET_ID"; exit 1; }
           if [ "$RUNNER_OS" = Windows ]; then
             # The Windows zip uses backslash separators; 7-Zip copes, unzip does not.
             7z x "$ZIP" -o"$D" -y >/dev/null
@@ -79,6 +114,24 @@ jobs:
             unzip -q -o "$ZIP" -d "$D"
           fi
           rm -rf "$ZIP" .deps-artifact
+
+      - name: Fetch the positive control (upstream zsmooth, AVX2-only)
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            ASSET=zsmooth-x86_64-windows.zip; EXT=dll
+          else
+            ASSET=zsmooth-x86_64-linux-gnu.zip; EXT=so
+          fi
+          curl -fsSL -o control.zip \
+            "https://github.com/adworacz/zsmooth/releases/download/${ZSMOOTH_VERSION}/${ASSET}"
+          if [ "$RUNNER_OS" = Windows ]; then
+            7z x control.zip -ocontrol -y >/dev/null
+          else
+            unzip -q -o control.zip -d control
+          fi
+          FOUND=$(find control -name "*zsmooth*.$EXT" -type f | head -1)
+          cp "$FOUND" "control-zsmooth-haswell.$EXT"
+          echo "CONTROL=$PWD/control-zsmooth-haswell.$EXT" >> "$GITHUB_ENV"
 
       - name: Setup Intel SDE
         uses: petarpetrovt/setup-sde@v6.0
@@ -95,10 +148,12 @@ jobs:
         run: |
           SDE_DIR=$(cygpath -m "$SDE_PATH" 2>/dev/null || echo "$SDE_PATH")
           "$D/${{ matrix.python }}" Scripts/probe-plugin-compat.py "$D" \
-            --report sde.txt --json sde.json --timeout 1800 \
+            --report sde.txt --json sde.json --timeout 1800 --extra "$CONTROL" \
             --wrap "\"$SDE_DIR/${{ matrix.sde }}\" -${{ matrix.chip }} --"
 
-      - name: Check the controls and summarise
+      - name: Check the controls${{ inputs.gate && ' and gate the bundle' || '' }}
+        env:
+          GATE: ${{ inputs.gate && 'true' || 'false' }}
         run: |
           "$D/${{ matrix.python }}" - <<'EOF'
           import json, os, sys
@@ -112,25 +167,24 @@ jobs:
           if core["status"] != "PASS":
               sys.exit(f"core control failed under SDE ({core['status']}: {core['detail']}); "
                        "the emulation is not valid for this OS/chip, so no plugin result means anything")
-          control = [r for r in sde if "zsmooth-haswell" in r["file"]]
-          if not control:
-              sys.exit("positive control missing: no zsmooth-haswell build in this bundle")
-          c = control[0]
-          if c["status"] != "CRASHED" or "zsmooth-haswell" not in c["detail"]:
-              sys.exit(f"SDE did not trap the AVX2-only zsmooth-haswell build in its own code "
+          c = next(r for r in sde if r["file"].startswith("control-zsmooth-haswell"))
+          if c["status"] != "CRASHED" or "control-zsmooth-haswell" not in c["detail"]:
+              sys.exit(f"SDE did not trap the AVX2-only control build in its own code "
                        f"({c['status']}: {c['detail']}); results are meaningless")
 
-          bad = [r for r in sde if r["status"] in ("CRASHED", "INCONCLUSIVE") and r is not c]
-          print(f"controls OK; {len(bad)} other file(s) crashed or were inconclusive:")
+          bad = [r for r in sde if r["status"] in ("CRASHED", "INCONCLUSIVE", "ERROR") and r is not c]
+          print(f"controls OK; {len(bad)} bundle file(s) crashed, errored or were inconclusive:")
           for r in bad:
               print(f"  {r['file']} [{r['namespaces']}] {r['status']}: {r['detail']}")
+          if bad and os.environ["GATE"] == "true":
+              sys.exit("the bundle does not run on this CPU")
           EOF
 
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: cpu-compat-${{ matrix.platform }}-${{ matrix.chip }}
+          name: cpu-compat-${{ env.ASSET_ID }}-${{ matrix.chip }}
           path: |
             native.txt
             native.json

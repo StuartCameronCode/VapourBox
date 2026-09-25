@@ -13,7 +13,8 @@ SIGILL / 0xC000001D in a plugin is a result, not the end of the run.
 
 Usage:
     python probe-plugin-compat.py [DEPS_DIR] [--report FILE] [--json FILE]
-                                  [--wrap "sde64 -nhm --"] [--fail-on-crash]
+                                  [--wrap "sde64 -nhm --"] [--extra FILE]
+                                  [--fail-on-crash]
 
 DEPS_DIR defaults to the installed bundle for this OS. Run it with the
 bundle's own Python (see probe-plugin-compat.sh) so no system Python is needed.
@@ -271,6 +272,8 @@ def main():
     ap.add_argument("--report", default=None, help="text report path")
     ap.add_argument("--json", default=None, help="machine-readable results path")
     ap.add_argument("--wrap", default="", help='prefix for each test, e.g. "sde64 -nhm --"')
+    ap.add_argument("--extra", action="append", default=[], metavar="FILE",
+                    help="also test this plugin file (e.g. a known-bad control build)")
     ap.add_argument("--timeout", type=int, default=600)
     ap.add_argument("--fail-on-crash", action="store_true",
                     help="exit 1 if anything crashed, errored or was inconclusive (for CI gates)")
@@ -281,6 +284,7 @@ def main():
         sys.exit(f"No VapourBox deps bundle found at {deps}\n"
                  "Pass the path to your deps folder as the first argument.")
     python, env, files = bundle_layout(deps)
+    files += [os.path.abspath(f) for f in args.extra]
     wrap = shlex.split(args.wrap)
     child_src = f"RENDER = {RENDER!r}\n" + CHILD
 

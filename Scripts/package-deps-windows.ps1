@@ -17,17 +17,29 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $ScriptDir
 $DistDir = Join-Path $ProjectRoot "dist"
 $AppName = "VapourBox"
-$PackageName = "$AppName-deps-$Version-windows-x64"
+$DepsDir = Join-Path $ProjectRoot "deps\windows-x64"
+
+# The CPU tier (issue #92) is whatever download-deps-windows.ps1 stamped into the
+# build's version.json. v3 keeps the plain asset name, v2 is suffixed — the same
+# rule as DependencyManager.assetIdFor. A build from before tiering is v3.
+$Tier = "v3"
+$BuiltVersionFile = Join-Path $DepsDir "version.json"
+if (Test-Path $BuiltVersionFile) {
+    $Stamped = (Get-Content $BuiltVersionFile -Raw | ConvertFrom-Json).tier
+    if ($Stamped) { $Tier = $Stamped }
+}
+$PlatformKey = if ($Tier -eq "v2") { "windows-x64-v2" } else { "windows-x64" }
+$PackageName = "$AppName-deps-$Version-$PlatformKey"
 $PackageDir = Join-Path $DistDir $PackageName
 
 Write-Host "=== Packaging VapourBox Dependencies for Windows ===" -ForegroundColor Cyan
 Write-Host "Version: $Version"
+Write-Host "CPU tier: $Tier ($PlatformKey)"
 Write-Host ""
 
 # Check prerequisites
 Write-Host "[1/5] Checking prerequisites..." -ForegroundColor Yellow
 
-$DepsDir = Join-Path $ProjectRoot "deps\windows-x64"
 if (-not (Test-Path $DepsDir)) {
     Write-Host "ERROR: Dependencies not found at $DepsDir" -ForegroundColor Red
     Write-Host "Run '.\Scripts\download-deps-windows.ps1' first" -ForegroundColor Red
@@ -141,6 +153,7 @@ Copy-Item (Join-Path $DepsDir "ffmpeg\ffprobe.exe") "$PackageDir\ffmpeg\" -Error
 Write-Host "    Creating version file..."
 $VersionInfo = @{
     version = $Version
+    tier = $Tier
     installedAt = (Get-Date).ToString("o")
 } | ConvertTo-Json -Depth 10
 Set-Content -Path "$PackageDir\version.json" -Value $VersionInfo
@@ -150,16 +163,13 @@ Set-Content -Path "$PackageDir\version.json" -Value $VersionInfo
 # otherwise ship an incomplete bundle. Contract: Scripts/deps-expected-plugins.json.
 Write-Host "[4b/5] Verifying required plugins..." -ForegroundColor Yellow
 $ManifestPath = Join-Path $ProjectRoot "Scripts\deps-expected-plugins.json"
-$ExpectedPlugins = (Get-Content $ManifestPath -Raw | ConvertFrom-Json)."windows-x64"
+$ExpectedPlugins = (Get-Content $ManifestPath -Raw | ConvertFrom-Json).$PlatformKey
+if (-not $ExpectedPlugins) {
+    Write-Host "ERROR: no $PlatformKey entry in deps-expected-plugins.json" -ForegroundColor Red
+    exit 1
+}
 $StagedPluginDir = Join-Path "$PackageDir\vapoursynth" "vs-plugins"
-# An entry with a '/' is bundle-root-relative, not a plugin-directory filename.
-# zsmooth ships one build per CPU baseline outside the autoload directory (both
-# register the same namespace, so the worker loads exactly one by path), and a
-# guard that only ever looked in vs-plugins would stop covering it.
-$MissingPlugins = @($ExpectedPlugins | Where-Object {
-    $Target = if ($_ -match '/') { Join-Path $PackageDir ($_ -replace '/', '\') } else { Join-Path $StagedPluginDir $_ }
-    -not (Test-Path $Target)
-})
+$MissingPlugins = @($ExpectedPlugins | Where-Object { -not (Test-Path (Join-Path $StagedPluginDir $_)) })
 if ($MissingPlugins.Count -gt 0) {
     Write-Host "ERROR: bundle is missing $($MissingPlugins.Count) required plugin(s):" -ForegroundColor Red
     $MissingPlugins | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }

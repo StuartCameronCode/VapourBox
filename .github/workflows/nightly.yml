@@ -44,11 +44,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # x64 runs both CPU-tier bundles (issue #92). The runner is a v3 CPU, so
+        # the v2 run proves the v2 bundle is functionally equivalent — not that
+        # it runs on an older CPU; that is build-deps-macos.yml's static gate.
         include:
           - arch: arm64
             runner: macos-15
+            asset: macos-arm64
           - arch: x64
             runner: macos-15-intel  # last native Intel image, available until ~Aug 2027
+            asset: macos-x64
+          - arch: x64
+            runner: macos-15-intel
+            asset: macos-x64-v2
+    name: macos (${{ matrix.asset }})
     runs-on: ${{ matrix.runner }}
     env:
       VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/macos-${{ matrix.arch }}
@@ -71,14 +80,15 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Download dependencies (${{ matrix.arch }})
+      - name: Download dependencies (${{ matrix.asset }})
         env:
           GH_TOKEN: ${{ github.token }}
           DEPS_RUN_ID: ${{ inputs.deps_run_id }}
         run: |
+          # The tier is in the asset name only; either installs to deps/<platform>.
           PLATFORM="macos-${{ matrix.arch }}"
           mkdir -p "deps/$PLATFORM"
-          ZIP=$(bash .github/scripts/fetch-deps-bundle.sh "$PLATFORM" \
+          ZIP=$(bash .github/scripts/fetch-deps-bundle.sh "${{ matrix.asset }}" \
             "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}")
           unzip -q -o "$ZIP" -d "deps/$PLATFORM"
           rm -rf "$ZIP" .deps-artifact
@@ -123,6 +133,12 @@ jobs:
 
   windows:
     if: ${{ github.event_name == 'schedule' || inputs.platform == 'all' || inputs.platform == 'windows' }}
+    # Both CPU-tier bundles (issue #92); see the macOS job for what the v2 run proves.
+    strategy:
+      fail-fast: false
+      matrix:
+        asset: [windows-x64, windows-x64-v2]
+    name: windows (${{ matrix.asset }})
     runs-on: windows-latest
     env:
       VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/windows-x64
@@ -153,7 +169,7 @@ jobs:
           DEPS_RUN_ID: ${{ inputs.deps_run_id }}
         run: |
           mkdir -p deps/windows-x64
-          ZIP=$(bash .github/scripts/fetch-deps-bundle.sh windows-x64 \
+          ZIP=$(bash .github/scripts/fetch-deps-bundle.sh "${{ matrix.asset }}" \
             "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}")
           7z x "$ZIP" -o"deps/windows-x64" -y >/dev/null
           rm -rf "$ZIP" .deps-artifact
@@ -197,6 +213,12 @@ jobs:
 
   linux:
     if: ${{ github.event_name == 'schedule' || inputs.platform == 'all' || inputs.platform == 'linux' }}
+    # Both CPU-tier bundles (issue #92); see the macOS job for what the v2 run proves.
+    strategy:
+      fail-fast: false
+      matrix:
+        asset: [linux-x64, linux-x64-v2]
+    name: linux (${{ matrix.asset }})
     runs-on: ubuntu-24.04  # must match the deps-build runner (glibc)
     env:
       VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/linux-x64
@@ -225,13 +247,13 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Download dependencies (linux-x64)
+      - name: Download dependencies (${{ matrix.asset }})
         env:
           GH_TOKEN: ${{ github.token }}
           DEPS_RUN_ID: ${{ inputs.deps_run_id }}
         run: |
           mkdir -p deps/linux-x64
-          ZIP=$(bash .github/scripts/fetch-deps-bundle.sh linux-x64 \
+          ZIP=$(bash .github/scripts/fetch-deps-bundle.sh "${{ matrix.asset }}" \
             "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}")
           unzip -q -o "$ZIP" -d deps/linux-x64
           rm -rf "$ZIP" .deps-artifact
