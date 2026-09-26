@@ -48,8 +48,12 @@ void main() {
           'Unsupported platform: ${Platform.operatingSystem}');
     }
 
-    // Try different possible locations for deps
+    // $VAPOURBOX_DEPS_DIR first, as the worker harness and the app honour it —
+    // without that, a run pointed at an unreleased bundle silently tested
+    // whatever happened to be in the repo's deps/ instead.
+    final override = Platform.environment['VAPOURBOX_DEPS_DIR'];
     final possibleDepsPaths = [
+      if (override != null && override.isNotEmpty) override,
       path.join(scriptDir, '..', 'deps', depsPlatform),
       path.join(scriptDir, 'deps', depsPlatform),
     ];
