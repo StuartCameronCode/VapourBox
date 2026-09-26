@@ -847,6 +847,13 @@ class ParameterConverter {
       'maintainAspect': params.maintainAspect,
       'pixelAspect': params.pixelAspect.name,
       'padToAspect': params.padToAspect,
+      'padEnabled': params.padEnabled,
+      // A canvas that was never set shows the PAL DVD size, as the resize
+      // target shows 1080p — so ticking Add Borders does something at once.
+      'padWidth': params.padWidth ?? 720,
+      'padHeight': params.padHeight ?? 576,
+      'padColor': params.padColor.name,
+      'padCustomColor': params.padCustomColor ?? '#000000',
       'useIntegerUpscale': params.useIntegerUpscale,
       'upscaleMethod': params.upscaleMethod.name,
       'upscaleFactor': params.upscaleFactor,
@@ -1443,6 +1450,14 @@ class ParameterConverter {
       customSar: v['customSar'] as String?,
       displayAspect: v['displayAspect'] as String?,
       padToAspect: v['padToAspect'] as bool? ?? false,
+      padEnabled: v['padEnabled'] as bool? ?? false,
+      padWidth: _asInt(v['padWidth']) ?? 720,
+      padHeight: _asInt(v['padHeight']) ?? 576,
+      padColor: BorderColor.values.firstWhere(
+        (c) => c.name == (v['padColor'] as String? ?? 'black'),
+        orElse: () => BorderColor.black,
+      ),
+      padCustomColor: v['padCustomColor'] as String?,
       useIntegerUpscale: v['useIntegerUpscale'] as bool? ?? false,
       upscaleMethod: UpscaleMethod.values.firstWhere(
         (m) => m.name.toLowerCase() == (v['upscaleMethod'] as String? ?? 'nnedi3Rpow2').toLowerCase(),

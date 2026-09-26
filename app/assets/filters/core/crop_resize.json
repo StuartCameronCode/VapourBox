@@ -1,10 +1,10 @@
 {
   "$schema": "https://vapourbox.app/schemas/filter-v1.json",
   "id": "crop_resize",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "name": "Crop & Resize",
-  "description": "Crop borders and resize or upscale video",
-  "longDescription": "Trims unwanted borders and changes the output resolution. Cropping happens first, then resizing.\n\nUse crop to cut the head-switching noise along the bottom of VHS captures and the black overscan edges of broadcast material — otherwise the encoder spends bitrate on them. Use resize for a target resolution, or the NNEDI3 upscaler for a much better 2x/4x enlargement than a plain kernel. Keep crop values even so they stay aligned with chroma subsampling.",
+  "description": "Crop borders, resize or upscale, and add bars to a target size",
+  "longDescription": "Trims unwanted borders, changes the output resolution, and adds bars out to a target frame size. Cropping happens first, then resizing, then the bars.\n\nUse crop to cut the head-switching noise along the bottom of VHS captures and the black overscan edges of broadcast material — otherwise the encoder spends bitrate on them. Use resize for a target resolution, or the NNEDI3 upscaler for a much better 2x/4x enlargement than a plain kernel. Keep crop values even so they stay aligned with chroma subsampling.\n\nUse Add Borders to bring a cropped picture back to an exact frame size for authoring (720x576 for PAL DVD, 720x480 for NTSC) without rescaling it: the picture is centred and the rest filled with bars.",
   "category": "transform",
   "icon": "crop",
   "order": 9,
@@ -37,6 +37,11 @@
         "customSar",
         "displayAspect",
         "padToAspect",
+        "padEnabled",
+        "padWidth",
+        "padHeight",
+        "padColor",
+        "padCustomColor",
         "useIntegerUpscale",
         "upscaleMethod",
         "upscaleFactor",
@@ -609,9 +614,81 @@
       "default": false,
       "ui": {
         "label": "Pad to Fill",
-        "description": "Letterbox or pillarbox out to the exact target size instead of leaving the picture smaller than it in one direction",
+        "description": "Letterbox or pillarbox out to the exact target size instead of leaving the picture smaller than it in one direction. The bars use the Border Colour below",
         "visibleWhen": {
           "resizeEnabled": true
+        }
+      }
+    },
+    "padEnabled": {
+      "type": "boolean",
+      "default": false,
+      "sinceAppVersion": "1.2.0",
+      "ui": {
+        "label": "Add Borders",
+        "description": "Add bars around the picture to bring it to an exact frame size, without rescaling it. Runs after cropping and resizing, so crop off a dirty edge and border back out to the size you need"
+      }
+    },
+    "padWidth": {
+      "type": "integer",
+      "default": 720,
+      "min": 64,
+      "max": 7680,
+      "step": 2,
+      "sinceAppVersion": "1.2.0",
+      "ui": {
+        "label": "Canvas Width",
+        "description": "Output frame width in pixels. Must be at least the picture's width after cropping and resizing",
+        "widget": "number",
+        "visibleWhen": {
+          "padEnabled": true
+        }
+      }
+    },
+    "padHeight": {
+      "type": "integer",
+      "default": 576,
+      "min": 64,
+      "max": 4320,
+      "step": 2,
+      "sinceAppVersion": "1.2.0",
+      "ui": {
+        "label": "Canvas Height",
+        "description": "Output frame height in pixels. Must be at least the picture's height after cropping and resizing",
+        "widget": "number",
+        "visibleWhen": {
+          "padEnabled": true
+        }
+      }
+    },
+    "padColor": {
+      "type": "enum",
+      "default": "black",
+      "options": [
+        "black",
+        "grey",
+        "white",
+        "custom"
+      ],
+      "sinceAppVersion": "1.2.0",
+      "ui": {
+        "label": "Border Colour",
+        "description": "Colour of the bars, for Add Borders and Pad to Fill. Black is video black, not the below-black level bars used to get",
+        "widget": "dropdown"
+      }
+    },
+    "padCustomColor": {
+      "type": "string",
+      "default": "#000000",
+      "sinceAppVersion": "1.2.0",
+      "ui": {
+        "label": "Custom Colour",
+        "description": "Bar colour as #RRGGBB (e.g. #202020 for dark grey). Anything else falls back to black",
+        "widget": "textfield",
+        "visibleWhen": {
+          "padColor": [
+            "custom"
+          ]
         }
       }
     }
@@ -681,6 +758,36 @@
           "targetHeight": 2160
         }
       }
+    },
+    "borderPreset": {
+      "label": "Canvas Preset",
+      "description": "Add bars to bring the picture to a standard frame size, without rescaling it",
+      "default": "None",
+      "options": {
+        "None": {
+          "padEnabled": false
+        },
+        "PAL DVD (720x576)": {
+          "padEnabled": true,
+          "padWidth": 720,
+          "padHeight": 576
+        },
+        "NTSC DVD (720x480)": {
+          "padEnabled": true,
+          "padWidth": 720,
+          "padHeight": 480
+        },
+        "720p (1280x720)": {
+          "padEnabled": true,
+          "padWidth": 1280,
+          "padHeight": 720
+        },
+        "1080p (1920x1080)": {
+          "padEnabled": true,
+          "padWidth": 1920,
+          "padHeight": 1080
+        }
+      }
     }
   },
   "ui": {
@@ -717,6 +824,17 @@
           "customSar",
           "displayAspect",
           "padToAspect"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Borders",
+        "parameters": [
+          "padEnabled",
+          "padWidth",
+          "padHeight",
+          "padColor",
+          "padCustomColor"
         ],
         "expanded": true
       },
@@ -790,6 +908,21 @@
       "activeWhen": {
         "useIntegerUpscale": true,
         "upscaleMethod": "spline36"
+      }
+    },
+    {
+      "function": "core.std.AddBorders",
+      "role": "Pad to Fill's letterbox/pillarbox bars, in the border colour",
+      "activeWhen": {
+        "resizeEnabled": true,
+        "padToAspect": true
+      }
+    },
+    {
+      "function": "core.std.AddBorders",
+      "role": "bars out to the canvas, in the border colour (last step, after the output format conversion)",
+      "activeWhen": {
+        "padEnabled": true
       }
     }
   ]
