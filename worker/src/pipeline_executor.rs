@@ -151,6 +151,7 @@ fn preview_window(target: i32, radius: i32) -> (i32, i32, i32) {
 use crate::dependency_locator::DependencyLocator;
 use crate::models::{AspectDeclaration, AudioMode, ContainerFormat, DeinterlaceMethod, EncoderFamily, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
 use crate::pixel_format;
+use crate::source_decode;
 use crate::progress_reporter::ProgressReporter;
 use crate::script_generator::{PreviewParams, ScriptGenerator};
 
@@ -265,61 +266,23 @@ impl PipelineExecutor {
         let pix_fmt = pipe_format.name.as_str();
         // Declared frame size — must match the dimensions pipe_source uses in
         // the template (see script_generator), so the raw stream stays aligned.
+        // The decoder is built to produce exactly this size without resampling
+        // (full stored frame, size-guarded) — see source_decode.rs.
         let width = job.input_width.unwrap_or(720);
         let height = job.input_height.unwrap_or(480);
 
-        // Build decoder FFmpeg arguments
-        // Frame trimming is handled here (faster than VapourSynth trimming since FFmpeg
-        // can seek using the container index)
-        let mut decoder_args: Vec<String> = Vec::new();
-
-        // Seek to the start frame if specified (before -i for an accurate,
-        // fast decode-seek). Target the midpoint of the interval *before*
-        // `start` so the first kept frame (PTS >= seek time) is exactly `start`,
-        // not start±1 — the boundary `start/fps` is ambiguous under PTS rounding.
-        if let Some(start) = job.start_frame {
-            if start > 0 {
-                let fps = job.input_frame_rate.unwrap_or(29.97);
-                let seek_time = ((start as f64 - 0.5) / fps).max(0.0);
-                decoder_args.push("-ss".to_string());
-                decoder_args.push(format!("{:.6}", seek_time));
-            }
-        }
-
-        decoder_args.extend([
-            "-i".to_string(), job.input_path.clone(),
-            "-map".to_string(), "0:v:0".to_string(), // only first video stream
-            // Force the declared dimensions. Some sources decode to a different
-            // size than ffprobe reports (e.g. a clean aperture: 720x576 coded ->
-            // 702x576 decoded), which otherwise desyncs the raw frame stream from
-            // what pipe_source expects -> garbage output.
-            "-s".to_string(), format!("{}x{}", width, height),
-            "-f".to_string(), "rawvideo".to_string(),
-            "-pix_fmt".to_string(), pix_fmt.to_string(),
-            "-v".to_string(), "error".to_string(),
-        ]);
-
-        // Limit decoder frame count to match what pipe_source expects.
-        // Without this, the decoder can send more frames than TOTAL_FRAMES
-        // (e.g. MPEG-2 telecine produces duplicate frames), causing a broken
-        // pipe when vspipe closes stdin before the decoder finishes.
-        // For trimmed exports, limit to the trimmed range instead.
-        if let (Some(start), Some(end)) = (job.start_frame, job.end_frame) {
-            let count = end - start + 1;
-            if count > 0 {
-                decoder_args.push("-frames:v".to_string());
-                decoder_args.push(count.to_string());
-            }
-        } else if let Some(end) = job.end_frame {
-            let count = end + 1;
-            decoder_args.push("-frames:v".to_string());
-            decoder_args.push(count.to_string());
-        } else if let Some(total) = job.total_frames {
-            decoder_args.push("-frames:v".to_string());
-            decoder_args.push(total.to_string());
-        }
-
-        decoder_args.push("pipe:1".to_string()); // stdout via FFmpeg pipe protocol
+        // Frame trimming is handled by the decoder (faster than VapourSynth
+        // trimming since FFmpeg can seek using the container index).
+        let decoder_args = source_decode::encode_decoder_args(
+            &job.input_path,
+            width,
+            height,
+            pix_fmt,
+            job.input_frame_rate,
+            job.start_frame,
+            job.end_frame,
+            job.total_frames,
+        );
 
         self.reporter.send_log(
             LogLevel::Debug,
@@ -403,12 +366,17 @@ impl PipelineExecutor {
         let decoder_reporter = self.reporter.clone();
         let decoder_stderr_thread = thread::spawn(move || {
             let reader = BufReader::new(decoder_stderr);
-            let mut last_line = String::new();
+            // Keep a bounded tail: enough to recognise a size-guard failure
+            // (source_decode::explain_decoder_failure) and to report the cause.
+            let mut tail: Vec<String> = Vec::new();
             for line in reader.lines().map_while(Result::ok) {
                 decoder_reporter.send_log(LogLevel::Debug, &format!("decoder stderr: {}", line));
-                last_line = line;
+                tail.push(line);
+                if tail.len() > 40 {
+                    tail.remove(0);
+                }
             }
-            last_line
+            tail.join("\n")
         });
 
         // Parse vspipe stderr for input info (in background thread)
@@ -620,7 +588,7 @@ impl PipelineExecutor {
             .context("Failed to wait for ffmpeg")?;
 
         // Now safe to join threads (pipes are closed, readers will hit EOF)
-        let _ = decoder_stderr_thread.join();
+        let decoder_stderr_tail = decoder_stderr_thread.join().unwrap_or_default();
         let vspipe_autoload_failed = vspipe_thread.join().unwrap_or(false);
         let ffmpeg_stderr_tail = ffmpeg_stderr_thread.join().unwrap_or_default();
 
@@ -637,6 +605,19 @@ impl PipelineExecutor {
                 "{} vspipe failed to autoload a required VapourSynth plugin",
                 PLUGIN_AUTOLOAD_MARKER
             );
+        }
+
+        // A decoder that stopped because the source isn't the size it was
+        // probed at is the ROOT cause of whatever vspipe/ffmpeg then report
+        // (a short or empty raw stream), so it is surfaced before them.
+        if let Some(status) = decoder_status {
+            if !status.success() && !on_cancel() {
+                if let Some(msg) =
+                    source_decode::explain_decoder_failure(&decoder_stderr_tail, width, height)
+                {
+                    bail!("{}", msg);
+                }
+            }
         }
 
         // Check exit codes.
@@ -677,7 +658,11 @@ impl PipelineExecutor {
         if let Some(status) = decoder_status {
             let code = status.code().unwrap_or(-1);
             if code != 0 && code != 130 && code != 141 && code != 224 {
-                bail!("Decoder ffmpeg exited with {}", format_exit_status(&status));
+                let tail = decoder_stderr_tail.trim();
+                if tail.is_empty() {
+                    bail!("Decoder ffmpeg exited with {}", format_exit_status(&status));
+                }
+                bail!("Decoder ffmpeg exited with {}:\n{}", format_exit_status(&status), tail);
             }
         }
 
@@ -1277,23 +1262,18 @@ impl PipelineExecutor {
             .with_context(|| format!("Failed to create temp dir: {:?}", temp_dir))?;
         let raw_path = temp_dir.join("frames.raw");
 
+        // Same decode as the encode path: the full stored frame at exactly the
+        // probed size, never resampled — see source_decode.rs.
         let extract_result = Command::new(&ffmpeg_path)
-            .args([
-                "-ss", &format!("{:.6}", seek_time),
-                "-i", &job.input_path,
-                "-map", "0:v:0",
-                "-frames:v", &num_frames.to_string(),
-                // Force the declared dimensions. Some sources decode to a
-                // different size than ffprobe reports (e.g. a clean aperture:
-                // 720x576 coded -> 702x576 decoded), which otherwise desyncs the
-                // raw frame stream from what pipe_source expects -> garbage.
-                "-s", &format!("{}x{}", width, height),
-                "-f", "rawvideo",
-                "-pix_fmt", pix_fmt,
-                "-v", "error",
-                "-y",
+            .args(source_decode::preview_decoder_args(
+                &job.input_path,
+                seek_time,
+                num_frames,
+                width,
+                height,
+                pix_fmt,
                 raw_path.to_string_lossy().as_ref(),
-            ])
+            ))
             .envs(&env)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -1303,6 +1283,9 @@ impl PipelineExecutor {
         if !extract_result.status.success() {
             let stderr = String::from_utf8_lossy(&extract_result.stderr);
             let _ = fs::remove_dir_all(&temp_dir);
+            if let Some(msg) = source_decode::explain_decoder_failure(&stderr, width, height) {
+                bail!("{}", msg);
+            }
             bail!("Failed to decode frames: {}", stderr);
         }
 

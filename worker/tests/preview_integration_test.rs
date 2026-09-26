@@ -1,10 +1,11 @@
 //! Preview pipeline integration test.
 //!
 //! Regression test for a colour-format/frame-size desync: `pal-sd-25.mov` is a
-//! 10-bit 4:2:2 ProRes file whose ffprobe-reported coded size (720x576) differs
-//! from the size ffmpeg actually decodes (702x576 clean aperture). If the
-//! decoder's raw output size doesn't match what `pipe_source` expects, frames
-//! desync and the processed preview is garbage.
+//! 10-bit 4:2:2 ProRes file whose ffprobe-reported size (720x576) differs
+//! from the size ffmpeg decodes by default (702x576: the container's clean
+//! aperture is applied). If the decoder's raw output size doesn't match what
+//! `pipe_source` expects, frames desync and the processed preview is garbage;
+//! the worker decodes the full stored frame instead (source_decode.rs).
 //!
 //! With all filters disabled the preview is a passthrough, so the processed
 //! frame must closely match a direct decode of the same source frame.
@@ -135,14 +136,18 @@ fn test_preview_10bit_422_matches_source_frame() {
     // Processed preview frame -> rgb24.
     let preview_rgb = ffmpeg_to_rgb("preview", &["-i", preview_png.to_str().unwrap()]);
 
-    // Reference: decode the same source frame, forced to the pipeline's declared
-    // dimensions and the same range scaling — the "correct passthrough" result.
+    // Reference: decode the same source frame at its full stored size (ignoring
+    // the clean aperture, as the pipeline does — see source_decode.rs), with
+    // only the range scaling the PNG gets. Never resized: a reference scaled to
+    // WIDTHxHEIGHT would agree with a pipeline that crops and resamples.
     let time = FRAME as f64 / FPS;
     let reference_rgb = ffmpeg_to_rgb(
         "reference",
         &[
             "-ss",
             &format!("{:.6}", time),
+            "-apply_cropping",
+            "codec",
             "-i",
             src.to_str().unwrap(),
             "-map",
@@ -150,7 +155,7 @@ fn test_preview_10bit_422_matches_source_frame() {
             "-frames:v",
             "1",
             "-vf",
-            &format!("scale={}:{}:in_range=tv:out_range=pc", WIDTH, HEIGHT),
+            "scale=in_range=tv:out_range=pc",
         ],
     );
 

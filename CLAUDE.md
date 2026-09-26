@@ -100,6 +100,7 @@ VapourBox/
 | `worker/src/script_generator.rs` | Template substitution for .vpy |
 | `worker/src/pipeline_executor.rs` | vspipe \| ffmpeg execution |
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
+| `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded (see "Source Frame Size") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
 
@@ -730,6 +731,31 @@ it — if they disagree, the byte stream desyncs from the frame geometry
 `NATIVE_FORMATS` (Rust) and `_FORMAT_MAP` (Python) must stay in step —
 `test_native_formats_match_pipe_source` parses the Python file and fails if they
 drift.
+
+### Source Frame Size: decode the stored frame, never resample to fit
+
+The frame size must agree the same way, and `worker/src/source_decode.rs` is
+the **single** builder of both decoders' arguments (encode + preview):
+
+- **`-apply_cropping codec` before `-i`.** FFmpeg (7.1+) applies *container*
+  cropping by default — a QuickTime clean aperture (`clap`) or Matroska
+  `PixelCrop` — but ffprobe's `width`/`height` exclude it (it shows only as
+  `Frame Cropping` side data). `codec` decodes exactly what ffprobe reports;
+  `none` would be wrong (it undoes the H.264 SPS crop: 1080p decodes at 1088).
+  The user's Crop controls are the only crop. The app's own source-picture
+  decodes (`PreviewGenerator.sourceDecodeOptions`) use the same option so the
+  "before" frame matches the "after".
+- **Never `-s` or scale on a decoder.** A size mismatch is an error, not a
+  resample: the decoder's `-vf` is a size guard (`size_guard_filter`) that
+  passes the probed size untouched and fails the decode on anything else,
+  including a mid-stream resolution change, reported via
+  `explain_decoder_failure` ahead of the vspipe/encoder status. A job that
+  omits `inputWidth`/`inputHeight` gets them probed by the worker
+  (`fill_frame_size`), not the old 720x480 fallback.
+
+`integration_clean_aperture_test.dart` (heavy) asserts a clean-aperture MOV and
+MKV come through bit-exact at full size. See docs/ENGINEERING_NOTES.md,
+"Clean aperture".
 
 ### High Bit Depth Sources (10-bit ProRes 422 and deeper)
 

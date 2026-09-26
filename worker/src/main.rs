@@ -23,6 +23,7 @@ mod dependency_locator;
 mod dvd_reader;
 mod pipeline_executor;
 mod pixel_format;
+mod source_decode;
 mod progress_reporter;
 mod script_generator;
 mod subtitle_generator;
@@ -374,13 +375,15 @@ fn run_preview_mode(args: &Args) -> ExitCode {
         }
     };
 
-    let job: VideoJob = match serde_json::from_str(&config_content) {
+    let mut job: VideoJob = match serde_json::from_str(&config_content) {
         Ok(j) => j,
         Err(e) => {
             eprintln!("Error parsing config: {}", e);
             return ExitCode::from(1);
         }
     };
+    let deps = dependency_locator::DependencyLocator::new().ok();
+    fill_frame_size(&mut job, deps.as_ref(), |msg| eprintln!("{}", msg));
 
     // The frame index is passed straight through to the worker — no
     // time-conversion round-trip — so the rendered frame is exactly the one the
@@ -402,6 +405,24 @@ fn run_preview_mode(args: &Args) -> ExitCode {
             eprintln!("Error generating preview: {}", e);
             ExitCode::from(1)
         }
+    }
+}
+
+/// Fill a missing `input_width`/`input_height` from ffprobe. A job that carries
+/// both is never touched; if either is missing and the probe succeeds, both
+/// come from the probe; a failed probe leaves the old fallback in place.
+fn fill_frame_size(
+    job: &mut VideoJob,
+    deps: Option<&dependency_locator::DependencyLocator>,
+    log: impl Fn(&str),
+) {
+    if job.input_width.is_some() && job.input_height.is_some() {
+        return;
+    }
+    if let Some((w, h)) = deps.and_then(|d| d.probe_frame_size(&job.input_path)) {
+        log(&format!("Probed input frame size: {}x{}", w, h));
+        job.input_width = Some(w);
+        job.input_height = Some(h);
     }
 }
 
@@ -512,6 +533,13 @@ fn run_worker(
             job.total_frames = Some(effective);
         }
     }
+
+    // Same for the frame size: the app always sends ffprobe's width/height, but
+    // a direct caller may not, and the old 720x480 fallback is now a decode
+    // error for any other source rather than a silent rescale (source_decode).
+    fill_frame_size(&mut job, deps.as_ref(), |msg| {
+        reporter.send_log(models::LogLevel::Debug, msg)
+    });
 
     // Generate VapourSynth script
     reporter.send_log(models::LogLevel::Info, "Generating VapourSynth script...");
