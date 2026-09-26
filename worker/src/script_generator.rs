@@ -2031,7 +2031,8 @@ impl ScriptGenerator {
                 }
 
                 // Padding only means anything when there is a box to pad out to.
-                if resize.pad_to_aspect && resize.resize_enabled {
+                // This only records the box; the BORDERS step adds the bars.
+                if resize.pads_to_aspect() {
                     script = script.replace("{{#ASPECT_PAD}}", "");
                     script = script.replace("{{/ASPECT_PAD}}", "");
                 } else {
@@ -2078,6 +2079,57 @@ impl ScriptGenerator {
                 script = script.replace("{{/CHROMA_CONVERT}}", "");
                 script = script.replace("{{CHROMA_FORMAT}}", format);
             }
+        }
+
+        // ====================================================================
+        // BORDERS (issue #86)
+        // ====================================================================
+        // Last in the script, after the output format conversion, so the bars
+        // are exact values in the encoded format. Pad to Fill's box was
+        // recorded by the resize step; the fixed canvas is independent of it.
+        if resize.adds_borders() {
+            script = script.replace("{{#BORDERS}}", "");
+            script = script.replace("{{/BORDERS}}", "");
+
+            let [r, g, b] = resize.border_rgb();
+            script = script.replace("{{BORDER_RGB}}", &format!("({r}, {g}, {b})"));
+            let color = job.color_metadata();
+            script = script.replace("{{BORDER_MATRIX}}", color.zimg_matrix(job.input_height));
+            script = script.replace(
+                "{{BORDER_RANGE}}",
+                if color.is_full_range() { "full" } else { "limited" },
+            );
+
+            // A picture that is still interlaced must move down by whole field
+            // pairs. Conservative: it is only off-centre by a line or two if
+            // something else (IVTC) already made it progressive.
+            let still_interlaced = !pipeline.deinterlace.enabled
+                && Self::field_based_for(job, pipeline).is_some();
+            script = script.replace(
+                "{{BORDER_FIELD_ALIGN}}",
+                if still_interlaced { "2" } else { "1" },
+            );
+
+            if resize.pads_to_aspect() {
+                script = script.replace("{{#BORDER_ASPECT_BOX}}", "");
+                script = script.replace("{{/BORDER_ASPECT_BOX}}", "");
+            } else {
+                script = remove_block("{{#BORDER_ASPECT_BOX}}", "{{/BORDER_ASPECT_BOX}}", script);
+            }
+
+            match resize.pad_canvas() {
+                Some((w, h)) => {
+                    script = script.replace("{{#BORDER_CANVAS}}", "");
+                    script = script.replace("{{/BORDER_CANVAS}}", "");
+                    script = script.replace("{{PAD_WIDTH}}", &w.to_string());
+                    script = script.replace("{{PAD_HEIGHT}}", &h.to_string());
+                }
+                None => {
+                    script = remove_block("{{#BORDER_CANVAS}}", "{{/BORDER_CANVAS}}", script);
+                }
+            }
+        } else {
+            script = remove_block("{{#BORDERS}}", "{{/BORDERS}}", script);
         }
 
         script

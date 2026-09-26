@@ -411,6 +411,40 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    // Issue #86: Add Borders. Starts from the panel's own dynamic values, so
+    // the schema keys, the converter and the Rust field names are all on the
+    // trip — a name mismatch anywhere and the canvas silently stays off.
+    test('crop_resize: Add Borders pads to the canvas in the chosen colour', () async {
+      final schema = loadSchema('crop_resize');
+      for (final key in ['padEnabled', 'padWidth', 'padHeight', 'padColor', 'padCustomColor']) {
+        expect(schema.parameters.containsKey(key), isTrue, reason: '$key missing from schema');
+      }
+      final dyn = ParameterConverter.fromCropResize(const CropResizeParameters(enabled: true))
+          .withValues({
+        'cropEnabled': true,
+        'cropLeft': 8,
+        'cropRight': 8,
+        'padEnabled': true,
+        'padWidth': 720,
+        'padHeight': 480,
+        'padColor': 'custom',
+        'padCustomColor': '#204060',
+      });
+      final job = buildJob(
+        testName: 'add_borders',
+        cropResize: ParameterConverter.toCropResize(dyn),
+      );
+      print('  Generating Add Borders script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.std.AddBorders('));
+      expect(script, contains('color=list((32, 64, 96))'));
+      expect(script, contains('_canvas_w = 720'));
+      expect(script, contains('_canvas_h = 480'));
+      // A canvas, not a resize: the picture is never rescaled to fill it.
+      expect(script, isNot(contains('width=target_w')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
 
     // Issue #50: temperature/tint white balance. U carries blue-yellow and V
     // carries red-cyan, so warm is -U/+V; a sign error here is invisible until

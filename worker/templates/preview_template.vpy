@@ -1883,20 +1883,11 @@ clip = core.resize.{{RESIZE_KERNEL}}(
 )
 
 {{#ASPECT_PAD}}
-# Letterbox/pillarbox out to the requested box instead of leaving the fitted
-# image smaller than it. Borders are split evenly and kept even for chroma.
-if _box_w > clip.width or _box_h > clip.height:
-    _pad_w = max(0, _even(_box_w) - clip.width)
-    _pad_h = max(0, _even(_box_h) - clip.height)
-    _left = (_pad_w // 2) & ~1
-    _top = (_pad_h // 2) & ~1
-    clip = core.std.AddBorders(
-        clip,
-        left=_left,
-        right=_pad_w - _left,
-        top=_top,
-        bottom=_pad_h - _top,
-    )
+# Pad to Fill: remember the box, so the BORDERS step at the very end can
+# letterbox/pillarbox out to it. The bars go on last so that nothing after this
+# (grain in particular) touches them. An axis with no target stays as it is.
+_aspect_box_w = _even(_box_w) if _box_w > 0 else 0
+_aspect_box_h = _even(_box_h) if _box_h > 0 else 0
 {{/ASPECT_PAD}}
 {{/RESIZE_STANDARD}}
 {{/RESIZE}}
@@ -2033,6 +2024,86 @@ if clip.format.id != target_format:
     clip = core.resize.Bicubic(clip, format=target_format,
                                dither_type="error_diffusion")
 {{/CHROMA_CONVERT}}
+
+# ============================================================================
+# BORDERS (issue #86)
+#
+# Letterbox/pillarbox bars: Pad to Fill's box from the resize step, then Add
+# Borders' fixed canvas. Deliberately the very last step — after grain (which
+# would put noise on the bars), after custom code, and after the output format
+# conversion, so the bars are exact values in the format actually encoded
+# rather than resampled along with the picture. Identical in both templates.
+# ============================================================================
+{{#BORDERS}}
+def _border_color(c):
+    # The fill is chosen as RGB and converted into the clip's own format by the
+    # same resizer as everything else, so bit depth, range and matrix all come
+    # out right from one path. AddBorders' own default is luma 0: below video
+    # black on a limited-range clip, which legalisers and authoring tools flag.
+    fmt = c.format
+    swatch = core.std.BlankClip(
+        width=4 << fmt.subsampling_w,
+        height=4 << fmt.subsampling_h,
+        format=vs.RGB24,
+        color=list({{BORDER_RGB}}),
+        length=1,
+    )
+    if fmt.color_family == vs.RGB:
+        swatch = core.resize.Point(swatch, format=fmt.id)
+    else:
+        swatch = core.resize.Point(swatch, format=fmt.id, matrix_s="{{BORDER_MATRIX}}", range_s="{{BORDER_RANGE}}")
+    frame = swatch.get_frame(0)
+    return [frame[p][0, 0] for p in range(fmt.num_planes)]
+
+
+def _pad_to(c, canvas_w, canvas_h):
+    pad_w = canvas_w - c.width
+    pad_h = canvas_h - c.height
+    if pad_w < 0 or pad_h < 0:
+        raise vs.Error(
+            f"Add Borders: the picture is {c.width}x{c.height} after cropping "
+            f"and resizing, larger than the {canvas_w}x{canvas_h} canvas. Crop "
+            "more, resize smaller, or make the canvas bigger."
+        )
+    if pad_w == 0 and pad_h == 0:
+        return c
+    fmt = c.format
+    step_w = 1 << fmt.subsampling_w
+    step_h = 1 << fmt.subsampling_h
+    if pad_w % step_w or pad_h % step_h:
+        raise vs.Error(
+            f"Add Borders: a {canvas_w}x{canvas_h} canvas cannot hold this "
+            f"{fmt.name} picture - the canvas must be a multiple of "
+            f"{step_w}x{step_h} for its chroma."
+        )
+    # Centred, each offset on the chroma grid. A still-interlaced picture also
+    # moves down by a whole number of field pairs (of luma and of chroma rows),
+    # or its fields swap over.
+    align_h = step_h * {{BORDER_FIELD_ALIGN}}
+    left = (pad_w // 2) // step_w * step_w
+    top = (pad_h // 2) // align_h * align_h
+    return core.std.AddBorders(
+        c,
+        left=left,
+        right=pad_w - left,
+        top=top,
+        bottom=pad_h - top,
+        color=_border_color(c),
+    )
+
+
+{{#BORDER_ASPECT_BOX}}
+# Pad to Fill: out to the resize target, never smaller than the picture.
+clip = _pad_to(clip, max(_aspect_box_w, clip.width), max(_aspect_box_h, clip.height))
+{{/BORDER_ASPECT_BOX}}
+{{#BORDER_CANVAS}}
+# Add Borders: a fixed canvas, the picture centred and never rescaled. An axis
+# given as -1 stays at the picture's own size.
+_canvas_w = {{PAD_WIDTH}}
+_canvas_h = {{PAD_HEIGHT}}
+clip = _pad_to(clip, _canvas_w if _canvas_w > 0 else clip.width, _canvas_h if _canvas_h > 0 else clip.height)
+{{/BORDER_CANVAS}}
+{{/BORDERS}}
 
 # ============================================================================
 # OUTPUT - select the exact target frame for preview.

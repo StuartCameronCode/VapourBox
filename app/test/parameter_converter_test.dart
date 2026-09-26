@@ -346,6 +346,36 @@ void main() {
         expect(dynamic.values['upscaleMethod'], 'nnedi3Rpow2');
         expect(dynamic.values['upscaleFactor'], 2);
       });
+
+      test('border parameters survive a round trip', () {
+        const params = CropResizeParameters(
+          enabled: true,
+          padEnabled: true,
+          padWidth: 720,
+          padHeight: 480,
+          padColor: BorderColor.custom,
+          padCustomColor: '#102030',
+        );
+        final dynamic = ParameterConverter.fromCropResize(params);
+        expect(dynamic.values['padEnabled'], true);
+        expect(dynamic.values['padColor'], 'custom');
+
+        final back = ParameterConverter.toCropResize(dynamic);
+        expect(back.padEnabled, true);
+        expect(back.padWidth, 720);
+        expect(back.padHeight, 480);
+        expect(back.padColor, BorderColor.custom);
+        expect(back.padCustomColor, '#102030');
+      });
+
+      test('an unset canvas shows a usable size, so ticking Add Borders works', () {
+        final dynamic = ParameterConverter.fromCropResize(
+            const CropResizeParameters(enabled: true));
+        expect(dynamic.values['padEnabled'], false);
+        expect(dynamic.values['padWidth'], 720);
+        expect(dynamic.values['padHeight'], 576);
+        expect(dynamic.values['padColor'], 'black');
+      });
     });
 
     group('fromPipeline', () {

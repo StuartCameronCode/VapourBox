@@ -5786,3 +5786,176 @@ fn test_155_a_bundle_without_the_split_still_autoloads_zsmooth() {
         }
     }
 }
+
+/// A crop-then-border job: 8px off each side, bordered back to 720x576.
+fn borders_job(output_name: &str, crop_resize: CropResizeParameters) -> VideoJob {
+    let mut job = create_base_job(output_name);
+    job.input_width = Some(720);
+    job.input_height = Some(576);
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..QTGMCParameters::default() },
+        crop_resize,
+        ..ProcessingPipeline::default()
+    });
+    job
+}
+
+/// The template's header comment mentions `{{...}}`, so look for this
+/// feature's own tags rather than any brace pair.
+fn assert_no_border_tags(name: &str, script: &str) {
+    for tag in ["{{#BORDER", "{{/BORDER", "{{BORDER_", "{{PAD_", "{{#ASPECT_PAD", "{{/ASPECT_PAD"] {
+        assert!(!script.contains(tag), "{name} script left {tag} unsubstituted");
+    }
+}
+
+fn canvas_720x576() -> CropResizeParameters {
+    CropResizeParameters {
+        enabled: true,
+        crop_enabled: true,
+        crop_left: 8,
+        crop_right: 8,
+        crop_top: 8,
+        crop_bottom: 8,
+        pad_enabled: true,
+        pad_width: Some(720),
+        pad_height: Some(576),
+        ..CropResizeParameters::default()
+    }
+}
+
+#[test]
+fn test_156_add_borders_to_a_fixed_canvas() {
+    // Issue #86: crop a dirty edge, then border back out to the authoring
+    // size — with no resize, so the picture is never rescaled to fill the box.
+    create_output_dir();
+    let job = borders_job(
+        "test_156_add_borders",
+        CropResizeParameters {
+            pad_color: BorderColor::Custom,
+            pad_custom_color: Some("#FF8000".to_string()),
+            ..canvas_720x576()
+        },
+    );
+    run_job_and_verify(&job, "Add Borders", &[
+        "core.std.AddBorders(",
+        "color=_border_color(c)",
+        "color=list((255, 128, 0))",
+        "_canvas_w = 720",
+        "_canvas_h = 576",
+    ])
+    .unwrap();
+
+    let (encode, preview) = generate_both_scripts(&job);
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("_pad_to(clip, _canvas_w"), "{name} script must pad to the canvas");
+        assert!(!script.contains("width=target_w"),
+            "{name} script must not resize: the picture is bordered, not rescaled");
+        assert!(!script.contains("_aspect_box_w, clip.width"), "{name}: Pad to Fill is off");
+        assert_no_border_tags(name, script);
+    }
+}
+
+#[test]
+fn test_157_borders_are_the_last_thing_the_script_does() {
+    // Grain after the bars would noise them, and the output format conversion
+    // after them would resample their edge. They go on after both.
+    create_output_dir();
+    let mut job = borders_job("test_157_borders_last", canvas_720x576());
+    job.encoding_settings.chroma_subsampling = ChromaSubsampling::Yuv420;
+    if let Some(p) = job.processing_pipeline.as_mut() {
+        p.grain = GrainParameters { enabled: true, ..GrainParameters::default() };
+    }
+
+    let (encode, preview) = generate_both_scripts(&job);
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        let pad = script.find("clip = _pad_to(clip").expect("pads");
+        let convert = script.find("target_format = ").expect("converts");
+        let grain = script.find("core.grain.Add(").expect("grains");
+        assert!(pad > convert, "{name}: bars must go on after the format conversion");
+        assert!(pad > grain, "{name}: bars must go on after grain");
+    }
+}
+
+#[test]
+fn test_158_border_colour_follows_the_source_matrix_and_range() {
+    create_output_dir();
+    // Untagged SD: 601 limited.
+    let job = borders_job("test_158_sd", canvas_720x576());
+    let (encode, preview) = generate_both_scripts(&job);
+    for script in [&encode, &preview] {
+        assert!(script.contains(r#"matrix_s="170m", range_s="limited""#));
+        assert!(script.contains("color=list((0, 0, 0))"), "black by default");
+    }
+
+    // A tagged full-range 709 source.
+    let mut job = borders_job("test_158_hd", canvas_720x576());
+    job.input_color_matrix = Some("bt709".to_string());
+    job.input_color_range = Some("pc".to_string());
+    let (encode, preview) = generate_both_scripts(&job);
+    for script in [&encode, &preview] {
+        assert!(script.contains(r#"matrix_s="709", range_s="full""#));
+    }
+}
+
+#[test]
+fn test_159_borders_keep_an_interlaced_picture_field_aligned() {
+    // Not deinterlacing a TFF source: the picture must move down by whole
+    // field pairs, or its fields swap.
+    create_output_dir();
+    let job = borders_job("test_159_interlaced", canvas_720x576());
+    let (encode, preview) = generate_both_scripts(&job);
+    for script in [&encode, &preview] {
+        assert!(script.contains("align_h = step_h * 2"));
+    }
+
+    // Deinterlaced, it is progressive by the time the bars go on.
+    let mut job = borders_job("test_159_progressive", canvas_720x576());
+    if let Some(p) = job.processing_pipeline.as_mut() {
+        p.deinterlace = QTGMCParameters { enabled: true, ..QTGMCParameters::default() };
+    }
+    let (encode, preview) = generate_both_scripts(&job);
+    for script in [&encode, &preview] {
+        assert!(script.contains("align_h = step_h * 1"));
+    }
+}
+
+#[test]
+fn test_160_pad_to_fill_uses_the_border_step_and_its_colour() {
+    // Pad to Fill used to call AddBorders with no colour — luma 0, below video
+    // black. It now records its box and shares the BORDERS step.
+    create_output_dir();
+    let job = borders_job(
+        "test_160_pad_to_fill",
+        CropResizeParameters {
+            enabled: true,
+            resize_enabled: true,
+            target_width: Some(1920),
+            target_height: Some(1080),
+            pad_to_aspect: true,
+            pad_color: BorderColor::White,
+            ..CropResizeParameters::default()
+        },
+    );
+    let (encode, preview) = generate_both_scripts(&job);
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("_aspect_box_w = _even(_box_w)"), "{name}");
+        assert!(script.contains("max(_aspect_box_w, clip.width)"), "{name}");
+        assert!(script.contains("color=list((255, 255, 255))"), "{name}");
+        assert!(!script.contains("_canvas_w = "), "{name}: no fixed canvas was asked for");
+        assert_eq!(script.matches("core.std.AddBorders(").count(), 1, "{name}: one padding site");
+        assert_no_border_tags(name, script);
+    }
+
+    // Nothing asked for: no border code at all.
+    let job = borders_job("test_160_none", CropResizeParameters {
+        enabled: true,
+        crop_enabled: true,
+        crop_left: 8,
+        ..CropResizeParameters::default()
+    });
+    let (encode, preview) = generate_both_scripts(&job);
+    for script in [&encode, &preview] {
+        assert!(!script.contains("_pad_to("));
+        assert_no_border_tags("either", script);
+    }
+}
