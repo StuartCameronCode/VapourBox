@@ -702,9 +702,21 @@ as a broken filter argument.
 
 Same shape as the SAR handling above, same fix site. Colour tags (`color_space`,
 `color_range`, etc.) must be read from ffprobe, carried on `VideoJob`, and
-re-stamped as **encoder output-stream flags** (`-colorspace`/`-color_primaries`/
-`-color_trc`/`-color_range`) — `SetFrameProps` in the script is inert, because
-the Y4M pipe strips frame properties the same way it strips SAR. `ColorMetadata::from_raw`
+re-stamped with `-colorspace`/`-color_primaries`/`-color_trc`/`-color_range` —
+`SetFrameProps` in the script is inert, because the Y4M pipe strips frame
+properties the same way it strips SAR.
+
+**Declare them on BOTH sides: on the Y4M input (`to_ffmpeg_input_args()`,
+between `-f yuv4mpegpipe` and `-i -`) and on the output (`to_ffmpeg_output_args()`),
+always identical.** Output-only tags are not a label to FFmpeg: it sees an
+untagged input, auto-inserts a scaler that reads "unknown" as BT.601, and
+**re-matrixes every pixel** to the output tag — and output-only primaries/trc
+never reach the file at all. Input-only lets a full-range source be negotiated
+down to limited. Don't move this into `setparams` in the `-vf` chain: a Custom
+FFmpeg Argument `-vf` replaces the chain and would bring the shift back. Test a
+change here with **pixels**, not just ffprobe tags
+(`integration_colour_tag_pixels_test.dart`, heavy) — the tag-only test passed
+throughout the shift. See docs/ENGINEERING_NOTES.md (2026-09-26). `ColorMetadata::from_raw`
 validates against FFmpeg's own accepted values rather than forwarding ffprobe's
 `"unknown"` verbatim. `build_ffmpeg_args_for_test` duplicates `build_ffmpeg_args`
 rather than calling it, so anything added to one must be added to the other.

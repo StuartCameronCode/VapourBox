@@ -808,6 +808,13 @@ impl PipelineExecutor {
 
         // Input 0: Processed video from vspipe (Y4M pipe)
         args.extend(["-f".to_string(), "yuv4mpegpipe".to_string()]);
+        // Declare what the piped samples already are. The Y4M header cannot
+        // carry colour tags, and an untagged input feeding the tagged output
+        // below is not a relabelling: ffmpeg auto-inserts a scaler that reads
+        // "unknown" as BT.601 and re-matrixes every pixel to the output's tag.
+        // Declaring the same tags here leaves it nothing to convert. Must match
+        // the output flags exactly — see ColorMetadata.
+        args.extend(job.color_metadata().to_ffmpeg_input_args());
         args.extend(["-i".to_string(), "-".to_string()]);
 
         // Input 1: Original file for audio stream
@@ -952,7 +959,11 @@ impl PipelineExecutor {
         // SAR above: the Y4M pipe strips them, so an untagged output results and
         // every player then reads it as BT.601 limited. Nothing in the pipeline
         // re-matrixes the samples, so the source's tags still describe them.
-        args.extend(job.color_metadata().to_ffmpeg_args());
+        // These equal the input-side declaration on the pipe, which is what
+        // stops ffmpeg treating them as a conversion target. A Custom FFmpeg
+        // Argument such as `-colorspace smpte170m` still wins (it comes later)
+        // and is then a genuine conversion from the source's real matrix.
+        args.extend(job.color_metadata().to_ffmpeg_output_args());
 
         // Audio handling
         match settings.audio_mode {
@@ -1657,8 +1668,10 @@ mod tests {
         let mut args = Vec::new();
         let settings = &job.encoding_settings;
 
-        // Input 0: Processed video from vspipe (Y4M pipe)
+        // Input 0: Processed video from vspipe (Y4M pipe), with the source's
+        // colour tags declared on it (mirrors build_ffmpeg_args).
         args.extend(["-f".to_string(), "yuv4mpegpipe".to_string()]);
+        args.extend(job.color_metadata().to_ffmpeg_input_args());
         args.extend(["-i".to_string(), "-".to_string()]);
 
         // Input 1: Original file for audio stream
@@ -1697,7 +1710,7 @@ mod tests {
         // Colour tags. This helper duplicates build_ffmpeg_args rather than
         // calling it, so anything added there has to be added here too — the
         // SAR block was missed that way and is still absent below.
-        args.extend(job.color_metadata().to_ffmpeg_args());
+        args.extend(job.color_metadata().to_ffmpeg_output_args());
 
         // Audio handling
         match settings.audio_mode {
@@ -1778,6 +1791,77 @@ mod tests {
         assert_eq!(pair("-color_primaries").as_deref(), Some("bt709"));
         assert_eq!(pair("-color_trc").as_deref(), Some("bt709"));
         assert_eq!(pair("-color_range").as_deref(), Some("tv"));
+    }
+
+    /// The tags must also be declared on the Y4M *input*, identically.
+    ///
+    /// Output-only tags are not a relabelling: ffmpeg sees an untagged input,
+    /// auto-inserts a scaler, reads "unknown" as BT.601 and re-matrixes every
+    /// pixel to the output's tag. Measured on FFmpeg 9.0.1 (2026-09-26), a flat
+    /// 10-bit frame at Y/U/V 565/236/756 came back 546/259/741 from a bt709
+    /// source. Declaring the input as the same thing leaves nothing to convert.
+    #[test]
+    fn test_color_tags_are_declared_on_the_y4m_input_too() {
+        let mut job = create_test_job("out.mkv");
+        job.input_color_matrix = Some("bt709".to_string());
+        job.input_color_primaries = Some("bt709".to_string());
+        job.input_color_transfer = Some("bt709".to_string());
+        job.input_color_range = Some("tv".to_string());
+
+        let args = build_ffmpeg_args_for_test(&job);
+        let pipe_input = args
+            .windows(2)
+            .position(|w| w[0] == "-i" && w[1] == "-")
+            .expect("the Y4M pipe input");
+        let y4m_format = args
+            .windows(2)
+            .position(|w| w[0] == "-f" && w[1] == "yuv4mpegpipe")
+            .expect("-f yuv4mpegpipe");
+        let second_input = pipe_input
+            + 2
+            + args[pipe_input + 2..].iter().position(|a| a == "-i").expect("audio input");
+
+        // Input options apply to the next -i only, so they must sit between the
+        // pipe's -f and its -i, not before the format or after the input.
+        let input_side = &args[y4m_format + 2..pipe_input];
+        let output_side: Vec<String> = {
+            let tail = &args[second_input + 2..];
+            let flags = ["-colorspace", "-color_primaries", "-color_trc", "-color_range"];
+            tail.windows(2)
+                .filter(|w| flags.contains(&w[0].as_str()))
+                .flat_map(|w| [w[0].clone(), w[1].clone()])
+                .collect()
+        };
+        let expected = job.color_metadata().to_ffmpeg_output_args();
+        assert_eq!(input_side, expected.as_slice(), "input declaration");
+        assert_eq!(output_side, expected, "output tags");
+    }
+
+    /// `build_ffmpeg_args_for_test` duplicates `build_ffmpeg_args` rather than
+    /// calling it (the real one needs a located deps bundle), so the test above
+    /// only proves the copy. Pin the real function to the same shape by its
+    /// source: the input declaration must come before the pipe's `-i`.
+    #[test]
+    fn test_real_ffmpeg_builder_declares_colour_on_the_pipe_input() {
+        let src = include_str!("pipeline_executor.rs");
+        let start = src.find("fn build_ffmpeg_args(&self").expect("real builder");
+        let body = &src[start..];
+        let body = &body[..body.find("\n    }\n").expect("end of builder")];
+        let declare = body.find("to_ffmpeg_input_args()").expect(
+            "build_ffmpeg_args must declare the colour tags on the Y4M input",
+        );
+        let pipe_input = body
+            .find(r#"args.extend(["-i".to_string(), "-".to_string()]);"#)
+            .expect("pipe input");
+        let y4m = body.find(r#""yuv4mpegpipe""#).expect("y4m format");
+        assert!(
+            y4m < declare && declare < pipe_input,
+            "the input declaration must sit between -f yuv4mpegpipe and -i -"
+        );
+        assert!(
+            body.contains("to_ffmpeg_output_args()"),
+            "build_ffmpeg_args must still tag the output"
+        );
     }
 
     /// An untagged source must stay untagged rather than being guessed at.
