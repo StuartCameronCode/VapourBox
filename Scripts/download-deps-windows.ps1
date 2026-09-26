@@ -615,7 +615,9 @@ if (Test-Path $ZsmoothOut) {
 
         Push-Location $ZsSrc
         try {
-            & $ZigExe build -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu -Dcpu=$ZsmoothCpu
+            # Quoted: PowerShell passes a bare -Dcpu=$ZsmoothCpu to a native command
+            # literally, unexpanded.
+            & $ZigExe build -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu "-Dcpu=$ZsmoothCpu"
             if ($LASTEXITCODE -ne 0) { throw "zig build failed (exit $LASTEXITCODE)" }
         } finally {
             Pop-Location
