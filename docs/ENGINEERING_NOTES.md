@@ -1139,6 +1139,105 @@ close that gap by design: it generates and inspects the `.vpy` and never runs
 > than seeking, because an input seek lands on the nearest keyframe and would
 > silently compare the wrong frame.
 
+### Clean aperture: decode the stored frame, never resample to fit (2026-09-26)
+
+**Found:** `Tests/TestResources/pal-sd-25.mov` (720x576 `yuv422p10le` ProRes)
+carries a QuickTime `clap` (clean aperture) atom — 8 columns off the left, 9 off
+the right. Since FFmpeg 7.1 the CLI applies **container** cropping by default:
+`clap`, and Matroska's `PixelCrop*` elements, are exported as frame-cropping
+side data and cut off at decode time. So the bundled 9.0.1 decodes that file at
+**702x576** (1,617,408 bytes/frame) while ffprobe reports `width=720
+height=576` — ffprobe's `width`/`height` do **not** include a container crop;
+it appears only as `side_data_list: [{side_data_type: "Frame Cropping",
+crop_left: 8, crop_right: 9, …}]`. (703 columns rounds down to 702 for 4:2:2.)
+
+The first fix for the resulting garbage (June 2026, `8aad3f3`) forced the
+decoder to `-s 720x576` on both paths. That stopped the desync by **rescaling
+the 702-wide crop back to 720**: every clean-aperture source was cropped *and*
+resampled before any filter ran, stretched 2.6% horizontally while the output
+was still stamped with the source SAR, and the user's Crop values applied to an
+already-altered picture. The regression test agreed with it because its
+reference was scaled to 720x576 the same way.
+
+**Mechanism, measured against 9.0.1:** `-apply_cropping` (an *input* option)
+takes `none`/`all`/`codec`/`container`, default `all`:
+
+| `-apply_cropping` | pal-sd-25.mov | H.264 1080p (1088 coded) |
+|---|---|---|
+| default / `all` / `container` | 702x576 | 1920x1080 |
+| `codec` | **720x576** | **1920x1080** |
+| `none` | 720x576 | 1920x**1088** |
+
+`codec` is the one that equals ffprobe's `width`/`height` in both cases —
+ffprobe *does* include the bitstream's own (SPS) crop. `none` would break every
+H.264/HEVC 1080p source.
+
+**Decision:** decode the full stored frame. `worker/src/source_decode.rs` builds
+both decoders (encode + preview) with `-apply_cropping codec` before `-i`, and
+no `-s`. Reasons:
+
+- The pipeline then sees exactly what ffprobe reported, so the job's
+  `input_width`/`input_height`, `pipe_source`'s frame size and the decode agree
+  by construction, and the **Crop controls are the only crop**.
+- The clean aperture is a *display* hint (the nominal analogue active area of a
+  720-wide SD frame), not damaged picture; the 17 columns are real samples, and
+  an archival tool shouldn't discard them unasked.
+- **SAR is unchanged** by a clean aperture: it describes the pixel grid, and the
+  grid is the same whether or not the edges are cut. ffprobe reports 59:54 either
+  way, the encode stamps it as before, and the full frame at 59:54 is
+  geometrically correct (DAR 295:216 over 720 columns; the clean aperture alone
+  would be 767:576). What is lost is only the `clap` hint itself — the output
+  doesn't carry it — which a user who wants the clean aperture replaces with an
+  8/9 Crop.
+
+**A size mismatch is now an error, not a resample.** Removing `-s` alone would
+return a mismatch to the original silent desync, so the decoder carries a size
+guard, `crop=w='if(eq(iw,W),iw,0)':h='if(eq(ih,H),ih,0)':x=0:y=0:exact=1`. At
+the right size that is a full-frame, zero-copy crop (measured bit-identical to
+no filter); at any other size `crop` rejects the zero width and the decode
+fails. `crop` is re-configured on every input size change, so it also catches a
+**mid-stream resolution change** (e.g. a DVB recording switching 720 -> 544 at an
+ad break), which with `-s` was silently rescaled and with nothing would have
+desynced. The worker recognises the crop filter's message
+(`SIZE_GUARD_SIGNATURE`) and reports an explanation *before* the vspipe/encoder
+status — `pipe_source` pads a short stream with its last frame, so without that
+ordering the job would "succeed" with a frozen tail. This is a deliberate
+behaviour change for mid-stream size changes: they fail with a clear message
+rather than producing a distorted segment.
+
+The guard immediately exposed a second silent resample: a job **without**
+`input_width`/`input_height` fell back to 720x480, and `-s` squeezed whatever
+the source was into that. `integration_video_trimming_test.dart` had been
+encoding the 720x576 `interlaced_test.avi` to 720x480 all along, and passing,
+because nothing asserted the size. The app always sends ffprobe's size, but the
+worker now probes it itself when a job omits it (`fill_frame_size` in
+`main.rs`, `DependencyLocator::probe_frame_size`), the same way it already
+probed a missing frame count.
+
+**Checked unchanged:** MKV/AVI/TS/MP4/DV fixtures without container crop decode
+identically with and without the option (`small_clip.mp4`,
+`soft_telecine_test.mkv`, `pal-dvbt-fieldcoded-25i.ts`, the two AVIs,
+`prores422_10bit_telecine.mov`, DV from stdin); DVD import extracts MPEG-PS to a
+file first and MPEG-2 has no container crop. The app's own picture decodes —
+the "before" frame and the timeline thumbnails in `preview_generator.dart` —
+use the same option (`PreviewGenerator.sourceDecodeOptions`), or the
+before/after comparison would put a 702-column frame beside a 720-column one.
+`field_order_detector`'s `idet` pass doesn't care about geometry and was left
+alone. The option requires FFmpeg >= 7.1, which the 9.0 pin guarantees.
+
+**Tests:** `source_decode.rs` unit tests assert both decoders carry
+`-apply_cropping codec` *before* `-i`, never `-s` or a scale, and exactly one
+`-vf` (the guard). `integration_clean_aperture_test.dart` (heavy) encodes
+pal-sd-25.mov — and an MKV remux of it, generated at run time, for `PixelCrop` —
+as a passthrough to FFV1 and requires the output's raw MD5 to equal a
+full-frame decode of the source: a resampled picture can't pass that, while the
+frame size alone would (the old `-s` also gave 720x576). It also builds a
+mid-stream 720->544 TS and requires the job to fail with the explanation. Against
+the pre-fix worker all three fail (MD5 `848ce4a8…` vs `784b2e46…`; the size
+change encodes "successfully"). `preview_integration_test.rs`'s reference now
+decodes the full frame unscaled; its 20.0 threshold is too loose to separate
+the two (5.8 after vs 9.0 before) — the heavy Dart test is the one that does.
+
 ### Suggestions and advice are hints, and must stay hints
 
 Two small pure-function models sit beside the pass list, and both are
