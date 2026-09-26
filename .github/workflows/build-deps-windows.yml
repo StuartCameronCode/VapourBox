@@ -20,16 +20,25 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
+  # x64 ships in two CPU tiers (issue #92): v3 for x86-64-v3 CPUs, v2 for
+  # anything older. Same script, one -Tier switch.
   build-x64:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tier: [v3, v2]
+    env:
+      ASSET: VapourBox-deps-${{ inputs.version }}-windows-x64${{ matrix.tier == 'v2' && '-v2' || '' }}
     steps:
       - uses: actions/checkout@v5
 
-      - name: Build dependencies
+      - name: Build dependencies (${{ matrix.tier }})
         shell: pwsh
-        run: ./Scripts/download-deps-windows.ps1
+        run: ./Scripts/download-deps-windows.ps1 -Tier ${{ matrix.tier }}
 
       - name: Package dependencies
         shell: pwsh
@@ -37,17 +46,40 @@ jobs:
 
       - uses: actions/upload-artifact@v5
         with:
-          name: VapourBox-deps-${{ inputs.version }}-windows-x64
+          name: ${{ env.ASSET }}
           path: |
-            dist/VapourBox-deps-${{ inputs.version }}-windows-x64.zip
-            dist/VapourBox-deps-${{ inputs.version }}-windows-x64.zip.sha256.json
+            dist/${{ env.ASSET }}.zip
+            dist/${{ env.ASSET }}.zip.sha256.json
 
+  # The v2 bundle must run below x86-64-v3, and every hosted runner has AVX2.
+  # Windows is probed at Sandy Bridge (AVX without AVX2): at pre-AVX chips SDE
+  # cannot emulate what Microsoft's runtime reads from the kernel, so the core
+  # control fails and nothing could be proven (see probe-cpu-compat.yml).
+  gate-x64-v2:
+    needs: build-x64
+    uses: ./.github/workflows/probe-cpu-compat.yml
+    with:
+      artifact_prefix: VapourBox-deps-${{ inputs.version }}-
+      tier: v2
+      gate: true
+      matrix_json: '[{"platform":"windows-x64","runner":"windows-latest","sde":"sde.exe","python":"vapoursynth/python.exe","chip":"snb"}]'
+
+  # Published only once the v2 gate has passed.
+  upload-x64:
+    needs: [build-x64, gate-x64-v2]
+    if: inputs.release_tag != ''
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: VapourBox-deps-${{ inputs.version }}-windows-x64*
+          path: dist
+          merge-multiple: true
       - name: Upload to release
-        if: inputs.release_tag != ''
-        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${{ inputs.release_tag }}" `
-            "dist/VapourBox-deps-${{ inputs.version }}-windows-x64.zip" `
-            "dist/VapourBox-deps-${{ inputs.version }}-windows-x64.zip.sha256.json" --clobber
+          gh release upload "${{ inputs.release_tag }}" \
+            --repo "${{ github.repository }}" \
+            dist/VapourBox-deps-${{ inputs.version }}-windows-x64*.zip \
+            dist/VapourBox-deps-${{ inputs.version }}-windows-x64*.zip.sha256.json --clobber

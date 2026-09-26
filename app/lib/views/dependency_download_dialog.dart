@@ -104,6 +104,10 @@ class _DependencyDownloadDialogState extends State<DependencyDownloadDialog> {
       case DependencyStatus.outdated:
         return 'A new version of the processing components is available.\n\n'
             'Updating to ensure compatibility.';
+      case DependencyStatus.wrongTier:
+        return 'The installed processing components were built for a '
+            'different processor.\n\n'
+            'Downloading the version for this computer.';
       case DependencyStatus.corrupted:
         return 'Some processing components are damaged or incomplete.\n\n'
             'Re-downloading to fix the issue.';

@@ -100,6 +100,7 @@ VapourBox/
 | `worker/src/script_generator.rs` | Template substitution for .vpy |
 | `worker/src/pipeline_executor.rs` | vspipe \| ffmpeg execution |
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
+| `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
 
@@ -143,19 +144,24 @@ VapourBox/
 # it targets deps/macos-x64. FFmpeg comes pre-built from evermeet.cx, most
 # plugins from Stefan-Olt; descratch/neo-f3kdb/nnedi3cl/vivtc build from source.
 ./scripts/download-deps-macos.sh
-# To build x64 deps on Apple Silicon instead, run it under Rosetta 2 with an
-# Intel Homebrew prefix first in PATH:
-#   arch -x86_64 /bin/bash -lc 'PATH=/usr/local/bin:$PATH ./Scripts/download-deps-macos.sh --force'
+# x64 deps can NOT be built on Apple Silicon any more: Homebrew's installer
+# refuses to create the Intel prefix under Rosetta. Use CI, or unzip a
+# published/artifact macos-x64 bundle into deps/macos-x64.
 
 # Windows (PowerShell)
 .\Scripts\download-deps-windows.ps1
 
 # Linux
 ./Scripts/download-deps-linux.sh
+
+# Any x64 platform, older-CPU tier (see "CPU tiers"); switching tier in an
+# existing deps/<platform> needs --force (Windows: delete it first)
+./Scripts/download-deps-linux.sh --force --tier v2
 ```
 
 Both macOS architectures are produced in CI by `build-deps-macos.yml` (arm64 on
-`macos-15`, x64 natively on `macos-15-intel`).
+`macos-15`, x64 natively on `macos-15-intel`), and every x64 platform's
+workflow builds both CPU tiers.
 
 ### Build Rust Worker
 
@@ -360,9 +366,13 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
   platform that ships it. The `package-deps-*` scripts assert this list is
   present before zipping and fail the build if any are missing, so a dead
   download URL becomes a red build instead of a silently-incomplete bundle.
-  A bare filename is looked up in the plugin directory; an entry containing a
-  `/` is resolved from the **bundle root** instead, which is how zsmooth's
-  per-CPU builds outside the autoload directory stay covered.
+  x64 platforms have a second key per CPU tier (`macos-x64-v2`, …) that must
+  list the same plugins — `attribution_test.dart` asserts it.
+- **Check it for load-time SIMD on x64** (see "CPU tiers" below): a prebuilt
+  x86 binary built with `-mavx2`-style flags can SIGILL inside `dlopen` on an
+  older CPU, and autoload makes that every job. Run
+  `Scripts/check-load-time-simd.py` on a macOS dylib; the v2 gates in the
+  `build-deps-*` workflows cover all three platforms.
 - For local testing, run the download script to populate `deps/` (e.g.
   `deps/windows-x64/vapoursynth/vs-plugins/`, `deps/macos-arm64/vapoursynth/plugins/`).
 - **Credit it**: add an entry to `licenses/NOTICES.txt` and a `_ComponentTile`
@@ -656,19 +666,39 @@ disagree. Pin the **series** against a rolling host tag (e.g. BtbN's
 `n9.0-latest`), never an exact old build — a fixed old tag gets garbage-collected
 off a rolling `latest` alias and 404s the deps build outright.
 
-**zsmooth ships one build per x86 CPU baseline (`haswell`, `x86_64_v2`), loaded
-by explicit path, not autoloaded.** Upstream's single AVX2-baseline build
-crashes with an illegal instruction on any pre-2013 CPU the instant a zsmooth
-filter runs (`CCD`, `Cnr4`, `SpotLess`→`RemoveDirt`, `mClean`,
-`TemporalDegrain2`, hybrid_mv all reach it). `DependencyLocator::zsmooth_plugin()`
-returns `None` on an older bundle lacking the split, and the generated script
-must stay byte-identical to the pre-split form in that case.
+**CPU tiers (issue #92): every x86 deps bundle ships twice.** `v3` is built
+for x86-64-v3 CPUs (Haswell, 2013, and later); `v2` runs on anything older.
+The rules:
+
+- **One decision, in the worker.** `cpu::cpu_tier()` (`worker/src/cpu.rs`)
+  requires the *whole* x86-64-v3 set, not just AVX2. `--probe-cpu` reports it,
+  the app downloads by it, and `ctmf_opt` derives from it. Never re-derive the
+  tier elsewhere (sysctl is wrong under Rosetta); on x86 an unclear answer means
+  `v2`, which only costs speed. `VAPOURBOX_DEPS_TIER=v2|v3` overrides it.
+- **The tier lives only in the asset name and version.json.** `v3` keeps the
+  plain names (`VapourBox-deps-X-macos-x64.zip`), `v2` is suffixed
+  (`…-macos-x64-v2.zip`); both install to `deps/<platform>`. The app re-checks
+  the installed tier at startup (`DependencyStatus.wrongTier`) and replaces a
+  mismatch even when it is newer than expected.
+- **One `--tier` block per `download-deps-*` script** maps the tier to build
+  variables; nothing else in the script branches on it. The two tiers differ
+  only where running the bundle on an old CPU proved they must: zsmooth
+  (`haswell` / `x86_64_v2`, one build per bundle, autoloaded — upstream has no
+  runtime dispatch) everywhere, and on macOS MVTools (v2 builds v24 from source
+  with `patches/mvtools-v24-no-avx2.patch`, because Stefan-Olt's build SIGILLs
+  in its AVX2 static initializers inside `dlopen`).
+- **A v2 bundle is gated before it can be published**: under Intel SDE by
+  `probe-cpu-compat.yml` (Linux at Westmere; Windows at Sandy Bridge, since SDE
+  cannot emulate pre-AVX Windows — Microsoft's runtime reads the host's CPU
+  features from the kernel), and on macOS statically by
+  `Scripts/check-load-time-simd.py` inside `package-deps-macos.sh`.
 
 **CTMF's `opt` (SIMD level) must be chosen by the worker from the CPU, never
 left at the plugin's own auto-detect (`opt=0`).** Its AVX-512 kernel for 8-bit
 input crashes with an access violation on real hardware — auto-detect is
 exactly what selects that broken kernel. `script_generator::ctmf_opt` picks 3
-(AVX2) or 2 (SSE2) based on `is_x86_feature_detected!`, never 0.
+(AVX2) on a v3-tier CPU, else 2 (SSE2), never 0. This is independent of the
+tiers: a v3 machine can have AVX-512.
 
 See docs/ENGINEERING_NOTES.md for the specific plugin-by-plugin decisions,
 probe-round methodology, and dated write-ups behind all of the above.
@@ -1046,15 +1076,15 @@ can render fine and still fail the preview.
 
 > `vapoursynth_integration_test`'s "all required plugins load" list is the
 > runtime contract for a **complete deps install** and must name every
-> namespace a filter can reach — except `zsmooth`, which is deliberately not
-> autoloaded and has its own load-and-render test. Add the namespace whenever
+> namespace a filter can reach. Add the namespace whenever
 > you add a plugin, or a bundle missing it passes CI and fails at job time.
 > OpenCL-only plugins (`nnedi3cl`, `knlm`) stay **out** of the list — the app
 > degrades to a CPU path without them.
 
 The harness honors `$VAPOURBOX_DEPS_DIR`, else uses repo-root `deps/<platform>`,
 else **downloads the deps release pinned in `app/assets/deps-version.json`**
-(opt out with `$VAPOURBOX_SKIP_DEPS_DOWNLOAD=1`). The worker binary is found under
+(opt out with `$VAPOURBOX_SKIP_DEPS_DOWNLOAD=1`), in the tier the app would
+pick (`$VAPOURBOX_DEPS_TIER` overrides it). The worker binary is found under
 `worker/target/{release,debug}` (CI's `cargo test`/`cargo build` produces debug).
 Subtitle heavy tests skip when the whisper add-on is absent.
 
@@ -1081,8 +1111,18 @@ integration tests. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
 (`macos-15-intel`), **Windows x64**, **Linux x64** (`ubuntu-24.04`). The heavy
 full-encode integration tests run separately in `.github/workflows/nightly.yml`
 (cron + `workflow_dispatch`) via `flutter test --tags heavy` on the same
-4-platform matrix. Fixtures (`small_clip.mp4`, telecine/interlaced clips) are
+4-platform matrix, running each x64 platform against **both** CPU-tier bundles.
+Fixtures (`small_clip.mp4`, telecine/interlaced clips) are
 committed under `Tests/TestResources/`.
+
+> **Old-CPU behaviour cannot be tested on the runners, or on Apple Silicon.**
+> Every hosted runner is a v3 CPU, and Rosetta 2 translates AVX/AVX2 on macOS
+> 15+ — so a plugin that SIGILLs on a pre-AVX2 Intel Mac runs fine under
+> Rosetta. The tools that do answer it: `probe-cpu-compat.yml` (every plugin
+> under Intel SDE, with controls that prove the emulation is valid), and
+> `Scripts/probe-plugin-compat.sh` for a user to run on the real machine
+> (one plugin per process, into a `DISABLE_AUTO_LOADING` core — under autoload
+> one faulting plugin masks every other result).
 
 > **A green CI run on hosted hardware is not proof about CPU-dispatched code.**
 > The runner fleet is mixed for features like AVX-512, so a filter that only
@@ -1301,6 +1341,12 @@ placement and a version skew would change chroma per-OS.
     under vspipe with passes commented out; on Windows, `$LASTEXITCODE`
     `0xC0000005` = access violation, `0xC000001D` = illegal instruction (CPU
     feature the machine lacks) — both are decoded by `format_exit_status`.
+    **If it happens with every pass disabled, it is load-time, not a filter**:
+    VapourSynth autoloads every plugin when the core starts, so one plugin whose
+    static initializers use a missing instruction set kills every job (issue #92,
+    MVTools' AVX2 tables, `SIGILL` = signal 4 on macOS/Linux). Commenting out
+    passes cannot find it; the OS crash report (`.ips` on macOS) names the image,
+    and `Scripts/probe-plugin-compat.sh` tests each plugin in isolation.
 
 ## Platform-Specific Notes
 
@@ -1376,7 +1422,7 @@ Plugin lists for all platforms: see `deps/` directories or download scripts.
 
 ## Dependency Versioning and Auto-Download
 
-Dependencies are versioned separately from the app via `app/assets/deps-version.json` and distributed as separate GitHub releases (tag: `deps-vX.Y.Z`). The app auto-downloads deps on launch if missing or outdated.
+Dependencies are versioned separately from the app via `app/assets/deps-version.json` and distributed as separate GitHub releases (tag: `deps-vX.Y.Z`). The app auto-downloads deps on launch if missing, outdated, or built for a different CPU tier (x64 only — see "CPU tiers"; the asset is `DependencyManager.assetIdFor(platformId, tier)`).
 
 `deps-version.json` is a **slim pointer** — `{version, releaseTag, githubRepo}`. Integrity metadata is **not** stored here: each `package-deps-*` script writes a **sidecar** `<zip>.sha256.json` uploaded next to the zip, which the app fetches and verifies at download time (best-effort if the sidecar is missing). **Net effect: a new deps release only needs a `version`/`releaseTag` bump.**
 
@@ -1402,6 +1448,9 @@ App and deps use **separate release tags** so unchanged deps aren't re-uploaded 
 ```
 
 This prompts for version, checks deps changes, builds, packages, and creates draft GitHub releases.
+It does **not** package deps: if they changed, it stops and prints the
+`build-deps-*` workflow commands. A local checkout holds only one CPU tier per
+x64 platform, so a locally packaged deps release would be missing the other.
 
 ### CI Build and Release
 
@@ -1479,8 +1528,8 @@ Notes:
 
 1. **Confirm version** — ask user, update `pubspec.yaml`
 2. **Check deps** — run `check-deps-changed.sh`; if changed, bump `version`/`releaseTag` in `deps-version.json`.
-3. **Build & package** — use packaging scripts (or `release.sh`). Each `package-deps-*` writes the zip **and** its `<zip>.sha256.json` sidecar.
-4. **Upload deps assets** — upload each platform's zip **and its `.sha256.json` sidecar** to the deps release.
+3. **Build & package deps in CI** — dispatch `build-deps-{macos,windows,linux}.yml` with `release_tag`. They build both x64 tiers, gate the v2 bundles, and only then upload each zip **and** its `<zip>.sha256.json` sidecar.
+4. **Check the deps release** — every platform, both tiers of each x64: `macos-arm64`, `macos-x64`, `macos-x64-v2`, `windows-x64`, `windows-x64-v2`, `linux-x64`, `linux-x64-v2`, `linux-arm64`.
 5. **Test** — fresh install + upgrade test
 6. **Create GitHub releases** — deps release first (if changed, tag `deps-vX.Y.Z`), then app release (tag `vX.Y.Z`)
 
@@ -1581,3 +1630,4 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.8.0 | 2026-08-07 | VapourSynth **R73 → R78** everywhere (Windows Python-wheel layout; `deps/<platform>/vapoursynth/` is the Python package on macOS/Linux). Adds **akarin** (LLVM JIT for `std.Expr`, ~4x on arm64 QTGMC; not on macos-x64). Fixes nnedi3 on linux-arm64. Removes BestSource. Linux now needs glibc 2.39 |
 | 1.9.0 | 2026-08-15 | Adds **fluxsmooth** (unlocks havsfunc's STPresso), **bifrost** (temporal rainbow/dot-crawl removal), **retinex** (shadow-detail lift) — all pinned to the newest release with a published Windows binary |
 | 1.10.0 | 2026-08-31 | **Issue #82**: zsmooth now ships one build per x86 CPU baseline (haswell, x86_64_v2), fixing an illegal-instruction crash on pre-2013 CPUs. **FFmpeg pinned to 9.0 on all four platforms** (they had silently diverged: Windows on an unpinned post-9.0 master, macOS on floating 9.0.1, Linux stuck at 7.1 after BtbN garbage-collected the pinned tag) |
+| 1.11.0 | 2026-09 | **Issue #92**: every x86 bundle ships in two **CPU tiers** — `v3` (x86-64-v3; the plain asset names) and `v2` (`…-x64-v2`, anything older), chosen by the app from `vapourbox-worker --probe-cpu`. Each bundle carries one autoloaded zsmooth (replacing 1.10.0's two-builds-loaded-by-path). macOS v2 builds MVTools v24 from source without its AVX2 files, whose static initializers SIGILLed inside `dlopen` on pre-AVX Macs. v2 bundles are gated (SDE on Linux/Windows, static check on macOS) before publishing |

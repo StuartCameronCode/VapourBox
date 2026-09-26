@@ -77,6 +77,8 @@ GPU-accelerated deinterlacing (NNEDI3CL) needs your GPU's OpenCL driver installe
 
 </details>
 
+**Older Intel and AMD processors** (before about 2013 — no AVX2) are supported on all three platforms. On first launch VapourBox checks the processor and downloads the matching set of processing components; a machine moved to a different CPU gets the right set on its next launch. The older-CPU set runs some filters more slowly, never differently. Every build of that set is checked for pre-AVX processors (e.g. a 2010 Mac Pro) on macOS and Linux; on Windows it is checked for processors with AVX but no AVX2, and older ones are expected to work but can't be tested automatically.
+
 ## Output formats
 
 | | |

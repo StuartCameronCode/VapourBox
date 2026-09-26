@@ -54,7 +54,17 @@ PACKAGE_INCOMPLETE=""
 package_arch() {
     local ARCH_NAME=$1
     local DEPS_DIR="$PROJECT_ROOT/deps/macos-$ARCH_NAME"
-    local PACKAGE_NAME="VapourBox-deps-$VERSION-macos-$ARCH_NAME"
+    # The CPU tier (issue #92) is whatever download-deps-macos.sh stamped into
+    # the build's version.json; only x64 is tiered. v3 keeps the plain asset
+    # name, v2 is suffixed — the same rule as DependencyManager.assetIdFor.
+    local TIER=""
+    if [ "$ARCH_NAME" = "x64" ]; then
+        TIER=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('tier','v3'))" \
+            "$DEPS_DIR/version.json" 2>/dev/null || echo "v3")
+    fi
+    local PLATFORM_KEY="macos-$ARCH_NAME"
+    [ "$TIER" = "v2" ] && PLATFORM_KEY="macos-$ARCH_NAME-v2"
+    local PACKAGE_NAME="VapourBox-deps-$VERSION-$PLATFORM_KEY"
     local PACKAGE_DIR="$DIST_DIR/$PACKAGE_NAME"
 
     echo "[1/4] Checking prerequisites for $ARCH_NAME..."
@@ -126,7 +136,7 @@ package_arch() {
     echo "    Creating version file..."
     cat > "$PACKAGE_DIR/version.json" << EOF
 {
-  "version": "$VERSION",
+  "version": "$VERSION",$([ -n "$TIER" ] && printf '\n  "tier": "%s",' "$TIER")
   "installedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOF
@@ -142,30 +152,41 @@ EOF
     # Completeness guard: every required plugin must be present before we zip,
     # so a silently-failed build/download can't ship an incomplete bundle.
     # Contract: Scripts/deps-expected-plugins.json.
-    echo "    Verifying required plugins for $ARCH_NAME..."
+    echo "    Verifying required plugins for $PLATFORM_KEY..."
     local MANIFEST="$PROJECT_ROOT/Scripts/deps-expected-plugins.json"
     local MISSING
-    MISSING=$(python3 - "$MANIFEST" "macos-$ARCH_NAME" "$PACKAGE_DIR/vapoursynth/plugins" "$PACKAGE_DIR" <<'PY'
+    MISSING=$(python3 - "$MANIFEST" "$PLATFORM_KEY" "$PACKAGE_DIR/vapoursynth/plugins" <<'PY'
 import json, os, sys
-manifest, key, plugin_dir, bundle_root = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
-expected = json.load(open(manifest)).get(key, [])
-# An entry with a "/" is bundle-root-relative, not a plugin-directory filename:
-# zsmooth ships one build per CPU baseline OUTSIDE the autoload directory (both
-# register the same namespace, so the worker loads exactly one by path), and a
-# guard that only looked in plugins/ would stop covering it.
-def target(f):
-    return os.path.join(bundle_root, *f.split("/")) if "/" in f else os.path.join(plugin_dir, f)
-print("\n".join(f for f in expected if not os.path.isfile(target(f))))
+manifest, key, plugin_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+expected = json.load(open(manifest)).get(key)
+if expected is None:
+    print(f"(no {key} entry in deps-expected-plugins.json)")
+    sys.exit()
+print("\n".join(f for f in expected if not os.path.isfile(os.path.join(plugin_dir, f))))
 PY
 )
     if [ -n "$MISSING" ]; then
-        echo "ERROR: macos-$ARCH_NAME bundle is missing required plugins:" >&2
+        echo "ERROR: $PLATFORM_KEY bundle is missing required plugins:" >&2
         echo "$MISSING" | sed 's/^/  - /' >&2
         echo "A plugin build/download likely failed - check the download-deps-macos.sh output." >&2
-        PACKAGE_INCOMPLETE="$PACKAGE_INCOMPLETE macos-$ARCH_NAME"
+        PACKAGE_INCOMPLETE="$PACKAGE_INCOMPLETE $PLATFORM_KEY"
         return 1
     fi
-    echo "    All required plugins present for $ARCH_NAME"
+    echo "    All required plugins present for $PLATFORM_KEY"
+
+    # The v2 bundle's whole promise is that it loads on a CPU without AVX, and
+    # macOS has no Intel SDE to prove that by running it. So prove statically
+    # that no plugin can execute a VEX instruction while it loads — the fault
+    # issue #92 was: MVTools' AVX2 static initializers SIGILL inside dlopen.
+    if [ "$TIER" = "v2" ]; then
+        echo "    Checking no plugin runs AVX while loading (v2 tier)..."
+        if ! python3 "$PROJECT_ROOT/Scripts/check-load-time-simd.py" \
+                "$PACKAGE_DIR"/vapoursynth/plugins/*.dylib; then
+            echo "ERROR: a plugin in the $PLATFORM_KEY bundle runs AVX at load time" >&2
+            PACKAGE_INCOMPLETE="$PACKAGE_INCOMPLETE $PLATFORM_KEY"
+            return 1
+        fi
+    fi
 
     echo "[4/4] Creating zip archive for $ARCH_NAME..."
     local ZIP_FILE="$DIST_DIR/$PACKAGE_NAME.zip"

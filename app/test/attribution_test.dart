@@ -92,20 +92,10 @@ const _pluginToNotice = <String, String>{
 const _mustNotAppear = <String>['ffms2', 'BestSource'];
 
 String _stem(String filename) {
-  // A manifest entry may be a bundle-relative path rather than a bare filename
-  // (zsmooth ships outside the autoload directory), and may carry a CPU-target
-  // suffix because it ships once per baseline. Credit is owed to the project,
-  // not to each build of it, so both are normalised away.
-  var s = filename.toLowerCase().split('/').last;
+  var s = filename.toLowerCase();
   final dot = s.lastIndexOf('.');
   if (dot > 0) s = s.substring(0, dot);
   if (s.startsWith('lib') && s.length > 3) s = s.substring(3);
-  for (final variant in const ['-haswell', '-x86_64_v2']) {
-    if (s.endsWith(variant)) {
-      s = s.substring(0, s.length - variant.length);
-      break;
-    }
-  }
   return s;
 }
 
@@ -147,6 +137,24 @@ void main() {
         isEmpty,
         reason: 'Plugin(s) shipped but not credited in licenses/NOTICES.txt.',
       );
+    });
+
+    test('both CPU tiers of an x64 bundle ship the same plugins', () {
+      // The v2 bundle (issue #92) differs from v3 in how some plugins are
+      // BUILT, never in which ones ship: a plugin missing from v2 would just
+      // be a pass that fails on older machines. The packaging guard checks
+      // each list separately, so only this keeps the two lists in step.
+      final manifest = jsonDecode(
+        File(p.join(root, 'Scripts', 'deps-expected-plugins.json')).readAsStringSync(),
+      ) as Map<String, dynamic>;
+      for (final platform in ['macos-x64', 'windows-x64', 'linux-x64']) {
+        expect(manifest['$platform-v2'], isNotNull, reason: 'no $platform-v2 list');
+        expect(
+          (manifest['$platform-v2'] as List).toSet(),
+          (manifest[platform] as List).toSet(),
+          reason: '$platform-v2 must list exactly the plugins $platform does',
+        );
+      }
     });
 
     test('does not credit components that are no longer shipped', () {

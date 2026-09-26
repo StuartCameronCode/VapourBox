@@ -16,13 +16,20 @@
 .PARAMETER TargetDir
     The target directory for dependencies. Default: deps/windows-x64
 
+.PARAMETER Tier
+    CPU tier to build: v3 (x86-64-v3, Haswell and later; the default) or v2
+    (anything older). See the tier block below.
+
 .EXAMPLE
     .\download-deps-windows.ps1
+    .\download-deps-windows.ps1 -Tier v2
     .\download-deps-windows.ps1 -TargetDir "C:\vapourbox\deps\windows-x64"
 #>
 
 param(
-    [string]$TargetDir = "deps\windows-x64"
+    [string]$TargetDir = "deps\windows-x64",
+    [ValidateSet("v3", "v2")]
+    [string]$Tier = "v3"
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,9 +40,33 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $ScriptDir
 $FullTargetDir = Join-Path $ProjectRoot $TargetDir
 
+# CPU tier (issue #92). The x86 bundle ships twice: v3 for x86-64-v3 CPUs
+# (Haswell, 2013, and later) and v2 for anything older, chosen by the app from
+# `vapourbox-worker --probe-cpu`. This block is the ONLY place the tier is
+# interpreted; everything below reads these variables and never $Tier itself.
+#   $ZsmoothCpu   zsmooth's baseline (upstream has no runtime dispatch)
+# That is the whole difference on Windows: every other plugin in this bundle
+# renders under Intel SDE emulating Sandy Bridge (AVX without AVX2) — see
+# .github/workflows/probe-cpu-compat.yml. CPUs without AVX at all cannot be
+# checked there (Microsoft's runtime trips SDE first), so they are unverified.
+$ZsmoothCpu = if ($Tier -eq "v3") { "haswell" } else { "x86_64_v2" }
+
 Write-Host "=== VapourBox Windows Dependency Downloader ===" -ForegroundColor Cyan
 Write-Host "Target directory: $FullTargetDir"
+Write-Host "CPU tier: $Tier"
 Write-Host ""
+
+# Both tiers build into the same directory (the tier lives in version.json, not
+# the path), and every step skips what already exists. So building one tier
+# over the other would keep the previous zsmooth and silently mix the bundles.
+$ExistingVersionFile = Join-Path $FullTargetDir "version.json"
+if (Test-Path $ExistingVersionFile) {
+    $ExistingTier = (Get-Content $ExistingVersionFile -Raw | ConvertFrom-Json).tier
+    if (-not $ExistingTier) { $ExistingTier = "v3" }
+    if ($ExistingTier -ne $Tier) {
+        throw "$FullTargetDir holds the $ExistingTier bundle; building $Tier over it would mix the two. Delete it first."
+    }
+}
 
 # Create directory structure
 $Directories = @(
@@ -396,8 +427,8 @@ $PluginsZip = @(
         Url = "https://github.com/Khanattila/KNLMeansCL/releases/download/v1.1.1/KNLMeansCL-v1.1.1.zip"
         Check = "KNLMeansCL.dll"
     }
-    # zsmooth is NOT here: it ships as two CPU-specific builds outside the
-    # autoload directory. See section 4a below.
+    # zsmooth is NOT here: which build ships depends on the CPU tier. See
+    # section 4a below.
 )
 
 foreach ($Plugin in $Plugins7z) {
@@ -510,43 +541,37 @@ if ($BadArch.Count -gt 0) {
 Write-Host "  All plugin DLLs are x64" -ForegroundColor Green
 
 # =============================================================================
-# 4a. zsmooth — one build per CPU baseline
+# 4a. zsmooth — exactly one build, in vs-plugins
 # =============================================================================
 # core.zsmooth.CCD (also Cnr4 and a set of RemoveGrain/TemporalMedian-family
-# filters). Upstream publishes only `haswell` (an AVX2 baseline) and `znver4`
-# builds, compiled throughout with NO runtime dispatch — so on a pre-2013 x86
-# CPU the DLL loads fine and then dies with an illegal instruction
-# (0xC000001D) the instant a filter runs. That is issue #82, reported on a
-# Celeron J4105 and a Core i7 870, and it is silent: vspipe prints nothing, so
-# the encode surfaces as ffmpeg reading an empty pipe.
+# filters). zsmooth has NO runtime dispatch: each build is compiled for one CPU
+# baseline throughout, so a build above the machine's baseline loads fine and
+# then dies with an illegal instruction (0xC000001D) the instant a filter runs.
+# That is issue #82, reported on a Celeron J4105 and a Core i7 870, and it is
+# silent: vspipe prints nothing, so the encode surfaces as ffmpeg reading an
+# empty pipe.
 #
-# Both builds are therefore shipped and the worker loads exactly one by path
-# (DependencyLocator::zsmooth_plugin). They cannot both sit in vs-plugins —
-# each registers the namespace `zsmooth`, so whichever autoloads second is
-# rejected — hence the separate directory, which is deliberately not on the
-# plugin path.
-#
-# Why not just ship the portable build for everyone: measured on this plugin at
-# 720x576, `x86_64` is 2.0x slower than haswell on CCD and 3.0x on Cnr4
-# (`x86_64_v2` 1.4x and 1.4x). Paying that on every modern machine to serve the
-# rare old one is the wrong trade; picking at runtime costs ~4 MB of zip.
+# The tier block at the top picks $ZsmoothCpu: the author's haswell build for
+# v3, or an x86_64_v2 build compiled here for v2 (SSE4.2/POPCNT, everything
+# from Nehalem 2009 on; measured 1.4x slower than haswell on CCD and Cnr4,
+# against 2-3x for plain x86_64). One build per bundle means it loads from
+# vs-plugins like any other plugin; bundles up to 1.10.0 shipped both builds in
+# a separate zsmooth\ directory for the worker to load by path.
 #
 # Keep ZSMOOTH_VERSION in step with download-deps-{macos,linux}.sh: a skew
 # would make the same job produce different chroma per OS.
 Write-Host ""
-Write-Host "[4a/8] Installing zsmooth (per-CPU builds)..." -ForegroundColor Yellow
+Write-Host "[4a/8] Installing zsmooth ($ZsmoothCpu)..." -ForegroundColor Yellow
 
 $ZsmoothVersion = "0.19.0"
 # Must satisfy zsmooth's build.zig.zon `minimum_zig_version`; 0.15.2 for 0.19.0.
 $ZigVersion = "0.15.2"
-$ZsmoothDir = "$FullTargetDir\vapoursynth\zsmooth"
-if (-not (Test-Path $ZsmoothDir)) {
-    New-Item -ItemType Directory -Force -Path $ZsmoothDir | Out-Null
-}
+$ZsmoothOut = "$PluginsDir\zsmooth.dll"
+Remove-Item "$FullTargetDir\vapoursynth\zsmooth" -Recurse -Force -ErrorAction SilentlyContinue
 
-# The AVX2 build comes pre-built from upstream.
-$HaswellPath = "$ZsmoothDir\zsmooth-haswell.dll"
-if (-not (Test-Path $HaswellPath)) {
+if (Test-Path $ZsmoothOut) {
+    Write-Host "  zsmooth.dll already installed" -ForegroundColor Gray
+} elseif ($ZsmoothCpu -eq "haswell") {
     Write-Host "  Downloading zsmooth $ZsmoothVersion (haswell/AVX2)..." -ForegroundColor Gray
     try {
         $ZsZip = Join-Path $TempDir "zsmooth-haswell.zip"
@@ -555,24 +580,19 @@ if (-not (Test-Path $HaswellPath)) {
         Expand-Archive -Path $ZsZip -DestinationPath $ZsExtract -Force
         $Dll = Get-ChildItem -Path $ZsExtract -Recurse -Filter "zsmooth.dll" | Select-Object -First 1
         if (-not $Dll) { throw "no zsmooth.dll in the upstream archive" }
-        Copy-Item $Dll.FullName $HaswellPath -Force
+        Copy-Item $Dll.FullName $ZsmoothOut -Force
         Remove-Item $ZsZip -Force -ErrorAction SilentlyContinue
         Remove-Item $ZsExtract -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host "    Installed: zsmooth-haswell.dll" -ForegroundColor Gray
+        Write-Host "    Installed: zsmooth.dll (haswell)" -ForegroundColor Gray
     } catch {
         Write-Host "    Failed: $_" -ForegroundColor Red
     }
 } else {
-    Write-Host "  zsmooth-haswell.dll already installed" -ForegroundColor Gray
-}
-
-# The portable build has no upstream asset and must be compiled. This is the
-# first from-source build in this script; Zig cross-compiles with its own libc
-# and builds zsmooth's fftw dependency itself, so it needs no MSVC — only git
-# and network access (zig build fetches zsmooth's own Zig dependencies).
-$V2Path = "$ZsmoothDir\zsmooth-x86_64_v2.dll"
-if (-not (Test-Path $V2Path)) {
-    Write-Host "  Building zsmooth $ZsmoothVersion (x86_64_v2, runs without AVX2)..." -ForegroundColor Gray
+    # The portable build has no upstream asset and must be compiled. Zig
+    # cross-compiles with its own libc and builds zsmooth's fftw dependency
+    # itself, so it needs no MSVC — only git and network access (zig build
+    # fetches zsmooth's own Zig dependencies).
+    Write-Host "  Building zsmooth $ZsmoothVersion ($ZsmoothCpu, runs without AVX2)..." -ForegroundColor Gray
     try {
         $ZigDir = Join-Path $TempDir "zig-toolchain"
         $ZigZip = Join-Path $TempDir "zig.zip"
@@ -595,10 +615,9 @@ if (-not (Test-Path $V2Path)) {
 
         Push-Location $ZsSrc
         try {
-            # -Dcpu=x86_64_v2 is SSE4.2/POPCNT: everything from Nehalem (2009)
-            # on, which covers both CPUs in issue #82. Plain `x86_64` would add
-            # pre-2009 chips at roughly half the CCD/Cnr4 throughput again.
-            & $ZigExe build -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu -Dcpu=x86_64_v2
+            # Quoted: PowerShell passes a bare -Dcpu=$ZsmoothCpu to a native command
+            # literally, unexpanded.
+            & $ZigExe build -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu "-Dcpu=$ZsmoothCpu"
             if ($LASTEXITCODE -ne 0) { throw "zig build failed (exit $LASTEXITCODE)" }
         } finally {
             Pop-Location
@@ -606,26 +625,21 @@ if (-not (Test-Path $V2Path)) {
 
         $Built = Get-ChildItem -Path (Join-Path $ZsSrc "zig-out") -Recurse -Filter "zsmooth.dll" | Select-Object -First 1
         if (-not $Built) { throw "zig build produced no zsmooth.dll" }
-        Copy-Item $Built.FullName $V2Path -Force
+        Copy-Item $Built.FullName $ZsmoothOut -Force
         Remove-Item $ZigZip -Force -ErrorAction SilentlyContinue
         Remove-Item $ZigDir, $ZsSrc -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host "    Built: zsmooth-x86_64_v2.dll" -ForegroundColor Gray
+        Write-Host "    Built: zsmooth.dll ($ZsmoothCpu)" -ForegroundColor Gray
     } catch {
         Write-Host "    Failed: $_" -ForegroundColor Red
     }
-} else {
-    Write-Host "  zsmooth-x86_64_v2.dll already installed" -ForegroundColor Gray
 }
 
-# A missing build here is not a warning to scroll past: without the AVX2 one
-# every modern machine loses the pass, and without the portable one issue #82
-# comes straight back. deps-expected-plugins.json also covers both, so the
-# packaging step would fail — this just fails nearer the cause.
-$MissingZsmooth = @(@($HaswellPath, $V2Path) | Where-Object { -not (Test-Path $_) })
-if ($MissingZsmooth.Count -gt 0) {
-    throw "zsmooth build(s) missing: $(($MissingZsmooth | Split-Path -Leaf) -join ', ')"
+# Fail near the cause rather than at packaging: without zsmooth the Chroma
+# Denoise pass is gone on every machine.
+if (-not (Test-Path $ZsmoothOut)) {
+    throw "zsmooth ($ZsmoothCpu) is missing"
 }
-Write-Host "  zsmooth: both CPU builds present" -ForegroundColor Green
+Write-Host "  zsmooth: $ZsmoothCpu build present" -ForegroundColor Green
 
 # =============================================================================
 # 4b. FFTW Library (required by DFTTest)
@@ -1135,9 +1149,10 @@ $ExpectedVersion = (Get-Content $DepsVersionJson -Raw | ConvertFrom-Json).versio
     version     = $ExpectedVersion
     installedAt = (Get-Date).ToUniversalTime().ToString("o")
     platform    = "windows-x64"
+    tier        = $Tier
     buildType   = "source"
 } | ConvertTo-Json | Set-Content -Path "$FullTargetDir\version.json" -Encoding utf8
-Write-Host "  version.json written ($ExpectedVersion)" -ForegroundColor Green
+Write-Host "  version.json written ($ExpectedVersion, $Tier)" -ForegroundColor Green
 
 # =============================================================================
 # 8. Cleanup

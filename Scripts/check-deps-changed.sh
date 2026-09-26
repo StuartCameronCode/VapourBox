@@ -18,10 +18,18 @@ fi
 # Files to check for changes.
 # Deps binaries are no longer committed (reproduced by the download scripts, which
 # are the source of truth), so "deps changed" == "a download script changed".
+# Everything that changes what goes into a bundle, not just the download
+# scripts: a patch (e.g. the MVTools no-AVX2 patch) or a packaging change
+# alters the bundle just as surely.
 DEPS_PATHS=(
     "Scripts/download-deps-windows.ps1"
     "Scripts/download-deps-macos.sh"
     "Scripts/download-deps-linux.sh"
+    "Scripts/patches"
+    "Scripts/package-deps-windows.ps1"
+    "Scripts/package-deps-macos.sh"
+    "Scripts/package-deps-linux.sh"
+    "Scripts/deps-expected-plugins.json"
 )
 
 # Get the last deps release tag

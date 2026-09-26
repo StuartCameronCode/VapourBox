@@ -244,27 +244,17 @@ class WorkerHarness {
     return '${probe['arch']} [${features.isEmpty ? 'none detected' : features.join(' ')}]';
   }
 
-  /// The instruction set extensions the worker process can actually execute,
-  /// as a set. Empty when the probe could not run at all.
-  ///
-  /// A test that needs to know whether a CPU-specific binary is safe to load
-  /// must ask this rather than parse `/proc/cpuinfo` or `sysctl` itself: a
-  /// second implementation of the same decision is how the interface and the
-  /// pipeline come to disagree, and the worker's answer is the one that governs
-  /// what the pipeline loads. Used by the zsmooth build check in
-  /// `vapoursynth_integration_test`.
-  static Future<Set<String>> cpuFeatures() async {
+  /// The deps tier to fetch when downloading, decided exactly as the app does
+  /// (`DependencyManager.resolveTier`): `VAPOURBOX_DEPS_TIER` if set, else the
+  /// worker's `--probe-cpu` answer. The override is how CI tests the v2 bundle
+  /// on runners that all probe as v3.
+  static Future<String?> depsTier() async {
     final probe = await _probeCpu();
-    if (probe == null) return <String>{};
-    return (probe['features'] as List<dynamic>).cast<String>().toSet();
-  }
-
-  /// True when the worker reports an x86 architecture (so the x86-specific
-  /// zsmooth builds are the relevant ones).
-  static Future<bool> isX86() async {
-    final probe = await _probeCpu();
-    final arch = probe?['arch'] as String?;
-    return arch != null && (arch.startsWith('x86') || arch == 'amd64');
+    return DependencyManager.resolveTier(
+      platformId: platform,
+      override: Platform.environment['VAPOURBOX_DEPS_TIER'],
+      probed: probe?['tier'] as String?,
+    );
   }
 
   /// Never throws: this is diagnostic, and it is asked for before
@@ -773,11 +763,13 @@ class WorkerHarness {
   /// Download + extract the pinned deps zip into [destDir].
   static Future<void> _downloadDeps(String destDir) async {
     final info = _loadDepsVersion();
-    final url = info.getDownloadUrl(platform);
-    final expectedSha = await _fetchSidecarSha(info.getManifestUrl(platform));
+    final tier = await depsTier();
+    final assetId = DependencyManager.assetIdFor(platform, tier);
+    final url = info.getDownloadUrl(assetId);
+    final expectedSha = await _fetchSidecarSha(info.getManifestUrl(assetId));
 
     final tmp = await Directory.systemTemp.createTemp('vb_deps_');
-    final zip = File(p.join(tmp.path, info.filenameFor(platform)));
+    final zip = File(p.join(tmp.path, info.filenameFor(assetId)));
     try {
       // ignore: avoid_print
       print('WorkerHarness: downloading $url');
@@ -830,8 +822,9 @@ class WorkerHarness {
       // Stamp installed version so a normal app run treats it as up-to-date.
       File(p.join(destDir, 'version.json')).writeAsStringSync(
         const JsonEncoder.withIndent('  ').convert({
-          'version': info.versionFor(platform),
+          'version': info.versionFor(assetId),
           'installedAt': DateTime.now().toIso8601String(),
+          if (tier != null) 'tier': tier,
         }),
       );
     } finally {

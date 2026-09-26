@@ -116,14 +116,17 @@ come pre-built from
 ./Scripts/download-deps-macos.sh --force
 ```
 
-To build the x64 deps on Apple Silicon instead, run it under Rosetta 2 with an
-Intel Homebrew prefix (`macos-13` Intel runners were retired Dec 2025):
+The x64 deps can no longer be built on Apple Silicon: the script needs an Intel
+Homebrew prefix, and Homebrew's installer now refuses to create one under
+Rosetta ("Homebrew on macOS is only supported on Apple Silicon processors!").
+Build them in CI (`build-deps-macos.yml`, natively on `macos-15-intel`), or
+unzip a published or artifact `macos-x64` bundle into `deps/macos-x64`.
 
-```bash
-softwareupdate --install-rosetta --agree-to-license
-arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-arch -x86_64 /bin/bash -lc 'PATH=/usr/local/bin:$PATH ./Scripts/download-deps-macos.sh --force'
-```
+**CPU tiers (x64 only).** Every x64 bundle exists in two tiers: `v3` (the
+default; x86-64-v3 CPUs) and `v2` (older CPUs). Choose with `--tier v2`
+(`-Tier v2` on Windows). Both write to the same `deps/<platform>`, so switching
+tier needs `--force` (Windows: delete the directory first) — the scripts refuse
+to build one tier over the other rather than produce a mixture.
 
 In CI, deps are produced by **Build macOS Deps** (`build-deps-macos.yml`, arm64 on
 `macos-15` and x64 natively on `macos-15-intel`), **Build Linux Deps**
