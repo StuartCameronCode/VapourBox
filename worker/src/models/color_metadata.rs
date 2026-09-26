@@ -8,10 +8,25 @@
 //! BT.601 limited by every player — which silently shifts the colours of any
 //! BT.709 or full-range source.
 //!
-//! Note this is a *metadata* fix, not a pixel one. Nothing here converts
-//! anything: the samples coming off the pipe already carry whatever matrix the
-//! source used, and none of the passes re-matrix them. The bug was only ever
-//! that we failed to say so on the way out.
+//! The tags have to be declared on **both** sides of the encoder ffmpeg: on the
+//! Y4M *input* (options before `-i -`) as well as on the output stream. This is
+//! not a formality. FFmpeg negotiates the colour matrix and range through the
+//! filter graph the way it negotiates the pixel format, so an untagged input
+//! (`csp:unknown`) feeding an output tagged `bt709` makes ffmpeg auto-insert a
+//! scaler — and swscale treats "unknown" as BT.601, so it *re-matrixes every
+//! pixel* from 601 to 709 on the way through. Tagging only the output shifted
+//! the colours of every encode from a tagged source (measured on FFmpeg 9.0.1:
+//! a flat 10-bit 4:2:2 frame at Y/U/V 565/236/756 came back 546/259/741).
+//! Declare the input as the same thing and there is nothing for the scaler to
+//! convert, so the samples reach the encoder untouched. Output-only
+//! `-color_primaries`/`-color_trc` also never reached the file at all (the
+//! encoder takes those from the frames, which were untagged); declared on the
+//! input they ride on the frames and are written.
+//!
+//! So this is a *metadata* fix, and the input-side declaration is what keeps it
+//! one. Nothing here should convert anything: the samples coming off the pipe
+//! already carry whatever matrix the source used, and none of the passes
+//! re-matrix them. See docs/ENGINEERING_NOTES.md (2026-09-26).
 //!
 //! Values are validated against what FFmpeg actually accepts rather than passed
 //! through, on the same principle as `parse_ratio`: a value we do not recognise
@@ -88,10 +103,30 @@ impl ColorMetadata {
             && self.range.is_none()
     }
 
-    /// Output-stream flags for the encoder. Each tag is independent: a source
+    /// Input options for the Y4M pipe, placed between `-f yuv4mpegpipe` and
+    /// `-i -`. They state what the samples already *are*, which the Y4M header
+    /// cannot say. Without them ffmpeg sees an untagged input and, because the
+    /// output is tagged, converts the pixels to match (see the module docs).
+    pub fn to_ffmpeg_input_args(&self) -> Vec<String> {
+        self.tag_args()
+    }
+
+    /// Output-stream flags for the encoder. Must always equal the input
+    /// declaration: any difference between the two is carried out by ffmpeg as
+    /// a conversion of the pixels, not a relabelling. Kept alongside the input
+    /// side (rather than relying on the frames' tags alone) because without an
+    /// explicit output range ffmpeg can negotiate a different one — a
+    /// full-range source declared only on the input came out converted to
+    /// limited.
+    pub fn to_ffmpeg_output_args(&self) -> Vec<String> {
+        self.tag_args()
+    }
+
+    /// The four tag flags, spelled the same way whether they are given as input
+    /// (decoder) or output (encoder) options. Each tag is independent: a source
     /// that declares only a matrix gets only `-colorspace`, rather than having
     /// the other three guessed for it.
-    pub fn to_ffmpeg_args(&self) -> Vec<String> {
+    fn tag_args(&self) -> Vec<String> {
         let mut args = Vec::new();
         for (flag, value) in [
             ("-colorspace", &self.matrix),
@@ -142,7 +177,7 @@ mod tests {
     fn recognised_values_survive() {
         let c = ColorMetadata::from_raw(Some("bt709"), Some("bt709"), Some("bt709"), Some("tv"));
         assert_eq!(
-            c.to_ffmpeg_args(),
+            c.to_ffmpeg_output_args(),
             vec![
                 "-colorspace", "bt709",
                 "-color_primaries", "bt709",
@@ -158,7 +193,7 @@ mod tests {
         for junk in ["unknown", "N/A", "", "  ", "reserved"] {
             let c = ColorMetadata::from_raw(Some(junk), Some(junk), Some(junk), Some(junk));
             assert!(c.is_empty(), "{junk:?} should not be stamped");
-            assert!(c.to_ffmpeg_args().is_empty());
+            assert!(c.to_ffmpeg_output_args().is_empty());
         }
         assert!(ColorMetadata::from_raw(None, None, None, None).is_empty());
     }
@@ -176,7 +211,7 @@ mod tests {
         // A source that declares only a matrix gets only -colorspace; the other
         // three are not guessed on its behalf.
         let c = ColorMetadata::from_raw(Some("smpte170m"), None, None, None);
-        assert_eq!(c.to_ffmpeg_args(), vec!["-colorspace", "smpte170m"]);
+        assert_eq!(c.to_ffmpeg_output_args(), vec!["-colorspace", "smpte170m"]);
     }
 
     #[test]
@@ -207,5 +242,38 @@ mod tests {
         // swscale has no in_color_matrix entry for it.
         let c = ColorMetadata::from_raw(Some("rgb"), None, None, None);
         assert_eq!(c.swscale_input_opts(), vec!["in_range=tv"]);
+    }
+
+    /// Any difference between what the Y4M input is declared as and what the
+    /// output is tagged as, ffmpeg carries out as a pixel conversion. The two
+    /// lists must be identical, tag for tag, whatever subset the source has.
+    #[test]
+    fn input_and_output_declarations_always_agree() {
+        let cases = [
+            ColorMetadata::default(),
+            ColorMetadata::from_raw(Some("bt709"), Some("bt709"), Some("bt709"), Some("tv")),
+            ColorMetadata::from_raw(Some("bt709"), None, None, Some("pc")),
+            ColorMetadata::from_raw(Some("smpte170m"), None, None, None),
+            ColorMetadata::from_raw(None, Some("bt2020"), Some("smpte2084"), None),
+            ColorMetadata::from_raw(Some("rgb"), None, None, Some("jpeg")),
+        ];
+        for c in cases {
+            assert_eq!(c.to_ffmpeg_input_args(), c.to_ffmpeg_output_args(), "{c:?}");
+        }
+    }
+
+    #[test]
+    fn input_declaration_carries_every_tag() {
+        let c = ColorMetadata::from_raw(Some("bt709"), Some("bt709"), Some("bt709"), Some("tv"));
+        assert_eq!(
+            c.to_ffmpeg_input_args(),
+            vec![
+                "-colorspace", "bt709",
+                "-color_primaries", "bt709",
+                "-color_trc", "bt709",
+                "-color_range", "tv",
+            ]
+        );
+        assert!(ColorMetadata::default().to_ffmpeg_input_args().is_empty());
     }
 }

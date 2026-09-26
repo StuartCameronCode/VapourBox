@@ -384,6 +384,110 @@ Note the version parser accepts `n9.0.1` and `9.0.1` and deliberately **rejects
 a `master` build** (`N-125978-...`), so reverting any platform to an unpinned
 master URL is a red build rather than a silent regression.
 
+### Colour tags on the output only re-matrixed every pixel (2026-09-26)
+
+The colour-metadata fix (read the tags with ffprobe, carry them on `VideoJob`,
+re-stamp them on the encode) put them on the encoder as **output-stream flags**
+only, with a comment calling it "a *metadata* fix, not a pixel one". With the
+bundled FFmpeg 9.0.1 it was a pixel change on every encode from a tagged
+source.
+
+**Reproduction** (flat 64x64 `yuv422p10le` frame, Y/U/V = 565/236/756, into
+FFV1 and decoded back):
+
+| encoder args | decoded Y/U/V | written tags |
+|---|---|---|
+| none | 565/236/756 | range tv only |
+| output `-colorspace bt709 -color_range tv` | **546/259/741** | bt709/tv |
+| output `-colorspace bt709` alone | **546/259/741** | bt709 |
+| output `-color_range tv` alone | 565/236/756 | tv |
+| output, all four flags | **546/259/741** | bt709/tv; primaries/trc **unknown** |
+| same four flags on the **input** (before `-i`) *and* the output | 565/236/756 | all four |
+| `-vf setparams=…` (all four) | 565/236/756 | all four |
+
+`rawvideo` and `yuv4mpegpipe` inputs behave identically. The output-only shift
+reproduced with ProRes 4444 (with its `-pix_fmt` pin) as well as FFV1, and the
+input-side declaration matched the untagged encode exactly with x264, ProRes
+4444, HuffYUV (`-pix_fmt yuv422p`, 8-bit) and hevc_videotoolbox. End to end
+through the worker on `Tests/TestResources/pal-sd-25.mov` (bt709/tv ProRes)
+into FFV1, the tagged encode's frame averages moved from (Y 382.7, U 529.9,
+V 509.4) to (382.0, 530.1, 510.7) in 10-bit units, and the encode read back
+through its own tags differed from the preview of the same frame by a mean
+6.1/255 per RGB sample.
+
+**Root cause.** FFmpeg negotiates the colour matrix and range through the
+filter graph the same way it negotiates the pixel format. The Y4M pipe carries
+no colour information, so the input is `csp:unknown range:unknown`; the
+output flags make the encoder demand `csp:bt709 range:tv`; so the graph
+auto-inserts a scaler to get from one to the other (`-v debug`:
+`auto_scale_0 … fmt:yuv422p10le csp:unknown range:unknown -> … csp:bt709
+range:tv`, followed by swscale's `YUV color matrix differs for YUV->YUV, using
+intermediate RGB to convert`). swscale treats "unknown" as BT.601, so it
+converts 601→709 — a genuine re-matrix of samples that were already 709. An
+explicit range alone caused nothing because unknown range defaults to limited,
+which matched.
+
+A second, quieter defect fell out of the same measurements: output-only
+`-color_primaries` and `-color_trc` **never reached the file at all**. Those two
+are not negotiated; the encoder copies them from the frames, which were
+untagged, overriding the option. So the "re-stamp all four tags" fix had only
+ever re-stamped two.
+
+**The fix** declares the tags on the pipe's input (`ColorMetadata::to_ffmpeg_input_args`,
+between `-f yuv4mpegpipe` and `-i -`) as well as on the output
+(`to_ffmpeg_output_args`). Both are the same list by construction. With the
+input declared as what it already is, input and output agree, there is nothing
+for the scaler to convert, and the frames carry primaries/transfer to the
+encoder. Every value `ColorMetadata` accepts (13 matrices, 12 primaries, 16
+transfers, the six range spellings) was checked on both sides against the
+bundled binary: all pixel-identical.
+
+Why input options rather than `setparams` in the `-vf` chain, which also works:
+
+- **A Custom FFmpeg Argument containing `-vf` replaces the whole chain** (the
+  last `-vf` wins), which would silently drop a `setparams` and bring the shift
+  back for exactly the users who customise. Input options are untouched by it.
+- The tags are true of the frames from the moment they are decoded, so every
+  filter in the chain (burnt-in subtitles, anything a user adds) sees the right
+  matrix, not just the encoder.
+- The `-vf` chain stays empty for a job with no aspect/subtitle work, rather
+  than every tagged job gaining a filter.
+
+The output flags are **kept**, not replaced: declared only on the input, a
+full-range source came out converted to limited (548/271/726 for the test
+frame) — nothing pinned the output range, and ffmpeg negotiated `tv`. Both
+sides together are what is pixel-exact.
+
+Consequences worth knowing:
+
+- A Custom FFmpeg Argument like `-colorspace smpte170m` still works and still
+  converts — but now from the source's *real* matrix, which is what such an
+  argument means. Before, it converted from an assumed 601.
+- A forced `-pix_fmt` (HuffYUV, AMF `nv12`, the #74 hardware pins, ProRes
+  profile pins) still inserts a scaler, which now only resamples chroma/depth
+  and does not re-matrix. The ProRes 4444 case is asserted bit-identical
+  tagged-vs-untagged.
+- The preview path needed no change: it already feeds the source's matrix and
+  range to swscale explicitly (`swscale_input_opts`), which is why the preview
+  showed the correct colours while the encode did not.
+
+**Tests.** Rust: `input_and_output_declarations_always_agree` and
+`input_declaration_carries_every_tag` (color_metadata.rs);
+`test_color_tags_are_declared_on_the_y4m_input_too` (position-checked against
+the `-f`/`-i` pair) and `test_real_ffmpeg_builder_declares_colour_on_the_pipe_input`,
+which reads `build_ffmpeg_args`' own source — the args-level tests otherwise
+only see `build_ffmpeg_args_for_test`'s copy. Flutter (heavy):
+`integration_colour_tag_pixels_test.dart` encodes the tagged fixture with and
+without tags and asserts the samples are bit-identical to each other and to
+the source (FFV1), bit-identical tagged-vs-untagged for ProRes 4444, all four
+tags present, and the encode matches the preview (mean diff 0.000/255). With
+the input declaration disabled it fails all three, as the Rust tests do.
+
+The existing "tags survive" test in `integration_chroma_subsampling_test.dart`
+passed throughout — it checked the label, not the picture. **A metadata change
+needs a pixel assertion too**, because FFmpeg decides for itself whether a
+label is a label.
+
 ### zsmooth ships once per CPU baseline, and is loaded by path (issue #82, 2026-08-28)
 
 A plugin can also have **no** dispatch at all. zsmooth is compiled for a whole
