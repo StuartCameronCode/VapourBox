@@ -698,6 +698,31 @@ Three things decide the shape of the output, and they live in different places:
 else so a typo falls back to the source's own aspect rather than reaching ffmpeg
 as a broken filter argument.
 
+### Borders (issue #86)
+
+Two ways to add bars, sharing one step at the **very end of both templates**
+(`{{#BORDERS}}`, after `CHROMA_CONVERT`): **Add Borders** (`padEnabled`/
+`padWidth`/`padHeight`) pads to a fixed canvas without rescaling, independent
+of Resize; **Pad to Fill** (`padToAspect`) pads to the resize target, and its
+block inside `RESIZE_STANDARD` only *records* the box (`_aspect_box_w/h`).
+
+- **Last, on purpose.** Grain after the bars would noise them; a format
+  conversion after them would resample their edge. Nothing may be added after
+  `BORDERS` that touches pixels.
+- **Never call `AddBorders` without `color=`.** Its default is luma 0 —
+  below video black on a limited-range clip. `_border_color()` converts the
+  chosen RGB into the clip's own format via `resize` with the source's matrix and
+  range (`ColorMetadata::zimg_matrix` / `is_full_range`), so depth, range and
+  matrix come out right from one path.
+- **Offsets stay on the chroma grid, and on the field grid if still
+  interlaced** (`{{BORDER_FIELD_ALIGN}}`: deinterlacing off + a detected field
+  order). A picture bigger than the canvas **raises** rather than being
+  cropped or left short — a wrong frame size is the one thing authoring can't
+  take.
+
+`integration_borders_test.dart` (heavy) checks bar levels at 8 and 10-bit, and
+that the picture inside the bars is not rescaled.
+
 ### Colour metadata: read it, carry it, re-stamp it
 
 Same shape as the SAR handling above, same fix site. Colour tags (`color_space`,

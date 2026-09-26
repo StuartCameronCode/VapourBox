@@ -113,7 +113,7 @@ Twenty-one filters, each switchable independently, applied in a fixed order. Mos
 | **Sharpen** | Soft sources needing edge and fine detail recovery. aWarpSharp2 sharpens by warping edges instead of raising contrast, so it adds no halos. |
 | **Chroma Fixes** | Colour that sits sideways from the picture (corrected automatically or by hand), bleeding past edges, rainbowing and dot crawl — including the shimmering kind that only shows when the picture moves — and residual combing. Each repair has its own switch, and its settings appear only once it is on. |
 | **Color Correction** | Brightness, contrast, saturation, hue, levels, white balance (warm/cool, green/magenta), and lifting detail out of the shadows of underexposed footage. Levels and white balance can each be measured automatically or set by hand. |
-| **Crop & Resize** | Trimming overscan, scaling, and edge-directed upscaling. |
+| **Crop & Resize** | Trimming overscan, scaling, and edge-directed upscaling — plus bars in a colour of your choice to bring a cropped picture back to an exact frame size (720×576 for PAL DVD, 720×480 for NTSC) without rescaling it. |
 | **Frame Rate** | Converting between PAL and NTSC rates, for a tape that was already converted once and now plays at the wrong speed. |
 | **Subtitles** | Whisper AI speech-to-text — written alongside the video as `.srt`, embedded as a selectable track, burnt into the picture, or a combination. |
 

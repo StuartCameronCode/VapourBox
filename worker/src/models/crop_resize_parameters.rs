@@ -85,6 +85,30 @@ pub enum PixelAspectMode {
     Custom,
 }
 
+/// Fill colour for letterbox/pillarbox bars (issue #86).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum BorderColor {
+    #[default]
+    Black,
+    Grey,
+    White,
+    /// An `#RRGGBB` value from `pad_custom_color`.
+    Custom,
+}
+
+/// Parse `#RRGGBB` (the `#` optional) into 8-bit RGB. `None` for anything else,
+/// so a typo falls back to black rather than reaching the script.
+pub fn parse_hex_color(text: &str) -> Option<[u8; 3]> {
+    let hex = text.trim();
+    let hex = hex.strip_prefix('#').unwrap_or(hex);
+    if hex.len() != 6 || !hex.is_ascii() {
+        return None;
+    }
+    let channel = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
+    Some([channel(0)?, channel(2)?, channel(4)?])
+}
+
 /// Crop/resize preset options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -186,6 +210,28 @@ pub struct CropResizeParameters {
     #[serde(default)]
     pub pad_to_aspect: bool,
 
+    // --- Borders (issue #86) ---
+
+    /// Add bars out to a fixed canvas size, without rescaling the picture.
+    #[serde(default)]
+    pub pad_enabled: bool,
+
+    /// Canvas width. `None` leaves the width at the picture's own.
+    #[serde(default)]
+    pub pad_width: Option<i32>,
+
+    /// Canvas height. `None` leaves the height at the picture's own.
+    #[serde(default)]
+    pub pad_height: Option<i32>,
+
+    /// Fill colour for every bar this pass adds, Pad to Fill's included.
+    #[serde(default)]
+    pub pad_color: BorderColor,
+
+    /// `#RRGGBB` used when `pad_color` is `Custom`.
+    #[serde(default)]
+    pub pad_custom_color: Option<String>,
+
     // --- Upscale Parameters (for integer scaling) ---
 
     /// Whether to use integer upscaling (2x, 4x) instead of arbitrary resize.
@@ -267,6 +313,11 @@ impl Default for CropResizeParameters {
             custom_sar: None,
             display_aspect: None,
             pad_to_aspect: false,
+            pad_enabled: false,
+            pad_width: None,
+            pad_height: None,
+            pad_color: BorderColor::default(),
+            pad_custom_color: None,
             bicubic_b: None,
             bicubic_c: None,
             lanczos_taps: None,
@@ -380,6 +431,45 @@ impl CropResizeParameters {
                     AspectDeclaration::Sar(sar.to_string())
                 })
             }
+        }
+    }
+
+    /// Whether Pad to Fill applies: it pads out to the resize target, so there
+    /// is nothing to pad to without one.
+    pub fn pads_to_aspect(&self) -> bool {
+        self.enabled && self.resize_enabled && self.pad_to_aspect
+    }
+
+    /// The fixed canvas to pad out to, as (width, height) with `-1` for an axis
+    /// left at the picture's own size — or `None` when not padding to a canvas.
+    ///
+    /// Odd sizes are rounded up to even: every subsampled format needs it, and
+    /// rounding up means the picture still fits.
+    pub fn pad_canvas(&self) -> Option<(i32, i32)> {
+        if !(self.enabled && self.pad_enabled) {
+            return None;
+        }
+        let axis = |v: Option<i32>| v.filter(|&v| v > 0).map_or(-1, |v| (v + 1) & !1);
+        let (w, h) = (axis(self.pad_width), axis(self.pad_height));
+        (w > 0 || h > 0).then_some((w, h))
+    }
+
+    /// Whether any bars are added at all.
+    pub fn adds_borders(&self) -> bool {
+        self.pads_to_aspect() || self.pad_canvas().is_some()
+    }
+
+    /// The bar colour as 8-bit RGB. An unparseable custom colour is black.
+    pub fn border_rgb(&self) -> [u8; 3] {
+        match self.pad_color {
+            BorderColor::Black => [0, 0, 0],
+            BorderColor::Grey => [128, 128, 128],
+            BorderColor::White => [255, 255, 255],
+            BorderColor::Custom => self
+                .pad_custom_color
+                .as_deref()
+                .and_then(parse_hex_color)
+                .unwrap_or([0, 0, 0]),
         }
     }
 
@@ -510,6 +600,66 @@ mod tests {
             ..CropResizeParameters::default()
         };
         assert_eq!(params.aspect_declaration(Some("10:11")), AspectDeclaration::None);
+    }
+
+    #[test]
+    fn test_parse_hex_color() {
+        assert_eq!(parse_hex_color("#FF8000"), Some([255, 128, 0]));
+        assert_eq!(parse_hex_color(" 0a0B0c "), Some([10, 11, 12]));
+        for junk in ["", "#FFF", "#GGGGGG", "#FF80001", "red", "#ÿÿÿ"] {
+            assert_eq!(parse_hex_color(junk), None, "{junk:?}");
+        }
+    }
+
+    #[test]
+    fn test_border_rgb_falls_back_to_black() {
+        let mut params = CropResizeParameters::default();
+        assert_eq!(params.border_rgb(), [0, 0, 0]);
+        params.pad_color = BorderColor::White;
+        assert_eq!(params.border_rgb(), [255, 255, 255]);
+        params.pad_color = BorderColor::Custom;
+        params.pad_custom_color = Some("#102030".to_string());
+        assert_eq!(params.border_rgb(), [16, 32, 48]);
+        params.pad_custom_color = Some("blue".to_string());
+        assert_eq!(params.border_rgb(), [0, 0, 0]);
+    }
+
+    #[test]
+    fn test_pad_canvas() {
+        let params = CropResizeParameters {
+            enabled: true,
+            pad_enabled: true,
+            pad_width: Some(720),
+            pad_height: Some(575),
+            ..CropResizeParameters::default()
+        };
+        // Odd rounds up, so the picture still fits.
+        assert_eq!(params.pad_canvas(), Some((720, 576)));
+        assert!(params.adds_borders());
+
+        // One axis only: the other stays at the picture's own size.
+        let one_axis = CropResizeParameters { pad_width: None, ..params.clone() };
+        assert_eq!(one_axis.pad_canvas(), Some((-1, 576)));
+
+        // No size at all, the section off, or the pass off: no canvas.
+        let no_size = CropResizeParameters { pad_width: None, pad_height: Some(0), ..params.clone() };
+        assert_eq!(no_size.pad_canvas(), None);
+        let off = CropResizeParameters { pad_enabled: false, ..params.clone() };
+        assert_eq!(off.pad_canvas(), None);
+        let pass_off = CropResizeParameters { enabled: false, ..params };
+        assert_eq!(pass_off.pad_canvas(), None);
+        assert!(!pass_off.adds_borders());
+    }
+
+    #[test]
+    fn test_pad_to_aspect_needs_a_resize_target() {
+        let params = CropResizeParameters {
+            enabled: true,
+            pad_to_aspect: true,
+            ..CropResizeParameters::default()
+        };
+        assert!(!params.pads_to_aspect());
+        assert!(CropResizeParameters { resize_enabled: true, ..params }.pads_to_aspect());
     }
 
     #[test]
