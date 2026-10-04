@@ -51,6 +51,20 @@ enum PixelAspectMode {
   custom,
 }
 
+/// Fill colour for letterbox/pillarbox bars (issue #86).
+enum BorderColor {
+  @JsonValue('black')
+  black,
+  @JsonValue('grey')
+  grey,
+  @JsonValue('white')
+  white,
+
+  /// An `#RRGGBB` value from [CropResizeParameters.padCustomColor].
+  @JsonValue('custom')
+  custom,
+}
+
 /// Crop/resize preset options.
 enum CropResizePreset {
   @JsonValue('off')
@@ -135,6 +149,23 @@ class CropResizeParameters {
   /// fitted image smaller than it in one axis.
   final bool padToAspect;
 
+  // --- Borders (issue #86) ---
+
+  /// Add bars out to a fixed canvas size, without rescaling the picture.
+  final bool padEnabled;
+
+  /// Canvas width. Null leaves the width at the picture's own.
+  final int? padWidth;
+
+  /// Canvas height. Null leaves the height at the picture's own.
+  final int? padHeight;
+
+  /// Fill colour for every bar this pass adds, Pad to Fill's included.
+  final BorderColor padColor;
+
+  /// `#RRGGBB` used when [padColor] is [BorderColor.custom].
+  final String? padCustomColor;
+
   // --- Upscale Parameters (for integer scaling) ---
 
   /// Whether to use integer upscaling (2x, 4x) instead of arbitrary resize.
@@ -204,6 +235,12 @@ class CropResizeParameters {
     this.customSar,
     this.displayAspect,
     this.padToAspect = false,
+    // Border defaults
+    this.padEnabled = false,
+    this.padWidth,
+    this.padHeight,
+    this.padColor = BorderColor.black,
+    this.padCustomColor,
     // Upscale defaults
     this.useIntegerUpscale = false,
     this.upscaleMethod = UpscaleMethod.nnedi3Rpow2,
@@ -295,6 +332,11 @@ class CropResizeParameters {
     String? customSar,
     String? displayAspect,
     bool? padToAspect,
+    bool? padEnabled,
+    int? padWidth,
+    int? padHeight,
+    BorderColor? padColor,
+    String? padCustomColor,
     bool? useIntegerUpscale,
     UpscaleMethod? upscaleMethod,
     int? upscaleFactor,
@@ -329,6 +371,11 @@ class CropResizeParameters {
       customSar: customSar ?? this.customSar,
       displayAspect: displayAspect ?? this.displayAspect,
       padToAspect: padToAspect ?? this.padToAspect,
+      padEnabled: padEnabled ?? this.padEnabled,
+      padWidth: padWidth ?? this.padWidth,
+      padHeight: padHeight ?? this.padHeight,
+      padColor: padColor ?? this.padColor,
+      padCustomColor: padCustomColor ?? this.padCustomColor,
       useIntegerUpscale: useIntegerUpscale ?? this.useIntegerUpscale,
       upscaleMethod: upscaleMethod ?? this.upscaleMethod,
       upscaleFactor: upscaleFactor ?? this.upscaleFactor,
@@ -377,6 +424,9 @@ class CropResizeParameters {
     }
     if (useIntegerUpscale) {
       parts.add('${upscaleFactor}x');
+    }
+    if (padEnabled && (padWidth != null || padHeight != null)) {
+      parts.add('Border ${padWidth ?? "?"}x${padHeight ?? "?"}');
     }
     if (pixelAspect == PixelAspectMode.square) parts.add('Square px');
     if (displayAspect != null && displayAspect!.isNotEmpty) {

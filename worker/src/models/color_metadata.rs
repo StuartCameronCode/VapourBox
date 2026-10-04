@@ -107,6 +107,37 @@ impl ColorMetadata {
         args
     }
 
+    /// Whether the source declares full range. Anything else is limited, which
+    /// is what an untagged SD capture almost always is.
+    pub fn is_full_range(&self) -> bool {
+        matches!(self.range.as_deref(), Some("pc") | Some("jpeg") | Some("full"))
+    }
+
+    /// The zimg `matrix_s` for converting an RGB colour into the source's YUV —
+    /// used for border fills (issue #86), the only place the script turns RGB
+    /// into YUV. Nothing re-matrixes the picture, so the samples still carry the
+    /// source's matrix; untagged, it is the usual guess by frame height.
+    ///
+    /// Neutral fills (black/grey/white) come out identical under every matrix,
+    /// so this only matters for a custom colour.
+    pub fn zimg_matrix(&self, source_height: Option<i32>) -> &'static str {
+        match self.matrix.as_deref() {
+            Some("bt709") => "709",
+            Some("fcc") => "fcc",
+            Some("bt470bg") => "470bg",
+            Some("smpte170m") => "170m",
+            Some("smpte240m") => "240m",
+            Some("ycgco") => "ycgco",
+            Some("bt2020nc") => "2020ncl",
+            Some("bt2020c") => "2020cl",
+            Some("chroma-derived-nc") => "chromancl",
+            Some("chroma-derived-c") => "chromacl",
+            Some("ictcp") => "ictcp",
+            _ if source_height.is_some_and(|h| h >= 720) => "709",
+            _ => "170m",
+        }
+    }
+
     /// swscale input options for the preview's YUV→RGB conversion.
     ///
     /// The preview's second stage reads a Y4M pipe, which carries no colour
@@ -128,7 +159,7 @@ impl ColorMetadata {
         }
         // Anything but an explicit full-range tag is treated as limited, which
         // is what an untagged SD capture almost always is.
-        let full = matches!(self.range.as_deref(), Some("pc") | Some("jpeg") | Some("full"));
+        let full = self.is_full_range();
         opts.push(format!("in_range={}", if full { "pc" } else { "tv" }));
         opts
     }
@@ -200,6 +231,34 @@ mod tests {
             c.swscale_input_opts(),
             vec!["in_color_matrix=bt709", "in_range=pc"]
         );
+    }
+
+    #[test]
+    fn zimg_matrix_follows_the_tag_then_the_frame_height() {
+        let tagged = ColorMetadata::from_raw(Some("bt470bg"), None, None, None);
+        assert_eq!(tagged.zimg_matrix(Some(1080)), "470bg");
+        let untagged = ColorMetadata::default();
+        assert_eq!(untagged.zimg_matrix(Some(1080)), "709");
+        assert_eq!(untagged.zimg_matrix(Some(576)), "170m");
+        assert_eq!(untagged.zimg_matrix(None), "170m");
+        // The identity matrix is RGB; guess as if untagged rather than feed
+        // zimg an RGB->RGB matrix for a YUV clip.
+        let rgb = ColorMetadata::from_raw(Some("rgb"), None, None, None);
+        assert_eq!(rgb.zimg_matrix(Some(480)), "170m");
+    }
+
+    #[test]
+    fn every_recognised_matrix_maps_to_a_zimg_name() {
+        // Only the RGB identity, and SMPTE 2085 (which zimg does not implement),
+        // may fall through to the height guess.
+        for m in MATRICES.iter().filter(|m| !matches!(**m, "rgb" | "smpte2085")) {
+            let c = ColorMetadata::from_raw(Some(m), None, None, None);
+            assert_ne!(
+                (c.zimg_matrix(Some(1080)), c.zimg_matrix(Some(480))),
+                ("709", "170m"),
+                "{m} is not mapped"
+            );
+        }
     }
 
     #[test]
