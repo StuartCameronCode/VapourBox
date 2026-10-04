@@ -32,6 +32,16 @@ class PreviewGenerator {
   /// Registering at spawn and discarding on exit closes that window: a process
   /// is reachable for cancellation from the moment it exists.
   final Set<Process> _livePreviews = {};
+
+  /// Input options (before `-i`) for every ffmpeg that shows the user the
+  /// source picture: decode the full stored frame, ignoring container cropping
+  /// (a QuickTime clean aperture, a Matroska PixelCrop). The worker decodes the
+  /// same way (`worker/src/source_decode.rs`), so the "before" frame is the
+  /// same picture — same width, same columns — as the processed "after", and
+  /// the size ffprobe reports is the size shown. Left at ffmpeg's default, a
+  /// 720x576 clean-aperture source would show 702 columns here and 720 there.
+  static const sourceDecodeOptions = ['-apply_cropping', 'codec'];
+
   String? _ffmpegPath;
   String? _ffprobePath;
   String? _workerPath;
@@ -194,6 +204,7 @@ class PreviewGenerator {
         [
           '-y',
           '-ss', ss.toStringAsFixed(6),
+          ...sourceDecodeOptions,
           '-i', _currentVideoPath!,
           '-frames:v', '1',
           '-q:v', '2',
@@ -548,6 +559,7 @@ class PreviewGenerator {
         [
           '-y',
           '-ss', time.toStringAsFixed(3),
+          ...sourceDecodeOptions,
           '-i', videoPath,
           '-vframes', '1',
           '-vf', 'scale=160:-1',

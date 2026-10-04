@@ -425,6 +425,34 @@ impl DependencyLocator {
             .filter(|&n| n > 0)
     }
 
+    /// ffprobe's `width`x`height` for the first video stream — the size the
+    /// decoder produces (see `source_decode`). Used when a job omits
+    /// `input_width`/`input_height`, so a direct caller gets the source's real
+    /// size rather than the 720x480 fallback, which the decoder's size guard
+    /// would (rightly) reject for any other source.
+    pub fn probe_frame_size(&self, input: &str) -> Option<(i32, i32)> {
+        let ffprobe = self.ffprobe_path().ok()?;
+        let out = Command::new(&ffprobe)
+            .args([
+                "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width,height",
+                "-of", "csv=p=0:s=x",
+                input,
+            ])
+            .envs(self.build_environment())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&out.stdout);
+        let (w, h) = text.lines().next()?.trim().split_once('x')?;
+        let (w, h) = (w.parse::<i32>().ok()?, h.parse::<i32>().ok()?);
+        (w > 0 && h > 0).then_some((w, h))
+    }
+
     /// Get the path to ffmpeg executable.
     pub fn ffmpeg_path(&self) -> Result<PathBuf> {
         let exe_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
