@@ -732,7 +732,7 @@ if (-not (Test-Path $DvdReadPath)) {
 #
 # akarin is bit-identical to std.Expr on 45 of the 46 expressions havsfunc
 # generates; the one exception rounds a single .5 tie down instead of to even.
-$AkarinVersion = "1.4.1"
+$AkarinVersion = "1.5.0"
 Write-Host ""
 Write-Host "Downloading akarin $AkarinVersion (LLVM JIT for std.Expr)..." -ForegroundColor Yellow
 if (-not (Test-Path "$PluginsDir\libakarin.dll")) {

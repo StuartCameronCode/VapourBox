@@ -160,7 +160,7 @@ LLVM — Apache-2.0 WITH LLVM-exception
   Copyright (c) the LLVM Project contributors
   https://llvm.org
   Licence text: Apache-2.0-LLVM-Exception.txt
-  LLVM 22.1.2 is statically linked into the akarin plugin above, which is where
+  LLVM 22.1.8 is statically linked into the akarin plugin above, which is where
   its JIT comes from. Listed here because that binary carries LLVM code.
 
 zsmooth — MIT
