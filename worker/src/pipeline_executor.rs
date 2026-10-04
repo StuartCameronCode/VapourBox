@@ -1842,7 +1842,9 @@ mod tests {
     /// source: the input declaration must come before the pipe's `-i`.
     #[test]
     fn test_real_ffmpeg_builder_declares_colour_on_the_pipe_input() {
-        let src = include_str!("pipeline_executor.rs");
+        // A Windows checkout gives this file CRLF, and the end-of-function
+        // pattern below spans a line break.
+        let src = include_str!("pipeline_executor.rs").replace("\r\n", "\n");
         let start = src.find("fn build_ffmpeg_args(&self").expect("real builder");
         let body = &src[start..];
         let body = &body[..body.find("\n    }\n").expect("end of builder")];
