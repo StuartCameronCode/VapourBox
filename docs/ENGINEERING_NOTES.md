@@ -384,7 +384,102 @@ Note the version parser accepts `n9.0.1` and `9.0.1` and deliberately **rejects
 a `master` build** (`N-125978-...`), so reverting any platform to an unpinned
 master URL is a red build rather than a silent regression.
 
-### zsmooth ships once per CPU baseline, and is loaded by path (issue #82, 2026-08-28)
+### x86 bundles split into CPU tiers (issue #92, 2026-09-25)
+
+**The report.** A Mac Pro 5,1 (Xeon X5690, Westmere — SSE4.2, no AVX at all)
+failed every preview at once with `vspipe exited with signal 4` (SIGILL), even
+with every pass disabled. The reporter's `.ips` put the fault in
+`__GLOBAL__sub_I_MVDegrains_AVX2.cpp` inside `libmvtools.dylib`, called from
+`dlopen` ← `VSCore::loadAllPluginsInPath` ← `createCore`.
+
+**Why every job.** Stefan-Olt's macOS MVTools compiles six files with
+`-mavx2`. Three of them (`MVDegrains_AVX2`, `Overlap_AVX2`, `SADFunctions_AVX2`)
+build a `static const std::unordered_map` of kernels at load time, and the
+compiler used VEX instructions for it. Static initializers run inside `dlopen`,
+before any plugin code can check the CPU, and R78 autoloads every plugin when a
+core is created — so one plugin faulting at load kills every job, whatever it
+asks for. Runtime dispatch in the filters is irrelevant; they never get to run.
+
+**How it was pinned down, and the traps on the way.**
+- A disassembly scan of initializers *by name* (`_GLOBAL__sub_I_*`) came back
+  clean on the Linux bundle only because GCC's LTO renames them
+  (`__static_initialization_and_destruction_0v.lto_priv.N`). Name-based scans
+  are not evidence. `Scripts/check-load-time-simd.py` finds initializers from
+  `__init_offsets` / `__mod_init_func` instead, follows direct calls (never
+  into `__stubs`), and flags the stock 1.10.0 MVTools and nothing else in the
+  bundle.
+- The first real-hardware probe reported all 18 prebuilt plugins as crashing,
+  because each test autoloaded the whole directory, MVTools included.
+  `Scripts/probe-plugin-compat.py` loads one plugin per process into a
+  `CoreCreationFlags.DISABLE_AUTO_LOADING` core instead.
+- Rosetta 2 translates AVX/AVX2 on macOS 15+ (not AVX-512), so the crashing
+  MVTools ran perfectly on Apple Silicon. Nothing about pre-AVX2 behaviour can
+  be learned there.
+- The reporter's Ivy Bridge MacBook (AVX, no AVX2) loaded everything: the
+  initializer VEX is plain AVX, so it is the *pre-AVX* machines that fail.
+  (macOS spells the feature `AVX1.0` in `machdep.cpu.features`.)
+
+**Surveyed under Intel SDE** (`probe-cpu-compat.yml`), with three controls: the
+runner itself must pass everything; a plugin-free core must pass under SDE; and
+upstream's AVX2-only zsmooth must crash *in its own image*.
+- **Linux at Westmere:** every plugin in the 1.10.0 bundle renders, MVTools
+  included (GCC's build keeps VEX out of that load path), except the zsmooth
+  haswell build — which the worker never loaded there anyway.
+- **Windows at Westmere is unmeasurable:** every test, including the core
+  control, faults in `VCRUNTIME140.dll`'s `memcpy` on a `vmovdqu ymm`. Microsoft's
+  runtime takes its AVX path from what the *host kernel* reports
+  (`IsProcessorFeaturePresent` reads shared kernel memory), which SDE cannot
+  virtualise, and python.org's runtime runs fine on real pre-AVX Windows. Without
+  the core control this run looked valid, because the positive control also
+  "crashed" — in vcruntime. **Windows at Sandy Bridge** (AVX, no AVX2) is valid,
+  and there everything but zsmooth-haswell renders.
+- `sde.exe` drops empty arguments when relaunching the child, which once made a
+  probe bug look like a CPU finding.
+
+**The design.** Rather than more per-plugin special cases (zsmooth's two
+builds loaded by path was the first), each x86 platform ships two bundles:
+`v3` (x86-64-v3; the pre-existing asset names) and `v2` (`-v2`). One gateway
+chooses — the app downloads by `vapourbox-worker --probe-cpu`'s `tier`, and the
+tier lives only in the asset name and `version.json`, never the install path,
+so the worker, dev paths and tests are untouched. v3 needs the whole
+x86-64-v3 feature set (a v3 build may use FMA/BMI2/MOVBE as well as AVX2).
+Startup re-checks the tier, so an install that moved machines is replaced.
+
+What actually differs between the tiers is only what the measurements above
+proved must: zsmooth's baseline on all three platforms, and on macOS MVTools.
+The v2 MVTools is v24 from source with `patches/mvtools-v24-no-avx2.patch`:
+
+- It replaces the six AVX2 files with stubs compiled at the baseline. With no
+  `-mavx2` code in the binary, neither the initializer VEX nor the other
+  hazard remains: an `-mavx2` file's copy of shared template code can win the
+  linker's choice and put AVX2 into unguarded callers.
+- It masks `X264_CPU_AVX2` out of `g_cpuinfo`, the single point where the CPU
+  flags are set. Every call into the AVX2 code is gated on that flag.
+- The stubs `abort()` rather than return nothing. They are unreachable, and a
+  silent no-op would render blank frames on an AVX2 machine running the v2
+  bundle if the mask were ever lost.
+- Every AVX2 selector call site null-checks (`if (tmp) degrain = tmp;`).
+- The nasm assembly stays, and is still runtime-dispatched.
+- The patched binary has no compiler-generated VEX outside the asm kernels.
+
+**Gates.** A v2 bundle cannot be published without passing: SDE in
+`build-deps-{linux,windows}.yml` (the upload job waits for it), the static
+check inside `package-deps-macos.sh`. `release.sh` stopped packaging deps
+locally — a checkout holds one tier per platform, so it would have published
+half a release.
+
+**Open.** Pre-AVX *Windows* remains unverified (no SDE run is possible, and
+`check-load-time-simd.py` reads Mach-O only). MVTools' Windows build is the
+official MSVC v24 — if it turns out to have the same initializer problem, the
+Windows v2 tier would need an MVTools source build, which the Windows deps
+script has no toolchain for today.
+
+### zsmooth ships once per CPU baseline, and is loaded by path (issue #82, 2026-08-28) — superseded by the CPU tiers above
+
+Since deps 1.11.0 each tier's bundle carries exactly one zsmooth build, in the
+autoload directory; the two-builds-loaded-by-path mechanism below was removed.
+The measurements still hold and are why v2 uses `x86_64_v2` rather than
+`x86_64`.
 
 A plugin can also have **no** dispatch at all. zsmooth is compiled for a whole
 CPU baseline — upstream publishes only `haswell` (AVX2) and `znver4` for x86,

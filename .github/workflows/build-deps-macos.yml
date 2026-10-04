@@ -60,28 +60,39 @@ jobs:
             "dist/VapourBox-deps-${{ inputs.version }}-macos-arm64.zip" \
             "dist/VapourBox-deps-${{ inputs.version }}-macos-arm64.zip.sha256.json" --clobber
 
+  # x64 ships in two CPU tiers (issue #92): v3 for x86-64-v3 CPUs, v2 for
+  # anything older. Same script, one --tier switch. The v2 bundle is gated by
+  # package-deps-macos.sh itself (Scripts/check-load-time-simd.py): macOS has
+  # no Intel SDE, so it proves statically that no plugin runs AVX while it
+  # loads — and fails before anything below can upload it.
   build-x64:
     if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
     runs-on: macos-15-intel  # only hosted Intel image (macos-13 retired; last one until ~Aug 2027)
+    strategy:
+      fail-fast: false
+      matrix:
+        tier: [v3, v2]
+    env:
+      ASSET: VapourBox-deps-${{ inputs.version }}-macos-x64${{ matrix.tier == 'v2' && '-v2' || '' }}
     steps:
       - uses: actions/checkout@v5
 
-      - name: Build dependencies (x64, native)
+      - name: Build dependencies (x64 ${{ matrix.tier }}, native)
         # STRICT_MIN_OS=1: fail the build if any bundled Mach-O targets newer than
         # the macOS 12 floor (issue #39) instead of silently shipping it.
         env:
           STRICT_MIN_OS: "1"
-        run: ./Scripts/download-deps-macos.sh --force
+        run: ./Scripts/download-deps-macos.sh --force --tier ${{ matrix.tier }}
 
       - name: Package dependencies
         run: ./Scripts/package-deps-macos.sh --version "${{ inputs.version }}" --arch x64
 
       - uses: actions/upload-artifact@v5
         with:
-          name: VapourBox-deps-${{ inputs.version }}-macos-x64
+          name: ${{ env.ASSET }}
           path: |
-            dist/VapourBox-deps-${{ inputs.version }}-macos-x64.zip
-            dist/VapourBox-deps-${{ inputs.version }}-macos-x64.zip.sha256.json
+            dist/${{ env.ASSET }}.zip
+            dist/${{ env.ASSET }}.zip.sha256.json
 
       - name: Upload to release
         if: inputs.release_tag != ''
@@ -89,5 +100,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ inputs.release_tag }}" \
-            "dist/VapourBox-deps-${{ inputs.version }}-macos-x64.zip" \
-            "dist/VapourBox-deps-${{ inputs.version }}-macos-x64.zip.sha256.json" --clobber
+            "dist/${{ env.ASSET }}.zip" \
+            "dist/${{ env.ASSET }}.zip.sha256.json" --clobber

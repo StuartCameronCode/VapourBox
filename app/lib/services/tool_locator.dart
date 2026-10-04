@@ -109,8 +109,14 @@ class ToolLocator {
     return File(p).existsSync() ? p : null;
   }
 
-  /// Resolve the vapourbox-worker executable path.
-  String? _resolveWorker() {
+  String? _resolveWorker() => findWorkerExecutable();
+
+  /// Locate the vapourbox-worker executable.
+  ///
+  /// Static and independent of the deps directory, because the worker is also
+  /// needed *before* any deps exist: `DependencyManager.depsTier()` asks it
+  /// which x86 bundle this CPU can run, and that decides what gets downloaded.
+  static String? findWorkerExecutable() {
     // Explicit override, mirroring VAPOURBOX_DEPS_DIR above. Under `flutter
     // test` the resolved executable is the test runner, not the app bundle, so
     // neither the production nor the dev path below can find the worker — which

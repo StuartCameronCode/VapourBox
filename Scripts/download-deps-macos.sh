@@ -13,20 +13,25 @@
 # - Homebrew (for build tools only, not runtime)
 # - Xcode Command Line Tools
 #
-# Usage: ./scripts/download-deps-macos.sh [--force]
+# Usage: ./scripts/download-deps-macos.sh [--force] [--tier v3|v2]
 
 set -e
 
 FORCE=false
+TIER=v3
 while [[ $# -gt 0 ]]; do
     case $1 in
         --force)
             FORCE=true
             shift
             ;;
+        --tier)
+            TIER="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--force]"
+            echo "Usage: $0 [--force] [--tier v3|v2]"
             exit 1
             ;;
     esac
@@ -41,6 +46,29 @@ elif [ "$ARCH" = "x86_64" ]; then
 else
     echo "Unsupported architecture: $ARCH"
     exit 1
+fi
+
+# CPU tier (issue #92). The x86 bundle ships twice: v3 for x86-64-v3 CPUs
+# (Haswell, 2013, and later) and v2 for anything older, chosen by the app from
+# `vapourbox-worker --probe-cpu`. This block is the ONLY place the tier is
+# interpreted; everything below reads these variables and never $TIER itself.
+#   ZSMOOTH_CPU      zsmooth's Zig -Dcpu target (upstream has no dispatch)
+#   MVTOOLS_SOURCE   prebuilt: Stefan-Olt's build, whose AVX2 static
+#                    initializers SIGILL at load on a CPU without AVX;
+#                    source-no-avx2: v24 from source with those files stubbed
+#                    out (patches/mvtools-v24-no-avx2.patch)
+if [ "$ARCH" = "x86_64" ]; then
+    case "$TIER" in
+        v3) ZSMOOTH_CPU=haswell;   MVTOOLS_SOURCE=prebuilt ;;
+        v2) ZSMOOTH_CPU=x86_64_v2; MVTOOLS_SOURCE=source-no-avx2 ;;
+        *)  echo "Unknown tier: $TIER (expected v3 or v2)"; exit 1 ;;
+    esac
+else
+    if [ "$TIER" != "v3" ]; then
+        echo "--tier is x86-only; the arm64 bundle is not tiered."
+        exit 1
+    fi
+    TIER=""
 fi
 
 # NOTE: x64 deps are built natively on an Intel Mac / the macos-15-intel CI
@@ -84,6 +112,20 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DEPS_DIR="$PROJECT_ROOT/deps/$PLATFORM_DIR"
 PLUGINS_DIR="$DEPS_DIR/vapoursynth/plugins"
+
+# Both tiers build into the same deps/<platform> directory (the tier lives in
+# version.json, not the path), and most steps skip what already exists. So a
+# tier switch without --force would keep the previous tier's MVTools and
+# zsmooth and silently produce a mixed bundle.
+if [ -n "$TIER" ] && [ "$FORCE" = false ] && [ -f "$DEPS_DIR/version.json" ]; then
+    EXISTING_TIER=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('tier','v3'))" \
+        "$DEPS_DIR/version.json" 2>/dev/null || echo "v3")
+    if [ "$EXISTING_TIER" != "$TIER" ]; then
+        echo "ERROR: $DEPS_DIR holds the $EXISTING_TIER bundle; building $TIER over it"
+        echo "would mix the two. Re-run with --force."
+        exit 1
+    fi
+fi
 PYTHON_DIR="$DEPS_DIR/python"
 PYTHON_PACKAGES_DIR="$DEPS_DIR/python-packages"
 BUILD_DIR="/tmp/vapourbox-build-$$"
@@ -852,6 +894,48 @@ download_prebuilt_plugin() {
     return 1
 }
 
+# MVTools for the v2 tier: v24 — the same version the v3 tier's prebuilt uses —
+# from source, with patches/mvtools-v24-no-avx2.patch. Stefan-Olt's build
+# compiles six files with -mavx2, and three of them construct lookup tables at
+# load time with VEX instructions, so dlopen itself SIGILLs on a CPU without
+# AVX; autoload makes that every job (issue #92). The patch builds none of the
+# AVX2 code and masks the AVX2 flag so nothing dispatches to it; the runtime
+# dispatch to SSE2/AVX assembly is unchanged.
+build_mvtools_no_avx2() {
+    if [ "$FORCE" = false ] && [ -f "$PLUGINS_DIR/libmvtools.dylib" ]; then
+        echo "  MVTools already exists, skipping"
+        return 0
+    fi
+    echo ""; echo "=== Building MVTools v24 without AVX2 (x86_64, v2 tier) ==="
+    cd "$BUILD_DIR"
+    rm -rf mvtools
+    git clone --depth 1 --branch v24 https://github.com/dubhater/vapoursynth-mvtools.git mvtools
+    # Hard failure: an unapplied patch would quietly ship the crashing build.
+    (cd mvtools && git apply "$SCRIPT_DIR/patches/mvtools-v24-no-avx2.patch") || {
+        echo "  ERROR: patches/mvtools-v24-no-avx2.patch did not apply to MVTools v24." >&2
+        exit 1
+    }
+    if PKG_CONFIG_PATH="$VS_PC_DIR:$BREW_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}" \
+            meson setup mvtools/build mvtools --buildtype=release \
+       && ninja -C mvtools/build; then
+        cp mvtools/build/libmvtools.dylib "$PLUGINS_DIR/libmvtools.dylib"
+        install_name_tool -id "@loader_path/libmvtools.dylib" "$PLUGINS_DIR/libmvtools.dylib"
+        # Link against Homebrew's fftw at build time, load the bundled copy.
+        for dep in $(otool -L "$PLUGINS_DIR/libmvtools.dylib" | awk '/libfftw3f/ {print $1}'); do
+            install_name_tool -change "$dep" "@loader_path/../../lib/$(basename "$dep")" \
+                "$PLUGINS_DIR/libmvtools.dylib"
+        done
+        codesign -s - -f "$PLUGINS_DIR/libmvtools.dylib" 2>/dev/null || true
+        echo "  Built MVTools (no AVX2)"
+    else
+        echo "  Failed to build MVTools"
+        FAILED_PLUGINS+=("MVTools")
+        cd "$BUILD_DIR"
+        return 1
+    fi
+    cd "$BUILD_DIR"
+}
+
 STEFANOLT="https://github.com/Stefan-Olt/vs-plugin-build/releases/download/vsplugin"
 
 # pkg-config dir + header dir of the from-source VapourSynth install. Used by the
@@ -924,7 +1008,11 @@ if [ "$ARCH" = "x86_64" ]; then
     # ========================================================================
     echo ""
     echo "=== Downloading pre-built x86_64 plugins (Stefan-Olt/vs-plugin-build) ==="
-    download_prebuilt_plugin "MVTools"       "libmvtools.dylib"     "$STEFANOLT/com.nodame.mvtools/v24/darwin-x86_64/2024-09-30T17.08.24%2B00.00Z/MVTools-v24-darwin-x86_64.zip"
+    if [ "$MVTOOLS_SOURCE" = prebuilt ]; then
+        download_prebuilt_plugin "MVTools"   "libmvtools.dylib"     "$STEFANOLT/com.nodame.mvtools/v24/darwin-x86_64/2024-09-30T17.08.24%2B00.00Z/MVTools-v24-darwin-x86_64.zip"
+    else
+        build_mvtools_no_avx2
+    fi
     download_prebuilt_plugin "ZNEDI3"        "libznedi3.dylib"      "$STEFANOLT/xxx.abc.znedi3/3bd542a/darwin-x86_64/2026-01-10T23.47.38%2B00.00Z/ZNEDI3-3bd542a-darwin-x86_64.zip"
     download_prebuilt_plugin "EEDI3m"        "libeedi3m.dylib"      "$STEFANOLT/com.holywu.eedi3/r8/darwin-x86_64/2026-01-15T20.48.25%2B00.00Z/EEDI3m-r8-darwin-x86_64.zip"
     download_prebuilt_plugin "fmtconv"       "libfmtconv.dylib"     "$STEFANOLT/fmtconv/git-18a9cecb/darwin-x86_64/2024-10-10T14.48.08%2B00.00Z/fmtconv-git-18a9cecb-darwin-x86_64.zip"
@@ -1489,60 +1577,50 @@ build_plugin "retinex" \
     "libretinex.dylib" \
     "meson setup build --buildtype=release && ninja -C build"
 
-# zsmooth — one build per CPU baseline
+# zsmooth — exactly one build, in the autoload directory
 #
 # core.zsmooth.CCD (also Cnr4 and a set of RemoveGrain/TemporalMedian-family
-# filters). Upstream publishes only `haswell` (an AVX2 baseline) and `znver4`
-# x86 builds, compiled throughout with NO runtime dispatch, so on a pre-2013
-# CPU they die with an illegal instruction the instant a filter runs — issue
-# #82, silently, because vspipe prints nothing on a native crash.
+# filters). zsmooth has NO runtime dispatch: each build is compiled for one CPU
+# baseline throughout, so a build above the machine's baseline dies with an
+# illegal instruction the instant a filter runs (issue #82).
 #
-# x86_64 therefore ships TWO builds outside the autoload directory and the
-# worker loads exactly one by path (DependencyLocator::zsmooth_plugin); they
-# cannot share a directory, because each registers the namespace `zsmooth` and
-# whichever autoloads second is rejected. arm64 has one NEON baseline and needs
-# no split.
-#
-# Note this arch was ALREADY affected in the other direction: the x64 build
-# below has always been compiled at Zig's default baseline (SSE2), which
-# measures 2.0x slower than haswell on CCD and 3.0x on Cnr4. Every Intel Mac
-# that can run macOS 12 is at least Nehalem and most are Haswell or newer, so
-# building both here makes the common case fast for the first time as well as
-# keeping the oldest ones working.
+# arm64 has a single NEON baseline and takes the author's build. x64 builds the
+# $ZSMOOTH_CPU chosen by the tier block at the top of this script: haswell (the
+# fast path) for v3, x86_64_v2 (SSE4.2/POPCNT — every Intel Mac that can run
+# macOS 12) for v2. One build per bundle means it autoloads like any other
+# plugin; bundles up to 1.10.0 shipped both x64 builds in a separate zsmooth/
+# directory and had the worker load one by path, which the tiers replace.
 #
 # Keep ZSMOOTH_VERSION in step across download-deps-{macos,linux}.sh and
 # download-deps-windows.ps1 — a version skew would make the same job produce
 # different chroma per OS.
 ZSMOOTH_VERSION="0.19.0"
-ZSMOOTH_DIR="$DEPS_DIR/vapoursynth/zsmooth"
-mkdir -p "$ZSMOOTH_DIR"
+ZSMOOTH_OUT="$PLUGINS_DIR/libzsmooth.dylib"
+rm -rf "$DEPS_DIR/vapoursynth/zsmooth"
 
-if [ "$ARCH" = "arm64" ]; then
-    # arm64 takes the author's build: it is minos 13, comfortably under this
-    # arch's 15.0 target. One build, no variants.
-    if [ "$FORCE" = true ] || [ ! -f "$ZSMOOTH_DIR/libzsmooth.dylib" ]; then
-        tmp="$BUILD_DIR/prebuilt-zsmooth"
-        rm -rf "$tmp"; mkdir -p "$tmp"
-        zs_url="https://github.com/adworacz/zsmooth/releases/download/${ZSMOOTH_VERSION}/zsmooth-aarch64-macos.zip"
-        if curl -sL "$zs_url" -o "$tmp/plugin.zip" && unzip -q -o "$tmp/plugin.zip" -d "$tmp"; then
-            found=$(find "$tmp" -name "*.dylib" -type f 2>/dev/null | head -1)
-            if [ -n "$found" ]; then
-                cp "$found" "$ZSMOOTH_DIR/libzsmooth.dylib"
-                install_name_tool -id "@loader_path/libzsmooth.dylib" "$ZSMOOTH_DIR/libzsmooth.dylib" 2>/dev/null || true
-                codesign -s - -f "$ZSMOOTH_DIR/libzsmooth.dylib" 2>/dev/null || true
-                echo "  Downloaded pre-built zsmooth"
-            else
-                echo "  Warning: no dylib in the zsmooth archive"
-                FAILED_PLUGINS+=("zsmooth")
-            fi
+if [ "$FORCE" = false ] && [ -f "$ZSMOOTH_OUT" ]; then
+    echo "  zsmooth already exists, skipping"
+elif [ "$ARCH" = "arm64" ]; then
+    # The author's build: minos 13, comfortably under this arch's 15.0 target.
+    tmp="$BUILD_DIR/prebuilt-zsmooth"
+    rm -rf "$tmp"; mkdir -p "$tmp"
+    zs_url="https://github.com/adworacz/zsmooth/releases/download/${ZSMOOTH_VERSION}/zsmooth-aarch64-macos.zip"
+    if curl -sL "$zs_url" -o "$tmp/plugin.zip" && unzip -q -o "$tmp/plugin.zip" -d "$tmp"; then
+        found=$(find "$tmp" -name "*.dylib" -type f 2>/dev/null | head -1)
+        if [ -n "$found" ]; then
+            cp "$found" "$ZSMOOTH_OUT"
+            install_name_tool -id "@loader_path/libzsmooth.dylib" "$ZSMOOTH_OUT" 2>/dev/null || true
+            codesign -s - -f "$ZSMOOTH_OUT" 2>/dev/null || true
+            echo "  Downloaded pre-built zsmooth"
         else
-            echo "  Warning: failed to fetch pre-built zsmooth"
+            echo "  Warning: no dylib in the zsmooth archive"
             FAILED_PLUGINS+=("zsmooth")
         fi
-        rm -rf "$tmp"
     else
-        echo "  zsmooth already exists, skipping"
+        echo "  Warning: failed to fetch pre-built zsmooth"
+        FAILED_PLUGINS+=("zsmooth")
     fi
+    rm -rf "$tmp"
 else
     # x64 builds from source, for two reasons: the author's x86_64 build is
     # minos 13.0 and this bundle targets 12.0, so the minos guard at the end of
@@ -1568,66 +1646,54 @@ else
         *)   ZIG_MACOS_MIN="${MACOS_MIN_VERSION}.0" ;;
     esac
 
-    ZIG_BIN=""
-    # x86_64_v2 is SSE4.2/POPCNT — every Intel Mac that can run macOS 12.
-    # haswell is the fast path for 2013-and-later machines. Order matters only
-    # for the log; the worker picks by CPUID at job time.
-    for zs_target in haswell x86_64_v2; do
-        out="$ZSMOOTH_DIR/libzsmooth-${zs_target}.dylib"
-        if [ "$FORCE" = false ] && [ -f "$out" ]; then
-            echo "  zsmooth ($zs_target) already exists, skipping"
-            continue
+    echo ""
+    echo "=== Building zsmooth $ZSMOOTH_CPU (x64, targeting macOS $MACOS_MIN_VERSION) ==="
+    # Subshell so a failure here can't abort the whole script under `set -e`;
+    # the file check below decides whether it worked.
+    (
+        set -e
+        cd "$BUILD_DIR"
+        rm -rf zig-toolchain zig.tar.xz zsmooth fftw-patched
+        curl -fsSL -o zig.tar.xz \
+            "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-macos-${ZIG_VERSION}.tar.xz"
+        mkdir -p zig-toolchain
+        tar -xf zig.tar.xz -C zig-toolchain --strip-components=1
+        git clone --depth 1 --branch "$ZSMOOTH_VERSION" \
+            https://github.com/adworacz/zsmooth.git zsmooth
+
+        # zsmooth's Zig fftw port declares HAVE_MEMALIGN on every non-Windows
+        # target, but macOS has no memalign() — it is declared in <malloc.h>,
+        # which the SAME file already knows macOS lacks (HAVE_MALLOC_H is
+        # gated on !is_mac). fftw's kalloc.c only reaches that branch when
+        # MIN_ALIGNMENT is 32, i.e. when AVX is enabled, so the bug is
+        # invisible at the SSE-level baselines and kills ONLY the haswell
+        # build, with a clang implicit-declaration error inside a dependency.
+        # HAVE_POSIX_MEMALIGN is already true, so clearing this falls through
+        # to posix_memalign, which macOS does have. Applied for both tiers: it
+        # is a correct fix on macOS whichever branch fftw takes.
+        #
+        # Patched via a local path dependency rather than by editing Zig's
+        # global package cache: path deps take no hash, so this is
+        # deterministic and cannot be invalidated by a cache wipe.
+        git clone --depth 1 --branch "$FFTW_FORK_TAG" \
+            https://github.com/adworacz/fftw.git fftw-patched
+        if ! grep -q '.HAVE_MEMALIGN = if (!is_windows) true else null,' \
+                fftw-patched/build.zig; then
+            echo "  ERROR: the fftw HAVE_MEMALIGN line is not what the patch expects." >&2
+            echo "  Upstream may have fixed it — re-check before removing this patch." >&2
+            exit 1
         fi
-        echo ""
-        echo "=== Building zsmooth $zs_target (x64, targeting macOS $MACOS_MIN_VERSION) ==="
-        # Subshell so a failure here can't abort the whole script under `set -e`;
-        # the file check below decides whether it worked.
-        (
-            set -e
-            cd "$BUILD_DIR"
-            if [ -z "$ZIG_BIN" ]; then
-                rm -rf zig-toolchain zig.tar.xz
-                curl -fsSL -o zig.tar.xz \
-                    "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-macos-${ZIG_VERSION}.tar.xz"
-                mkdir -p zig-toolchain
-                tar -xf zig.tar.xz -C zig-toolchain --strip-components=1
-            fi
-            rm -rf zsmooth fftw-patched
-            git clone --depth 1 --branch "$ZSMOOTH_VERSION" \
-                https://github.com/adworacz/zsmooth.git zsmooth
+        # `is_mac` is already defined in that file.
+        sed -i.bak \
+            's/\.HAVE_MEMALIGN = if (!is_windows) true else null,/.HAVE_MEMALIGN = if (!is_windows and !is_mac) true else null,/' \
+            fftw-patched/build.zig
+        grep -q '.HAVE_MEMALIGN = if (!is_windows and !is_mac) true else null,' \
+            fftw-patched/build.zig || { echo "  ERROR: fftw memalign patch did not apply" >&2; exit 1; }
 
-            # zsmooth's Zig fftw port declares HAVE_MEMALIGN on every non-Windows
-            # target, but macOS has no memalign() — it is declared in <malloc.h>,
-            # which the SAME file already knows macOS lacks (HAVE_MALLOC_H is
-            # gated on !is_mac). fftw's kalloc.c only reaches that branch when
-            # MIN_ALIGNMENT is 32, i.e. when AVX is enabled, so the bug is
-            # invisible at the SSE-level baselines and kills ONLY the haswell
-            # build, with a clang implicit-declaration error inside a dependency.
-            # HAVE_POSIX_MEMALIGN is already true, so clearing this falls through
-            # to posix_memalign, which macOS does have.
-            #
-            # Patched via a local path dependency rather than by editing Zig's
-            # global package cache: path deps take no hash, so this is
-            # deterministic and cannot be invalidated by a cache wipe.
-            git clone --depth 1 --branch "$FFTW_FORK_TAG" \
-                https://github.com/adworacz/fftw.git fftw-patched
-            if ! grep -q '.HAVE_MEMALIGN = if (!is_windows) true else null,' \
-                    fftw-patched/build.zig; then
-                echo "  ERROR: the fftw HAVE_MEMALIGN line is not what the patch expects." >&2
-                echo "  Upstream may have fixed it — re-check before removing this patch." >&2
-                exit 1
-            fi
-            # `is_mac` is already defined in that file.
-            sed -i.bak \
-                's/\.HAVE_MEMALIGN = if (!is_windows) true else null,/.HAVE_MEMALIGN = if (!is_windows and !is_mac) true else null,/' \
-                fftw-patched/build.zig
-            grep -q '.HAVE_MEMALIGN = if (!is_windows and !is_mac) true else null,' \
-                fftw-patched/build.zig || { echo "  ERROR: fftw memalign patch did not apply" >&2; exit 1; }
-
-            cd zsmooth
-            # Repoint the fftw dependency at the patched clone. A path dependency
-            # carries no hash field, so the url+hash pair is replaced wholesale.
-            "$PYTHON_BIN" - <<'ZONEOF'
+        cd zsmooth
+        # Repoint the fftw dependency at the patched clone. A path dependency
+        # carries no hash field, so the url+hash pair is replaced wholesale.
+        "$PYTHON_BIN" - <<'ZONEOF'
 import io, re
 p = "build.zig.zon"
 s = io.open(p, encoding="utf-8").read()
@@ -1639,25 +1705,23 @@ io.open(p, "w", encoding="utf-8").write(s)
 print("  fftw repointed to the patched local clone")
 ZONEOF
 
-            "$BUILD_DIR/zig-toolchain/zig" build \
-                -Doptimize=ReleaseFast \
-                -Dtarget="x86_64-macos.${ZIG_MACOS_MIN}" \
-                -Dcpu="$zs_target"
-            cp zig-out/lib/libzsmooth.dylib "$out"
-        ) || true
+        "$BUILD_DIR/zig-toolchain/zig" build \
+            -Doptimize=ReleaseFast \
+            -Dtarget="x86_64-macos.${ZIG_MACOS_MIN}" \
+            -Dcpu="$ZSMOOTH_CPU"
+        cp zig-out/lib/libzsmooth.dylib "$ZSMOOTH_OUT"
+    ) || true
 
-        if [ -f "$out" ]; then
-            ZIG_BIN="$BUILD_DIR/zig-toolchain/zig"
-            install_name_tool -id "@loader_path/$(basename "$out")" "$out" 2>/dev/null || true
-            codesign -s - -f "$out" 2>/dev/null || true
-            echo "  Built zsmooth -> $(basename "$out")"
-        else
-            echo "  Warning: failed to build zsmooth ($zs_target)"
-            FAILED_PLUGINS+=("zsmooth-$zs_target")
-        fi
-        rm -rf "$BUILD_DIR/zsmooth" "$BUILD_DIR/fftw-patched"
-    done
-    rm -rf "$BUILD_DIR/zig-toolchain" "$BUILD_DIR/zig.tar.xz"
+    if [ -f "$ZSMOOTH_OUT" ]; then
+        install_name_tool -id "@loader_path/libzsmooth.dylib" "$ZSMOOTH_OUT" 2>/dev/null || true
+        codesign -s - -f "$ZSMOOTH_OUT" 2>/dev/null || true
+        echo "  Built zsmooth ($ZSMOOTH_CPU)"
+    else
+        echo "  Warning: failed to build zsmooth ($ZSMOOTH_CPU)"
+        FAILED_PLUGINS+=("zsmooth")
+    fi
+    rm -rf "$BUILD_DIR/zsmooth" "$BUILD_DIR/fftw-patched" \
+        "$BUILD_DIR/zig-toolchain" "$BUILD_DIR/zig.tar.xz"
 fi
 
 # ============================================================================
@@ -1771,7 +1835,7 @@ download_prebuilt_plugin "RemoveDirt" "libremovedirt.dylib" "$REMOVEDIRT_URL"
 # 15.0, and this bundle's Intel floor is 12.0 with STRICT_MIN_OS=1 — the wheel
 # would fail the guard and, shipped anyway, would refuse to load on Monterey
 # (issue #39). It is one C++ file with no SIMD and no dependencies, so the x64
-# branch compiles it directly, exactly as zsmooth splits for the same reason.
+# branch compiles it directly, as zsmooth's x64 build does for the same reason.
 # Wheel 3.0 and git tag v3 are the same release; keep the two in step.
 DEDOT_VERSION="3.0"
 DEDOT_TAG="v3"
@@ -2311,7 +2375,7 @@ cat > "$DEPS_DIR/version.json" << EOF
   "version": "$EXPECTED_DEPS_VERSION",
   "installedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "platform": "$PLATFORM_DIR",
-  "architecture": "$ARCH",
+  "architecture": "$ARCH",$([ -n "$TIER" ] && printf '\n  "tier": "%s",' "$TIER")
   "buildType": "source"
 }
 EOF

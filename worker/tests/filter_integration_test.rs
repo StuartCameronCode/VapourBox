@@ -5655,53 +5655,14 @@ fn test_153_ctmf_opt_is_a_level_the_cpu_can_actually_run() {
     // The plugin does NOT verify that the CPU supports the level it is handed —
     // opt=3 on a pre-AVX2 machine installs the AVX2 kernels and crashes exactly
     // as opt=4 does on this one. So this has to stay a real capability query,
-    // not a constant: 3 only where AVX2 was detected, otherwise 2 (SSE2, which
-    // every x86-64 CPU has by definition). Both are bit-identical to the C path.
+    // not a constant: 3 only on a v3-tier CPU, otherwise 2 (SSE2, which every
+    // x86-64 CPU has by definition). Both are bit-identical to the C path. It
+    // follows the same tier that chose the deps bundle (issue #92), so the
+    // worker has one answer to "what is this machine".
+    use vapourbox_worker::cpu::{cpu_tier, CpuTier};
     let opt = vapourbox_worker::script_generator::ctmf_opt();
-    assert!(
-        opt == 2 || opt == 3,
-        "opt must be SSE2 or AVX2, got {opt}"
-    );
-
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    {
-        let expected = if std::is_x86_feature_detected!("avx2") { 3 } else { 2 };
-        assert_eq!(opt, expected, "opt must follow what the CPU actually has");
-    }
-}
-
-/// Generate both scripts with an explicit zsmooth build selected, the way the
-/// worker does once a bundle carries the per-CPU split.
-fn generate_both_scripts_with_zsmooth(
-    job: &VideoJob,
-    plugin: Option<std::path::PathBuf>,
-) -> (String, String) {
-    let generator = ScriptGenerator::new()
-        .expect("create generator")
-        .with_zsmooth_plugin(plugin);
-    let encode_path = generator.generate(job).expect("generate encode script");
-    let encode = std::fs::read_to_string(&encode_path).expect("read encode script");
-
-    let params = PreviewParams {
-        width: job.input_width.unwrap_or(720),
-        height: job.input_height.unwrap_or(480),
-        pix_fmt: job
-            .input_pixel_format
-            .clone()
-            .unwrap_or_else(|| "yuv420p".to_string()),
-        num_frames: 11,
-        fps_num: 30000,
-        fps_den: 1001,
-        output_index: 5,
-    };
-    let preview_path = generator
-        .generate_preview(job, &params)
-        .expect("generate preview script");
-    let preview = std::fs::read_to_string(&preview_path).expect("read preview script");
-
-    let _ = std::fs::remove_file(&encode_path);
-    let _ = std::fs::remove_file(&preview_path);
-    (encode, preview)
+    let expected = if cpu_tier() == Some(CpuTier::V3) { 3 } else { 2 };
+    assert_eq!(opt, expected, "opt must follow the CPU tier");
 }
 
 fn chroma_denoise_job(id: &str) -> VideoJob {
@@ -5719,69 +5680,34 @@ fn chroma_denoise_job(id: &str) -> VideoJob {
 }
 
 #[test]
-fn test_154_zsmooth_is_loaded_explicitly_from_the_chosen_build() {
-    // zsmooth is bundled twice — upstream builds it for an AVX2 baseline with no
-    // runtime dispatch, so that binary dies with an illegal instruction
-    // (0xC000001D) on a pre-2013 CPU the instant a filter runs (issue #82). Both
-    // builds register the namespace `zsmooth`, so neither may autoload and
-    // exactly one is loaded by path.
+fn test_154_zsmooth_is_autoloaded_from_the_tiered_bundle() {
+    // zsmooth used to ship twice per x86 bundle (an AVX2-only haswell build and
+    // an x86_64_v2 fallback, issue #82) and was loaded by explicit path. Since
+    // the bundles are split by CPU tier (issue #92), each carries exactly one
+    // build in the autoload directory, so the scripts must load nothing
+    // themselves. A LoadPlugin here would fail every job: the zsmooth/
+    // directory it pointed into no longer exists.
     //
     // Both scripts, because the reporter in #82 hit the preview first.
     create_output_dir();
-    let job = chroma_denoise_job("test_154_zsmooth_load");
-    let chosen = std::path::PathBuf::from("/deps/vapoursynth/zsmooth/zsmooth-x86_64_v2.dll");
-    let (encode, preview) = generate_both_scripts_with_zsmooth(&job, Some(chosen.clone()));
+    let job = chroma_denoise_job("test_154_zsmooth_autoload");
+    let (encode, preview) = generate_both_scripts(&job);
 
     for (name, script) in [("encode", &encode), ("preview", &preview)] {
         assert!(
-            script.contains(&format!("core.std.LoadPlugin(r\"{}\")", chosen.display())),
-            "{name} script must load the chosen zsmooth build explicitly"
+            !script.contains("LoadPlugin"),
+            "{name} script must leave zsmooth to autoload"
         );
         assert!(
             script.contains("core.zsmooth.CCD("),
             "{name} script should still call the filter"
         );
-        // An unsubstituted marker is valid Python nowhere and would fail the job
+        // A leftover marker is valid Python nowhere and would fail the job
         // with a SyntaxError that reads like a template bug.
-        for leftover in ["{{#LOAD_ZSMOOTH}}", "{{/LOAD_ZSMOOTH}}", "{{ZSMOOTH_PLUGIN}}"] {
+        for leftover in ["LOAD_ZSMOOTH", "ZSMOOTH_PLUGIN"] {
             assert!(
                 !script.contains(leftover),
-                "{name} script left {leftover} unsubstituted"
-            );
-        }
-        // The load has to precede the first use, or the namespace is missing
-        // when the filter is constructed.
-        let load = script.find("core.std.LoadPlugin(r\"").expect("load present");
-        let use_ = script.find("core.zsmooth.CCD(").expect("call present");
-        assert!(load < use_, "{name} script loads zsmooth after using it");
-    }
-}
-
-#[test]
-fn test_155_a_bundle_without_the_split_still_autoloads_zsmooth() {
-    // Deps bundles up to 1.9.0 ship one zsmooth inside the autoload directory.
-    // A worker that emitted a LoadPlugin for a path those bundles do not have
-    // would fail every job on them — and the app can be upgraded before the
-    // deps download finishes, so that window is real. No path selected must
-    // therefore mean no LoadPlugin, leaving the script as it was before the
-    // split existed.
-    create_output_dir();
-    let job = chroma_denoise_job("test_155_zsmooth_autoload");
-    let (encode, preview) = generate_both_scripts_with_zsmooth(&job, None);
-
-    for (name, script) in [("encode", &encode), ("preview", &preview)] {
-        assert!(
-            !script.contains("LoadPlugin"),
-            "{name} script must not load a plugin the bundle may not have"
-        );
-        assert!(
-            script.contains("core.zsmooth.CCD("),
-            "{name} script should still call the filter, via autoload"
-        );
-        for leftover in ["{{#LOAD_ZSMOOTH}}", "{{/LOAD_ZSMOOTH}}", "{{ZSMOOTH_PLUGIN}}"] {
-            assert!(
-                !script.contains(leftover),
-                "{name} script left {leftover} unsubstituted"
+                "{name} script still carries {leftover}"
             );
         }
     }

@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 mod models;
+mod cpu;
 mod dependency_locator;
 mod dvd_reader;
 mod pipeline_executor;
@@ -203,55 +204,38 @@ fn run_probe_opencl() -> ExitCode {
 }
 
 
-/// Report the CPU architecture and the dispatch-relevant instruction set
-/// extensions as JSON.
+/// Report the CPU architecture, the dispatch-relevant instruction set
+/// extensions and, on x86, the deps bundle tier, as JSON.
 ///
-/// This is diagnostic, not a decision: nothing in the pipeline reads it. It
-/// exists so a test run can *state* which hardware it tested, because several
-/// bundled plugins select a code path from these bits and a green run is
-/// otherwise silent about which path it took.
+/// `tier` is a decision: the app reads it to choose which x86 deps bundle to
+/// download (see `cpu::cpu_tier`). It is absent off x86, where bundles are not
+/// tiered, and the app treats a missing or unreadable answer on x86 as `v2`.
 ///
-/// The motivating case: `ctmf.CTMF`'s AVX-512 kernel for 8-bit input crashes
-/// the process, and GitHub's hosted Windows runners are a mixed fleet — so the
-/// nightly passed for days on non-AVX-512 machines, went red the night it drew
-/// an AVX-512 one, and looked like a spontaneous failure against an unchanged
-/// tree. Printing this next to the result turns "it passed" into "it passed on
-/// this hardware".
+/// `features` is diagnostic. It lets a test run *state* which hardware it
+/// tested, because several bundled plugins select a code path from these bits
+/// and a green run is otherwise silent about which path it took — the CTMF
+/// AVX-512 crash passed for days on non-AVX-512 runners before drawing one.
 fn run_probe_cpu() -> ExitCode {
-    let features = detected_cpu_features();
-    println!(
-        "{}",
-        serde_json::json!({
-            "arch": std::env::consts::ARCH,
-            "features": features,
-        })
-    );
+    let mut out = serde_json::json!({
+        "arch": std::env::consts::ARCH,
+        "features": detected_cpu_features(),
+    });
+    if let Some(tier) = cpu::cpu_tier() {
+        out["tier"] = serde_json::json!(tier.as_str());
+    }
+    println!("{out}");
     ExitCode::SUCCESS
 }
 
-/// The instruction set extensions that bundled plugins actually dispatch on.
-///
-/// Deliberately a short list rather than everything detectable: these are the
-/// ones that change which kernel a plugin runs here. Detection is a runtime
-/// CPUID query, so it reports what the process can really execute — including
-/// under emulation, where an x86_64 worker on Apple Silicon correctly reports
-/// whatever Rosetta exposes rather than what the binary was compiled for.
+/// The instruction set extensions that bundled plugins dispatch on, plus the
+/// whole x86-64-v3 set that decides the bundle tier.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn detected_cpu_features() -> Vec<&'static str> {
-    let mut features = Vec::new();
-    for (name, present) in [
-        ("sse2", std::is_x86_feature_detected!("sse2")),
-        ("sse4.1", std::is_x86_feature_detected!("sse4.1")),
-        ("avx", std::is_x86_feature_detected!("avx")),
-        ("avx2", std::is_x86_feature_detected!("avx2")),
-        ("fma", std::is_x86_feature_detected!("fma")),
-        ("avx512f", std::is_x86_feature_detected!("avx512f")),
-    ] {
-        if present {
-            features.push(name);
-        }
-    }
-    features
+    let names = ["sse2", "sse4.1", "sse4.2"]
+        .into_iter()
+        .chain(cpu::V3_FEATURES)
+        .chain(["avx512f"]);
+    names.filter(|n| cpu::has_feature(n)).collect()
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -523,8 +507,7 @@ fn run_worker(
     let knlm_available = deps.as_ref().map(|d| d.knlm_available()).unwrap_or(true);
     let script_generator = ScriptGenerator::new()?
         .with_opencl_available(opencl_available)
-        .with_knlm_available(knlm_available)
-        .with_zsmooth_plugin(deps.as_ref().and_then(|d| d.zsmooth_plugin()));
+        .with_knlm_available(knlm_available);
     let script_path = script_generator
         .generate(&job)
         .with_context(|| "Failed to generate VapourSynth script")?;

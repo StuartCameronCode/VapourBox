@@ -10,6 +10,7 @@ import 'package:rhttp/rhttp.dart';
 import 'package:path/path.dart' as path;
 
 import 'temp_directory_service.dart';
+import 'tool_locator.dart';
 
 /// Status of the dependency installation.
 enum DependencyStatus {
@@ -21,6 +22,13 @@ enum DependencyStatus {
 
   /// Dependencies are installed but older than this app expects
   outdated,
+
+  /// Installed deps were built for a different CPU tier than this machine's
+  /// (see [DependencyManager.depsTier]) — typically the install was carried
+  /// over from, or to, another computer. Replaced even when the installed
+  /// version is newer than expected: a bundle this CPU cannot run is not
+  /// "newer", it is unusable.
+  wrongTier,
 
   /// Installed deps are NEWER than the version this app was built against.
   ///
@@ -179,9 +187,14 @@ class InstalledDepsInfo {
   final String version;
   final DateTime? installedAt;
 
+  /// CPU tier the bundle was built for (`v2`/`v3`), or null. Bundles from
+  /// before tiering carry no tier; on x86 those are the v3 build.
+  final String? tier;
+
   InstalledDepsInfo({
     required this.version,
     this.installedAt,
+    this.tier,
   });
 
   factory InstalledDepsInfo.fromJson(Map<String, dynamic> json) {
@@ -190,6 +203,7 @@ class InstalledDepsInfo {
       installedAt: json['installedAt'] != null
           ? DateTime.tryParse(json['installedAt'] as String)
           : null,
+      tier: json['tier'] as String?,
     );
   }
 
@@ -197,6 +211,7 @@ class InstalledDepsInfo {
     return {
       'version': version,
       'installedAt': installedAt?.toIso8601String(),
+      if (tier != null) 'tier': tier,
     };
   }
 }
@@ -231,6 +246,98 @@ class DependencyManager {
       return arch == 'aarch64' ? 'linux-arm64' : 'linux-x64';
     }
     throw UnsupportedError('Unsupported platform');
+  }
+
+  /// Whether a platform's deps ship in CPU tiers. Only x86 does: the ARM
+  /// bundles have a single NEON baseline.
+  static bool isTiered(String platformId) => platformId.endsWith('-x64');
+
+  /// The release asset id for a platform and tier: the v3 bundle keeps the
+  /// plain platform name (so every pre-tiering release and install stays
+  /// valid), the v2 bundle gets a `-v2` suffix. The *install* directory is
+  /// always [platformId] — the tier lives only in which zip is downloaded and in
+  /// version.json — so the worker, dev paths and tests need no tier awareness.
+  static String assetIdFor(String platformId, String? tier) =>
+      tier == 'v2' ? '$platformId-v2' : platformId;
+
+  String? _cachedTier;
+  bool _tierResolved = false;
+
+  /// Test seam: replaces the worker probe. Returns the probe's raw `tier`
+  /// value, or null to simulate a failed probe.
+  @visibleForTesting
+  Future<String?> Function()? tierProbeOverride;
+
+  /// Forget the cached tier (tests only).
+  @visibleForTesting
+  void resetTierForTesting() {
+    _cachedTier = null;
+    _tierResolved = false;
+  }
+
+  /// Which deps tier this machine needs: `v3` or `v2` on x86, null on ARM.
+  ///
+  /// The worker decides (`vapourbox-worker --probe-cpu`, see
+  /// worker/src/cpu.rs) so the app and the worker share one definition of the
+  /// tiers — re-deriving it here from sysctl or /proc would be a second
+  /// implementation, and sysctl is wrong under Rosetta anyway.
+  /// `VAPOURBOX_DEPS_TIER=v2|v3` overrides the probe: an escape hatch for a VM
+  /// that misreports its CPU, and for dev builds with no worker built yet.
+  ///
+  /// Anything short of a clear answer on x86 means `v2`. The v2 bundle runs on
+  /// every x86-64 CPU and only costs speed; guessing `v3` wrongly costs a crash
+  /// on every job (issue #92).
+  Future<String?> depsTier() async {
+    if (_tierResolved) return _cachedTier;
+    final id = platformId;
+    final override = Platform.environment['VAPOURBOX_DEPS_TIER'];
+    String? probed;
+    if (isTiered(id) && override != 'v2' && override != 'v3') {
+      probed = await (tierProbeOverride ?? _probeWorkerTier)();
+      if (probed != 'v3' && probed != 'v2') {
+        print('DependencyManager: CPU tier probe gave no answer '
+            '(${probed ?? 'failed'}) - using the v2 bundle, which runs anywhere');
+      }
+    }
+    _cachedTier = resolveTier(platformId: id, override: override, probed: probed);
+    _tierResolved = true;
+    return _cachedTier;
+  }
+
+  /// The tier decision itself, pure so it is testable on any host.
+  static String? resolveTier(
+      {required String platformId, String? override, String? probed}) {
+    if (!isTiered(platformId)) return null;
+    if (override == 'v2' || override == 'v3') return override;
+    return probed == 'v3' ? 'v3' : 'v2';
+  }
+
+  /// Whether an installed bundle's tier suits this machine. A bundle from
+  /// before tiering records no tier; on x86 that was always the v3 build.
+  static bool tierMatches({String? installed, String? machine}) =>
+      (installed ?? (machine == null ? null : 'v3')) == machine;
+
+  /// This machine's release asset id (see [assetIdFor]).
+  Future<String> assetPlatformId() async =>
+      assetIdFor(platformId, await depsTier());
+
+  Future<String?> _probeWorkerTier() async {
+    final worker = ToolLocator.findWorkerExecutable();
+    if (worker == null) return null;
+    try {
+      final result = await Process.run(worker, ['--probe-cpu'])
+          .timeout(const Duration(seconds: 15));
+      if (result.exitCode != 0) return null;
+      for (final line in result.stdout.toString().split('\n')) {
+        final trimmed = line.trim();
+        if (!trimmed.startsWith('{')) continue;
+        final json = jsonDecode(trimmed);
+        if (json is Map && json['tier'] is String) return json['tier'] as String;
+      }
+    } catch (e) {
+      print('DependencyManager: CPU tier probe failed: $e');
+    }
+    return null;
   }
 
   /// Get the dependencies directory path.
@@ -384,12 +491,25 @@ class DependencyManager {
         return DependencyStatus.missing;
       }
 
+      // A bundle for the wrong CPU tier is replaced before the version is even
+      // considered: the v3 bundle faults on every job on a CPU below x86-64-v3
+      // (issue #92), and an install can outlive the machine it was chosen for
+      // (a migrated account, a restored backup, a CPU upgrade). This deliberately
+      // wins over newerThanExpected, so a newer wrong-tier install is replaced
+      // with the expected version — a downgrade, but one that runs.
+      final tier = await depsTier();
+      if (!tierMatches(installed: installed.tier, machine: tier)) {
+        print('DependencyManager: Installed deps are the '
+            '${installed.tier ?? 'v3'} bundle but this CPU needs $tier');
+        return DependencyStatus.wrongTier;
+      }
+
       // Check version match (per-platform: a platform may pin its own version).
       // Direction matters. Older than expected is an upgrade; newer is not a
       // fault at all, and treating it as one downgraded a deliberately newer
       // bundle back to the released one — destructively, since installing wipes
       // and replaces.
-      final expectedVersion = expected.versionFor(platformId);
+      final expectedVersion = expected.versionFor(assetIdFor(platformId, tier));
       if (installed.version != expectedVersion) {
         final order = compareVersions(installed.version, expectedVersion);
         if (order > 0) {
@@ -535,10 +655,13 @@ class DependencyManager {
   /// installation is done or fails.
   Future<void> downloadAndInstall() async {
     final expected = await getExpectedVersion();
+    final tier = await depsTier();
+    final assetId = assetIdFor(platformId, tier);
 
-    // Construct download URL from release tag (filename is derived).
-    final downloadUrl = expected.getDownloadUrl(platformId);
-    final filename = expected.filenameFor(platformId);
+    // Construct download URL from release tag (filename is derived). The asset
+    // carries the tier; the install directory does not.
+    final downloadUrl = expected.getDownloadUrl(assetId);
+    final filename = expected.filenameFor(assetId);
 
     print('DependencyManager: Downloading from $downloadUrl');
 
@@ -552,7 +675,7 @@ class DependencyManager {
     // is best-effort: if the sidecar is missing/unreadable we still install (the
     // download is over HTTPS), matching prior behaviour when no hash was set.
     final expectedSha256 =
-        await _fetchExpectedSha256(expected.getManifestUrl(platformId));
+        await _fetchExpectedSha256(expected.getManifestUrl(assetId));
 
     // The zip is downloaded into a stable cache path rather than a throwaway
     // temp directory, and kept if anything after the download fails. Everything
@@ -671,8 +794,8 @@ class DependencyManager {
       // Write version file (per-platform version, so the next check matches).
       // Still the last thing written into the tree, so a staged directory that
       // never gets swapped in can never look complete.
-      await _writeInstalledVersion(expected.versionFor(platformId),
-          depsDirOverride: target);
+      await _writeInstalledVersion(expected.versionFor(assetId),
+          tier: tier, depsDirOverride: target);
 
       // Swap. If the second rename fails we have already moved the old install
       // aside, so put it back rather than leaving the user with no deps at all.
@@ -1133,12 +1256,13 @@ class DependencyManager {
 
   /// Write the installed version file.
   Future<void> _writeInstalledVersion(String version,
-      {Directory? depsDirOverride}) async {
+      {String? tier, Directory? depsDirOverride}) async {
     final versionFile =
         await _getInstalledVersionFile(depsDirOverride: depsDirOverride);
     final info = InstalledDepsInfo(
       version: version,
       installedAt: DateTime.now(),
+      tier: tier,
     );
     await versionFile.writeAsString(
       const JsonEncoder.withIndent('  ').convert(info.toJson()),
