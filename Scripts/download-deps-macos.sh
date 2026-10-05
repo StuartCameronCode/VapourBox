@@ -1911,7 +1911,7 @@ download_prebuilt_plugin "LGhost" "liblghost.dylib" "$LGHOST_URL"
 # targets $MACOS_MIN_VERSION (issue #39), so shipping it would raise the Intel
 # floor to macOS 14 — and x86 already has the JIT, so it loses nothing. The
 # routing shim falls back to std.Expr wherever core.akarin is absent.
-AKARIN_VERSION="1.4.1"
+AKARIN_VERSION="1.5.0"
 echo ""
 echo "=== Downloading akarin $AKARIN_VERSION (LLVM JIT for std.Expr) ==="
 if [ "$ARCH" = "x86_64" ]; then

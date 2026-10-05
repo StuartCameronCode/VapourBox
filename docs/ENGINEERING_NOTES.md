@@ -1658,11 +1658,50 @@ the system one for ffmpeg. Linux's zstd carries a **per-arch build hash** in its
 filename (`libzstd-5df4f4df…` on x64, `-a1561916…` on arm64), so glob it — and
 the ELF `NEEDED` entry uses that exact hashed name.
 
-akarin is **LGPL-3.0** and statically links **LLVM 22.1.2** (Apache-2.0 with LLVM
+akarin is **LGPL-3.0** and statically links **LLVM 22.1.8** (Apache-2.0 with LLVM
 exception); both are in `licenses/NOTICES.txt`. It adds ~61 MB uncompressed per
 platform, but only about **21 MB to each deps zip** — the earlier "the zips
 roughly double" estimate was wrong, because it compared uncompressed size against
 compressed zips.
+
+
+### akarin 1.4.1 segfaulted under SELinux (issue #101, 2026-10-04)
+
+Every job crashed in `vspipe-bin` with `SIGSEGV` on Fedora from app 0.9.12 — the
+first release on deps 1.8.0, which is where akarin arrived. The reporter's
+`probe-plugin-compat` run isolated it: 22 plugins passed, `libakarin.so` crashed.
+
+The 1.4.1 Linux wheel was built without `REACTOR_ANONYMOUS_MMAP_NAME`, so
+`expr2/reactor/ExecutableMemory.cpp` took its generic fallback: allocate the JIT
+buffer with `new[]`, then `mprotect` it `r-x`. A page-sized allocation comes off
+the **`brk` heap**, and SELinux refuses `PROT_EXEC` there (`execheap`, off by
+default for unconfined users on Fedora/RHEL — unlike `execmem`, which is on).
+The `mprotect` result is checked only by an `ASSERT`, compiled out in release,
+so the plugin jumped into non-executable memory. Upstream: akarin issue #38,
+fixed in **1.5.0** by defining the macro (`meson.build`), which switches to an
+anonymous `mmap`. macOS (`MAP_JIT`) and Windows (`VirtualProtect`) never took
+the heap path.
+
+Signatures worth recognising next time:
+
+- **A one-frame backtrace at `0x55…` with no module.** That range is the PIE
+  executable and its `brk` heap; a JIT that used `mmap` would be at `0x7f…`.
+  A crash *at* a heap address means the program counter is in data.
+- **It depends on allocator state**, so it need not reproduce in every host
+  process: a buffer over glibc's mmap threshold comes from `mmap` and works.
+- **No hosted runner enforces SELinux** (Ubuntu ships AppArmor), so CI cannot
+  see it. `download-deps-linux.sh` instead fails the build if `libakarin.so`
+  lacks the `akarin_jit` mapping name, the only trace the option leaves.
+
+The pin moved on all three platforms together to keep output identical per OS;
+the Expr parity test passes unchanged against 1.5.0 (run on macos-arm64). 1.5.0
+also repaired constant parsing (`0x…` hex and `0…` octal prefixes, which the
+README always documented but 1.4.1's `from_chars` call mishandled) — none of
+havsfunc's generated expressions are affected.
+
+Workaround for an installed bundle that predates the fix: delete
+`deps/linux-*/vapoursynth/plugins/libakarin.so`. Both the havsfunc shim and the
+templates' `_expr()` fall back to `std.Expr`, which on x86 has its own JIT.
 
 
 ### Installing a deps bundle: staged, swapped, and version-directional

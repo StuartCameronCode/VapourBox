@@ -1443,7 +1443,16 @@ fi
 # wheel exists, the routing shim is arch-neutral, and keeping the two arches
 # identical avoids the same job producing different output per platform.
 # manylinux_2_35 is satisfied by our glibc 2.39 floor (ubuntu-24.04).
-AKARIN_VERSION="1.4.1"
+#
+# 1.5.0 is the floor on Linux (issue #101). The 1.4.1 wheel allocated JIT code
+# with new[] and then mprotect()ed it executable; a small allocation lands on
+# the brk heap, where SELinux denies PROT_EXEC (execheap is off by default on
+# Fedora/RHEL). The mprotect result was only ASSERTed, so a release build
+# carried on and jumped into non-executable memory: SIGSEGV on the first
+# akarin.Expr frame, in every job. 1.5.0 builds with
+# REACTOR_ANONYMOUS_MMAP_NAME=akarin_jit, which takes the mmap path instead.
+# No hosted runner enforces SELinux, so this is checked statically below.
+AKARIN_VERSION="1.5.0"
 echo ""
 echo "=== Downloading akarin $AKARIN_VERSION (LLVM JIT for std.Expr) ==="
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libakarin.so" ]; then
@@ -1485,6 +1494,14 @@ PYEOF
                 ldd "$PLUGINS_DIR/libakarin.so" | grep "not found" | sed 's/^/    /'
                 exit 1
             fi
+        fi
+        # The mmap JIT allocator is a compile-time option whose only trace in
+        # the binary is the mapping's name. Without it the plugin works on the
+        # build machine and segfaults under SELinux (issue #101).
+        if ! LC_ALL=C grep -a -q "akarin_jit" "$PLUGINS_DIR/libakarin.so"; then
+            echo "  ERROR: libakarin.so was not built with REACTOR_ANONYMOUS_MMAP_NAME;"
+            echo "         it would allocate JIT code on the heap and crash under SELinux."
+            exit 1
         fi
         rm -rf "$BUILD_DIR/akarin" "$BUILD_DIR/akarin.whl"
         BUILT_PLUGINS+=("akarin")
