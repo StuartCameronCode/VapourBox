@@ -809,6 +809,24 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    // --- FRAME CACHE (core.max_cache_size, issue #107) ---
+    test('max cache size: written only when overridden', () async {
+      final job = buildJob(testName: 'max_cache_default');
+      print('  Generating script without the override...');
+      final plain = await generateScriptViaWorker(job);
+      expect(plain, isNot(contains('max_cache_size =')),
+          reason: 'VapourSynth sizes its own cache unless told otherwise');
+      expect(plain, isNot(contains('MAX_CACHE_SIZE')));
+
+      print('  Generating script with a 6000 MB override...');
+      final overridden = await generateScriptViaWorker(job.copyWith(
+        encodingSettings:
+            job.encodingSettings.copyWith(maxCacheSizeMb: 6000),
+      ));
+      expect(overridden, contains('core.max_cache_size = 6000'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     // --- DESCRATCH (core.descratch.DeScratch) ---
     test('descratch: DeScratch params', () async {
       loadSchema('descratch'); // confirm schema parses

@@ -1672,6 +1672,20 @@ impl ScriptGenerator {
         }
 
         // ====================================================================
+        // FRAME CACHE OVERRIDE
+        // ====================================================================
+        match job.encoding_settings.effective_max_cache_size_mb() {
+            Some(mb) => {
+                script = script.replace("{{#MAX_CACHE_SIZE}}", "");
+                script = script.replace("{{/MAX_CACHE_SIZE}}", "");
+                script = script.replace("{{MAX_CACHE_SIZE}}", &mb.to_string());
+            }
+            None => {
+                script = remove_block("{{#MAX_CACHE_SIZE}}", "{{/MAX_CACHE_SIZE}}", script);
+            }
+        }
+
+        // ====================================================================
         // CUSTOM VAPOURSYNTH
         // ====================================================================
         match Some(job.encoding_settings.custom_vapoursynth.trim()) {

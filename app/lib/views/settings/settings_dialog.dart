@@ -712,6 +712,10 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
   late TextEditingController _filenamePatternController;
   late TextEditingController _customFfmpegArgsController;
   late TextEditingController _customVapoursynthController;
+  final TextEditingController _maxCacheSizeController = TextEditingController();
+
+  /// What the cache override starts at when first ticked, in MB.
+  static const int _kDefaultMaxCacheSizeMb = 4096;
 
   // Intel-Mac VideoToolbox uses a native target-bitrate control (no -q:v mode).
   final TextEditingController _vtBitrateController = TextEditingController();
@@ -767,6 +771,7 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     _filenamePatternController.dispose();
     _customFfmpegArgsController.dispose();
     _customVapoursynthController.dispose();
+    _maxCacheSizeController.dispose();
     _vtBitrateController.dispose();
     _vtBitrateFocus.dispose();
     super.dispose();
@@ -787,6 +792,13 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
         }
         if (_customVapoursynthController.text != settings.customVapoursynth) {
           _customVapoursynthController.text = settings.customVapoursynth;
+        }
+        // Compared by value, not text: an empty field mid-edit keeps the last
+        // valid size and must not be refilled under the cursor.
+        if (settings.maxCacheSizeMb != null &&
+            int.tryParse(_maxCacheSizeController.text) !=
+                settings.maxCacheSizeMb) {
+          _maxCacheSizeController.text = '${settings.maxCacheSizeMb}';
         }
 
         return ListView(
@@ -1329,9 +1341,73 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                 ],
               ),
             ),
+
+            _buildSection(
+              context,
+              title: 'VapourSynth Cache',
+              child: _buildMaxCacheSize(context, viewModel, settings),
+            ),
           ],
         );
       },
+    );
+  }
+
+  /// The frame cache override: off by default, because VapourSynth sizes its
+  /// own cache from the machine's memory.
+  Widget _buildMaxCacheSize(
+      BuildContext context, MainViewModel viewModel, EncodingSettings settings) {
+    final hint = Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+        );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CheckboxListTile(
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          value: settings.maxCacheSizeMb != null,
+          title: const Text('Override max cache size'),
+          subtitle: Text(
+            'VapourSynth chooses how much memory to use for cached frames '
+            'based on this computer. Set a limit yourself only to hold memory '
+            'use down, or to raise it if the log reports "memory usage still '
+            'over the limit". Too low a limit makes processing much slower.',
+            style: hint,
+          ),
+          onChanged: (value) => viewModel.updateEncodingSettings(
+            (value ?? false)
+                ? settings.copyWith(maxCacheSizeMb: _kDefaultMaxCacheSizeMb)
+                : settings.copyWith(clearMaxCacheSizeMb: true),
+          ),
+        ),
+        if (settings.maxCacheSizeMb != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 32, top: 4),
+            child: SizedBox(
+              width: 160,
+              child: TextField(
+                controller: _maxCacheSizeController,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                  suffixText: 'MB',
+                ),
+                onChanged: (value) {
+                  final mb = int.tryParse(value);
+                  if (mb != null && mb > 0) {
+                    viewModel.updateEncodingSettings(
+                      settings.copyWith(maxCacheSizeMb: mb),
+                    );
+                  }
+                },
+              ),
+            ),
+          ),
+      ],
     );
   }
 

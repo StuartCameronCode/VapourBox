@@ -888,6 +888,18 @@ Rust's serde names and Dart's `value` strings are the wire format
 Dart enum's `outputBitDepth` drives the "your N-bit source will be output as
 M-bit" warning.
 
+### VapourSynth Frame Cache (issue #107)
+
+**Neither template sets `core.max_cache_size` on its own.** VapourSynth sizes
+the cache from the machine's memory (8192 MB on a 16 GB Mac); both templates
+used to pin it to 1024, which starved QTGMC's threads on HD sources (1.9 fps
+instead of 14.7 at 1080i Very Slow). The only assignment is the
+`{{#MAX_CACHE_SIZE}}` block, emitted when the user ticks **Settings → Output →
+VapourSynth Cache → Override max cache size** (`EncodingSettings.maxCacheSizeMb`,
+MB, null = off). `EncodingSettings::effective_max_cache_size_mb` treats 0 as
+off. `test_162` asserts both scripts. Don't reintroduce a hard-coded value —
+SD never reaches the cap, so a too-low one passes every SD test.
+
 ### Temporary Files Directory
 
 Scratch files default to the system temp directory; the user can redirect them
