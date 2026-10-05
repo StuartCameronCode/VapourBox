@@ -83,18 +83,14 @@ void main() {
   // The Windows installer is built from the same tree as the zip, by a script
   // of its own that both the local packaging script and CI call.
   group('Windows installer', () {
-    final iss = File(p.join(root, 'packaging', 'windows', 'vapourbox.iss'))
-        .readAsStringSync();
-    final installer =
-        File(p.join(root, 'Scripts', 'build-windows-installer.ps1'))
-            .readAsStringSync();
+    final iss = _read(root, ['packaging', 'windows', 'vapourbox.iss']);
+    final installer = _read(root, ['Scripts', 'build-windows-installer.ps1']);
 
     test('installs per-user, because deps download beside the executable', () {
       // dependency_manager.dart puts deps\ next to the exe on Windows; an
       // install under Program Files makes that download fail.
-      final deps = File(p.join(
-              root, 'app', 'lib', 'services', 'dependency_manager.dart'))
-          .readAsStringSync();
+      final deps =
+          _read(root, ['app', 'lib', 'services', 'dependency_manager.dart']);
       expect(deps, contains("path.join(appDir, 'deps', 'windows-x64')"),
           reason: 'if deps no longer live beside the exe, the per-user '
               'restriction below can be revisited');
@@ -114,23 +110,22 @@ void main() {
     });
 
     test('one filename across the .iss, the script, CI and the upload', () {
-      expect(iss,
-          contains('OutputBaseFilename={#AppName}-{#AppVersion}-windows-x64-setup'));
+      expect(
+          iss,
+          contains(
+              'OutputBaseFilename={#AppName}-{#AppVersion}-windows-x64-setup'));
       expect(installer, contains(r'VapourBox-$Version-windows-x64-setup.exe'));
 
       final workflow =
-          File(p.join(root, '.github', 'workflows', 'build-windows.yml'))
-              .readAsStringSync();
+          _read(root, ['.github', 'workflows', 'build-windows.yml']);
       expect(workflow, contains('build-windows-installer.ps1'));
       expect(workflow, contains('-windows-x64-setup.exe\n'));
       expect(workflow, contains('-windows-x64.zip\n'));
 
-      final local = File(p.join(root, 'Scripts', 'package-windows.ps1'))
-          .readAsStringSync();
+      final local = _read(root, ['Scripts', 'package-windows.ps1']);
       expect(local, contains('build-windows-installer.ps1'));
 
-      final upload = File(p.join(root, 'Scripts', 'ci-build-and-release.sh'))
-          .readAsStringSync();
+      final upload = _read(root, ['Scripts', 'ci-build-and-release.sh']);
       final finds = upload
           .split('\n')
           .where((l) => l.startsWith('find ') && l.contains('*.zip'))
