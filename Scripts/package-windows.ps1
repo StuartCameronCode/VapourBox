@@ -1,16 +1,19 @@
 # Package VapourBox App for Windows (without dependencies)
-# Creates a standalone zip file with the app only
+# Creates an installer (the primary download) and a standalone zip (the
+# portable option) from the same tree, with the app only.
 # Dependencies are packaged separately with package-deps-windows.ps1
 #
 # Prerequisites:
 # - Flutter SDK installed
 # - Rust toolchain installed
+# - Inno Setup 6, for the installer (or pass -SkipInstaller)
 #
-# Usage: .\Scripts\package-windows.ps1 -Version "0.1.0"
+# Usage: .\Scripts\package-windows.ps1 -Version "0.1.0" [-SkipBuild] [-SkipInstaller]
 
 param(
     [string]$Version = "1.0.0",
-    [switch]$SkipBuild = $false
+    [switch]$SkipBuild = $false,
+    [switch]$SkipInstaller = $false
 )
 
 $ErrorActionPreference = "Stop"
@@ -157,6 +160,14 @@ if (Test-Path $ZipFile) {
 }
 Compress-Archive -Path "$PackageDir\*" -DestinationPath $ZipFile -CompressionLevel Optimal
 
+# Create installer
+if (-not $SkipInstaller) {
+    Write-Host "Creating installer..." -ForegroundColor Yellow
+    & (Join-Path $ScriptDir "build-windows-installer.ps1") -Version $Version -SourceDir $PackageDir -OutputDir $DistDir
+} else {
+    Write-Host "Skipping installer (-SkipInstaller)" -ForegroundColor Gray
+}
+
 # Calculate sizes
 $PackageSize = (Get-ChildItem -Recurse $PackageDir | Measure-Object -Property Length -Sum).Sum / 1MB
 $ZipSize = (Get-Item $ZipFile).Length / 1MB
@@ -170,5 +181,6 @@ Write-Host ""
 Write-Host "Package size: $([math]::Round($PackageSize, 1)) MB"
 Write-Host "Zip size: $([math]::Round($ZipSize, 1)) MB"
 Write-Host ""
-Write-Host "To distribute, share the zip file:"
+Write-Host "To distribute, share the installer (VapourBox-$Version-windows-x64-setup.exe)"
+Write-Host "or the zip file:"
 Write-Host "  $ZipFile"

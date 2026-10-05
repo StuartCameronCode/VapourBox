@@ -80,6 +80,63 @@ void main() {
     });
   }
 
+  // The Windows installer is built from the same tree as the zip, by a script
+  // of its own that both the local packaging script and CI call.
+  group('Windows installer', () {
+    final iss = _read(root, ['packaging', 'windows', 'vapourbox.iss']);
+    final installer = _read(root, ['Scripts', 'build-windows-installer.ps1']);
+
+    test('installs per-user, because deps download beside the executable', () {
+      // dependency_manager.dart puts deps\ next to the exe on Windows; an
+      // install under Program Files makes that download fail.
+      final deps =
+          _read(root, ['app', 'lib', 'services', 'dependency_manager.dart']);
+      expect(deps, contains("path.join(appDir, 'deps', 'windows-x64')"),
+          reason: 'if deps no longer live beside the exe, the per-user '
+              'restriction below can be revisited');
+      expect(iss, contains('PrivilegesRequired=lowest'));
+      expect(iss, isNot(contains('PrivilegesRequiredOverridesAllowed')));
+    });
+
+    test('uninstall removes what the app downloaded; upgrade does not', () {
+      final uninstall = iss.split('[UninstallDelete]').last;
+      expect(uninstall, contains(r'{app}\deps'));
+      expect(uninstall, contains(r'{app}\addons'));
+      final installDelete =
+          iss.split('[InstallDelete]').last.split('[Files]').first;
+      expect(installDelete, isNot(contains(r'{app}\deps')));
+      expect(installDelete, isNot(contains(r'{app}\addons')));
+      expect(installDelete, contains(r'{app}\templates'));
+    });
+
+    test('one filename across the .iss, the script, CI and the upload', () {
+      expect(
+          iss,
+          contains(
+              'OutputBaseFilename={#AppName}-{#AppVersion}-windows-x64-setup'));
+      expect(installer, contains(r'VapourBox-$Version-windows-x64-setup.exe'));
+
+      final workflow =
+          _read(root, ['.github', 'workflows', 'build-windows.yml']);
+      expect(workflow, contains('build-windows-installer.ps1'));
+      expect(workflow, contains('-windows-x64-setup.exe\n'));
+      expect(workflow, contains('-windows-x64.zip\n'));
+
+      final local = _read(root, ['Scripts', 'package-windows.ps1']);
+      expect(local, contains('build-windows-installer.ps1'));
+
+      final upload = _read(root, ['Scripts', 'ci-build-and-release.sh']);
+      final finds = upload
+          .split('\n')
+          .where((l) => l.startsWith('find ') && l.contains('*.zip'))
+          .toList();
+      expect(finds, isNotEmpty);
+      for (final line in finds) {
+        expect(line, contains('"*-setup.exe"'));
+      }
+    });
+  });
+
   // The Linux AppImage embeds update information naming a `.zsync` on the
   // latest GitHub release. Three files have to agree on that name, and nothing
   // fails at build time if they don't — the updater just finds nothing.
