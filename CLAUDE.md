@@ -266,8 +266,8 @@ dart run build_runner build
 # Windows
 .\Scripts\package-windows.ps1 -Version "X.Y.Z" [-SkipBuild]
 
-# Linux
-./Scripts/package-linux.sh --version X.Y.Z [--skip-build]
+# Linux — writes an AppImage (+ its .zsync) and a tarball of the same tree
+./Scripts/package-linux.sh --version X.Y.Z [--skip-build] [--skip-appimage]
 
 # Test packaged app from terminal to see errors:
 # macOS:
@@ -397,7 +397,8 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 icon with CoreGraphics at whatever size you ask for, so no ImageMagick or
 librsvg is needed (and every size is drawn at its own scale rather than
 downsampled from one bitmap). `Scripts/generate-app-icons.sh` drives it at the
-sizes each platform wants and packs the Windows `.ico` in pure Python:
+sizes each platform wants, packs the Windows `.ico` in pure Python, and writes
+the Linux AppImage icon (`packaging/linux/app.vapourbox.VapourBox.png`):
 
 ```bash
 ./Scripts/generate-app-icons.sh     # macOS only; needs Swift from the Xcode CLT
@@ -1481,6 +1482,34 @@ placement and a version skew would change chroma per-OS.
 - Show in Folder: `xdg-open <directory>`
 - Debug builds: use `./Scripts/run-debug-linux.sh`
 - No code signing or quarantine removal needed
+- **Ships as an AppImage, with a tarball of the same tree as the fallback**
+  (`package-linux.sh`; pieces in `packaging/linux/`). The rules that keep it
+  working:
+  - **`AppRun` exports nothing** — no `LD_LIBRARY_PATH`, no bundled GTK. Its
+    environment is inherited by the worker and by the ffmpeg/vspipe it spawns
+    from the downloaded deps bundle, so anything set there leaks into them.
+  - **The mount is read-only** (`/tmp/.mount_*`). Nothing may be written next
+    to the executable on Linux; deps and add-ons already live under
+    `$XDG_DATA_HOME`, which is also why deps stay a first-launch download
+    instead of being packed in (they are versioned separately and come in two
+    CPU tiers).
+  - **The `.AppImage.zsync` must be uploaded beside every AppImage.** The
+    embedded update information names it
+    (`gh-releases-zsync|…|latest|VapourBox-*-linux-<arch>.AppImage.zsync`), so
+    one missing is an updater that fails for every user. The script fails if
+    `zsyncmake` is absent rather than build without it, and
+    `packaging_test.dart` asserts the release upload picks both files up.
+    `latest` is GitHub's Latest release — one more reason a deps or whisper
+    release must never be marked Latest.
+  - The desktop file and icon are named for `APPLICATION_ID`
+    (`app.vapourbox.VapourBox`, `app/linux/CMakeLists.txt`), which is what
+    the window reports as its app id; rename one and the running window stops
+    matching its launcher.
+  - `appimagetool` is pinned by version **and** SHA-256 in the script. The
+    AppImage runtime it embeds is fetched by appimagetool itself at build time
+    and is not pinned.
+  - Not verifiable from macOS (appimagetool is a Linux binary):
+    `build-linux.yml` is the test.
 
 Plugin lists for all platforms: see `deps/` directories or download scripts.
 
@@ -1583,7 +1612,7 @@ Notes:
 | `Scripts/check-deps-changed.sh` | Detect if deps changed since last release (exit 0=changed, 1=unchanged) |
 | `Scripts/package-macos.sh` | Package macOS app |
 | `Scripts/package-windows.ps1` | Package Windows app |
-| `Scripts/package-linux.sh` | Package Linux app |
+| `Scripts/package-linux.sh` | Package Linux app (AppImage + `.zsync` + tarball) |
 | `Scripts/package-deps-macos.sh` | Package macOS deps |
 | `Scripts/package-deps-windows.ps1` | Package Windows deps |
 | `Scripts/package-deps-linux.sh` | Package Linux deps |

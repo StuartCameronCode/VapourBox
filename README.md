@@ -39,8 +39,8 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg —
 | macOS (Apple Silicon) | macOS 15 Sequoia | `VapourBox-x.x.x-macos-arm64.dmg` |
 | macOS (Intel) | macOS 12 Monterey | `VapourBox-x.x.x-macos-x64.dmg` |
 | Windows (x64) | Windows 10/11 | `VapourBox-x.x.x-windows-x64.zip` |
-| Linux (x64) | glibc 2.39 (Ubuntu 24.04, Debian 13) | `VapourBox-x.x.x-linux-x64.tar.gz` |
-| Linux (arm64) | glibc 2.39 (Ubuntu 24.04, Debian 13) | `VapourBox-x.x.x-linux-arm64.tar.gz` |
+| Linux (x64) | glibc 2.39 (Ubuntu 24.04, Debian 13) | `VapourBox-x.x.x-linux-x64.AppImage` |
+| Linux (arm64) | glibc 2.39 (Ubuntu 24.04, Debian 13) | `VapourBox-x.x.x-linux-arm64.AppImage` |
 
 All processing is local. There is no account, no telemetry, and nothing is uploaded.
 
@@ -68,10 +68,14 @@ VapourBox is signed with an Apple Developer ID and notarized, so it opens withou
 <details>
 <summary><b>Installing on Linux</b></summary>
 
-1. Download the `.tar.gz` for your architecture.
-2. `tar -xzf VapourBox-x.x.x-linux-x64.tar.gz`
-3. `cd VapourBox-x.x.x-linux-x64 && ./vapourbox`
+1. Download the `.AppImage` for your architecture.
+2. Make it executable: `chmod +x VapourBox-x.x.x-linux-x64.AppImage` (or tick *Allow executing file as program* in the file manager's Properties).
+3. Run it: `./VapourBox-x.x.x-linux-x64.AppImage`
 4. First launch downloads its processing dependencies (~185 MB).
+
+The AppImage is a single file that needs no installation and can live anywhere. To get a menu entry and icon, open it with an AppImage manager such as [Gear Lever](https://github.com/mijorus/gearlever) or [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher); those, and [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate), can also update it in place, downloading only what changed.
+
+Each release also carries a plain `.tar.gz` of the same build, for systems where an AppImage can't be mounted: extract it and run `./vapourbox`.
 
 GPU-accelerated deinterlacing (NNEDI3CL) needs your GPU's OpenCL driver installed. Without it, VapourBox falls back to the CPU automatically.
 

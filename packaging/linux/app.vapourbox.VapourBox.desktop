@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=VapourBox
+GenericName=Video Processor
+Comment=Deinterlace, restore and convert video with VapourSynth and QTGMC
+Exec=vapourbox
+Icon=app.vapourbox.VapourBox
+Terminal=false
+Categories=AudioVideo;Video;
+Keywords=deinterlace;QTGMC;VapourSynth;VHS;DV;DVD;convert;
+StartupNotify=true
+StartupWMClass=app.vapourbox.VapourBox

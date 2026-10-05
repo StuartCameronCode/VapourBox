@@ -72,4 +72,61 @@ void main() {
       );
     });
   }
+
+  // The Linux AppImage embeds update information naming a `.zsync` on the
+  // latest GitHub release. Three files have to agree on that name, and nothing
+  // fails at build time if they don't — the updater just finds nothing.
+  group('Linux AppImage update information', () {
+    final package =
+        File(p.join(root, 'Scripts', 'package-linux.sh')).readAsStringSync();
+
+    test('names the .zsync the script itself produces', () {
+      expect(package, contains(r'APPIMAGE_FILE="$PACKAGE_NAME.AppImage"'));
+      expect(package, contains(r'PACKAGE_NAME="VapourBox-$VERSION-linux-$ARCH"'));
+      expect(
+        package,
+        contains(r'|latest|VapourBox-*-linux-$ARCH.AppImage.zsync"'),
+        reason: 'the update pattern must be the output filename with the '
+            'version wildcarded, plus .zsync',
+      );
+    });
+
+    test('the release upload carries the AppImage and its .zsync', () {
+      final upload = File(p.join(root, 'Scripts', 'ci-build-and-release.sh'))
+          .readAsStringSync();
+      final finds = upload
+          .split('\n')
+          .where((l) => l.startsWith('find ') && l.contains('*.tar.gz'))
+          .toList();
+      expect(finds, isNotEmpty);
+      for (final line in finds) {
+        expect(line, contains('"*.AppImage"'));
+        expect(line, contains('"*.AppImage.zsync"'));
+      }
+
+      final workflow =
+          File(p.join(root, '.github', 'workflows', 'build-linux.yml'))
+              .readAsStringSync();
+      for (final arch in ['x64', 'arm64']) {
+        expect(workflow, contains('-linux-$arch.AppImage\n'));
+        expect(workflow, contains('-linux-$arch.AppImage.zsync\n'));
+      }
+    });
+
+    test('the desktop entry and icon are named for the application id', () {
+      final cmake = File(p.join(root, 'app', 'linux', 'CMakeLists.txt'))
+          .readAsStringSync();
+      final id = RegExp(r'set\(APPLICATION_ID "([^"]+)"\)')
+          .firstMatch(cmake)!
+          .group(1)!;
+      final dir = p.join(root, 'packaging', 'linux');
+      final desktop = File(p.join(dir, '$id.desktop'));
+      expect(desktop.existsSync(), isTrue);
+      expect(File(p.join(dir, '$id.png')).existsSync(), isTrue);
+      final body = desktop.readAsStringSync();
+      expect(body, contains('Icon=$id\n'));
+      expect(body, contains('StartupWMClass=$id\n'));
+      expect(package, contains('APP_ID="$id"'));
+    });
+  });
 }

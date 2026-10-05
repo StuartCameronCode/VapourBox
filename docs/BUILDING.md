@@ -246,7 +246,8 @@ dart run build_runner build --delete-conflicting-outputs
 
 `Scripts/generate-app-icon.swift` is the vector source of truth (CoreGraphics, no
 ImageMagick needed); `Scripts/generate-app-icons.sh` drives it at every size each
-platform wants and packs the Windows `.ico`. macOS only, needs Swift from the CLT:
+platform wants, packs the Windows `.ico` and writes the Linux AppImage icon
+(`packaging/linux/app.vapourbox.VapourBox.png`). macOS only, needs Swift from the CLT:
 
 ```bash
 ./Scripts/generate-app-icons.sh
@@ -269,7 +270,15 @@ Output: `dist/VapourBox-1.0.0-windows-x64.zip`
 ```bash
 ./Scripts/package-linux.sh --version 1.0.0 [--skip-build] [--arch x64|arm64]
 ```
-`--arch` defaults to the host. Output: `dist/VapourBox-1.0.0-linux-<arch>.tar.gz`
+`--arch` defaults to the host. Output, all from the same tree:
+
+- `dist/VapourBox-1.0.0-linux-<arch>.AppImage` — the primary download
+- `dist/VapourBox-1.0.0-linux-<arch>.AppImage.zsync` — its delta-update index; must be uploaded beside it
+- `dist/VapourBox-1.0.0-linux-<arch>.tar.gz` — the fallback
+
+The AppImage step needs `zsyncmake` (`sudo apt install zsync`) and a host of the
+target architecture; it downloads a pinned, checksummed `appimagetool` into
+`dist/.tools/` (or uses `$APPIMAGETOOL`). `--skip-appimage` builds the tarball alone.
 
 ### macOS
 ```bash
