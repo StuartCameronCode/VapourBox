@@ -263,8 +263,8 @@ dart run build_runner build
 # macOS
 ./Scripts/package-macos.sh --version X.Y.Z [--skip-build]
 
-# Windows
-.\Scripts\package-windows.ps1 -Version "X.Y.Z" [-SkipBuild]
+# Windows — writes an installer (-setup.exe) and a zip of the same tree
+.\Scripts\package-windows.ps1 -Version "X.Y.Z" [-SkipBuild] [-SkipInstaller]
 
 # Linux — writes an AppImage (+ its .zsync) and a tarball of the same tree
 ./Scripts/package-linux.sh --version X.Y.Z [--skip-build] [--skip-appimage]
@@ -1439,6 +1439,29 @@ placement and a version skew would change chroma per-OS.
   without it the app reports "Version file missing" and re-downloads the
   published bundle over a locally built one.
 - Show in Folder: `cmd /c explorer /select, <path>`
+- **Ships as an Inno Setup installer, with the zip of the same tree as the
+  portable option** (`packaging/windows/vapourbox.iss`, compiled by
+  `Scripts/build-windows-installer.ps1`). The rules that keep it working:
+  - **Per-user only (`PrivilegesRequired=lowest`), with no all-users option.**
+    On Windows the app installs deps and add-ons into `deps\` and `addons\`
+    **next to the executable**, so the install directory must be user-writable;
+    under `Program Files` the first-launch download fails. Don't add
+    `PrivilegesRequiredOverridesAllowed` or an admin install without first
+    moving those directories out of the app folder.
+  - **Never change `AppId`.** It is how an upgrade finds the existing install;
+    a new one installs a second copy with its own uninstall entry.
+  - **Upgrade keeps `deps\`/`addons\`; uninstall removes them**
+    (`[UninstallDelete]` — the app downloaded them, so the uninstaller doesn't
+    otherwise know they exist). `[InstallDelete]` clears `templates\` and
+    `data\` first, because Inno never removes a file a newer version dropped
+    and `exe_dir\templates` is the first path the worker searches.
+  - **The installer is unsigned**, like the rest of the Windows build, so
+    SmartScreen warns on it; the README says how to proceed.
+  - `build-windows.yml` assembles the package directory inline rather than
+    calling `package-windows.ps1` (and the two zips differ in layout), which
+    is why the installer is its own script both call. Inno Setup is pinned to
+    6.7.3 by SHA-256 in the workflow; the `.iss` is written against 6, not 7.
+  - Not verifiable from macOS: `build-windows.yml` is the test.
 
 ### macOS
 
@@ -1611,7 +1634,8 @@ Notes:
 | `Scripts/update-version.sh` | Update version across all files (`--app X.Y.Z --deps X.Y.Z --deps-tag deps-vX.Y.Z`) |
 | `Scripts/check-deps-changed.sh` | Detect if deps changed since last release (exit 0=changed, 1=unchanged) |
 | `Scripts/package-macos.sh` | Package macOS app |
-| `Scripts/package-windows.ps1` | Package Windows app |
+| `Scripts/package-windows.ps1` | Package Windows app (installer + zip) |
+| `Scripts/build-windows-installer.ps1` | Compile the Inno Setup installer from an assembled package dir |
 | `Scripts/package-linux.sh` | Package Linux app (AppImage + `.zsync` + tarball) |
 | `Scripts/package-deps-macos.sh` | Package macOS deps |
 | `Scripts/package-deps-windows.ps1` | Package Windows deps |
