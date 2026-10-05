@@ -29,6 +29,13 @@ String _repoRoot() {
   }
 }
 
+/// Reads a repo file with LF endings. A Windows checkout gives these files
+/// CRLF, so an assertion on a whole line (`'Icon=$id\n'`) fails there only.
+String _read(String root, List<String> parts) =>
+    File(p.joinAll([root, ...parts]))
+        .readAsStringSync()
+        .replaceAll('\r\n', '\n');
+
 void main() {
   final root = _repoRoot();
 
@@ -77,12 +84,12 @@ void main() {
   // latest GitHub release. Three files have to agree on that name, and nothing
   // fails at build time if they don't — the updater just finds nothing.
   group('Linux AppImage update information', () {
-    final package =
-        File(p.join(root, 'Scripts', 'package-linux.sh')).readAsStringSync();
+    final package = _read(root, ['Scripts', 'package-linux.sh']);
 
     test('names the .zsync the script itself produces', () {
       expect(package, contains(r'APPIMAGE_FILE="$PACKAGE_NAME.AppImage"'));
-      expect(package, contains(r'PACKAGE_NAME="VapourBox-$VERSION-linux-$ARCH"'));
+      expect(
+          package, contains(r'PACKAGE_NAME="VapourBox-$VERSION-linux-$ARCH"'));
       expect(
         package,
         contains(r'|latest|VapourBox-*-linux-$ARCH.AppImage.zsync"'),
@@ -92,8 +99,7 @@ void main() {
     });
 
     test('the release upload carries the AppImage and its .zsync', () {
-      final upload = File(p.join(root, 'Scripts', 'ci-build-and-release.sh'))
-          .readAsStringSync();
+      final upload = _read(root, ['Scripts', 'ci-build-and-release.sh']);
       final finds = upload
           .split('\n')
           .where((l) => l.startsWith('find ') && l.contains('*.tar.gz'))
@@ -104,9 +110,7 @@ void main() {
         expect(line, contains('"*.AppImage.zsync"'));
       }
 
-      final workflow =
-          File(p.join(root, '.github', 'workflows', 'build-linux.yml'))
-              .readAsStringSync();
+      final workflow = _read(root, ['.github', 'workflows', 'build-linux.yml']);
       for (final arch in ['x64', 'arm64']) {
         expect(workflow, contains('-linux-$arch.AppImage\n'));
         expect(workflow, contains('-linux-$arch.AppImage.zsync\n'));
@@ -114,16 +118,14 @@ void main() {
     });
 
     test('the desktop entry and icon are named for the application id', () {
-      final cmake = File(p.join(root, 'app', 'linux', 'CMakeLists.txt'))
-          .readAsStringSync();
+      final cmake = _read(root, ['app', 'linux', 'CMakeLists.txt']);
       final id = RegExp(r'set\(APPLICATION_ID "([^"]+)"\)')
           .firstMatch(cmake)!
           .group(1)!;
       final dir = p.join(root, 'packaging', 'linux');
-      final desktop = File(p.join(dir, '$id.desktop'));
-      expect(desktop.existsSync(), isTrue);
+      expect(File(p.join(dir, '$id.desktop')).existsSync(), isTrue);
       expect(File(p.join(dir, '$id.png')).existsSync(), isTrue);
-      final body = desktop.readAsStringSync();
+      final body = _read(root, ['packaging', 'linux', '$id.desktop']);
       expect(body, contains('Icon=$id\n'));
       expect(body, contains('StartupWMClass=$id\n'));
       expect(package, contains('APP_ID="$id"'));
