@@ -896,6 +896,20 @@ Two orderings are load-bearing and asserted from both sides
   Sharpen ran *before* Noise Reduction — it never did.
 - **Stabilize runs last before Crop/Resize.** It shifts the picture within the
   frame and exposes thin empty edges, so a crop afterwards removes them.
+  **This was not true until 2026-10-05 (issue #109).** The *resize* ran after
+  Stabilize, but the crop was a separate `PRE_CROP` block at the top of both
+  templates, ahead of Deinterlace — so the reason given for the placement
+  described something the pipeline did not do, in this file, the README, the
+  model comments and `pass_list_stages_test.dart` alike. The crop is now a
+  `CROP` block directly before `RESIZE`, after Stabilize and Rotate / Flip.
+  What that costs, deliberately: every earlier pass works on the uncropped
+  frame (slower, by the cropped area), Edge Repair rebuilds the edge of the
+  *uncropped* frame, and the automatic measurements (levels, white balance,
+  chroma alignment) see whatever the crop was going to remove — head-switching
+  noise along the bottom of a VHS capture included. Crop values now refer to
+  the picture *after* a rotation, where they used to refer to the source.
+  `test_110` pins the script order; `integration_new_passes_test.dart` tells
+  the two orders apart by frame size on a rotated, cropped encode.
 
 > **`santiag`'s `type` is pinned to `nnedi3`.** havsfunc also accepts `eedi2`
 > and `sangnom`; **neither is in the deps bundle**, and naming an absent one

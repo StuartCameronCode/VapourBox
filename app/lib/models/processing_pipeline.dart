@@ -254,10 +254,9 @@ class ProcessingPipeline {
   /// Get the ordered list of enabled passes.
   List<PassType> get enabledPasses {
     final passes = <PassType>[];
-    // Order: Crop first (pre-processing), then deinterlace, noise, dehalo, deblock, deband, anti-alias, chroma, color, resize, then sharpen, grain, frame rate
-    if (cropResize.enabled && cropResize.cropEnabled) {
-      passes.add(PassType.cropResize); // Pre-crop
-    }
+    // Order: deinterlace, damage, noise, dehalo, deblock, deband, anti-alias,
+    // chroma, color, stabilize, rotate, crop + resize, then sharpen, grain,
+    // frame rate.
     if (deinterlace.enabled) {
       passes.add(PassType.deinterlace);
     }
@@ -321,11 +320,12 @@ class ProcessingPipeline {
     if (geometry.hasEffect) {
       passes.add(PassType.geometry);
     }
-    if (cropResize.enabled && cropResize.resizeEnabled) {
-      // Resize (post-processing) - if not already added for crop
-      if (!passes.contains(PassType.cropResize)) {
-        passes.add(PassType.cropResize);
-      }
+    // Crop and resize are one pass and run together, crop first. The crop used
+    // to run ahead of everything else, which meant it could not remove the
+    // edges Stabilize exposes (issue #109).
+    if (cropResize.enabled &&
+        (cropResize.cropEnabled || cropResize.resizeEnabled)) {
+      passes.add(PassType.cropResize);
     }
     // Sharpening follows the resize (issue #109), so it works on the delivered
     // pixels: sharpened earlier, a downscale softens the edges again and an

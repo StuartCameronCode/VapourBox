@@ -337,10 +337,9 @@ impl ProcessingPipeline {
     pub fn enabled_passes(&self) -> Vec<PassType> {
         let mut passes = Vec::new();
 
-        // Order: Crop first (pre-processing), then deinterlace, noise, dehalo, deblock, deband, anti-alias, chroma, color, resize, then sharpen, grain, frame rate
-        if self.crop_resize.enabled && self.crop_resize.crop_enabled {
-            passes.push(PassType::CropResize); // Pre-crop
-        }
+        // Order: deinterlace, damage, noise, dehalo, deblock, deband, anti-alias,
+        // chroma, color, stabilize, rotate, crop + resize, then sharpen, grain,
+        // frame rate.
         if self.deinterlace_enabled() {
             passes.push(PassType::Deinterlace);
         }
@@ -407,11 +406,13 @@ impl ProcessingPipeline {
         if self.geometry.has_effect() {
             passes.push(PassType::Geometry);
         }
-        if self.crop_resize.enabled && self.crop_resize.resize_enabled {
-            // Resize (post-processing) - if not already added for crop
-            if !passes.contains(&PassType::CropResize) {
-                passes.push(PassType::CropResize);
-            }
+        // Crop and resize are one pass and run together, crop first. The crop
+        // used to run ahead of everything else, which meant it could not
+        // remove the edges Stabilize exposes (issue #109).
+        if self.crop_resize.enabled
+            && (self.crop_resize.crop_enabled || self.crop_resize.resize_enabled)
+        {
+            passes.push(PassType::CropResize);
         }
 
         // Sharpening follows the resize (issue #109), so it works on the

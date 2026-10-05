@@ -111,7 +111,7 @@ Twenty-one filters, each switchable independently. Most sources need none or a f
 | 12 | **Anti-Aliasing** | Stair-stepping on diagonal edges, left by deinterlacing or upscaling. Runs before sharpening, which would otherwise make the steps more visible. |
 | 13 | **Chroma Fixes** | Colour that sits sideways from the picture (corrected automatically or by hand), bleeding past edges, rainbowing and dot crawl — including the shimmering kind that only shows when the picture moves — and residual combing. Each repair has its own switch, and its settings appear only once it is on. |
 | 14 | **Color Correction** | Brightness, contrast, saturation, hue, levels, white balance (warm/cool, green/magenta), and lifting detail out of the shadows of underexposed footage. Levels and white balance can each be measured automatically or set by hand. |
-| 15 | **Stabilize** | Shake and weave — telecine wobble, jittery film scans, handheld footage. Runs once the picture has been cleaned and colour-corrected, just before it is turned and resized. |
+| 15 | **Stabilize** | Shake and weave — telecine wobble, jittery film scans, handheld footage. Runs last before cropping, so a small crop removes the edges it exposes. |
 | 16 | **Rotate / Flip** | Footage shot sideways, mirrored captures, scans that came off the scanner the wrong way round. |
 | 17 | **Crop & Resize** | Trimming overscan, scaling, and edge-directed upscaling — plus bars in a colour of your choice to bring a cropped picture back to an exact frame size (720×576 for PAL DVD, 720×480 for NTSC) without rescaling it. |
 | 18 | **Sharpen** | Soft sources needing edge and fine detail recovery. aWarpSharp2 sharpens by warping edges instead of raising contrast, so it adds no halos. Runs after the resize, on the picture that is actually delivered, and before any added grain. |
@@ -121,7 +121,7 @@ Twenty-one filters, each switchable independently. Most sources need none or a f
 
 A few things about the order are worth knowing:
 
-- **Cropping happens first, resizing near the end.** Crop & Resize is one entry in the list but two steps: the crop is applied before Deinterlace, so nothing wastes time on pixels that are being thrown away, and the resize takes the place shown in the table. Crop values therefore refer to the source as it was captured, before any rotation.
+- **Crop & Resize is one step, cropping first.** It runs after Stabilize and Rotate / Flip, so a small crop removes the thin edges stabilising exposes, and the four crop sides are the sides of the picture after any rotation. Everything before it works on the uncropped frame.
 - **Clean up, then frame, then finish.** Damage and noise are removed first, colour is corrected next, the picture is stabilised, turned and resized, and only then sharpened. Sharpening earlier would have its work softened again by the resize.
 - **Grain goes on after sharpening**, so it is neither sharpened into grit nor resampled away, and the frame rate is converted last of all, so every other filter works on real frames rather than invented ones.
 - **After the filters:** any Custom VapourSynth code runs next, then the conversion to the output colour format, then added borders — last, so that nothing touches the bars. Subtitles are transcribed from the source and added once the video has been encoded.

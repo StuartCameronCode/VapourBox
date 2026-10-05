@@ -77,13 +77,6 @@ def _expr(clips, expr, **kwargs):
     return core.std.Expr(clips, expr, **kwargs)
 
 # ============================================================================
-# PASS 1: PRE-CROP (before deinterlacing to reduce processing area)
-# ============================================================================
-{{#PRE_CROP}}
-clip = core.std.Crop(clip, left={{CROP_LEFT}}, right={{CROP_RIGHT}}, top={{CROP_TOP}}, bottom={{CROP_BOTTOM}})
-{{/PRE_CROP}}
-
-# ============================================================================
 # PASS 2: DEINTERLACING
 # ============================================================================
 {{#DEINTERLACE}}
@@ -1637,6 +1630,19 @@ clip = core.std.FlipVertical(clip)
 if clip.format.id != _geom_src_format.id:
     clip = core.resize.Spline36(clip, format=_geom_src_format.id)
 {{/GEOMETRY}}
+
+# ============================================================================
+# PASS: CROP
+# ============================================================================
+# Cropping runs here, with the resize, and not at the top of the script where it
+# used to (issue #109). Stabilize shifts the picture and exposes thin edges, and
+# a quarter turn swaps width and height, so the crop has to follow both: it then
+# removes what Stabilize exposed, and its four sides mean the sides of the
+# picture as it will be delivered. The cost is that every earlier pass works on
+# the uncropped frame.
+{{#CROP}}
+clip = core.std.Crop(clip, left={{CROP_LEFT}}, right={{CROP_RIGHT}}, top={{CROP_TOP}}, bottom={{CROP_BOTTOM}})
+{{/CROP}}
 
 # ============================================================================
 # PASS 10: RESIZE / UPSCALE

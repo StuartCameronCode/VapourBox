@@ -265,6 +265,37 @@ void main() {
       }, timeout: const Timeout(Duration(minutes: 6)));
     }
 
+    // Issue #109: the crop used to run before everything else. It now runs
+    // with the resize, after Stabilize and Rotate / Flip, so its four sides
+    // are the sides of the turned picture. The frame size tells the two orders
+    // apart: 720x576 turned is 576x720, and cropping 16 off each side and 8 off
+    // top and bottom leaves 544x704. Cropped before the turn it was 560x688.
+    test('crop: runs after stabilize and rotation', () async {
+      const label = 'crop_after_rotation';
+      final job = _baseJob(
+        label,
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          stabilize: StabilizeParameters(enabled: true),
+          geometry: GeometryParameters(enabled: true, rotation: Rotation.cw90),
+          cropResize: CropResizeParameters(
+            enabled: true,
+            cropEnabled: true,
+            cropLeft: 16,
+            cropRight: 16,
+            cropTop: 8,
+            cropBottom: 8,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: label);
+      await _expectValidVideo(result);
+      final v = await WorkerHarness.firstStream(result.outputPath!,
+          selector: 'v:0', entries: ['width', 'height']);
+      expect(v?['width'], 544);
+      expect(v?['height'], 704);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
     test('dehalo: HQDeringmod runs end-to-end', () async {
       final job = _baseJob(
         'dehalo_hqderingmod',
