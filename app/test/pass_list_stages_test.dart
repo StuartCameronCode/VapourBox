@@ -48,12 +48,12 @@ void main() {
       PassType.deblock,
       PassType.deband,
       PassType.antiAlias,
-      PassType.sharpen,
       PassType.chromaFixes,
       PassType.colorCorrection,
       PassType.stabilize,
       PassType.geometry,
       PassType.cropResize,
+      PassType.sharpen,
       PassType.grain,
       PassType.frameRate,
       PassType.subtitles,
@@ -70,6 +70,15 @@ void main() {
       // test_110.
       expect(indexOf(PassType.antiAlias),
           lessThan(indexOf(PassType.sharpen)));
+    });
+
+    test('sharpening runs after the resize and before the grain', () {
+      // Issue #109. Sharpened before the resize, a downscale softens the edges
+      // again and an upscale enlarges the halos; sharpened after the grain, the
+      // grain is exaggerated.
+      expect(indexOf(PassType.sharpen),
+          greaterThan(indexOf(PassType.cropResize)));
+      expect(indexOf(PassType.sharpen), lessThan(indexOf(PassType.grain)));
     });
 
     test('rotation settles before any framing decision', () {

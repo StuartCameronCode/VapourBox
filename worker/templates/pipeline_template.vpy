@@ -1248,59 +1248,6 @@ clip = haf.santiag(
 {{/ANTI_ALIAS}}
 
 # ============================================================================
-# PASS 7: SHARPEN
-# ============================================================================
-{{#SHARPEN}}
-
-{{#SHARPEN_LSFMOD}}
-# LSFmod - Limited Sharpening with overshoot control
-clip = haf.LSFmod(
-    clip,
-{{#SHARPEN_STRENGTH}}
-    strength={{SHARPEN_STRENGTH}},
-{{/SHARPEN_STRENGTH}}
-{{#SHARPEN_OVERSHOOT}}
-    overshoot={{SHARPEN_OVERSHOOT}},
-{{/SHARPEN_OVERSHOOT}}
-{{#SHARPEN_UNDERSHOOT}}
-    undershoot={{SHARPEN_UNDERSHOOT}},
-{{/SHARPEN_UNDERSHOOT}}
-{{#SHARPEN_SOFT_EDGE}}
-    soft={{SHARPEN_SOFT_EDGE}},
-{{/SHARPEN_SOFT_EDGE}}
-)
-{{/SHARPEN_LSFMOD}}
-
-{{#SHARPEN_CAS}}
-# CAS - Contrast Adaptive Sharpening
-clip = core.cas.CAS(
-    clip,
-{{#SHARPEN_CAS_SHARPNESS}}
-    sharpness={{SHARPEN_CAS_SHARPNESS}},
-{{/SHARPEN_CAS_SHARPNESS}}
-)
-{{/SHARPEN_CAS}}
-{{#SHARPEN_AWARPSHARP2}}
-# aWarpSharp2 - sharpens by warping pixels toward edges rather than raising
-# local contrast, so it produces no halos.
-#
-# `chroma` and `planes` are deliberately not passed. This VapourSynth port takes
-# chroma as 0 or 1 (NOT Avisynth's 0-6, where 4 means "warp chroma with the luma
-# mask") and rejects anything else outright, and by default it processes luma
-# only — the conventional use as a sharpener. Passing a guessed value here is how
-# this block first shipped broken; expose it deliberately, with a test, or leave
-# the plugin's own default alone.
-clip = core.warp.AWarpSharp2(
-    clip,
-    thresh={{SHARPEN_WARP_THRESH}},
-    blur={{SHARPEN_WARP_BLUR}},
-    type={{SHARPEN_WARP_TYPE}},
-    depth={{SHARPEN_WARP_DEPTH}},
-)
-{{/SHARPEN_AWARPSHARP2}}
-{{/SHARPEN}}
-
-# ============================================================================
 # PASS 8: CHROMA FIXES
 # ============================================================================
 {{#CHROMA_FIXES}}
@@ -1953,6 +1900,63 @@ _aspect_box_h = _even(_box_h) if _box_h > 0 else 0
 {{/ASPECT_PAD}}
 {{/RESIZE_STANDARD}}
 {{/RESIZE}}
+
+# ============================================================================
+# PASS: SHARPEN
+# ============================================================================
+# Sharpening runs after the resize (issue #109), on the pixels that are actually
+# delivered. Sharpened before it, the resampling softens the edges again on a
+# downscale and enlarges the sharpening halos on an upscale. It stays ahead of
+# the grain, which it would otherwise exaggerate.
+{{#SHARPEN}}
+
+{{#SHARPEN_LSFMOD}}
+# LSFmod - Limited Sharpening with overshoot control
+clip = haf.LSFmod(
+    clip,
+{{#SHARPEN_STRENGTH}}
+    strength={{SHARPEN_STRENGTH}},
+{{/SHARPEN_STRENGTH}}
+{{#SHARPEN_OVERSHOOT}}
+    overshoot={{SHARPEN_OVERSHOOT}},
+{{/SHARPEN_OVERSHOOT}}
+{{#SHARPEN_UNDERSHOOT}}
+    undershoot={{SHARPEN_UNDERSHOOT}},
+{{/SHARPEN_UNDERSHOOT}}
+{{#SHARPEN_SOFT_EDGE}}
+    soft={{SHARPEN_SOFT_EDGE}},
+{{/SHARPEN_SOFT_EDGE}}
+)
+{{/SHARPEN_LSFMOD}}
+
+{{#SHARPEN_CAS}}
+# CAS - Contrast Adaptive Sharpening
+clip = core.cas.CAS(
+    clip,
+{{#SHARPEN_CAS_SHARPNESS}}
+    sharpness={{SHARPEN_CAS_SHARPNESS}},
+{{/SHARPEN_CAS_SHARPNESS}}
+)
+{{/SHARPEN_CAS}}
+{{#SHARPEN_AWARPSHARP2}}
+# aWarpSharp2 - sharpens by warping pixels toward edges rather than raising
+# local contrast, so it produces no halos.
+#
+# `chroma` and `planes` are deliberately not passed. This VapourSynth port takes
+# chroma as 0 or 1 (NOT Avisynth's 0-6, where 4 means "warp chroma with the luma
+# mask") and rejects anything else outright, and by default it processes luma
+# only — the conventional use as a sharpener. Passing a guessed value here is how
+# this block first shipped broken; expose it deliberately, with a test, or leave
+# the plugin's own default alone.
+clip = core.warp.AWarpSharp2(
+    clip,
+    thresh={{SHARPEN_WARP_THRESH}},
+    blur={{SHARPEN_WARP_BLUR}},
+    type={{SHARPEN_WARP_TYPE}},
+    depth={{SHARPEN_WARP_DEPTH}},
+)
+{{/SHARPEN_AWARPSHARP2}}
+{{/SHARPEN}}
 
 # ============================================================================
 # PASS: FILM GRAIN

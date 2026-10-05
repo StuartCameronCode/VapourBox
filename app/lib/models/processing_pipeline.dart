@@ -254,7 +254,7 @@ class ProcessingPipeline {
   /// Get the ordered list of enabled passes.
   List<PassType> get enabledPasses {
     final passes = <PassType>[];
-    // Order: Crop first (pre-processing), then deinterlace, noise, dehalo, deblock, deband, sharpen, chroma, color, resize last
+    // Order: Crop first (pre-processing), then deinterlace, noise, dehalo, deblock, deband, anti-alias, chroma, color, resize, then sharpen, grain, frame rate
     if (cropResize.enabled && cropResize.cropEnabled) {
       passes.add(PassType.cropResize); // Pre-crop
     }
@@ -304,9 +304,6 @@ class ProcessingPipeline {
     if (antiAlias.enabled) {
       passes.add(PassType.antiAlias);
     }
-    if (sharpen.enabled) {
-      passes.add(PassType.sharpen);
-    }
     if (chromaFixes.enabled) {
       passes.add(PassType.chromaFixes);
     }
@@ -329,6 +326,13 @@ class ProcessingPipeline {
       if (!passes.contains(PassType.cropResize)) {
         passes.add(PassType.cropResize);
       }
+    }
+    // Sharpening follows the resize (issue #109), so it works on the delivered
+    // pixels: sharpened earlier, a downscale softens the edges again and an
+    // upscale enlarges the halos. It still follows anti-aliasing, and precedes
+    // the grain it would otherwise exaggerate.
+    if (sharpen.enabled) {
+      passes.add(PassType.sharpen);
     }
     // Grain goes last of the video passes: added before the resize it is
     // resampled away, before the deband it is smoothed away.

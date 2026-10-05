@@ -112,7 +112,7 @@ Twenty-one filters, each switchable independently, applied in a fixed order. Mos
 | **Stabilize** | Shake and weave — telecine wobble, jittery film scans, handheld footage. Runs last before cropping, so a small crop removes the edges it exposes. |
 | **Film Grain** | Grain added back after denoising, so the picture is not left plastic — and to hide banding in skies and fades. |
 | **Rotate / Flip** | Footage shot sideways, mirrored captures, scans that came off the scanner the wrong way round. |
-| **Sharpen** | Soft sources needing edge and fine detail recovery. aWarpSharp2 sharpens by warping edges instead of raising contrast, so it adds no halos. |
+| **Sharpen** | Soft sources needing edge and fine detail recovery. aWarpSharp2 sharpens by warping edges instead of raising contrast, so it adds no halos. Runs after the resize, on the picture that is actually delivered, and before any added grain. |
 | **Chroma Fixes** | Colour that sits sideways from the picture (corrected automatically or by hand), bleeding past edges, rainbowing and dot crawl — including the shimmering kind that only shows when the picture moves — and residual combing. Each repair has its own switch, and its settings appear only once it is on. |
 | **Color Correction** | Brightness, contrast, saturation, hue, levels, white balance (warm/cool, green/magenta), and lifting detail out of the shadows of underexposed footage. Levels and white balance can each be measured automatically or set by hand. |
 | **Crop & Resize** | Trimming overscan, scaling, and edge-directed upscaling — plus bars in a colour of your choice to bring a cropped picture back to an exact frame size (720×576 for PAL DVD, 720×480 for NTSC) without rescaling it. |
@@ -123,7 +123,7 @@ Each filter leads with a plain-language summary and a **More** expander describi
 
 The list also reacts to the file you dropped in. Filters that match what was detected in your source are marked **Suggested** with the reason — "source is hard telecine (3:2 pulldown)", "anamorphic source (10:11) — check pixel aspect" — and ones that can't apply say so, such as deinterlacing a progressive file. Nothing is switched on or off for you; detection is sometimes wrong, so it stays a hint. Filters whose problems can't be spotted from the file alone — dirt, scratches, grain, halos — say nothing either way.
 
-Where two filters work against each other, the one that loses out says so when you open it: sharpening ahead of a denoiser that will undo it, for instance.
+Where two filters work against each other, the one that loses out says so when you open it: sharpening that would put back the halos Dehalo has just removed, for instance.
 
 ## Details
 

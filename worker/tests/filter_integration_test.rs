@@ -4128,11 +4128,13 @@ fn test_109_lut_derainbow_with_ten_bit_guard() {
 
 #[test]
 fn test_110_new_passes_run_in_the_documented_order() {
-    // The order the passes appear in the script is the order they run, and two
-    // of these placements are deliberate: anti-aliasing BEFORE sharpening
-    // (sharpening stair-stepped edges makes the stepping worse), and
-    // stabilisation LAST before framing (so a crop can remove the borders it
-    // shifts into view).
+    // The order the passes appear in the script is the order they run, and
+    // three of these placements are deliberate: anti-aliasing BEFORE sharpening
+    // (sharpening stair-stepped edges makes the stepping worse), stabilisation
+    // LAST before framing (so a crop can remove the borders it shifts into
+    // view), and sharpening AFTER the resize (issue #109: resampling a
+    // sharpened picture softens it again on a downscale and enlarges the halos
+    // on an upscale).
     create_output_dir();
     let mut job = create_base_job("test_110_order");
     job.qtgmc_parameters.enabled = false;
@@ -4159,8 +4161,11 @@ fn test_110_new_passes_run_in_the_documented_order() {
     let aa = script.find("haf.daa(").expect("daa should be present");
     let sharp = script.find("core.cas.CAS(").expect("CAS should be present");
     let stab = script.find("haf.Stab(").expect("Stab should be present");
+    let resize = script.find("height=target_h").expect("resize should be present");
     assert!(aa < sharp, "anti-aliasing must run before sharpening");
-    assert!(sharp < stab, "stabilisation runs after the detail passes");
+    assert!(aa < stab, "stabilisation runs after the detail passes");
+    assert!(stab < resize, "stabilisation runs before framing");
+    assert!(resize < sharp, "sharpening must run after the resize");
 }
 
 // ============================================================================

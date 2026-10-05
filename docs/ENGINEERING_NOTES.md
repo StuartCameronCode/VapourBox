@@ -884,6 +884,16 @@ Two orderings are load-bearing and asserted from both sides
 
 - **Anti-aliasing runs before Sharpen.** Sharpening a stair-stepped edge makes
   the stepping more visible, not less.
+- **Sharpen runs after Crop/Resize and before Grain** (added 2026-10-05, issue
+  #109 — it used to sit straight after Anti-Aliasing, ahead of Chroma Fixes,
+  Colour Correction, Stabilize and the resize). Resampling a sharpened picture
+  softens it again on a downscale and enlarges the sharpening halos on an
+  upscale, and Stabilize's sub-pixel shifts soften it too. Consequences worth
+  knowing: Sharpen now works at the **output** resolution, so it costs more
+  when upscaling and less when downscaling, and existing presets and saved
+  jobs that combine Sharpen with a resize render slightly differently than
+  before. The same issue also removed a `pass_advice.dart` warning that claimed
+  Sharpen ran *before* Noise Reduction — it never did.
 - **Stabilize runs last before Crop/Resize.** It shifts the picture within the
   frame and exposes thin empty edges, so a crop afterwards removes them.
 

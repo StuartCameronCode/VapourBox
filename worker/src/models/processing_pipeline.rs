@@ -337,7 +337,7 @@ impl ProcessingPipeline {
     pub fn enabled_passes(&self) -> Vec<PassType> {
         let mut passes = Vec::new();
 
-        // Order: Crop first (pre-processing), then deinterlace, noise, dehalo, deblock, deband, sharpen, chroma, color, resize last
+        // Order: Crop first (pre-processing), then deinterlace, noise, dehalo, deblock, deband, anti-alias, chroma, color, resize, then sharpen, grain, frame rate
         if self.crop_resize.enabled && self.crop_resize.crop_enabled {
             passes.push(PassType::CropResize); // Pre-crop
         }
@@ -390,9 +390,6 @@ impl ProcessingPipeline {
         if self.anti_alias.enabled {
             passes.push(PassType::AntiAlias);
         }
-        if self.sharpen.enabled {
-            passes.push(PassType::Sharpen);
-        }
         if self.chroma_fixes.enabled {
             passes.push(PassType::ChromaFixes);
         }
@@ -415,6 +412,14 @@ impl ProcessingPipeline {
             if !passes.contains(&PassType::CropResize) {
                 passes.push(PassType::CropResize);
             }
+        }
+
+        // Sharpening follows the resize (issue #109), so it works on the
+        // delivered pixels: sharpened earlier, a downscale softens the edges
+        // again and an upscale enlarges the halos. It still follows
+        // anti-aliasing, and precedes the grain it would otherwise exaggerate.
+        if self.sharpen.enabled {
+            passes.push(PassType::Sharpen);
         }
 
         // Grain goes last of the video passes. Added before the resize it is
