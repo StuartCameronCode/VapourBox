@@ -1000,4 +1000,36 @@ void main() {
       }
     }, timeout: const Timeout(Duration(minutes: 10)));
   });
+
+  // Issue #108: Soft Telecine kept Bwdif's template block, placeholders and
+  // all, so both the preview and the encode died on a Python SyntaxError. The
+  // script assertions cover the text; this proves vspipe accepts it.
+  group('soft telecine (preview + full encode)', () {
+    test('previews and encodes the soft-telecined fixture', () async {
+      final input = p.join(WorkerHarness.repoRoot, 'Tests', 'TestResources',
+          'soft_telecine_test.mkv');
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: input,
+        outputPath: '$_outDir/soft_telecine.mkv',
+        processingPipeline: const ProcessingPipeline(
+          deinterlace:
+              QTGMCParameters(method: DeinterlaceMethod.softTelecine),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.h264,
+          container: ContainerFormat.mkv,
+          audioMode: AudioMode.passthrough,
+        ),
+      );
+
+      final preview = await WorkerHarness.runPreview(job.toJson(),
+          frame: 0, label: 'soft_telecine');
+      expect(preview.png, isNotNull,
+          reason: '${preview.error}\n${preview.logs}');
+
+      await _expectValidVideo(
+          await WorkerHarness.runJob(job.toJson(), label: 'soft_telecine'));
+    }, timeout: const Timeout(Duration(minutes: 8)));
+  });
 }

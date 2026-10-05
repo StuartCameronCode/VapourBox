@@ -384,14 +384,23 @@ impl ScriptGenerator {
             script = script.replace("{{#DEINTERLACE}}", "");
             script = script.replace("{{/DEINTERLACE}}", "");
 
+            // Keep the selected method's block and drop every other one, in one
+            // place. Each arm used to remove the others by hand, and the Soft
+            // Telecine arm missed Bwdif's — leaving its raw placeholders in the
+            // script as a Python SyntaxError (issue #108).
+            for (method, name) in DEINT_METHOD_BLOCKS {
+                let open = format!("{{{{#{name}}}}}");
+                let close = format!("{{{{/{name}}}}}");
+                if method == params.method {
+                    script = script.replace(&open, "");
+                    script = script.replace(&close, "");
+                } else {
+                    script = remove_block(&open, &close, script);
+                }
+            }
+
             match params.method {
                 DeinterlaceMethod::Bwdif => {
-                    script = remove_block("{{#DEINT_QTGMC}}", "{{/DEINT_QTGMC}}", script);
-                    script = remove_block("{{#DEINT_IVTC}}", "{{/DEINT_IVTC}}", script);
-                    script = remove_block("{{#DEINT_SOFT_TELECINE}}", "{{/DEINT_SOFT_TELECINE}}", script);
-                    script = script.replace("{{#DEINT_BWDIF}}", "");
-                    script = script.replace("{{/DEINT_BWDIF}}", "");
-
                     // field: 0/1 keep one field per input frame (single rate),
                     // 2/3 emit one per field (double rate). The parity half is
                     // the same TFF value QTGMC uses, so the two methods cannot
@@ -417,13 +426,6 @@ impl ScriptGenerator {
                     }
                 }
                 DeinterlaceMethod::Qtgmc => {
-                    // Enable QTGMC block, remove IVTC and Soft Telecine blocks
-                    script = script.replace("{{#DEINT_QTGMC}}", "");
-                    script = script.replace("{{/DEINT_QTGMC}}", "");
-                    script = remove_block("{{#DEINT_IVTC}}", "{{/DEINT_IVTC}}", script);
-                    script = remove_block("{{#DEINT_SOFT_TELECINE}}", "{{/DEINT_SOFT_TELECINE}}", script);
-                    script = remove_block("{{#DEINT_BWDIF}}", "{{/DEINT_BWDIF}}", script);
-
                     // Working format around the QTGMC call (issue #49): 4:2:2
                     // chroma and/or 16-bit, restored to the source format after.
                     // Only emitted when at least one of them is on, so the
@@ -624,13 +626,6 @@ impl ScriptGenerator {
                     script = process_optional_int("DEVICE", params.device, script);
                 }
                 DeinterlaceMethod::Ivtc => {
-                    // Enable IVTC block, remove QTGMC and Soft Telecine blocks
-                    script = remove_block("{{#DEINT_QTGMC}}", "{{/DEINT_QTGMC}}", script);
-                    script = script.replace("{{#DEINT_IVTC}}", "");
-                    script = script.replace("{{/DEINT_IVTC}}", "");
-                    script = remove_block("{{#DEINT_SOFT_TELECINE}}", "{{/DEINT_SOFT_TELECINE}}", script);
-                    script = remove_block("{{#DEINT_BWDIF}}", "{{/DEINT_BWDIF}}", script);
-
                     // Derive IVTC_ORDER from tff field (TFF→1, BFF→0), falling back to ivtc_order
                     let order = match params.tff {
                         Some(true) => 1,
@@ -651,13 +646,8 @@ impl ScriptGenerator {
                     script = process_optional_double("IVTC_DUPTHRESH", params.ivtc_dupthresh, script);
                     script = process_optional_double("IVTC_SCTHRESH", params.ivtc_scthresh, script);
                 }
-                DeinterlaceMethod::SoftTelecine => {
-                    // Enable Soft Telecine block, remove QTGMC and IVTC blocks
-                    script = remove_block("{{#DEINT_QTGMC}}", "{{/DEINT_QTGMC}}", script);
-                    script = remove_block("{{#DEINT_IVTC}}", "{{/DEINT_IVTC}}", script);
-                    script = script.replace("{{#DEINT_SOFT_TELECINE}}", "");
-                    script = script.replace("{{/DEINT_SOFT_TELECINE}}", "");
-                }
+                // No parameters: the block is a bare VDecimate.
+                DeinterlaceMethod::SoftTelecine => {}
             }
         } else {
             script = remove_block("{{#DEINTERLACE}}", "{{/DEINTERLACE}}", script);
@@ -2192,6 +2182,15 @@ fn process_optional_string(name: &str, value: Option<&str>, mut script: String) 
     script
 }
 
+/// The template block each deinterlace method owns. Exactly one survives into
+/// a script; `every_deinterlace_method_owns_a_block` keeps this complete.
+const DEINT_METHOD_BLOCKS: [(DeinterlaceMethod, &str); 4] = [
+    (DeinterlaceMethod::Qtgmc, "DEINT_QTGMC"),
+    (DeinterlaceMethod::Ivtc, "DEINT_IVTC"),
+    (DeinterlaceMethod::SoftTelecine, "DEINT_SOFT_TELECINE"),
+    (DeinterlaceMethod::Bwdif, "DEINT_BWDIF"),
+];
+
 /// Remove a block from start tag to end tag (including the line).
 fn remove_block(start_tag: &str, end_tag: &str, mut script: String) -> String {
     while let Some(start_pos) = script.find(start_tag) {
@@ -2214,6 +2213,31 @@ fn remove_block(start_tag: &str, end_tag: &str, mut script: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A method missing from DEINT_METHOD_BLOCKS keeps every other method's
+    /// block in its script (issue #108). The match has no catch-all, so a new
+    /// variant fails to compile here until it is listed.
+    #[test]
+    fn every_deinterlace_method_owns_a_block() {
+        for method in [
+            DeinterlaceMethod::Qtgmc,
+            DeinterlaceMethod::Ivtc,
+            DeinterlaceMethod::SoftTelecine,
+            DeinterlaceMethod::Bwdif,
+        ] {
+            match method {
+                DeinterlaceMethod::Qtgmc
+                | DeinterlaceMethod::Ivtc
+                | DeinterlaceMethod::SoftTelecine
+                | DeinterlaceMethod::Bwdif => {}
+            }
+            assert_eq!(
+                DEINT_METHOD_BLOCKS.iter().filter(|(m, _)| *m == method).count(),
+                1,
+                "{method:?} must own exactly one block"
+            );
+        }
+    }
 
     #[test]
     fn templates_load_with_lf_endings_only() {

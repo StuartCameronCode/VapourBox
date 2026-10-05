@@ -1432,5 +1432,26 @@ void main() {
       expect(script, contains('core.vivtc.VDecimate(clip'));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // --- Soft Telecine (issue #108) ---
+    // The method left Bwdif's block in the script with `{{BWDIF_FIELD}}` raw,
+    // which vspipe reports as a Python SyntaxError on every source.
+    test('soft telecine: VDecimate only, no other method\'s block', () async {
+      final job = buildJob(
+        testName: 'soft_telecine',
+        deinterlace: const QTGMCParameters(
+          enabled: true, method: DeinterlaceMethod.softTelecine,
+        ),
+      );
+      print('  Generating soft telecine script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.vivtc.VDecimate(clip)'));
+      expect(script, isNot(contains('core.bwdif.Bwdif(')));
+      expect(script, isNot(contains('core.vivtc.VFM(')));
+      expect(script, isNot(contains('haf.QTGMC(')));
+      expect(script, isNot(contains('{{BWDIF_')));
+      expect(script, isNot(contains('{{#DEINT')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
   });
 }

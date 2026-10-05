@@ -5885,3 +5885,64 @@ fn test_160_pad_to_fill_uses_the_border_step_and_its_colour() {
         assert_no_border_tags("either", script);
     }
 }
+
+/// Issue #108: Soft Telecine left the whole Bwdif block in the script, raw
+/// `{{BWDIF_FIELD}}` included, so preview and encode both died on a Python
+/// SyntaxError. Every method must emit its own call and no other method's, in
+/// both scripts.
+#[test]
+fn test_161_each_deinterlace_method_emits_only_its_own_block() {
+    create_output_dir();
+
+    // (method, its call in the encode script, its call in the preview script).
+    // Soft Telecine is a frame-count change only, so the preview has no block.
+    let cases = [
+        (DeinterlaceMethod::Qtgmc, "haf.QTGMC(", Some("haf.QTGMC(")),
+        (DeinterlaceMethod::Ivtc, "core.vivtc.VFM(", Some("core.vivtc.VFM(")),
+        (DeinterlaceMethod::SoftTelecine, "core.vivtc.VDecimate(clip)", None),
+        (DeinterlaceMethod::Bwdif, "core.bwdif.Bwdif(", Some("core.bwdif.Bwdif(")),
+    ];
+    let all_calls = ["haf.QTGMC(", "core.vivtc.VFM(", "core.vivtc.VDecimate(", "core.bwdif.Bwdif("];
+    // Prefix-scoped, not a bare "{{": the templates' docstrings show the syntax.
+    let prefixes = ["{{#DEINT", "{{/DEINT", "{{BWDIF_", "{{IVTC_", "{{#IVTC_", "{{PRESET"];
+
+    for (method, encode_call, preview_call) in cases {
+        let mut job = create_base_job(&format!("test_161_{method:?}"));
+        let deinterlace = QTGMCParameters {
+            enabled: true,
+            method,
+            tff: Some(true),
+            ..Default::default()
+        };
+        job.qtgmc_parameters = deinterlace.clone();
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace,
+            ..ProcessingPipeline::default()
+        });
+
+        let (encode, preview) = generate_both_scripts(&job);
+        for (name, script, own) in [
+            ("encode", &encode, Some(encode_call)),
+            ("preview", &preview, preview_call),
+        ] {
+            if let Some(own) = own {
+                assert!(script.contains(own), "{method:?} {name} must emit {own}");
+            }
+            for call in all_calls {
+                // IVTC is VFM + VDecimate; everything else owns one call.
+                let allowed = own.is_some_and(|o| o.starts_with(call))
+                    || (method == DeinterlaceMethod::Ivtc && call == "core.vivtc.VDecimate(");
+                assert!(
+                    allowed || !script.contains(call),
+                    "{method:?} {name} must not emit {call}"
+                );
+            }
+            for prefix in prefixes {
+                assert!(
+                    !script.contains(prefix),
+                    "{method:?} {name} left an unsubstituted {prefix} placeholder"
+                );
+            }
+        }
+    }
+}
