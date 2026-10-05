@@ -35,6 +35,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang cmake git ninja-build pkg-config \
             libgtk-3-dev liblzma-dev libstdc++-12-dev
+          # zsyncmake writes the .zsync the AppImage's update information names;
+          # desktop-file-validate lets appimagetool check the desktop entry.
+          sudo apt-get install -y zsync desktop-file-utils
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -113,7 +116,11 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: VapourBox-${{ inputs.version }}-linux-x64
-          path: dist/VapourBox-${{ inputs.version }}-linux-x64.tar.gz
+          if-no-files-found: error
+          path: |
+            dist/VapourBox-${{ inputs.version }}-linux-x64.AppImage
+            dist/VapourBox-${{ inputs.version }}-linux-x64.AppImage.zsync
+            dist/VapourBox-${{ inputs.version }}-linux-x64.tar.gz
 
   build-arm64:
     if: ${{ inputs.arch == 'both' || inputs.arch == 'arm64' }}
@@ -128,6 +135,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang cmake git ninja-build pkg-config \
             libgtk-3-dev liblzma-dev libstdc++-12-dev
+          # zsyncmake writes the .zsync the AppImage's update information names;
+          # desktop-file-validate lets appimagetool check the desktop entry.
+          sudo apt-get install -y zsync desktop-file-utils
 
       - name: Setup Flutter
         run: |
@@ -211,4 +221,8 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: VapourBox-${{ inputs.version }}-linux-arm64
-          path: dist/VapourBox-${{ inputs.version }}-linux-arm64.tar.gz
+          if-no-files-found: error
+          path: |
+            dist/VapourBox-${{ inputs.version }}-linux-arm64.AppImage
+            dist/VapourBox-${{ inputs.version }}-linux-arm64.AppImage.zsync
+            dist/VapourBox-${{ inputs.version }}-linux-arm64.tar.gz

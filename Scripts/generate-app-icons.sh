@@ -20,6 +20,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RENDER="$PROJECT_ROOT/Scripts/generate-app-icon.swift"
 ICONSET="$PROJECT_ROOT/app/macos/Runner/Assets.xcassets/AppIcon.appiconset"
 WIN_RES="$PROJECT_ROOT/app/windows/runner/resources"
+LINUX_ICON="$PROJECT_ROOT/packaging/linux/app.vapourbox.VapourBox.png"
 
 if ! command -v swift >/dev/null 2>&1; then
     echo "ERROR: swift not found — install the Xcode command line tools." >&2
@@ -71,6 +72,11 @@ for size, blob in zip(sizes, blobs):
 pathlib.Path(out).write_bytes(header + directory + b''.join(blobs))
 print(f'  {out} ({len(sizes)} sizes: {", ".join(map(str, sizes))})')
 PY
+
+echo "==> Linux AppImage icon"
+# One 256px PNG: the size the AppImage format asks for at the AppDir root, and
+# what package-linux.sh installs under hicolor/256x256.
+swift "$RENDER" --size 256 --style square --out "$LINUX_ICON"
 
 echo ""
 echo "Done. Rebuild the app to see them:"

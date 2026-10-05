@@ -306,13 +306,13 @@ RELEASE_NOTES="## VapourBox $APP_VERSION
 - **Windows**: \`VapourBox-$APP_VERSION-windows-x64.zip\`
 - **macOS (Apple Silicon)**: \`VapourBox-$APP_VERSION-macos-arm64.zip\` (contains signed & notarized DMG)
 - **macOS (Intel)**: \`VapourBox-$APP_VERSION-macos-x64.zip\` (contains signed & notarized DMG)
-- **Linux (x64)**: \`VapourBox-$APP_VERSION-linux-x64.tar.gz\`
-- **Linux (arm64)**: \`VapourBox-$APP_VERSION-linux-arm64.tar.gz\`
+- **Linux (x64)**: \`VapourBox-$APP_VERSION-linux-x64.AppImage\` (or the \`.tar.gz\`)
+- **Linux (arm64)**: \`VapourBox-$APP_VERSION-linux-arm64.AppImage\` (or the \`.tar.gz\`)
 
 ### Installation
 - **Windows**: Extract zip and run \`vapourbox.exe\`
 - **macOS**: Open the DMG and drag VapourBox to Applications
-- **Linux**: Extract tarball and run \`./vapourbox\`
+- **Linux**: \`chmod +x\` the AppImage and run it — or extract the tarball and run \`./vapourbox\`
 
 ### Dependencies
 Dependencies are automatically downloaded on first launch (~185 MB).
@@ -345,7 +345,7 @@ echo -e "${GREEN}╚════════════════════
 echo ""
 echo "Next steps:"
 echo "  1. Wait for Windows and Linux builds to complete (if using GitHub Actions)"
-echo "  2. Upload Windows zip and Linux tarballs to the draft release"
+echo "  2. Upload the Windows zip and the Linux AppImages (each with its .zsync) and tarballs to the draft release"
 echo "  3. Test the release builds"
 echo "  4. Edit release notes"
 echo "  5. Publish the release"

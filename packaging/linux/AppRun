@@ -1,0 +1,10 @@
+#!/bin/sh
+# AppImage entry point.
+#
+# Deliberately sets no LD_LIBRARY_PATH (or anything else): the Flutter runner
+# finds its own lib/ through an $ORIGIN rpath, and whatever this exports is
+# inherited by the worker and by the ffmpeg/vspipe it spawns from the
+# downloaded deps bundle, which must see only the environment the worker gives
+# them.
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/usr/lib/vapourbox/vapourbox" "$@"
