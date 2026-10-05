@@ -38,7 +38,7 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg —
 |----------|------------|------|
 | macOS (Apple Silicon) | macOS 15 Sequoia | `VapourBox-x.x.x-macos-arm64.dmg` |
 | macOS (Intel) | macOS 12 Monterey | `VapourBox-x.x.x-macos-x64.dmg` |
-| Windows (x64) | Windows 10/11 | `VapourBox-x.x.x-windows-x64.zip` |
+| Windows (x64) | Windows 10/11 | `VapourBox-x.x.x-windows-x64-setup.exe` |
 | Linux (x64) | glibc 2.39 (Ubuntu 24.04, Debian 13) | `VapourBox-x.x.x-linux-x64.AppImage` |
 | Linux (arm64) | glibc 2.39 (Ubuntu 24.04, Debian 13) | `VapourBox-x.x.x-linux-arm64.AppImage` |
 
@@ -58,10 +58,14 @@ VapourBox is signed with an Apple Developer ID and notarized, so it opens withou
 <details>
 <summary><b>Installing on Windows</b></summary>
 
-1. Download the `.zip`.
-2. Extract it anywhere (e.g. `C:\VapourBox`).
-3. Run `vapourbox.exe`.
+1. Download the `-setup.exe` installer and run it.
+2. The installer isn't code-signed, so Windows SmartScreen may say it "protected your PC" — choose **More info → Run anyway**.
+3. Launch VapourBox from the Start menu.
 4. First launch downloads its processing dependencies (~145 MB).
+
+It installs for the current user only (under `%LOCALAPPDATA%\Programs\VapourBox`), so it never asks for administrator rights. Running a newer installer upgrades in place and keeps the downloaded dependencies; uninstalling from **Settings → Apps** removes them too. Your saved presets are left alone.
+
+**Portable option:** each release also carries a `.zip` of the same build. Extract it anywhere you can write to (e.g. `C:\VapourBox`, not `Program Files`) and run `vapourbox.exe`.
 
 </details>
 

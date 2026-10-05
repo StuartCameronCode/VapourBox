@@ -179,9 +179,40 @@ jobs:
           Write-Host "Created: dist/$packageName.zip"
           Get-ChildItem -Path "dist/"
 
+      # Pinned and checksummed: this compiler produces the executable users run.
+      # 6.x rather than 7.x deliberately - packaging/windows/vapourbox.iss is
+      # written against 6. Installed to its own directory and handed over as
+      # $ISCC: the runner image already has an ISCC.exe on PATH (a Chocolatey
+      # shim, version unpinned), and without this that one does the compiling.
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $version = "6.7.3"
+          $sha256 = "9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732"
+          $tag = "is-" + ($version -replace '\.', '_')
+          $setup = Join-Path $env:RUNNER_TEMP "innosetup-$version.exe"
+          Invoke-WebRequest -Uri "https://github.com/jrsoftware/issrc/releases/download/$tag/innosetup-$version.exe" -OutFile $setup -UseBasicParsing
+          $actual = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLower()
+          if ($actual -ne $sha256) { throw "Inno Setup $version failed its checksum: $actual" }
+          $dir = Join-Path $env:RUNNER_TEMP "InnoSetup-$version"
+          $install = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/CURRENTUSER", "/NOICONS", "/DIR=$dir" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Inno Setup installer exited with $($install.ExitCode)" }
+          $iscc = Join-Path $dir "ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "Inno Setup $version did not install ISCC.exe to $dir" }
+          "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = "${{ inputs.version }}"
+          ./Scripts/build-windows-installer.ps1 -Version $version -SourceDir "dist/VapourBox-$version-windows-x64" -OutputDir dist
+
       - name: Upload artifact
         uses: actions/upload-artifact@v5
         with:
           name: VapourBox-${{ inputs.version }}-windows-x64
-          path: dist/VapourBox-${{ inputs.version }}-windows-x64.zip
+          if-no-files-found: error
+          path: |
+            dist/VapourBox-${{ inputs.version }}-windows-x64-setup.exe
+            dist/VapourBox-${{ inputs.version }}-windows-x64.zip
 

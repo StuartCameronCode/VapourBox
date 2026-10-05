@@ -262,9 +262,18 @@ the Windows resource compiler read them at build time.
 
 ### Windows
 ```powershell
-.\Scripts\package-windows.ps1 -Version "1.0.0" [-SkipBuild]
+.\Scripts\package-windows.ps1 -Version "1.0.0" [-SkipBuild] [-SkipInstaller]
 ```
-Output: `dist/VapourBox-1.0.0-windows-x64.zip`
+Output, both from the same tree:
+
+- `dist/VapourBox-1.0.0-windows-x64-setup.exe` — the installer, the primary download
+- `dist/VapourBox-1.0.0-windows-x64.zip` — the portable option
+
+The installer needs [Inno Setup 6](https://jrsoftware.org/isdl.php) (`ISCC.exe` on
+`PATH`, in its default location, or named by `$env:ISCC`); `-SkipInstaller` builds
+the zip alone. It is defined by `packaging/windows/vapourbox.iss` and compiled by
+`Scripts/build-windows-installer.ps1`, which can also be run directly against an
+already-assembled package directory.
 
 ### Linux
 ```bash
