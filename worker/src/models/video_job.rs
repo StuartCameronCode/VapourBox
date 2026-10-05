@@ -279,6 +279,12 @@ pub struct EncodingSettings {
     #[serde(default)]
     pub custom_vapoursynth: String,
 
+    /// Override for VapourSynth's frame cache limit (`core.max_cache_size`),
+    /// in MB. `None` leaves VapourSynth on its own default, which it sizes
+    /// from the machine's memory — the right answer almost always.
+    #[serde(default)]
+    pub max_cache_size_mb: Option<u32>,
+
     /// Output container format
     #[serde(default)]
     pub container: ContainerFormat,
@@ -576,6 +582,15 @@ impl ChromaSubsampling {
     }
 }
 
+impl EncodingSettings {
+    /// The cache override to write into the script, if any. Zero is not a
+    /// usable limit — VapourSynth would flush on every frame — so it means
+    /// "no override", the same as leaving it unset.
+    pub fn effective_max_cache_size_mb(&self) -> Option<u32> {
+        self.max_cache_size_mb.filter(|mb| *mb > 0)
+    }
+}
+
 impl Default for EncodingSettings {
     fn default() -> Self {
         Self {
@@ -588,6 +603,7 @@ impl Default for EncodingSettings {
             chroma_subsampling: ChromaSubsampling::default(),
             custom_ffmpeg_args: String::new(),
             custom_vapoursynth: String::new(),
+            max_cache_size_mb: None,
             container: ContainerFormat::default(),
             video_bitrate_kbps: None,
             prores_vendor_apl0: false,

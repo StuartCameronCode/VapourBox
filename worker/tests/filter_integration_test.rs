@@ -5968,3 +5968,49 @@ fn test_161_each_deinterlace_method_emits_only_its_own_block() {
         }
     }
 }
+
+/// The script leaves VapourSynth's frame cache alone unless the user overrides it.
+///
+/// Both templates used to pin it to 1 GB, an eighth of what VapourSynth picks
+/// for itself on a 16 GB machine, which starved QTGMC on HD sources (issue
+/// #107: ~1 fps instead of ~14). Asserted on the encode and preview scripts,
+/// since they are separate templates.
+#[test]
+fn test_162_max_cache_size_is_only_set_when_overridden() {
+    create_output_dir();
+    let scripts = |job: &VideoJob| {
+        let generator = ScriptGenerator::new().expect("Failed to create generator");
+        let params = PreviewParams {
+            width: 720,
+            height: 480,
+            pix_fmt: "yuv420p".to_string(),
+            num_frames: 15,
+            fps_num: 30000,
+            fps_den: 1001,
+            output_index: 7,
+        };
+        let preview = generator.generate_preview(job, &params).expect("preview script");
+        [
+            script_text(job),
+            std::fs::read_to_string(&preview).expect("read preview script"),
+        ]
+    };
+
+    let mut job = create_base_job("test_162_max_cache_default");
+    for script in scripts(&job) {
+        assert!(!script.contains("max_cache_size ="), "no override, no assignment");
+        assert!(!script.contains("MAX_CACHE_SIZE"), "placeholder left behind");
+    }
+
+    job.encoding_settings.max_cache_size_mb = Some(6000);
+    for script in scripts(&job) {
+        assert!(script.contains("core.max_cache_size = 6000"));
+        assert!(!script.contains("MAX_CACHE_SIZE"), "placeholder left behind");
+    }
+
+    // Zero would make VapourSynth flush constantly; it means "no override".
+    job.encoding_settings.max_cache_size_mb = Some(0);
+    for script in scripts(&job) {
+        assert!(!script.contains("max_cache_size ="));
+    }
+}

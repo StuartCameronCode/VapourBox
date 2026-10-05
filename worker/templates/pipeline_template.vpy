@@ -11,9 +11,12 @@ import sys
 
 core = vs.core
 
-# Configure cache size for optimal performance with temporal filters
-# 1GB default, can be adjusted based on system memory
-core.max_cache_size = 1024
+# VapourSynth sizes its own frame cache from the machine's memory. Only an
+# explicit override (Settings -> Output) replaces it: a fixed cap starved
+# QTGMC's threads on HD sources (issue #107).
+{{#MAX_CACHE_SIZE}}
+core.max_cache_size = {{MAX_CACHE_SIZE}}
+{{/MAX_CACHE_SIZE}}
 
 # Load input video from stdin pipe (FFmpeg decodes → raw frames → VapourSynth)
 # This eliminates FFMS2 indexing which blocks on large/NAS files.

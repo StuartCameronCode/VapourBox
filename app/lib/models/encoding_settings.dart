@@ -165,6 +165,11 @@ class EncodingSettings {
   /// User-supplied VapourSynth, injected after every built-in pass. Same
   /// footing as customFfmpegArgs, and gated behind advanced mode.
   final String customVapoursynth;
+
+  /// Override for VapourSynth's frame cache limit (`core.max_cache_size`), in
+  /// MB. Null leaves VapourSynth on its own default, which it sizes from the
+  /// machine's memory.
+  final int? maxCacheSizeMb;
   final ContainerFormat container;
 
   /// Output directory. If null, uses the same directory as the input file.
@@ -190,6 +195,7 @@ class EncodingSettings {
     this.proresQuantMat,
     this.customFfmpegArgs = '',
     this.customVapoursynth = '',
+    this.maxCacheSizeMb,
     this.container = ContainerFormat.mkv,
     this.outputDirectory,
     this.filenamePattern = '{input_filename}_processed',
@@ -292,6 +298,8 @@ class EncodingSettings {
     bool clearProresQuantMat = false,
     String? customFfmpegArgs,
     String? customVapoursynth,
+    int? maxCacheSizeMb,
+    bool clearMaxCacheSizeMb = false,
     ContainerFormat? container,
     String? outputDirectory,
     bool clearOutputDirectory = false,
@@ -322,6 +330,8 @@ class EncodingSettings {
           clearProresQuantMat ? null : (proresQuantMat ?? this.proresQuantMat),
       customFfmpegArgs: customFfmpegArgs ?? this.customFfmpegArgs,
       customVapoursynth: customVapoursynth ?? this.customVapoursynth,
+      maxCacheSizeMb:
+          clearMaxCacheSizeMb ? null : (maxCacheSizeMb ?? this.maxCacheSizeMb),
       container: container ?? this.container,
       outputDirectory: clearOutputDirectory ? null : (outputDirectory ?? this.outputDirectory),
       filenamePattern: filenamePattern ?? this.filenamePattern,

@@ -2157,6 +2157,38 @@ case-for-case to it. Depth is deliberately not warned about alone: ProRes is
 always 10-bit, so that would fire on most ProRes jobs and become wallpaper.
 ---
 
+### The 1 GB frame cache cap (issue #107, 2026-10-05)
+
+Both templates set `core.max_cache_size = 1024` from 2026-01-18, on the premise
+that VapourSynth "defaults to minimal caching". It does not: the bundled R78
+reports 8192 MB on a 16 GB Mac, so the line cut the cache to an eighth. A user
+deinterlacing a 107-minute HD AVI saw ~1 fps and a log full of `memory usage
+still over the limit, flushing pipeline`; overriding the value through Custom
+VapourSynth took them to ~14 fps.
+
+Measured with bare `haf.QTGMC` on a synthetic interlaced 4:2:2 source under the
+bundled vspipe (macos-arm64, 8 threads, deps 1.11.0):
+
+| Source | Preset | Cache (MB) | fps | Peak RSS |
+|---|---|---|---|---|
+| 1920x1080 | Slower | 1024 | 6.5 | 1.7 GB |
+| 1920x1080 | Slower | 2048 | 17.2 | 2.5 GB |
+| 1920x1080 | Slower | 4096 | 17.2 | 2.7 GB |
+| 1920x1080 | Slower | default (8192) | 18.0 | 2.8 GB |
+| 1920x1080 | Very Slow | 1024 | 1.9 | 2.2 GB |
+| 1920x1080 | Very Slow | default (8192) | 14.7 | 3.8 GB |
+| 720x576 | Slower | 1024 | 92.8 | 0.7 GB |
+| 720x576 | Slower | default (8192) | 89.5 | 0.7 GB |
+
+CPU time was the same with and without the cap (119 s vs 123 s for 1080 Slower)
+while wall time went from 47 s to 17 s — threads waiting on evicted frames, not
+extra work. SD never reaches 1 GB, which is why no test noticed. The limit is a
+ceiling, not an allocation: peak memory stayed well under it.
+
+The templates now leave the cache alone, and the user can set a limit in
+Settings → Output. Not measured: the default VapourSynth picks on Windows and
+Linux, or on an 8 GB machine.
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and
