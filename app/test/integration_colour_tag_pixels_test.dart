@@ -29,6 +29,7 @@ import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
+import 'package:vapourbox/services/preview_generator.dart';
 
 import 'support/worker_harness.dart';
 
@@ -45,18 +46,19 @@ const _frames = 10;
 /// Decoding to rawvideo in the stream's native format involves no scaler, so
 /// this hashes exactly what the file stores rather than a conversion of it.
 ///
-/// [size] reproduces the worker's own decoder for the source reference: this
-/// fixture has a clean aperture (720x576 coded, 702x576 decoded) and the
-/// worker's decoder forces the probed 720x576 back with `-s`.
-Future<String> _sampleMd5(String path, {int? frames, String? size, String? pixFmt}) async {
+/// The decode uses the worker's own source options (`-apply_cropping codec`):
+/// this fixture has a clean aperture (720x576 stored, 702x576 once ffmpeg's
+/// default container cropping is applied) and the worker reads the full
+/// stored frame. Rescaling 702 back to 720 here is not the same samples.
+Future<String> _sampleMd5(String path, {int? frames, String? pixFmt}) async {
   final r = await Process.run(
     WorkerHarness.ffmpegPath,
     [
       '-v', 'error',
+      ...PreviewGenerator.sourceDecodeOptions,
       '-i', path,
       '-map', '0:v:0',
       if (frames != null) ...['-frames:v', '$frames'],
-      if (size != null) ...['-s', size],
       if (pixFmt != null) ...['-pix_fmt', pixFmt],
       '-f', 'md5', '-',
     ],
@@ -139,7 +141,6 @@ void main() {
     // The picture: identical to the untagged encode and to the source itself.
     final sourceMd5 = await _sampleMd5(_fixture,
         frames: _frames,
-        size: '${src['width']}x${src['height']}',
         pixFmt: src['pix_fmt'] as String);
     expect(await _sampleMd5(untagged), sourceMd5,
         reason: 'control: a no-op pipeline into FFV1 must be lossless');
