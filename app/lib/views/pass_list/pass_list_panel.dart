@@ -58,7 +58,6 @@ class PassListPanel extends StatelessWidget {
       title: 'Detail & Color',
       passes: [
         PassType.antiAlias,
-        PassType.sharpen,
         PassType.chromaFixes,
         PassType.colorCorrection,
       ],
@@ -69,7 +68,7 @@ class PassListPanel extends StatelessWidget {
     ),
     (
       title: 'Finishing',
-      passes: [PassType.grain, PassType.frameRate],
+      passes: [PassType.sharpen, PassType.grain, PassType.frameRate],
     ),
     (
       title: 'Post-Processing',

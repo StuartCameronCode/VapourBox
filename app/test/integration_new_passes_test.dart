@@ -23,6 +23,7 @@ import 'package:vapourbox/models/chroma_denoise_parameters.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
 import 'package:vapourbox/models/chroma_fix_parameters.dart';
 import 'package:vapourbox/models/color_correction_parameters.dart';
+import 'package:vapourbox/models/crop_resize_parameters.dart';
 import 'package:vapourbox/models/descratch_parameters.dart';
 import 'package:vapourbox/models/deblock_parameters.dart';
 import 'package:vapourbox/models/grain_parameters.dart';
@@ -233,6 +234,66 @@ void main() {
       final result =
           await WorkerHarness.runJob(job.toJson(), label: 'sharpen_awarpsharp2');
       await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    // Issue #109: Sharpen moved to after the resize. Every method has to run
+    // on a clip the resize has already changed the size of, in the encode — the
+    // script-only tests prove the order, not that the plugins accept it.
+    for (final method in SharpenMethod.values) {
+      test('sharpen: ${method.name} runs after a resize', () async {
+        final label = 'sharpen_after_resize_${method.name}';
+        final job = _baseJob(
+          label,
+          pipeline: ProcessingPipeline(
+            deinterlace: const QTGMCParameters(enabled: false),
+            cropResize: const CropResizeParameters(
+              enabled: true,
+              resizeEnabled: true,
+              targetWidth: 640,
+              targetHeight: 480,
+            ),
+            sharpen: SharpenParameters(enabled: true, method: method),
+          ),
+        );
+        final result = await WorkerHarness.runJob(job.toJson(), label: label);
+        await _expectValidVideo(result);
+        final v = await WorkerHarness.firstStream(result.outputPath!,
+            selector: 'v:0', entries: ['width', 'height']);
+        // 720x576 fitted inside 640x480 with the stored aspect kept: 600x480.
+        expect(v?['width'], 600, reason: 'sharpening must not undo the resize');
+        expect(v?['height'], 480);
+      }, timeout: const Timeout(Duration(minutes: 6)));
+    }
+
+    // Issue #109: the crop used to run before everything else. It now runs
+    // with the resize, after Stabilize and Rotate / Flip, so its four sides
+    // are the sides of the turned picture. The frame size tells the two orders
+    // apart: 720x576 turned is 576x720, and cropping 16 off each side and 8 off
+    // top and bottom leaves 544x704. Cropped before the turn it was 560x688.
+    test('crop: runs after stabilize and rotation', () async {
+      const label = 'crop_after_rotation';
+      final job = _baseJob(
+        label,
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          stabilize: StabilizeParameters(enabled: true),
+          geometry: GeometryParameters(enabled: true, rotation: Rotation.cw90),
+          cropResize: CropResizeParameters(
+            enabled: true,
+            cropEnabled: true,
+            cropLeft: 16,
+            cropRight: 16,
+            cropTop: 8,
+            cropBottom: 8,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: label);
+      await _expectValidVideo(result);
+      final v = await WorkerHarness.firstStream(result.outputPath!,
+          selector: 'v:0', entries: ['width', 'height']);
+      expect(v?['width'], 544);
+      expect(v?['height'], 704);
     }, timeout: const Timeout(Duration(minutes: 6)));
 
     test('dehalo: HQDeringmod runs end-to-end', () async {

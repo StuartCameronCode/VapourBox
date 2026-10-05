@@ -337,10 +337,9 @@ impl ProcessingPipeline {
     pub fn enabled_passes(&self) -> Vec<PassType> {
         let mut passes = Vec::new();
 
-        // Order: Crop first (pre-processing), then deinterlace, noise, dehalo, deblock, deband, sharpen, chroma, color, resize last
-        if self.crop_resize.enabled && self.crop_resize.crop_enabled {
-            passes.push(PassType::CropResize); // Pre-crop
-        }
+        // Order: deinterlace, damage, noise, dehalo, deblock, deband, anti-alias,
+        // chroma, color, stabilize, rotate, crop + resize, then sharpen, grain,
+        // frame rate.
         if self.deinterlace_enabled() {
             passes.push(PassType::Deinterlace);
         }
@@ -390,9 +389,6 @@ impl ProcessingPipeline {
         if self.anti_alias.enabled {
             passes.push(PassType::AntiAlias);
         }
-        if self.sharpen.enabled {
-            passes.push(PassType::Sharpen);
-        }
         if self.chroma_fixes.enabled {
             passes.push(PassType::ChromaFixes);
         }
@@ -410,11 +406,21 @@ impl ProcessingPipeline {
         if self.geometry.has_effect() {
             passes.push(PassType::Geometry);
         }
-        if self.crop_resize.enabled && self.crop_resize.resize_enabled {
-            // Resize (post-processing) - if not already added for crop
-            if !passes.contains(&PassType::CropResize) {
-                passes.push(PassType::CropResize);
-            }
+        // Crop and resize are one pass and run together, crop first. The crop
+        // used to run ahead of everything else, which meant it could not
+        // remove the edges Stabilize exposes (issue #109).
+        if self.crop_resize.enabled
+            && (self.crop_resize.crop_enabled || self.crop_resize.resize_enabled)
+        {
+            passes.push(PassType::CropResize);
+        }
+
+        // Sharpening follows the resize (issue #109), so it works on the
+        // delivered pixels: sharpened earlier, a downscale softens the edges
+        // again and an upscale enlarges the halos. It still follows
+        // anti-aliasing, and precedes the grain it would otherwise exaggerate.
+        if self.sharpen.enabled {
+            passes.push(PassType::Sharpen);
         }
 
         // Grain goes last of the video passes. Added before the resize it is

@@ -50,22 +50,24 @@ void main() {
     });
   });
 
-  group('sharpening against the denoiser', () {
-    test('warns on the Sharpen pass, naming the consequence', () {
-      final advice = adviceFor(
-        PassType.sharpen,
-        ProcessingPipeline(
+  group('sharpening with the denoiser', () {
+    // Issue #109: this pair used to warn that "Sharpen runs before Noise
+    // Reduction, so the denoiser will soften much of this again". It does not
+    // — Sharpen runs after it — so the warning described a flaw the pipeline
+    // does not have.
+    test('is silent, since Sharpen already runs after Noise Reduction', () {
+      expect(
+        adviseOn(ProcessingPipeline(
           deinterlace: const QTGMCParameters(enabled: false),
           noiseReduction:
               NoiseReductionParameters.fromPreset(NoiseReductionPreset.heavy),
           sharpen: const SharpenParameters(enabled: true),
-        ),
+        )),
+        isEmpty,
       );
-      expect(advice, isNotNull);
-      expect(advice, contains('denoiser'));
     });
 
-    test('silent when only one of the two is on', () {
+    test('silent when only Sharpen is on', () {
       expect(
         adviceFor(
           PassType.sharpen,
@@ -76,6 +78,35 @@ void main() {
         ),
         isNull,
       );
+    });
+  });
+
+  group('the order the advice talks about is the order the pipeline has', () {
+    // The advice states pass order as fact. These pin each statement to
+    // enabledPasses, so the text and the pipeline cannot drift apart again.
+    final order = ProcessingPipeline(
+      deinterlace: const QTGMCParameters(enabled: false),
+      noiseReduction:
+          NoiseReductionParameters.fromPreset(NoiseReductionPreset.moderate),
+      chromaDenoise: const ChromaDenoiseParameters(enabled: true),
+      dehalo: const DehaloParameters(enabled: true),
+      deband: const DebandParameters(enabled: true),
+      sharpen: const SharpenParameters(enabled: true),
+    ).enabledPasses;
+
+    test('Sharpen runs after every clean-up pass', () {
+      final sharpen = order.indexOf(PassType.sharpen);
+      expect(sharpen, isNonNegative);
+      for (final earlier in const [
+        PassType.noiseReduction,
+        PassType.chromaDenoise,
+        PassType.dehalo,
+        PassType.deband,
+      ]) {
+        expect(order.indexOf(earlier), isNonNegative, reason: '$earlier');
+        expect(order.indexOf(earlier), lessThan(sharpen),
+            reason: '$earlier must run before Sharpen');
+      }
     });
   });
 

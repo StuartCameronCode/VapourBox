@@ -884,8 +884,32 @@ Two orderings are load-bearing and asserted from both sides
 
 - **Anti-aliasing runs before Sharpen.** Sharpening a stair-stepped edge makes
   the stepping more visible, not less.
+- **Sharpen runs after Crop/Resize and before Grain** (added 2026-10-05, issue
+  #109 — it used to sit straight after Anti-Aliasing, ahead of Chroma Fixes,
+  Colour Correction, Stabilize and the resize). Resampling a sharpened picture
+  softens it again on a downscale and enlarges the sharpening halos on an
+  upscale, and Stabilize's sub-pixel shifts soften it too. Consequences worth
+  knowing: Sharpen now works at the **output** resolution, so it costs more
+  when upscaling and less when downscaling, and existing presets and saved
+  jobs that combine Sharpen with a resize render slightly differently than
+  before. The same issue also removed a `pass_advice.dart` warning that claimed
+  Sharpen ran *before* Noise Reduction — it never did.
 - **Stabilize runs last before Crop/Resize.** It shifts the picture within the
   frame and exposes thin empty edges, so a crop afterwards removes them.
+  **This was not true until 2026-10-05 (issue #109).** The *resize* ran after
+  Stabilize, but the crop was a separate `PRE_CROP` block at the top of both
+  templates, ahead of Deinterlace — so the reason given for the placement
+  described something the pipeline did not do, in this file, the README, the
+  model comments and `pass_list_stages_test.dart` alike. The crop is now a
+  `CROP` block directly before `RESIZE`, after Stabilize and Rotate / Flip.
+  What that costs, deliberately: every earlier pass works on the uncropped
+  frame (slower, by the cropped area), Edge Repair rebuilds the edge of the
+  *uncropped* frame, and the automatic measurements (levels, white balance,
+  chroma alignment) see whatever the crop was going to remove — head-switching
+  noise along the bottom of a VHS capture included. Crop values now refer to
+  the picture *after* a rotation, where they used to refer to the source.
+  `test_110` pins the script order; `integration_new_passes_test.dart` tells
+  the two orders apart by frame size on a rotated, cropped encode.
 
 > **`santiag`'s `type` is pinned to `nnedi3`.** havsfunc also accepts `eedi2`
 > and `sangnom`; **neither is in the deps bundle**, and naming an absent one

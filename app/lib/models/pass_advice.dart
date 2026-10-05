@@ -16,8 +16,8 @@ class PassAdvice {
 ///
 /// At a dozen-odd passes the complexity that actually costs users is not the
 /// length of the list, it is *interaction*: two denoisers stacked until the
-/// picture is plastic, sharpening applied before the denoiser eats it again,
-/// grain re-added before the deband that will smooth it away. None of that is
+/// picture is plastic, sharpening that puts back the halos Dehalo just removed,
+/// sharpening that exaggerates the grain Deband added. None of that is
 /// an error — every combination here produces a valid render — so none of it can
 /// be caught by validation. It has to be said out loud at the point the user is
 /// looking.
@@ -29,12 +29,16 @@ class PassAdvice {
 ///   app's job is to make sure they meant it.
 /// - **Only fires on enabled passes.** Advice about a pass nobody has turned on
 ///   is noise.
-/// - **Says what to do, not just what is wrong.** "Sharpen runs before Noise
-///   Reduction" is a fact; the useful half is that the denoiser will undo it.
+/// - **Says what to do, not just what is wrong.** "Dehalo runs before Sharpen"
+///   is a fact; the useful half is that sharpening can put the halos back.
+/// - **Never states an order the pipeline does not have.** Every "runs
+///   before/after" below is pinned against `enabledPasses` in
+///   `pass_advice_test.dart`, because a wrong one reads as a design flaw in the
+///   app rather than as a typo (issue #109).
 ///
 /// Pass order is fixed (see `PassListPanel.stages` and `script_generator.rs`),
 /// which is what makes the ordering advice statable at all: Sharpen genuinely
-/// always runs before Color Correction, so there is no case to qualify.
+/// always runs after Noise Reduction, so there is no case to qualify.
 List<PassAdvice> adviseOn(ProcessingPipeline pipeline) {
   final advice = <PassAdvice>[];
 
@@ -49,18 +53,13 @@ List<PassAdvice> adviseOn(ProcessingPipeline pipeline) {
     // combination. Deliberately silent.
   }
 
-  // --- Sharpening fights the denoiser, and loses ---
-  // Sharpen runs *before* Noise Reduction in the pipeline, so a denoiser set
-  // strongly enough to matter will remove most of what was just sharpened, and
-  // amplified noise is what survives.
-  if (on(PassType.sharpen) && on(PassType.noiseReduction)) {
-    advice.add(const PassAdvice(
-      PassType.sharpen,
-      'Sharpen runs before Noise Reduction, so the denoiser will soften much '
-      'of this again — and sharpened noise is what it has to work on. '
-      'Consider denoising alone first and judging the result.',
-    ));
-  }
+  // --- Sharpening after the denoiser ---
+  // Deliberately silent, and asserted so in pass_advice_test.dart. Sharpen runs
+  // *after* Noise Reduction — after every clean-up pass and the resize, in
+  // fact, with only Grain and Frame Rate behind it — which is the order a
+  // restoration chain wants: there is nothing to warn about. This used to claim
+  // the reverse and told users the denoiser would undo their sharpening
+  // (issue #109) — it never did.
 
   // --- Deband after grain ---
   // Deband runs after the denoiser but the f3kdb grain it adds back is applied

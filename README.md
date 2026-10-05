@@ -93,37 +93,44 @@ GPU-accelerated deinterlacing (NNEDI3CL) needs your GPU's OpenCL driver installe
 
 ## The filter pipeline
 
-Twenty-one filters, each switchable independently, applied in a fixed order. Most sources need none or a few.
+Twenty-one filters, each switchable independently. Most sources need none or a few. They always run in the order below, top to bottom, whichever ones are switched on — the same order the list in the app shows them in. The order cannot be rearranged.
 
-| Filter | What it addresses |
-|--------|-------------------|
-| **Deinterlace** | Comb-like jagged edges on moving objects. QTGMC for interlaced video, IVTC to recover the original film frames from telecined DVD, or Bwdif when you want it done in a fraction of the time. |
-| **Edge Repair** | The dirty rows and columns at the very edge of a tape capture — rebuilt from the picture just inside, instead of cropped away. |
-| **Ghost Removal** | A faint second copy of the picture shifted sideways, left behind by an aerial or a long cable run. |
-| **Deflicker** | Brightness pulsing between frames, which is what scanned cine film almost always has. |
-| **DeScratch** | Vertical scratch lines on scanned film. |
-| **SpotLess** | Dust, dirt and single-frame specks. RemoveDirt is the faster choice — around six times the speed for about 60% of the removal. |
-| **Noise Reduction** | Grain and video noise across the whole frame. Motion-compensated by default, with mClean as a gentler alternative that keeps more detail; DFTTest, FFT3DFilter, TTempSmooth, FluxSmooth, STPresso, TemporalDegrain2 and a large-window median are available under advanced options for noise the default handles badly. |
-| **Chroma Denoise** | Blotchy, smeared color — common on VHS captures and old camcorder footage. Leaves luma detail untouched. |
-| **Dehalo** | Bright outlines around edges, ringing, and residual ghosting left by a deinterlacer. HQDeringmod targets ringing specifically. |
-| **Deblock** | Square blocking from heavy compression, and the ringing around edges that comes with it. |
-| **Deband** | Visible steps in gradients and skies. |
-| **Anti-Aliasing** | Stair-stepping on diagonal edges, left by deinterlacing or upscaling. Runs before sharpening, which would otherwise make the steps more visible. |
-| **Stabilize** | Shake and weave — telecine wobble, jittery film scans, handheld footage. Runs last before cropping, so a small crop removes the edges it exposes. |
-| **Film Grain** | Grain added back after denoising, so the picture is not left plastic — and to hide banding in skies and fades. |
-| **Rotate / Flip** | Footage shot sideways, mirrored captures, scans that came off the scanner the wrong way round. |
-| **Sharpen** | Soft sources needing edge and fine detail recovery. aWarpSharp2 sharpens by warping edges instead of raising contrast, so it adds no halos. |
-| **Chroma Fixes** | Colour that sits sideways from the picture (corrected automatically or by hand), bleeding past edges, rainbowing and dot crawl — including the shimmering kind that only shows when the picture moves — and residual combing. Each repair has its own switch, and its settings appear only once it is on. |
-| **Color Correction** | Brightness, contrast, saturation, hue, levels, white balance (warm/cool, green/magenta), and lifting detail out of the shadows of underexposed footage. Levels and white balance can each be measured automatically or set by hand. |
-| **Crop & Resize** | Trimming overscan, scaling, and edge-directed upscaling — plus bars in a colour of your choice to bring a cropped picture back to an exact frame size (720×576 for PAL DVD, 720×480 for NTSC) without rescaling it. |
-| **Frame Rate** | Converting between PAL and NTSC rates, for a tape that was already converted once and now plays at the wrong speed. |
-| **Subtitles** | Whisper AI speech-to-text — written alongside the video as `.srt`, embedded as a selectable track, burnt into the picture, or a combination. |
+| # | Filter | What it addresses |
+|---|--------|-------------------|
+| 1 | **Deinterlace** | Comb-like jagged edges on moving objects. QTGMC for interlaced video, IVTC to recover the original film frames from telecined DVD, or Bwdif when you want it done in a fraction of the time. |
+| 2 | **Edge Repair** | The dirty rows and columns at the very edge of a tape capture — rebuilt from the picture just inside, instead of cropped away. |
+| 3 | **Ghost Removal** | A faint second copy of the picture shifted sideways, left behind by an aerial or a long cable run. |
+| 4 | **Deflicker** | Brightness pulsing between frames, which is what scanned cine film almost always has. |
+| 5 | **DeScratch** | Vertical scratch lines on scanned film. |
+| 6 | **SpotLess** | Dust, dirt and single-frame specks. RemoveDirt is the faster choice — around six times the speed for about 60% of the removal. |
+| 7 | **Noise Reduction** | Grain and video noise across the whole frame. Motion-compensated by default, with mClean as a gentler alternative that keeps more detail; DFTTest, FFT3DFilter, TTempSmooth, FluxSmooth, STPresso, TemporalDegrain2 and a large-window median are available under advanced options for noise the default handles badly. |
+| 8 | **Chroma Denoise** | Blotchy, smeared color — common on VHS captures and old camcorder footage. Leaves luma detail untouched. |
+| 9 | **Dehalo** | Bright outlines around edges, ringing, and residual ghosting left by a deinterlacer. HQDeringmod targets ringing specifically. |
+| 10 | **Deblock** | Square blocking from heavy compression, and the ringing around edges that comes with it. |
+| 11 | **Deband** | Visible steps in gradients and skies. |
+| 12 | **Anti-Aliasing** | Stair-stepping on diagonal edges, left by deinterlacing or upscaling. Runs before sharpening, which would otherwise make the steps more visible. |
+| 13 | **Chroma Fixes** | Colour that sits sideways from the picture (corrected automatically or by hand), bleeding past edges, rainbowing and dot crawl — including the shimmering kind that only shows when the picture moves — and residual combing. Each repair has its own switch, and its settings appear only once it is on. |
+| 14 | **Color Correction** | Brightness, contrast, saturation, hue, levels, white balance (warm/cool, green/magenta), and lifting detail out of the shadows of underexposed footage. Levels and white balance can each be measured automatically or set by hand. |
+| 15 | **Stabilize** | Shake and weave — telecine wobble, jittery film scans, handheld footage. Runs last before cropping, so a small crop removes the edges it exposes. |
+| 16 | **Rotate / Flip** | Footage shot sideways, mirrored captures, scans that came off the scanner the wrong way round. |
+| 17 | **Crop & Resize** | Trimming overscan, scaling, and edge-directed upscaling — plus bars in a colour of your choice to bring a cropped picture back to an exact frame size (720×576 for PAL DVD, 720×480 for NTSC) without rescaling it. |
+| 18 | **Sharpen** | Soft sources needing edge and fine detail recovery. aWarpSharp2 sharpens by warping edges instead of raising contrast, so it adds no halos. Runs after the resize, on the picture that is actually delivered, and before any added grain. |
+| 19 | **Film Grain** | Grain added back after denoising, so the picture is not left plastic — and to hide banding in skies and fades. |
+| 20 | **Frame Rate** | Converting between PAL and NTSC rates, for a tape that was already converted once and now plays at the wrong speed. |
+| 21 | **Subtitles** | Whisper AI speech-to-text — written alongside the video as `.srt`, embedded as a selectable track, burnt into the picture, or a combination. |
+
+A few things about the order are worth knowing:
+
+- **Crop & Resize is one step, cropping first.** It runs after Stabilize and Rotate / Flip, so a small crop removes the thin edges stabilising exposes, and the four crop sides are the sides of the picture after any rotation. Everything before it works on the uncropped frame.
+- **Clean up, then frame, then finish.** Damage and noise are removed first, colour is corrected next, the picture is stabilised, turned and resized, and only then sharpened. Sharpening earlier would have its work softened again by the resize.
+- **Grain goes on after sharpening**, so it is neither sharpened into grit nor resampled away, and the frame rate is converted last of all, so every other filter works on real frames rather than invented ones.
+- **After the filters:** any Custom VapourSynth code runs next, then the conversion to the output colour format, then added borders — last, so that nothing touches the bars. Subtitles are transcribed from the source and added once the video has been encoded.
 
 Each filter leads with a plain-language summary and a **More** expander describing what it does and when it's the right choice, so the settings can be understood in place rather than looked up elsewhere.
 
 The list also reacts to the file you dropped in. Filters that match what was detected in your source are marked **Suggested** with the reason — "source is hard telecine (3:2 pulldown)", "anamorphic source (10:11) — check pixel aspect" — and ones that can't apply say so, such as deinterlacing a progressive file. Nothing is switched on or off for you; detection is sometimes wrong, so it stays a hint. Filters whose problems can't be spotted from the file alone — dirt, scratches, grain, halos — say nothing either way.
 
-Where two filters work against each other, the one that loses out says so when you open it: sharpening ahead of a denoiser that will undo it, for instance.
+Where two filters work against each other, the one that loses out says so when you open it: sharpening that would put back the halos Dehalo has just removed, for instance.
 
 ## Details
 

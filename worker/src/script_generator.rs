@@ -362,19 +362,20 @@ impl ScriptGenerator {
         let params = &pipeline.deinterlace;
 
         // ====================================================================
-        // PRE-CROP PASS
+        // CROP PASS (its block sits after Stabilize and Rotate / Flip, directly
+        // before the resize — the template's position is what orders it)
         // ====================================================================
         let crop = &pipeline.crop_resize;
         if crop.enabled && crop.crop_enabled &&
            (crop.crop_left > 0 || crop.crop_right > 0 || crop.crop_top > 0 || crop.crop_bottom > 0) {
-            script = script.replace("{{#PRE_CROP}}", "");
-            script = script.replace("{{/PRE_CROP}}", "");
+            script = script.replace("{{#CROP}}", "");
+            script = script.replace("{{/CROP}}", "");
             script = script.replace("{{CROP_LEFT}}", &crop.crop_left.to_string());
             script = script.replace("{{CROP_RIGHT}}", &crop.crop_right.to_string());
             script = script.replace("{{CROP_TOP}}", &crop.crop_top.to_string());
             script = script.replace("{{CROP_BOTTOM}}", &crop.crop_bottom.to_string());
         } else {
-            script = remove_block("{{#PRE_CROP}}", "{{/PRE_CROP}}", script);
+            script = remove_block("{{#CROP}}", "{{/CROP}}", script);
         }
 
         // ====================================================================

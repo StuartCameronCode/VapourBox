@@ -319,6 +319,9 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
   `pass_list_stages_test.dart` fails if one is missed. Stages are labels over the
   **existing pipeline order**, so a pass goes in the stage its position already
   falls in; never reorder rows to suit a grouping.
+  The README's "The filter pipeline" table is the user-facing statement of the
+  same order — add the pass's row at its position there too;
+  `readme_pipeline_order_test.dart` fails if the table and `stages` disagree.
 - `app/lib/views/pass_list/pass_list_item.dart` — add icon in `_getIconForPass()`
 - `app/lib/views/pass_settings/pass_settings_inline.dart` — add case in `_getFilterId()`
 - `app/lib/viewmodels/main_viewmodel.dart` — add case in BOTH `_convertToParams()` AND `_updatePipelineFromDynamic()`
