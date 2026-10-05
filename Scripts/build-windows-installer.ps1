@@ -60,7 +60,8 @@ if (-not $Iscc) {
 $Installer = Join-Path $OutputDir "VapourBox-$Version-windows-x64-setup.exe"
 if (Test-Path $Installer) { Remove-Item $Installer }
 
-Write-Host "Building installer with $Iscc" -ForegroundColor Yellow
+$IsccVersion = (Get-Item $Iscc).VersionInfo.ProductVersion
+Write-Host "Building installer with $Iscc (Inno Setup $IsccVersion)" -ForegroundColor Yellow
 & $Iscc /Qp "/DAppVersion=$Version" "/DSourceDir=$SourceDir" "/DOutputDir=$OutputDir" $IssFile
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
 if (-not (Test-Path $Installer)) { throw "Inno Setup reported success but $Installer was not created" }

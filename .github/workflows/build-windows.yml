@@ -181,7 +181,9 @@ jobs:
 
       # Pinned and checksummed: this compiler produces the executable users run.
       # 6.x rather than 7.x deliberately - packaging/windows/vapourbox.iss is
-      # written against 6, and build-windows-installer.ps1 looks for "Inno Setup 6".
+      # written against 6. Installed to its own directory and handed over as
+      # $ISCC: the runner image already has an ISCC.exe on PATH (a Chocolatey
+      # shim, version unpinned), and without this that one does the compiling.
       - name: Install Inno Setup
         shell: pwsh
         run: |
@@ -192,8 +194,12 @@ jobs:
           Invoke-WebRequest -Uri "https://github.com/jrsoftware/issrc/releases/download/$tag/innosetup-$version.exe" -OutFile $setup -UseBasicParsing
           $actual = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLower()
           if ($actual -ne $sha256) { throw "Inno Setup $version failed its checksum: $actual" }
-          $install = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/ALLUSERS" -Wait -PassThru
+          $dir = Join-Path $env:RUNNER_TEMP "InnoSetup-$version"
+          $install = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/CURRENTUSER", "/NOICONS", "/DIR=$dir" -Wait -PassThru
           if ($install.ExitCode -ne 0) { throw "Inno Setup installer exited with $($install.ExitCode)" }
+          $iscc = Join-Path $dir "ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "Inno Setup $version did not install ISCC.exe to $dir" }
+          "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build installer
         shell: pwsh

@@ -1460,7 +1460,9 @@ placement and a version skew would change chroma per-OS.
   - `build-windows.yml` assembles the package directory inline rather than
     calling `package-windows.ps1` (and the two zips differ in layout), which
     is why the installer is its own script both call. Inno Setup is pinned to
-    6.7.3 by SHA-256 in the workflow; the `.iss` is written against 6, not 7.
+    6.7.3 by SHA-256 in the workflow and passed to the script as `$env:ISCC`
+    — the runner image has its own unpinned `ISCC.exe` on `PATH`, which wins
+    otherwise. The `.iss` is written against 6, not 7.
   - Not verifiable from macOS: `build-windows.yml` is the test.
 
 ### macOS
