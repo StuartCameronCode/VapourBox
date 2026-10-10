@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 #
-# Fetch one platform's dependency bundle for a CI run and print the path of the
+# Fetch ONE dependency release asset for a CI run and print the path of the
 # downloaded .zip on stdout. Everything else goes to stderr, so the caller can
 # do:
 #
 #     ZIP=$(bash .github/scripts/fetch-deps-bundle.sh macos-arm64 deps-v1.9.0 1.9.0)
+#
+# The first argument is an asset id as it appears in the file name: a platform
+# (`linux-x64`), or a v2 delta (`linux-x64-v2-delta`). Workflows should not
+# call this directly — install-deps-bundle.sh knows which assets make up a
+# platform's bundle (a v2 tier is two of them) and extracts them in order.
 #
 # Two sources, chosen by whether $DEPS_RUN_ID is set:
 #
@@ -45,7 +50,10 @@ TAG="${2:?missing release tag}"
 VER="${3:?missing version}"
 
 if [ -n "${DEPS_RUN_ID:-}" ]; then
-  rm -rf .deps-artifact
+  # One directory per asset: installing a v2 tier fetches two, and the second
+  # must not wipe the first.
+  ARTIFACT_DIR=".deps-artifact/$PLATFORM"
+  rm -rf "$ARTIFACT_DIR"
   ZIP=""
   FROM_RUN=""
 
@@ -55,13 +63,13 @@ if [ -n "${DEPS_RUN_ID:-}" ]; then
   for RUN in $(echo "$DEPS_RUN_ID" | tr ',' ' '); do
     echo "looking for a $PLATFORM artifact in run $RUN" >&2
     if gh run download "$RUN" \
-        --pattern "VapourBox-deps-*-${PLATFORM}" --dir .deps-artifact >&2 2>/dev/null; then
+        --pattern "VapourBox-deps-*-${PLATFORM}" --dir "$ARTIFACT_DIR" >&2 2>/dev/null; then
       # gh nests each artifact in a directory named after it, so glob rather
       # than assuming a layout.
-      ZIP=$(find .deps-artifact -name "VapourBox-deps-*-${PLATFORM}.zip" | head -1)
+      ZIP=$(find "$ARTIFACT_DIR" -name "VapourBox-deps-*-${PLATFORM}.zip" | head -1)
       if [ -n "$ZIP" ]; then FROM_RUN="$RUN"; break; fi
     fi
-    rm -rf .deps-artifact
+    rm -rf "$ARTIFACT_DIR"
   done
 
   if [ -z "$ZIP" ]; then

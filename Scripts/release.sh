@@ -306,8 +306,8 @@ RELEASE_NOTES="## VapourBox $APP_VERSION
 - **Windows**: \`VapourBox-$APP_VERSION-windows-x64-setup.exe\` (or the portable \`.zip\`)
 - **macOS (Apple Silicon)**: \`VapourBox-$APP_VERSION-macos-arm64.zip\` (contains signed & notarized DMG)
 - **macOS (Intel)**: \`VapourBox-$APP_VERSION-macos-x64.zip\` (contains signed & notarized DMG)
-- **Linux (x64)**: \`VapourBox-$APP_VERSION-linux-x64.AppImage\` (or the \`.tar.gz\`)
-- **Linux (arm64)**: \`VapourBox-$APP_VERSION-linux-arm64.AppImage\` (or the \`.tar.gz\`)
+- **Linux (x64)**: \`VapourBox-$APP_VERSION-x86_64.AppImage\` (or the \`.tar.gz\`)
+- **Linux (arm64)**: \`VapourBox-$APP_VERSION-aarch64.AppImage\` (or the \`.tar.gz\`)
 
 ### Installation
 - **Windows**: Run the installer — or extract the zip and run \`vapourbox.exe\`

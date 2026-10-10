@@ -371,7 +371,10 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
   present before zipping and fail the build if any are missing, so a dead
   download URL becomes a red build instead of a silently-incomplete bundle.
   x64 platforms have a second key per CPU tier (`macos-x64-v2`, …) that must
-  list the same plugins — `attribution_test.dart` asserts it.
+  list the same plugins — `attribution_test.dart` asserts it. **If the plugin
+  is built differently for the v2 tier, also add its path to `_tierFiles`** in
+  the same file: that list is the entire content of the published v2 delta, so
+  a tier-specific plugin missing from it ships as its v3 build to older CPUs.
 - **Check it for load-time SIMD on x64** (see "CPU tiers" below): a prebuilt
   x86 binary built with `-mavx2`-style flags can SIGILL inside `dlopen` on an
   older CPU, and autoload makes that every job. Run
@@ -671,20 +674,41 @@ disagree. Pin the **series** against a rolling host tag (e.g. BtbN's
 `n9.0-latest`), never an exact old build — a fixed old tag gets garbage-collected
 off a rolling `latest` alias and 404s the deps build outright.
 
-**CPU tiers (issue #92): every x86 deps bundle ships twice.** `v3` is built
-for x86-64-v3 CPUs (Haswell, 2013, and later); `v2` runs on anything older.
-The rules:
+**CPU tiers (issue #92): every x86 platform's deps come in two tiers.** `v3`
+is built for x86-64-v3 CPUs (Haswell, 2013, and later); `v2` runs on anything
+older. From deps 1.13.0 only v3 is a full bundle: v2 is a small **delta**
+extracted over it. The rules:
 
 - **One decision, in the worker.** `cpu::cpu_tier()` (`worker/src/cpu.rs`)
   requires the *whole* x86-64-v3 set, not just AVX2. `--probe-cpu` reports it,
   the app downloads by it, and `ctmf_opt` derives from it. Never re-derive the
   tier elsewhere (sysctl is wrong under Rosetta); on x86 an unclear answer means
   `v2`, which only costs speed. `VAPOURBOX_DEPS_TIER=v2|v3` overrides it.
-- **The tier lives only in the asset name and version.json.** `v3` keeps the
-  plain names (`VapourBox-deps-X-macos-x64.zip`), `v2` is suffixed
-  (`…-macos-x64-v2.zip`); both install to `deps/<platform>`. The app re-checks
-  the installed tier at startup (`DependencyStatus.wrongTier`) and replaces a
-  mismatch even when it is newer than expected.
+- **The tier lives only in which assets are installed and in version.json.**
+  The v3 bundle keeps the plain name (`VapourBox-deps-X-macos-x64.zip`); the v2
+  tier is that same bundle plus `…-macos-x64-v2-delta.zip`, extracted over it.
+  Either way the result installs to `deps/<platform>`.
+  `DependencyManager.installAssetIds` is the one statement of which zips make
+  up an install, and `"tierFormat": "delta"` in `deps-version.json` is what
+  selects this (absent = the 1.11.0–1.12.0 scheme of a second full
+  `…-x64-v2.zip`). The app re-checks the installed tier at startup
+  (`DependencyStatus.wrongTier`) and reinstalls on a mismatch — from the
+  bundle, never by patching the installed tree — even when it is newer than
+  expected.
+- **The delta is the files in `_tierFiles`, nothing else, and it is tied to
+  its bundle.** `Scripts/make-deps-delta.py` takes exactly the paths listed
+  per platform under `_tierFiles` in `Scripts/deps-expected-plugins.json` from
+  a full v2 build. It is deliberately not a diff of the two builds (two builds
+  of the same sources are not byte-identical, so a diff names nearly every
+  binary); instead it fails if the builds hold different *sets* of paths
+  (a pure overwrite could not reproduce v2) or if a tier file is
+  byte-identical in both (the tier switch did nothing). The delta's
+  `version.json` records `baseSha256`, and both the app and the test harness
+  refuse to apply it over any other bundle.
+- **No zip's `version.json` is ever extracted by the app.**
+  `_writeInstalledVersion` writes that file last, as the commit marker. The v3
+  bundle's own copy says `tier: v3`; letting it through would make a v2
+  install interrupted before its delta look like a finished v3 one.
 - **One `--tier` block per `download-deps-*` script** maps the tier to build
   variables; nothing else in the script branches on it. The two tiers differ
   only where running the bundle on an old CPU proved they must: zsmooth
@@ -692,11 +716,21 @@ The rules:
   runtime dispatch) everywhere, and on macOS MVTools (v2 builds v24 from source
   with `patches/mvtools-v24-no-avx2.patch`, because Stefan-Olt's build SIGILLs
   in its AVX2 static initializers inside `dlopen`).
-- **A v2 bundle is gated before it can be published**: under Intel SDE by
-  `probe-cpu-compat.yml` (Linux at Westmere; Windows at Sandy Bridge, since SDE
-  cannot emulate pre-AVX Windows — Microsoft's runtime reads the host's CPU
-  features from the kernel), and on macOS statically by
-  `Scripts/check-load-time-simd.py` inside `package-deps-macos.sh`.
+- **A v2 delta is gated before it can be published**, against what a v2 user
+  ends up with — the v3 bundle with the delta applied, composed by the
+  `delta-x64` job of each `build-deps-*` workflow — not against the v2 build it
+  was cut from: under Intel SDE by `probe-cpu-compat.yml` (Linux at Westmere;
+  Windows at Sandy Bridge, since SDE cannot emulate pre-AVX Windows —
+  Microsoft's runtime reads the host's CPU features from the kernel), and on
+  macOS statically by `Scripts/check-load-time-simd.py` (once on the v2 build
+  inside `package-deps-macos.sh`, again on the composed tree). The full v2
+  build is a CI intermediate (artifact `…-x64-v2-build`) and must never reach a
+  release; `deps_delta_install_test.dart` asserts no workflow can upload it.
+- **CI installs a v2 tier the way the app does.**
+  `.github/scripts/install-deps-bundle.sh` is the one place the workflows learn
+  that `linux-x64-v2` means "bundle, then delta"; `WorkerHarness._downloadDeps`
+  is the same for local test runs. Don't unzip a deps asset in a workflow
+  directly.
 
 **CTMF's `opt` (SIMD level) must be chosen by the worker from the CPU, never
 left at the plugin's own auto-detect (`opt=0`).** Its AVX-512 kernel for 8-bit
@@ -1312,7 +1346,9 @@ gh workflow run ci-test.yml --ref <branch> \
 
 It's a comma-separated list because macOS/Windows/Linux are three separate
 `build-deps-*` workflow runs; each CI job tries every ID and takes the first
-holding its platform's artifact. The bundle version is deliberately not
+holding its platform's artifact (`.github/scripts/install-deps-bundle.sh`,
+which for a `-v2` row fetches the bundle and the `-v2-delta` artifact and
+extracts one over the other). The bundle version is deliberately not
 cross-checked against `deps-version.json` — it logs a `::warning::` instead, so
 a green run against an unreleased bundle can't be mistaken for one against the
 released bundle.
@@ -1336,6 +1372,13 @@ a **first install** extracts straight into `<deps>` with no rename, since
 there's nothing to protect. `version.json` is written **last**, as the commit
 marker. Direction is checked with `compareVersions`, not `!=`/string compare — a
 deliberately newer install must never be treated as outdated and overwritten.
+
+An install can be more than one zip (the v2 tier is bundle + delta, see "CPU
+tiers"): each is extracted into the same target in order (`extractBundle`,
+`overlay: true` for all but the first), the macOS quarantine strip and re-sign
+run once after the last, and the cache keeps every zip of the current install
+(`_cachedDownloadPath(keep:)`) so fetching the second doesn't prune the first.
+`extractBundle` reads a whole zip into memory, ~240 MB for the Linux bundle.
 
 On Windows, both renames go through a retry loop (`retryTransientFsOperation`)
 because a directory rename fails with **errno 5** (not a permissions error) if
@@ -1526,18 +1569,48 @@ placement and a version skew would change chroma per-OS.
     environment is inherited by the worker and by the ffmpeg/vspipe it spawns
     from the downloaded deps bundle, so anything set there leaks into them.
   - **The mount is read-only** (`/tmp/.mount_*`). Nothing may be written next
-    to the executable on Linux; deps and add-ons already live under
-    `$XDG_DATA_HOME`, which is also why deps stay a first-launch download
-    instead of being packed in (they are versioned separately and come in two
-    CPU tiers).
+    to the executable on Linux; deps and add-ons install under
+    `$XDG_DATA_HOME`.
+  - **The AppImage carries the deps zips; the tarball does not.**
+    `package-linux.sh --bundle-deps DIR` copies the published bundle (and on
+    x64 the v2 delta), each with its `.sha256.json`, into
+    `usr/lib/vapourbox/bundled-deps/`, and `DependencyManager` installs from
+    there instead of downloading (see "Dependency Versioning"). They go in as
+    the published zips, not unpacked: the mount is read-only and the install
+    path, tier choice and verification stay exactly the download's. So a deps
+    release must exist **before** the app build (`build-linux.yml` fetches it
+    by `deps_tag`), the script refuses zips of any version but the one
+    `deps-version.json` names, and a deps-only fix still reaches AppImage
+    users only through a new AppImage or the normal download fallback.
+  - **Named `VapourBox-X-x86_64.AppImage` / `-aarch64.AppImage`** — the
+    AppImage convention, which the catalog (appimage.github.io) checks: the
+    machine's architecture name and no "linux". The tarball keeps
+    `linux-<arch>`.
   - **The `.AppImage.zsync` must be uploaded beside every AppImage.** The
     embedded update information names it
-    (`gh-releases-zsync|…|latest|VapourBox-*-linux-<arch>.AppImage.zsync`), so
-    one missing is an updater that fails for every user. The script fails if
-    `zsyncmake` is absent rather than build without it, and
-    `packaging_test.dart` asserts the release upload picks both files up.
+    (`gh-releases-zsync|…|latest|VapourBox-*-<x86_64|aarch64>.AppImage.zsync`),
+    so one missing is an updater that fails for every user. The script fails
+    if `zsyncmake` is absent rather than build without it, and
+    `packaging_test.dart` asserts the release upload picks the files up.
     `latest` is GitHub's Latest release — one more reason a deps or whisper
     release must never be marked Latest.
+  - **A second `.zsync`, under the old name, is a bridge for 1.2.0.** 1.2.0 was
+    the only release named `…-linux-<arch>.AppImage` and embeds
+    `VapourBox-*-linux-<arch>.AppImage.zsync`. Each release therefore also
+    publishes a copy of its `.zsync` as `VapourBox-X-linux-<arch>.AppImage.zsync`
+    (`LEGACY_ZSYNC`); its relative `URL:` header names the new file. Remove it
+    only once updating from 1.2.0 no longer matters. **Not yet proven
+    end-to-end**: it needs one real AppImageUpdate run from a 1.2.0 AppImage.
+  - **AppStream metadata** is `packaging/linux/app.vapourbox.VapourBox.appdata.xml`,
+    installed to `usr/share/metainfo/` with the version, date and a
+    tag-pinned screenshot URL stamped in at package time. It is what the
+    catalog and software centres list. Named `.appdata.xml` because the
+    catalog's lint only looks for that name, and limited to tags a 2021
+    `appstreamcli` knows because that is what the catalog runs. The script
+    validates it with `--no-net` and passes `--no-appstream` to appimagetool,
+    whose own check would fetch the screenshot from a tag that does not exist
+    until the release is published. **`docs/images/screenshot.png` is the
+    listing's screenshot** — keep it current.
   - The desktop file and icon are named for `APPLICATION_ID`
     (`app.vapourbox.VapourBox`, `app/linux/CMakeLists.txt`), which is what
     the window reports as its app id; rename one and the running window stops
@@ -1554,7 +1627,19 @@ Plugin lists for all platforms: see `deps/` directories or download scripts.
 
 ## Dependency Versioning and Auto-Download
 
-Dependencies are versioned separately from the app via `app/assets/deps-version.json` and distributed as separate GitHub releases (tag: `deps-vX.Y.Z`). The app auto-downloads deps on launch if missing, outdated, or built for a different CPU tier (x64 only — see "CPU tiers"; the asset is `DependencyManager.assetIdFor(platformId, tier)`).
+Dependencies are versioned separately from the app via `app/assets/deps-version.json` and distributed as separate GitHub releases (tag: `deps-vX.Y.Z`). The app auto-downloads deps on launch if missing, outdated, or built for a different CPU tier (x64 only — see "CPU tiers"; the assets are `DependencyManager.installAssetIds(platformId, tier, …)`).
+
+**"Download" is the last of three sources.** For each zip an install needs,
+`DependencyManager._obtainZip` takes, in order: a copy the package shipped in
+`bundled-deps/` beside the executable (`findBundledZip`; today only the Linux
+AppImage ships one), the cached download from an earlier attempt, then the
+network. The bundled directory is one fixed path inside the app's own tree and
+must never become a search: a zip found there is extracted and run, so it gets
+the trust of the executable next to it and no more places than that. A bundled
+zip **must** match the `.sha256.json` shipped beside it (not best-effort, as a
+download's sidecar is — offline there is nothing else to say it is whole); one
+that doesn't is ignored and the download happens as usual. A bundled zip is
+never deleted or copied; only zips the app fetched are cleaned up.
 
 `deps-version.json` is a **slim pointer** — `{version, releaseTag, githubRepo}`. Integrity metadata is **not** stored here: each `package-deps-*` script writes a **sidecar** `<zip>.sha256.json` uploaded next to the zip, which the app fetches and verifies at download time (best-effort if the sidecar is missing). **Net effect: a new deps release only needs a `version`/`releaseTag` bump.**
 
@@ -1654,6 +1739,7 @@ Notes:
 | `Scripts/package-deps-macos.sh` | Package macOS deps |
 | `Scripts/package-deps-windows.ps1` | Package Windows deps |
 | `Scripts/package-deps-linux.sh` | Package Linux deps |
+| `Scripts/make-deps-delta.py` | Cut an x64 platform's v2 delta from a full v2 build and the v3 bundle (run by the `delta-x64` job of each `build-deps-*` workflow) |
 | `Scripts/download-deps-linux.sh` | Build Linux deps from source |
 | `Scripts/run-debug-linux.sh` | Dev build + run for Linux |
 
@@ -1661,8 +1747,8 @@ Notes:
 
 1. **Confirm version** — ask user, update `pubspec.yaml`
 2. **Check deps** — run `check-deps-changed.sh`; if changed, bump `version`/`releaseTag` in `deps-version.json`.
-3. **Build & package deps in CI** — dispatch `build-deps-{macos,windows,linux}.yml` with `release_tag`. They build both x64 tiers, gate the v2 bundles, and only then upload each zip **and** its `<zip>.sha256.json` sidecar.
-4. **Check the deps release** — every platform, both tiers of each x64: `macos-arm64`, `macos-x64`, `macos-x64-v2`, `windows-x64`, `windows-x64-v2`, `linux-x64`, `linux-x64-v2`, `linux-arm64`.
+3. **Build & package deps in CI** — dispatch `build-deps-{macos,windows,linux}.yml` with `release_tag`. They build both x64 tiers, cut the v2 delta, gate the composed v2 tree, and only then upload each zip **and** its `<zip>.sha256.json` sidecar.
+4. **Check the deps release** — eight zips, each with a sidecar: the five bundles `macos-arm64`, `macos-x64`, `windows-x64`, `linux-x64`, `linux-arm64`, and the three deltas `macos-x64-v2-delta`, `windows-x64-v2-delta`, `linux-x64-v2-delta`. There must be **no** full `…-x64-v2.zip`.
 5. **Test** — fresh install + upgrade test
 6. **Create GitHub releases** — deps release first (if changed, tag `deps-vX.Y.Z`), then app release (tag `vX.Y.Z`)
 
@@ -1765,3 +1851,4 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.10.0 | 2026-08-31 | **Issue #82**: zsmooth now ships one build per x86 CPU baseline (haswell, x86_64_v2), fixing an illegal-instruction crash on pre-2013 CPUs. **FFmpeg pinned to 9.0 on all four platforms** (they had silently diverged: Windows on an unpinned post-9.0 master, macOS on floating 9.0.1, Linux stuck at 7.1 after BtbN garbage-collected the pinned tag) |
 | 1.11.0 | 2026-09 | **Issue #92**: every x86 bundle ships in two **CPU tiers** — `v3` (x86-64-v3; the plain asset names) and `v2` (`…-x64-v2`, anything older), chosen by the app from `vapourbox-worker --probe-cpu`. Each bundle carries one autoloaded zsmooth (replacing 1.10.0's two-builds-loaded-by-path). macOS v2 builds MVTools v24 from source without its AVX2 files, whose static initializers SIGILLed inside `dlopen` on pre-AVX Macs. v2 bundles are gated (SDE on Linux/Windows, static check on macOS) before publishing |
 | 1.12.0 | 2026-10-04 | **Issue #101**: akarin 1.4.1 → **1.5.0** on every platform. The 1.4.1 Linux wheel put JIT code on the `brk` heap, where SELinux denies `PROT_EXEC`, so every job segfaulted on Fedora/RHEL from deps 1.8.0 on. `download-deps-linux.sh` now fails if `libakarin.so` lacks the mmap allocator |
+| 1.13.0 | 2026-10 | **Packaging only — every binary is built from the same sources as 1.12.0.** The v2 CPU tier is no longer a second full bundle: each x64 platform publishes its v3 bundle plus `…-x64-v2-delta.zip`, the files in `_tierFiles` (zsmooth; on macOS also MVTools), extracted over it (`"tierFormat": "delta"`). Every x64 machine downloads the same bundle; only an older CPU fetches the few MB more. This is also what lets the Linux AppImage carry its deps for both tiers without doubling in size |

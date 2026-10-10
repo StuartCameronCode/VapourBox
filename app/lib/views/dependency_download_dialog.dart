@@ -100,17 +100,17 @@ class _DependencyDownloadDialogState extends State<DependencyDownloadDialog> {
     switch (widget.status) {
       case DependencyStatus.missing:
         return 'VapourBox requires additional components to process videos.\n\n'
-            'These will be downloaded automatically.';
+            'These will be installed automatically.';
       case DependencyStatus.outdated:
         return 'A new version of the processing components is available.\n\n'
             'Updating to ensure compatibility.';
       case DependencyStatus.wrongTier:
         return 'The installed processing components were built for a '
             'different processor.\n\n'
-            'Downloading the version for this computer.';
+            'Installing the version for this computer.';
       case DependencyStatus.corrupted:
         return 'Some processing components are damaged or incomplete.\n\n'
-            'Re-downloading to fix the issue.';
+            'Reinstalling to fix the issue.';
       case DependencyStatus.newerThanExpected:
         // main.dart keeps these and warns instead of opening this dialog;
         // handled so the status can never fall through to the default.

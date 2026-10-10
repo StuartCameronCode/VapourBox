@@ -98,13 +98,22 @@ class DepsVersionInfo {
   final Map<String, PlatformDepsInfo> platforms;
   final String githubRepo;
 
+  /// How the release ships the v2 CPU tier of an x64 platform. Absent means a
+  /// second full bundle (`…-x64-v2.zip`, deps 1.11.0–1.12.0); `delta` means a
+  /// small zip of the files that differ (`…-x64-v2-delta.zip`, deps 1.13.0 on),
+  /// extracted over the v3 bundle. See [DependencyManager.installAssetIds].
+  final String? tierFormat;
+
   DepsVersionInfo({
     required this.version,
     required this.releaseTag,
     this.releaseDate,
     required this.platforms,
     required this.githubRepo,
+    this.tierFormat,
   });
+
+  bool get tierIsDelta => tierFormat == 'delta';
 
   factory DepsVersionInfo.fromJson(Map<String, dynamic> json) {
     final platforms = <String, PlatformDepsInfo>{};
@@ -121,6 +130,7 @@ class DepsVersionInfo {
       releaseDate: json['releaseDate'] as String?,
       platforms: platforms,
       githubRepo: json['githubRepo'] as String? ?? 'StuartCameronCode/VapourBox',
+      tierFormat: json['tierFormat'] as String?,
     );
   }
 
@@ -259,6 +269,81 @@ class DependencyManager {
   /// version.json — so the worker, dev paths and tests need no tier awareness.
   static String assetIdFor(String platformId, String? tier) =>
       tier == 'v2' ? '$platformId-v2' : platformId;
+
+  /// The release assets that make up an install, in extraction order.
+  ///
+  /// One zip, except for the v2 tier of a release whose
+  /// [DepsVersionInfo.tierFormat] is `delta`: that is the platform's v3 bundle
+  /// followed by `<platform>-v2-delta`, the handful of files built differently
+  /// for older CPUs, extracted over it. So every x64 machine fetches the same
+  /// bundle and only an older one fetches anything more.
+  static List<String> installAssetIds(String platformId, String? tier,
+          {required bool delta}) =>
+      tier == 'v2' && delta
+          ? [platformId, '$platformId-v2-delta']
+          : [assetIdFor(platformId, tier)];
+
+  /// Test seam: replaces [bundledDepsDirectory].
+  Directory? bundledDepsDirOverride;
+
+  /// Where a package may ship deps zips so the first launch needs no network:
+  /// `bundled-deps/` beside the executable. The Linux AppImage fills it
+  /// (Scripts/package-linux.sh --bundle-deps); nothing else does yet.
+  ///
+  /// Deliberately one fixed path inside the app's own tree, never a search: a
+  /// zip found here is extracted and its binaries run, so it gets exactly the
+  /// trust the executable next to it has, and no more places than that.
+  Directory bundledDepsDirectory() =>
+      bundledDepsDirOverride ??
+      Directory(path.join(
+          path.dirname(Platform.resolvedExecutable), 'bundled-deps'));
+
+  /// A bundled copy of [filename], or null if the package ships none or it
+  /// does not match the sidecar shipped beside it.
+  ///
+  /// The sidecar is required, not best-effort as it is for a download: with no
+  /// network there is nothing else to say the zip is whole, and falling back to
+  /// the download costs nothing when the bundled copy is unusable.
+  static Future<File?> findBundledZip(Directory dir, String filename) async {
+    final zip = File(path.join(dir.path, filename));
+    final sidecar = File('${zip.path}.sha256.json');
+    if (!await zip.exists() || !await sidecar.exists()) return null;
+    try {
+      final expected =
+          (jsonDecode(await sidecar.readAsString()) as Map)['sha256'];
+      if (expected is! String || expected.isEmpty) return null;
+      final actual = await sha256OfFile(zip);
+      if (actual != expected) {
+        print('DependencyManager: bundled $filename does not match its '
+            'sidecar ($actual, expected $expected) - ignoring it');
+        return null;
+      }
+      return zip;
+    } catch (e) {
+      print('DependencyManager: could not use bundled $filename ($e)');
+      return null;
+    }
+  }
+
+  /// The sha256 of the bundle a v2 delta was cut against, read from the
+  /// `version.json` inside the delta, or null if it records none.
+  static String? deltaBaseSha256(Archive delta) {
+    for (final file in delta) {
+      if (file.isFile && _isVersionFile(file.name)) {
+        try {
+          final json = jsonDecode(utf8.decode(file.content as List<int>));
+          final sha = json is Map ? json['baseSha256'] : null;
+          return sha is String && sha.isNotEmpty ? sha : null;
+        } catch (_) {
+          return null;
+        }
+      }
+    }
+    return null;
+  }
+
+  static bool _isVersionFile(String entryName) =>
+      entryName.replaceAll('\\', '/') == 'version.json';
 
   String? _cachedTier;
   bool _tierResolved = false;
@@ -658,65 +743,32 @@ class DependencyManager {
     final tier = await depsTier();
     final assetId = assetIdFor(platformId, tier);
 
-    // Construct download URL from release tag (filename is derived). The asset
-    // carries the tier; the install directory does not.
-    final downloadUrl = expected.getDownloadUrl(assetId);
-    final filename = expected.filenameFor(assetId);
-
-    print('DependencyManager: Downloading from $downloadUrl');
+    // What to install, in extraction order: one bundle, or for the v2 tier of
+    // a delta-format release the v3 bundle and then the delta over it. The
+    // assets carry the tier; the install directory does not.
+    final assetIds =
+        installAssetIds(platformId, tier, delta: expected.tierIsDelta);
+    final filenames = [for (final id in assetIds) expected.filenameFor(id)];
 
     _progressController.add(DownloadProgress(
       bytesReceived: 0,
       totalBytes: 0,
-      status: 'Connecting...',
+      status: 'Preparing...',
     ));
 
-    // Fetch the integrity sidecar (sha256) uploaded next to the zip. Verification
-    // is best-effort: if the sidecar is missing/unreadable we still install (the
-    // download is over HTTPS), matching prior behaviour when no hash was set.
-    final expectedSha256 =
-        await _fetchExpectedSha256(expected.getManifestUrl(assetId));
-
-    // The zip is downloaded into a stable cache path rather than a throwaway
-    // temp directory, and kept if anything after the download fails. Everything
-    // past this point — extraction, verification, the swap — can fail for
-    // reasons that have nothing to do with the bytes we just fetched (issue
-    // #87), and making the user re-fetch ~200 MB to retry a rename is a poor
-    // trade for the disk the zip occupies until the install succeeds.
-    final tempFile = File(await _cachedDownloadPath(filename));
+    // Zips this install fetched into the cache, as opposed to ones the package
+    // shipped. Only these are ours to delete.
+    final zips = <File>[];
+    final cached = <File>[];
 
     try {
-      // Reuse the cached zip only when the sidecar gave us a hash to check it
-      // against. Without one an interrupted download is indistinguishable from
-      // a complete one, and extracting a truncated zip would report a corrupt
-      // bundle rather than the missing bytes.
-      var reusable = false;
-      if (await tempFile.exists()) {
-        if (expectedSha256 != null) {
-          _progressController.add(DownloadProgress(
-            bytesReceived: 0,
-            totalBytes: 0,
-            status: 'Checking the downloaded file...',
-          ));
-          reusable = await _sha256OfFile(tempFile) == expectedSha256;
-          print('DependencyManager: cached download ${reusable ? 'matches the '
-              'expected hash - skipping the download' : 'does not match the '
-              'expected hash - downloading again'}');
-        }
-        if (!reusable) {
-          await tempFile.delete().catchError((_) => tempFile);
-        }
+      for (final id in assetIds) {
+        final zip = await _obtainZip(expected, id, keep: filenames);
+        zips.add(zip.file);
+        if (!zip.bundled) cached.add(zip.file);
       }
 
-      if (!reusable) {
-        await _downloadFile(
-          downloadUrl,
-          tempFile,
-          expectedSha256: expectedSha256,
-        );
-      }
-
-      // Extract. _extractZip emits per-file extraction progress; this initial
+      // Extract. extractBundle emits per-file extraction progress; this initial
       // event (0/0 -> indeterminate) covers the synchronous decode that precedes
       // the first file write.
       _progressController.add(DownloadProgress(
@@ -725,7 +777,10 @@ class DependencyManager {
         status: 'Extracting...',
       ));
 
-      final downloadedBytes = await tempFile.length();
+      var downloadedBytes = 0;
+      for (final zip in zips) {
+        downloadedBytes += await zip.length();
+      }
 
       // Build the new install alongside the current one and swap it in, rather
       // than deleting the current one and extracting over the top. The old path
@@ -765,7 +820,18 @@ class DependencyManager {
       final hadPrevious = await depsDir.exists();
       final target = hadPrevious ? staging : depsDir;
 
-      await _extractZip(tempFile, targetOverride: target);
+      // A delta is only ever applied over the bundle it was cut against. A
+      // mismatch means the release was half-updated or a zip is not what its
+      // name says; either way the result would be a v2 install that is really
+      // v3 with the wrong plugin dropped in.
+      if (zips.length > 1) {
+        await _checkDeltaMatchesBase(base: zips.first, delta: zips.last);
+      }
+
+      for (var i = 0; i < zips.length; i++) {
+        await extractBundle(zips[i], target,
+            overlay: i > 0, finalize: i == zips.length - 1);
+      }
 
       // Prove the install is actually usable before declaring success. The
       // quarantine strip above can fail — silently, and it cannot succeed at all
@@ -869,14 +935,111 @@ class DependencyManager {
 
       print('DependencyManager: Installation complete');
 
-      // Only now is the zip dead weight. On any failure above it is deliberately
-      // left in place so Retry can skip the download.
-      await tempFile.delete().catchError((_) => tempFile);
+      // Only now are the downloaded zips dead weight. On any failure above
+      // they are deliberately left in place so Retry can skip the download. A
+      // zip the package shipped is never ours to delete.
+      for (final zip in cached) {
+        await zip.delete().catchError((_) => zip);
+      }
     } catch (e) {
-      print('DependencyManager: install failed ($e) - keeping the downloaded '
-          'zip at ${tempFile.path} so a retry can reuse it');
+      if (cached.isNotEmpty) {
+        print('DependencyManager: install failed ($e) - keeping the downloaded '
+            '${cached.map((f) => f.path).join(', ')} so a retry can reuse '
+            'what was fetched');
+      }
       rethrow;
     }
+  }
+
+  /// One zip of an install: the copy the package shipped if it has a good one,
+  /// else the cached download, else a fresh download.
+  Future<({File file, bool bundled})> _obtainZip(
+    DepsVersionInfo expected,
+    String assetId, {
+    required List<String> keep,
+  }) async {
+    final filename = expected.filenameFor(assetId);
+
+    final bundled = await findBundledZip(bundledDepsDirectory(), filename);
+    if (bundled != null) {
+      print('DependencyManager: using the bundled $filename');
+      return (file: bundled, bundled: true);
+    }
+
+    final downloadUrl = expected.getDownloadUrl(assetId);
+    print('DependencyManager: Downloading from $downloadUrl');
+    _progressController.add(DownloadProgress(
+      bytesReceived: 0,
+      totalBytes: 0,
+      status: 'Connecting...',
+    ));
+
+    // Fetch the integrity sidecar (sha256) uploaded next to the zip. Verification
+    // is best-effort: if the sidecar is missing/unreadable we still install (the
+    // download is over HTTPS), matching prior behaviour when no hash was set.
+    final expectedSha256 =
+        await _fetchExpectedSha256(expected.getManifestUrl(assetId));
+
+    // The zip is downloaded into a stable cache path rather than a throwaway
+    // temp directory, and kept if anything after the download fails. Everything
+    // past this point — extraction, verification, the swap — can fail for
+    // reasons that have nothing to do with the bytes we just fetched (issue
+    // #87), and making the user re-fetch ~200 MB to retry a rename is a poor
+    // trade for the disk the zip occupies until the install succeeds.
+    final tempFile = File(await _cachedDownloadPath(filename, keep: keep));
+
+    // Reuse the cached zip only when the sidecar gave us a hash to check it
+    // against. Without one an interrupted download is indistinguishable from
+    // a complete one, and extracting a truncated zip would report a corrupt
+    // bundle rather than the missing bytes.
+    var reusable = false;
+    if (await tempFile.exists()) {
+      if (expectedSha256 != null) {
+        _progressController.add(DownloadProgress(
+          bytesReceived: 0,
+          totalBytes: 0,
+          status: 'Checking the downloaded file...',
+        ));
+        reusable = await sha256OfFile(tempFile) == expectedSha256;
+        print('DependencyManager: cached download ${reusable ? 'matches the '
+            'expected hash - skipping the download' : 'does not match the '
+            'expected hash - downloading again'}');
+      }
+      if (!reusable) {
+        await tempFile.delete().catchError((_) => tempFile);
+      }
+    }
+
+    if (!reusable) {
+      await _downloadFile(
+        downloadUrl,
+        tempFile,
+        expectedSha256: expectedSha256,
+      );
+    }
+    return (file: tempFile, bundled: false);
+  }
+
+  /// Refuse a v2 delta that was not cut against [base].
+  Future<void> _checkDeltaMatchesBase(
+      {required File base, required File delta}) async {
+    final wanted =
+        deltaBaseSha256(ZipDecoder().decodeBytes(await delta.readAsBytes()));
+    final actual = await sha256OfFile(base);
+    if (wanted == actual) return;
+    // The cached delta is the likelier stale half (it is tiny and the bundle
+    // was just verified against its own sidecar), so drop it and let a retry
+    // fetch it again.
+    if (!path.isWithin(bundledDepsDirectory().path, delta.path)) {
+      await delta.delete().catchError((_) => delta);
+    }
+    throw DependencyInstallException(
+      'The components for older processors do not match the main bundle '
+      '(they were built against ${wanted ?? 'an unrecorded bundle'}, but the '
+      'bundle is $actual).',
+      remedy: 'Try again in a few minutes - a new release may still be '
+          'uploading. If it keeps happening, please report it.',
+    );
   }
 
   /// What to suggest the user try, given the error that ended the install.
@@ -928,14 +1091,19 @@ class DependencyManager {
   /// A fixed name under the (user-configurable) temp directory, so a retry can
   /// find it. Anything else in there is another version's leftovers and is
   /// pruned, which is what stops the cache growing without bound.
-  Future<String> _cachedDownloadPath(String filename) async {
+  ///
+  /// [keep] names the other files this install needs: a v2 install has two
+  /// zips, and fetching the second must not prune the first.
+  Future<String> _cachedDownloadPath(String filename,
+      {Iterable<String> keep = const []}) async {
     final dir = Directory(path.join(
         (await TempDirectoryService.instance.resolve()).path,
         'vapourbox-deps-cache'));
     if (!await dir.exists()) await dir.create(recursive: true);
     try {
       await for (final entry in dir.list()) {
-        if (entry is File && path.basename(entry.path) != filename) {
+        final name = path.basename(entry.path);
+        if (entry is File && name != filename && !keep.contains(name)) {
           await entry.delete().catchError((_) => entry);
         }
       }
@@ -946,7 +1114,7 @@ class DependencyManager {
   }
 
   /// Lowercase hex sha256 of [file], in the same form the sidecar publishes.
-  Future<String> _sha256OfFile(File file) async {
+  static Future<String> sha256OfFile(File file) async {
     final digest = await sha256.bind(file.openRead()).first;
     return digest.toString();
   }
@@ -1116,22 +1284,33 @@ class DependencyManager {
     }
   }
 
-  /// Extract a zip file to the deps directory.
-  Future<void> _extractZip(File zipFile, {Directory? targetOverride}) async {
-    final depsDir = targetOverride ?? await getDepsDirectory();
-
+  /// Extract a deps zip into [depsDir].
+  ///
+  /// [overlay] extracts over what is already there instead of replacing it,
+  /// which is how a v2 delta lands on the v3 bundle. [finalize] runs the
+  /// once-per-install steps (the macOS quarantine strip and re-sign); pass
+  /// false for every zip of a multi-zip install but the last.
+  ///
+  /// A zip's own `version.json` is never written. [_writeInstalledVersion]
+  /// writes that file, last, as the mark of a complete install; letting the
+  /// zip's copy through would make a half-extracted tree look installed, and
+  /// a v2 install look like v3 until the delta landed.
+  @visibleForTesting
+  Future<void> extractBundle(File zipFile, Directory depsDir,
+      {bool overlay = false, bool finalize = true}) async {
     // Create parent directory if needed
     final parentDir = depsDir.parent;
     if (!await parentDir.exists()) {
       await parentDir.create(recursive: true);
     }
 
-    // Remove existing deps directory
-    if (await depsDir.exists()) {
-      await depsDir.delete(recursive: true);
+    if (!overlay) {
+      // Remove existing deps directory
+      if (await depsDir.exists()) {
+        await depsDir.delete(recursive: true);
+      }
+      await depsDir.create(recursive: true);
     }
-
-    await depsDir.create(recursive: true);
 
     // Read and extract zip
     final bytes = await zipFile.readAsBytes();
@@ -1160,6 +1339,7 @@ class DependencyManager {
     emitExtractProgress();
 
     for (final file in archive) {
+      if (_isVersionFile(file.name)) continue;
       final filePath = path.join(depsDir.path, file.name);
 
       if (file.isFile) {
@@ -1187,7 +1367,7 @@ class DependencyManager {
     emitExtractProgress();
 
     // On macOS, remove quarantine attribute and re-sign binaries for Gatekeeper
-    if (Platform.isMacOS) {
+    if (finalize && Platform.isMacOS) {
       await _removeQuarantine(depsDir.path);
       await _codesignBinaries(depsDir.path);
     }

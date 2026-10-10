@@ -10,13 +10,19 @@
 #   architecture — appimagetool is fetched automatically, or set $APPIMAGETOOL
 #
 # Usage: ./Scripts/package-linux.sh --version X.Y.Z [--skip-build] [--arch x64|arm64]
-#                                   [--skip-appimage]
+#                                   [--skip-appimage] [--bundle-deps DIR]
+#
+# --bundle-deps DIR packs the deps zips found in DIR into the AppImage (never
+# the tarball), so it runs with no network on first launch. DIR must hold the
+# release assets for the version app/assets/deps-version.json names, each with
+# its .sha256.json: the platform bundle, and on x64 the v2 delta as well.
 
 set -e
 
 VERSION="1.0.0"
 SKIP_BUILD=false
 SKIP_APPIMAGE=false
+BUNDLE_DEPS=""
 ARCH=""
 
 # Pinned, and checksummed below: this binary assembles what users run.
@@ -30,9 +36,10 @@ while [[ $# -gt 0 ]]; do
         --skip-build) SKIP_BUILD=true; shift ;;
         --arch) ARCH="$2"; shift 2 ;;
         --skip-appimage) SKIP_APPIMAGE=true; shift ;;
+        --bundle-deps) BUNDLE_DEPS="$(cd "$2" && pwd)"; shift 2 ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 --version X.Y.Z [--skip-build] [--arch x64|arm64] [--skip-appimage]"
+            echo "Usage: $0 --version X.Y.Z [--skip-build] [--arch x64|arm64] [--skip-appimage] [--bundle-deps DIR]"
             exit 1
             ;;
     esac
@@ -135,9 +142,13 @@ STEP=$((STEP + 1))
 # Create AppImage
 #
 # The AppImage holds exactly the tree the tarball does, under usr/lib/vapourbox,
-# so the two cannot drift. Nothing inside it is written to at runtime: deps and
-# add-ons install under $XDG_DATA_HOME, which is also why the processing
-# dependencies stay a first-launch download rather than being packed in here.
+# so the two cannot drift — plus, with --bundle-deps, the deps zips. Nothing
+# inside it is written to at runtime: deps and add-ons install under
+# $XDG_DATA_HOME, and a bundled zip is only ever read, by DependencyManager,
+# which extracts it there instead of downloading it. The zips are bundled as
+# published, not unpacked: the app verifies each against its sidecar and
+# installs it through the same path as a download, and an older CPU gets the
+# v2 delta extracted over the same bundle (see "CPU tiers" in CLAUDE.md).
 APPIMAGE_FILE=""
 if ! $SKIP_APPIMAGE; then
     echo "[$STEP/$TOTAL_STEPS] Creating AppImage..."
@@ -199,8 +210,41 @@ if ! $SKIP_APPIMAGE; then
     rm -rf "$APPDIR"
     mkdir -p "$APPDIR/usr/lib" \
              "$APPDIR/usr/share/applications" \
+             "$APPDIR/usr/share/metainfo" \
              "$APPDIR/usr/share/icons/hicolor/256x256/apps"
     cp -r "$PACKAGE_DIR" "$APPDIR/usr/lib/vapourbox"
+
+    # Bundled deps. The app looks for exactly the file names its own
+    # deps-version.json derives, so a zip of any other version would be ~240 MB
+    # of dead weight that nothing reports; require the right ones, and check
+    # each against its sidecar now rather than have every user's first launch
+    # discover a bad copy and fall back to downloading.
+    if [ -n "$BUNDLE_DEPS" ]; then
+        DEPS_VERSION=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' \
+            "$PROJECT_ROOT/app/assets/deps-version.json" | head -1)
+        BUNDLED_ZIPS=("VapourBox-deps-$DEPS_VERSION-linux-$ARCH.zip")
+        if [ "$ARCH" = "x64" ]; then
+            BUNDLED_ZIPS+=("VapourBox-deps-$DEPS_VERSION-linux-$ARCH-v2-delta.zip")
+        fi
+        mkdir -p "$APPDIR/usr/lib/vapourbox/bundled-deps"
+        for ZIP in "${BUNDLED_ZIPS[@]}"; do
+            if [ ! -f "$BUNDLE_DEPS/$ZIP" ] || [ ! -f "$BUNDLE_DEPS/$ZIP.sha256.json" ]; then
+                echo "ERROR: --bundle-deps: $BUNDLE_DEPS has no $ZIP (and its .sha256.json)."
+                echo "       The app expects deps $DEPS_VERSION (app/assets/deps-version.json)."
+                exit 1
+            fi
+            WANT=$(sed -n 's/.*"sha256": *"\([^"]*\)".*/\1/p' "$BUNDLE_DEPS/$ZIP.sha256.json")
+            if ! echo "$WANT  $BUNDLE_DEPS/$ZIP" | sha256sum -c - >/dev/null; then
+                echo "ERROR: --bundle-deps: $ZIP does not match its .sha256.json."
+                exit 1
+            fi
+            cp "$BUNDLE_DEPS/$ZIP" "$BUNDLE_DEPS/$ZIP.sha256.json" \
+                "$APPDIR/usr/lib/vapourbox/bundled-deps/"
+            echo "    Bundled $ZIP"
+        done
+    else
+        echo "    No --bundle-deps: this AppImage will download its deps on first launch."
+    fi
 
     install -m 755 "$LINUX_PACKAGING/AppRun" "$APPDIR/AppRun"
     # appimagetool wants the desktop file and its icon at the root; the copies
@@ -211,24 +255,57 @@ if ! $SKIP_APPIMAGE; then
     cp "$LINUX_PACKAGING/$APP_ID.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/"
     ln -s "$APP_ID.png" "$APPDIR/.DirIcon"
 
+    # AppStream metadata, with this release stamped in.
+    sed -e "s/@VERSION@/$VERSION/g" -e "s/@DATE@/$(date -u +%Y-%m-%d)/g" \
+        "$LINUX_PACKAGING/$APP_ID.appdata.xml" \
+        > "$APPDIR/usr/share/metainfo/$APP_ID.appdata.xml"
+    # Validated here, offline, when the tools are present (CI installs them):
+    # appimagetool's own check goes to the network for the screenshot, whose
+    # URL is this release's tag and does not exist until the release does.
+    if command -v desktop-file-validate >/dev/null 2>&1; then
+        desktop-file-validate "$APPDIR/$APP_ID.desktop"
+    fi
+    if command -v appstreamcli >/dev/null 2>&1; then
+        appstreamcli validate --no-net "$APPDIR/usr/share/metainfo/$APP_ID.appdata.xml"
+    fi
+
+    # Named the way AppImages are: App-version-arch, with the machine's own
+    # architecture name and no "linux" (every AppImage is for Linux; the
+    # AppImage catalog flags it). The tarball keeps linux-$ARCH.
+    #
     # "latest" follows GitHub's Latest release, which is why a deps or whisper
     # release must never be marked Latest (see CLAUDE.md). The wildcard stands
     # in for the version; the arch stays literal so x64 never updates to arm64.
-    APPIMAGE_FILE="$PACKAGE_NAME.AppImage"
-    UPDATE_INFO="gh-releases-zsync|${GITHUB_REPO%%/*}|${GITHUB_REPO##*/}|latest|VapourBox-*-linux-$ARCH.AppImage.zsync"
+    APPIMAGE_FILE="VapourBox-$VERSION-$AI_ARCH.AppImage"
+    UPDATE_INFO="gh-releases-zsync|${GITHUB_REPO%%/*}|${GITHUB_REPO##*/}|latest|VapourBox-*-$AI_ARCH.AppImage.zsync"
+    # 1.2.0, the only release under the old name, embedded the pattern
+    # VapourBox-*-linux-<arch>.AppImage.zsync. Publishing this release's .zsync
+    # under that name as well lets a 1.2.0 AppImage find it: the file's URL
+    # header is relative and names the new AppImage, which then carries the new
+    # pattern. Drop this once 1.2.0 is no longer worth updating from.
+    LEGACY_ZSYNC="VapourBox-$VERSION-linux-$ARCH.AppImage.zsync"
 
     # appimagetool writes the .zsync into the working directory. It is itself
     # an AppImage; extract-and-run spares the build host from needing FUSE.
     cd "$DIST_DIR"
-    rm -f "$APPIMAGE_FILE" "$APPIMAGE_FILE.zsync"
+    rm -f "$APPIMAGE_FILE" "$APPIMAGE_FILE.zsync" "$LEGACY_ZSYNC"
     ARCH="$AI_ARCH" APPIMAGE_EXTRACT_AND_RUN=1 VERSION="$VERSION" \
-        "$APPIMAGETOOL" --updateinformation "$UPDATE_INFO" "$APPDIR" "$APPIMAGE_FILE"
+        "$APPIMAGETOOL" --no-appstream --updateinformation "$UPDATE_INFO" \
+        "$APPDIR" "$APPIMAGE_FILE"
 
     if [ ! -s "$APPIMAGE_FILE" ] || [ ! -s "$APPIMAGE_FILE.zsync" ]; then
         echo "ERROR: appimagetool did not produce both $APPIMAGE_FILE and $APPIMAGE_FILE.zsync"
         exit 1
     fi
     chmod +x "$APPIMAGE_FILE"
+    # The bridge only works if the .zsync points at the AppImage by a relative
+    # name; an absolute or differently named URL would send 1.2.0 nowhere.
+    if ! grep -a -q "^URL: $APPIMAGE_FILE\$" "$APPIMAGE_FILE.zsync"; then
+        echo "ERROR: $APPIMAGE_FILE.zsync does not name $APPIMAGE_FILE as its URL;"
+        echo "       the copy published as $LEGACY_ZSYNC would not update 1.2.0."
+        exit 1
+    fi
+    cp "$APPIMAGE_FILE.zsync" "$LEGACY_ZSYNC"
     rm -rf "$APPDIR"
 
     STEP=$((STEP + 1))
@@ -260,6 +337,7 @@ if [ -n "$APPIMAGE_FILE" ]; then
     echo "  Size:     $(file_size_mb "$APPIMAGE_FILE") MB"
     echo "  SHA256:   $(file_sha256 "$APPIMAGE_FILE")"
     echo "  Update:   $DIST_DIR/$APPIMAGE_FILE.zsync (upload it beside the AppImage)"
+    echo "  Bridge:   $DIST_DIR/$LEGACY_ZSYNC (upload it too; updates 1.2.0)"
     echo ""
 fi
 echo "  Tarball:  $DIST_DIR/$TAR_FILE"
@@ -275,4 +353,8 @@ echo "  tar -xzf $TAR_FILE"
 echo "  cd $PACKAGE_NAME"
 echo "  ./vapourbox"
 echo ""
-echo "Note: Dependencies will be downloaded on first launch."
+if [ -n "$APPIMAGE_FILE" ] && [ -n "$BUNDLE_DEPS" ]; then
+    echo "Note: the AppImage carries its dependencies; the tarball downloads them on first launch."
+else
+    echo "Note: Dependencies will be downloaded on first launch."
+fi

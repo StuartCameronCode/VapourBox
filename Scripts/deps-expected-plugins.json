@@ -1,5 +1,18 @@
 {
   "_comment": "Required VapourSynth plugin filenames per platform — the contract for a COMPLETE deps bundle. The package-deps-* scripts assert every file listed here exists in the staged bundle's plugin directory before zipping and FAIL the build if any are missing, so a silently-failed download (e.g. a dead upstream URL) becomes a red build instead of an incomplete bundle shipping. Plugin directory: windows-x64 = vapoursynth/vs-plugins, macos/linux = vapoursynth/plugins. Lists exclude data files (nnedi3 weights) and runtime libs (fftw); they cover the VapourSynth plugin binaries only. Update this when adding or removing a plugin. The x64 platforms ship in two CPU tiers (issue #92): the plain key is the v3 bundle, the -v2 key the bundle for CPUs below x86-64-v3. Both tiers carry the same set of plugins, built differently, so their lists must stay identical (asserted by app/test/attribution_test.dart).",
+  "_tierFilesComment": "The files that differ between an x64 platform's two CPU tiers, as paths from the bundle root. From deps 1.13.0 the v2 tier is not published as a second full bundle: Scripts/make-deps-delta.py takes exactly these files from the v2 build and publishes them as VapourBox-deps-<version>-<platform>-v2-delta.zip, which the app extracts over the v3 bundle. A file that must differ on older CPUs but is missing here ships as its v3 build and crashes there, so add it in the same change as the download-deps-* tier block that builds it differently. app/test/attribution_test.dart asserts each entry is a plugin the platform lists.",
+  "_tierFiles": {
+    "windows-x64": [
+      "vapoursynth/vs-plugins/zsmooth.dll"
+    ],
+    "macos-x64": [
+      "vapoursynth/plugins/libmvtools.dylib",
+      "vapoursynth/plugins/libzsmooth.dylib"
+    ],
+    "linux-x64": [
+      "vapoursynth/plugins/libzsmooth.so"
+    ]
+  },
   "windows-x64": [
     "AddGrain.dll",
     "bifrost.dll",

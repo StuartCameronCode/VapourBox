@@ -24,7 +24,9 @@ permissions:
 
 jobs:
   # x64 ships in two CPU tiers (issue #92): v3 for x86-64-v3 CPUs, v2 for
-  # anything older. Same script, one -Tier switch.
+  # anything older. Same script, one -Tier switch. Both are built in full, but
+  # only v3 is published as a bundle: delta-x64 below reduces the v2 build to
+  # the few files that differ (Scripts/make-deps-delta.py).
   build-x64:
     runs-on: windows-latest
     strategy:
@@ -44,19 +46,61 @@ jobs:
         shell: pwsh
         run: ./Scripts/package-deps-windows.ps1 -Version "${{ inputs.version }}"
 
+      # The v2 build is an intermediate ("-v2-build"): nothing downstream may
+      # mistake it for a publishable bundle.
       - uses: actions/upload-artifact@v5
         with:
-          name: ${{ env.ASSET }}
+          name: ${{ env.ASSET }}${{ matrix.tier == 'v2' && '-build' || '' }}
+          retention-days: ${{ matrix.tier == 'v2' && 3 || 90 }}
           path: |
             dist/${{ env.ASSET }}.zip
             dist/${{ env.ASSET }}.zip.sha256.json
 
-  # The v2 bundle must run below x86-64-v3, and every hosted runner has AVX2.
+  # Cut the v2 delta against the v3 bundle, and compose the tree a v2 user
+  # ends up with (v3 bundle + delta) for the gate to test. Pure zip work, so it
+  # runs on Linux like the other platforms' delta jobs.
+  delta-x64:
+    needs: build-x64
+    runs-on: ubuntu-24.04
+    env:
+      STEM: VapourBox-deps-${{ inputs.version }}-windows-x64
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.STEM }}
+          path: base
+      - uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.STEM }}-v2-build
+          path: v2-build
+      - name: Make the v2 delta
+        run: |
+          python3 Scripts/make-deps-delta.py --platform windows-x64 \
+            --version "${{ inputs.version }}" \
+            --base "base/$STEM.zip" --v2 "v2-build/$STEM-v2.zip" \
+            --out dist --composed composed
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ${{ env.STEM }}-v2-delta
+          path: |
+            dist/${{ env.STEM }}-v2-delta.zip
+            dist/${{ env.STEM }}-v2-delta.zip.sha256.json
+      # What the gate probes. Named as the gate expects a v2 bundle to be; never
+      # uploaded to a release.
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ${{ env.STEM }}-v2
+          retention-days: 3
+          path: composed/${{ env.STEM }}-v2.zip
+
+  # The v2 tier must run below x86-64-v3, and every hosted runner has AVX2.
   # Windows is probed at Sandy Bridge (AVX without AVX2): at pre-AVX chips SDE
   # cannot emulate what Microsoft's runtime reads from the kernel, so the core
-  # control fails and nothing could be proven (see probe-cpu-compat.yml).
+  # control fails and nothing could be proven (see probe-cpu-compat.yml). The
+  # gate runs against the v3 bundle with the delta applied.
   gate-x64-v2:
-    needs: build-x64
+    needs: delta-x64
     uses: ./.github/workflows/probe-cpu-compat.yml
     with:
       artifact_prefix: VapourBox-deps-${{ inputs.version }}-
@@ -64,22 +108,28 @@ jobs:
       gate: true
       matrix_json: '[{"platform":"windows-x64","runner":"windows-latest","sde":"sde.exe","python":"vapoursynth/python.exe","chip":"snb"}]'
 
-  # Published only once the v2 gate has passed.
+  # Published only once the v2 gate has passed. Exactly four files: the v3
+  # bundle, the v2 delta, and a sidecar each.
   upload-x64:
-    needs: [build-x64, gate-x64-v2]
+    needs: [build-x64, delta-x64, gate-x64-v2]
     if: inputs.release_tag != ''
     runs-on: ubuntu-24.04
+    env:
+      STEM: VapourBox-deps-${{ inputs.version }}-windows-x64
     steps:
       - uses: actions/download-artifact@v5
         with:
-          pattern: VapourBox-deps-${{ inputs.version }}-windows-x64*
+          name: ${{ env.STEM }}
           path: dist
-          merge-multiple: true
+      - uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.STEM }}-v2-delta
+          path: dist
       - name: Upload to release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ inputs.release_tag }}" \
             --repo "${{ github.repository }}" \
-            dist/VapourBox-deps-${{ inputs.version }}-windows-x64*.zip \
-            dist/VapourBox-deps-${{ inputs.version }}-windows-x64*.zip.sha256.json --clobber
+            "dist/$STEM.zip" "dist/$STEM.zip.sha256.json" \
+            "dist/$STEM-v2-delta.zip" "dist/$STEM-v2-delta.zip.sha256.json" --clobber

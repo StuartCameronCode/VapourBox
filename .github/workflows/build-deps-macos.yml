@@ -61,10 +61,16 @@ jobs:
             "dist/VapourBox-deps-${{ inputs.version }}-macos-arm64.zip.sha256.json" --clobber
 
   # x64 ships in two CPU tiers (issue #92): v3 for x86-64-v3 CPUs, v2 for
-  # anything older. Same script, one --tier switch. The v2 bundle is gated by
-  # package-deps-macos.sh itself (Scripts/check-load-time-simd.py): macOS has
-  # no Intel SDE, so it proves statically that no plugin runs AVX while it
-  # loads — and fails before anything below can upload it.
+  # anything older. Same script, one --tier switch. Both are built in full, but
+  # only v3 is published as a bundle: delta-x64 below reduces the v2 build to
+  # the few files that differ (Scripts/make-deps-delta.py).
+  #
+  # The v2 build is gated by package-deps-macos.sh itself
+  # (Scripts/check-load-time-simd.py): macOS has no Intel SDE, so it proves
+  # statically that no plugin runs AVX while it loads — and fails this job, so
+  # nothing below can publish a delta cut from it. The check covers every
+  # plugin the v2 build holds; the ones outside the delta are the same sources
+  # and binaries the v3 bundle was built from.
   build-x64:
     if: ${{ inputs.arch == 'x64' || inputs.arch == 'both' }}
     runs-on: macos-15-intel  # only hosted Intel image (macos-13 retired; last one until ~Aug 2027)
@@ -87,12 +93,53 @@ jobs:
       - name: Package dependencies
         run: ./Scripts/package-deps-macos.sh --version "${{ inputs.version }}" --arch x64
 
+      # The v2 build is an intermediate ("-v2-build"): nothing downstream may
+      # mistake it for a publishable bundle.
       - uses: actions/upload-artifact@v5
         with:
-          name: ${{ env.ASSET }}
+          name: ${{ env.ASSET }}${{ matrix.tier == 'v2' && '-build' || '' }}
+          retention-days: ${{ matrix.tier == 'v2' && 3 || 90 }}
           path: |
             dist/${{ env.ASSET }}.zip
             dist/${{ env.ASSET }}.zip.sha256.json
+
+  # Cut the v2 delta against the v3 bundle, then publish both. Runs on macOS so
+  # the composed tree can be put through the same load-time check the v2 build
+  # passed, this time on exactly what a v2 user ends up with.
+  delta-x64:
+    needs: build-x64
+    runs-on: macos-15
+    env:
+      STEM: VapourBox-deps-${{ inputs.version }}-macos-x64
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.STEM }}
+          path: dist
+      - uses: actions/download-artifact@v5
+        with:
+          name: ${{ env.STEM }}-v2-build
+          path: v2-build
+      - name: Make the v2 delta
+        run: |
+          python3 Scripts/make-deps-delta.py --platform macos-x64 \
+            --version "${{ inputs.version }}" \
+            --base "dist/$STEM.zip" --v2 "v2-build/$STEM-v2.zip" \
+            --out dist --composed composed
+
+      - name: Gate the composed v2 tree (no AVX at load time)
+        run: |
+          mkdir composed-tree
+          unzip -q "composed/$STEM-v2.zip" -d composed-tree
+          python3 Scripts/check-load-time-simd.py composed-tree/vapoursynth/plugins/*.dylib
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ${{ env.STEM }}-v2-delta
+          path: |
+            dist/${{ env.STEM }}-v2-delta.zip
+            dist/${{ env.STEM }}-v2-delta.zip.sha256.json
 
       - name: Upload to release
         if: inputs.release_tag != ''
@@ -100,5 +147,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ inputs.release_tag }}" \
-            "dist/${{ env.ASSET }}.zip" \
-            "dist/${{ env.ASSET }}.zip.sha256.json" --clobber
+            --repo "${{ github.repository }}" \
+            "dist/$STEM.zip" "dist/$STEM.zip.sha256.json" \
+            "dist/$STEM-v2-delta.zip" "dist/$STEM-v2-delta.zip.sha256.json" --clobber
