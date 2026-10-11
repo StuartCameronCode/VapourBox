@@ -200,6 +200,32 @@ void main() {
       await manager.extractBundle(base, deps, finalize: false);
       expect(File(p.join(deps.path, 'stale.so')).existsSync(), isFalse);
     });
+
+    test('executables are marked executable, past one chmod batch', () async {
+      // chmod runs in batches of 500 after the files are written; 1,200
+      // extensionless names (as the bundled Python's terminfo has) cross two
+      // batch boundaries.
+      final deps = Directory(p.join(tmp.path, 'deps'));
+      final base = await zipFile('base.zip', {
+        'ffmpeg/ffmpeg': 'ffmpeg',
+        'vapoursynth/vspipe': 'vspipe',
+        'vapoursynth/plugins/libmvtools.so': 'mvtools',
+        for (var i = 0; i < 1200; i++) 'python/share/terminfo/x/entry$i': 't',
+      });
+      await manager.extractBundle(base, deps, finalize: false);
+
+      bool executable(String rel) =>
+          File(p.joinAll([deps.path, ...rel.split('/')])).statSync().mode &
+              0x49 !=
+          0;
+      expect(executable('ffmpeg/ffmpeg'), isTrue);
+      expect(executable('vapoursynth/vspipe'), isTrue);
+      expect(executable('python/share/terminfo/x/entry0'), isTrue);
+      expect(executable('python/share/terminfo/x/entry499'), isTrue);
+      expect(executable('python/share/terminfo/x/entry500'), isTrue);
+      expect(executable('python/share/terminfo/x/entry1199'), isTrue);
+      expect(executable('vapoursynth/plugins/libmvtools.so'), isFalse);
+    }, skip: Platform.isWindows ? 'no executable bit on Windows' : null);
   });
 
   group('the shipped pointer and manifest', () {

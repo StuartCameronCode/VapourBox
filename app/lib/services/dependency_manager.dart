@@ -1338,28 +1338,48 @@ class DependencyManager {
 
     emitExtractProgress();
 
+    // Marked executable in batches after the loop. One chmod process per file
+    // was most of a first launch on Linux: the name test below matches every
+    // terminfo entry in the bundled Python (~2,800 files).
+    final executables = <String>[];
+
+    // Written synchronously, yielding to the UI at each progress tick. The
+    // bundle is thousands of tiny files, and awaiting each create and write
+    // costs an event-loop turn apiece: under software rendering that was
+    // ~14 ms a file, 40 s of a first launch spent on 2 MB of terminfo.
+    final createdDirs = <String>{};
+    void ensureDir(String dir) {
+      if (createdDirs.add(dir)) Directory(dir).createSync(recursive: true);
+    }
+
     for (final file in archive) {
       if (_isVersionFile(file.name)) continue;
       final filePath = path.join(depsDir.path, file.name);
 
       if (file.isFile) {
-        final outFile = File(filePath);
-        await outFile.parent.create(recursive: true);
-        await outFile.writeAsBytes(file.content as List<int>);
+        ensureDir(path.dirname(filePath));
+        File(filePath).writeAsBytesSync(file.content as List<int>);
 
-        // Set executable permission on Unix
         if (!Platform.isWindows && _isExecutable(file.name)) {
-          await Process.run('chmod', ['+x', filePath]);
+          executables.add(filePath);
         }
 
         extracted += file.size;
         if (extracted - lastEmitted >= emitEvery) {
           lastEmitted = extracted;
           emitExtractProgress();
+          await Future<void>.delayed(Duration.zero);
         }
       } else {
-        await Directory(filePath).create(recursive: true);
+        ensureDir(filePath);
       }
+    }
+
+    // Set executable permission on Unix. Chunked to stay far below ARG_MAX.
+    const chmodBatch = 500;
+    for (var i = 0; i < executables.length; i += chmodBatch) {
+      final end = (i + chmodBatch).clamp(0, executables.length);
+      await Process.run('chmod', ['+x', ...executables.sublist(i, end)]);
     }
 
     // Final 100% extraction tick.
