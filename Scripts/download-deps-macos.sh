@@ -1975,9 +1975,12 @@ fi
 # Only core.vszip.CLAHE is used. Keep VSZIP_VERSION in step across
 # download-deps-{macos,linux}.sh and download-deps-windows.ps1.
 #
-# arm64 takes the PyPI wheel's dylib untouched: it is already linker-signed and
-# minos 13, under this arch's 15.0 target. Do NOT install_name_tool or re-sign
-# it — it has zero bytes between its load commands and __text, so neither fits.
+# arm64 takes the PyPI wheel's dylib: minos 13, under this arch's 15.0 target.
+# It has zero bytes between its load commands and __text, so install_name_tool
+# cannot fit a longer id (the repoint loop below fails quietly and leaves
+# @rpath, which is harmless for a dlopen'd plugin). Re-signing is safe: it is
+# already linker-signed, and codesign replaces an existing signature in place
+# rather than adding a load command.
 #
 # x64 builds the same release's sdist, for two reasons. The wheel is minos 13.0
 # against this bundle's 12.0 floor (issue #39). And Zig's x86_64 macOS output
