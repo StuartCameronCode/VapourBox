@@ -651,9 +651,15 @@ if [ "$ARCH" = "x86_64" ]; then
     # platforms. evermeet keeps old versions reachable (verified: 7.1, 8.0 and
     # 9.0.1 all still resolve), so a full-version pin is durable here — unlike
     # BtbN, whose rolling tag garbage-collects old series.
+    #
+    # evermeet rate-limits GitHub's runner address range: on 2026-10-17 both x64
+    # jobs got HTTP 429 on two consecutive runs while the same URLs answered
+    # normally from elsewhere. curl treats 429 as transient under --retry and
+    # honours Retry-After, so back off rather than fail the whole deps build.
     echo "  Downloading static x86_64 FFmpeg $FFMPEG_MACOS_X64_VERSION from evermeet.cx..."
-    curl -fsSL "https://evermeet.cx/ffmpeg/ffmpeg-${FFMPEG_MACOS_X64_VERSION}.zip" -o "$BUILD_DIR/ffmpeg.zip"
-    curl -fsSL "https://evermeet.cx/ffmpeg/ffprobe-${FFMPEG_MACOS_X64_VERSION}.zip" -o "$BUILD_DIR/ffprobe.zip"
+    EVERMEET_RETRY=(--retry 8 --retry-delay 30 --retry-max-time 600)
+    curl -fsSL "${EVERMEET_RETRY[@]}" "https://evermeet.cx/ffmpeg/ffmpeg-${FFMPEG_MACOS_X64_VERSION}.zip" -o "$BUILD_DIR/ffmpeg.zip"
+    curl -fsSL "${EVERMEET_RETRY[@]}" "https://evermeet.cx/ffmpeg/ffprobe-${FFMPEG_MACOS_X64_VERSION}.zip" -o "$BUILD_DIR/ffprobe.zip"
     unzip -q -o "$BUILD_DIR/ffmpeg.zip" -d "$DEPS_DIR/ffmpeg/"
     unzip -q -o "$BUILD_DIR/ffprobe.zip" -d "$DEPS_DIR/ffmpeg/"
     chmod +x "$DEPS_DIR/ffmpeg/ffmpeg" "$DEPS_DIR/ffmpeg/ffprobe"
