@@ -69,6 +69,7 @@ RENDER = {
     "dedot": "c = core.dedot.Dedot(c)",
     "bifrost": "c = core.bifrost.Bifrost(c)",
     "retinex": "c = core.retinex.MSRCP(core.std.ShufflePlanes(c, 0, vs.GRAY))",
+    "vszip": "c = core.vszip.CLAHE(core.std.ShufflePlanes(c, 0, vs.GRAY), limit=2, tiles=[8])",
     "akarin": "c = core.akarin.Expr(c, 'x 1 +')",
 }
 

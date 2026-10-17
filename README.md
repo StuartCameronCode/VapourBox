@@ -20,14 +20,14 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg —
 
 **Correcting how the picture is stored.** Most consumer and broadcast video recorded before the 2010s is interlaced — VHS, Video8 and Hi8, DV camcorders, DVDs, off-air recordings — and needs converting to progressive to display properly on a modern screen. Film transferred to video was padded with pulldown instead, which can be reversed to recover the original 23.976 fps frames. VapourBox detects which case applies and handles both: QTGMC for deinterlacing, IVTC for telecined film.
 
-**Cleanup, when the source needs it.** Twenty-one optional filters covering tape noise and smeared color, dust and scratches on scanned film, the dirty rows at the edge of a capture, ghosting from an aerial, the brightness flicker of scanned cine film, blocking from a heavily compressed disc or recorder, jagged diagonal edges, camera shake, and halos, banding and color balance. All off by default, and the presets turn on what a given kind of source actually needs.
+**Cleanup, when the source needs it.** Twenty-one optional filters covering tape noise and smeared color, dust and scratches on scanned film, the dirty rows at the edge of a capture, ghosting from an aerial, the brightness flicker of scanned cine film, blocking from a heavily compressed disc or recorder, jagged diagonal edges, camera shake, and halos, banding, color balance and detail lost in dark footage. All off by default, and the presets turn on what a given kind of source actually needs.
 
 **Subtitles.** Speech is transcribed with Whisper AI to a separate `.srt`, embedded in the output, or both.
 
 ## How it works
 
 1. **Add the source.** Drop in a file, a folder of files, a `VIDEO_TS` folder, or open a DVD in the drive. VapourBox inspects it and reports what it found — interlaced, telecined or progressive — so the choice isn't guesswork.
-2. **Set the output and any processing.** Pick a codec and container, then either start from a preset — three quality tiers, plus six named after the source, from VHS Cleanup to 8mm / Super 8 Film Scan — or switch individual filters on. Each filter's controls open in place beneath it, with a summary of what it does and when it applies.
+2. **Set the output and any processing.** Pick a codec and container, then either start from a preset — three quality tiers, plus seven named after the source, from VHS Cleanup to Low-Light Phone / Camera Video — or switch individual filters on. Each filter's controls open in place beneath it, with a summary of what it does and when it applies.
 3. **Check the preview, then run it.** The preview shows source and processed output side by side and updates as settings change, so settings can be judged before a long encode. Multiple files queue up and process unattended.
 
 ## Download
@@ -118,7 +118,7 @@ Twenty-one filters, each switchable independently. Most sources need none or a f
 | 11 | **Deband** | Visible steps in gradients and skies. |
 | 12 | **Anti-Aliasing** | Stair-stepping on diagonal edges, left by deinterlacing or upscaling. Runs before sharpening, which would otherwise make the steps more visible. |
 | 13 | **Chroma Fixes** | Colour that sits sideways from the picture (corrected automatically or by hand), bleeding past edges, rainbowing and dot crawl — including the shimmering kind that only shows when the picture moves — and residual combing. Each repair has its own switch, and its settings appear only once it is on. |
-| 14 | **Color Correction** | Brightness, contrast, saturation, hue, levels, white balance (warm/cool, green/magenta), and lifting detail out of the shadows of underexposed footage. Levels and white balance can each be measured automatically or set by hand. |
+| 14 | **Color Correction** | Brightness, contrast, saturation, hue, levels, white balance (warm/cool, green/magenta), lifting detail out of the shadows of underexposed footage, and lifting local contrast across a dim or flat picture. Levels and white balance can each be measured automatically or set by hand. |
 | 15 | **Stabilize** | Shake and weave — telecine wobble, jittery film scans, handheld footage. Runs last before cropping, so a small crop removes the edges it exposes. |
 | 16 | **Rotate / Flip** | Footage shot sideways, mirrored captures, scans that came off the scanner the wrong way round. |
 | 17 | **Crop & Resize** | Trimming overscan, scaling, and edge-directed upscaling — plus bars in a colour of your choice to bring a cropped picture back to an exact frame size (720×576 for PAL DVD, 720×480 for NTSC) without rescaling it. |
@@ -188,7 +188,7 @@ VapourBox decides between the two by looking for a DVD IFO: a folder is only tre
 
 Presets store the whole pipeline plus encoding settings, and the menu splits them by the question they answer.
 
-**For Your Source** — pick the one matching what you have and you can ignore the pass list entirely: VHS Cleanup, DV Camcorder Tape, PAL DVD / Broadcast, DVD IVTC, Anime DVD, 8mm / Super 8 Film Scan.
+**For Your Source** — pick the one matching what you have and you can ignore the pass list entirely: VHS Cleanup, DV Camcorder Tape, PAL DVD / Broadcast, DVD IVTC, Anime DVD, 8mm / Super 8 Film Scan, Low-Light Phone / Camera Video.
 
 **Quality Only** — Fast, Balanced and High Quality just deinterlace, at three levels of effort. Use one when the picture is already clean.
 
@@ -251,6 +251,7 @@ Stuart Cameron — [stuart-cameron.com](https://stuart-cameron.com)
 - **dubhater** — a long list of VapourSynth ports this app relies on: MVTools, nnedi3, AWarpSharp2, TemporalMedian, FluxSmooth, Bifrost and the `adjust` Tweak port
 - **HolyWu** — the VapourSynth ports of DFTTest, TTempSmooth, TCanny, CTMF, DCTFilter, Deblock, AddGrain, CAS, EEDI3 and NNEDI3CL
 - **mawen1250** — Retinex, BM3D and mvsfunc
+- **vszip** by Julek — CLAHE, the local-contrast lift in Color Correction
 - **whisper.cpp** by the ggml authors — speech recognition for subtitle generation
 - **libdvdread** by VideoLAN — DVD reading and navigation
 - **FFmpeg** project — video encoding

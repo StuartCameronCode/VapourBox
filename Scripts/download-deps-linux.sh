@@ -1512,6 +1512,62 @@ else
 fi
 
 # ============================================================================
+# vszip — CLAHE (Colour Correction's local contrast, issue #90)
+# ============================================================================
+# Only core.vszip.CLAHE is used. Keep VSZIP_VERSION in step across
+# download-deps-{macos,linux}.sh and download-deps-windows.ps1.
+#
+# The x86_64 wheel carries three builds — libvszip.so (baseline x86-64),
+# libvszip.avx2.so and libvszip.zn4.so (AVX-512) — that VapourSynth picks
+# between at load through the wheel's manifest.vs. Only the baseline is taken,
+# flat in plugins/: it runs on every CPU, so one file serves both tiers with no
+# _tierFiles entry; the per-plugin probe and SDE gate see it like any other
+# plugin (they do not walk manifest subfolders, so would load an AVX-512 build
+# by path and fault); and the AVX-512 build is never chosen on a machine no
+# runner can test (the CTMF lesson). CLAHE is cheap next to anything else in a
+# job, so the AVX2 speedup is not worth that machinery.
+# manylinux_2_17 is far under our glibc 2.39 floor.
+VSZIP_VERSION="22.1.0"
+echo ""
+echo "=== Downloading vszip $VSZIP_VERSION (CLAHE) ==="
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libvszip.so" ]; then
+    case "$ARCH" in
+        x86_64)  VSZIP_TAG="manylinux_2_17_x86_64" ;;
+        aarch64) VSZIP_TAG="manylinux_2_17_aarch64" ;;
+        *)       VSZIP_TAG="" ;;
+    esac
+    VSZIP_URL=""
+    if [ -n "$VSZIP_TAG" ]; then
+        VSZIP_URL=$("$PYTHON_BIN" - "$VSZIP_VERSION" "$VSZIP_TAG" <<'PYEOF'
+import json, sys, urllib.request
+ver, tag = sys.argv[1], sys.argv[2]
+d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/vapoursynth-vszip/{ver}/json"))
+print(next(f["url"] for f in d["urls"] if f["filename"].endswith(tag + ".whl")))
+PYEOF
+)
+    fi
+    rm -rf "$BUILD_DIR/vszip" "$BUILD_DIR/vszip.whl" "$PLUGINS_DIR/libvszip.so"
+    mkdir -p "$BUILD_DIR/vszip"
+    if [ -n "$VSZIP_URL" ] \
+       && curl -fL -o "$BUILD_DIR/vszip.whl" "$VSZIP_URL" \
+       && unzip -q "$BUILD_DIR/vszip.whl" -d "$BUILD_DIR/vszip"; then
+        # The baseline build only, by exact name — see above.
+        cp "$BUILD_DIR/vszip/vapoursynth/plugins/vszip/libvszip.so" "$PLUGINS_DIR/" 2>/dev/null || true
+    fi
+    rm -rf "$BUILD_DIR/vszip" "$BUILD_DIR/vszip.whl"
+    if [ -f "$PLUGINS_DIR/libvszip.so" ]; then
+        chmod u+w "$PLUGINS_DIR/libvszip.so"
+        BUILT_PLUGINS+=("vszip")
+        echo "  Installed vszip -> libvszip.so"
+    else
+        echo "  Failed to install vszip"
+        FAILED_PLUGINS+=("vszip")
+    fi
+else
+    echo "  vszip already exists, skipping"
+fi
+
+# ============================================================================
 # Download NNEDI3 weights
 # ============================================================================
 echo ""

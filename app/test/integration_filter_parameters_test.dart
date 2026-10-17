@@ -1431,6 +1431,32 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    // --- needs vszip (issue #90) ---------------------------------------------
+
+    test('color: local contrast reaches vszip.CLAHE on luma, depth-scaled',
+        () async {
+      loadSchema('color_correction');
+      final job = buildJob(
+        testName: 'color_local_contrast',
+        colorCorrection: const ColorCorrectionParameters(
+          enabled: true,
+          applyLocalContrast: true,
+          localContrastStrength: 4,
+          localContrastTiles: 6,
+        ),
+      );
+      print('  Generating local contrast script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('clip = _local_contrast(clip, 4, 6)'));
+      expect(script, contains('core.vszip.CLAHE('));
+      // vszip equalizes every plane it is given, so luma goes in alone.
+      expect(script,
+          contains('y = core.std.ShufflePlanes(c, planes=0, colorfamily=vs.GRAY)'));
+      // Its limit is a per-bin count, scaled by the depth the content uses.
+      expect(script, contains('limit_8bit << (16 - content_bits)'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     // --- IVTC (core.vivtc.VFM + VDecimate) high-bit-depth guard ---
     // VFM only accepts 8-bit YUV/GRAY, so IVTC on a 10-bit source (e.g. ProRes
     // 422, yuv422p10le) must run field matching on an 8-bit metrics copy while

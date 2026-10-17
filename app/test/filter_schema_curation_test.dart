@@ -331,6 +331,8 @@ void main() {
             'Levels tuning (adv)',
             'White balance',
             'Shadow detail',
+            'Local contrast',
+            'Local contrast tuning (adv)',
           ]);
 
       final levels = sections.firstWhere((s) => s.title == 'Levels').parameters;

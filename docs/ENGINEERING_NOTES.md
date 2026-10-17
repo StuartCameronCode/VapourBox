@@ -2229,6 +2229,88 @@ The templates now leave the cache alone, and the user can set a limit in
 Settings → Output. Not measured: the default VapourSynth picks on Windows and
 Linux, or on an 8 GB machine.
 
+### CLAHE local contrast via vszip (issue #90, 2026-10-17)
+
+Issue #90 asked for NightLift, a Flask/OpenCV still-image app whose "Auto" mode
+picks one of four darkness levels from mean luma and dark-pixel ratio and runs
+a fixed chain per level. Everything in that chain already existed in Color
+Correction (grey-world white balance, auto levels, gamma, MSRCP) except CLAHE,
+so CLAHE is what shipped: `vszip.CLAHE` from dnjulek/vapoursynth-zip 22.1.0,
+as an option in Color Correction, plus the Low-Light Phone / Camera Video
+preset. No NightLift code is used — its upstream has no LICENSE file, and the
+fork's MIT LICENSE names a holder the fork's author supplied.
+
+Probed against deps macos-arm64 (native) and macos-x64 (Rosetta) before wiring:
+
+- **No `planes` argument; every plane is equalized.** On a flat-chroma test
+  card the U and V planes moved by 2 levels. The template runs it on luma only.
+- **8 and 16-bit integer only**; 10/12-bit and float raise.
+- **`limit` is an int, and a float is truncated silently** — 2.9 produced output
+  identical to 2. `limit=0` is near-passthrough. Hence the integer slider.
+- **Defaults (`limit=7`, `tiles=3`) are aggressive**: mean luma 31.6 -> 89.4 on a
+  dark test card. NightLift's 2/8 gave 31.6 -> 45.2; on `small_clip` darkened
+  to 35%, 27.7 -> 43.2. Frame-mean jump stayed under 0.25 levels per frame, so
+  no global flicker; per-pixel frame-to-frame change rose 1.7-2.5x, which is the
+  contrast gain applied to motion and noise.
+- Speed (arm64, 8 threads): ~1000 fps SD, 157 fps 1080p, 42 fps 2160p at 8-bit.
+
+**The limit has to scale by the content's depth, not the container's.** vszip's
+limit is a count per histogram bin (`limit * tile_pixels / 2^bits`, as OpenCV),
+and a 16-bit histogram has 256 bins per 8-bit level. Content fills only the
+bins its real depth reaches: 8-bit content moved to 16-bit uses every 256th,
+genuine 10-bit every 64th. Mean |diff| of the 16-bit path against the 8-bit
+path, in 8-bit levels, on real footage:
+
+| Content | x1 | x64 | x256 |
+|---|---|---|---|
+| 8-bit (`small_clip`) | 14.45 | — | **1.29** |
+| genuine 10-bit (ProRes fixture) | 3.66 | **1.40** | 2.92 |
+
+On a dithered synthetic card the wrong factor was 9-78 levels off. The
+container depth does not say which case applies — ProRes 4444 decodes as
+12-bit whatever it holds — so the template measures, per frame, the coarsest
+candidate depth (8/10/12) whose step every luma sample is a multiple of, and
+uses `limit << (16 - content_depth)`. `std.Expr` has no bitwise, modulo or
+rounding operators (checked on the bundle: `bitand`, `%`, `floor`, `trunc`,
+`round` all fail to parse) and macOS x64 has no akarin, but both round when they
+store an integer, so `x - round(x/step)*step` is two Expr steps. The nightly
+parity case (`color_local_contrast`, 8-bit content in a 10-bit clip) measures
+1.21 with this, and 9.85 with container-depth scaling — the test was run both
+ways to prove it discriminates.
+
+**Packaging: one baseline build, flat in the plugin directory, everywhere.**
+The Linux and Windows wheels carry `vszip`, `vszip.avx2` and `vszip.zn4`
+builds that VapourSynth R78 chooses between when it loads a plugin through a
+`manifest.vs` (it takes `.avx2` only for the full x86-64-v3 set, like
+`cpu::cpu_tier`). Only the baseline is shipped: it runs on every CPU, so one
+file serves both tiers with no `_tierFiles` entry; the per-plugin probe and the
+SDE gate list plugin files flat and would load an AVX-512 build by path and
+fault; and the AVX-512 build would be chosen on machines no runner tests (the
+CTMF lesson). The macOS x64 wheel is a single build with SSSE3 at most and no
+load-time initializers.
+
+**macOS x64 builds from the sdist, and Zig's x86_64 output cannot be signed
+as-is.** The wheel is minos 13.0 against the 12.0 floor, so x64 cross-compiles
+the 22.1.0 sdist with its pinned Zig 0.16.0 (0.17 rejects its `build.zig`)
+for `x86_64-macos.12.0` — byte-identical to upstream's wheel when built for
+upstream's own target, which is how the toolchain was confirmed. Ad-hoc signing
+that output produced a dylib that segfaulted inside `LoadPlugin`, and
+`--remove-signature` did not cure it. Cause: Zig signs only arm64 output, and
+on x86_64 leaves **8 bytes** between the end of the load commands (1832) and
+`__text` (1840). `codesign` must add a 16-byte `LC_CODE_SIGNATURE` and writes
+it over the first 8 bytes of machine code without reporting anything;
+`install_name_tool` refuses the same file ("larger updated load commands do not
+fit"). The build is patched to set `headerpad_max_install_names` (1968 bytes of
+room after signing; output hash unchanged against the wheel), and the vszip
+block refuses to sign a Mach-O with no room for the signature.
+
+**Unresolved, found while diagnosing this:** the shipped macOS x64 zsmooth
+(also Zig, also `install_name_tool` then `codesign`, both with errors
+discarded) has the same layout. In the deps 1.10.0 bundle its load commands end
+8 bytes *past* the start of `__text`, so the first 8 bytes of
+`_fftwf_set_planner_hooks` are the signature's `dataoff`/`datasize` fields. It
+works only because nothing calls that function.
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and

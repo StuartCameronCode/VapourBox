@@ -774,16 +774,25 @@ if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
 }
 
 # =============================================================================
-# Bwdif + DeDot - PyPI wheels
+# Bwdif + DeDot + vszip - PyPI wheels
 # =============================================================================
-# Neither upstream publishes a Windows release asset, so both come from their
-# PyPI wheel, resolved through the JSON API the same way akarin is (never
+# None of these upstreams publishes a Windows release asset, so each comes from
+# its PyPI wheel, resolved through the JSON API the same way akarin is (never
 # hardcode the hashed file URL, and never pip install into the embedded
 # interpreter - a wheel is just a zip).
 #
-# Unlike akarin's wheel, neither of these bundles a private DLL: each holds
-# exactly vapoursynth\plugins\<name>.dll, linking only the system runtime, so
-# there is nothing to place beside the plugin.
+# Unlike akarin's wheel, none of these bundles a private DLL: each plugin links
+# only the system runtime, so there is nothing to place beside it. Bwdif and
+# DeDot hold exactly vapoursynth\plugins\<name>.dll.
+#
+# vszip (core.vszip.CLAHE, Colour Correction's local contrast, issue #90) holds
+# three builds under vapoursynth\plugins\vszip\ - vszip.dll (baseline x86-64),
+# vszip.avx2.dll and vszip.zn4.dll (AVX-512) - that VapourSynth picks between
+# through the wheel's manifest.vs. Only the baseline is taken, flat in
+# vs-plugins: it runs on every CPU, so one file serves both tiers; the
+# per-plugin probe and SDE gate see it like any other plugin; and the AVX-512
+# build is never chosen on hardware no runner can test. See
+# download-deps-linux.sh for the full reasoning.
 #
 # Keep these versions in step with download-deps-{macos,linux}.sh. macOS x64
 # builds DeDot from source instead of taking its wheel - that wheel is minos
@@ -791,7 +800,8 @@ if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
 # upstream release (wheel 3.0 == git tag v3), so the versions still match.
 $WheelPlugins = @(
     @{ Name = "bwdif"; Package = "vapoursynth-bwdif"; Version = "5.1"; Dll = "bwdif.dll" },
-    @{ Name = "dedot"; Package = "vapoursynth-dedot"; Version = "3.0"; Dll = "dedot.dll" }
+    @{ Name = "dedot"; Package = "vapoursynth-dedot"; Version = "3.0"; Dll = "dedot.dll" },
+    @{ Name = "vszip"; Package = "vapoursynth-vszip"; Version = "22.1.0"; Dll = "vszip.dll"; Src = "vszip\vszip.dll" }
 )
 
 foreach ($W in $WheelPlugins) {
@@ -813,7 +823,9 @@ foreach ($W in $WheelPlugins) {
             Remove-Item $Out -Recurse -Force -ErrorAction SilentlyContinue
             Expand-Archive -Path $Zip -DestinationPath $Out -Force
 
-            $Src = Join-Path $Out "vapoursynth\plugins\$($W.Dll)"
+            # Src, when given, is the path inside the wheel's plugins folder.
+            $Rel = if ($W.Src) { $W.Src } else { $W.Dll }
+            $Src = Join-Path $Out "vapoursynth\plugins\$Rel"
             if (-not (Test-Path $Src)) { throw "$($W.Dll) missing from the $($W.Package) wheel" }
             Copy-Item $Src (Join-Path $PluginsDir $W.Dll) -Force
             Write-Host "    Copied: $($W.Dll)" -ForegroundColor Gray

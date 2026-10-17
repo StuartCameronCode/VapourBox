@@ -1627,6 +1627,72 @@ else:
                                   colorfamily=clip.format.color_family)
 {{/COLOR_SHADOW_DETAIL}}
 
+{{#COLOR_LOCAL_CONTRAST}}
+# Local contrast (CLAHE, issue #90) - equalizes the histogram in tiles, with the
+# gain each tile can take capped by the clip limit, so detail opens up in every
+# region at once instead of the whole frame being lifted by one curve.
+#
+# LUMA ONLY. vszip.CLAHE has no planes argument and equalizes every plane it is
+# handed, so a YUV clip would have its chroma equalized as well. The luma plane
+# is lifted out, processed and put back, as shadow detail above does.
+#
+# vszip takes only 8- or 16-bit integer, and its limit is a count per
+# histogram bin. A 16-bit histogram has 256 bins per 8-bit level, but content
+# only fills the ones its real depth reaches: 8-bit content moved to 16-bit
+# uses every 256th, genuine 10-bit every 64th. The limit has to scale by that
+# ratio, 2^(16 - content depth), for a setting to mean the same thing at every
+# depth — and the content depth is not the container's. ProRes 4444 decodes as
+# 12-bit whatever it holds, and a 10-bit file may carry 8-bit content. Using the
+# container depth was measured 9-27 levels off the 8-bit result on 8-bit content
+# in a 10-bit clip; scaling by the content depth brings it to 1.3 (8-bit
+# content) and 1.4-2.2 (genuine 10-bit). CLAHE's per-bin clipping is not exactly
+# depth-invariant, so that is as close as it gets.
+#
+# The content depth is measured per frame: the coarsest candidate depth whose
+# step every luma sample is a multiple of. Expr has no bitwise or rounding
+# functions on every backend, but it rounds when it stores an integer, so
+# x - round(x / step) * step is computed in two steps. Float and genuinely
+# 16-bit content keep x1.
+def _local_contrast(c, limit_8bit, tiles):
+    y = core.std.ShufflePlanes(c, planes=0, colorfamily=vs.GRAY)
+    bits = y.format.bits_per_sample
+    if y.format.sample_type == vs.INTEGER and bits == 8:
+        work = core.vszip.CLAHE(y, limit=limit_8bit, tiles=[tiles])
+    else:
+        y16 = core.resize.Point(y, format=vs.GRAY16)
+        def _clahe(content_bits):
+            return core.vszip.CLAHE(y16, limit=limit_8bit << (16 - content_bits),
+                                    tiles=[tiles])
+        cands = ([d for d in (8, 10, 12) if d < bits]
+                 if y.format.sample_type == vs.INTEGER else [])
+        if not cands:
+            work = _clahe(16)
+        else:
+            steps = [1 << (bits - d) for d in cands]
+            rounded = [_expr(y, 'x {} /'.format(s)) for s in steps]
+            # One term per candidate: 1 where the sample is NOT a multiple of
+            # its step. The steps nest, so the frame's maximum is the index of
+            # the coarsest candidate every sample fits (len = full depth).
+            terms = ['x {} {} * - abs 0 > 1 0 ?'.format(v, s)
+                     for v, s in zip('yzabc', steps)]
+            index = core.std.PlaneStats(
+                _expr([y] + rounded, ' '.join(terms) + ' +' * (len(terms) - 1)))
+            variants = [_clahe(d) for d in cands] + [_clahe(bits)]
+
+            def _pick(n, f):
+                return variants[min(int(f.props['PlaneStatsMax']), len(cands))]
+
+            work = core.std.FrameEval(y16, _pick, prop_src=index)
+    if work.format.id != y.format.id:
+        work = core.resize.Point(work, format=y.format.id)
+    if c.format.color_family == vs.GRAY:
+        return work
+    return core.std.ShufflePlanes([work, c, c], planes=[0, 1, 2],
+                                  colorfamily=c.format.color_family)
+
+clip = _local_contrast(clip, {{LOCAL_CONTRAST_STRENGTH}}, {{LOCAL_CONTRAST_TILES}})
+{{/COLOR_LOCAL_CONTRAST}}
+
 {{#COLOR_WHITE_BALANCE}}
 # White balance: shift the chroma planes. U carries blue-yellow and V carries
 # red-cyan, so warming the image is -U/+V and a magenta tint raises both.
