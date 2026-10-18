@@ -180,7 +180,8 @@ class PassSettingsInline extends StatelessWidget {
     return WarningBanner(message: message);
   }
 
-  /// Handle parameter changes, with special model-download check for subtitles.
+  /// Handle parameter changes: editing a pass's settings switches the pass
+  /// on, and subtitles get the add-on/model download check first.
   void _handleParamChange(
     BuildContext context,
     MainViewModel viewModel,
@@ -188,15 +189,20 @@ class PassSettingsInline extends StatelessWidget {
     DynamicParameters oldParams,
     DynamicParameters newParams,
   ) async {
-    // When the subtitles model changes while subtitles is enabled,
-    // check if the new model is downloaded.
+    newParams = newParams.enabledByEditFrom(oldParams);
+
+    // Subtitles need whisper and the chosen model on disk before they can be
+    // on — check whenever this edit turns them on or changes the model while
+    // on, the same as the row's own toggle does. Declining drops the edit.
     if (filterId == 'subtitles' &&
         newParams.enabled &&
-        oldParams.values['model'] != newParams.values['model']) {
+        (!oldParams.enabled ||
+            oldParams.values['model'] != newParams.values['model'])) {
       final newModelId = newParams.values['model'] as String? ?? 'medium';
+      final addonInstalled = await WhisperAddonManager.instance.isInstalled;
       final modelInstalled =
           await WhisperAddonManager.instance.isModelInstalled(newModelId);
-      if (!modelInstalled) {
+      if (!addonInstalled || !modelInstalled) {
         if (!context.mounted) return;
         final confirmed =
             await WhisperConfirmDialog.show(context, modelId: newModelId);

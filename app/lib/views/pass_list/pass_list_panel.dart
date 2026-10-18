@@ -100,7 +100,7 @@ class PassListPanel extends StatelessWidget {
             isEnabled: isEnabled,
             isExpanded: isExpanded,
             relevance: relevanceFor(passType, viewModel.videoInfo),
-            isNew: WhatsNewService.instance.isNew(schema?.sinceAppVersion),
+            isNew: WhatsNewService.instance.isSchemaNew(schema),
             onToggle: onToggle ?? (enabled) => viewModel.togglePass(passType, enabled),
             onTap: () => viewModel.selectPass(passType),
             expandedChild: isExpanded ? PassSettingsInline(passType: passType) : null,

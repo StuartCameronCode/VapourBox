@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/filter_schema.dart';
+
 /// Decides whether a schema element tagged with `sinceAppVersion` (on
 /// [FilterSchema] or [ParameterDefinition]) should show a "NEW" badge.
 ///
@@ -80,6 +82,18 @@ class WhatsNewService {
   bool isNew(String? since) {
     if (since == null || _lastSeenVersion == null) return false;
     return _compareVersions(since, _lastSeenVersion!) > 0;
+  }
+
+  /// Whether a pass row should carry the "NEW" badge: the filter itself is
+  /// new, or any parameter it shows is. A parameter's badge only renders once
+  /// the pass is expanded, so without this a new control inside a collapsed
+  /// pass would never be noticed. Hidden parameters have no control to find,
+  /// so they don't count.
+  bool isSchemaNew(FilterSchema? schema) {
+    if (schema == null) return false;
+    if (isNew(schema.sinceAppVersion)) return true;
+    return schema.parameters.values.any(
+        (p) => p.ui?.hidden != true && isNew(p.sinceAppVersion));
   }
 
   /// Reset to the unloaded default. Tests only — the singleton outlives a

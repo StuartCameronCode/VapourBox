@@ -106,6 +106,17 @@ class DynamicParameters {
     );
   }
 
+  /// This edit with the pass switched on if [previous] (the state the edit
+  /// was made from) had it off and any setting actually changed — touching a
+  /// pass's settings means the user wants that pass. An edit that changes
+  /// nothing, or one that already decides [enabled] itself, is returned as is.
+  DynamicParameters enabledByEditFrom(DynamicParameters previous) {
+    if (enabled || previous.enabled) return this;
+    final changed = !_deepEquals(values, previous.values) ||
+        !_deepEquals(enabledOptionalParams, previous.enabledOptionalParams);
+    return changed ? withEnabled(true) : this;
+  }
+
   /// Create a copy with a single parameter updated.
   /// If value is null, the optional param is disabled; otherwise enabled.
   /// When disabling, the last non-null value is preserved for re-enabling.
@@ -217,4 +228,28 @@ class DynamicPipeline {
   factory DynamicPipeline.fromJson(Map<String, dynamic> json) =>
       _$DynamicPipelineFromJson(json);
   Map<String, dynamic> toJson() => _$DynamicPipelineToJson(this);
+}
+
+/// Structural equality over the JSON-like values a parameter map holds
+/// (nested maps, lists and sets of primitives).
+bool _deepEquals(Object? a, Object? b) {
+  if (identical(a, b)) return true;
+  if (a is Map && b is Map) {
+    if (a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (!b.containsKey(key) || !_deepEquals(a[key], b[key])) return false;
+    }
+    return true;
+  }
+  if (a is List && b is List) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_deepEquals(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  if (a is Set && b is Set) {
+    return a.length == b.length && a.containsAll(b);
+  }
+  return a == b;
 }
