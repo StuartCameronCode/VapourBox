@@ -1441,19 +1441,22 @@ void main() {
         colorCorrection: const ColorCorrectionParameters(
           enabled: true,
           applyLocalContrast: true,
-          localContrastStrength: 4,
+          localContrastStrength: 0.65,
           localContrastTiles: 6,
         ),
       );
       print('  Generating local contrast script...');
       final script = await generateScriptViaWorker(job);
-      expect(script, contains('clip = _local_contrast(clip, 4, 6)'));
+      expect(script, contains('clip = _local_contrast(clip, 0.65, 6)'));
       expect(script, contains('core.vszip.CLAHE('));
       // vszip equalizes every plane it is given, so luma goes in alone.
       expect(script,
           contains('y = core.std.ShufflePlanes(c, planes=0, colorfamily=vs.GRAY)'));
       // Its limit is a per-bin count, scaled by the depth the content uses.
       expect(script, contains('limit_8bit << (16 - content_bits)'));
+      // Strength blends over a fixed limit rather than being the limit.
+      expect(script, contains('    limit_8bit = 2\n'));
+      expect(script, contains('work = core.std.Merge(y, work, weight=amount)'));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
