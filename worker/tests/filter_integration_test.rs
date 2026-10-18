@@ -6033,7 +6033,9 @@ fn local_contrast_job(name: &str, color: ColorCorrectionParameters) -> VideoJob 
 /// the luma round trip is the difference between lifting detail and shifting
 /// the colour. Its limit is a per-bin count, so the template rescales it from
 /// the depth the content actually uses; both are asserted here because neither
-/// would error.
+/// would error. The strength is a blend over a fixed limit of 2: as the limit
+/// itself, every whole step was a large change (2 moved a dark frame's luma by
+/// 22 levels) and nothing gentler was reachable.
 #[test]
 fn test_163_local_contrast_runs_on_luma_with_a_depth_scaled_limit() {
     create_output_dir();
@@ -6042,7 +6044,7 @@ fn test_163_local_contrast_runs_on_luma_with_a_depth_scaled_limit() {
         ColorCorrectionParameters {
             enabled: true,
             apply_local_contrast: true,
-            local_contrast_strength: 3,
+            local_contrast_strength: 0.6,
             local_contrast_tiles: 6,
             ..Default::default()
         },
@@ -6053,7 +6055,10 @@ fn test_163_local_contrast_runs_on_luma_with_a_depth_scaled_limit() {
             "{name}: 8-bit CLAHE call missing");
         assert!(script.contains("core.vszip.CLAHE(y16, limit=limit_8bit << (16 - content_bits),"),
             "{name}: deep-clip CLAHE call missing");
-        assert!(script.contains("clip = _local_contrast(clip, 3, 6)"), "{name}: values not passed");
+        assert!(script.contains("clip = _local_contrast(clip, 0.6, 6)"), "{name}: values not passed");
+        assert!(script.contains("    limit_8bit = 2\n"), "{name}: clip limit not fixed");
+        assert!(script.contains("work = core.std.Merge(y, work, weight=amount)"),
+            "{name}: strength does not blend");
         assert!(script.contains("y = core.std.ShufflePlanes(c, planes=0, colorfamily=vs.GRAY)"),
             "{name}: not luma-only");
         // The scale comes from the CONTENT depth, measured per frame — not the
@@ -6072,14 +6077,14 @@ fn test_164_local_contrast_values_are_clamped_and_off_by_default() {
         ColorCorrectionParameters {
             enabled: true,
             apply_local_contrast: true,
-            local_contrast_strength: 50,
+            local_contrast_strength: 50.0,
             local_contrast_tiles: 0,
             ..Default::default()
         },
     );
     let (encode, preview) = generate_both_scripts(&job);
     for script in [&encode, &preview] {
-        assert!(script.contains("clip = _local_contrast(clip, 10, 2)"));
+        assert!(script.contains("clip = _local_contrast(clip, 1, 2)"));
     }
 
     // Colour Correction on, local contrast left off: no CLAHE anywhere.

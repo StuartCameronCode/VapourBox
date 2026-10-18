@@ -1379,7 +1379,8 @@ class ParameterConverter {
       applyShadowDetail: v['applyShadowDetail'] as bool? ?? false,
       shadowSigma: (v['shadowSigma'] as num?)?.toDouble() ?? 100.0,
       applyLocalContrast: v['applyLocalContrast'] as bool? ?? false,
-      localContrastStrength: _asInt(v['localContrastStrength']) ?? 2,
+      localContrastStrength:
+          (v['localContrastStrength'] as num?)?.toDouble() ?? 0.3,
       localContrastTiles: _asInt(v['localContrastTiles']) ?? 8,
       inputLow: v['inputLow'] as int? ?? 0,
       inputHigh: v['inputHigh'] as int? ?? 255,

@@ -253,6 +253,9 @@ void main() {
       expect(low.pipeline.colorCorrection.enabled, true);
       expect(low.pipeline.colorCorrection.applyLocalContrast, true,
           reason: 'the lift is the point of the preset (issue #90)');
+      // A blend amount (0-1); full strength is CLAHE's own, too much for video.
+      expect(low.pipeline.colorCorrection.localContrastStrength,
+          inInclusiveRange(0.3, 0.7));
       // CLAHE amplifies noise along with detail, and dim footage is noisy.
       expect(low.pipeline.noiseReduction.enabled, true);
       expect(low.pipeline.chromaDenoise.enabled, true);

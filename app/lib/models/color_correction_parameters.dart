@@ -91,10 +91,10 @@ class ColorCorrectionParameters {
   /// luma plane out first, as it does for shadow detail.
   final bool applyLocalContrast;
 
-  /// CLAHE clip limit, as the 8-bit value: how much each tile may be
-  /// stretched. An integer because the plugin silently truncates a fraction;
-  /// the worker rescales it for deeper sources.
-  final int localContrastStrength;
+  /// How much of the CLAHE result is mixed into the original luma, 0-1.
+  /// Not the clip limit: the plugin's limit is an integer whose every step is
+  /// a large change, so the worker runs it at a fixed limit and blends.
+  final double localContrastStrength;
 
   /// Tiles across (and down) the frame. More tiles adapt to smaller regions.
   final int localContrastTiles;
@@ -145,7 +145,7 @@ class ColorCorrectionParameters {
     this.shadowLowerThr = 0.001,
     this.shadowUpperThr = 0.001,
     this.applyLocalContrast = false,
-    this.localContrastStrength = 2,
+    this.localContrastStrength = 0.3,
     this.localContrastTiles = 8,
     this.inputLow = 0,
     this.inputHigh = 255,
@@ -222,7 +222,7 @@ class ColorCorrectionParameters {
     double? shadowLowerThr,
     double? shadowUpperThr,
     bool? applyLocalContrast,
-    int? localContrastStrength,
+    double? localContrastStrength,
     int? localContrastTiles,
     int? inputLow,
     int? inputHigh,

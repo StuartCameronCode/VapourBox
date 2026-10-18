@@ -2246,7 +2246,8 @@ Probed against deps macos-arm64 (native) and macos-x64 (Rosetta) before wiring:
   card the U and V planes moved by 2 levels. The template runs it on luma only.
 - **8 and 16-bit integer only**; 10/12-bit and float raise.
 - **`limit` is an int, and a float is truncated silently** — 2.9 produced output
-  identical to 2. `limit=0` is near-passthrough. Hence the integer slider.
+  identical to 2. `limit=0` is near-passthrough. (This first shipped as an
+  integer Strength slider, 1-10, default 2 — see "Strength is a blend" below.)
 - **Defaults (`limit=7`, `tiles=3`) are aggressive**: mean luma 31.6 -> 89.4 on a
   dark test card. NightLift's 2/8 gave 31.6 -> 45.2; on `small_clip` darkened
   to 35%, 27.7 -> 43.2. Frame-mean jump stayed under 0.25 levels per frame, so
@@ -2303,6 +2304,23 @@ it over the first 8 bytes of machine code without reporting anything;
 fit"). The build is patched to set `headerpad_max_install_names` (1968 bytes of
 room after signing; output hash unchanged against the wheel), and the vszip
 block refuses to sign a Mach-O with no room for the signature.
+
+**Strength is a blend over a fixed limit, not the limit (2026-10-18).** The
+first version exposed the clip limit itself as Strength (1-10, default 2), and
+everything but 1 looked extreme in use. Not a scaling bug — the 8-bit and
+16-bit paths agreed within 2 levels — but the limit's own scale: it is a
+multiple of the *average* bin, so whole steps are large. On a dark frame of
+`small_clip` (mean luma 34, 8 tiles), mean absolute change was 12.1 levels at
+limit 1, 22.2 at 2 (mean 34 -> 57), 29.3 at 3, 38.8 at 5, 52.9 at 10. Nothing
+between 1 and 2 is reachable at 8-bit. Fractional limits exist only on the
+16-bit path (1/256 steps), and below 1 they collapse: vszip floors the per-bin
+cap to a whole pixel count, so on a 320x240 frame every limit up to 0.3 gave
+the same output. So CLAHE runs at the conventional limit of 2 and Strength
+(0-1, default 0.3; the low-light preset uses 0.5) is `std.Merge`'s weight
+between the original luma and the result: linear, and the same at any frame
+size or depth, including genuine 16-bit content where a fractional limit could
+not exist. The depth scaling above is unchanged — it applies to the fixed
+limit.
 
 **Unresolved, found while diagnosing this:** the shipped macOS x64 zsmooth
 (also Zig, also `install_name_tool` then `codesign`, both with errors

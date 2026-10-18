@@ -119,11 +119,11 @@ pub struct ColorCorrectionParameters {
     #[serde(default)]
     pub apply_local_contrast: bool,
 
-    /// CLAHE clip limit as the user sees it — the 8-bit value. The plugin takes
-    /// an integer and silently truncates a fraction (2.9 behaves as 2), so this
-    /// is an integer throughout. The template rescales it for deeper clips.
+    /// How much of the CLAHE result to mix into the original luma, 0-1. Not
+    /// the clip limit: vszip's limit is an integer whose every step is a large
+    /// change, so the template runs CLAHE at a fixed limit and blends.
     #[serde(default = "default_local_contrast_strength")]
-    pub local_contrast_strength: i32,
+    pub local_contrast_strength: f64,
 
     /// Tiles across (and down) the frame. More tiles adapt to smaller regions.
     #[serde(default = "default_local_contrast_tiles")]
@@ -196,7 +196,7 @@ impl ColorCorrectionParameters {
 fn default_shadow_sigma() -> f64 { 100.0 }
 fn default_shadow_lower() -> f64 { 0.001 }
 fn default_shadow_upper() -> f64 { 0.001 }
-fn default_local_contrast_strength() -> i32 { 2 }
+fn default_local_contrast_strength() -> f64 { 0.3 }
 fn default_local_contrast_tiles() -> i32 { 8 }
 fn default_one_f64() -> f64 { 1.0 }
 fn default_255() -> i32 { 255 }
@@ -475,11 +475,13 @@ mod shadow_detail_tests {
 }
 
 impl ColorCorrectionParameters {
-    /// CLAHE clip limit, at 8-bit scale. 0 would be a near no-op and the plugin
-    /// rejects a limit that overflows its per-tile count, so keep it to the
-    /// range the UI offers.
-    pub fn local_contrast_effective_strength(&self) -> i32 {
-        self.local_contrast_strength.clamp(1, 10)
+    /// Blend amount, 0-1. A value outside that would extrapolate past the
+    /// CLAHE result (or invert it), and NaN would reach the script verbatim.
+    pub fn local_contrast_effective_strength(&self) -> f64 {
+        if self.local_contrast_strength.is_nan() {
+            return default_local_contrast_strength();
+        }
+        self.local_contrast_strength.clamp(0.0, 1.0)
     }
 
     /// Tile count. The plugin rejects 0 and more tiles than the plane is tall
@@ -497,26 +499,31 @@ mod local_contrast_tests {
     fn test_defaults_are_off_and_moderate() {
         let p = ColorCorrectionParameters::default();
         assert!(!p.apply_local_contrast);
-        assert_eq!(p.local_contrast_strength, 2);
+        assert_eq!(p.local_contrast_strength, 0.3);
         assert_eq!(p.local_contrast_tiles, 8);
     }
 
     #[test]
     fn test_strength_and_tiles_are_clamped() {
         let p = ColorCorrectionParameters {
-            local_contrast_strength: 0,
+            local_contrast_strength: -1.0,
             local_contrast_tiles: 400,
             ..Default::default()
         };
-        assert_eq!(p.local_contrast_effective_strength(), 1);
+        assert_eq!(p.local_contrast_effective_strength(), 0.0);
         assert_eq!(p.local_contrast_effective_tiles(), 16);
         let p = ColorCorrectionParameters {
-            local_contrast_strength: 99,
+            local_contrast_strength: 2.0,
             local_contrast_tiles: 0,
             ..Default::default()
         };
-        assert_eq!(p.local_contrast_effective_strength(), 10);
+        assert_eq!(p.local_contrast_effective_strength(), 1.0);
         assert_eq!(p.local_contrast_effective_tiles(), 2);
+        let p = ColorCorrectionParameters {
+            local_contrast_strength: f64::NAN,
+            ..Default::default()
+        };
+        assert_eq!(p.local_contrast_effective_strength(), 0.3);
     }
 
     #[test]
@@ -524,6 +531,6 @@ mod local_contrast_tests {
         let p: ColorCorrectionParameters =
             serde_json::from_str(r#"{"enabled": true, "applyShadowDetail": true}"#).unwrap();
         assert!(!p.apply_local_contrast);
-        assert_eq!(p.local_contrast_effective_strength(), 2);
+        assert_eq!(p.local_contrast_effective_strength(), 0.3);
     }
 }

@@ -619,7 +619,8 @@ List<_Pass> _passes() => [
           colorCorrection: const ColorCorrectionParameters(
             enabled: true,
             applyLocalContrast: true,
-            localContrastStrength: 3,
+            // Full strength: the unblended CLAHE result is the depth-sensitive part.
+            localContrastStrength: 1.0,
           ),
         ),
         tolerance: 3.0,

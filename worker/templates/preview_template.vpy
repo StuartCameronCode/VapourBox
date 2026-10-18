@@ -1564,6 +1564,13 @@ else:
 # gain each tile can take capped by the clip limit, so detail opens up in every
 # region at once instead of the whole frame being lifted by one curve.
 #
+# STRENGTH IS A BLEND, NOT THE CLIP LIMIT. vszip's limit is a multiple of the
+# average histogram bin (as OpenCV's clipLimit), an integer, and every whole
+# step is large: on a dark frame 1 moved luma by 12 levels, 2 by 22, 10 by 53,
+# with nothing gentler reachable at 8-bit. So CLAHE always runs at the
+# conventional limit of 2 and the strength (0-1) mixes its result back into
+# the original luma, which is linear and the same at every size and depth.
+#
 # LUMA ONLY. vszip.CLAHE has no planes argument and equalizes every plane it is
 # handed, so a YUV clip would have its chroma equalized as well. The luma plane
 # is lifted out, processed and put back, as shadow detail above does.
@@ -1585,7 +1592,8 @@ else:
 # functions on every backend, but it rounds when it stores an integer, so
 # x - round(x / step) * step is computed in two steps. Float and genuinely
 # 16-bit content keep x1.
-def _local_contrast(c, limit_8bit, tiles):
+def _local_contrast(c, amount, tiles):
+    limit_8bit = 2
     y = core.std.ShufflePlanes(c, planes=0, colorfamily=vs.GRAY)
     bits = y.format.bits_per_sample
     if y.format.sample_type == vs.INTEGER and bits == 8:
@@ -1617,6 +1625,8 @@ def _local_contrast(c, limit_8bit, tiles):
             work = core.std.FrameEval(y16, _pick, prop_src=index)
     if work.format.id != y.format.id:
         work = core.resize.Point(work, format=y.format.id)
+    if amount < 1:
+        work = core.std.Merge(y, work, weight=amount)
     if c.format.color_family == vs.GRAY:
         return work
     return core.std.ShufflePlanes([work, c, c], planes=[0, 1, 2],
