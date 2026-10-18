@@ -1836,6 +1836,22 @@ impl ScriptGenerator {
                 script = remove_block("{{#COLOR_SHADOW_DETAIL}}", "{{/COLOR_SHADOW_DETAIL}}", script);
             }
 
+            // Local contrast (CLAHE)
+            if color.apply_local_contrast {
+                script = script.replace("{{#COLOR_LOCAL_CONTRAST}}", "");
+                script = script.replace("{{/COLOR_LOCAL_CONTRAST}}", "");
+                script = script.replace(
+                    "{{LOCAL_CONTRAST_STRENGTH}}",
+                    &color.local_contrast_effective_strength().to_string(),
+                );
+                script = script.replace(
+                    "{{LOCAL_CONTRAST_TILES}}",
+                    &color.local_contrast_effective_tiles().to_string(),
+                );
+            } else {
+                script = remove_block("{{#COLOR_LOCAL_CONTRAST}}", "{{/COLOR_LOCAL_CONTRAST}}", script);
+            }
+
             // White balance (temperature / tint)
             if color.has_white_balance() {
                 script = script.replace("{{#COLOR_WHITE_BALANCE}}", "");

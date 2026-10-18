@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 
 import 'chroma_denoise_parameters.dart';
 import 'chroma_fix_parameters.dart';
+import 'color_correction_parameters.dart';
 import 'deband_parameters.dart';
 import 'deblock_parameters.dart';
 import 'dehalo_parameters.dart';
@@ -442,6 +443,40 @@ class ProcessingPreset {
   ///
   /// Ordered so the source-shaped presets come after the three quality tiers:
   /// a user who knows what they captured should be able to find it by name.
+  /// Built-in preset: dim or night-time video from a phone or camera.
+  ///
+  /// Footage like this is almost always progressive, so deinterlacing is off.
+  /// It is also noisy, and lifting local contrast amplifies noise along with
+  /// detail, so the luma and chroma noise come down first; the pipeline runs
+  /// both denoisers before Color Correction. CLAHE at its default strength is
+  /// the whole lift — measured on a darkened clip it takes mean luma from 28 to
+  /// 43 (8-bit levels) without a global curve, so lamps and windows are not
+  /// blown out the way a gamma lift would blow them (issue #90).
+  static ProcessingPreset builtInLowLight() {
+    return ProcessingPreset(
+      id: 'builtin-low-light',
+      name: 'Low-Light Phone / Camera Video',
+      description:
+          'Dim, noisy progressive footage: denoise, then lift local contrast',
+      pipeline: ProcessingPipeline(
+        deinterlace: QTGMCParameters(enabled: false),
+        noiseReduction:
+            NoiseReductionParameters.fromPreset(NoiseReductionPreset.light),
+        chromaDenoise: ChromaDenoiseParameters(enabled: true),
+        colorCorrection: ColorCorrectionParameters(
+          enabled: true,
+          applyLocalContrast: true,
+        ),
+      ),
+      encodingSettings: EncodingSettings(
+        encoderPreset: 'medium',
+        quality: 18,
+      ),
+      isBuiltIn: true,
+      category: PresetCategory.source,
+    );
+  }
+
   static List<ProcessingPreset> builtInPresets() {
     return [
       builtInFast(),
@@ -453,6 +488,7 @@ class ProcessingPreset {
       builtInDvdIvtc(),
       builtInAnimeDvd(),
       builtInFilmScan(),
+      builtInLowLight(),
     ];
   }
 }

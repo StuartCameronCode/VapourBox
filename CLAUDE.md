@@ -451,7 +451,8 @@ tried again — is in the renderer's header comment.
 **Name presets after the source, not the technique.** The user knows they
 captured a DV tape; they don't know it wants SMDegrain with a chroma-bleed fix.
 That is why the set includes `DV Camcorder Tape`, `PAL DVD / Broadcast`,
-`Anime DVD` and `8mm / Super 8 Film Scan` alongside the three quality tiers.
+`Anime DVD`, `8mm / Super 8 Film Scan` and `Low-Light Phone / Camera Video`
+alongside the three quality tiers.
 
 **Set `category`.** `PresetCategory.quality` for a speed/quality tier,
 `PresetCategory.source` for one shaped around a kind of source; the menu in
@@ -878,6 +879,12 @@ A >8-bit source is read natively off the pipe. Two ways this breaks after that:
    saturation/hue are ratios and must **not** be scaled). Both scalings are
    computed **in the script from `clip.format`**, since a preceding pass may
    have changed the depth.
+3. **A limit counted per histogram bin scales with the CONTENT's depth, not
+   the container's.** `vszip.CLAHE` (8/16-bit only, so deeper clips run at
+   16-bit) needs `limit << (16 - content_depth)`: 8-bit content in a 16-bit
+   histogram fills every 256th bin, genuine 10-bit every 64th, and ProRes 4444
+   decodes as 12-bit whatever it holds. The template measures the content depth
+   per frame; container-depth scaling was 9.85 levels off in the parity test.
 
 **Test this class of bug with a reference, not an expected value** — a
 correctly-scaled filter produces the same picture at 10-bit as at 8-bit, to
@@ -1540,6 +1547,14 @@ placement and a version skew would change chroma per-OS.
 - **Code signing**: after `install_name_tool` modifications, binaries must be
   re-signed: `codesign -s - -f <binary>` (exit code 137 = SIGKILL means invalid
   signature).
+- **A Zig-built x86_64 dylib must be linked with header padding before it is
+  signed.** Zig leaves ~8 bytes after the load commands and does not sign
+  x86_64 output; `codesign` then writes its 16-byte load command over the start
+  of `__text`, silently, and the plugin segfaults on load (`--remove-signature`
+  does not undo it). The vszip block patches `headerpad_max_install_names` into
+  `build.zig` and refuses to sign without room. The shipped x64 zsmooth has the
+  same overlap and works only because the clobbered function is never called —
+  see docs/ENGINEERING_NOTES.md, "CLAHE local contrast via vszip".
 - Quarantine removal: `xattr -cr` on deps after download
 - Show in Folder: `open -R <path>`
 - **Apple Silicon app build for x64**: `app/macos/Podfile` reads
@@ -1851,4 +1866,4 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.10.0 | 2026-08-31 | **Issue #82**: zsmooth now ships one build per x86 CPU baseline (haswell, x86_64_v2), fixing an illegal-instruction crash on pre-2013 CPUs. **FFmpeg pinned to 9.0 on all four platforms** (they had silently diverged: Windows on an unpinned post-9.0 master, macOS on floating 9.0.1, Linux stuck at 7.1 after BtbN garbage-collected the pinned tag) |
 | 1.11.0 | 2026-09 | **Issue #92**: every x86 bundle ships in two **CPU tiers** — `v3` (x86-64-v3; the plain asset names) and `v2` (`…-x64-v2`, anything older), chosen by the app from `vapourbox-worker --probe-cpu`. Each bundle carries one autoloaded zsmooth (replacing 1.10.0's two-builds-loaded-by-path). macOS v2 builds MVTools v24 from source without its AVX2 files, whose static initializers SIGILLed inside `dlopen` on pre-AVX Macs. v2 bundles are gated (SDE on Linux/Windows, static check on macOS) before publishing |
 | 1.12.0 | 2026-10-04 | **Issue #101**: akarin 1.4.1 → **1.5.0** on every platform. The 1.4.1 Linux wheel put JIT code on the `brk` heap, where SELinux denies `PROT_EXEC`, so every job segfaulted on Fedora/RHEL from deps 1.8.0 on. `download-deps-linux.sh` now fails if `libakarin.so` lacks the mmap allocator |
-| 1.13.0 | 2026-10 | **Packaging only — every binary is built from the same sources as 1.12.0.** The v2 CPU tier is no longer a second full bundle: each x64 platform publishes its v3 bundle plus `…-x64-v2-delta.zip`, the files in `_tierFiles` (zsmooth; on macOS also MVTools), extracted over it (`"tierFormat": "delta"`). Every x64 machine downloads the same bundle; only an older CPU fetches the few MB more. This is also what lets the Linux AppImage carry its deps for both tiers without doubling in size |
+| 1.13.0 | 2026-10 | One new plugin; every other binary is built from the same sources as 1.12.0. Adds **vszip** 22.1.0 (MIT) for `vszip.CLAHE`, Color Correction's local contrast (issue #90). Baseline build only, flat in the plugin directory on every platform (the wheels' AVX2/AVX-512 variants are left out); macOS x64 builds the sdist with Zig 0.16.0 for the 12.0 floor, with header padding so it can be signed. The v2 CPU tier is no longer a second full bundle: each x64 platform publishes its v3 bundle plus `…-x64-v2-delta.zip`, the files in `_tierFiles` (zsmooth; on macOS also MVTools), extracted over it (`"tierFormat": "delta"`). Every x64 machine downloads the same bundle; only an older CPU fetches the few MB more. This is also what lets the Linux AppImage carry its deps for both tiers without doubling in size |

@@ -82,6 +82,7 @@ const _pluginToNotice = <String, String>{
   'ttempsmooth': 'TTempSmooth',
   'vivtc': 'VIVTC',
   'vsznedi3': 'znedi3',
+  'vszip': 'vszip',
   'znedi3': 'znedi3',
   'zsmooth': 'zsmooth',
   'zstd': 'Zstandard',

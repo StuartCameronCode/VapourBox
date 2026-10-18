@@ -717,6 +717,23 @@ void main() {
       await _expectValidVideo(result);
     }, timeout: const Timeout(Duration(minutes: 6)));
 
+    // Proves vszip loads and CLAHE runs (issue #90).
+    test('color: local contrast runs end-to-end', () async {
+      final job = _baseJob(
+        'color_local_contrast',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          colorCorrection: ColorCorrectionParameters(
+            enabled: true,
+            applyLocalContrast: true,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(),
+          label: 'color_local_contrast');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
     // Issue #37: QTGMC with EZ Denoise + the knlmeanscl denoiser must never
     // crash the job. KNLMeansCL is OpenCL-only; on a headless CI runner (no
     // usable OpenCL device) the worker's knlm probe fails and the denoiser is

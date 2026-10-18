@@ -260,6 +260,13 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/adworacz/zsmooth',
                       ),
                       _ComponentTile(
+                        name: 'vszip',
+                        license: 'MIT',
+                        copyright: 'Julek; includes zigimg (MIT) and '
+                            'vapoursynth-zig (LGPL 2.1)',
+                        url: 'https://github.com/dnjulek/vapoursynth-zip',
+                      ),
+                      _ComponentTile(
                         name: 'DFTTest',
                         license: 'GPL 3.0',
                         copyright: 'Kevin Stone (tritical); port by HolyWu',

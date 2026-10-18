@@ -651,9 +651,15 @@ if [ "$ARCH" = "x86_64" ]; then
     # platforms. evermeet keeps old versions reachable (verified: 7.1, 8.0 and
     # 9.0.1 all still resolve), so a full-version pin is durable here — unlike
     # BtbN, whose rolling tag garbage-collects old series.
+    #
+    # evermeet rate-limits GitHub's runner address range: on 2026-10-17 both x64
+    # jobs got HTTP 429 on two consecutive runs while the same URLs answered
+    # normally from elsewhere. curl treats 429 as transient under --retry and
+    # honours Retry-After, so back off rather than fail the whole deps build.
     echo "  Downloading static x86_64 FFmpeg $FFMPEG_MACOS_X64_VERSION from evermeet.cx..."
-    curl -fsSL "https://evermeet.cx/ffmpeg/ffmpeg-${FFMPEG_MACOS_X64_VERSION}.zip" -o "$BUILD_DIR/ffmpeg.zip"
-    curl -fsSL "https://evermeet.cx/ffmpeg/ffprobe-${FFMPEG_MACOS_X64_VERSION}.zip" -o "$BUILD_DIR/ffprobe.zip"
+    EVERMEET_RETRY=(--retry 8 --retry-delay 30 --retry-max-time 600)
+    curl -fsSL "${EVERMEET_RETRY[@]}" "https://evermeet.cx/ffmpeg/ffmpeg-${FFMPEG_MACOS_X64_VERSION}.zip" -o "$BUILD_DIR/ffmpeg.zip"
+    curl -fsSL "${EVERMEET_RETRY[@]}" "https://evermeet.cx/ffmpeg/ffprobe-${FFMPEG_MACOS_X64_VERSION}.zip" -o "$BUILD_DIR/ffprobe.zip"
     unzip -q -o "$BUILD_DIR/ffmpeg.zip" -d "$DEPS_DIR/ffmpeg/"
     unzip -q -o "$BUILD_DIR/ffprobe.zip" -d "$DEPS_DIR/ffmpeg/"
     chmod +x "$DEPS_DIR/ffmpeg/ffmpeg" "$DEPS_DIR/ffmpeg/ffprobe"
@@ -1962,6 +1968,129 @@ PYEOF
 else
     echo "  akarin already exists, skipping"
 fi
+
+# ============================================================================
+# vszip — CLAHE (Colour Correction's local contrast, issue #90)
+# ============================================================================
+# Only core.vszip.CLAHE is used. Keep VSZIP_VERSION in step across
+# download-deps-{macos,linux}.sh and download-deps-windows.ps1.
+#
+# arm64 takes the PyPI wheel's dylib: minos 13, under this arch's 15.0 target.
+# It has zero bytes between its load commands and __text, so install_name_tool
+# cannot fit a longer id (the repoint loop below fails quietly and leaves
+# @rpath, which is harmless for a dlopen'd plugin). Re-signing is safe: it is
+# already linker-signed, and codesign replaces an existing signature in place
+# rather than adding a load command.
+#
+# x64 builds the same release's sdist, for two reasons. The wheel is minos 13.0
+# against this bundle's 12.0 floor (issue #39). And Zig's x86_64 macOS output
+# carries NO code signature and leaves 8 bytes after its load commands, so
+# `codesign` — which must add a 16-byte LC_CODE_SIGNATURE — silently writes the
+# last 8 bytes over the start of __text. The result loads straight into a
+# SIGSEGV, and --remove-signature does not undo it. headerpad_max_install_names
+# gives the header room; the guard below fails the build if it ever doesn't.
+# Built with upstream's default x86_64-macos CPU (same as its wheel), which has
+# no AVX — so one build serves both CPU tiers and needs no _tierFiles entry.
+VSZIP_VERSION="22.1.0"
+VSZIP_SDIST_SHA256="93c1aaf5867ad43e1f21b77418fa89b0b1ed2191d0c4bfb03a65c958826ed8c9"
+# The sdist's pyproject pins ziglang==0.16.0; its build.zig does not compile
+# under 0.17 (Optimize enum rename).
+VSZIP_ZIG_VERSION="0.16.0"
+VSZIP_ZIG_SHA256="0387557ed1877bc6a2e1802c8391953baddba76081876301c522f52977b52ba7"
+VSZIP_OUT="$PLUGINS_DIR/libvszip.dylib"
+echo ""
+echo "=== Installing vszip $VSZIP_VERSION (CLAHE) ==="
+if [ "$FORCE" = false ] && [ -f "$VSZIP_OUT" ]; then
+    echo "  vszip already exists, skipping"
+else
+rm -f "$VSZIP_OUT"
+if [ "$ARCH" = "arm64" ]; then
+    VSZIP_URL=$("$PYTHON_BIN" - "$VSZIP_VERSION" "macosx_11_0_arm64" <<'PYEOF'
+import json, sys, urllib.request
+ver, tag = sys.argv[1], sys.argv[2]
+d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/vapoursynth-vszip/{ver}/json"))
+print(next(f["url"] for f in d["urls"] if f["filename"].endswith(tag + ".whl")))
+PYEOF
+)
+    rm -rf "$BUILD_DIR/vszip-whl" "$BUILD_DIR/vszip.whl"
+    mkdir -p "$BUILD_DIR/vszip-whl"
+    if curl -fL -o "$BUILD_DIR/vszip.whl" "$VSZIP_URL" \
+       && unzip -q "$BUILD_DIR/vszip.whl" -d "$BUILD_DIR/vszip-whl"; then
+        cp "$BUILD_DIR/vszip-whl/vapoursynth/plugins/vszip/libvszip.dylib" "$VSZIP_OUT"
+        chmod u+w "$VSZIP_OUT"
+    fi
+    rm -rf "$BUILD_DIR/vszip-whl" "$BUILD_DIR/vszip.whl"
+    if [ -f "$VSZIP_OUT" ] && ! codesign -v "$VSZIP_OUT" 2>/dev/null; then
+        echo "  ERROR: the vszip wheel's dylib is no longer signed; it cannot be"
+        echo "         re-signed in place (no header room) and arm64 will not load it."
+        exit 1
+    fi
+else
+    (
+        set -e
+        cd "$BUILD_DIR"
+        rm -rf vszip-zig vszip-zig.tar.xz vszip-src vszip.tar.gz
+        curl -fsSL -o vszip-zig.tar.xz \
+            "https://ziglang.org/download/${VSZIP_ZIG_VERSION}/zig-x86_64-macos-${VSZIP_ZIG_VERSION}.tar.xz"
+        echo "$VSZIP_ZIG_SHA256  vszip-zig.tar.xz" | shasum -a 256 -c -
+        mkdir -p vszip-zig
+        tar -xf vszip-zig.tar.xz -C vszip-zig --strip-components=1
+        curl -fsSL -o vszip.tar.gz \
+            "https://files.pythonhosted.org/packages/source/v/vapoursynth-vszip/vapoursynth_vszip-${VSZIP_VERSION}.tar.gz"
+        echo "$VSZIP_SDIST_SHA256  vszip.tar.gz" | shasum -a 256 -c -
+        mkdir -p vszip-src
+        tar -xzf vszip.tar.gz -C vszip-src --strip-components=1
+        cd vszip-src
+        grep -q '^    lib.use_llvm = true;$' build.zig || {
+            echo "  ERROR: vszip build.zig changed; re-check the headerpad patch" >&2; exit 1; }
+        sed -i.bak 's/^    lib.use_llvm = true;$/    lib.use_llvm = true;\
+    lib.headerpad_max_install_names = true;/' build.zig
+        grep -q 'lib.headerpad_max_install_names = true;' build.zig
+        # Also fetches vszip's own Zig dependencies (pinned by hash in
+        # build.zig.zon), so this step needs network access.
+        # Zig wants a full x.y version (see zsmooth's block above).
+        case "$MACOS_MIN_VERSION" in
+            *.*) vszip_min="$MACOS_MIN_VERSION" ;;
+            *)   vszip_min="${MACOS_MIN_VERSION}.0" ;;
+        esac
+        ../vszip-zig/zig build -Doptimize=ReleaseFast -Dtarget="x86_64-macos.${vszip_min}"
+        cp zig-out/lib/libvszip.dylib "$VSZIP_OUT"
+    ) || true
+    rm -rf "$BUILD_DIR/vszip-zig" "$BUILD_DIR/vszip-zig.tar.xz" \
+        "$BUILD_DIR/vszip-src" "$BUILD_DIR/vszip.tar.gz"
+
+    if [ -f "$VSZIP_OUT" ]; then
+        # Refuse to sign a Mach-O whose header cannot take the signature's load
+        # command: codesign does not check, it overwrites the code instead.
+        "$PYTHON_BIN" - "$VSZIP_OUT" <<'PYEOF' || exit 1
+import struct, sys
+b = open(sys.argv[1], "rb").read()
+ncmds, sizeofcmds = struct.unpack_from("<II", b, 16)
+off, first, signed = 32, None, False
+for _ in range(ncmds):
+    cmd, size = struct.unpack_from("<II", b, off)
+    signed |= cmd == 0x1d  # LC_CODE_SIGNATURE
+    if cmd == 0x19 and b[off + 8:off + 24].rstrip(b"\0") == b"__TEXT":
+        nsects = struct.unpack_from("<I", b, off + 64)[0]
+        first = min(struct.unpack_from("<I", b, off + 72 + s * 80 + 48)[0] for s in range(nsects))
+    off += size
+room = first - (32 + sizeofcmds)
+if room < (0 if signed else 16):
+    sys.exit(f"  ERROR: {sys.argv[1]}: {room} bytes after the load commands; "
+             "codesign would overwrite __text. Re-check the headerpad patch.")
+PYEOF
+        install_name_tool -id "@loader_path/libvszip.dylib" "$VSZIP_OUT"
+        codesign -s - -f "$VSZIP_OUT"
+    fi
+fi
+if [ -f "$VSZIP_OUT" ]; then
+    echo "  Installed vszip -> libvszip.dylib"
+    BUILT_PLUGINS+=("vszip")
+else
+    echo "  Failed to install vszip"
+    FAILED_PLUGINS+=("vszip")
+fi
+fi  # end vszip install
 
 # ============================================================================
 # Download NNEDI3 weights

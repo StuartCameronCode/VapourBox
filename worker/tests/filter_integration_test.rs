@@ -6014,3 +6014,104 @@ fn test_162_max_cache_size_is_only_set_when_overridden() {
         assert!(!script.contains("max_cache_size ="));
     }
 }
+
+fn local_contrast_job(name: &str, color: ColorCorrectionParameters) -> VideoJob {
+    let mut job = create_base_job(name);
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        color_correction: color,
+        ..ProcessingPipeline::default()
+    });
+    job
+}
+
+/// Local contrast (CLAHE, issue #90) reaches vszip with the user's values, on
+/// luma only, in both scripts.
+///
+/// vszip.CLAHE has no planes argument and equalizes every plane it is given, so
+/// the luma round trip is the difference between lifting detail and shifting
+/// the colour. Its limit is a per-bin count, so the template rescales it from
+/// the depth the content actually uses; both are asserted here because neither
+/// would error.
+#[test]
+fn test_163_local_contrast_runs_on_luma_with_a_depth_scaled_limit() {
+    create_output_dir();
+    let job = local_contrast_job(
+        "test_163_local_contrast",
+        ColorCorrectionParameters {
+            enabled: true,
+            apply_local_contrast: true,
+            local_contrast_strength: 3,
+            local_contrast_tiles: 6,
+            ..Default::default()
+        },
+    );
+    let (encode, preview) = generate_both_scripts(&job);
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("core.vszip.CLAHE(y, limit=limit_8bit, tiles=[tiles])"),
+            "{name}: 8-bit CLAHE call missing");
+        assert!(script.contains("core.vszip.CLAHE(y16, limit=limit_8bit << (16 - content_bits),"),
+            "{name}: deep-clip CLAHE call missing");
+        assert!(script.contains("clip = _local_contrast(clip, 3, 6)"), "{name}: values not passed");
+        assert!(script.contains("y = core.std.ShufflePlanes(c, planes=0, colorfamily=vs.GRAY)"),
+            "{name}: not luma-only");
+        // The scale comes from the CONTENT depth, measured per frame — not the
+        // container's, which was 9-27 levels off on 8-bit content in 10-bit.
+        assert!(script.contains("core.std.FrameEval(y16, _pick, prop_src=index)"),
+            "{name}: no per-frame content-depth choice");
+        assert!(!script.contains("LOCAL_CONTRAST"), "{name}: placeholder left behind");
+    }
+}
+
+#[test]
+fn test_164_local_contrast_values_are_clamped_and_off_by_default() {
+    create_output_dir();
+    let job = local_contrast_job(
+        "test_164_local_contrast_clamp",
+        ColorCorrectionParameters {
+            enabled: true,
+            apply_local_contrast: true,
+            local_contrast_strength: 50,
+            local_contrast_tiles: 0,
+            ..Default::default()
+        },
+    );
+    let (encode, preview) = generate_both_scripts(&job);
+    for script in [&encode, &preview] {
+        assert!(script.contains("clip = _local_contrast(clip, 10, 2)"));
+    }
+
+    // Colour Correction on, local contrast left off: no CLAHE anywhere.
+    let job = local_contrast_job(
+        "test_164_local_contrast_off",
+        ColorCorrectionParameters { enabled: true, brightness: 5.0, ..Default::default() },
+    );
+    let (encode, preview) = generate_both_scripts(&job);
+    for script in [&encode, &preview] {
+        assert!(!script.contains("vszip"));
+        assert!(!script.contains("LOCAL_CONTRAST"));
+    }
+}
+
+/// CLAHE runs after shadow detail, the order NightLift (issue #90) uses for its
+/// strongest preset: retinex lifts the shadows, CLAHE then spreads the result.
+#[test]
+fn test_165_local_contrast_follows_shadow_detail() {
+    create_output_dir();
+    let job = local_contrast_job(
+        "test_165_local_contrast_order",
+        ColorCorrectionParameters {
+            enabled: true,
+            apply_shadow_detail: true,
+            apply_local_contrast: true,
+            ..Default::default()
+        },
+    );
+    let (encode, preview) = generate_both_scripts(&job);
+    for script in [&encode, &preview] {
+        let retinex = script.find("core.retinex.MSRCP(").expect("retinex call");
+        let clahe = script.find("clip = _local_contrast(").expect("CLAHE call");
+        assert!(retinex < clahe);
+    }
+}

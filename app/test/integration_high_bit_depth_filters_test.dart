@@ -608,6 +608,22 @@ List<_Pass> _passes() => [
           ),
         ),
       ),
+      // vszip.CLAHE's limit is a count per histogram bin, so it must scale with
+      // the depth the CONTENT uses (here 8-bit content in a 10-bit clip, which
+      // fills every 256th bin of a 16-bit histogram), not the container's. With
+      // the container's it was 9-27 levels off. CLAHE's clipping is not exactly
+      // depth-invariant, so this one gets more headroom than a plain curve.
+      _Pass(
+        'color_local_contrast',
+        _only(
+          colorCorrection: const ColorCorrectionParameters(
+            enabled: true,
+            applyLocalContrast: true,
+            localContrastStrength: 3,
+          ),
+        ),
+        tolerance: 3.0,
+      ),
 
       // `enabled` turns the PASS on; `resizeEnabled`/`cropEnabled` turn the two
       // halves of it on. Setting only the former leaves the pass inert — which is

@@ -45,6 +45,7 @@
     "TCanny.dll",
     "TTempSmooth.dll",
     "VIVTC.dll",
+    "vszip.dll",
     "vsznedi3.dll",
     "zsmooth.dll"
   ],
@@ -80,6 +81,7 @@
     "TCanny.dll",
     "TTempSmooth.dll",
     "VIVTC.dll",
+    "vszip.dll",
     "vsznedi3.dll",
     "zsmooth.dll"
   ],
@@ -116,6 +118,7 @@
     "libtmedian.dylib",
     "libttempsmooth.dylib",
     "libvivtc.dylib",
+    "libvszip.dylib",
     "libznedi3.dylib",
     "libzsmooth.dylib"
   ],
@@ -149,6 +152,7 @@
     "libtmedian.dylib",
     "libttempsmooth.dylib",
     "libvivtc.dylib",
+    "libvszip.dylib",
     "libznedi3.dylib",
     "libzsmooth.dylib"
   ],
@@ -182,6 +186,7 @@
     "libtmedian.dylib",
     "libttempsmooth.dylib",
     "libvivtc.dylib",
+    "libvszip.dylib",
     "libznedi3.dylib",
     "libzsmooth.dylib"
   ],
@@ -216,6 +221,7 @@
     "libtmedian.so",
     "libttempsmooth.so",
     "libvivtc.so",
+    "libvszip.so",
     "libznedi3.so",
     "libzsmooth.so"
   ],
@@ -250,6 +256,7 @@
     "libtmedian.so",
     "libttempsmooth.so",
     "libvivtc.so",
+    "libvszip.so",
     "libznedi3.so",
     "libzsmooth.so"
   ],
@@ -285,6 +292,7 @@
     "libtmedian.so",
     "libttempsmooth.so",
     "libvivtc.so",
+    "libvszip.so",
     "libznedi3.so",
     "libzsmooth.so"
   ]

@@ -85,6 +85,20 @@ class ColorCorrectionParameters {
   /// Same at the bright end.
   final double shadowUpperThr;
 
+  /// Lift local contrast with CLAHE, on luma only (issue #90).
+  ///
+  /// vszip's CLAHE equalizes every plane it is given, so the worker lifts the
+  /// luma plane out first, as it does for shadow detail.
+  final bool applyLocalContrast;
+
+  /// CLAHE clip limit, as the 8-bit value: how much each tile may be
+  /// stretched. An integer because the plugin silently truncates a fraction;
+  /// the worker rescales it for deeper sources.
+  final int localContrastStrength;
+
+  /// Tiles across (and down) the frame. More tiles adapt to smaller regions.
+  final int localContrastTiles;
+
   /// Input black level (0-255).
   final int inputLow;
 
@@ -130,6 +144,9 @@ class ColorCorrectionParameters {
     this.shadowSigma = 100.0,
     this.shadowLowerThr = 0.001,
     this.shadowUpperThr = 0.001,
+    this.applyLocalContrast = false,
+    this.localContrastStrength = 2,
+    this.localContrastTiles = 8,
     this.inputLow = 0,
     this.inputHigh = 255,
     this.outputLow = 0,
@@ -204,6 +221,9 @@ class ColorCorrectionParameters {
     double? shadowSigma,
     double? shadowLowerThr,
     double? shadowUpperThr,
+    bool? applyLocalContrast,
+    int? localContrastStrength,
+    int? localContrastTiles,
     int? inputLow,
     int? inputHigh,
     int? outputLow,
@@ -234,6 +254,10 @@ class ColorCorrectionParameters {
       shadowSigma: shadowSigma ?? this.shadowSigma,
       shadowLowerThr: shadowLowerThr ?? this.shadowLowerThr,
       shadowUpperThr: shadowUpperThr ?? this.shadowUpperThr,
+      applyLocalContrast: applyLocalContrast ?? this.applyLocalContrast,
+      localContrastStrength:
+          localContrastStrength ?? this.localContrastStrength,
+      localContrastTiles: localContrastTiles ?? this.localContrastTiles,
       inputLow: inputLow ?? this.inputLow,
       inputHigh: inputHigh ?? this.inputHigh,
       outputLow: outputLow ?? this.outputLow,
@@ -292,6 +316,7 @@ class ColorCorrectionParameters {
     if (saturation != 1) parts.add('S:${saturation.toStringAsFixed(1)}');
     if (effectiveApplyLevels) parts.add('Levels');
     if (applyShadowDetail) parts.add('Shadows');
+    if (applyLocalContrast) parts.add('Local contrast');
     if (temperature != 0) parts.add('Temp:${temperature.toStringAsFixed(0)}');
     if (tint != 0) parts.add('Tint:${tint.toStringAsFixed(0)}');
     return parts.isEmpty ? 'Custom' : parts.join(' ');

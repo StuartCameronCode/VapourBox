@@ -109,6 +109,26 @@ pub struct ColorCorrectionParameters {
     #[serde(default = "default_shadow_upper")]
     pub shadow_upper_thr: f64,
 
+    // --- CLAHE (local contrast, issue #90) ---
+
+    /// Lift local contrast with CLAHE (`vszip.CLAHE`), on luma only.
+    ///
+    /// vszip equalizes every plane it is given and has no `planes` argument,
+    /// so a YUV clip would have its chroma equalized too (measured: a flat cast
+    /// shifted by 2 levels). The template lifts luma out, as shadow detail does.
+    #[serde(default)]
+    pub apply_local_contrast: bool,
+
+    /// CLAHE clip limit as the user sees it — the 8-bit value. The plugin takes
+    /// an integer and silently truncates a fraction (2.9 behaves as 2), so this
+    /// is an integer throughout. The template rescales it for deeper clips.
+    #[serde(default = "default_local_contrast_strength")]
+    pub local_contrast_strength: i32,
+
+    /// Tiles across (and down) the frame. More tiles adapt to smaller regions.
+    #[serde(default = "default_local_contrast_tiles")]
+    pub local_contrast_tiles: i32,
+
     /// Input black level (0-255).
     #[serde(default)]
     pub input_low: i32,
@@ -176,6 +196,8 @@ impl ColorCorrectionParameters {
 fn default_shadow_sigma() -> f64 { 100.0 }
 fn default_shadow_lower() -> f64 { 0.001 }
 fn default_shadow_upper() -> f64 { 0.001 }
+fn default_local_contrast_strength() -> i32 { 2 }
+fn default_local_contrast_tiles() -> i32 { 8 }
 fn default_one_f64() -> f64 { 1.0 }
 fn default_255() -> i32 { 255 }
 
@@ -205,6 +227,9 @@ impl Default for ColorCorrectionParameters {
             shadow_sigma: default_shadow_sigma(),
             shadow_lower_thr: default_shadow_lower(),
             shadow_upper_thr: default_shadow_upper(),
+            apply_local_contrast: false,
+            local_contrast_strength: default_local_contrast_strength(),
+            local_contrast_tiles: default_local_contrast_tiles(),
             input_low: 0,
             input_high: 255,
             output_low: 0,
@@ -446,5 +471,59 @@ mod shadow_detail_tests {
         assert_eq!(p.shadow_effective_sigma(), 500.0);
         assert_eq!(p.shadow_effective_lower(), 0.1);
         assert_eq!(p.shadow_effective_upper(), 0.0);
+    }
+}
+
+impl ColorCorrectionParameters {
+    /// CLAHE clip limit, at 8-bit scale. 0 would be a near no-op and the plugin
+    /// rejects a limit that overflows its per-tile count, so keep it to the
+    /// range the UI offers.
+    pub fn local_contrast_effective_strength(&self) -> i32 {
+        self.local_contrast_strength.clamp(1, 10)
+    }
+
+    /// Tile count. The plugin rejects 0 and more tiles than the plane is tall
+    /// or wide; 16 stays far inside any frame this app encodes.
+    pub fn local_contrast_effective_tiles(&self) -> i32 {
+        self.local_contrast_tiles.clamp(2, 16)
+    }
+}
+
+#[cfg(test)]
+mod local_contrast_tests {
+    use super::*;
+
+    #[test]
+    fn test_defaults_are_off_and_moderate() {
+        let p = ColorCorrectionParameters::default();
+        assert!(!p.apply_local_contrast);
+        assert_eq!(p.local_contrast_strength, 2);
+        assert_eq!(p.local_contrast_tiles, 8);
+    }
+
+    #[test]
+    fn test_strength_and_tiles_are_clamped() {
+        let p = ColorCorrectionParameters {
+            local_contrast_strength: 0,
+            local_contrast_tiles: 400,
+            ..Default::default()
+        };
+        assert_eq!(p.local_contrast_effective_strength(), 1);
+        assert_eq!(p.local_contrast_effective_tiles(), 16);
+        let p = ColorCorrectionParameters {
+            local_contrast_strength: 99,
+            local_contrast_tiles: 0,
+            ..Default::default()
+        };
+        assert_eq!(p.local_contrast_effective_strength(), 10);
+        assert_eq!(p.local_contrast_effective_tiles(), 2);
+    }
+
+    #[test]
+    fn test_a_job_written_before_the_option_existed_still_parses() {
+        let p: ColorCorrectionParameters =
+            serde_json::from_str(r#"{"enabled": true, "applyShadowDetail": true}"#).unwrap();
+        assert!(!p.apply_local_contrast);
+        assert_eq!(p.local_contrast_effective_strength(), 2);
     }
 }

@@ -13,14 +13,15 @@
       "havsfunc"
     ],
     "vs_plugins": [
-      "Retinex.dll"
+      "Retinex.dll",
+      "vszip.dll"
     ]
   },
   "methods": [
     {
       "id": "color_correction",
       "name": "Color Correction",
-      "description": "Brightness and colour, levels, white balance and shadow detail, each set separately below",
+      "description": "Brightness and colour, levels, white balance, shadow detail and local contrast, each set separately below",
       "function": "custom",
       "parameters": [
         "brightness",
@@ -44,7 +45,10 @@
         "temperature",
         "tint",
         "applyShadowDetail",
-        "shadowSigma"
+        "shadowSigma",
+        "applyLocalContrast",
+        "localContrastStrength",
+        "localContrastTiles"
       ]
     }
   ],
@@ -380,6 +384,47 @@
           "applyShadowDetail": true
         }
       }
+    },
+    "applyLocalContrast": {
+      "type": "boolean",
+      "default": false,
+      "sinceAppVersion": "1.3.0",
+      "ui": {
+        "label": "Lift local contrast",
+        "description": "Brings out detail in every part of a dark or flat picture at once, by stretching the contrast of each area of the frame separately (CLAHE) and capping how far any one area is pushed. Brightness only — colour is untouched. It amplifies noise along with detail, so denoise first."
+      }
+    },
+    "localContrastStrength": {
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "sinceAppVersion": "1.3.0",
+      "ui": {
+        "label": "Strength",
+        "description": "How far each area may be stretched. 1-3 is a gentle lift for dim footage; higher values are for very dark scenes and bring up noise with them.",
+        "widget": "slider",
+        "visibleWhen": {
+          "applyLocalContrast": true
+        }
+      }
+    },
+    "localContrastTiles": {
+      "type": "integer",
+      "default": 8,
+      "min": 2,
+      "max": 16,
+      "step": 1,
+      "sinceAppVersion": "1.3.0",
+      "ui": {
+        "label": "Areas across the frame",
+        "description": "How many areas, across and down, the frame is split into. More areas adapt to smaller regions; fewer behave more like one adjustment for the whole picture.",
+        "widget": "slider",
+        "visibleWhen": {
+          "applyLocalContrast": true
+        }
+      }
     }
   },
   "ui": {
@@ -443,6 +488,22 @@
           "shadowSigma"
         ],
         "expanded": true
+      },
+      {
+        "title": "Local contrast",
+        "parameters": [
+          "applyLocalContrast",
+          "localContrastStrength"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Local contrast tuning",
+        "parameters": [
+          "localContrastTiles"
+        ],
+        "expanded": false,
+        "advancedOnly": true
       }
     ]
   },
@@ -492,6 +553,13 @@
       "role": "shadow detail, on the luma plane only",
       "activeWhen": {
         "applyShadowDetail": true
+      }
+    },
+    {
+      "function": "core.vszip.CLAHE",
+      "role": "local contrast, on the luma plane only",
+      "activeWhen": {
+        "applyLocalContrast": true
       }
     }
   ]

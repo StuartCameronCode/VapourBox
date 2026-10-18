@@ -171,6 +171,19 @@ zsmooth — MIT
   CCD — Camcorder Colour Denoiser — was originally written by Sergey
   Stolyarevsky for VirtualDub.
 
+vszip — MIT
+  Copyright (c) 2024 Julek
+  https://github.com/dnjulek/vapoursynth-zip
+  Provides core.vszip.CLAHE (contrast-limited adaptive histogram
+  equalization), used by Color Correction's local contrast option.
+  The binary statically includes two Zig libraries:
+    zigimg — MIT, Copyright (c) 2019-2021 zigimg developers
+      https://github.com/zigimg/zigimg
+    vapoursynth-zig (VapourSynth API bindings for Zig) — LGPL-2.1; no
+      copyright notice is given upstream
+      https://github.com/dnjulek/vapoursynth-zig
+      Licence text: LGPL-2.1.txt
+
 DFTTest — GPL-3.0
   Copyright (C) 2007-2010 Kevin Stone (tritical); VapourSynth port by HolyWu
   https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest
@@ -414,9 +427,9 @@ Appendix — full text of the short permissive licences
 
 MIT License
 -----------
-(Applies to zsmooth, CAS, DCTFilter, BM3D, whisper.cpp, pip and the Clense
-filter in vs-removegrain, each under the copyright notice given in its entry
-above.)
+(Applies to zsmooth, vszip and the zigimg library it includes, CAS,
+DCTFilter, BM3D, whisper.cpp, pip and the Clense filter in vs-removegrain,
+each under the copyright notice given in its entry above.)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

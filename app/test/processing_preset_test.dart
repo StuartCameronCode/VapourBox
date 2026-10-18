@@ -39,6 +39,7 @@ void main() {
           'builtin-dvd-ivtc',
           'builtin-anime-dvd',
           'builtin-film-scan',
+          'builtin-low-light',
         },
       );
     });
@@ -106,6 +107,7 @@ void main() {
         'builtin-dvd-ivtc',
         'builtin-anime-dvd',
         'builtin-film-scan',
+        'builtin-low-light',
       });
       // Source presets should outnumber the tiers — the whole point is that
       // naming the source is what a user can actually answer.
@@ -244,6 +246,18 @@ void main() {
       final film = byId('builtin-film-scan');
       expect(film.pipeline.stabilize.enabled, true);
       expect(film.pipeline.deflicker.enabled, true);
+    });
+
+    test('low-light video lifts local contrast, after denoising, unsoftened', () {
+      final low = byId('builtin-low-light');
+      expect(low.pipeline.colorCorrection.enabled, true);
+      expect(low.pipeline.colorCorrection.applyLocalContrast, true,
+          reason: 'the lift is the point of the preset (issue #90)');
+      // CLAHE amplifies noise along with detail, and dim footage is noisy.
+      expect(low.pipeline.noiseReduction.enabled, true);
+      expect(low.pipeline.chromaDenoise.enabled, true);
+      // Phone and camera footage is progressive; QTGMC defaults to on.
+      expect(low.pipeline.deinterlace.enabled, false);
     });
 
     test('DV camcorder measures its chroma shift rather than guessing', () {
