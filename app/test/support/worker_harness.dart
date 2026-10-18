@@ -760,44 +760,58 @@ class WorkerHarness {
     return DepsVersionInfo.fromJson(json);
   }
 
-  /// Download + extract the pinned deps zip into [destDir].
+  /// Download + extract the pinned deps into [destDir], composed exactly as
+  /// the app composes them: one bundle, or for a v2 tier of a delta-format
+  /// release the v3 bundle with the v2 delta extracted over it
+  /// (`DependencyManager.installAssetIds`).
   static Future<void> _downloadDeps(String destDir) async {
     final info = _loadDepsVersion();
     final tier = await depsTier();
     final assetId = DependencyManager.assetIdFor(platform, tier);
-    final url = info.getDownloadUrl(assetId);
-    final expectedSha = await _fetchSidecarSha(info.getManifestUrl(assetId));
+    final assetIds = DependencyManager.installAssetIds(platform, tier,
+        delta: info.tierIsDelta);
 
     final tmp = await Directory.systemTemp.createTemp('vb_deps_');
-    final zip = File(p.join(tmp.path, info.filenameFor(assetId)));
     try {
-      // ignore: avoid_print
-      print('WorkerHarness: downloading $url');
-      final bytes = await _httpGetBytes(url);
-      if (expectedSha != null) {
-        final actual = sha256.convert(bytes).toString();
-        if (actual != expectedSha) {
-          throw StateError('deps sha256 mismatch (expected $expectedSha, got $actual)');
-        }
-      }
-      await zip.writeAsBytes(bytes);
-
       final dest = Directory(destDir);
       if (dest.existsSync()) dest.deleteSync(recursive: true);
       dest.createSync(recursive: true);
 
-      final archive = ZipDecoder().decodeBytes(bytes);
-      for (final f in archive) {
-        final outPath = p.join(destDir, f.name);
-        if (f.isFile) {
-          final outFile = File(outPath);
-          outFile.parent.createSync(recursive: true);
-          outFile.writeAsBytesSync(f.content as List<int>);
-          if (!Platform.isWindows && _isExecutable(f.name)) {
-            await Process.run('chmod', ['+x', outPath]);
-          }
+      String? baseSha;
+      for (final id in assetIds) {
+        final url = info.getDownloadUrl(id);
+        final expectedSha = await _fetchSidecarSha(info.getManifestUrl(id));
+        // ignore: avoid_print
+        print('WorkerHarness: downloading $url');
+        final bytes = await _httpGetBytes(url);
+        final actual = sha256.convert(bytes).toString();
+        if (expectedSha != null && actual != expectedSha) {
+          throw StateError(
+              'deps sha256 mismatch for $id (expected $expectedSha, got $actual)');
+        }
+
+        final archive = ZipDecoder().decodeBytes(bytes);
+        if (id == assetIds.first) {
+          baseSha = actual;
         } else {
-          Directory(outPath).createSync(recursive: true);
+          final wanted = DependencyManager.deltaBaseSha256(archive);
+          if (wanted != baseSha) {
+            throw StateError('$id was cut against bundle $wanted, but the '
+                'bundle downloaded is $baseSha');
+          }
+        }
+        for (final f in archive) {
+          final outPath = p.join(destDir, f.name);
+          if (f.isFile) {
+            final outFile = File(outPath);
+            outFile.parent.createSync(recursive: true);
+            outFile.writeAsBytesSync(f.content as List<int>);
+            if (!Platform.isWindows && _isExecutable(f.name)) {
+              await Process.run('chmod', ['+x', outPath]);
+            }
+          } else {
+            Directory(outPath).createSync(recursive: true);
+          }
         }
       }
 

@@ -101,19 +101,21 @@ jobs:
         run: |
           mkdir -p "$D"
           if [ -d .deps-artifact ]; then
+            # Gate mode: one full zip built earlier in this run. For a v2 tier
+            # that is the v3 bundle with the delta already applied (see the
+            # delta-x64 job of the calling build-deps-* workflow).
             ZIP=$(find .deps-artifact -name "*-$ASSET_ID.zip" | head -1)
+            [ -f "$ZIP" ] || { echo "no bundle zip for $ASSET_ID"; exit 1; }
+            if [ "$RUNNER_OS" = Windows ]; then
+              7z x "$ZIP" -o"$D" -y >/dev/null
+            else
+              unzip -q -o "$ZIP" -d "$D"
+            fi
+            rm -rf "$ZIP" .deps-artifact
           else
             TAG=$(sed -n 's/.*"releaseTag": *"\([^"]*\)".*/\1/p' app/assets/deps-version.json)
-            ZIP=$(bash .github/scripts/fetch-deps-bundle.sh "$ASSET_ID" "$TAG" "${TAG#deps-v}")
+            bash .github/scripts/install-deps-bundle.sh "$ASSET_ID" "$TAG" "${TAG#deps-v}" "$D"
           fi
-          [ -f "$ZIP" ] || { echo "no bundle zip for $ASSET_ID"; exit 1; }
-          if [ "$RUNNER_OS" = Windows ]; then
-            # The Windows zip uses backslash separators; 7-Zip copes, unzip does not.
-            7z x "$ZIP" -o"$D" -y >/dev/null
-          else
-            unzip -q -o "$ZIP" -d "$D"
-          fi
-          rm -rf "$ZIP" .deps-artifact
 
       - name: Fetch the positive control (upstream zsmooth, AVX2-only)
         run: |

@@ -70,6 +70,8 @@ deps/
 # Build Outputs
 # =============================================================================
 dist/
+# Deps zips fetched for package-linux.sh --bundle-deps
+bundled-deps/
 *.app
 *.dmg
 *.exe

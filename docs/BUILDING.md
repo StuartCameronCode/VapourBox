@@ -277,17 +277,30 @@ already-assembled package directory.
 
 ### Linux
 ```bash
-./Scripts/package-linux.sh --version 1.0.0 [--skip-build] [--arch x64|arm64]
+./Scripts/package-linux.sh --version 1.0.0 [--skip-build] [--arch x64|arm64] \
+    [--skip-appimage] [--bundle-deps DIR]
 ```
-`--arch` defaults to the host. Output, all from the same tree:
+`--arch` defaults to the host. Output, all from the same tree (`<ai-arch>` is
+`x86_64` or `aarch64`):
 
-- `dist/VapourBox-1.0.0-linux-<arch>.AppImage` — the primary download
-- `dist/VapourBox-1.0.0-linux-<arch>.AppImage.zsync` — its delta-update index; must be uploaded beside it
+- `dist/VapourBox-1.0.0-<ai-arch>.AppImage` — the primary download
+- `dist/VapourBox-1.0.0-<ai-arch>.AppImage.zsync` — its delta-update index; must be uploaded beside it
+- `dist/VapourBox-1.0.0-linux-<arch>.AppImage.zsync` — a copy of that index under the name 1.2.0 embedded, so a 1.2.0 AppImage can still update; upload it too
 - `dist/VapourBox-1.0.0-linux-<arch>.tar.gz` — the fallback
 
 The AppImage step needs `zsyncmake` (`sudo apt install zsync`) and a host of the
 target architecture; it downloads a pinned, checksummed `appimagetool` into
 `dist/.tools/` (or uses `$APPIMAGETOOL`). `--skip-appimage` builds the tarball alone.
+With `desktop-file-validate` and `appstreamcli` installed (`sudo apt install
+desktop-file-utils appstream`) it also validates the desktop entry and the
+AppStream metadata (`packaging/linux/app.vapourbox.VapourBox.appdata.xml`).
+
+`--bundle-deps DIR` packs the dependency zips into the AppImage so its first
+launch needs no network; release builds always pass it. `DIR` must hold the
+release assets for the deps version `app/assets/deps-version.json` names, each
+with its `.sha256.json`: `VapourBox-deps-<v>-linux-<arch>.zip`, and on x64 also
+`VapourBox-deps-<v>-linux-x64-v2-delta.zip`. Without the flag the AppImage
+downloads its dependencies on first launch, as the tarball always does.
 
 ### macOS
 ```bash

@@ -384,6 +384,46 @@ Note the version parser accepts `n9.0.1` and `9.0.1` and deliberately **rejects
 a `master` build** (`N-125978-...`), so reverting any platform to an unpinned
 master URL is a red build rather than a silent regression.
 
+### The v2 tier became a delta, and the AppImage started carrying its deps (2026-10-09, deps 1.13.0)
+
+**What prompted it.** The AppImage catalog (appimage.github.io) picked up the
+1.2.0 AppImage on its own and its test failed
+([PR #9839](https://github.com/AppImage/appimage.github.io/pull/9839)). The
+catalog launches each AppImage under `firejail --net=none`, screenshots it and
+OCRs the screenshot for error text. VapourBox started fine, tried to download
+its deps, failed DNS, and showed "Installation Failed" — which the OCR read.
+Two warnings rode along: "linux" in the file name, and no AppStream metadata.
+
+**Why not just bundle the two existing zips.** The linux-x64 bundle is 236 MB
+and so was its v2 twin; an AppImage that works on any x64 CPU would have
+carried both, ~470 MB, for a difference that on Linux is one file. The tiers
+were already required to list identical plugins
+(`deps-expected-plugins.json`), and the tier blocks in `download-deps-*` only
+touch zsmooth (and MVTools on macOS), so v2 as "v3 plus a few files" was
+already true; only the packaging said otherwise.
+
+**The delta is declared, not diffed.** The first idea was to build both tiers
+and publish whatever differs. That fails on contact: two builds of the same
+sources on two runners are not byte-identical, so the diff is most of the
+bundle. `_tierFiles` names the files instead, and `make-deps-delta.py` checks
+the two things a diff would have told us that still matter — the builds hold
+the same set of paths (so overwriting is enough), and each tier file really
+does differ (so the tier switch did something).
+
+**What is unverified as of writing.** Everything Linux- and Windows-side was
+written on macOS: the `delta-x64` jobs, `install-deps-bundle.sh`, the bundling
+and validation in `package-linux.sh`, and the bridge `.zsync`. In particular:
+
+- that the composed macOS v2 tree runs — v2 MVTools is built against the v2
+  build's own tree, and is now dropped onto the v3 bundle's `libfftw3f`;
+- that `appstreamcli` on ubuntu-22.04 (0.15) accepts the appdata file;
+- that AppImageUpdate, started from a 1.2.0 AppImage, follows the old-name
+  `.zsync` to the renamed file. zsync's `URL:` header is relative, so it should;
+  it has not been run.
+
+The first `build-deps-*` and `build-linux.yml` runs are the test of the first
+two. The third needs a Linux machine and a 1.2.0 AppImage.
+
 ### x86 bundles split into CPU tiers (issue #92, 2026-09-25)
 
 **The report.** A Mac Pro 5,1 (Xeon X5690, Westmere — SSE4.2, no AVX at all)

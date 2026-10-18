@@ -37,7 +37,7 @@ jobs:
             libgtk-3-dev liblzma-dev libstdc++-12-dev
           # zsyncmake writes the .zsync the AppImage's update information names;
           # desktop-file-validate lets appimagetool check the desktop entry.
-          sudo apt-get install -y zsync desktop-file-utils
+          sudo apt-get install -y zsync desktop-file-utils appstream
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -63,21 +63,27 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-x64-cargo-
 
-      - name: Download Linux dependencies
+      # The AppImage carries the deps zips so its first launch needs no
+      # network. They go in as published, sidecars included; package-linux.sh
+      # checks each against its sidecar and that they are the version
+      # app/assets/deps-version.json names.
+      - name: Download the deps to bundle
         run: |
           DEPS_VERSION="${{ inputs.deps_tag }}"
           DEPS_VERSION="${DEPS_VERSION#deps-v}"
+          BASE="https://github.com/${{ github.repository }}/releases/download/${{ inputs.deps_tag }}"
+          STEM="VapourBox-deps-${DEPS_VERSION}-linux-x64"
 
-          mkdir -p deps/linux-x64
+          mkdir -p bundled-deps
+          for F in "$STEM.zip" "$STEM.zip.sha256.json"; do
+            curl -fL --retry 3 -o "bundled-deps/$F" "$BASE/$F"
+          done
 
-          DEPS_URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.deps_tag }}/VapourBox-deps-${DEPS_VERSION}-linux-x64.zip"
-          echo "Downloading deps from: $DEPS_URL"
-          curl -L -o deps.zip "$DEPS_URL"
-          unzip -o deps.zip -d deps/linux-x64
-          rm -f deps.zip
-
-          echo "Dependencies extracted:"
-          ls -la deps/
+          # x64 only: the few files older CPUs need instead (see "CPU tiers").
+          for F in "$STEM-v2-delta.zip" "$STEM-v2-delta.zip.sha256.json"; do
+            curl -fL --retry 3 -o "bundled-deps/$F" "$BASE/$F"
+          done
+          ls -la bundled-deps
 
       - name: Update version numbers
         run: |
@@ -110,7 +116,8 @@ jobs:
 
       - name: Package release
         run: |
-          ./Scripts/package-linux.sh --version "${{ inputs.version }}" --arch x64 --skip-build
+          ./Scripts/package-linux.sh --version "${{ inputs.version }}" --arch x64 --skip-build \
+            --bundle-deps bundled-deps
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v5
@@ -118,7 +125,8 @@ jobs:
           name: VapourBox-${{ inputs.version }}-linux-x64
           if-no-files-found: error
           path: |
-            dist/VapourBox-${{ inputs.version }}-linux-x64.AppImage
+            dist/VapourBox-${{ inputs.version }}-x86_64.AppImage
+            dist/VapourBox-${{ inputs.version }}-x86_64.AppImage.zsync
             dist/VapourBox-${{ inputs.version }}-linux-x64.AppImage.zsync
             dist/VapourBox-${{ inputs.version }}-linux-x64.tar.gz
 
@@ -137,7 +145,7 @@ jobs:
             libgtk-3-dev liblzma-dev libstdc++-12-dev
           # zsyncmake writes the .zsync the AppImage's update information names;
           # desktop-file-validate lets appimagetool check the desktop entry.
-          sudo apt-get install -y zsync desktop-file-utils
+          sudo apt-get install -y zsync desktop-file-utils appstream
 
       - name: Setup Flutter
         run: |
@@ -168,21 +176,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-arm64-cargo-
 
-      - name: Download Linux dependencies
+      # The AppImage carries the deps zips so its first launch needs no
+      # network. They go in as published, sidecars included; package-linux.sh
+      # checks each against its sidecar and that they are the version
+      # app/assets/deps-version.json names.
+      - name: Download the deps to bundle
         run: |
           DEPS_VERSION="${{ inputs.deps_tag }}"
           DEPS_VERSION="${DEPS_VERSION#deps-v}"
+          BASE="https://github.com/${{ github.repository }}/releases/download/${{ inputs.deps_tag }}"
+          STEM="VapourBox-deps-${DEPS_VERSION}-linux-arm64"
 
-          mkdir -p deps/linux-arm64
-
-          DEPS_URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.deps_tag }}/VapourBox-deps-${DEPS_VERSION}-linux-arm64.zip"
-          echo "Downloading deps from: $DEPS_URL"
-          curl -L -o deps.zip "$DEPS_URL"
-          unzip -o deps.zip -d deps/linux-arm64
-          rm -f deps.zip
-
-          echo "Dependencies extracted:"
-          ls -la deps/
+          mkdir -p bundled-deps
+          for F in "$STEM.zip" "$STEM.zip.sha256.json"; do
+            curl -fL --retry 3 -o "bundled-deps/$F" "$BASE/$F"
+          done
+          ls -la bundled-deps
 
       - name: Update version numbers
         run: |
@@ -215,7 +224,8 @@ jobs:
 
       - name: Package release
         run: |
-          ./Scripts/package-linux.sh --version "${{ inputs.version }}" --arch arm64 --skip-build
+          ./Scripts/package-linux.sh --version "${{ inputs.version }}" --arch arm64 --skip-build \
+            --bundle-deps bundled-deps
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v5
@@ -223,6 +233,7 @@ jobs:
           name: VapourBox-${{ inputs.version }}-linux-arm64
           if-no-files-found: error
           path: |
-            dist/VapourBox-${{ inputs.version }}-linux-arm64.AppImage
+            dist/VapourBox-${{ inputs.version }}-aarch64.AppImage
+            dist/VapourBox-${{ inputs.version }}-aarch64.AppImage.zsync
             dist/VapourBox-${{ inputs.version }}-linux-arm64.AppImage.zsync
             dist/VapourBox-${{ inputs.version }}-linux-arm64.tar.gz

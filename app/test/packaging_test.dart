@@ -144,15 +144,37 @@ void main() {
     final package = _read(root, ['Scripts', 'package-linux.sh']);
 
     test('names the .zsync the script itself produces', () {
-      expect(package, contains(r'APPIMAGE_FILE="$PACKAGE_NAME.AppImage"'));
-      expect(
-          package, contains(r'PACKAGE_NAME="VapourBox-$VERSION-linux-$ARCH"'));
+      expect(package,
+          contains(r'APPIMAGE_FILE="VapourBox-$VERSION-$AI_ARCH.AppImage"'));
       expect(
         package,
-        contains(r'|latest|VapourBox-*-linux-$ARCH.AppImage.zsync"'),
+        contains(r'|latest|VapourBox-*-$AI_ARCH.AppImage.zsync"'),
         reason: 'the update pattern must be the output filename with the '
             'version wildcarded, plus .zsync',
       );
+    });
+
+    test('the AppImage is named App-version-arch, without "linux"', () {
+      // The AppImage catalog flags "linux" in an AppImage's file name, and
+      // wants the machine's own architecture name. The tarball is not an
+      // AppImage and keeps linux-<arch>.
+      expect(package, contains('AI_ARCH="x86_64"'));
+      expect(package, contains('AI_ARCH="aarch64"'));
+      expect(
+          package, contains(r'PACKAGE_NAME="VapourBox-$VERSION-linux-$ARCH"'));
+      expect(package, contains(r'TAR_FILE="$PACKAGE_NAME.tar.gz"'));
+    });
+
+    test('1.2.0 can still find its update under the name it embedded', () {
+      // 1.2.0 shipped as VapourBox-1.2.0-linux-<arch>.AppImage and looks for
+      // VapourBox-*-linux-<arch>.AppImage.zsync on the latest release. That
+      // file must keep being published, as a copy of the real .zsync, or
+      // every 1.2.0 AppImage silently stops updating.
+      expect(
+          package,
+          contains(
+              r'LEGACY_ZSYNC="VapourBox-$VERSION-linux-$ARCH.AppImage.zsync"'));
+      expect(package, contains(r'cp "$APPIMAGE_FILE.zsync" "$LEGACY_ZSYNC"'));
     });
 
     test('the release upload carries the AppImage and its .zsync', () {
@@ -168,10 +190,54 @@ void main() {
       }
 
       final workflow = _read(root, ['.github', 'workflows', 'build-linux.yml']);
-      for (final arch in ['x64', 'arm64']) {
-        expect(workflow, contains('-linux-$arch.AppImage\n'));
-        expect(workflow, contains('-linux-$arch.AppImage.zsync\n'));
+      for (final arch in {'x64': 'x86_64', 'arm64': 'aarch64'}.entries) {
+        expect(workflow, contains('-${arch.value}.AppImage\n'));
+        expect(workflow, contains('-${arch.value}.AppImage.zsync\n'));
+        expect(workflow, contains('-linux-${arch.key}.AppImage.zsync\n'),
+            reason: 'the bridge .zsync for 1.2.0 must be uploaded too');
+        expect(workflow, isNot(contains('-linux-${arch.key}.AppImage\n')));
       }
+    });
+
+    test('the AppImage bundles the deps zips; the tarball does not', () {
+      final workflow = _read(root, ['.github', 'workflows', 'build-linux.yml']);
+      expect('--bundle-deps bundled-deps'.allMatches(workflow).length, 2,
+          reason: 'both architectures must bundle');
+      // Only x64 is tiered, so only x64 carries a v2 delta.
+      expect('-v2-delta.zip.sha256.json'.allMatches(workflow).length, 1);
+      // The zips go into the AppDir after the tarball's tree was copied into
+      // it, never into the tree both are made from.
+      expect(package, contains(r'"$APPDIR/usr/lib/vapourbox/bundled-deps"'));
+      expect(package, isNot(contains(r'"$PACKAGE_DIR/bundled-deps')));
+      // The directory name is the one DependencyManager looks in.
+      final manager =
+          _read(root, ['app', 'lib', 'services', 'dependency_manager.dart']);
+      expect(manager, contains("'bundled-deps'"));
+    });
+
+    test('ships AppStream metadata for the application id', () {
+      final cmake = _read(root, ['app', 'linux', 'CMakeLists.txt']);
+      final id = RegExp(r'set\(APPLICATION_ID "([^"]+)"\)')
+          .firstMatch(cmake)!
+          .group(1)!;
+      // .appdata.xml: the only name the AppImage catalog's lint looks for.
+      final appdata = _read(root, ['packaging', 'linux', '$id.appdata.xml']);
+      expect(appdata, contains('<id>$id</id>'));
+      expect(appdata,
+          contains('<launchable type="desktop-id">$id.desktop</launchable>'));
+      expect(appdata, contains('<project_license>'));
+      // Stamped at package time, so neither can go stale.
+      expect(appdata, contains('<release version="@VERSION@" date="@DATE@">'));
+      expect(appdata, contains('/v@VERSION@/docs/images/screenshot.png'));
+      expect(
+          File(p.join(root, 'docs', 'images', 'screenshot.png')).existsSync(),
+          isTrue);
+      expect(package,
+          contains(r'"$APPDIR/usr/share/metainfo/$APP_ID.appdata.xml"'));
+      // appimagetool's own validation fetches the screenshot, whose tag does
+      // not exist until the release is published.
+      expect(package, contains('--no-appstream'));
+      expect(package, contains('appstreamcli validate --no-net'));
     });
 
     test('the desktop entry and icon are named for the application id', () {

@@ -39,8 +39,8 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg —
 | macOS (Apple Silicon) | macOS 15 Sequoia | `VapourBox-x.x.x-macos-arm64.dmg` |
 | macOS (Intel) | macOS 12 Monterey | `VapourBox-x.x.x-macos-x64.dmg` |
 | Windows (x64) | Windows 10/11 | `VapourBox-x.x.x-windows-x64-setup.exe` |
-| Linux (x64) | glibc 2.39 (Ubuntu 24.04, Debian 13) | `VapourBox-x.x.x-linux-x64.AppImage` |
-| Linux (arm64) | glibc 2.39 (Ubuntu 24.04, Debian 13) | `VapourBox-x.x.x-linux-arm64.AppImage` |
+| Linux (x64) | glibc 2.39 (Ubuntu 24.04, Debian 13) | `VapourBox-x.x.x-x86_64.AppImage` |
+| Linux (arm64) | glibc 2.39 (Ubuntu 24.04, Debian 13) | `VapourBox-x.x.x-aarch64.AppImage` |
 
 All processing is local. There is no account, no telemetry, and nothing is uploaded.
 
@@ -72,20 +72,20 @@ It installs for the current user only (under `%LOCALAPPDATA%\Programs\VapourBox`
 <details>
 <summary><b>Installing on Linux</b></summary>
 
-1. Download the `.AppImage` for your architecture.
-2. Make it executable: `chmod +x VapourBox-x.x.x-linux-x64.AppImage` (or tick *Allow executing file as program* in the file manager's Properties).
-3. Run it: `./VapourBox-x.x.x-linux-x64.AppImage`
-4. First launch downloads its processing dependencies (~185 MB).
+1. Download the `.AppImage` for your architecture (`x86_64` for Intel/AMD, `aarch64` for ARM).
+2. Make it executable: `chmod +x VapourBox-x.x.x-x86_64.AppImage` (or tick *Allow executing file as program* in the file manager's Properties).
+3. Run it: `./VapourBox-x.x.x-x86_64.AppImage`
+4. First launch unpacks the processing dependencies it carries. No download is needed, so it works offline.
 
 The AppImage is a single file that needs no installation and can live anywhere. To get a menu entry and icon, open it with an AppImage manager such as [Gear Lever](https://github.com/mijorus/gearlever) or [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher); those, and [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate), can also update it in place, downloading only what changed.
 
-Each release also carries a plain `.tar.gz` of the same build, for systems where an AppImage can't be mounted: extract it and run `./vapourbox`.
+Each release also carries a plain `.tar.gz` of the same build, for systems where an AppImage can't be mounted: extract it and run `./vapourbox`. It is much smaller because it leaves the processing dependencies out, and downloads them on first launch (~240 MB) instead.
 
 GPU-accelerated deinterlacing (NNEDI3CL) needs your GPU's OpenCL driver installed. Without it, VapourBox falls back to the CPU automatically.
 
 </details>
 
-**Older Intel and AMD processors** (before about 2013 — no AVX2) are supported on all three platforms. On first launch VapourBox checks the processor and downloads the matching set of processing components; a machine moved to a different CPU gets the right set on its next launch. The older-CPU set runs some filters more slowly, never differently. Every build of that set is checked for pre-AVX processors (e.g. a 2010 Mac Pro) on macOS and Linux; on Windows it is checked for processors with AVX but no AVX2, and older ones are expected to work but can't be tested automatically.
+**Older Intel and AMD processors** (before about 2013 — no AVX2) are supported on all three platforms. On first launch VapourBox checks the processor and installs the matching set of processing components; a machine moved to a different CPU gets the right set on its next launch. The older-CPU set runs some filters more slowly, never differently. Every build of that set is checked for pre-AVX processors (e.g. a 2010 Mac Pro) on macOS and Linux; on Windows it is checked for processors with AVX but no AVX2, and older ones are expected to work but can't be tested automatically.
 
 ## Output formats
 
