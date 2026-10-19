@@ -7,6 +7,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vapourbox/models/filter_schema.dart';
 import 'package:vapourbox/services/whats_new_service.dart';
 
 void main() {
@@ -128,6 +129,58 @@ void main() {
       await service.initialize();
 
       expect(service.isNew('1.10.0'), true);
+    });
+  });
+
+  group('isSchemaNew (the pass row badge)', () {
+    FilterSchema schema({String? since, Map<String, ParameterDefinition>? params}) =>
+        FilterSchema(
+          id: 'x',
+          version: '1.0.0',
+          name: 'X',
+          sinceAppVersion: since,
+          methods: const [],
+          parameters: params ?? const {},
+        );
+
+    ParameterDefinition param(String? since, {bool hidden = false}) =>
+        ParameterDefinition(
+          type: ParameterType.number,
+          defaultValue: 0,
+          sinceAppVersion: since,
+          ui: ParameterUiConfig(hidden: hidden),
+        );
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({
+        'lastRunAppVersion': '1.1.0',
+        'lastSeenAppVersion': '1.1.0',
+      });
+      setCurrentVersion('1.2.0');
+      await service.initialize();
+    });
+
+    test('a new filter is new', () {
+      expect(service.isSchemaNew(schema(since: '1.2.0')), true);
+    });
+
+    test('a new parameter propagates up to its filter row', () {
+      expect(
+          service.isSchemaNew(schema(
+              since: '1.0.0',
+              params: {'old': param('1.0.0'), 'fresh': param('1.2.0')})),
+          true);
+    });
+
+    test('nothing new means no badge', () {
+      expect(service.isSchemaNew(schema(params: {'old': param('1.1.0')})), false);
+      expect(service.isSchemaNew(null), false);
+    });
+
+    test('a hidden parameter has no control to find, so it does not count', () {
+      expect(
+          service.isSchemaNew(schema(params: {'h': param('1.2.0', hidden: true)})),
+          false);
     });
   });
 }

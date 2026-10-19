@@ -231,6 +231,12 @@ not the current one — and a "NEW" pill (`app/lib/widgets/new_badge.dart`) is
 drawn next to the pass in the pass list, or next to the parameter's control in
 the settings panel, whenever `sinceAppVersion` is newer than that.
 
+A new parameter also badges its pass's row (`WhatsNewService.isSchemaNew`),
+since passes start collapsed and its own badge is otherwise out of sight.
+Parameters with `ui.hidden` don't count — there's no control to find. So
+tagging only the parameter is enough; don't stamp the filter too unless the
+filter itself is new.
+
 ```json
 {
   "sinceAppVersion": "1.2.0",

@@ -254,4 +254,37 @@ void main() {
       expect(restored.get('dehalo')?.values['method'], 'dehalo_alpha');
     });
   });
+
+  group('enabledByEditFrom (editing a setting switches the pass on)', () {
+    const off = DynamicParameters(
+      filterId: 'x',
+      values: {'strength': 1.0, 'curve': [1, 2]},
+    );
+
+    test('changing a value on an off pass turns it on', () {
+      final edited = off.withValue('strength', 2.0).enabledByEditFrom(off);
+      expect(edited.enabled, true);
+      expect(edited.values['strength'], 2.0);
+    });
+
+    test('enabling an optional parameter counts as a change', () {
+      final edited = off.withValue('extra', 3).enabledByEditFrom(off);
+      expect(edited.enabled, true);
+    });
+
+    test('an edit that changes nothing leaves the pass off', () {
+      final same = DynamicParameters(
+        filterId: 'x',
+        values: {'strength': 1.0, 'curve': [1, 2]},
+      );
+      expect(same.enabledByEditFrom(off).enabled, false);
+    });
+
+    test('a pass that was already on is left alone', () {
+      final on = off.withEnabled(true);
+      final turnedOff = on.withEnabled(false);
+      expect(turnedOff.enabledByEditFrom(on).enabled, false,
+          reason: 'an edit that itself switches the pass off must win');
+    });
+  });
 }

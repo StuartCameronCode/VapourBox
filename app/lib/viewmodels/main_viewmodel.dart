@@ -54,8 +54,10 @@ class MainViewModel extends ChangeNotifier {
   // Processing pipeline
   ProcessingPipeline _processingPipeline = const ProcessingPipeline();
   /// Pass whose settings are expanded inline in the pass list, or null when
-  /// every pass is collapsed.
-  PassType? _selectedPass = PassType.deinterlace;
+  /// every pass is collapsed. Starts collapsed, and collapses again whenever a
+  /// preset or source auto-configuration rewrites the pipeline, so the list
+  /// opens as a plain checklist of what's switched on.
+  PassType? _selectedPass;
   bool _advancedMode = false;
 
   // Scan-type auto-configuration of the deinterlace pipeline runs ONCE, for the
@@ -157,11 +159,13 @@ class MainViewModel extends ChangeNotifier {
 
   /// Update dynamic parameters for a filter.
   void updateDynamicParams(String filterId, DynamicParameters params) {
+    final enabledChanged = getDynamicParams(filterId).enabled != params.enabled;
     _dynamicParams[filterId] = params;
     // Also update the typed model in the pipeline
     _updatePipelineFromDynamic(filterId, params);
-    // Subtitle output mode changes can affect output file extension
-    if (filterId == 'subtitles') {
+    // Subtitle output mode changes can affect output file extension, and so
+    // can a pass switching on (subtitle-only detection), as togglePass does.
+    if (filterId == 'subtitles' || enabledChanged) {
       _regenerateOutputPath();
     }
     notifyListeners();
@@ -579,6 +583,7 @@ class MainViewModel extends ChangeNotifier {
         // Auto-config has now been applied; later dropped files won't re-trigger
         // it and clobber the user's configuration (issue #12).
         _scanTypeAutoApplied = true;
+        _selectedPass = null;
         // Sync dynamic params cache and notify UI immediately
         _dynamicParams.remove('deinterlace');
         // Deinterlace toggle changes subtitle-only detection and output extension
@@ -1713,6 +1718,7 @@ class MainViewModel extends ChangeNotifier {
     _processingPipeline = preset.pipeline;
     _qtgmcParams = preset.pipeline.deinterlace;
     _encodingSettings = preset.encodingSettings;
+    _selectedPass = null;
 
     // Clear dynamic params cache to force refresh
     _dynamicParams.clear();
