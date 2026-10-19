@@ -436,7 +436,19 @@ if $NOTARIZE && ! $NO_SIGN; then
     fi
 
     echo "    Stapling notarization ticket..."
-    xcrun stapler staple "$DMG_FILE"
+    # Stapling fetches the ticket from Apple's CloudKit service, which can drop
+    # the connection (NSURLErrorDomain -1005, stapler error 68) even after the
+    # submission was Accepted. The ticket exists by then, so retry with backoff.
+    staple_attempt=1
+    until xcrun stapler staple "$DMG_FILE"; do
+        if [ "$staple_attempt" -ge 5 ]; then
+            echo "    ERROR: stapling failed after $staple_attempt attempts"
+            exit 1
+        fi
+        echo "    Stapling failed (attempt $staple_attempt), retrying in $((staple_attempt * 30))s..."
+        sleep $((staple_attempt * 30))
+        staple_attempt=$((staple_attempt + 1))
+    done
     echo "    Notarization complete"
 fi
 
