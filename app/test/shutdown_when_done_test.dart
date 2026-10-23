@@ -8,6 +8,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:vapourbox/models/progress_info.dart';
 import 'package:vapourbox/models/queue_item.dart';
 import 'package:vapourbox/services/failure_log_writer.dart';
@@ -223,7 +224,7 @@ void main() {
         errorMessage: 'disk full',
         messages: [LogMessage(level: LogLevel.error, message: 'boom')],
       );
-      expect(written, '${dir.path}/clip_processed.error.log');
+      expect(written, p.join(dir.path, 'clip_processed.error.log'));
       expect(File(written!).readAsStringSync(), contains('[ERROR] boom'));
     });
 
