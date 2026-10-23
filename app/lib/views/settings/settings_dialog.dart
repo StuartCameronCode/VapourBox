@@ -14,6 +14,7 @@ import '../../services/dependency_manager.dart';
 import '../../services/hardware_encoder_detector.dart';
 import '../../services/overwrite_behavior_service.dart';
 import '../../services/temp_directory_service.dart';
+import '../../services/theme_service.dart';
 import '../../services/update_checker.dart';
 import '../../services/whats_new_service.dart';
 import '../../utils/pixel_format.dart';
@@ -2117,6 +2118,14 @@ class _GeneralSettingsTabState extends State<_GeneralSettingsTab> {
       children: [
         _buildSection(
           context,
+          title: 'Appearance',
+          child: _buildThemePicker(context),
+        ),
+
+        const SizedBox(height: 24),
+
+        _buildSection(
+          context,
           title: 'Filter Options',
           child: SwitchListTile(
             title: const Text('Show advanced options'),
@@ -2264,6 +2273,40 @@ class _GeneralSettingsTabState extends State<_GeneralSettingsTab> {
     );
   }
 
+  /// One chip per [AppTheme], each with a swatch of its own colours, and the
+  /// selected theme's description underneath. Applies immediately.
+  Widget _buildThemePicker(BuildContext context) {
+    final theme = Theme.of(context);
+    final selected = context.watch<ThemeService>().theme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final option in AppTheme.values)
+              ChoiceChip(
+                avatar: _ThemeSwatch(theme: option),
+                label: Text(option.label),
+                selected: option == selected,
+                showCheckmark: false,
+                onSelected: (_) => ThemeService.instance.setTheme(option),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          selected.description,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+      ],
+    );
+  }
+
   /// Opens the project's GitHub issues page in the browser, for bug reports and
   /// feedback. The repo comes from `deps-version.json` (the same source the
   /// About dialog uses) so a fork points at its own tracker.
@@ -2313,6 +2356,44 @@ class _GeneralSettingsTabState extends State<_GeneralSettingsTab> {
         const SizedBox(height: 12),
         child,
       ],
+    );
+  }
+}
+
+/// A small circle previewing an [AppTheme]: its surface with its primary
+/// colour, or the rainbow for themes that draw one.
+class _ThemeSwatch extends StatelessWidget {
+  final AppTheme theme;
+
+  const _ThemeSwatch({required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = theme.themeMode == ThemeMode.system
+        ? MediaQuery.platformBrightnessOf(context)
+        : (theme.themeMode == ThemeMode.dark
+            ? Brightness.dark
+            : Brightness.light);
+    final data = brightness == Brightness.dark
+        ? theme.darkTheme
+        : theme.lightTheme;
+    final stripe = data.extension<AppDecorations>()?.accentStripe;
+
+    return Container(
+      width: 18,
+      height: 18,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: data.colorScheme.outline, width: 1),
+        gradient: stripe != null
+            ? SweepGradient(colors: [...stripe, stripe.first])
+            : LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                stops: const [0.5, 0.5],
+                colors: [data.colorScheme.surface, data.colorScheme.primary],
+              ),
+      ),
     );
   }
 }

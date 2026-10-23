@@ -166,10 +166,39 @@ VapourBox decides between the two by looking for a DVD IFO: a folder is only tre
 <details>
 <summary><b>Preview, timeline and trimming</b></summary>
 
-- **Click** a thumbnail to jump to that position; **drag** to scrub.
-- **Mouse wheel** zooms the timeline, centered on the cursor; **drag while zoomed** to pan.
-- **Set In** / **Set Out** mark an export range so only part of the source is processed — useful for trying settings on a short section first. **Clear** removes the markers.
+- **Click** a thumbnail to jump to that position; **drag** to scrub. The transport buttons step one frame at a time or jump to either end.
+- **Mouse wheel** or **pinch** zooms the timeline, keeping the point under the cursor in place; **Shift+wheel** or a **two-finger swipe** pans a zoomed timeline. The **− / + / fit** buttons under the strip do the same around the playhead.
+- **Set In** / **Set Out** mark an export range so only part of the source is processed — useful for trying settings on a short section first. **✕** removes the markers.
 - Panel dividers are draggable, so the preview or the filter list can take whatever share of the window suits the job.
+
+</details>
+
+<details>
+<summary><b>Keyboard shortcuts</b></summary>
+
+The keys follow common video-editor conventions. Every button that has one shows it in its tooltip, and **?** (or the keyboard button in the toolbar) lists them all.
+
+| Action | macOS | Windows / Linux |
+|---|---|---|
+| Previous / next frame | ← / → | ← / → |
+| Back / forward 10 frames | ⇧← / ⇧→ | Shift+← / Shift+→ |
+| Go to start / end | Home / End | Home / End |
+| Set in / out point | I / O | I / O |
+| Go to in / out point | ⇧I / ⇧O | Shift+I / Shift+O |
+| Clear in and out points | ⌥X | Alt+X |
+| Zoom timeline in / out / to fit | = / - / \ | = / - / \ |
+| Add videos | ⌘O | Ctrl+O |
+| Start processing | ⌘↩ | Ctrl+Enter |
+| Settings | ⌘, | Ctrl+, |
+
+Shortcuts without ⌘/Ctrl are ignored while you are typing in a text box, so they never get in the way of entering a filename or a value.
+
+</details>
+
+<details>
+<summary><b>Themes</b></summary>
+
+**Settings → General → Appearance** picks the colour theme: **Auto** (follows the system light/dark setting, the default), **Light**, **Dark**, **Monokai**, or **Pride** (rainbow accents, following the system light/dark setting). It applies immediately and is remembered.
 
 </details>
 

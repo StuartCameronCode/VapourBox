@@ -1,13 +1,14 @@
 import 'dart:io';
 
 import 'package:desktop_drop/desktop_drop.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/queue_item.dart';
 import '../viewmodels/main_viewmodel.dart';
 import 'dropped_paths.dart';
+import '../models/app_shortcut.dart';
+import 'video_file_picker.dart';
 
 /// Panel showing the queue of videos to process.
 class QueuePanel extends StatefulWidget {
@@ -121,7 +122,7 @@ class _QueuePanelState extends State<QueuePanel> {
           const Spacer(),
           // Add button
           Tooltip(
-            message: 'Add videos to queue',
+            message: AppShortcut.addVideos.tooltipFor('Add videos to queue'),
             child: InkWell(
               onTap: () => _addVideos(context, viewModel),
               borderRadius: BorderRadius.circular(4),
@@ -193,25 +194,12 @@ class _QueuePanelState extends State<QueuePanel> {
   }
 
   Future<void> _addVideos(BuildContext context, MainViewModel viewModel) async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: [
-        'avi', 'mov', 'mp4', 'mkv', 'mxf', 'm2v', 'mpg', 'mpeg',
-        'ts', 'vob', 'dv', 'mts', 'm2ts', 'wmv', 'webm', 'flv'
-      ],
-      allowMultiple: true,
-    );
-
-    if (result != null && result.files.isNotEmpty) {
-      final paths = result.files
-          .where((f) => f.path != null)
-          .map((f) => f.path!)
-          .toList();
-      if (paths.isNotEmpty) {
-        viewModel.addMultipleToQueue(paths);
-      }
+    final paths = await pickVideoFiles();
+    if (paths.isNotEmpty) {
+      viewModel.addMultipleToQueue(paths);
     }
   }
+
 
   void _showVideoInfo(BuildContext context, QueueItem item) {
     showDialog(

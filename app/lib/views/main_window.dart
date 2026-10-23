@@ -12,6 +12,11 @@ import '../models/queue_item.dart';
 import '../services/audio_compatibility_service.dart';
 import '../services/overwrite_behavior_service.dart';
 import '../services/preset_service.dart';
+import '../services/theme_service.dart';
+import '../models/app_shortcut.dart';
+import '../widgets/app_shortcut_scope.dart';
+import 'keyboard_shortcuts_dialog.dart';
+import 'video_file_picker.dart';
 import '../viewmodels/main_viewmodel.dart';
 import '../services/disc_detector.dart';
 import 'audio_compatibility_dialog.dart';
@@ -48,47 +53,136 @@ class MainWindow extends StatelessWidget {
     return Scaffold(
       body: Consumer<MainViewModel>(
         builder: (context, viewModel, child) {
-          return Column(
-            children: [
-              // Top toolbar
-              _buildToolbar(context, viewModel),
+          return AppShortcutScope(
+            bindings: _shortcutBindings(context, viewModel),
+            child: Column(
+              children: [
+                // Top toolbar
+                _buildToolbar(context, viewModel),
 
-              // Main content area
-              Expanded(
-                child: viewModel.queue.isEmpty
-                    ? const DropZone()
-                    : _buildMainContent(context, viewModel),
-              ),
+                // Main content area
+                Expanded(
+                  child: viewModel.queue.isEmpty
+                      ? const DropZone()
+                      : _buildMainContent(context, viewModel),
+                ),
 
-              // Bottom status bar
-              _buildStatusBar(context, viewModel),
-            ],
+                // Bottom status bar
+                _buildStatusBar(context, viewModel),
+              ],
+            ),
           );
         },
       ),
     );
   }
 
+  /// What each keyboard shortcut does right now (issue #102). A shortcut that
+  /// can't apply — the timeline ones with no preview on screen, Add Videos
+  /// mid-job — maps to null, so its key passes through untouched.
+  Map<AppShortcut, VoidCallback?> _shortcutBindings(
+    BuildContext context,
+    MainViewModel viewModel,
+  ) {
+    final previewing = viewModel.queue.isNotEmpty &&
+        !viewModel.isProcessing &&
+        viewModel.state != ProcessingState.completed &&
+        viewModel.state != ProcessingState.failed &&
+        viewModel.totalFrames > 0;
+
+    VoidCallback? whenPreviewing(VoidCallback action) =>
+        previewing ? action : null;
+
+    return {
+      AppShortcut.previousFrame: whenPreviewing(() => viewModel.stepFrame(-1)),
+      AppShortcut.nextFrame: whenPreviewing(() => viewModel.stepFrame(1)),
+      AppShortcut.back10Frames: whenPreviewing(() => viewModel.stepFrame(-10)),
+      AppShortcut.forward10Frames:
+          whenPreviewing(() => viewModel.stepFrame(10)),
+      AppShortcut.goToStart: whenPreviewing(viewModel.goToStart),
+      AppShortcut.goToEnd: whenPreviewing(viewModel.goToEnd),
+      AppShortcut.setInPoint: whenPreviewing(viewModel.setInPointToCurrent),
+      AppShortcut.setOutPoint: whenPreviewing(viewModel.setOutPointToCurrent),
+      AppShortcut.goToInPoint: whenPreviewing(viewModel.goToInPoint),
+      AppShortcut.goToOutPoint: whenPreviewing(viewModel.goToOutPoint),
+      AppShortcut.clearInOut: whenPreviewing(viewModel.clearInOutPoints),
+      AppShortcut.zoomIn: whenPreviewing(viewModel.zoomIn),
+      AppShortcut.zoomOut: whenPreviewing(viewModel.zoomOut),
+      AppShortcut.zoomToFit: whenPreviewing(viewModel.resetTimelineZoom),
+      AppShortcut.addVideos: viewModel.isProcessing
+          ? null
+          : () async {
+              final paths = await pickVideoFiles();
+              if (paths.isNotEmpty) viewModel.addMultipleToQueue(paths);
+            },
+      AppShortcut.startProcessing: viewModel.canProcess
+          ? () => _startProcessingWithCompatibilityCheck(context, viewModel)
+          : null,
+      AppShortcut.openSettings: () => _showSettings(context, viewModel),
+      AppShortcut.showShortcuts: () => KeyboardShortcutsDialog.show(context),
+    };
+  }
+
   Widget _buildToolbar(BuildContext context, MainViewModel viewModel) {
+    // A theme with an accent stripe (Pride) draws it in place of the hairline
+    // border, and runs the same colours through the title.
+    final stripe = AppDecorations.of(context).accentStripe;
+
+    Widget title = Text(
+      'VapourBox',
+      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+    );
+    if (stripe != null) {
+      title = ShaderMask(
+        blendMode: BlendMode.srcIn,
+        shaderCallback: (bounds) =>
+            LinearGradient(colors: stripe).createShader(bounds),
+        child: title,
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildToolbarRow(context, viewModel, title, stripe == null),
+        if (stripe != null)
+          Container(
+            height: 3,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: stripe),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildToolbarRow(
+    BuildContext context,
+    MainViewModel viewModel,
+    Widget title,
+    bool showBorder,
+  ) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        border: Border(
-          bottom: BorderSide(
-            color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
-          ),
-        ),
+        border: showBorder
+            ? Border(
+                bottom: BorderSide(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .outline
+                      .withValues(alpha: 0.2),
+                ),
+              )
+            : null,
       ),
       child: Row(
         children: [
           // App title
-          Text(
-            'VapourBox',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
+          title,
 
           const Spacer(),
 
@@ -303,10 +397,16 @@ class MainWindow extends StatelessWidget {
                 : () => _openDvd(context, viewModel),
           ),
 
+          IconButton(
+            icon: const Icon(Icons.keyboard_outlined),
+            tooltip: AppShortcut.showShortcuts.tooltip,
+            onPressed: () => KeyboardShortcutsDialog.show(context),
+          ),
+
           // Settings button — About and bug reporting live in its General tab
           IconButton(
             icon: const Icon(Icons.settings),
-            tooltip: 'Settings',
+            tooltip: AppShortcut.openSettings.tooltip,
             onPressed: () => _showSettings(context, viewModel),
           ),
 
@@ -333,21 +433,25 @@ class MainWindow extends StatelessWidget {
             const SizedBox(width: 8),
 
             // Go button
-            FilledButton.icon(
-              icon: viewModel.isProcessing
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.play_arrow),
-              label: Text(_getGoButtonText(viewModel)),
-              onPressed: viewModel.canProcess
-                  ? () => _startProcessingWithCompatibilityCheck(context, viewModel)
-                  : null,
+            Tooltip(
+              message: AppShortcut.startProcessing.tooltip,
+              child: FilledButton.icon(
+                icon: viewModel.isProcessing
+                    ? SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Theme.of(context).colorScheme.onPrimary,
+                        ),
+                      )
+                    : const Icon(Icons.play_arrow),
+                label: Text(_getGoButtonText(viewModel)),
+                onPressed: viewModel.canProcess
+                    ? () => _startProcessingWithCompatibilityCheck(
+                        context, viewModel)
+                    : null,
+              ),
             ),
           ],
         ],
