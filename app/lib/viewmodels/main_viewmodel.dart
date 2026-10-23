@@ -21,7 +21,9 @@ import '../services/frame_math.dart';
 import '../services/preset_service.dart';
 import '../services/preview_generator.dart';
 import '../services/temp_directory_service.dart';
+import '../services/failure_log_writer.dart';
 import '../services/job_runner.dart';
+import '../services/system_shutdown.dart';
 import '../services/worker_manager.dart';
 
 /// Main view model managing application state.
@@ -33,6 +35,7 @@ class MainViewModel extends ChangeNotifier {
   final PreviewGenerator _previewGenerator = PreviewGenerator();
   final DvdService _dvdService = DvdService();
   final DiscDetector _discDetector = DiscDetector();
+  final SystemShutdown _systemShutdown;
 
   // Queue state (replaces single-video state)
   final List<QueueItem> _queue = [];
@@ -91,6 +94,24 @@ class MainViewModel extends ChangeNotifier {
   Timer? _zoomDebounceTimer;
   bool _isLoadingZoomedThumbnails = false;
 
+  // Shut down when the queue finishes (issue #123). Armed for one run only:
+  // _stopProcessing disarms it, so a run the user cancelled can't leave it
+  // armed, invisibly, for the next one.
+  bool _shutdownWhenDone = false;
+  int? _shutdownSecondsLeft;
+  Timer? _shutdownTimer;
+  String? _shutdownError;
+
+  // Each video's own log lines, by queue item id, so a failed one can be
+  // written beside its output before an unattended shutdown. The shared
+  // `_logMessages` interleaves every video and is capped, so it can't say which
+  // lines belong to which file.
+  final Map<String, List<LogMessage>> _itemLogs = {};
+  List<LogMessage>? _currentItemLog;
+
+  /// How long the user has to stop a shutdown once the queue finishes.
+  static const shutdownCountdown = Duration(seconds: 60);
+
   // Subscriptions
   StreamSubscription<ProgressInfo>? _progressSub;
   StreamSubscription<LogMessage>? _logSub;
@@ -138,6 +159,16 @@ class MainViewModel extends ChangeNotifier {
   /// Whether the knlmeanscl denoiser is usable here (gates its warning). null
   /// while the probe is still running.
   bool? get knlmAvailable => _knlmAvailable;
+
+  bool get canShutDown => _systemShutdown.isSupported;
+  bool get shutdownWhenDone => _shutdownWhenDone;
+
+  /// Seconds until the computer is shut down, or null when no shutdown is
+  /// pending.
+  int? get shutdownSecondsLeft => _shutdownSecondsLeft;
+
+  /// Why the last shutdown attempt (or check) failed, if it did.
+  String? get shutdownError => _shutdownError;
 
   /// Label for completion message — context-aware based on last job type.
   String get completionLabel {
@@ -411,8 +442,9 @@ class MainViewModel extends ChangeNotifier {
     return _manualFieldOrder;
   }
 
-  MainViewModel({JobRunner? runner})
-      : _workerManager = runner ?? WorkerManager() {
+  MainViewModel({JobRunner? runner, SystemShutdown? systemShutdown})
+      : _workerManager = runner ?? WorkerManager(),
+        _systemShutdown = systemShutdown ?? PlatformSystemShutdown() {
     _setupSubscriptions();
     _initializePreviewGenerator();
     _probeGpuCapabilities();
@@ -447,6 +479,7 @@ class MainViewModel extends ChangeNotifier {
 
     _logSub = _workerManager.logStream.listen((message) {
       _logMessages.add(message);
+      _appendItemLog(message);
       // Keep last 1000 messages
       if (_logMessages.length > 1000) {
         _logMessages.removeRange(0, _logMessages.length - 1000);
@@ -1174,9 +1207,19 @@ class MainViewModel extends ChangeNotifier {
     _isQueueProcessing = true;
     _currentProcessingIndex = -1;
     _logMessages.clear();
+    _itemLogs.clear();
+    _clearShutdown();
     notifyListeners();
 
     await _processNextItem();
+  }
+
+  /// The user is back at the machine: drop any pending shutdown and its error.
+  void _clearShutdown() {
+    _shutdownTimer?.cancel();
+    _shutdownTimer = null;
+    _shutdownSecondsLeft = null;
+    _shutdownError = null;
   }
 
   /// Processes the next ready item in the queue.
@@ -1187,15 +1230,21 @@ class MainViewModel extends ChangeNotifier {
     if (nextIndex == -1) {
       // No more items to process
       final hasFailed = _queue.any((q) => q.status == QueueItemStatus.failed);
+      // Read before _stopProcessing disarms it. A failed item still shuts down:
+      // the queue ran to its end, and an overnight run is exactly when nobody
+      // is there to retry it.
+      final shutDown = _shutdownWhenDone;
       _stopProcessing(
         state: hasFailed ? ProcessingState.failed : ProcessingState.completed,
       );
+      if (shutDown) _startShutdownCountdown();
       notifyListeners();
       return;
     }
 
     _currentProcessingIndex = nextIndex;
     final item = _queue[nextIndex];
+    _currentItemLog = _itemLogs[item.id] = [];
 
     // Mark as processing
     item.status = QueueItemStatus.processing;
@@ -1274,7 +1323,7 @@ class MainViewModel extends ChangeNotifier {
     // Record the audio config each file is actually encoded with. If a file's
     // audio unexpectedly reverts to copy (issue #12), this line pins down which
     // file and what settings were used, directly from the user's log.
-    _logMessages.add(LogMessage(
+    _logForItem(LogMessage(
       level: LogLevel.info,
       message: 'Encoding ${item.filename} audio: '
           '${_audioSettingsSummary(_encodingSettings)}',
@@ -1288,7 +1337,7 @@ class MainViewModel extends ChangeNotifier {
     } catch (e) {
       item.status = QueueItemStatus.failed;
       item.errorMessage = 'Failed to start processing: $e';
-      _logMessages.add(LogMessage(
+      _logForItem(LogMessage(
         level: LogLevel.error,
         message: 'Failed to start processing ${item.filename}: $e',
       ));
@@ -1328,7 +1377,7 @@ class MainViewModel extends ChangeNotifier {
     } else {
       item.status = QueueItemStatus.failed;
       item.errorMessage = result.errorMessage ?? 'Processing failed';
-      _logMessages.add(LogMessage(
+      _logForItem(LogMessage(
         level: LogLevel.error,
         message: '${item.filename}: ${item.errorMessage}',
       ));
@@ -1356,6 +1405,119 @@ class MainViewModel extends ChangeNotifier {
     _isQueueProcessing = false;
     _currentProcessingIndex = -1;
     _state = state;
+    _shutdownWhenDone = false;
+    _currentItemLog = null;
+  }
+
+  /// Add to the shared log and to the current video's own.
+  void _logForItem(LogMessage message) {
+    _logMessages.add(message);
+    _appendItemLog(message);
+  }
+
+  void _appendItemLog(LogMessage message) {
+    final log = _currentItemLog;
+    if (log == null) return;
+    log.add(message);
+    if (log.length > FailureLogWriter.maxLines) {
+      log.removeRange(0, log.length - FailureLogWriter.maxLines);
+    }
+  }
+
+  /// Write each failed video's log beside its output, so an unattended
+  /// shutdown doesn't take the only record of why it failed with it.
+  Future<void> _writeFailureLogs() async {
+    for (final item in _queue) {
+      if (item.status != QueueItemStatus.failed) continue;
+      final written = await FailureLogWriter.write(
+        inputPath: item.inputPath,
+        outputPath: item.outputPath,
+        errorMessage: item.errorMessage,
+        messages: _itemLogs[item.id] ?? const [],
+      );
+      _logMessages.add(LogMessage(
+        level: written == null ? LogLevel.warning : LogLevel.info,
+        message: written == null
+            ? 'Could not write a log file for ${item.filename}'
+            : 'Wrote ${item.filename} failure log to $written',
+      ));
+    }
+  }
+
+  // ============================================================================
+  // SHUT DOWN WHEN DONE
+  // ============================================================================
+
+  /// Arm or disarm shutting down when the queue finishes.
+  ///
+  /// Arming checks first that the shutdown would actually happen, and stays
+  /// disarmed if not — see [SystemShutdown.check]. Returns the reason it could
+  /// not arm, or null.
+  Future<String?> setShutdownWhenDone(bool value) async {
+    if (!value || !_isQueueProcessing) {
+      _shutdownWhenDone = false;
+      notifyListeners();
+      return null;
+    }
+    final problem = await _systemShutdown.check();
+    // The queue may have finished while a permission prompt was up; arming
+    // then would carry over to the next run.
+    if (_disposed || !_isQueueProcessing) return problem;
+    _shutdownWhenDone = problem == null;
+    notifyListeners();
+    return problem;
+  }
+
+  void _startShutdownCountdown() {
+    _shutdownTimer?.cancel();
+    _shutdownError = null;
+    _shutdownSecondsLeft = shutdownCountdown.inSeconds;
+    _logMessages.add(LogMessage(
+      level: LogLevel.info,
+      message: 'Queue finished; shutting down in $_shutdownSecondsLeft seconds '
+          'unless cancelled.',
+    ));
+    _shutdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final left = (_shutdownSecondsLeft ?? 1) - 1;
+      if (left <= 0) {
+        shutDownNow();
+      } else {
+        _shutdownSecondsLeft = left;
+        notifyListeners();
+      }
+    });
+  }
+
+  /// Stop a pending shutdown. The computer stays on.
+  void cancelShutdown() {
+    if (_shutdownSecondsLeft == null) return;
+    _shutdownTimer?.cancel();
+    _shutdownTimer = null;
+    _shutdownSecondsLeft = null;
+    _logMessages.add(LogMessage(
+      level: LogLevel.info,
+      message: 'Shutdown cancelled.',
+    ));
+    notifyListeners();
+  }
+
+  /// Skip the rest of the countdown and shut down.
+  Future<void> shutDownNow() async {
+    if (_shutdownSecondsLeft == null) return;
+    _shutdownTimer?.cancel();
+    _shutdownTimer = null;
+    _shutdownSecondsLeft = null;
+    notifyListeners();
+
+    await _writeFailureLogs();
+    final problem = await _systemShutdown.shutDown();
+    if (problem == null || _disposed) return;
+    _shutdownError = problem;
+    _logMessages.add(LogMessage(
+      level: LogLevel.warning,
+      message: 'Could not shut down: $problem',
+    ));
+    notifyListeners();
   }
 
   /// Gets the effective field order for a queue item.
@@ -1418,6 +1580,7 @@ class MainViewModel extends ChangeNotifier {
   /// Retries all failed items in the queue.
   Future<void> retryFailed() async {
     if (_isQueueProcessing) return;
+    _clearShutdown();
 
     // Reset failed items to ready
     for (final item in _queue) {
@@ -1438,6 +1601,7 @@ class MainViewModel extends ChangeNotifier {
 
   /// Resets after completion or failure.
   void reset() {
+    _clearShutdown();
     _state = ProcessingState.idle;
     _currentProgress = null;
     _isQueueProcessing = false;
@@ -1792,6 +1956,7 @@ class MainViewModel extends ChangeNotifier {
     _completionSub?.cancel();
     _previewDebounceTimer?.cancel();
     _zoomDebounceTimer?.cancel();
+    _shutdownTimer?.cancel();
     _workerManager.dispose();
     _previewGenerator.dispose();
     _cleanupDvdTempFiles();

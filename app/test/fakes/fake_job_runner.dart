@@ -87,6 +87,12 @@ class FakeJobRunner implements JobRunner {
 
   void emitProgress(ProgressInfo p) => _progress.add(p);
 
+  /// Emit a worker log line and let the viewmodel's listener run.
+  Future<void> emitLog(String message, {LogLevel level = LogLevel.info}) async {
+    _log.add(LogMessage(level: level, message: message));
+    await Future<void>.delayed(Duration.zero);
+  }
+
   Future<void> succeed({String output = '/tmp/out.mkv'}) =>
       complete(CompletionResult(success: true, outputPath: output));
 
