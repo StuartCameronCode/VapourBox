@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 enum AppShortcutGroup {
   navigation('Moving around'),
   range('Export range'),
+  preview('Preview'),
   zoom('Timeline zoom'),
   app('General');
 
@@ -18,7 +19,9 @@ enum AppShortcutGroup {
 ///
 /// Keys follow the common NLE conventions — arrows to step frames, Home/End,
 /// I/O for in and out, Shift+I/O to go to them, =/- to zoom, \ to fit — so
-/// they do what someone coming from Premiere or Resolve expects.
+/// they do what someone coming from Premiere or Resolve expects. The preview's
+/// Cmd/Ctrl+1 (actual pixels) and Cmd/Ctrl+0 (fit) are the image-editor
+/// convention.
 ///
 /// Shortcuts without the platform's primary modifier (Cmd on macOS, Ctrl
 /// elsewhere) are suppressed while a text field has focus, so typing "i" in a
@@ -71,6 +74,20 @@ enum AppShortcut {
     AppShortcutGroup.range,
     LogicalKeyboardKey.keyX,
     alt: true,
+  ),
+  previewActualSize(
+    'Preview at actual pixels (1:1)',
+    AppShortcutGroup.preview,
+    LogicalKeyboardKey.digit1,
+    alternates: [LogicalKeyboardKey.numpad1],
+    primary: true,
+  ),
+  previewFit(
+    'Fit preview to panel',
+    AppShortcutGroup.preview,
+    LogicalKeyboardKey.digit0,
+    alternates: [LogicalKeyboardKey.numpad0],
+    primary: true,
   ),
   zoomIn(
     'Zoom in',

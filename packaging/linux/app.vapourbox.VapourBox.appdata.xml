@@ -70,7 +70,7 @@
   <screenshots>
     <screenshot type="default">
       <caption>An interlaced capture with the original and the deinterlaced result side by side</caption>
-      <image type="source" width="2024" height="1624">https://raw.githubusercontent.com/StuartCameronCode/VapourBox/v@VERSION@/docs/images/screenshot.png</image>
+      <image type="source" width="2396" height="1764">https://raw.githubusercontent.com/StuartCameronCode/VapourBox/v@VERSION@/docs/images/screenshot.png</image>
     </screenshot>
   </screenshots>
 

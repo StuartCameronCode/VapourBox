@@ -1032,6 +1032,15 @@ asserted in `shutdown_when_done_test.dart`:
   view, so they stay in place during the regeneration debounce. Controls in
   the transport and zoom bars are always present (disabled, not removed) so
   nothing shifts as the zoom changes.
+- **Preview 1:1 (issue #8) means one stored pixel per *physical* screen
+  pixel**, so `BeforeAfterComparisonWidget` derives the scale from the frame's
+  real size (`encodedImageSize`, read from the PNG/JPEG header), the fitted
+  size and the device pixel ratio — recomputed every build, so a resize stays
+  at 1:1 — and snaps the frame's corner onto the physical pixel grid, since
+  off-grid nearest-neighbour sampling repeats rows. Anamorphic frames are
+  exact vertically (stretched horizontally by SAR). The shortcuts reach the
+  widget's zoom through `MainViewModel.previewZoom`
+  (`ComparisonZoomController`); `before_after_comparison_test.dart` covers it.
 - **Themes** are `AppTheme` in `theme_service.dart`, persisted as `appTheme`
   and provided above the MaterialApp. Theme-specific decoration beyond
   `ColorScheme` (Pride's stripe) goes through the `AppDecorations` theme

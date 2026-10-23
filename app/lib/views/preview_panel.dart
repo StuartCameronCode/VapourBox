@@ -78,6 +78,7 @@ class _PreviewPanelState extends State<PreviewPanel> {
               isBeforeLoading: viewModel.isAnalyzing,
               isAfterLoading: viewModel.isGeneratingPreview,
               displayAspectRatio: displayAspectRatio,
+              zoomController: viewModel.previewZoom,
             ),
           ),
 

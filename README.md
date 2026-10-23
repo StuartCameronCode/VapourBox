@@ -167,6 +167,7 @@ VapourBox decides between the two by looking for a DVD IFO: a folder is only tre
 <summary><b>Preview, timeline and trimming</b></summary>
 
 - **Click** a thumbnail to jump to that position; **drag** to scrub. The transport buttons step one frame at a time or jump to either end.
+- The before/after preview zooms with the **mouse wheel** or **pinch** and pans once zoomed; **double-click** resets it. **1:1** in its bottom-left corner shows the frame at actual pixels — one video pixel per screen pixel, the way to judge fine detail — and **Fit** goes back to the whole frame. The readout there is the zoom as a percentage of actual pixels.
 - **Mouse wheel** or **pinch** zooms the timeline, keeping the point under the cursor in place; **Shift+wheel** or a **two-finger swipe** pans a zoomed timeline. The **− / + / fit** buttons under the strip do the same around the playhead.
 - **Set In** / **Set Out** mark an export range so only part of the source is processed — useful for trying settings on a short section first. **✕** removes the markers.
 - Panel dividers are draggable, so the preview or the filter list can take whatever share of the window suits the job.
@@ -186,6 +187,7 @@ The keys follow common video-editor conventions. Every button that has one shows
 | Set in / out point | I / O | I / O |
 | Go to in / out point | ⇧I / ⇧O | Shift+I / Shift+O |
 | Clear in and out points | ⌥X | Alt+X |
+| Preview at actual pixels (1:1) / fit | ⌘1 / ⌘0 | Ctrl+1 / Ctrl+0 |
 | Zoom timeline in / out / to fit | = / - / \ | = / - / \ |
 | Add videos | ⌘O | Ctrl+O |
 | Start processing | ⌘↩ | Ctrl+Enter |
