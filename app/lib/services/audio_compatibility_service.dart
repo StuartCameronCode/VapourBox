@@ -61,25 +61,39 @@ class AudioCompatibilityResult {
 class AudioCompatibilityService {
   AudioCompatibilityService();
 
-  /// Audio codecs compatible with each container format.
-  /// Based on common FFmpeg muxer support.
+  /// Audio codecs (ffprobe `codec_name`) each container's FFmpeg muxer accepts
+  /// for `-c:a copy` — what the bundled FFmpeg actually does, not what a
+  /// player is guaranteed to open. Anything missing here is blocked before
+  /// the job starts (issue #118: `mp2` was missing everywhere, so VHS/DVD
+  /// MPEG audio could not be passed through at all).
+  ///
+  /// `audio_compatibility_test.dart` checks every entry, both ways, against
+  /// the bundled FFmpeg. A codec added here must be added to its matrix.
   static const Map<ContainerFormat, Set<String>> _containerCodecSupport = {
     ContainerFormat.mp4: {
-      'aac', 'mp3', 'ac3', 'eac3', 'alac', 'opus', 'flac',
-    },
-    ContainerFormat.mkv: {
-      'aac', 'mp3', 'ac3', 'eac3', 'dts', 'truehd', 'flac', 'opus', 'vorbis',
-      'pcm_s16le', 'pcm_s24le', 'pcm_s32le', 'pcm_f32le',
-      'alac', 'wavpack',
-    },
-    ContainerFormat.mov: {
-      'aac', 'mp3', 'ac3', 'eac3', 'alac', 'pcm_s16le', 'pcm_s24le',
+      'aac', 'mp2', 'mp3', 'ac3', 'eac3', 'dts', 'alac', 'flac', 'opus',
+      'vorbis', 'pcm_s16le', 'pcm_s24le', 'pcm_s32le', 'pcm_f32le',
       'pcm_s16be', 'pcm_s24be',
     },
+    ContainerFormat.mkv: {
+      'aac', 'mp2', 'mp3', 'ac3', 'eac3', 'dts', 'truehd', 'alac', 'flac',
+      'opus', 'vorbis', 'pcm_s16le', 'pcm_s24le', 'pcm_s32le', 'pcm_f32le',
+      'pcm_s16be', 'pcm_s24be', 'pcm_u8', 'wavpack',
+    },
+    ContainerFormat.mov: {
+      'aac', 'mp2', 'mp3', 'ac3', 'eac3', 'dts', 'alac', 'vorbis',
+      'pcm_s16le', 'pcm_s24le', 'pcm_s32le', 'pcm_f32le',
+      'pcm_s16be', 'pcm_s24be', 'pcm_u8',
+    },
     ContainerFormat.avi: {
-      'mp3', 'ac3', 'pcm_s16le', 'pcm_u8',
+      'aac', 'mp2', 'mp3', 'ac3', 'eac3', 'dts', 'flac', 'vorbis',
+      'pcm_s16le', 'pcm_s24le', 'pcm_s32le', 'pcm_f32le', 'pcm_u8',
     },
   };
+
+  /// Every codec any container accepts — the set the test sweeps.
+  static Set<String> get knownCodecs =>
+      {for (final codecs in _containerCodecSupport.values) ...codecs};
 
   /// Suggested fallback codec for each container.
   static const Map<ContainerFormat, String> _fallbackCodecs = {
