@@ -1,8 +1,13 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import '../models/app_shortcut.dart';
+import '../services/image_dimensions.dart';
+import 'comparison_zoom_controller.dart';
 
 /// A widget that displays a before/after comparison with a draggable divider.
 ///
@@ -11,7 +16,9 @@ import 'package:flutter/services.dart';
 /// portions of the images.
 ///
 /// Supports pinch-to-zoom, scroll wheel zoom, pan when zoomed, and
-/// double-tap to reset.
+/// double-tap to reset. The Fit / 1:1 controls in the bottom-left corner
+/// switch between fitting the frame to the panel and showing it at actual
+/// pixels — one stored pixel per physical screen pixel (issue #8).
 class BeforeAfterComparisonWidget extends StatefulWidget {
   /// The "before" image data (shown on the left).
   final Uint8List? beforeImage;
@@ -32,6 +39,9 @@ class BeforeAfterComparisonWidget extends StatefulWidget {
   /// When null, the image's native pixel aspect ratio is used (square pixels).
   final double? displayAspectRatio;
 
+  /// Lets keyboard shortcuts drive Fit / 1:1 from outside the widget.
+  final ComparisonZoomController? zoomController;
+
   const BeforeAfterComparisonWidget({
     super.key,
     this.beforeImage,
@@ -40,6 +50,7 @@ class BeforeAfterComparisonWidget extends StatefulWidget {
     this.isBeforeLoading = false,
     this.isAfterLoading = false,
     this.displayAspectRatio,
+    this.zoomController,
   });
 
   @override
@@ -49,7 +60,8 @@ class BeforeAfterComparisonWidget extends StatefulWidget {
 
 class _BeforeAfterComparisonWidgetState
     extends State<BeforeAfterComparisonWidget>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin
+    implements ComparisonZoomTarget {
   late double _dividerPosition;
 
   // Zoom and pan state
@@ -71,9 +83,29 @@ class _BeforeAfterComparisonWidgetState
   static const double _minScale = 1.0;
   static const double _maxScale = 10.0;
 
+  // Actual-pixels (1:1) mode. While it is on, the scale is recomputed from
+  // the layout on every build, so resizing the panel or the frame changing
+  // size keeps it at 1:1 rather than at whatever scale that used to be.
+  bool _actualSize = false;
+
+  /// The scale (relative to fit) that shows the frame at 1:1 in the current
+  /// layout, or null with no decodable frame.
+  double? _actualSizeTarget;
+
+  Size _viewport = Size.zero;
+
+  /// Fractional physical-pixel position of the viewport's origin, so the
+  /// frame can be put on the screen's pixel grid at 1:1.
+  Offset _originPhase = Offset.zero;
+  final GlobalKey _viewportKey = GlobalKey();
+
+  Uint8List? _sizedBytes;
+  Size? _sizedResult;
+
   @override
   void initState() {
     super.initState();
+    widget.zoomController?.attach(this);
     _dividerPosition = widget.initialDividerPosition;
     _resetController = AnimationController(
       vsync: this,
@@ -87,27 +119,134 @@ class _BeforeAfterComparisonWidgetState
   }
 
   @override
+  void didUpdateWidget(BeforeAfterComparisonWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.zoomController != widget.zoomController) {
+      oldWidget.zoomController?.detach(this);
+      widget.zoomController?.attach(this);
+    }
+  }
+
+  @override
   void dispose() {
+    widget.zoomController?.detach(this);
     _resetController.dispose();
     super.dispose();
   }
 
-  void _resetZoom() {
-    if (_scale == 1.0 && _offset == Offset.zero) return;
-    _scaleAnimation = Tween<double>(begin: _scale, end: 1.0)
+  void _animateTo(double scale, Offset offset) {
+    _scaleAnimation = Tween<double>(begin: _scale, end: scale)
         .animate(CurvedAnimation(parent: _resetController, curve: Curves.easeOut));
-    _offsetAnimation = Tween<Offset>(begin: _offset, end: Offset.zero)
+    _offsetAnimation = Tween<Offset>(begin: _offset, end: offset)
         .animate(CurvedAnimation(parent: _resetController, curve: Curves.easeOut));
     _resetController.forward(from: 0);
   }
 
+  bool get _isAtFit => !_actualSize && _scale == 1.0 && _offset == Offset.zero;
+
+  void _resetZoom() {
+    if (_isAtFit) return;
+    setState(() => _actualSize = false);
+    _animateTo(1.0, Offset.zero);
+  }
+
+  @override
+  void fit() => _resetZoom();
+
+  /// Zooms to 1:1 about the centre of the panel, so whatever is in the middle
+  /// of the view stays there.
+  @override
+  void showActualSize() {
+    final target = _actualSizeTarget;
+    if (target == null || _actualSize) return;
+    setState(() => _actualSize = true);
+    _animateTo(
+      target,
+      _clampOffset(_offset * (target / _scale), _viewport, target),
+    );
+  }
+
+  /// Pixel size of the frame the 1:1 scale is measured against: the
+  /// processed frame, which is what is being inspected, else the source.
+  Size? get _imagePixels {
+    final bytes = widget.afterImage ?? widget.beforeImage;
+    if (!identical(bytes, _sizedBytes)) {
+      _sizedBytes = bytes;
+      _sizedResult = bytes == null ? null : encodedImageSize(bytes);
+    }
+    return _sizedResult;
+  }
+
+  /// The frame's size on screen at scale 1 — fitted into [box], with the
+  /// display aspect ratio applied — in logical pixels.
+  Size? _fittedSize(Size box) {
+    final pixels = _imagePixels;
+    if (pixels == null || box.isEmpty) return null;
+    final aspect = widget.displayAspectRatio ?? pixels.width / pixels.height;
+    final width = math.min(box.width, box.height * aspect);
+    return Size(width, width / aspect);
+  }
+
+  /// The scale at which each stored row of the frame covers exactly one
+  /// physical row of the screen. Measured on height so an anamorphic frame
+  /// keeps its lines exact; its columns are stretched by the pixel aspect
+  /// ratio, as they are at any zoom. For square pixels it is 1:1 both ways.
+  double? _actualSizeScale(Size box, double devicePixelRatio) {
+    final pixels = _imagePixels;
+    final fitted = _fittedSize(box);
+    if (pixels == null || fitted == null) return null;
+    return pixels.height / devicePixelRatio / fitted.height;
+  }
+
+  double get _lowerScale =>
+      math.min(_minScale, _actualSizeTarget ?? _minScale);
+  double get _upperScale =>
+      math.max(_maxScale, _actualSizeTarget ?? _maxScale);
+
+  /// At 1:1 each frame pixel must land on exactly one screen pixel, so the
+  /// frame's top-left corner is moved onto the physical pixel grid. Off it,
+  /// nearest-neighbour sampling repeats or drops a row or column at
+  /// intervals, which is exactly the detail 1:1 exists to show.
+  Offset _snapToPixelGrid(Size box, double devicePixelRatio) {
+    final fitted = _fittedSize(box);
+    if (fitted == null) return _offset;
+    final left = box.width / 2 + _offset.dx - fitted.width * _scale / 2;
+    final top = box.height / 2 + _offset.dy - fitted.height * _scale / 2;
+    double nudge(double local, double phase) {
+      final physical = local * devicePixelRatio + phase;
+      return (physical.roundToDouble() - physical) / devicePixelRatio;
+    }
+
+    return _offset +
+        Offset(nudge(left, _originPhase.dx), nudge(top, _originPhase.dy));
+  }
+
+  /// Measures where the viewport sits on the physical pixel grid once laid
+  /// out, rebuilding if that changed — which takes one frame to settle.
+  void _trackOriginPhase(double devicePixelRatio) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final box = _viewportKey.currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.hasSize) return;
+      final origin = box.localToGlobal(Offset.zero) * devicePixelRatio;
+      final phase = Offset(
+        origin.dx - origin.dx.floorToDouble(),
+        origin.dy - origin.dy.floorToDouble(),
+      );
+      if ((phase - _originPhase).distance > 1e-3) {
+        setState(() => _originPhase = phase);
+      }
+    });
+  }
+
   /// Clamp offset so the image doesn't scroll beyond its edges.
-  Offset _clampOffset(Offset offset, Size size) {
-    if (_scale <= 1.0) return Offset.zero;
+  Offset _clampOffset(Offset offset, Size size, [double? scale]) {
+    final s = scale ?? _scale;
+    if (s <= 1.0) return Offset.zero;
     // With Transform(alignment: center), the image expands equally in all
     // directions. The maximum pan in each axis is half the overflow.
-    final double maxDx = (size.width * (_scale - 1)) / 2;
-    final double maxDy = (size.height * (_scale - 1)) / 2;
+    final double maxDx = (size.width * (s - 1)) / 2;
+    final double maxDy = (size.height * (s - 1)) / 2;
     return Offset(
       offset.dx.clamp(-maxDx, maxDx),
       offset.dy.clamp(-maxDy, maxDy),
@@ -148,8 +287,9 @@ class _BeforeAfterComparisonWidgetState
   void _zoomAtPoint(Offset focalPoint, double scaleFactor, Size size) {
     setState(() {
       final double oldScale = _scale;
-      _scale = (_scale * scaleFactor).clamp(_minScale, _maxScale);
+      _scale = (_scale * scaleFactor).clamp(_lowerScale, _upperScale);
       if (_scale == oldScale) return;
+      _actualSize = false;
 
       // Adjust offset so the focal point stays visually fixed.
       // The center of the widget is the Transform alignment point.
@@ -168,9 +308,10 @@ class _BeforeAfterComparisonWidgetState
     setState(() {
       // Apply cumulative scale from the gesture relative to starting scale
       final double newScale =
-          (_panZoomStartScale * event.scale).clamp(_minScale, _maxScale);
+          (_panZoomStartScale * event.scale).clamp(_lowerScale, _upperScale);
 
       if (newScale != _scale) {
+        _actualSize = false;
         // Zoom changed — adjust offset to keep focal point stable
         final Offset center = Offset(size.width / 2, size.height / 2);
         _offset = _offset + (center - event.localPosition) * (newScale - _scale);
@@ -203,8 +344,26 @@ class _BeforeAfterComparisonWidgetState
         child: LayoutBuilder(
           builder: (context, constraints) {
             final size = Size(constraints.maxWidth, constraints.maxHeight);
+            final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+            _viewport = size;
+            _actualSizeTarget = _actualSizeScale(size, devicePixelRatio);
+
+            // Hold 1:1 through layout changes, and draw it on the pixel grid.
+            var drawnOffset = _offset;
+            if (_actualSize && !_resetController.isAnimating) {
+              final target = _actualSizeTarget;
+              if (target == null) {
+                _actualSize = false;
+              } else {
+                _scale = target;
+                _offset = _clampOffset(_offset, size);
+                drawnOffset = _snapToPixelGrid(size, devicePixelRatio);
+                _trackOriginPhase(devicePixelRatio);
+              }
+            }
 
             return Listener(
+              key: _viewportKey,
               onPointerSignal: (event) => _handlePointerSignal(event, size),
               onPointerPanZoomStart: _handlePanZoomStart,
               onPointerPanZoomUpdate: (event) =>
@@ -235,7 +394,7 @@ class _BeforeAfterComparisonWidgetState
                   Transform(
                     alignment: Alignment.center,
                     transform: Matrix4.identity()
-                      ..translate(_offset.dx, _offset.dy)
+                      ..translate(drawnOffset.dx, drawnOffset.dy)
                       ..scale(_scale, _scale),
                     child: _buildImageLayer(
                       imageData: widget.afterImage,
@@ -252,7 +411,7 @@ class _BeforeAfterComparisonWidgetState
                     child: Transform(
                       alignment: Alignment.center,
                       transform: Matrix4.identity()
-                        ..translate(_offset.dx, _offset.dy)
+                        ..translate(drawnOffset.dx, drawnOffset.dy)
                         ..scale(_scale, _scale),
                       child: _buildImageLayer(
                         imageData: widget.beforeImage,
@@ -345,29 +504,12 @@ class _BeforeAfterComparisonWidgetState
                     ),
                   ),
 
-                  // Zoom indicator (bottom-left)
-                  if (_scale > 1.01)
+                  // Zoom controls (bottom-left)
+                  if (widget.beforeImage != null || widget.afterImage != null)
                     Positioned(
                       left: 12,
                       bottom: 12,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.6),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          '${_scale.toStringAsFixed(1)}x',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
+                      child: _buildZoomControls(),
                     ),
 
                   // Loading overlay
@@ -464,6 +606,96 @@ class _BeforeAfterComparisonWidgetState
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Fit | 1:1 | zoom readout. The readout is a percentage of actual pixels,
+  /// so 100% always means 1:1; it falls back to a multiple of fit when the
+  /// frame's size can't be read. Every control is always present — disabled
+  /// rather than removed — so nothing moves under the pointer.
+  Widget _buildZoomControls() {
+    final target = _actualSizeTarget;
+    final readout = target != null
+        ? '${(_scale / target * 100).round()}%'
+        : '${_scale.toStringAsFixed(1)}x';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _zoomButton(
+            'Fit',
+            tooltip: AppShortcut.previewFit
+                .tooltipFor('Fit the whole frame in the panel'),
+            selected: _isAtFit,
+            onPressed: _isAtFit ? null : _resetZoom,
+          ),
+          _zoomButton(
+            '1:1',
+            tooltip: AppShortcut.previewActualSize.tooltipFor(
+                'Actual pixels — one video pixel per screen pixel'),
+            selected: _actualSize,
+            onPressed:
+                target == null || _actualSize ? null : showActualSize,
+          ),
+          Container(
+            constraints: const BoxConstraints(minWidth: 48),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            alignment: Alignment.center,
+            child: Text(
+              readout,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _zoomButton(
+    String text, {
+    required String tooltip,
+    required bool selected,
+    required VoidCallback? onPressed,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(4),
+          child: Container(
+            constraints: const BoxConstraints(minWidth: 36),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            alignment: Alignment.center,
+            decoration: selected
+                ? BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(4),
+                  )
+                : null,
+            child: Text(
+              text,
+              style: TextStyle(
+                color: Colors.white
+                    .withValues(alpha: selected || onPressed != null ? 1 : 0.5),
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.bold : FontWeight.w500,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

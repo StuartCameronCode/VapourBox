@@ -35,6 +35,8 @@ class KeyboardShortcutsDialog extends StatelessWidget {
                 const SizedBox(height: 12),
               ],
               _heading(theme, 'Mouse and trackpad'),
+              _row(theme, 'Zoom the preview', 'Scroll / pinch'),
+              _row(theme, 'Reset the preview zoom', 'Double-click'),
               _row(theme, 'Zoom the timeline', 'Scroll / pinch'),
               _row(theme, 'Pan a zoomed timeline', 'Shift+scroll / swipe'),
               _row(theme, 'Scrub', 'Drag the timeline'),

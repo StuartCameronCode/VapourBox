@@ -106,6 +106,9 @@ class MainWindow extends StatelessWidget {
       AppShortcut.goToInPoint: whenPreviewing(viewModel.goToInPoint),
       AppShortcut.goToOutPoint: whenPreviewing(viewModel.goToOutPoint),
       AppShortcut.clearInOut: whenPreviewing(viewModel.clearInOutPoints),
+      AppShortcut.previewActualSize:
+          whenPreviewing(viewModel.previewZoom.showActualSize),
+      AppShortcut.previewFit: whenPreviewing(viewModel.previewZoom.fit),
       AppShortcut.zoomIn: whenPreviewing(viewModel.zoomIn),
       AppShortcut.zoomOut: whenPreviewing(viewModel.zoomOut),
       AppShortcut.zoomToFit: whenPreviewing(viewModel.resetTimelineZoom),

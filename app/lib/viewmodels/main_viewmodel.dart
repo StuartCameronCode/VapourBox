@@ -26,6 +26,7 @@ import '../services/failure_log_writer.dart';
 import '../services/job_runner.dart';
 import '../services/system_shutdown.dart';
 import '../services/worker_manager.dart';
+import '../widgets/comparison_zoom_controller.dart';
 
 /// Main view model managing application state.
 class MainViewModel extends ChangeNotifier {
@@ -94,6 +95,10 @@ class MainViewModel extends ChangeNotifier {
   int _previewGeneration = 0;
   Timer? _zoomDebounceTimer;
   bool _isLoadingZoomedThumbnails = false;
+
+  /// Fit / 1:1 on the before/after preview (issue #8). The zoom itself is
+  /// view state held by the comparison; this lets the shortcuts reach it.
+  final ComparisonZoomController previewZoom = ComparisonZoomController();
 
   // Shut down when the queue finishes (issue #123). Armed for one run only:
   // _stopProcessing disarms it, so a run the user cancelled can't leave it
