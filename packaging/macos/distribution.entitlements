@@ -8,5 +8,10 @@
 	<true/>
 	<key>com.apple.security.cs.allow-dyld-environment-variables</key>
 	<true/>
+	<!-- "Shut down when the queue finishes" (issue #123) sends System Events
+	     an Apple event via osascript. Under the hardened runtime that is
+	     refused (-1743) without this, and without a prompt to say why. -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
 </dict>
 </plist>

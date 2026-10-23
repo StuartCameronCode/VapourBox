@@ -221,6 +221,20 @@ When a job's output file already exists, VapourBox asks what to do by default. *
 
 </details>
 
+<details>
+<summary><b>Shutting down after an overnight queue</b></summary>
+
+While a queue is running, tick **Shut down computer when the queue finishes** under the progress bar. When the last video is done — even if some failed — VapourBox counts down for 60 seconds, with **Cancel Shutdown** and **Shut Down Now** buttons, and then asks the system to shut down. Cancelling the queue switches the option off again; it applies only to the run it was ticked for.
+
+If any video failed, its log is saved before the shutdown as `<output name>.error.log`, next to where its output would have been written (or next to the source, if that folder can't be written to).
+
+The shutdown is an ordinary one, never forced, so an app with unsaved changes can stop it and the computer stays on. VapourBox checks when you tick the option that the shutdown would actually be allowed, and says why if not:
+
+- **macOS** asks once for permission for VapourBox to control System Events. Answer it then — if it's refused, allow it later in **System Settings → Privacy & Security → Automation**.
+- **Linux** needs systemd-logind and an account allowed to power off without a password (normally true for the one person logged in at the desktop).
+
+</details>
+
 ## Feedback and bug reports
 
 **Settings → General → "Report a bug or give feedback"** opens the issue tracker. Reports about specific problem sources are useful — several fixes in VapourBox came from them.

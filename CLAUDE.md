@@ -976,6 +976,40 @@ configurable in **Settings → General → Existing Output Files**):
   `MainViewModel.notifyOutputPathsChanged()` is that call for callers outside
   the view model.
 
+### Shut Down When Finished (issue #123)
+
+The progress panel's **Shut down computer when the queue finishes** checkbox is
+`MainViewModel.setShutdownWhenDone`, backed by `SystemShutdown`
+(`app/lib/services/system_shutdown.dart`, injectable like `JobRunner`). Rules,
+asserted in `shutdown_when_done_test.dart`:
+
+- **Never forced.** `osascript` → System Events `shut down` (macOS),
+  `shutdown /s /t 0` (Windows — any `/t` above 0 implies `/f`),
+  `systemctl poweroff --no-ask-password` (Linux). A refusal leaves the machine
+  on and is shown, never escalated.
+- **Checked when armed, not at shutdown.** `check()` runs when the box is
+  ticked — the only time the user is known to be present — so macOS's
+  Automation prompt is answered then rather than blocking all night, and Linux
+  arms only when logind's `CanPowerOff` says `yes` (not `challenge`).
+- **One run only.** `_stopProcessing` disarms it, so a cancelled run can't
+  leave it armed — invisibly, since the checkbox only shows while processing —
+  for the next one. A queue that ends with failures still shuts down.
+- **60 s cancellable countdown** (`MainViewModel.shutdownCountdown`); Done /
+  Try Again / a new run cancel it.
+- **A failed video's log survives the shutdown.** Just before shutting down,
+  `FailureLogWriter` (`app/lib/services/failure_log_writer.dart`) writes
+  `<output stem>.error.log` beside each failed item's output path, falling back
+  to the source's folder. It holds only that video's lines, from
+  `MainViewModel._itemLogs` — the shared `_logMessages` interleaves every video
+  and is capped. Log lines about a specific item go through `_logForItem`, not
+  `_logMessages.add`, or they're missing from its file. Nothing is written when
+  the shutdown is cancelled: the user is there to read the log.
+- **macOS needs `com.apple.security.automation.apple-events`** in
+  `packaging/macos/distribution.entitlements` plus `NSAppleEventsUsageDescription`
+  in `Info.plist`; without them the hardened runtime refuses the event (-1743)
+  with no prompt, in signed builds only. `package-macos.sh` asserts the
+  entitlement after signing.
+
 ### Preset System
 
 Presets save complete filter pipeline + encoding settings. The built-in presets

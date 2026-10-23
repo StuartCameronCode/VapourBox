@@ -320,6 +320,15 @@ else
             exit 1
         fi
     done
+
+    # Without this the app's "shut down when the queue finishes" is refused by
+    # the hardened runtime (-1743), only in a signed build (issue #123).
+    if ! codesign -d --entitlements - --xml "$CONTENTS/MacOS/vapourbox" 2>/dev/null \
+        | grep -q "com.apple.security.automation.apple-events"; then
+        echo "ERROR: vapourbox is signed without automation.apple-events"
+        echo "       Shut down when finished will fail with error -1743."
+        exit 1
+    fi
     echo "    Signature verified OK"
 fi
 

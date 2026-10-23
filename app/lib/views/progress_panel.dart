@@ -36,6 +36,16 @@ class ProgressPanel extends StatelessWidget {
 
               const SizedBox(height: 32),
 
+              // Pending shutdown (issue #123): the last chance to stop it.
+              if (viewModel.shutdownSecondsLeft != null) ...[
+                _buildShutdownCountdown(context, viewModel),
+                const SizedBox(height: 24),
+              ] else if (viewModel.shutdownError != null &&
+                  !state.isActive) ...[
+                _buildShutdownError(context, viewModel.shutdownError!),
+                const SizedBox(height: 24),
+              ],
+
               // Progress bar
               if (state == ProcessingState.processing ||
                   state == ProcessingState.preparingJob) ...[
@@ -150,6 +160,10 @@ class ProgressPanel extends StatelessWidget {
 
               // Cancel button during processing
               if (state.canCancel) ...[
+                if (viewModel.canShutDown) ...[
+                  const SizedBox(height: 24),
+                  _buildShutdownToggle(context, viewModel),
+                ],
                 const SizedBox(height: 32),
                 TextButton.icon(
                   icon: const Icon(Icons.cancel),
@@ -418,6 +432,147 @@ class ProgressPanel extends StatelessWidget {
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
               fontFamily: 'monospace',
               color: textColor,
+            ),
+      ),
+    );
+  }
+
+  Widget _buildShutdownToggle(BuildContext context, MainViewModel viewModel) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Checkbox(
+          value: viewModel.shutdownWhenDone,
+          onChanged: (value) =>
+              _onShutdownToggled(context, viewModel, value ?? false),
+        ),
+        GestureDetector(
+          onTap: () => _onShutdownToggled(
+              context, viewModel, !viewModel.shutdownWhenDone),
+          child: const Text('Shut down computer when the queue finishes'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _onShutdownToggled(
+      BuildContext context, MainViewModel viewModel, bool value) async {
+    if (!value) {
+      await viewModel.setShutdownWhenDone(false);
+      return;
+    }
+    final seconds = MainViewModel.shutdownCountdown.inSeconds;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Shut Down When Finished?'),
+        content: Text(
+          'When the last video in the queue finishes, VapourBox will wait '
+          '$seconds seconds, so you can still cancel, and then shut down the '
+          'computer.\n\n'
+          'This happens even if some videos fail; each failed video\'s log '
+          'is saved beside where its output would have gone, as '
+          '"<name>.error.log". Save your work in other apps first: an app '
+          'with unsaved changes may stop the shutdown.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Shut Down When Finished'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final problem = await viewModel.setShutdownWhenDone(true);
+    if (problem == null || !context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Can\'t Shut Down Automatically'),
+        content: Text(problem),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShutdownCountdown(
+      BuildContext context, MainViewModel viewModel) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final seconds = viewModel.shutdownSecondsLeft!;
+    final total = MainViewModel.shutdownCountdown.inSeconds;
+    return Container(
+      width: 400,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colorScheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.power_settings_new,
+                  color: colorScheme.onTertiaryContainer),
+              const SizedBox(width: 8),
+              Text(
+                'Shutting down in $seconds s',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: colorScheme.onTertiaryContainer,
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          LinearProgressIndicator(
+            value: seconds / total,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              OutlinedButton(
+                onPressed: () => viewModel.shutDownNow(),
+                child: const Text('Shut Down Now'),
+              ),
+              const SizedBox(width: 16),
+              FilledButton.icon(
+                icon: const Icon(Icons.cancel),
+                label: const Text('Cancel Shutdown'),
+                onPressed: () => viewModel.cancelShutdown(),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShutdownError(BuildContext context, String error) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      width: 400,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        'Could not shut down: $error',
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onErrorContainer,
             ),
       ),
     );

@@ -24,6 +24,10 @@
 	     CI builds float on `channel: stable` with no pin, so v1.0.0 picked it
 	     up with no VapourBox code change and it corrupted the window on Intel
 	     GPUs (issue #91). Force Skia until Impeller's Intel-Mac path is solid. -->
+	<!-- Shown in the Automation prompt raised when the user turns on
+	     "Shut down computer when the queue finishes" (issue #123). -->
+	<key>NSAppleEventsUsageDescription</key>
+	<string>VapourBox asks System Events to shut down the computer when a queue you have set to "Shut down when finished" completes.</string>
 	<key>FLTEnableImpeller</key>
 	<false/>
 	<key>LSMinimumSystemVersion</key>

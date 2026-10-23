@@ -4,7 +4,7 @@
   NOTE: com.apple.security.app-sandbox is deliberately absent (issue #50).
 
   The shipped app is NOT sandboxed: package-macos.sh re-signs the bundle with
-  packaging/macos/distribution.entitlements, which carries only the three
+  packaging/macos/distribution.entitlements, which carries only
   hardened-runtime exceptions. Verified against the released v0.9.10 DMG.
 
   A sandboxed debug build therefore behaves differently from the app users run,

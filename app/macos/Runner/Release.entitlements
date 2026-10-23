@@ -5,7 +5,7 @@
 
   These entitlements are normally discarded: package-macos.sh signs the bundle
   with packaging/macos/distribution.entitlements (codesign --force replaces the
-  set wholesale), so what ships is that file's three hardened-runtime exceptions
+  set wholesale), so what ships is that file's hardened-runtime exceptions
   and no sandbox. Verified against the released v0.9.10 DMG.
 
   They still take effect for a release build assembled by hand instead of by the
