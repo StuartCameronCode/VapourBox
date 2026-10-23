@@ -10,6 +10,7 @@ import 'services/hardware_encoder_detector.dart';
 import 'services/overwrite_behavior_service.dart';
 import 'services/preset_service.dart';
 import 'services/temp_directory_service.dart';
+import 'services/theme_service.dart';
 import 'services/tool_locator.dart';
 import 'services/update_checker.dart';
 import 'services/whats_new_service.dart';
@@ -31,6 +32,10 @@ void main() async {
   // Load the advanced-mode choice before the first panel builds, so the filter
   // settings don't flash from simple to advanced on startup.
   await AdvancedModeService.instance.initialize();
+
+  // Load the saved theme before the first frame, so it doesn't flash from the
+  // default to the user's choice.
+  await ThemeService.instance.initialize();
 
   // Records the previously-installed version (before overwriting it with the
   // current one) so "NEW" badges on filters/parameters can compare against
@@ -65,8 +70,61 @@ void main() async {
   runApp(const VapourBoxApp());
 }
 
-class VapourBoxApp extends StatelessWidget {
+class VapourBoxApp extends StatefulWidget {
   const VapourBoxApp({super.key});
+
+  @override
+  State<VapourBoxApp> createState() => _VapourBoxAppState();
+}
+
+class _VapourBoxAppState extends State<VapourBoxApp>
+    with WidgetsBindingObserver {
+  /// The title bar brightness last pushed to the native window, or null while
+  /// it is still the platform default.
+  Brightness? _windowBrightness;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    ThemeService.instance.addListener(_syncWindowBrightness);
+    _syncWindowBrightness();
+  }
+
+  @override
+  void dispose() {
+    ThemeService.instance.removeListener(_syncWindowBrightness);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangePlatformBrightness() => _syncWindowBrightness();
+
+  /// The native title bar follows the OS, not Flutter, so a Dark or Monokai
+  /// theme on a light system would sit under a light title bar. Push the
+  /// theme's brightness to the window — and, once it has been overridden, keep
+  /// pushing the system's own when a theme that follows it is chosen, since
+  /// the override doesn't undo itself.
+  void _syncWindowBrightness() {
+    final platform =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness;
+    final Brightness wanted;
+    switch (ThemeService.instance.theme.themeMode) {
+      case ThemeMode.light:
+        wanted = Brightness.light;
+      case ThemeMode.dark:
+        wanted = Brightness.dark;
+      case ThemeMode.system:
+        if (_windowBrightness == null) return;
+        wanted = platform;
+    }
+    if (wanted == _windowBrightness) return;
+    _windowBrightness = wanted;
+    windowManager.setBrightness(wanted).catchError((_) {
+      // Cosmetic only; a platform without it keeps its own title bar.
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -77,32 +135,30 @@ class VapourBoxApp extends StatelessWidget {
     // Provider" error box. It's a dependency-free singleton, so there is no
     // reason to scope it any lower; anything scoped to the main window (i.e.
     // MainViewModel) still has to be re-provided per dialog, as
-    // MainWindow._showSettings does.
-    return ChangeNotifierProvider<AdvancedModeService>.value(
-      value: AdvancedModeService.instance,
-      child: _buildApp(),
+    // MainWindow._showSettings does. ThemeService is above it for the same
+    // reason, and because MaterialApp itself rebuilds from it.
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AdvancedModeService>.value(
+          value: AdvancedModeService.instance,
+        ),
+        ChangeNotifierProvider<ThemeService>.value(
+          value: ThemeService.instance,
+        ),
+      ],
+      child: Consumer<ThemeService>(
+        builder: (context, themeService, _) => _buildApp(themeService.theme),
+      ),
     );
   }
 
-  Widget _buildApp() {
+  Widget _buildApp(AppTheme appTheme) {
     return MaterialApp(
       title: 'VapourBox',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-      ),
-      themeMode: ThemeMode.system,
+      theme: appTheme.lightTheme,
+      darkTheme: appTheme.darkTheme,
+      themeMode: appTheme.themeMode,
       home: const AppStartupWrapper(),
     );
   }

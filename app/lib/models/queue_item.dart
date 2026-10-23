@@ -66,6 +66,13 @@ class QueueItem {
   double timelineZoom;
   double timelineViewStart;
 
+  /// The normalized span [thumbnails] were generated for. Zooming or panning
+  /// changes the view at once but regenerates thumbnails only after a
+  /// debounce, so the strip draws the existing ones stretched to where this
+  /// span falls in the new view rather than leaving them in the wrong place.
+  double thumbnailRangeStart;
+  double thumbnailRangeEnd;
+
   // Status
   QueueItemStatus status;
   String? errorMessage;
@@ -85,6 +92,8 @@ class QueueItem {
     this.processedPreview,
     this.timelineZoom = 1.0,
     this.timelineViewStart = 0.0,
+    this.thumbnailRangeStart = 0.0,
+    this.thumbnailRangeEnd = 1.0,
     this.status = QueueItemStatus.pending,
     this.errorMessage,
   })  : id = id ?? const Uuid().v4(),
@@ -169,6 +178,8 @@ class QueueItem {
     Uint8List? processedPreview,
     double? timelineZoom,
     double? timelineViewStart,
+    double? thumbnailRangeStart,
+    double? thumbnailRangeEnd,
     QueueItemStatus? status,
     String? errorMessage,
   }) {
@@ -185,6 +196,8 @@ class QueueItem {
       processedPreview: processedPreview ?? this.processedPreview,
       timelineZoom: timelineZoom ?? this.timelineZoom,
       timelineViewStart: timelineViewStart ?? this.timelineViewStart,
+      thumbnailRangeStart: thumbnailRangeStart ?? this.thumbnailRangeStart,
+      thumbnailRangeEnd: thumbnailRangeEnd ?? this.thumbnailRangeEnd,
       status: status ?? this.status,
       errorMessage: errorMessage ?? this.errorMessage,
     );

@@ -18,6 +18,7 @@ import '../services/disc_detector.dart';
 import '../services/dvd_service.dart';
 import '../services/field_order_detector.dart';
 import '../services/frame_math.dart';
+import '../services/timeline_math.dart';
 import '../services/preset_service.dart';
 import '../services/preview_generator.dart';
 import '../services/temp_directory_service.dart';
@@ -410,6 +411,24 @@ class MainViewModel extends ChangeNotifier {
   /// Step the scrubber by a signed number of frames (e.g. -1 / +1).
   Future<void> stepFrame(int delta) => seekToFrame(currentFrameIndex + delta);
 
+  /// Jump to the first frame.
+  Future<void> goToStart() => seekToFrame(0);
+
+  /// Jump to the last frame.
+  Future<void> goToEnd() => seekToFrame(totalFrames - 1);
+
+  /// Jump to the in point, if one is set.
+  Future<void> goToInPoint() async {
+    final point = inPoint;
+    if (point != null) await setScrubberPosition(point);
+  }
+
+  /// Jump to the out point, if one is set.
+  Future<void> goToOutPoint() async {
+    final point = outPoint;
+    if (point != null) await setScrubberPosition(point);
+  }
+
   // Timeline zoom getters (delegate to selected item)
   double get timelineZoom => selectedItem?.timelineZoom ?? 1.0;
   double get timelineViewStart => selectedItem?.timelineViewStart ?? 0.0;
@@ -417,6 +436,8 @@ class MainViewModel extends ChangeNotifier {
   bool get isLoadingZoomedThumbnails => _isLoadingZoomedThumbnails;
   double get visibleStartTime => timelineViewStart * videoDuration;
   double get visibleEndTime => timelineViewEnd * videoDuration;
+  double get thumbnailRangeStart => selectedItem?.thumbnailRangeStart ?? 0.0;
+  double get thumbnailRangeEnd => selectedItem?.thumbnailRangeEnd ?? 1.0;
 
   // In/out point getters (delegate to selected item)
   double? get inPoint => selectedItem?.inPoint;
@@ -633,6 +654,8 @@ class MainViewModel extends ChangeNotifier {
     if (_selectedItemId == item.id) {
       try {
         _queue[index].thumbnails = await _previewGenerator.loadVideo(item.inputPath);
+        _queue[index].thumbnailRangeStart = 0.0;
+        _queue[index].thumbnailRangeEnd = 1.0;
         _queue[index].currentFrame = await _previewGenerator.getFrameAtIndex(0);
       } catch (e) {
         _logMessages.add(LogMessage(
@@ -708,6 +731,9 @@ class MainViewModel extends ChangeNotifier {
     if (item.thumbnails.isEmpty && item.status != QueueItemStatus.analyzing) {
       try {
         item.thumbnails = await _previewGenerator.loadVideo(item.inputPath);
+        item.thumbnailRangeStart = 0.0;
+        item.thumbnailRangeEnd = 1.0;
+        if (item.timelineZoom > 1.0) _requestThumbnailRegeneration();
         item.currentFrame = await _previewGenerator.getFrameAtIndex(
           _frameForPosition(item.scrubberPosition),
         );
@@ -793,6 +819,17 @@ class MainViewModel extends ChangeNotifier {
 
     item.scrubberPosition = position.clamp(0.0, 1.0);
 
+    // Keep the playhead on screen when zoomed — stepping past the edge of the
+    // visible range would otherwise leave it moving somewhere you can't see.
+    if (item.timelineZoom > 1.0) {
+      final revealed = TimelineMath.viewStartToReveal(
+          item.scrubberPosition, item.timelineViewStart, item.timelineZoom);
+      if (revealed != item.timelineViewStart) {
+        item.timelineViewStart = revealed;
+        _requestThumbnailRegeneration();
+      }
+    }
+
     // Update the unprocessed source frame immediately, seeking to the exact
     // frame the scrubber maps to (same index the processed preview uses, so the
     // before/after comparison stays aligned).
@@ -804,78 +841,55 @@ class MainViewModel extends ChangeNotifier {
     _requestPreviewUpdate();
   }
 
-  /// Zooms in on the timeline, centering on the current scrubber position.
-  void zoomIn() {
-    zoomInAt(scrubberPosition);
-  }
+  /// Zooms in one step, keeping the playhead where it is on screen.
+  void zoomIn() => zoomTimelineBy(TimelineMath.stepFactor);
 
-  /// Zooms in on the timeline, centering on the specified position.
-  void zoomInAt(double centerPosition) {
+  /// Zooms out one step, keeping the playhead where it is on screen.
+  void zoomOut() => zoomTimelineBy(1.0 / TimelineMath.stepFactor);
+
+  /// Multiplies the timeline zoom by [factor], keeping [anchor] (a normalized
+  /// video position) at [anchorFraction] of the way across the timeline.
+  ///
+  /// Both default to the playhead and where it currently sits on screen (or
+  /// the middle, if it is off screen), so the buttons and hotkeys zoom around
+  /// the frame being previewed; the mouse wheel passes the point under the
+  /// cursor so that point stays under it.
+  void zoomTimelineBy(double factor, {double? anchor, double? anchorFraction}) {
     final item = selectedItem;
     if (item == null) return;
-    if (item.timelineZoom >= 16.0) return; // Max zoom 16x
 
-    item.timelineZoom = (item.timelineZoom * 1.5).clamp(1.0, 16.0);
+    final newZoom = TimelineMath.clampZoom(item.timelineZoom * factor);
+    if (newZoom == item.timelineZoom) return;
 
-    // Adjust view start to keep center position stable
-    _adjustViewForZoomAt(centerPosition);
+    final at = anchor ?? item.scrubberPosition;
+    var fraction = anchorFraction ??
+        TimelineMath.fractionInView(
+            at, item.timelineViewStart, item.timelineZoom);
+    if (fraction < 0.0 || fraction > 1.0) fraction = 0.5;
+
+    item.timelineZoom = newZoom;
+    item.timelineViewStart = TimelineMath.viewStartForAnchor(
+      zoom: newZoom,
+      anchor: at,
+      anchorFraction: fraction,
+    );
     notifyListeners();
     _requestThumbnailRegeneration();
   }
 
-  /// Zooms out on the timeline.
-  void zoomOut() {
-    zoomOutAt(scrubberPosition);
-  }
-
-  /// Zooms out on the timeline, centering on the specified position.
-  void zoomOutAt(double centerPosition) {
-    final item = selectedItem;
-    if (item == null) return;
-    if (item.timelineZoom <= 1.0) return;
-
-    item.timelineZoom = (item.timelineZoom / 1.5).clamp(1.0, 16.0);
-
-    // Adjust view start to keep center position stable
-    _adjustViewForZoomAt(centerPosition);
-    notifyListeners();
-    _requestThumbnailRegeneration();
-  }
-
-  /// Sets the timeline zoom level directly.
-  void setTimelineZoom(double zoom) {
-    final item = selectedItem;
-    if (item == null) return;
-
-    item.timelineZoom = zoom.clamp(1.0, 16.0);
-    _adjustViewForZoomAt(item.scrubberPosition);
-    notifyListeners();
-    _requestThumbnailRegeneration();
-  }
-
-  /// Pans the timeline view.
+  /// Pans the timeline view by [delta] (normalized video length).
   void panTimeline(double delta) {
     final item = selectedItem;
     if (item == null) return;
     if (item.timelineZoom <= 1.0) return;
 
-    final maxStart = 1.0 - (1.0 / item.timelineZoom);
-    item.timelineViewStart = (item.timelineViewStart + delta).clamp(0.0, maxStart);
+    final next = (item.timelineViewStart + delta)
+        .clamp(0.0, TimelineMath.maxViewStart(item.timelineZoom))
+        .toDouble();
+    if (next == item.timelineViewStart) return;
+    item.timelineViewStart = next;
     notifyListeners();
     _requestThumbnailRegeneration();
-  }
-
-  /// Adjusts the view start to keep the specified position stable during zoom.
-  void _adjustViewForZoomAt(double centerPosition) {
-    final item = selectedItem;
-    if (item == null) return;
-
-    // Calculate the visible range width
-    final newViewWidth = 1.0 / item.timelineZoom;
-    final maxStart = 1.0 - newViewWidth;
-
-    // Try to center on the specified position
-    item.timelineViewStart = (centerPosition - newViewWidth / 2).clamp(0.0, maxStart);
   }
 
   /// Sets the in point to the current scrubber position.
@@ -954,13 +968,19 @@ class MainViewModel extends ChangeNotifier {
     _isLoadingZoomedThumbnails = true;
     notifyListeners();
 
+    // Captured before the await: the view can move again while these load,
+    // and the strip needs to know which span they actually cover.
+    final rangeStart = timelineViewStart;
+    final rangeEnd = timelineViewEnd;
     try {
       item.thumbnails = await _previewGenerator.loadVideoRange(
         videoPath: item.inputPath,
-        startTime: visibleStartTime,
-        endTime: visibleEndTime,
+        startTime: rangeStart * videoDuration,
+        endTime: rangeEnd * videoDuration,
         thumbnailCount: 20,
       );
+      item.thumbnailRangeStart = rangeStart;
+      item.thumbnailRangeEnd = rangeEnd;
     } catch (e) {
       // Ignore errors
     }

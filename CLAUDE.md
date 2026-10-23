@@ -1010,6 +1010,34 @@ asserted in `shutdown_when_done_test.dart`:
   with no prompt, in signed builds only. `package-macos.sh` asserts the
   entitlement after signing.
 
+### Keyboard Shortcuts, Timeline and Themes (issue #102)
+
+- **`AppShortcut` (`app/lib/models/app_shortcut.dart`) is the one list of
+  shortcuts** — key, modifiers, and the label tooltips print. A button with a
+  shortcut takes its tooltip from it (`shortcut.tooltip` /
+  `tooltipFor(...)`), never a hand-written string, so the hint can't drift
+  from the key. `MainWindow._shortcutBindings` maps each to an action, `null`
+  when it can't apply (the key then passes through).
+- **Shortcuts must never take keys from text input.** `AppShortcutScope` is a
+  `Focus` around the main window, so focused widgets that handle keys
+  (sliders, dropdowns) get them first; a typed letter, though, still bubbles
+  up as a raw key event, so every shortcut **without** Cmd/Ctrl is ignored
+  while focus is inside an `EditableText`. `app_shortcut_test.dart` asserts
+  this with a real `TextField` and checks no two shortcuts share a key.
+- **Timeline zoom keeps its anchor on screen** (`TimelineMath`,
+  `MainViewModel.zoomTimelineBy`): the point under the cursor for the wheel
+  and pinch, the playhead for buttons and keys. Recentring on the anchor made
+  the strip jump. Thumbnails record the span they were generated for
+  (`QueueItem.thumbnailRange*`) and are drawn over that span in the current
+  view, so they stay in place during the regeneration debounce. Controls in
+  the transport and zoom bars are always present (disabled, not removed) so
+  nothing shifts as the zoom changes.
+- **Themes** are `AppTheme` in `theme_service.dart`, persisted as `appTheme`
+  and provided above the MaterialApp. Theme-specific decoration beyond
+  `ColorScheme` (Pride's stripe) goes through the `AppDecorations` theme
+  extension. Use `colorScheme` roles, not fixed colours, for UI chrome —
+  fixed black/white only belongs on overlays drawn over video.
+
 ### Preset System
 
 Presets save complete filter pipeline + encoding settings. The built-in presets

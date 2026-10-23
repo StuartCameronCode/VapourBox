@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import '../services/disc_detector.dart';
 import '../viewmodels/main_viewmodel.dart';
 import 'dropped_paths.dart';
+import '../models/app_shortcut.dart';
+import 'video_file_picker.dart';
 
 class DropZone extends StatefulWidget {
   const DropZone({super.key});
@@ -89,10 +91,13 @@ class _DropZoneState extends State<DropZone> {
                   runSpacing: 8,
                   alignment: WrapAlignment.center,
                   children: [
-                    FilledButton.icon(
-                      icon: const Icon(Icons.folder_open),
-                      label: const Text('Browse Files'),
-                      onPressed: () => _pickFile(context),
+                    Tooltip(
+                      message: AppShortcut.addVideos.tooltip,
+                      child: FilledButton.icon(
+                        icon: const Icon(Icons.folder_open),
+                        label: const Text('Browse Files'),
+                        onPressed: () => _pickFile(context),
+                      ),
                     ),
                     OutlinedButton.icon(
                       icon: const Icon(Icons.folder),
@@ -126,23 +131,9 @@ class _DropZoneState extends State<DropZone> {
   }
 
   Future<void> _pickFile(BuildContext context) async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: [
-        'avi', 'mov', 'mp4', 'mkv', 'mxf', 'm2v', 'mpg', 'mpeg',
-        'ts', 'vob', 'dv', 'mts', 'm2ts', 'wmv', 'webm', 'flv'
-      ],
-      allowMultiple: true,
-    );
-
-    if (result != null && result.files.isNotEmpty) {
-      final paths = result.files
-          .where((f) => f.path != null)
-          .map((f) => f.path!)
-          .toList();
-      if (paths.isNotEmpty && context.mounted) {
-        context.read<MainViewModel>().addMultipleToQueue(paths);
-      }
+    final paths = await pickVideoFiles();
+    if (paths.isNotEmpty && context.mounted) {
+      context.read<MainViewModel>().addMultipleToQueue(paths);
     }
   }
 
