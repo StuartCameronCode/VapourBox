@@ -572,7 +572,8 @@ mod tests {
     fn probe_script_preloads_only_where_a_preload_exists() {
         let mac = RifeFiles::in_vapoursynth_dir(Path::new("/v"), "macos-arm64");
         let s = probe_script(&mac, "macos-arm64");
-        assert!(s.contains("ctypes.CDLL('/v/rife/libMoltenVK.dylib', mode=ctypes.RTLD_GLOBAL)"));
+        let preload = py_str(mac.preload.as_deref().unwrap());
+        assert!(s.contains(&format!("ctypes.CDLL({preload}, mode=ctypes.RTLD_GLOBAL)")));
         let win = RifeFiles::in_vapoursynth_dir(Path::new("C:/v"), "windows-x64");
         let s = probe_script(&win, "windows-x64");
         assert!(s.contains("if None:"));

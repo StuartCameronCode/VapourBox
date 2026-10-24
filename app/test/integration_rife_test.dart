@@ -113,7 +113,13 @@ void main() {
           .where((l) => l.contains('"type":"error"'))
           .toList();
       expect(errors, isNotEmpty, reason: 'the job was not refused: ${r.stdout}');
-      expect(errors.join('\n'), contains('VAPOURBOX_DISABLE_VULKAN'));
+      // Whatever the reason here (disabled, or no RIFE build for this
+      // platform at all), the refusal is the probe's own wording.
+      final reason = RifeStatus.fromJson(disabled).message!;
+      final messages = errors
+          .map((l) => (jsonDecode(l) as Map<String, dynamic>)['message'] as String)
+          .join('\n');
+      expect(messages, contains(reason));
       expect(File(p.join(Directory.systemTemp.path, '${job.id}.vpy')).existsSync(), isFalse,
           reason: 'a script was written for a job that cannot run');
     } finally {
