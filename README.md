@@ -85,6 +85,8 @@ GPU-accelerated deinterlacing (NNEDI3CL) needs your GPU's OpenCL driver installe
 
 </details>
 
+**RIFE frame interpolation** (in the Frame Rate pass) runs on the GPU through Vulkan. It works on any Apple Silicon Mac, and on Windows and Linux x64 PCs with a current graphics driver; Windows also needs the Microsoft Visual C++ Redistributable. It isn't available on Intel Macs or Linux on ARM yet. When you choose it, VapourBox checks that it can run and, if it can't, says what is missing and how to fix it.
+
 **Older Intel and AMD processors** (before about 2013 — no AVX2) are supported on all three platforms. On first launch VapourBox checks the processor and installs the matching set of processing components; a machine moved to a different CPU gets the right set on its next launch. The older-CPU set runs some filters more slowly, never differently. Every build of that set is checked for pre-AVX processors (e.g. a 2010 Mac Pro) on macOS and Linux; on Windows it is checked for processors with AVX but no AVX2, and older ones are expected to work but can't be tested automatically.
 
 ## Output formats
@@ -124,7 +126,7 @@ Twenty-one filters, each switchable independently. Most sources need none or a f
 | 17 | **Crop & Resize** | Trimming overscan, scaling, and edge-directed upscaling — plus bars in a colour of your choice to bring a cropped picture back to an exact frame size (720×576 for PAL DVD, 720×480 for NTSC) without rescaling it. |
 | 18 | **Sharpen** | Soft sources needing edge and fine detail recovery. aWarpSharp2 sharpens by warping edges instead of raising contrast, so it adds no halos. Runs after the resize, on the picture that is actually delivered, and before any added grain. |
 | 19 | **Film Grain** | Grain added back after denoising, so the picture is not left plastic — and to hide banding in skies and fades. |
-| 20 | **Frame Rate** | Converting between PAL and NTSC rates, for a tape that was already converted once and now plays at the wrong speed. |
+| 20 | **Frame Rate** | Converting between PAL and NTSC rates, for a tape that was already converted once and now plays at the wrong speed. New frames come from motion interpolation, from RIFE (an AI interpolator that runs on the GPU), or from plain frame repetition. |
 | 21 | **Subtitles** | Whisper AI speech-to-text — written alongside the video as `.srt`, embedded as a selectable track, burnt into the picture, or a combination. |
 
 A few things about the order are worth knowing:
@@ -297,6 +299,7 @@ Stuart Cameron — [stuart-cameron.com](https://stuart-cameron.com)
 - **HolyWu** — the VapourSynth ports of DFTTest, TTempSmooth, TCanny, CTMF, DCTFilter, Deblock, AddGrain, CAS, EEDI3 and NNEDI3CL
 - **mawen1250** — Retinex, BM3D and mvsfunc
 - **vszip** by Julek — CLAHE, the local-contrast lift in Color Correction
+- **RIFE** by hzwer (with Megvii) — the frame interpolation network, run through HolyWu's VapourSynth plugin (built on nihui's rife-ncnn-vulkan and Tencent's ncnn), with **MoltenVK** for Vulkan on macOS
 - **whisper.cpp** by the ggml authors — speech recognition for subtitle generation
 - **libdvdread** by VideoLAN — DVD reading and navigation
 - **FFmpeg** project — video encoding

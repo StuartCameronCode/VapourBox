@@ -33,6 +33,8 @@ enum FrameRateTarget {
 enum FrameRateMethod {
   @JsonValue('flowFps')
   flowFps('Motion interpolation'),
+  @JsonValue('rife')
+  rife('AI interpolation (RIFE)'),
   @JsonValue('duplicate')
   duplicate('Repeat frames');
 
@@ -40,7 +42,7 @@ enum FrameRateMethod {
   final String displayName;
 }
 
-/// Frame rate conversion (MVTools FlowFPS).
+/// Frame rate conversion (MVTools FlowFPS, RIFE, or frame repetition).
 @JsonSerializable()
 class FrameRateParameters {
   final bool enabled;

@@ -167,6 +167,23 @@ PY
     fi
     echo "    All required plugins present for $PLATFORM_KEY"
 
+    # Files outside the plugin directory (RIFE's, in vapoursynth/rife/) —
+    # _extraFiles in the same manifest, as paths from the bundle root.
+    MISSING=$(python3 - "$MANIFEST" "$PLATFORM_KEY" "$PACKAGE_DIR" <<'PY'
+import json, os, sys
+manifest, key, root = sys.argv[1], sys.argv[2], sys.argv[3]
+expected = json.load(open(manifest)).get("_extraFiles", {}).get(key, [])
+print("\n".join(f for f in expected if not os.path.isfile(os.path.join(root, f))))
+PY
+)
+    if [ -n "$MISSING" ]; then
+        echo "ERROR: $PLATFORM_KEY bundle is missing required files:" >&2
+        echo "$MISSING" | sed 's/^/  - /' >&2
+        echo "A download likely failed - check the download-deps-linux.sh output." >&2
+        PACKAGE_INCOMPLETE="$PACKAGE_INCOMPLETE $PLATFORM_KEY"
+        return 1
+    fi
+
     echo "[4/4] Creating zip archive for $ARCH_NAME..."
     local ZIP_FILE="$DIST_DIR/$PACKAGE_NAME.zip"
     rm -f "$ZIP_FILE"

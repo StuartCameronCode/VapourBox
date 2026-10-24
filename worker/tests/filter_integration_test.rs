@@ -6120,3 +6120,121 @@ fn test_165_local_contrast_follows_shadow_detail() {
         assert!(retinex < clahe);
     }
 }
+
+fn rife_job(name: &str) -> VideoJob {
+    let mut job = create_base_job(name);
+    job.qtgmc_parameters.enabled = false;
+    job.input_height = Some(576);
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        frame_rate: FrameRateParameters {
+            enabled: true,
+            target: FrameRateTarget::Pal50,
+            method: FrameRateMethod::Rife,
+            source_fps_num: Some(25),
+            source_fps_den: Some(1),
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    job
+}
+
+fn rife_files() -> vapourbox_worker::rife::RifeFiles {
+    vapourbox_worker::rife::RifeFiles::in_vapoursynth_dir(
+        std::path::Path::new("/deps/macos-arm64/vapoursynth"),
+        "macos-arm64",
+    )
+}
+
+fn both_scripts_with(generator: &ScriptGenerator, job: &VideoJob) -> anyhow::Result<(String, String)> {
+    let encode = std::fs::read_to_string(generator.generate(job)?)?;
+    let params = PreviewParams {
+        width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 11,
+        fps_num: 25, fps_den: 1, output_index: 5,
+    };
+    let preview = std::fs::read_to_string(generator.generate_preview(job, &params)?)?;
+    Ok((encode, preview))
+}
+
+/// RIFE is loaded explicitly from vapoursynth/rife/, after MoltenVK, with scene
+/// change protection, in both scripts — and real frames come from the source.
+#[test]
+fn test_166_rife_frame_rate_emits_explicit_load_and_real_frame_passthrough() {
+    create_output_dir();
+    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()));
+    let (encode, preview) = both_scripts_with(&generator, &rife_job("test_166_rife")).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("_rife_preload = '/deps/macos-arm64/vapoursynth/rife/libMoltenVK.dylib'"),
+            "{name}: MoltenVK not preloaded");
+        assert!(script.contains("core.std.LoadPlugin('/deps/macos-arm64/vapoursynth/rife/librife.dylib')"),
+            "{name}: plugin not loaded explicitly");
+        assert!(script.contains(
+            "core.rife.RIFE(_rife_rgb, model_path='/deps/macos-arm64/vapoursynth/rife/models/rife-v4.26_ensembleFalse', fps_num=50, fps_den=1, sc=True)"),
+            "{name}: RIFE call wrong");
+        assert!(script.contains("core.misc.SCDetect(clip, threshold=0.1)"), "{name}: no scene detection");
+        // 576 lines, untagged: BT.601 both ways, limited range.
+        assert!(script.contains(r#"matrix_in_s="170m", range_in_s="limited""#), "{name}: matrix in");
+        assert!(script.contains(r#"matrix_s="170m", range_s="limited", dither_type="none""#), "{name}: matrix out");
+        assert!(script.contains("clip = core.std.FrameEval(_rife_out, _rife_pick)"), "{name}: no passthrough");
+        assert!(!script.contains("core.mv.FlowFPS("), "{name}: FlowFPS emitted too");
+        assert!(!script.contains("haf.ChangeFPS("), "{name}: ChangeFPS emitted too");
+        assert!(!script.contains("{{RIFE") && !script.contains("{{FPS_") && !script.contains("FRAME_RATE"), "{name}: placeholder left behind");
+    }
+}
+
+/// A RIFE job on a machine where RIFE cannot run fails with the probe's
+/// message, in both paths, instead of producing a script that would segfault.
+#[test]
+fn test_167_rife_unavailable_refuses_with_the_probe_message() {
+    create_output_dir();
+    let message = "RIFE needs a graphics card with Vulkan support, and none was found.";
+    let generator = ScriptGenerator::new().unwrap().with_rife(Err(message.into()));
+    let job = rife_job("test_167_rife_refused");
+    let err = generator.generate(&job).expect_err("encode must refuse").to_string();
+    assert_eq!(err, message);
+    let params = PreviewParams {
+        width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 11,
+        fps_num: 25, fps_den: 1, output_index: 5,
+    };
+    let err = generator.generate_preview(&job, &params).expect_err("preview must refuse").to_string();
+    assert_eq!(err, message);
+
+    // The other methods never need RIFE, and never mention it.
+    for method in [FrameRateMethod::FlowFps, FrameRateMethod::Duplicate] {
+        let mut job = rife_job("test_167_other_methods");
+        job.processing_pipeline.as_mut().unwrap().frame_rate.method = method;
+        let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+        for script in [&encode, &preview] {
+            assert!(!script.contains("rife"), "{method:?} emitted RIFE");
+            assert!(!script.contains("{{RIFE") && !script.contains("FRAME_RATE_RIFE"), "{method:?} left a placeholder");
+        }
+    }
+    // Nor does a disabled Frame Rate pass with RIFE selected.
+    let mut job = rife_job("test_167_disabled");
+    job.processing_pipeline.as_mut().unwrap().frame_rate.enabled = false;
+    let (encode, _) = both_scripts_with(&generator, &job).unwrap();
+    assert!(!encode.contains("rife"));
+}
+
+/// RIFE's output count is floor(n * num / den) of the reduced ratio — measured
+/// against the plugin — so it is a Retime, and it synthesizes frames.
+#[test]
+fn test_168_rife_frame_map_is_an_exact_count_retime() {
+    let job = rife_job("test_168_rife_map");
+    let pipeline = job.processing_pipeline.unwrap();
+    assert!(pipeline.uses_rife());
+    let maps = pipeline.frame_maps();
+    assert_eq!(maps.len(), 1);
+    assert_eq!(maps[0], FrameMap::Retime { num: 2, den: 1, synthesizes: true, radius: 1 });
+    // Measured with the plugin on a 40-frame 25p clip: 80, 47 and 38 frames.
+    for (target, want) in [
+        (FrameRateTarget::Pal50, 80),
+        (FrameRateTarget::Ntsc2997, 47),
+        (FrameRateTarget::Film23976, 38),
+    ] {
+        let mut p = pipeline.clone();
+        p.frame_rate.target = target;
+        assert_eq!(p.output_count(40), want, "{target:?}");
+    }
+}

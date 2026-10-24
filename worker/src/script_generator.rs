@@ -60,6 +60,12 @@ pub struct ScriptGenerator {
     /// `knlm.KNLMeansCL: CL_INVALID_VALUE` / a missing-namespace error. Defaults
     /// to true; callers set it from `DependencyLocator::knlm_available()`.
     knlm_available: bool,
+    /// RIFE's files when its probe says it runs here, otherwise the message
+    /// explaining why not. A job choosing RIFE fails with that message instead
+    /// of producing a script that would segfault without a Vulkan device.
+    /// Defaults to "not checked"; callers set it from
+    /// `DependencyLocator::rife_runtime()`.
+    rife: std::result::Result<crate::rife::RifeFiles, String>,
 }
 
 /// Parameters for preview script generation.
@@ -91,6 +97,7 @@ impl ScriptGenerator {
             preview_template,
             opencl_available: true,
             knlm_available: true,
+            rife: Err("RIFE was not checked for this job.".to_string()),
         })
     }
 
@@ -109,9 +116,26 @@ impl ScriptGenerator {
         self
     }
 
+    /// Set RIFE's files, or why it cannot run here (see `self.rife`).
+    pub fn with_rife(mut self, rife: std::result::Result<crate::rife::RifeFiles, String>) -> Self {
+        self.rife = rife;
+        self
+    }
+
+    /// Refuse a job that chose RIFE on a machine where it cannot run.
+    fn ensure_rife_ready(&self, pipeline: &ProcessingPipeline) -> Result<()> {
+        if pipeline.frame_rate.enabled && pipeline.frame_rate.method == FrameRateMethod::Rife {
+            if let Err(message) = &self.rife {
+                anyhow::bail!("{message}");
+            }
+        }
+        Ok(())
+    }
+
     /// Generate a .vpy script file for the given job.
     pub fn generate(&self, job: &VideoJob) -> Result<PathBuf> {
         let pipeline = job.effective_pipeline();
+        self.ensure_rife_ready(&pipeline)?;
 
         let script = self.substitute_parameters(&self.template, job, &pipeline, &job.input_path);
 
@@ -129,6 +153,7 @@ impl ScriptGenerator {
     /// Returns the path to the generated script.
     pub fn generate_preview(&self, job: &VideoJob, preview_params: &PreviewParams) -> Result<PathBuf> {
         let pipeline = job.effective_pipeline();
+        self.ensure_rife_ready(&pipeline)?;
 
         // Start with preview template and substitute preview-specific params
         let mut script = self.preview_template.clone();
@@ -1722,6 +1747,34 @@ impl ScriptGenerator {
                     script = script.replace("{{#FRAME_RATE_DUPLICATE}}", "");
                     script = script.replace("{{/FRAME_RATE_DUPLICATE}}", "");
                 }
+                FrameRateMethod::Rife => {
+                    script = remove_block("{{#FRAME_RATE_FLOWFPS}}", "{{/FRAME_RATE_FLOWFPS}}", script);
+                    script = remove_block("{{#FRAME_RATE_DUPLICATE}}", "{{/FRAME_RATE_DUPLICATE}}", script);
+                    script = script.replace("{{#FRAME_RATE_RIFE}}", "");
+                    script = script.replace("{{/FRAME_RATE_RIFE}}", "");
+                    // generate()/generate_preview() refuse a RIFE job without
+                    // files, so the fallbacks here are never reached by a job.
+                    let (plugin, model, preload) = match &self.rife {
+                        Ok(f) => (
+                            crate::rife::py_str(&f.plugin),
+                            crate::rife::py_str(&f.model_dir),
+                            f.preload.as_deref().map(crate::rife::py_str).unwrap_or_else(|| "None".into()),
+                        ),
+                        Err(_) => ("''".into(), "''".into(), "None".into()),
+                    };
+                    script = script.replace("{{RIFE_PLUGIN}}", &plugin);
+                    script = script.replace("{{RIFE_MODEL_DIR}}", &model);
+                    script = script.replace("{{RIFE_PRELOAD}}", &preload);
+                    let color = job.color_metadata();
+                    script = script.replace("{{RIFE_MATRIX}}", color.zimg_matrix(job.input_height));
+                    script = script.replace(
+                        "{{RIFE_RANGE}}",
+                        if color.is_full_range() { "full" } else { "limited" },
+                    );
+                }
+            }
+            if fr.method != FrameRateMethod::Rife {
+                script = remove_block("{{#FRAME_RATE_RIFE}}", "{{/FRAME_RATE_RIFE}}", script);
             }
         } else {
             script = remove_block("{{#FRAME_RATE}}", "{{/FRAME_RATE}}", script);

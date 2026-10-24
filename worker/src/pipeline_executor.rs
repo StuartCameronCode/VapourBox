@@ -59,7 +59,7 @@ fn progress_end_is_ours(current_frame: i32) -> bool {
 
 /// Format an exit status for error messages, including signal info on Unix and
 /// the NTSTATUS meaning of a Windows crash code.
-fn format_exit_status(status: &std::process::ExitStatus) -> String {
+pub(crate) fn format_exit_status(status: &std::process::ExitStatus) -> String {
     if let Some(code) = status.code() {
         if let Some(explanation) = windows_crash_explanation(code) {
             return format!("exit code {} — {}", code, explanation);
@@ -1248,7 +1248,12 @@ impl PipelineExecutor {
         // FPS as rational
         let script_generator = ScriptGenerator::new()?
             .with_opencl_available(self.deps.opencl_available())
-            .with_knlm_available(self.deps.knlm_available());
+            .with_knlm_available(self.deps.knlm_available())
+            .with_rife(if job.effective_pipeline().uses_rife() {
+                self.deps.rife_runtime()
+            } else {
+                Err("RIFE is not used by this job.".into())
+            });
         let (fps_num, fps_den) = script_generator.frame_rate_to_rational(frame_rate);
 
         let preview_params = PreviewParams {
