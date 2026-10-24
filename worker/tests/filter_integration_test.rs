@@ -6162,15 +6162,20 @@ fn both_scripts_with(generator: &ScriptGenerator, job: &VideoJob) -> anyhow::Res
 #[test]
 fn test_166_rife_frame_rate_emits_explicit_load_and_real_frame_passthrough() {
     create_output_dir();
-    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()));
+    let files = rife_files();
+    // Paths as the generator writes them: Path::join uses `\` on Windows.
+    let py = |p: &std::path::Path| vapourbox_worker::rife::py_str(p);
+    let (preload, plugin, model) =
+        (py(files.preload.as_deref().unwrap()), py(&files.plugin), py(&files.model_dir));
+    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(files));
     let (encode, preview) = both_scripts_with(&generator, &rife_job("test_166_rife")).unwrap();
     for (name, script) in [("encode", &encode), ("preview", &preview)] {
-        assert!(script.contains("_rife_preload = '/deps/macos-arm64/vapoursynth/rife/libMoltenVK.dylib'"),
+        assert!(script.contains(&format!("_rife_preload = {preload}")),
             "{name}: MoltenVK not preloaded");
-        assert!(script.contains("core.std.LoadPlugin('/deps/macos-arm64/vapoursynth/rife/librife.dylib')"),
+        assert!(script.contains(&format!("core.std.LoadPlugin({plugin})")),
             "{name}: plugin not loaded explicitly");
-        assert!(script.contains(
-            "core.rife.RIFE(_rife_rgb, model_path='/deps/macos-arm64/vapoursynth/rife/models/rife-v4.26_ensembleFalse', fps_num=50, fps_den=1, sc=True)"),
+        assert!(script.contains(&format!(
+            "core.rife.RIFE(_rife_rgb, model_path={model}, fps_num=50, fps_den=1, sc=True)")),
             "{name}: RIFE call wrong");
         assert!(script.contains("core.misc.SCDetect(clip, threshold=0.1)"), "{name}: no scene detection");
         // 576 lines, untagged: BT.601 both ways, limited range.
