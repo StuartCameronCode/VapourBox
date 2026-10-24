@@ -178,6 +178,17 @@ if ($MissingPlugins.Count -gt 0) {
 }
 Write-Host "    All $($ExpectedPlugins.Count) required plugins present" -ForegroundColor Green
 
+# Files outside vs-plugins (RIFE's, in vapoursynth\rife\) - _extraFiles in the
+# same manifest, as paths from the bundle root.
+$ExtraFiles = (Get-Content $ManifestPath -Raw | ConvertFrom-Json)._extraFiles.$PlatformKey
+$MissingExtra = @($ExtraFiles | Where-Object { $_ -and -not (Test-Path (Join-Path $PackageDir $_)) })
+if ($MissingExtra.Count -gt 0) {
+    Write-Host "ERROR: bundle is missing $($MissingExtra.Count) required file(s):" -ForegroundColor Red
+    $MissingExtra | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
+    Write-Host "A download likely failed - check the download-deps-windows.ps1 output above." -ForegroundColor Red
+    exit 1
+}
+
 # Create zip file
 Write-Host "[5/5] Creating zip archive..." -ForegroundColor Yellow
 $ZipFile = Join-Path $DistDir "$PackageName.zip"

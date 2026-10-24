@@ -466,6 +466,12 @@ impl ProcessingPipeline {
     /// The frame-timeline map each enabled pass imposes, in application order.
     /// Only the deinterlace pass changes the count today; the rest are identity
     /// (with a small temporal radius for context-sensitive filters).
+    /// Whether this pipeline interpolates with RIFE — the one pass that needs a
+    /// GPU probe before its script can be generated.
+    pub fn uses_rife(&self) -> bool {
+        self.frame_rate.enabled && self.frame_rate.method == FrameRateMethod::Rife
+    }
+
     pub fn frame_maps(&self) -> Vec<FrameMap> {
         self.enabled_passes()
             .into_iter()
@@ -514,7 +520,7 @@ impl ProcessingPipeline {
                 den,
                 // Interpolated frames have no single source origin, so the
                 // preview's inverse mapping is a blended range, not a frame.
-                synthesizes: matches!(self.frame_rate.method, FrameRateMethod::FlowFps),
+                synthesizes: self.frame_rate.method.synthesizes(),
                 radius: 1,
             },
             None => FrameMap::Identity { radius: 1 },

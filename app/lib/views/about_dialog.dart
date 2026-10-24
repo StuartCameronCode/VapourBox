@@ -267,6 +267,26 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/dnjulek/vapoursynth-zip',
                       ),
                       _ComponentTile(
+                        name: 'RIFE (VapourSynth-RIFE-ncnn-Vulkan)',
+                        license: 'MIT',
+                        copyright: 'HolyWu; based on rife-ncnn-vulkan by '
+                            'nihui; includes ncnn (Tencent, BSD 3-Clause) '
+                            'and glslang',
+                        url: 'https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan',
+                      ),
+                      _ComponentTile(
+                        name: 'RIFE 4.26 model',
+                        license: 'MIT',
+                        copyright: 'hzwer; architecture by Megvii Inc.',
+                        url: 'https://github.com/hzwer/Practical-RIFE',
+                      ),
+                      _ComponentTile(
+                        name: 'MoltenVK',
+                        license: 'Apache 2.0',
+                        copyright: 'The Brenwill Workshop Ltd. (macOS only)',
+                        url: 'https://github.com/KhronosGroup/MoltenVK',
+                      ),
+                      _ComponentTile(
                         name: 'DFTTest',
                         license: 'GPL 3.0',
                         copyright: 'Kevin Stone (tritical); port by HolyWu',

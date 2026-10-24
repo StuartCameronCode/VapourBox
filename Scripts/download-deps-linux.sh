@@ -1568,6 +1568,65 @@ else
 fi
 
 # ============================================================================
+# RIFE 4.26 — the Frame Rate pass's neural interpolator (ncnn on Vulkan)
+# ============================================================================
+# Lives in vapoursynth/rife/, NOT the autoload directory: the template loads it
+# only for a RIFE job (see worker/src/rife.rs), so a machine whose GPU stack or
+# CPU cannot run it fails that method alone. Keep RIFE_TAG, the model commit and
+# the model hashes in step with download-deps-{macos.sh,windows.ps1}.
+#
+# x86_64 only: upstream publishes no aarch64 build, and the app reports RIFE as
+# unavailable on linux-arm64. The prebuilt needs glibc 2.35 (under our 2.39
+# floor) and libgomp.so.1 from the system; ncnn dlopens the system's
+# libvulkan.so.1 at runtime, which is the user's GPU driver, not ours to ship.
+# The same file serves both CPU tiers; if it ever proves to need AVX at load,
+# the app's probe reports that as an unsupported CPU rather than crashing jobs.
+#
+# The model is the ncnn conversion committed to the plugin's repo (there is no
+# release asset for it), fetched at a pinned commit and checked by hash.
+RIFE_TAG="r9_mod_v33"
+RIFE_LINUX_X64_SHA256="18a00a5e3ac90a5dfcfdf85fdb81d977381a5a2560a4c45dbe9a469d007b1886"
+RIFE_MODEL_COMMIT="96fdcecdf982ef3237e16e2b105eea849fa022ab"
+RIFE_MODEL_NAME="rife-v4.26_ensembleFalse"
+RIFE_MODEL_BIN_SHA256="94d58e30b75d7c7609cfa6f3bdad524deddd14f5f75e85c36d2f827ef5c64731"
+RIFE_MODEL_PARAM_SHA256="79f16c28903f93f8308f0c4c947f8c7e0c17d99a57b85473e5f298dd578d137b"
+RIFE_DIR="$DEPS_DIR/vapoursynth/rife"
+echo ""
+echo "=== Installing RIFE ($RIFE_TAG, model $RIFE_MODEL_NAME) ==="
+if [ "$ARCH" != "x86_64" ]; then
+    echo "  Skipped on $ARCH: upstream publishes no build"
+elif [ "$FORCE" = false ] && [ -f "$RIFE_DIR/librife.so" ] \
+     && [ -f "$RIFE_DIR/models/$RIFE_MODEL_NAME/flownet.bin" ]; then
+    echo "  RIFE already exists, skipping"
+else
+    rm -rf "$RIFE_DIR"
+    if (
+        set -e
+        mkdir -p "$RIFE_DIR/models/$RIFE_MODEL_NAME"
+        cd "$BUILD_DIR"
+        curl -fsSL -o librife.so \
+            "https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/releases/download/$RIFE_TAG/librife_linux_x86-64.so"
+        echo "$RIFE_LINUX_X64_SHA256  librife.so" | sha256sum -c -
+        mv librife.so "$RIFE_DIR/librife.so"
+        chmod 755 "$RIFE_DIR/librife.so"
+        for f in flownet.bin flownet.param; do
+            curl -fsSL -o "$f" \
+                "https://raw.githubusercontent.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/$RIFE_MODEL_COMMIT/models/$RIFE_MODEL_NAME/$f"
+        done
+        echo "$RIFE_MODEL_BIN_SHA256  flownet.bin" | sha256sum -c -
+        echo "$RIFE_MODEL_PARAM_SHA256  flownet.param" | sha256sum -c -
+        mv flownet.bin flownet.param "$RIFE_DIR/models/$RIFE_MODEL_NAME/"
+    ); then
+        echo "  Installed RIFE -> vapoursynth/rife/"
+        BUILT_PLUGINS+=("rife")
+    else
+        rm -rf "$RIFE_DIR"
+        echo "  Failed to install RIFE"
+        FAILED_PLUGINS+=("rife")
+    fi
+fi
+
+# ============================================================================
 # Download NNEDI3 weights
 # ============================================================================
 echo ""

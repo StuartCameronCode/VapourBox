@@ -2123,6 +2123,57 @@ clip = core.mv.FlowFPS(
 # every frame in the output was photographed. The honest choice for a master.
 clip = haf.ChangeFPS(clip, {{FPS_TARGET_NUM}}, {{FPS_TARGET_DEN}})
 {{/FRAME_RATE_DUPLICATE}}
+{{#FRAME_RATE_RIFE}}
+# RIFE 4.26 (ncnn/Vulkan). The plugin is deliberately NOT autoloaded: it lives
+# outside the plugin directory and is loaded here, only for a job that asked for
+# it, so a machine whose GPU stack cannot run it fails this method alone rather
+# than every job. The worker refuses to emit this block unless its probe has
+# shown RIFE runs here — called without a usable Vulkan device it segfaults
+# instead of raising.
+#
+# On macOS the plugin finds Vulkan through whatever is already in the process,
+# so MoltenVK must be loaded (RTLD_GLOBAL) before the first RIFE call.
+_rife_preload = {{RIFE_PRELOAD}}
+if _rife_preload:
+    import ctypes as _rife_ctypes
+    _rife_ctypes.CDLL(_rife_preload, mode=_rife_ctypes.RTLD_GLOBAL)
+if not hasattr(core, "rife"):
+    core.std.LoadPlugin({{RIFE_PLUGIN}})
+from fractions import Fraction as _RifeFraction
+# The plugin reduces target/source exactly like this, and an output frame n is a
+# copy of source frame n*den/num whenever that division is exact.
+_rife_ratio = _RifeFraction({{FPS_TARGET_NUM}}, {{FPS_TARGET_DEN}}) / _RifeFraction(clip.fps_num, clip.fps_den)
+_rife_num, _rife_den = _rife_ratio.numerator, _rife_ratio.denominator
+# sc=True holds the last frame across a cut instead of blending two shots into
+# a ghost frame; it reads _SceneChangeNext, which survives the RGB conversion.
+_rife_in = core.misc.SCDetect(clip, threshold=0.1)
+if clip.format.color_family == vs.YUV:
+    _rife_rgb = core.resize.Bicubic(_rife_in, format=vs.RGBS, matrix_in_s="{{RIFE_MATRIX}}", range_in_s="{{RIFE_RANGE}}")
+elif clip.format.color_family == vs.GRAY:
+    _rife_rgb = core.std.ShufflePlanes(core.resize.Point(_rife_in, format=vs.GRAYS), [0, 0, 0], vs.RGB)
+else:
+    _rife_rgb = core.resize.Point(_rife_in, format=vs.RGBS)
+_rife_out = core.rife.RIFE(_rife_rgb, model_path={{RIFE_MODEL_DIR}}, fps_num={{FPS_TARGET_NUM}}, fps_den={{FPS_TARGET_DEN}}, sc=True)
+# Back to the source format. Rounding, not dither: these frames sit between
+# photographed ones, and dither noise that the real frames lack would flicker.
+if clip.format.color_family == vs.YUV:
+    _rife_out = core.resize.Bicubic(_rife_out, format=clip.format.id, matrix_s="{{RIFE_MATRIX}}", range_s="{{RIFE_RANGE}}", dither_type="none")
+elif clip.format.color_family == vs.GRAY:
+    _rife_out = core.resize.Point(core.std.ShufflePlanes(_rife_out, 0, vs.GRAY), format=clip.format.id, dither_type="none")
+else:
+    _rife_out = core.resize.Point(_rife_out, format=clip.format.id, dither_type="none")
+# Every output frame RIFE merely copies (an exact source position, or the held
+# tail) is taken from the untouched source instead, so photographed frames come
+# through bit-exact rather than via a 4:2:0 -> RGB -> 4:2:0 chroma round trip.
+_rife_src = clip
+_rife_tail = len(_rife_out) - _rife_num // _rife_den
+def _rife_pick(n):
+    if (n * _rife_den) % _rife_num == 0 or n >= _rife_tail:
+        k = min(n * _rife_den // _rife_num, len(_rife_src) - 1)
+        return _rife_src[k] * (n + 1)
+    return _rife_out
+clip = core.std.FrameEval(_rife_out, _rife_pick)
+{{/FRAME_RATE_RIFE}}
 if clip.format.id != _fps_src_format:
     clip = core.resize.Bicubic(clip, format=_fps_src_format)
 {{/FRAME_RATE}}

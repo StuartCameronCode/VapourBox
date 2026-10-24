@@ -26,6 +26,7 @@ mod pipeline_executor;
 mod pixel_format;
 mod source_decode;
 mod progress_reporter;
+mod rife;
 mod script_generator;
 mod subtitle_generator;
 mod platform;
@@ -90,6 +91,14 @@ struct Args {
     /// which is how the CTMF crash reached main and then looked spontaneous.
     #[arg(long)]
     probe_cpu: bool,
+
+    /// Probe mode: report whether RIFE frame interpolation runs here, as JSON
+    /// (`{"available": bool, "reason": …, "detail": …, "message": …}`), and
+    /// exit. The app shows `message` when RIFE is selected; it names what is
+    /// missing (a Vulkan driver, the VC++ runtime, an older deps bundle) and
+    /// what to do about it.
+    #[arg(long)]
+    probe_rife: bool,
 }
 
 fn main() -> ExitCode {
@@ -137,6 +146,10 @@ fn main() -> ExitCode {
 
     if args.probe_opencl {
         return run_probe_opencl();
+    }
+
+    if args.probe_rife {
+        return run_probe_rife();
     }
 
     // Preview mode outputs raw PNG to stdout - no JSON messages
@@ -204,6 +217,19 @@ fn run_probe_opencl() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+
+/// Probe whether RIFE runs here and print the result as JSON to stdout. Deps
+/// that cannot be located are reported as "not installed" rather than as a
+/// failure of the probe: the remedy is the same, let the app download them.
+fn run_probe_rife() -> ExitCode {
+    let json = match dependency_locator::DependencyLocator::new() {
+        Ok(deps) => deps.rife_status().to_json(deps.platform_suffix()),
+        Err(e) => rife::RifeStatus::unavailable(rife::RifeReason::NotInstalled, e.to_string())
+            .to_json(""),
+    };
+    println!("{json}");
+    ExitCode::SUCCESS
+}
 
 /// Report the CPU architecture, the dispatch-relevant instruction set
 /// extensions and, on x86, the deps bundle tier, as JSON.
@@ -533,9 +559,19 @@ fn run_worker(
     // Detect knlmeanscl availability separately (plugin + usable OpenCL device);
     // when unavailable the knlmeanscl denoiser is downgraded to dfttest.
     let knlm_available = deps.as_ref().map(|d| d.knlm_available()).unwrap_or(true);
+    // RIFE is probed only for a job that uses it: the probe initialises the GPU.
+    let rife = if job.effective_pipeline().uses_rife() {
+        match deps.as_ref() {
+            Some(d) => d.rife_runtime(),
+            None => Err("RIFE needs VapourBox's dependencies, which could not be found.".into()),
+        }
+    } else {
+        Err("RIFE is not used by this job.".into())
+    };
     let script_generator = ScriptGenerator::new()?
         .with_opencl_available(opencl_available)
-        .with_knlm_available(knlm_available);
+        .with_knlm_available(knlm_available)
+        .with_rife(rife);
     let script_path = script_generator
         .generate(&job)
         .with_context(|| "Failed to generate VapourSynth script")?;

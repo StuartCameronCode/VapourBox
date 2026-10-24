@@ -2093,6 +2093,82 @@ fi
 fi  # end vszip install
 
 # ============================================================================
+# RIFE 4.26 — the Frame Rate pass's neural interpolator (ncnn on Vulkan)
+# ============================================================================
+# Lives in vapoursynth/rife/, NOT the autoload directory: the template loads it
+# only for a RIFE job (see worker/src/rife.rs). Keep RIFE_TAG, the model commit
+# and the model hashes in step with download-deps-{linux.sh,windows.ps1}.
+#
+# arm64 only. The upstream x86_64 dylib targets macOS 13 against this arch's
+# 12.0 floor (issue #39) and runs AVX in a static initializer
+# (check-load-time-simd.py fails it), so Intel Macs need a source build first;
+# the app reports RIFE as unavailable there.
+#
+# Neither dylib bundles a Vulkan implementation: it leaves vkGetInstanceProcAddr
+# for whatever is already in the process, and segfaults without one. So
+# MoltenVK ships beside it (arm64 slice only) and the script preloads it with
+# RTLD_GLOBAL.
+#
+# The model is the ncnn conversion committed to the plugin's repo (there is no
+# release asset for it), fetched at a pinned commit and checked by hash.
+RIFE_TAG="r9_mod_v33"
+RIFE_MACOS_ARM64_SHA256="3041811d2b71afd2fa12d64484f64396c6fa5259ab63715316694f4110fc0e67"
+RIFE_MODEL_COMMIT="96fdcecdf982ef3237e16e2b105eea849fa022ab"
+RIFE_MODEL_NAME="rife-v4.26_ensembleFalse"
+RIFE_MODEL_BIN_SHA256="94d58e30b75d7c7609cfa6f3bdad524deddd14f5f75e85c36d2f827ef5c64731"
+RIFE_MODEL_PARAM_SHA256="79f16c28903f93f8308f0c4c947f8c7e0c17d99a57b85473e5f298dd578d137b"
+MOLTENVK_VERSION="1.4.2"
+MOLTENVK_SHA256="f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e"
+RIFE_DIR="$DEPS_DIR/vapoursynth/rife"
+echo ""
+echo "=== Installing RIFE ($RIFE_TAG, model $RIFE_MODEL_NAME) ==="
+if [ "$ARCH" != "arm64" ]; then
+    echo "  Skipped on $ARCH: no compatible prebuilt (see above)"
+elif [ "$FORCE" = false ] && [ -f "$RIFE_DIR/librife.dylib" ] \
+     && [ -f "$RIFE_DIR/libMoltenVK.dylib" ] \
+     && [ -f "$RIFE_DIR/models/$RIFE_MODEL_NAME/flownet.bin" ]; then
+    echo "  RIFE already exists, skipping"
+else
+    rm -rf "$RIFE_DIR"
+    if (
+        set -e
+        mkdir -p "$RIFE_DIR/models/$RIFE_MODEL_NAME"
+        cd "$BUILD_DIR"
+        curl -fsSL -o librife.dylib \
+            "https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/releases/download/$RIFE_TAG/librife_macos_arm64.dylib"
+        echo "$RIFE_MACOS_ARM64_SHA256  librife.dylib" | shasum -a 256 -c -
+        mv librife.dylib "$RIFE_DIR/librife.dylib"
+        for f in flownet.bin flownet.param; do
+            curl -fsSL -o "$f" \
+                "https://raw.githubusercontent.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/$RIFE_MODEL_COMMIT/models/$RIFE_MODEL_NAME/$f"
+        done
+        echo "$RIFE_MODEL_BIN_SHA256  flownet.bin" | shasum -a 256 -c -
+        echo "$RIFE_MODEL_PARAM_SHA256  flownet.param" | shasum -a 256 -c -
+        mv flownet.bin flownet.param "$RIFE_DIR/models/$RIFE_MODEL_NAME/"
+        rm -rf moltenvk MoltenVK-macos.tar
+        curl -fsSL -o MoltenVK-macos.tar \
+            "https://github.com/KhronosGroup/MoltenVK/releases/download/v$MOLTENVK_VERSION/MoltenVK-macos.tar"
+        echo "$MOLTENVK_SHA256  MoltenVK-macos.tar" | shasum -a 256 -c -
+        mkdir moltenvk
+        tar -xf MoltenVK-macos.tar -C moltenvk
+        lipo moltenvk/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib \
+            -thin arm64 -output "$RIFE_DIR/libMoltenVK.dylib"
+        cp moltenvk/MoltenVK/LICENSE "$RIFE_DIR/MoltenVK-LICENSE.txt"
+        rm -rf moltenvk MoltenVK-macos.tar
+        chmod u+w "$RIFE_DIR"/*.dylib
+        codesign -s - -f "$RIFE_DIR/librife.dylib"
+        codesign -s - -f "$RIFE_DIR/libMoltenVK.dylib"
+    ); then
+        echo "  Installed RIFE -> vapoursynth/rife/"
+        BUILT_PLUGINS+=("rife")
+    else
+        rm -rf "$RIFE_DIR"
+        echo "  Failed to install RIFE"
+        FAILED_PLUGINS+=("rife")
+    fi
+fi
+
+# ============================================================================
 # Download NNEDI3 weights
 # ============================================================================
 echo ""

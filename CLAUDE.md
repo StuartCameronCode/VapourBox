@@ -102,6 +102,7 @@ VapourBox/
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded (see "Source Frame Size") |
+| `worker/src/rife.rs` | RIFE's file layout, its `--probe-rife` probe, and the user-facing reason/remedy when it can't run (see "RIFE Frame Interpolation") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
 
@@ -116,6 +117,7 @@ VapourBox/
 | `app/lib/services/preset_service.dart` | Save/load user presets |
 | `app/lib/services/temp_directory_service.dart` | Configurable scratch-file directory (see "Temporary Files Directory") |
 | `app/lib/services/overwrite_behavior_service.dart` | Default action for existing output files (see "Existing Output Files") |
+| `app/lib/models/rife_status.dart` | The worker's RIFE probe result, and the Frame Rate panel's notice decision |
 | `app/assets/filters/core/*.json` | Built-in filter schema definitions |
 
 ## Build Commands
@@ -367,7 +369,8 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
   Windows can get. Also check PyPI (`pypi.org/pypi/<name>/json`): several
   plugins have migrated to publishing wheels there instead of GitHub releases.
 - **Add the plugin filename to `Scripts/deps-expected-plugins.json`** for every
-  platform that ships it. The `package-deps-*` scripts assert this list is
+  platform that ships it (a file outside the plugin directory, like RIFE's in
+  `vapoursynth/rife/`, goes under `_extraFiles` as a path from the bundle root). The `package-deps-*` scripts assert this list is
   present before zipping and fail the build if any are missing, so a dead
   download URL becomes a red build instead of a silently-incomplete bundle.
   x64 platforms have a second key per CPU tier (`macos-x64-v2`, …) that must
@@ -1046,6 +1049,49 @@ asserted in `shutdown_when_done_test.dart`:
   `ColorScheme` (Pride's stripe) goes through the `AppDecorations` theme
   extension. Use `colorScheme` roles, not fixed colours, for UI chrome —
   fixed black/white only belongs on overlays drawn over video.
+
+### RIFE Frame Interpolation
+
+RIFE 4.26 (`rife.RIFE`, ncnn on Vulkan) is the Frame Rate pass's third method,
+`FrameRateMethod::Rife` (`"rife"`). It is the only method that needs more than
+the deps bundle, and the rules all follow from one fact: **without a usable
+Vulkan implementation the plugin segfaults** (in `ncnn::create_gpu_instance`)
+instead of raising.
+
+- **Never autoloaded.** The plugin, the model and (macOS) MoltenVK live in
+  `deps/<platform>/vapoursynth/rife/`, outside the plugin directory; the
+  template `LoadPlugin`s it inside `{{#FRAME_RATE_RIFE}}` only. A missing
+  runtime DLL, a broken driver or AVX in a static initializer can therefore
+  only affect a RIFE job. Don't move it into `plugins/` / `vs-plugins/`.
+- **macOS preloads MoltenVK** (`ctypes.CDLL(..., RTLD_GLOBAL)`) before the
+  first call: the dylibs leave `vkGetInstanceProcAddr` to whatever is already
+  in the process. Without it every RIFE call is a SIGSEGV.
+- **One probe, one wording.** `rife.rs` prechecks the platform and files, then
+  runs the plugin once in a throwaway vspipe, printing stage markers so a
+  silent crash still says where it died, and classifies the result into a
+  `RifeReason` with a user-facing remedy (`RifeStatus::message`). The app shows
+  that text when RIFE is selected (`--probe-rife`, `rifeNoticeFor`, with a
+  *Check again* button); the worker refuses a RIFE job with the same text
+  (`ScriptGenerator::with_rife`, `ensure_rife_ready`) rather than emit a script
+  that would crash. Only a **positive** result is cached per boot — a cached
+  failure would keep blaming a driver the user has just installed.
+  `VAPOURBOX_DISABLE_VULKAN=1` forces the unavailable path.
+- **Platforms:** macos-arm64, windows-x64 (both tiers), linux-x64 (both tiers).
+  `rife::platform_ships_rife` and `_extraFiles` in `deps-expected-plugins.json`
+  must agree (`attribution_test.dart`). macOS x64's prebuilt targets macOS 13
+  and fails `check-load-time-simd.py`; linux-arm64 has no upstream build. Both
+  need a source build before they can be added.
+- **Real frames pass through untouched.** RIFE works in RGBS; every output
+  frame it would merely copy (an exact source position, the held tail) is
+  taken from the source by `FrameEval` instead, so photographed frames are
+  bit-exact rather than chroma-softened by a YUV→RGB→YUV round trip. The count
+  is `floor(n * num / den)` of the reduced ratio — exactly `FrameMap::Retime`.
+  `sc=True` with `misc.SCDetect` holds the frame across a cut rather than
+  blending two shots.
+- The model is the ncnn conversion committed to the plugin's repo, fetched at
+  a pinned commit and checked by SHA-256 in every `download-deps-*` script.
+
+See docs/ENGINEERING_NOTES.md (2026-10-24) for the probe measurements.
 
 ### Preset System
 
@@ -1938,3 +1984,4 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.11.0 | 2026-09 | **Issue #92**: every x86 bundle ships in two **CPU tiers** — `v3` (x86-64-v3; the plain asset names) and `v2` (`…-x64-v2`, anything older), chosen by the app from `vapourbox-worker --probe-cpu`. Each bundle carries one autoloaded zsmooth (replacing 1.10.0's two-builds-loaded-by-path). macOS v2 builds MVTools v24 from source without its AVX2 files, whose static initializers SIGILLed inside `dlopen` on pre-AVX Macs. v2 bundles are gated (SDE on Linux/Windows, static check on macOS) before publishing |
 | 1.12.0 | 2026-10-04 | **Issue #101**: akarin 1.4.1 → **1.5.0** on every platform. The 1.4.1 Linux wheel put JIT code on the `brk` heap, where SELinux denies `PROT_EXEC`, so every job segfaulted on Fedora/RHEL from deps 1.8.0 on. `download-deps-linux.sh` now fails if `libakarin.so` lacks the mmap allocator |
 | 1.13.0 | 2026-10 | One new plugin; every other binary is built from the same sources as 1.12.0. Adds **vszip** 22.1.0 (MIT) for `vszip.CLAHE`, Color Correction's local contrast (issue #90). Baseline build only, flat in the plugin directory on every platform (the wheels' AVX2/AVX-512 variants are left out); macOS x64 builds the sdist with Zig 0.16.0 for the 12.0 floor, with header padding so it can be signed. The v2 CPU tier is no longer a second full bundle: each x64 platform publishes its v3 bundle plus `…-x64-v2-delta.zip`, the files in `_tierFiles` (zsmooth; on macOS also MVTools), extracted over it (`"tierFormat": "delta"`). Every x64 machine downloads the same bundle; only an older CPU fetches the few MB more. This is also what lets the Linux AppImage carry its deps for both tiers without doubling in size |
+| 1.14.0 | unreleased | Adds **RIFE** 4.26 (`r9_mod_v33`, MIT) + its model in `vapoursynth/rife/` on macos-arm64, windows-x64 and linux-x64, and **MoltenVK** 1.4.2 (Apache-2.0) beside it on macOS. Not autoloaded; see "RIFE Frame Interpolation" |

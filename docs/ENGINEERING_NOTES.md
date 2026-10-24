@@ -2329,6 +2329,57 @@ discarded) has the same layout. In the deps 1.10.0 bundle its load commands end
 `_fftwf_set_planner_hooks` are the signature's `dataoff`/`datasize` fields. It
 works only because nothing calls that function.
 
+### RIFE 4.26 as a Frame Rate method (2026-10-24)
+
+Probed against deps 1.13.0 on macos-arm64 (M1 Pro) before wiring anything up.
+The plugin is styler00dollar/VapourSynth-RIFE-ncnn-Vulkan `r9_mod_v33`
+(ncnn on Vulkan; HolyWu's vs-rife needs PyTorch/CUDA and was never a
+candidate). What the probe found, in the order it mattered:
+
+- **Without Vulkan it segfaults, it does not raise.** Neither macOS dylib
+  bundles a Vulkan implementation; both leave `vkGetInstanceProcAddr`
+  undefined (dynamic lookup) and `rife.RIFE()` dies with SIGSEGV in
+  `ncnn::create_gpu_instance`. `LoadPlugin` itself succeeds, so nothing at
+  load time warns. Preloading MoltenVK 1.4.2 (`RTLD_GLOBAL`) fixes macOS; on
+  Windows/Linux ncnn dlopens the driver's loader and raises "failed to create
+  GPU instance" / "invalid GPU device" when there is no device. The vs-placebo
+  note above is the same failure shape, which is why the method is gated on a
+  probe rather than tried. The probe's crash path was exercised for real by
+  swapping MoltenVK for an unrelated dylib: classified `noVulkan`.
+- **The macOS x64 prebuilt is unusable**: minos 13.0 (floor 12.0) and
+  `check-load-time-simd.py` fails it (VEX in `__GLOBAL__sub_I_gpu.cpp`).
+  No linux-arm64 asset exists. The Windows DLL imports `VCOMP140.DLL`, which
+  is not guaranteed present, so the probe tries it (and the other MSVC
+  runtime DLLs) by name first and names the one missing.
+- **The count is exactly `FrameMap::Retime`**: `floor(n * num / den)` of the
+  reduced ratio, measured 40 → 80 / 47 / 38 for 25 → 50 / 29.97 / 23.976.
+  Output frame n copies source `n*den/num` when exact; the last `num/den`
+  frames are held copies. Fewer than 2 input frames raises.
+- **RGBS only**, so real frames would take a YUV→RGB→YUV round trip; the
+  template takes every copied frame from the source instead (`FrameEval`).
+  Verified bit-exact on 8/10/16-bit YUV and Gray, for all three ratios.
+- **`sc=True` works and matters**: across a hard cut the interpolated frame
+  without it was a blend (88 / 73 levels from either side); with it, the
+  previous frame exactly (0.00).
+- **Speed (2x)**: 49 fps at 720x480, 14.7 fps at 1080p (4.26-large 12.9) —
+  roughly 5x slower than FlowFPS.
+- **Quality**, dropping every other frame of real footage and comparing the
+  interpolated frame against the real one (MAE, 8-bit levels): `small_clip`
+  RIFE 3.73 / FlowFPS 4.09 / duplicate 5.84 (worst frame 18.9 vs 21.1);
+  `interlaced_test_processed` 2.23 / 2.43 / 7.12. 4.26-large was within noise
+  of 4.26, so only 4.26 ships. **On synthetic noise-texture pans FlowFPS won
+  by 10x** (0.04 vs 0.38, and with a crossing object too) — block matching is
+  ideal for translated noise and RIFE was trained on natural video, so a
+  synthetic fixture would have rejected the better method. Real footage only.
+
+The model is the ncnn conversion committed to the plugin repo (commit
+`96fdcec`, "add rife-v4.26", by TNTwise); hzwer publishes 4.26 only as
+PyTorch weights on Google Drive/Baidu, so there is no official direct URL.
+Licensing: weights MIT (hzwer, Practical-RIFE: "under the same MIT license"),
+architecture MIT (Megvii, ECCV2022-RIFE), plugin MIT (HolyWu), ncnn BSD-3
+(Tencent), MoltenVK Apache-2.0 (Brenwill Workshop, from source headers; no
+NOTICE file upstream).
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and
