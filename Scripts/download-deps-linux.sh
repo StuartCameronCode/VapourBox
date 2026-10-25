@@ -1663,7 +1663,12 @@ elif [ "$FORCE" = false ] && [ -f "$RIFE_DIR/librife.so" ] \
     echo "  RIFE already exists, skipping"
 else
     rm -rf "$RIFE_DIR"
-    if (
+    # Run on its own, not as `if ( set -e ... ); then`: bash ignores set -e in
+    # anything that is an if/&&/|| condition, subshells included, so that form
+    # reported success whenever the last command did (VSNCNN's failed compile
+    # printed "Installed" in CI on 2026-10-25).
+    set +e
+    (
         set -e
         mkdir -p "$RIFE_DIR/models/$RIFE_MODEL_NAME"
         cd "$BUILD_DIR"
@@ -1679,7 +1684,10 @@ else
         echo "$RIFE_MODEL_BIN_SHA256  flownet.bin" | sha256sum -c -
         echo "$RIFE_MODEL_PARAM_SHA256  flownet.param" | sha256sum -c -
         mv flownet.bin flownet.param "$RIFE_DIR/models/$RIFE_MODEL_NAME/"
-    ); then
+    )
+    _block_status=$?
+    set -e
+    if [ "$_block_status" -eq 0 ]; then
         echo "  Installed RIFE -> vapoursynth/rife/"
         BUILT_PLUGINS+=("rife")
     else
@@ -1737,7 +1745,12 @@ elif [ "$FORCE" = false ] && [ -f "$NCNN_DIR/libvsncnn.so" ] \
     echo "  VSNCNN already exists, skipping"
 else
     rm -rf "$NCNN_DIR"
-    if (
+    # Run on its own, not as `if ( set -e ... ); then`: bash ignores set -e in
+    # anything that is an if/&&/|| condition, subshells included, so that form
+    # reported success whenever the last command did (VSNCNN's failed compile
+    # printed "Installed" in CI on 2026-10-25).
+    set +e
+    (
         set -e
         W="$BUILD_DIR/vsncnn"
         rm -rf "$W" && mkdir -p "$W" "$NCNN_DIR/models"
@@ -1794,7 +1807,10 @@ else
             mv "models/$rel" "$NCNN_DIR/models/$rel"
         done
         cd "$BUILD_DIR" && rm -rf "$W"
-    ); then
+    )
+    _block_status=$?
+    set -e
+    if [ "$_block_status" -eq 0 ]; then
         echo "  Installed VSNCNN -> vapoursynth/ncnn/"
         BUILT_PLUGINS+=("vsncnn")
     else

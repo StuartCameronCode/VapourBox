@@ -127,6 +127,21 @@ if [ -n "$TIER" ] && [ "$FORCE" = false ] && [ -f "$DEPS_DIR/version.json" ]; th
     fi
 fi
 PYTHON_DIR="$DEPS_DIR/python"
+
+# vsscript self-configures by shelling out to a `vapoursynth` executable, and a
+# from-source build creates no console script, so provide one. It lives in the
+# Python tree, which a rerun can reinstall while skipping VapourSynth, so it is
+# written by the VapourSynth step and again (if missing) near the end.
+write_vapoursynth_shim() {
+    cat > "$PYTHON_DIR/bin/vapoursynth" << 'SHIM_EOF'
+#!/bin/bash
+DEPS_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+export PYTHONHOME="$DEPS_ROOT/python"
+export PYTHONPATH="$DEPS_ROOT:$DEPS_ROOT/python-packages:${PYTHONPATH:-}"
+exec "$DEPS_ROOT/python/bin/python3" -m vapoursynth "$@"
+SHIM_EOF
+    chmod +x "$PYTHON_DIR/bin/vapoursynth"
+}
 PYTHON_PACKAGES_DIR="$DEPS_DIR/python-packages"
 BUILD_DIR="/tmp/vapourbox-build-$$"
 
@@ -542,16 +557,7 @@ CYEOF
         "$DEPS_DIR/vapoursynth/" 2>/dev/null || \
         cp "$VS_BUILD_DIR/src/py/"*.py "$DEPS_DIR/vapoursynth/"
 
-    # vsscript self-configures by shelling out to a `vapoursynth` executable.
-    # A from-source build creates no console script, so provide one.
-    cat > "$PYTHON_DIR/bin/vapoursynth" << 'SHIM_EOF'
-#!/bin/bash
-DEPS_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-export PYTHONHOME="$DEPS_ROOT/python"
-export PYTHONPATH="$DEPS_ROOT:$DEPS_ROOT/python-packages:${PYTHONPATH:-}"
-exec "$DEPS_ROOT/python/bin/python3" -m vapoursynth "$@"
-SHIM_EOF
-    chmod +x "$PYTHON_DIR/bin/vapoursynth"
+    write_vapoursynth_shim
 
     # Copy zimg from Homebrew (will fix paths to be relative)
     cp "$BREW_PREFIX/lib/libzimg.2.dylib" "$DEPS_DIR/vapoursynth/libzimg.dylib"
@@ -2157,7 +2163,12 @@ if [ "$FORCE" = false ] && [ -f "$DESCALE_OUT" ]; then
     echo "  descale already exists, skipping"
 else
     rm -f "$DESCALE_OUT"
-    if (
+    # Run on its own, not as `if ( set -e ... ); then`: bash ignores set -e in
+    # anything that is an if/&&/|| condition, subshells included, so that form
+    # reported success whenever the last command did (VSNCNN's failed compile
+    # printed "Installed" in CI on 2026-10-25).
+    set +e
+    (
         set -e
         cd "$BUILD_DIR"
         rm -rf descale-whl descale.whl
@@ -2176,7 +2187,10 @@ PYEOF2
         install_name_tool -id "@loader_path/libdescale.dylib" "$DESCALE_OUT"
         codesign -s - -f "$DESCALE_OUT"
         rm -rf descale-whl descale.whl
-    ); then
+    )
+    _block_status=$?
+    set -e
+    if [ "$_block_status" -eq 0 ]; then
         echo "  Installed descale -> libdescale.dylib"
         BUILT_PLUGINS+=("descale")
     else
@@ -2204,7 +2218,12 @@ elif [ "$FORCE" = false ] && [ -f "$MOLTENVK_DIR/libMoltenVK.dylib" ]; then
     echo "  MoltenVK already exists, skipping"
 else
     rm -rf "$MOLTENVK_DIR"
-    if (
+    # Run on its own, not as `if ( set -e ... ); then`: bash ignores set -e in
+    # anything that is an if/&&/|| condition, subshells included, so that form
+    # reported success whenever the last command did (VSNCNN's failed compile
+    # printed "Installed" in CI on 2026-10-25).
+    set +e
+    (
         set -e
         mkdir -p "$MOLTENVK_DIR"
         cd "$BUILD_DIR"
@@ -2220,7 +2239,10 @@ else
         rm -rf moltenvk MoltenVK-macos.tar
         chmod u+w "$MOLTENVK_DIR/libMoltenVK.dylib"
         codesign -s - -f "$MOLTENVK_DIR/libMoltenVK.dylib"
-    ); then
+    )
+    _block_status=$?
+    set -e
+    if [ "$_block_status" -eq 0 ]; then
         echo "  Installed MoltenVK -> vapoursynth/moltenvk/"
         BUILT_PLUGINS+=("moltenvk")
     else
@@ -2261,7 +2283,12 @@ elif [ "$FORCE" = false ] && [ -f "$RIFE_DIR/librife.dylib" ] \
     echo "  RIFE already exists, skipping"
 else
     rm -rf "$RIFE_DIR"
-    if (
+    # Run on its own, not as `if ( set -e ... ); then`: bash ignores set -e in
+    # anything that is an if/&&/|| condition, subshells included, so that form
+    # reported success whenever the last command did (VSNCNN's failed compile
+    # printed "Installed" in CI on 2026-10-25).
+    set +e
+    (
         set -e
         mkdir -p "$RIFE_DIR/models/$RIFE_MODEL_NAME"
         cd "$BUILD_DIR"
@@ -2278,7 +2305,10 @@ else
         mv flownet.bin flownet.param "$RIFE_DIR/models/$RIFE_MODEL_NAME/"
         chmod u+w "$RIFE_DIR/librife.dylib"
         codesign -s - -f "$RIFE_DIR/librife.dylib"
-    ); then
+    )
+    _block_status=$?
+    set -e
+    if [ "$_block_status" -eq 0 ]; then
         echo "  Installed RIFE -> vapoursynth/rife/"
         BUILT_PLUGINS+=("rife")
     else
@@ -2335,12 +2365,20 @@ elif [ "$FORCE" = false ] && [ -f "$NCNN_DIR/libvsncnn.dylib" ] \
     echo "  VSNCNN already exists, skipping"
 else
     rm -rf "$NCNN_DIR"
-    if (
+    # Run on its own, not as `if ( set -e ... ); then`: bash ignores set -e in
+    # anything that is an if/&&/|| condition, subshells included, so that form
+    # reported success whenever the last command did (VSNCNN's failed compile
+    # printed "Installed" in CI on 2026-10-25).
+    set +e
+    (
         set -e
         W="$BUILD_DIR/vsncnn"
         rm -rf "$W" && mkdir -p "$W" "$NCNN_DIR/models"
         cd "$W"
-        export MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION"
+        # arm64 pins no target for the rest of the script; this one compiles
+        # directly with clang, so it needs one: the arm64 bundle's 15.0.
+        VSNCNN_MIN="${MACOS_MIN_VERSION:-15.0}"
+        export MACOSX_DEPLOYMENT_TARGET="$VSNCNN_MIN"
         # protobuf, static.
         curl -fsSL "https://github.com/protocolbuffers/protobuf/archive/refs/tags/$PROTOBUF_TAG.tar.gz" | tar xz
         cmake -S "protobuf-${PROTOBUF_TAG#v}/cmake" -B pb-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -2374,7 +2412,7 @@ else
         # VSNCNN itself.
         git clone -q --depth 1 --branch "$VSMLRT_TAG" https://github.com/AmusementClub/vs-mlrt.git vs-mlrt
         echo "#define VERSION \"$VSMLRT_TAG\"" > vs-mlrt/vsncnn/config.h
-        clang++ -std=c++20 -O2 -fPIC -shared -arch arm64 -mmacosx-version-min="$MACOS_MIN_VERSION" \
+        clang++ -std=c++20 -O2 -fPIC -shared -arch arm64 -mmacosx-version-min="$VSNCNN_MIN" \
             -fvisibility=hidden \
             vs-mlrt/vsncnn/vs_ncnn.cpp vs-mlrt/vsncnn/onnx2ncnn.cpp vs-mlrt/common/onnx_utils.cpp \
             -Ivs-mlrt/vsncnn -I"$W/vsapi3" -I"$VS_INC_DIR" -I"$N/ncnn.framework/Headers" -I"$N/ncnn.framework/Headers/ncnn" \
@@ -2404,7 +2442,10 @@ else
         done
         rm -f models.7z
         cd "$BUILD_DIR" && rm -rf "$W"
-    ); then
+    )
+    _block_status=$?
+    set -e
+    if [ "$_block_status" -eq 0 ]; then
         echo "  Installed VSNCNN -> vapoursynth/ncnn/"
         BUILT_PLUGINS+=("vsncnn")
     else
@@ -2917,6 +2958,13 @@ fi
 # is built on/for current macOS, so skip the check there to avoid spurious noise.
 if [ "$ARCH" = "x86_64" ]; then
 echo ""
+# A rerun that reinstalled Python but skipped VapourSynth would otherwise leave
+# no shim, and every script would fail to start VSScript.
+if [ ! -x "$PYTHON_DIR/bin/vapoursynth" ]; then
+    write_vapoursynth_shim
+    echo "Restored the vapoursynth shim in python/bin"
+fi
+
 echo "Minimum-OS (minos) of every bundled Mach-O (target $MACOS_MIN_VERSION, issue #39):"
 # Print the macOS deployment target baked into a Mach-O, reading whichever load
 # command it carries: LC_BUILD_VERSION (newer toolchains, "minos X.Y") or
