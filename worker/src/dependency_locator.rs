@@ -375,6 +375,7 @@ impl DependencyLocator {
             &self.platform_dir().join("vapoursynth"),
             self.platform_suffix(),
         )
+        .with_vulkan_library(crate::gpu_plugin::vulkan_library_override())
     }
 
     /// Whether a GPU plugin runs here, and if not, why (see `gpu_plugin.rs`).

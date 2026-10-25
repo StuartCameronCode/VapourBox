@@ -58,21 +58,18 @@ case "$platform" in
     ;;
   macos-arm64)
     # Homebrew's mesa builds lavapipe on macOS (vulkan-drivers=swrast), and
-    # vulkan-loader is the Khronos loader. ncnn dlopens libvulkan.1.dylib before
-    # falling back to the MoltenVK the scripts preload, so with the loader
-    # findable both plugins take lavapipe through it — the path any Mac with a
-    # loader installed takes. Only the loader is exposed, in ~/lib — the first
-    # directory on dyld's *default* fallback path — never Homebrew's lib/,
-    # which could stand in for a library missing from the bundle and hide
-    # that. Not DYLD_FALLBACK_LIBRARY_PATH: the bundle's vspipe is a /bin/bash
-    # wrapper, and SIP strips every DYLD_* variable when a protected binary
-    # runs, so it never reached the plugins (CI run 40157771950).
+    # vulkan-loader is the Khronos loader. The scripts normally preload the
+    # bundle's MoltenVK, whose Vulkan entry points ncnn then uses;
+    # VAPOURBOX_VULKAN_LIBRARY makes them preload the loader instead, which
+    # reads VK_DRIVER_FILES and opens lavapipe. A DYLD_* variable cannot do
+    # this (SIP strips them at the bundle's /bin/bash vspipe wrapper), and
+    # dyld no longer searches ~/lib or /usr/local/lib for ncnn's own
+    # dlopen("libvulkan.1.dylib") (CI runs 40157771950, 40159244055).
     # Not pinned: Homebrew has no version pins (bottles exist for macos-15).
     brew install --quiet mesa vulkan-loader vulkan-tools
     prefix="$(brew --prefix)"
     icd="$(ls "$prefix"/share/vulkan/icd.d/lvp_icd*.json | head -1)"
-    mkdir -p "$HOME/lib"
-    cp -L "$prefix/lib/libvulkan.1.dylib" "$HOME/lib/"
+    echo "VAPOURBOX_VULKAN_LIBRARY=$prefix/lib/libvulkan.1.dylib" >> "$GITHUB_ENV"
     echo "VK_DRIVER_FILES=$icd" >> "$GITHUB_ENV"
     echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
     VK_DRIVER_FILES="$icd" vulkaninfo --summary || true
