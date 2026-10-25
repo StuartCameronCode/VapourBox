@@ -514,9 +514,8 @@ class ParameterConverter {
       filterId: 'frame_rate',
       enabled: params.enabled,
       values: {
-        'method': params.method == FrameRateMethod.duplicate
-            ? 'duplicate'
-            : 'flowFps',
+        // The enum names are the schema's method ids.
+        'method': params.method.name,
         'target': params.target.name,
         'blockSize': params.blockSize,
         'overlap': params.overlap,
@@ -596,9 +595,10 @@ class ParameterConverter {
     );
     return FrameRateParameters(
       enabled: params.enabled,
-      method: (v['method'] as String?) == 'duplicate'
-          ? FrameRateMethod.duplicate
-          : FrameRateMethod.flowFps,
+      method: FrameRateMethod.values.firstWhere(
+        (m) => m.name == v['method'],
+        orElse: () => FrameRateMethod.flowFps,
+      ),
       target: target,
       blockSize: _asInt(v['blockSize']) ?? 16,
       overlap: _asInt(v['overlap']) ?? 8,

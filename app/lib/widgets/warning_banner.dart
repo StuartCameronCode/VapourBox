@@ -4,9 +4,12 @@ import 'package:flutter/material.dart';
 /// the theme's error-container colours. Used for "this will still work, but…"
 /// notices such as missing OpenCL devices or bit-depth quality reductions.
 class WarningBanner extends StatelessWidget {
-  const WarningBanner({super.key, required this.message});
+  const WarningBanner({super.key, required this.message, this.action});
 
   final String message;
+
+  /// Optional control under the message, e.g. a "Check again" button.
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -26,12 +29,21 @@ class WarningBanner extends StatelessWidget {
                 size: 20, color: scheme.onErrorContainer),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                message,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: scheme.onErrorContainer),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SelectableText(
+                    message,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(color: scheme.onErrorContainer),
+                  ),
+                  if (action != null) ...[
+                    const SizedBox(height: 8),
+                    action!,
+                  ],
+                ],
               ),
             ),
           ],

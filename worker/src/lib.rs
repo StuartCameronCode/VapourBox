@@ -12,6 +12,7 @@ pub mod pipeline_executor;
 pub mod pixel_format;
 pub mod source_decode;
 pub mod progress_reporter;
+pub mod rife;
 pub mod schema_script_generator;
 pub mod script_generator;
 pub mod subtitle_generator;

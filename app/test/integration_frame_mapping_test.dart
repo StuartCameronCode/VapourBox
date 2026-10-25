@@ -378,4 +378,89 @@ void main() {
       }, timeout: const Timeout(Duration(minutes: 6)));
     }
   });
+
+  // RIFE needs a Vulkan device, which the hosted runners lack, so this group
+  // runs only where `--probe-rife` says RIFE works (integration_rife_test.dart
+  // covers the refusal everywhere else). Its count must match FrameMap's
+  // Retime exactly — floor(n * 2) here — and since every other output frame is
+  // a real one passed through untouched, the preview of source frame S must be
+  // output frame 2S, picture for picture.
+  group('RIFE', () {
+    late bool available;
+    late String encoded;
+
+    ProcessingPipeline rifePipeline() => const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          frameRate: FrameRateParameters(
+            enabled: true,
+            target: FrameRateTarget.pal50,
+            method: FrameRateMethod.rife,
+            sourceFpsNum: 25,
+            sourceFpsDen: 1,
+          ),
+        );
+
+    VideoJob rifeJob() => _job(
+          'rife_2x',
+          input: _interlaced,
+          pipeline: rifePipeline(),
+          width: 720,
+          height: 576,
+          pixFmt: 'yuv422p',
+          fps: _interlacedFps,
+          totalFrames: _interlacedFrames,
+          codec: VideoCodec.ffv1,
+        );
+
+    setUpAll(() async {
+      final probe = await Process.run(WorkerHarness.workerPath, ['--probe-rife'],
+          environment: WorkerHarness.workerEnv,
+          workingDirectory: File(WorkerHarness.workerPath).parent.path);
+      available = probe.stdout.toString().contains('"available":true');
+      print('  RIFE probe: ${probe.stdout.toString().trim()}');
+      if (!available) return;
+      final r = await WorkerHarness.runJob(rifeJob().toJson(), label: 'rife_2x');
+      expect(r.success, isTrue, reason: r.error);
+      encoded = r.outputPath!;
+    });
+
+    test('25 -> 50 emits exactly twice the frames', () async {
+      if (!available) {
+        markTestSkipped('RIFE is not available on this machine');
+        return;
+      }
+      expect(await _countFrames(encoded), _interlacedFrames * 2);
+    });
+
+    for (final sourceFrame in [12, 36]) {
+      test('source frame $sourceFrame previews as output frame ${sourceFrame * 2}',
+          () async {
+        if (!available) {
+          markTestSkipped('RIFE is not available on this machine');
+          return;
+        }
+        final pv = await WorkerHarness.runPreview(rifeJob().toJson(),
+            frame: sourceFrame, label: 'rife_pv$sourceFrame');
+        expect(pv.success, isTrue, reason: pv.toString());
+        final preview =
+            await WorkerHarness.imageToRgb24(pv.png!, label: 'rife_pv$sourceFrame');
+        final expectedIndex = sourceFrame * 2;
+        final candidates = <int, double>{};
+        for (final offset in [-2, -1, 0, 1, 2]) {
+          final idx = expectedIndex + offset;
+          candidates[idx] = WorkerHarness.meanAbsDiff(
+              preview, await _frameRgb(encoded, idx));
+        }
+        candidates.forEach((idx, diff) => print(
+            '  output frame $idx: meanAbsDiff ${diff.toStringAsFixed(2)}'
+            '${idx == expectedIndex ? '   <- expected' : ''}'));
+        final best =
+            candidates.entries.reduce((a, b) => a.value <= b.value ? a : b);
+        expect(best.key, expectedIndex);
+        expect(candidates[expectedIndex]!, lessThan(2.0),
+            reason: 'output frame $expectedIndex is a real frame passed '
+                'through, so the preview should be the same picture');
+      }, timeout: const Timeout(Duration(minutes: 6)));
+    }
+  });
 }

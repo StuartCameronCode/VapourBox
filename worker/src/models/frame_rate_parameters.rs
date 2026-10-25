@@ -69,6 +69,19 @@ pub enum FrameRateMethod {
     /// The honest choice for an archival master.
     #[serde(rename = "duplicate")]
     Duplicate,
+    /// RIFE 4.26 (ncnn/Vulkan): a neural flow estimator, on the GPU. Measured
+    /// 3.73 mean abs diff against the real dropped frame on `small_clip` (25 → 50),
+    /// against FlowFPS's 4.09, at roughly a fifth of its speed. It needs a
+    /// Vulkan device, so it is only offered where `RifeStatus` says it runs.
+    #[serde(rename = "rife")]
+    Rife,
+}
+
+impl FrameRateMethod {
+    /// Whether output frames are invented from motion rather than copied.
+    pub fn synthesizes(self) -> bool {
+        matches!(self, FrameRateMethod::FlowFps | FrameRateMethod::Rife)
+    }
 }
 
 /// Parameters for the frame rate pass.

@@ -1,7 +1,7 @@
 name: vapourbox
 description: "Video processing and cleanup powered by VapourSynth"
 publish_to: 'none'
-version: 1.4.0+38
+version: 1.5.0+39
 
 environment:
   sdk: ^3.6.2

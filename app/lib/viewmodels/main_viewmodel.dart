@@ -5,6 +5,7 @@ import 'package:path/path.dart' as path;
 
 import '../models/dvd_info.dart';
 import '../models/dynamic_parameters.dart';
+import '../models/rife_status.dart';
 import '../models/encoding_settings.dart';
 import '../models/parameter_converter.dart';
 import '../models/progress_info.dart';
@@ -83,6 +84,11 @@ class MainViewModel extends ChangeNotifier {
   // (a distinct capability — KNLMeansCL can fail where NNEDI3CL succeeds).
   bool? _openclAvailable;
   bool? _knlmAvailable;
+
+  // Whether RIFE frame interpolation runs here (`--probe-rife`), with the
+  // worker's explanation and remedy when it doesn't. null = not yet probed.
+  RifeStatus? _rifeStatus;
+  bool _rifeChecking = false;
 
   // Set in dispose() so the async OpenCL probe doesn't notifyListeners() after
   // teardown (the top-level view model normally lives for the app's lifetime).
@@ -165,6 +171,35 @@ class MainViewModel extends ChangeNotifier {
   /// Whether the knlmeanscl denoiser is usable here (gates its warning). null
   /// while the probe is still running.
   bool? get knlmAvailable => _knlmAvailable;
+
+  /// Whether RIFE runs here, and if not why (gates the Frame Rate panel's
+  /// RIFE notice). null while the first probe is still running.
+  RifeStatus? get rifeStatus => _rifeStatus;
+
+  /// Whether a RIFE probe is in flight.
+  bool get rifeChecking => _rifeChecking;
+
+  /// Set the RIFE probe result directly, for widget tests of the notice.
+  @visibleForTesting
+  void debugSetRifeStatus(RifeStatus? status, {bool checking = false}) {
+    _rifeStatus = status;
+    _rifeChecking = checking;
+    notifyListeners();
+  }
+
+  /// Re-run the RIFE probe — after the user has installed a driver or the
+  /// VC++ runtime the notice told them to. The worker only caches a positive
+  /// answer, so this sees the fix without a reboot.
+  Future<void> recheckRife() async {
+    if (_rifeChecking) return;
+    _rifeChecking = true;
+    notifyListeners();
+    final status = await WorkerManager.probeRife();
+    if (_disposed) return;
+    _rifeStatus = status;
+    _rifeChecking = false;
+    notifyListeners();
+  }
 
   bool get canShutDown => _systemShutdown.isSupported;
   bool get shutdownWhenDone => _shutdownWhenDone;
@@ -474,6 +509,7 @@ class MainViewModel extends ChangeNotifier {
     _setupSubscriptions();
     _initializePreviewGenerator();
     _probeGpuCapabilities();
+    recheckRife();
   }
 
   /// Probe GPU capabilities once at startup so the UI can warn when an

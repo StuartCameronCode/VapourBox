@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../models/progress_info.dart';
+import '../models/rife_status.dart';
 import '../models/video_job.dart';
 import 'job_runner.dart';
 import 'process_tree.dart';
@@ -211,6 +212,44 @@ class WorkerManager implements JobRunner {
       return (opencl: false, knlm: false);
     } catch (_) {
       return (opencl: false, knlm: false);
+    }
+  }
+
+  /// Ask the worker whether RIFE frame interpolation runs here
+  /// (`--probe-rife`). The first call after a boot initialises the GPU, so it
+  /// takes a second or two; a positive answer is cached by the worker.
+  ///
+  /// Never throws: a worker that can't be run or answers with something
+  /// unreadable is reported as [RifeStatus.unknown], which tells the user to
+  /// restart rather than claiming RIFE works.
+  static Future<RifeStatus> probeRife() async {
+    final toolLocator = ToolLocator.instance;
+    final workerPath = toolLocator.workerPath;
+    if (workerPath == null) return const RifeStatus.unknown();
+
+    try {
+      final result = await Process.run(
+        workerPath,
+        ['--probe-rife'],
+        environment: toolLocator.workerEnvironment,
+        workingDirectory: File(workerPath).parent.path,
+      );
+      if (result.exitCode != 0) return const RifeStatus.unknown();
+      for (final line in const LineSplitter().convert(result.stdout.toString())) {
+        final trimmed = line.trim();
+        if (trimmed.isEmpty) continue;
+        try {
+          final decoded = jsonDecode(trimmed);
+          if (decoded is Map<String, dynamic> && decoded['available'] is bool) {
+            return RifeStatus.fromJson(decoded);
+          }
+        } catch (_) {
+          // Not the JSON line; keep scanning.
+        }
+      }
+      return const RifeStatus.unknown();
+    } catch (_) {
+      return const RifeStatus.unknown();
     }
   }
 

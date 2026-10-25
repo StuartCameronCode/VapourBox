@@ -303,6 +303,83 @@ impl DependencyLocator {
         result
     }
 
+    /// RIFE's plugin, model and (macOS) MoltenVK, in this deps bundle.
+    pub fn rife_files(&self) -> crate::rife::RifeFiles {
+        crate::rife::RifeFiles::in_vapoursynth_dir(
+            &self.platform_dir().join("vapoursynth"),
+            self.platform_suffix(),
+        )
+    }
+
+    /// Whether RIFE runs here, and if not, why (see `rife.rs`).
+    ///
+    /// Unlike the OpenCL probes, only a *positive* result is cached for the
+    /// boot. A failure is what the user is told to fix — install a driver, the
+    /// VC++ runtime — and then "restart VapourBox"; a failure cached until the
+    /// next reboot would keep telling them it is broken after they fixed it.
+    /// Re-probing costs a second, and only on a machine where RIFE fails.
+    /// `VAPOURBOX_DISABLE_VULKAN=1` forces a negative result (CI, and to try
+    /// the unavailable path on a machine that has Vulkan).
+    pub fn rife_status(&self) -> crate::rife::RifeStatus {
+        static CACHE: OnceLock<crate::rife::RifeStatus> = OnceLock::new();
+        CACHE.get_or_init(|| self.compute_rife_status()).clone()
+    }
+
+    /// RIFE's files if it runs here, else the message saying why not — what
+    /// `ScriptGenerator::with_rife` takes. Runs the probe, so call it only for
+    /// a job that uses RIFE.
+    pub fn rife_runtime(&self) -> std::result::Result<crate::rife::RifeFiles, String> {
+        let status = self.rife_status();
+        match status.message(self.platform_suffix()) {
+            None => Ok(self.rife_files()),
+            Some(message) => Err(message),
+        }
+    }
+
+    fn compute_rife_status(&self) -> crate::rife::RifeStatus {
+        use crate::rife::{RifeReason, RifeStatus};
+        let files = self.rife_files();
+        if let Some(status) = crate::rife::precheck(self.platform_suffix(), &files) {
+            return status;
+        }
+        if env::var("VAPOURBOX_DISABLE_VULKAN")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+        {
+            return RifeStatus::unavailable(RifeReason::Disabled, None);
+        }
+
+        let boot = Self::boot_token();
+        let cache_file = self.platform_dir().join("rife-probe.json");
+        if !boot.is_empty() {
+            if let Ok(txt) = std::fs::read_to_string(&cache_file) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&txt) {
+                    if json.get("boot").and_then(|v| v.as_str()) == Some(boot.as_str())
+                        && json.get("rife").and_then(|v| v.as_bool()) == Some(true)
+                    {
+                        return RifeStatus::available();
+                    }
+                }
+            }
+        }
+
+        let vspipe = match self.vspipe_path() {
+            Ok(p) => p,
+            Err(e) => return RifeStatus::unavailable(RifeReason::ProbeFailed, e.to_string()),
+        };
+        let status =
+            crate::rife::run_probe(&vspipe, &self.build_environment(), &files, self.platform_suffix());
+        if status.available {
+            let _ = std::fs::write(
+                &cache_file,
+                serde_json::json!({ "boot": boot, "rife": true }).to_string(),
+            );
+        } else {
+            let _ = std::fs::remove_file(&cache_file);
+        }
+        status
+    }
+
     /// Run KNLMeansCL through vspipe on a tiny clip; success ⇒ knlmeanscl usable
     /// (plugin present AND a usable OpenCL device).
     fn probe_knlm(&self) -> bool {

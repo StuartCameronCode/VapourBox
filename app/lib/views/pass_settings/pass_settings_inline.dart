@@ -6,6 +6,7 @@ import '../../models/filter_registry.dart';
 import '../../models/filter_schema.dart';
 import '../../models/pass_advice.dart';
 import '../../models/processing_pipeline.dart';
+import '../../models/rife_status.dart';
 import '../../services/whisper_addon_manager.dart';
 import '../../utils/pixel_format.dart';
 import '../../viewmodels/main_viewmodel.dart';
@@ -96,6 +97,7 @@ class PassSettingsInline extends StatelessWidget {
             _buildDescription(context, schema),
             _buildInteractionAdvice(context, viewModel),
             _buildOpenCLWarning(context, viewModel, filterId, params),
+            _buildRifeNotice(context, viewModel, filterId, params),
             _buildBitDepthWarning(context, viewModel, schema, params),
             DynamicFilterPanelCompact(
               schema: schema,
@@ -157,6 +159,63 @@ class PassSettingsInline extends StatelessWidget {
             'CPU NNEDI3.';
 
     return WarningBanner(message: message);
+  }
+
+  /// RIFE's prerequisites, the moment it is chosen. Unlike the OpenCL options
+  /// there is no fallback — a RIFE job on a machine without a Vulkan device
+  /// is refused — so this says exactly what is missing and how to fix it (the
+  /// worker's wording, see `rife.rs`), with a button to check again once the
+  /// user has.
+  Widget _buildRifeNotice(
+    BuildContext context,
+    MainViewModel viewModel,
+    String filterId,
+    DynamicParameters params,
+  ) {
+    if (filterId != 'frame_rate') return const SizedBox.shrink();
+    final notice = rifeNoticeFor(
+      method: params.values['method'],
+      status: viewModel.rifeStatus,
+      checking: viewModel.rifeChecking,
+    );
+    switch (notice) {
+      case RifeNotice.none:
+        return const SizedBox.shrink();
+      case RifeNotice.checking:
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            children: [
+              const SizedBox.square(
+                dimension: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Checking whether RIFE can run on this computer…',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ],
+          ),
+        );
+      case RifeNotice.unavailable:
+        final scheme = Theme.of(context).colorScheme;
+        return WarningBanner(
+          message: viewModel.rifeStatus!.message!,
+          action: OutlinedButton.icon(
+            onPressed: viewModel.recheckRife,
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('Check again'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: scheme.onErrorContainer,
+              side: BorderSide(color: scheme.onErrorContainer),
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
+        );
+    }
   }
 
   /// Warning shown when an enabled filter can't process the source's bit depth

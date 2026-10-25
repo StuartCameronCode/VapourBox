@@ -15,7 +15,7 @@ Some components are shipped only on some platforms; that is noted per entry.
 
 Full texts of the longer licences are in the accompanying files:
   GPL-2.0.txt, GPL-3.0.txt, LGPL-2.1.txt, LGPL-3.0.txt,
-  Apache-2.0-LLVM-Exception.txt
+  Apache-2.0.txt, Apache-2.0-LLVM-Exception.txt
 The short permissive licences (MIT, ISC, BSD 3-Clause, WTFPL, Boost, zlib,
 Unlicense) are reproduced in full in the appendix at the end of this file.
 
@@ -183,6 +183,40 @@ vszip — MIT
       copyright notice is given upstream
       https://github.com/dnjulek/vapoursynth-zig
       Licence text: LGPL-2.1.txt
+
+RIFE (VapourSynth-RIFE-ncnn-Vulkan) — MIT
+  Copyright (c) 2021-2022 HolyWu
+  https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan
+  Provides core.rife.RIFE, the Frame Rate pass's "AI interpolation" method.
+  Shipped on macOS arm64, Windows x64 and Linux x64 only, in
+  vapoursynth/rife/. Based on rife-ncnn-vulkan:
+    rife-ncnn-vulkan — MIT, Copyright (c) 2020 nihui
+      https://github.com/nihui/rife-ncnn-vulkan
+  The binary statically includes:
+    ncnn — BSD 3-Clause, Copyright (C) 2017 Tencent. All rights reserved.
+      https://github.com/Tencent/ncnn
+    glslang — the core under BSD 3-Clause (Copyright (C) 2015-2018 Google,
+      Inc. and others), with parts under BSD 2-Clause, MIT and Apache-2.0
+      (Copyright 2020 The Khronos Group Inc), as its LICENSE.txt sets out
+      https://github.com/KhronosGroup/glslang
+
+RIFE 4.26 model — MIT
+  Copyright (c) 2021 hzwer
+  https://github.com/hzwer/Practical-RIFE
+  The trained network weights. Upstream states its model downloads are "under
+  the same MIT license as this project". RIFE's architecture is from the
+  ECCV 2022 paper's code:
+    ECCV2022-RIFE — MIT, Copyright (c) Megvii Inc.
+      https://github.com/hzwer/ECCV2022-RIFE
+  Shipped as the ncnn conversion (flownet.param / flownet.bin) published in
+  the VapourSynth-RIFE-ncnn-Vulkan repository, under its licence above.
+
+MoltenVK — Apache-2.0
+  Copyright (c) 2015-2026 The Brenwill Workshop Ltd.
+  https://github.com/KhronosGroup/MoltenVK
+  Licence text: Apache-2.0.txt
+  Vulkan on Apple's Metal. macOS arm64 only, beside RIFE, which needs a Vulkan
+  implementation loaded before it.
 
 DFTTest — GPL-3.0
   Copyright (C) 2007-2010 Kevin Stone (tritical); VapourSynth port by HolyWu
@@ -428,8 +462,9 @@ Appendix — full text of the short permissive licences
 MIT License
 -----------
 (Applies to zsmooth, vszip and the zigimg library it includes, CAS,
-DCTFilter, BM3D, whisper.cpp, pip and the Clense filter in vs-removegrain,
-each under the copyright notice given in its entry above.)
+DCTFilter, BM3D, the RIFE plugin, rife-ncnn-vulkan, the RIFE model and
+ECCV2022-RIFE, whisper.cpp, pip and the Clense filter in vs-removegrain, each
+under the copyright notice given in its entry above.)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -488,7 +523,8 @@ DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE, Version 2
 
 BSD 3-Clause License
 --------------------
-(Applies to Flutter and Zstandard, under the copyright notices given above.)
+(Applies to Flutter, Zstandard, ncnn and the core of glslang, under the
+copyright notices given above.)
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:

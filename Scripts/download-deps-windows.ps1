@@ -842,6 +842,56 @@ foreach ($W in $WheelPlugins) {
 }
 
 # =============================================================================
+# RIFE 4.26 - the Frame Rate pass's neural interpolator (ncnn on Vulkan)
+# =============================================================================
+# Lives in vapoursynth\rife\, NOT vs-plugins: the template loads it only for a
+# RIFE job (see worker\src\rife.rs), so a machine without a Vulkan driver, or
+# without the MSVC OpenMP runtime (VCOMP140.DLL) the DLL imports, fails that
+# method alone - and the app's probe names which one is missing. vulkan-1.dll
+# comes with the GPU driver and is not ours to ship. Keep $RifeTag, the model
+# commit and the model hashes in step with download-deps-{macos,linux}.sh.
+#
+# The model is the ncnn conversion committed to the plugin's repo (there is no
+# release asset for it), fetched at a pinned commit and checked by hash.
+$RifeTag = "r9_mod_v33"
+$RifeDllSha256 = "36a25b471be88e6f915320c818022dc8657dd9beac22a8c3158bd7f4260cc410"
+$RifeModelCommit = "96fdcecdf982ef3237e16e2b105eea849fa022ab"
+$RifeModelName = "rife-v4.26_ensembleFalse"
+$RifeModelHashes = @{
+    "flownet.bin"   = "94d58e30b75d7c7609cfa6f3bdad524deddd14f5f75e85c36d2f827ef5c64731"
+    "flownet.param" = "79f16c28903f93f8308f0c4c947f8c7e0c17d99a57b85473e5f298dd578d137b"
+}
+$RifeDir = "$FullTargetDir\vapoursynth\rife"
+$RifeModelDir = "$RifeDir\models\$RifeModelName"
+
+Write-Host ""
+Write-Host "Downloading RIFE $RifeTag (model $RifeModelName)..." -ForegroundColor Yellow
+if (-not ((Test-Path "$RifeDir\librife.dll") -and (Test-Path "$RifeModelDir\flownet.bin"))) {
+    try {
+        Remove-Item $RifeDir -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Force -Path $RifeModelDir | Out-Null
+        $RifeDll = Join-Path $TempDir "librife.dll"
+        Download-File -Url "https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/releases/download/$RifeTag/librife_windows_x86-64.dll" -OutFile $RifeDll
+        $Got = (Get-FileHash -Path $RifeDll -Algorithm SHA256).Hash.ToLower()
+        if ($Got -ne $RifeDllSha256) { throw "librife.dll sha256 $Got, expected $RifeDllSha256" }
+        Move-Item $RifeDll "$RifeDir\librife.dll" -Force
+        foreach ($F in $RifeModelHashes.Keys) {
+            $Out = Join-Path $TempDir $F
+            Download-File -Url "https://raw.githubusercontent.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/$RifeModelCommit/models/$RifeModelName/$F" -OutFile $Out
+            $Got = (Get-FileHash -Path $Out -Algorithm SHA256).Hash.ToLower()
+            if ($Got -ne $RifeModelHashes[$F]) { throw "$F sha256 $Got, expected $($RifeModelHashes[$F])" }
+            Move-Item $Out "$RifeModelDir\$F" -Force
+        }
+        Write-Host "  RIFE installed -> vapoursynth\rife\" -ForegroundColor Green
+    } catch {
+        Remove-Item $RifeDir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "    Failed: $_" -ForegroundColor Red
+    }
+} else {
+    Write-Host "  RIFE already installed" -ForegroundColor Gray
+}
+
+# =============================================================================
 # 5. Python Packages (havsfunc, mvsfunc, adjust)
 # =============================================================================
 Write-Host ""

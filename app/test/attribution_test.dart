@@ -158,6 +158,62 @@ void main() {
       }
     });
 
+    test('credits every file the bundle carries outside the plugin directory', () {
+      // RIFE lives in vapoursynth/rife/, outside the autoload directory, so it
+      // is listed under _extraFiles rather than in the per-platform lists.
+      final manifest = jsonDecode(
+        File(p.join(root, 'Scripts', 'deps-expected-plugins.json')).readAsStringSync(),
+      ) as Map<String, dynamic>;
+      final extra = (manifest['_extraFiles'] as Map<String, dynamic>);
+      const fileToNotice = <String, String>{
+        'librife': 'RIFE (VapourSynth-RIFE-ncnn-Vulkan)',
+        'libmoltenvk': 'MoltenVK',
+        'flownet': 'RIFE 4.26 model',
+      };
+      for (final entry in extra.entries) {
+        for (final path in (entry.value as List).cast<String>()) {
+          final stem = p.basenameWithoutExtension(path).toLowerCase();
+          final needle = fileToNotice[stem];
+          expect(needle, isNotNull,
+              reason: '${entry.key}: $path has no entry in fileToNotice; credit it '
+                  'in NOTICES.txt from its upstream LICENSE, then map it here.');
+          expect(notices, contains(needle),
+              reason: '${entry.key}: $path is shipped but "$needle" is not in NOTICES.txt');
+        }
+      }
+    });
+
+    test('RIFE ships exactly where the worker says it does', () {
+      // The worker reports "not available for this platform" from
+      // rife::platform_ships_rife; a bundle that ships RIFE where the worker
+      // says it can't (or the reverse) is a feature nobody can reach, or a
+      // probe that blames an "older bundle" that is in fact current.
+      final manifest = jsonDecode(
+        File(p.join(root, 'Scripts', 'deps-expected-plugins.json')).readAsStringSync(),
+      ) as Map<String, dynamic>;
+      final bundles = (manifest['_extraFiles'] as Map<String, dynamic>)
+          .entries
+          .where((e) => (e.value as List).any((f) => f.toString().contains('/rife/')))
+          .map((e) => e.key.replaceAll(RegExp(r'-v2$'), ''))
+          .toSet();
+      final source =
+          File(p.join(root, 'worker', 'src', 'rife.rs')).readAsStringSync();
+      final match = RegExp(r'fn platform_ships_rife[^{]*\{\s*matches!\(platform_suffix,([^)]*)\)')
+          .firstMatch(source);
+      expect(match, isNotNull, reason: 'could not parse platform_ships_rife');
+      final worker = RegExp(r'"([a-z0-9-]+)"')
+          .allMatches(match!.group(1)!)
+          .map((m) => m.group(1)!)
+          .toSet();
+      expect(bundles, worker);
+      // And both tiers of an x64 platform carry it, or v2 users lose it.
+      for (final platform in worker.where((p) => p.endsWith('-x64'))) {
+        if (platform.startsWith('macos')) continue;
+        expect(manifest['_extraFiles']['$platform-v2'], manifest['_extraFiles'][platform],
+            reason: '$platform-v2 must carry the same RIFE files as $platform');
+      }
+    });
+
     test('does not credit components that are no longer shipped', () {
       for (final gone in _mustNotAppear) {
         expect(
