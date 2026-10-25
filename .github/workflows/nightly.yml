@@ -133,6 +133,12 @@ jobs:
           VAPOURBOX_WORKER: ${{ github.workspace }}/worker/target/debug/vapourbox-worker
         run: cd app && flutter test --tags heavy
 
+      - name: Crash reports (on failure)
+        # A plugin that segfaults in vspipe shows only "signal 11" in the test
+        # output; macOS's crash report names the library and function.
+        if: failure()
+        run: python3 .github/scripts/print-crash-reports.py
+
   windows:
     if: ${{ github.event_name == 'schedule' || inputs.platform == 'all' || inputs.platform == 'windows' }}
     # Both CPU-tier bundles (issue #92); see the macOS job for what the v2 run proves.

@@ -121,6 +121,12 @@ jobs:
         # run in nightly.yml. The script-only integration tests + unit tests run here.
         run: cd app && flutter test --exclude-tags heavy
 
+      - name: Crash reports (on failure)
+        # A plugin that segfaults in vspipe shows only "signal 11" in the test
+        # output; macOS's crash report names the library and function.
+        if: failure()
+        run: python3 .github/scripts/print-crash-reports.py
+
   windows:
     runs-on: windows-latest
     env:
