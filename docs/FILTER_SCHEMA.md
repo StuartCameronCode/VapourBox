@@ -396,6 +396,14 @@ A dropdown that writes several parameters at once — distinct from the top-leve
 | `options` | object | **Yes** | Option name → parameter values to apply |
 | `visibleWhen` | object | No | Conditional visibility |
 
+**Where it is drawn.** In simple mode a preset replaces the controls it sets
+(they are hidden; advanced mode shows them and hides the preset), and it is
+drawn inside the section that holds those controls
+(`FilterSchema.sectionForPreset`), so the section's heading always says what it
+is about. So **every parameter a preset sets must be in one section**:
+`filter_schema_curation_test.dart` fails otherwise, since such a preset would
+be drawn at the top of the pass, apart from what it changes.
+
 ## UI Sections
 
 ```json
@@ -471,7 +479,7 @@ Read a real one rather than starting from this page:
 
 - **`dehalo.json`** (690 lines) — seven methods with per-method `visibleWhen`, the
   best model for a multi-method filter.
-- **`crop_resize.json`** (753 lines) — the only user of `parameterPresets`.
+- **`crop_resize.json`** — three `parameterPresets`, one per section (Crop, Resize, Borders).
 - **`deinterlace.json`** (2242 lines) — every QTGMC parameter; the extreme case.
 - **`spotless.json`** (112 lines) — near-minimal, a good starting skeleton.
 - **`descratch.json`** — the only user of `maxBitDepth`.

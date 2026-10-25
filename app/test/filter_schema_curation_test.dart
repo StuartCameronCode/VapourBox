@@ -143,6 +143,24 @@ void main() {
     });
   });
 
+  // A preset is drawn inside the section whose controls it sets. One that
+  // sets controls from two sections, or none, would be drawn at the top of
+  // the pass instead, apart from everything it changes; that block of
+  // presets at the top is what made Crop & Resize's "Resize Preset" read as
+  // part of Crop.
+  group('parameter presets', () {
+    for (final schema in schemas) {
+      final presets = schema.parameterPresets;
+      if (presets == null || schema.ui?.sections == null) continue;
+      test('${schema.id}: every preset belongs to one section', () {
+        for (final MapEntry(key: id, value: preset) in presets.entries) {
+          expect(schema.sectionForPreset(preset), isNotNull,
+              reason: '$id sets controls from more than one section, or none');
+        }
+      });
+    }
+  });
+
   group('method curation', () {
     for (final schema in schemas) {
       test('${schema.id}: first method is never advanced-only', () {

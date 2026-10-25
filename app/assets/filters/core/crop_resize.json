@@ -896,27 +896,6 @@
         "expanded": true
       },
       {
-        "title": "Aspect Ratio",
-        "parameters": [
-          "pixelAspect",
-          "customSar",
-          "displayAspect",
-          "padToAspect"
-        ],
-        "expanded": true
-      },
-      {
-        "title": "Borders",
-        "parameters": [
-          "padEnabled",
-          "padWidth",
-          "padHeight",
-          "padColor",
-          "padCustomColor"
-        ],
-        "expanded": true
-      },
-      {
         "title": "Upscale",
         "description": "Enlarge using an edge-directed interpolator or a neural upscaler rather than a plain resize. Doubles at a time, so pick the factor that reaches or exceeds your target and set a Resize below to land on it exactly.",
         "parameters": [
@@ -945,6 +924,27 @@
         ],
         "expanded": false,
         "advancedOnly": true
+      },
+      {
+        "title": "Aspect Ratio",
+        "parameters": [
+          "pixelAspect",
+          "customSar",
+          "displayAspect",
+          "padToAspect"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Borders",
+        "parameters": [
+          "padEnabled",
+          "padWidth",
+          "padHeight",
+          "padColor",
+          "padCustomColor"
+        ],
+        "expanded": true
       }
     ]
   },

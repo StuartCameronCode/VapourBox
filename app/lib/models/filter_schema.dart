@@ -515,6 +515,19 @@ class FilterSchema {
   /// Get the default method.
   MethodDefinition get defaultMethod => methods.first;
 
+  /// The section a parameter preset belongs to: the first whose parameters
+  /// include every one the preset sets, or null if none does. The panel draws
+  /// the preset inside it, so "Resize Preset" sits under Resize rather than in
+  /// a block of every preset at the top of the pass (where it read as part of
+  /// Crop).
+  UiSection? sectionForPreset(ParameterPreset preset) {
+    final keys = {for (final values in preset.options.values) ...values.keys};
+    for (final section in ui?.sections ?? const <UiSection>[]) {
+      if (keys.every(section.parameters.contains)) return section;
+    }
+    return null;
+  }
+
   /// Get a method by ID.
   MethodDefinition? getMethod(String id) {
     try {

@@ -356,8 +356,11 @@ class DynamicFilterPanelCompact extends StatelessWidget {
     final widgets = <Widget>[];
     final presetControlledParams = _getPresetControlledParams();
 
-    // In simple mode, show parameter preset selectors
-    // In advanced mode, hide them and show the raw parameters
+    // In simple mode, show parameter preset selectors; in advanced mode, hide
+    // them and show the raw parameters. Each preset is drawn in the section
+    // whose controls it sets (FilterSchema.sectionForPreset); one that belongs
+    // to no section goes at the top.
+    final presetsBySection = <UiSection?, List<Widget>>{};
     if (!advancedMode) {
       final presets = schema.parameterPresets;
       if (presets != null) {
@@ -365,7 +368,7 @@ class DynamicFilterPanelCompact extends StatelessWidget {
           // Check visibleWhen on preset
           if (!_isPresetVisible(entry.value)) continue;
 
-          widgets.add(
+          presetsBySection.putIfAbsent(schema.sectionForPreset(entry.value), () => []).add(
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: PresetSelectorWidget(
@@ -381,16 +384,18 @@ class DynamicFilterPanelCompact extends StatelessWidget {
         }
       }
     }
+    final sections = schema.ui?.sections;
+    widgets.addAll(presetsBySection[null] ?? const []);
 
     // Use UI sections if available, otherwise show all non-hidden parameters
-    final sections = schema.ui?.sections;
     if (sections != null && sections.isNotEmpty) {
       for (final section in sections) {
         // In simple mode, skip advanced-only sections
         if (!advancedMode && section.advancedOnly) continue;
 
-        // Collect visible parameter widgets for this section first
-        final sectionWidgets = <Widget>[];
+        // Collect visible parameter widgets for this section first, its
+        // presets (simple mode only) leading
+        final sectionWidgets = <Widget>[...?presetsBySection[section]];
         for (final paramId in section.parameters) {
           // In simple mode, skip parameters controlled by presets
           if (!advancedMode && presetControlledParams.contains(paramId)) continue;
