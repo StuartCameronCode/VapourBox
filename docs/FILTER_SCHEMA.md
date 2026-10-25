@@ -191,6 +191,7 @@ entirely and replaced by a line telling the user more exist in advanced mode.
 | `hidden` | boolean | Never shown (used for `enabled`) |
 | `visibleWhen` | object | Conditional visibility |
 | `booleanLabels` | object | Names the two states of a boolean, e.g. `{"true": "Top Field First (TFF)", "false": "Bottom Field First (BFF)"}` |
+| `optionLabels` | object | Names an enum's options, e.g. `{"realEsrgan": "Real-ESRGAN"}`; an option without one is title-cased, which mangles a camel-case value |
 
 There is **no `advancedOnly` on a parameter** — only on a section (below) or a
 method (above).

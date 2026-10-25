@@ -7,12 +7,13 @@ import '../../models/filter_schema.dart';
 import '../../models/pass_advice.dart';
 import '../../models/processing_pipeline.dart';
 import '../../models/gpu_plugin_status.dart';
+import '../../services/addon_service.dart';
 import '../../services/whisper_addon_manager.dart';
 import '../../utils/pixel_format.dart';
 import '../../viewmodels/main_viewmodel.dart';
 import '../../widgets/warning_banner.dart';
 import '../settings/dynamic_filter_panel.dart';
-import '../whisper_download_dialog.dart';
+import '../addon_dialogs.dart';
 
 /// The settings for one processing pass, rendered inline underneath that pass's
 /// row in the pass list. Leads with the filter's description — what it does and
@@ -101,6 +102,8 @@ class PassSettingsInline extends StatelessWidget {
             _buildOpenCLWarning(context, viewModel, filterId, params),
             _buildGpuPluginNotice(context, viewModel, filterId, params),
             _buildKnlmNotice(viewModel, filterId, params),
+            if (animeJanaiSelectedBy(filterId, params.values))
+              const AnimeJanaiNotice(),
             if (filterId == 'descale') _buildDescaleDetect(context, viewModel),
             _buildBitDepthWarning(context, viewModel, schema, params),
             DynamicFilterPanelCompact(
@@ -353,22 +356,35 @@ class PassSettingsInline extends StatelessWidget {
         (!oldParams.enabled ||
             oldParams.values['model'] != newParams.values['model'])) {
       final newModelId = newParams.values['model'] as String? ?? 'medium';
-      final addonInstalled = await WhisperAddonManager.instance.isInstalled;
-      final modelInstalled =
-          await WhisperAddonManager.instance.isModelInstalled(newModelId);
-      if (!addonInstalled || !modelInstalled) {
-        if (!context.mounted) return;
-        final confirmed =
-            await WhisperConfirmDialog.show(context, modelId: newModelId);
-        if (!confirmed) return;
-        if (!context.mounted) return;
-        final downloaded =
-            await WhisperDownloadDialog.show(context, modelId: newModelId);
-        if (!downloaded) return;
-      }
+      final ready = await AddonPrompt.ensure(
+        context,
+        [WhisperAddonManager.modelAddonId(newModelId)],
+        reason: 'Subtitle generation needs the Whisper speech recognition add-on.',
+      );
+      if (!ready) return;
+    }
+
+    // AnimeJaNai's models are an add-on: choosing it downloads them, after
+    // saying what they are and that they are for non-commercial use only.
+    if (_choosesAnimeJanai(filterId, oldParams, newParams)) {
+      if (!context.mounted) return;
+      final ready = await AddonPrompt.ensure(
+        context,
+        [animeJanaiAddonId],
+        reason: 'AnimeJaNai upscaling needs its models.',
+      );
+      if (!ready) return;
     }
     viewModel.updateDynamicParams(filterId, newParams);
   }
+
+  bool _choosesAnimeJanai(
+    String filterId,
+    DynamicParameters oldParams,
+    DynamicParameters newParams,
+  ) =>
+      animeJanaiSelectedBy(filterId, newParams.values) &&
+      !animeJanaiSelectedBy(filterId, oldParams.values);
 
   Widget _buildFallbackPanel(BuildContext context, PassType passType) {
     return Padding(
@@ -523,6 +539,71 @@ class _FilterDescriptionState extends State<_FilterDescription> {
           ),
         ],
       ],
+    );
+  }
+}
+
+/// Under Crop & Resize while AnimeJaNai is chosen: its terms, always — the
+/// non-commercial restriction is the user's to keep in mind on every job —
+/// and, if its models are not installed (deleted since, or chosen by a
+/// preset), a button to download them.
+class AnimeJanaiNotice extends StatefulWidget {
+  final AddonService? service;
+  const AnimeJanaiNotice({super.key, this.service});
+
+  @override
+  State<AnimeJanaiNotice> createState() => _AnimeJanaiNoticeState();
+}
+
+class _AnimeJanaiNoticeState extends State<AnimeJanaiNotice> {
+  AddonService get _service => widget.service ?? AddonService.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _service.load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: _service,
+      builder: (context, _) {
+        final info = _service.info(animeJanaiAddonId);
+        if (info == null) return const SizedBox.shrink();
+        final installed = _service.isInstalled(animeJanaiAddonId);
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      installed
+                          ? 'AnimeJaNai models installed.'
+                          : 'AnimeJaNai\'s models are not installed.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    AddonTerms(info: info),
+                  ],
+                ),
+              ),
+              if (!installed)
+                OutlinedButton.icon(
+                  onPressed: _service.installingId != null
+                      ? null
+                      : () => AddonPrompt.ensure(context, [animeJanaiAddonId],
+                          reason: 'AnimeJaNai upscaling needs its models.',
+                          service: _service),
+                  icon: const Icon(Icons.download, size: 16),
+                  label: Text('Download (${formatAddonSize(info.downloadBytes)})'),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

@@ -22,6 +22,7 @@ import '../../viewmodels/main_viewmodel.dart';
 import '../../widgets/new_badge.dart';
 import '../../widgets/release_notes_text.dart';
 import '../../widgets/warning_banner.dart';
+import 'addons_settings_tab.dart';
 
 /// The output colour format explanation, shown in a scrollable dialog.
 ///
@@ -315,7 +316,7 @@ class _SettingsDialogState extends State<SettingsDialog>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -367,6 +368,7 @@ class _SettingsDialogState extends State<SettingsDialog>
                 Tab(text: 'General'),
                 Tab(text: 'Output'),
                 Tab(text: 'Input'),
+                Tab(text: 'Add-ons'),
                 Tab(text: 'Changes'),
               ],
             ),
@@ -379,6 +381,7 @@ class _SettingsDialogState extends State<SettingsDialog>
                   _GeneralSettingsTab(),
                   _OutputSettingsTab(),
                   _InputSettingsTab(),
+                  AddonsSettingsTab(),
                   _ChangesSettingsTab(),
                 ],
               ),

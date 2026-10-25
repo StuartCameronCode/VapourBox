@@ -103,6 +103,7 @@ VapourBox/
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded (see "Source Frame Size") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, the `--probe-rife` / `--probe-upscale` probe, and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
+| `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
 | `worker/src/native_res.rs` | `--detect-native`: the resolution and kernel a source was upscaled from, for the Descale pass (see "Descale") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
@@ -119,6 +120,7 @@ VapourBox/
 | `app/lib/services/temp_directory_service.dart` | Configurable scratch-file directory (see "Temporary Files Directory") |
 | `app/lib/services/overwrite_behavior_service.dart` | Default action for existing output files (see "Existing Output Files") |
 | `app/lib/models/native_res_report.dart` | What `--detect-native` found, as the Descale panel's Detect shows and applies it |
+| `app/lib/services/addon_service.dart` | Every optional third-party download (Whisper, AnimeJaNai): catalogue, install with requirements, remove with dependants (see "Add-ons") |
 | `app/lib/models/gpu_plugin_status.dart` | The worker's GPU-plugin probe results, and the panels' notice decision |
 | `app/assets/filters/core/*.json` | Built-in filter schema definitions |
 
@@ -1057,8 +1059,8 @@ asserted in `shutdown_when_done_test.dart`:
 Two features run a neural network through ncnn on Vulkan: **RIFE** 4.26
 (`rife.RIFE`), the Frame Rate pass's `FrameRateMethod::Rife`, and **AI
 upscaling** (vs-mlrt's VSNCNN, `ncnn.Model`, with Real-ESRGAN's anime video
-model or Real-CUGAN), Crop & Resize's `UpscaleMethod::RealEsrgan` /
-`RealCugan`. `worker/src/gpu_plugin.rs` (`GpuPlugin::{Rife, Upscale}`) holds
+model, Real-CUGAN or AnimeJaNai), Crop & Resize's `UpscaleMethod::RealEsrgan` /
+`RealCugan` / `AnimeJanai`. `worker/src/gpu_plugin.rs` (`GpuPlugin::{Rife, Upscale}`) holds
 everything they share, and the rules all follow from one fact: **without a
 usable Vulkan implementation ncnn can segfault** (RIFE does, in
 `ncnn::create_gpu_instance`; VSNCNN raises "get_gpu_device failed") rather
@@ -1108,6 +1110,15 @@ than fail cleanly.
   matrix/range, odd sizes edge-padded, frame props copied back, fp16 (≤0.3/255
   from fp32, ~3x faster). Real-ESRGAN measurably tints flat colour (up to ~11
   levels at 4x, in fp32 too); that is the model, not the pipeline.
+- **AnimeJaNai** (`UpscaleMethod::AnimeJanai`) runs on the same plugin and
+  block, but its models are an **add-on**, never in the deps bundle — they are
+  CC BY-NC-SA 4.0, non-commercial only, and the bundle must stay freely
+  redistributable (see "Add-ons"). Each doubling is an `(sd, hd)` pair the
+  script picks by height (`_ai_rgb.height <= 576` → the SD model), so the size
+  and Sharp settings only reach HD pictures, and a 4x DVD runs SD then HD.
+  `ensure_methods_ready` also refuses it when `animejanai::runtime` finds the
+  models missing (`MISSING_MESSAGE`). It keeps flat colour within 0.5 levels
+  (Real-ESRGAN: up to 11).
 - **VSNCNN is built from source on macOS and Linux** (only Windows has a
   published build): static protobuf v3.21.12 and onnx at vs-mlrt's pinned
   commit, Tencent's prebuilt ncnn 20260526, VapourSynth's API 3 headers from
@@ -1163,6 +1174,37 @@ keeps chroma and the source size. Rules:
 - The panel never applies a guess: no clear dip is reported as such.
   `integration_descale_test.dart` (heavy) checks detection on known masters,
   protection (grid exact vs. destroyed without the mask) and preview = encode.
+
+### Add-ons: optional third-party downloads
+
+Anything VapourBox can use but does not ship — because of its size (Whisper)
+or its licence (AnimeJaNai) — is an **add-on**: downloaded from its upstream
+source into the add-ons directory (`DependencyLocator::addons_dir`, mirrored
+by `AddonService.addonsDir`), only when the user asks. Rules:
+
+- **One service.** `AddonService` holds the catalogue (`AddonInfo`: size,
+  licence, credit, source, `usageNote` for a restriction, `requires`) and one
+  `AddonInstaller` per add-on. **Settings → Add-ons** (`AddonsSettingsTab`)
+  lists, installs and removes; a feature that needs one calls
+  `AddonPrompt.ensure(context, ids, reason:)`, which states the source,
+  licence and size before downloading. Never add a feature-specific download
+  dialog. Installing installs requirements first (a Whisper model needs the
+  engine); removing removes what requires it, after saying so.
+- **A licence restriction is shown, not buried**: `usageNote` is bold in the
+  prompt, the Settings row and (for AnimeJaNai) the panel notice whenever the
+  method is chosen. Such an add-on also gets a NOTICES entry and About tile
+  that say it is a separate download.
+- **Pinned and verified**: `assets/animejanai-addon.json` pins upstream's
+  release asset by SHA-256 *and* each model by its own hash; extraction
+  (`AnimeJanaiInstaller.extractModels`) keeps only the listed files, stages
+  beside the target and renames into place, so a bad download installs
+  nothing. Upstream re-uploaded that asset once (2024-07), which is why the
+  pin matters: a changed asset fails closed.
+- **The worker checks presence, the app checks hashes.** `animejanai::MODELS`
+  and the manifest list the same files (asserted on both sides).
+- **Tested against the real download**: `WorkerHarness.ensureAnimeJanai()`
+  installs from the pinned URL with the app's own extraction, so CI fails if
+  the link or hashes stop holding.
 
 ### BM3D and KNLMeans Noise Reduction
 
@@ -1472,12 +1514,21 @@ committed under `Tests/TestResources/`.
 
 ## Attribution — never write a name you have not read upstream
 
-Third-party credit lives in **three** places that must agree:
+Third-party credit lives in **four** places that must agree:
 `licenses/NOTICES.txt` (shipped in every package), the About dialog
-(`app/lib/views/about_dialog.dart`), and the README's Acknowledgments.
-`app/test/attribution_test.dart` lints the first two against
-`Scripts/deps-expected-plugins.json`, so **adding a plugin without crediting it
-fails the build**.
+(`app/lib/views/about_dialog.dart`), the README's Acknowledgments, and — for an
+add-on — its `AddonInfo` (licence, credit, `noticeName`), which Settings →
+Add-ons and the download prompt display. Guarded by:
+
+- `app/test/attribution_test.dart`: NOTICES and About against
+  `Scripts/deps-expected-plugins.json`, so **adding a plugin without crediting
+  it fails the build**; and every About tile states the same licence(s) as its
+  NOTICES entry (compared as licence families, so a dropped component licence
+  fails — RemoveGrain's tile once omitted its MIT part).
+- `app/test/addon_service_test.dart` ("credits agree everywhere"): each add-on's
+  NOTICES entry has its licence and credit and says it is a download, it has an
+  About tile with the same licence, the README credits it, and a
+  non-commercial licence carries a `usageNote`.
 
 **Every copyright line must come from the upstream LICENSE file or a source
 header, fetched at the time of writing — never from a GitHub handle expanded
@@ -2084,4 +2135,4 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.11.0 | 2026-09 | **Issue #92**: every x86 bundle ships in two **CPU tiers** — `v3` (x86-64-v3; the plain asset names) and `v2` (`…-x64-v2`, anything older), chosen by the app from `vapourbox-worker --probe-cpu`. Each bundle carries one autoloaded zsmooth (replacing 1.10.0's two-builds-loaded-by-path). macOS v2 builds MVTools v24 from source without its AVX2 files, whose static initializers SIGILLed inside `dlopen` on pre-AVX Macs. v2 bundles are gated (SDE on Linux/Windows, static check on macOS) before publishing |
 | 1.12.0 | 2026-10-04 | **Issue #101**: akarin 1.4.1 → **1.5.0** on every platform. The 1.4.1 Linux wheel put JIT code on the `brk` heap, where SELinux denies `PROT_EXEC`, so every job segfaulted on Fedora/RHEL from deps 1.8.0 on. `download-deps-linux.sh` now fails if `libakarin.so` lacks the mmap allocator |
 | 1.13.0 | 2026-10 | One new plugin; every other binary is built from the same sources as 1.12.0. Adds **vszip** 22.1.0 (MIT) for `vszip.CLAHE`, Color Correction's local contrast (issue #90). Baseline build only, flat in the plugin directory on every platform (the wheels' AVX2/AVX-512 variants are left out); macOS x64 builds the sdist with Zig 0.16.0 for the 12.0 floor, with header padding so it can be signed. The v2 CPU tier is no longer a second full bundle: each x64 platform publishes its v3 bundle plus `…-x64-v2-delta.zip`, the files in `_tierFiles` (zsmooth; on macOS also MVTools), extracted over it (`"tierFormat": "delta"`). Every x64 machine downloads the same bundle; only an older CPU fetches the few MB more. This is also what lets the Linux AppImage carry its deps for both tiers without doubling in size |
-| 1.14.0 | unreleased | Adds **RIFE** 4.26 (`r9_mod_v33`, MIT) + its model in `vapoursynth/rife/`, and **VSNCNN** (vs-mlrt v15.16, GPL-3.0) + Real-ESRGAN / Real-CUGAN models in `vapoursynth/ncnn/`, on macos-arm64, windows-x64 and linux-x64, with **MoltenVK** 1.4.2 (Apache-2.0) in `vapoursynth/moltenvk/` on macOS. Not autoloaded; see "GPU Plugins". **BM3D** r12 (MIT) on every platform; it had been macOS arm64 only (see "BM3D and KNLMeans Noise Reduction"). **descale** r12 (MIT) on every platform, for the Descale pass |
+| 1.14.0 | unreleased | Adds **RIFE** 4.26 (`r9_mod_v33`, MIT) + its model in `vapoursynth/rife/`, and **VSNCNN** (vs-mlrt v15.16, GPL-3.0) + Real-ESRGAN / Real-CUGAN models in `vapoursynth/ncnn/`, on macos-arm64, windows-x64 and linux-x64, with **MoltenVK** 1.4.2 (Apache-2.0) in `vapoursynth/moltenvk/` on macOS. Not autoloaded; see "GPU Plugins". **BM3D** r12 (MIT) on every platform; it had been macOS arm64 only (see "BM3D and KNLMeans Noise Reduction"). **descale** r12 (MIT) on every platform, for the Descale pass. (AnimeJaNai's models, used by the same VSNCNN, are an app add-on, not in the bundle) |

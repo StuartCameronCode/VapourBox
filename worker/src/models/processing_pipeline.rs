@@ -489,6 +489,12 @@ impl ProcessingPipeline {
         self.crop_resize.uses_ai_upscale()
     }
 
+    /// Whether that model is AnimeJaNai, whose models are an add-on that must
+    /// also be installed.
+    pub fn uses_animejanai(&self) -> bool {
+        self.crop_resize.uses_animejanai()
+    }
+
     /// Whether this pipeline denoises with KNLMeans, which needs a working
     /// OpenCL device before its script can be generated.
     pub fn uses_knlm(&self) -> bool {

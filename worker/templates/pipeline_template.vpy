@@ -2023,6 +2023,10 @@ if _ai_pad_w or _ai_pad_h:
         src_width=_ai_rgb.width + _ai_pad_w, src_height=_ai_rgb.height + _ai_pad_h)
 _ai_in_w = _ai_rgb.width
 for _ai_model in [{{AI_MODELS}}]:
+    if isinstance(_ai_model, tuple):
+        # AnimeJaNai: its SD model for a picture at most {{AI_SD_MAX_HEIGHT}} tall, else
+        # the HD one (trained on 1080p anime), chosen per doubling.
+        _ai_model = _ai_model[0] if _ai_rgb.height <= {{AI_SD_MAX_HEIGHT}} else _ai_model[1]
     _ai_tiles = {} if _ai_rgb.width * _ai_rgb.height <= 720 * 576 else dict(tilesize=[512, 512], overlap=[16, 16])
     _ai_rgb = core.ncnn.Model(_ai_rgb, network_path=_ai_model, fp16=True, num_streams=2, **_ai_tiles)
 _ai_scale = _ai_rgb.width // _ai_in_w

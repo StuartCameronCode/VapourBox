@@ -53,7 +53,7 @@ void main() {
     });
 
     test('Crop & Resize selects AI upscaling only for an AI method with upscaling on', () {
-      for (final m in ['realEsrgan', 'realCugan']) {
+      for (final m in ['realEsrgan', 'realCugan', 'animeJanai']) {
         expect(gpuPluginSelectedBy('crop_resize', {'useIntegerUpscale': true, 'upscaleMethod': m}),
             GpuPlugin.upscale);
         expect(gpuPluginSelectedBy('crop_resize', {'useIntegerUpscale': false, 'upscaleMethod': m}),
@@ -64,7 +64,8 @@ void main() {
             isNull);
       }
       // Every AI method in the enum is recognised.
-      for (final m in UpscaleMethod.values.where((m) => m.name.startsWith('real'))) {
+      for (final m in [...UpscaleMethod.values.where((m) => m.name.startsWith('real')),
+          UpscaleMethod.animeJanai]) {
         expect(gpuPluginSelectedBy('crop_resize', {'useIntegerUpscale': true, 'upscaleMethod': m.name}),
             GpuPlugin.upscale, reason: m.name);
       }
@@ -109,6 +110,35 @@ void main() {
     final unknown = const DynamicParameters(
         filterId: 'frame_rate', enabled: true, values: {'method': 'bogus'});
     expect(ParameterConverter.toFrameRate(unknown).method, FrameRateMethod.flowFps);
+  });
+
+  test('AnimeJaNai is recognised as needing its add-on only when chosen', () {
+    expect(animeJanaiSelectedBy('crop_resize', {'useIntegerUpscale': true, 'upscaleMethod': 'animeJanai'}),
+        isTrue);
+    expect(animeJanaiSelectedBy('crop_resize', {'useIntegerUpscale': false, 'upscaleMethod': 'animeJanai'}),
+        isFalse);
+    expect(animeJanaiSelectedBy('crop_resize', {'useIntegerUpscale': true, 'upscaleMethod': 'realEsrgan'}),
+        isFalse);
+    expect(animeJanaiSelectedBy('frame_rate', {'useIntegerUpscale': true, 'upscaleMethod': 'animeJanai'}),
+        isFalse);
+  });
+
+  test('the converter round-trips AnimeJaNai\'s model and Sharp settings', () {
+    for (final model in ['compact', 'ultraCompact', 'superUltraCompact']) {
+      for (final sharp in [false, true]) {
+        final params = CropResizeParameters(
+            enabled: true,
+            useIntegerUpscale: true,
+            upscaleMethod: UpscaleMethod.animeJanai,
+            animejanaiModel: model,
+            animejanaiSharp: sharp);
+        final back = ParameterConverter.toCropResize(ParameterConverter.fromCropResize(params));
+        expect((back.upscaleMethod, back.animejanaiModel, back.animejanaiSharp),
+            (UpscaleMethod.animeJanai, model, sharp));
+        expect(back.toJson()['upscaleMethod'], 'animeJanai',
+            reason: 'the wire name the worker reads');
+      }
+    }
   });
 
   test('the converter round-trips every upscale method and CUGAN strength', () {

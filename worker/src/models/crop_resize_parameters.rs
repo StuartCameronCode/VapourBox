@@ -71,14 +71,33 @@ pub enum UpscaleMethod {
     RealEsrgan,
     /// Real-CUGAN (MIT, bilibili), on the GPU through VSNCNN.
     RealCugan,
+    /// AnimeJaNai (the-database, CC BY-NC-SA 4.0), on the GPU through VSNCNN.
+    /// Its models are an optional download, not in the deps bundle — see
+    /// `animejanai.rs`.
+    AnimeJanai,
 }
 
 impl UpscaleMethod {
     /// Whether this is one of the neural upscalers that need the VSNCNN plugin
     /// and a Vulkan device (see `gpu_plugin.rs`).
     pub fn is_ai(self) -> bool {
-        matches!(self, UpscaleMethod::RealEsrgan | UpscaleMethod::RealCugan)
+        matches!(
+            self,
+            UpscaleMethod::RealEsrgan | UpscaleMethod::RealCugan | UpscaleMethod::AnimeJanai
+        )
     }
+}
+
+/// One network an AI upscale runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiModel {
+    /// A model the deps bundle ships, as a path under `vapoursynth/ncnn/models/`.
+    Bundled(&'static str),
+    /// An AnimeJaNai model pair under the add-on directory: the script runs
+    /// `sd` on a picture at most `animejanai::SD_MAX_HEIGHT` tall, else `hd`.
+    /// Decided in the script, per doubling, because only it knows the height
+    /// after cropping (and after a first doubling).
+    AnimeJanai { sd: &'static str, hd: &'static str },
 }
 
 /// What to do with the pixel aspect ratio (SAR) on output.
@@ -263,6 +282,15 @@ pub struct CropResizeParameters {
     #[serde(default = "default_cugan_noise")]
     pub cugan_noise: String,
 
+    /// AnimeJaNai's HD model size: "compact" (the best), "ultraCompact" or
+    /// "superUltraCompact" (the fastest).
+    #[serde(default = "default_animejanai_model")]
+    pub animejanai_model: String,
+
+    /// AnimeJaNai's Sharp variant of the HD model.
+    #[serde(default)]
+    pub animejanai_sharp: bool,
+
     // --- nnedi3 controls for the edge-directed upscale paths ---
     // With EEDI3 selected these shape the nnedi3 sclip that guides it.
 
@@ -312,6 +340,7 @@ pub struct CropResizeParameters {
 fn default_true() -> bool { true }
 fn default_upscale_factor() -> i32 { 2 }
 fn default_cugan_noise() -> String { "conservative".to_string() }
+fn default_animejanai_model() -> String { "compact".to_string() }
 
 impl Default for CropResizeParameters {
     fn default() -> Self {
@@ -344,6 +373,8 @@ impl Default for CropResizeParameters {
             upscale_method: UpscaleMethod::default(),
             upscale_factor: default_upscale_factor(),
             cugan_noise: default_cugan_noise(),
+            animejanai_model: default_animejanai_model(),
+            animejanai_sharp: false,
             upscale_nsize: None,
             upscale_neurons: None,
             upscale_qual: None,
@@ -404,30 +435,46 @@ impl CropResizeParameters {
         self.enabled && self.use_integer_upscale && self.upscale_method.is_ai()
     }
 
+    /// Whether this pass upscales with AnimeJaNai, whose models must also be
+    /// installed as an add-on.
+    pub fn uses_animejanai(&self) -> bool {
+        self.uses_ai_upscale() && self.upscale_method == UpscaleMethod::AnimeJanai
+    }
+
     /// The models an AI upscale runs, in order, as paths under
     /// `vapoursynth/ncnn/models/`. Factors follow the edge-directed path's
     /// rule (3x behaves as 2x). Real-ESRGAN has a 4x model; Real-CUGAN's
     /// bundled models are 2x only, so 4x runs it twice, denoising on the first
     /// pass only — a second denoise pass would smooth the result twice.
-    pub fn ai_upscale_models(&self) -> Vec<&'static str> {
+    /// AnimeJaNai is 2x only, so 4x is two doublings; the script picks SD or
+    /// HD for each, so a DVD runs the SD model and then an HD one.
+    pub fn ai_upscale_models(&self) -> Vec<AiModel> {
         let four = self.upscale_factor >= 4;
+        let bundled = |names: Vec<&'static str>| names.into_iter().map(AiModel::Bundled).collect();
         match self.upscale_method {
-            UpscaleMethod::RealEsrgan => vec![if four {
+            UpscaleMethod::AnimeJanai => {
+                let pair = AiModel::AnimeJanai {
+                    sd: crate::animejanai::SD_MODEL,
+                    hd: crate::animejanai::hd_model(&self.animejanai_model, self.animejanai_sharp),
+                };
+                vec![pair; if four { 2 } else { 1 }]
+            }
+            UpscaleMethod::RealEsrgan => bundled(vec![if four {
                 "RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx"
             } else {
                 "RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx"
-            }],
+            }]),
             UpscaleMethod::RealCugan => {
                 let first = match self.cugan_noise.as_str() {
                     "none" => "cugan/up2x-latest-no-denoise.onnx",
                     "denoise3x" => "cugan/up2x-latest-denoise3x.onnx",
                     _ => "cugan/up2x-latest-conservative.onnx",
                 };
-                if four {
+                bundled(if four {
                     vec![first, "cugan/up2x-latest-no-denoise.onnx"]
                 } else {
                     vec![first]
-                }
+                })
             }
             _ => Vec::new(),
         }
@@ -734,24 +781,26 @@ mod tests {
             cugan_noise: noise.into(),
             ..Default::default()
         };
+        let b = |names: &[&'static str]| names.iter().map(|n| AiModel::Bundled(n)).collect::<Vec<_>>();
         assert_eq!(p(UpscaleMethod::RealEsrgan, 2, "").ai_upscale_models(),
-            ["RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx"]);
+            b(&["RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx"]));
         assert_eq!(p(UpscaleMethod::RealEsrgan, 3, "").ai_upscale_models(),
-            ["RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx"]);
+            b(&["RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx"]));
         assert_eq!(p(UpscaleMethod::RealEsrgan, 4, "").ai_upscale_models(),
-            ["RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx"]);
+            b(&["RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx"]));
         assert_eq!(p(UpscaleMethod::RealCugan, 2, "denoise3x").ai_upscale_models(),
-            ["cugan/up2x-latest-denoise3x.onnx"]);
+            b(&["cugan/up2x-latest-denoise3x.onnx"]));
         assert_eq!(p(UpscaleMethod::RealCugan, 4, "none").ai_upscale_models(),
-            ["cugan/up2x-latest-no-denoise.onnx", "cugan/up2x-latest-no-denoise.onnx"]);
+            b(&["cugan/up2x-latest-no-denoise.onnx", "cugan/up2x-latest-no-denoise.onnx"]));
         // An unknown strength from a hand-edited preset is the default.
         assert_eq!(p(UpscaleMethod::RealCugan, 2, "max").ai_upscale_models(),
-            ["cugan/up2x-latest-conservative.onnx"]);
+            b(&["cugan/up2x-latest-conservative.onnx"]));
         // Every model named here is one the deps bundle ships.
         for m in [UpscaleMethod::RealEsrgan, UpscaleMethod::RealCugan] {
             for f in [2, 4] {
                 for n in ["none", "conservative", "denoise3x"] {
                     for model in p(m, f, n).ai_upscale_models() {
+                        let AiModel::Bundled(model) = model else { panic!("{model:?}") };
                         assert!(crate::gpu_plugin::UPSCALE_MODELS.contains(&model), "{model}");
                     }
                 }
@@ -759,5 +808,32 @@ mod tests {
         }
         assert!(!p(UpscaleMethod::Nnedi3Rpow2, 2, "").uses_ai_upscale());
         assert!(p(UpscaleMethod::RealCugan, 2, "").uses_ai_upscale());
+        assert!(!p(UpscaleMethod::RealCugan, 2, "").uses_animejanai());
+    }
+
+    #[test]
+    fn test_animejanai_models_pair_sd_with_the_chosen_hd_model() {
+        let p = |factor, size: &str, sharp| CropResizeParameters {
+            enabled: true,
+            use_integer_upscale: true,
+            upscale_method: UpscaleMethod::AnimeJanai,
+            upscale_factor: factor,
+            animejanai_model: size.into(),
+            animejanai_sharp: sharp,
+            ..Default::default()
+        };
+        let pair = |hd| AiModel::AnimeJanai { sd: crate::animejanai::SD_MODEL, hd };
+        assert_eq!(p(2, "compact", false).ai_upscale_models(),
+            [pair("2x_AnimeJaNai_HD_V3_Compact.onnx")]);
+        assert_eq!(p(3, "superUltraCompact", true).ai_upscale_models(),
+            [pair("2x_AnimeJaNai_HD_V3Sharp1_SuperUltraCompact.onnx")]);
+        // 2x only: 4x is two doublings, each choosing SD or HD.
+        assert_eq!(p(4, "ultraCompact", false).ai_upscale_models(),
+            [pair("2x_AnimeJaNai_HD_V3_UltraCompact.onnx"); 2]);
+        assert!(p(2, "compact", false).uses_animejanai());
+        assert!(p(2, "compact", false).uses_ai_upscale());
+        // Defaults: Compact, not sharp.
+        let d = CropResizeParameters::default();
+        assert_eq!((d.animejanai_model.as_str(), d.animejanai_sharp), ("compact", false));
     }
 }

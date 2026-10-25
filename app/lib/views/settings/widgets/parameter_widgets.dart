@@ -333,7 +333,7 @@ class _DropdownParameterWidget extends StatelessWidget {
           items: options.map((option) {
             return DropdownMenuItem(
               value: option,
-              child: Text(_formatOptionName(option)),
+              child: Text(param.ui?.optionLabels?[option] ?? _formatOptionName(option)),
             );
           }).toList(),
           onChanged: (newValue) {

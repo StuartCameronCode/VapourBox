@@ -30,6 +30,7 @@ import 'package:path/path.dart' as p;
 // importing this file does NOT initialize the app's rhttp HTTP client, which is
 // why the harness does its own dart:io download below (rhttp's native bindings
 // don't load under the headless `flutter test` VM).
+import 'package:vapourbox/services/addon_service.dart';
 import 'package:vapourbox/services/dependency_manager.dart'
     show DepsVersionInfo, DependencyManager;
 
@@ -106,6 +107,36 @@ class WorkerHarness {
     final repoAddons = p.join(repoRoot, 'addons');
     if (Directory(repoAddons).existsSync()) return repoAddons;
     return null;
+  }
+
+  /// Install the AnimeJaNai add-on (its models) where the worker finds it,
+  /// from the upstream download `assets/animejanai-addon.json` pins, with the
+  /// app's own extraction and hash checks — so a test of AnimeJaNai also
+  /// tests that the manifest's URL and hashes still hold. A debug worker finds
+  /// add-ons in the nearest `addons/` above it, i.e. the repo's (gitignored).
+  /// No-op once installed.
+  static Future<Directory> ensureAnimeJanai() async {
+    final addons = Directory(_addonsDir ?? p.join(repoRoot, 'addons'));
+    final target = Directory(p.join(addons.path, AnimeJanaiInstaller.dirName));
+    final manifest = jsonDecode(
+            File(p.join(repoRoot, 'app', 'assets', 'animejanai-addon.json')).readAsStringSync())
+        as Map<String, dynamic>;
+    final installer = AnimeJanaiInstaller(manifest, platform);
+    if (installer.isInstalled(addons)) return target;
+    final archive = manifest['archive'] as Map<String, dynamic>;
+    stderr.writeln('[harness] downloading AnimeJaNai models from ${archive['url']}');
+    final bytes = await _httpGetBytes(archive['url'] as String);
+    final sha = sha256.convert(bytes).toString();
+    if (sha != archive['sha256']) {
+      throw StateError('AnimeJaNai download does not match the pinned hash: $sha');
+    }
+    final staging = Directory('${target.path}.new');
+    if (staging.existsSync()) staging.deleteSync(recursive: true);
+    await AnimeJanaiInstaller.extractModels(
+        bytes, (manifest['models'] as Map<String, dynamic>).cast<String, String>(), staging);
+    if (target.existsSync()) target.deleteSync(recursive: true);
+    staging.renameSync(target.path);
+    return target;
   }
 
   /// Whether the whisper add-on (whisper-cli) is available. Subtitle tests that

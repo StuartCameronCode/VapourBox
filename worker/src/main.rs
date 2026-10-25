@@ -26,6 +26,7 @@ mod pipeline_executor;
 mod pixel_format;
 mod source_decode;
 mod progress_reporter;
+mod animejanai;
 mod gpu_plugin;
 mod native_res;
 mod script_generator;
@@ -658,7 +659,11 @@ fn run_worker(
         .with_knlm_available(knlm_available)
         .with_rife(rife)
         .with_upscale(upscale)
-        .with_knlm(knlm);
+        .with_knlm(knlm)
+        .with_animejanai(match deps.as_ref() {
+            Some(d) if pipeline.uses_animejanai() => d.animejanai_runtime(),
+            _ => Err(animejanai::MISSING_MESSAGE.to_string()),
+        });
     let script_path = script_generator
         .generate(&job)
         .with_context(|| "Failed to generate VapourSynth script")?;

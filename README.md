@@ -85,7 +85,9 @@ GPU-accelerated deinterlacing (NNEDI3CL) needs your GPU's OpenCL driver installe
 
 </details>
 
-**RIFE frame interpolation** (in the Frame Rate pass) and **AI upscaling** with Real-ESRGAN or Real-CUGAN (in Crop & Resize) run on the GPU through Vulkan. They work on any Apple Silicon Mac, and on Windows and Linux x64 PCs with a current graphics driver; RIFE on Windows also needs the Microsoft Visual C++ Redistributable. They aren't available on Intel Macs or Linux on ARM yet. When you choose one, VapourBox checks that it can run and, if it can't, says what is missing and how to fix it.
+**RIFE frame interpolation** (in the Frame Rate pass) and **AI upscaling** with Real-ESRGAN, Real-CUGAN or AnimeJaNai (in Crop & Resize) run on the GPU through Vulkan. They work on any Apple Silicon Mac, and on Windows and Linux x64 PCs with a current graphics driver; RIFE on Windows also needs the Microsoft Visual C++ Redistributable. They aren't available on Intel Macs or Linux on ARM yet. When you choose one, VapourBox checks that it can run and, if it can't, says what is missing and how to fix it.
+
+**Add-ons.** Some features use third-party downloads that aren't part of VapourBox: the Whisper speech-recognition engine and its language models for Subtitles, and the AnimeJaNai models for AI upscaling. VapourBox offers to download one the first time you choose a feature that needs it, saying where it comes from and under what licence. **Settings → Add-ons** lists them all, to install or remove at any time. The AnimeJaNai models are free for **non-commercial use only** (CC BY-NC-SA 4.0); if you use VapourBox for paid work, use Real-ESRGAN or Real-CUGAN instead.
 
 **Older Intel and AMD processors** (before about 2013 — no AVX2) are supported on all three platforms. On first launch VapourBox checks the processor and installs the matching set of processing components; a machine moved to a different CPU gets the right set on its next launch. The older-CPU set runs some filters more slowly, never differently. Every build of that set is checked for pre-AVX processors (e.g. a 2010 Mac Pro) on macOS and Linux; on Windows it is checked for processors with AVX but no AVX2, and older ones are expected to work but can't be tested automatically.
 
@@ -124,7 +126,7 @@ Twenty-two filters, each switchable independently. Most sources need none or a f
 | 15 | **Color Correction** | Brightness, contrast, saturation, hue, levels, white balance (warm/cool, green/magenta), lifting detail out of the shadows of underexposed footage, and lifting local contrast across a dim or flat picture. Levels and white balance can each be measured automatically or set by hand. |
 | 16 | **Stabilize** | Shake and weave — telecine wobble, jittery film scans, handheld footage. Runs last before cropping, so a small crop removes the edges it exposes. |
 | 17 | **Rotate / Flip** | Footage shot sideways, mirrored captures, scans that came off the scanner the wrong way round. |
-| 18 | **Crop & Resize** | Trimming overscan, scaling, and upscaling — edge-directed, or with Real-ESRGAN or Real-CUGAN, AI upscalers trained on anime that run on the GPU — plus bars in a colour of your choice to bring a cropped picture back to an exact frame size (720×576 for PAL DVD, 720×480 for NTSC) without rescaling it. |
+| 18 | **Crop & Resize** | Trimming overscan, scaling, and upscaling — edge-directed, or with Real-ESRGAN, Real-CUGAN or AnimeJaNai (an optional, non-commercial download), AI upscalers trained on anime that run on the GPU — plus bars in a colour of your choice to bring a cropped picture back to an exact frame size (720×576 for PAL DVD, 720×480 for NTSC) without rescaling it. |
 | 19 | **Sharpen** | Soft sources needing edge and fine detail recovery. aWarpSharp2 sharpens by warping edges instead of raising contrast, so it adds no halos. Runs after the resize, on the picture that is actually delivered, and before any added grain. |
 | 20 | **Film Grain** | Grain added back after denoising, so the picture is not left plastic — and to hide banding in skies and fades. |
 | 21 | **Frame Rate** | Converting between PAL and NTSC rates, for a tape that was already converted once and now plays at the wrong speed. New frames come from motion interpolation, from RIFE (an AI interpolator that runs on the GPU), or from plain frame repetition. |
@@ -304,7 +306,8 @@ Stuart Cameron — [stuart-cameron.com](https://stuart-cameron.com)
 - **vszip** by Julek — CLAHE, the local-contrast lift in Color Correction
 - **RIFE** by hzwer (with Megvii) — the frame interpolation network, run through HolyWu's VapourSynth plugin (built on nihui's rife-ncnn-vulkan and Tencent's ncnn), with **MoltenVK** for Vulkan on macOS
 - **Real-ESRGAN** by Xintao Wang and **Real-CUGAN** by bilibili — the AI upscaling networks, run through AmusementClub's **vs-mlrt** (VSNCNN)
-- **whisper.cpp** by the ggml authors — speech recognition for subtitle generation
+- **AnimeJaNai** by the-database — the anime upscaling models offered as an optional download (CC BY-NC-SA 4.0, non-commercial use only)
+- **whisper.cpp** by the ggml authors and OpenAI's **Whisper** models — speech recognition for subtitle generation, an optional download
 - **libdvdread** by VideoLAN — DVD reading and navigation
 - **FFmpeg** project — video encoding
 - **Hybrid** by Selur — inspiration for this project

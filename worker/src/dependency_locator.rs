@@ -862,6 +862,13 @@ impl DependencyLocator {
         PathBuf::from("addons")
     }
 
+    /// AnimeJaNai's installed model directory under the add-ons, or the
+    /// message explaining that the add-on is missing — what
+    /// `ScriptGenerator::with_animejanai` takes.
+    pub fn animejanai_runtime(&self) -> Result<PathBuf, String> {
+        crate::animejanai::runtime(&self.addons_dir())
+    }
+
     /// Get the path to the libdvdread shared library.
     pub fn dvdread_library_path(&self) -> PathBuf {
         let platform_dir = self.platform_dir();

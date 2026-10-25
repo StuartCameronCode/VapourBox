@@ -12,6 +12,7 @@ pub mod pipeline_executor;
 pub mod pixel_format;
 pub mod source_decode;
 pub mod progress_reporter;
+pub mod animejanai;
 pub mod gpu_plugin;
 pub mod native_res;
 pub mod schema_script_generator;

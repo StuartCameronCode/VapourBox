@@ -81,6 +81,13 @@ GpuPluginNotice gpuPluginNoticeFor({
   return status.available ? GpuPluginNotice.none : GpuPluginNotice.unavailable;
 }
 
+/// Whether a panel's current values choose the AnimeJaNai upscaler, whose
+/// models are an add-on (on top of the GPU plugin [gpuPluginSelectedBy] finds).
+bool animeJanaiSelectedBy(String filterId, Map<String, dynamic> values) =>
+    filterId == 'crop_resize' &&
+    values['useIntegerUpscale'] == true &&
+    values['upscaleMethod'] == 'animeJanai';
+
 /// Which GPU feature, if any, a panel's current values select.
 GpuPlugin? gpuPluginSelectedBy(String filterId, Map<String, dynamic> values) {
   switch (filterId) {
@@ -89,7 +96,7 @@ GpuPlugin? gpuPluginSelectedBy(String filterId, Map<String, dynamic> values) {
     case 'crop_resize':
       final method = values['upscaleMethod'];
       return values['useIntegerUpscale'] == true &&
-              (method == 'realEsrgan' || method == 'realCugan')
+              (method == 'realEsrgan' || method == 'realCugan' || method == 'animeJanai')
           ? GpuPlugin.upscale
           : null;
   }

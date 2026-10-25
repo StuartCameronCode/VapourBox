@@ -1264,7 +1264,8 @@ impl PipelineExecutor {
                 self.deps.knlm_runtime()
             } else {
                 Err("KNLMeans is not used by this job.".into())
-            });
+            })
+            .with_animejanai(self.deps.animejanai_runtime());
         let (fps_num, fps_den) = script_generator.frame_rate_to_rational(frame_rate);
 
         let preview_params = PreviewParams {

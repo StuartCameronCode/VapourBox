@@ -1,4 +1,6 @@
-// Real-ESRGAN / Real-CUGAN upscaling, encoded end to end and checked by pixels.
+// Real-ESRGAN / Real-CUGAN / AnimeJaNai upscaling, encoded end to end and
+// checked by pixels. AnimeJaNai's models are an add-on, which the harness
+// installs from the upstream download the app pins.
 //
 // Wherever AI upscaling ships, CI gives the runner a Vulkan device (a software
 // one, lavapipe, on the GPU-less Linux and Windows runners) and sets
@@ -25,9 +27,13 @@
 //     5-20 levels). Real-ESRGAN measurably tints and saturates flat colour
 //     (measured up to 3 levels at 2x and 11 at 4x, in fp32 too, with vs-mlrt's
 //     own wrapper doing nothing more than this template — the model, not the
-//     pipeline) and CUGAN 4x drifts ~4, so those get bounds just above that;
+//     pipeline) and CUGAN 4x drifts ~4, so those get bounds just above that.
+//     AnimeJaNai keeps flat colour within half a level at 2x and 4x (measured
+//     0.3 and 0.5), so it gets the strictest bound;
 //   * the preview of a frame is the encode's frame (the same script runs);
-//   * a 10-bit source stays 10-bit and matches the 8-bit result.
+//   * a 10-bit source stays 10-bit and matches the 8-bit result;
+//   * AnimeJaNai picks its SD model for an SD picture (where the HD size
+//     setting changes nothing) and the chosen HD model above 576 lines.
 @Tags(['heavy'])
 library;
 
@@ -54,7 +60,10 @@ const _frames = 5;
 String get _outDir => p.join(WorkerHarness.outputDir, 'ai_upscale');
 
 VideoJob _job(String name, UpscaleMethod method, int factor,
-        {String noise = 'conservative', String? input, String pixFmt = 'yuv420p'}) =>
+        {String noise = 'conservative',
+        String? input,
+        String pixFmt = 'yuv420p',
+        String animejanaiModel = 'compact'}) =>
     VideoJob(
       id: const Uuid().v4(),
       inputPath: input ?? _input,
@@ -67,6 +76,7 @@ VideoJob _job(String name, UpscaleMethod method, int factor,
           upscaleMethod: method,
           upscaleFactor: factor,
           cuganNoise: noise,
+          animejanaiModel: animejanaiModel,
         ),
       ),
       encodingSettings: const EncodingSettings(
@@ -137,12 +147,21 @@ void main() {
     (UpscaleMethod.realCugan, 2, 'conservative'),
     (UpscaleMethod.realCugan, 2, 'denoise3x'),
     (UpscaleMethod.realCugan, 4, 'conservative'),
+    (UpscaleMethod.animeJanai, 2, ''),
+    (UpscaleMethod.animeJanai, 4, ''),
   ];
+
+  /// The rule, plus AnimeJaNai's add-on where the method needs it.
+  Future<bool> ready(UpscaleMethod method) async {
+    if (!await requireGpuPlugin('--probe-upscale')) return false;
+    if (method == UpscaleMethod.animeJanai) await WorkerHarness.ensureAnimeJanai();
+    return true;
+  }
 
   for (final (method, factor, noise) in cases) {
     final name = '${method.name}_${factor}x${method == UpscaleMethod.realCugan ? '_$noise' : ''}';
     test(name, () async {
-      if (!await requireGpuPlugin('--probe-upscale')) return;
+      if (!await ready(method)) return;
       final job = _job(name, method, factor, noise: noise);
       final out = await _encode(job, name);
 
@@ -272,9 +291,10 @@ void main() {
     for (final (method, factor, colourTolerance) in [
       (UpscaleMethod.realEsrgan, 2, 6.0), (UpscaleMethod.realEsrgan, 4, 14.0),
       (UpscaleMethod.realCugan, 2, 2.0), (UpscaleMethod.realCugan, 4, 6.0),
+      (UpscaleMethod.animeJanai, 2, 1.0), (UpscaleMethod.animeJanai, 4, 1.0),
     ]) {
       test('${method.name} ${factor}x keeps colour and position', () async {
-        if (!await requireGpuPlugin('--probe-upscale')) return;
+        if (!await ready(method)) return;
         final name = 'pattern_${method.name}_${factor}x';
         final out = await _encode(patternJob(name, method, factor), name);
         final ref = await _encode(
@@ -344,5 +364,44 @@ void main() {
     // ignore: avoid_print
     print('  8-bit vs 10-bit: meanAbsDiff ${diff.toStringAsFixed(2)}');
     expect(diff, lessThan(2.0), reason: 'the 10-bit path is not the same picture');
+  }, timeout: const Timeout(Duration(minutes: 30)));
+
+  // The script chooses AnimeJaNai's model by height. On an SD picture it is
+  // always the SD model, so the HD size setting changes nothing; above 576
+  // lines it is the chosen HD model, so two sizes give two pictures. One
+  // preview frame each, so a CPU Vulkan driver gets through 720p quickly.
+  test('AnimeJaNai uses its SD model up to 576 lines and the chosen HD model above', () async {
+    if (!await ready(UpscaleMethod.animeJanai)) return;
+    final hd = p.join(_outDir, 'source_720p.mkv');
+    final made = await Process.run(
+      WorkerHarness.ffmpegPath,
+      ['-y', '-v', 'error', '-i', _input, '-frames:v', '120', '-vf', 'scale=1280:720',
+        '-c:v', 'ffv1', hd],
+      environment: WorkerHarness.ffmpegEnv,
+    );
+    expect(made.exitCode, 0, reason: '${made.stderr}');
+
+    Future<Uint8List> frame(String label, String model, {String? input}) async {
+      var j = _job(label, UpscaleMethod.animeJanai, 2, input: input, animejanaiModel: model);
+      if (input != null) {
+        j = VideoJob.fromJson(
+            {...j.toJson(), 'inputWidth': 1280, 'inputHeight': 720, 'startFrame': 100});
+      }
+      final pv = await WorkerHarness.runPreview(j.toJson(), frame: _start + 2, label: label);
+      expect(pv.success, isTrue, reason: pv.errorTail);
+      return WorkerHarness.imageToRgb24(pv.png!, label: label);
+    }
+
+    final sdCompact = await frame('ajn_sd_compact', 'compact');
+    final sdTiny = await frame('ajn_sd_suc', 'superUltraCompact');
+    final hdCompact = await frame('ajn_hd_compact', 'compact', input: hd);
+    final hdTiny = await frame('ajn_hd_suc', 'superUltraCompact', input: hd);
+    final sd = WorkerHarness.meanAbsDiff(sdCompact, sdTiny);
+    final hdDiff = WorkerHarness.meanAbsDiff(hdCompact, hdTiny);
+    // ignore: avoid_print
+    print('  AnimeJaNai Compact vs SuperUltraCompact: SD ${sd.toStringAsFixed(3)}, '
+        'HD ${hdDiff.toStringAsFixed(3)}');
+    expect(sd, lessThan(0.01), reason: 'an SD picture did not use the SD model');
+    expect(hdDiff, greaterThan(0.2), reason: 'a 720p picture did not use the chosen HD model');
   }, timeout: const Timeout(Duration(minutes: 30)));
 }

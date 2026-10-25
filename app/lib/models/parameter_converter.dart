@@ -916,6 +916,8 @@ class ParameterConverter {
       'upscaleMethod': params.upscaleMethod.name,
       'upscaleFactor': params.upscaleFactor,
       'cuganNoise': params.cuganNoise,
+      'animejanaiModel': params.animejanaiModel,
+      'animejanaiSharp': params.animejanaiSharp,
     };
     // Kernel tuning and the nnedi3/EEDI3 controls start unticked, so the
     // plugin's own default applies until the user opts in. Fallbacks are those
@@ -1545,6 +1547,8 @@ class ParameterConverter {
       ),
       upscaleFactor: _asInt(v['upscaleFactor']) ?? 2,
       cuganNoise: v['cuganNoise'] as String? ?? 'conservative',
+      animejanaiModel: v['animejanaiModel'] as String? ?? 'compact',
+      animejanaiSharp: v['animejanaiSharp'] as bool? ?? false,
       // Absent (checkbox off) stays null so the script omits it entirely.
       bicubicB: (v['bicubicB'] as num?)?.toDouble(),
       bicubicC: (v['bicubicC'] as num?)?.toDouble(),

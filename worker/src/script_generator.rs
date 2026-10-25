@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use crate::gpu_plugin::{py_str, GpuPluginFiles};
 use crate::models::{
     AntiAliasMethod, GrainMethod,
-    VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod, CCD_REFERENCE_HEIGHT,
+    VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod, AiModel, CCD_REFERENCE_HEIGHT,
     ChromaDenoiseMethod, FrameRateMethod, SpotLessMethod, DeflickerMethod, EdgeRepairParameters,
     parse_ratio,
     DehaloMethod, DeblockMethod, SharpenMethod, DeinterlaceMethod,
@@ -77,6 +77,11 @@ pub struct ScriptGenerator {
     /// different question: whether QTGMC's KNLMeansCL call, which havsfunc makes
     /// with the plugin's default device, works.)
     knlm: std::result::Result<String, String>,
+    /// AnimeJaNai's installed model directory, or why it is missing. The
+    /// models are an add-on (see `animejanai.rs`), so this is checked in
+    /// addition to `upscale`. Defaults to "not checked"; callers set it from
+    /// `DependencyLocator::animejanai_runtime()`.
+    animejanai: std::result::Result<PathBuf, String>,
 }
 
 /// Parameters for preview script generation.
@@ -111,6 +116,7 @@ impl ScriptGenerator {
             rife: Err("RIFE was not checked for this job.".to_string()),
             upscale: Err("AI upscaling was not checked for this job.".to_string()),
             knlm: Err("KNLMeansCL was not checked for this job.".to_string()),
+            animejanai: Err("AnimeJaNai was not checked for this job.".to_string()),
         })
     }
 
@@ -141,6 +147,12 @@ impl ScriptGenerator {
         self
     }
 
+    /// Set AnimeJaNai's model directory, or why it is missing (see `self.animejanai`).
+    pub fn with_animejanai(mut self, animejanai: std::result::Result<PathBuf, String>) -> Self {
+        self.animejanai = animejanai;
+        self
+    }
+
     /// Set the device KNLMeans runs on, or why it cannot run (see `self.knlm`).
     pub fn with_knlm(mut self, knlm: std::result::Result<String, String>) -> Self {
         self.knlm = knlm;
@@ -157,6 +169,11 @@ impl ScriptGenerator {
         }
         if pipeline.uses_ai_upscale() {
             if let Err(message) = &self.upscale {
+                anyhow::bail!("{message}");
+            }
+        }
+        if pipeline.uses_animejanai() {
+            if let Err(message) = &self.animejanai {
                 anyhow::bail!("{message}");
             }
         }
@@ -2050,7 +2067,14 @@ impl ScriptGenerator {
                             resize
                                 .ai_upscale_models()
                                 .iter()
-                                .map(|m| py_str(&f.model_dir.join(m)))
+                                .map(|m| match *m {
+                                    AiModel::Bundled(name) => py_str(&f.model_dir.join(name)),
+                                    // A pair the script chooses from by height.
+                                    AiModel::AnimeJanai { sd, hd } => {
+                                        let dir = self.animejanai.as_deref().unwrap_or(Path::new(""));
+                                        format!("({}, {})", py_str(&dir.join(sd)), py_str(&dir.join(hd)))
+                                    }
+                                })
                                 .collect::<Vec<_>>()
                                 .join(", "),
                         ),
@@ -2059,6 +2083,10 @@ impl ScriptGenerator {
                     script = script.replace("{{AI_PLUGIN}}", &plugin);
                     script = script.replace("{{AI_PRELOAD}}", &preload);
                     script = script.replace("{{AI_MODELS}}", &models);
+                    script = script.replace(
+                        "{{AI_SD_MAX_HEIGHT}}",
+                        &crate::animejanai::SD_MAX_HEIGHT.to_string(),
+                    );
                     let color = job.color_metadata();
                     script = script.replace("{{AI_MATRIX}}", color.zimg_matrix(job.input_height));
                     script = script.replace(
@@ -2095,7 +2123,10 @@ impl ScriptGenerator {
                         script = process_optional_int("UPSCALE_NRAD", resize.upscale_nrad, script);
                         script = process_optional_int("UPSCALE_MDIS", resize.upscale_mdis, script);
                     }
-                    UpscaleMethod::Spline36 | UpscaleMethod::RealEsrgan | UpscaleMethod::RealCugan => {
+                    UpscaleMethod::Spline36
+                    | UpscaleMethod::RealEsrgan
+                    | UpscaleMethod::RealCugan
+                    | UpscaleMethod::AnimeJanai => {
                         script = remove_block("{{#UPSCALE_NNEDI3}}", "{{/UPSCALE_NNEDI3}}", script);
                         script = remove_block("{{#UPSCALE_EEDI3}}", "{{/UPSCALE_EEDI3}}", script);
                     }

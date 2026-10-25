@@ -292,5 +292,61 @@ void main() {
         reason: 'About dialog names component(s) absent from NOTICES.txt.',
       );
     });
+
+    // Names alone matched, so a tile could state a different licence from its
+    // NOTICES entry and pass (RemoveGrain's tile dropped its MIT component).
+    // Spellings differ ("BSL 1.0" / "Boost Software License 1.0"), so compare
+    // the licence families each names.
+    test('states the same licence as its NOTICES entry', () {
+      final source = File(
+        p.join(root, 'app', 'lib', 'views', 'about_dialog.dart'),
+      ).readAsStringSync();
+      final tiles = RegExp(r"name:\s*'([^']+)',\s*license:\s*'([^']+)'")
+          .allMatches(source)
+          .map((m) => (m.group(1)!, m.group(2)!))
+          .toList();
+      final headings = <String, String>{
+        for (final m in RegExp(r'^(\S[^\n]*?) — ([^\n]+)$', multiLine: true).allMatches(notices))
+          m.group(1)!.trim(): m.group(2)!.trim(),
+      };
+      String key(String name) =>
+          name.split(' (').first.split(' / ').first.trim().toLowerCase();
+
+      final checked = <String>[];
+      final disagree = <String>[];
+      for (final (name, licence) in tiles) {
+        final entry = headings.entries.where((h) => key(h.key) == key(name)).firstOrNull;
+        if (entry == null) continue; // matched by its first word above
+        checked.add(name);
+        final a = _licenceFamilies(licence), b = _licenceFamilies(entry.value);
+        // The same licences on both sides: a qualifier ("public domain
+        // dedication") is not a licence family, so it may differ; a component
+        // under its own licence (RemoveGrain's MIT Clense) may not.
+        if (a.isEmpty || !(a.containsAll(b) && b.containsAll(a))) {
+          disagree.add('$name: About "$licence", NOTICES "${entry.value}"');
+        }
+      }
+      expect(checked.length, greaterThan(40), reason: 'the pairing looks broken');
+      expect(disagree, isEmpty);
+    });
   });
+}
+
+/// The licences a licence statement names, as families.
+Set<String> _licenceFamilies(String text) {
+  final t = text.toLowerCase();
+  const words = {
+    'lgpl': 'lgpl', 'cc by-nc-sa': 'cc-by-nc-sa', 'wtfpl': 'wtfpl', 'mit': 'mit',
+    'bsd': 'bsd', 'apache': 'apache', 'isc': 'isc', 'boost': 'bsl', 'bsl': 'bsl',
+    'psf': 'psf', 'python software': 'psf', 'zlib': 'zlib', 'unlicense': 'unlicense',
+    'no licence': 'none stated', 'no license': 'none stated', 'no copyright': 'no copyright',
+  };
+  final out = {for (final MapEntry(key: w, value: f) in words.entries) if (t.contains(w)) f};
+  for (final m in RegExp(r'(?<!l)gpl[ -]?v?([23])').allMatches(t)) {
+    out.add('gpl${m.group(1)}');
+  }
+  // "dual-licensed BSD/GPL-2.0 upstream" is a note on the source, not the
+  // licence VapourBox ships it under.
+  if (t.contains('dual-licensed') && out.contains('bsd')) out.remove('gpl2');
+  return out;
 }

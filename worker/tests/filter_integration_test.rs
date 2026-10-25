@@ -6553,3 +6553,55 @@ fn test_177_descale_order_and_off() {
     });
     assert!(!script_text(&off).contains("_ds_"), "descale emitted with the pass off");
 }
+
+/// AnimeJaNai: the same VSNCNN block, with each doubling an (SD, HD) pair from
+/// the add-on directory that the script chooses between by height; the chosen
+/// size and Sharp variant pick the HD model, in both scripts.
+#[test]
+fn test_178_animejanai_emits_sd_hd_pairs_from_the_addon() {
+    create_output_dir();
+    let files = upscale_files();
+    let dir = std::path::PathBuf::from("/addons/animejanai");
+    let py = |m: &str| vapourbox_worker::gpu_plugin::py_str(&dir.join(m));
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(files.clone()))
+        .with_animejanai(Ok(dir.clone()));
+    let sd = "2x_AnimeJaNai_SD_V1beta34_Compact.onnx";
+    let mut job = ai_upscale_job("test_178_animejanai", UpscaleMethod::AnimeJanai, 2, "");
+    job.processing_pipeline.as_mut().unwrap().crop_resize.animejanai_model = "ultraCompact".into();
+    job.processing_pipeline.as_mut().unwrap().crop_resize.animejanai_sharp = true;
+    let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+    let pair = format!("({}, {})", py(sd), py("2x_AnimeJaNai_HD_V3Sharp1_UltraCompact.onnx"));
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains(&format!("for _ai_model in [{pair}]:")), "{name}: wrong models");
+        assert!(script.contains("_ai_model = _ai_model[0] if _ai_rgb.height <= 576 else _ai_model[1]"),
+            "{name}: no SD/HD choice");
+        assert!(script.contains(&format!("core.std.LoadPlugin({})",
+            vapourbox_worker::gpu_plugin::py_str(&files.plugin))), "{name}: VSNCNN not loaded");
+        assert!(!script.contains("{{AI_"), "{name}: unsubstituted placeholder");
+    }
+    // 4x: two doublings, each its own choice.
+    job.processing_pipeline.as_mut().unwrap().crop_resize.upscale_factor = 4;
+    job.processing_pipeline.as_mut().unwrap().crop_resize.animejanai_sharp = false;
+    let four = script_text_with(&generator, &job);
+    let pair = format!("({}, {})", py(sd), py("2x_AnimeJaNai_HD_V3_UltraCompact.onnx"));
+    assert!(four.contains(&format!("for _ai_model in [{pair}, {pair}]:")), "4x models");
+}
+
+/// Without the add-on an AnimeJaNai job is refused with the message saying
+/// where to get it, even where VSNCNN runs; the bundled models are unaffected.
+#[test]
+fn test_179_animejanai_is_refused_without_its_models() {
+    create_output_dir();
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(upscale_files()))
+        .with_animejanai(Err(vapourbox_worker::animejanai::MISSING_MESSAGE.into()));
+    let job = ai_upscale_job("test_179_refused", UpscaleMethod::AnimeJanai, 2, "");
+    let err = both_scripts_with(&generator, &job).unwrap_err().to_string();
+    assert!(err.contains("AnimeJaNai's models are not installed"), "{err}");
+    assert!(err.contains("non-commercial"), "{err}");
+    let esrgan = ai_upscale_job("test_179_esrgan", UpscaleMethod::RealEsrgan, 2, "");
+    both_scripts_with(&generator, &esrgan).expect("Real-ESRGAN needs no add-on");
+}

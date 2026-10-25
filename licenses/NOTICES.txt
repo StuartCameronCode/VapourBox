@@ -254,6 +254,17 @@ Real-ESRGAN anime video model — BSD 3-Clause
   The trained network weights of realesr-animevideov3, at 2x and 4x. Shipped as
   vs-mlrt's ONNX conversions (RealESRGANv2-animevideo-xsx2/xsx4.onnx).
 
+AnimeJaNai models — CC BY-NC-SA 4.0 (non-commercial)
+  By the-database (GitHub); upstream names no other copyright holder.
+  https://github.com/the-database/mpv-upscale-2x_animejanai
+  https://creativecommons.org/licenses/by-nc-sa/4.0/
+  The 2x_AnimeJaNai HD V3 and SD V1 beta Real-ESRGAN Compact models, used by
+  the AnimeJaNai upscaler. NOT distributed with VapourBox: an optional add-on
+  the app downloads from upstream's own release, unmodified, only when the user
+  asks, after stating the licence (Settings → Add-ons, or on choosing the
+  upscaler). Free for non-commercial use only; anyone using them must keep to
+  that.
+
 Real-CUGAN models — MIT
   Copyright (c) 2022 bilibili
   https://github.com/bilibili/ailab/tree/main/Real-CUGAN
@@ -436,6 +447,15 @@ whisper.cpp — MIT
   downloaded optional add-on, not inside the application bundle: on macOS from
   the Homebrew whisper-cpp bottle, on Windows from the project's own release,
   on Linux from an unmodified build published on this repository's releases.
+  Installed and removed in Settings → Add-ons.
+
+Whisper models — MIT
+  Copyright (c) 2022 OpenAI
+  https://github.com/openai/whisper
+  The speech recognition models (small, medium, large-v3-turbo) whisper.cpp
+  runs, in its ggml format as published at
+  https://huggingface.co/ggerganov/whisper.cpp (MIT). Distributed as a
+  separately downloaded optional add-on, not inside the application bundle.
 
 libdvdread — GPL-2.0-or-later
   Copyright (c) VideoLAN and contributors
@@ -511,7 +531,8 @@ MIT License
 -----------
 (Applies to zsmooth, vszip and the zigimg library it includes, CAS,
 DCTFilter, BM3D, descale, the RIFE plugin, rife-ncnn-vulkan, the RIFE model and
-ECCV2022-RIFE, the Real-CUGAN models, whisper.cpp, pip and the Clense filter
+ECCV2022-RIFE, the Real-CUGAN models, whisper.cpp, the Whisper models, pip and
+the Clense filter
 in vs-removegrain, each
 under the copyright notice given in its entry above.)
 

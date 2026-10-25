@@ -1,0 +1,20 @@
+{
+  "version": "3.0.0",
+  "licence": "CC BY-NC-SA 4.0",
+  "licenceUrl": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+  "homepage": "https://github.com/the-database/mpv-upscale-2x_animejanai",
+  "archive": {
+    "url": "https://github.com/the-database/mpv-upscale-2x_animejanai/releases/download/3.0.0/2x_AnimeJaNai_HD_V3_ModelsOnly.zip",
+    "size": 24674026,
+    "sha256": "50eefb2b657a19934f33ca002ab8f701b5c960566bd54b23f658bdeb19d7788f"
+  },
+  "models": {
+    "2x_AnimeJaNai_HD_V3_Compact.onnx": "053178394c0962bab3c2a6d3262d6d96a1a944eee2fcad31cad7ec22034a8898",
+    "2x_AnimeJaNai_HD_V3_UltraCompact.onnx": "1d270c7f7d9a09bb3af59cca4f79e1554c429c804255dccef0963d263f843c22",
+    "2x_AnimeJaNai_HD_V3_SuperUltraCompact.onnx": "f6bbfbed502b8d300ee9d678d2c277d4b56235c36d053c3a1a41be060c54c0e6",
+    "2x_AnimeJaNai_HD_V3Sharp1_Compact.onnx": "15258aa92f53ed55c6cf488b30f527a8087ebca929535a4dd33b410f5fa87de6",
+    "2x_AnimeJaNai_HD_V3Sharp1_UltraCompact.onnx": "a01e4f262f68708639dfd7fabdb971c2d467d616a3cb9293692fc9610b4e0ab4",
+    "2x_AnimeJaNai_HD_V3Sharp1_SuperUltraCompact.onnx": "bcf1e3320eb7181f7f3e25901d5f7a681b1ab8a212df4be613ca7da109d960f7",
+    "2x_AnimeJaNai_SD_V1beta34_Compact.onnx": "d361a6eff99b9dbfe138670514bd84191f8e0b288085ab397d3ed8d3e03e52dc"
+  }
+}

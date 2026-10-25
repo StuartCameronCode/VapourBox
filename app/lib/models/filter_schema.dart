@@ -74,6 +74,11 @@ class ParameterUiConfig {
   /// Example: {"true": "Top Field First", "false": "Bottom Field First"}
   final Map<String, String>? booleanLabels;
 
+  /// Display names for an enum's options, keyed by option value. An option
+  /// without one is shown title-cased (`spline36` → `Spline36`), which mangles
+  /// a camel-case name like `realEsrgan`.
+  final Map<String, String>? optionLabels;
+
   /// Extensions the file picker offers, without dots — `["srt", "ass"]`.
   /// Only meaningful for [WidgetType.filepicker]; null means any file.
   final List<String>? fileExtensions;
@@ -86,6 +91,7 @@ class ParameterUiConfig {
     this.hidden,
     this.visibleWhen,
     this.booleanLabels,
+    this.optionLabels,
     this.fileExtensions,
   });
 

@@ -248,12 +248,21 @@
         "eedi3Rpow2",
         "spline36",
         "realEsrgan",
-        "realCugan"
+        "realCugan",
+        "animeJanai"
       ],
       "optional": true,
       "ui": {
         "label": "Upscale Method",
-        "description": "Edge-directed doubling. NNEDI3 is the usual choice; EEDI3 is slower and follows near-horizontal edges better (it uses NNEDI3 to guide its search); Spline36 is plain resampling with no edge direction. Real-ESRGAN and Real-CUGAN are neural upscalers trained on anime: they redraw clean line art rather than interpolating it, and run on the graphics card (Vulkan). Real-ESRGAN is sharper and faster; Real-CUGAN is gentler and can remove noise as it goes. Use them after deinterlacing: on a combed picture they sharpen the combing too",
+        "optionLabels": {
+          "nnedi3Rpow2": "NNEDI3",
+          "eedi3Rpow2": "EEDI3",
+          "spline36": "Spline36",
+          "realEsrgan": "Real-ESRGAN",
+          "realCugan": "Real-CUGAN",
+          "animeJanai": "AnimeJaNai (download, non-commercial)"
+        },
+        "description": "Edge-directed doubling. NNEDI3 is the usual choice; EEDI3 is slower and follows near-horizontal edges better (it uses NNEDI3 to guide its search); Spline36 is plain resampling with no edge direction. Real-ESRGAN and Real-CUGAN are neural upscalers trained on anime: they redraw clean line art rather than interpolating it, and run on the graphics card (Vulkan). Real-ESRGAN is sharper and faster; Real-CUGAN is gentler and can remove noise as it goes. AnimeJaNai, trained on HD anime, keeps colour exactly and comes in three speeds; it is a separate download, free for non-commercial use only. Use them after deinterlacing: on a combed picture they sharpen the combing too",
         "widget": "dropdown",
         "visibleWhen": {
           "useIntegerUpscale": true
@@ -294,6 +303,47 @@
           "useIntegerUpscale": true,
           "upscaleMethod": [
             "realCugan"
+          ]
+        }
+      }
+    },
+    "animejanaiModel": {
+      "type": "enum",
+      "default": "compact",
+      "options": [
+        "compact",
+        "ultraCompact",
+        "superUltraCompact"
+      ],
+      "sinceAppVersion": "1.5.0",
+      "ui": {
+        "label": "AnimeJaNai Model",
+        "optionLabels": {
+          "compact": "Compact (best)",
+          "ultraCompact": "UltraCompact (about 2x faster)",
+          "superUltraCompact": "SuperUltraCompact (about 4x faster)"
+        },
+        "description": "The HD model's size: smaller is faster and a little less detailed. A picture 576 lines or shorter (DVD) always uses AnimeJaNai's SD model, which comes in one size; at 4x a DVD runs the SD model and then this one",
+        "widget": "dropdown",
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "animeJanai"
+          ]
+        }
+      }
+    },
+    "animejanaiSharp": {
+      "type": "boolean",
+      "default": false,
+      "sinceAppVersion": "1.5.0",
+      "ui": {
+        "label": "AnimeJaNai Sharp",
+        "description": "Use the Sharp variant of the HD model, which draws crisper lines. The SD model has no Sharp variant",
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "animeJanai"
           ]
         }
       }
@@ -869,7 +919,9 @@
           "useIntegerUpscale",
           "upscaleMethod",
           "upscaleFactor",
-          "cuganNoise"
+          "cuganNoise",
+          "animejanaiModel",
+          "animejanaiSharp"
         ],
         "expanded": false
       },
@@ -949,6 +1001,14 @@
       "activeWhen": {
         "useIntegerUpscale": true,
         "upscaleMethod": "realCugan"
+      }
+    },
+    {
+      "function": "core.ncnn.Model",
+      "role": "AnimeJaNai (add-on), on the GPU (vs-mlrt's VSNCNN)",
+      "activeWhen": {
+        "useIntegerUpscale": true,
+        "upscaleMethod": "animeJanai"
       }
     },
     {

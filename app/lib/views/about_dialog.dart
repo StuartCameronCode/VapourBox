@@ -202,7 +202,7 @@ class _AboutDialogState extends State<AboutDialog> {
                       ),
                       _ComponentTile(
                         name: 'RemoveGrain / Repair',
-                        license: 'WTFPL',
+                        license: 'WTFPL, with one MIT component',
                         copyright: 'Laurent de Soras, Fredrik Mellbin; '
                             'Clense by Victor Efimov (MIT)',
                         url: 'https://github.com/vapoursynth/vs-removegrain',
@@ -291,7 +291,8 @@ class _AboutDialogState extends State<AboutDialog> {
                         license: 'GPL-3.0',
                         copyright: 'AmusementClub (no copyright notice upstream); '
                             'includes ncnn (Tencent), Protocol Buffers (Google, '
-                            'BSD 3-Clause) and ONNX (Apache 2.0)',
+                            'BSD 3-Clause), ONNX (Apache 2.0) and, on macOS, the '
+                            'LLVM OpenMP runtime (Apache 2.0 with LLVM exception)',
                         url: 'https://github.com/AmusementClub/vs-mlrt',
                       ),
                       _ComponentTile(
@@ -299,6 +300,12 @@ class _AboutDialogState extends State<AboutDialog> {
                         license: 'BSD 3-Clause',
                         copyright: 'Xintao Wang',
                         url: 'https://github.com/xinntao/Real-ESRGAN',
+                      ),
+                      _ComponentTile(
+                        name: 'AnimeJaNai models (optional download)',
+                        license: 'CC BY-NC-SA 4.0 (non-commercial use only)',
+                        copyright: 'the-database',
+                        url: 'https://github.com/the-database/mpv-upscale-2x_animejanai',
                       ),
                       _ComponentTile(
                         name: 'Real-CUGAN models',
@@ -473,10 +480,16 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://ffmpeg.org',
                       ),
                       _ComponentTile(
-                        name: 'whisper.cpp',
+                        name: 'whisper.cpp (optional download)',
                         license: 'MIT',
-                        copyright: 'The ggml authors',
+                        copyright: 'The ggml authors (project started by Georgi Gerganov)',
                         url: 'https://github.com/ggml-org/whisper.cpp',
+                      ),
+                      _ComponentTile(
+                        name: 'Whisper models (optional download)',
+                        license: 'MIT',
+                        copyright: 'OpenAI',
+                        url: 'https://github.com/openai/whisper',
                       ),
                       _ComponentTile(
                         name: 'libdvdread',

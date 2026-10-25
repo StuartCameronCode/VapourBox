@@ -1,4 +1,7 @@
-// RIFE and AI upscaling (Real-ESRGAN / Real-CUGAN), through the real worker.
+// RIFE and AI upscaling (Real-ESRGAN / Real-CUGAN / AnimeJaNai), through the
+// real worker. AnimeJaNai's models are an add-on: the harness installs them
+// from the upstream download the app's manifest pins, so this also checks that
+// the pinned URL and hashes still hold.
 //
 // Both run a network through ncnn on Vulkan, and ncnn segfaults without a
 // Vulkan device rather than raising. So what must hold on EVERY platform is
@@ -89,7 +92,9 @@ class _Feature {
   final String dir;
   final List<String> scriptMust;
   final (int, int) previewSize;
-  const _Feature(this.plugin, this.job, this.dir, this.scriptMust, this.previewSize);
+  final bool needsAnimeJanai;
+  const _Feature(this.plugin, this.job, this.dir, this.scriptMust, this.previewSize,
+      {this.needsAnimeJanai = false});
 }
 
 final _features = <String, _Feature>{
@@ -106,6 +111,12 @@ final _features = <String, _Feature>{
     'up2x-latest-denoise3x.onnx',
     'core.ncnn.Model(_ai_rgb, network_path=_ai_model, fp16=True',
   ], (1440, 1152)),
+  'AnimeJaNai': _Feature(GpuPlugin.upscale, () => _upscaleJob(UpscaleMethod.animeJanai), 'animejanai', [
+    '2x_AnimeJaNai_SD_V1beta34_Compact.onnx',
+    '2x_AnimeJaNai_HD_V3_Compact.onnx',
+    '_ai_model = _ai_model[0] if _ai_rgb.height <= 576 else _ai_model[1]',
+    'core.ncnn.Model(_ai_rgb, network_path=_ai_model, fp16=True',
+  ], (1440, 1152), needsAnimeJanai: true),
 };
 
 void main() {
@@ -184,6 +195,7 @@ void main() {
 
       test('where it runs, the script loads it explicitly and calls it', () async {
         if (!await requireGpuPlugin(f.plugin.probeFlag)) return;
+        if (f.needsAnimeJanai) await WorkerHarness.ensureAnimeJanai();
         final script = await WorkerHarness.generateScript(f.job().toJson());
         expect(script, contains('core.std.LoadPlugin('));
         expect(script, contains('${p.separator}${f.dir}${p.separator}'.replaceAll(r'\', r'\\')));
@@ -197,6 +209,7 @@ void main() {
 
       test('where it runs, a real frame comes out of the GPU at the right size', () async {
         if (!await requireGpuPlugin(f.plugin.probeFlag)) return;
+        if (f.needsAnimeJanai) await WorkerHarness.ensureAnimeJanai();
         final pv = await WorkerHarness.runPreview(f.job().toJson(), frame: 21, label: 'gpu_$name');
         expect(pv.success, isTrue, reason: pv.errorTail);
         expect(_pngSize(pv.png!), f.previewSize);

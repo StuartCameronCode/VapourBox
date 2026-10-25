@@ -2516,6 +2516,45 @@ credits -> 720 (0.35); the VHS capture -> not found (0.91). Encode with
 protection: credits exact (0.0 levels), picture within 0.27 of the source;
 without it the credits move 62.6 levels. 8- vs 10-bit parity 0.32.
 
+### AnimeJaNai as an add-on, and one add-on system (2026-10-25)
+
+**Why it is a download, not in the bundle.** AnimeJaNai's models are CC BY-NC-SA
+4.0. VapourBox distributing them free is a non-commercial use, so shipping
+them would be allowed. But the restriction binds every recipient: users doing
+paid work (client restorations, monetised channels), and anyone who repackages
+VapourBox (the GPL permits selling it). Bundling is lawful aggregation, but it
+would make the deps bundle the one part of VapourBox that can't be passed on
+freely, and nobody would see the terms. So: an opt-in download from upstream,
+with the terms in front of the user at download time and whenever the method
+is chosen.
+
+**Source.** The only standalone download is release `3.0.0`'s
+`2x_AnimeJaNai_HD_V3_ModelsOnly.zip` (24.7 MB). The V3.1 models upstream's
+README mentions exist only inside the ~170 MB full player package. The zip's
+entries are dated 2024-07-30, six months after the release, so the asset has
+been replaced once; it is pinned by SHA-256 and each model by its own hash.
+
+**Probe (M1 Pro, VSNCNN fp16).** All seven ONNX models load and run unchanged
+(they are Real-ESRGAN Compact networks, the same kind as the bundled
+Real-ESRGAN model).
+
+- Speed at 2x: Compact 8–9 fps SD / 0.9 fps 1080p; UltraCompact 14–16 / 1.7;
+  SuperUltraCompact 35–37 / 4.
+- Colour on flat patches (direct, RGB): 0.1–0.5 levels, against Real-ESRGAN's
+  3.7. Through the full YUV pipeline, AnimeJaNai is 0.3 levels off at 2x and
+  0.5 at 4x, against Real-ESRGAN's 3 and 11.
+- fp16 vs fp32: within 0.36/255.
+
+**SD vs HD.** Upstream trained the HD models on 1080p anime and warns that they
+don't always suit SD. So the script picks the SD model at or below 576 lines,
+per doubling. The heavy test shows the size setting has no effect on an SD
+picture (difference 0.000) and does change a 720p one (0.52).
+
+**One add-on system.** Whisper had its own manager and dialogs. Both are now
+`AddonInstaller`s behind `AddonService`, shown on Settings → Add-ons and in
+the shared `AddonPrompt`. Requirements (a Whisper model needs the engine) are
+installed first and removed with what needs them.
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and
