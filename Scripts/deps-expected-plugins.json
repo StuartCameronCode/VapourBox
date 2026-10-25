@@ -13,33 +13,63 @@
       "vapoursynth/plugins/libzsmooth.so"
     ]
   },
-  "_extraFilesComment": "Files a COMPLETE bundle must hold outside the plugin directory, as paths from the bundle root. Today that is RIFE (worker/src/rife.rs): its plugin, model and, on macOS, MoltenVK live in vapoursynth/rife/, deliberately outside the autoload directory, so the plugin-directory lists above cannot cover them. The package-deps-* scripts assert these too. A platform with no entry ships no RIFE (macos-x64, linux-arm64: no usable prebuilt), and the worker's rife::platform_ships_rife must agree — app/test/attribution_test.dart checks both directions.",
+  "_extraFilesComment": "Files a COMPLETE bundle must hold outside the plugin directory, as paths from the bundle root. Today those are the ncnn-on-Vulkan plugins (worker/src/gpu_plugin.rs): RIFE in vapoursynth/rife/, VSNCNN and its upscaling models in vapoursynth/ncnn/, and on macOS the MoltenVK both preload from vapoursynth/moltenvk/ — deliberately outside the autoload directory, so the plugin-directory lists above cannot cover them. The package-deps-* scripts assert these too. A platform with no entry ships neither (macos-x64, linux-arm64), and the worker's gpu_plugin::platform_ships_rife / platform_ships_upscale must agree — app/test/attribution_test.dart checks both directions.",
   "_extraFiles": {
     "macos-arm64": [
+      "vapoursynth/moltenvk/libMoltenVK.dylib",
       "vapoursynth/rife/librife.dylib",
-      "vapoursynth/rife/libMoltenVK.dylib",
       "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.bin",
-      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.param"
+      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.param",
+      "vapoursynth/ncnn/libvsncnn.dylib",
+      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx",
+      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx",
+      "vapoursynth/ncnn/models/cugan/up2x-latest-no-denoise.onnx",
+      "vapoursynth/ncnn/models/cugan/up2x-latest-conservative.onnx",
+      "vapoursynth/ncnn/models/cugan/up2x-latest-denoise3x.onnx"
     ],
     "windows-x64": [
       "vapoursynth/rife/librife.dll",
       "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.bin",
-      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.param"
+      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.param",
+      "vapoursynth/ncnn/vsncnn.dll",
+      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx",
+      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx",
+      "vapoursynth/ncnn/models/cugan/up2x-latest-no-denoise.onnx",
+      "vapoursynth/ncnn/models/cugan/up2x-latest-conservative.onnx",
+      "vapoursynth/ncnn/models/cugan/up2x-latest-denoise3x.onnx"
     ],
     "windows-x64-v2": [
       "vapoursynth/rife/librife.dll",
       "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.bin",
-      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.param"
+      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.param",
+      "vapoursynth/ncnn/vsncnn.dll",
+      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx",
+      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx",
+      "vapoursynth/ncnn/models/cugan/up2x-latest-no-denoise.onnx",
+      "vapoursynth/ncnn/models/cugan/up2x-latest-conservative.onnx",
+      "vapoursynth/ncnn/models/cugan/up2x-latest-denoise3x.onnx"
     ],
     "linux-x64": [
       "vapoursynth/rife/librife.so",
       "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.bin",
-      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.param"
+      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.param",
+      "vapoursynth/ncnn/libvsncnn.so",
+      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx",
+      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx",
+      "vapoursynth/ncnn/models/cugan/up2x-latest-no-denoise.onnx",
+      "vapoursynth/ncnn/models/cugan/up2x-latest-conservative.onnx",
+      "vapoursynth/ncnn/models/cugan/up2x-latest-denoise3x.onnx"
     ],
     "linux-x64-v2": [
       "vapoursynth/rife/librife.so",
       "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.bin",
-      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.param"
+      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.param",
+      "vapoursynth/ncnn/libvsncnn.so",
+      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx",
+      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx",
+      "vapoursynth/ncnn/models/cugan/up2x-latest-no-denoise.onnx",
+      "vapoursynth/ncnn/models/cugan/up2x-latest-conservative.onnx",
+      "vapoursynth/ncnn/models/cugan/up2x-latest-denoise3x.onnx"
     ]
   },
   "windows-x64": [
@@ -76,7 +106,9 @@
     "VIVTC.dll",
     "vszip.dll",
     "vsznedi3.dll",
-    "zsmooth.dll"
+    "zsmooth.dll",
+    "bm3d.dll",
+    "libdescale.dll"
   ],
   "windows-x64-v2": [
     "AddGrain.dll",
@@ -112,7 +144,9 @@
     "VIVTC.dll",
     "vszip.dll",
     "vsznedi3.dll",
-    "zsmooth.dll"
+    "zsmooth.dll",
+    "bm3d.dll",
+    "libdescale.dll"
   ],
   "macos-arm64": [
     "libaddgrain.dylib",
@@ -149,7 +183,8 @@
     "libvivtc.dylib",
     "libvszip.dylib",
     "libznedi3.dylib",
-    "libzsmooth.dylib"
+    "libzsmooth.dylib",
+    "libdescale.dylib"
   ],
   "macos-x64": [
     "libaddgrain.dylib",
@@ -183,7 +218,9 @@
     "libvivtc.dylib",
     "libvszip.dylib",
     "libznedi3.dylib",
-    "libzsmooth.dylib"
+    "libzsmooth.dylib",
+    "libbm3d.dylib",
+    "libdescale.dylib"
   ],
   "macos-x64-v2": [
     "libaddgrain.dylib",
@@ -217,7 +254,9 @@
     "libvivtc.dylib",
     "libvszip.dylib",
     "libznedi3.dylib",
-    "libzsmooth.dylib"
+    "libzsmooth.dylib",
+    "libbm3d.dylib",
+    "libdescale.dylib"
   ],
   "linux-x64": [
     "libaddgrain.so",
@@ -252,7 +291,9 @@
     "libvivtc.so",
     "libvszip.so",
     "libznedi3.so",
-    "libzsmooth.so"
+    "libzsmooth.so",
+    "libbm3d.so",
+    "libdescale.so"
   ],
   "linux-x64-v2": [
     "libaddgrain.so",
@@ -287,7 +328,9 @@
     "libvivtc.so",
     "libvszip.so",
     "libznedi3.so",
-    "libzsmooth.so"
+    "libzsmooth.so",
+    "libbm3d.so",
+    "libdescale.so"
   ],
   "linux-arm64": [
     "libaddgrain.so",
@@ -323,6 +366,8 @@
     "libvivtc.so",
     "libvszip.so",
     "libznedi3.so",
-    "libzsmooth.so"
+    "libzsmooth.so",
+    "libbm3d.so",
+    "libdescale.so"
   ]
 }

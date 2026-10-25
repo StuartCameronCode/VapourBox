@@ -656,6 +656,14 @@ content = re.sub(
     content,
     flags=re.DOTALL
 )
+# The same probe nested among other include dirs, as BM3D r12 writes it:
+# include_directories('include', run_command(py, '-c', 'import vapoursynth ...')).
+# Only a vapoursynth include probe is replaced; other run_command calls stay.
+content = re.sub(
+    r\"run_command\(\s*[^,()]+,\s*'-c',\s*'import vapoursynth[^']*'[^)]*\)\.stdout\(\)\.strip\(\)\",
+    \"'$VS_INCLUDE_DIR'\",
+    content,
+)
 with open('meson.build', 'w') as f:
     f.write(content)
 " 2>/dev/null || true
@@ -666,6 +674,7 @@ build_plugin() {
     local repo="$2"
     local output_lib="$3"
     local build_cmd="$4"
+    local tag="${5:-}"   # optional git tag; empty builds the default branch
 
     if [ "$FORCE" = false ] && [ -f "$PLUGINS_DIR/$output_lib" ]; then
         echo "  $name already exists, skipping"
@@ -676,7 +685,7 @@ build_plugin() {
     echo "=== Building $name ==="
 
     rm -rf "$name"
-    if ! git clone --depth 1 "$repo" "$name" 2>/dev/null; then
+    if ! git clone --depth 1 ${tag:+--branch "$tag"} "$repo" "$name" 2>/dev/null; then
         echo "  Failed to clone $name"
         FAILED_PLUGINS+=("$name")
         return 1
@@ -1048,11 +1057,16 @@ build_plugin "tcanny" \
     "libtcanny.so" \
     "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
 
-# BM3D
+# BM3D (core.bm3d - Noise Reduction's BM3D method). Pinned: keep BM3D_TAG in
+# step with download-deps-macos.sh and the wheel version in
+# download-deps-windows.ps1 (r12 == wheel 12.0). Links the fftw copied into
+# lib/ above.
+BM3D_TAG="r12"
 build_plugin "bm3d" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-BM3D.git" \
     "libbm3d.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$BM3D_TAG"
 
 # KNLMeansCL (OpenCL denoiser)
 build_plugin "knlmeanscl" \
@@ -1568,10 +1582,59 @@ else
 fi
 
 # ============================================================================
+# descale — the Descale pass (core.descale.De*)
+# ============================================================================
+# The manylinux2014 wheels (glibc 2.17, far under our floor), pinned by hash.
+# Its AVX2 kernel is a separate object chosen at run time (opt=0), so nothing
+# AVX runs at load and one file serves both x64 tiers. Keep DESCALE_VERSION in
+# step with download-deps-{macos.sh,windows.ps1}.
+DESCALE_VERSION="12"
+case "$ARCH" in
+    x86_64)  DESCALE_TAG="manylinux_2_28_x86_64"
+             DESCALE_SHA256="9969dca2a6feb7cd5ff2b60e9198aa529f3db02f49d5c88556b3fbcaa822f05d" ;;
+    aarch64) DESCALE_TAG="manylinux_2_28_aarch64"
+             DESCALE_SHA256="4a4b3494ac88b769333070ab279bb2d6590f37947f1669a6d628107007456793" ;;
+    *)       DESCALE_TAG="" ;;
+esac
+DESCALE_OUT="$PLUGINS_DIR/libdescale.so"
+echo ""
+echo "=== Installing descale $DESCALE_VERSION ==="
+if [ "$FORCE" = false ] && [ -f "$DESCALE_OUT" ]; then
+    echo "  descale already exists, skipping"
+else
+    rm -f "$DESCALE_OUT"
+    if [ -n "$DESCALE_TAG" ] && (
+        set -e
+        cd "$BUILD_DIR"
+        rm -rf descale-whl descale.whl
+        url=$("$PYTHON_BIN" - "$DESCALE_VERSION" "$DESCALE_TAG" <<'PYEOF2'
+import json, sys, urllib.request
+ver, tag = sys.argv[1], sys.argv[2]
+d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/vapoursynth-descale/{ver}/json"))
+print(next(f["url"] for f in d["urls"] if f["filename"].endswith(tag + ".whl")))
+PYEOF2
+)
+        curl -fsSL -o descale.whl "$url"
+        echo "$DESCALE_SHA256  descale.whl" | sha256sum -c -
+        mkdir descale-whl && unzip -q descale.whl -d descale-whl
+        cp descale-whl/vapoursynth/plugins/libdescale.so "$DESCALE_OUT"
+        chmod 755 "$DESCALE_OUT"
+        rm -rf descale-whl descale.whl
+    ); then
+        echo "  Installed descale -> libdescale.so"
+        BUILT_PLUGINS+=("descale")
+    else
+        rm -f "$DESCALE_OUT"
+        echo "  Failed to install descale"
+        FAILED_PLUGINS+=("descale")
+    fi
+fi
+
+# ============================================================================
 # RIFE 4.26 — the Frame Rate pass's neural interpolator (ncnn on Vulkan)
 # ============================================================================
 # Lives in vapoursynth/rife/, NOT the autoload directory: the template loads it
-# only for a RIFE job (see worker/src/rife.rs), so a machine whose GPU stack or
+# only for a RIFE job (see worker/src/gpu_plugin.rs), so a machine whose GPU stack or
 # CPU cannot run it fails that method alone. Keep RIFE_TAG, the model commit and
 # the model hashes in step with download-deps-{macos.sh,windows.ps1}.
 #
@@ -1623,6 +1686,121 @@ else
         rm -rf "$RIFE_DIR"
         echo "  Failed to install RIFE"
         FAILED_PLUGINS+=("rife")
+    fi
+fi
+
+# ============================================================================
+# VSNCNN (vs-mlrt) + Real-ESRGAN / Real-CUGAN — Crop & Resize's AI upscaling
+# ============================================================================
+# vs-mlrt publishes VSNCNN for Windows only; this is upstream's own
+# linux-ncnn.yml recipe at the pinned tag: static protobuf and onnx from
+# source, Tencent's prebuilt Ubuntu 24.04 ncnn (static, with a CMake package),
+# then vsncnn's own CMakeLists. Lives in vapoursynth/ncnn/, never autoloaded
+# (see worker/src/gpu_plugin.rs). x86_64 only, as for RIFE: Tencent ships no
+# aarch64 Linux ncnn. Like RIFE it needs libgomp.so.1 from the system and
+# dlopens the system's libvulkan.so.1; one build serves both CPU tiers (ncnn
+# dispatches its SIMD at run time).
+#
+# The models are vs-mlrt's ONNX conversions (2.4-5.2 MB each), shipped only
+# inside one ~810 MB archive per release: fetched pinned and hash-checked, the
+# five VapourBox uses extracted and each checked by its own hash. Keep every pin
+# and hash in step with download-deps-{macos.sh,windows.ps1} and
+# gpu_plugin::UPSCALE_MODELS.
+VSMLRT_TAG="v15.16"
+VSMLRT_MODELS_SHA256="d4eaa8c1c4459082185a9e1a2c54d7e2c776abeea6aef6aee0cb8f6c151dfb02"
+PROTOBUF_TAG="v3.21.12"
+ONNX_COMMIT="b86cc54efce19530fb953e4b21f57e6b3888534c"
+NCNN_TAG="20260526"
+NCNN_UBUNTU_SHA256="c6daf0c8fb2546de420c7b320e2ce62ba764163ace0ba63a2ea0cdfca70d684d"
+UPSCALE_MODEL_HASHES=(
+    "RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx 6fad590f96df553a5cc348a9c5129e7874504a7dcd414e4a15fb0b281fca7e0c"
+    "RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx 414de3a5da4c56652c99f3bc0b960910e3561835a6c7a9cca546475bc4792158"
+    "cugan/up2x-latest-no-denoise.onnx 3587278c3a7e62bbcb00a23b4de291ff906f62a88856ee457cbe4211cc593574"
+    "cugan/up2x-latest-conservative.onnx 555bca3eb90caa37c7e1a02aec9cda3ca8479f252746c1885d382f87312f651c"
+    "cugan/up2x-latest-denoise3x.onnx 7bcb0510f9f989e681a51d39b7170883d3d5e75f1ec23ef5146e8ea50c3cc845"
+)
+# VSNCNN is an API 3 plugin (VapourSynth.h / VSHelper.h). R78 still loads
+# those, but the build's own include dir need not carry the old headers, so
+# they are fetched from the same VapourSynth tag, by hash.
+VSAPI3_TAG="R78"
+VSAPI3_HEADER_HASHES=(
+    "VapourSynth.h 0983c937cd369b7e1766913edd3c859ea1f93a79671579729f24eb90a91ce910"
+    "VSHelper.h 11e2c4977127632aa0fb84c67d5d7eb7244764c52a94500797d4a3cac013e382"
+)
+NCNN_DIR="$DEPS_DIR/vapoursynth/ncnn"
+echo ""
+echo "=== Installing VSNCNN ($VSMLRT_TAG) + upscaling models ==="
+if [ "$ARCH" != "x86_64" ]; then
+    echo "  Skipped on $ARCH: Tencent publishes no aarch64 Linux ncnn"
+elif [ "$FORCE" = false ] && [ -f "$NCNN_DIR/libvsncnn.so" ] \
+     && [ -f "$NCNN_DIR/models/cugan/up2x-latest-denoise3x.onnx" ]; then
+    echo "  VSNCNN already exists, skipping"
+else
+    rm -rf "$NCNN_DIR"
+    if (
+        set -e
+        W="$BUILD_DIR/vsncnn"
+        rm -rf "$W" && mkdir -p "$W" "$NCNN_DIR/models"
+        cd "$W"
+        curl -fsSL "https://github.com/protocolbuffers/protobuf/archive/refs/tags/$PROTOBUF_TAG.tar.gz" | tar xz
+        cmake -S "protobuf-${PROTOBUF_TAG#v}/cmake" -B pb-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON -Dprotobuf_BUILD_SHARED_LIBS=OFF -Dprotobuf_BUILD_TESTS=OFF \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 >/dev/null
+        cmake --build pb-build >/dev/null
+        cmake --install pb-build --prefix "$W/pb" >/dev/null
+        mkdir onnx && git -C onnx init -q && git -C onnx remote add origin https://github.com/onnx/onnx.git
+        git -C onnx fetch -q --depth 1 origin "$ONNX_COMMIT" && git -C onnx checkout -q FETCH_HEAD
+        cmake -S onnx -B onnx-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DCMAKE_PREFIX_PATH="$W/pb" -DProtobuf_PROTOC_EXECUTABLE="$W/pb/bin/protoc" \
+            -DONNX_USE_LITE_PROTO=ON -DONNX_USE_PROTOBUF_SHARED_LIBS=OFF -DONNX_GEN_PB_TYPE_STUBS=OFF \
+            -DONNX_ML=0 -DONNX_BUILD_PYTHON=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5 >/dev/null
+        cmake --build onnx-build >/dev/null
+        cmake --install onnx-build --prefix "$W/onnx-inst" >/dev/null
+        curl -fsSL -o ncnn.zip \
+            "https://github.com/Tencent/ncnn/releases/download/$NCNN_TAG/ncnn-$NCNN_TAG-ubuntu-2404.zip"
+        echo "$NCNN_UBUNTU_SHA256  ncnn.zip" | sha256sum -c -
+        unzip -q ncnn.zip
+        mkdir -p "$W/vsapi3"
+        for entry in "${VSAPI3_HEADER_HASHES[@]}"; do
+            h="${entry%% *}"; sum="${entry##* }"
+            curl -fsSL -o "$W/vsapi3/$h" \
+                "https://raw.githubusercontent.com/vapoursynth/vapoursynth/$VSAPI3_TAG/include/$h"
+            echo "$sum  $W/vsapi3/$h" | sha256sum -c -
+        done
+        git clone -q --depth 1 --branch "$VSMLRT_TAG" https://github.com/AmusementClub/vs-mlrt.git vs-mlrt
+        cmake -S vs-mlrt/vsncnn -B vsncnn-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DVAPOURSYNTH_INCLUDE_DIRECTORY="$W/vsapi3" \
+            -Dprotobuf_DIR="$W/pb/lib/cmake/protobuf" -DONNX_DIR="$W/onnx-inst/lib/cmake/ONNX" \
+            -Dncnn_DIR="$W/ncnn-$NCNN_TAG-ubuntu-2404/lib/cmake/ncnn" -DCMAKE_CXX_STANDARD=20 >/dev/null
+        cmake --build vsncnn-build >/dev/null
+        cp vsncnn-build/libvsncnn.so "$NCNN_DIR/libvsncnn.so"
+        chmod 755 "$NCNN_DIR/libvsncnn.so"
+        curl -fsSL -o models.7z \
+            "https://github.com/AmusementClub/vs-mlrt/releases/download/$VSMLRT_TAG/models.$VSMLRT_TAG.7z"
+        echo "$VSMLRT_MODELS_SHA256  models.7z" | sha256sum -c -
+        wanted=()
+        for entry in "${UPSCALE_MODEL_HASHES[@]}"; do wanted+=("models/${entry%% *}"); done
+        # One pass: the archive is solid, so each separate extraction would
+        # decompress it from the start again.
+        if command -v 7z >/dev/null; then
+            7z x -y -bd models.7z "${wanted[@]}" >/dev/null
+        else
+            bsdtar -xf models.7z "${wanted[@]}"
+        fi
+        for entry in "${UPSCALE_MODEL_HASHES[@]}"; do
+            rel="${entry%% *}"; sum="${entry##* }"
+            echo "$sum  models/$rel" | sha256sum -c -
+            mkdir -p "$NCNN_DIR/models/$(dirname "$rel")"
+            mv "models/$rel" "$NCNN_DIR/models/$rel"
+        done
+        cd "$BUILD_DIR" && rm -rf "$W"
+    ); then
+        echo "  Installed VSNCNN -> vapoursynth/ncnn/"
+        BUILT_PLUGINS+=("vsncnn")
+    else
+        rm -rf "$NCNN_DIR"
+        echo "  Failed to install VSNCNN"
+        FAILED_PLUGINS+=("vsncnn")
     fi
 fi
 

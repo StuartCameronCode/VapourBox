@@ -774,7 +774,7 @@ if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
 }
 
 # =============================================================================
-# Bwdif + DeDot + vszip - PyPI wheels
+# Bwdif + DeDot + vszip + BM3D + descale - PyPI wheels
 # =============================================================================
 # None of these upstreams publishes a Windows release asset, so each comes from
 # its PyPI wheel, resolved through the JSON API the same way akarin is (never
@@ -801,7 +801,14 @@ if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
 $WheelPlugins = @(
     @{ Name = "bwdif"; Package = "vapoursynth-bwdif"; Version = "5.1"; Dll = "bwdif.dll" },
     @{ Name = "dedot"; Package = "vapoursynth-dedot"; Version = "3.0"; Dll = "dedot.dll" },
-    @{ Name = "vszip"; Package = "vapoursynth-vszip"; Version = "22.1.0"; Dll = "vszip.dll"; Src = "vszip\vszip.dll" }
+    @{ Name = "vszip"; Package = "vapoursynth-vszip"; Version = "22.1.0"; Dll = "vszip.dll"; Src = "vszip\vszip.dll" },
+    # core.bm3d (Noise Reduction's BM3D method). Wheel 12.0 is git tag r12, as
+    # built from source by download-deps-{macos,linux}.sh. fftw is linked in
+    # statically: the DLL imports only the UCRT.
+    @{ Name = "bm3d"; Package = "vapoursynth-bm3d"; Version = "12.0"; Dll = "bm3d.dll" },
+    # core.descale (the Descale pass). Its AVX2 kernel is chosen at run time, so
+    # one DLL serves both tiers. Imports VCRUNTIME140, which Python ships.
+    @{ Name = "descale"; Package = "vapoursynth-descale"; Version = "12"; Dll = "libdescale.dll" }
 )
 
 foreach ($W in $WheelPlugins) {
@@ -845,7 +852,7 @@ foreach ($W in $WheelPlugins) {
 # RIFE 4.26 - the Frame Rate pass's neural interpolator (ncnn on Vulkan)
 # =============================================================================
 # Lives in vapoursynth\rife\, NOT vs-plugins: the template loads it only for a
-# RIFE job (see worker\src\rife.rs), so a machine without a Vulkan driver, or
+# RIFE job (see worker\src\gpu_plugin.rs), so a machine without a Vulkan driver, or
 # without the MSVC OpenMP runtime (VCOMP140.DLL) the DLL imports, fails that
 # method alone - and the app's probe names which one is missing. vulkan-1.dll
 # comes with the GPU driver and is not ours to ship. Keep $RifeTag, the model
@@ -889,6 +896,81 @@ if (-not ((Test-Path "$RifeDir\librife.dll") -and (Test-Path "$RifeModelDir\flow
     }
 } else {
     Write-Host "  RIFE already installed" -ForegroundColor Gray
+}
+
+# =============================================================================
+# VSNCNN (vs-mlrt) + Real-ESRGAN / Real-CUGAN - Crop & Resize's AI upscaling
+# =============================================================================
+# vs-mlrt's own Windows build, pinned and hash-checked. Lives in
+# vapoursynth\ncnn\, never in vs-plugins (see worker\src\gpu_plugin.rs). It links
+# its runtime statically (no VC++ redistributable) and loads vulkan-1.dll, the
+# GPU driver's, at run time. One file serves both CPU tiers: ncnn dispatches
+# its SIMD at run time.
+#
+# The models are vs-mlrt's ONNX conversions (2.4-5.2 MB each), shipped only
+# inside one ~810 MB archive per release: fetched pinned and hash-checked, the
+# five VapourBox uses extracted and each checked by its own hash. Keep every pin
+# and hash in step with download-deps-{macos,linux}.sh and
+# gpu_plugin::UPSCALE_MODELS. Needs 7-Zip, like the other .7z downloads.
+$VsmlrtTag = "v15.16"
+$VsncnnArchiveSha256 = "2ccf0ec1f84cd60f4a744c04d2a40d988da32f6970542f4f81669d44e9ea2ff1"
+$VsmlrtModelsSha256 = "d4eaa8c1c4459082185a9e1a2c54d7e2c776abeea6aef6aee0cb8f6c151dfb02"
+$UpscaleModelHashes = [ordered]@{
+    "RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx" = "6fad590f96df553a5cc348a9c5129e7874504a7dcd414e4a15fb0b281fca7e0c"
+    "RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx" = "414de3a5da4c56652c99f3bc0b960910e3561835a6c7a9cca546475bc4792158"
+    "cugan/up2x-latest-no-denoise.onnx"              = "3587278c3a7e62bbcb00a23b4de291ff906f62a88856ee457cbe4211cc593574"
+    "cugan/up2x-latest-conservative.onnx"            = "555bca3eb90caa37c7e1a02aec9cda3ca8479f252746c1885d382f87312f651c"
+    "cugan/up2x-latest-denoise3x.onnx"               = "7bcb0510f9f989e681a51d39b7170883d3d5e75f1ec23ef5146e8ea50c3cc845"
+}
+$NcnnDir = "$FullTargetDir\vapoursynth\ncnn"
+
+Write-Host ""
+Write-Host "Downloading VSNCNN $VsmlrtTag + upscaling models..." -ForegroundColor Yellow
+if (-not $Has7z) {
+    Write-Host "    Skipping (7-Zip not installed)" -ForegroundColor Yellow
+} elseif (-not ((Test-Path "$NcnnDir\vsncnn.dll") -and (Test-Path "$NcnnDir\models\cugan\up2x-latest-denoise3x.onnx"))) {
+    try {
+        Remove-Item $NcnnDir -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Force -Path "$NcnnDir\models" | Out-Null
+        $Work = Join-Path $TempDir "vsncnn"
+        Remove-Item $Work -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Force -Path $Work | Out-Null
+
+        $Archive = Join-Path $Work "vsncnn.7z"
+        Download-File -Url "https://github.com/AmusementClub/vs-mlrt/releases/download/$VsmlrtTag/VSNCNN-Windows-x64.$VsmlrtTag.7z" -OutFile $Archive
+        $Got = (Get-FileHash -Path $Archive -Algorithm SHA256).Hash.ToLower()
+        if ($Got -ne $VsncnnArchiveSha256) { throw "VSNCNN archive sha256 $Got, expected $VsncnnArchiveSha256" }
+        & $7zPath x $Archive -o"$Work" -y | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "7-Zip failed on the VSNCNN archive (exit $LASTEXITCODE)" }
+        $Dll = Get-ChildItem -Path $Work -Recurse -Filter "vsncnn.dll" | Select-Object -First 1
+        if (-not $Dll) { throw "vsncnn.dll missing from the VSNCNN archive" }
+        Copy-Item $Dll.FullName "$NcnnDir\vsncnn.dll" -Force
+
+        $Models = Join-Path $Work "models.7z"
+        Download-File -Url "https://github.com/AmusementClub/vs-mlrt/releases/download/$VsmlrtTag/models.$VsmlrtTag.7z" -OutFile $Models
+        $Got = (Get-FileHash -Path $Models -Algorithm SHA256).Hash.ToLower()
+        if ($Got -ne $VsmlrtModelsSha256) { throw "models archive sha256 $Got, expected $VsmlrtModelsSha256" }
+        # One pass: the archive is solid, so separate extractions would each
+        # decompress it from the start again.
+        $Wanted = $UpscaleModelHashes.Keys | ForEach-Object { "models/$_" }
+        & $7zPath x $Models -o"$Work" -y @Wanted | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "7-Zip failed on the models archive (exit $LASTEXITCODE)" }
+        foreach ($Rel in $UpscaleModelHashes.Keys) {
+            $Src = Join-Path $Work ("models\" + $Rel.Replace('/', '\'))
+            $Got = (Get-FileHash -Path $Src -Algorithm SHA256).Hash.ToLower()
+            if ($Got -ne $UpscaleModelHashes[$Rel]) { throw "$Rel sha256 $Got, expected $($UpscaleModelHashes[$Rel])" }
+            $Dest = Join-Path "$NcnnDir\models" $Rel.Replace('/', '\')
+            New-Item -ItemType Directory -Force -Path (Split-Path $Dest) | Out-Null
+            Move-Item $Src $Dest -Force
+        }
+        Remove-Item $Work -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "  VSNCNN installed -> vapoursynth\ncnn\" -ForegroundColor Green
+    } catch {
+        Remove-Item $NcnnDir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "    Failed: $_" -ForegroundColor Red
+    }
+} else {
+    Write-Host "  VSNCNN already installed" -ForegroundColor Gray
 }
 
 # =============================================================================

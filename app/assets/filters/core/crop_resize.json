@@ -246,17 +246,20 @@
       "options": [
         "nnedi3Rpow2",
         "eedi3Rpow2",
-        "spline36"
+        "spline36",
+        "realEsrgan",
+        "realCugan"
       ],
       "optional": true,
       "ui": {
         "label": "Upscale Method",
-        "description": "Edge-directed doubling. NNEDI3 is the usual choice; EEDI3 is slower and follows near-horizontal edges better (it uses NNEDI3 to guide its search); Spline36 is plain resampling with no edge direction",
+        "description": "Edge-directed doubling. NNEDI3 is the usual choice; EEDI3 is slower and follows near-horizontal edges better (it uses NNEDI3 to guide its search); Spline36 is plain resampling with no edge direction. Real-ESRGAN and Real-CUGAN are neural upscalers trained on anime: they redraw clean line art rather than interpolating it, and run on the graphics card (Vulkan). Real-ESRGAN is sharper and faster; Real-CUGAN is gentler and can remove noise as it goes. Use them after deinterlacing: on a combed picture they sharpen the combing too",
         "widget": "dropdown",
         "visibleWhen": {
           "useIntegerUpscale": true
         }
-      }
+      },
+      "sinceAppVersion": "1.5.0"
     },
     "upscaleFactor": {
       "type": "integer",
@@ -271,6 +274,27 @@
         "widget": "slider",
         "visibleWhen": {
           "useIntegerUpscale": true
+        }
+      }
+    },
+    "cuganNoise": {
+      "type": "enum",
+      "default": "conservative",
+      "options": [
+        "none",
+        "conservative",
+        "denoise3x"
+      ],
+      "sinceAppVersion": "1.5.0",
+      "ui": {
+        "label": "Real-CUGAN Denoise",
+        "description": "How much noise Real-CUGAN removes as it upscales: none, conservative (keeps texture) or strong (denoise3x). At 4x it denoises on the first doubling only",
+        "widget": "dropdown",
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "realCugan"
+          ]
         }
       }
     },
@@ -840,11 +864,12 @@
       },
       {
         "title": "Upscale",
-        "description": "Enlarge using an edge-directed interpolator rather than a plain resize. Doubles at a time, so pick the factor that reaches or exceeds your target and set a Resize below to land on it exactly.",
+        "description": "Enlarge using an edge-directed interpolator or a neural upscaler rather than a plain resize. Doubles at a time, so pick the factor that reaches or exceeds your target and set a Resize below to land on it exactly.",
         "parameters": [
           "useIntegerUpscale",
           "upscaleMethod",
-          "upscaleFactor"
+          "upscaleFactor",
+          "cuganNoise"
         ],
         "expanded": false
       },
@@ -908,6 +933,22 @@
       "activeWhen": {
         "useIntegerUpscale": true,
         "upscaleMethod": "spline36"
+      }
+    },
+    {
+      "function": "core.ncnn.Model",
+      "role": "Real-ESRGAN anime video model, on the GPU (vs-mlrt's VSNCNN)",
+      "activeWhen": {
+        "useIntegerUpscale": true,
+        "upscaleMethod": "realEsrgan"
+      }
+    },
+    {
+      "function": "core.ncnn.Model",
+      "role": "Real-CUGAN, on the GPU (vs-mlrt's VSNCNN)",
+      "activeWhen": {
+        "useIntegerUpscale": true,
+        "upscaleMethod": "realCugan"
       }
     },
     {

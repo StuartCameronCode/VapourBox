@@ -3,6 +3,7 @@ import 'package:json_annotation/json_annotation.dart';
 import 'anti_alias_parameters.dart';
 import 'geometry_parameters.dart';
 import 'deflicker_parameters.dart';
+import 'descale_parameters.dart';
 import 'edge_repair_parameters.dart';
 import 'frame_rate_parameters.dart';
 import 'ghost_removal_parameters.dart';
@@ -45,6 +46,7 @@ enum PassType {
   deflicker,
   edgeRepair,
   ghostRemoval,
+  descale,
   colorCorrection,
   chromaFixes,
   cropResize,
@@ -89,6 +91,8 @@ extension PassTypeExtension on PassType {
         return 'Edge Repair';
       case PassType.ghostRemoval:
         return 'Ghost Removal';
+      case PassType.descale:
+        return 'Descale';
       case PassType.colorCorrection:
         return 'Color Correction';
       case PassType.chromaFixes:
@@ -136,6 +140,8 @@ extension PassTypeExtension on PassType {
         return 'Rebuild the dirty rows and columns at the frame border';
       case PassType.ghostRemoval:
         return 'Remove the displaced echo RF and cable distribution leave behind';
+      case PassType.descale:
+        return "Undo a studio's upscale, then upscale again cleanly";
       case PassType.colorCorrection:
         return 'Adjust brightness, contrast, and colors';
       case PassType.chromaFixes:
@@ -184,6 +190,7 @@ class ProcessingPipeline {
   final GrainParameters grain;
   final FrameRateParameters frameRate;
   final DeflickerParameters deflicker;
+  final DescaleParameters descale;
   final EdgeRepairParameters edgeRepair;
   final GhostRemovalParameters ghostRemoval;
 
@@ -215,6 +222,7 @@ class ProcessingPipeline {
     this.grain = const GrainParameters(),
     this.frameRate = const FrameRateParameters(),
     this.deflicker = const DeflickerParameters(),
+    this.descale = const DescaleParameters(),
     this.edgeRepair = const EdgeRepairParameters(),
     this.ghostRemoval = const GhostRemovalParameters(),
     this.colorCorrection = const ColorCorrectionParameters(),
@@ -242,6 +250,7 @@ class ProcessingPipeline {
       grain: const GrainParameters(enabled: false),
       frameRate: const FrameRateParameters(enabled: false),
       deflicker: const DeflickerParameters(enabled: false),
+      descale: const DescaleParameters(enabled: false),
       edgeRepair: const EdgeRepairParameters(enabled: false),
       ghostRemoval: const GhostRemovalParameters(enabled: false),
       colorCorrection: const ColorCorrectionParameters(enabled: false),
@@ -280,6 +289,11 @@ class ProcessingPipeline {
     }
     if (spotless.enabled) {
       passes.add(PassType.spotless);
+    }
+    // Descale needs the studio's upscale exactly as it was: before any denoise,
+    // deblock or sharpen changes the picture it inverts.
+    if (descale.enabled) {
+      passes.add(PassType.descale);
     }
     if (noiseReduction.enabled) {
       passes.add(PassType.noiseReduction);
@@ -366,6 +380,7 @@ class ProcessingPipeline {
     if (grain.hasEffect) count++;
     if (frameRate.enabled) count++;
     if (deflicker.enabled) count++;
+    if (descale.enabled) count++;
     if (edgeRepair.hasEffect) count++;
     if (ghostRemoval.hasEffect) count++;
     if (colorCorrection.enabled) count++;
@@ -393,6 +408,7 @@ class ProcessingPipeline {
     if (grain.hasEffect) count++;
     if (frameRate.enabled) count++;
     if (deflicker.enabled) count++;
+    if (descale.enabled) count++;
     if (edgeRepair.hasEffect) count++;
     if (ghostRemoval.hasEffect) count++;
     if (colorCorrection.enabled) count++;
@@ -434,6 +450,8 @@ class ProcessingPipeline {
         return frameRate.enabled;
       case PassType.deflicker:
         return deflicker.enabled;
+      case PassType.descale:
+        return descale.enabled;
       case PassType.edgeRepair:
         return edgeRepair.hasEffect;
       case PassType.ghostRemoval:
@@ -484,6 +502,8 @@ class ProcessingPipeline {
         return frameRate.summary;
       case PassType.deflicker:
         return deflicker.summary;
+      case PassType.descale:
+        return descale.summary;
       case PassType.edgeRepair:
         return edgeRepair.summary;
       case PassType.ghostRemoval:
@@ -515,6 +535,7 @@ class ProcessingPipeline {
     GrainParameters? grain,
     FrameRateParameters? frameRate,
     DeflickerParameters? deflicker,
+    DescaleParameters? descale,
     EdgeRepairParameters? edgeRepair,
     GhostRemovalParameters? ghostRemoval,
     ColorCorrectionParameters? colorCorrection,
@@ -538,6 +559,7 @@ class ProcessingPipeline {
       grain: grain ?? this.grain,
       frameRate: frameRate ?? this.frameRate,
       deflicker: deflicker ?? this.deflicker,
+      descale: descale ?? this.descale,
       edgeRepair: edgeRepair ?? this.edgeRepair,
       ghostRemoval: ghostRemoval ?? this.ghostRemoval,
       colorCorrection: colorCorrection ?? this.colorCorrection,
@@ -608,6 +630,8 @@ class ProcessingPipeline {
         );
       case PassType.deflicker:
         return copyWith(deflicker: deflicker.copyWith(enabled: enabled));
+      case PassType.descale:
+        return copyWith(descale: descale.copyWith(enabled: enabled));
       case PassType.edgeRepair:
         return copyWith(edgeRepair: edgeRepair.copyWith(enabled: enabled));
       case PassType.ghostRemoval:

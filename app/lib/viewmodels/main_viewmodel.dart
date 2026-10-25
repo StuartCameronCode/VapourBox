@@ -5,7 +5,8 @@ import 'package:path/path.dart' as path;
 
 import '../models/dvd_info.dart';
 import '../models/dynamic_parameters.dart';
-import '../models/rife_status.dart';
+import '../models/gpu_plugin_status.dart';
+import '../models/native_res_report.dart';
 import '../models/encoding_settings.dart';
 import '../models/parameter_converter.dart';
 import '../models/progress_info.dart';
@@ -84,11 +85,20 @@ class MainViewModel extends ChangeNotifier {
   // (a distinct capability — KNLMeansCL can fail where NNEDI3CL succeeds).
   bool? _openclAvailable;
   bool? _knlmAvailable;
+  // Why the KNLMeans noise-reduction method cannot run here (null when it can,
+  // or before the probe has answered).
+  String? _knlmMethodMessage;
 
-  // Whether RIFE frame interpolation runs here (`--probe-rife`), with the
-  // worker's explanation and remedy when it doesn't. null = not yet probed.
-  RifeStatus? _rifeStatus;
-  bool _rifeChecking = false;
+  // Whether each GPU feature (RIFE, AI upscaling) runs here, with the worker's
+  // explanation and remedy when it doesn't. Absent = not yet probed.
+  final Map<GpuPlugin, GpuPluginStatus> _gpuStatus = {};
+  final Set<GpuPlugin> _gpuChecking = {};
+
+  // Descale's Detect: the native resolution found for a video, keyed by the
+  // queue item it was measured on, so it never applies to a different one.
+  final Future<NativeResReport> Function(VideoJob job) _detectNative;
+  ({String itemId, NativeResReport report})? _nativeRes;
+  String? _detectingNativeResFor;
 
   // Set in dispose() so the async OpenCL probe doesn't notifyListeners() after
   // teardown (the top-level view model normally lives for the app's lifetime).
@@ -172,33 +182,119 @@ class MainViewModel extends ChangeNotifier {
   /// while the probe is still running.
   bool? get knlmAvailable => _knlmAvailable;
 
-  /// Whether RIFE runs here, and if not why (gates the Frame Rate panel's
-  /// RIFE notice). null while the first probe is still running.
-  RifeStatus? get rifeStatus => _rifeStatus;
+  /// Why the KNLMeans noise-reduction method cannot run here — the worker's
+  /// wording, the same text it refuses such a job with — or null.
+  String? get knlmMethodMessage => _knlmMethodMessage;
 
-  /// Whether a RIFE probe is in flight.
-  bool get rifeChecking => _rifeChecking;
-
-  /// Set the RIFE probe result directly, for widget tests of the notice.
   @visibleForTesting
-  void debugSetRifeStatus(RifeStatus? status, {bool checking = false}) {
-    _rifeStatus = status;
-    _rifeChecking = checking;
+  void debugSetKnlmMethodMessage(String? message) {
+    _knlmMethodMessage = message;
     notifyListeners();
   }
 
-  /// Re-run the RIFE probe — after the user has installed a driver or the
-  /// VC++ runtime the notice told them to. The worker only caches a positive
-  /// answer, so this sees the fix without a reboot.
-  Future<void> recheckRife() async {
-    if (_rifeChecking) return;
-    _rifeChecking = true;
+  /// Whether a GPU feature runs here, and if not why (gates the panels'
+  /// notices). null while the first probe is still running.
+  GpuPluginStatus? gpuPluginStatus(GpuPlugin plugin) => _gpuStatus[plugin];
+
+  /// Whether a probe for [plugin] is in flight.
+  bool gpuPluginChecking(GpuPlugin plugin) => _gpuChecking.contains(plugin);
+
+  /// Set a probe result directly, for widget tests of the notices.
+  @visibleForTesting
+  void debugSetGpuPluginStatus(GpuPlugin plugin, GpuPluginStatus? status,
+      {bool checking = false}) {
+    status == null ? _gpuStatus.remove(plugin) : _gpuStatus[plugin] = status;
+    checking ? _gpuChecking.add(plugin) : _gpuChecking.remove(plugin);
     notifyListeners();
-    final status = await WorkerManager.probeRife();
+  }
+
+  /// Re-run a GPU feature's probe — after the user has installed a driver or
+  /// the VC++ runtime the notice told them to. The worker only caches a
+  /// positive answer, so this sees the fix without a reboot.
+  Future<void> recheckGpuPlugin(GpuPlugin plugin) async {
+    if (_gpuChecking.contains(plugin)) return;
+    _gpuChecking.add(plugin);
+    notifyListeners();
+    final status = await WorkerManager.probeGpuPlugin(plugin);
     if (_disposed) return;
-    _rifeStatus = status;
-    _rifeChecking = false;
+    _gpuStatus[plugin] = status;
+    _gpuChecking.remove(plugin);
     notifyListeners();
+  }
+
+  /// Put an analysed video in the queue and select it, for widget tests.
+  @visibleForTesting
+  void debugAddQueueItemForTest(String path, {required int width, required int height}) {
+    final item = QueueItem(
+      inputPath: path,
+      outputPath: '$path.out.mkv',
+      videoInfo: VideoInfo(
+        width: width,
+        height: height,
+        frameRate: 23.976,
+        duration: 600,
+        frameCount: 14386,
+        codec: 'h264',
+        pixelFormat: 'yuv420p',
+        hasAudio: false,
+      ),
+    );
+    _queue.add(item);
+    _selectedItemId = item.id;
+    notifyListeners();
+  }
+
+  /// What Detect found for the selected video, or null (not run for it yet).
+  NativeResReport? get nativeResReport =>
+      _nativeRes != null && _nativeRes!.itemId == _selectedItemId ? _nativeRes!.report : null;
+
+  /// Whether Detect is running for the selected video.
+  bool get detectingNativeRes =>
+      _detectingNativeResFor != null && _detectingNativeResFor == _selectedItemId;
+
+  /// Find the resolution and kernel the selected video was upscaled from, for
+  /// the Descale pass. Analyses the trimmed range if there is one.
+  Future<void> detectNativeResolution() async {
+    final item = selectedItem;
+    if (item == null || _detectingNativeResFor != null) return;
+    _detectingNativeResFor = item.id;
+    notifyListeners();
+    final info = item.videoInfo;
+    final frameCount = info?.frameCount ?? 0;
+    final job = VideoJob(
+      inputPath: item.inputPath,
+      outputPath: item.outputPath,
+      encodingSettings: _encodingSettings,
+      totalFrames: info?.frameCount,
+      inputFrameRate: info?.frameRate,
+      inputWidth: info?.width,
+      inputHeight: info?.height,
+      inputPixelFormat: info?.pixelFormat,
+      startFrame: item.inPoint == null ? null : (item.inPoint! * frameCount).round(),
+      endFrame: item.outPoint == null ? null : (item.outPoint! * frameCount).round(),
+    );
+    final report = await _detectNative(job);
+    if (_disposed) return;
+    _nativeRes = (itemId: item.id, report: report);
+    _detectingNativeResFor = null;
+    notifyListeners();
+  }
+
+  /// Put what Detect found into the Descale pass, switching it on.
+  void applyNativeResolution() {
+    final report = nativeResReport;
+    if (report == null || report.error != null || report.height <= 0) return;
+    final current = getDynamicParams('descale');
+    updateDynamicParams(
+      'descale',
+      DynamicParameters(
+        filterId: 'descale',
+        enabled: true,
+        values: {...current.values, ...report.descaleValues},
+        enabledOptionalParams: current.enabledOptionalParams,
+        lastOptionalValues: current.lastOptionalValues,
+      ),
+    );
   }
 
   bool get canShutDown => _systemShutdown.isSupported;
@@ -280,6 +376,8 @@ class MainViewModel extends ChangeNotifier {
         return ParameterConverter.fromEdgeRepair(_processingPipeline.edgeRepair);
       case 'ghost_removal':
         return ParameterConverter.fromGhostRemoval(_processingPipeline.ghostRemoval);
+      case 'descale':
+        return ParameterConverter.fromDescale(_processingPipeline.descale);
       case 'color_correction':
         return ParameterConverter.fromColorCorrection(_processingPipeline.colorCorrection);
       case 'chroma_fixes':
@@ -364,6 +462,11 @@ class MainViewModel extends ChangeNotifier {
       case 'deflicker':
         _processingPipeline = _processingPipeline.copyWith(
           deflicker: ParameterConverter.toDeflicker(params),
+        );
+        break;
+      case 'descale':
+        _processingPipeline = _processingPipeline.copyWith(
+          descale: ParameterConverter.toDescale(params),
         );
         break;
       case 'edge_repair':
@@ -503,13 +606,19 @@ class MainViewModel extends ChangeNotifier {
     return _manualFieldOrder;
   }
 
-  MainViewModel({JobRunner? runner, SystemShutdown? systemShutdown})
-      : _workerManager = runner ?? WorkerManager(),
-        _systemShutdown = systemShutdown ?? PlatformSystemShutdown() {
+  MainViewModel({
+    JobRunner? runner,
+    SystemShutdown? systemShutdown,
+    Future<NativeResReport> Function(VideoJob job)? nativeResDetector,
+  })  : _workerManager = runner ?? WorkerManager(),
+        _systemShutdown = systemShutdown ?? PlatformSystemShutdown(),
+        _detectNative = nativeResDetector ?? WorkerManager.detectNativeResolution {
     _setupSubscriptions();
     _initializePreviewGenerator();
     _probeGpuCapabilities();
-    recheckRife();
+    for (final plugin in GpuPlugin.values) {
+      recheckGpuPlugin(plugin);
+    }
   }
 
   /// Probe GPU capabilities once at startup so the UI can warn when an
@@ -519,6 +628,7 @@ class MainViewModel extends ChangeNotifier {
     if (_disposed) return;
     _openclAvailable = caps.opencl;
     _knlmAvailable = caps.knlm;
+    _knlmMethodMessage = caps.knlmMessage;
     notifyListeners();
   }
 
@@ -1225,6 +1335,8 @@ class MainViewModel extends ChangeNotifier {
         return 'edge_repair';
       case PassType.ghostRemoval:
         return 'ghost_removal';
+      case PassType.descale:
+        return 'descale';
       case PassType.colorCorrection:
         return 'color_correction';
       case PassType.chromaFixes:

@@ -100,6 +100,11 @@ jobs:
           ln -sfn "$BP/opt/whisper-cpp/bin" addons/whisper/bin
           ln -sfn "$BP/opt/whisper-cpp/lib" addons/whisper/lib
 
+      - name: Provision Vulkan (RIFE, AI upscaling)
+        # Lavapipe on the GPU-less Linux/Windows runners; sets
+        # VAPOURBOX_EXPECT_VULKAN=1 so the GPU tests must run, not skip.
+        run: bash .github/scripts/provision-vulkan.sh macos-${{ matrix.arch }}
+
       - name: Rust tests
         # Debug build: DependencyLocator's upward search then finds the repo-root
         # deps/ and addons/ (release mode looks under ~/Library).
@@ -171,6 +176,12 @@ jobs:
           cp "$(dirname "$CLI")"/*.exe addons/whisper/ 2>/dev/null || true
           cp "$(dirname "$CLI")"/*.dll addons/whisper/ 2>/dev/null || true
           ls addons/whisper/
+
+      - name: Provision Vulkan (RIFE, AI upscaling)
+        # Lavapipe on the GPU-less Linux/Windows runners; sets
+        # VAPOURBOX_EXPECT_VULKAN=1 so the GPU tests must run, not skip.
+        shell: bash
+        run: bash .github/scripts/provision-vulkan.sh windows-x64
 
       - name: Rust tests
         run: cd worker && cargo test -- --nocapture
@@ -259,6 +270,11 @@ jobs:
           mkdir -p "$HOME/.local/share/VapourBox"
           ln -sfn "${{ github.workspace }}/deps" "$HOME/.local/share/VapourBox/deps"
           ln -sfn "${{ github.workspace }}/addons" "$HOME/.local/share/VapourBox/addons"
+
+      - name: Provision Vulkan (RIFE, AI upscaling)
+        # Lavapipe on the GPU-less Linux/Windows runners; sets
+        # VAPOURBOX_EXPECT_VULKAN=1 so the GPU tests must run, not skip.
+        run: bash .github/scripts/provision-vulkan.sh linux-x64
 
       - name: Rust tests
         run: cd worker && cargo test -- --nocapture

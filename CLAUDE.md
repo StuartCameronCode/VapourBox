@@ -102,7 +102,8 @@ VapourBox/
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded (see "Source Frame Size") |
-| `worker/src/rife.rs` | RIFE's file layout, its `--probe-rife` probe, and the user-facing reason/remedy when it can't run (see "RIFE Frame Interpolation") |
+| `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, the `--probe-rife` / `--probe-upscale` probe, and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
+| `worker/src/native_res.rs` | `--detect-native`: the resolution and kernel a source was upscaled from, for the Descale pass (see "Descale") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
 
@@ -117,7 +118,8 @@ VapourBox/
 | `app/lib/services/preset_service.dart` | Save/load user presets |
 | `app/lib/services/temp_directory_service.dart` | Configurable scratch-file directory (see "Temporary Files Directory") |
 | `app/lib/services/overwrite_behavior_service.dart` | Default action for existing output files (see "Existing Output Files") |
-| `app/lib/models/rife_status.dart` | The worker's RIFE probe result, and the Frame Rate panel's notice decision |
+| `app/lib/models/native_res_report.dart` | What `--detect-native` found, as the Descale panel's Detect shows and applies it |
+| `app/lib/models/gpu_plugin_status.dart` | The worker's GPU-plugin probe results, and the panels' notice decision |
 | `app/assets/filters/core/*.json` | Built-in filter schema definitions |
 
 ## Build Commands
@@ -1050,48 +1052,146 @@ asserted in `shutdown_when_done_test.dart`:
   extension. Use `colorScheme` roles, not fixed colours, for UI chrome —
   fixed black/white only belongs on overlays drawn over video.
 
-### RIFE Frame Interpolation
+### GPU Plugins: RIFE and AI Upscaling
 
-RIFE 4.26 (`rife.RIFE`, ncnn on Vulkan) is the Frame Rate pass's third method,
-`FrameRateMethod::Rife` (`"rife"`). It is the only method that needs more than
-the deps bundle, and the rules all follow from one fact: **without a usable
-Vulkan implementation the plugin segfaults** (in `ncnn::create_gpu_instance`)
-instead of raising.
+Two features run a neural network through ncnn on Vulkan: **RIFE** 4.26
+(`rife.RIFE`), the Frame Rate pass's `FrameRateMethod::Rife`, and **AI
+upscaling** (vs-mlrt's VSNCNN, `ncnn.Model`, with Real-ESRGAN's anime video
+model or Real-CUGAN), Crop & Resize's `UpscaleMethod::RealEsrgan` /
+`RealCugan`. `worker/src/gpu_plugin.rs` (`GpuPlugin::{Rife, Upscale}`) holds
+everything they share, and the rules all follow from one fact: **without a
+usable Vulkan implementation ncnn can segfault** (RIFE does, in
+`ncnn::create_gpu_instance`; VSNCNN raises "get_gpu_device failed") rather
+than fail cleanly.
 
-- **Never autoloaded.** The plugin, the model and (macOS) MoltenVK live in
-  `deps/<platform>/vapoursynth/rife/`, outside the plugin directory; the
-  template `LoadPlugin`s it inside `{{#FRAME_RATE_RIFE}}` only. A missing
-  runtime DLL, a broken driver or AVX in a static initializer can therefore
-  only affect a RIFE job. Don't move it into `plugins/` / `vs-plugins/`.
+- **Never autoloaded.** RIFE and its model live in `vapoursynth/rife/`, VSNCNN
+  and its models in `vapoursynth/ncnn/`, and on macOS the MoltenVK both use in
+  `vapoursynth/moltenvk/` — all outside the plugin directory. The templates
+  `LoadPlugin` them inside `{{#FRAME_RATE_RIFE}}` / `{{#UPSCALE_AI}}` only, so
+  a missing runtime DLL, a broken driver or AVX in a static initializer can
+  only affect a job that uses them. Don't move them into `plugins/` /
+  `vs-plugins/`.
 - **macOS preloads MoltenVK** (`ctypes.CDLL(..., RTLD_GLOBAL)`) before the
-  first call: the dylibs leave `vkGetInstanceProcAddr` to whatever is already
-  in the process. Without it every RIFE call is a SIGSEGV.
-- **One probe, one wording.** `rife.rs` prechecks the platform and files, then
-  runs the plugin once in a throwaway vspipe, printing stage markers so a
+  first call: both dylibs leave `vkGetInstanceProcAddr` to whatever is already
+  in the process.
+- **One probe, one wording.** `gpu_plugin.rs` prechecks the platform and files,
+  then runs the plugin once in a throwaway vspipe, printing stage markers so a
   silent crash still says where it died, and classifies the result into a
-  `RifeReason` with a user-facing remedy (`RifeStatus::message`). The app shows
-  that text when RIFE is selected (`--probe-rife`, `rifeNoticeFor`, with a
-  *Check again* button); the worker refuses a RIFE job with the same text
-  (`ScriptGenerator::with_rife`, `ensure_rife_ready`) rather than emit a script
-  that would crash. Only a **positive** result is cached per boot — a cached
-  failure would keep blaming a driver the user has just installed.
-  `VAPOURBOX_DISABLE_VULKAN=1` forces the unavailable path.
-- **Platforms:** macos-arm64, windows-x64 (both tiers), linux-x64 (both tiers).
-  `rife::platform_ships_rife` and `_extraFiles` in `deps-expected-plugins.json`
-  must agree (`attribution_test.dart`). macOS x64's prebuilt targets macOS 13
-  and fails `check-load-time-simd.py`; linux-arm64 has no upstream build. Both
-  need a source build before they can be added.
-- **Real frames pass through untouched.** RIFE works in RGBS; every output
+  `GpuPluginReason` with a user-facing remedy (`GpuPluginStatus::message`,
+  naming the feature). The app shows that text the moment the feature is
+  selected (`--probe-rife` / `--probe-upscale`, `gpuPluginSelectedBy`,
+  `gpuPluginNoticeFor`, with a *Check again* button); the worker refuses such
+  a job with the same text (`ScriptGenerator::with_rife` / `with_upscale`,
+  `ensure_methods_ready`) rather than emit a script that would crash. Only a
+  **positive** result is cached per boot (`rife-probe.json`,
+  `ncnn-probe.json`) — a cached failure would keep blaming a driver the user
+  has just installed. `VAPOURBOX_DISABLE_VULKAN=1` forces the unavailable path.
+- **Platforms:** macos-arm64, windows-x64 (both tiers), linux-x64 (both tiers),
+  for both. `gpu_plugin::platform_ships_rife` / `platform_ships_upscale` and
+  `_extraFiles` in `deps-expected-plugins.json` must agree
+  (`attribution_test.dart`). macOS x64 has no MoltenVK copy or usable RIFE
+  prebuilt; linux-arm64 has no upstream RIFE and Tencent publishes no aarch64
+  Linux ncnn.
+- **RIFE: real frames pass through untouched.** It works in RGBS; every output
   frame it would merely copy (an exact source position, the held tail) is
-  taken from the source by `FrameEval` instead, so photographed frames are
-  bit-exact rather than chroma-softened by a YUV→RGB→YUV round trip. The count
-  is `floor(n * num / den)` of the reduced ratio — exactly `FrameMap::Retime`.
-  `sc=True` with `misc.SCDetect` holds the frame across a cut rather than
-  blending two shots.
-- The model is the ncnn conversion committed to the plugin's repo, fetched at
-  a pinned commit and checked by SHA-256 in every `download-deps-*` script.
+  taken from the source by `FrameEval`, so photographed frames are bit-exact.
+  The count is `floor(n * num / den)` of the reduced ratio — exactly
+  `FrameMap::Retime`. `sc=True` with `misc.SCDetect` holds the frame across a
+  cut rather than blending two shots.
+- **Upscaling: models, factors, tiles.** Five of vs-mlrt's ONNX conversions
+  ship (`gpu_plugin::UPSCALE_MODELS`): Real-ESRGAN animevideo 2x/4x and
+  Real-CUGAN 2x at three strengths. Factors follow the edge-directed path's
+  rule (3x behaves as 2x); CUGAN 4x is its 2x model twice, denoising on the
+  first pass only (`CropResizeParameters::ai_upscale_models`). Above SD the
+  frame runs in 512-px tiles with 16 px overlap — whole-frame CUGAN at 1080p
+  ran out of GPU memory on a 16 GB Mac. Float RGB in and out with the source's
+  matrix/range, odd sizes edge-padded, frame props copied back, fp16 (≤0.3/255
+  from fp32, ~3x faster). Real-ESRGAN measurably tints flat colour (up to ~11
+  levels at 4x, in fp32 too); that is the model, not the pipeline.
+- **VSNCNN is built from source on macOS and Linux** (only Windows has a
+  published build): static protobuf v3.21.12 and onnx at vs-mlrt's pinned
+  commit, Tencent's prebuilt ncnn 20260526, VapourSynth's API 3 headers from
+  the R78 tag. Models come from vs-mlrt's ~810 MB `models.vX.7z` (the only
+  place they are published), extracted in one pass and each checked by hash.
+  Every pin and hash is in all three `download-deps-*` scripts.
+- **Tested for real in CI.** The hosted runners have no GPU, so
+  `.github/scripts/provision-vulkan.sh` gives Linux and Windows Mesa's
+  lavapipe (a CPU Vulkan driver ncnn accepts) and sets
+  `VAPOURBOX_EXPECT_VULKAN=1` wherever a device exists (macOS arm64 uses the
+  runner's Metal GPU through MoltenVK). Under that variable every GPU test
+  **fails** rather than skips if a feature reports itself unavailable
+  (`app/test/support/gpu_expectations.dart`), so a broken bundle cannot hide
+  behind "no GPU". `integration_gpu_plugins_test.dart` (push gate) probes,
+  checks the refusal and the script, and renders a real frame per feature;
+  `integration_ai_upscale_test.dart` and the RIFE group of
+  `integration_frame_mapping_test.dart` (heavy) encode and check pixels — the
+  upscalers against Spline36 on a synthetic pattern (colour within 2 levels for
+  CUGAN 2x, bar centre within 0.75 px for all).
 
-See docs/ENGINEERING_NOTES.md (2026-10-24) for the probe measurements.
+See docs/ENGINEERING_NOTES.md (2026-10-24, 2026-10-25) for the measurements.
+
+### Descale
+
+The Descale pass (`DescaleParameters`, `PassType::Descale`, app 1.5.0) inverts
+a studio's upscale on luma with `descale.De*` (r12, MIT, a PyPI wheel on every
+platform, autoloaded — its AVX2 kernel is picked at run time), re-upscales
+with NNEDI3 (`_nnedi3()`, doubling to at least the source size, then one
+Spline36 resample that also folds in the doublings' half-pixel shifts), and
+keeps chroma and the source size. Rules:
+
+- **It runs right after SpotLess, before Noise Reduction** — descale needs the
+  upscale exactly as the studio made it. `test_177` asserts the order.
+- **Protect credits and text** (`protectDetail`, default on): where
+  re-applying the kernel to the descaled picture misses the source by more
+  than `detailThreshold` 8-bit levels, the source is kept (binarised, grown
+  twice, softened). On a never-upscaled picture that is nearly every pixel —
+  correct, and why the parity test switches it off.
+- **Detect** (`--detect-native`, `native_res.rs`) is what makes the pass
+  usable: getnative's method, with these measured traps. Scan every height
+  from half the source's, with one kernel per family (bilinear, Catmull-Rom,
+  Lanczos 3, Spline36 — a master only dips under its own); only heights with
+  neighbours on *both* sides are candidates (the error slopes down toward the
+  source height and a one-sided window reads that as a dip); cap each pixel's
+  error at 2 levels before averaging, or credits swamp the dip; rank 12
+  kernels at the best height over four sampled frames. `found` only when the
+  dip is ≤ 0.5 of its neighbours' median — a never-upscaled VHS capture
+  measures ~0.9, a credit-free master ~0.14. All candidates are spliced into
+  one clip and read with `frames()`, so VapourSynth runs them in parallel
+  (~30 s at 1080p). A fixture for any of this must have real detail at its
+  native resolution: an upscale of low-res footage is so smooth that 8-bit
+  rounding hides every height's misfit.
+- The panel never applies a guess: no clear dip is reported as such.
+  `integration_descale_test.dart` (heavy) checks detection on known masters,
+  protection (grid exact vs. destroyed without the mask) and preview = encode.
+
+### BM3D and KNLMeans Noise Reduction
+
+Two advanced-only Noise Reduction methods (`bm3d`, `knlmeans`, app 1.5.0;
+the simple slots are full at four).
+
+- **BM3D works in 16-bit, one GRAY plane at a time.** `VAggregate` always
+  returns 16-bit and `VFinal` needs its basic estimate in its input's format,
+  so the block converts up and restores the source format with dither. BM3D
+  refuses subsampled chroma, so each plane is its own GRAY clip: 4:2:0 chroma
+  is denoised at its own resolution rather than resampled to 4:4:4 and back.
+  `sigma` is in 8-bit units at every depth (parity 0.36/255 at 10-bit).
+- **BM3D ships everywhere from deps 1.14.0**, pinned to r12 (`BM3D_TAG` on
+  macOS/Linux = PyPI wheel 12.0 on Windows). Before, only macOS arm64 had it:
+  Linux's `patch_meson_vs_include` missed r12's nested
+  `include_directories('include', run_command(py, '-c', 'import vapoursynth…'))`,
+  and macOS x64 never ran `build_plugin`. Both failed silently because the
+  plugin wasn't in their `deps-expected-plugins.json` lists.
+- **KNLMeans has its own device probe**, separate from `knlm_available`.
+  havsfunc calls KNLMeansCL with the default `device_type="auto"`, which fails
+  on Apple Silicon (`CL_INVALID_VALUE`) where `"gpu"` works. So `knlm` still
+  answers for QTGMC's call, and `DependencyLocator::knlm_device` (gpu, then
+  auto; `knlm-device-probe.json`) is the device our own call passes. With no
+  device the job is refused with `KNLM_NO_DEVICE_MESSAGE`, the same text the
+  panel shows (`knlmDevice`/`knlmMessage` from `--probe-opencl`), through
+  `ScriptGenerator::with_knlm` / `ensure_methods_ready`, as for RIFE.
+- **The Noise Reduction pass's preview radius is per method**
+  (`NoiseReductionParameters::temporal_radius`): BM3D's Final step re-reads
+  its basic estimate's neighbours, so it reaches 2r; a fixed 3 was too few.
 
 ### Preset System
 
@@ -1984,4 +2084,4 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.11.0 | 2026-09 | **Issue #92**: every x86 bundle ships in two **CPU tiers** — `v3` (x86-64-v3; the plain asset names) and `v2` (`…-x64-v2`, anything older), chosen by the app from `vapourbox-worker --probe-cpu`. Each bundle carries one autoloaded zsmooth (replacing 1.10.0's two-builds-loaded-by-path). macOS v2 builds MVTools v24 from source without its AVX2 files, whose static initializers SIGILLed inside `dlopen` on pre-AVX Macs. v2 bundles are gated (SDE on Linux/Windows, static check on macOS) before publishing |
 | 1.12.0 | 2026-10-04 | **Issue #101**: akarin 1.4.1 → **1.5.0** on every platform. The 1.4.1 Linux wheel put JIT code on the `brk` heap, where SELinux denies `PROT_EXEC`, so every job segfaulted on Fedora/RHEL from deps 1.8.0 on. `download-deps-linux.sh` now fails if `libakarin.so` lacks the mmap allocator |
 | 1.13.0 | 2026-10 | One new plugin; every other binary is built from the same sources as 1.12.0. Adds **vszip** 22.1.0 (MIT) for `vszip.CLAHE`, Color Correction's local contrast (issue #90). Baseline build only, flat in the plugin directory on every platform (the wheels' AVX2/AVX-512 variants are left out); macOS x64 builds the sdist with Zig 0.16.0 for the 12.0 floor, with header padding so it can be signed. The v2 CPU tier is no longer a second full bundle: each x64 platform publishes its v3 bundle plus `…-x64-v2-delta.zip`, the files in `_tierFiles` (zsmooth; on macOS also MVTools), extracted over it (`"tierFormat": "delta"`). Every x64 machine downloads the same bundle; only an older CPU fetches the few MB more. This is also what lets the Linux AppImage carry its deps for both tiers without doubling in size |
-| 1.14.0 | unreleased | Adds **RIFE** 4.26 (`r9_mod_v33`, MIT) + its model in `vapoursynth/rife/` on macos-arm64, windows-x64 and linux-x64, and **MoltenVK** 1.4.2 (Apache-2.0) beside it on macOS. Not autoloaded; see "RIFE Frame Interpolation" |
+| 1.14.0 | unreleased | Adds **RIFE** 4.26 (`r9_mod_v33`, MIT) + its model in `vapoursynth/rife/`, and **VSNCNN** (vs-mlrt v15.16, GPL-3.0) + Real-ESRGAN / Real-CUGAN models in `vapoursynth/ncnn/`, on macos-arm64, windows-x64 and linux-x64, with **MoltenVK** 1.4.2 (Apache-2.0) in `vapoursynth/moltenvk/` on macOS. Not autoloaded; see "GPU Plugins". **BM3D** r12 (MIT) on every platform; it had been macOS arm64 only (see "BM3D and KNLMeans Noise Reduction"). **descale** r12 (MIT) on every platform, for the Descale pass |

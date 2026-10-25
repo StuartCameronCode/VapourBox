@@ -67,6 +67,18 @@ pub enum UpscaleMethod {
     Nnedi3Rpow2,
     Eedi3Rpow2,
     Spline36,
+    /// Real-ESRGAN's anime video model (BSD-3), on the GPU through VSNCNN.
+    RealEsrgan,
+    /// Real-CUGAN (MIT, bilibili), on the GPU through VSNCNN.
+    RealCugan,
+}
+
+impl UpscaleMethod {
+    /// Whether this is one of the neural upscalers that need the VSNCNN plugin
+    /// and a Vulkan device (see `gpu_plugin.rs`).
+    pub fn is_ai(self) -> bool {
+        matches!(self, UpscaleMethod::RealEsrgan | UpscaleMethod::RealCugan)
+    }
 }
 
 /// What to do with the pixel aspect ratio (SAR) on output.
@@ -246,6 +258,11 @@ pub struct CropResizeParameters {
     #[serde(default = "default_upscale_factor")]
     pub upscale_factor: i32,
 
+    /// Real-CUGAN's denoise strength: "none", "conservative" or "denoise3x" —
+    /// the three bundled 2x models.
+    #[serde(default = "default_cugan_noise")]
+    pub cugan_noise: String,
+
     // --- nnedi3 controls for the edge-directed upscale paths ---
     // With EEDI3 selected these shape the nnedi3 sclip that guides it.
 
@@ -294,6 +311,7 @@ pub struct CropResizeParameters {
 
 fn default_true() -> bool { true }
 fn default_upscale_factor() -> i32 { 2 }
+fn default_cugan_noise() -> String { "conservative".to_string() }
 
 impl Default for CropResizeParameters {
     fn default() -> Self {
@@ -325,6 +343,7 @@ impl Default for CropResizeParameters {
             use_integer_upscale: false,
             upscale_method: UpscaleMethod::default(),
             upscale_factor: default_upscale_factor(),
+            cugan_noise: default_cugan_noise(),
             upscale_nsize: None,
             upscale_neurons: None,
             upscale_qual: None,
@@ -379,6 +398,41 @@ pub enum AspectDeclaration {
 
 #[allow(dead_code)]
 impl CropResizeParameters {
+    /// Whether this pass upscales with a neural model, which needs the VSNCNN
+    /// plugin and a working Vulkan device.
+    pub fn uses_ai_upscale(&self) -> bool {
+        self.enabled && self.use_integer_upscale && self.upscale_method.is_ai()
+    }
+
+    /// The models an AI upscale runs, in order, as paths under
+    /// `vapoursynth/ncnn/models/`. Factors follow the edge-directed path's
+    /// rule (3x behaves as 2x). Real-ESRGAN has a 4x model; Real-CUGAN's
+    /// bundled models are 2x only, so 4x runs it twice, denoising on the first
+    /// pass only — a second denoise pass would smooth the result twice.
+    pub fn ai_upscale_models(&self) -> Vec<&'static str> {
+        let four = self.upscale_factor >= 4;
+        match self.upscale_method {
+            UpscaleMethod::RealEsrgan => vec![if four {
+                "RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx"
+            } else {
+                "RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx"
+            }],
+            UpscaleMethod::RealCugan => {
+                let first = match self.cugan_noise.as_str() {
+                    "none" => "cugan/up2x-latest-no-denoise.onnx",
+                    "denoise3x" => "cugan/up2x-latest-denoise3x.onnx",
+                    _ => "cugan/up2x-latest-conservative.onnx",
+                };
+                if four {
+                    vec![first, "cugan/up2x-latest-no-denoise.onnx"]
+                } else {
+                    vec![first]
+                }
+            }
+            _ => Vec::new(),
+        }
+    }
+
     /// Whether the pixel grid itself has to be resampled to square up the
     /// pixels. True even with no target size — "make this anamorphic source
     /// square" is a resize in its own right.
@@ -668,5 +722,42 @@ mod tests {
         let json = serde_json::to_string(&params).unwrap();
         assert!(json.contains("\"enabled\":false"));
         assert!(json.contains("\"maintainAspect\":true"));
+    }
+
+    #[test]
+    fn test_ai_upscale_models_follow_factor_and_noise() {
+        let p = |method, factor, noise: &str| CropResizeParameters {
+            enabled: true,
+            use_integer_upscale: true,
+            upscale_method: method,
+            upscale_factor: factor,
+            cugan_noise: noise.into(),
+            ..Default::default()
+        };
+        assert_eq!(p(UpscaleMethod::RealEsrgan, 2, "").ai_upscale_models(),
+            ["RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx"]);
+        assert_eq!(p(UpscaleMethod::RealEsrgan, 3, "").ai_upscale_models(),
+            ["RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx"]);
+        assert_eq!(p(UpscaleMethod::RealEsrgan, 4, "").ai_upscale_models(),
+            ["RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx"]);
+        assert_eq!(p(UpscaleMethod::RealCugan, 2, "denoise3x").ai_upscale_models(),
+            ["cugan/up2x-latest-denoise3x.onnx"]);
+        assert_eq!(p(UpscaleMethod::RealCugan, 4, "none").ai_upscale_models(),
+            ["cugan/up2x-latest-no-denoise.onnx", "cugan/up2x-latest-no-denoise.onnx"]);
+        // An unknown strength from a hand-edited preset is the default.
+        assert_eq!(p(UpscaleMethod::RealCugan, 2, "max").ai_upscale_models(),
+            ["cugan/up2x-latest-conservative.onnx"]);
+        // Every model named here is one the deps bundle ships.
+        for m in [UpscaleMethod::RealEsrgan, UpscaleMethod::RealCugan] {
+            for f in [2, 4] {
+                for n in ["none", "conservative", "denoise3x"] {
+                    for model in p(m, f, n).ai_upscale_models() {
+                        assert!(crate::gpu_plugin::UPSCALE_MODELS.contains(&model), "{model}");
+                    }
+                }
+            }
+        }
+        assert!(!p(UpscaleMethod::Nnedi3Rpow2, 2, "").uses_ai_upscale());
+        assert!(p(UpscaleMethod::RealCugan, 2, "").uses_ai_upscale());
     }
 }

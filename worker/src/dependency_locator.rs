@@ -7,6 +7,15 @@ use std::sync::OnceLock;
 
 use anyhow::{bail, Context, Result};
 
+use crate::gpu_plugin::{self, GpuPlugin, GpuPluginFiles, GpuPluginReason, GpuPluginStatus};
+
+/// Why the KNLMeans noise-reduction method can't run, as the app shows it.
+pub const KNLM_NO_DEVICE_MESSAGE: &str = "KNLMeans runs on the graphics card through OpenCL, \
+and no OpenCL device that works with it was found on this computer. Updating the graphics \
+driver may fix this. BM3D does the same job on the CPU and needs nothing extra.";
+pub const KNLM_DISABLED_MESSAGE: &str = "KNLMeans is turned off on this computer \
+(VAPOURBOX_DISABLE_OPENCL is set). BM3D does the same job on the CPU.";
+
 /// Platform-specific dependency locator.
 pub struct DependencyLocator {
     base_path: PathBuf,
@@ -295,7 +304,7 @@ impl DependencyLocator {
             }
         }
 
-        let result = self.probe_knlm();
+        let result = self.probe_knlm(None);
         let _ = std::fs::write(
             &cache_file,
             serde_json::json!({ "boot": boot, "knlm": result }).to_string(),
@@ -303,61 +312,125 @@ impl DependencyLocator {
         result
     }
 
-    /// RIFE's plugin, model and (macOS) MoltenVK, in this deps bundle.
-    pub fn rife_files(&self) -> crate::rife::RifeFiles {
-        crate::rife::RifeFiles::in_vapoursynth_dir(
+    /// The OpenCL `device_type` VapourBox's own KNLMeans call can use here, if
+    /// any: `gpu`, else the plugin's default `auto` (which also finds CPU
+    /// OpenCL runtimes). This is not [`knlm_available`]: that one answers for
+    /// havsfunc's call, which always passes the default — and the default
+    /// fails on Apple Silicon (`CL_INVALID_VALUE`) where `gpu` works. Cached by
+    /// boot time, in its own file so neither probe can read the other's answer.
+    pub fn knlm_device(&self) -> Option<String> {
+        static CACHE: OnceLock<Option<String>> = OnceLock::new();
+        CACHE.get_or_init(|| self.compute_knlm_device()).clone()
+    }
+
+    fn compute_knlm_device(&self) -> Option<String> {
+        if env::var("VAPOURBOX_DISABLE_OPENCL")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+        {
+            return None;
+        }
+
+        let boot = Self::boot_token();
+        let cache_file = self.platform_dir().join("knlm-device-probe.json");
+        if !boot.is_empty() {
+            if let Ok(txt) = std::fs::read_to_string(&cache_file) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&txt) {
+                    if json.get("boot").and_then(|v| v.as_str()) == Some(boot.as_str()) {
+                        if let Some(device) = json.get("device") {
+                            return device.as_str().map(str::to_string);
+                        }
+                    }
+                }
+            }
+        }
+
+        let result = ["gpu", "auto"]
+            .into_iter()
+            .find(|d| self.probe_knlm(Some(d)))
+            .map(str::to_string);
+        let _ = std::fs::write(
+            &cache_file,
+            serde_json::json!({ "boot": boot, "device": result }).to_string(),
+        );
+        result
+    }
+
+    /// The device for a KNLMeans noise-reduction job, or the message the app
+    /// shows and the worker refuses that job with.
+    pub fn knlm_runtime(&self) -> Result<String, String> {
+        self.knlm_device().ok_or_else(|| {
+            if env::var("VAPOURBOX_DISABLE_OPENCL").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")) {
+                KNLM_DISABLED_MESSAGE.to_string()
+            } else {
+                KNLM_NO_DEVICE_MESSAGE.to_string()
+            }
+        })
+    }
+
+    /// A GPU plugin's files (plugin, models, macOS MoltenVK) in this bundle.
+    pub fn gpu_plugin_files(&self, plugin: GpuPlugin) -> GpuPluginFiles {
+        GpuPluginFiles::in_vapoursynth_dir(
+            plugin,
             &self.platform_dir().join("vapoursynth"),
             self.platform_suffix(),
         )
     }
 
-    /// Whether RIFE runs here, and if not, why (see `rife.rs`).
+    /// Whether a GPU plugin runs here, and if not, why (see `gpu_plugin.rs`).
     ///
     /// Unlike the OpenCL probes, only a *positive* result is cached for the
     /// boot. A failure is what the user is told to fix — install a driver, the
     /// VC++ runtime — and then "restart VapourBox"; a failure cached until the
     /// next reboot would keep telling them it is broken after they fixed it.
-    /// Re-probing costs a second, and only on a machine where RIFE fails.
+    /// Re-probing costs a second, and only on a machine where it fails.
     /// `VAPOURBOX_DISABLE_VULKAN=1` forces a negative result (CI, and to try
     /// the unavailable path on a machine that has Vulkan).
-    pub fn rife_status(&self) -> crate::rife::RifeStatus {
-        static CACHE: OnceLock<crate::rife::RifeStatus> = OnceLock::new();
-        CACHE.get_or_init(|| self.compute_rife_status()).clone()
+    pub fn gpu_plugin_status(&self, plugin: GpuPlugin) -> GpuPluginStatus {
+        static RIFE: OnceLock<GpuPluginStatus> = OnceLock::new();
+        static UPSCALE: OnceLock<GpuPluginStatus> = OnceLock::new();
+        let cache = match plugin {
+            GpuPlugin::Rife => &RIFE,
+            GpuPlugin::Upscale => &UPSCALE,
+        };
+        cache.get_or_init(|| self.compute_gpu_plugin_status(plugin)).clone()
     }
 
-    /// RIFE's files if it runs here, else the message saying why not — what
-    /// `ScriptGenerator::with_rife` takes. Runs the probe, so call it only for
-    /// a job that uses RIFE.
-    pub fn rife_runtime(&self) -> std::result::Result<crate::rife::RifeFiles, String> {
-        let status = self.rife_status();
-        match status.message(self.platform_suffix()) {
-            None => Ok(self.rife_files()),
+    /// The plugin's files if it runs here, else the message saying why not —
+    /// what `ScriptGenerator::with_rife` / `with_upscale` take. Runs the probe,
+    /// so call it only for a job that uses the plugin.
+    pub fn gpu_plugin_runtime(
+        &self,
+        plugin: GpuPlugin,
+    ) -> std::result::Result<GpuPluginFiles, String> {
+        match self.gpu_plugin_status(plugin).message(plugin, self.platform_suffix()) {
+            None => Ok(self.gpu_plugin_files(plugin)),
             Some(message) => Err(message),
         }
     }
 
-    fn compute_rife_status(&self) -> crate::rife::RifeStatus {
-        use crate::rife::{RifeReason, RifeStatus};
-        let files = self.rife_files();
-        if let Some(status) = crate::rife::precheck(self.platform_suffix(), &files) {
+    fn compute_gpu_plugin_status(&self, plugin: GpuPlugin) -> GpuPluginStatus {
+        let files = self.gpu_plugin_files(plugin);
+        if let Some(status) = gpu_plugin::precheck(plugin, self.platform_suffix(), &files) {
             return status;
         }
         if env::var("VAPOURBOX_DISABLE_VULKAN")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false)
         {
-            return RifeStatus::unavailable(RifeReason::Disabled, None);
+            return GpuPluginStatus::unavailable(GpuPluginReason::Disabled, None);
         }
 
         let boot = Self::boot_token();
-        let cache_file = self.platform_dir().join("rife-probe.json");
+        let key = plugin.namespace();
+        let cache_file = self.platform_dir().join(format!("{key}-probe.json"));
         if !boot.is_empty() {
             if let Ok(txt) = std::fs::read_to_string(&cache_file) {
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&txt) {
                     if json.get("boot").and_then(|v| v.as_str()) == Some(boot.as_str())
-                        && json.get("rife").and_then(|v| v.as_bool()) == Some(true)
+                        && json.get("available").and_then(|v| v.as_bool()) == Some(true)
                     {
-                        return RifeStatus::available();
+                        return GpuPluginStatus::available();
                     }
                 }
             }
@@ -365,14 +438,19 @@ impl DependencyLocator {
 
         let vspipe = match self.vspipe_path() {
             Ok(p) => p,
-            Err(e) => return RifeStatus::unavailable(RifeReason::ProbeFailed, e.to_string()),
+            Err(e) => return GpuPluginStatus::unavailable(GpuPluginReason::ProbeFailed, e.to_string()),
         };
-        let status =
-            crate::rife::run_probe(&vspipe, &self.build_environment(), &files, self.platform_suffix());
+        let status = gpu_plugin::run_probe(
+            plugin,
+            &vspipe,
+            &self.build_environment(),
+            &files,
+            self.platform_suffix(),
+        );
         if status.available {
             let _ = std::fs::write(
                 &cache_file,
-                serde_json::json!({ "boot": boot, "rife": true }).to_string(),
+                serde_json::json!({ "boot": boot, "available": true }).to_string(),
             );
         } else {
             let _ = std::fs::remove_file(&cache_file);
@@ -382,7 +460,7 @@ impl DependencyLocator {
 
     /// Run KNLMeansCL through vspipe on a tiny clip; success ⇒ knlmeanscl usable
     /// (plugin present AND a usable OpenCL device).
-    fn probe_knlm(&self) -> bool {
+    fn probe_knlm(&self, device_type: Option<&str>) -> bool {
         let vspipe = match self.vspipe_path() {
             Ok(p) => p,
             Err(_) => return false,
@@ -390,8 +468,10 @@ impl DependencyLocator {
         let script = "import vapoursynth as vs\n\
                       core = vs.core\n\
                       clip = core.std.BlankClip(width=256, height=256, format=vs.YUV420P8, length=1)\n\
-                      clip = core.knlm.KNLMeansCL(clip, d=0, h=1.0)\n\
+                      clip = core.knlm.KNLMeansCL(clip, d=0, h=1.0{device})\n\
                       clip.set_output()\n";
+        let device = device_type.map(|d| format!(", device_type='{d}'")).unwrap_or_default();
+        let script = script.replace("{device}", &device);
         let tmp = env::temp_dir().join(format!("vapourbox_knlm_probe_{}.vpy", std::process::id()));
         if std::fs::write(&tmp, script).is_err() {
             return false;

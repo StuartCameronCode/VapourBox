@@ -109,6 +109,11 @@ jobs:
           ln -sfn "$BP/opt/whisper-cpp/bin" addons/whisper/bin
           ln -sfn "$BP/opt/whisper-cpp/lib" addons/whisper/lib
 
+      - name: Provision Vulkan (RIFE, AI upscaling)
+        # Lavapipe on the GPU-less Linux/Windows runners; sets
+        # VAPOURBOX_EXPECT_VULKAN=1 so the GPU tests must run, not skip.
+        run: bash .github/scripts/provision-vulkan.sh macos-${{ matrix.arch }}
+
       - name: Build worker (debug)
         run: cd worker && cargo build
 
@@ -188,6 +193,12 @@ jobs:
           CLI=$(find /tmp/whisper-win -name "whisper-cli.exe" | head -1)
           cp "$(dirname "$CLI")"/*.exe addons/whisper/ 2>/dev/null || true
           cp "$(dirname "$CLI")"/*.dll addons/whisper/ 2>/dev/null || true
+
+      - name: Provision Vulkan (RIFE, AI upscaling)
+        # Lavapipe on the GPU-less Linux/Windows runners; sets
+        # VAPOURBOX_EXPECT_VULKAN=1 so the GPU tests must run, not skip.
+        shell: bash
+        run: bash .github/scripts/provision-vulkan.sh windows-x64
 
       - name: Build worker (debug)
         run: cd worker && cargo build
@@ -272,6 +283,11 @@ jobs:
           mkdir -p "$HOME/.local/share/VapourBox"
           ln -sfn "${{ github.workspace }}/deps" "$HOME/.local/share/VapourBox/deps"
           ln -sfn "${{ github.workspace }}/addons" "$HOME/.local/share/VapourBox/addons"
+
+      - name: Provision Vulkan (RIFE, AI upscaling)
+        # Lavapipe on the GPU-less Linux/Windows runners; sets
+        # VAPOURBOX_EXPECT_VULKAN=1 so the GPU tests must run, not skip.
+        run: bash .github/scripts/provision-vulkan.sh linux-x64
 
       - name: Build worker (debug)
         run: cd worker && cargo build

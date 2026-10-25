@@ -85,7 +85,7 @@ GPU-accelerated deinterlacing (NNEDI3CL) needs your GPU's OpenCL driver installe
 
 </details>
 
-**RIFE frame interpolation** (in the Frame Rate pass) runs on the GPU through Vulkan. It works on any Apple Silicon Mac, and on Windows and Linux x64 PCs with a current graphics driver; Windows also needs the Microsoft Visual C++ Redistributable. It isn't available on Intel Macs or Linux on ARM yet. When you choose it, VapourBox checks that it can run and, if it can't, says what is missing and how to fix it.
+**RIFE frame interpolation** (in the Frame Rate pass) and **AI upscaling** with Real-ESRGAN or Real-CUGAN (in Crop & Resize) run on the GPU through Vulkan. They work on any Apple Silicon Mac, and on Windows and Linux x64 PCs with a current graphics driver; RIFE on Windows also needs the Microsoft Visual C++ Redistributable. They aren't available on Intel Macs or Linux on ARM yet. When you choose one, VapourBox checks that it can run and, if it can't, says what is missing and how to fix it.
 
 **Older Intel and AMD processors** (before about 2013 — no AVX2) are supported on all three platforms. On first launch VapourBox checks the processor and installs the matching set of processing components; a machine moved to a different CPU gets the right set on its next launch. The older-CPU set runs some filters more slowly, never differently. Every build of that set is checked for pre-AVX processors (e.g. a 2010 Mac Pro) on macOS and Linux; on Windows it is checked for processors with AVX but no AVX2, and older ones are expected to work but can't be tested automatically.
 
@@ -103,7 +103,7 @@ GPU-accelerated deinterlacing (NNEDI3CL) needs your GPU's OpenCL driver installe
 
 ## The filter pipeline
 
-Twenty-one filters, each switchable independently. Most sources need none or a few. They always run in the order below, top to bottom, whichever ones are switched on — the same order the list in the app shows them in. The order cannot be rearranged.
+Twenty-two filters, each switchable independently. Most sources need none or a few. They always run in the order below, top to bottom, whichever ones are switched on — the same order the list in the app shows them in. The order cannot be rearranged.
 
 | # | Filter | What it addresses |
 |---|--------|-------------------|
@@ -113,21 +113,22 @@ Twenty-one filters, each switchable independently. Most sources need none or a f
 | 4 | **Deflicker** | Brightness pulsing between frames, which is what scanned cine film almost always has. |
 | 5 | **DeScratch** | Vertical scratch lines on scanned film. |
 | 6 | **SpotLess** | Dust, dirt and single-frame specks. RemoveDirt is the faster choice — around six times the speed for about 60% of the removal. |
-| 7 | **Noise Reduction** | Grain and video noise across the whole frame. Motion-compensated by default, with mClean as a gentler alternative that keeps more detail; DFTTest, FFT3DFilter, TTempSmooth, FluxSmooth, STPresso, TemporalDegrain2 and a large-window median are available under advanced options for noise the default handles badly. |
-| 8 | **Chroma Denoise** | Blotchy, smeared color — common on VHS captures and old camcorder footage. Leaves luma detail untouched. |
-| 9 | **Dehalo** | Bright outlines around edges, ringing, and residual ghosting left by a deinterlacer. HQDeringmod targets ringing specifically. |
-| 10 | **Deblock** | Square blocking from heavy compression, and the ringing around edges that comes with it. |
-| 11 | **Deband** | Visible steps in gradients and skies. |
-| 12 | **Anti-Aliasing** | Stair-stepping on diagonal edges, left by deinterlacing or upscaling. Runs before sharpening, which would otherwise make the steps more visible. |
-| 13 | **Chroma Fixes** | Colour that sits sideways from the picture (corrected automatically or by hand), bleeding past edges, rainbowing and dot crawl — including the shimmering kind that only shows when the picture moves — and residual combing. Each repair has its own switch, and its settings appear only once it is on. |
-| 14 | **Color Correction** | Brightness, contrast, saturation, hue, levels, white balance (warm/cool, green/magenta), lifting detail out of the shadows of underexposed footage, and lifting local contrast across a dim or flat picture. Levels and white balance can each be measured automatically or set by hand. |
-| 15 | **Stabilize** | Shake and weave — telecine wobble, jittery film scans, handheld footage. Runs last before cropping, so a small crop removes the edges it exposes. |
-| 16 | **Rotate / Flip** | Footage shot sideways, mirrored captures, scans that came off the scanner the wrong way round. |
-| 17 | **Crop & Resize** | Trimming overscan, scaling, and edge-directed upscaling — plus bars in a colour of your choice to bring a cropped picture back to an exact frame size (720×576 for PAL DVD, 720×480 for NTSC) without rescaling it. |
-| 18 | **Sharpen** | Soft sources needing edge and fine detail recovery. aWarpSharp2 sharpens by warping edges instead of raising contrast, so it adds no halos. Runs after the resize, on the picture that is actually delivered, and before any added grain. |
-| 19 | **Film Grain** | Grain added back after denoising, so the picture is not left plastic — and to hide banding in skies and fades. |
-| 20 | **Frame Rate** | Converting between PAL and NTSC rates, for a tape that was already converted once and now plays at the wrong speed. New frames come from motion interpolation, from RIFE (an AI interpolator that runs on the GPU), or from plain frame repetition. |
-| 21 | **Subtitles** | Whisper AI speech-to-text — written alongside the video as `.srt`, embedded as a selectable track, burnt into the picture, or a combination. |
+| 7 | **Descale** | Soft, haloed line art in HD anime and other video drawn below its delivery resolution and upscaled by the studio. Inverts that upscale exactly and upscales again with NNEDI3; Detect finds the resolution and kernel the studio used, and says so when a source was never upscaled. Credits and text drawn at full resolution are left untouched. |
+| 8 | **Noise Reduction** | Grain and video noise across the whole frame. Motion-compensated by default, with mClean as a gentler alternative that keeps more detail; DFTTest, FFT3DFilter, TTempSmooth, FluxSmooth, STPresso, TemporalDegrain2, BM3D, KNLMeansCL (GPU) and a large-window median are available under advanced options for noise the default handles badly. BM3D is the usual choice for anime: it cleans flat colour without smearing line art. KNLMeansCL needs a graphics card with working OpenCL; VapourBox says so when you pick it if yours has none. |
+| 9 | **Chroma Denoise** | Blotchy, smeared color — common on VHS captures and old camcorder footage. Leaves luma detail untouched. |
+| 10 | **Dehalo** | Bright outlines around edges, ringing, and residual ghosting left by a deinterlacer. HQDeringmod targets ringing specifically. |
+| 11 | **Deblock** | Square blocking from heavy compression, and the ringing around edges that comes with it. |
+| 12 | **Deband** | Visible steps in gradients and skies. |
+| 13 | **Anti-Aliasing** | Stair-stepping on diagonal edges, left by deinterlacing or upscaling. Runs before sharpening, which would otherwise make the steps more visible. |
+| 14 | **Chroma Fixes** | Colour that sits sideways from the picture (corrected automatically or by hand), bleeding past edges, rainbowing and dot crawl — including the shimmering kind that only shows when the picture moves — and residual combing. Each repair has its own switch, and its settings appear only once it is on. |
+| 15 | **Color Correction** | Brightness, contrast, saturation, hue, levels, white balance (warm/cool, green/magenta), lifting detail out of the shadows of underexposed footage, and lifting local contrast across a dim or flat picture. Levels and white balance can each be measured automatically or set by hand. |
+| 16 | **Stabilize** | Shake and weave — telecine wobble, jittery film scans, handheld footage. Runs last before cropping, so a small crop removes the edges it exposes. |
+| 17 | **Rotate / Flip** | Footage shot sideways, mirrored captures, scans that came off the scanner the wrong way round. |
+| 18 | **Crop & Resize** | Trimming overscan, scaling, and upscaling — edge-directed, or with Real-ESRGAN or Real-CUGAN, AI upscalers trained on anime that run on the GPU — plus bars in a colour of your choice to bring a cropped picture back to an exact frame size (720×576 for PAL DVD, 720×480 for NTSC) without rescaling it. |
+| 19 | **Sharpen** | Soft sources needing edge and fine detail recovery. aWarpSharp2 sharpens by warping edges instead of raising contrast, so it adds no halos. Runs after the resize, on the picture that is actually delivered, and before any added grain. |
+| 20 | **Film Grain** | Grain added back after denoising, so the picture is not left plastic — and to hide banding in skies and fades. |
+| 21 | **Frame Rate** | Converting between PAL and NTSC rates, for a tape that was already converted once and now plays at the wrong speed. New frames come from motion interpolation, from RIFE (an AI interpolator that runs on the GPU), or from plain frame repetition. |
+| 22 | **Subtitles** | Whisper AI speech-to-text — written alongside the video as `.srt`, embedded as a selectable track, burnt into the picture, or a combination. |
 
 A few things about the order are worth knowing:
 
@@ -298,8 +299,11 @@ Stuart Cameron — [stuart-cameron.com](https://stuart-cameron.com)
 - **dubhater** — a long list of VapourSynth ports this app relies on: MVTools, nnedi3, AWarpSharp2, TemporalMedian, FluxSmooth, Bifrost and the `adjust` Tweak port
 - **HolyWu** — the VapourSynth ports of DFTTest, TTempSmooth, TCanny, CTMF, DCTFilter, Deblock, AddGrain, CAS, EEDI3 and NNEDI3CL
 - **mawen1250** — Retinex, BM3D and mvsfunc
+- **Edoardo Brunetti** — KNLMeansCL
+- **Frechdachs** (maintained by Jaded Encoding Thaumaturgy) — descale
 - **vszip** by Julek — CLAHE, the local-contrast lift in Color Correction
 - **RIFE** by hzwer (with Megvii) — the frame interpolation network, run through HolyWu's VapourSynth plugin (built on nihui's rife-ncnn-vulkan and Tencent's ncnn), with **MoltenVK** for Vulkan on macOS
+- **Real-ESRGAN** by Xintao Wang and **Real-CUGAN** by bilibili — the AI upscaling networks, run through AmusementClub's **vs-mlrt** (VSNCNN)
 - **whisper.cpp** by the ggml authors — speech recognition for subtitle generation
 - **libdvdread** by VideoLAN — DVD reading and navigation
 - **FFmpeg** project — video encoding

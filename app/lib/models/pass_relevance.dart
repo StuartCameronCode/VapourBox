@@ -152,6 +152,9 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info) {
     case PassType.deflicker:
     case PassType.edgeRepair:
     case PassType.ghostRemoval:
+    // Whether a picture was upscaled from a lower resolution is not in the
+    // metadata at all; only the pass's own detection can tell.
+    case PassType.descale:
     case PassType.frameRate:
     case PassType.grain:
       return PassRelevanceResult.neutral;

@@ -42,6 +42,7 @@ import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 
+import 'support/gpu_expectations.dart';
 import 'support/worker_harness.dart';
 
 String get _outDir => '${WorkerHarness.outputDir}/frame_mapping';
@@ -379,9 +380,9 @@ void main() {
     }
   });
 
-  // RIFE needs a Vulkan device, which the hosted runners lack, so this group
-  // runs only where `--probe-rife` says RIFE works (integration_rife_test.dart
-  // covers the refusal everywhere else). Its count must match FrameMap's
+  // RIFE needs a Vulkan device. CI provisions one wherever RIFE ships (see
+  // support/gpu_expectations.dart), so there this group must run; elsewhere it
+  // skips, and integration_gpu_plugins_test.dart covers the refusal. Its count must match FrameMap's
   // Retime exactly — floor(n * 2) here — and since every other output frame is
   // a real one passed through untouched, the preview of source frame S must be
   // output frame 2S, picture for picture.
@@ -425,20 +426,15 @@ void main() {
     });
 
     test('25 -> 50 emits exactly twice the frames', () async {
-      if (!available) {
-        markTestSkipped('RIFE is not available on this machine');
-        return;
-      }
+      // Skips only where no Vulkan is expected; fails where CI provisions it.
+      if (!available && !await requireGpuPlugin('--probe-rife')) return;
       expect(await _countFrames(encoded), _interlacedFrames * 2);
     });
 
     for (final sourceFrame in [12, 36]) {
       test('source frame $sourceFrame previews as output frame ${sourceFrame * 2}',
           () async {
-        if (!available) {
-          markTestSkipped('RIFE is not available on this machine');
-          return;
-        }
+        if (!available && !await requireGpuPlugin('--probe-rife')) return;
         final pv = await WorkerHarness.runPreview(rifeJob().toJson(),
             frame: sourceFrame, label: 'rife_pv$sourceFrame');
         expect(pv.success, isTrue, reason: pv.toString());

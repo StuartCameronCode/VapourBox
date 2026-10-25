@@ -19,5 +19,6 @@
   "frame_rate.json",
   "deflicker.json",
   "edge_repair.json",
-  "ghost_removal.json"
+  "ghost_removal.json",
+  "descale.json"
 ]

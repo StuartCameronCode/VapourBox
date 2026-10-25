@@ -552,6 +552,57 @@ clip = _remove_dirt(
 {{/SPOTLESS_REMOVEDIRT}}
 {{/SPOTLESS}}
 
+{{#DESCALE}}
+# Descale: undo the studio's upscale (luma), then upscale again with NNEDI3.
+# Most modern anime is drawn below 1080p and upscaled with a plain kernel;
+# with the right native size and kernel, descale inverts that resample exactly
+# and NNEDI3 redraws far cleaner lines than the studio's kernel gave. Chroma is
+# left alone (it was stored below the luma resolution to begin with) and the
+# output keeps the source's size, so Crop & Resize can still upscale it.
+_ds_src = clip
+_ds_fmt = clip.format
+_ds_h = {{DESCALE_HEIGHT}}
+if clip.height <= _ds_h:
+    raise vs.Error(f"Descale: the native height ({_ds_h}) must be below the source's ({clip.height}).")
+_ds_w = {{DESCALE_WIDTH}} or int(round(_ds_h * clip.width / clip.height))
+_ds_y = core.resize.Point(core.std.ShufflePlanes(clip, 0, vs.GRAY), format=vs.GRAYS)
+def _ds_descale(c, w, h):
+    return {{DESCALE_INVERSE}}
+def _ds_resample(c, w, h):
+    return {{DESCALE_FORWARD}}
+_ds_native = _ds_descale(_ds_y, _ds_w, _ds_h)
+# NNEDI3 doubling (height, transpose, height, transpose back) until the picture
+# is at least the source size, then one resample down to it. Each doubling
+# leaves half an output pixel of offset, doubled by every later doubling; it is
+# folded into that one resample.
+_ds_up, _ds_shift = _ds_native, 0.0
+while _ds_up.width < clip.width or _ds_up.height < clip.height:
+    _ds_up = _nnedi3(_ds_up, field=1, dh=True, nsize=4, nns=4, qual=2)
+    _ds_up = core.std.Transpose(_ds_up)
+    _ds_up = _nnedi3(_ds_up, field=1, dh=True, nsize=4, nns=4, qual=2)
+    _ds_up = core.std.Transpose(_ds_up)
+    _ds_shift = _ds_shift * 2 + 0.5
+_ds_up = core.resize.Spline36(_ds_up, clip.width, clip.height, src_left=-_ds_shift, src_top=-_ds_shift)
+{{#DESCALE_PROTECT}}
+# Detail drawn at full resolution (credits, text, overlays) was never upscaled,
+# so re-applying the kernel to the descaled picture does not reproduce it.
+# Wherever that misses by more than the threshold (8-bit levels), keep the
+# source, over a slightly grown and softened mask.
+_ds_error = _expr([_ds_y, _ds_resample(_ds_native, clip.width, clip.height)], "x y - abs")
+_ds_mask = core.std.Binarize(_ds_error, {{DESCALE_THRESHOLD}} / 255.0)
+_ds_mask = core.std.Inflate(core.std.Maximum(core.std.Maximum(_ds_mask)))
+_ds_up = core.std.MaskedMerge(_ds_up, _ds_y, _ds_mask)
+{{/DESCALE_PROTECT}}
+_ds_luma = core.resize.Point(
+    _ds_up, format=_ds_fmt.replace(color_family=vs.GRAY, subsampling_w=0, subsampling_h=0).id,
+    dither_type="error_diffusion")
+if _ds_fmt.num_planes > 1:
+    clip = core.std.ShufflePlanes([_ds_luma, _ds_src], [0, 1, 2], _ds_fmt.color_family)
+else:
+    clip = _ds_luma
+clip = core.std.CopyFrameProps(clip, _ds_src)
+{{/DESCALE}}
+
 # ============================================================================
 # PASS 5: NOISE REDUCTION
 # ============================================================================
@@ -781,17 +832,47 @@ clip = core.mv.Degrain3(
 {{/NR_MCDEGRAINSHARP}}
 
 {{#NR_BM3D}}
-# BM3D noise reduction
-clip = mvf.BM3D(
-    clip,
-{{#NR_BM3D_SIGMA}}
-    sigma={{NR_BM3D_SIGMA}},
-{{/NR_BM3D_SIGMA}}
-{{#NR_BM3D_RADIUS}}
-    radius={{NR_BM3D_RADIUS}},
-{{/NR_BM3D_RADIUS}}
-)
+# BM3D: groups similar blocks across the frame (and with a radius, across
+# 2r+1 frames: V-BM3D) and filters each group together, so flat areas come out
+# clean without smearing line art. sigma is in 8-bit units at every depth.
+# Works in 16-bit: VAggregate always returns 16-bit and VFinal needs its basic
+# estimate in the same format as its input, so every step runs there and the
+# source format is restored after, with dither. Each plane is filtered as its
+# own GRAY clip: BM3D refuses subsampled chroma, and this denoises 4:2:0 chroma
+# at its own resolution instead of resampling it to 4:4:4 and back.
+_bm3d_fmt = clip.format
+_bm3d_radius = {{NR_BM3D_RADIUS}}
+_bm3d_final = {{NR_BM3D_FINAL}}
+_bm3d_profile = "{{NR_BM3D_PROFILE}}"
+def _bm3d_plane(p, sigma):
+    if _bm3d_radius > 0:
+        r = _bm3d_radius
+        ref = core.bm3d.VAggregate(core.bm3d.VBasic(p, sigma=sigma, radius=r, profile=_bm3d_profile), radius=r)
+        if _bm3d_final:
+            ref = core.bm3d.VAggregate(core.bm3d.VFinal(p, ref, sigma=sigma, radius=r, profile=_bm3d_profile), radius=r)
+        return ref
+    ref = core.bm3d.Basic(p, sigma=sigma, profile=_bm3d_profile)
+    return core.bm3d.Final(p, ref, sigma=sigma, profile=_bm3d_profile) if _bm3d_final else ref
+_bm3d_work = core.resize.Point(clip, format=_bm3d_fmt.replace(bits_per_sample=16, sample_type=vs.INTEGER).id)
+_bm3d_planes = [core.std.ShufflePlanes(_bm3d_work, i, vs.GRAY) for i in range(_bm3d_fmt.num_planes)]
+_bm3d_sigmas = [{{NR_BM3D_SIGMA}}] + [{{NR_BM3D_CHROMA_SIGMA}}] * (_bm3d_fmt.num_planes - 1)
+_bm3d_planes = [_bm3d_plane(p, s) if s > 0 else p for p, s in zip(_bm3d_planes, _bm3d_sigmas)]
+if _bm3d_fmt.num_planes > 1:
+    _bm3d_work = core.std.ShufflePlanes(_bm3d_planes, [0, 0, 0], _bm3d_fmt.color_family)
+else:
+    _bm3d_work = _bm3d_planes[0]
+clip = core.resize.Point(_bm3d_work, format=_bm3d_fmt.id, dither_type="error_diffusion")
 {{/NR_BM3D}}
+{{#NR_KNLM}}
+# KNLMeansCL: non-local means on the GPU (OpenCL). d = frames each side,
+# a = search radius, s = similarity radius, h = strength. Runs on the device the
+# worker's probe found working ({{NR_KNLM_DEVICE}}): the plugin's own default,
+# "auto", fails on Apple Silicon. 4:2:0 cannot take channels="YUV", so luma and
+# chroma are separate calls.
+clip = core.knlm.KNLMeansCL(clip, d={{NR_KNLM_D}}, a={{NR_KNLM_A}}, s={{NR_KNLM_S}}, h={{NR_KNLM_H}}, channels="Y", device_type="{{NR_KNLM_DEVICE}}")
+if {{NR_KNLM_CHROMA}} and clip.format.color_family == vs.YUV:
+    clip = core.knlm.KNLMeansCL(clip, d={{NR_KNLM_D}}, a={{NR_KNLM_A}}, s={{NR_KNLM_S}}, h={{NR_KNLM_H}}, channels="UV", device_type="{{NR_KNLM_DEVICE}}")
+{{/NR_KNLM}}
 {{#NR_MCLEAN}}
 # mClean — denoise, then put detail and grain back, so the result does not look
 # plastic. The only method here that is a goal rather than a mechanism.
@@ -1842,6 +1923,52 @@ clip = _upscale_fix_shift(clip, _upscale_shift)
 # Plain resampling at an integer factor — no edge direction, just fast.
 clip = core.resize.Spline36(clip, width=clip.width * {{UPSCALE_FACTOR}}, height=clip.height * {{UPSCALE_FACTOR}})
 {{/UPSCALE_SPLINE36}}
+{{#UPSCALE_AI}}
+# AI upscaling: Real-ESRGAN / Real-CUGAN through vs-mlrt's VSNCNN (ncnn on
+# Vulkan), loaded explicitly from vapoursynth/ncnn/ (never autoloaded) after
+# MoltenVK on macOS, exactly as RIFE is. The networks take float RGB, so the
+# source's matrix and range convert there and back, and the result is dithered
+# to the source format. Above SD the frame runs in overlapping 512-pixel tiles:
+# whole-frame Real-CUGAN at 1080p ran out of GPU memory on a 16 GB Mac. An odd
+# size is padded to even by repeating the edge (CUGAN works in 2-pixel steps)
+# and cropped after. fp16 differs from fp32 by at most 0.3/255 and is ~3x faster.
+import ctypes as _ai_ctypes
+_ai_preload = {{AI_PRELOAD}}
+if _ai_preload:
+    _ai_ctypes.CDLL(_ai_preload, mode=_ai_ctypes.RTLD_GLOBAL)
+if not hasattr(core, "ncnn"):
+    core.std.LoadPlugin({{AI_PLUGIN}})
+_ai_src = clip
+_ai_fmt = clip.format
+if _ai_fmt.color_family == vs.YUV:
+    _ai_rgb = core.resize.Spline36(clip, format=vs.RGBS, matrix_in_s="{{AI_MATRIX}}", range_in_s="{{AI_RANGE}}")
+elif _ai_fmt.color_family == vs.GRAY:
+    _ai_rgb = core.std.ShufflePlanes(
+        core.resize.Point(clip, format=vs.GRAYS, range_in_s="{{AI_RANGE}}"), [0, 0, 0], vs.RGB)
+else:
+    _ai_rgb = core.resize.Point(clip, format=vs.RGBS)
+_ai_pad_w, _ai_pad_h = _ai_rgb.width % 2, _ai_rgb.height % 2
+if _ai_pad_w or _ai_pad_h:
+    # Point resampling past the source edge repeats the last row/column.
+    _ai_rgb = core.resize.Point(
+        _ai_rgb, width=_ai_rgb.width + _ai_pad_w, height=_ai_rgb.height + _ai_pad_h,
+        src_width=_ai_rgb.width + _ai_pad_w, src_height=_ai_rgb.height + _ai_pad_h)
+_ai_in_w = _ai_rgb.width
+for _ai_model in [{{AI_MODELS}}]:
+    _ai_tiles = {} if _ai_rgb.width * _ai_rgb.height <= 720 * 576 else dict(tilesize=[512, 512], overlap=[16, 16])
+    _ai_rgb = core.ncnn.Model(_ai_rgb, network_path=_ai_model, fp16=True, num_streams=2, **_ai_tiles)
+_ai_scale = _ai_rgb.width // _ai_in_w
+if _ai_pad_w or _ai_pad_h:
+    _ai_rgb = core.std.Crop(_ai_rgb, right=_ai_pad_w * _ai_scale, bottom=_ai_pad_h * _ai_scale)
+if _ai_fmt.color_family == vs.YUV:
+    clip = core.resize.Spline36(_ai_rgb, format=_ai_fmt.id, matrix_s="{{AI_MATRIX}}", range_s="{{AI_RANGE}}", dither_type="error_diffusion")
+elif _ai_fmt.color_family == vs.GRAY:
+    clip = core.resize.Point(core.std.ShufflePlanes(_ai_rgb, 1, vs.GRAY), format=_ai_fmt.id, range_s="{{AI_RANGE}}", dither_type="error_diffusion")
+else:
+    clip = core.resize.Point(_ai_rgb, format=_ai_fmt.id, dither_type="error_diffusion")
+# The network drops frame properties; field order, matrix and the rest are the source's.
+clip = core.std.CopyFrameProps(clip, _ai_src)
+{{/UPSCALE_AI}}
 {{/RESIZE_INTEGER_UPSCALE}}
 
 {{#RESIZE_STANDARD}}

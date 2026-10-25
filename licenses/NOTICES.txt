@@ -195,6 +195,10 @@ RIFE (VapourSynth-RIFE-ncnn-Vulkan) — MIT
   The binary statically includes:
     ncnn — BSD 3-Clause, Copyright (C) 2017 Tencent. All rights reserved.
       https://github.com/Tencent/ncnn
+      ncnn's LICENSE.txt also lists SIMD math headers it includes under the
+      zlib licence: neon_mathfun.h and sse_mathfun.h (Copyright (C) 2011 and
+      2007 Julien Pommier) and avx_mathfun.h (Copyright (C) 2012 Giovanni
+      Garberoglio), each with Tencent modifications.
     glslang — the core under BSD 3-Clause (Copyright (C) 2015-2018 Google,
       Inc. and others), with parts under BSD 2-Clause, MIT and Apache-2.0
       (Copyright 2020 The Khronos Group Inc), as its LICENSE.txt sets out
@@ -215,8 +219,46 @@ MoltenVK — Apache-2.0
   Copyright (c) 2015-2026 The Brenwill Workshop Ltd.
   https://github.com/KhronosGroup/MoltenVK
   Licence text: Apache-2.0.txt
-  Vulkan on Apple's Metal. macOS arm64 only, beside RIFE, which needs a Vulkan
-  implementation loaded before it.
+  Vulkan on Apple's Metal. macOS arm64 only, in vapoursynth/moltenvk/: RIFE
+  and VSNCNN both need a Vulkan implementation loaded before them.
+
+VSNCNN (vs-mlrt) — GPL-3.0
+  No copyright notice is given upstream; published by AmusementClub
+  https://github.com/AmusementClub/vs-mlrt
+  Licence text: GPL-3.0.txt
+  Provides core.ncnn.Model, which runs Crop & Resize's AI upscaling
+  (Real-ESRGAN / Real-CUGAN). Shipped on macOS arm64, Windows x64 and Linux
+  x64 only, in vapoursynth/ncnn/: built from the v15.16 source on macOS and
+  Linux, vs-mlrt's own build on Windows. The binary statically includes:
+    ncnn — BSD 3-Clause, Copyright (C) 2017 Tencent. All rights reserved.
+      https://github.com/Tencent/ncnn
+      ncnn's LICENSE.txt also lists SIMD math headers it includes under the
+      zlib licence: neon_mathfun.h and sse_mathfun.h (Copyright (C) 2011 and
+      2007 Julien Pommier) and avx_mathfun.h (Copyright (C) 2012 Giovanni
+      Garberoglio), each with Tencent modifications.
+    glslang — as in the RIFE entry above
+    Protocol Buffers — BSD 3-Clause, Copyright 2008 Google Inc. All rights
+      reserved.
+      https://github.com/protocolbuffers/protobuf
+    ONNX — Apache-2.0, Copyright (c) ONNX Project Contributors
+      https://github.com/onnx/onnx
+      Licence text: Apache-2.0.txt
+    LLVM OpenMP runtime (macOS only, from ncnn's macOS build) — Apache-2.0
+      WITH LLVM-exception, Copyright (c) the LLVM Project contributors
+      https://github.com/llvm/llvm-project/tree/main/openmp
+      Licence text: Apache-2.0-LLVM-Exception.txt
+
+Real-ESRGAN anime video model — BSD 3-Clause
+  Copyright (c) 2021, Xintao Wang
+  https://github.com/xinntao/Real-ESRGAN
+  The trained network weights of realesr-animevideov3, at 2x and 4x. Shipped as
+  vs-mlrt's ONNX conversions (RealESRGANv2-animevideo-xsx2/xsx4.onnx).
+
+Real-CUGAN models — MIT
+  Copyright (c) 2022 bilibili
+  https://github.com/bilibili/ailab/tree/main/Real-CUGAN
+  The trained network weights of the 2x models (no-denoise, conservative,
+  denoise3x). Shipped as vs-mlrt's ONNX conversions (up2x-latest-*.onnx).
 
 DFTTest — GPL-3.0
   Copyright (C) 2007-2010 Kevin Stone (tritical); VapourSynth port by HolyWu
@@ -279,7 +321,13 @@ Retinex — GPL-3.0
 BM3D — MIT
   Copyright (c) 2015-2016 mawen1250
   https://github.com/HomeOfVapourSynthEvolution/VapourSynth-BM3D
-  Shipped on macOS arm64 only.
+
+descale — MIT
+  Copyright © 2017-2022 Frechdachs (the LICENSE file says © 2021 Frechdachs);
+  maintained by Jaded Encoding Thaumaturgy
+  https://github.com/Jaded-Encoding-Thaumaturgy/vapoursynth-descale
+  Provides core.descale.De*, which inverts a resampling kernel: the Descale
+  pass. Taken unmodified from the project's PyPI wheels.
 
 KNLMeansCL — GPL-3.0
   Copyright (C) 2015-2020 Edoardo Brunetti
@@ -462,8 +510,9 @@ Appendix — full text of the short permissive licences
 MIT License
 -----------
 (Applies to zsmooth, vszip and the zigimg library it includes, CAS,
-DCTFilter, BM3D, the RIFE plugin, rife-ncnn-vulkan, the RIFE model and
-ECCV2022-RIFE, whisper.cpp, pip and the Clense filter in vs-removegrain, each
+DCTFilter, BM3D, descale, the RIFE plugin, rife-ncnn-vulkan, the RIFE model and
+ECCV2022-RIFE, the Real-CUGAN models, whisper.cpp, pip and the Clense filter
+in vs-removegrain, each
 under the copyright notice given in its entry above.)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -523,8 +572,8 @@ DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE, Version 2
 
 BSD 3-Clause License
 --------------------
-(Applies to Flutter, Zstandard, ncnn and the core of glslang, under the
-copyright notices given above.)
+(Applies to Flutter, Zstandard, ncnn, the core of glslang, Protocol Buffers
+and the Real-ESRGAN model, under the copyright notices given above.)
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -580,6 +629,8 @@ DEALINGS IN THE SOFTWARE.
 
 zlib License
 ------------
+(Applies to zlib and to the SIMD math headers ncnn includes, under the
+copyright notices given above.)
 
 This software is provided 'as-is', without any express or implied warranty. In
 no event will the authors be held liable for any damages arising from the use

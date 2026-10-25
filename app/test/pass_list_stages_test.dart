@@ -42,6 +42,7 @@ void main() {
       PassType.deflicker,
       PassType.descratch,
       PassType.spotless,
+      PassType.descale,
       PassType.noiseReduction,
       PassType.chromaDenoise,
       PassType.dehalo,

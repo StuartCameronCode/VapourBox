@@ -287,6 +287,26 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/KhronosGroup/MoltenVK',
                       ),
                       _ComponentTile(
+                        name: 'VSNCNN (vs-mlrt)',
+                        license: 'GPL-3.0',
+                        copyright: 'AmusementClub (no copyright notice upstream); '
+                            'includes ncnn (Tencent), Protocol Buffers (Google, '
+                            'BSD 3-Clause) and ONNX (Apache 2.0)',
+                        url: 'https://github.com/AmusementClub/vs-mlrt',
+                      ),
+                      _ComponentTile(
+                        name: 'Real-ESRGAN anime video model',
+                        license: 'BSD 3-Clause',
+                        copyright: 'Xintao Wang',
+                        url: 'https://github.com/xinntao/Real-ESRGAN',
+                      ),
+                      _ComponentTile(
+                        name: 'Real-CUGAN models',
+                        license: 'MIT',
+                        copyright: 'bilibili',
+                        url: 'https://github.com/bilibili/ailab/tree/main/Real-CUGAN',
+                      ),
+                      _ComponentTile(
                         name: 'DFTTest',
                         license: 'GPL 3.0',
                         copyright: 'Kevin Stone (tritical); port by HolyWu',
@@ -359,6 +379,12 @@ class _AboutDialogState extends State<AboutDialog> {
                         license: 'MIT',
                         copyright: 'mawen1250',
                         url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-BM3D',
+                      ),
+                      _ComponentTile(
+                        name: 'descale',
+                        license: 'MIT',
+                        copyright: 'Frechdachs; maintained by Jaded Encoding Thaumaturgy',
+                        url: 'https://github.com/Jaded-Encoding-Thaumaturgy/vapoursynth-descale',
                       ),
                       _ComponentTile(
                         name: 'KNLMeansCL',

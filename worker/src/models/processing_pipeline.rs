@@ -6,7 +6,7 @@ use super::{
     AntiAliasParameters, GeometryParameters, GrainParameters, StabilizeParameters,
     ChromaDenoiseParameters, ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
     DebandParameters, DeblockParameters, DehaloParameters, DeinterlaceMethod, DeScratchParameters,
-    SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters, FrameRateParameters, FrameRateMethod, DeflickerParameters, EdgeRepairParameters, GhostRemovalParameters,};
+    SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters, FrameRateParameters, FrameRateMethod, NoiseReductionMethod, DeflickerParameters, EdgeRepairParameters, GhostRemovalParameters, DescaleParameters,};
 
 /// Minimum temporal context (frames on each side of the target) a windowed
 /// preview decodes, regardless of which filters are enabled. Motion-compensated
@@ -116,6 +116,8 @@ pub enum PassType {
     Deinterlace,
     DeScratch,
     SpotLess,
+    /// Undo a studio's upscale and upscale again properly.
+    Descale,
     NoiseReduction,
     ChromaDenoise,
     Dehalo,
@@ -159,6 +161,7 @@ impl PassType {
             PassType::Grain => "Film Grain",
             PassType::Deflicker => "Deflicker",
             PassType::GhostRemoval => "Ghost Removal",
+            PassType::Descale => "Descale",
             PassType::EdgeRepair => "Edge Repair",
             PassType::FrameRate => "Frame Rate",
             PassType::ColorCorrection => "Color Correction",
@@ -185,6 +188,7 @@ impl PassType {
             PassType::Grain => "Add film grain back after denoising",
             PassType::Deflicker => "Even out brightness pulsing between frames",
             PassType::GhostRemoval => "Remove the displaced echo RF and cable distribution leave behind",
+            PassType::Descale => "Undo a studio's upscale, then upscale again cleanly",
             PassType::EdgeRepair => "Rebuild the dirty rows and columns at the frame border",
             PassType::FrameRate => "Convert between PAL and NTSC frame rates",
             PassType::ColorCorrection => "Adjust brightness, contrast, and colors",
@@ -259,6 +263,9 @@ pub struct ProcessingPipeline {
     pub ghost_removal: GhostRemovalParameters,
 
     #[serde(default)]
+    pub descale: DescaleParameters,
+
+    #[serde(default)]
     pub edge_repair: EdgeRepairParameters,
 
     /// Frame-rate conversion. Off by default.
@@ -296,6 +303,7 @@ impl Default for ProcessingPipeline {
             grain: GrainParameters::default(),
             deflicker: DeflickerParameters::default(),
             ghost_removal: GhostRemovalParameters::default(),
+            descale: DescaleParameters::default(),
             edge_repair: EdgeRepairParameters::default(),
             frame_rate: FrameRateParameters::default(),
             color_correction: ColorCorrectionParameters::default(),
@@ -325,6 +333,7 @@ impl ProcessingPipeline {
             grain: GrainParameters { enabled: false, ..Default::default() },
             deflicker: DeflickerParameters { enabled: false, ..Default::default() },
             ghost_removal: GhostRemovalParameters { enabled: false, ..Default::default() },
+            descale: DescaleParameters::default(),
             edge_repair: EdgeRepairParameters { enabled: false, ..Default::default() },
             frame_rate: FrameRateParameters { enabled: false, ..Default::default() },
             color_correction: ColorCorrectionParameters { enabled: false, ..Default::default() },
@@ -366,6 +375,11 @@ impl ProcessingPipeline {
         }
         if self.spotless.enabled {
             passes.push(PassType::SpotLess);
+        }
+        // Descale needs the studio's upscale exactly as it was: before any
+        // denoise, deblock or sharpen changes the picture it inverts.
+        if self.descale.enabled {
+            passes.push(PassType::Descale);
         }
         if self.noise_reduction.enabled {
             passes.push(PassType::NoiseReduction);
@@ -463,15 +477,28 @@ impl ProcessingPipeline {
         count
     }
 
-    /// The frame-timeline map each enabled pass imposes, in application order.
-    /// Only the deinterlace pass changes the count today; the rest are identity
-    /// (with a small temporal radius for context-sensitive filters).
-    /// Whether this pipeline interpolates with RIFE — the one pass that needs a
-    /// GPU probe before its script can be generated.
+    /// Whether this pipeline interpolates with RIFE, which needs a GPU probe
+    /// before its script can be generated.
     pub fn uses_rife(&self) -> bool {
         self.frame_rate.enabled && self.frame_rate.method == FrameRateMethod::Rife
     }
 
+    /// Whether this pipeline upscales with a neural model (Real-ESRGAN /
+    /// Real-CUGAN), which needs a GPU probe before its script can be generated.
+    pub fn uses_ai_upscale(&self) -> bool {
+        self.crop_resize.uses_ai_upscale()
+    }
+
+    /// Whether this pipeline denoises with KNLMeans, which needs a working
+    /// OpenCL device before its script can be generated.
+    pub fn uses_knlm(&self) -> bool {
+        self.noise_reduction.enabled
+            && self.noise_reduction.method == NoiseReductionMethod::KnlMeans
+    }
+
+    /// The frame-timeline map each enabled pass imposes, in application order.
+    /// Only the deinterlace pass changes the count today; the rest are identity
+    /// (with a small temporal radius for context-sensitive filters).
     pub fn frame_maps(&self) -> Vec<FrameMap> {
         self.enabled_passes()
             .into_iter()
@@ -485,7 +512,9 @@ impl ProcessingPipeline {
             PassType::Deinterlace => self.deinterlace_frame_map(),
             // Temporal filters need neighbours for a correct windowed preview,
             // but don't change the frame count.
-            PassType::NoiseReduction => FrameMap::Identity { radius: 3 },
+            PassType::NoiseReduction => FrameMap::Identity {
+                radius: self.noise_reduction.temporal_radius(),
+            },
             // CCD is spatial at temporal_radius 0, temporal above it.
             PassType::ChromaDenoise => FrameMap::Identity {
                 radius: self.chroma_denoise.radius(),
@@ -495,6 +524,7 @@ impl ProcessingPipeline {
             PassType::Deflicker => FrameMap::Identity { radius: self.deflicker.radius() },
             PassType::EdgeRepair => FrameMap::Identity { radius: 0 },
             PassType::GhostRemoval => FrameMap::Identity { radius: 0 },
+            PassType::Descale => FrameMap::Identity { radius: 0 },
             // The one pass that emits a Retime. The ratio is known up front, so
             // the count is exact; `synthesizes` is true only for the
             // interpolating method, where an output frame has no single source.
@@ -610,6 +640,7 @@ impl ProcessingPipeline {
             PassType::Grain => self.grain.has_effect(),
             PassType::Deflicker => self.deflicker.enabled,
             PassType::GhostRemoval => self.ghost_removal.has_effect(),
+            PassType::Descale => self.descale.enabled,
             PassType::EdgeRepair => self.edge_repair.has_effect(),
             PassType::FrameRate => self.frame_rate.enabled,
             PassType::ColorCorrection => self.color_correction.enabled,

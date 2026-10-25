@@ -2380,6 +2380,142 @@ architecture MIT (Megvii, ECCV2022-RIFE), plugin MIT (HolyWu), ncnn BSD-3
 (Tencent), MoltenVK Apache-2.0 (Brenwill Workshop, from source headers; no
 NOTICE file upstream).
 
+### BM3D and KNLMeans as Noise Reduction methods (2026-10-25)
+
+Probed against the bundle on an M1 Pro (macOS arm64), BM3D r12 built with the
+script's own `build_plugin`:
+
+- **BM3D refuses 4:2:0 whenever chroma is processed** ("sub-sampled format is
+  not supported when chroma is processed"); `sigma=[s,0,0]` works. Running
+  each plane as a GRAY clip handles chroma at its own resolution, and costs
+  nothing measurable: 52.5 fps whole-clip vs 53.0 per-plane at 720x480.
+- **`VAggregate` always outputs 16-bit** (from 8-bit, 10-bit and even float
+  input), and `VFinal` then fails with "input clip and clip "ref" must be of the
+  same format" unless the input is 16-bit too. Hence the 16-bit working format.
+- **sigma does not depend on depth**: 8-bit vs 16-bit results differ by
+  0.30/255 (rounding), and the heavy parity test measures 0.36/255 at 10-bit.
+- Throughput at 720x480, luma only, vspipe (frames in parallel):
+
+  | radius | Basic | Basic + Final |
+  |---|---|---|
+  | 0 | 52.5 fps | 23.0 fps |
+  | 1 | 34.0 fps | 14.3 fps |
+  | 2 | 24.3 fps | 9.7 fps |
+
+  Defaults are radius 1 with Final. Timing frames with sequential `get_frame`
+  calls reads about 10x slower and is not a measure of anything.
+- **KNLMeansCL's default `device_type="auto"` fails on this Mac** with
+  `oclUtilsGetPlaformDeviceIDs: CL_INVALID_VALUE`; `"gpu"` works (140 fps luma,
+  58 fps luma + chroma at 720x480), `"cpu"`/`"accelerator"` find no platform.
+  The existing `knlm` probe (default device) correctly reports false here, and
+  QTGMC's `knlmeanscl` denoiser has always fallen back to DFTTest on Apple
+  Silicon as a result — it is havsfunc's call, so it was left alone. The new
+  method probes `gpu` then `auto` and passes the one that works.
+- Depth parity for KNLMeans: 0.137/255 at 10-bit, 0.009 at 16-bit, against
+  2.74/255 of denoising.
+
+Why BM3D was missing from four of five bundles: Linux's
+`patch_meson_vs_include` only matched `incdir = include_directories(run_command(...))`,
+and r12 writes the probe inside a list with `'include'`, so meson ran the host
+python (no VapourSynth module) and failed at configure. macOS x64 never calls
+`build_plugin` (its plugins come from Stefan-Olt's prebuilts, which has no
+current BM3D), and the PyPI wheel for x86_64 is minos 15.0. Neither failure was
+visible because no expected-plugins list named BM3D outside macOS arm64.
+
+### AI upscaling: Real-ESRGAN / Real-CUGAN through VSNCNN (2026-10-25)
+
+Runtime choice. Neither a maintained "RealESRGAN-ncnn" nor "RealCUGAN-ncnn"
+VapourSynth plugin exists (Kiyamou's CUGAN plugin is Windows-only and last
+released 2022); vs-mlrt's VSNCNN (GPL-3.0, active) runs any of its ONNX models
+on ncnn/Vulkan, the same stack as RIFE. Only its Windows build is published,
+so macOS arm64 and Linux x64 build it from the pinned tag: upstream's own
+linux-ncnn.yml recipe on Linux; on macOS, Tencent's ncnn ships as static
+frameworks with no CMake config, so the three sources are compiled directly
+with `-undefined dynamic_lookup` (vkGetInstanceProcAddr from the preloaded
+MoltenVK, exactly as for RIFE). It is an API 3 plugin; R78 still loads those.
+
+Models and licences. AnimeJaNai was ruled out: CC BY-NC-SA 4.0. Real-ESRGAN
+(BSD-3, Xintao Wang) and Real-CUGAN (MIT, bilibili) are fine. Every model is
+2.4-5.2 MB, so they are bundled rather than fetched on demand; vs-mlrt
+publishes them only inside one ~810 MB solid 7z per release, so each deps
+build downloads it once (pinned by hash), extracts the five files in one pass
+(separate extractions each re-decompress the solid archive) and checks each.
+
+Measured on an M1 Pro, fp16 (fp32 is ~3x slower and within 0.06/255
+(ESRGAN) / 0.30/255 (CUGAN) of it):
+
+| | SD -> 2x | 1080p -> 2x |
+|---|---|---|
+| Real-ESRGAN animevideo x2 | ~10 fps | 1.6 fps (whole frame) |
+| Real-CUGAN up2x | ~6 fps | out of GPU memory whole-frame; 0.67 fps in 512-px tiles |
+
+num_streams 2 adds ~10%; 4 adds nothing. Without Vulkan (MoltenVK swapped for
+an unrelated dylib) VSNCNN raises "get_gpu_device failed" rather than
+segfaulting.
+
+Pixel checks (heavy test), against a plain Spline36 upscale of the same frames:
+
+- On real footage the comparison cannot prove correctness. On the interlaced
+  VHS fixture without deinterlacing, both networks remove the combing (CUGAN
+  smooths it, ESRGAN sharpens it into artefacts), a 9-12 level difference that
+  survives downscaling back to source size because it IS source-resolution
+  detail. small_clip has duplicate frames (a neighbour can score 0.0), so it
+  cannot catch a wrong frame either. It is kept as a sanity bound only.
+- A synthetic pattern can: mid-saturation flat patches (nothing clips, where
+  the networks roll off by a few levels and a range error would hide) and a
+  white bar. Real-CUGAN 2x reproduces flat colour within 1 level on every
+  patch, which — the conversions being shared — proves the matrix and range.
+  Real-ESRGAN tints/saturates flat colour: up to 3 levels at 2x and 11 at 4x
+  (green 160 -> 171), in fp32 too, with vs-mlrt's own `RealESRGAN()` wrapper
+  doing nothing more than this template; that is the model. CUGAN 4x drifts ~4.
+- Geometry: the networks widen a hard edge (CUGAN 4x: bar 194.6 px wide vs
+  192.05), so either edge alone looks shifted (CUGAN 4x left edge 1.65 px off)
+  while the bar's centre is within 0.36 px for every model. The test checks the
+  centre on both axes (0.75 px), and that Spline36 itself lands on factor x
+  source (within 0.25 px), so the reference is known-good.
+
+CI runs it all for real: Mesa lavapipe on the GPU-less Linux/Windows runners
+(ncnn tags a CPU device as type 3 but does not skip it), the runner's Metal GPU
+on macOS arm64, and `VAPOURBOX_EXPECT_VULKAN=1` so an unavailable feature is a
+failure there, not a skip.
+
+### Descale and native-resolution detection (2026-10-25)
+
+Probed with descale r12 (wheel) on an M1 Pro. A float 720p image upscaled to
+1080p with Catmull-Rom and descaled back: round-trip error 2.8e-8 at 720 vs
+~2e-4 at every other height; at 720, Catmull-Rom 2.8e-8, Mitchell 1.9e-5,
+bilinear 6.3e-5, Spline36 8.0e-5, Lanczos3 1.0e-4. A sequential 231-height
+scan took 12 s; spliced into one clip and read with `frames()` the whole
+1080p detection (4 kernels x 540 heights, then 12 kernels x 4 frames, plus
+decoding) takes ~30 s.
+
+What went wrong on the way, so it is not repeated:
+
+- **One-sided neighbourhoods.** The first version picked H-1 (1079, 574) on
+  everything: the round-trip error falls steadily toward the source height,
+  and a window that only has neighbours below reads that slope as a dip.
+- **A smooth fixture proves nothing.** testing on small_clip (240p) scaled to
+  "native" 720p: after 8-bit FFV1 storage every height's misfit (~0.05 levels)
+  is below rounding (~0.25), so no dip exists to find. testsrc2 at native 720p
+  works.
+- **Credits swamp a mean.** A dense one-pixel grid over 4% of the frame
+  (misfit at every height) flattened the dip to ~0.9; capping each pixel's
+  error at 2 levels before averaging restores it (0.48 at 4% coverage, 0.35 at
+  2%, 0.14 with none).
+- **Scan with every kernel family.** Bilinear + Catmull-Rom alone missed
+  Lanczos- and spline-made masters entirely (dip 0.63 / 0.56); adding
+  Lanczos 3 and Spline36 to the scan finds all four at 720. ffmpeg's `spline`
+  is not Spline36; its master is detected as Spline64, the nearest family.
+- **A drawgrid on a transparent layer draws nothing** (alpha is not written):
+  the first "credits" fixture had no credits, and protected/unprotected came
+  out identical. The heavy test now asserts the unprotected grid is destroyed.
+
+Results on the fixtures: Catmull-Rom master -> 720 bicubic 0/0.5 (dip 0.14);
+bilinear -> 720 bilinear (0.14); Lanczos -> 720 lanczos 3 (0.16); with 2%
+credits -> 720 (0.35); the VHS capture -> not found (0.91). Encode with
+protection: credits exact (0.0 levels), picture within 0.27 of the source;
+without it the credits move 62.6 levels. 8- vs 10-bit parity 0.32.
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and

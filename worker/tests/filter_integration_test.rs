@@ -3605,7 +3605,10 @@ fn test_93_templates_do_not_call_std_expr_directly() {
 /// cases that assert something is *absent*, which is the direction that catches
 /// a block the generator failed to strip.
 fn script_text(job: &VideoJob) -> String {
-    let generator = ScriptGenerator::new().expect("Failed to create generator");
+    // A KNLMeans job needs a device; the refusal without one is test_171's.
+    let generator = ScriptGenerator::new()
+        .expect("Failed to create generator")
+        .with_knlm(Ok("gpu".into()));
     let script_path = generator.generate(job).expect("Failed to generate script");
     std::fs::read_to_string(&script_path).expect("read generated script")
 }
@@ -4318,6 +4321,8 @@ fn test_115_every_noise_method_still_emits_only_its_own_filter() {
         ("fluxt", "core.flux.SmoothT("),
         ("fluxst", "core.flux.SmoothST("),
         ("stpresso", "haf.STPresso"),
+        ("bm3d", "core.bm3d."),
+        ("knlm", "core.knlm.KNLMeansCL("),
     ];
 
     let methods = [
@@ -4329,6 +4334,8 @@ fn test_115_every_noise_method_still_emits_only_its_own_filter() {
         (NoiseReductionMethod::FluxSmoothT, "fluxt"),
         (NoiseReductionMethod::FluxSmoothSt, "fluxst"),
         (NoiseReductionMethod::StPresso, "stpresso"),
+        (NoiseReductionMethod::Bm3d, "bm3d"),
+        (NoiseReductionMethod::KnlMeans, "knlm"),
     ];
 
     for (method, key) in methods {
@@ -5456,7 +5463,22 @@ fn test_149_every_noise_reduction_method_emits_its_filter() {
         (NoiseReductionMethod::Ctmf, "core.ctmf.CTMF("),
         (NoiseReductionMethod::MClean, "_mClean("),
         (NoiseReductionMethod::TemporalDegrain2, "_TemporalDegrain2("),
+        (NoiseReductionMethod::Bm3d, "core.bm3d.VBasic("),
+        (NoiseReductionMethod::KnlMeans, "core.knlm.KNLMeansCL("),
     ];
+    // The list above is hand-written; this match is not. A new method fails to
+    // compile here until it is added both here and to the list.
+    fn listed(m: NoiseReductionMethod) -> bool {
+        use NoiseReductionMethod::*;
+        match m {
+            SmDegrain | McTemporalDenoise | McDegrainSharp | DfTtest | Fft3dFilter
+            | TTempSmooth | FluxSmoothT | FluxSmoothSt | StPresso | Ctmf | MClean
+            | TemporalDegrain2 | Bm3d | KnlMeans => true,
+            QtgmcBuiltin => false, // denoises inside the QTGMC pass
+        }
+    }
+    assert_eq!(expected.len(), 14);
+    assert!(expected.iter().all(|(m, _)| listed(*m)));
 
     for (method, call) in expected {
         let mut job = create_base_job("test_149_nr_methods");
@@ -6140,8 +6162,9 @@ fn rife_job(name: &str) -> VideoJob {
     job
 }
 
-fn rife_files() -> vapourbox_worker::rife::RifeFiles {
-    vapourbox_worker::rife::RifeFiles::in_vapoursynth_dir(
+fn rife_files() -> vapourbox_worker::gpu_plugin::GpuPluginFiles {
+    vapourbox_worker::gpu_plugin::GpuPluginFiles::in_vapoursynth_dir(
+        vapourbox_worker::gpu_plugin::GpuPlugin::Rife,
         std::path::Path::new("/deps/macos-arm64/vapoursynth"),
         "macos-arm64",
     )
@@ -6164,7 +6187,7 @@ fn test_166_rife_frame_rate_emits_explicit_load_and_real_frame_passthrough() {
     create_output_dir();
     let files = rife_files();
     // Paths as the generator writes them: Path::join uses `\` on Windows.
-    let py = |p: &std::path::Path| vapourbox_worker::rife::py_str(p);
+    let py = |p: &std::path::Path| vapourbox_worker::gpu_plugin::py_str(p);
     let (preload, plugin, model) =
         (py(files.preload.as_deref().unwrap()), py(&files.plugin), py(&files.model_dir));
     let generator = ScriptGenerator::new().unwrap().with_rife(Ok(files));
@@ -6242,4 +6265,291 @@ fn test_168_rife_frame_map_is_an_exact_count_retime() {
         p.frame_rate.target = target;
         assert_eq!(p.output_count(40), want, "{target:?}");
     }
+}
+
+fn nr_job(name: &str, nr: NoiseReductionParameters) -> VideoJob {
+    let mut job = create_base_job(name);
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        noise_reduction: NoiseReductionParameters { enabled: true, ..nr },
+        ..ProcessingPipeline::default()
+    });
+    job
+}
+
+/// BM3D's values reach both scripts, in the 16-bit per-plane block.
+#[test]
+fn test_169_bm3d_noise_reduction() {
+    create_output_dir();
+    let job = nr_job("test_169_bm3d", NoiseReductionParameters {
+        method: NoiseReductionMethod::Bm3d,
+        bm3d_sigma: 4.5,
+        bm3d_chroma_sigma: 2.0,
+        bm3d_radius: 2,
+        bm3d_final: false,
+        bm3d_profile: "high".into(),
+        ..Default::default()
+    });
+    let (encode, preview) = both_scripts_with(&ScriptGenerator::new().unwrap(), &job).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        for want in [
+            "_bm3d_radius = 2",
+            "_bm3d_final = False",
+            "_bm3d_profile = \"high\"",
+            "_bm3d_sigmas = [4.50] + [2.00]",
+            "core.bm3d.VBasic(p, sigma=sigma, radius=r, profile=_bm3d_profile)",
+            "bits_per_sample=16, sample_type=vs.INTEGER",
+            "format=_bm3d_fmt.id, dither_type=\"error_diffusion\")",
+        ] {
+            assert!(script.contains(want), "{name}: missing {want}");
+        }
+        assert!(!script.contains("mvf.BM3D"), "{name}: the old mvsfunc call is back");
+        assert!(!script.contains("core.knlm.KNLMeansCL("), "{name}: KNLMeans emitted too");
+        assert!(!script.contains("{{NR_"), "{name}: unsubstituted NR placeholder");
+    }
+
+    // An unknown profile would be a hard error in the plugin.
+    let job = nr_job("test_169_bm3d_profile", NoiseReductionParameters {
+        method: NoiseReductionMethod::Bm3d,
+        bm3d_profile: "turbo".into(),
+        ..Default::default()
+    });
+    assert!(script_text(&job).contains("_bm3d_profile = \"np\""));
+}
+
+/// KNLMeans runs on the device the probe found, with its clamped values.
+#[test]
+fn test_170_knlm_noise_reduction_uses_the_probed_device() {
+    create_output_dir();
+    let job = nr_job("test_170_knlm", NoiseReductionParameters {
+        method: NoiseReductionMethod::KnlMeans,
+        knlm_h: 2.5,
+        knlm_d: 3,
+        knlm_a: 3,
+        knlm_s: 2,
+        knlm_chroma: false,
+        ..Default::default()
+    });
+    let generator = ScriptGenerator::new().unwrap().with_knlm(Ok("auto".into()));
+    let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains(
+            "core.knlm.KNLMeansCL(clip, d=3, a=3, s=2, h=2.50, channels=\"Y\", device_type=\"auto\")"),
+            "{name}: luma call wrong");
+        assert!(script.contains("if False and clip.format.color_family == vs.YUV:"),
+            "{name}: chroma pass not switched off");
+        assert!(!script.contains("core.bm3d."), "{name}: BM3D emitted too");
+    }
+}
+
+/// Without a working OpenCL device a KNLMeans job is refused, before any
+/// script exists, with the message the app shows. Other methods are unaffected.
+#[test]
+fn test_171_knlm_is_refused_without_a_device() {
+    create_output_dir();
+    let message = "KNLMeans runs on the graphics card through OpenCL, and none was found.";
+    let generator = ScriptGenerator::new().unwrap().with_knlm(Err(message.into()));
+    let job = nr_job("test_171_knlm_refused", NoiseReductionParameters {
+        method: NoiseReductionMethod::KnlMeans,
+        ..Default::default()
+    });
+    let err = both_scripts_with(&generator, &job).unwrap_err().to_string();
+    assert!(err.contains(message), "refusal lost the reason: {err}");
+    assert!(
+        !std::env::temp_dir().join(format!("{}.vpy", job.id)).exists(),
+        "a script was written for a job that cannot run"
+    );
+    let bm3d = nr_job("test_171_bm3d_ok", NoiseReductionParameters {
+        method: NoiseReductionMethod::Bm3d,
+        ..Default::default()
+    });
+    both_scripts_with(&generator, &bm3d).expect("BM3D needs no OpenCL");
+}
+
+fn upscale_files() -> vapourbox_worker::gpu_plugin::GpuPluginFiles {
+    vapourbox_worker::gpu_plugin::GpuPluginFiles::in_vapoursynth_dir(
+        vapourbox_worker::gpu_plugin::GpuPlugin::Upscale,
+        std::path::Path::new("/deps/macos-arm64/vapoursynth"),
+        "macos-arm64",
+    )
+}
+
+fn ai_upscale_job(name: &str, method: UpscaleMethod, factor: i32, noise: &str) -> VideoJob {
+    let mut job = create_base_job(name);
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        crop_resize: CropResizeParameters {
+            enabled: true,
+            use_integer_upscale: true,
+            upscale_method: method,
+            upscale_factor: factor,
+            cugan_noise: noise.into(),
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    job
+}
+
+/// Real-ESRGAN / Real-CUGAN: VSNCNN loaded explicitly from vapoursynth/ncnn/
+/// after the shared MoltenVK, the bundled model for the factor, the source's
+/// matrix both ways, and none of the edge-directed loop — in both scripts.
+#[test]
+fn test_172_ai_upscale_emits_explicit_load_and_the_right_model() {
+    create_output_dir();
+    let files = upscale_files();
+    let py = |p: &std::path::Path| vapourbox_worker::gpu_plugin::py_str(p);
+    let generator = ScriptGenerator::new().unwrap().with_upscale(Ok(files.clone()));
+    for (method, model) in [
+        (UpscaleMethod::RealEsrgan, "RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx"),
+        (UpscaleMethod::RealCugan, "cugan/up2x-latest-denoise3x.onnx"),
+    ] {
+        let job = ai_upscale_job("test_172_ai_upscale", method, 2, "denoise3x");
+        let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            let ctx = format!("{method:?} {name}");
+            assert!(script.contains(&format!("_ai_preload = {}", py(files.preload.as_deref().unwrap()))),
+                "{ctx}: MoltenVK not preloaded");
+            assert!(script.contains(&format!("core.std.LoadPlugin({})", py(&files.plugin))),
+                "{ctx}: VSNCNN not loaded explicitly");
+            assert!(script.contains(&format!("for _ai_model in [{}]:", py(&files.model_dir.join(model)))),
+                "{ctx}: wrong model");
+            assert!(script.contains("core.ncnn.Model(_ai_rgb, network_path=_ai_model, fp16=True"),
+                "{ctx}: no ncnn.Model call");
+            // 576 lines, untagged: BT.601 both ways, limited range.
+            assert!(script.contains(r#"matrix_in_s="170m", range_in_s="limited""#), "{ctx}: matrix in");
+            assert!(script.contains(r#"matrix_s="170m", range_s="limited", dither_type="error_diffusion""#),
+                "{ctx}: matrix out");
+            assert!(script.contains("clip = core.std.CopyFrameProps(clip, _ai_src)"), "{ctx}: props lost");
+            assert!(!script.contains("_upscale_double_height"), "{ctx}: edge-directed loop emitted too");
+            for prefix in ["{{AI_", "{{#UPSCALE_", "{{/UPSCALE_", "{{UPSCALE_"] {
+                assert!(!script.contains(prefix), "{ctx}: unsubstituted {prefix}");
+            }
+        }
+    }
+}
+
+/// 4x: Real-ESRGAN has a 4x model; Real-CUGAN's bundled models are 2x, so it
+/// runs twice, denoising on the first pass only.
+#[test]
+fn test_173_ai_upscale_4x_models() {
+    create_output_dir();
+    let files = upscale_files();
+    let py = |m: &str| vapourbox_worker::gpu_plugin::py_str(&files.model_dir.join(m));
+    let generator = ScriptGenerator::new().unwrap().with_upscale(Ok(files.clone()));
+    let esrgan = script_text_with(&generator, &ai_upscale_job("test_173_esrgan", UpscaleMethod::RealEsrgan, 4, ""));
+    assert!(esrgan.contains(&format!("for _ai_model in [{}]:",
+        py("RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx"))));
+    let cugan = script_text_with(&generator, &ai_upscale_job("test_173_cugan", UpscaleMethod::RealCugan, 4, "conservative"));
+    assert!(cugan.contains(&format!("for _ai_model in [{}, {}]:",
+        py("cugan/up2x-latest-conservative.onnx"), py("cugan/up2x-latest-no-denoise.onnx"))));
+}
+
+/// Without a working Vulkan device an AI upscale job is refused, before any
+/// script exists, with the probe's message. The other upscalers are unaffected.
+#[test]
+fn test_174_ai_upscale_is_refused_where_it_cannot_run() {
+    create_output_dir();
+    let message = "AI upscaling needs a graphics card with Vulkan support, and none was found.";
+    let generator = ScriptGenerator::new().unwrap().with_upscale(Err(message.into()));
+    let job = ai_upscale_job("test_174_refused", UpscaleMethod::RealCugan, 2, "conservative");
+    let err = both_scripts_with(&generator, &job).unwrap_err().to_string();
+    assert!(err.contains(message), "refusal lost the reason: {err}");
+    assert!(!std::env::temp_dir().join(format!("{}.vpy", job.id)).exists());
+    let nnedi = ai_upscale_job("test_174_nnedi3", UpscaleMethod::Nnedi3Rpow2, 2, "");
+    let (encode, _) = both_scripts_with(&generator, &nnedi).expect("NNEDI3 needs no GPU");
+    assert!(!encode.contains("core.ncnn."), "a non-AI upscale emitted VSNCNN");
+}
+
+fn script_text_with(generator: &ScriptGenerator, job: &VideoJob) -> String {
+    std::fs::read_to_string(generator.generate(job).expect("generate")).expect("read script")
+}
+
+fn descale_job(name: &str, ds: DescaleParameters) -> VideoJob {
+    let mut job = create_base_job(name);
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        descale: DescaleParameters { enabled: true, ..ds },
+        ..ProcessingPipeline::default()
+    });
+    job
+}
+
+/// Every kernel's inverse is paired with the same kernel's forward resize (the
+/// protection mask compares against it), in both scripts.
+#[test]
+fn test_175_descale_emits_the_kernel_pair_and_the_rescale() {
+    create_output_dir();
+    for (kernel, inverse, forward) in [
+        (DescaleKernel::Bilinear, "core.descale.Debilinear(c, w, h, border_handling=0)", "core.resize.Bilinear(c, w, h)"),
+        (DescaleKernel::Bicubic, "core.descale.Debicubic(c, w, h, b=0.25, c=0.4, border_handling=0)",
+            "core.resize.Bicubic(c, w, h, filter_param_a=0.25, filter_param_b=0.4)"),
+        (DescaleKernel::Lanczos, "core.descale.Delanczos(c, w, h, taps=4, border_handling=0)", "core.resize.Lanczos(c, w, h, filter_param_a=4)"),
+        (DescaleKernel::Spline36, "core.descale.Despline36(c, w, h, border_handling=0)", "core.resize.Spline36(c, w, h)"),
+    ] {
+        let job = descale_job("test_175_descale", DescaleParameters {
+            native_height: 810,
+            kernel,
+            bicubic_b: 0.25,
+            bicubic_c: 0.4,
+            lanczos_taps: 4,
+            ..Default::default()
+        });
+        let (encode, preview) = both_scripts_with(&ScriptGenerator::new().unwrap(), &job).unwrap();
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            let ctx = format!("{kernel:?} {name}");
+            assert!(script.contains(&format!("    return {inverse}")), "{ctx}: inverse");
+            assert!(script.contains(&format!("    return {forward}")), "{ctx}: forward");
+            assert!(script.contains("_ds_h = 810"), "{ctx}: height");
+            assert!(script.contains("_ds_w = 0 or int(round("), "{ctx}: width from shape");
+            assert!(script.contains("_nnedi3(_ds_up, field=1, dh=True"), "{ctx}: no NNEDI3 re-upscale");
+            assert!(script.contains("core.std.MaskedMerge(_ds_up, _ds_y, _ds_mask)"), "{ctx}: no protection");
+            assert!(script.contains("core.std.Binarize(_ds_error, 4.0 / 255.0)"), "{ctx}: threshold");
+            assert!(script.contains("core.std.ShufflePlanes([_ds_luma, _ds_src], [0, 1, 2]"), "{ctx}: chroma not kept");
+            assert!(!script.contains("{{DESCALE") && !script.contains("{{#DESCALE") && !script.contains("{{/DESCALE"),
+                "{ctx}: unsubstituted placeholder");
+        }
+    }
+}
+
+/// Protection off leaves no mask; a set native width is used as given.
+#[test]
+fn test_176_descale_options() {
+    create_output_dir();
+    let job = descale_job("test_176_descale", DescaleParameters {
+        protect_detail: false,
+        native_width: 1500,
+        border: DescaleBorder::Extend,
+        ..Default::default()
+    });
+    let script = script_text(&job);
+    assert!(!script.contains("_ds_mask"), "protection emitted when off");
+    assert!(script.contains("_ds_w = 1500 or"));
+    assert!(script.contains("border_handling=2)"));
+}
+
+/// Descale runs before noise reduction (which would change the upscale it
+/// inverts), and nothing of it is emitted when the pass is off.
+#[test]
+fn test_177_descale_order_and_off() {
+    create_output_dir();
+    let mut job = descale_job("test_177_descale", DescaleParameters::default());
+    if let Some(p) = job.processing_pipeline.as_mut() {
+        p.noise_reduction = NoiseReductionParameters { enabled: true, ..Default::default() };
+    }
+    let script = script_text(&job);
+    let ds = script.find("_ds_native = _ds_descale(").expect("descale call");
+    let nr = script.find("haf.SMDegrain(").expect("noise reduction call");
+    assert!(ds < nr, "descale must run before noise reduction");
+
+    let mut off = create_base_job("test_177_off");
+    off.qtgmc_parameters.enabled = false;
+    off.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        ..ProcessingPipeline::default()
+    });
+    assert!(!script_text(&off).contains("_ds_"), "descale emitted with the pass off");
 }

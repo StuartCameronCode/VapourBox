@@ -47,6 +47,7 @@ class PassListPanel extends StatelessWidget {
     (
       title: 'Noise & Artifacts',
       passes: [
+        PassType.descale,
         PassType.noiseReduction,
         PassType.chromaDenoise,
         PassType.dehalo,
@@ -156,6 +157,9 @@ class PassListPanel extends StatelessWidget {
             case PassType.deflicker:
               return item(passType, 'Deflicker', pipeline.deflicker.summary,
                   pipeline.deflicker.enabled);
+            case PassType.descale:
+              return item(passType, 'Descale', pipeline.descale.summary,
+                  pipeline.descale.enabled);
             case PassType.edgeRepair:
               return item(passType, 'Edge Repair', pipeline.edgeRepair.summary,
                   pipeline.edgeRepair.enabled);

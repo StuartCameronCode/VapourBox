@@ -129,7 +129,7 @@ required = ['std', 'resize', 'mv', 'znedi3', 'eedi3m', 'fmtc',
             'descratch', 'vivtc', 'ttmpsm', 'tmedian',
             'fft3dfilter', 'flux', 'bifrost', 'retinex',
             'bwdif', 'fb', 'removedirt', 'dedot', 'lghost', 'zsmooth',
-            'vszip']
+            'vszip', 'bm3d', 'descale']
 
 # On ARM, `nnedi3` is load-bearing and `znedi3` is only the fallback: znedi3's
 # SIMD is x86-only, so the ARM bundles build it scalar and both the templates'

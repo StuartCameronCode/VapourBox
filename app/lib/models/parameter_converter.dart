@@ -2,6 +2,7 @@ import 'chroma_denoise_parameters.dart';
 import 'anti_alias_parameters.dart';
 import 'geometry_parameters.dart';
 import 'deflicker_parameters.dart';
+import 'descale_parameters.dart';
 import 'edge_repair_parameters.dart';
 import 'frame_rate_parameters.dart';
 import 'ghost_removal_parameters.dart';
@@ -185,6 +186,12 @@ class ParameterConverter {
       case NoiseReductionMethod.temporalDegrain2:
         method = 'temporal_degrain2';
         break;
+      case NoiseReductionMethod.bm3d:
+        method = 'bm3d';
+        break;
+      case NoiseReductionMethod.knlMeans:
+        method = 'knlmeans';
+        break;
     }
 
     return DynamicParameters(
@@ -238,6 +245,16 @@ class ParameterConverter {
         'stpressoTthr': params.stpressoTthr,
         'ctmfRadius': params.ctmfRadius,
         'ctmfPlanes': params.ctmfPlanes,
+        'bm3dSigma': params.bm3dSigma,
+        'bm3dChromaSigma': params.bm3dChromaSigma,
+        'bm3dRadius': params.bm3dRadius,
+        'bm3dFinal': params.bm3dFinal,
+        'bm3dProfile': params.bm3dProfile,
+        'knlmH': params.knlmH,
+        'knlmD': params.knlmD,
+        'knlmA': params.knlmA,
+        'knlmS': params.knlmS,
+        'knlmChroma': params.knlmChroma,
       },
     );
   }
@@ -437,6 +454,44 @@ class ParameterConverter {
 
   /// Convert grain parameters to dynamic format.
   /// Convert frame rate parameters to dynamic format.
+  /// Convert descale parameters to dynamic format.
+  static DynamicParameters fromDescale(DescaleParameters params) {
+    return DynamicParameters(
+      filterId: 'descale',
+      enabled: params.enabled,
+      values: {
+        'nativeHeight': params.nativeHeight,
+        'nativeWidth': params.nativeWidth,
+        'kernel': params.kernel.name,
+        'bicubicB': params.bicubicB,
+        'bicubicC': params.bicubicC,
+        'lanczosTaps': params.lanczosTaps,
+        'border': params.border.name,
+        'protectDetail': params.protectDetail,
+        'detailThreshold': params.detailThreshold,
+      },
+    );
+  }
+
+  /// Convert dynamic parameters to descale parameters.
+  static DescaleParameters toDescale(DynamicParameters params) {
+    final v = params.values;
+    return DescaleParameters(
+      enabled: params.enabled,
+      nativeHeight: _asInt(v['nativeHeight']) ?? 720,
+      nativeWidth: _asInt(v['nativeWidth']) ?? 0,
+      kernel: DescaleKernel.values.firstWhere((k) => k.name == v['kernel'],
+          orElse: () => DescaleKernel.bicubic),
+      bicubicB: (v['bicubicB'] as num?)?.toDouble() ?? 0.0,
+      bicubicC: (v['bicubicC'] as num?)?.toDouble() ?? 0.5,
+      lanczosTaps: _asInt(v['lanczosTaps']) ?? 3,
+      border: DescaleBorder.values.firstWhere((b) => b.name == v['border'],
+          orElse: () => DescaleBorder.mirror),
+      protectDetail: v['protectDetail'] as bool? ?? true,
+      detailThreshold: (v['detailThreshold'] as num?)?.toDouble() ?? 4.0,
+    );
+  }
+
   /// Convert deflicker parameters to dynamic format.
   static DynamicParameters fromDeflicker(DeflickerParameters params) {
     return DynamicParameters(
@@ -860,6 +915,7 @@ class ParameterConverter {
       'useIntegerUpscale': params.useIntegerUpscale,
       'upscaleMethod': params.upscaleMethod.name,
       'upscaleFactor': params.upscaleFactor,
+      'cuganNoise': params.cuganNoise,
     };
     // Kernel tuning and the nnedi3/EEDI3 controls start unticked, so the
     // plugin's own default applies until the user opts in. Fallbacks are those
@@ -926,6 +982,7 @@ class ParameterConverter {
         'grain': fromGrain(pipeline.grain),
         'frame_rate': fromFrameRate(pipeline.frameRate),
         'deflicker': fromDeflicker(pipeline.deflicker),
+        'descale': fromDescale(pipeline.descale),
         'edge_repair': fromEdgeRepair(pipeline.edgeRepair),
         'ghost_removal': fromGhostRemoval(pipeline.ghostRemoval),
         'chroma_denoise': fromChromaDenoise(pipeline.chromaDenoise),
@@ -1105,6 +1162,12 @@ class ParameterConverter {
       case 'temporal_degrain2':
         method = NoiseReductionMethod.temporalDegrain2;
         break;
+      case 'bm3d':
+        method = NoiseReductionMethod.bm3d;
+        break;
+      case 'knlmeans':
+        method = NoiseReductionMethod.knlMeans;
+        break;
       default:
         method = NoiseReductionMethod.smDegrain;
     }
@@ -1159,6 +1222,16 @@ class ParameterConverter {
       stpressoTthr: _asInt(v['stpressoTthr']) ?? 12,
       ctmfRadius: _asInt(v['ctmfRadius']) ?? 2,
       ctmfPlanes: _asInt(v['ctmfPlanes']) ?? 2,
+      bm3dSigma: (v['bm3dSigma'] as num?)?.toDouble() ?? 3.0,
+      bm3dChromaSigma: (v['bm3dChromaSigma'] as num?)?.toDouble() ?? 0.0,
+      bm3dRadius: _asInt(v['bm3dRadius']) ?? 1,
+      bm3dFinal: v['bm3dFinal'] as bool? ?? true,
+      bm3dProfile: v['bm3dProfile'] as String? ?? 'np',
+      knlmH: (v['knlmH'] as num?)?.toDouble() ?? 1.2,
+      knlmD: _asInt(v['knlmD']) ?? 1,
+      knlmA: _asInt(v['knlmA']) ?? 2,
+      knlmS: _asInt(v['knlmS']) ?? 4,
+      knlmChroma: v['knlmChroma'] as bool? ?? true,
     );
   }
 
@@ -1470,7 +1543,8 @@ class ParameterConverter {
         (m) => m.name.toLowerCase() == (v['upscaleMethod'] as String? ?? 'nnedi3Rpow2').toLowerCase(),
         orElse: () => UpscaleMethod.nnedi3Rpow2,
       ),
-      upscaleFactor: v['upscaleFactor'] as int? ?? 2,
+      upscaleFactor: _asInt(v['upscaleFactor']) ?? 2,
+      cuganNoise: v['cuganNoise'] as String? ?? 'conservative',
       // Absent (checkbox off) stays null so the script omits it entirely.
       bicubicB: (v['bicubicB'] as num?)?.toDouble(),
       bicubicC: (v['bicubicC'] as num?)?.toDouble(),
@@ -1531,6 +1605,9 @@ class ParameterConverter {
       deflicker: dynamic.get('deflicker') != null
           ? toDeflicker(dynamic.get('deflicker')!)
           : const DeflickerParameters(),
+      descale: dynamic.get('descale') != null
+          ? toDescale(dynamic.get('descale')!)
+          : const DescaleParameters(),
       edgeRepair: dynamic.get('edge_repair') != null
           ? toEdgeRepair(dynamic.get('edge_repair')!)
           : const EdgeRepairParameters(),

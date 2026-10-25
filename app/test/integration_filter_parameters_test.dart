@@ -20,6 +20,7 @@ import 'package:vapourbox/models/crop_resize_parameters.dart';
 import 'package:vapourbox/models/deband_parameters.dart';
 import 'package:vapourbox/models/deblock_parameters.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
+import 'package:vapourbox/models/descale_parameters.dart';
 import 'package:vapourbox/models/descratch_parameters.dart';
 import 'package:vapourbox/models/dynamic_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
@@ -173,6 +174,7 @@ VideoJob buildJob({
   StabilizeParameters? stabilize,
   GeometryParameters? geometry,
   GrainParameters? grain,
+  DescaleParameters? descale,
 }) => VideoJob(
   id: const Uuid().v4(),
   inputPath: TestConfig.inputFile,
@@ -194,6 +196,7 @@ VideoJob buildJob({
     stabilize: stabilize ?? const StabilizeParameters(),
     geometry: geometry ?? const GeometryParameters(),
     grain: grain ?? const GrainParameters(),
+    descale: descale ?? const DescaleParameters(),
   ),
   encodingSettings: const EncodingSettings(
     codec: VideoCodec.h264, container: ContainerFormat.mkv, audioMode: AudioMode.none,
@@ -1014,6 +1017,96 @@ void main() {
       expect(actual['thresh'], '6');
       expect(actual['mdiff'], '5', reason: 'clamped to thresh - 1');
       expect(actual['strength'], '3');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('noise reduction: BM3D params reach the 16-bit per-plane block',
+        () async {
+      loadSchema('noise_reduction');
+      final typed = const NoiseReductionParameters(
+        enabled: true,
+        method: NoiseReductionMethod.bm3d,
+        bm3dSigma: 4.5,
+        bm3dChromaSigma: 2.0,
+        bm3dRadius: 2,
+        bm3dFinal: false,
+        bm3dProfile: 'high',
+      );
+      // Through the converter, as the panel would hand it to the worker.
+      final roundTripped = ParameterConverter.toNoiseReduction(
+          ParameterConverter.fromNoiseReduction(typed));
+      final job = buildJob(testName: 'nr_bm3d', noiseReduction: roundTripped);
+      print('  Generating BM3D script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.bm3d.VBasic('));
+      expect(script, contains('_bm3d_radius = 2'));
+      expect(script, contains('_bm3d_final = False'));
+      expect(script, contains('_bm3d_profile = "high"'));
+      expect(script, contains('_bm3d_sigmas = [4.50] + [2.00]'));
+      expect(script, isNot(contains('core.knlm.KNLMeansCL(')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('noise reduction: KNLMeans runs on the probed device, or is refused',
+        () async {
+      loadSchema('noise_reduction');
+      final probe = await Process.run(
+        WorkerHarness.workerPath,
+        ['--probe-opencl'],
+        environment: WorkerHarness.workerEnv,
+        workingDirectory: File(WorkerHarness.workerPath).parent.path,
+      );
+      final caps = jsonDecode(const LineSplitter()
+          .convert(probe.stdout.toString())
+          .lastWhere((l) => l.trim().startsWith('{'))) as Map<String, dynamic>;
+      print('  OpenCL probe: $caps');
+      final job = buildJob(
+        testName: 'nr_knlm',
+        noiseReduction: const NoiseReductionParameters(
+          enabled: true,
+          method: NoiseReductionMethod.knlMeans,
+          knlmH: 2.5,
+          knlmD: 2,
+        ),
+      );
+      final device = caps['knlmDevice'];
+      if (device is String) {
+        final script = await generateScriptViaWorker(job);
+        expect(script, contains('channels="Y", device_type="$device")'));
+        expect(script, contains('d=2, a=2, s=4, h=2.50'));
+      } else {
+        // No device here (headless CI): the job must be refused with the
+        // probe's own message, which is also what the panel shows.
+        expect(caps['knlmMessage'], isA<String>());
+        final result = await WorkerHarness.runJob(job.toJson(), label: 'nr_knlm');
+        expect(result.success, isFalse);
+        expect('${result.error}\n${result.logs.join('\n')}',
+            contains(caps['knlmMessage'] as String));
+      }
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('descale: kernel pair, native size and protection reach the script', () async {
+      loadSchema('descale');
+      const typed = DescaleParameters(
+        enabled: true,
+        nativeHeight: 540,
+        kernel: DescaleKernel.lanczos,
+        lanczosTaps: 4,
+        protectDetail: true,
+        detailThreshold: 6.5,
+      );
+      // Through the converter, as the panel would hand it to the worker.
+      final roundTripped =
+          ParameterConverter.toDescale(ParameterConverter.fromDescale(typed));
+      final job = buildJob(testName: 'descale', descale: roundTripped);
+      print('  Generating Descale script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('_ds_h = 540'));
+      expect(script, contains('return core.descale.Delanczos(c, w, h, taps=4, border_handling=0)'));
+      expect(script, contains('return core.resize.Lanczos(c, w, h, filter_param_a=4)'));
+      expect(script, contains('core.std.Binarize(_ds_error, 6.5 / 255.0)'));
+      expect(script, contains('_nnedi3(_ds_up, field=1, dh=True'));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 

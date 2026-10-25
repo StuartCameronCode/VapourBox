@@ -174,6 +174,10 @@ void main() {
         'fft3dfilter',
         'ttempsmooth',
         'temporal_degrain2',
+        // BM3D and KNLMeans (1.5.0) are advanced too: the simple slots are full,
+        // and KNLMeans needs an OpenCL device most users can't reason about.
+        'bm3d',
+        'knlmeans',
       ]) {
         expect(nr.getMethod(id)?.advancedOnly, true, reason: id);
       }
