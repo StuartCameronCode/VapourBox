@@ -30,6 +30,8 @@ import 'queue_panel.dart';
 import 'settings/settings_dialog.dart';
 import '../widgets/resizable_split.dart';
 import '../widgets/warning_banner.dart';
+import '../services/whats_new_service.dart';
+import 'settings/addons_settings_tab.dart';
 
 class MainWindow extends StatelessWidget {
   const MainWindow({super.key});
@@ -408,7 +410,15 @@ class MainWindow extends StatelessWidget {
 
           // Settings button — About and bug reporting live in its General tab
           IconButton(
-            icon: const Icon(Icons.settings),
+            // Marked in the NEW badge's colour while a Settings tab is new, so
+            // the badge inside is not the only way to find it.
+            icon: Badge(
+              isLabelVisible:
+                  WhatsNewService.instance.isNew(AddonsSettingsTab.sinceAppVersion),
+              smallSize: 8,
+              backgroundColor: Theme.of(context).colorScheme.tertiary,
+              child: const Icon(Icons.settings),
+            ),
             tooltip: AppShortcut.openSettings.tooltip,
             onPressed: () => _showSettings(context, viewModel),
           ),

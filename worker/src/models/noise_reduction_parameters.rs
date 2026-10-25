@@ -37,6 +37,15 @@ pub enum NoiseReductionMethod {
     /// TemporalDegrain2: the heavyweight multi-pass motion-compensated
     /// denoiser. Slow (about 21 fps) and the most capable thing here.
     TemporalDegrain2,
+    /// BM3D (block-matching 3D). Groups similar blocks across the frame (and,
+    /// with a radius, across frames) and filters each group together, so flat
+    /// areas come out clean without smearing edges — why anime encoders favour
+    /// it. CPU, ~14 fps at SD with the defaults.
+    Bm3d,
+    /// KNLMeansCL: non-local means on the GPU (OpenCL). Fast where a device
+    /// works; refused with a reason where none does (see
+    /// `DependencyLocator::knlm_device`).
+    KnlMeans,
 }
 
 /// Noise reduction preset levels.
@@ -269,6 +278,52 @@ pub struct NoiseReductionParameters {
     /// Planes to filter: 0 luma only, 1 chroma only, 2 both.
     #[serde(default = "default_ctmf_planes")]
     pub ctmf_planes: i32,
+
+    // --- BM3D Parameters ---
+
+    /// Luma strength, in 8-bit units at every depth (the plugin normalises it).
+    #[serde(default = "default_bm3d_sigma")]
+    pub bm3d_sigma: f64,
+
+    /// Chroma strength; 0 leaves chroma alone.
+    #[serde(default)]
+    pub bm3d_chroma_sigma: f64,
+
+    /// Temporal radius in frames each side; 0 is spatial-only BM3D, more uses
+    /// V-BM3D across 2r+1 frames.
+    #[serde(default = "default_bm3d_radius")]
+    pub bm3d_radius: i32,
+
+    /// Run the second (Wiener) estimate on top of the basic one: roughly half
+    /// the speed for noticeably cleaner flat areas.
+    #[serde(default = "default_true")]
+    pub bm3d_final: bool,
+
+    /// The plugin's speed/quality profile: fast, lc, np (its default), high, vn.
+    #[serde(default = "default_bm3d_profile")]
+    pub bm3d_profile: String,
+
+    // --- KNLMeansCL Parameters ---
+
+    /// Strength.
+    #[serde(default = "default_knlm_h")]
+    pub knlm_h: f64,
+
+    /// Temporal radius in frames each side; 0 is spatial-only.
+    #[serde(default = "default_knlm_d")]
+    pub knlm_d: i32,
+
+    /// Search window radius.
+    #[serde(default = "default_knlm_a")]
+    pub knlm_a: i32,
+
+    /// Similarity neighbourhood radius.
+    #[serde(default = "default_knlm_s")]
+    pub knlm_s: i32,
+
+    /// Denoise chroma too, in a second pass (4:2:0 cannot take `channels="YUV"`).
+    #[serde(default = "default_true")]
+    pub knlm_chroma: bool,
 }
 
 fn default_sm_degrain_tr() -> i32 { 2 }
@@ -298,6 +353,13 @@ fn default_flux_spatial() -> i32 { 7 }
 fn default_stpresso_limit() -> i32 { 3 }
 fn default_stpresso_bias() -> i32 { 24 }
 fn default_stpresso_tthr() -> i32 { 12 }
+fn default_bm3d_sigma() -> f64 { 3.0 }
+fn default_bm3d_radius() -> i32 { 1 }
+fn default_bm3d_profile() -> String { "np".to_string() }
+fn default_knlm_h() -> f64 { 1.2 }
+fn default_knlm_d() -> i32 { 1 }
+fn default_knlm_a() -> i32 { 2 }
+fn default_knlm_s() -> i32 { 4 }
 fn default_ctmf_radius() -> i32 { 2 }
 fn default_ctmf_planes() -> i32 { 2 }
 
@@ -363,6 +425,16 @@ impl Default for NoiseReductionParameters {
             stpresso_tthr: default_stpresso_tthr(),
             ctmf_radius: default_ctmf_radius(),
             ctmf_planes: default_ctmf_planes(),
+            bm3d_sigma: default_bm3d_sigma(),
+            bm3d_chroma_sigma: 0.0,
+            bm3d_radius: default_bm3d_radius(),
+            bm3d_final: true,
+            bm3d_profile: default_bm3d_profile(),
+            knlm_h: default_knlm_h(),
+            knlm_d: default_knlm_d(),
+            knlm_a: default_knlm_a(),
+            knlm_s: default_knlm_s(),
+            knlm_chroma: true,
         }
     }
 }
@@ -395,6 +467,52 @@ impl NoiseReductionParameters {
             3 => "[1, 2]".to_string(),
             _ => "[0, 1, 2]".to_string(),
         }
+    }
+
+    /// Frames each side the method reads, for the preview's decode window. 3
+    /// covers every motion-compensated method; BM3D's Final step re-reads its
+    /// basic estimate's neighbours, so it reaches twice its radius.
+    pub fn temporal_radius(&self) -> u32 {
+        let own = match self.method {
+            NoiseReductionMethod::Bm3d => {
+                let r = self.bm3d_effective_radius();
+                if self.bm3d_final { 2 * r } else { r }
+            }
+            NoiseReductionMethod::KnlMeans => self.knlm_effective().1,
+            _ => 0,
+        };
+        own.max(3) as u32
+    }
+
+    /// BM3D's luma and chroma strengths, clamped to 0-50 (8-bit units).
+    pub fn bm3d_effective_sigmas(&self) -> (f64, f64) {
+        (self.bm3d_sigma.clamp(0.0, 50.0), self.bm3d_chroma_sigma.clamp(0.0, 50.0))
+    }
+
+    /// BM3D's temporal radius, clamped to 0-3: each step costs about a third
+    /// more time, and past 3 the frames are too far apart to match.
+    pub fn bm3d_effective_radius(&self) -> i32 {
+        self.bm3d_radius.clamp(0, 3)
+    }
+
+    /// A profile the plugin knows, else its own default `np`. An unknown name
+    /// is a hard error in the plugin, so a hand-edited preset falls back here.
+    pub fn bm3d_effective_profile(&self) -> &str {
+        match self.bm3d_profile.as_str() {
+            p @ ("fast" | "lc" | "np" | "high" | "vn") => p,
+            _ => "np",
+        }
+    }
+
+    /// KNLMeansCL's (h, d, a, s), clamped to what it accepts and what is
+    /// sensible: h > 0 (0 is rejected), radii within the plugin's limits.
+    pub fn knlm_effective(&self) -> (f64, i32, i32, i32) {
+        (
+            self.knlm_h.clamp(0.1, 20.0),
+            self.knlm_d.clamp(0, 4),
+            self.knlm_a.clamp(1, 4),
+            self.knlm_s.clamp(0, 4),
+        )
     }
 
     /// Degrain frames, clamped to the 1-3 mvtools provides.
@@ -566,6 +684,8 @@ mod tests {
             (NoiseReductionMethod::FluxSmoothSt, "fluxSmoothSt"),
             (NoiseReductionMethod::StPresso, "stPresso"),
             (NoiseReductionMethod::Ctmf, "ctmf"),
+            (NoiseReductionMethod::Bm3d, "bm3d"),
+            (NoiseReductionMethod::KnlMeans, "knlMeans"),
         ] {
             let json = name(method);
             assert!(
@@ -652,5 +772,38 @@ mod tests {
         assert_eq!(with_maxr(0).ttemp_effective_maxr(), 1);
         assert_eq!(with_maxr(3).ttemp_effective_maxr(), 3);
         assert_eq!(with_maxr(12).ttemp_effective_maxr(), 7);
+    }
+
+    #[test]
+    fn test_bm3d_and_knlm_values_are_clamped_to_what_the_plugins_take() {
+        let p = NoiseReductionParameters {
+            bm3d_sigma: -2.0,
+            bm3d_chroma_sigma: 99.0,
+            bm3d_radius: 9,
+            bm3d_profile: "turbo".into(),
+            knlm_h: 0.0,
+            knlm_d: 7,
+            knlm_a: 0,
+            knlm_s: -1,
+            ..Default::default()
+        };
+        assert_eq!(p.bm3d_effective_sigmas(), (0.0, 50.0));
+        assert_eq!(p.bm3d_effective_radius(), 3);
+        assert_eq!(p.bm3d_effective_profile(), "np");
+        assert_eq!(p.knlm_effective(), (0.1, 4, 1, 0));
+        let d = NoiseReductionParameters::default();
+        assert_eq!(d.bm3d_effective_profile(), "np");
+        assert_eq!(d.bm3d_effective_radius(), 1);
+    }
+
+    #[test]
+    fn test_temporal_radius_covers_bm3d_final_and_knlm() {
+        let with = |m, r, f, d| NoiseReductionParameters {
+            method: m, bm3d_radius: r, bm3d_final: f, knlm_d: d, ..Default::default()
+        };
+        assert_eq!(with(NoiseReductionMethod::SmDegrain, 3, true, 4).temporal_radius(), 3);
+        assert_eq!(with(NoiseReductionMethod::Bm3d, 3, true, 0).temporal_radius(), 6);
+        assert_eq!(with(NoiseReductionMethod::Bm3d, 3, false, 0).temporal_radius(), 3);
+        assert_eq!(with(NoiseReductionMethod::KnlMeans, 0, true, 4).temporal_radius(), 4);
     }
 }

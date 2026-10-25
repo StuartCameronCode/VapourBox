@@ -8,9 +8,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
+use crate::gpu_plugin::{py_str, GpuPluginFiles};
 use crate::models::{
     AntiAliasMethod, GrainMethod,
-    VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod, CCD_REFERENCE_HEIGHT,
+    VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod, AiModel, CCD_REFERENCE_HEIGHT,
     ChromaDenoiseMethod, FrameRateMethod, SpotLessMethod, DeflickerMethod, EdgeRepairParameters,
     parse_ratio,
     DehaloMethod, DeblockMethod, SharpenMethod, DeinterlaceMethod,
@@ -65,7 +66,22 @@ pub struct ScriptGenerator {
     /// of producing a script that would segfault without a Vulkan device.
     /// Defaults to "not checked"; callers set it from
     /// `DependencyLocator::rife_runtime()`.
-    rife: std::result::Result<crate::rife::RifeFiles, String>,
+    rife: std::result::Result<GpuPluginFiles, String>,
+    /// The same for AI upscaling (VSNCNN with Real-ESRGAN / Real-CUGAN).
+    upscale: std::result::Result<GpuPluginFiles, String>,
+    /// The OpenCL `device_type` the KNLMeans noise-reduction method runs on, or
+    /// the message explaining why it cannot run here. Like RIFE, a job choosing
+    /// it fails with that message rather than with KNLMeansCL's own
+    /// `CL_INVALID_VALUE`. Defaults to "not checked"; callers set it from
+    /// `DependencyLocator::knlm_runtime()`. (`knlm_available` above is a
+    /// different question: whether QTGMC's KNLMeansCL call, which havsfunc makes
+    /// with the plugin's default device, works.)
+    knlm: std::result::Result<String, String>,
+    /// AnimeJaNai's installed model directory, or why it is missing. The
+    /// models are an add-on (see `animejanai.rs`), so this is checked in
+    /// addition to `upscale`. Defaults to "not checked"; callers set it from
+    /// `DependencyLocator::animejanai_runtime()`.
+    animejanai: std::result::Result<PathBuf, String>,
 }
 
 /// Parameters for preview script generation.
@@ -98,6 +114,9 @@ impl ScriptGenerator {
             opencl_available: true,
             knlm_available: true,
             rife: Err("RIFE was not checked for this job.".to_string()),
+            upscale: Err("AI upscaling was not checked for this job.".to_string()),
+            knlm: Err("KNLMeansCL was not checked for this job.".to_string()),
+            animejanai: Err("AnimeJaNai was not checked for this job.".to_string()),
         })
     }
 
@@ -117,15 +136,49 @@ impl ScriptGenerator {
     }
 
     /// Set RIFE's files, or why it cannot run here (see `self.rife`).
-    pub fn with_rife(mut self, rife: std::result::Result<crate::rife::RifeFiles, String>) -> Self {
+    pub fn with_rife(mut self, rife: std::result::Result<GpuPluginFiles, String>) -> Self {
         self.rife = rife;
         self
     }
 
-    /// Refuse a job that chose RIFE on a machine where it cannot run.
-    fn ensure_rife_ready(&self, pipeline: &ProcessingPipeline) -> Result<()> {
+    /// Set AI upscaling's files, or why it cannot run here (see `self.upscale`).
+    pub fn with_upscale(mut self, upscale: std::result::Result<GpuPluginFiles, String>) -> Self {
+        self.upscale = upscale;
+        self
+    }
+
+    /// Set AnimeJaNai's model directory, or why it is missing (see `self.animejanai`).
+    pub fn with_animejanai(mut self, animejanai: std::result::Result<PathBuf, String>) -> Self {
+        self.animejanai = animejanai;
+        self
+    }
+
+    /// Set the device KNLMeans runs on, or why it cannot run (see `self.knlm`).
+    pub fn with_knlm(mut self, knlm: std::result::Result<String, String>) -> Self {
+        self.knlm = knlm;
+        self
+    }
+
+    /// Refuse a job that chose a GPU-only method (RIFE, AI upscaling, KNLMeans) on a machine
+    /// where it cannot run, with the reason the app also shows.
+    fn ensure_methods_ready(&self, pipeline: &ProcessingPipeline) -> Result<()> {
         if pipeline.frame_rate.enabled && pipeline.frame_rate.method == FrameRateMethod::Rife {
             if let Err(message) = &self.rife {
+                anyhow::bail!("{message}");
+            }
+        }
+        if pipeline.uses_ai_upscale() {
+            if let Err(message) = &self.upscale {
+                anyhow::bail!("{message}");
+            }
+        }
+        if pipeline.uses_animejanai() {
+            if let Err(message) = &self.animejanai {
+                anyhow::bail!("{message}");
+            }
+        }
+        if pipeline.uses_knlm() {
+            if let Err(message) = &self.knlm {
                 anyhow::bail!("{message}");
             }
         }
@@ -135,7 +188,7 @@ impl ScriptGenerator {
     /// Generate a .vpy script file for the given job.
     pub fn generate(&self, job: &VideoJob) -> Result<PathBuf> {
         let pipeline = job.effective_pipeline();
-        self.ensure_rife_ready(&pipeline)?;
+        self.ensure_methods_ready(&pipeline)?;
 
         let script = self.substitute_parameters(&self.template, job, &pipeline, &job.input_path);
 
@@ -153,7 +206,7 @@ impl ScriptGenerator {
     /// Returns the path to the generated script.
     pub fn generate_preview(&self, job: &VideoJob, preview_params: &PreviewParams) -> Result<PathBuf> {
         let pipeline = job.effective_pipeline();
-        self.ensure_rife_ready(&pipeline)?;
+        self.ensure_methods_ready(&pipeline)?;
 
         // Start with preview template and substitute preview-specific params
         let mut script = self.preview_template.clone();
@@ -742,6 +795,32 @@ impl ScriptGenerator {
         }
 
         // ====================================================================
+        // DESCALE PASS
+        // ====================================================================
+        let ds = &pipeline.descale;
+        if ds.enabled {
+            script = script.replace("{{#DESCALE}}", "");
+            script = script.replace("{{/DESCALE}}", "");
+            let (inverse, forward) = ds.kernel_calls();
+            script = script.replace("{{DESCALE_INVERSE}}", &inverse);
+            script = script.replace("{{DESCALE_FORWARD}}", &forward);
+            script = script.replace("{{DESCALE_HEIGHT}}", &ds.effective_native_height().to_string());
+            script = script.replace("{{DESCALE_WIDTH}}", &ds.native_width.max(0).to_string());
+            if ds.protect_detail {
+                script = script.replace("{{#DESCALE_PROTECT}}", "");
+                script = script.replace("{{/DESCALE_PROTECT}}", "");
+                script = script.replace(
+                    "{{DESCALE_THRESHOLD}}",
+                    &format_double(ds.effective_detail_threshold()),
+                );
+            } else {
+                script = remove_block("{{#DESCALE_PROTECT}}", "{{/DESCALE_PROTECT}}", script);
+            }
+        } else {
+            script = remove_block("{{#DESCALE}}", "{{/DESCALE}}", script);
+        }
+
+        // ====================================================================
         // NOISE REDUCTION PASS
         // ====================================================================
         let nr = &pipeline.noise_reduction;
@@ -761,13 +840,52 @@ impl ScriptGenerator {
             script = script.replace("{{#NOISE_REDUCTION}}", "");
             script = script.replace("{{/NOISE_REDUCTION}}", "");
 
+            // BM3D and KNLMeans are removed here rather than in every other
+            // method's arm below.
+            if nr.method != NoiseReductionMethod::Bm3d {
+                script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
+            }
+            if nr.method != NoiseReductionMethod::KnlMeans {
+                script = remove_block("{{#NR_KNLM}}", "{{/NR_KNLM}}", script);
+            }
+
             match nr.method {
+                NoiseReductionMethod::Bm3d | NoiseReductionMethod::KnlMeans => {
+                    for other in [
+                        "NR_SMDEGRAIN", "NR_MCTD", "NR_MCDEGRAINSHARP", "NR_CTMF",
+                        "NR_FLUXSMOOTH_T", "NR_FLUXSMOOTH_ST", "NR_STPRESSO", "NR_MCLEAN",
+                        "NR_TD2", "NR_DFTTEST", "NR_FFT3D", "NR_TTEMPSMOOTH",
+                    ] {
+                        script = remove_block(&format!("{{{{#{other}}}}}"), &format!("{{{{/{other}}}}}"), script);
+                    }
+                    if nr.method == NoiseReductionMethod::Bm3d {
+                        let (luma, chroma) = nr.bm3d_effective_sigmas();
+                        script = script.replace("{{#NR_BM3D}}", "");
+                        script = script.replace("{{/NR_BM3D}}", "");
+                        script = script.replace("{{NR_BM3D_SIGMA}}", &format!("{luma:.2}"));
+                        script = script.replace("{{NR_BM3D_CHROMA_SIGMA}}", &format!("{chroma:.2}"));
+                        script = script.replace("{{NR_BM3D_RADIUS}}", &nr.bm3d_effective_radius().to_string());
+                        script = script.replace("{{NR_BM3D_FINAL}}", if nr.bm3d_final { "True" } else { "False" });
+                        script = script.replace("{{NR_BM3D_PROFILE}}", nr.bm3d_effective_profile());
+                    } else {
+                        let (h, d, a, s) = nr.knlm_effective();
+                        // ensure_methods_ready has already refused a job without one.
+                        let device = self.knlm.as_deref().unwrap_or("gpu");
+                        script = script.replace("{{#NR_KNLM}}", "");
+                        script = script.replace("{{/NR_KNLM}}", "");
+                        script = script.replace("{{NR_KNLM_H}}", &format!("{h:.2}"));
+                        script = script.replace("{{NR_KNLM_D}}", &d.to_string());
+                        script = script.replace("{{NR_KNLM_A}}", &a.to_string());
+                        script = script.replace("{{NR_KNLM_S}}", &s.to_string());
+                        script = script.replace("{{NR_KNLM_CHROMA}}", if nr.knlm_chroma { "True" } else { "False" });
+                        script = script.replace("{{NR_KNLM_DEVICE}}", device);
+                    }
+                }
                 NoiseReductionMethod::SmDegrain => {
                     script = script.replace("{{#NR_SMDEGRAIN}}", "");
                     script = script.replace("{{/NR_SMDEGRAIN}}", "");
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
-                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
                     script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
@@ -790,7 +908,6 @@ impl ScriptGenerator {
                     script = script.replace("{{#NR_MCTD}}", "");
                     script = script.replace("{{/NR_MCTD}}", "");
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
-                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
                     script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
@@ -810,7 +927,6 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = script.replace("{{#NR_MCDEGRAINSHARP}}", "");
                     script = script.replace("{{/NR_MCDEGRAINSHARP}}", "");
-                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
                     script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
@@ -856,7 +972,6 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
-                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
                     script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
@@ -887,7 +1002,6 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
-                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
                     script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
@@ -919,7 +1033,6 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
-                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
                     script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
@@ -954,7 +1067,6 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
-                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
                     script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
@@ -990,7 +1102,6 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
-                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
                     script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_MCLEAN}}", "{{/NR_MCLEAN}}", script);
                     script = remove_block("{{#NR_TD2}}", "{{/NR_TD2}}", script);
@@ -1010,7 +1121,6 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
-                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
@@ -1031,7 +1141,6 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
-                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
@@ -1055,7 +1164,6 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
-                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
                     script = remove_block("{{#NR_DFTTEST}}", "{{/NR_DFTTEST}}", script);
                     script = remove_block("{{#NR_FFT3D}}", "{{/NR_FFT3D}}", script);
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
@@ -1079,7 +1187,6 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_SMDEGRAIN}}", "{{/NR_SMDEGRAIN}}", script);
                     script = remove_block("{{#NR_MCTD}}", "{{/NR_MCTD}}", script);
                     script = remove_block("{{#NR_MCDEGRAINSHARP}}", "{{/NR_MCDEGRAINSHARP}}", script);
-                    script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
                     script = remove_block("{{#NR_CTMF}}", "{{/NR_CTMF}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_T}}", "{{/NR_FLUXSMOOTH_T}}", script);
                     script = remove_block("{{#NR_FLUXSMOOTH_ST}}", "{{/NR_FLUXSMOOTH_ST}}", script);
@@ -1756,9 +1863,9 @@ impl ScriptGenerator {
                     // files, so the fallbacks here are never reached by a job.
                     let (plugin, model, preload) = match &self.rife {
                         Ok(f) => (
-                            crate::rife::py_str(&f.plugin),
-                            crate::rife::py_str(&f.model_dir),
-                            f.preload.as_deref().map(crate::rife::py_str).unwrap_or_else(|| "None".into()),
+                            py_str(&f.plugin),
+                            py_str(&f.model_dir),
+                            f.preload.as_deref().map(py_str).unwrap_or_else(|| "None".into()),
                         ),
                         Err(_) => ("''".into(), "''".into(), "None".into()),
                     };
@@ -1939,15 +2046,61 @@ impl ScriptGenerator {
                 script = script.replace("{{/RESIZE_INTEGER_UPSCALE}}", "");
                 script = script.replace("{{UPSCALE_FACTOR}}", &resize.upscale_factor.to_string());
 
-                // Two of the three methods are edge-directed and share the
-                // doubling loop and shift correction; Spline36 is plain
-                // resampling and skips all of it.
-                let edge_directed = !matches!(resize.upscale_method, UpscaleMethod::Spline36);
+                // Two of the methods are edge-directed and share the doubling
+                // loop and shift correction; Spline36 is plain resampling and
+                // the AI methods run a network, so they skip all of it.
+                let edge_directed = matches!(
+                    resize.upscale_method,
+                    UpscaleMethod::Nnedi3Rpow2 | UpscaleMethod::Eedi3Rpow2
+                );
+                if resize.upscale_method.is_ai() {
+                    script = remove_block("{{#UPSCALE_EDGE_DIRECTED}}", "{{/UPSCALE_EDGE_DIRECTED}}", script);
+                    script = remove_block("{{#UPSCALE_SPLINE36}}", "{{/UPSCALE_SPLINE36}}", script);
+                    script = script.replace("{{#UPSCALE_AI}}", "");
+                    script = script.replace("{{/UPSCALE_AI}}", "");
+                    // generate()/generate_preview() refuse such a job without
+                    // files, so the fallbacks here are never reached by a job.
+                    let (plugin, preload, models) = match &self.upscale {
+                        Ok(f) => (
+                            py_str(&f.plugin),
+                            f.preload.as_deref().map(py_str).unwrap_or_else(|| "None".into()),
+                            resize
+                                .ai_upscale_models()
+                                .iter()
+                                .map(|m| match *m {
+                                    AiModel::Bundled(name) => py_str(&f.model_dir.join(name)),
+                                    // A pair the script chooses from by height.
+                                    AiModel::AnimeJanai { sd, hd } => {
+                                        let dir = self.animejanai.as_deref().unwrap_or(Path::new(""));
+                                        format!("({}, {})", py_str(&dir.join(sd)), py_str(&dir.join(hd)))
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                        ),
+                        Err(_) => ("''".into(), "None".into(), String::new()),
+                    };
+                    script = script.replace("{{AI_PLUGIN}}", &plugin);
+                    script = script.replace("{{AI_PRELOAD}}", &preload);
+                    script = script.replace("{{AI_MODELS}}", &models);
+                    script = script.replace(
+                        "{{AI_SD_MAX_HEIGHT}}",
+                        &crate::animejanai::SD_MAX_HEIGHT.to_string(),
+                    );
+                    let color = job.color_metadata();
+                    script = script.replace("{{AI_MATRIX}}", color.zimg_matrix(job.input_height));
+                    script = script.replace(
+                        "{{AI_RANGE}}",
+                        if color.is_full_range() { "full" } else { "limited" },
+                    );
+                } else {
+                    script = remove_block("{{#UPSCALE_AI}}", "{{/UPSCALE_AI}}", script);
+                }
                 if edge_directed {
                     script = script.replace("{{#UPSCALE_EDGE_DIRECTED}}", "");
                     script = script.replace("{{/UPSCALE_EDGE_DIRECTED}}", "");
                     script = remove_block("{{#UPSCALE_SPLINE36}}", "{{/UPSCALE_SPLINE36}}", script);
-                } else {
+                } else if resize.upscale_method == UpscaleMethod::Spline36 {
                     script = remove_block("{{#UPSCALE_EDGE_DIRECTED}}", "{{/UPSCALE_EDGE_DIRECTED}}", script);
                     script = script.replace("{{#UPSCALE_SPLINE36}}", "");
                     script = script.replace("{{/UPSCALE_SPLINE36}}", "");
@@ -1970,7 +2123,10 @@ impl ScriptGenerator {
                         script = process_optional_int("UPSCALE_NRAD", resize.upscale_nrad, script);
                         script = process_optional_int("UPSCALE_MDIS", resize.upscale_mdis, script);
                     }
-                    UpscaleMethod::Spline36 => {
+                    UpscaleMethod::Spline36
+                    | UpscaleMethod::RealEsrgan
+                    | UpscaleMethod::RealCugan
+                    | UpscaleMethod::AnimeJanai => {
                         script = remove_block("{{#UPSCALE_NNEDI3}}", "{{/UPSCALE_NNEDI3}}", script);
                         script = remove_block("{{#UPSCALE_EEDI3}}", "{{/UPSCALE_EEDI3}}", script);
                     }

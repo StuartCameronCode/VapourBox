@@ -74,6 +74,11 @@ class ParameterUiConfig {
   /// Example: {"true": "Top Field First", "false": "Bottom Field First"}
   final Map<String, String>? booleanLabels;
 
+  /// Display names for an enum's options, keyed by option value. An option
+  /// without one is shown title-cased (`spline36` → `Spline36`), which mangles
+  /// a camel-case name like `realEsrgan`.
+  final Map<String, String>? optionLabels;
+
   /// Extensions the file picker offers, without dots — `["srt", "ass"]`.
   /// Only meaningful for [WidgetType.filepicker]; null means any file.
   final List<String>? fileExtensions;
@@ -86,6 +91,7 @@ class ParameterUiConfig {
     this.hidden,
     this.visibleWhen,
     this.booleanLabels,
+    this.optionLabels,
     this.fileExtensions,
   });
 
@@ -133,6 +139,13 @@ class ParameterDefinition {
   /// isn't worth flagging (most edits aren't).
   final String? sinceAppVersion;
 
+  /// The same, per enum option: `{"realEsrgan": "1.5.0"}`. For options added
+  /// to a parameter that already shipped — the parameter itself is not new, so
+  /// it carries no [sinceAppVersion]; the option is badged in the list and the
+  /// parameter's label badges because it holds one (see
+  /// [WhatsNewService.isParameterNew]).
+  final Map<String, String>? optionSinceAppVersion;
+
   const ParameterDefinition({
     required this.type,
     required this.defaultValue,
@@ -144,6 +157,7 @@ class ParameterDefinition {
     this.ui,
     this.optional,
     this.sinceAppVersion,
+    this.optionSinceAppVersion,
   });
 
   /// Get the VapourSynth parameter name (falls back to schema name if not specified).
@@ -206,6 +220,10 @@ class MethodDefinition {
   /// [FilterSchema.visibleMethods].
   final bool advancedOnly;
 
+  /// The app version this method was added in, for its "NEW" badge in the
+  /// method list (and the Method label's, and the pass row's).
+  final String? sinceAppVersion;
+
   const MethodDefinition({
     required this.id,
     required this.name,
@@ -213,6 +231,7 @@ class MethodDefinition {
     required this.function,
     required this.parameters,
     this.advancedOnly = false,
+    this.sinceAppVersion,
   });
 
   factory MethodDefinition.fromJson(Map<String, dynamic> json) =>
@@ -495,6 +514,19 @@ class FilterSchema {
 
   /// Get the default method.
   MethodDefinition get defaultMethod => methods.first;
+
+  /// The section a parameter preset belongs to: the first whose parameters
+  /// include every one the preset sets, or null if none does. The panel draws
+  /// the preset inside it, so "Resize Preset" sits under Resize rather than in
+  /// a block of every preset at the top of the pass (where it read as part of
+  /// Crop).
+  UiSection? sectionForPreset(ParameterPreset preset) {
+    final keys = {for (final values in preset.options.values) ...values.keys};
+    for (final section in ui?.sections ?? const <UiSection>[]) {
+      if (keys.every(section.parameters.contains)) return section;
+    }
+    return null;
+  }
 
   /// Get a method by ID.
   MethodDefinition? getMethod(String id) {

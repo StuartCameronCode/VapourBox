@@ -4,7 +4,7 @@
   "version": "1.1.0",
   "name": "Noise Reduction",
   "description": "Remove video noise and grain",
-  "longDescription": "Reduces grain, analog noise and colour speckle while trying to keep real detail. Temporal denoisers average across neighbouring frames and are best for steady grain; spatial ones smooth within a single frame and cope better with motion.\n\nUse it on VHS, Hi8 and other noisy captures, and before sharpening or encoding — clean footage compresses far better at the same bitrate. Too much strength smears motion and flattens texture into plastic.",
+  "longDescription": "Reduces grain, analog noise and colour speckle while trying to keep real detail. Temporal denoisers average across neighbouring frames and are best for steady grain; spatial ones smooth within a single frame and cope better with motion.\n\nUse it on VHS, Hi8 and other noisy captures, and before sharpening or encoding — clean footage compresses far better at the same bitrate. Too much strength smears motion and flattens texture into plastic.\n\nFor anime and other flat-shaded animation, BM3D (advanced mode) is the usual choice: it cleans flat colour without smearing line art.",
   "category": "cleanup",
   "icon": "grain",
   "order": 2,
@@ -174,6 +174,36 @@
         "td2PostMix",
         "td2ChromaMotion"
       ]
+    },
+    {
+      "id": "bm3d",
+      "sinceAppVersion": "1.5.0",
+      "name": "BM3D",
+      "description": "Block-matching 3D denoiser: finds similar patches across the frame (and neighbouring frames) and cleans them together. Leaves flat colour areas very clean without smearing line art, which is why it is the usual choice for anime. CPU, moderate speed",
+      "function": "core.bm3d.VBasic + core.bm3d.VFinal",
+      "parameters": [
+        "bm3dSigma",
+        "bm3dChromaSigma",
+        "bm3dRadius",
+        "bm3dFinal",
+        "bm3dProfile"
+      ],
+      "advancedOnly": true
+    },
+    {
+      "id": "knlmeans",
+      "sinceAppVersion": "1.5.0",
+      "name": "KNLMeansCL (GPU)",
+      "description": "Non-local means on the graphics card. Similar results to BM3D and much faster, but it needs a GPU with working OpenCL; where there is none, VapourBox says so and the job is refused",
+      "function": "core.knlm.KNLMeansCL",
+      "parameters": [
+        "knlmH",
+        "knlmD",
+        "knlmA",
+        "knlmS",
+        "knlmChroma"
+      ],
+      "advancedOnly": true
     }
   ],
   "parameters": {
@@ -200,7 +230,9 @@
         "stpresso",
         "ctmf",
         "mclean",
-        "temporal_degrain2"
+        "temporal_degrain2",
+        "bm3d",
+        "knlmeans"
       ],
       "ui": {
         "hidden": true
@@ -1044,6 +1076,187 @@
           ]
         }
       }
+    },
+    "bm3dSigma": {
+      "type": "number",
+      "default": 3.0,
+      "min": 0.5,
+      "max": 20.0,
+      "step": 0.5,
+      "sinceAppVersion": "1.5.0",
+      "ui": {
+        "label": "Strength",
+        "description": "How much noise to remove from brightness. 2–5 suits most sources; higher starts to flatten fine texture",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "bm3d"
+          ]
+        }
+      }
+    },
+    "bm3dChromaSigma": {
+      "type": "number",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 20.0,
+      "step": 0.5,
+      "sinceAppVersion": "1.5.0",
+      "ui": {
+        "label": "Colour Strength",
+        "description": "Noise removal for colour. 0 leaves colour alone (and is faster); use Chroma Denoise for blotchy colour noise",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "bm3d"
+          ]
+        }
+      }
+    },
+    "bm3dRadius": {
+      "type": "integer",
+      "default": 1,
+      "min": 0,
+      "max": 3,
+      "step": 1,
+      "sinceAppVersion": "1.5.0",
+      "ui": {
+        "label": "Temporal Radius",
+        "description": "Frames each side to search for matching patches. 0 works within each frame only; 1 is the usual choice; each step costs about a third more time",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "bm3d"
+          ]
+        }
+      }
+    },
+    "bm3dFinal": {
+      "type": "boolean",
+      "default": true,
+      "sinceAppVersion": "1.5.0",
+      "ui": {
+        "label": "Refine (second pass)",
+        "description": "Run BM3D's second, Wiener estimate on top of the first. Cleaner flat areas for about half the speed",
+        "widget": "checkbox",
+        "visibleWhen": {
+          "method": [
+            "bm3d"
+          ]
+        }
+      }
+    },
+    "bm3dProfile": {
+      "type": "enum",
+      "default": "np",
+      "options": [
+        "fast",
+        "lc",
+        "np",
+        "high",
+        "vn"
+      ],
+      "sinceAppVersion": "1.5.0",
+      "ui": {
+        "label": "Profile",
+        "description": "BM3D's own speed/quality presets: fast, lc (low complexity), np (normal), high, vn (very noisy sources)",
+        "widget": "dropdown",
+        "visibleWhen": {
+          "method": [
+            "bm3d"
+          ]
+        }
+      }
+    },
+    "knlmH": {
+      "type": "number",
+      "default": 1.2,
+      "min": 0.1,
+      "max": 10.0,
+      "step": 0.1,
+      "sinceAppVersion": "1.5.0",
+      "ui": {
+        "label": "Strength",
+        "description": "How much noise to remove. 0.8–2 suits most sources",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "knlmeans"
+          ]
+        }
+      }
+    },
+    "knlmD": {
+      "type": "integer",
+      "default": 1,
+      "min": 0,
+      "max": 4,
+      "step": 1,
+      "sinceAppVersion": "1.5.0",
+      "ui": {
+        "label": "Temporal Radius",
+        "description": "Frames each side to compare against. 0 works within each frame only",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "knlmeans"
+          ]
+        }
+      }
+    },
+    "knlmA": {
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 4,
+      "step": 1,
+      "sinceAppVersion": "1.5.0",
+      "ui": {
+        "label": "Search Radius",
+        "description": "How far around each pixel to look for similar patches. Larger finds more matches and is much slower",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "knlmeans"
+          ]
+        }
+      }
+    },
+    "knlmS": {
+      "type": "integer",
+      "default": 4,
+      "min": 0,
+      "max": 4,
+      "step": 1,
+      "sinceAppVersion": "1.5.0",
+      "ui": {
+        "label": "Patch Radius",
+        "description": "Size of the patch compared around each pixel",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "knlmeans"
+          ]
+        }
+      }
+    },
+    "knlmChroma": {
+      "type": "boolean",
+      "default": true,
+      "sinceAppVersion": "1.5.0",
+      "ui": {
+        "label": "Denoise colour too",
+        "description": "Leave on unless colour is already clean",
+        "widget": "checkbox",
+        "visibleWhen": {
+          "method": [
+            "knlmeans"
+          ]
+        }
+      }
     }
   },
   "ui": {
@@ -1186,6 +1399,28 @@
         ],
         "expanded": true,
         "advancedOnly": true
+      },
+      {
+        "title": "BM3D",
+        "parameters": [
+          "bm3dSigma",
+          "bm3dChromaSigma",
+          "bm3dRadius",
+          "bm3dFinal",
+          "bm3dProfile"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "KNLMeansCL",
+        "parameters": [
+          "knlmH",
+          "knlmD",
+          "knlmA",
+          "knlmS",
+          "knlmChroma"
+        ],
+        "expanded": true
       }
     ]
   },

@@ -4,7 +4,7 @@
   "version": "1.3.0",
   "name": "Crop & Resize",
   "description": "Crop borders, resize or upscale, and add bars to a target size",
-  "longDescription": "Trims unwanted borders, changes the output resolution, and adds bars out to a target frame size. Cropping happens first, then resizing, then the bars.\n\nUse crop to cut the head-switching noise along the bottom of VHS captures and the black overscan edges of broadcast material — otherwise the encoder spends bitrate on them. Use resize for a target resolution, or the NNEDI3 upscaler for a much better 2x/4x enlargement than a plain kernel. Keep crop values even so they stay aligned with chroma subsampling.\n\nUse Add Borders to bring a cropped picture back to an exact frame size for authoring (720x576 for PAL DVD, 720x480 for NTSC) without rescaling it: the picture is centred and the rest filled with bars.",
+  "longDescription": "Trims unwanted borders, changes the output resolution, and adds bars out to a target frame size. Cropping happens first, then resizing, then the bars.\n\nUse crop to cut the head-switching noise along the bottom of VHS captures and the black overscan edges of broadcast material — otherwise the encoder spends bitrate on them. Use resize for a target resolution, or Upscale for a much better 2x/4x enlargement than a plain kernel: NNEDI3 or EEDI3 on any machine, or an AI upscaler trained on anime (Real-ESRGAN, Real-CUGAN, AnimeJaNai) on the graphics card. Keep crop values even so they stay aligned with chroma subsampling.\n\nUse Add Borders to bring a cropped picture back to an exact frame size for authoring (720x576 for PAL DVD, 720x480 for NTSC) without rescaling it: the picture is centred and the rest filled with bars.",
   "category": "transform",
   "icon": "crop",
   "order": 9,
@@ -237,7 +237,7 @@
       "default": false,
       "ui": {
         "label": "Enable Upscale",
-        "description": "High-quality upscaling using NNEDI3"
+        "description": "Enlarge the picture 2x or 4x with one of the upscale methods below, instead of resizing to a target resolution"
       }
     },
     "upscaleMethod": {
@@ -246,16 +246,32 @@
       "options": [
         "nnedi3Rpow2",
         "eedi3Rpow2",
-        "spline36"
+        "spline36",
+        "realEsrgan",
+        "realCugan",
+        "animeJanai"
       ],
       "optional": true,
       "ui": {
         "label": "Upscale Method",
-        "description": "Edge-directed doubling. NNEDI3 is the usual choice; EEDI3 is slower and follows near-horizontal edges better (it uses NNEDI3 to guide its search); Spline36 is plain resampling with no edge direction",
+        "optionLabels": {
+          "nnedi3Rpow2": "NNEDI3",
+          "eedi3Rpow2": "EEDI3",
+          "spline36": "Spline36",
+          "realEsrgan": "Real-ESRGAN",
+          "realCugan": "Real-CUGAN",
+          "animeJanai": "AnimeJaNai (download, non-commercial)"
+        },
+        "description": "How the picture is enlarged. NNEDI3 is the usual choice, an edge-directed doubler that runs anywhere; EEDI3 is slower and follows near-horizontal edges better (it uses NNEDI3 to guide its search); Spline36 is plain resampling with no edge direction. Real-ESRGAN and Real-CUGAN are neural upscalers trained on anime: they redraw clean line art rather than interpolating it, and run on the graphics card (Vulkan). Real-ESRGAN is sharper and faster; Real-CUGAN is gentler and can remove noise as it goes. AnimeJaNai, trained on HD anime, keeps colour almost exactly and comes in three speeds; it is a separate download, free for non-commercial use only. Use them after deinterlacing: on a combed picture they sharpen the combing too",
         "widget": "dropdown",
         "visibleWhen": {
           "useIntegerUpscale": true
         }
+      },
+      "optionSinceAppVersion": {
+        "realEsrgan": "1.5.0",
+        "realCugan": "1.5.0",
+        "animeJanai": "1.5.0"
       }
     },
     "upscaleFactor": {
@@ -271,6 +287,68 @@
         "widget": "slider",
         "visibleWhen": {
           "useIntegerUpscale": true
+        }
+      }
+    },
+    "cuganNoise": {
+      "type": "enum",
+      "default": "conservative",
+      "options": [
+        "none",
+        "conservative",
+        "denoise3x"
+      ],
+      "sinceAppVersion": "1.5.0",
+      "ui": {
+        "label": "Real-CUGAN Denoise",
+        "description": "How much noise Real-CUGAN removes as it upscales: none, conservative (keeps texture) or strong (denoise3x). At 4x it denoises on the first doubling only",
+        "widget": "dropdown",
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "realCugan"
+          ]
+        }
+      }
+    },
+    "animejanaiModel": {
+      "type": "enum",
+      "default": "compact",
+      "options": [
+        "compact",
+        "ultraCompact",
+        "superUltraCompact"
+      ],
+      "sinceAppVersion": "1.5.0",
+      "ui": {
+        "label": "AnimeJaNai Model",
+        "optionLabels": {
+          "compact": "Compact (best)",
+          "ultraCompact": "UltraCompact (about 2x faster)",
+          "superUltraCompact": "SuperUltraCompact (about 4x faster)"
+        },
+        "description": "The HD model's size: smaller is faster and a little less detailed. A picture 576 lines or shorter (DVD) always uses AnimeJaNai's SD model, which comes in one size; at 4x a DVD runs the SD model and then this one",
+        "widget": "dropdown",
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "animeJanai"
+          ]
+        }
+      }
+    },
+    "animejanaiSharp": {
+      "type": "boolean",
+      "default": false,
+      "sinceAppVersion": "1.5.0",
+      "ui": {
+        "label": "AnimeJaNai Sharp",
+        "description": "Use the Sharp variant of the HD model, which draws crisper lines. The SD model has no Sharp variant",
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "animeJanai"
+          ]
         }
       }
     },
@@ -818,33 +896,15 @@
         "expanded": true
       },
       {
-        "title": "Aspect Ratio",
-        "parameters": [
-          "pixelAspect",
-          "customSar",
-          "displayAspect",
-          "padToAspect"
-        ],
-        "expanded": true
-      },
-      {
-        "title": "Borders",
-        "parameters": [
-          "padEnabled",
-          "padWidth",
-          "padHeight",
-          "padColor",
-          "padCustomColor"
-        ],
-        "expanded": true
-      },
-      {
         "title": "Upscale",
-        "description": "Enlarge using an edge-directed interpolator rather than a plain resize. Doubles at a time, so pick the factor that reaches or exceeds your target and set a Resize below to land on it exactly.",
+        "description": "Enlarge using an edge-directed interpolator or a neural upscaler rather than a plain resize. Doubles at a time, so pick the factor that reaches or exceeds your target and set a Resize below to land on it exactly.",
         "parameters": [
           "useIntegerUpscale",
           "upscaleMethod",
-          "upscaleFactor"
+          "upscaleFactor",
+          "cuganNoise",
+          "animejanaiModel",
+          "animejanaiSharp"
         ],
         "expanded": false
       },
@@ -864,6 +924,27 @@
         ],
         "expanded": false,
         "advancedOnly": true
+      },
+      {
+        "title": "Aspect Ratio",
+        "parameters": [
+          "pixelAspect",
+          "customSar",
+          "displayAspect",
+          "padToAspect"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Borders",
+        "parameters": [
+          "padEnabled",
+          "padWidth",
+          "padHeight",
+          "padColor",
+          "padCustomColor"
+        ],
+        "expanded": true
       }
     ]
   },
@@ -908,6 +989,30 @@
       "activeWhen": {
         "useIntegerUpscale": true,
         "upscaleMethod": "spline36"
+      }
+    },
+    {
+      "function": "core.ncnn.Model",
+      "role": "Real-ESRGAN anime video model, on the GPU (vs-mlrt's VSNCNN)",
+      "activeWhen": {
+        "useIntegerUpscale": true,
+        "upscaleMethod": "realEsrgan"
+      }
+    },
+    {
+      "function": "core.ncnn.Model",
+      "role": "Real-CUGAN, on the GPU (vs-mlrt's VSNCNN)",
+      "activeWhen": {
+        "useIntegerUpscale": true,
+        "upscaleMethod": "realCugan"
+      }
+    },
+    {
+      "function": "core.ncnn.Model",
+      "role": "AnimeJaNai (add-on), on the GPU (vs-mlrt's VSNCNN)",
+      "activeWhen": {
+        "useIntegerUpscale": true,
+        "upscaleMethod": "animeJanai"
       }
     },
     {

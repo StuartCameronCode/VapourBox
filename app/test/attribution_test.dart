@@ -58,6 +58,7 @@ const _pluginToNotice = <String, String>{
   'dctfilter': 'DCTFilter',
   'deblock': 'Deblock',
   'dedot': 'DeDot',
+  'descale': 'descale — MIT',
   'descratch': 'DeScratch',
   'dfttest': 'DFTTest',
   'eedi3m': 'EEDI3',
@@ -159,21 +160,31 @@ void main() {
     });
 
     test('credits every file the bundle carries outside the plugin directory', () {
-      // RIFE lives in vapoursynth/rife/, outside the autoload directory, so it
-      // is listed under _extraFiles rather than in the per-platform lists.
+      // The ncnn plugins live outside the autoload directory (RIFE in
+      // vapoursynth/rife/, VSNCNN and its models in vapoursynth/ncnn/, MoltenVK
+      // in vapoursynth/moltenvk/), so they are listed under _extraFiles rather
+      // than in the per-platform lists.
       final manifest = jsonDecode(
         File(p.join(root, 'Scripts', 'deps-expected-plugins.json')).readAsStringSync(),
       ) as Map<String, dynamic>;
       final extra = (manifest['_extraFiles'] as Map<String, dynamic>);
+      // Matched by prefix of the file's stem: the model files share one per family.
       const fileToNotice = <String, String>{
         'librife': 'RIFE (VapourSynth-RIFE-ncnn-Vulkan)',
         'libmoltenvk': 'MoltenVK',
         'flownet': 'RIFE 4.26 model',
+        'libvsncnn': 'VSNCNN (vs-mlrt)',
+        'vsncnn': 'VSNCNN (vs-mlrt)',
+        'realesrganv2-animevideo': 'Real-ESRGAN anime video model',
+        'up2x-latest': 'Real-CUGAN models',
       };
       for (final entry in extra.entries) {
         for (final path in (entry.value as List).cast<String>()) {
           final stem = p.basenameWithoutExtension(path).toLowerCase();
-          final needle = fileToNotice[stem];
+          final key = fileToNotice.keys
+              .where((k) => stem == k || stem.startsWith('$k-'))
+              .firstOrNull;
+          final needle = key == null ? null : fileToNotice[key];
           expect(needle, isNotNull,
               reason: '${entry.key}: $path has no entry in fileToNotice; credit it '
                   'in NOTICES.txt from its upstream LICENSE, then map it here.');
@@ -183,36 +194,46 @@ void main() {
       }
     });
 
-    test('RIFE ships exactly where the worker says it does', () {
-      // The worker reports "not available for this platform" from
-      // rife::platform_ships_rife; a bundle that ships RIFE where the worker
-      // says it can't (or the reverse) is a feature nobody can reach, or a
-      // probe that blames an "older bundle" that is in fact current.
-      final manifest = jsonDecode(
-        File(p.join(root, 'Scripts', 'deps-expected-plugins.json')).readAsStringSync(),
-      ) as Map<String, dynamic>;
-      final bundles = (manifest['_extraFiles'] as Map<String, dynamic>)
-          .entries
-          .where((e) => (e.value as List).any((f) => f.toString().contains('/rife/')))
-          .map((e) => e.key.replaceAll(RegExp(r'-v2$'), ''))
-          .toSet();
-      final source =
-          File(p.join(root, 'worker', 'src', 'rife.rs')).readAsStringSync();
-      final match = RegExp(r'fn platform_ships_rife[^{]*\{\s*matches!\(platform_suffix,([^)]*)\)')
-          .firstMatch(source);
-      expect(match, isNotNull, reason: 'could not parse platform_ships_rife');
-      final worker = RegExp(r'"([a-z0-9-]+)"')
-          .allMatches(match!.group(1)!)
-          .map((m) => m.group(1)!)
-          .toSet();
-      expect(bundles, worker);
-      // And both tiers of an x64 platform carry it, or v2 users lose it.
-      for (final platform in worker.where((p) => p.endsWith('-x64'))) {
-        if (platform.startsWith('macos')) continue;
-        expect(manifest['_extraFiles']['$platform-v2'], manifest['_extraFiles'][platform],
-            reason: '$platform-v2 must carry the same RIFE files as $platform');
-      }
-    });
+    // The worker reports "not available for this platform" from
+    // gpu_plugin::platform_ships_*; a bundle that ships a plugin where the
+    // worker says it can't (or the reverse) is a feature nobody can reach, or a
+    // probe that blames an "older bundle" that is in fact current.
+    for (final (name, dir, fn) in [
+      ('RIFE', '/rife/', 'platform_ships_rife'),
+      ('AI upscaling', '/ncnn/', 'platform_ships_upscale'),
+    ]) {
+      test('$name ships exactly where the worker says it does', () {
+        final manifest = jsonDecode(
+          File(p.join(root, 'Scripts', 'deps-expected-plugins.json')).readAsStringSync(),
+        ) as Map<String, dynamic>;
+        final bundles = (manifest['_extraFiles'] as Map<String, dynamic>)
+            .entries
+            .where((e) => (e.value as List).any((f) => f.toString().contains(dir)))
+            .map((e) => e.key.replaceAll(RegExp(r'-v2$'), ''))
+            .toSet();
+        final source =
+            File(p.join(root, 'worker', 'src', 'gpu_plugin.rs')).readAsStringSync();
+        final match = RegExp('fn $fn[^{]*\\{\\s*matches!\\(platform_suffix,([^)]*)\\)')
+            .firstMatch(source);
+        expect(match, isNotNull, reason: 'could not parse $fn');
+        final worker = RegExp(r'"([a-z0-9-]+)"')
+            .allMatches(match!.group(1)!)
+            .map((m) => m.group(1)!)
+            .toSet();
+        expect(bundles, worker);
+        // And both tiers of an x64 platform carry it, or v2 users lose it.
+        for (final platform in worker.where((p) => p.endsWith('-x64'))) {
+          if (platform.startsWith('macos')) continue;
+          expect(manifest['_extraFiles']['$platform-v2'], manifest['_extraFiles'][platform],
+              reason: '$platform-v2 must carry the same files as $platform');
+        }
+        // macOS resolves Vulkan from the shared MoltenVK.
+        if (worker.contains('macos-arm64')) {
+          expect(manifest['_extraFiles']['macos-arm64'],
+              contains('vapoursynth/moltenvk/libMoltenVK.dylib'));
+        }
+      });
+    }
 
     test('does not credit components that are no longer shipped', () {
       for (final gone in _mustNotAppear) {
@@ -271,5 +292,61 @@ void main() {
         reason: 'About dialog names component(s) absent from NOTICES.txt.',
       );
     });
+
+    // Names alone matched, so a tile could state a different licence from its
+    // NOTICES entry and pass (RemoveGrain's tile dropped its MIT component).
+    // Spellings differ ("BSL 1.0" / "Boost Software License 1.0"), so compare
+    // the licence families each names.
+    test('states the same licence as its NOTICES entry', () {
+      final source = File(
+        p.join(root, 'app', 'lib', 'views', 'about_dialog.dart'),
+      ).readAsStringSync();
+      final tiles = RegExp(r"name:\s*'([^']+)',\s*license:\s*'([^']+)'")
+          .allMatches(source)
+          .map((m) => (m.group(1)!, m.group(2)!))
+          .toList();
+      final headings = <String, String>{
+        for (final m in RegExp(r'^(\S[^\n]*?) — ([^\n]+)$', multiLine: true).allMatches(notices))
+          m.group(1)!.trim(): m.group(2)!.trim(),
+      };
+      String key(String name) =>
+          name.split(' (').first.split(' / ').first.trim().toLowerCase();
+
+      final checked = <String>[];
+      final disagree = <String>[];
+      for (final (name, licence) in tiles) {
+        final entry = headings.entries.where((h) => key(h.key) == key(name)).firstOrNull;
+        if (entry == null) continue; // matched by its first word above
+        checked.add(name);
+        final a = _licenceFamilies(licence), b = _licenceFamilies(entry.value);
+        // The same licences on both sides: a qualifier ("public domain
+        // dedication") is not a licence family, so it may differ; a component
+        // under its own licence (RemoveGrain's MIT Clense) may not.
+        if (a.isEmpty || !(a.containsAll(b) && b.containsAll(a))) {
+          disagree.add('$name: About "$licence", NOTICES "${entry.value}"');
+        }
+      }
+      expect(checked.length, greaterThan(40), reason: 'the pairing looks broken');
+      expect(disagree, isEmpty);
+    });
   });
+}
+
+/// The licences a licence statement names, as families.
+Set<String> _licenceFamilies(String text) {
+  final t = text.toLowerCase();
+  const words = {
+    'lgpl': 'lgpl', 'cc by-nc-sa': 'cc-by-nc-sa', 'wtfpl': 'wtfpl', 'mit': 'mit',
+    'bsd': 'bsd', 'apache': 'apache', 'isc': 'isc', 'boost': 'bsl', 'bsl': 'bsl',
+    'psf': 'psf', 'python software': 'psf', 'zlib': 'zlib', 'unlicense': 'unlicense',
+    'no licence': 'none stated', 'no license': 'none stated', 'no copyright': 'no copyright',
+  };
+  final out = {for (final MapEntry(key: w, value: f) in words.entries) if (t.contains(w)) f};
+  for (final m in RegExp(r'(?<!l)gpl[ -]?v?([23])').allMatches(t)) {
+    out.add('gpl${m.group(1)}');
+  }
+  // "dual-licensed BSD/GPL-2.0 upstream" is a note on the source, not the
+  // licence VapourBox ships it under.
+  if (t.contains('dual-licensed') && out.contains('bsd')) out.remove('gpl2');
+  return out;
 }

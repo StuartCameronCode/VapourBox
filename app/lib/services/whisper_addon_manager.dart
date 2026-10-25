@@ -1,211 +1,115 @@
-import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:path/path.dart' as path;
 
 import 'addon_manager.dart';
+import 'addon_service.dart';
 import 'temp_directory_service.dart';
 
-/// Manages Whisper add-on binary and model downloads.
+/// The Whisper add-on, for subtitle generation: the whisper.cpp engine and its
+/// language models, described by `assets/whisper-addon.json`, under
+/// `addons/whisper/`. Each is an [AddonInstaller] for [AddonService]; every
+/// model requires the engine.
 class WhisperAddonManager {
-  static final WhisperAddonManager instance = WhisperAddonManager._();
-  WhisperAddonManager._();
+  final Map<String, dynamic> metadata;
+  final String platformId;
 
-  final AddonManager _addonManager = AddonManager();
-  Map<String, dynamic>? _metadata;
+  WhisperAddonManager(this.metadata, this.platformId);
 
-  /// Stream of download progress updates.
-  Stream<AddonDownloadProgress> get progressStream => _addonManager.progressStream;
+  static const dirName = 'whisper';
 
-  /// Load metadata from bundled asset.
-  Future<Map<String, dynamic>> _getMetadata() async {
-    if (_metadata != null) return _metadata!;
-    final jsonString = await rootBundle.loadString('assets/whisper-addon.json');
-    _metadata = jsonDecode(jsonString) as Map<String, dynamic>;
-    return _metadata!;
+  /// The add-on id of a language model (`small`, `medium`, `large-v3-turbo`).
+  static String modelAddonId(String modelId) => 'whisper-model-$modelId';
+
+  static const engineAddonId = 'whisper';
+
+  List<AddonInstaller> installers() => [
+        _WhisperEngine(this),
+        for (final id in (metadata['models'] as Map<String, dynamic>).keys)
+          _WhisperModel(this, id),
+      ];
+
+  Map<String, dynamic> get _platformInfo =>
+      ((metadata['binary'] as Map<String, dynamic>)['platforms']
+          as Map<String, dynamic>)[platformId] as Map<String, dynamic>;
+}
+
+const _whisperCppCredit =
+    'The ggml authors (project started by Georgi Gerganov)';
+
+class _WhisperEngine implements AddonInstaller {
+  final WhisperAddonManager whisper;
+  _WhisperEngine(this.whisper);
+
+  @override
+  AddonInfo get info => AddonInfo(
+        id: WhisperAddonManager.engineAddonId,
+        name: 'Whisper speech recognition (whisper.cpp)',
+        feature: 'Subtitles',
+        description: 'The engine that transcribes speech for the Subtitles '
+            'pass. Needs one of the language models below.',
+        licence: 'MIT',
+        credit: _whisperCppCredit,
+        noticeName: 'whisper.cpp',
+        sourceUrl: 'https://github.com/ggml-org/whisper.cpp',
+        downloadBytes: whisper._platformInfo['size'] as int? ?? 0,
+      );
+
+  /// macOS/Linux: whisper/bin/whisper-cli (with lib/ beside bin/ on macOS);
+  /// Windows: whisper/whisper-cli.exe — what `DependencyLocator::whisper_path`
+  /// looks for.
+  static String binaryPath(Directory addonsDir) {
+    final dir = path.join(addonsDir.path, WhisperAddonManager.dirName);
+    return Platform.isWindows
+        ? path.join(dir, 'whisper-cli.exe')
+        : path.join(dir, 'bin', 'whisper-cli');
   }
 
-  /// Get the current platform identifier.
-  String get _platformId {
-    if (Platform.isWindows) return 'windows-x64';
-    if (Platform.isMacOS) {
-      final result = Process.runSync('uname', ['-m']);
-      final arch = result.stdout.toString().trim();
-      return arch == 'arm64' ? 'macos-arm64' : 'macos-x64';
-    }
-    if (Platform.isLinux) {
-      final result = Process.runSync('uname', ['-m']);
-      final arch = result.stdout.toString().trim();
-      return arch == 'aarch64' ? 'linux-arm64' : 'linux-x64';
-    }
-    throw UnsupportedError('Unsupported platform');
-  }
+  @override
+  bool isInstalled(Directory addonsDir) => File(binaryPath(addonsDir)).existsSync();
 
-  /// Get the whisper add-on directory.
-  Future<Directory> getWhisperDir() async {
-    final base = await _getAddonsBaseDir();
-    return Directory(path.join(base.path, 'whisper'));
-  }
-
-  /// Get the add-ons base directory, mirroring deps directory location strategy.
-  Future<Directory> _getAddonsBaseDir() async {
-    final executablePath = Platform.resolvedExecutable;
-    final appDir = path.dirname(executablePath);
-
-    if (Platform.isWindows) {
-      // Production: addons folder next to executable
-      final prodAddons = Directory(path.join(appDir, 'addons'));
-      if (kDebugMode) {
-        // Development: search upward for project addons
-        var current = Directory(appDir);
-        for (var i = 0; i < 10; i++) {
-          final addonsDir = Directory(path.join(current.path, 'addons'));
-          if (await addonsDir.exists()) {
-            return addonsDir;
-          }
-          final parent = current.parent;
-          if (parent.path == current.path) break;
-          current = parent;
-        }
-      }
-      return prodAddons;
-    } else if (Platform.isMacOS) {
-      if (kDebugMode) {
-        // Development: search upward for project addons
-        var current = Directory(appDir);
-        for (var i = 0; i < 12; i++) {
-          final addonsDir = Directory(path.join(current.path, 'addons'));
-          if (await addonsDir.exists()) {
-            return addonsDir;
-          }
-          final parent = current.parent;
-          if (parent.path == current.path) break;
-          current = parent;
-        }
-      }
-
-      // Production: Application Support
-      final home = Platform.environment['HOME'] ?? '/tmp';
-      return Directory(path.join(
-        home, 'Library', 'Application Support', 'VapourBox', 'addons',
-      ));
-    } else if (Platform.isLinux) {
-      if (kDebugMode) {
-        // Development: search upward for project addons
-        var current = Directory(appDir);
-        for (var i = 0; i < 10; i++) {
-          final addonsDir = Directory(path.join(current.path, 'addons'));
-          if (await addonsDir.exists()) {
-            return addonsDir;
-          }
-          final parent = current.parent;
-          if (parent.path == current.path) break;
-          current = parent;
-        }
-      }
-
-      // Production: XDG_DATA_HOME or ~/.local/share
-      final xdgDataHome = Platform.environment['XDG_DATA_HOME'];
-      final home = Platform.environment['HOME'] ?? '/tmp';
-      final dataDir = xdgDataHome ?? path.join(home, '.local', 'share');
-      return Directory(path.join(dataDir, 'VapourBox', 'addons'));
-    }
-
-    throw UnsupportedError('Unsupported platform');
-  }
-
-  /// Whether the whisper binary is installed.
-  Future<bool> get isInstalled async {
-    final binaryPath = await whisperBinaryPath;
-    return File(binaryPath).existsSync();
-  }
-
-  /// Whether a specific model is installed.
-  Future<bool> isModelInstalled(String modelId) async {
-    final whisperDir = await getWhisperDir();
-    return File(path.join(whisperDir.path, 'models', 'ggml-$modelId.bin')).existsSync();
-  }
-
-  /// Get path to the whisper binary.
-  ///
-  /// macOS: whisper/bin/whisper-cli (Homebrew bottle layout with lib/ sibling)
-  /// Windows: whisper/whisper-cli.exe (flat zip layout)
-  Future<String> get whisperBinaryPath async {
-    final whisperDir = await getWhisperDir();
-    if (Platform.isWindows) {
-      return path.join(whisperDir.path, 'whisper-cli.exe');
-    }
-    return path.join(whisperDir.path, 'bin', 'whisper-cli');
-  }
-
-  /// Get path to a model file.
-  Future<String> getModelPath(String modelId) async {
-    final whisperDir = await getWhisperDir();
-    return path.join(whisperDir.path, 'models', 'ggml-$modelId.bin');
-  }
-
-  /// Download and install the whisper binary.
-  Future<void> downloadBinary() async {
-    final metadata = await _getMetadata();
-    final binaryInfo = metadata['binary'] as Map<String, dynamic>;
-    final platforms = binaryInfo['platforms'] as Map<String, dynamic>;
-    final platformInfo = platforms[_platformId] as Map<String, dynamic>;
-
-    final url = platformInfo['url'] as String;
-    final exeName = platformInfo['executable'] as String;
-    final expectedSize = platformInfo['size'] as int?;
-    final format = platformInfo['format'] as String? ?? 'zip';
-
-    final whisperDir = await getWhisperDir();
+  @override
+  Future<void> install(Directory addonsDir, AddonManager downloader) async {
+    final info = whisper._platformInfo;
+    final url = info['url'] as String;
+    final exeName = info['executable'] as String;
+    final format = info['format'] as String? ?? 'zip';
+    final whisperDir = Directory(path.join(addonsDir.path, WhisperAddonManager.dirName));
     await whisperDir.create(recursive: true);
 
-    final tempDir =
-        await TempDirectoryService.instance.createTemp('vapourbox_whisper_');
+    final tempDir = await TempDirectoryService.instance.createTemp('vapourbox_whisper_');
     final tempFile = File(path.join(tempDir.path,
-        (format == 'homebrew-bottle' || format == 'tar')
-            ? 'whisper.tar.gz'
-            : 'whisper.zip'));
-
+        (format == 'homebrew-bottle' || format == 'tar') ? 'whisper.tar.gz' : 'whisper.zip'));
     try {
       // ghcr.io requires a bearer token (public, anonymous access)
-      Map<String, String>? extraHeaders;
-      if (url.contains('ghcr.io')) {
-        extraHeaders = {'Authorization': 'Bearer QQ=='};
-      }
-
-      await _addonManager.downloadFile(url, tempFile,
-          expectedSize: expectedSize, extraHeaders: extraHeaders);
-
-      if (_addonManager.isCancelled) return;
+      final extraHeaders =
+          url.contains('ghcr.io') ? {'Authorization': 'Bearer QQ=='} : null;
+      await downloader.downloadFile(url, tempFile,
+          expectedSize: info['size'] as int?,
+          expectedSha256: info['sha256'] as String?,
+          extraHeaders: extraHeaders);
+      if (downloader.isCancelled) return;
 
       if (format == 'homebrew-bottle') {
-        await _extractHomebrewBottle(tempFile, whisperDir, exeName);
+        // Bottle layout: whisper-cpp/<version>/{bin,lib}/ — keep bin/ and lib/
+        // side by side so @rpath (@loader_path/../lib) resolves.
+        await _untar(tempFile, whisperDir, stripComponents: 2);
       } else if (format == 'tar') {
-        await _extractTar(tempFile, whisperDir, exeName);
+        // A static bin/whisper-cli, nothing to strip.
+        await _untar(tempFile, whisperDir);
       } else {
         await _extractZip(tempFile, whisperDir, exeName);
       }
 
-      // On macOS, remove quarantine and codesign all binaries/dylibs
       if (Platform.isMacOS) {
+        // Remove quarantine, and ad-hoc sign every binary and dylib.
         await Process.run('xattr', ['-cr', whisperDir.path]);
-        // Sign all Mach-O binaries and dylibs
-        final binDir = Directory(path.join(whisperDir.path, 'bin'));
-        if (await binDir.exists()) {
-          await for (final entity in binDir.list()) {
-            if (entity is File) {
-              await Process.run('codesign', ['--force', '--sign', '-', entity.path]);
-            }
-          }
-        }
-        final libDir = Directory(path.join(whisperDir.path, 'lib'));
-        if (await libDir.exists()) {
-          await for (final entity in libDir.list()) {
-            if (entity is File && entity.path.endsWith('.dylib')) {
+        for (final sub in ['bin', 'lib']) {
+          final dir = Directory(path.join(whisperDir.path, sub));
+          if (!await dir.exists()) continue;
+          await for (final entity in dir.list()) {
+            if (entity is File && (sub == 'bin' || entity.path.endsWith('.dylib'))) {
               await Process.run('codesign', ['--force', '--sign', '-', entity.path]);
             }
           }
@@ -218,121 +122,94 @@ class WhisperAddonManager {
     }
   }
 
-  /// Extract a Homebrew bottle (tar.gz) into the whisper directory.
-  ///
-  /// Bottle structure: whisper-cpp/<version>/bin/whisper-cli
-  ///                   whisper-cpp/<version>/lib/*.dylib
-  /// We extract bin/ and lib/ into whisperDir, preserving the subdirectory structure
-  /// so that @rpath (@loader_path/../lib) resolves correctly.
-  Future<void> _extractHomebrewBottle(
-      File tarGz, Directory whisperDir, String exeName) async {
-    // Use system tar to extract (handles gzip + tar in one step)
+  Future<void> _untar(File tarGz, Directory whisperDir, {int stripComponents = 0}) async {
     final result = await Process.run('tar', [
       'xzf', tarGz.path,
       '-C', whisperDir.path,
-      '--strip-components', '2', // Strip whisper-cpp/<version>/ prefix
+      if (stripComponents > 0) ...['--strip-components', '$stripComponents'],
     ]);
     if (result.exitCode != 0) {
-      throw StateError('Failed to extract bottle: ${result.stderr}');
+      throw StateError('Failed to extract whisper: ${result.stderr}');
     }
-
-    // Set executable permissions on extracted binaries
     final binDir = Directory(path.join(whisperDir.path, 'bin'));
     if (await binDir.exists()) {
       await for (final entity in binDir.list()) {
-        if (entity is File) {
-          await Process.run('chmod', ['+x', entity.path]);
-        }
+        if (entity is File) await Process.run('chmod', ['+x', entity.path]);
       }
     }
   }
 
-  /// Extract a plain gzipped tar (Linux binary release).
-  ///
-  /// The tarball is laid out as `bin/whisper-cli` (a fully static binary, no
-  /// `lib/` needed), matching the non-Windows whisperBinaryPath of
-  /// `whisper/bin/whisper-cli`. Unlike the Homebrew bottle, no path components
-  /// are stripped.
-  Future<void> _extractTar(
-      File tarGz, Directory whisperDir, String exeName) async {
-    final result = await Process.run('tar', [
-      'xzf', tarGz.path,
-      '-C', whisperDir.path,
-    ]);
-    if (result.exitCode != 0) {
-      throw StateError('Failed to extract tarball: ${result.stderr}');
-    }
-
-    // Set executable permissions on extracted binaries
-    final binDir = Directory(path.join(whisperDir.path, 'bin'));
-    if (await binDir.exists()) {
-      await for (final entity in binDir.list()) {
-        if (entity is File) {
-          await Process.run('chmod', ['+x', entity.path]);
-        }
-      }
-    }
-  }
-
-  /// Extract a zip archive (Windows binary release).
-  Future<void> _extractZip(
-      File zipFile, Directory whisperDir, String exeName) async {
-    final bytes = await zipFile.readAsBytes();
-    final archive = ZipDecoder().decodeBytes(bytes);
-
+  /// The Windows release zip: keep the executable and its DLLs, flattened.
+  Future<void> _extractZip(File zipFile, Directory whisperDir, String exeName) async {
+    final archive = ZipDecoder().decodeBytes(await zipFile.readAsBytes());
     for (final file in archive) {
-      if (file.isFile) {
-        final fileName = path.basename(file.name);
-        if (fileName == exeName || fileName.endsWith('.dll') || fileName.endsWith('.dylib')) {
-          final outFile = File(path.join(whisperDir.path, fileName));
-          await outFile.writeAsBytes(file.content as List<int>);
-        }
+      if (!file.isFile) continue;
+      final fileName = path.basename(file.name);
+      if (fileName == exeName || fileName.endsWith('.dll') || fileName.endsWith('.dylib')) {
+        await File(path.join(whisperDir.path, fileName))
+            .writeAsBytes(file.content as List<int>);
       }
     }
   }
 
-  /// Download a whisper model.
-  Future<void> downloadModel(String modelId) async {
-    final metadata = await _getMetadata();
-    final models = metadata['models'] as Map<String, dynamic>;
-    final modelInfo = models[modelId] as Map<String, dynamic>;
+  /// The engine and everything beside it except the models, which are
+  /// removed as dependants first.
+  @override
+  Future<void> remove(Directory addonsDir) async {
+    final dir = Directory(path.join(addonsDir.path, WhisperAddonManager.dirName));
+    if (!await dir.exists()) return;
+    await for (final entity in dir.list()) {
+      if (path.basename(entity.path) != 'models') await entity.delete(recursive: true);
+    }
+  }
+}
 
-    final url = modelInfo['url'] as String;
-    final filename = modelInfo['filename'] as String;
-    final expectedSize = modelInfo['size'] as int?;
+class _WhisperModel implements AddonInstaller {
+  final WhisperAddonManager whisper;
+  final String modelId;
+  _WhisperModel(this.whisper, this.modelId);
 
-    final whisperDir = await getWhisperDir();
-    final modelsDir = Directory(path.join(whisperDir.path, 'models'));
-    await modelsDir.create(recursive: true);
+  Map<String, dynamic> get _model =>
+      (whisper.metadata['models'] as Map<String, dynamic>)[modelId] as Map<String, dynamic>;
 
-    final destination = File(path.join(modelsDir.path, filename));
-    await _addonManager.downloadFile(url, destination, expectedSize: expectedSize);
+  static const _labels = {
+    'small': 'Small (fastest)',
+    'medium': 'Medium',
+    'large-v3-turbo': 'Large v3 Turbo (most accurate)',
+  };
+
+  @override
+  AddonInfo get info => AddonInfo(
+        id: WhisperAddonManager.modelAddonId(modelId),
+        name: 'Whisper language model — ${_labels[modelId] ?? modelId}',
+        feature: 'Subtitles',
+        description: 'OpenAI\'s Whisper model in whisper.cpp\'s format, chosen '
+            'in the Subtitles pass. Larger models are slower and more accurate.',
+        licence: 'MIT',
+        credit: 'OpenAI',
+        noticeName: 'Whisper models',
+        sourceUrl: 'https://huggingface.co/ggerganov/whisper.cpp',
+        downloadBytes: _model['size'] as int? ?? 0,
+        requires: const [WhisperAddonManager.engineAddonId],
+      );
+
+  File _file(Directory addonsDir) => File(path.join(addonsDir.path,
+      WhisperAddonManager.dirName, 'models', _model['filename'] as String));
+
+  @override
+  bool isInstalled(Directory addonsDir) => _file(addonsDir).existsSync();
+
+  @override
+  Future<void> install(Directory addonsDir, AddonManager downloader) async {
+    final file = _file(addonsDir);
+    await file.parent.create(recursive: true);
+    await downloader.downloadFile(_model['url'] as String, file,
+        expectedSize: _model['size'] as int?);
   }
 
-  /// Cancel the current download (preserves partial file for resume).
-  void cancelDownload() {
-    _addonManager.cancelDownload();
-  }
-
-  /// Whether the current download was cancelled.
-  bool get isCancelled => _addonManager.isCancelled;
-
-  /// Get the total download size for binary + model.
-  Future<int> getDownloadSize(String modelId) async {
-    final metadata = await _getMetadata();
-    final binaryInfo = metadata['binary'] as Map<String, dynamic>;
-    final platforms = binaryInfo['platforms'] as Map<String, dynamic>;
-    final platformInfo = platforms[_platformId] as Map<String, dynamic>;
-    final binarySize = platformInfo['size'] as int? ?? 0;
-
-    final models = metadata['models'] as Map<String, dynamic>;
-    final modelInfo = models[modelId] as Map<String, dynamic>;
-    final modelSize = modelInfo['size'] as int? ?? 0;
-
-    return binarySize + modelSize;
-  }
-
-  void dispose() {
-    _addonManager.dispose();
+  @override
+  Future<void> remove(Directory addonsDir) async {
+    final file = _file(addonsDir);
+    if (await file.exists()) await file.delete();
   }
 }

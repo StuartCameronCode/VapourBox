@@ -7,23 +7,58 @@ import '../../../services/whats_new_service.dart';
 import '../../../viewmodels/main_viewmodel.dart';
 import '../../../widgets/new_badge.dart';
 
-/// A parameter's label, with a "NEW" badge appended when
-/// [WhatsNewService.isNew] flags [param.sinceAppVersion]. Every widget below
-/// renders its label through this instead of a bare `Text` so the badge shows
-/// up consistently regardless of widget type.
+/// Gives the parameter widgets below the schema they belong to, so a label can
+/// badge for what its control leads to (a new option, a control it reveals),
+/// not just for itself — see [WhatsNewService.isParameterNew]. The filter
+/// panels wrap their controls in one.
+class ParameterBadgeScope extends InheritedWidget {
+  final FilterSchema schema;
+  const ParameterBadgeScope({super.key, required this.schema, required super.child});
+
+  static FilterSchema? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<ParameterBadgeScope>()?.schema;
+
+  @override
+  bool updateShouldNotify(ParameterBadgeScope old) => old.schema != schema;
+}
+
+/// A parameter's label, with a "NEW" badge appended when the parameter, one of
+/// its options, or a control it reveals is new. Every widget below renders its
+/// label through this instead of a bare `Text` so the badge shows up
+/// consistently regardless of widget type.
 Widget _paramLabel(
   BuildContext context,
   String label,
+  String paramId,
   ParameterDefinition param, {
   TextStyle? style,
 }) {
   final text = Text(label, style: style);
-  if (!WhatsNewService.instance.isNew(param.sinceAppVersion)) return text;
+  final whatsNew = WhatsNewService.instance;
+  final schema = ParameterBadgeScope.maybeOf(context);
+  final isNew = schema != null && schema.parameters.containsKey(paramId)
+      ? whatsNew.isParameterNew(schema, paramId)
+      : whatsNew.isNew(param.sinceAppVersion) ||
+          (param.optionSinceAppVersion?.values.any(whatsNew.isNew) ?? false);
+  if (!isNew) return text;
 
   return Row(
     mainAxisSize: MainAxisSize.min,
     children: [
       Flexible(child: text),
+      const SizedBox(width: 6),
+      const NewBadge(),
+    ],
+  );
+}
+
+/// An option or method in a dropdown, badged when it is new.
+Widget optionLabelWithBadge(String text, bool isNew) {
+  if (!isNew) return Text(text, overflow: TextOverflow.ellipsis);
+  return Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Flexible(child: Text(text, overflow: TextOverflow.ellipsis)),
       const SizedBox(width: 6),
       const NewBadge(),
     ],
@@ -264,6 +299,7 @@ class _SliderParameterWidget extends StatelessWidget {
         _paramLabel(
           context,
           '$label: ${doubleValue.toStringAsFixed(precision)}',
+          paramId,
           param,
           style: Theme.of(context).textTheme.labelLarge,
         ),
@@ -320,7 +356,7 @@ class _DropdownParameterWidget extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _paramLabel(context, label, param,
+        _paramLabel(context, label, paramId, param,
             style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
@@ -333,7 +369,9 @@ class _DropdownParameterWidget extends StatelessWidget {
           items: options.map((option) {
             return DropdownMenuItem(
               value: option,
-              child: Text(_formatOptionName(option)),
+              child: optionLabelWithBadge(
+                  param.ui?.optionLabels?[option] ?? _formatOptionName(option),
+                  WhatsNewService.instance.isOptionNew(param, option)),
             );
           }).toList(),
           onChanged: (newValue) {
@@ -384,7 +422,7 @@ class _CheckboxParameterWidget extends StatelessWidget {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _paramLabel(context, label, param,
+          _paramLabel(context, label, paramId, param,
               style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 8),
           DropdownButtonFormField<bool>(
@@ -419,7 +457,7 @@ class _CheckboxParameterWidget extends StatelessWidget {
 
     // Default: render as switch
     return SwitchListTile(
-      title: _paramLabel(context, label, param),
+      title: _paramLabel(context, label, paramId, param),
       subtitle: param.ui?.description != null ? Text(param.ui!.description!) : null,
       value: boolValue,
       contentPadding: EdgeInsets.zero,
@@ -450,7 +488,7 @@ class _TextFieldParameterWidget extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _paramLabel(context, label, param,
+        _paramLabel(context, label, paramId, param,
             style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 8),
         TextFormField(
@@ -545,7 +583,7 @@ class _FilePickerParameterWidgetState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _paramLabel(context, label, widget.param,
+        _paramLabel(context, label, widget.paramId, widget.param,
             style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 8),
         Row(
@@ -599,7 +637,7 @@ class _NumberParameterWidget extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _paramLabel(context, label, param,
+        _paramLabel(context, label, paramId, param,
             style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 8),
         TextFormField(

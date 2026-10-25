@@ -219,6 +219,49 @@ void main() {
       await _expectValidVideo(result);
     }, timeout: const Timeout(Duration(minutes: 6)));
 
+    test('noise reduction: BM3D runs end-to-end, chroma included', () async {
+      final job = _baseJob(
+        'nr_bm3d',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.bm3d,
+            bm3dChromaSigma: 2.0,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'nr_bm3d');
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('noise reduction: KNLMeans runs end-to-end where OpenCL works',
+        () async {
+      final probe = await Process.run(
+        WorkerHarness.workerPath,
+        ['--probe-opencl'],
+        environment: WorkerHarness.workerEnv,
+        workingDirectory: File(WorkerHarness.workerPath).parent.path,
+      );
+      final job = _baseJob(
+        'nr_knlm',
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          noiseReduction: NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.knlMeans,
+          ),
+        ),
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'nr_knlm');
+      if (probe.stdout.toString().contains('"knlmDevice":null')) {
+        // Covered by the push-gate test; here it is enough that it never crashes.
+        expect(result.success, isFalse);
+        return;
+      }
+      await _expectValidVideo(result);
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
     test('sharpen: aWarpSharp2 runs end-to-end', () async {
       final job = _baseJob(
         'sharpen_awarpsharp2',

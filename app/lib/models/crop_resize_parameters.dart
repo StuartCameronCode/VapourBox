@@ -32,6 +32,16 @@ enum UpscaleMethod {
   eedi3Rpow2,
   @JsonValue('spline36')
   spline36,
+  /// Real-ESRGAN's anime video model, on the GPU (needs Vulkan).
+  @JsonValue('realEsrgan')
+  realEsrgan,
+  /// Real-CUGAN, on the GPU (needs Vulkan).
+  @JsonValue('realCugan')
+  realCugan,
+  /// AnimeJaNai, on the GPU (needs Vulkan). Its models are an add-on,
+  /// non-commercial use only, downloaded when it is chosen.
+  @JsonValue('animeJanai')
+  animeJanai,
 }
 
 /// What to do with the pixel aspect ratio (SAR) on output.
@@ -177,6 +187,15 @@ class CropResizeParameters {
   /// Upscale factor (2 = 2x, 4 = 4x).
   final int upscaleFactor;
 
+  /// Real-CUGAN's denoise strength: none, conservative or denoise3x.
+  final String cuganNoise;
+
+  /// AnimeJaNai's HD model size: compact, ultraCompact or superUltraCompact.
+  final String animejanaiModel;
+
+  /// AnimeJaNai's Sharp variant of the HD model.
+  final bool animejanaiSharp;
+
   // --- nnedi3 controls for the edge-directed upscale paths ---
   // With EEDI3 selected these shape the nnedi3 sclip that guides it.
 
@@ -245,6 +264,9 @@ class CropResizeParameters {
     this.useIntegerUpscale = false,
     this.upscaleMethod = UpscaleMethod.nnedi3Rpow2,
     this.upscaleFactor = 2,
+    this.cuganNoise = 'conservative',
+    this.animejanaiModel = 'compact',
+    this.animejanaiSharp = false,
     this.upscaleNsize,
     this.upscaleNeurons,
     this.upscaleQual,
@@ -340,6 +362,9 @@ class CropResizeParameters {
     bool? useIntegerUpscale,
     UpscaleMethod? upscaleMethod,
     int? upscaleFactor,
+    String? cuganNoise,
+    String? animejanaiModel,
+    bool? animejanaiSharp,
     int? upscaleNsize,
     int? upscaleNeurons,
     int? upscaleQual,
@@ -379,6 +404,9 @@ class CropResizeParameters {
       useIntegerUpscale: useIntegerUpscale ?? this.useIntegerUpscale,
       upscaleMethod: upscaleMethod ?? this.upscaleMethod,
       upscaleFactor: upscaleFactor ?? this.upscaleFactor,
+      cuganNoise: cuganNoise ?? this.cuganNoise,
+      animejanaiModel: animejanaiModel ?? this.animejanaiModel,
+      animejanaiSharp: animejanaiSharp ?? this.animejanaiSharp,
       upscaleNsize: upscaleNsize ?? this.upscaleNsize,
       upscaleNeurons: upscaleNeurons ?? this.upscaleNeurons,
       upscaleQual: upscaleQual ?? this.upscaleQual,

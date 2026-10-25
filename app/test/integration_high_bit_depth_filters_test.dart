@@ -49,6 +49,7 @@ import 'package:vapourbox/models/deband_parameters.dart';
 import 'package:vapourbox/models/deblock_parameters.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
 import 'package:vapourbox/models/deflicker_parameters.dart';
+import 'package:vapourbox/models/descale_parameters.dart';
 import 'package:vapourbox/models/descratch_parameters.dart';
 import 'package:vapourbox/models/edge_repair_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
@@ -278,6 +279,7 @@ ProcessingPipeline _only({
   EdgeRepairParameters edgeRepair = const EdgeRepairParameters(),
   GhostRemovalParameters ghostRemoval = const GhostRemovalParameters(),
   FrameRateParameters frameRate = const FrameRateParameters(),
+  DescaleParameters descale = const DescaleParameters(),
 }) {
   return ProcessingPipeline(
     deinterlace: deinterlace,
@@ -296,6 +298,7 @@ ProcessingPipeline _only({
     edgeRepair: edgeRepair,
     ghostRemoval: ghostRemoval,
     frameRate: frameRate,
+    descale: descale,
   );
 }
 
@@ -413,6 +416,29 @@ List<_Pass> _passes() => [
             enabled: true,
             method: NoiseReductionMethod.temporalDegrain2,
             preset: NoiseReductionPreset.moderate,
+          ),
+        ),
+      ),
+
+      // Descale works in float on luma; a correct block gives the same picture
+      // at 10-bit as at 8-bit (the float conversion normalises every depth to
+      // 0-1). Protection is off: this fixture was never upscaled, so with it on
+      // the mask rightly keeps almost every pixel and the pass changes nothing.
+      _Pass(
+        'descale',
+        _only(descale: const DescaleParameters(
+            enabled: true, nativeHeight: 216, protectDetail: false)),
+      ),
+
+      // BM3D works in 16-bit and its sigma is in 8-bit units at every depth,
+      // so a correct block gives the same picture at 10-bit as at 8-bit.
+      _Pass(
+        'noise_bm3d',
+        _only(
+          noiseReduction: const NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.bm3d,
+            bm3dChromaSigma: 2.0,
           ),
         ),
       ),

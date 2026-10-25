@@ -2380,6 +2380,211 @@ architecture MIT (Megvii, ECCV2022-RIFE), plugin MIT (HolyWu), ncnn BSD-3
 (Tencent), MoltenVK Apache-2.0 (Brenwill Workshop, from source headers; no
 NOTICE file upstream).
 
+### BM3D and KNLMeans as Noise Reduction methods (2026-10-25)
+
+Probed against the bundle on an M1 Pro (macOS arm64), BM3D r12 built with the
+script's own `build_plugin`:
+
+- **BM3D refuses 4:2:0 whenever chroma is processed** ("sub-sampled format is
+  not supported when chroma is processed"); `sigma=[s,0,0]` works. Running
+  each plane as a GRAY clip handles chroma at its own resolution, and costs
+  nothing measurable: 52.5 fps whole-clip vs 53.0 per-plane at 720x480.
+- **`VAggregate` always outputs 16-bit** (from 8-bit, 10-bit and even float
+  input), and `VFinal` then fails with "input clip and clip "ref" must be of the
+  same format" unless the input is 16-bit too. Hence the 16-bit working format.
+- **sigma does not depend on depth**: 8-bit vs 16-bit results differ by
+  0.30/255 (rounding), and the heavy parity test measures 0.36/255 at 10-bit.
+- Throughput at 720x480, luma only, vspipe (frames in parallel):
+
+  | radius | Basic | Basic + Final |
+  |---|---|---|
+  | 0 | 52.5 fps | 23.0 fps |
+  | 1 | 34.0 fps | 14.3 fps |
+  | 2 | 24.3 fps | 9.7 fps |
+
+  Defaults are radius 1 with Final. Timing frames with sequential `get_frame`
+  calls reads about 10x slower and is not a measure of anything.
+- **KNLMeansCL's default `device_type="auto"` fails on this Mac** with
+  `oclUtilsGetPlaformDeviceIDs: CL_INVALID_VALUE`; `"gpu"` works (140 fps luma,
+  58 fps luma + chroma at 720x480), `"cpu"`/`"accelerator"` find no platform.
+  The existing `knlm` probe (default device) correctly reports false here, and
+  QTGMC's `knlmeanscl` denoiser has always fallen back to DFTTest on Apple
+  Silicon as a result — it is havsfunc's call, so it was left alone. The new
+  method probes `gpu` then `auto` and passes the one that works.
+- Depth parity for KNLMeans: 0.137/255 at 10-bit, 0.009 at 16-bit, against
+  2.74/255 of denoising.
+
+Why BM3D was missing from four of five bundles: Linux's
+`patch_meson_vs_include` only matched `incdir = include_directories(run_command(...))`,
+and r12 writes the probe inside a list with `'include'`, so meson ran the host
+python (no VapourSynth module) and failed at configure. macOS x64 never calls
+`build_plugin` (its plugins come from Stefan-Olt's prebuilts, which has no
+current BM3D), and the PyPI wheel for x86_64 is minos 15.0. Neither failure was
+visible because no expected-plugins list named BM3D outside macOS arm64.
+
+### AI upscaling: Real-ESRGAN / Real-CUGAN through VSNCNN (2026-10-25)
+
+Runtime choice. Neither a maintained "RealESRGAN-ncnn" nor "RealCUGAN-ncnn"
+VapourSynth plugin exists (Kiyamou's CUGAN plugin is Windows-only and last
+released 2022); vs-mlrt's VSNCNN (GPL-3.0, active) runs any of its ONNX models
+on ncnn/Vulkan, the same stack as RIFE. Only its Windows build is published,
+so macOS arm64 and Linux x64 build it from the pinned tag: upstream's own
+linux-ncnn.yml recipe on Linux; on macOS, Tencent's ncnn ships as static
+frameworks with no CMake config, so the three sources are compiled directly
+with `-undefined dynamic_lookup` (vkGetInstanceProcAddr from the preloaded
+MoltenVK, exactly as for RIFE). It is an API 3 plugin; R78 still loads those.
+
+Models and licences. AnimeJaNai was ruled out: CC BY-NC-SA 4.0. Real-ESRGAN
+(BSD-3, Xintao Wang) and Real-CUGAN (MIT, bilibili) are fine. Every model is
+2.4-5.2 MB, so they are bundled rather than fetched on demand; vs-mlrt
+publishes them only inside one ~810 MB solid 7z per release, so each deps
+build downloads it once (pinned by hash), extracts the five files in one pass
+(separate extractions each re-decompress the solid archive) and checks each.
+
+Measured on an M1 Pro, fp16 (fp32 is ~3x slower and within 0.06/255
+(ESRGAN) / 0.30/255 (CUGAN) of it):
+
+| | SD -> 2x | 1080p -> 2x |
+|---|---|---|
+| Real-ESRGAN animevideo x2 | ~10 fps | 1.6 fps (whole frame) |
+| Real-CUGAN up2x | ~6 fps | out of GPU memory whole-frame; 0.67 fps in 512-px tiles |
+
+num_streams 2 adds ~10%; 4 adds nothing. Without Vulkan (MoltenVK swapped for
+an unrelated dylib) VSNCNN raises "get_gpu_device failed" rather than
+segfaulting.
+
+Pixel checks (heavy test), against a plain Spline36 upscale of the same frames:
+
+- On real footage the comparison cannot prove correctness. On the interlaced
+  VHS fixture without deinterlacing, both networks remove the combing (CUGAN
+  smooths it, ESRGAN sharpens it into artefacts), a 9-12 level difference that
+  survives downscaling back to source size because it IS source-resolution
+  detail. small_clip has duplicate frames (a neighbour can score 0.0), so it
+  cannot catch a wrong frame either. It is kept as a sanity bound only.
+- A synthetic pattern can: mid-saturation flat patches (nothing clips, where
+  the networks roll off by a few levels and a range error would hide) and a
+  white bar. Real-CUGAN 2x reproduces flat colour within 1 level on every
+  patch, which — the conversions being shared — proves the matrix and range.
+  Real-ESRGAN tints/saturates flat colour: up to 3 levels at 2x and 11 at 4x
+  (green 160 -> 171), in fp32 too, with vs-mlrt's own `RealESRGAN()` wrapper
+  doing nothing more than this template; that is the model. CUGAN 4x drifts ~4.
+- Geometry: the networks widen a hard edge (CUGAN 4x: bar 194.6 px wide vs
+  192.05), so either edge alone looks shifted (CUGAN 4x left edge 1.65 px off)
+  while the bar's centre is within 0.36 px for every model. The test checks the
+  centre on both axes (0.75 px), and that Spline36 itself lands on factor x
+  source (within 0.25 px), so the reference is known-good.
+
+CI runs it for real on Linux and Windows: Mesa lavapipe (ncnn tags a CPU
+device as type 3 but does not skip it) and `VAPOURBOX_EXPECT_VULKAN=1`, so an
+unavailable feature is a failure there, not a skip. The first lavapipe probe
+takes ~30 s (Windows: 30.4 s), past flutter_test's default timeout, and one
+whole 720x576 Real-CUGAN frame took over five minutes, so the push gate crops
+to 240x192 first.
+
+**macOS arm64 cannot be given a device, and its GPU tests skip.** Four
+attempts, 2026-10-25:
+
+1. The runner's Metal GPU through MoltenVK: both probes SIGSEGV creating the
+   instance. The runners are VMs.
+2. Homebrew lavapipe via `DYLD_FALLBACK_LIBRARY_PATH`: never reached the
+   plugins. SIP strips every `DYLD_*` variable when a protected binary runs,
+   and the bundle's vspipe is a `/bin/bash` wrapper.
+3. The loader in `~/lib`: dyld no longer searches `~/lib` or `/usr/local/lib`
+   for a leaf-name `dlopen` (its own "tried:" list for ncnn's
+   `dlopen("libvulkan.1.dylib")` stops at `/usr/lib`).
+4. Preloading the loader in place of MoltenVK: it reached lavapipe, which then
+   crashed compiling its first shader, in Homebrew's `libLLVM.23` at
+   `llvm::PassBuilder::registerCGSCCAnalyses`. The cause: **the bundle's
+   macOS `libakarin.dylib` statically links LLVM and exports ~47,000 of its
+   symbols, 2,293 of them weak**, and dyld coalesces weak definitions across
+   every image in the process, so lavapipe's LLVM 23 ran against akarin's
+   LLVM 22 data. Linux's lavapipe passes with the same akarin, so this is
+   macOS only.
+
+No user is affected today (MoltenVK has no LLVM), but **any LLVM-based
+component loaded into vspipe on macOS will hit the same thing** while akarin
+is autoloaded. The fix, if one is ever needed, is an akarin build with LLVM's
+symbols hidden (`-fvisibility=hidden`, or an exported-symbols list of just
+`VapourSynthPluginInit2`). `.github/scripts/print-crash-reports.py`, run by
+both workflows' macOS jobs on failure, is what turned "signal 11" into that
+backtrace.
+
+### Descale and native-resolution detection (2026-10-25)
+
+Probed with descale r12 (wheel) on an M1 Pro. A float 720p image upscaled to
+1080p with Catmull-Rom and descaled back: round-trip error 2.8e-8 at 720 vs
+~2e-4 at every other height; at 720, Catmull-Rom 2.8e-8, Mitchell 1.9e-5,
+bilinear 6.3e-5, Spline36 8.0e-5, Lanczos3 1.0e-4. A sequential 231-height
+scan took 12 s; spliced into one clip and read with `frames()` the whole
+1080p detection (4 kernels x 540 heights, then 12 kernels x 4 frames, plus
+decoding) takes ~30 s.
+
+What went wrong on the way, so it is not repeated:
+
+- **One-sided neighbourhoods.** The first version picked H-1 (1079, 574) on
+  everything: the round-trip error falls steadily toward the source height,
+  and a window that only has neighbours below reads that slope as a dip.
+- **A smooth fixture proves nothing.** testing on small_clip (240p) scaled to
+  "native" 720p: after 8-bit FFV1 storage every height's misfit (~0.05 levels)
+  is below rounding (~0.25), so no dip exists to find. testsrc2 at native 720p
+  works.
+- **Credits swamp a mean.** A dense one-pixel grid over 4% of the frame
+  (misfit at every height) flattened the dip to ~0.9; capping each pixel's
+  error at 2 levels before averaging restores it (0.48 at 4% coverage, 0.35 at
+  2%, 0.14 with none).
+- **Scan with every kernel family.** Bilinear + Catmull-Rom alone missed
+  Lanczos- and spline-made masters entirely (dip 0.63 / 0.56); adding
+  Lanczos 3 and Spline36 to the scan finds all four at 720. ffmpeg's `spline`
+  is not Spline36; its master is detected as Spline64, the nearest family.
+- **A drawgrid on a transparent layer draws nothing** (alpha is not written):
+  the first "credits" fixture had no credits, and protected/unprotected came
+  out identical. The heavy test now asserts the unprotected grid is destroyed.
+
+Results on the fixtures: Catmull-Rom master -> 720 bicubic 0/0.5 (dip 0.14);
+bilinear -> 720 bilinear (0.14); Lanczos -> 720 lanczos 3 (0.16); with 2%
+credits -> 720 (0.35); the VHS capture -> not found (0.91). Encode with
+protection: credits exact (0.0 levels), picture within 0.27 of the source;
+without it the credits move 62.6 levels. 8- vs 10-bit parity 0.32.
+
+### AnimeJaNai as an add-on, and one add-on system (2026-10-25)
+
+**Why it is a download, not in the bundle.** AnimeJaNai's models are CC BY-NC-SA
+4.0. VapourBox distributing them free is a non-commercial use, so shipping
+them would be allowed. But the restriction binds every recipient: users doing
+paid work (client restorations, monetised channels), and anyone who repackages
+VapourBox (the GPL permits selling it). Bundling is lawful aggregation, but it
+would make the deps bundle the one part of VapourBox that can't be passed on
+freely, and nobody would see the terms. So: an opt-in download from upstream,
+with the terms in front of the user at download time and whenever the method
+is chosen.
+
+**Source.** The only standalone download is release `3.0.0`'s
+`2x_AnimeJaNai_HD_V3_ModelsOnly.zip` (24.7 MB). The V3.1 models upstream's
+README mentions exist only inside the ~170 MB full player package. The zip's
+entries are dated 2024-07-30, six months after the release, so the asset has
+been replaced once; it is pinned by SHA-256 and each model by its own hash.
+
+**Probe (M1 Pro, VSNCNN fp16).** All seven ONNX models load and run unchanged
+(they are Real-ESRGAN Compact networks, the same kind as the bundled
+Real-ESRGAN model).
+
+- Speed at 2x: Compact 8–9 fps SD / 0.9 fps 1080p; UltraCompact 14–16 / 1.7;
+  SuperUltraCompact 35–37 / 4.
+- Colour on flat patches (direct, RGB): 0.1–0.5 levels, against Real-ESRGAN's
+  3.7. Through the full YUV pipeline, AnimeJaNai is 0.3 levels off at 2x and
+  0.5 at 4x, against Real-ESRGAN's 3 and 11.
+- fp16 vs fp32: within 0.36/255.
+
+**SD vs HD.** Upstream trained the HD models on 1080p anime and warns that they
+don't always suit SD. So the script picks the SD model at or below 576 lines,
+per doubling. The heavy test shows the size setting has no effect on an SD
+picture (difference 0.000) and does change a 720p one (0.52).
+
+**One add-on system.** Whisper had its own manager and dialogs. Both are now
+`AddonInstaller`s behind `AddonService`, shown on Settings → Add-ons and in
+the shared `AddonPrompt`. Requirements (a Whisper model needs the engine) are
+installed first and removed with what needs them.
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and

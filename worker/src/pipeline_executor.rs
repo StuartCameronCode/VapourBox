@@ -148,6 +148,7 @@ fn preview_window(target: i32, radius: i32) -> (i32, i32, i32) {
     (first, local, num_frames)
 }
 
+use crate::gpu_plugin::GpuPlugin;
 use crate::dependency_locator::DependencyLocator;
 use crate::models::{AspectDeclaration, AudioMode, ContainerFormat, DeinterlaceMethod, EncoderFamily, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
 use crate::pixel_format;
@@ -1250,10 +1251,21 @@ impl PipelineExecutor {
             .with_opencl_available(self.deps.opencl_available())
             .with_knlm_available(self.deps.knlm_available())
             .with_rife(if job.effective_pipeline().uses_rife() {
-                self.deps.rife_runtime()
+                self.deps.gpu_plugin_runtime(GpuPlugin::Rife)
             } else {
                 Err("RIFE is not used by this job.".into())
-            });
+            })
+            .with_upscale(if job.effective_pipeline().uses_ai_upscale() {
+                self.deps.gpu_plugin_runtime(GpuPlugin::Upscale)
+            } else {
+                Err("AI upscaling is not used by this job.".into())
+            })
+            .with_knlm(if job.effective_pipeline().uses_knlm() {
+                self.deps.knlm_runtime()
+            } else {
+                Err("KNLMeans is not used by this job.".into())
+            })
+            .with_animejanai(self.deps.animejanai_runtime());
         let (fps_num, fps_den) = script_generator.frame_rate_to_rational(frame_rate);
 
         let preview_params = PreviewParams {

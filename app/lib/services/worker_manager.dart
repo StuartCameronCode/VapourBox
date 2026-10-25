@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 
 import '../models/progress_info.dart';
-import '../models/rife_status.dart';
+import '../models/gpu_plugin_status.dart';
+import '../models/native_res_report.dart';
 import '../models/video_job.dart';
 import 'job_runner.dart';
 import 'process_tree.dart';
@@ -177,13 +177,23 @@ class WorkerManager implements JobRunner {
   /// - `opencl`: a usable OpenCL device for the QTGMC NNEDI3CL path.
   /// - `knlm`: the knlmeanscl denoiser specifically (a DISTINCT probe —
   ///   KNLMeansCL can fail where NNEDI3CL succeeds).
+  /// - `knlmMessage`: why the KNLMeans noise-reduction method cannot run, or
+  ///   null when it can (it runs on whichever device the worker found, which is
+  ///   not the question `knlm` answers).
   ///
   /// Both default to `false` if the worker can't be found, fails, or doesn't
   /// report the field — callers treat that as "warn the user", the safe default.
-  static Future<({bool opencl, bool knlm})> probeGpuCapabilities() async {
+  static Future<({bool opencl, bool knlm, String? knlmMessage})>
+      probeGpuCapabilities() async {
+    const none = (
+      opencl: false,
+      knlm: false,
+      knlmMessage: 'VapourBox could not check for an OpenCL device, which '
+          'KNLMeans needs. BM3D does the same job on the CPU.',
+    );
     final toolLocator = ToolLocator.instance;
     final workerPath = toolLocator.workerPath;
-    if (workerPath == null) return (opencl: false, knlm: false);
+    if (workerPath == null) return none;
 
     try {
       final result = await Process.run(
@@ -192,7 +202,7 @@ class WorkerManager implements JobRunner {
         environment: toolLocator.workerEnvironment,
         workingDirectory: File(workerPath).parent.path,
       );
-      if (result.exitCode != 0) return (opencl: false, knlm: false);
+      if (result.exitCode != 0) return none;
       // The worker prints a single JSON line; tolerate extra log lines.
       for (final line in const LineSplitter().convert(result.stdout.toString())) {
         final trimmed = line.trim();
@@ -203,53 +213,94 @@ class WorkerManager implements JobRunner {
             return (
               opencl: decoded['opencl'] as bool,
               knlm: decoded['knlm'] == true,
+              knlmMessage: decoded['knlmDevice'] is String
+                  ? null
+                  : (decoded['knlmMessage'] as String? ?? none.knlmMessage),
             );
           }
         } catch (_) {
           // Not the JSON line; keep scanning.
         }
       }
-      return (opencl: false, knlm: false);
+      return none;
     } catch (_) {
-      return (opencl: false, knlm: false);
+      return none;
     }
   }
 
-  /// Ask the worker whether RIFE frame interpolation runs here
-  /// (`--probe-rife`). The first call after a boot initialises the GPU, so it
-  /// takes a second or two; a positive answer is cached by the worker.
+  /// Ask the worker whether a GPU feature (RIFE, AI upscaling) runs here
+  /// (`--probe-rife` / `--probe-upscale`). The first call after a boot
+  /// initialises the GPU, so it takes a second or two; a positive answer is
+  /// cached by the worker.
   ///
   /// Never throws: a worker that can't be run or answers with something
-  /// unreadable is reported as [RifeStatus.unknown], which tells the user to
-  /// restart rather than claiming RIFE works.
-  static Future<RifeStatus> probeRife() async {
+  /// unreadable is reported as [GpuPluginStatus.unknown], which tells the user
+  /// to restart rather than claiming the feature works.
+  static Future<GpuPluginStatus> probeGpuPlugin(GpuPlugin plugin) async {
     final toolLocator = ToolLocator.instance;
     final workerPath = toolLocator.workerPath;
-    if (workerPath == null) return const RifeStatus.unknown();
+    if (workerPath == null) return GpuPluginStatus.unknown(plugin);
 
     try {
       final result = await Process.run(
         workerPath,
-        ['--probe-rife'],
+        [plugin.probeFlag],
         environment: toolLocator.workerEnvironment,
         workingDirectory: File(workerPath).parent.path,
       );
-      if (result.exitCode != 0) return const RifeStatus.unknown();
+      if (result.exitCode != 0) return GpuPluginStatus.unknown(plugin);
       for (final line in const LineSplitter().convert(result.stdout.toString())) {
         final trimmed = line.trim();
         if (trimmed.isEmpty) continue;
         try {
           final decoded = jsonDecode(trimmed);
           if (decoded is Map<String, dynamic> && decoded['available'] is bool) {
-            return RifeStatus.fromJson(decoded);
+            return GpuPluginStatus.fromJson(plugin, decoded);
           }
         } catch (_) {
           // Not the JSON line; keep scanning.
         }
       }
-      return const RifeStatus.unknown();
+      return GpuPluginStatus.unknown(plugin);
     } catch (_) {
-      return const RifeStatus.unknown();
+      return GpuPluginStatus.unknown(plugin);
+    }
+  }
+
+  /// Find the resolution and kernel [job]'s video was upscaled from
+  /// (`--detect-native`). Decodes a few frames and tries every height and the
+  /// common kernels, so it takes tens of seconds on HD. Never throws: a failure
+  /// comes back as [NativeResReport.failed].
+  static Future<NativeResReport> detectNativeResolution(VideoJob job) async {
+    final toolLocator = ToolLocator.instance;
+    final workerPath = toolLocator.workerPath;
+    if (workerPath == null) {
+      return const NativeResReport.failed('The VapourBox worker could not be found.');
+    }
+    final config = File(await TempDirectoryService.instance
+        .filePath('detect_native_${job.id}.json'));
+    try {
+      await config.writeAsString(jsonEncode(job.toJson()));
+      final result = await Process.run(
+        workerPath,
+        ['--detect-native', '--config', config.path],
+        environment: toolLocator.workerEnvironment,
+        workingDirectory: File(workerPath).parent.path,
+      );
+      for (final line in const LineSplitter().convert(result.stdout.toString()).reversed) {
+        final trimmed = line.trim();
+        if (!trimmed.startsWith('{')) continue;
+        try {
+          return NativeResReport.fromJson(jsonDecode(trimmed) as Map<String, dynamic>);
+        } catch (_) {
+          // Not the JSON line; keep scanning.
+        }
+      }
+      return NativeResReport.failed('The analysis did not report a result: ${result.stderr}');
+    } catch (e) {
+      return NativeResReport.failed('$e');
+    } finally {
+      if (await config.exists()) await config.delete();
     }
   }
 

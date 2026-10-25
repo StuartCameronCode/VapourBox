@@ -8,7 +8,7 @@ import '../../services/whats_new_service.dart';
 import '../../services/whisper_addon_manager.dart';
 import '../../viewmodels/main_viewmodel.dart';
 import '../pass_settings/pass_settings_inline.dart';
-import '../whisper_download_dialog.dart';
+import '../addon_dialogs.dart';
 import 'pass_list_item.dart';
 
 /// Panel showing the list of processing passes that can be enabled/disabled.
@@ -47,6 +47,7 @@ class PassListPanel extends StatelessWidget {
     (
       title: 'Noise & Artifacts',
       passes: [
+        PassType.descale,
         PassType.noiseReduction,
         PassType.chromaDenoise,
         PassType.dehalo,
@@ -156,6 +157,9 @@ class PassListPanel extends StatelessWidget {
             case PassType.deflicker:
               return item(passType, 'Deflicker', pipeline.deflicker.summary,
                   pipeline.deflicker.enabled);
+            case PassType.descale:
+              return item(passType, 'Descale', pipeline.descale.summary,
+                  pipeline.descale.enabled);
             case PassType.edgeRepair:
               return item(passType, 'Edge Repair', pipeline.edgeRepair.summary,
                   pipeline.edgeRepair.enabled);
@@ -269,21 +273,13 @@ class PassListPanel extends StatelessWidget {
     bool enabled,
   ) async {
     if (enabled) {
-      final isInstalled = await WhisperAddonManager.instance.isInstalled;
       final modelId = viewModel.processingPipeline.subtitles.model.value;
-      final modelInstalled =
-          await WhisperAddonManager.instance.isModelInstalled(modelId);
-
-      if (!isInstalled || !modelInstalled) {
-        if (!context.mounted) return;
-        final confirmed =
-            await WhisperConfirmDialog.show(context, modelId: modelId);
-        if (!confirmed) return;
-        if (!context.mounted) return;
-        final downloaded =
-            await WhisperDownloadDialog.show(context, modelId: modelId);
-        if (!downloaded) return;
-      }
+      final ready = await AddonPrompt.ensure(
+        context,
+        [WhisperAddonManager.modelAddonId(modelId)],
+        reason: 'Subtitle generation needs the Whisper speech recognition add-on.',
+      );
+      if (!ready) return;
     }
     viewModel.togglePass(PassType.subtitles, enabled);
   }

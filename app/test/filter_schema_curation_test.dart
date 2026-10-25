@@ -97,6 +97,70 @@ void main() {
     });
   });
 
+  // Option and method stamps feed the same compare. And a stamp on a hidden
+  // parameter can never show: there is no control to badge, so whatever it
+  // meant to flag goes unannounced (Noise Reduction's new BM3D and KNLMeans
+  // methods were stamped on the hidden `method` parameter and badged nowhere).
+  group('option and method stamps', () {
+    final versionPattern = RegExp(r'^\d+\.\d+\.\d+$');
+    rawSchemas.forEach((filename, raw) {
+      final id = raw['id'] as String;
+      final parameters = (raw['parameters'] as Map).cast<String, dynamic>();
+
+      test('$id: option stamps name real options and look like "1.2.0"', () {
+        for (final entry in parameters.entries) {
+          final p = entry.value as Map;
+          final stamps = (p['optionSinceAppVersion'] as Map?)?.cast<String, dynamic>();
+          if (stamps == null) continue;
+          final options = (p['options'] as List?)?.cast<String>() ?? const [];
+          for (final MapEntry(key: option, value: since) in stamps.entries) {
+            expect(options, contains(option), reason: '${entry.key}: stamp for unknown option $option');
+            expect(versionPattern.hasMatch(since as String), isTrue,
+                reason: '${entry.key}.$option: "$since" is not X.Y.Z');
+          }
+        }
+      });
+
+      test('$id: method stamps look like "1.2.0"', () {
+        for (final m in (raw['methods'] as List? ?? const []).cast<Map>()) {
+          final since = m['sinceAppVersion'];
+          if (since == null) continue;
+          expect(versionPattern.hasMatch(since as String), isTrue,
+              reason: '${m['id']}: "$since" is not X.Y.Z');
+        }
+      });
+
+      test('$id: no hidden parameter carries a stamp nobody can see', () {
+        for (final entry in parameters.entries) {
+          final p = entry.value as Map;
+          if ((p['ui'] as Map?)?['hidden'] != true) continue;
+          expect(p['sinceAppVersion'], isNull,
+              reason: '${entry.key} is hidden, so its badge never shows; stamp '
+                  'what is new instead (a method, an option)');
+          expect(p['optionSinceAppVersion'], isNull, reason: entry.key);
+        }
+      });
+    });
+  });
+
+  // A preset is drawn inside the section whose controls it sets. One that
+  // sets controls from two sections, or none, would be drawn at the top of
+  // the pass instead, apart from everything it changes; that block of
+  // presets at the top is what made Crop & Resize's "Resize Preset" read as
+  // part of Crop.
+  group('parameter presets', () {
+    for (final schema in schemas) {
+      final presets = schema.parameterPresets;
+      if (presets == null || schema.ui?.sections == null) continue;
+      test('${schema.id}: every preset belongs to one section', () {
+        for (final MapEntry(key: id, value: preset) in presets.entries) {
+          expect(schema.sectionForPreset(preset), isNotNull,
+              reason: '$id sets controls from more than one section, or none');
+        }
+      });
+    }
+  });
+
   group('method curation', () {
     for (final schema in schemas) {
       test('${schema.id}: first method is never advanced-only', () {
@@ -174,6 +238,10 @@ void main() {
         'fft3dfilter',
         'ttempsmooth',
         'temporal_degrain2',
+        // BM3D and KNLMeans (1.5.0) are advanced too: the simple slots are full,
+        // and KNLMeans needs an OpenCL device most users can't reason about.
+        'bm3d',
+        'knlmeans',
       ]) {
         expect(nr.getMethod(id)?.advancedOnly, true, reason: id);
       }

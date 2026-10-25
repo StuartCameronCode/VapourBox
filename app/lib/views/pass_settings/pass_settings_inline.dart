@@ -6,13 +6,14 @@ import '../../models/filter_registry.dart';
 import '../../models/filter_schema.dart';
 import '../../models/pass_advice.dart';
 import '../../models/processing_pipeline.dart';
-import '../../models/rife_status.dart';
+import '../../models/gpu_plugin_status.dart';
+import '../../services/addon_service.dart';
 import '../../services/whisper_addon_manager.dart';
 import '../../utils/pixel_format.dart';
 import '../../viewmodels/main_viewmodel.dart';
 import '../../widgets/warning_banner.dart';
 import '../settings/dynamic_filter_panel.dart';
-import '../whisper_download_dialog.dart';
+import '../addon_dialogs.dart';
 
 /// The settings for one processing pass, rendered inline underneath that pass's
 /// row in the pass list. Leads with the filter's description — what it does and
@@ -65,6 +66,8 @@ class PassSettingsInline extends StatelessWidget {
         return 'edge_repair';
       case PassType.ghostRemoval:
         return 'ghost_removal';
+      case PassType.descale:
+        return 'descale';
       case PassType.colorCorrection:
         return 'color_correction';
       case PassType.chromaFixes:
@@ -97,7 +100,11 @@ class PassSettingsInline extends StatelessWidget {
             _buildDescription(context, schema),
             _buildInteractionAdvice(context, viewModel),
             _buildOpenCLWarning(context, viewModel, filterId, params),
-            _buildRifeNotice(context, viewModel, filterId, params),
+            _buildGpuPluginNotice(context, viewModel, filterId, params),
+            _buildKnlmNotice(viewModel, filterId, params),
+            if (animeJanaiSelectedBy(filterId, params.values))
+              const AnimeJanaiNotice(),
+            if (filterId == 'descale') _buildDescaleDetect(context, viewModel),
             _buildBitDepthWarning(context, viewModel, schema, params),
             DynamicFilterPanelCompact(
               schema: schema,
@@ -161,27 +168,118 @@ class PassSettingsInline extends StatelessWidget {
     return WarningBanner(message: message);
   }
 
-  /// RIFE's prerequisites, the moment it is chosen. Unlike the OpenCL options
-  /// there is no fallback — a RIFE job on a machine without a Vulkan device
-  /// is refused — so this says exactly what is missing and how to fix it (the
-  /// worker's wording, see `rife.rs`), with a button to check again once the
-  /// user has.
-  Widget _buildRifeNotice(
+  /// Descale's Detect: run the analysis on the selected video and offer what
+  /// it found. A wrong native resolution damages the picture, so a source with
+  /// no clear one is told so plainly rather than handed a guess to apply.
+  Widget _buildDescaleDetect(BuildContext context, MainViewModel viewModel) {
+    final theme = Theme.of(context);
+    final report = viewModel.nativeResReport;
+    final running = viewModel.detectingNativeRes;
+    final canRun = viewModel.selectedItem != null && !running;
+    final children = <Widget>[
+      Row(
+        children: [
+          OutlinedButton.icon(
+            onPressed: canRun ? viewModel.detectNativeResolution : null,
+            icon: running
+                ? const SizedBox.square(
+                    dimension: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.search, size: 16),
+            label: Text(running ? 'Detecting…' : 'Detect native resolution'),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              running
+                  ? 'Trying every height and the common kernels on frames from '
+                      'this video. About half a minute for HD.'
+                  : viewModel.selectedItem == null
+                      ? 'Select a video to analyse.'
+                      : 'Finds the resolution and kernel this video was upscaled from.',
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    ];
+    if (!running && report != null) {
+      if (report.error != null) {
+        children.add(WarningBanner(message: 'Detection failed: ${report.error}'));
+      } else if (report.found) {
+        children.add(Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Row(
+            children: [
+              Icon(Icons.check_circle, size: 18, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SelectableText(
+                  'Drawn at ${report.width}×${report.height}, upscaled with '
+                  '${report.kernelLabel}.',
+                ),
+              ),
+              FilledButton(
+                onPressed: viewModel.applyNativeResolution,
+                child: const Text('Use these settings'),
+              ),
+            ],
+          ),
+        ));
+      } else {
+        children.add(WarningBanner(
+          message: 'No clear native resolution. This video does not look like '
+              'it was upscaled from a lower one, and descaling it would soften '
+              'it. (Closest candidate: ${report.height}p, '
+              '${report.kernelLabel}.)',
+        ));
+      }
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
+    );
+  }
+
+  /// Why the KNLMeans noise-reduction method can't run here, the moment it is
+  /// chosen. Like RIFE it has no fallback (the worker refuses the job), so the
+  /// worker's own reason is shown verbatim.
+  Widget _buildKnlmNotice(
+    MainViewModel viewModel,
+    String filterId,
+    DynamicParameters params,
+  ) {
+    final message = viewModel.knlmMethodMessage;
+    if (filterId != 'noise_reduction' ||
+        params.values['method'] != 'knlmeans' ||
+        message == null) {
+      return const SizedBox.shrink();
+    }
+    return WarningBanner(message: message);
+  }
+
+  /// A GPU feature's prerequisites (RIFE, AI upscaling), the moment it is
+  /// chosen. Unlike the OpenCL options there is no fallback — such a job on a
+  /// machine without a Vulkan device is refused — so this says exactly what
+  /// is missing and how to fix it (the worker's wording, see `gpu_plugin.rs`),
+  /// with a button to check again once the user has.
+  Widget _buildGpuPluginNotice(
     BuildContext context,
     MainViewModel viewModel,
     String filterId,
     DynamicParameters params,
   ) {
-    if (filterId != 'frame_rate') return const SizedBox.shrink();
-    final notice = rifeNoticeFor(
-      method: params.values['method'],
-      status: viewModel.rifeStatus,
-      checking: viewModel.rifeChecking,
+    final plugin = gpuPluginSelectedBy(filterId, params.values);
+    if (plugin == null) return const SizedBox.shrink();
+    final status = viewModel.gpuPluginStatus(plugin);
+    final notice = gpuPluginNoticeFor(
+      selected: true,
+      status: status,
+      checking: viewModel.gpuPluginChecking(plugin),
     );
     switch (notice) {
-      case RifeNotice.none:
+      case GpuPluginNotice.none:
         return const SizedBox.shrink();
-      case RifeNotice.checking:
+      case GpuPluginNotice.checking:
         return Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: Row(
@@ -193,19 +291,19 @@ class PassSettingsInline extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Checking whether RIFE can run on this computer…',
+                  'Checking whether ${plugin.label} can run on this computer…',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
             ],
           ),
         );
-      case RifeNotice.unavailable:
+      case GpuPluginNotice.unavailable:
         final scheme = Theme.of(context).colorScheme;
         return WarningBanner(
-          message: viewModel.rifeStatus!.message!,
+          message: status!.message!,
           action: OutlinedButton.icon(
-            onPressed: viewModel.recheckRife,
+            onPressed: () => viewModel.recheckGpuPlugin(plugin),
             icon: const Icon(Icons.refresh, size: 16),
             label: const Text('Check again'),
             style: OutlinedButton.styleFrom(
@@ -258,22 +356,35 @@ class PassSettingsInline extends StatelessWidget {
         (!oldParams.enabled ||
             oldParams.values['model'] != newParams.values['model'])) {
       final newModelId = newParams.values['model'] as String? ?? 'medium';
-      final addonInstalled = await WhisperAddonManager.instance.isInstalled;
-      final modelInstalled =
-          await WhisperAddonManager.instance.isModelInstalled(newModelId);
-      if (!addonInstalled || !modelInstalled) {
-        if (!context.mounted) return;
-        final confirmed =
-            await WhisperConfirmDialog.show(context, modelId: newModelId);
-        if (!confirmed) return;
-        if (!context.mounted) return;
-        final downloaded =
-            await WhisperDownloadDialog.show(context, modelId: newModelId);
-        if (!downloaded) return;
-      }
+      final ready = await AddonPrompt.ensure(
+        context,
+        [WhisperAddonManager.modelAddonId(newModelId)],
+        reason: 'Subtitle generation needs the Whisper speech recognition add-on.',
+      );
+      if (!ready) return;
+    }
+
+    // AnimeJaNai's models are an add-on: choosing it downloads them, after
+    // saying what they are and that they are for non-commercial use only.
+    if (_choosesAnimeJanai(filterId, oldParams, newParams)) {
+      if (!context.mounted) return;
+      final ready = await AddonPrompt.ensure(
+        context,
+        [animeJanaiAddonId],
+        reason: 'AnimeJaNai upscaling needs its models.',
+      );
+      if (!ready) return;
     }
     viewModel.updateDynamicParams(filterId, newParams);
   }
+
+  bool _choosesAnimeJanai(
+    String filterId,
+    DynamicParameters oldParams,
+    DynamicParameters newParams,
+  ) =>
+      animeJanaiSelectedBy(filterId, newParams.values) &&
+      !animeJanaiSelectedBy(filterId, oldParams.values);
 
   Widget _buildFallbackPanel(BuildContext context, PassType passType) {
     return Padding(
@@ -428,6 +539,71 @@ class _FilterDescriptionState extends State<_FilterDescription> {
           ),
         ],
       ],
+    );
+  }
+}
+
+/// Under Crop & Resize while AnimeJaNai is chosen: its terms, always — the
+/// non-commercial restriction is the user's to keep in mind on every job —
+/// and, if its models are not installed (deleted since, or chosen by a
+/// preset), a button to download them.
+class AnimeJanaiNotice extends StatefulWidget {
+  final AddonService? service;
+  const AnimeJanaiNotice({super.key, this.service});
+
+  @override
+  State<AnimeJanaiNotice> createState() => _AnimeJanaiNoticeState();
+}
+
+class _AnimeJanaiNoticeState extends State<AnimeJanaiNotice> {
+  AddonService get _service => widget.service ?? AddonService.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _service.load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: _service,
+      builder: (context, _) {
+        final info = _service.info(animeJanaiAddonId);
+        if (info == null) return const SizedBox.shrink();
+        final installed = _service.isInstalled(animeJanaiAddonId);
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      installed
+                          ? 'AnimeJaNai models installed.'
+                          : 'AnimeJaNai\'s models are not installed.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    AddonTerms(info: info),
+                  ],
+                ),
+              ),
+              if (!installed)
+                OutlinedButton.icon(
+                  onPressed: _service.installingId != null
+                      ? null
+                      : () => AddonPrompt.ensure(context, [animeJanaiAddonId],
+                          reason: 'AnimeJaNai upscaling needs its models.',
+                          service: _service),
+                  icon: const Icon(Icons.download, size: 16),
+                  label: Text('Download (${formatAddonSize(info.downloadBytes)})'),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

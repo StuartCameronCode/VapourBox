@@ -102,7 +102,9 @@ VapourBox/
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded (see "Source Frame Size") |
-| `worker/src/rife.rs` | RIFE's file layout, its `--probe-rife` probe, and the user-facing reason/remedy when it can't run (see "RIFE Frame Interpolation") |
+| `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, the `--probe-rife` / `--probe-upscale` probe, and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
+| `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
+| `worker/src/native_res.rs` | `--detect-native`: the resolution and kernel a source was upscaled from, for the Descale pass (see "Descale") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
 
@@ -117,7 +119,9 @@ VapourBox/
 | `app/lib/services/preset_service.dart` | Save/load user presets |
 | `app/lib/services/temp_directory_service.dart` | Configurable scratch-file directory (see "Temporary Files Directory") |
 | `app/lib/services/overwrite_behavior_service.dart` | Default action for existing output files (see "Existing Output Files") |
-| `app/lib/models/rife_status.dart` | The worker's RIFE probe result, and the Frame Rate panel's notice decision |
+| `app/lib/models/native_res_report.dart` | What `--detect-native` found, as the Descale panel's Detect shows and applies it |
+| `app/lib/services/addon_service.dart` | Every optional third-party download (Whisper, AnimeJaNai): catalogue, install with requirements, remove with dependants (see "Add-ons") |
+| `app/lib/models/gpu_plugin_status.dart` | The worker's GPU-plugin probe results, and the panels' notice decision |
 | `app/assets/filters/core/*.json` | Built-in filter schema definitions |
 
 ## Build Commands
@@ -584,7 +588,8 @@ or `UiSection` directly (both silently drop it if written one level up).
 `visibleWhen` outside `ui`, and every condition must name a parameter/method the
 filter actually has.
 
-**`sinceAppVersion`** (filter-level or per-parameter, e.g. `"1.2.0"`): tags
+**`sinceAppVersion`** (filter-level, per-parameter, per-method, or per enum
+option via `optionSinceAppVersion`, e.g. `"1.2.0"`): tags
 when a filter or parameter shipped, purely so `WhatsNewService` can draw a
 "NEW" badge next to it — persisting across every launch of the current app
 version, and only advancing on the next real update, not clearing after one
@@ -593,7 +598,11 @@ the version that change will actually ship in** (a minor bump on the latest
 public release, or whatever's already in `app/pubspec.yaml` if that's ahead)
 — not retroactively at release time, which is exactly how properties get
 missed. Never touch the stamp on anything already shipped — see "NEW badges"
-in [docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md).
+in [docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md). **Stamp only what is new**
+(the option, not the parameter it was added to; never a hidden parameter):
+every control leading to it badges automatically — its dropdown, the switch
+that reveals it, its section, the pass row, and for a new Settings tab the
+Settings button.
 
 Several ongoing rules for schemas and the panel that renders them, each guarded by
 `filter_schema_curation_test.dart` unless noted — see
@@ -1050,48 +1059,191 @@ asserted in `shutdown_when_done_test.dart`:
   extension. Use `colorScheme` roles, not fixed colours, for UI chrome —
   fixed black/white only belongs on overlays drawn over video.
 
-### RIFE Frame Interpolation
+### GPU Plugins: RIFE and AI Upscaling
 
-RIFE 4.26 (`rife.RIFE`, ncnn on Vulkan) is the Frame Rate pass's third method,
-`FrameRateMethod::Rife` (`"rife"`). It is the only method that needs more than
-the deps bundle, and the rules all follow from one fact: **without a usable
-Vulkan implementation the plugin segfaults** (in `ncnn::create_gpu_instance`)
-instead of raising.
+Two features run a neural network through ncnn on Vulkan: **RIFE** 4.26
+(`rife.RIFE`), the Frame Rate pass's `FrameRateMethod::Rife`, and **AI
+upscaling** (vs-mlrt's VSNCNN, `ncnn.Model`, with Real-ESRGAN's anime video
+model, Real-CUGAN or AnimeJaNai), Crop & Resize's `UpscaleMethod::RealEsrgan` /
+`RealCugan` / `AnimeJanai`. `worker/src/gpu_plugin.rs` (`GpuPlugin::{Rife, Upscale}`) holds
+everything they share, and the rules all follow from one fact: **without a
+usable Vulkan implementation ncnn can segfault** (RIFE does, in
+`ncnn::create_gpu_instance`; VSNCNN raises "get_gpu_device failed") rather
+than fail cleanly.
 
-- **Never autoloaded.** The plugin, the model and (macOS) MoltenVK live in
-  `deps/<platform>/vapoursynth/rife/`, outside the plugin directory; the
-  template `LoadPlugin`s it inside `{{#FRAME_RATE_RIFE}}` only. A missing
-  runtime DLL, a broken driver or AVX in a static initializer can therefore
-  only affect a RIFE job. Don't move it into `plugins/` / `vs-plugins/`.
+- **Never autoloaded.** RIFE and its model live in `vapoursynth/rife/`, VSNCNN
+  and its models in `vapoursynth/ncnn/`, and on macOS the MoltenVK both use in
+  `vapoursynth/moltenvk/` — all outside the plugin directory. The templates
+  `LoadPlugin` them inside `{{#FRAME_RATE_RIFE}}` / `{{#UPSCALE_AI}}` only, so
+  a missing runtime DLL, a broken driver or AVX in a static initializer can
+  only affect a job that uses them. Don't move them into `plugins/` /
+  `vs-plugins/`.
 - **macOS preloads MoltenVK** (`ctypes.CDLL(..., RTLD_GLOBAL)`) before the
-  first call: the dylibs leave `vkGetInstanceProcAddr` to whatever is already
-  in the process. Without it every RIFE call is a SIGSEGV.
-- **One probe, one wording.** `rife.rs` prechecks the platform and files, then
-  runs the plugin once in a throwaway vspipe, printing stage markers so a
+  first call: both dylibs leave `vkGetInstanceProcAddr` to whatever is already
+  in the process.
+- **One probe, one wording.** `gpu_plugin.rs` prechecks the platform and files,
+  then runs the plugin once in a throwaway vspipe, printing stage markers so a
   silent crash still says where it died, and classifies the result into a
-  `RifeReason` with a user-facing remedy (`RifeStatus::message`). The app shows
-  that text when RIFE is selected (`--probe-rife`, `rifeNoticeFor`, with a
-  *Check again* button); the worker refuses a RIFE job with the same text
-  (`ScriptGenerator::with_rife`, `ensure_rife_ready`) rather than emit a script
-  that would crash. Only a **positive** result is cached per boot — a cached
-  failure would keep blaming a driver the user has just installed.
-  `VAPOURBOX_DISABLE_VULKAN=1` forces the unavailable path.
-- **Platforms:** macos-arm64, windows-x64 (both tiers), linux-x64 (both tiers).
-  `rife::platform_ships_rife` and `_extraFiles` in `deps-expected-plugins.json`
-  must agree (`attribution_test.dart`). macOS x64's prebuilt targets macOS 13
-  and fails `check-load-time-simd.py`; linux-arm64 has no upstream build. Both
-  need a source build before they can be added.
-- **Real frames pass through untouched.** RIFE works in RGBS; every output
+  `GpuPluginReason` with a user-facing remedy (`GpuPluginStatus::message`,
+  naming the feature). The app shows that text the moment the feature is
+  selected (`--probe-rife` / `--probe-upscale`, `gpuPluginSelectedBy`,
+  `gpuPluginNoticeFor`, with a *Check again* button); the worker refuses such
+  a job with the same text (`ScriptGenerator::with_rife` / `with_upscale`,
+  `ensure_methods_ready`) rather than emit a script that would crash. Only a
+  **positive** result is cached per boot (`rife-probe.json`,
+  `ncnn-probe.json`) — a cached failure would keep blaming a driver the user
+  has just installed. `VAPOURBOX_DISABLE_VULKAN=1` forces the unavailable path.
+- **Platforms:** macos-arm64, windows-x64 (both tiers), linux-x64 (both tiers),
+  for both. `gpu_plugin::platform_ships_rife` / `platform_ships_upscale` and
+  `_extraFiles` in `deps-expected-plugins.json` must agree
+  (`attribution_test.dart`). macOS x64 has no MoltenVK copy or usable RIFE
+  prebuilt; linux-arm64 has no upstream RIFE and Tencent publishes no aarch64
+  Linux ncnn.
+- **RIFE: real frames pass through untouched.** It works in RGBS; every output
   frame it would merely copy (an exact source position, the held tail) is
-  taken from the source by `FrameEval` instead, so photographed frames are
-  bit-exact rather than chroma-softened by a YUV→RGB→YUV round trip. The count
-  is `floor(n * num / den)` of the reduced ratio — exactly `FrameMap::Retime`.
-  `sc=True` with `misc.SCDetect` holds the frame across a cut rather than
-  blending two shots.
-- The model is the ncnn conversion committed to the plugin's repo, fetched at
-  a pinned commit and checked by SHA-256 in every `download-deps-*` script.
+  taken from the source by `FrameEval`, so photographed frames are bit-exact.
+  The count is `floor(n * num / den)` of the reduced ratio — exactly
+  `FrameMap::Retime`. `sc=True` with `misc.SCDetect` holds the frame across a
+  cut rather than blending two shots.
+- **Upscaling: models, factors, tiles.** Five of vs-mlrt's ONNX conversions
+  ship (`gpu_plugin::UPSCALE_MODELS`): Real-ESRGAN animevideo 2x/4x and
+  Real-CUGAN 2x at three strengths. Factors follow the edge-directed path's
+  rule (3x behaves as 2x); CUGAN 4x is its 2x model twice, denoising on the
+  first pass only (`CropResizeParameters::ai_upscale_models`). Above SD the
+  frame runs in 512-px tiles with 16 px overlap — whole-frame CUGAN at 1080p
+  ran out of GPU memory on a 16 GB Mac. Float RGB in and out with the source's
+  matrix/range, odd sizes edge-padded, frame props copied back, fp16 (≤0.3/255
+  from fp32, ~3x faster). Real-ESRGAN measurably tints flat colour (up to ~11
+  levels at 4x, in fp32 too); that is the model, not the pipeline.
+- **AnimeJaNai** (`UpscaleMethod::AnimeJanai`) runs on the same plugin and
+  block, but its models are an **add-on**, never in the deps bundle — they are
+  CC BY-NC-SA 4.0, non-commercial only, and the bundle must stay freely
+  redistributable (see "Add-ons"). Each doubling is an `(sd, hd)` pair the
+  script picks by height (`_ai_rgb.height <= 576` → the SD model), so the size
+  and Sharp settings only reach HD pictures, and a 4x DVD runs SD then HD.
+  `ensure_methods_ready` also refuses it when `animejanai::runtime` finds the
+  models missing (`MISSING_MESSAGE`). It keeps flat colour within 0.5 levels
+  (Real-ESRGAN: up to 11).
+- **VSNCNN is built from source on macOS and Linux** (only Windows has a
+  published build): static protobuf v3.21.12 and onnx at vs-mlrt's pinned
+  commit, Tencent's prebuilt ncnn 20260526, VapourSynth's API 3 headers from
+  the R78 tag. Models come from vs-mlrt's ~810 MB `models.vX.7z` (the only
+  place they are published), extracted in one pass and each checked by hash.
+  Every pin and hash is in all three `download-deps-*` scripts.
+- **Tested for real in CI.** The hosted runners have no GPU, so
+  `.github/scripts/provision-vulkan.sh` gives Linux and Windows Mesa's
+  lavapipe (a CPU Vulkan driver ncnn accepts) and sets
+  `VAPOURBOX_EXPECT_VULKAN=1`. **macOS arm64 gets nothing and its GPU tests
+  skip**: the runners are VMs whose Metal device MoltenVK cannot open, and
+  lavapipe crashes there because the bundle's akarin exports its static
+  LLVM's symbols, which dyld then binds lavapipe's own LLVM to (see
+  docs/ENGINEERING_NOTES.md). MoltenVK is tested on real Macs only — run
+  the GPU suites locally with `VAPOURBOX_EXPECT_VULKAN=1` after touching it.
+  Under that variable every GPU test
+  **fails** rather than skips if a feature reports itself unavailable
+  (`app/test/support/gpu_expectations.dart`), so a broken bundle cannot hide
+  behind "no GPU". `integration_gpu_plugins_test.dart` (push gate) probes,
+  checks the refusal and the script, and renders a real frame per feature;
+  `integration_ai_upscale_test.dart` and the RIFE group of
+  `integration_frame_mapping_test.dart` (heavy) encode and check pixels — the
+  upscalers against Spline36 on a synthetic pattern (colour within 2 levels for
+  CUGAN 2x, bar centre within 0.75 px for all).
 
-See docs/ENGINEERING_NOTES.md (2026-10-24) for the probe measurements.
+See docs/ENGINEERING_NOTES.md (2026-10-24, 2026-10-25) for the measurements.
+
+### Descale
+
+The Descale pass (`DescaleParameters`, `PassType::Descale`, app 1.5.0) inverts
+a studio's upscale on luma with `descale.De*` (r12, MIT, a PyPI wheel on every
+platform, autoloaded — its AVX2 kernel is picked at run time), re-upscales
+with NNEDI3 (`_nnedi3()`, doubling to at least the source size, then one
+Spline36 resample that also folds in the doublings' half-pixel shifts), and
+keeps chroma and the source size. Rules:
+
+- **It runs right after SpotLess, before Noise Reduction** — descale needs the
+  upscale exactly as the studio made it. `test_177` asserts the order.
+- **Protect credits and text** (`protectDetail`, default on): where
+  re-applying the kernel to the descaled picture misses the source by more
+  than `detailThreshold` 8-bit levels, the source is kept (binarised, grown
+  twice, softened). On a never-upscaled picture that is nearly every pixel —
+  correct, and why the parity test switches it off.
+- **Detect** (`--detect-native`, `native_res.rs`) is what makes the pass
+  usable: getnative's method, with these measured traps. Scan every height
+  from half the source's, with one kernel per family (bilinear, Catmull-Rom,
+  Lanczos 3, Spline36 — a master only dips under its own); only heights with
+  neighbours on *both* sides are candidates (the error slopes down toward the
+  source height and a one-sided window reads that as a dip); cap each pixel's
+  error at 2 levels before averaging, or credits swamp the dip; rank 12
+  kernels at the best height over four sampled frames. `found` only when the
+  dip is ≤ 0.5 of its neighbours' median — a never-upscaled VHS capture
+  measures ~0.9, a credit-free master ~0.14. All candidates are spliced into
+  one clip and read with `frames()`, so VapourSynth runs them in parallel
+  (~30 s at 1080p). A fixture for any of this must have real detail at its
+  native resolution: an upscale of low-res footage is so smooth that 8-bit
+  rounding hides every height's misfit.
+- The panel never applies a guess: no clear dip is reported as such.
+  `integration_descale_test.dart` (heavy) checks detection on known masters,
+  protection (grid exact vs. destroyed without the mask) and preview = encode.
+
+### Add-ons: optional third-party downloads
+
+Anything VapourBox can use but does not ship — because of its size (Whisper)
+or its licence (AnimeJaNai) — is an **add-on**: downloaded from its upstream
+source into the add-ons directory (`DependencyLocator::addons_dir`, mirrored
+by `AddonService.addonsDir`), only when the user asks. Rules:
+
+- **One service.** `AddonService` holds the catalogue (`AddonInfo`: size,
+  licence, credit, source, `usageNote` for a restriction, `requires`) and one
+  `AddonInstaller` per add-on. **Settings → Add-ons** (`AddonsSettingsTab`)
+  lists, installs and removes; a feature that needs one calls
+  `AddonPrompt.ensure(context, ids, reason:)`, which states the source,
+  licence and size before downloading. Never add a feature-specific download
+  dialog. Installing installs requirements first (a Whisper model needs the
+  engine); removing removes what requires it, after saying so.
+- **A licence restriction is shown, not buried**: `usageNote` is bold in the
+  prompt, the Settings row and (for AnimeJaNai) the panel notice whenever the
+  method is chosen. Such an add-on also gets a NOTICES entry and About tile
+  that say it is a separate download.
+- **Pinned and verified**: `assets/animejanai-addon.json` pins upstream's
+  release asset by SHA-256 *and* each model by its own hash; extraction
+  (`AnimeJanaiInstaller.extractModels`) keeps only the listed files, stages
+  beside the target and renames into place, so a bad download installs
+  nothing. Upstream re-uploaded that asset once (2024-07), which is why the
+  pin matters: a changed asset fails closed.
+- **The worker checks presence, the app checks hashes.** `animejanai::MODELS`
+  and the manifest list the same files (asserted on both sides).
+- **Tested against the real download**: `WorkerHarness.ensureAnimeJanai()`
+  installs from the pinned URL with the app's own extraction, so CI fails if
+  the link or hashes stop holding.
+
+### BM3D and KNLMeans Noise Reduction
+
+Two advanced-only Noise Reduction methods (`bm3d`, `knlmeans`, app 1.5.0;
+the simple slots are full at four).
+
+- **BM3D works in 16-bit, one GRAY plane at a time.** `VAggregate` always
+  returns 16-bit and `VFinal` needs its basic estimate in its input's format,
+  so the block converts up and restores the source format with dither. BM3D
+  refuses subsampled chroma, so each plane is its own GRAY clip: 4:2:0 chroma
+  is denoised at its own resolution rather than resampled to 4:4:4 and back.
+  `sigma` is in 8-bit units at every depth (parity 0.36/255 at 10-bit).
+- **BM3D ships everywhere from deps 1.14.0**, pinned to r12 (`BM3D_TAG` on
+  macOS/Linux = PyPI wheel 12.0 on Windows). Before, only macOS arm64 had it:
+  Linux's `patch_meson_vs_include` missed r12's nested
+  `include_directories('include', run_command(py, '-c', 'import vapoursynth…'))`,
+  and macOS x64 never ran `build_plugin`. Both failed silently because the
+  plugin wasn't in their `deps-expected-plugins.json` lists.
+- **KNLMeans has its own device probe**, separate from `knlm_available`.
+  havsfunc calls KNLMeansCL with the default `device_type="auto"`, which fails
+  on Apple Silicon (`CL_INVALID_VALUE`) where `"gpu"` works. So `knlm` still
+  answers for QTGMC's call, and `DependencyLocator::knlm_device` (gpu, then
+  auto; `knlm-device-probe.json`) is the device our own call passes. With no
+  device the job is refused with `KNLM_NO_DEVICE_MESSAGE`, the same text the
+  panel shows (`knlmDevice`/`knlmMessage` from `--probe-opencl`), through
+  `ScriptGenerator::with_knlm` / `ensure_methods_ready`, as for RIFE.
+- **The Noise Reduction pass's preview radius is per method**
+  (`NoiseReductionParameters::temporal_radius`): BM3D's Final step re-reads
+  its basic estimate's neighbours, so it reaches 2r; a fixed 3 was too few.
 
 ### Preset System
 
@@ -1372,12 +1524,21 @@ committed under `Tests/TestResources/`.
 
 ## Attribution — never write a name you have not read upstream
 
-Third-party credit lives in **three** places that must agree:
+Third-party credit lives in **four** places that must agree:
 `licenses/NOTICES.txt` (shipped in every package), the About dialog
-(`app/lib/views/about_dialog.dart`), and the README's Acknowledgments.
-`app/test/attribution_test.dart` lints the first two against
-`Scripts/deps-expected-plugins.json`, so **adding a plugin without crediting it
-fails the build**.
+(`app/lib/views/about_dialog.dart`), the README's Acknowledgments, and — for an
+add-on — its `AddonInfo` (licence, credit, `noticeName`), which Settings →
+Add-ons and the download prompt display. Guarded by:
+
+- `app/test/attribution_test.dart`: NOTICES and About against
+  `Scripts/deps-expected-plugins.json`, so **adding a plugin without crediting
+  it fails the build**; and every About tile states the same licence(s) as its
+  NOTICES entry (compared as licence families, so a dropped component licence
+  fails — RemoveGrain's tile once omitted its MIT part).
+- `app/test/addon_service_test.dart` ("credits agree everywhere"): each add-on's
+  NOTICES entry has its licence and credit and says it is a download, it has an
+  About tile with the same licence, the README credits it, and a
+  non-commercial licence carries a `usageNote`.
 
 **Every copyright line must come from the upstream LICENSE file or a source
 header, fetched at the time of writing — never from a GitHub handle expanded
@@ -1984,4 +2145,4 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.11.0 | 2026-09 | **Issue #92**: every x86 bundle ships in two **CPU tiers** — `v3` (x86-64-v3; the plain asset names) and `v2` (`…-x64-v2`, anything older), chosen by the app from `vapourbox-worker --probe-cpu`. Each bundle carries one autoloaded zsmooth (replacing 1.10.0's two-builds-loaded-by-path). macOS v2 builds MVTools v24 from source without its AVX2 files, whose static initializers SIGILLed inside `dlopen` on pre-AVX Macs. v2 bundles are gated (SDE on Linux/Windows, static check on macOS) before publishing |
 | 1.12.0 | 2026-10-04 | **Issue #101**: akarin 1.4.1 → **1.5.0** on every platform. The 1.4.1 Linux wheel put JIT code on the `brk` heap, where SELinux denies `PROT_EXEC`, so every job segfaulted on Fedora/RHEL from deps 1.8.0 on. `download-deps-linux.sh` now fails if `libakarin.so` lacks the mmap allocator |
 | 1.13.0 | 2026-10 | One new plugin; every other binary is built from the same sources as 1.12.0. Adds **vszip** 22.1.0 (MIT) for `vszip.CLAHE`, Color Correction's local contrast (issue #90). Baseline build only, flat in the plugin directory on every platform (the wheels' AVX2/AVX-512 variants are left out); macOS x64 builds the sdist with Zig 0.16.0 for the 12.0 floor, with header padding so it can be signed. The v2 CPU tier is no longer a second full bundle: each x64 platform publishes its v3 bundle plus `…-x64-v2-delta.zip`, the files in `_tierFiles` (zsmooth; on macOS also MVTools), extracted over it (`"tierFormat": "delta"`). Every x64 machine downloads the same bundle; only an older CPU fetches the few MB more. This is also what lets the Linux AppImage carry its deps for both tiers without doubling in size |
-| 1.14.0 | unreleased | Adds **RIFE** 4.26 (`r9_mod_v33`, MIT) + its model in `vapoursynth/rife/` on macos-arm64, windows-x64 and linux-x64, and **MoltenVK** 1.4.2 (Apache-2.0) beside it on macOS. Not autoloaded; see "RIFE Frame Interpolation" |
+| 1.14.0 | unreleased | Adds **RIFE** 4.26 (`r9_mod_v33`, MIT) + its model in `vapoursynth/rife/`, and **VSNCNN** (vs-mlrt v15.16, GPL-3.0) + Real-ESRGAN / Real-CUGAN models in `vapoursynth/ncnn/`, on macos-arm64, windows-x64 and linux-x64, with **MoltenVK** 1.4.2 (Apache-2.0) in `vapoursynth/moltenvk/` on macOS. Not autoloaded; see "GPU Plugins". **BM3D** r12 (MIT) on every platform; it had been macOS arm64 only (see "BM3D and KNLMeans Noise Reduction"). **descale** r12 (MIT) on every platform, for the Descale pass. (AnimeJaNai's models, used by the same VSNCNN, are an app add-on, not in the bundle) |

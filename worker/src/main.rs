@@ -26,7 +26,9 @@ mod pipeline_executor;
 mod pixel_format;
 mod source_decode;
 mod progress_reporter;
-mod rife;
+mod animejanai;
+mod gpu_plugin;
+mod native_res;
 mod script_generator;
 mod subtitle_generator;
 mod platform;
@@ -99,6 +101,16 @@ struct Args {
     /// what to do about it.
     #[arg(long)]
     probe_rife: bool,
+
+    /// Probe whether AI upscaling (Real-ESRGAN / Real-CUGAN through VSNCNN)
+    /// can run here; prints the same JSON shape as `--probe-rife`.
+    #[arg(long)]
+    probe_upscale: bool,
+
+    /// Detect the resolution and kernel the video in `--config` was upscaled
+    /// from (for the Descale pass); prints a JSON report.
+    #[arg(long)]
+    detect_native: bool,
 }
 
 fn main() -> ExitCode {
@@ -149,7 +161,15 @@ fn main() -> ExitCode {
     }
 
     if args.probe_rife {
-        return run_probe_rife();
+        return run_probe_gpu_plugin(gpu_plugin::GpuPlugin::Rife);
+    }
+
+    if args.probe_upscale {
+        return run_probe_gpu_plugin(gpu_plugin::GpuPlugin::Upscale);
+    }
+
+    if args.detect_native {
+        return run_detect_native(&args);
     }
 
     // Preview mode outputs raw PNG to stdout - no JSON messages
@@ -210,22 +230,71 @@ fn run_probe_opencl() -> ExitCode {
     // `knlm` gates the knlmeanscl denoiser (a distinct probe — KNLMeansCL can
     // fail where NNEDI3CL succeeds). Both fall back to false if deps can't be
     // located, so the app warns rather than letting a job fail cryptically.
-    let (opencl, knlm) = dependency_locator::DependencyLocator::new()
-        .map(|deps| (deps.opencl_available(), deps.knlm_available()))
-        .unwrap_or((false, false));
-    println!("{}", serde_json::json!({ "opencl": opencl, "knlm": knlm }));
+    // `knlmDevice` is the device the KNLMeans noise-reduction method runs on
+    // (null when none works, with `knlmMessage` saying why) — not the same
+    // question as `knlm`, which is about havsfunc's default-device call.
+    let (opencl, knlm, knlm_runtime) = match dependency_locator::DependencyLocator::new() {
+        Ok(deps) => (deps.opencl_available(), deps.knlm_available(), deps.knlm_runtime()),
+        Err(_) => (
+            false,
+            false,
+            Err(dependency_locator::KNLM_NO_DEVICE_MESSAGE.to_string()),
+        ),
+    };
+    let (knlm_device, knlm_message) = match knlm_runtime {
+        Ok(device) => (Some(device), None),
+        Err(message) => (None, Some(message)),
+    };
+    println!(
+        "{}",
+        serde_json::json!({
+            "opencl": opencl,
+            "knlm": knlm,
+            "knlmDevice": knlm_device,
+            "knlmMessage": knlm_message,
+        })
+    );
     ExitCode::SUCCESS
 }
 
 
-/// Probe whether RIFE runs here and print the result as JSON to stdout. Deps
-/// that cannot be located are reported as "not installed" rather than as a
-/// failure of the probe: the remedy is the same, let the app download them.
-fn run_probe_rife() -> ExitCode {
+/// Detect a source's native resolution and kernel and print the report as one
+/// JSON line (`{"error": ...}` when it could not be analysed).
+fn run_detect_native(args: &Args) -> ExitCode {
+    let result = (|| -> anyhow::Result<native_res::NativeResReport> {
+        let config = args
+            .config
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("--config is required with --detect-native"))?;
+        let mut job: models::VideoJob = serde_json::from_str(&std::fs::read_to_string(config)?)?;
+        let deps = dependency_locator::DependencyLocator::new()?;
+        fill_frame_size(&mut job, Some(&deps), |_| {});
+        native_res::detect(&deps, &job)
+    })();
+    match result {
+        Ok(report) => {
+            println!("{}", serde_json::to_string(&report).unwrap_or_default());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            println!("{}", serde_json::json!({ "error": e.to_string() }));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Probe whether a GPU plugin (RIFE, AI upscaling) runs here and print the
+/// result as JSON to stdout. Deps that cannot be located are reported as "not
+/// installed" rather than as a failure of the probe: the remedy is the same,
+/// let the app download them.
+fn run_probe_gpu_plugin(plugin: gpu_plugin::GpuPlugin) -> ExitCode {
     let json = match dependency_locator::DependencyLocator::new() {
-        Ok(deps) => deps.rife_status().to_json(deps.platform_suffix()),
-        Err(e) => rife::RifeStatus::unavailable(rife::RifeReason::NotInstalled, e.to_string())
-            .to_json(""),
+        Ok(deps) => deps.gpu_plugin_status(plugin).to_json(plugin, deps.platform_suffix()),
+        Err(e) => gpu_plugin::GpuPluginStatus::unavailable(
+            gpu_plugin::GpuPluginReason::NotInstalled,
+            e.to_string(),
+        )
+        .to_json(plugin, ""),
     };
     println!("{json}");
     ExitCode::SUCCESS
@@ -559,19 +628,42 @@ fn run_worker(
     // Detect knlmeanscl availability separately (plugin + usable OpenCL device);
     // when unavailable the knlmeanscl denoiser is downgraded to dfttest.
     let knlm_available = deps.as_ref().map(|d| d.knlm_available()).unwrap_or(true);
-    // RIFE is probed only for a job that uses it: the probe initialises the GPU.
-    let rife = if job.effective_pipeline().uses_rife() {
+    // The GPU plugins are probed only for a job that uses them: the probe
+    // initialises the GPU.
+    let gpu_runtime = |plugin: gpu_plugin::GpuPlugin, used: bool| {
+        if !used {
+            return Err(format!("{} is not used by this job.", plugin.label()));
+        }
         match deps.as_ref() {
-            Some(d) => d.rife_runtime(),
-            None => Err("RIFE needs VapourBox's dependencies, which could not be found.".into()),
+            Some(d) => d.gpu_plugin_runtime(plugin),
+            None => Err(format!(
+                "{} needs VapourBox's dependencies, which could not be found.",
+                plugin.label()
+            )),
+        }
+    };
+    let pipeline = job.effective_pipeline();
+    let rife = gpu_runtime(gpu_plugin::GpuPlugin::Rife, pipeline.uses_rife());
+    let upscale = gpu_runtime(gpu_plugin::GpuPlugin::Upscale, pipeline.uses_ai_upscale());
+    // Likewise KNLMeans, whose device probe runs KNLMeansCL once per boot.
+    let knlm = if job.effective_pipeline().uses_knlm() {
+        match deps.as_ref() {
+            Some(d) => d.knlm_runtime(),
+            None => Err("KNLMeans needs VapourBox's dependencies, which could not be found.".into()),
         }
     } else {
-        Err("RIFE is not used by this job.".into())
+        Err("KNLMeans is not used by this job.".into())
     };
     let script_generator = ScriptGenerator::new()?
         .with_opencl_available(opencl_available)
         .with_knlm_available(knlm_available)
-        .with_rife(rife);
+        .with_rife(rife)
+        .with_upscale(upscale)
+        .with_knlm(knlm)
+        .with_animejanai(match deps.as_ref() {
+            Some(d) if pipeline.uses_animejanai() => d.animejanai_runtime(),
+            _ => Err(animejanai::MISSING_MESSAGE.to_string()),
+        });
     let script_path = script_generator
         .generate(&job)
         .with_context(|| "Failed to generate VapourSynth script")?;

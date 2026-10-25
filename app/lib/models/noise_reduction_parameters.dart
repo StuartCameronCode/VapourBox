@@ -34,7 +34,11 @@ enum NoiseReductionMethod {
   @JsonValue('mClean')
   mClean('mClean'),
   @JsonValue('temporalDegrain2')
-  temporalDegrain2('TemporalDegrain2');
+  temporalDegrain2('TemporalDegrain2'),
+  @JsonValue('bm3d')
+  bm3d('BM3D'),
+  @JsonValue('knlMeans')
+  knlMeans('KNLMeansCL');
 
   const NoiseReductionMethod(this.displayName);
   final String displayName;
@@ -210,8 +214,52 @@ class NoiseReductionParameters {
   /// Planes to filter: 0 luma only, 1 chroma only, 2 both.
   final int ctmfPlanes;
 
+  // --- BM3D Parameters ---
+
+  /// Luma strength, in 8-bit units at every depth.
+  final double bm3dSigma;
+
+  /// Chroma strength; 0 leaves chroma alone.
+  final double bm3dChromaSigma;
+
+  /// Temporal radius (frames each side); 0 is spatial-only.
+  final int bm3dRadius;
+
+  /// Run the second (Wiener) estimate: about half the speed, cleaner flats.
+  final bool bm3dFinal;
+
+  /// The plugin's profile: fast, lc, np, high or vn.
+  final String bm3dProfile;
+
+  // --- KNLMeansCL Parameters ---
+
+  /// Strength.
+  final double knlmH;
+
+  /// Temporal radius (frames each side); 0 is spatial-only.
+  final int knlmD;
+
+  /// Search window radius.
+  final int knlmA;
+
+  /// Similarity neighbourhood radius.
+  final int knlmS;
+
+  /// Denoise chroma too.
+  final bool knlmChroma;
+
   const NoiseReductionParameters({
     this.enabled = false,
+    this.bm3dSigma = 3.0,
+    this.bm3dChromaSigma = 0.0,
+    this.bm3dRadius = 1,
+    this.bm3dFinal = true,
+    this.bm3dProfile = 'np',
+    this.knlmH = 1.2,
+    this.knlmD = 1,
+    this.knlmA = 2,
+    this.knlmS = 4,
+    this.knlmChroma = true,
     this.contraSharpen = false,
     this.mcleanStrength = 20,
     this.mcleanSharp = 10,
@@ -359,6 +407,16 @@ class NoiseReductionParameters {
     double? td2PostSigma,
     int? td2PostMix,
     bool? td2ChromaMotion,
+    double? bm3dSigma,
+    double? bm3dChromaSigma,
+    int? bm3dRadius,
+    bool? bm3dFinal,
+    String? bm3dProfile,
+    double? knlmH,
+    int? knlmD,
+    int? knlmA,
+    int? knlmS,
+    bool? knlmChroma,
   }) {
     return NoiseReductionParameters(
       enabled: enabled ?? this.enabled,
@@ -411,6 +469,16 @@ class NoiseReductionParameters {
       td2PostSigma: td2PostSigma ?? this.td2PostSigma,
       td2PostMix: td2PostMix ?? this.td2PostMix,
       td2ChromaMotion: td2ChromaMotion ?? this.td2ChromaMotion,
+      bm3dSigma: bm3dSigma ?? this.bm3dSigma,
+      bm3dChromaSigma: bm3dChromaSigma ?? this.bm3dChromaSigma,
+      bm3dRadius: bm3dRadius ?? this.bm3dRadius,
+      bm3dFinal: bm3dFinal ?? this.bm3dFinal,
+      bm3dProfile: bm3dProfile ?? this.bm3dProfile,
+      knlmH: knlmH ?? this.knlmH,
+      knlmD: knlmD ?? this.knlmD,
+      knlmA: knlmA ?? this.knlmA,
+      knlmS: knlmS ?? this.knlmS,
+      knlmChroma: knlmChroma ?? this.knlmChroma,
     );
   }
 

@@ -100,6 +100,11 @@ jobs:
           ln -sfn "$BP/opt/whisper-cpp/bin" addons/whisper/bin
           ln -sfn "$BP/opt/whisper-cpp/lib" addons/whisper/lib
 
+      - name: Provision Vulkan (RIFE, AI upscaling)
+        # Lavapipe on the GPU-less Linux/Windows runners; sets
+        # VAPOURBOX_EXPECT_VULKAN=1 so the GPU tests must run, not skip.
+        run: bash .github/scripts/provision-vulkan.sh macos-${{ matrix.arch }}
+
       - name: Rust tests
         # Debug build: DependencyLocator's upward search then finds the repo-root
         # deps/ and addons/ (release mode looks under ~/Library).
@@ -115,6 +120,12 @@ jobs:
         # Excludes @Tags(['heavy']) — the full-encode integration tests, which
         # run in nightly.yml. The script-only integration tests + unit tests run here.
         run: cd app && flutter test --exclude-tags heavy
+
+      - name: Crash reports (on failure)
+        # A plugin that segfaults in vspipe shows only "signal 11" in the test
+        # output; macOS's crash report names the library and function.
+        if: failure()
+        run: python3 .github/scripts/print-crash-reports.py
 
   windows:
     runs-on: windows-latest
@@ -171,6 +182,12 @@ jobs:
           cp "$(dirname "$CLI")"/*.exe addons/whisper/ 2>/dev/null || true
           cp "$(dirname "$CLI")"/*.dll addons/whisper/ 2>/dev/null || true
           ls addons/whisper/
+
+      - name: Provision Vulkan (RIFE, AI upscaling)
+        # Lavapipe on the GPU-less Linux/Windows runners; sets
+        # VAPOURBOX_EXPECT_VULKAN=1 so the GPU tests must run, not skip.
+        shell: bash
+        run: bash .github/scripts/provision-vulkan.sh windows-x64
 
       - name: Rust tests
         run: cd worker && cargo test -- --nocapture
@@ -259,6 +276,11 @@ jobs:
           mkdir -p "$HOME/.local/share/VapourBox"
           ln -sfn "${{ github.workspace }}/deps" "$HOME/.local/share/VapourBox/deps"
           ln -sfn "${{ github.workspace }}/addons" "$HOME/.local/share/VapourBox/addons"
+
+      - name: Provision Vulkan (RIFE, AI upscaling)
+        # Lavapipe on the GPU-less Linux/Windows runners; sets
+        # VAPOURBOX_EXPECT_VULKAN=1 so the GPU tests must run, not skip.
+        run: bash .github/scripts/provision-vulkan.sh linux-x64
 
       - name: Rust tests
         run: cd worker && cargo test -- --nocapture

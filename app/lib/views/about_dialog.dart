@@ -202,7 +202,7 @@ class _AboutDialogState extends State<AboutDialog> {
                       ),
                       _ComponentTile(
                         name: 'RemoveGrain / Repair',
-                        license: 'WTFPL',
+                        license: 'WTFPL, with one MIT component',
                         copyright: 'Laurent de Soras, Fredrik Mellbin; '
                             'Clense by Victor Efimov (MIT)',
                         url: 'https://github.com/vapoursynth/vs-removegrain',
@@ -287,6 +287,33 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/KhronosGroup/MoltenVK',
                       ),
                       _ComponentTile(
+                        name: 'VSNCNN (vs-mlrt)',
+                        license: 'GPL-3.0',
+                        copyright: 'AmusementClub (no copyright notice upstream); '
+                            'includes ncnn (Tencent), Protocol Buffers (Google, '
+                            'BSD 3-Clause), ONNX (Apache 2.0) and, on macOS, the '
+                            'LLVM OpenMP runtime (Apache 2.0 with LLVM exception)',
+                        url: 'https://github.com/AmusementClub/vs-mlrt',
+                      ),
+                      _ComponentTile(
+                        name: 'Real-ESRGAN anime video model',
+                        license: 'BSD 3-Clause',
+                        copyright: 'Xintao Wang',
+                        url: 'https://github.com/xinntao/Real-ESRGAN',
+                      ),
+                      _ComponentTile(
+                        name: 'AnimeJaNai models (optional download)',
+                        license: 'CC BY-NC-SA 4.0 (non-commercial use only)',
+                        copyright: 'the-database',
+                        url: 'https://github.com/the-database/mpv-upscale-2x_animejanai',
+                      ),
+                      _ComponentTile(
+                        name: 'Real-CUGAN models',
+                        license: 'MIT',
+                        copyright: 'bilibili',
+                        url: 'https://github.com/bilibili/ailab/tree/main/Real-CUGAN',
+                      ),
+                      _ComponentTile(
                         name: 'DFTTest',
                         license: 'GPL 3.0',
                         copyright: 'Kevin Stone (tritical); port by HolyWu',
@@ -359,6 +386,12 @@ class _AboutDialogState extends State<AboutDialog> {
                         license: 'MIT',
                         copyright: 'mawen1250',
                         url: 'https://github.com/HomeOfVapourSynthEvolution/VapourSynth-BM3D',
+                      ),
+                      _ComponentTile(
+                        name: 'descale',
+                        license: 'MIT',
+                        copyright: 'Frechdachs; maintained by Jaded Encoding Thaumaturgy',
+                        url: 'https://github.com/Jaded-Encoding-Thaumaturgy/vapoursynth-descale',
                       ),
                       _ComponentTile(
                         name: 'KNLMeansCL',
@@ -447,10 +480,16 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://ffmpeg.org',
                       ),
                       _ComponentTile(
-                        name: 'whisper.cpp',
+                        name: 'whisper.cpp (optional download)',
                         license: 'MIT',
-                        copyright: 'The ggml authors',
+                        copyright: 'The ggml authors (project started by Georgi Gerganov)',
                         url: 'https://github.com/ggml-org/whisper.cpp',
+                      ),
+                      _ComponentTile(
+                        name: 'Whisper models (optional download)',
+                        license: 'MIT',
+                        copyright: 'OpenAI',
+                        url: 'https://github.com/openai/whisper',
                       ),
                       _ComponentTile(
                         name: 'libdvdread',

@@ -191,6 +191,7 @@ entirely and replaced by a line telling the user more exist in advanced mode.
 | `hidden` | boolean | Never shown (used for `enabled`) |
 | `visibleWhen` | object | Conditional visibility |
 | `booleanLabels` | object | Names the two states of a boolean, e.g. `{"true": "Top Field First (TFF)", "false": "Bottom Field First (BFF)"}` |
+| `optionLabels` | object | Names an enum's options, e.g. `{"realEsrgan": "Real-ESRGAN"}`; an option without one is title-cased, which mangles a camel-case value |
 
 There is **no `advancedOnly` on a parameter** — only on a section (below) or a
 method (above).
@@ -231,11 +232,31 @@ not the current one — and a "NEW" pill (`app/lib/widgets/new_badge.dart`) is
 drawn next to the pass in the pass list, or next to the parameter's control in
 the settings panel, whenever `sinceAppVersion` is newer than that.
 
-A new parameter also badges its pass's row (`WhatsNewService.isSchemaNew`),
-since passes start collapsed and its own badge is otherwise out of sight.
-Parameters with `ui.hidden` don't count — there's no control to find. So
-tagging only the parameter is enough; don't stamp the filter too unless the
-filter itself is new.
+**Stamp the newest thing, and the badges lead to it.** Three places take a stamp:
+
+| What is new | Stamp | Badged |
+|---|---|---|
+| a filter | top-level `sinceAppVersion` | its pass row |
+| a parameter | the parameter's `sinceAppVersion` | its label |
+| an option added to an existing enum | `"optionSinceAppVersion": {"<option>": "1.5.0"}` on the parameter | the option in the list |
+| a method | `sinceAppVersion` on the method object | the method in the list |
+
+Then every control on the way to it is badged too (`WhatsNewService`), so a
+badge is never only inside a closed dropdown, a collapsed section or behind a
+switch that is off:
+
+- a parameter's label, when one of its options is new, or a control it reveals
+  is (any parameter whose `visibleWhen` names it, through every level: "Enable
+  Upscale" badges for the upscalers' new settings);
+- the Method label, when a method is new or a control only some methods show is;
+- a section heading, when anything in it is;
+- the pass row, when any of the above is.
+
+So stamp only the thing that is new — never the existing parameter an option
+was added to, and never a `ui.hidden` parameter, which has no control and so
+badges nothing (`filter_schema_curation_test.dart` refuses one).
+`new_badges_shipped_test.dart` pins the current release's badges on the real
+schemas; extend it when stamping a release's additions.
 
 ```json
 {
@@ -375,6 +396,14 @@ A dropdown that writes several parameters at once — distinct from the top-leve
 | `options` | object | **Yes** | Option name → parameter values to apply |
 | `visibleWhen` | object | No | Conditional visibility |
 
+**Where it is drawn.** In simple mode a preset replaces the controls it sets
+(they are hidden; advanced mode shows them and hides the preset), and it is
+drawn inside the section that holds those controls
+(`FilterSchema.sectionForPreset`), so the section's heading always says what it
+is about. So **every parameter a preset sets must be in one section**:
+`filter_schema_curation_test.dart` fails otherwise, since such a preset would
+be drawn at the top of the pass, apart from what it changes.
+
 ## UI Sections
 
 ```json
@@ -450,7 +479,7 @@ Read a real one rather than starting from this page:
 
 - **`dehalo.json`** (690 lines) — seven methods with per-method `visibleWhen`, the
   best model for a multi-method filter.
-- **`crop_resize.json`** (753 lines) — the only user of `parameterPresets`.
+- **`crop_resize.json`** — three `parameterPresets`, one per section (Crop, Resize, Borders).
 - **`deinterlace.json`** (2242 lines) — every QTGMC parameter; the extreme case.
 - **`spotless.json`** (112 lines) — near-minimal, a good starting skeleton.
 - **`descratch.json`** — the only user of `maxBitDepth`.

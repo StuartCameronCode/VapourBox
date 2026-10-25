@@ -183,4 +183,108 @@ void main() {
           false);
     });
   });
+
+  // The rule everywhere: something new is badged, and so is every control on
+  // the way to it — a new option's dropdown, a new method's Method label, a
+  // switch that reveals a new control, a section holding one, the pass row.
+  group('badges lead to what is new', () {
+    ParameterDefinition p({String? since, Map<String, String>? options,
+            Map<String, dynamic>? visibleWhen, bool hidden = false}) =>
+        ParameterDefinition(
+          type: options != null ? ParameterType.enumType : ParameterType.boolean,
+          defaultValue: null,
+          options: options?.keys.toList(),
+          sinceAppVersion: since,
+          optionSinceAppVersion: options == null
+              ? null
+              : {for (final e in options.entries) if (e.value.isNotEmpty) e.key: e.value},
+          ui: ParameterUiConfig(visibleWhen: visibleWhen, hidden: hidden),
+        );
+    MethodDefinition m(String id, [String? since]) => MethodDefinition(
+        id: id, name: id, function: 'f', parameters: const [], sinceAppVersion: since);
+    FilterSchema schema(Map<String, ParameterDefinition> params,
+            {List<MethodDefinition> methods = const []}) =>
+        FilterSchema(id: 'x', version: '1.0.0', name: 'X', methods: methods, parameters: params);
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({
+        'lastRunAppVersion': '1.1.0',
+        'lastSeenAppVersion': '1.1.0',
+      });
+      setCurrentVersion('1.2.0');
+      await service.initialize();
+    });
+
+    test('a new option badges itself and its dropdown, not its siblings', () {
+      final method = p(options: {'old': '', 'fresh': '1.2.0'});
+      final s = schema({'upscaleMethod': method});
+      expect(service.isOptionNew(method, 'fresh'), isTrue);
+      expect(service.isOptionNew(method, 'old'), isFalse);
+      expect(service.isParameterNew(s, 'upscaleMethod'), isTrue);
+      expect(service.isSchemaNew(s), isTrue);
+    });
+
+    test('a switch badges for what it reveals, through every level', () {
+      // Enable Upscale -> Upscale Method (new option) -> a setting only that
+      // option shows; and a sibling switch revealing nothing new stays plain.
+      final s = schema({
+        'enable': p(),
+        'method': p(options: {'old': '', 'fresh': '1.2.0'}, visibleWhen: {'enable': true}),
+        'freshOnly': p(visibleWhen: {'method': ['fresh']}),
+        'other': p(),
+        'otherChild': p(visibleWhen: {'other': true}),
+      });
+      expect(service.isParameterNew(s, 'enable'), isTrue);
+      expect(service.isParameterNew(s, 'other'), isFalse);
+      // Revealed by a new control, but new only through a level below.
+      final deep = schema({
+        'a': p(),
+        'b': p(visibleWhen: {'a': true}),
+        'c': p(since: '1.2.0', visibleWhen: {'b': true}),
+      });
+      expect(service.isParameterNew(deep, 'a'), isTrue);
+    });
+
+    test('a hidden control reveals nothing and a cycle cannot recurse forever', () {
+      final s = schema({
+        'a': p(visibleWhen: {'b': true}),
+        'b': p(visibleWhen: {'a': true}),
+        'h': p(since: '1.2.0', hidden: true, visibleWhen: {'a': true}),
+      });
+      expect(service.isParameterNew(s, 'a'), isFalse);
+    });
+
+    test('a new method badges the method list and the pass row', () {
+      final s = schema({}, methods: [m('old'), m('fresh', '1.2.0')]);
+      expect(service.isMethodNew(s.methods[1]), isTrue);
+      expect(service.isMethodNew(s.methods[0]), isFalse);
+      expect(service.isMethodChoiceNew(s), isTrue);
+      expect(service.isSchemaNew(s), isTrue);
+      // A new control that only some methods show badges the list too.
+      final gated = schema({'x': p(since: '1.2.0', visibleWhen: {'method': ['old']})},
+          methods: [m('old'), m('older')]);
+      expect(service.isMethodChoiceNew(gated), isTrue);
+    });
+
+    test('a section badges when anything in it does', () {
+      final s = schema({'enable': p(), 'child': p(since: '1.2.0', visibleWhen: {'enable': true}), 'plain': p()});
+      expect(service.isSectionNew(s, const UiSection(title: 'A', parameters: ['enable'])), isTrue);
+      expect(service.isSectionNew(s, const UiSection(title: 'B', parameters: ['plain'])), isFalse);
+    });
+
+    test('nothing badges once the update is no longer the latest', () async {
+      SharedPreferences.setMockInitialValues({
+        'lastRunAppVersion': '1.2.0',
+        'lastSeenAppVersion': '1.2.0',
+      });
+      service.resetForTesting();
+      await service.initialize();
+      final s = schema({
+        'enable': p(),
+        'method': p(options: {'fresh': '1.2.0'}, visibleWhen: {'enable': true}),
+      }, methods: [m('a'), m('b', '1.2.0')]);
+      expect(service.isParameterNew(s, 'enable'), isFalse);
+      expect(service.isSchemaNew(s), isFalse);
+    });
+  });
 }

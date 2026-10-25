@@ -127,6 +127,21 @@ if [ -n "$TIER" ] && [ "$FORCE" = false ] && [ -f "$DEPS_DIR/version.json" ]; th
     fi
 fi
 PYTHON_DIR="$DEPS_DIR/python"
+
+# vsscript self-configures by shelling out to a `vapoursynth` executable, and a
+# from-source build creates no console script, so provide one. It lives in the
+# Python tree, which a rerun can reinstall while skipping VapourSynth, so it is
+# written by the VapourSynth step and again (if missing) near the end.
+write_vapoursynth_shim() {
+    cat > "$PYTHON_DIR/bin/vapoursynth" << 'SHIM_EOF'
+#!/bin/bash
+DEPS_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+export PYTHONHOME="$DEPS_ROOT/python"
+export PYTHONPATH="$DEPS_ROOT:$DEPS_ROOT/python-packages:${PYTHONPATH:-}"
+exec "$DEPS_ROOT/python/bin/python3" -m vapoursynth "$@"
+SHIM_EOF
+    chmod +x "$PYTHON_DIR/bin/vapoursynth"
+}
 PYTHON_PACKAGES_DIR="$DEPS_DIR/python-packages"
 BUILD_DIR="/tmp/vapourbox-build-$$"
 
@@ -340,6 +355,10 @@ echo ""
 echo "=== Building VapourSynth from source ==="
 
 VS_TAG="R78"
+# BM3D is built from source on both arches (x86_64 in its own block, arm64 via
+# build_plugin). Keep in step with download-deps-linux.sh and the wheel version
+# in download-deps-windows.ps1 (r12 == wheel 12.0).
+BM3D_TAG="r12"
 VS_BUILD_DIR="$BUILD_DIR/vapoursynth"
 VS_INSTALL_DIR="$BUILD_DIR/vapoursynth-install"
 
@@ -538,16 +557,7 @@ CYEOF
         "$DEPS_DIR/vapoursynth/" 2>/dev/null || \
         cp "$VS_BUILD_DIR/src/py/"*.py "$DEPS_DIR/vapoursynth/"
 
-    # vsscript self-configures by shelling out to a `vapoursynth` executable.
-    # A from-source build creates no console script, so provide one.
-    cat > "$PYTHON_DIR/bin/vapoursynth" << 'SHIM_EOF'
-#!/bin/bash
-DEPS_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-export PYTHONHOME="$DEPS_ROOT/python"
-export PYTHONPATH="$DEPS_ROOT:$DEPS_ROOT/python-packages:${PYTHONPATH:-}"
-exec "$DEPS_ROOT/python/bin/python3" -m vapoursynth "$@"
-SHIM_EOF
-    chmod +x "$PYTHON_DIR/bin/vapoursynth"
+    write_vapoursynth_shim
 
     # Copy zimg from Homebrew (will fix paths to be relative)
     cp "$BREW_PREFIX/lib/libzimg.2.dylib" "$DEPS_DIR/vapoursynth/libzimg.dylib"
@@ -808,6 +818,7 @@ build_plugin() {
     local repo="$2"
     local output_lib="$3"
     local build_cmd="$4"
+    local tag="${5:-}"   # optional git tag; empty builds the default branch
 
     if [ "$FORCE" = false ] && [ -f "$PLUGINS_DIR/$output_lib" ]; then
         echo "  $name already exists, skipping"
@@ -818,7 +829,7 @@ build_plugin() {
     echo "=== Building $name ==="
 
     rm -rf "$name"
-    if ! git clone --depth 1 "$repo" "$name" 2>/dev/null; then
+    if ! git clone --depth 1 ${tag:+--branch "$tag"} "$repo" "$name" 2>/dev/null; then
         echo "  Failed to clone $name"
         FAILED_PLUGINS+=("$name")
         return 1
@@ -1169,6 +1180,43 @@ PYEOF
         cd "$BUILD_DIR"
     fi
 
+    # BM3D (core.bm3d - Noise Reduction's BM3D method). Stefan-Olt has no
+    # current x86_64 build and the PyPI wheel is minos 15.0 (our floor is 12.0),
+    # so build the same tag as arm64 from source. Its meson.build probes the host
+    # python for the VapourSynth headers; replace that with ours, as for vivtc.
+    # fftw is repointed at lib/ by the generic pass at the end of this script.
+    if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libbm3d.dylib" ]; then
+        echo ""; echo "=== Building BM3D $BM3D_TAG (x86_64) ==="
+        rm -rf bm3d
+        if git clone --depth 1 --branch "$BM3D_TAG" https://github.com/HomeOfVapourSynthEvolution/VapourSynth-BM3D.git bm3d; then
+            VS_INC_DIR="$VS_INC_DIR" python3 - bm3d/meson.build <<'PYEOF'
+import os, re, sys
+path = sys.argv[1]
+inc = os.environ["VS_INC_DIR"]
+s = open(path).read()
+s = re.sub(r"run_command\(.*?\)\.stdout\(\)\.strip\(\)",
+           repr(inc), s, flags=re.S)
+open(path, "w").write(s)
+PYEOF
+            if PKG_CONFIG_PATH="$VS_PC_DIR:$BREW_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}" \
+                 meson setup bm3d/build bm3d --buildtype=release \
+               && ninja -C bm3d/build; then
+                lib=$(find bm3d/build -name "*.dylib" -type f | head -1)
+                if [ -n "$lib" ]; then
+                    cp "$lib" "$PLUGINS_DIR/libbm3d.dylib"
+                    install_name_tool -id "@loader_path/libbm3d.dylib" "$PLUGINS_DIR/libbm3d.dylib" 2>/dev/null || true
+                    codesign -s - -f "$PLUGINS_DIR/libbm3d.dylib" 2>/dev/null || true
+                    echo "  Built BM3D"
+                else echo "  no dylib"; FAILED_PLUGINS+=("bm3d"); fi
+            else
+                echo "  Failed to build BM3D"; FAILED_PLUGINS+=("bm3d")
+            fi
+        else
+            echo "  Failed to clone BM3D"; FAILED_PLUGINS+=("bm3d")
+        fi
+        cd "$BUILD_DIR"
+    fi
+
     # KNLMeansCL (OpenCL denoiser - core.knlm.KNLMeansCL). Used by QTGMC when its
     # Denoiser is set to "knlmeanscl" (havsfunc). Stefan-Olt doesn't ship an
     # x86_64 build, so build from source like the arm64 path does. Its meson.build
@@ -1408,11 +1456,12 @@ build_plugin "tcanny" \
     "libtcanny.dylib" \
     "meson setup build --buildtype=release && ninja -C build"
 
-# BM3D
+# BM3D (core.bm3d - Noise Reduction's BM3D method; x86_64 builds it above)
 build_plugin "bm3d" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-BM3D.git" \
     "libbm3d.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
+    "meson setup build --buildtype=release && ninja -C build" \
+    "$BM3D_TAG"
 
 # KNLMeansCL (OpenCL denoiser)
 build_plugin "knlmeanscl" \
@@ -2093,21 +2142,128 @@ fi
 fi  # end vszip install
 
 # ============================================================================
+# descale — the Descale pass (core.descale.De*)
+# ============================================================================
+# The PyPI wheels, pinned by hash: macOS arm64 is minos 11.0 and x86_64 10.13,
+# both under their bundle's floor. Its AVX2 kernel is a separate object chosen
+# at run time (opt=0), so nothing AVX runs at load and one file serves both x64
+# tiers. Keep DESCALE_VERSION in step with download-deps-{linux.sh,windows.ps1}.
+DESCALE_VERSION="12"
+if [ "$ARCH" = "arm64" ]; then
+    DESCALE_TAG="macosx_11_0_arm64"
+    DESCALE_SHA256="101f146b32a3d5f7439f4aba663576fb74ab146b29cce520bb1d0b240bb1b2d2"
+else
+    DESCALE_TAG="macosx_10_13_x86_64"
+    DESCALE_SHA256="9206419849d74db3bac8fb5821f3feb5286450ad2df5f31776ba1e3ba6140347"
+fi
+DESCALE_OUT="$PLUGINS_DIR/libdescale.dylib"
+echo ""
+echo "=== Installing descale $DESCALE_VERSION ==="
+if [ "$FORCE" = false ] && [ -f "$DESCALE_OUT" ]; then
+    echo "  descale already exists, skipping"
+else
+    rm -f "$DESCALE_OUT"
+    # Run on its own, not as `if ( set -e ... ); then`: bash ignores set -e in
+    # anything that is an if/&&/|| condition, subshells included, so that form
+    # reported success whenever the last command did (VSNCNN's failed compile
+    # printed "Installed" in CI on 2026-10-25).
+    set +e
+    (
+        set -e
+        cd "$BUILD_DIR"
+        rm -rf descale-whl descale.whl
+        url=$("$PYTHON_BIN" - "$DESCALE_VERSION" "$DESCALE_TAG" <<'PYEOF2'
+import json, sys, urllib.request
+ver, tag = sys.argv[1], sys.argv[2]
+d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/vapoursynth-descale/{ver}/json"))
+print(next(f["url"] for f in d["urls"] if f["filename"].endswith(tag + ".whl")))
+PYEOF2
+)
+        curl -fsSL -o descale.whl "$url"
+        echo "$DESCALE_SHA256  descale.whl" | shasum -a 256 -c -
+        mkdir descale-whl && unzip -q descale.whl -d descale-whl
+        cp descale-whl/vapoursynth/plugins/libdescale.dylib "$DESCALE_OUT"
+        chmod u+w "$DESCALE_OUT"
+        install_name_tool -id "@loader_path/libdescale.dylib" "$DESCALE_OUT"
+        codesign -s - -f "$DESCALE_OUT"
+        rm -rf descale-whl descale.whl
+    )
+    _block_status=$?
+    set -e
+    if [ "$_block_status" -eq 0 ]; then
+        echo "  Installed descale -> libdescale.dylib"
+        BUILT_PLUGINS+=("descale")
+    else
+        rm -f "$DESCALE_OUT"
+        echo "  Failed to install descale"
+        FAILED_PLUGINS+=("descale")
+    fi
+fi
+
+# ============================================================================
+# MoltenVK — the Vulkan implementation both ncnn plugins (RIFE, VSNCNN) call
+# ============================================================================
+# Neither plugin bundles one: each leaves vkGetInstanceProcAddr for whatever is
+# already in the process and segfaults (or fails to find a GPU) without it. So
+# MoltenVK ships in vapoursynth/moltenvk/ (arm64 slice only, the only arch with
+# either plugin) and both templates preload it with RTLD_GLOBAL.
+MOLTENVK_VERSION="1.4.2"
+MOLTENVK_SHA256="f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e"
+MOLTENVK_DIR="$DEPS_DIR/vapoursynth/moltenvk"
+echo ""
+echo "=== Installing MoltenVK $MOLTENVK_VERSION ==="
+if [ "$ARCH" != "arm64" ]; then
+    echo "  Skipped on $ARCH: no ncnn plugin ships here (see RIFE and VSNCNN below)"
+elif [ "$FORCE" = false ] && [ -f "$MOLTENVK_DIR/libMoltenVK.dylib" ]; then
+    echo "  MoltenVK already exists, skipping"
+else
+    rm -rf "$MOLTENVK_DIR"
+    # Run on its own, not as `if ( set -e ... ); then`: bash ignores set -e in
+    # anything that is an if/&&/|| condition, subshells included, so that form
+    # reported success whenever the last command did (VSNCNN's failed compile
+    # printed "Installed" in CI on 2026-10-25).
+    set +e
+    (
+        set -e
+        mkdir -p "$MOLTENVK_DIR"
+        cd "$BUILD_DIR"
+        rm -rf moltenvk MoltenVK-macos.tar
+        curl -fsSL -o MoltenVK-macos.tar \
+            "https://github.com/KhronosGroup/MoltenVK/releases/download/v$MOLTENVK_VERSION/MoltenVK-macos.tar"
+        echo "$MOLTENVK_SHA256  MoltenVK-macos.tar" | shasum -a 256 -c -
+        mkdir moltenvk
+        tar -xf MoltenVK-macos.tar -C moltenvk
+        lipo moltenvk/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib \
+            -thin arm64 -output "$MOLTENVK_DIR/libMoltenVK.dylib"
+        cp moltenvk/MoltenVK/LICENSE "$MOLTENVK_DIR/MoltenVK-LICENSE.txt"
+        rm -rf moltenvk MoltenVK-macos.tar
+        chmod u+w "$MOLTENVK_DIR/libMoltenVK.dylib"
+        codesign -s - -f "$MOLTENVK_DIR/libMoltenVK.dylib"
+    )
+    _block_status=$?
+    set -e
+    if [ "$_block_status" -eq 0 ]; then
+        echo "  Installed MoltenVK -> vapoursynth/moltenvk/"
+        BUILT_PLUGINS+=("moltenvk")
+    else
+        rm -rf "$MOLTENVK_DIR"
+        echo "  Failed to install MoltenVK"
+        FAILED_PLUGINS+=("moltenvk")
+    fi
+fi
+
+# ============================================================================
 # RIFE 4.26 — the Frame Rate pass's neural interpolator (ncnn on Vulkan)
 # ============================================================================
 # Lives in vapoursynth/rife/, NOT the autoload directory: the template loads it
-# only for a RIFE job (see worker/src/rife.rs). Keep RIFE_TAG, the model commit
-# and the model hashes in step with download-deps-{linux.sh,windows.ps1}.
+# only for a RIFE job (see worker/src/gpu_plugin.rs). Keep RIFE_TAG, the model
+# commit and the model hashes in step with download-deps-{linux.sh,windows.ps1}.
 #
 # arm64 only. The upstream x86_64 dylib targets macOS 13 against this arch's
 # 12.0 floor (issue #39) and runs AVX in a static initializer
 # (check-load-time-simd.py fails it), so Intel Macs need a source build first;
-# the app reports RIFE as unavailable there.
-#
-# Neither dylib bundles a Vulkan implementation: it leaves vkGetInstanceProcAddr
-# for whatever is already in the process, and segfaults without one. So
-# MoltenVK ships beside it (arm64 slice only) and the script preloads it with
-# RTLD_GLOBAL.
+# the app reports RIFE as unavailable there. It resolves Vulkan from the
+# MoltenVK installed above.
 #
 # The model is the ncnn conversion committed to the plugin's repo (there is no
 # release asset for it), fetched at a pinned commit and checked by hash.
@@ -2117,20 +2273,22 @@ RIFE_MODEL_COMMIT="96fdcecdf982ef3237e16e2b105eea849fa022ab"
 RIFE_MODEL_NAME="rife-v4.26_ensembleFalse"
 RIFE_MODEL_BIN_SHA256="94d58e30b75d7c7609cfa6f3bdad524deddd14f5f75e85c36d2f827ef5c64731"
 RIFE_MODEL_PARAM_SHA256="79f16c28903f93f8308f0c4c947f8c7e0c17d99a57b85473e5f298dd578d137b"
-MOLTENVK_VERSION="1.4.2"
-MOLTENVK_SHA256="f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e"
 RIFE_DIR="$DEPS_DIR/vapoursynth/rife"
 echo ""
 echo "=== Installing RIFE ($RIFE_TAG, model $RIFE_MODEL_NAME) ==="
 if [ "$ARCH" != "arm64" ]; then
     echo "  Skipped on $ARCH: no compatible prebuilt (see above)"
 elif [ "$FORCE" = false ] && [ -f "$RIFE_DIR/librife.dylib" ] \
-     && [ -f "$RIFE_DIR/libMoltenVK.dylib" ] \
      && [ -f "$RIFE_DIR/models/$RIFE_MODEL_NAME/flownet.bin" ]; then
     echo "  RIFE already exists, skipping"
 else
     rm -rf "$RIFE_DIR"
-    if (
+    # Run on its own, not as `if ( set -e ... ); then`: bash ignores set -e in
+    # anything that is an if/&&/|| condition, subshells included, so that form
+    # reported success whenever the last command did (VSNCNN's failed compile
+    # printed "Installed" in CI on 2026-10-25).
+    set +e
+    (
         set -e
         mkdir -p "$RIFE_DIR/models/$RIFE_MODEL_NAME"
         cd "$BUILD_DIR"
@@ -2145,26 +2303,155 @@ else
         echo "$RIFE_MODEL_BIN_SHA256  flownet.bin" | shasum -a 256 -c -
         echo "$RIFE_MODEL_PARAM_SHA256  flownet.param" | shasum -a 256 -c -
         mv flownet.bin flownet.param "$RIFE_DIR/models/$RIFE_MODEL_NAME/"
-        rm -rf moltenvk MoltenVK-macos.tar
-        curl -fsSL -o MoltenVK-macos.tar \
-            "https://github.com/KhronosGroup/MoltenVK/releases/download/v$MOLTENVK_VERSION/MoltenVK-macos.tar"
-        echo "$MOLTENVK_SHA256  MoltenVK-macos.tar" | shasum -a 256 -c -
-        mkdir moltenvk
-        tar -xf MoltenVK-macos.tar -C moltenvk
-        lipo moltenvk/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib \
-            -thin arm64 -output "$RIFE_DIR/libMoltenVK.dylib"
-        cp moltenvk/MoltenVK/LICENSE "$RIFE_DIR/MoltenVK-LICENSE.txt"
-        rm -rf moltenvk MoltenVK-macos.tar
-        chmod u+w "$RIFE_DIR"/*.dylib
+        chmod u+w "$RIFE_DIR/librife.dylib"
         codesign -s - -f "$RIFE_DIR/librife.dylib"
-        codesign -s - -f "$RIFE_DIR/libMoltenVK.dylib"
-    ); then
+    )
+    _block_status=$?
+    set -e
+    if [ "$_block_status" -eq 0 ]; then
         echo "  Installed RIFE -> vapoursynth/rife/"
         BUILT_PLUGINS+=("rife")
     else
         rm -rf "$RIFE_DIR"
         echo "  Failed to install RIFE"
         FAILED_PLUGINS+=("rife")
+    fi
+fi
+
+# ============================================================================
+# VSNCNN (vs-mlrt) + Real-ESRGAN / Real-CUGAN — Crop & Resize's AI upscaling
+# ============================================================================
+# vs-mlrt publishes VSNCNN for Windows only, so it is built here from the
+# pinned tag the way upstream's linux-ncnn.yml builds it: static protobuf and
+# onnx from source, ncnn from Tencent's prebuilt macOS Vulkan frameworks. The
+# frameworks are compiled straight in (they carry no CMake package config), and
+# vkGetInstanceProcAddr is left to the MoltenVK preloaded above
+# (-undefined dynamic_lookup), exactly as for RIFE. Lives in vapoursynth/ncnn/,
+# never autoloaded (see worker/src/gpu_plugin.rs). arm64 only, as for RIFE.
+#
+# The models are vs-mlrt's ONNX conversions, 2.4-5.2 MB each. vs-mlrt ships
+# them only inside one ~810 MB archive per release, so that is fetched (pinned
+# and hash-checked), the five files VapourBox uses are extracted, and each is
+# checked by its own hash. Keep every pin and hash in step with
+# download-deps-{linux.sh,windows.ps1} and gpu_plugin::UPSCALE_MODELS.
+VSMLRT_TAG="v15.16"
+VSMLRT_MODELS_SHA256="d4eaa8c1c4459082185a9e1a2c54d7e2c776abeea6aef6aee0cb8f6c151dfb02"
+PROTOBUF_TAG="v3.21.12"
+ONNX_COMMIT="b86cc54efce19530fb953e4b21f57e6b3888534c"
+NCNN_TAG="20260526"
+NCNN_MACOS_VULKAN_SHA256="e3ec1d473390a52c288968ecf1321fd2fdd25d8eaa2031a6b7d5c97f3e6961b4"
+UPSCALE_MODEL_HASHES=(
+    "RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx 6fad590f96df553a5cc348a9c5129e7874504a7dcd414e4a15fb0b281fca7e0c"
+    "RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx 414de3a5da4c56652c99f3bc0b960910e3561835a6c7a9cca546475bc4792158"
+    "cugan/up2x-latest-no-denoise.onnx 3587278c3a7e62bbcb00a23b4de291ff906f62a88856ee457cbe4211cc593574"
+    "cugan/up2x-latest-conservative.onnx 555bca3eb90caa37c7e1a02aec9cda3ca8479f252746c1885d382f87312f651c"
+    "cugan/up2x-latest-denoise3x.onnx 7bcb0510f9f989e681a51d39b7170883d3d5e75f1ec23ef5146e8ea50c3cc845"
+)
+# VSNCNN is an API 3 plugin (VapourSynth.h / VSHelper.h). R78 still loads
+# those, but the build's own include dir need not carry the old headers, so
+# they are fetched from the same VapourSynth tag, by hash.
+VSAPI3_TAG="R78"
+VSAPI3_HEADER_HASHES=(
+    "VapourSynth.h 0983c937cd369b7e1766913edd3c859ea1f93a79671579729f24eb90a91ce910"
+    "VSHelper.h 11e2c4977127632aa0fb84c67d5d7eb7244764c52a94500797d4a3cac013e382"
+)
+NCNN_DIR="$DEPS_DIR/vapoursynth/ncnn"
+echo ""
+echo "=== Installing VSNCNN ($VSMLRT_TAG) + upscaling models ==="
+if [ "$ARCH" != "arm64" ]; then
+    echo "  Skipped on $ARCH: no MoltenVK here (see above)"
+elif [ "$FORCE" = false ] && [ -f "$NCNN_DIR/libvsncnn.dylib" ] \
+     && [ -f "$NCNN_DIR/models/cugan/up2x-latest-denoise3x.onnx" ]; then
+    echo "  VSNCNN already exists, skipping"
+else
+    rm -rf "$NCNN_DIR"
+    # Run on its own, not as `if ( set -e ... ); then`: bash ignores set -e in
+    # anything that is an if/&&/|| condition, subshells included, so that form
+    # reported success whenever the last command did (VSNCNN's failed compile
+    # printed "Installed" in CI on 2026-10-25).
+    set +e
+    (
+        set -e
+        W="$BUILD_DIR/vsncnn"
+        rm -rf "$W" && mkdir -p "$W" "$NCNN_DIR/models"
+        cd "$W"
+        # arm64 pins no target for the rest of the script; this one compiles
+        # directly with clang, so it needs one: the arm64 bundle's 15.0.
+        VSNCNN_MIN="${MACOS_MIN_VERSION:-15.0}"
+        export MACOSX_DEPLOYMENT_TARGET="$VSNCNN_MIN"
+        # protobuf, static.
+        curl -fsSL "https://github.com/protocolbuffers/protobuf/archive/refs/tags/$PROTOBUF_TAG.tar.gz" | tar xz
+        cmake -S "protobuf-${PROTOBUF_TAG#v}/cmake" -B pb-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON -Dprotobuf_BUILD_SHARED_LIBS=OFF -Dprotobuf_BUILD_TESTS=OFF \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_POLICY_VERSION_MINIMUM=3.5 >/dev/null
+        cmake --build pb-build >/dev/null
+        cmake --install pb-build --prefix "$W/pb" >/dev/null
+        # onnx, static, lite protobuf, at upstream's pinned commit.
+        mkdir onnx && git -C onnx init -q && git -C onnx remote add origin https://github.com/onnx/onnx.git
+        git -C onnx fetch -q --depth 1 origin "$ONNX_COMMIT" && git -C onnx checkout -q FETCH_HEAD
+        cmake -S onnx -B onnx-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DCMAKE_PREFIX_PATH="$W/pb" -DProtobuf_PROTOC_EXECUTABLE="$W/pb/bin/protoc" \
+            -DONNX_USE_LITE_PROTO=ON -DONNX_USE_PROTOBUF_SHARED_LIBS=OFF -DONNX_GEN_PB_TYPE_STUBS=OFF \
+            -DONNX_ML=0 -DONNX_BUILD_PYTHON=OFF -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 >/dev/null
+        cmake --build onnx-build >/dev/null
+        cmake --install onnx-build --prefix "$W/onnx-inst" >/dev/null
+        # ncnn, prebuilt (universal static frameworks).
+        curl -fsSL -o ncnn.zip \
+            "https://github.com/Tencent/ncnn/releases/download/$NCNN_TAG/ncnn-$NCNN_TAG-macos-vulkan.zip"
+        echo "$NCNN_MACOS_VULKAN_SHA256  ncnn.zip" | shasum -a 256 -c -
+        mkdir ncnn && unzip -q ncnn.zip -d ncnn
+        N="$W/ncnn"
+        mkdir -p "$W/vsapi3"
+        for entry in "${VSAPI3_HEADER_HASHES[@]}"; do
+            h="${entry%% *}"; sum="${entry##* }"
+            curl -fsSL -o "$W/vsapi3/$h" \
+                "https://raw.githubusercontent.com/vapoursynth/vapoursynth/$VSAPI3_TAG/include/$h"
+            echo "$sum  $W/vsapi3/$h" | shasum -a 256 -c -
+        done
+        # VSNCNN itself.
+        git clone -q --depth 1 --branch "$VSMLRT_TAG" https://github.com/AmusementClub/vs-mlrt.git vs-mlrt
+        echo "#define VERSION \"$VSMLRT_TAG\"" > vs-mlrt/vsncnn/config.h
+        clang++ -std=c++20 -O2 -fPIC -shared -arch arm64 -mmacosx-version-min="$VSNCNN_MIN" \
+            -fvisibility=hidden \
+            vs-mlrt/vsncnn/vs_ncnn.cpp vs-mlrt/vsncnn/onnx2ncnn.cpp vs-mlrt/common/onnx_utils.cpp \
+            -Ivs-mlrt/vsncnn -I"$W/vsapi3" -I"$VS_INC_DIR" -I"$N/ncnn.framework/Headers" -I"$N/ncnn.framework/Headers/ncnn" \
+            -I"$N/openmp.framework/Headers" -I"$W/onnx-inst/include" -I"$W/pb/include" \
+            -DONNX_NAMESPACE=onnx -DONNX_USE_LITE_PROTO=1 \
+            "$N/ncnn.framework/Versions/A/ncnn" "$N/glslang.framework/Versions/A/glslang" \
+            "$N/openmp.framework/Versions/A/openmp" \
+            "$W/onnx-inst/lib/libonnx.a" "$W/onnx-inst/lib/libonnx_proto.a" "$W/pb/lib/libprotobuf-lite.a" \
+            -framework Foundation -framework Metal -framework QuartzCore -framework IOSurface -framework IOKit \
+            -Wl,-undefined,dynamic_lookup -Wl,-install_name,@loader_path/libvsncnn.dylib \
+            -o "$NCNN_DIR/libvsncnn.dylib"
+        codesign -s - -f "$NCNN_DIR/libvsncnn.dylib"
+        # Models.
+        curl -fsSL -o models.7z \
+            "https://github.com/AmusementClub/vs-mlrt/releases/download/$VSMLRT_TAG/models.$VSMLRT_TAG.7z"
+        echo "$VSMLRT_MODELS_SHA256  models.7z" | shasum -a 256 -c -
+        # One pass: the archive is solid, so each separate extraction would
+        # decompress it from the start again.
+        wanted=()
+        for entry in "${UPSCALE_MODEL_HASHES[@]}"; do wanted+=("models/${entry%% *}"); done
+        tar -xf models.7z "${wanted[@]}"
+        for entry in "${UPSCALE_MODEL_HASHES[@]}"; do
+            rel="${entry%% *}"; sum="${entry##* }"
+            echo "$sum  models/$rel" | shasum -a 256 -c -
+            mkdir -p "$NCNN_DIR/models/$(dirname "$rel")"
+            mv "models/$rel" "$NCNN_DIR/models/$rel"
+        done
+        rm -f models.7z
+        cd "$BUILD_DIR" && rm -rf "$W"
+    )
+    _block_status=$?
+    set -e
+    if [ "$_block_status" -eq 0 ]; then
+        echo "  Installed VSNCNN -> vapoursynth/ncnn/"
+        BUILT_PLUGINS+=("vsncnn")
+    else
+        rm -rf "$NCNN_DIR"
+        echo "  Failed to install VSNCNN"
+        FAILED_PLUGINS+=("vsncnn")
     fi
 fi
 
@@ -2671,6 +2958,13 @@ fi
 # is built on/for current macOS, so skip the check there to avoid spurious noise.
 if [ "$ARCH" = "x86_64" ]; then
 echo ""
+# A rerun that reinstalled Python but skipped VapourSynth would otherwise leave
+# no shim, and every script would fail to start VSScript.
+if [ ! -x "$PYTHON_DIR/bin/vapoursynth" ]; then
+    write_vapoursynth_shim
+    echo "Restored the vapoursynth shim in python/bin"
+fi
+
 echo "Minimum-OS (minos) of every bundled Mach-O (target $MACOS_MIN_VERSION, issue #39):"
 # Print the macOS deployment target baked into a Mach-O, reading whichever load
 # command it carries: LC_BUILD_VERSION (newer toolchains, "minos X.Y") or

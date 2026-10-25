@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../../models/dynamic_parameters.dart';
 import '../../models/filter_schema.dart';
 import '../../services/advanced_mode_service.dart';
+import '../../services/whats_new_service.dart';
+import '../../widgets/new_badge.dart';
 import 'widgets/parameter_widgets.dart';
 
 /// A dynamically-generated settings panel based on a filter schema.
@@ -33,7 +35,10 @@ class DynamicFilterPanel extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      ParameterBadgeScope(schema: schema, child: _buildBody(context));
+
+  Widget _buildBody(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -92,9 +97,10 @@ class DynamicFilterPanel extends StatelessWidget {
     return Card(
       margin: EdgeInsets.zero,
       child: ExpansionTile(
-        title: Text(
-          section.title,
-          style: Theme.of(context).textTheme.titleSmall,
+        title: _sectionTitle(
+          schema,
+          section,
+          Text(section.title, style: Theme.of(context).textTheme.titleSmall),
         ),
         initiallyExpanded: section.expanded,
         childrenPadding: const EdgeInsets.all(16),
@@ -204,7 +210,10 @@ class DynamicFilterPanelCompact extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      ParameterBadgeScope(schema: schema, child: _buildBody(context));
+
+  Widget _buildBody(BuildContext context) {
     final advancedMode = context.watch<AdvancedModeService>().enabled;
 
     // The method the pipeline is actually using, which is always offered even
@@ -253,7 +262,10 @@ class DynamicFilterPanelCompact extends StatelessWidget {
 
         // Method selection (if multiple methods available)
         if (hasMultipleMethods) ...[
-          Text('Method', style: Theme.of(context).textTheme.labelLarge),
+          _withBadge(
+            Text('Method', style: Theme.of(context).textTheme.labelLarge),
+            WhatsNewService.instance.isMethodChoiceNew(schema),
+          ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             value: selectedMethod,
@@ -265,8 +277,9 @@ class DynamicFilterPanelCompact extends StatelessWidget {
             items: visibleMethods.map((method) {
               return DropdownMenuItem(
                 value: method.id,
-                child: Text(
+                child: optionLabelWithBadge(
                   method.advancedOnly ? '${method.name} (advanced)' : method.name,
+                  WhatsNewService.instance.isMethodNew(method),
                 ),
               );
             }).toList(),
@@ -343,8 +356,11 @@ class DynamicFilterPanelCompact extends StatelessWidget {
     final widgets = <Widget>[];
     final presetControlledParams = _getPresetControlledParams();
 
-    // In simple mode, show parameter preset selectors
-    // In advanced mode, hide them and show the raw parameters
+    // In simple mode, show parameter preset selectors; in advanced mode, hide
+    // them and show the raw parameters. Each preset is drawn in the section
+    // whose controls it sets (FilterSchema.sectionForPreset); one that belongs
+    // to no section goes at the top.
+    final presetsBySection = <UiSection?, List<Widget>>{};
     if (!advancedMode) {
       final presets = schema.parameterPresets;
       if (presets != null) {
@@ -352,7 +368,7 @@ class DynamicFilterPanelCompact extends StatelessWidget {
           // Check visibleWhen on preset
           if (!_isPresetVisible(entry.value)) continue;
 
-          widgets.add(
+          presetsBySection.putIfAbsent(schema.sectionForPreset(entry.value), () => []).add(
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: PresetSelectorWidget(
@@ -368,16 +384,18 @@ class DynamicFilterPanelCompact extends StatelessWidget {
         }
       }
     }
+    final sections = schema.ui?.sections;
+    widgets.addAll(presetsBySection[null] ?? const []);
 
     // Use UI sections if available, otherwise show all non-hidden parameters
-    final sections = schema.ui?.sections;
     if (sections != null && sections.isNotEmpty) {
       for (final section in sections) {
         // In simple mode, skip advanced-only sections
         if (!advancedMode && section.advancedOnly) continue;
 
-        // Collect visible parameter widgets for this section first
-        final sectionWidgets = <Widget>[];
+        // Collect visible parameter widgets for this section first, its
+        // presets (simple mode only) leading
+        final sectionWidgets = <Widget>[...?presetsBySection[section]];
         for (final paramId in section.parameters) {
           // In simple mode, skip parameters controlled by presets
           if (!advancedMode && presetControlledParams.contains(paramId)) continue;
@@ -404,15 +422,19 @@ class DynamicFilterPanelCompact extends StatelessWidget {
                 top: widgets.isEmpty ? 0 : 16,
                 bottom: 8,
               ),
-              child: Text(
-                section.title,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: section.advancedOnly
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.7),
+              child: _sectionTitle(
+                schema,
+                section,
+                Text(
+                  section.title,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: section.advancedOnly
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.7),
+                  ),
                 ),
               ),
             ),
@@ -610,4 +632,17 @@ class DynamicFilterPanelCompact extends StatelessWidget {
 
     return true;
   }
+}
+
+/// A section heading, badged when anything in the section is new — a
+/// collapsed section would otherwise hide every badge inside it.
+Widget _sectionTitle(FilterSchema schema, UiSection section, Widget title) =>
+    _withBadge(title, WhatsNewService.instance.isSectionNew(schema, section));
+
+Widget _withBadge(Widget child, bool isNew) {
+  if (!isNew) return child;
+  return Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [Flexible(child: child), const SizedBox(width: 6), const NewBadge()],
+  );
 }

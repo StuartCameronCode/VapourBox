@@ -1,7 +1,7 @@
-// The Frame Rate panel tells the user, the moment RIFE is chosen, why it can't
-// run here and what to do — the worker's message, verbatim, with a way to
-// check again once they have. RIFE has no fallback (a RIFE job without Vulkan
-// is refused), so this notice is the user's only warning before a job fails.
+// The Noise Reduction panel tells the user, the moment KNLMeans is chosen, that
+// it can't run here and why: the worker's own message (the job would be
+// refused with the same text). BM3D, and a machine where KNLMeans works, stay
+// silent.
 
 import 'dart:convert';
 import 'dart:io';
@@ -13,7 +13,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vapourbox/models/dynamic_parameters.dart';
 import 'package:vapourbox/models/filter_registry.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
-import 'package:vapourbox/models/rife_status.dart';
 import 'package:vapourbox/services/advanced_mode_service.dart';
 import 'package:vapourbox/viewmodels/main_viewmodel.dart';
 import 'package:vapourbox/views/pass_settings/pass_settings_inline.dart';
@@ -29,7 +28,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     AdvancedModeService.instance.resetForTesting();
     FilterRegistry.instance.registerFromJson(
-      jsonDecode(File('assets/filters/core/frame_rate.json').readAsStringSync())
+      jsonDecode(File('assets/filters/core/noise_reduction.json').readAsStringSync())
           as Map<String, dynamic>,
     );
     vm = MainViewModel(runner: FakeJobRunner());
@@ -38,11 +37,11 @@ void main() {
   tearDown(() => vm.dispose());
 
   void selectMethod(String method) => vm.updateDynamicParams(
-        'frame_rate',
+        'noise_reduction',
         DynamicParameters(
-          filterId: 'frame_rate',
+          filterId: 'noise_reduction',
           enabled: true,
-          values: {'method': method, 'target': 'pal50', 'blockSize': 16, 'overlap': 8},
+          values: {'method': method},
         ),
       );
 
@@ -55,7 +54,7 @@ void main() {
           child: const MaterialApp(
             home: Scaffold(
               body: SingleChildScrollView(
-                child: PassSettingsInline(passType: PassType.frameRate),
+                child: PassSettingsInline(passType: PassType.noiseReduction),
               ),
             ),
           ),
@@ -69,44 +68,27 @@ void main() {
   Future<void> settle(WidgetTester tester) =>
       tester.pump(const Duration(seconds: 1));
 
-  const message = 'RIFE needs a graphics card with Vulkan support, and none was found.';
-  const unavailable =
-      RifeStatus(available: false, reason: 'noVulkan', message: message);
+  const message = 'KNLMeans runs on the graphics card through OpenCL, and none was found.';
 
-  testWidgets('RIFE selected where it cannot run: the remedy and Check again',
+  testWidgets('KNLMeans selected where no OpenCL device works: the reason',
       (tester) async {
-    selectMethod('rife');
-    vm.debugSetRifeStatus(unavailable);
+    selectMethod('knlmeans');
+    vm.debugSetKnlmMethodMessage(message);
     await pumpPanel(tester);
-
     expect(find.text(message), findsOneWidget);
-    expect(find.text('Check again'), findsOneWidget);
     await settle(tester);
   });
 
-  testWidgets('while the probe runs, it says so', (tester) async {
-    selectMethod('rife');
-    vm.debugSetRifeStatus(null, checking: true);
-    await pumpPanel(tester);
-
-    expect(find.textContaining('Checking whether RIFE can run'), findsOneWidget);
-    expect(find.text(message), findsNothing);
-    await settle(tester);
-  });
-
-  testWidgets('silent when RIFE runs, or when another method is chosen',
-      (tester) async {
-    selectMethod('rife');
-    vm.debugSetRifeStatus(const RifeStatus(available: true));
-    await pumpPanel(tester);
-    expect(find.text('Check again'), findsNothing);
-    expect(find.textContaining('RIFE can run'), findsNothing);
-
-    selectMethod('flowFps');
-    vm.debugSetRifeStatus(unavailable);
+  testWidgets('silent for BM3D, and for KNLMeans where it runs', (tester) async {
+    selectMethod('bm3d');
+    vm.debugSetKnlmMethodMessage(message);
     await pumpPanel(tester);
     expect(find.text(message), findsNothing);
-    expect(find.text('Check again'), findsNothing);
+
+    selectMethod('knlmeans');
+    vm.debugSetKnlmMethodMessage(null);
+    await pumpPanel(tester);
+    expect(find.text(message), findsNothing);
     await settle(tester);
   });
 }

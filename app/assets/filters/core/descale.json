@@ -1,0 +1,265 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "descale",
+  "version": "1.0.0",
+  "sinceAppVersion": "1.5.0",
+  "name": "Descale",
+  "description": "Undo a studio's upscale, then upscale again cleanly",
+  "longDescription": "Most modern anime — and plenty of other HD video — is drawn or rendered below its delivery resolution (720p, 810p and 873p are common) and upscaled to 1080p with an ordinary resampling kernel. That upscale is what makes line art look soft and haloed. Given the resolution and kernel the studio used, Descale inverts it exactly, recovering the picture as it was drawn, then upscales it back to the source size with NNEDI3, which draws far cleaner lines.\n\nIt only helps when the settings match the source, and harms the picture when they don't — so use Detect, which tries every height and the common kernels on frames from your video and reports whether one stands out. A source that was never upscaled has no native resolution to find, and Detect says so.\n\nCredits, text and overlays are usually drawn at full resolution on top of the upscaled picture; Protect detail keeps those untouched. Brightness only — colour was stored at a lower resolution to begin with. The output keeps the source's size, so Crop & Resize can still upscale it further.",
+  "category": "enhancement",
+  "icon": "photo_size_select_large",
+  "methods": [
+    {
+      "id": "descale",
+      "name": "Descale",
+      "description": "Invert the studio's upscale on brightness, re-upscale with NNEDI3",
+      "function": "custom",
+      "parameters": [
+        "nativeHeight",
+        "nativeWidth",
+        "kernel",
+        "bicubicB",
+        "bicubicC",
+        "lanczosTaps",
+        "border",
+        "protectDetail",
+        "detailThreshold"
+      ]
+    }
+  ],
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "hidden": true
+      }
+    },
+    "nativeHeight": {
+      "type": "integer",
+      "default": 720,
+      "min": 240,
+      "max": 2159,
+      "step": 1,
+      "ui": {
+        "label": "Native Height",
+        "description": "The height the picture was drawn at, below the source's. Use Detect rather than guessing: a wrong value softens the picture",
+        "widget": "number"
+      }
+    },
+    "nativeWidth": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 3839,
+      "step": 1,
+      "ui": {
+        "label": "Native Width",
+        "description": "0 works it out from the source's shape, which is right unless the studio also changed the aspect",
+        "widget": "number"
+      }
+    },
+    "kernel": {
+      "type": "enum",
+      "default": "bicubic",
+      "options": [
+        "bilinear",
+        "bicubic",
+        "lanczos",
+        "spline16",
+        "spline36",
+        "spline64"
+      ],
+      "ui": {
+        "label": "Kernel",
+        "description": "The resampler the studio upscaled with. Bicubic (Catmull-Rom: b 0, c 0.5) and bilinear are the most common",
+        "widget": "dropdown"
+      }
+    },
+    "bicubicB": {
+      "type": "number",
+      "default": 0.0,
+      "min": -1.0,
+      "max": 1.0,
+      "step": 0.05,
+      "ui": {
+        "label": "Bicubic b",
+        "description": "With c, picks the bicubic curve: Catmull-Rom is b 0 / c 0.5, Mitchell 1/3 / 1/3, Hermite 0 / 0",
+        "widget": "slider",
+        "precision": 3,
+        "visibleWhen": {
+          "kernel": [
+            "bicubic"
+          ]
+        }
+      }
+    },
+    "bicubicC": {
+      "type": "number",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "ui": {
+        "label": "Bicubic c",
+        "description": "See b",
+        "widget": "slider",
+        "precision": 3,
+        "visibleWhen": {
+          "kernel": [
+            "bicubic"
+          ]
+        }
+      }
+    },
+    "lanczosTaps": {
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "ui": {
+        "label": "Lanczos Taps",
+        "description": "3 is the usual one",
+        "widget": "slider",
+        "visibleWhen": {
+          "kernel": [
+            "lanczos"
+          ]
+        }
+      }
+    },
+    "border": {
+      "type": "enum",
+      "default": "mirror",
+      "options": [
+        "mirror",
+        "zero",
+        "extend"
+      ],
+      "ui": {
+        "label": "Edge Handling",
+        "description": "How the studio's resampler treated pixels past the frame edge. Mirror is almost always right; a wrong choice shows only as a faint band at the edges",
+        "widget": "dropdown"
+      }
+    },
+    "protectDetail": {
+      "type": "boolean",
+      "default": true,
+      "ui": {
+        "label": "Protect credits and text",
+        "description": "Keep the source wherever re-applying the kernel does not reproduce it: detail drawn at full resolution, which descaling would smear",
+        "widget": "checkbox"
+      }
+    },
+    "detailThreshold": {
+      "type": "number",
+      "default": 4.0,
+      "min": 0.5,
+      "max": 32.0,
+      "step": 0.5,
+      "ui": {
+        "label": "Protection Threshold",
+        "description": "How far (in 8-bit levels) the re-applied kernel may miss before a pixel is treated as full-resolution detail. Lower protects more",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "protectDetail": true
+        }
+      }
+    }
+  },
+  "implementation": [
+    {
+      "function": "core.descale.Debilinear",
+      "role": "inverts the studio's bilinear upscale",
+      "activeWhen": {
+        "kernel": "bilinear"
+      }
+    },
+    {
+      "function": "core.descale.Debicubic",
+      "role": "inverts the studio's bicubic upscale",
+      "activeWhen": {
+        "kernel": "bicubic"
+      }
+    },
+    {
+      "function": "core.descale.Delanczos",
+      "role": "inverts the studio's Lanczos upscale",
+      "activeWhen": {
+        "kernel": "lanczos"
+      }
+    },
+    {
+      "function": "core.descale.Despline16",
+      "role": "inverts the studio's Spline16 upscale",
+      "activeWhen": {
+        "kernel": "spline16"
+      }
+    },
+    {
+      "function": "core.descale.Despline36",
+      "role": "inverts the studio's Spline36 upscale",
+      "activeWhen": {
+        "kernel": "spline36"
+      }
+    },
+    {
+      "function": "core.descale.Despline64",
+      "role": "inverts the studio's Spline64 upscale",
+      "activeWhen": {
+        "kernel": "spline64"
+      }
+    },
+    {
+      "function": "core.znedi3.nnedi3",
+      "role": "re-upscales the recovered picture (core.nnedi3.nnedi3 on ARM)"
+    },
+    {
+      "function": "core.std.MaskedMerge",
+      "role": "keeps the source where it was drawn at full resolution",
+      "activeWhen": {
+        "protectDetail": true
+      }
+    }
+  ],
+  "ui": {
+    "sections": [
+      {
+        "title": "Native resolution",
+        "parameters": [
+          "nativeHeight"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Studio kernel",
+        "parameters": [
+          "kernel",
+          "bicubicB",
+          "bicubicC",
+          "lanczosTaps"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Credits and text",
+        "parameters": [
+          "protectDetail",
+          "detailThreshold"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Descale tuning",
+        "parameters": [
+          "nativeWidth",
+          "border"
+        ],
+        "expanded": false,
+        "advancedOnly": true
+      }
+    ]
+  }
+}

@@ -255,6 +255,8 @@ class PassListItem extends StatelessWidget {
         return Icons.border_outer;
       case PassType.ghostRemoval:
         return Icons.blur_linear;
+      case PassType.descale:
+        return Icons.photo_size_select_large;
       case PassType.colorCorrection:
         return Icons.palette;
       case PassType.chromaFixes:
