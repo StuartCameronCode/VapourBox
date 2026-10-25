@@ -11,6 +11,9 @@ class AddonsSettingsTab extends StatefulWidget {
   final AddonService? service;
   const AddonsSettingsTab({super.key, this.service});
 
+  /// The app version this tab shipped in, for its "NEW" badge.
+  static const sinceAppVersion = '1.5.0';
+
   @override
   State<AddonsSettingsTab> createState() => _AddonsSettingsTabState();
 }

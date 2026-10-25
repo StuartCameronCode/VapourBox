@@ -588,7 +588,8 @@ or `UiSection` directly (both silently drop it if written one level up).
 `visibleWhen` outside `ui`, and every condition must name a parameter/method the
 filter actually has.
 
-**`sinceAppVersion`** (filter-level or per-parameter, e.g. `"1.2.0"`): tags
+**`sinceAppVersion`** (filter-level, per-parameter, per-method, or per enum
+option via `optionSinceAppVersion`, e.g. `"1.2.0"`): tags
 when a filter or parameter shipped, purely so `WhatsNewService` can draw a
 "NEW" badge next to it — persisting across every launch of the current app
 version, and only advancing on the next real update, not clearing after one
@@ -597,7 +598,11 @@ the version that change will actually ship in** (a minor bump on the latest
 public release, or whatever's already in `app/pubspec.yaml` if that's ahead)
 — not retroactively at release time, which is exactly how properties get
 missed. Never touch the stamp on anything already shipped — see "NEW badges"
-in [docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md).
+in [docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md). **Stamp only what is new**
+(the option, not the parameter it was added to; never a hidden parameter):
+every control leading to it badges automatically — its dropdown, the switch
+that reveals it, its section, the pass row, and for a new Settings tab the
+Settings button.
 
 Several ongoing rules for schemas and the panel that renders them, each guarded by
 `filter_schema_curation_test.dart` unless noted — see

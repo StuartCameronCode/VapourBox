@@ -92,9 +92,53 @@ class WhatsNewService {
   bool isSchemaNew(FilterSchema? schema) {
     if (schema == null) return false;
     if (isNew(schema.sinceAppVersion)) return true;
-    return schema.parameters.values.any(
-        (p) => p.ui?.hidden != true && isNew(p.sinceAppVersion));
+    if (isMethodChoiceNew(schema)) return true;
+    return schema.parameters.entries
+        .any((e) => e.value.ui?.hidden != true && isParameterNew(schema, e.key));
   }
+
+  // The rule everywhere: something new is badged, and so is every control on
+  // the way to it — so a badge is never only inside a closed dropdown, a
+  // collapsed section or behind a switch that is off.
+
+  /// Whether one of [param]'s enum options is new.
+  bool isOptionNew(ParameterDefinition param, String option) =>
+      isNew(param.optionSinceAppVersion?[option]);
+
+  /// Whether [method] is new.
+  bool isMethodNew(MethodDefinition method) => isNew(method.sinceAppVersion);
+
+  /// Whether parameter [id]'s control should carry a badge: it is new itself,
+  /// one of its options is, or a control it reveals is — any parameter whose
+  /// `visibleWhen` names it ("Enable Upscale" badges for the new upscalers'
+  /// settings it shows).
+  bool isParameterNew(FilterSchema schema, String id, [Set<String>? visiting]) {
+    final param = schema.parameters[id];
+    if (param == null) return false;
+    if (isNew(param.sinceAppVersion)) return true;
+    if (param.optionSinceAppVersion?.values.any(isNew) ?? false) return true;
+    final seen = visiting ?? <String>{};
+    if (!seen.add(id)) return false;
+    return _dependents(schema, id).any((d) => isParameterNew(schema, d, seen));
+  }
+
+  /// Whether the method dropdown should carry a badge: a method is new, or a
+  /// control that only some methods show is.
+  bool isMethodChoiceNew(FilterSchema schema) =>
+      schema.methods.any(isMethodNew) ||
+      _dependents(schema, 'method').any((d) => isParameterNew(schema, d, {'method'}));
+
+  /// Whether a section's title should carry a badge: anything it holds does.
+  bool isSectionNew(FilterSchema schema, UiSection section) => section.parameters
+      .any((id) => id == 'method' ? isMethodChoiceNew(schema) : isParameterNew(schema, id));
+
+  /// The visible parameters whose `visibleWhen` depends on [id].
+  Iterable<String> _dependents(FilterSchema schema, String id) => schema.parameters.entries
+      .where((e) =>
+          e.key != id &&
+          e.value.ui?.hidden != true &&
+          (e.value.ui?.visibleWhen?.containsKey(id) ?? false))
+      .map((e) => e.key);
 
   /// Reset to the unloaded default. Tests only — the singleton outlives a
   /// single test case otherwise.

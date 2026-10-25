@@ -139,6 +139,13 @@ class ParameterDefinition {
   /// isn't worth flagging (most edits aren't).
   final String? sinceAppVersion;
 
+  /// The same, per enum option: `{"realEsrgan": "1.5.0"}`. For options added
+  /// to a parameter that already shipped — the parameter itself is not new, so
+  /// it carries no [sinceAppVersion]; the option is badged in the list and the
+  /// parameter's label badges because it holds one (see
+  /// [WhatsNewService.isParameterNew]).
+  final Map<String, String>? optionSinceAppVersion;
+
   const ParameterDefinition({
     required this.type,
     required this.defaultValue,
@@ -150,6 +157,7 @@ class ParameterDefinition {
     this.ui,
     this.optional,
     this.sinceAppVersion,
+    this.optionSinceAppVersion,
   });
 
   /// Get the VapourSynth parameter name (falls back to schema name if not specified).
@@ -212,6 +220,10 @@ class MethodDefinition {
   /// [FilterSchema.visibleMethods].
   final bool advancedOnly;
 
+  /// The app version this method was added in, for its "NEW" badge in the
+  /// method list (and the Method label's, and the pass row's).
+  final String? sinceAppVersion;
+
   const MethodDefinition({
     required this.id,
     required this.name,
@@ -219,6 +231,7 @@ class MethodDefinition {
     required this.function,
     required this.parameters,
     this.advancedOnly = false,
+    this.sinceAppVersion,
   });
 
   factory MethodDefinition.fromJson(Map<String, dynamic> json) =>

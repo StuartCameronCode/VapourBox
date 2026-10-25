@@ -364,12 +364,24 @@ class _SettingsDialogState extends State<SettingsDialog>
             // Tab bar
             TabBar(
               controller: _tabController,
-              tabs: const [
-                Tab(text: 'General'),
-                Tab(text: 'Output'),
-                Tab(text: 'Input'),
-                Tab(text: 'Add-ons'),
-                Tab(text: 'Changes'),
+              tabs: [
+                const Tab(text: 'General'),
+                const Tab(text: 'Output'),
+                const Tab(text: 'Input'),
+                Tab(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Add-ons'),
+                      if (WhatsNewService.instance
+                          .isNew(AddonsSettingsTab.sinceAppVersion)) ...[
+                        const SizedBox(width: 6),
+                        const NewBadge(),
+                      ],
+                    ],
+                  ),
+                ),
+                const Tab(text: 'Changes'),
               ],
             ),
 

@@ -268,7 +268,11 @@
           "useIntegerUpscale": true
         }
       },
-      "sinceAppVersion": "1.5.0"
+      "optionSinceAppVersion": {
+        "realEsrgan": "1.5.0",
+        "realCugan": "1.5.0",
+        "animeJanai": "1.5.0"
+      }
     },
     "upscaleFactor": {
       "type": "integer",

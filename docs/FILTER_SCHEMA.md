@@ -232,11 +232,31 @@ not the current one — and a "NEW" pill (`app/lib/widgets/new_badge.dart`) is
 drawn next to the pass in the pass list, or next to the parameter's control in
 the settings panel, whenever `sinceAppVersion` is newer than that.
 
-A new parameter also badges its pass's row (`WhatsNewService.isSchemaNew`),
-since passes start collapsed and its own badge is otherwise out of sight.
-Parameters with `ui.hidden` don't count — there's no control to find. So
-tagging only the parameter is enough; don't stamp the filter too unless the
-filter itself is new.
+**Stamp the newest thing, and the badges lead to it.** Three places take a stamp:
+
+| What is new | Stamp | Badged |
+|---|---|---|
+| a filter | top-level `sinceAppVersion` | its pass row |
+| a parameter | the parameter's `sinceAppVersion` | its label |
+| an option added to an existing enum | `"optionSinceAppVersion": {"<option>": "1.5.0"}` on the parameter | the option in the list |
+| a method | `sinceAppVersion` on the method object | the method in the list |
+
+Then every control on the way to it is badged too (`WhatsNewService`), so a
+badge is never only inside a closed dropdown, a collapsed section or behind a
+switch that is off:
+
+- a parameter's label, when one of its options is new, or a control it reveals
+  is (any parameter whose `visibleWhen` names it, through every level: "Enable
+  Upscale" badges for the upscalers' new settings);
+- the Method label, when a method is new or a control only some methods show is;
+- a section heading, when anything in it is;
+- the pass row, when any of the above is.
+
+So stamp only the thing that is new — never the existing parameter an option
+was added to, and never a `ui.hidden` parameter, which has no control and so
+badges nothing (`filter_schema_curation_test.dart` refuses one).
+`new_badges_shipped_test.dart` pins the current release's badges on the real
+schemas; extend it when stamping a release's additions.
 
 ```json
 {

@@ -177,6 +177,7 @@
     },
     {
       "id": "bm3d",
+      "sinceAppVersion": "1.5.0",
       "name": "BM3D",
       "description": "Block-matching 3D denoiser: finds similar patches across the frame (and neighbouring frames) and cleans them together. Leaves flat colour areas very clean without smearing line art, which is why it is the usual choice for anime. CPU, moderate speed",
       "function": "core.bm3d.VBasic + core.bm3d.VFinal",
@@ -191,6 +192,7 @@
     },
     {
       "id": "knlmeans",
+      "sinceAppVersion": "1.5.0",
       "name": "KNLMeansCL (GPU)",
       "description": "Non-local means on the graphics card. Similar results to BM3D and much faster, but it needs a GPU with working OpenCL; where there is none, VapourBox says so and the job is refused",
       "function": "core.knlm.KNLMeansCL",
@@ -234,8 +236,7 @@
       ],
       "ui": {
         "hidden": true
-      },
-      "sinceAppVersion": "1.5.0"
+      }
     },
     "smDegrainTr": {
       "type": "integer",
