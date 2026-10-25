@@ -135,7 +135,7 @@ Future<Uint8List> _frameRgb(String path, int index) async {
     );
     expect(r.exitCode, 0, reason: 'extracting frame $index: ${r.stderr}');
     expect(await out.exists(), isTrue, reason: 'no frame $index in $path');
-    return WorkerHarness.imageToRgb24(await out.readAsBytes(),
+    return await WorkerHarness.imageToRgb24(await out.readAsBytes(),
         label: 'out$index');
   } finally {
     if (await out.exists()) await out.delete().catchError((_) => out);

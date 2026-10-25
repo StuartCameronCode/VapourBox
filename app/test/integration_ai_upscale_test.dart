@@ -95,8 +95,13 @@ VideoJob _job(String name, UpscaleMethod method, int factor,
     );
 
 Future<String> _encode(VideoJob job, String label) async {
+  // The worker's stall watchdog fails a job after 600 s without a frame. On a
+  // CPU Vulkan driver (lavapipe, on the GPU-less CI runners) 4x Real-CUGAN's
+  // first frame — two whole network passes — took longer than that on
+  // Windows, so allow the test's own budget instead.
   final r = await WorkerHarness.runJob(job.toJson(), label: label,
-      timeout: const Duration(minutes: 20));
+      timeout: const Duration(minutes: 20),
+      extraEnv: const {'VAPOURBOX_STALL_TIMEOUT_SECS': '1200'});
   expect(r.success, isTrue, reason: '$label: ${r.error}\n${r.logs.join('\n')}');
   return r.outputPath!;
 }
@@ -113,7 +118,7 @@ Future<Uint8List> _atSourceSize(String path, int index, String label) async {
       environment: WorkerHarness.ffmpegEnv,
     );
     expect(r.exitCode, 0, reason: '${r.stderr}');
-    return WorkerHarness.imageToRgb24(await png.readAsBytes(), label: label);
+    return await WorkerHarness.imageToRgb24(await png.readAsBytes(), label: label);
   } finally {
     if (await png.exists()) await png.delete();
   }

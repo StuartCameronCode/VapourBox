@@ -314,6 +314,7 @@ class WorkerHarness {
     Map<String, dynamic> jobJson, {
     String label = 'job',
     Duration timeout = const Duration(minutes: 5),
+    Map<String, String> extraEnv = const {},
   }) async {
     final id = jobJson['id']?.toString() ?? 'job';
     final stopwatch = Stopwatch()..start();
@@ -325,7 +326,7 @@ class WorkerHarness {
       final process = await Process.start(
         workerPath,
         ['--config', configFile.path],
-        environment: workerEnv,
+        environment: {...workerEnv, ...extraEnv},
         workingDirectory: File(workerPath).parent.path,
       );
 
@@ -666,7 +667,7 @@ class WorkerHarness {
       if (!await png.exists()) {
         throw Exception('no frame $index in $videoPath (past the end?)');
       }
-      return imageToRgb24(await png.readAsBytes(), label: '$label$index');
+      return await imageToRgb24(await png.readAsBytes(), label: '$label$index');
     } finally {
       if (await png.exists()) await png.delete().catchError((_) => png);
     }

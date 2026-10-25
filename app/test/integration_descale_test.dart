@@ -107,7 +107,7 @@ Future<Uint8List> _luma(String path, int index) async {
       environment: WorkerHarness.ffmpegEnv,
     );
     expect(r.exitCode, 0, reason: '${r.stderr}');
-    return out.readAsBytes();
+    return await out.readAsBytes();
   } finally {
     if (await out.exists()) await out.delete();
   }
