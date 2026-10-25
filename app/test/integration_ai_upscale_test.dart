@@ -94,14 +94,21 @@ VideoJob _job(String name, UpscaleMethod method, int factor,
       totalFrames: _frames,
     );
 
+const _slowGpu = {'VAPOURBOX_STALL_TIMEOUT_SECS': '1200'};
+
+/// One preview frame, with the same budget as an encode: on Windows lavapipe a
+/// single 4x Real-CUGAN preview frame took over the harness's default 5 min.
+Future<PreviewResult> _preview(Map<String, dynamic> job, int frame, String label) =>
+    WorkerHarness.runPreview(job, frame: frame, label: label,
+        timeout: const Duration(minutes: 20), extraEnv: _slowGpu);
+
 Future<String> _encode(VideoJob job, String label) async {
   // The worker's stall watchdog fails a job after 600 s without a frame. On a
   // CPU Vulkan driver (lavapipe, on the GPU-less CI runners) 4x Real-CUGAN's
   // first frame — two whole network passes — took longer than that on
   // Windows, so allow the test's own budget instead.
   final r = await WorkerHarness.runJob(job.toJson(), label: label,
-      timeout: const Duration(minutes: 20),
-      extraEnv: const {'VAPOURBOX_STALL_TIMEOUT_SECS': '1200'});
+      timeout: const Duration(minutes: 20), extraEnv: _slowGpu);
   expect(r.success, isTrue, reason: '$label: ${r.error}\n${r.logs.join('\n')}');
   return r.outputPath!;
 }
@@ -194,8 +201,7 @@ void main() {
       }
 
       // The preview runs the same script on the same frame.
-      final pv = await WorkerHarness.runPreview(job.toJson(),
-          frame: _start + 2, label: '${name}_pv');
+      final pv = await _preview(job.toJson(), _start + 2, '${name}_pv');
       expect(pv.success, isTrue, reason: pv.errorTail);
       final pvDiff = WorkerHarness.meanAbsDiff(
           await WorkerHarness.imageToRgb24(pv.png!, label: '${name}_pv'),
@@ -203,7 +209,7 @@ void main() {
       // ignore: avoid_print
       print('  $name preview vs encode: meanAbsDiff ${pvDiff.toStringAsFixed(2)}');
       expect(pvDiff, lessThan(1.0), reason: 'the preview is not the encoded picture');
-    }, timeout: const Timeout(Duration(minutes: 30)));
+    }, timeout: const Timeout(Duration(minutes: 60)));
   }
 
   // Flat patches keep their colour and a hard edge keeps its position — the
@@ -334,7 +340,7 @@ void main() {
         // Spline36 itself lands on factor x source: the reference is right.
         expect((rcx - ((barX + 24) * factor - 0.5)).abs(), lessThan(0.25));
         expect(((rt - l) - (rr - rl)).abs(), lessThan(4.0), reason: 'the bar changed size');
-      }, timeout: const Timeout(Duration(minutes: 30)));
+      }, timeout: const Timeout(Duration(minutes: 60)));
     }
   });
 
@@ -369,7 +375,7 @@ void main() {
     // ignore: avoid_print
     print('  8-bit vs 10-bit: meanAbsDiff ${diff.toStringAsFixed(2)}');
     expect(diff, lessThan(2.0), reason: 'the 10-bit path is not the same picture');
-  }, timeout: const Timeout(Duration(minutes: 30)));
+  }, timeout: const Timeout(Duration(minutes: 60)));
 
   // The script chooses AnimeJaNai's model by height. On an SD picture it is
   // always the SD model, so the HD size setting changes nothing; above 576
@@ -392,7 +398,7 @@ void main() {
         j = VideoJob.fromJson(
             {...j.toJson(), 'inputWidth': 1280, 'inputHeight': 720, 'startFrame': 100});
       }
-      final pv = await WorkerHarness.runPreview(j.toJson(), frame: _start + 2, label: label);
+      final pv = await _preview(j.toJson(), _start + 2, label);
       expect(pv.success, isTrue, reason: pv.errorTail);
       return WorkerHarness.imageToRgb24(pv.png!, label: label);
     }
@@ -408,5 +414,5 @@ void main() {
         'HD ${hdDiff.toStringAsFixed(3)}');
     expect(sd, lessThan(0.01), reason: 'an SD picture did not use the SD model');
     expect(hdDiff, greaterThan(0.2), reason: 'a 720p picture did not use the chosen HD model');
-  }, timeout: const Timeout(Duration(minutes: 30)));
+  }, timeout: const Timeout(Duration(minutes: 60)));
 }

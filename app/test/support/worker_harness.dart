@@ -544,6 +544,7 @@ class WorkerHarness {
     required int frame,
     String label = 'preview',
     Duration timeout = const Duration(minutes: 5),
+    Map<String, String> extraEnv = const {},
   }) async {
     final id = jobJson['id']?.toString() ?? 'preview';
     final configFile = File(p.join(Directory.systemTemp.path, 'vb_pv_$id.json'));
@@ -552,7 +553,7 @@ class WorkerHarness {
       final process = await Process.start(
         workerPath,
         ['--config', configFile.path, '--preview', '--frame', '$frame'],
-        environment: workerEnv,
+        environment: {...workerEnv, ...extraEnv},
         workingDirectory: File(workerPath).parent.path,
       );
 
@@ -1040,6 +1041,8 @@ class PreviewResult {
         .map((l) => l.trim())
         .where((l) => l.isNotEmpty)
         .toList();
+    // A preview killed at its timeout has no logs; say so rather than nothing.
+    if (lines.isEmpty) return error ?? '';
     return lines.length <= 4 ? lines.join(' | ') : lines.sublist(lines.length - 4).join(' | ');
   }
 
