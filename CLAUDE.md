@@ -1131,8 +1131,10 @@ than fail cleanly.
   `VAPOURBOX_EXPECT_VULKAN=1`. That includes macOS arm64: the hosted runners
   are VMs whose Metal device MoltenVK cannot open (it segfaults), so they get
   Homebrew's mesa + the Khronos loader, which ncnn tries before the preloaded
-  MoltenVK; only the loader goes on `DYLD_FALLBACK_LIBRARY_PATH`, so nothing
-  else of Homebrew's can stand in for a bundled library. MoltenVK itself is
+  MoltenVK. Only the loader is exposed, copied into `~/lib` (dyld's default
+  fallback path), so nothing else of Homebrew's can stand in for a bundled
+  library — not via `DYLD_*` variables, which SIP strips at the bundle's
+  `/bin/bash` vspipe wrapper. MoltenVK itself is
   therefore only exercised on real Macs. Under that variable every GPU test
   **fails** rather than skips if a feature reports itself unavailable
   (`app/test/support/gpu_expectations.dart`), so a broken bundle cannot hide

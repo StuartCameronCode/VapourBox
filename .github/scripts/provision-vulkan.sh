@@ -61,17 +61,18 @@ case "$platform" in
     # vulkan-loader is the Khronos loader. ncnn dlopens libvulkan.1.dylib before
     # falling back to the MoltenVK the scripts preload, so with the loader
     # findable both plugins take lavapipe through it — the path any Mac with a
-    # loader installed takes. Only the loader is exposed, in a directory of its
-    # own on the *fallback* path: putting Homebrew's lib/ there would let it
-    # stand in for a library missing from the bundle and hide that.
+    # loader installed takes. Only the loader is exposed, in ~/lib — the first
+    # directory on dyld's *default* fallback path — never Homebrew's lib/,
+    # which could stand in for a library missing from the bundle and hide
+    # that. Not DYLD_FALLBACK_LIBRARY_PATH: the bundle's vspipe is a /bin/bash
+    # wrapper, and SIP strips every DYLD_* variable when a protected binary
+    # runs, so it never reached the plugins (CI run 40157771950).
     # Not pinned: Homebrew has no version pins (bottles exist for macos-15).
     brew install --quiet mesa vulkan-loader vulkan-tools
     prefix="$(brew --prefix)"
     icd="$(ls "$prefix"/share/vulkan/icd.d/lvp_icd*.json | head -1)"
-    dir="$RUNNER_TEMP/vulkan"
-    rm -rf "$dir" && mkdir -p "$dir"
-    cp -L "$prefix/lib/libvulkan.1.dylib" "$dir/"
-    echo "DYLD_FALLBACK_LIBRARY_PATH=$dir:/usr/local/lib:/usr/lib" >> "$GITHUB_ENV"
+    mkdir -p "$HOME/lib"
+    cp -L "$prefix/lib/libvulkan.1.dylib" "$HOME/lib/"
     echo "VK_DRIVER_FILES=$icd" >> "$GITHUB_ENV"
     echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
     VK_DRIVER_FILES="$icd" vulkaninfo --summary || true
