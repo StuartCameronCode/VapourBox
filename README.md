@@ -22,6 +22,8 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg —
 
 **Cleanup, when the source needs it.** Twenty-one optional filters covering tape noise and smeared color, dust and scratches on scanned film, the dirty rows at the edge of a capture, ghosting from an aerial, the brightness flicker of scanned cine film, blocking from a heavily compressed disc or recorder, jagged diagonal edges, camera shake, and halos, banding, color balance and detail lost in dark footage. All off by default, and the presets turn on what a given kind of source actually needs.
 
+**Anime.** Line art has needs of its own, and VapourBox covers the usual anime toolkit. **Descale** undoes the upscale most HD anime went through in production: its Detect button finds the resolution the show was drawn at and the scaler the studio used, then rebuilds the picture without the softness and halos, leaving credits and on-screen text alone. **BM3D** cleans flat colour without smearing lines. **AI upscaling** redraws line art at 2x or 4x on the graphics card with Real-ESRGAN, Real-CUGAN or AnimeJaNai. **RIFE** interpolates frames for frame-rate conversion. The Anime DVD preset handles inverse telecine, halos, banding and rainbowing on SD discs.
+
 **Subtitles.** Speech is transcribed with Whisper AI to a separate `.srt`, embedded in the output, or both.
 
 ## How it works
@@ -216,6 +218,8 @@ Shortcuts without ⌘/Ctrl are ignored while you are typing in a text box, so th
 - **Higher-precision deinterlacing**, both opt-in: interlaced 4:2:0 stores chroma per field, so the pass can upsample to 4:2:2 first; separately it can run at 16-bit, avoiding rounding accumulated across QTGMC's many internal steps. Both are off by default and each states what it costs.
 - **Soft telecine** pulldown flags can be stripped without re-encoding fields.
 - **Edge-directed upscaling** — NNEDI3 or EEDI3 integer doubling with full neuron, quality and prescreener control, plus seven resampling kernels with per-kernel tuning.
+- **AI upscaling** at 2x or 4x on the GPU: Real-ESRGAN (sharpest, fastest), Real-CUGAN (gentler, with three denoise strengths) or AnimeJaNai (three model sizes trading detail for speed, and a Sharp variant; an optional non-commercial download). HD frames are processed in tiles, so 1080p fits in a laptop GPU's memory.
+- **Descale tuning** — the studio's kernel (bilinear, bicubic with its b/c, Lanczos with its taps, Spline16/36/64) and native height, which Detect fills in, plus an explicit native width, edge handling, and how far a pixel may miss before it counts as credits or text and is kept.
 
 </details>
 
