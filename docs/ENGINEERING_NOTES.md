@@ -2474,10 +2474,15 @@ Pixel checks (heavy test), against a plain Spline36 upscale of the same frames:
   centre on both axes (0.75 px), and that Spline36 itself lands on factor x
   source (within 0.25 px), so the reference is known-good.
 
-CI runs it all for real: Mesa lavapipe on the GPU-less Linux/Windows runners
-(ncnn tags a CPU device as type 3 but does not skip it), the runner's Metal GPU
-on macOS arm64, and `VAPOURBOX_EXPECT_VULKAN=1` so an unavailable feature is a
-failure there, not a skip.
+CI runs it all for real: Mesa lavapipe on every GPU-less runner (ncnn tags a
+CPU device as type 3 but does not skip it) and `VAPOURBOX_EXPECT_VULKAN=1`, so
+an unavailable feature is a failure there, not a skip. The first plan used the
+macOS arm64 runner's Metal GPU through MoltenVK; on the first run with the
+variable set, both probes died with SIGSEGV creating the instance — those
+runners are VMs — so macOS gets Homebrew's lavapipe too, reached through the
+Khronos loader that ncnn dlopens before falling back to MoltenVK. MoltenVK is
+therefore tested only on real Macs. The first probe on lavapipe takes ~30 s
+(Windows: 30.4 s), past flutter_test's default timeout.
 
 ### Descale and native-resolution detection (2026-10-25)
 

@@ -149,7 +149,9 @@ void main() {
               reason: 'the probe could not even run here, which hides the real '
                   'reason from the user: ${status.message}');
         }
-      });
+        // The first probe initialises the device and compiles shaders; on a
+        // CPU Vulkan driver (lavapipe on CI) that took 30.4 s on Windows.
+      }, timeout: const Timeout(Duration(minutes: 3)));
     });
   }
 
@@ -205,7 +207,7 @@ void main() {
         if (platformId.startsWith('macos')) {
           expect(script, contains('moltenvk'), reason: 'MoltenVK must be preloaded on macOS');
         }
-      });
+      }, timeout: const Timeout(Duration(minutes: 5)));
 
       test('where it runs, a real frame comes out of the GPU at the right size', () async {
         if (!await requireGpuPlugin(f.plugin.probeFlag)) return;

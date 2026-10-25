@@ -1126,10 +1126,14 @@ than fail cleanly.
   place they are published), extracted in one pass and each checked by hash.
   Every pin and hash is in all three `download-deps-*` scripts.
 - **Tested for real in CI.** The hosted runners have no GPU, so
-  `.github/scripts/provision-vulkan.sh` gives Linux and Windows Mesa's
-  lavapipe (a CPU Vulkan driver ncnn accepts) and sets
-  `VAPOURBOX_EXPECT_VULKAN=1` wherever a device exists (macOS arm64 uses the
-  runner's Metal GPU through MoltenVK). Under that variable every GPU test
+  `.github/scripts/provision-vulkan.sh` gives every platform that ships the
+  features Mesa's lavapipe (a CPU Vulkan driver ncnn accepts) and sets
+  `VAPOURBOX_EXPECT_VULKAN=1`. That includes macOS arm64: the hosted runners
+  are VMs whose Metal device MoltenVK cannot open (it segfaults), so they get
+  Homebrew's mesa + the Khronos loader, which ncnn tries before the preloaded
+  MoltenVK; only the loader goes on `DYLD_FALLBACK_LIBRARY_PATH`, so nothing
+  else of Homebrew's can stand in for a bundled library. MoltenVK itself is
+  therefore only exercised on real Macs. Under that variable every GPU test
   **fails** rather than skips if a feature reports itself unavailable
   (`app/test/support/gpu_expectations.dart`), so a broken bundle cannot hide
   behind "no GPU". `integration_gpu_plugins_test.dart` (push gate) probes,

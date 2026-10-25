@@ -2,10 +2,11 @@
 # Give a CI runner a Vulkan device, so the ncnn-on-Vulkan features (RIFE, and
 # Real-ESRGAN / Real-CUGAN upscaling) are actually exercised rather than skipped.
 #
-# The hosted runners have no GPU. Linux and Windows get Mesa's lavapipe, a
-# Vulkan driver that runs on the CPU — slow, but the same plugin, model and
-# script path a user's GPU takes, and ncnn accepts a CPU device. macOS arm64
-# needs nothing: the bundle's MoltenVK runs on the runner's virtual Metal GPU.
+# The hosted runners have no GPU, so every one gets Mesa's lavapipe, a Vulkan
+# driver that runs on the CPU — slow, but the same plugin, model and script
+# path a user's GPU takes, and ncnn accepts a CPU device. That includes macOS
+# arm64: those runners are VMs whose Metal device MoltenVK cannot open (it
+# segfaults creating the instance — CI run 40155693557, 2026-10-25).
 #
 # Wherever a device is provisioned this sets VAPOURBOX_EXPECT_VULKAN=1, and the
 # GPU tests then FAIL rather than skip if a feature reports itself unavailable
@@ -56,6 +57,24 @@ case "$platform" in
     echo "VAPOURBOX_EXPECT_VULKAN=1" >> "$GITHUB_ENV"
     ;;
   macos-arm64)
+    # Homebrew's mesa builds lavapipe on macOS (vulkan-drivers=swrast), and
+    # vulkan-loader is the Khronos loader. ncnn dlopens libvulkan.1.dylib before
+    # falling back to the MoltenVK the scripts preload, so with the loader
+    # findable both plugins take lavapipe through it — the path any Mac with a
+    # loader installed takes. Only the loader is exposed, in a directory of its
+    # own on the *fallback* path: putting Homebrew's lib/ there would let it
+    # stand in for a library missing from the bundle and hide that.
+    # Not pinned: Homebrew has no version pins (bottles exist for macos-15).
+    brew install --quiet mesa vulkan-loader vulkan-tools
+    prefix="$(brew --prefix)"
+    icd="$(ls "$prefix"/share/vulkan/icd.d/lvp_icd*.json | head -1)"
+    dir="$RUNNER_TEMP/vulkan"
+    rm -rf "$dir" && mkdir -p "$dir"
+    cp -L "$prefix/lib/libvulkan.1.dylib" "$dir/"
+    echo "DYLD_FALLBACK_LIBRARY_PATH=$dir:/usr/local/lib:/usr/lib" >> "$GITHUB_ENV"
+    echo "VK_DRIVER_FILES=$icd" >> "$GITHUB_ENV"
+    echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
+    VK_DRIVER_FILES="$icd" vulkaninfo --summary || true
     echo "VAPOURBOX_EXPECT_VULKAN=1" >> "$GITHUB_ENV"
     ;;
   *)
