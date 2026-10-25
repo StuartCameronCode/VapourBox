@@ -11,7 +11,11 @@ import 'package:path/path.dart' as p;
 import 'package:vapourbox/services/addon_manager.dart';
 import 'package:vapourbox/services/addon_service.dart';
 import 'package:vapourbox/views/pass_settings/pass_settings_inline.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vapourbox/services/whats_new_service.dart';
 import 'package:vapourbox/views/settings/addons_settings_tab.dart';
+import 'package:vapourbox/widgets/new_badge.dart';
 
 class _Marker implements AddonInstaller {
   @override
@@ -116,5 +120,43 @@ void main() {
         reason: 'the restriction applies to every job, not just the download');
     expect(find.textContaining('Download'), findsNothing);
     expect(find.text('AnimeJaNai models installed.'), findsOneWidget);
+  });
+
+  // The Settings tabs share the dialog's width equally (at most 600 px). A
+  // NEW pill set beside "Add-ons" overflowed its tab by 14 px; overlaid, it
+  // takes no width. Flutter reports a RenderFlex overflow as a test failure.
+  testWidgets('the Add-ons tab label fits its tab with the NEW badge on', (tester) async {
+    SharedPreferences.setMockInitialValues(
+        {'lastRunAppVersion': '1.4.0', 'lastSeenAppVersion': '1.4.0'});
+    PackageInfo.setMockInitialValues(
+        appName: 'VapourBox', packageName: 'app.vapourbox.vapourbox',
+        version: '1.5.0', buildNumber: '1', buildSignature: '');
+    WhatsNewService.instance.resetForTesting();
+    await WhatsNewService.instance.initialize();
+    for (final width in [600.0, 480.0]) {
+      await tester.binding.setSurfaceSize(Size(width, 200));
+      await tester.pumpWidget(MaterialApp(
+        home: DefaultTabController(
+          length: 5,
+          child: Scaffold(
+            appBar: AppBar(
+              bottom: const TabBar(tabs: [
+                Tab(text: 'General'),
+                Tab(text: 'Output'),
+                Tab(text: 'Input'),
+                Tab(child: AddonsTabLabel()),
+                Tab(text: 'Changes'),
+              ]),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'overflow at $width px');
+      expect(find.text('NEW'), findsOneWidget);
+      expect(find.byType(NewBadge), findsNothing, reason: 'overlaid, not set beside');
+    }
+    await tester.binding.setSurfaceSize(null);
+    WhatsNewService.instance.resetForTesting();
   });
 }
