@@ -1131,16 +1131,15 @@ than fail cleanly.
   place they are published), extracted in one pass and each checked by hash.
   Every pin and hash is in all three `download-deps-*` scripts.
 - **Tested for real in CI.** The hosted runners have no GPU, so
-  `.github/scripts/provision-vulkan.sh` gives every platform that ships the
-  features Mesa's lavapipe (a CPU Vulkan driver ncnn accepts) and sets
-  `VAPOURBOX_EXPECT_VULKAN=1`. That includes macOS arm64: the hosted runners
-  are VMs whose Metal device MoltenVK cannot open (it segfaults), so they get
-  Homebrew's mesa + the Khronos loader, reached by `VAPOURBOX_VULKAN_LIBRARY`
-  (the scripts preload that library instead of the bundle's MoltenVK;
-  `gpu_plugin::vulkan_library_override`). `DYLD_*` variables cannot do it —
-  SIP strips them at the bundle's `/bin/bash` vspipe wrapper — and dyld no
-  longer searches `~/lib` or `/usr/local/lib`. MoltenVK itself is therefore
-  only exercised on real Macs. Under that variable every GPU test
+  `.github/scripts/provision-vulkan.sh` gives Linux and Windows Mesa's
+  lavapipe (a CPU Vulkan driver ncnn accepts) and sets
+  `VAPOURBOX_EXPECT_VULKAN=1`. **macOS arm64 gets nothing and its GPU tests
+  skip**: the runners are VMs whose Metal device MoltenVK cannot open, and
+  lavapipe crashes there because the bundle's akarin exports its static
+  LLVM's symbols, which dyld then binds lavapipe's own LLVM to (see
+  docs/ENGINEERING_NOTES.md). MoltenVK is tested on real Macs only — run
+  the GPU suites locally with `VAPOURBOX_EXPECT_VULKAN=1` after touching it.
+  Under that variable every GPU test
   **fails** rather than skips if a feature reports itself unavailable
   (`app/test/support/gpu_expectations.dart`), so a broken bundle cannot hide
   behind "no GPU". `integration_gpu_plugins_test.dart` (push gate) probes,

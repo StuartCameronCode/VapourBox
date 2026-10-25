@@ -163,15 +163,6 @@ impl GpuPluginFiles {
         Self { plugin: dir.join(file), model_dir, preload, models }
     }
 
-    /// Preload [library] instead of the bundled MoltenVK, where there is a
-    /// preload at all (macOS). See [vulkan_library_override].
-    pub fn with_vulkan_library(mut self, library: Option<PathBuf>) -> Self {
-        if let (Some(lib), Some(_)) = (library, &self.preload) {
-            self.preload = Some(lib);
-        }
-        self
-    }
-
     /// Every file that must exist, in the order a user would want to hear
     /// about them.
     pub fn required(&self) -> Vec<PathBuf> {
@@ -184,20 +175,6 @@ impl GpuPluginFiles {
     pub fn missing(&self) -> Vec<PathBuf> {
         self.required().into_iter().filter(|p| !p.is_file()).collect()
     }
-}
-
-/// `VAPOURBOX_VULKAN_LIBRARY`: on macOS, a Vulkan library for the scripts to
-/// preload in place of the bundled MoltenVK — the Khronos loader, say, to reach
-/// another driver. CI sets it to give the GPU-less macOS runners lavapipe: a
-/// `DYLD_*` variable cannot do it, because SIP strips those at the bundle's
-/// `/bin/bash` vspipe wrapper, and dyld no longer searches `~/lib` or
-/// `/usr/local/lib` for ncnn's `dlopen("libvulkan.1.dylib")` (CI runs
-/// 40157771950, 40159244055). A path that does not exist is reported as a
-/// missing file, like a damaged bundle.
-pub fn vulkan_library_override() -> Option<PathBuf> {
-    std::env::var_os("VAPOURBOX_VULKAN_LIBRARY")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
 }
 
 /// Why a plugin cannot run here.
@@ -767,21 +744,6 @@ mod tests {
     fn py_str_escapes_windows_paths_and_quotes() {
         assert_eq!(py_str(Path::new(r"C:\Users\o'brien\rife")), r"'C:\\Users\\o\'brien\\rife'");
         assert_eq!(py_str(Path::new("/a/b")), "'/a/b'");
-    }
-
-    #[test]
-    fn a_vulkan_library_override_replaces_moltenvk_only_where_there_is_one() {
-        let lib = PathBuf::from("/opt/homebrew/lib/libvulkan.1.dylib");
-        let mac = GpuPluginFiles::in_vapoursynth_dir(Rife, Path::new("/d/vapoursynth"), "macos-arm64")
-            .with_vulkan_library(Some(lib.clone()));
-        assert_eq!(mac.preload.as_deref(), Some(lib.as_path()));
-        assert!(mac.required().contains(&lib), "the override must exist, like MoltenVK");
-        let win = GpuPluginFiles::in_vapoursynth_dir(Rife, Path::new("/d/vapoursynth"), "windows-x64")
-            .with_vulkan_library(Some(lib));
-        assert_eq!(win.preload, None, "Windows and Linux load Vulkan themselves");
-        let plain = GpuPluginFiles::in_vapoursynth_dir(Upscale, Path::new("/d/vapoursynth"), "macos-arm64")
-            .with_vulkan_library(None);
-        assert_eq!(plain.preload.as_deref(), Some(Path::new("/d/vapoursynth/moltenvk/libMoltenVK.dylib")));
     }
 
     #[test]

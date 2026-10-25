@@ -2,11 +2,10 @@
 # Give a CI runner a Vulkan device, so the ncnn-on-Vulkan features (RIFE, and
 # Real-ESRGAN / Real-CUGAN upscaling) are actually exercised rather than skipped.
 #
-# The hosted runners have no GPU, so every one gets Mesa's lavapipe, a Vulkan
-# driver that runs on the CPU — slow, but the same plugin, model and script
-# path a user's GPU takes, and ncnn accepts a CPU device. That includes macOS
-# arm64: those runners are VMs whose Metal device MoltenVK cannot open (it
-# segfaults creating the instance — CI run 40155693557, 2026-10-25).
+# The hosted runners have no GPU, so Linux and Windows get Mesa's lavapipe, a
+# Vulkan driver that runs on the CPU — slow, but the same plugin, model and
+# script path a user's GPU takes, and ncnn accepts a CPU device. macOS arm64
+# gets nothing: neither MoltenVK nor lavapipe can run there (see its case).
 #
 # Wherever a device is provisioned this sets VAPOURBOX_EXPECT_VULKAN=1, and the
 # GPU tests then FAIL rather than skip if a feature reports itself unavailable
@@ -57,23 +56,15 @@ case "$platform" in
     echo "VAPOURBOX_EXPECT_VULKAN=1" >> "$GITHUB_ENV"
     ;;
   macos-arm64)
-    # Homebrew's mesa builds lavapipe on macOS (vulkan-drivers=swrast), and
-    # vulkan-loader is the Khronos loader. The scripts normally preload the
-    # bundle's MoltenVK, whose Vulkan entry points ncnn then uses;
-    # VAPOURBOX_VULKAN_LIBRARY makes them preload the loader instead, which
-    # reads VK_DRIVER_FILES and opens lavapipe. A DYLD_* variable cannot do
-    # this (SIP strips them at the bundle's /bin/bash vspipe wrapper), and
-    # dyld no longer searches ~/lib or /usr/local/lib for ncnn's own
-    # dlopen("libvulkan.1.dylib") (CI runs 40157771950, 40159244055).
-    # Not pinned: Homebrew has no version pins (bottles exist for macos-15).
-    brew install --quiet mesa vulkan-loader vulkan-tools
-    prefix="$(brew --prefix)"
-    icd="$(ls "$prefix"/share/vulkan/icd.d/lvp_icd*.json | head -1)"
-    echo "VAPOURBOX_VULKAN_LIBRARY=$prefix/lib/libvulkan.1.dylib" >> "$GITHUB_ENV"
-    echo "VK_DRIVER_FILES=$icd" >> "$GITHUB_ENV"
-    echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
-    VK_DRIVER_FILES="$icd" vulkaninfo --summary || true
-    echo "VAPOURBOX_EXPECT_VULKAN=1" >> "$GITHUB_ENV"
+    # No device here, and none can be provided. The runners are VMs whose Metal
+    # device MoltenVK cannot open (it segfaults creating the instance), and
+    # lavapipe crashes in its shader compiler: the bundle's akarin links LLVM
+    # statically and exports its symbols, ~2,300 of them weak, and dyld binds
+    # lavapipe's own LLVM to akarin's copy of those (crash report: libLLVM.23
+    # in PassBuilder::registerCGSCCAnalyses; CI run 40160839608). So the GPU
+    # tests skip here, the probe still has to answer with a real reason, and
+    # MoltenVK is tested on real Macs only.
+    echo "macOS arm64 runner: no usable Vulkan device; GPU tests skip (see the comment above)."
     ;;
   *)
     echo "No GPU features ship on $platform; the tests assert that answer instead."

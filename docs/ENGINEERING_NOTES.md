@@ -2474,15 +2474,40 @@ Pixel checks (heavy test), against a plain Spline36 upscale of the same frames:
   centre on both axes (0.75 px), and that Spline36 itself lands on factor x
   source (within 0.25 px), so the reference is known-good.
 
-CI runs it all for real: Mesa lavapipe on every GPU-less runner (ncnn tags a
-CPU device as type 3 but does not skip it) and `VAPOURBOX_EXPECT_VULKAN=1`, so
-an unavailable feature is a failure there, not a skip. The first plan used the
-macOS arm64 runner's Metal GPU through MoltenVK; on the first run with the
-variable set, both probes died with SIGSEGV creating the instance — those
-runners are VMs — so macOS gets Homebrew's lavapipe too, reached through the
-Khronos loader that ncnn dlopens before falling back to MoltenVK. MoltenVK is
-therefore tested only on real Macs. The first probe on lavapipe takes ~30 s
-(Windows: 30.4 s), past flutter_test's default timeout.
+CI runs it for real on Linux and Windows: Mesa lavapipe (ncnn tags a CPU
+device as type 3 but does not skip it) and `VAPOURBOX_EXPECT_VULKAN=1`, so an
+unavailable feature is a failure there, not a skip. The first lavapipe probe
+takes ~30 s (Windows: 30.4 s), past flutter_test's default timeout, and one
+whole 720x576 Real-CUGAN frame took over five minutes, so the push gate crops
+to 240x192 first.
+
+**macOS arm64 cannot be given a device, and its GPU tests skip.** Four
+attempts, 2026-10-25:
+
+1. The runner's Metal GPU through MoltenVK: both probes SIGSEGV creating the
+   instance. The runners are VMs.
+2. Homebrew lavapipe via `DYLD_FALLBACK_LIBRARY_PATH`: never reached the
+   plugins. SIP strips every `DYLD_*` variable when a protected binary runs,
+   and the bundle's vspipe is a `/bin/bash` wrapper.
+3. The loader in `~/lib`: dyld no longer searches `~/lib` or `/usr/local/lib`
+   for a leaf-name `dlopen` (its own "tried:" list for ncnn's
+   `dlopen("libvulkan.1.dylib")` stops at `/usr/lib`).
+4. Preloading the loader in place of MoltenVK: it reached lavapipe, which then
+   crashed compiling its first shader, in Homebrew's `libLLVM.23` at
+   `llvm::PassBuilder::registerCGSCCAnalyses`. The cause: **the bundle's
+   macOS `libakarin.dylib` statically links LLVM and exports ~47,000 of its
+   symbols, 2,293 of them weak**, and dyld coalesces weak definitions across
+   every image in the process, so lavapipe's LLVM 23 ran against akarin's
+   LLVM 22 data. Linux's lavapipe passes with the same akarin, so this is
+   macOS only.
+
+No user is affected today (MoltenVK has no LLVM), but **any LLVM-based
+component loaded into vspipe on macOS will hit the same thing** while akarin
+is autoloaded. The fix, if one is ever needed, is an akarin build with LLVM's
+symbols hidden (`-fvisibility=hidden`, or an exported-symbols list of just
+`VapourSynthPluginInit2`). `.github/scripts/print-crash-reports.py`, run by
+both workflows' macOS jobs on failure, is what turned "signal 11" into that
+backtrace.
 
 ### Descale and native-resolution detection (2026-10-25)
 
