@@ -22,6 +22,8 @@
 ///   Decimate{cycle:5,keep:4}  90 -> 72
 ///   Retime 25 -> 24000/1001   ratio reduces to 960/1001, so 75 -> 71
 ///                             (75*960/1001 = 71.93, floored)
+///   Fanout then Retime to 25  31 -> 62 -> 31 (the retime converts from the
+///                             doubled 50p, not the source's 25)
 ///
 /// Heavy (full encode + preview) — nightly, not the push gate.
 @Tags(['heavy'])
@@ -29,6 +31,7 @@ library;
 
 // ignore_for_file: avoid_print — these tests print diagnostics to the test log.
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -113,6 +116,26 @@ Future<int> _countFrames(String path) async {
   final n = int.tryParse(v!['nb_read_frames']?.toString() ?? '');
   expect(n, isNotNull, reason: 'ffprobe returned no frame count for $path');
   return n!;
+}
+
+/// Every progress total the worker reported — what the app shows as
+/// "frame / total" and derives the percentage and ETA from. The last one is
+/// always the frames written (the worker sends a final 100% with the real
+/// count), so only the ones before it say whether the total was right while
+/// the encode ran. A clip this short may finish before the first poll, leaving
+/// none; `video_job.rs`'s frame_rate_progress_tests are the deterministic
+/// guard, this one checks the real pipeline agrees whenever it can.
+List<int> _progressTotals(JobResult r) {
+  final totals = <int>[];
+  for (final line in r.logs) {
+    if (!line.startsWith('{')) continue;
+    try {
+      final json = jsonDecode(line) as Map<String, dynamic>;
+      final total = json['totalFrames'];
+      if (json['type'] == 'progress' && total is int) totals.add(total);
+    } catch (_) {/* not a worker message */}
+  }
+  return totals;
 }
 
 /// One frame of a video as packed rgb24, by absolute frame index.
@@ -260,11 +283,11 @@ void main() {
         input: _interlaced,
         pipeline: const ProcessingPipeline(
           deinterlace: QTGMCParameters(enabled: false),
+          // No sourceFpsNum/Den: the app never sends them (issue #134), so
+          // the worker must work the ratio out from the job's input rate.
           frameRate: FrameRateParameters(
             enabled: true,
             target: FrameRateTarget.film23976,
-            sourceFpsNum: 25,
-            sourceFpsDen: 1,
           ),
         ),
         width: 720,
@@ -284,6 +307,46 @@ void main() {
               'floor((n-1)*r)+1. A count of ${expected + 1} means the '
               'BlockFPS arithmetic is in play and every retimed job reports a '
               'progress total one frame out.');
+      print('  progress totals: ${_progressTotals(r).toSet()}');
+      expect(_progressTotals(r), everyElement(n),
+          reason: 'issue #134: a total left at the source count pins '
+              'progress at 100% with no ETA for the rest of the encode');
+    });
+
+    test('a frame rate after double-rate QTGMC converts from the doubled rate',
+        () async {
+      // 25i doubled to 50p, then to 25: 50 -> 25 halves, so 31 -> 62 -> 31.
+      // Taking the ratio against the source's 25 would claim 62.
+      const start = 10, end = 40;
+      const sourceFrames = end - start + 1; // 31
+      final job = _job(
+        'double_rate_retime',
+        input: _interlaced,
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(
+              preset: QTGMCPreset.superFast, tff: true, fpsDivisor: 1),
+          frameRate: FrameRateParameters(
+            enabled: true,
+            target: FrameRateTarget.pal25,
+          ),
+        ),
+        width: 720,
+        height: 576,
+        pixFmt: 'yuv422p',
+        fps: _interlacedFps,
+        totalFrames: sourceFrames,
+        startFrame: start,
+        endFrame: end,
+      );
+
+      final r = await WorkerHarness.runJob(job.toJson(),
+          label: 'double_rate_retime');
+      expect(r.success, isTrue, reason: r.error);
+      final n = await _countFrames(r.outputPath!);
+      print('  $sourceFrames source -> $n output (expected $sourceFrames)');
+      expect(n, sourceFrames);
+      print('  progress totals: ${_progressTotals(r).toSet()}');
+      expect(_progressTotals(r), everyElement(n));
     });
   });
 
@@ -396,8 +459,6 @@ void main() {
             enabled: true,
             target: FrameRateTarget.pal50,
             method: FrameRateMethod.rife,
-            sourceFpsNum: 25,
-            sourceFpsDen: 1,
           ),
         );
 

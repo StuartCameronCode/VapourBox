@@ -411,27 +411,7 @@ impl ScriptGenerator {
 
     /// Convert a floating-point frame rate to a rational number (num/den).
     pub fn frame_rate_to_rational(&self, fps: f64) -> (i32, i32) {
-        // Common frame rates
-        let common = [
-            (23.976, 24000, 1001),
-            (24.0, 24, 1),
-            (25.0, 25, 1),
-            (29.97, 30000, 1001),
-            (30.0, 30, 1),
-            (50.0, 50, 1),
-            (59.94, 60000, 1001),
-            (60.0, 60, 1),
-        ];
-
-        for (rate, num, den) in common {
-            if (fps - rate).abs() < 0.01 {
-                return (num, den);
-            }
-        }
-
-        // Fallback: multiply by 1000 and simplify
-        let num = (fps * 1000.0).round() as i32;
-        (num, 1000)
+        crate::models::fps_to_rational(fps)
     }
 
     /// Substitute pipeline parameters on an already-prepared script.

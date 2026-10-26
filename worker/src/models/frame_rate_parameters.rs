@@ -105,9 +105,10 @@ pub struct FrameRateParameters {
     #[serde(default = "default_overlap")]
     pub overlap: i32,
 
-    /// The source rate, supplied by the app from ffprobe. The pipeline needs it
-    /// to report a correct `FrameMap::Retime`, and cannot see the job — the
-    /// same reason `inputSar` is carried rather than looked up.
+    /// The source rate. The pipeline needs it to report a correct
+    /// `FrameMap::Retime`, and cannot see the job, so
+    /// `VideoJob::effective_pipeline` fills it from the job's input rate when
+    /// absent — the app never sends it (issue #134).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_fps_num: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -160,14 +161,9 @@ impl FrameRateParameters {
     fn as_fraction(&self) -> (u32, u32) {
         self.target.as_fraction()
     }
-
-    /// The retime ratio using the carried source rate, if the app supplied one.
-    pub fn ratio(&self) -> Option<(u32, u32)> {
-        self.ratio_against(self.source_fps_num?, self.source_fps_den?)
-    }
 }
 
-fn gcd(a: u64, b: u64) -> u64 {
+pub(super) fn gcd(a: u64, b: u64) -> u64 {
     if b == 0 { a.max(1) } else { gcd(b, a % b) }
 }
 

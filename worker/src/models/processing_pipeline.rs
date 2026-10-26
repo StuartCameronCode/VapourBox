@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::frame_rate_parameters::gcd;
+
 use super::{
     AntiAliasParameters, GeometryParameters, GrainParameters, StabilizeParameters,
     ChromaDenoiseParameters, ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
@@ -64,6 +66,17 @@ impl FrameMap {
             FrameMap::Fanout { factor, .. } => n_in * factor as u64,
             FrameMap::Decimate { cycle, keep } => n_in * keep as u64 / cycle as u64,
             FrameMap::Retime { num, den, .. } => n_in * num as u64 / den as u64,
+        }
+    }
+
+    /// How the map scales the frame rate, as num/den: a pass that emits more
+    /// frames over the same duration raises the rate by the same factor.
+    pub fn rate_factor(&self) -> (u64, u64) {
+        match *self {
+            FrameMap::Identity { .. } => (1, 1),
+            FrameMap::Fanout { factor, .. } => (factor as u64, 1),
+            FrameMap::Decimate { cycle, keep } => (keep as u64, cycle as u64),
+            FrameMap::Retime { num, den, .. } => (num as u64, den as u64),
         }
     }
 
@@ -542,15 +555,15 @@ impl ProcessingPipeline {
 
     /// Frame mapping for the frame rate pass.
     ///
-    /// The source rate is not known to the pipeline, so this reports the
-    /// identity and the executor substitutes the real ratio once vspipe has
-    /// reported the input rate. Reporting a wrong fixed ratio here would make
-    /// the progress total and the preview seek disagree with the output.
+    /// Needs the source rate, which `VideoJob::effective_pipeline` fills in;
+    /// a pipeline built without one reports the identity. Reporting a wrong
+    /// fixed ratio here would make the progress total and the preview seek
+    /// disagree with the output.
     fn frame_rate_frame_map(&self) -> FrameMap {
         // Without a source rate we cannot know the ratio, and a wrong fixed
         // ratio is worse than none: it would make the progress total and the
         // preview index disagree with what the encoder actually receives.
-        match self.frame_rate.ratio() {
+        match self.frame_rate_input_fps().and_then(|(n, d)| self.frame_rate.ratio_against(n, d)) {
             Some((num, den)) => FrameMap::Retime {
                 num,
                 den,
@@ -561,6 +574,29 @@ impl ProcessingPipeline {
             },
             None => FrameMap::Identity { radius: 1 },
         }
+    }
+
+    /// The rate the frame rate pass converts *from*: the source rate as
+    /// changed by every pass ahead of it. Double-rate deinterlacing hands it
+    /// 50p from a 25i source, and its target is absolute, so the ratio has to
+    /// be taken against that, not against the source.
+    fn frame_rate_input_fps(&self) -> Option<(u32, u32)> {
+        let (mut num, mut den) = (
+            self.frame_rate.source_fps_num? as u64,
+            self.frame_rate.source_fps_den? as u64,
+        );
+        for pass in self.enabled_passes() {
+            if pass == PassType::FrameRate {
+                break;
+            }
+            let (f_num, f_den) = self.frame_map_for(pass).rate_factor();
+            num *= f_num;
+            den *= f_den;
+            let g = gcd(num, den);
+            num /= g;
+            den /= g;
+        }
+        Some((u32::try_from(num).ok()?, u32::try_from(den).ok()?))
     }
 
     /// Frame mapping for the deinterlace pass. QTGMC double-rate (FPSDivisor=1,
