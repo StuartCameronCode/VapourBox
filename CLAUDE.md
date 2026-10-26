@@ -1103,7 +1103,11 @@ than fail cleanly.
   frame it would merely copy (an exact source position, the held tail) is
   taken from the source by `FrameEval`, so photographed frames are bit-exact.
   The count is `floor(n * num / den)` of the reduced ratio — exactly
-  `FrameMap::Retime`. `sc=True` with `misc.SCDetect` holds the frame across a
+  `FrameMap::Retime`. That ratio needs the source rate, which the app does
+  **not** send: `VideoJob::effective_pipeline` fills `sourceFpsNum/Den` from
+  the job's input rate, and the ratio is taken against the rate *at the pass*
+  (×2 after double-rate deinterlacing). Without that the progress total stays
+  at the source count and pins at 100% with no ETA (issue #134). `sc=True` with `misc.SCDetect` holds the frame across a
   cut rather than blending two shots.
 - **Upscaling: models, factors, tiles.** Five of vs-mlrt's ONNX conversions
   ship (`gpu_plugin::UPSCALE_MODELS`): Real-ESRGAN animevideo 2x/4x and

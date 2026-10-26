@@ -127,11 +127,58 @@ impl VideoJob {
 
     /// Get the effective processing pipeline.
     /// Uses processing_pipeline if set, otherwise creates one from legacy qtgmc_parameters.
+    ///
+    /// The frame rate pass needs the source rate to know its retime ratio, and
+    /// the pipeline cannot see the job, so it is filled in here from the same
+    /// rate the script declares for the clip. Without it the pass maps as the
+    /// identity: the progress total stays at the source count while RIFE or
+    /// FlowFPS emit more frames, so progress pins at 100% with no ETA for the
+    /// rest of the encode (issue #134), and the preview seeks the wrong frame.
     pub fn effective_pipeline(&self) -> ProcessingPipeline {
-        self.processing_pipeline
+        let mut pipeline = self
+            .processing_pipeline
             .clone()
-            .unwrap_or_else(|| ProcessingPipeline::from_legacy(&self.qtgmc_parameters))
+            .unwrap_or_else(|| ProcessingPipeline::from_legacy(&self.qtgmc_parameters));
+        let fr = &mut pipeline.frame_rate;
+        if fr.source_fps_num.is_none() || fr.source_fps_den.is_none() {
+            let (num, den) = self.input_fps_rational();
+            fr.source_fps_num = Some(num);
+            fr.source_fps_den = Some(den);
+        }
+        pipeline
     }
+
+    /// The source rate as the script declares it to VapourSynth, 29.97 when
+    /// the job does not say.
+    pub fn input_fps_rational(&self) -> (u32, u32) {
+        let (num, den) = fps_to_rational(self.input_frame_rate.unwrap_or(29.97));
+        (num.max(1) as u32, den.max(1) as u32)
+    }
+}
+
+/// Convert a floating-point frame rate to a rational number (num/den).
+pub fn fps_to_rational(fps: f64) -> (i32, i32) {
+    // Common frame rates
+    let common = [
+        (23.976, 24000, 1001),
+        (24.0, 24, 1),
+        (25.0, 25, 1),
+        (29.97, 30000, 1001),
+        (30.0, 30, 1),
+        (50.0, 50, 1),
+        (59.94, 60000, 1001),
+        (60.0, 60, 1),
+    ];
+
+    for (rate, num, den) in common {
+        if (fps - rate).abs() < 0.01 {
+            return (num, den);
+        }
+    }
+
+    // Fallback: multiply by 1000 and simplify
+    let num = (fps * 1000.0).round() as i32;
+    (num, 1000)
 }
 
 /// Subtitle generation settings using Whisper AI.
@@ -1076,6 +1123,76 @@ impl FieldOrder {
             FieldOrder::BottomFieldFirst => Some(false),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod frame_rate_progress_tests {
+    use super::*;
+    use crate::models::{DeinterlaceMethod, FrameRateMethod, FrameRateParameters, FrameRateTarget};
+
+    fn job(fps: f64, deinterlace: bool, frame_rate: FrameRateParameters) -> VideoJob {
+        let mut job: VideoJob = serde_json::from_value(serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000000",
+            "inputPath": "in.mkv",
+            "outputPath": "out.mkv",
+            "qtgmcParameters": {},
+            "encodingSettings": {},
+        }))
+        .unwrap();
+        job.input_frame_rate = Some(fps);
+        let mut pipeline = ProcessingPipeline::default();
+        pipeline.deinterlace.enabled = deinterlace;
+        pipeline.deinterlace.method = DeinterlaceMethod::Qtgmc;
+        pipeline.frame_rate = frame_rate;
+        job.processing_pipeline = Some(pipeline);
+        job
+    }
+
+    fn rife_to(target: FrameRateTarget) -> FrameRateParameters {
+        FrameRateParameters {
+            enabled: true,
+            target,
+            method: FrameRateMethod::Rife,
+            ..Default::default()
+        }
+    }
+
+    /// Issue #134: the app never sends the frame rate pass its source rate, so
+    /// the progress total used to stay at the source count while RIFE doubled
+    /// it — 100% at the halfway point and no ETA for the rest.
+    #[test]
+    fn the_progress_total_counts_the_retimed_frames_without_an_app_supplied_rate() {
+        let j = job(23.976, false, rife_to(FrameRateTarget::Ntsc5994));
+        // 24000/1001 -> 60000/1001 is exactly 5/2.
+        assert_eq!(j.effective_pipeline().output_count(1775), 1775 * 5 / 2);
+    }
+
+    #[test]
+    fn a_rate_the_app_did_supply_is_kept() {
+        let mut fr = rife_to(FrameRateTarget::Pal50);
+        fr.source_fps_num = Some(25);
+        fr.source_fps_den = Some(1);
+        // The job claims 29.97; the carried rate wins.
+        assert_eq!(job(29.97, false, fr).effective_pipeline().output_count(100), 200);
+    }
+
+    /// The target is absolute, so it converts from the rate deinterlacing
+    /// hands it, not the source's: 25i double-rate is 50p, and 50p -> 25 halves.
+    #[test]
+    fn the_ratio_is_taken_after_double_rate_deinterlacing() {
+        let j = job(25.0, true, rife_to(FrameRateTarget::Pal25));
+        assert_eq!(j.effective_pipeline().output_count(100), 100);
+        let j = job(25.0, true, rife_to(FrameRateTarget::Ntsc5994));
+        // 50 -> 59.94 is 1200/1001.
+        assert_eq!(j.effective_pipeline().output_count(100), 200 * 1200 / 1001);
+    }
+
+    #[test]
+    fn the_preview_inverse_uses_the_same_ratio() {
+        let j = job(25.0, false, rife_to(FrameRateTarget::Pal50));
+        let span = j.effective_pipeline().invert(10);
+        assert_eq!(span.start, 5);
     }
 }
 
