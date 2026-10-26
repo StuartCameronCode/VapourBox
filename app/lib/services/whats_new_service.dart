@@ -20,6 +20,12 @@ import '../models/filter_schema.dart';
 ///   is otherwise left untouched — which is what makes badges survive many
 ///   launches of the same version instead of clearing after one.
 ///
+/// A patch release (1.5.0 -> 1.5.1) is not an update for this purpose: the
+/// baseline only moves when the major or minor version changes. A bugfix
+/// release shipped days after 1.5.0 would otherwise clear 1.5.0's badges
+/// before most users had seen them; instead 1.5.1 keeps showing everything
+/// since the version before 1.5.0, plus anything stamped 1.5.1.
+///
 /// A fresh install (or an upgrade from a build that predates this tracking,
 /// which looks the same — no `lastRunAppVersion` stored yet) flags nothing as
 /// new: both markers are seeded to the current version, so there's no earlier
@@ -54,6 +60,12 @@ class WhatsNewService {
         // Nothing to diff against yet — seed both markers to now.
         _lastSeenVersion = currentVersion;
         await prefs.setString(_baselineKey, currentVersion);
+      } else if (lastRunVersion != currentVersion &&
+          _isPatchOnly(lastRunVersion, currentVersion)) {
+        // A bugfix release: keep the baseline the last feature release set,
+        // so its badges outlive the fix that followed it.
+        _lastSeenVersion = storedBaseline ?? lastRunVersion;
+        await prefs.setString(_baselineKey, _lastSeenVersion!);
       } else if (lastRunVersion != currentVersion) {
         // The version actually changed since the last launch: this is the
         // one moment the baseline moves, to whatever was running just
@@ -147,6 +159,18 @@ class WhatsNewService {
     _lastSeenVersion = null;
     _loaded = false;
   }
+}
+
+/// Whether [from] -> [to] changes only the patch component (same major and
+/// minor), the kind of update that leaves the badge baseline alone.
+bool _isPatchOnly(String from, String to) {
+  List<int> majorMinor(String v) {
+    final parts = v.split('.').map((p) => int.tryParse(p.trim()) ?? 0).toList();
+    return [parts.isNotEmpty ? parts[0] : 0, parts.length > 1 ? parts[1] : 0];
+  }
+
+  final a = majorMinor(from), b = majorMinor(to);
+  return a[0] == b[0] && a[1] == b[1];
 }
 
 /// Compare two dotted version strings numerically ("1.10.0" > "1.9.0").

@@ -593,7 +593,9 @@ option via `optionSinceAppVersion`, e.g. `"1.2.0"`): tags
 when a filter or parameter shipped, purely so `WhatsNewService` can draw a
 "NEW" badge next to it — persisting across every launch of the current app
 version, and only advancing on the next real update, not clearing after one
-run. **Stamp it in the same change that adds or modifies the property, using
+run. A patch-only update (1.5.0 → 1.5.1) is not one: the baseline moves only
+when major or minor changes, so a bugfix release keeps the feature release's
+badges. **Stamp it in the same change that adds or modifies the property, using
 the version that change will actually ship in** (a minor bump on the latest
 public release, or whatever's already in `app/pubspec.yaml` if that's ahead)
 — not retroactively at release time, which is exactly how properties get

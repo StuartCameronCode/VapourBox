@@ -286,6 +286,11 @@ schemas; extend it when stamping a release's additions.
   just happened), then holds steady through as many future launches as the
   user stays on that version. There's no "mark as seen" action to wire up, and
   no badge that silently disappears after someone glances at the app once.
+- **A patch release doesn't count as an update.** The baseline moves only
+  when the major or minor version changes, so 1.5.0 → 1.5.1 keeps every badge
+  1.5.0 showed (and adds anything stamped `1.5.1`); the next feature release,
+  1.6.0, then clears them all. A bugfix shipped days after a feature release
+  would otherwise wipe its badges before most users saw them.
 - **A fresh install sees no badges at all.** There's no "since you last
   updated" for someone who has never had a previous version, so a first
   launch would otherwise badge the entire app.
