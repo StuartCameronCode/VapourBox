@@ -108,6 +108,81 @@ void main() {
       expect(prefs.getString('lastRunAppVersion'), '1.3.0');
     });
 
+    test('a patch release keeps the previous feature release\'s badges',
+        () async {
+      // 1.4.2 -> 1.5.0 set the baseline to 1.4.2; now 1.5.1 ships a fix.
+      SharedPreferences.setMockInitialValues({
+        'lastRunAppVersion': '1.5.0',
+        'lastSeenAppVersion': '1.4.2',
+      });
+      setCurrentVersion('1.5.1');
+      await service.initialize();
+
+      expect(service.isNew('1.5.0'), true,
+          reason: 'a bugfix release must not clear what 1.5.0 added');
+      expect(service.isNew('1.5.1'), true, reason: 'anything the fix itself added');
+      expect(service.isNew('1.4.2'), false);
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('lastSeenAppVersion'), '1.4.2');
+      expect(prefs.getString('lastRunAppVersion'), '1.5.1');
+    });
+
+    test('several patch releases in a row keep the same baseline', () async {
+      SharedPreferences.setMockInitialValues({
+        'lastRunAppVersion': '1.5.0',
+        'lastSeenAppVersion': '1.4.2',
+      });
+      for (final version in ['1.5.1', '1.5.2', '1.5.10']) {
+        service.resetForTesting();
+        setCurrentVersion(version);
+        await service.initialize();
+        expect(service.isNew('1.5.0'), true, reason: 'still new on $version');
+      }
+    });
+
+    test('the next feature release after patches advances past all of them',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'lastRunAppVersion': '1.5.2',
+        'lastSeenAppVersion': '1.4.2',
+      });
+      setCurrentVersion('1.6.0');
+      await service.initialize();
+
+      expect(service.isNew('1.5.0'), false);
+      expect(service.isNew('1.5.2'), false);
+      expect(service.isNew('1.6.0'), true);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('lastSeenAppVersion'), '1.5.2');
+    });
+
+    test('a major release with the same minor number still advances', () async {
+      SharedPreferences.setMockInitialValues({
+        'lastRunAppVersion': '1.5.1',
+        'lastSeenAppVersion': '1.4.0',
+      });
+      setCurrentVersion('2.5.0');
+      await service.initialize();
+
+      expect(service.isNew('1.5.0'), false);
+      expect(service.isNew('2.5.0'), true);
+    });
+
+    test('jumping straight to a patch of a new feature release still badges it',
+        () async {
+      // Skipped 1.5.0 entirely: 1.4.2 -> 1.5.1 crosses a minor boundary.
+      SharedPreferences.setMockInitialValues({
+        'lastRunAppVersion': '1.4.2',
+        'lastSeenAppVersion': '1.3.0',
+      });
+      setCurrentVersion('1.5.1');
+      await service.initialize();
+
+      expect(service.isNew('1.5.0'), true);
+      expect(service.isNew('1.4.2'), false);
+    });
+
     test('untagged (null) is never new', () async {
       SharedPreferences.setMockInitialValues({
         'lastRunAppVersion': '1.1.0',
