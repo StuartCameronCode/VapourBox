@@ -2671,6 +2671,30 @@ yield no frame through reorder delay) and passes them. x265 also turns on
 `repeat-headers` for it. No other offered encoder takes them on the command
 line; those outputs keep the tags only. The Dolby Vision RPU is not carried.
 
+### A long source comment stopped ffmpeg starting on Windows (issue #138, 2026-11-02)
+
+Reported on Windows: `Failed to start ffmpeg: … The filename or extension is
+too long. (os error 206)`. The decoder and vspipe had started with the same
+environment, so it was the encoder's arguments: `CreateProcess` refuses a
+command line over 32,767 characters. The one argument whose length came from
+the source was `-metadata comment=VapourBox X | <source comment>`. The source
+was an AI-generated MP4, and tools such as ComfyUI store their whole workflow
+JSON in that tag.
+
+- The comment now goes to ffmpeg as an FFMETADATA file input
+  (`-f ffmetadata -i <file>`, `-map_metadata:g <n>`), the same in the encode
+  (input 2) and the subtitle mux. Checked against the bundled ffmpeg 9.0 with a
+  100 KB comment holding `= ; # \` and a newline: it came back byte-identical.
+- In the subtitle mux the source's other global tags are kept by mapping
+  `-map_metadata:g 0` *after* the file. ffmpeg never overwrites a tag an earlier
+  mapping copied, so the comment comes from the file and the rest (title, …)
+  from the source.
+- The probe used `-of csv=p=0`, which quoted the value and doubled each `"`
+  inside, so a JSON comment came back altered and grew on every pass. It now
+  uses `default=nw=1:nk=1`, which prints the value raw. A comment that already
+  begins `VapourBox <version>` (re-processing an output, or the mux after an
+  encode) keeps one prefix rather than gaining another.
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and

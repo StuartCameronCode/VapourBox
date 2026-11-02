@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 
+use crate::comment_metadata::{self, CommentFile};
 use crate::dependency_locator::DependencyLocator;
 use crate::models::{LogLevel, ProgressInfo, SubtitleOutput, SubtitleSettings};
 use crate::progress_reporter::ProgressReporter;
@@ -233,26 +234,6 @@ impl SubtitleGenerator {
             .context("Failed to run ffprobe")?;
 
         Ok(!output.stdout.is_empty())
-    }
-
-    /// Probe the source file's comment metadata.
-    fn probe_comment(&self, video_path: &str) -> Option<String> {
-        let ffprobe_path = self.deps.ffprobe_path().ok()?;
-        let env = self.deps.build_environment();
-
-        let output = Command::new(&ffprobe_path)
-            .args([
-                "-v", "quiet",
-                "-show_entries", "format_tags=comment",
-                "-of", "csv=p=0",
-                video_path,
-            ])
-            .envs(&env)
-            .output()
-            .ok()?;
-
-        let comment = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if comment.is_empty() { None } else { Some(comment) }
     }
 
     /// Extract audio from video to 16kHz mono WAV.
@@ -495,30 +476,24 @@ impl SubtitleGenerator {
         };
         let output_str = output_path.to_string_lossy().to_string();
 
-        // Build comment metadata, preserving any existing comment from source
-        let version = env!("CARGO_PKG_VERSION");
-        let existing_comment = self.probe_comment(source_video);
-        let comment = match existing_comment {
-            Some(ref existing) => format!("VapourBox {} | {}", version, existing),
-            None => format!("VapourBox {}", version),
-        };
-        let comment_arg = format!("comment={}", comment);
+        // Build comment metadata, preserving any existing comment from source.
+        // It goes in a file, input 2: as an argument a long comment overflows
+        // Windows' command line (issue #138). Its mapping comes first, so the
+        // source's other global tags (input 0) fill in around the comment.
+        let existing_comment = self.deps.ffprobe_path().ok().and_then(|ffprobe| {
+            comment_metadata::probe(&ffprobe, &env, source_video)
+        });
+        let comment_file = CommentFile::write(
+            &format!("subs_{}", std::process::id()),
+            &comment_metadata::output_comment(existing_comment.as_deref()),
+        )?;
 
         let mut child = Command::new(&ffmpeg_path)
-            .args([
-                "-i",
-                source_video,
-                "-i",
-                &srt_path.to_string_lossy(),
-                "-c",
-                "copy",
-                "-c:s",
-                sub_codec,
-                "-metadata",
-                &comment_arg,
-                "-y",
-                &output_str,
-            ])
+            .args(["-i", source_video, "-i", &srt_path.to_string_lossy()])
+            .args(comment_file.input_args())
+            .args(CommentFile::map_args(2))
+            .args(["-map_metadata:g", "0"])
+            .args(["-c", "copy", "-c:s", sub_codec, "-y", &output_str])
             .envs(&env)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())

@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 mod models;
+mod comment_metadata;
 mod cpu;
 mod dependency_locator;
 mod dvd_reader;
