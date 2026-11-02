@@ -105,6 +105,7 @@ VapourBox/
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, the `--probe-rife` / `--probe-upscale` probe, and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
+| `worker/src/comment_metadata.rs` | The source's comment tag, prefixed with the version and passed to ffmpeg as an FFMETADATA file (issue #138) |
 | `worker/src/hdr_metadata.rs` | HDR10 mastering display / MaxCLL read from the source for x265, and the Dolby Vision profile (see "HDR Sources and Dolby Vision") |
 | `worker/src/native_res.rs` | `--detect-native`: the resolution and kernel a source was upscaled from, for the Descale pass (see "Descale") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
@@ -683,6 +684,14 @@ every mode, so a mode that does none of the three can't silently produce nothing
 never push a second bare `-vf`.** ffmpeg only honours the *last* `-vf`, so two
 separate pushes (e.g. aspect stamping and subtitle burn-in) would silently drop
 the first one's effect.
+
+**Nothing of unbounded length goes on a child process's command line.**
+Windows caps it at 32,767 characters and refuses to start the process (os
+error 206). The source's `comment` tag is the case that hit it (issue #138: AI
+tools store a whole workflow there), so it reaches ffmpeg as an FFMETADATA
+file input via `comment_metadata::CommentFile`, in both the encode and the
+subtitle mux. `integration_long_comment_test.dart` (heavy) encodes a 40 KB
+comment.
 
 **FFmpeg is pinned to one series (currently 9.0) across all four platforms, and
 the pin is asserted, not just documented.** Each `download-deps-*` script

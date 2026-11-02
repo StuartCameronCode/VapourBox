@@ -148,6 +148,7 @@ fn preview_window(target: i32, radius: i32) -> (i32, i32, i32) {
     (first, local, num_frames)
 }
 
+use crate::comment_metadata::{self, CommentFile};
 use crate::gpu_plugin::GpuPlugin;
 use crate::hdr_metadata::HdrMetadata;
 use crate::dependency_locator::DependencyLocator;
@@ -370,7 +371,15 @@ impl PipelineExecutor {
         // test — every test used a fresh job id, so the file never pre-existed.
         let _ = fs::remove_file(&progress_file);
 
-        let existing_comment = self.probe_comment(&job.input_path);
+        // The output's comment goes to ffmpeg in a file: a source's comment
+        // can be long enough to overflow Windows' command line (issue #138).
+        let existing_comment = self.deps.ffprobe_path().ok().and_then(|ffprobe| {
+            comment_metadata::probe(&ffprobe, &self.deps.build_environment(), &job.input_path)
+        });
+        let comment_file = CommentFile::write(
+            &job.id.to_string(),
+            &comment_metadata::output_comment(existing_comment.as_deref()),
+        )?;
         // HDR10 static metadata and Dolby Vision (issue #133): side data the
         // pipe drops, read from the source for the encoder.
         let hdr = match self.deps.ffprobe_path() {
@@ -385,7 +394,7 @@ impl PipelineExecutor {
             job,
             &progress_file,
             input_sar.as_deref(),
-            existing_comment.as_deref(),
+            &comment_file,
             &hdr,
         );
 
@@ -720,26 +729,6 @@ impl PipelineExecutor {
         Ok(())
     }
 
-    /// Probe the input file's comment metadata using ffprobe.
-    fn probe_comment(&self, input_path: &str) -> Option<String> {
-        let ffprobe_path = self.deps.ffprobe_path().ok()?;
-        let env = self.deps.build_environment();
-
-        let output = Command::new(&ffprobe_path)
-            .args([
-                "-v", "quiet",
-                "-show_entries", "format_tags=comment",
-                "-of", "csv=p=0",
-                input_path,
-            ])
-            .envs(&env)
-            .output()
-            .ok()?;
-
-        let comment = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if comment.is_empty() { None } else { Some(comment) }
-    }
-
     /// Probe the input file's sample aspect ratio (SAR) using ffprobe.
     /// Returns "N:M" string (e.g. "10:11") or None if SAR is 1:1 or unavailable.
     fn probe_sar(&self, input_path: &str) -> Option<String> {
@@ -835,7 +824,7 @@ impl PipelineExecutor {
         job: &VideoJob,
         progress_file: &Path,
         input_sar: Option<&str>,
-        existing_comment: Option<&str>,
+        comment_file: &CommentFile,
         hdr: &HdrMetadata,
     ) -> Vec<String> {
         let mut args = Vec::new();
@@ -865,6 +854,9 @@ impl PipelineExecutor {
             }
         }
         args.extend(["-i".to_string(), job.input_path.clone()]);
+
+        // Input 2: the output's comment, as an FFMETADATA file (issue #138)
+        args.extend(comment_file.input_args());
 
         // Progress output to a temp file (avoids Windows pipe buffering delay)
         args.extend(["-progress".to_string(), progress_file.to_string_lossy().to_string()]);
@@ -1045,13 +1037,9 @@ impl PipelineExecutor {
             args.push("-shortest".to_string());
         }
 
-        // Embed VapourBox version in output metadata, preserving any existing comment
-        let version = env!("CARGO_PKG_VERSION");
-        let comment = match existing_comment {
-            Some(existing) => format!("VapourBox {} | {}", version, existing),
-            None => format!("VapourBox {}", version),
-        };
-        args.extend(["-metadata".to_string(), format!("comment={}", comment)]);
+        // Embed VapourBox version in output metadata, preserving any existing
+        // comment: the global tags come from input 2, the metadata file.
+        args.extend(CommentFile::map_args(2));
 
         // Custom arguments
         if !settings.custom_ffmpeg_args.is_empty() {
@@ -1795,6 +1783,25 @@ mod tests {
         job.encoding_settings.codec = VideoCodec::H265;
         job.input_color_transfer = Some("bt709".to_string());
         assert!(!build_ffmpeg_args_with_hdr(&job, hdr).iter().any(|a| a == "-x265-params"));
+    }
+
+    /// Issue #138: the source's comment is unbounded, so the real builder
+    /// must hand it to ffmpeg as the metadata file (input 2, after the source)
+    /// and never put it on the command line, where a long one overflowed
+    /// Windows' 32,767-character limit and ffmpeg could not start.
+    #[test]
+    fn test_real_ffmpeg_builder_takes_the_comment_from_a_file() {
+        let src = include_str!("pipeline_executor.rs").replace("\r\n", "\n");
+        let start = src.find("fn build_ffmpeg_args(\n").expect("real builder");
+        let body = &src[start..];
+        let body = &body[..body.find("\n    }\n").expect("end of builder")];
+        assert!(!body.contains("\"-metadata\""), "no -metadata on the command line");
+        let source = body
+            .find(r#"args.extend(["-i".to_string(), job.input_path.clone()]);"#)
+            .expect("source input");
+        let file = body.find("comment_file.input_args()").expect("metadata file input");
+        assert!(source < file, "the metadata file must be input 2, after the source");
+        assert!(body.contains("CommentFile::map_args(2)"));
     }
 
     /// The real builder must carry the same call as the copy above.

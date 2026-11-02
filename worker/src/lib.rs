@@ -3,6 +3,7 @@
 //! Provides video processing functionality using VapourSynth.
 
 pub mod models;
+pub mod comment_metadata;
 pub mod cpu;
 pub mod dependency_locator;
 pub mod dvd_reader;
