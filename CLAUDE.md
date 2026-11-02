@@ -1136,6 +1136,43 @@ asserted in `shutdown_when_done_test.dart`:
   extension. Use `colorScheme` roles, not fixed colours, for UI chrome —
   fixed black/white only belongs on overlays drawn over video.
 
+### Previewing every output frame (issue #129)
+
+A source frame can have several output frames (a frame rate conversion,
+double-rate deinterlacing). `--sub-frame K` previews the Kth of those in its
+time span `[t, t+1)`; the worker reports `sub_frame`, `sub_frames` and
+`generated` on its `PREVIEW_INFO:` line, and the panel steps through them
+(`PreviewFrameInfo`, `MainViewModel.stepPreviewSubFrame`).
+
+- **A retime's phase depends on where its clip starts.** The preview's clip
+  starts at its window, the encode's at its in-point, so at a ratio that
+  isn't a whole number (24 → 60) they generated frames at different moments.
+  `ProcessingPipeline::preview_output` is the one derivation: it pads the
+  Frame Rate pass's input with copies of the first frame (`{{PREVIEW_RATE_PAD}}`,
+  preview template only) back to a whole period from the in-point, which the
+  preview job therefore carries as `startFrame` (the preview uses it for
+  nothing else). `integration_frame_mapping_test.dart` checks every output
+  frame against a lossless encode, and fails by 13 levels without the pad.
+- A source frame with no output of its own (down-conversion, decimation)
+  shows the output just before it, as the preview always has.
+
+### Frame Rate targets (issue #129)
+
+The Frame Rate pass offers the six broadcast rates plus **`custom`**, whose
+rate is `FrameRateParameters.customFps` (a plain number, default 48).
+
+- **The worker alone turns it into a fraction**: `custom_fps_fraction`, via
+  `FrameRateParameters::target_fraction`, which both the script and
+  `FrameMap::Retime` use. It must be exact. NTSC decimals (23.976, 29.97,
+  59.94, …) become n×1000/1001, never 2997/100, which would drift against an
+  NTSC source. Anything else is taken to three decimals. Out-of-range input is
+  clamped to 1–240 rather than refused: the panel's number box doesn't
+  enforce the schema's bounds. The Dart enum carries no numbers.
+- **Don't check an NTSC output rate on an MKV.** Matroska's 1/1000 timebase
+  can't hold 60000/1001, so ffprobe reports an estimate (`19001/317`) for any
+  NTSC rate. `integration_frame_mapping_test.dart` encodes its custom-rate
+  test to MOV for that reason.
+
 ### GPU Plugins: RIFE and AI Upscaling
 
 Two features run a neural network through ncnn on Vulkan: **RIFE** 4.26
@@ -1186,6 +1223,13 @@ than fail cleanly.
   (×2 after double-rate deinterlacing). Without that the progress total stays
   at the source count and pins at 100% with no ETA (issue #134). `sc=True` with `misc.SCDetect` holds the frame across a
   cut rather than blending two shots.
+- **Don't expose RIFE's scene-change threshold or `skip` (issue #129).** On
+  real footage no `SCDetect` threshold separates cuts from fast motion — it
+  only trades blended cuts for held frames in action — and `skip` needs a VMAF
+  plugin no bundle ships, for a speed-only gain (RIFE already returns a static
+  pair unchanged). MVTools' motion-compensated `SCDetection` halved the
+  mistakes on one clip but missed cuts between dark shots; switching needs
+  more footage first. See docs/ENGINEERING_NOTES.md (2026-11-03).
 - **Upscaling: models, factors, tiles.** Five of vs-mlrt's ONNX conversions
   ship (`gpu_plugin::UPSCALE_MODELS`): Real-ESRGAN animevideo 2x/4x and
   Real-CUGAN 2x at three strengths. Factors follow the edge-directed path's

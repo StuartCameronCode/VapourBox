@@ -1940,6 +1940,7 @@ fn test_55_preview_selects_exact_frame() {
 
     let generator = ScriptGenerator::new().expect("create generator");
     let params = PreviewParams {
+        rate_pad: 0,
         width: 720,
         height: 576,
         pix_fmt: "yuv420p".to_string(),
@@ -3055,6 +3056,7 @@ fn generate_both_scripts(job: &VideoJob) -> (String, String) {
     let encode = std::fs::read_to_string(&encode_path).expect("read encode script");
 
     let params = PreviewParams {
+        rate_pad: 0,
         width: job.input_width.unwrap_or(720),
         height: job.input_height.unwrap_or(480),
         pix_fmt: job
@@ -6003,6 +6005,7 @@ fn test_162_max_cache_size_is_only_set_when_overridden() {
     let scripts = |job: &VideoJob| {
         let generator = ScriptGenerator::new().expect("Failed to create generator");
         let params = PreviewParams {
+        rate_pad: 0,
             width: 720,
             height: 480,
             pix_fmt: "yuv420p".to_string(),
@@ -6173,6 +6176,7 @@ fn rife_files() -> vapourbox_worker::gpu_plugin::GpuPluginFiles {
 fn both_scripts_with(generator: &ScriptGenerator, job: &VideoJob) -> anyhow::Result<(String, String)> {
     let encode = std::fs::read_to_string(generator.generate(job)?)?;
     let params = PreviewParams {
+        rate_pad: 0,
         width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 11,
         fps_num: 25, fps_den: 1, output_index: 5,
     };
@@ -6222,6 +6226,7 @@ fn test_167_rife_unavailable_refuses_with_the_probe_message() {
     let err = generator.generate(&job).expect_err("encode must refuse").to_string();
     assert_eq!(err, message);
     let params = PreviewParams {
+        rate_pad: 0,
         width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 11,
         fps_num: 25, fps_den: 1, output_index: 5,
     };
@@ -6705,5 +6710,86 @@ fn test_180_vfr_source_timeline_fills_gaps() {
     let (encode, preview) = both_scripts_with(&plain, &vfr_job("test_180_cfr", FrameRateParameters::default())).unwrap();
     for (name, script) in [("encode", &encode), ("preview", &preview)] {
         assert!(!script.contains("_vfr_"), "{name}: timeline emitted for a CFR source");
+    }
+}
+
+/// A custom target rate (issue #129) reaches every method's call as the exact
+/// fraction, in both scripts, and the frame map counts with the same ratio.
+#[test]
+fn test_181_custom_frame_rate_target() {
+    create_output_dir();
+    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()));
+    let custom = |name: &str, method: FrameRateMethod, fps: f64, src: (u32, u32)| {
+        let mut job = rife_job(name);
+        let fr = &mut job.processing_pipeline.as_mut().unwrap().frame_rate;
+        fr.target = FrameRateTarget::Custom;
+        fr.custom_fps = fps;
+        fr.method = method;
+        fr.source_fps_num = Some(src.0);
+        fr.source_fps_den = Some(src.1);
+        job
+    };
+
+    // 59.94 typed in is 60000/1001, not 2997/50.
+    let (encode, preview) = both_scripts_with(
+        &generator, &custom("test_181_flowfps", FrameRateMethod::FlowFps, 59.94, (24000, 1001))).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("num=60000, den=1001,"), "{name}: FlowFPS target wrong");
+        assert!(!script.contains("{{FPS_"), "{name}: placeholder left behind");
+    }
+
+    let (encode, preview) = both_scripts_with(
+        &generator, &custom("test_181_rife", FrameRateMethod::Rife, 48.0, (24, 1))).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("fps_num=48, fps_den=1, sc=True)"), "{name}: RIFE target wrong");
+        assert!(script.contains("_rife_ratio = _RifeFraction(48, 1)"), "{name}: RIFE ratio wrong");
+    }
+
+    let (encode, preview) = both_scripts_with(
+        &generator, &custom("test_181_dup", FrameRateMethod::Duplicate, 12.5, (25, 1))).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("haf.ChangeFPS(clip, 25, 2)"), "{name}: ChangeFPS target wrong");
+    }
+
+    // The progress total: 40 frames of 24p to 48 is 80; of 23.976 to 60 is
+    // floor(40 * 1001/400) = 100.
+    let p = custom("test_181_map", FrameRateMethod::Rife, 48.0, (24, 1)).processing_pipeline.unwrap();
+    assert_eq!(p.frame_maps()[0], FrameMap::Retime { num: 2, den: 1, synthesizes: true, radius: 1 });
+    assert_eq!(p.output_count(40), 80);
+    let p = custom("test_181_map_ntsc", FrameRateMethod::Rife, 60.0, (24000, 1001)).processing_pipeline.unwrap();
+    assert_eq!(p.output_count(40), 100);
+}
+
+/// The preview pads the Frame Rate pass's input to put its retime in the
+/// encode's phase (issue #129); the encode never pads.
+#[test]
+fn test_182_preview_retime_padding() {
+    create_output_dir();
+    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()));
+    for method in [FrameRateMethod::FlowFps, FrameRateMethod::Rife, FrameRateMethod::Duplicate] {
+        let mut job = rife_job("test_182_pad");
+        let fr = &mut job.processing_pipeline.as_mut().unwrap().frame_rate;
+        fr.target = FrameRateTarget::Custom;
+        fr.custom_fps = 60.0;
+        fr.method = method;
+        fr.source_fps_num = Some(24);
+        fr.source_fps_den = Some(1);
+
+        let encode = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+        assert!(!encode.contains("_fps_pad"), "{method:?}: the encode must not pad");
+
+        let params = PreviewParams {
+            rate_pad: 1,
+            width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 5,
+            fps_num: 24, fps_den: 1, output_index: 3,
+        };
+        let preview = std::fs::read_to_string(generator.generate_preview(&job, &params).unwrap()).unwrap();
+        assert!(preview.contains("_fps_pad = 1\n"), "{method:?}: pad not substituted");
+        assert!(!preview.contains("{{PREVIEW_RATE_PAD}}"), "{method:?}: placeholder left");
+        // Before the retime, which is what it is for.
+        let pad = preview.find("clip = clip[0] * _fps_pad + clip").expect("pad");
+        let retime = ["core.mv.FlowFPS(", "core.rife.RIFE(", "haf.ChangeFPS("]
+            .iter().filter_map(|c| preview.find(c)).min().expect("retime");
+        assert!(pad < retime, "{method:?}: padding after the retime");
     }
 }

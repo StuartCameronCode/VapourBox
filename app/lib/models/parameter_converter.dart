@@ -572,6 +572,7 @@ class ParameterConverter {
         // The enum names are the schema's method ids.
         'method': params.method.name,
         'target': params.target.name,
+        'customFps': params.customFps,
         'blockSize': params.blockSize,
         'overlap': params.overlap,
       },
@@ -655,6 +656,7 @@ class ParameterConverter {
         orElse: () => FrameRateMethod.flowFps,
       ),
       target: target,
+      customFps: (v['customFps'] as num?)?.toDouble() ?? 48.0,
       blockSize: _asInt(v['blockSize']) ?? 16,
       overlap: _asInt(v['overlap']) ?? 8,
     );

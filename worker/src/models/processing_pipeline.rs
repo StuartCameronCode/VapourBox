@@ -30,6 +30,23 @@ pub struct SourceSpan {
     pub exact: bool,
 }
 
+/// Which output frame a preview of one source frame renders, and how the
+/// preview script has to be set up to render exactly that frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PreviewOutput {
+    /// The frame to take from the preview script's output clip.
+    pub local_index: u64,
+    /// Copies of the window's first frame to put in front of the Frame Rate
+    /// pass's input, so its retime runs in the same phase as the encode's.
+    pub rate_pad: u64,
+    /// Which of the source frame's output frames this is (from 0), and how
+    /// many it has: 2 under a ×2 frame rate or double-rate deinterlacing.
+    pub sub_frame: u64,
+    pub sub_frames: u64,
+    /// Made by interpolation rather than taken from a source frame.
+    pub generated: bool,
+}
+
 /// How one pass relates its *input* clip to its *output* clip on the frame
 /// timeline. Two operations matter to the rest of the system: a forward count
 /// (the progress total) and an inverse window (which source frames produce a
@@ -203,7 +220,7 @@ impl PassType {
             PassType::GhostRemoval => "Remove the displaced echo RF and cable distribution leave behind",
             PassType::Descale => "Undo a studio's upscale, then upscale again cleanly",
             PassType::EdgeRepair => "Rebuild the dirty rows and columns at the frame border",
-            PassType::FrameRate => "Convert between PAL and NTSC frame rates",
+            PassType::FrameRate => "Convert between PAL and NTSC, or to any frame rate",
             PassType::ColorCorrection => "Adjust brightness, contrast, and colors",
             PassType::ChromaFixes => "Fix chroma bleeding and crawl artifacts",
             PassType::CropResize => "Crop borders and resize output",
@@ -656,6 +673,65 @@ impl ProcessingPipeline {
         )
     }
 
+    /// The output frame a preview of source frame `target` renders, given the
+    /// window starts at source frame `first` and the encode at `origin` (its
+    /// in-point). `sub_frame` picks among the output frames that fall in
+    /// `target`'s time span, `[target, target + 1)`, and is clamped to them.
+    ///
+    /// A retime's phase depends on where its clip starts: 24 → 60 puts output
+    /// frames at 0, 0.4, 0.8, … source frames from the start. The preview's
+    /// clip starts at `first`, so left alone it generates frames at different
+    /// moments than the encode does whenever `first` is not a whole number of
+    /// the ratio's periods from `origin` (issue #129). `rate_pad` frames in
+    /// front of the pass move its start back to such a point. They are copies
+    /// of a frame that has already been through every other pass, and the one
+    /// requested frame only reads its own two neighbours, so they cost nothing.
+    ///
+    /// Without a frame rate pass, the frame's outputs are its share of the
+    /// local window's count, as before (double-rate deinterlacing gives two).
+    /// A source frame a decimation or down-conversion leaves no output of
+    /// its own shows the output just before it.
+    pub fn preview_output(&self, origin: u64, first: u64, target: u64, sub_frame: u64) -> PreviewOutput {
+        let local = target.saturating_sub(first);
+        let passes = self.enabled_passes();
+        let retime = passes.iter().position(|p| *p == PassType::FrameRate).and_then(|i| {
+            match self.frame_map_for(passes[i]) {
+                FrameMap::Retime { num, den, synthesizes, .. } => Some((i, num as u64, den as u64, synthesizes)),
+                _ => None,
+            }
+        });
+
+        let Some((at, num, den, synthesizes)) = retime else {
+            let lo = self.output_count(local);
+            let n = self.output_count(local + 1).saturating_sub(lo).max(1);
+            let k = sub_frame.min(n - 1);
+            return PreviewOutput { local_index: lo + k, rate_pad: 0, sub_frame: k, sub_frames: n, generated: false };
+        };
+
+        // Frame counts at the retime's input, from the encode's first frame.
+        // A window before the in-point is not in the encode at all; its phase
+        // is taken from the start of the source instead.
+        let before = |n: u64| passes[..at].iter().fold(n, |n, p| self.frame_map_for(*p).output_count(n));
+        let start = before(first.checked_sub(origin).unwrap_or(first));
+        let pad = start % den;
+        let (p, p_next) = (start + before(local), start + before(local + 1));
+        let ceil = |x: u64| (x * num).div_ceil(den);
+        let (lo, hi) = (ceil(p), ceil(p_next));
+        let (m, n, k) = if hi > lo {
+            let k = sub_frame.min(hi - lo - 1);
+            (lo + k, hi - lo, k)
+        } else {
+            (p * num / den, 1, 0)
+        };
+        PreviewOutput {
+            local_index: m - (start - pad) * num / den,
+            rate_pad: pad,
+            sub_frame: k,
+            sub_frames: n,
+            generated: synthesizes && (m * den) % num != 0,
+        }
+    }
+
     /// Conservative temporal padding (frames each side) a windowed preview
     /// should decode so every enabled filter has the context it needs. Floored
     /// at `MIN_PREVIEW_RADIUS` so motion-compensated filters never starve.
@@ -695,6 +771,132 @@ impl ProcessingPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn retimed(target: (u32, u32), src: (u32, u32), method: FrameRateMethod, deinterlace: bool) -> ProcessingPipeline {
+        ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: deinterlace, ..Default::default() },
+            frame_rate: FrameRateParameters {
+                enabled: true,
+                target: crate::models::FrameRateTarget::Custom,
+                custom_fps: target.0 as f64 / target.1 as f64,
+                method,
+                source_fps_num: Some(src.0),
+                source_fps_den: Some(src.1),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    /// The frame the preview renders, as an encode output index: what the
+    /// preview script's clip index stands for once its padding is counted.
+    fn encode_index(p: &ProcessingPipeline, origin: u64, first: u64, out: PreviewOutput) -> u64 {
+        // Every case here retimes straight from the source.
+        let (num, den) = match p.frame_maps().last() {
+            Some(FrameMap::Retime { num, den, .. }) => (*num as u64, *den as u64),
+            _ => unreachable!(),
+        };
+        let start = first - origin;
+        out.local_index + (start - out.rate_pad) * num / den
+    }
+
+    #[test]
+    fn a_preview_steps_through_every_output_frame_in_the_encodes_phase() {
+        // 24 -> 60 is 5/2: every pair of source frames has five outputs, at
+        // 0, 0.4, 0.8, 1.2, 1.6. Whatever the window, the frames a source
+        // frame previews are exactly the encode's frames in its time span.
+        let p = retimed((60, 1), (24, 1), FrameRateMethod::Rife, false);
+        for origin in [0u64, 3] {
+            for target in origin..origin + 12 {
+                for first in target.saturating_sub(4).max(origin)..=target {
+                    let mut seen = vec![];
+                    for k in 0..4 {
+                        let out = p.preview_output(origin, first, target, k);
+                        seen.push(encode_index(&p, origin, first, out));
+                    }
+                    seen.dedup();
+                    let t = (target - origin) as f64;
+                    let want: Vec<u64> = (0..200u64)
+                        .filter(|m| { let pos = *m as f64 * 0.4; pos >= t - 1e-9 && pos < t + 1.0 - 1e-9 })
+                        .collect();
+                    assert_eq!(seen, want, "origin {origin}, first {first}, target {target}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_preview_reports_which_frames_are_generated() {
+        let p = retimed((60, 1), (24, 1), FrameRateMethod::Rife, false);
+        // Source frame 2 spans outputs 5, 6 and 7, at 2.0 (real), 2.4 and 2.8.
+        let real = p.preview_output(0, 1, 2, 0);
+        assert_eq!((real.sub_frame, real.sub_frames, real.generated), (0, 3, false));
+        let made = p.preview_output(0, 1, 2, 1);
+        assert_eq!((made.sub_frame, made.generated), (1, true));
+        let last = p.preview_output(0, 1, 2, 2);
+        assert_eq!((last.sub_frame, last.generated), (2, true));
+        // Asking past the end clamps to the last.
+        assert_eq!(p.preview_output(0, 1, 2, 9), last);
+        // Source frame 3 (3.2, 3.6) has no real frame of its own.
+        let odd = p.preview_output(0, 1, 3, 0);
+        assert_eq!((odd.sub_frames, odd.generated), (2, true));
+        // Repeating frames generates nothing.
+        let dup = retimed((60, 1), (24, 1), FrameRateMethod::Duplicate, false);
+        assert!(!dup.preview_output(0, 1, 2, 1).generated);
+    }
+
+    #[test]
+    fn a_doubling_needs_no_padding_and_keeps_the_old_index() {
+        // ×2: what the preview has always shown (output 2·local) is sub-frame
+        // 0; sub-frame 1 is the frame RIFE makes between.
+        let p = retimed((50, 1), (25, 1), FrameRateMethod::Rife, false);
+        let out = p.preview_output(0, 7, 10, 0);
+        assert_eq!((out.local_index, out.rate_pad, out.generated), (6, 0, false));
+        let out = p.preview_output(0, 7, 10, 1);
+        assert_eq!((out.local_index, out.generated), (7, true));
+    }
+
+    #[test]
+    fn padding_aligns_the_window_to_the_ratio() {
+        // 24 -> 60: period 2 source frames. A window starting at 7 is half a
+        // period out, so one frame of padding.
+        let p = retimed((60, 1), (24, 1), FrameRateMethod::FlowFps, false);
+        assert_eq!(p.preview_output(0, 7, 10, 0).rate_pad, 1);
+        assert_eq!(p.preview_output(0, 8, 10, 0).rate_pad, 0);
+        // From an in-point at 3, 7 is 4 frames in: aligned.
+        assert_eq!(p.preview_output(3, 7, 10, 0).rate_pad, 0);
+    }
+
+    #[test]
+    fn a_frame_rate_after_double_rate_deinterlacing_counts_fields() {
+        // 25i doubled to 50p, then to 60: one source frame spans two field
+        // frames, so 60/25 = 2.4 outputs, two or three per source frame.
+        let p = retimed((60, 1), (25, 1), FrameRateMethod::Rife, true);
+        let n: Vec<u64> = (0..5).map(|t| p.preview_output(0, t.max(1) - 1, t, 0).sub_frames).collect();
+        assert_eq!(n.iter().sum::<u64>(), 12, "{n:?}");
+    }
+
+    #[test]
+    fn without_a_retime_double_rate_deinterlacing_has_two_frames() {
+        let p = ProcessingPipeline::default();
+        let out = p.preview_output(0, 7, 10, 0);
+        assert_eq!((out.local_index, out.sub_frames, out.generated), (6, 2, false));
+        assert_eq!(p.preview_output(0, 7, 10, 1).local_index, 7);
+        let progressive = ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            ..Default::default()
+        };
+        assert_eq!(progressive.preview_output(0, 7, 10, 5).sub_frames, 1);
+    }
+
+    #[test]
+    fn a_down_conversion_shows_the_frame_before() {
+        // 50 -> 25 leaves odd source frames with no output of their own.
+        let p = retimed((25, 1), (50, 1), FrameRateMethod::Duplicate, false);
+        let out = p.preview_output(0, 4, 5, 0);
+        assert_eq!(out.sub_frames, 1);
+        assert_eq!(encode_index(&p, 0, 4, out), 2);
+    }
 
     #[test]
     fn test_default_pipeline() {

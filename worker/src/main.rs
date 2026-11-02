@@ -60,6 +60,12 @@ struct Args {
     #[arg(long)]
     frame: Option<i32>,
 
+    /// Which of the source frame's output frames to preview, from 0: under a
+    /// x2 frame rate, 1 is the frame made between this one and the next.
+    /// Clamped to the frames there are.
+    #[arg(long, default_value_t = 0)]
+    sub_frame: u32,
+
     /// DVD info mode: enumerate titles from a DVD mount point or VIDEO_TS folder
     #[arg(long)]
     dvd_info: Option<String>,
@@ -482,7 +488,7 @@ fn run_preview_mode(args: &Args) -> ExitCode {
         }
     };
 
-    match executor.generate_preview(&job, frame) {
+    match executor.generate_preview(&job, frame, args.sub_frame) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("Error generating preview: {}", e);

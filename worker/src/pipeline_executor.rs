@@ -1247,9 +1247,10 @@ impl PipelineExecutor {
     /// `frame_index`, pipes the raw data through the full VapourSynth pipeline,
     /// then emits the exact output frame that `frame_index` maps to (accounting
     /// for any frame-rate change such as QTGMC double-rate). The requested frame
-    /// is echoed back on stderr as `PREVIEW_INFO:frame=N` so the caller can
+    /// is echoed back on stderr as `PREVIEW_INFO:frame=N sub_frame=K
+    /// sub_frames=C generated=0|1` so the caller can
     /// label the result truthfully.
-    pub fn generate_preview(&self, job: &VideoJob, frame_index: i32) -> Result<()> {
+    pub fn generate_preview(&self, job: &VideoJob, frame_index: i32, sub_frame: u32) -> Result<()> {
         use std::io::Write;
 
         let ffmpeg_path = self.deps.ffmpeg_path()?;
@@ -1296,17 +1297,21 @@ impl PipelineExecutor {
             .as_ref()
             .map(|t| t.window(first as usize, (first + num_frames - 1) as usize));
 
-        // Output frame index the target source frame maps to after the pipeline
-        // (e.g. ×2 for QTGMC double-rate). The template clamps defensively.
-        let output_index = pipeline.output_count(local as u64) as i32;
+        // Output frame the target source frame maps to after the pipeline (e.g.
+        // ×2 for QTGMC double-rate), or the `sub_frame`th of those in its time
+        // span, in the encode's phase. The template clamps defensively.
+        let origin = job.start_frame.unwrap_or(0).max(0) as u64;
+        let out = pipeline.preview_output(origin, first as u64, target as u64, sub_frame as u64);
+        let output_index = out.local_index as i32;
 
         let decoder_seek = match &window {
             Some(w) => w.seek_time.unwrap_or(0.0),
             None => seek_time,
         };
         eprintln!(
-            "Preview: source frame {} (window {}..{}, local {}, output index {}) seek {:.6}s ({}x{} {}{})",
-            target, first, target + radius, local, output_index, decoder_seek, width, height, pix_fmt,
+            "Preview: source frame {} (window {}..{}, local {}, output index {}, output {} of {}, rate pad {}) seek {:.6}s ({}x{} {}{})",
+            target, first, target + radius, local, output_index, out.sub_frame + 1, out.sub_frames, out.rate_pad,
+            decoder_seek, width, height, pix_fmt,
             if window.is_some() { ", variable frame rate" } else { "" }
         );
 
@@ -1345,6 +1350,7 @@ impl PipelineExecutor {
             fps_num,
             fps_den,
             output_index,
+            rate_pad: out.rate_pad,
         };
 
         let script_path = script_generator.generate_preview(job, &preview_params)?;
@@ -1496,7 +1502,10 @@ impl PipelineExecutor {
 
         // Echo the frame we actually rendered so the caller can label it (the
         // PNG itself is the only thing on stdout, so this goes to stderr).
-        eprintln!("PREVIEW_INFO:frame={}", target);
+        eprintln!(
+            "PREVIEW_INFO:frame={} sub_frame={} sub_frames={} generated={}",
+            target, out.sub_frame, out.sub_frames, out.generated as u8
+        );
 
         // Write PNG to stdout
         std::io::stdout().write_all(&output.stdout)?;

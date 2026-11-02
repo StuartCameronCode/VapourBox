@@ -7,8 +7,9 @@
 //! case: the damage is already in the source, and doing nothing is not neutral,
 //! it means duplication judder or a 4% speed error.
 //!
-//! So this offers named target rates rather than a free number, is off by
-//! default, and is never described as making motion "smooth".
+//! So it is off by default and leads with the named broadcast rates. A
+//! `Custom` rate (issue #129) is there for the user who has decided they want
+//! one — 24 → 48 or 60, say — and is described as what it is: generated frames.
 //!
 //! FlowFPS rather than BlockFPS: measured over 35 input-length/ratio
 //! combinations, FlowFPS's output count matches `FrameMap::Retime::output_count`
@@ -40,20 +41,49 @@ pub enum FrameRateTarget {
     /// 60000/1001 — NTSC double rate.
     #[serde(rename = "ntsc5994")]
     Ntsc5994,
+    /// Whatever `FrameRateParameters::custom_fps` says.
+    #[serde(rename = "custom")]
+    Custom,
 }
 
 impl FrameRateTarget {
-    /// Target rate as (numerator, denominator).
-    pub fn as_fraction(self) -> (u32, u32) {
+    /// A named target's rate as (numerator, denominator); `None` for `Custom`,
+    /// whose rate is on the parameters.
+    pub fn as_fraction(self) -> Option<(u32, u32)> {
         match self {
-            FrameRateTarget::Pal25 => (25, 1),
-            FrameRateTarget::Ntsc2997 => (30000, 1001),
-            FrameRateTarget::Film23976 => (24000, 1001),
-            FrameRateTarget::Film24 => (24, 1),
-            FrameRateTarget::Pal50 => (50, 1),
-            FrameRateTarget::Ntsc5994 => (60000, 1001),
+            FrameRateTarget::Pal25 => Some((25, 1)),
+            FrameRateTarget::Ntsc2997 => Some((30000, 1001)),
+            FrameRateTarget::Film23976 => Some((24000, 1001)),
+            FrameRateTarget::Film24 => Some((24, 1)),
+            FrameRateTarget::Pal50 => Some((50, 1)),
+            FrameRateTarget::Ntsc5994 => Some((60000, 1001)),
+            FrameRateTarget::Custom => None,
         }
     }
+}
+
+/// The range a custom rate is clamped to. The schema states the same bounds.
+pub const CUSTOM_FPS_MIN: f64 = 1.0;
+pub const CUSTOM_FPS_MAX: f64 = 240.0;
+
+/// A typed rate as an exact fraction.
+///
+/// It has to be exact: `FrameMap::Retime` multiplies frame counts by the ratio,
+/// and the plugins are given the same pair. NTSC-family decimals (23.976, 29.97,
+/// 47.952, 59.94, 119.88) are what people type for n×1000/1001 and become
+/// that, rather than 2997/100, which drifts a frame every ~17 minutes against
+/// a 30000/1001 source. Anything else is taken to three decimals and reduced.
+/// Out-of-range or non-finite input is clamped (the panel's number box does
+/// not enforce the schema's bounds), so a job never fails on it.
+pub fn custom_fps_fraction(fps: f64) -> (u32, u32) {
+    let fps = if fps.is_finite() { fps.clamp(CUSTOM_FPS_MIN, CUSTOM_FPS_MAX) } else { default_custom_fps() };
+    let ntsc = fps * 1.001;
+    if (fps - fps.round()).abs() > 0.0015 && (ntsc - ntsc.round()).abs() < 0.0015 {
+        return ((ntsc.round() as u32) * 1000, 1001);
+    }
+    let num = (fps * 1000.0).round() as u64;
+    let g = gcd(num, 1000);
+    ((num / g) as u32, (1000 / g) as u32)
 }
 
 /// How the new frames are produced.
@@ -97,6 +127,11 @@ pub struct FrameRateParameters {
     #[serde(default)]
     pub method: FrameRateMethod,
 
+    /// The rate for `FrameRateTarget::Custom`, in frames per second; ignored
+    /// otherwise. See `custom_fps_fraction` for how it becomes exact.
+    #[serde(default = "default_custom_fps")]
+    pub custom_fps: f64,
+
     /// Motion-estimation block size. Larger is faster and blockier.
     #[serde(default = "default_block_size")]
     pub block_size: i32,
@@ -115,6 +150,7 @@ pub struct FrameRateParameters {
     pub source_fps_den: Option<u32>,
 }
 
+fn default_custom_fps() -> f64 { 48.0 }
 fn default_block_size() -> i32 { 16 }
 fn default_overlap() -> i32 { 8 }
 
@@ -124,6 +160,7 @@ impl Default for FrameRateParameters {
             enabled: false,
             target: FrameRateTarget::default(),
             method: FrameRateMethod::default(),
+            custom_fps: default_custom_fps(),
             block_size: default_block_size(),
             overlap: default_overlap(),
             source_fps_num: None,
@@ -150,7 +187,7 @@ impl FrameRateParameters {
         if src_num == 0 || src_den == 0 {
             return None;
         }
-        let (t_num, t_den) = self.as_fraction();
+        let (t_num, t_den) = self.target_fraction();
         // (t_num/t_den) / (src_num/src_den) = (t_num*src_den) / (t_den*src_num)
         let num = (t_num as u64) * (src_den as u64);
         let den = (t_den as u64) * (src_num as u64);
@@ -158,8 +195,10 @@ impl FrameRateParameters {
         Some(((num / g) as u32, (den / g) as u32))
     }
 
-    fn as_fraction(&self) -> (u32, u32) {
-        self.target.as_fraction()
+    /// The target rate as (numerator, denominator), custom or named. The
+    /// script and the frame map both take it from here.
+    pub fn target_fraction(&self) -> (u32, u32) {
+        self.target.as_fraction().unwrap_or_else(|| custom_fps_fraction(self.custom_fps))
     }
 }
 
@@ -198,6 +237,57 @@ mod tests {
         let r = params(FrameRateTarget::Ntsc2997).ratio_against(25, 1).unwrap();
         let map = FrameMap::Retime { num: r.0, den: r.1, synthesizes: true, radius: 1 };
         assert_eq!(map.output_count(97), 116);
+    }
+
+    fn custom(fps: f64) -> FrameRateParameters {
+        FrameRateParameters { target: FrameRateTarget::Custom, custom_fps: fps, ..Default::default() }
+    }
+
+    #[test]
+    fn custom_rates_are_exact_fractions() {
+        assert_eq!(custom(48.0).target_fraction(), (48, 1));
+        assert_eq!(custom(60.0).target_fraction(), (60, 1));
+        assert_eq!(custom(12.5).target_fraction(), (25, 2));
+        assert_eq!(custom(100.0).target_fraction(), (100, 1));
+    }
+
+    #[test]
+    fn ntsc_decimals_become_their_1001_fractions() {
+        // What people type for the NTSC family must be the rate they mean, not
+        // the decimal: 2997/100 would drift against a 30000/1001 source.
+        assert_eq!(custom(23.976).target_fraction(), (24000, 1001));
+        assert_eq!(custom(29.97).target_fraction(), (30000, 1001));
+        assert_eq!(custom(47.952).target_fraction(), (48000, 1001));
+        assert_eq!(custom(59.94).target_fraction(), (60000, 1001));
+        assert_eq!(custom(119.88).target_fraction(), (120000, 1001));
+        // The named NTSC targets and the same rate typed in agree exactly.
+        assert_eq!(
+            custom(59.94).ratio_against(24000, 1001),
+            params(FrameRateTarget::Ntsc5994).ratio_against(24000, 1001)
+        );
+    }
+
+    #[test]
+    fn a_custom_rate_out_of_range_is_clamped_not_rejected() {
+        assert_eq!(custom(0.0).target_fraction(), (1, 1));
+        assert_eq!(custom(-30.0).target_fraction(), (1, 1));
+        assert_eq!(custom(1000.0).target_fraction(), (240, 1));
+        assert_eq!(custom(f64::NAN).target_fraction(), (48, 1));
+    }
+
+    #[test]
+    fn a_custom_rate_gives_the_retime_ratio() {
+        // 24 -> 48 doubles; 23.976 -> 60 is 2.5025x, reduced.
+        assert_eq!(custom(48.0).ratio_against(24, 1), Some((2, 1)));
+        assert_eq!(custom(60.0).ratio_against(24000, 1001), Some((1001, 400)));
+    }
+
+    #[test]
+    fn custom_fps_defaults_when_absent_from_json() {
+        // A job saved before the field existed must still load.
+        let p: FrameRateParameters = serde_json::from_str(r#"{"enabled":true,"target":"custom"}"#).unwrap();
+        assert_eq!(p.target, FrameRateTarget::Custom);
+        assert_eq!(p.target_fraction(), (48, 1));
     }
 
     #[test]
