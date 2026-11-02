@@ -96,9 +96,13 @@ jobs:
           cp .whisper-cache/ggml-small.bin addons/whisper/models/ggml-small.bin
           # whisper-cli comes from the same Homebrew bottle the app downloads.
           brew install whisper-cpp
-          BP="$(brew --prefix)"
-          ln -sfn "$BP/opt/whisper-cpp/bin" addons/whisper/bin
-          ln -sfn "$BP/opt/whisper-cpp/lib" addons/whisper/lib
+          # Ask for the formula's own prefix: Homebrew renamed it whisper.cpp in
+          # 1.9.5, so `$(brew --prefix)/opt/whisper-cpp` no longer exists, while
+          # `brew --prefix whisper-cpp` follows the rename.
+          WP="$(brew --prefix whisper-cpp)"
+          ln -sfn "$WP/bin" addons/whisper/bin
+          ln -sfn "$WP/lib" addons/whisper/lib
+          test -x addons/whisper/bin/whisper-cli || { echo "::error::whisper-cli not found under $WP/bin"; exit 1; }
 
       - name: Provision Vulkan (RIFE, AI upscaling)
         # Lavapipe on the GPU-less Linux/Windows runners; sets
