@@ -129,6 +129,20 @@ fn is_sigpipe(status: &std::process::ExitStatus) -> bool {
     }
 }
 
+/// Whether the decoder ffmpeg's exit only says vspipe stopped reading its
+/// output: success, an interrupt, or a failed write to the pipe.
+///
+/// A closed pipe is SIGPIPE (141) on Linux and EPIPE (224) on macOS, but on
+/// Windows the write fails with EINVAL and ffmpeg exits -22, a code it also
+/// uses for real argument errors. So a muxer write failure is recognised by
+/// what the decoder said: its only output is the raw pipe, so a muxing error
+/// can only be that pipe closing.
+fn decoder_lost_its_reader(code: i32, stderr_tail: &str) -> bool {
+    matches!(code, 0 | 130 | 141 | 224)
+        || stderr_tail.contains("Error submitting a packet to the muxer")
+        || stderr_tail.contains("Error muxing a packet")
+}
+
 /// Decode window for a frame-accurate preview of source frame `target`, given
 /// a temporal `radius`. Returns `(first, local, num_frames)`:
 /// - `first`: first source frame to decode (clamped so it never goes below 0),
@@ -704,12 +718,12 @@ impl PipelineExecutor {
             }
         }
 
-        // Decoder may exit with broken pipe (141=SIGPIPE on Linux, 224=EPIPE on
-        // macOS) when vspipe finishes reading before the decoder sends all frames
-        // (e.g. IVTC VDecimate reads fewer frames than available). Harmless.
+        // The decoder may fail writing to a pipe vspipe has finished reading
+        // (e.g. IVTC VDecimate reads fewer frames than available). Harmless:
+        // vspipe and the encoder have already been checked above.
         if let Some(status) = decoder_status {
             let code = status.code().unwrap_or(-1);
-            if code != 0 && code != 130 && code != 141 && code != 224 {
+            if !decoder_lost_its_reader(code, &decoder_stderr_tail) {
                 let tail = decoder_stderr_tail.trim();
                 if tail.is_empty() {
                     bail!("Decoder ffmpeg exited with {}", format_exit_status(&status));
@@ -1603,6 +1617,22 @@ mod tests {
              and must end the loop — otherwise the job never finishes"
         );
         assert!(progress_end_is_ours(150_000));
+    }
+
+    /// The decoder's write into a pipe vspipe has closed, as each platform
+    /// reports it. Windows' wording is the one that failed the DV 4:1:1 job.
+    #[test]
+    fn test_decoder_closed_pipe_is_harmless_on_every_platform() {
+        let windows = "[vost#0:0/rawvideo @ 0000] Error submitting a packet to the muxer: Invalid argument\n\
+                       [out#0/rawvideo @ 0000] Error muxing a packet\n\
+                       [out#0/rawvideo @ 0000] Task finished with error code: -22 (Invalid argument)";
+        assert!(decoder_lost_its_reader(-22, windows));
+        assert!(decoder_lost_its_reader(224, "Error muxing a packet: Broken pipe"));
+        assert!(decoder_lost_its_reader(141, ""));
+        assert!(decoder_lost_its_reader(0, ""));
+        // A real failure, with the same exit code, still fails the job.
+        assert!(!decoder_lost_its_reader(-22, "Option foo not found."));
+        assert!(!decoder_lost_its_reader(1, "pipe:1: Invalid data found when processing input"));
     }
 
     #[test]

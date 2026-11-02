@@ -15,9 +15,10 @@ use anyhow::{Context, Result};
 
 /// Read the source's container-level comment, exactly as stored.
 ///
-/// The `default` writer prints the value raw. `csv` quoted it and doubled
-/// every `"` inside, so a JSON comment came back altered — and grew again each
-/// time an output was processed.
+/// Read as JSON, whose escaping is exact. The `csv` writer quoted the value and
+/// doubled every `"` inside, so a JSON comment came back altered and grew each
+/// time an output was processed; the plain `default` writer goes through a
+/// text-mode stdout on Windows, which turns each newline into `\r\n`.
 pub fn probe(
     ffprobe: &Path,
     env: &std::collections::HashMap<String, String>,
@@ -27,14 +28,25 @@ pub fn probe(
         .args([
             "-v", "quiet",
             "-show_entries", "format_tags=comment",
-            "-of", "default=noprint_wrappers=1:nokey=1",
+            "-of", "json",
             input_path,
         ])
         .envs(env)
         .output()
         .ok()?;
-    let comment = String::from_utf8_lossy(&output.stdout);
-    let comment = comment.trim_end_matches(['\r', '\n']);
+    comment_from_json(&output.stdout)
+}
+
+/// The `comment` tag from ffprobe's `-of json` output, whatever case the
+/// container stored its name in.
+fn comment_from_json(json: &[u8]) -> Option<String> {
+    let json: serde_json::Value = serde_json::from_slice(json).ok()?;
+    let tags = json.get("format")?.get("tags")?.as_object()?;
+    let comment = tags
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("comment"))?
+        .1
+        .as_str()?;
     if comment.trim().is_empty() { None } else { Some(comment.to_string()) }
 }
 
@@ -68,12 +80,12 @@ fn strip_vapourbox_prefix(existing: &str) -> &str {
 }
 
 /// The FFMETADATA document carrying `comment` as the only global tag.
-/// `=`, `;`, `#`, `\` and newlines are escaped with a backslash, which is all
-/// the format reserves.
+/// `=`, `;`, `#`, `\` and line breaks are escaped with a backslash: an
+/// unescaped `\r` ends the line just as `\n` does.
 pub fn ffmetadata(comment: &str) -> String {
     let mut out = String::from(";FFMETADATA1\ncomment=");
     for c in comment.chars() {
-        if matches!(c, '=' | ';' | '#' | '\\' | '\n') {
+        if matches!(c, '=' | ';' | '#' | '\\' | '\n' | '\r') {
             out.push('\\');
         }
         out.push(c);
@@ -151,7 +163,7 @@ mod tests {
 
     #[test]
     fn test_ffmetadata_escapes_reserved_characters() {
-        let comment = "a=b; #c \\d\nline two \"q\", ok";
+        let comment = "a=b; #c \\d\nline two \"q\", ok\r\nthree";
         let doc = ffmetadata(comment);
         assert!(doc.starts_with(";FFMETADATA1\ncomment="));
         assert!(doc.ends_with('\n'));
@@ -161,8 +173,20 @@ mod tests {
             .strip_suffix('\n')
             .unwrap();
         // Exactly one logical line: the embedded newline is escaped.
-        assert!(!value.replace("\\\n", "").contains('\n'));
+        let unescaped_breaks = value.replace("\\\n", "").replace("\\\r", "");
+        assert!(!unescaped_breaks.contains(['\n', '\r']));
         assert_eq!(unescape(value), comment);
+    }
+
+    /// Issue #138 on Windows: the comment is read from JSON, so a newline in
+    /// it is a newline, never a text-mode `\r\n`.
+    #[test]
+    fn test_comment_is_read_from_json_exactly() {
+        let json = br#"{"format": {"tags": {"COMMENT": "a\nb \"c\", d"}}}"#;
+        assert_eq!(comment_from_json(json).as_deref(), Some("a\nb \"c\", d"));
+        assert_eq!(comment_from_json(br#"{"format": {"tags": {"title": "x"}}}"#), None);
+        assert_eq!(comment_from_json(br#"{"format": {}}"#), None);
+        assert_eq!(comment_from_json(b"not json"), None);
     }
 
     #[test]

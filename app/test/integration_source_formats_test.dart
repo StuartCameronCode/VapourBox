@@ -62,10 +62,16 @@ Future<void> _expectEncodes(String fixture, String label) async {
   // carries, so the test exercises the real path rather than a curated name.
   final src = await WorkerHarness.firstStream(fixture,
       selector: 'v:0',
-      entries: ['pix_fmt', 'width', 'height', 'nb_read_frames'],
+      entries: ['pix_fmt', 'width', 'height', 'r_frame_rate', 'nb_read_frames'],
       countFrames: true);
   expect(src, isNotNull, reason: 'fixture should have a video stream');
   final pixFmt = src!['pix_fmt'] as String;
+  final frames = int.parse(src['nb_read_frames'] as String);
+  // The rate the app would carry: NTSC DV is stored at 29.97 whatever rate
+  // the fixture's frames were made at, and a job claiming 25 had its ten
+  // stored frames placed on eight slots of a 25 fps grid.
+  final rate = (src['r_frame_rate'] as String).split('/').map(int.parse).toList();
+  final fps = rate[0] / rate[1];
   print('  $label source: $pixFmt ${src['width']}x${src['height']} '
       '${src['nb_read_frames']} frames');
 
@@ -87,8 +93,8 @@ Future<void> _expectEncodes(String fixture, String label) async {
       audioMode: AudioMode.none,
     ),
     detectedFieldOrder: FieldOrder.topFieldFirst,
-    totalFrames: int.parse(src['nb_read_frames'] as String),
-    inputFrameRate: 25.0,
+    totalFrames: frames,
+    inputFrameRate: fps,
     inputWidth: int.parse(src['width'].toString()),
     inputHeight: int.parse(src['height'].toString()),
     inputPixelFormat: pixFmt,
@@ -102,10 +108,15 @@ Future<void> _expectEncodes(String fixture, String label) async {
       reason: '$pixFmt source failed: ${result.error}\n'
           '--- worker log (tail) ---\n${tail.join('\n')}');
   final out = await WorkerHarness.firstStream(result.outputPath!,
-      selector: 'v:0', entries: ['codec_name', 'width', 'height']);
+      selector: 'v:0',
+      entries: ['codec_name', 'width', 'height', 'nb_read_frames'],
+      countFrames: true);
   expect(out, isNotNull, reason: 'output should contain a video stream');
   print('  $label output: ${out?['codec_name']} '
-      '${out?['width']}x${out?['height']}');
+      '${out?['width']}x${out?['height']} ${out?['nb_read_frames']} frames');
+  // Single-rate deinterlacing keeps every frame.
+  expect(int.parse(out!['nb_read_frames'] as String), frames,
+      reason: '$label: output must keep all $frames source frames');
 }
 
 void main() {

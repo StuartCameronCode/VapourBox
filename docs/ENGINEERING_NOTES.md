@@ -2691,9 +2691,26 @@ JSON in that tag.
   from the source.
 - The probe used `-of csv=p=0`, which quoted the value and doubled each `"`
   inside, so a JSON comment came back altered and grew on every pass. It now
-  uses `default=nw=1:nk=1`, which prints the value raw. A comment that already
+  uses `-of json`, whose escaping is exact. (`default=nw=1:nk=1`, tried first,
+  passed on macOS/Linux and failed the Windows nightly: ffprobe's stdout is in
+  text mode there, so each newline came back `\r\n`, and an unescaped `\r` ends
+  an FFMETADATA line, cutting the comment at its first line break. The file
+  now escapes `\r` as well.) A comment that already
   begins `VapourBox <version>` (re-processing an output, or the mux after an
   encode) keeps one prefix rather than gaining another.
+
+The same Windows nightly failed NTSC DV 4:1:1 (`integration_source_formats_test`),
+which turned out to be two things. The test claimed 25 fps for a DV file
+(always stored at 29.97), and raw DV reports `avg_frame_rate` 60000/1, so
+`source_timing` read the timestamps and placed 10 stored frames on 8 slots of a
+25 fps grid; the test now takes `r_frame_rate` as the app does and checks the
+frame count. vspipe then stopped reading early, and the decoder's write into the
+closed pipe failed. That is SIGPIPE/EPIPE (141/224) on Linux/macOS, tolerated,
+but on Windows it is EINVAL, exit -22, which was not:
+`decoder_lost_its_reader` now recognises it by the decoder's own muxer error, since -22
+is also what ffmpeg returns for a bad argument. IVTC jobs, whose VDecimate
+always reads fewer frames than the decoder sends, could hit the same thing on
+Windows whenever the decoder had not finished writing.
 
 ### Testing a deps change before publishing
 
