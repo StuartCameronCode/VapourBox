@@ -149,6 +149,7 @@ fn preview_window(target: i32, radius: i32) -> (i32, i32, i32) {
 }
 
 use crate::gpu_plugin::GpuPlugin;
+use crate::hdr_metadata::HdrMetadata;
 use crate::dependency_locator::DependencyLocator;
 use crate::models::{AspectDeclaration, AudioMode, ContainerFormat, DeinterlaceMethod, EncoderFamily, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
 use crate::pixel_format;
@@ -370,7 +371,23 @@ impl PipelineExecutor {
         let _ = fs::remove_file(&progress_file);
 
         let existing_comment = self.probe_comment(&job.input_path);
-        let ffmpeg_args = self.build_ffmpeg_args(job, &progress_file, input_sar.as_deref(), existing_comment.as_deref());
+        // HDR10 static metadata and Dolby Vision (issue #133): side data the
+        // pipe drops, read from the source for the encoder.
+        let hdr = match self.deps.ffprobe_path() {
+            Ok(ffprobe) => HdrMetadata::probe(&ffprobe, &self.deps.build_environment(), &job.input_path),
+            Err(_) => HdrMetadata::default(),
+        };
+        let hdr_transfer = job.color_metadata().is_hdr();
+        for (level, line) in hdr.log_lines(job.encoding_settings.codec, hdr_transfer) {
+            self.reporter.send_log(level, &line);
+        }
+        let ffmpeg_args = self.build_ffmpeg_args(
+            job,
+            &progress_file,
+            input_sar.as_deref(),
+            existing_comment.as_deref(),
+            &hdr,
+        );
 
         // Start ffmpeg process
         let mut ffmpeg = Command::new(&ffmpeg_path)
@@ -813,7 +830,14 @@ impl PipelineExecutor {
     }
 
     /// Build FFmpeg command-line arguments.
-    fn build_ffmpeg_args(&self, job: &VideoJob, progress_file: &Path, input_sar: Option<&str>, existing_comment: Option<&str>) -> Vec<String> {
+    fn build_ffmpeg_args(
+        &self,
+        job: &VideoJob,
+        progress_file: &Path,
+        input_sar: Option<&str>,
+        existing_comment: Option<&str>,
+        hdr: &HdrMetadata,
+    ) -> Vec<String> {
         let mut args = Vec::new();
         let settings = &job.encoding_settings;
 
@@ -888,6 +912,12 @@ impl PipelineExecutor {
 
         // Encoder-family-specific quality and preset args
         Self::build_encoder_quality_args(&mut args, job);
+
+        // HDR10 mastering display / content light level (issue #133). The pipe
+        // drops them with the rest of the side data; x265 is the one encoder
+        // that takes them as options. A Custom FFmpeg Argument `-x265-params`
+        // comes later and replaces these.
+        args.extend(hdr.encoder_args(settings.codec, job.color_metadata().is_hdr()));
 
         // Force a compatible output pixel format for codecs that can't accept the
         // pipeline's native format (e.g. classic HuffYUV requires yuv422p, and
@@ -1397,9 +1427,15 @@ impl PipelineExecutor {
         // ffmpeg call on the original file that does see the real tags. That
         // mismatch showed a hue shift no filter had caused. `in_range` was also
         // hardcoded to `tv`, which stretched a full-range source a second time.
-        let mut scale_opts = job.color_metadata().swscale_input_opts();
-        scale_opts.push("out_range=pc".to_string());
-        let scale_filter = format!("scale={}", scale_opts.join(":"));
+        //
+        // An HDR source is tone-mapped for display instead (issue #133), with
+        // the same chain the app uses for its "before" frame.
+        let color = job.color_metadata();
+        let scale_filter = color.display_tonemap_filter().unwrap_or_else(|| {
+            let mut scale_opts = color.swscale_input_opts();
+            scale_opts.push("out_range=pc".to_string());
+            format!("scale={}", scale_opts.join(":"))
+        });
         let ffmpeg_enc = Command::new(&ffmpeg_path)
             .args([
                 "-f", "yuv4mpegpipe",
@@ -1709,6 +1745,71 @@ mod tests {
         assert!(!is_autoload_skip_line("INPUT_INFO:frames=100,fps_num=25,fps_den=1"));
     }
 
+    thread_local! {
+        static TEST_HDR: std::cell::RefCell<HdrMetadata> = std::cell::RefCell::new(HdrMetadata::default());
+    }
+
+    /// Build args as if the source had probed as `hdr`.
+    fn build_ffmpeg_args_with_hdr(job: &VideoJob, hdr: HdrMetadata) -> Vec<String> {
+        TEST_HDR.with(|h| *h.borrow_mut() = hdr);
+        let args = build_ffmpeg_args_for_test(job);
+        TEST_HDR.with(|h| *h.borrow_mut() = HdrMetadata::default());
+        args
+    }
+
+    /// An HDR10 source encoded with x265 keeps its mastering display and light
+    /// levels; the same source to any other encoder, or an SDR one, gets none.
+    #[test]
+    fn test_hdr10_metadata_reaches_x265_only() {
+        use crate::hdr_metadata::{ContentLight, MasteringDisplay};
+        let hdr = HdrMetadata {
+            mastering_display: Some(MasteringDisplay {
+                red: (34000, 16000),
+                green: (13250, 34500),
+                blue: (7500, 3000),
+                white_point: (15635, 16450),
+                max_luminance: 10_000_000,
+                min_luminance: 1,
+            }),
+            content_light: Some(ContentLight { max_cll: 1000, max_fall: 400 }),
+            dolby_vision: None,
+        };
+        let mut job = create_test_job("out.mkv");
+        job.input_color_matrix = Some("bt2020nc".to_string());
+        job.input_color_primaries = Some("bt2020".to_string());
+        job.input_color_transfer = Some("smpte2084".to_string());
+        job.encoding_settings.codec = VideoCodec::H265;
+
+        let args = build_ffmpeg_args_with_hdr(&job, hdr.clone());
+        let i = args.iter().position(|a| a == "-x265-params").expect("-x265-params");
+        assert_eq!(
+            args[i + 1],
+            "master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1):max-cll=1000,400"
+        );
+        // Before the output path and any custom arguments, so those still win.
+        assert!(i < args.iter().position(|a| a == "-y").unwrap());
+
+        job.encoding_settings.codec = VideoCodec::H264;
+        assert!(!build_ffmpeg_args_with_hdr(&job, hdr.clone()).iter().any(|a| a == "-x265-params"));
+
+        job.encoding_settings.codec = VideoCodec::H265;
+        job.input_color_transfer = Some("bt709".to_string());
+        assert!(!build_ffmpeg_args_with_hdr(&job, hdr).iter().any(|a| a == "-x265-params"));
+    }
+
+    /// The real builder must carry the same call as the copy above.
+    #[test]
+    fn test_real_ffmpeg_builder_passes_hdr_metadata() {
+        let src = include_str!("pipeline_executor.rs").replace("\r\n", "\n");
+        let start = src.find("fn build_ffmpeg_args(\n").expect("real builder");
+        let body = &src[start..];
+        let body = &body[..body.find("\n    }\n").expect("end of builder")];
+        assert!(
+            body.contains("hdr.encoder_args(settings.codec, job.color_metadata().is_hdr())"),
+            "build_ffmpeg_args must pass the HDR10 metadata to the encoder"
+        );
+    }
+
     /// Helper to build FFmpeg args without requiring a full PipelineExecutor.
     /// This mirrors the logic in PipelineExecutor::build_ffmpeg_args for testing.
     fn build_ffmpeg_args_for_test(job: &VideoJob) -> Vec<String> {
@@ -1738,6 +1839,12 @@ mod tests {
 
         // Encoder-family-specific quality and preset args
         PipelineExecutor::build_encoder_quality_args(&mut args, job);
+
+        // HDR10 static metadata (mirrors build_ffmpeg_args); the probe needs a
+        // real file, so tests set `TEST_HDR` through `with_hdr` instead.
+        args.extend(TEST_HDR.with(|h| {
+            h.borrow().encoder_args(settings.codec, job.color_metadata().is_hdr())
+        }));
 
         // Force a compatible output pixel format (e.g. HuffYUV requires yuv422p,
         // NVENC/QSV cannot encode 4:2:2 on most hardware)
@@ -1893,7 +2000,7 @@ mod tests {
         // A Windows checkout gives this file CRLF, and the end-of-function
         // pattern below spans a line break.
         let src = include_str!("pipeline_executor.rs").replace("\r\n", "\n");
-        let start = src.find("fn build_ffmpeg_args(&self").expect("real builder");
+        let start = src.find("fn build_ffmpeg_args(\n").expect("real builder");
         let body = &src[start..];
         let body = &body[..body.find("\n    }\n").expect("end of builder")];
         let declare = body.find("to_ffmpeg_input_args()").expect(

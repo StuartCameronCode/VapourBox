@@ -2619,6 +2619,58 @@ recordings report 90 or 120 for ~30 fps) gets a dense grid: mostly gap slots,
 repeated or interpolated, which is correct but slow. Choosing a better grid
 needs the timestamps, which the app does not read.
 
+### HDR sources and Dolby Vision (issue #133, 2026-11-02)
+
+**Report.** Dolby Vision files (Profile 8.1 named) show pink and green in the
+timeline and preview.
+
+**What the profiles are, to every decoder but Dolby's.** ffmpeg decodes only
+the base layer; the RPU (dynamic metadata) rides along as side data. Profile
+8.1 / 7 have an HDR10 base layer, 8.4 HLG, 9 SDR. **Profile 5's** base layer
+is IPTPQc2 (ffprobe: `color_space=ipt-c2`, `dv_bl_signal_compatibility_id=0`),
+which only the RPU's reshaping turns into YCbCr — undone, it *is* pink and
+green. A Profile 8.1 fixture (x265 + `dovi_tool generate`/`inject-rpu`, then a
+re-encode with `-dolbyvision 1` so the MP4 gets a `dvcC`) showed no pink or
+green at all: it showed **grey and washed out**, because every preview path
+read PQ as SDR (green bar 112/143/84 instead of 23/177/7). So the reported 8.1
+symptom is either a Profile 5 file or a description of the washed-out look;
+the fix covers both as far as is possible.
+
+**Profile 5 can't be fixed here.** The reshaping is in libplacebo
+(`vf_libplacebo`, `apply_dolbyvision`) and vs-placebo. The macOS FFmpeg builds
+(martin-riedl arm64, evermeet x64) have no libplacebo; BtbN's Windows/Linux
+ones do, but the Y4M pipe drops the RPU anyway, so the pipeline would need the
+reshape at decode time on every platform. Shown as a warning instead (status
+bar badge, Video Info, job log).
+
+**Display tone-map.** `zscale` + `tonemap` (Hable, `desat=0`, npl 100) exist in
+all four FFmpeg builds. Two traps, both measured:
+
+- On the preview's Y4M input (no tags) `zscale` fails with "code 3074: no path
+  between colorspaces" even with `min/pin/tin/rin` given. Declaring the tags
+  with `setparams` first works, and the same chain then serves the app's
+  file-based decodes unchanged.
+- zscale's RGB output keeps the source's YUV matrix tag (`bt2020nc`), so the
+  app's JPEG encode converted RGB→YUV with BT.2020's matrix while the decoder
+  reads JPEG as BT.601: the green bar came back 28/198/14 against the PNG's
+  23/177/7 (up to 21 levels). Ending in `format=rgb24,setparams=colorspace=gbr`
+  brings it to within 1 level. Preview vs before-frame after the fix: mean
+  abs diff 0.28.
+
+**The preview job never carried colour tags.** `PreviewGenerator` built its
+`VideoJob` without `inputColor*`, so the worker's `swscale_input_opts` (the
+2026-09-26 preview hue fix) only ever ran from tests. It now sends them, which
+also gives SDR BT.709 sources the right preview matrix.
+
+**HDR10 static metadata.** The pipe drops mastering display / MaxCLL with all
+other side data, and ffmpeg has no CLI to attach it to frames, so the output
+had the PQ tags but no ST 2086 / CLL SEI. libx265 takes them as
+`master-display=…:max-cll=…`; the worker reads them with ffprobe (stream side
+data first, else the first decoded frame — `%+#8` packets, since `%+#1` can
+yield no frame through reorder delay) and passes them. x265 also turns on
+`repeat-headers` for it. No other offered encoder takes them on the command
+line; those outputs keep the tags only. The Dolby Vision RPU is not carried.
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and

@@ -15,6 +15,7 @@ import '../services/preset_service.dart';
 import '../services/theme_service.dart';
 import '../models/app_shortcut.dart';
 import '../widgets/app_shortcut_scope.dart';
+import '../widgets/dynamic_range_badge.dart';
 import 'keyboard_shortcuts_dialog.dart';
 import 'video_file_picker.dart';
 import '../viewmodels/main_viewmodel.dart';
@@ -638,6 +639,11 @@ class MainWindow extends StatelessWidget {
                 )
               : Text(statusText),
           const Spacer(),
+          if (viewModel.selectedItem?.videoInfo case final info?)
+            if (DynamicRangeBadge.shows(info)) ...[
+              DynamicRangeBadge(info: info),
+              const SizedBox(width: 12),
+            ],
           if (viewModel.selectedItem != null && viewModel.selectedItem!.videoInfo != null)
             Text(
               viewModel.selectedItem!.videoInfo!.resolution,

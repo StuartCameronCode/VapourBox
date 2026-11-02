@@ -7,6 +7,7 @@ import 'package:path/path.dart' as path;
 import 'package:uuid/uuid.dart';
 
 import '../models/encoding_settings.dart';
+import '../models/hdr_display.dart';
 import '../models/processing_pipeline.dart';
 import '../models/video_job.dart';
 import 'field_order_detector.dart';
@@ -66,6 +67,25 @@ class PreviewGenerator {
   int _videoWidth = 0;
   int _videoHeight = 0;
   String _pixelFormat = 'yuv420p';
+
+  /// Source colour tags, as ffprobe reports them (null when untagged). The
+  /// preview job carries them so the worker converts the "after" frame with
+  /// the source's real matrix and range — the "before" frame's ffmpeg reads
+  /// them from the file — and, for an HDR source, tone-maps it the same way
+  /// as the "before" frame and the timeline (issue #133).
+  String? _colorMatrix;
+  String? _colorPrimaries;
+  String? _colorTransfer;
+  String? _colorRange;
+
+  /// The display tone-map for the loaded source, or null for SDR. Applied to
+  /// every picture of the source the app draws itself.
+  String? get _toneMap => HdrDisplay.toneMapFilter(
+        matrix: _colorMatrix,
+        primaries: _colorPrimaries,
+        transfer: _colorTransfer,
+        range: _colorRange,
+      );
 
   /// Log messages from preview generation (stderr output).
   final List<String> _previewLog = [];
@@ -207,6 +227,7 @@ class PreviewGenerator {
           ...sourceDecodeOptions,
           '-i', _currentVideoPath!,
           '-frames:v', '1',
+          if (_toneMap case final toneMap?) ...['-vf', toneMap],
           '-q:v', '2',
           outputPath,
         ],
@@ -282,6 +303,10 @@ class PreviewGenerator {
         inputWidth: _videoWidth,
         inputHeight: _videoHeight,
         inputPixelFormat: _pixelFormat,
+        inputColorMatrix: _colorMatrix,
+        inputColorPrimaries: _colorPrimaries,
+        inputColorTransfer: _colorTransfer,
+        inputColorRange: _colorRange,
       );
 
       // Write job config to file
@@ -518,6 +543,11 @@ class PreviewGenerator {
     _videoWidth = videoStream['width'] as int? ?? 0;
     _videoHeight = videoStream['height'] as int? ?? 0;
     _pixelFormat = videoStream['pix_fmt'] as String? ?? 'yuv420p';
+
+    _colorMatrix = colorTag(videoStream, 'color_space');
+    _colorPrimaries = colorTag(videoStream, 'color_primaries');
+    _colorTransfer = colorTag(videoStream, 'color_transfer');
+    _colorRange = colorTag(videoStream, 'color_range');
   }
 
   /// Parses an ffprobe rational frame-rate string (e.g. "25/1") to a double.
@@ -571,7 +601,12 @@ class PreviewGenerator {
           ...sourceDecodeOptions,
           '-i', videoPath,
           '-vframes', '1',
-          '-vf', 'scale=160:-1',
+          // Scaled first: tone-mapping a 4K frame in float costs far more
+          // than the 160-pixel thumbnail it ends up as.
+          '-vf', [
+            'scale=160:-1',
+            if (_toneMap case final toneMap?) toneMap,
+          ].join(','),
           '-q:v', '5',
           outputPath,
         ],

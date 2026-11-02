@@ -173,6 +173,54 @@ impl ColorMetadata {
         }
     }
 
+    /// Whether the transfer is HDR: PQ (HDR10, and the base layer of most
+    /// Dolby Vision) or HLG.
+    pub fn is_hdr(&self) -> bool {
+        matches!(self.transfer.as_deref(), Some("smpte2084") | Some("arib-std-b67"))
+    }
+
+    /// The ffmpeg filter chain that shows an HDR picture on an SDR screen, or
+    /// `None` for an SDR source (issue #133). Display only: the encode keeps
+    /// the HDR picture and its tags.
+    ///
+    /// Without it a PQ frame is shown as if it were BT.709 — grey, dim and
+    /// desaturated, since PQ code values sit far lower than SDR ones and the
+    /// BT.2020 primaries are read as 709's. This linearises, maps the
+    /// primaries to 709 and tone-maps highlights (Hable) before re-encoding as
+    /// 709. The app's "before" frames and timeline thumbnails use the same
+    /// chain (`HdrDisplay.toneMapFilter` in Dart, kept identical by a test on
+    /// each side) so before and after compare like for like.
+    ///
+    /// The source's tags are declared with `setparams` first, because the
+    /// preview reads a Y4M pipe that carries none, and zscale cannot find a
+    /// conversion path from "unspecified". The chain ends in `rgb24` tagged
+    /// `gbr`: zscale leaves the source's YUV matrix on its RGB output, and a
+    /// JPEG encode would then convert to YUV with BT.2020's matrix while every
+    /// decoder reads JPEG as BT.601 — a hue shift measured at up to 21 levels.
+    pub fn display_tonemap_filter(&self) -> Option<String> {
+        if !self.is_hdr() {
+            return None;
+        }
+        // Values zscale can linearise from. Anything else is far more likely a
+        // mislabelled BT.2020 file than a real alternative.
+        let matrix = match self.matrix.as_deref() {
+            Some(m @ ("bt709" | "bt2020nc" | "bt2020c")) => m,
+            _ => "bt2020nc",
+        };
+        let primaries = match self.primaries.as_deref() {
+            Some(p @ ("bt709" | "bt2020" | "smpte432")) => p,
+            _ => "bt2020",
+        };
+        let transfer = self.transfer.as_deref().unwrap_or("smpte2084");
+        let range = if self.is_full_range() { "pc" } else { "tv" };
+        Some(format!(
+            "setparams=colorspace={matrix}:color_primaries={primaries}:color_trc={transfer}:range={range},\
+             zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,\
+             tonemap=tonemap=hable:desat=0,zscale=t=bt709:r=full,\
+             format=rgb24,setparams=colorspace=gbr"
+        ))
+    }
+
     /// swscale input options for the preview's YUV→RGB conversion.
     ///
     /// The preview's second stage reads a Y4M pipe, which carries no colour
@@ -294,6 +342,51 @@ mod tests {
                 "{m} is not mapped"
             );
         }
+    }
+
+    #[test]
+    fn sdr_sources_are_not_tone_mapped() {
+        for c in [
+            ColorMetadata::default(),
+            ColorMetadata::from_raw(Some("bt709"), Some("bt709"), Some("bt709"), Some("tv")),
+            ColorMetadata::from_raw(Some("bt2020nc"), Some("bt2020"), Some("bt2020-10"), None),
+        ] {
+            assert!(!c.is_hdr());
+            assert_eq!(c.display_tonemap_filter(), None, "{c:?}");
+        }
+    }
+
+    /// The exact chain. `HdrDisplay.toneMapFilter` in the app asserts the same
+    /// string for the same tags — change both together, or the before and
+    /// after frames stop matching.
+    #[test]
+    fn hdr10_tone_map_chain() {
+        let c = ColorMetadata::from_raw(Some("bt2020nc"), Some("bt2020"), Some("smpte2084"), Some("tv"));
+        assert!(c.is_hdr());
+        assert_eq!(
+            c.display_tonemap_filter().as_deref(),
+            Some(
+                "setparams=colorspace=bt2020nc:color_primaries=bt2020:color_trc=smpte2084:range=tv,\
+                 zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,\
+                 tonemap=tonemap=hable:desat=0,zscale=t=bt709:r=full,\
+                 format=rgb24,setparams=colorspace=gbr"
+            )
+        );
+    }
+
+    /// HLG keeps its own transfer; a PQ file missing its matrix and primaries
+    /// (or carrying ones zscale can't use) is read as BT.2020.
+    #[test]
+    fn hlg_and_partly_tagged_hdr() {
+        let hlg = ColorMetadata::from_raw(Some("bt2020nc"), Some("bt2020"), Some("arib-std-b67"), Some("pc"));
+        let f = hlg.display_tonemap_filter().unwrap();
+        assert!(f.starts_with(
+            "setparams=colorspace=bt2020nc:color_primaries=bt2020:color_trc=arib-std-b67:range=pc,"
+        ), "{f}");
+        let bare = ColorMetadata::from_raw(Some("smpte2085"), None, Some("smpte2084"), None);
+        assert!(bare.display_tonemap_filter().unwrap().starts_with(
+            "setparams=colorspace=bt2020nc:color_primaries=bt2020:color_trc=smpte2084:range=tv,"
+        ));
     }
 
     #[test]

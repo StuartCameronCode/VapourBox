@@ -105,6 +105,7 @@ VapourBox/
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, the `--probe-rife` / `--probe-upscale` probe, and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
+| `worker/src/hdr_metadata.rs` | HDR10 mastering display / MaxCLL read from the source for x265, and the Dolby Vision profile (see "HDR Sources and Dolby Vision") |
 | `worker/src/native_res.rs` | `--detect-native`: the resolution and kernel a source was upscaled from, for the Descale pass (see "Descale") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
@@ -122,6 +123,7 @@ VapourBox/
 | `app/lib/services/overwrite_behavior_service.dart` | Default action for existing output files (see "Existing Output Files") |
 | `app/lib/models/native_res_report.dart` | What `--detect-native` found, as the Descale panel's Detect shows and applies it |
 | `app/lib/services/addon_service.dart` | Every optional third-party download (Whisper, AnimeJaNai): catalogue, install with requirements, remove with dependants (see "Add-ons") |
+| `app/lib/models/hdr_display.dart` | The display tone-map for the app's own source decodes (twin of `ColorMetadata::display_tonemap_filter`) and Dolby Vision detection |
 | `app/lib/models/gpu_plugin_status.dart` | The worker's GPU-plugin probe results, and the panels' notice decision |
 | `app/assets/filters/core/*.json` | Built-in filter schema definitions |
 
@@ -833,6 +835,35 @@ rather than calling it, so anything added to one must be added to the other.
 The preview path needs the same source tags fed to swscale
 (`swscale_input_opts()`) or it guesses the matrix and shows a colour shift the
 real encode doesn't have.
+
+### HDR Sources and Dolby Vision (issue #133)
+
+An HDR source is processed and encoded as HDR; only what the user *sees* is
+tone-mapped.
+
+- **One display chain, two copies.** `ColorMetadata::display_tonemap_filter`
+  (the worker's preview) and `HdrDisplay.toneMapFilter` (the app's "before"
+  frame and timeline thumbnails) must be byte-identical for the same tags;
+  `hdr_display_test.dart` fills the Rust `format!` string from source and
+  compares. Keep its two odd stages: `setparams` first (zscale finds no path
+  from an untagged Y4M), and `format=rgb24,setparams=colorspace=gbr` last (else
+  the JPEG encode converts with BT.2020's matrix — a 21-level hue shift).
+- **The preview job carries the source's colour tags** (`PreviewGenerator`
+  sends `inputColor*`). Without them the worker can't tell the source is HDR,
+  and the SDR matrix fix in `swscale_input_opts` doesn't apply either.
+- **HDR10 static metadata goes to libx265 only**, as `-x265-params`
+  (`HdrMetadata::encoder_args`), and only when the tags are PQ/HLG. Probed by
+  the executor (stream side data, else the first frame's SEI). Any other
+  encoder keeps the tags only; never hand it x265 options.
+- **Dolby Vision RPU is not carried.** Profiles 7/8/9 decode as their HDR10 /
+  HLG / SDR base layer and come out as that. **Profile 5** (IPTPQc2,
+  `ipt-c2`) can't be decoded correctly — no bundled FFmpeg on macOS has
+  libplacebo — so it is warned about (`DynamicRangeBadge`, Video Info, job
+  log), never blocked. `ipt-c2` stays off `ColorMetadata`'s matrix list.
+
+`integration_hdr_test.dart` (heavy) encodes an HDR10 fixture and checks the
+metadata and that preview = before-frame. See docs/ENGINEERING_NOTES.md
+(2026-11-02).
 
 ### Source Pixel Formats (issue #50)
 
