@@ -162,6 +162,43 @@ pub fn preview_decoder_args(
     args
 }
 
+/// The decoder for a variable-frame-rate source (see `source_timing`), encode
+/// and preview alike: the window's stored frames, exactly as stored.
+///
+/// `-fps_mode passthrough` is the point. Writing `rawvideo`, ffmpeg otherwise
+/// converts to constant rate itself, repeating a frame into every gap — the
+/// script could then no longer tell a gap from a frame, and the stored-frame
+/// count the window asks for would be the wrong length. The script places the
+/// frames on the grid instead.
+pub fn timeline_decoder_args(
+    input_path: &str,
+    width: i32,
+    height: i32,
+    pix_fmt: &str,
+    window: &crate::source_timing::TimelineWindow,
+    output: &str,
+) -> Vec<String> {
+    let mut args: Vec<String> = Vec::new();
+    if let Some(seek) = window.seek_time {
+        args.push("-ss".to_string());
+        args.push(format!("{:.6}", seek));
+    }
+    args.extend(APPLY_CROPPING.iter().map(|s| s.to_string()));
+    args.extend([
+        "-i".to_string(), input_path.to_string(),
+        "-map".to_string(), "0:v:0".to_string(),
+        "-vf".to_string(), size_guard_filter(width, height),
+        "-fps_mode".to_string(), "passthrough".to_string(),
+        "-frames:v".to_string(), window.src_count.to_string(),
+        "-f".to_string(), "rawvideo".to_string(),
+        "-pix_fmt".to_string(), pix_fmt.to_string(),
+        "-v".to_string(), "error".to_string(),
+        "-y".to_string(),
+        output.to_string(),
+    ]);
+    args
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,9 +215,21 @@ mod tests {
         args.iter().position(|a| a == flag)
     }
 
-    /// Both decoders, so every assertion below covers both paths.
-    fn both() -> [(&'static str, Vec<String>); 2] {
-        [("encode", encode_args()), ("preview", preview_args())]
+    fn timeline_window() -> crate::source_timing::TimelineWindow {
+        crate::source_timing::TimelineWindow {
+            src_count: 9,
+            seek_time: Some(1.25),
+            slots: Vec::new(),
+        }
+    }
+
+    fn timeline_args() -> Vec<String> {
+        timeline_decoder_args("in.mov", 720, 576, "yuv422p10le", &timeline_window(), "pipe:1")
+    }
+
+    /// Every decoder, so every assertion below covers every path.
+    fn both() -> [(&'static str, Vec<String>); 3] {
+        [("encode", encode_args()), ("preview", preview_args()), ("timeline", timeline_args())]
     }
 
     #[test]
@@ -261,6 +310,24 @@ mod tests {
         assert_eq!(args[0], "-ss");
         assert_eq!(args[pos(&args, "-frames:v").unwrap() + 1], "11");
         assert_eq!(args.last().unwrap(), "frames.raw");
+    }
+
+    #[test]
+    fn timeline_decoder_passes_stored_frames_through() {
+        // Without passthrough ffmpeg repeats a frame into every gap, and the
+        // script's slot map no longer describes the stream (issue #137).
+        let args = timeline_args();
+        let fm = pos(&args, "-fps_mode").unwrap();
+        assert_eq!(args[fm + 1], "passthrough");
+        assert!(fm > pos(&args, "-i").unwrap(), "-fps_mode is an output option");
+        assert_eq!(args[pos(&args, "-frames:v").unwrap() + 1], "9");
+        let ss = pos(&args, "-ss").unwrap();
+        assert!(ss < pos(&args, "-i").unwrap());
+        assert_eq!(args[ss + 1], "1.250000");
+        let mut from_start = timeline_window();
+        from_start.seek_time = None;
+        let args = timeline_decoder_args("in.mov", 720, 576, "yuv420p", &from_start, "pipe:1");
+        assert!(pos(&args, "-ss").is_none());
     }
 
     #[test]

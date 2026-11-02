@@ -24,6 +24,7 @@ import 'package:vapourbox/models/descale_parameters.dart';
 import 'package:vapourbox/models/descratch_parameters.dart';
 import 'package:vapourbox/models/dynamic_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
+import 'package:vapourbox/models/frame_rate_parameters.dart';
 import 'package:vapourbox/models/filter_schema.dart';
 import 'package:vapourbox/models/noise_reduction_parameters.dart';
 import 'package:vapourbox/models/parameter_converter.dart';
@@ -34,6 +35,7 @@ import 'package:vapourbox/models/spotless_parameters.dart';
 import 'package:vapourbox/models/stabilize_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 
+import 'support/vfr_fixture.dart';
 import 'support/worker_harness.dart';
 
 // =============================================================================
@@ -851,6 +853,52 @@ void main() {
       expect(actual['blurlen'], '12');
       expect(actual['modey'], '1');
       expect(actual['modeu'], '1');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // --- VARIABLE FRAME RATE SOURCE (issue #137) ---
+    test('vfr source: stored frames placed on the grid, gaps interpolated',
+        () async {
+      VideoJob vfrJob(String name, String input, FrameRateParameters fr) =>
+          VideoJob(
+            id: const Uuid().v4(),
+            inputPath: input,
+            outputPath: '${TestConfig.outputDir}/$name.mkv',
+            processingPipeline: ProcessingPipeline(
+              deinterlace: const QTGMCParameters(enabled: false),
+              frameRate: fr,
+            ),
+            encodingSettings: const EncodingSettings(),
+            totalFrames: VfrFixture.storedFrames,
+            inputFrameRate: VfrFixture.fps,
+            inputWidth: VfrFixture.width,
+            inputHeight: VfrFixture.height,
+            inputPixelFormat: 'yuv420p',
+          );
+      const flow = FrameRateParameters(
+          enabled: true, target: FrameRateTarget.ntsc5994, blockSize: 32);
+      final vfr = await VfrFixture.path();
+
+      final script = await generateScriptViaWorker(vfrJob('vfr_flow', vfr, flow));
+      // The pipe carries the stored frames; the block makes one per slot.
+      expect(script, contains('num_frames=${VfrFixture.storedFrames}'));
+      expect(script, contains('_vfr_slots = ${VfrFixture.slots}'));
+      expect(script, contains('core.mv.FlowInter('));
+      expect(script, contains('_vfr_super, isb=True, blksize=32'));
+      final gaps = RegExp(r'_vfr_gaps = \{([^}]*)\}').firstMatch(script)!.group(1)!;
+      expect(gaps.split(',').length, 49, reason: 'every dropped frame is a gap');
+      expect(gaps, startsWith('152: 50'));
+
+      // No synthesizing pass: gaps repeat, nothing is invented.
+      final plain = await generateScriptViaWorker(
+          vfrJob('vfr_plain', vfr, const FrameRateParameters()));
+      expect(plain, contains('_vfr_slots = ${VfrFixture.slots}'));
+      expect(plain, contains('_vfr_gaps = {}\n'));
+
+      // A constant-rate source is untouched.
+      final cfr = await generateScriptViaWorker(vfrJob('vfr_cfr',
+          VfrFixture.groundTruth, const FrameRateParameters()));
+      expect(cfr, isNot(contains('_vfr_')));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 

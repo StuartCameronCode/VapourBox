@@ -155,6 +155,7 @@ use crate::pixel_format;
 use crate::source_decode;
 use crate::progress_reporter::ProgressReporter;
 use crate::script_generator::{PreviewParams, ScriptGenerator};
+use crate::source_timing::SourceTimeline;
 
 /// Executes the ffmpeg (decode) | vspipe | ffmpeg (encode) pipeline.
 pub struct PipelineExecutor {
@@ -163,6 +164,10 @@ pub struct PipelineExecutor {
     decoder_process: Option<Child>,
     vspipe_process: Option<Child>,
     ffmpeg_process: Option<Child>,
+    /// A variable-frame-rate source's timeline (see `source_timing`), from
+    /// which the encode and preview decoders take their window. `None` for a
+    /// constant-rate source.
+    timeline: Option<SourceTimeline>,
 }
 
 /// Watches for the pipeline making no progress at all.
@@ -225,7 +230,14 @@ impl PipelineExecutor {
             decoder_process: None,
             vspipe_process: None,
             ffmpeg_process: None,
+            timeline: None,
         })
+    }
+
+    /// Set the source's variable-frame-rate timeline (see `self.timeline`).
+    pub fn with_timeline(mut self, timeline: Option<SourceTimeline>) -> Self {
+        self.timeline = timeline;
+        self
     }
 
     /// Execute the deinterlacing pipeline.
@@ -274,16 +286,29 @@ impl PipelineExecutor {
 
         // Frame trimming is handled by the decoder (faster than VapourSynth
         // trimming since FFmpeg can seek using the container index).
-        let decoder_args = source_decode::encode_decoder_args(
-            &job.input_path,
-            width,
-            height,
-            pix_fmt,
-            job.input_frame_rate,
-            job.start_frame,
-            job.end_frame,
-            job.total_frames,
-        );
+        //
+        // A VFR source decodes its stored frames for the trim's window instead
+        // — the same `window_for_trim` the script was generated from.
+        let decoder_args = match &self.timeline {
+            Some(t) => source_decode::timeline_decoder_args(
+                &job.input_path,
+                width,
+                height,
+                pix_fmt,
+                &t.window_for_trim(job.start_frame, job.end_frame),
+                "pipe:1",
+            ),
+            None => source_decode::encode_decoder_args(
+                &job.input_path,
+                width,
+                height,
+                pix_fmt,
+                job.input_frame_rate,
+                job.start_frame,
+                job.end_frame,
+                job.total_frames,
+            ),
+        };
 
         self.reporter.send_log(
             LogLevel::Debug,
@@ -1232,14 +1257,25 @@ impl PipelineExecutor {
         // `first` for CFR sources, avoiding the ±1-frame ambiguity of seeking to
         // the frame boundary itself.
         let seek_time = ((first as f64 - 0.5) / frame_rate).max(0.0);
+        // A VFR source's window is in grid slots, decoded from its stored
+        // frames — the same derivation as the encode (issue #137).
+        let window = self
+            .timeline
+            .as_ref()
+            .map(|t| t.window(first as usize, (first + num_frames - 1) as usize));
 
         // Output frame index the target source frame maps to after the pipeline
         // (e.g. ×2 for QTGMC double-rate). The template clamps defensively.
         let output_index = pipeline.output_count(local as u64) as i32;
 
+        let decoder_seek = match &window {
+            Some(w) => w.seek_time.unwrap_or(0.0),
+            None => seek_time,
+        };
         eprintln!(
-            "Preview: source frame {} (window {}..{}, local {}, output index {}) seek {:.6}s ({}x{} {})",
-            target, first, target + radius, local, output_index, seek_time, width, height, pix_fmt
+            "Preview: source frame {} (window {}..{}, local {}, output index {}) seek {:.6}s ({}x{} {}{})",
+            target, first, target + radius, local, output_index, decoder_seek, width, height, pix_fmt,
+            if window.is_some() { ", variable frame rate" } else { "" }
         );
 
         // Field order is derived inside the script generator (see
@@ -1265,7 +1301,8 @@ impl PipelineExecutor {
             } else {
                 Err("KNLMeans is not used by this job.".into())
             })
-            .with_animejanai(self.deps.animejanai_runtime());
+            .with_animejanai(self.deps.animejanai_runtime())
+            .with_timeline(window.clone());
         let (fps_num, fps_den) = script_generator.frame_rate_to_rational(frame_rate);
 
         let preview_params = PreviewParams {
@@ -1291,8 +1328,16 @@ impl PipelineExecutor {
 
         // Same decode as the encode path: the full stored frame at exactly the
         // probed size, never resampled — see source_decode.rs.
-        let extract_result = Command::new(&ffmpeg_path)
-            .args(source_decode::preview_decoder_args(
+        let decoder_args = match &window {
+            Some(w) => source_decode::timeline_decoder_args(
+                &job.input_path,
+                width,
+                height,
+                pix_fmt,
+                w,
+                raw_path.to_string_lossy().as_ref(),
+            ),
+            None => source_decode::preview_decoder_args(
                 &job.input_path,
                 seek_time,
                 num_frames,
@@ -1300,7 +1345,10 @@ impl PipelineExecutor {
                 height,
                 pix_fmt,
                 raw_path.to_string_lossy().as_ref(),
-            ))
+            ),
+        };
+        let extract_result = Command::new(&ffmpeg_path)
+            .args(decoder_args)
             .envs(&env)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())

@@ -76,12 +76,18 @@ class FieldOrderDetector {
 
       final width = videoStream['width'] as int?;
       final height = videoStream['height'] as int?;
-      final frameRate = selectFrameRate(
-        _parseFrameRate(videoStream['r_frame_rate'] as String?),
-        _parseFrameRate(videoStream['avg_frame_rate'] as String?),
-      );
+      final rFrameRate = _parseFrameRate(videoStream['r_frame_rate'] as String?);
+      final avgFrameRate =
+          _parseFrameRate(videoStream['avg_frame_rate'] as String?);
+      final frameRate = selectFrameRate(rFrameRate, avgFrameRate);
       final duration = _parseDuration(format?['duration'] as String?);
-      final frameCount = _parseFrameCount(videoStream['nb_frames'] as String?);
+      final frameCount = frameCountFor(
+        storedFrames: _parseFrameCount(videoStream['nb_frames'] as String?),
+        rFrameRate: rFrameRate,
+        avgFrameRate: avgFrameRate,
+        duration: _parseDuration(videoStream['duration'] as String?) ?? duration,
+        frameRate: frameRate,
+      );
       final codec = videoStream['codec_name'] as String?;
       final pixelFormat = videoStream['pix_fmt'] as String?;
 
@@ -464,6 +470,48 @@ class FieldOrderDetector {
       return avgFrameRate;
     }
     return rFrameRate;
+  }
+
+  /// Relative difference between `r_frame_rate` and `avg_frame_rate` above
+  /// which a source may have a variable frame rate. The worker's
+  /// `source_timing::VFR_RATE_TOLERANCE` — keep the two equal.
+  static const double vfrRateTolerance = 0.0002;
+
+  /// Whether ffprobe's two rates say the source may have a variable frame
+  /// rate (a phone or screen recording that slows down). Field-coded
+  /// interlaced video's 2:1 ratio (see [selectFrameRate]) is constant-rate.
+  static bool isVariableRate(double? rFrameRate, double? avgFrameRate) {
+    if (rFrameRate == null || avgFrameRate == null) return false;
+    if (rFrameRate <= 0 || avgFrameRate <= 0) return false;
+    final ratio = rFrameRate / avgFrameRate;
+    if (ratio > 1.8 && ratio < 2.2) return false;
+    return ((rFrameRate - avgFrameRate) / rFrameRate).abs() > vfrRateTolerance;
+  }
+
+  /// The source's length in frames at [frameRate] — the count the timeline,
+  /// trims and the worker's pipe all work in.
+  ///
+  /// `nb_frames` is the number of frames *stored*. For a variable-frame-rate
+  /// source that is fewer than its duration holds at the nominal rate: the
+  /// gaps where the camera slowed down have no frame of their own. Counting
+  /// stored frames made the timeline short, put every trim point early, and
+  /// cut the end off the encode (issue #137), so such a source is counted
+  /// by duration instead; the worker places its frames on the same grid.
+  static int? frameCountFor({
+    required int? storedFrames,
+    required double? rFrameRate,
+    required double? avgFrameRate,
+    required double? duration,
+    required double? frameRate,
+  }) {
+    if (isVariableRate(rFrameRate, avgFrameRate) &&
+        duration != null &&
+        duration > 0 &&
+        frameRate != null &&
+        frameRate > 0) {
+      return (duration * frameRate).round();
+    }
+    return storedFrames;
   }
 
   double? _parseFrameRate(String? rateStr) {

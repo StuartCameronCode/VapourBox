@@ -6605,3 +6605,105 @@ fn test_179_animejanai_is_refused_without_its_models() {
     let esrgan = ai_upscale_job("test_179_esrgan", UpscaleMethod::RealEsrgan, 2, "");
     both_scripts_with(&generator, &esrgan).expect("Real-ESRGAN needs no add-on");
 }
+
+/// A phone-style VFR source: 30 fps for 30 frames, then every third frame
+/// missing for 30 more slots (issue #137).
+fn vfr_window() -> vapourbox_worker::source_timing::TimelineWindow {
+    let mut times: Vec<f64> = (0..30).map(|i| i as f64 / 30.0).collect();
+    times.extend((30..60).filter(|i| i % 3 != 2).map(|i| i as f64 / 30.0));
+    vapourbox_worker::source_timing::SourceTimeline::build(&times, 0.0, 30, 1)
+        .expect("irregular timestamps make a timeline")
+        .window_for_trim(None, None)
+}
+
+fn vfr_job(name: &str, frame_rate: FrameRateParameters) -> VideoJob {
+    let mut job = create_base_job(name);
+    job.qtgmc_parameters.enabled = false;
+    job.input_frame_rate = Some(30.0);
+    job.detected_field_order = Some(FieldOrder::Progressive);
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        frame_rate,
+        ..ProcessingPipeline::default()
+    });
+    job
+}
+
+/// A VFR source's stored frames are placed on the grid right after the pipe,
+/// in both scripts: the pipe carries the stored frames, the block emits one
+/// frame per slot, and a gap repeats the frame before it unless the Frame
+/// Rate pass synthesizes frames, when it is interpolated (FlowInter) instead.
+#[test]
+fn test_180_vfr_source_timeline_fills_gaps() {
+    create_output_dir();
+    let window = vfr_window();
+    assert_eq!(window.slots.len(), 59);
+    assert_eq!(window.src_count, 50);
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_rife(Ok(rife_files()))
+        .with_timeline(Some(window.clone()));
+
+    for method in [FrameRateMethod::FlowFps, FrameRateMethod::Rife] {
+        let job = vfr_job(
+            "test_180_vfr_interp",
+            FrameRateParameters {
+                enabled: true,
+                target: FrameRateTarget::Ntsc5994,
+                method,
+                block_size: 32,
+                ..Default::default()
+            },
+        );
+        let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(script.contains("num_frames=50"), "{name} {method:?}: pipe must carry the 50 stored frames");
+            assert!(script.contains("_vfr_slots = 59"), "{name} {method:?}");
+            assert!(script.contains(&format!("_vfr_jumps = {}", window.python_jumps())), "{name} {method:?}");
+            assert!(script.contains("_vfr_gaps = {32: 50, 35: 50"), "{name} {method:?}: gaps not interpolated");
+            assert!(script.contains("core.mv.FlowInter("), "{name} {method:?}");
+            // RIFE jobs get the gap motion settings too, not a raw placeholder.
+            assert!(!script.contains("{{FPS_"), "{name} {method:?}: unsubstituted motion settings");
+            assert!(!script.contains("{{VFR_"), "{name} {method:?}: unsubstituted timeline");
+            assert!(script.contains("_vfr_super, isb=True, blksize=32"), "{name} {method:?}");
+            // Before anything else touches the clip.
+            let block = script.find("_vfr_src = clip").unwrap();
+            assert!(block < script.find("INPUT_INFO").unwrap(), "{name}: timeline after INPUT_INFO");
+        }
+    }
+
+    // No synthesis, no invented pixels: gaps repeat.
+    let interlaced = {
+        let mut j = vfr_job("test_180_vfr_interlaced", FrameRateParameters {
+            enabled: true,
+            target: FrameRateTarget::Ntsc5994,
+            ..Default::default()
+        });
+        j.detected_field_order = Some(FieldOrder::TopFieldFirst);
+        j
+    };
+    for job in [
+        vfr_job("test_180_vfr_none", FrameRateParameters::default()),
+        vfr_job("test_180_vfr_dup", FrameRateParameters {
+            enabled: true,
+            target: FrameRateTarget::Ntsc5994,
+            method: FrameRateMethod::Duplicate,
+            ..Default::default()
+        }),
+        interlaced,
+    ] {
+        let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(script.contains("_vfr_slots = 59"), "{name} {}", job.output_path);
+            assert!(script.contains("_vfr_gaps = {}\n"), "{name} {}: gaps interpolated", job.output_path);
+            assert!(!script.contains("{{VFR_"), "{name} {}: unsubstituted timeline", job.output_path);
+        }
+    }
+
+    // A constant-rate source's script has no trace of it.
+    let plain = ScriptGenerator::new().unwrap();
+    let (encode, preview) = both_scripts_with(&plain, &vfr_job("test_180_cfr", FrameRateParameters::default())).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(!script.contains("_vfr_"), "{name}: timeline emitted for a CFR source");
+    }
+}
