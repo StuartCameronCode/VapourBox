@@ -69,7 +69,10 @@ void main() {
       // The test above only proves this side. Read the worker's own
       // format! string and fill it the same way, so a change on either side
       // alone fails here rather than as a before/after colour mismatch.
-      final src = _repoFile('worker/src/models/color_metadata.rs');
+      // A Windows checkout gives the file CRLF; the patterns below span
+      // line breaks.
+      final src = _repoFile('worker/src/models/color_metadata.rs')
+          .replaceAll('\r\n', '\n');
       final fn = src.substring(src.indexOf('pub fn display_tonemap_filter'));
       final start = fn.indexOf('format!(\n') + 'format!(\n'.length;
       final literal = fn.substring(fn.indexOf('"', start) + 1, fn.indexOf('"\n', start));
