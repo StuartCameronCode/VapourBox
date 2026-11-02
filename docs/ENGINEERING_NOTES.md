@@ -2585,6 +2585,40 @@ picture (difference 0.000) and does change a 720p one (0.52).
 the shared `AddonPrompt`. Requirements (a Whisper model needs the engine) are
 installed first and removed with what needs them.
 
+### Variable-frame-rate sources (issue #137, 2026-11-02)
+
+**Report.** "Output video stuttering and lag after frame interpolation", no
+source details. On `small_clip` (CFR) every Frame Rate method was clean:
+uniform timestamps, rates right, interpolated frames at true midpoints
+(half-step balance 0.85 FlowFPS / 0.91 RIFE, 1 = even).
+
+**Cause.** A VFR source. The decoder wrote `rawvideo` with no `-fps_mode`, and
+ffmpeg converts that to constant rate by repeating a frame into each gap. The
+app's frame count was `nb_frames` (stored frames), so `-frames:v` then cut the
+tail. A 10 s clip at 30 fps slowing to 20 for its second half (250 stored
+frames) came out 8.34 s against 10.00 s of audio, with frozen frames in
+24/60 output frames of every second of the slow half (12/60 in the first) after
+FlowFPS to 59.94: interpolating a repeat gives a stall, then a jump.
+
+**Fix.** The worker reads packet timestamps (only when the two ffprobe rates
+differ), decodes with `-fps_mode passthrough`, and maps grid slots to stored
+frames in the script, so gaps are known. With a synthesizing Frame Rate pass a
+gap is `mv.FlowInter`-interpolated at its position; otherwise it repeats as
+before. Same clip after: 9.98 s, frozen 4–6/60 per second (RIFE 4/60).
+
+**Measurements.** Ground truth is a lossless pan (2 px/frame) with every third
+frame dropped from frame 150. Gap slots against the dropped frame (RGB mean abs
+diff): interpolated 1.2–1.7, repeating would be 3.4–4.6. Real slots match their
+own frame (0.4–0.6) against neighbours 2.6–4.3, so there is no off-by-one, and
+the preview of a gap matches the encode (0.44 vs 1.5 for neighbours). A CFR
+source's decoded output is bit-identical to before (same video MD5).
+
+**Not done.** The grid is the app's chosen rate, which prefers `r_frame_rate`.
+A VFR file whose `r_frame_rate` is far above its real rate (some Android
+recordings report 90 or 120 for ~30 fps) gets a dense grid: mostly gap slots,
+repeated or interpolated, which is correct but slow. Choosing a better grid
+needs the timestamps, which the app does not read.
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and

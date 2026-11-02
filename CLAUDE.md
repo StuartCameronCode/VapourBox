@@ -102,6 +102,7 @@ VapourBox/
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded (see "Source Frame Size") |
+| `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, the `--probe-rife` / `--probe-upscale` probe, and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
 | `worker/src/native_res.rs` | `--detect-native`: the resolution and kernel a source was upscaled from, for the Descale pass (see "Descale") |
@@ -876,6 +877,40 @@ the **single** builder of both decoders' arguments (encode + preview):
 `integration_clean_aperture_test.dart` (heavy) asserts a clean-aperture MOV and
 MKV come through bit-exact at full size. See docs/ENGINEERING_NOTES.md,
 "Clean aperture".
+
+### Variable Frame Rate Sources (issue #137)
+
+Phone and screen recordings drop their rate when the scene gets dark or busy.
+Everything after the decoder assumes constant rate, so the worker places the
+stored frames on the grid itself:
+
+- **One decision, in the worker.** `source_timing::probe` reads the stored
+  frames' timestamps only when `r_frame_rate` and `avg_frame_rate` differ by
+  more than `VFR_RATE_TOLERANCE` (not the 2:1 field-coded case), and returns
+  `None` unless they really are irregular — a CFR job's decode and script are
+  byte-for-byte unchanged. The grid is `job.input_frame_rate`; IVTC and Soft
+  Telecine jobs are skipped, since VDecimate expects ffmpeg's constant-rate
+  decode with the pulldown repeats.
+- **Decode stored frames, place them in the script.** The decoder runs with
+  `-fps_mode passthrough` (`timeline_decoder_args`); left alone, ffmpeg
+  writing `rawvideo` repeats a frame into each gap and the script can no
+  longer tell gap from frame. `{{#VFR_TIMELINE}}`, right after the pipe in
+  **both** templates, maps slots to stored frames. Encode and preview take
+  their window from the same `SourceTimeline` (`window_for_trim` /
+  `window`), so preview = encode.
+- **A gap repeats the frame before it — unless the Frame Rate pass
+  synthesizes frames** (`ScriptGenerator::interpolates_gaps`: FlowFPS/RIFE,
+  progressive source), when it is `mv.FlowInter`-interpolated at its true
+  position. Interpolating a repeat is what made retimed VFR video stutter;
+  inventing pixels for any other job is not ours to do.
+- **Count by duration, not `nb_frames`.** `nb_frames` counts stored frames,
+  so the app's timeline was short, trims landed early and the encode lost its
+  tail. `FieldOrderDetector.frameCountFor` counts a VFR source as
+  duration × rate (its `vfrRateTolerance` must equal the worker's), and the
+  worker sets `total_frames` to the window's slot count regardless.
+
+`integration_vfr_source_test.dart` (heavy) checks length, gap pixels against
+the dropped ground-truth frames, slot alignment and preview = encode.
 
 ### High Bit Depth Sources (10-bit ProRes 422 and deeper)
 

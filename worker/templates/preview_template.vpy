@@ -28,6 +28,48 @@ clip = create_pipe_clip(
     fps_den={{FPS_DEN}}, pix_fmt="{{INPUT_PIX_FMT}}",
 )
 
+{{#VFR_TIMELINE}}
+# Variable frame rate source (issue #137). The decoder passed the stored frames
+# through as they are; this places them on the constant-rate grid everything
+# after it assumes. A slot with no frame of its own -- a gap where the camera
+# slowed down -- repeats the frame before it, which is what a constant-rate
+# decode always did. When the Frame Rate pass synthesizes frames anyway, a gap
+# is instead interpolated at its true position between its neighbours, so the
+# retime never animates between two identical frames (a stall, then a jump).
+# The worker computes the map (source_timing.rs); only the slots where it does
+# not simply advance by one frame are listed.
+_vfr_src = clip
+_vfr_slots = {{VFR_SLOT_COUNT}}
+_vfr_jumps = {{VFR_JUMPS}}
+_vfr_gaps = {{VFR_GAP_TIMES}}
+_vfr_map = []
+_vfr_k = -1
+for _vfr_i in range(_vfr_slots):
+    _vfr_k = _vfr_jumps.get(_vfr_i, _vfr_k + 1)
+    _vfr_map.append(_vfr_k)
+_vfr_inter = {}
+if _vfr_gaps:
+    # mvtools rejects 4:1:1, as in the Frame Rate pass.
+    _vfr_mv = _vfr_src
+    if _vfr_mv.format.subsampling_w == 2:
+        _vfr_mv = core.resize.Bicubic(_vfr_mv, format=vs.YUV422P8 if _vfr_mv.format.bits_per_sample == 8 else vs.YUV422P16)
+    _vfr_super = core.mv.Super(_vfr_mv, pel=2)
+    _vfr_bw = core.mv.Analyse(_vfr_super, isb=True, blksize={{FPS_BLOCK_SIZE}}, overlap={{FPS_OVERLAP}})
+    _vfr_fw = core.mv.Analyse(_vfr_super, isb=False, blksize={{FPS_BLOCK_SIZE}}, overlap={{FPS_OVERLAP}})
+    # One FlowInter per distinct position: frame k of it lies that percentage
+    # of the way from stored frame k to k + 1.
+    for _vfr_t in sorted(set(_vfr_gaps.values())):
+        _vfr_c = core.mv.FlowInter(_vfr_mv, _vfr_super, _vfr_bw, _vfr_fw, time=_vfr_t)
+        if _vfr_c.format.id != _vfr_src.format.id:
+            _vfr_c = core.resize.Bicubic(_vfr_c, format=_vfr_src.format.id)
+        _vfr_inter[_vfr_t] = _vfr_c
+def _vfr_pick(n):
+    _t = _vfr_gaps.get(n)
+    _c = _vfr_src if _t is None else _vfr_inter[_t]
+    return _c[_vfr_map[n]] * (n + 1)
+clip = core.std.FrameEval(core.std.BlankClip(_vfr_src, length=_vfr_slots), _vfr_pick)
+{{/VFR_TIMELINE}}
+
 # Convert unusual chroma formats (e.g., 4:1:1 from NTSC DV) to 4:2:2 for filter compatibility
 # 4:1:1 (YUV411P) has subsampling_w=2, subsampling_h=0
 # Most filters expect 4:2:0 or 4:2:2; 4:2:2 is lossless when upconverting from 4:1:1

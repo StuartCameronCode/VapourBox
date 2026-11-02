@@ -501,8 +501,17 @@ class PreviewGenerator {
       _frameRate = selected;
     }
 
-    // Parse frame count
-    _totalFrames = int.tryParse(videoStream['nb_frames']?.toString() ?? '') ??
+    // Parse frame count: the same length the job is built with, which for a
+    // variable-frame-rate source is its duration, not its stored frames.
+    _totalFrames = FieldOrderDetector.frameCountFor(
+          storedFrames:
+              int.tryParse(videoStream['nb_frames']?.toString() ?? ''),
+          rFrameRate: rFrameRate,
+          avgFrameRate: avgFrameRate,
+          duration: double.tryParse(videoStream['duration']?.toString() ?? '') ??
+              _duration,
+          frameRate: _frameRate,
+        ) ??
         (_duration * _frameRate).round();
 
     // Parse video dimensions and pixel format

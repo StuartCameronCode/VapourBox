@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use crate::gpu_plugin::{py_str, GpuPluginFiles};
+use crate::source_timing::TimelineWindow;
 use crate::models::{
     AntiAliasMethod, GrainMethod,
     VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod, AiModel, CCD_REFERENCE_HEIGHT,
@@ -82,6 +83,10 @@ pub struct ScriptGenerator {
     /// addition to `upscale`. Defaults to "not checked"; callers set it from
     /// `DependencyLocator::animejanai_runtime()`.
     animejanai: std::result::Result<PathBuf, String>,
+    /// For a variable-frame-rate source, where the decoded window's stored
+    /// frames fall on the grid (see `source_timing`). `None` for a
+    /// constant-rate source, whose script is unchanged.
+    timeline: Option<TimelineWindow>,
 }
 
 /// Parameters for preview script generation.
@@ -117,6 +122,7 @@ impl ScriptGenerator {
             upscale: Err("AI upscaling was not checked for this job.".to_string()),
             knlm: Err("KNLMeansCL was not checked for this job.".to_string()),
             animejanai: Err("AnimeJaNai was not checked for this job.".to_string()),
+            timeline: None,
         })
     }
 
@@ -151,6 +157,27 @@ impl ScriptGenerator {
     pub fn with_animejanai(mut self, animejanai: std::result::Result<PathBuf, String>) -> Self {
         self.animejanai = animejanai;
         self
+    }
+
+    /// Set the variable-frame-rate timeline window this script decodes (see
+    /// `self.timeline`). The decoder must be built from the same window.
+    pub fn with_timeline(mut self, timeline: Option<TimelineWindow>) -> Self {
+        self.timeline = timeline;
+        self
+    }
+
+    /// Whether a VFR source's gap slots are interpolated rather than repeated:
+    /// only when the Frame Rate pass is inventing frames anyway (FlowFPS, RIFE),
+    /// and only for progressive pictures — interpolating a woven interlaced
+    /// frame would blend its fields. Anything else keeps the repeat, so no other
+    /// job gains pixels that were never photographed.
+    pub fn interpolates_gaps(job: &VideoJob, pipeline: &ProcessingPipeline) -> bool {
+        pipeline.frame_rate.enabled
+            && pipeline.frame_rate.method.synthesizes()
+            && !matches!(
+                job.detected_field_order,
+                Some(FieldOrder::TopFieldFirst) | Some(FieldOrder::BottomFieldFirst)
+            )
     }
 
     /// Set the device KNLMeans runs on, or why it cannot run (see `self.knlm`).
@@ -220,7 +247,10 @@ impl ScriptGenerator {
         script = script.replace("{{INPUT_WIDTH}}", &preview_params.width.to_string());
         script = script.replace("{{INPUT_HEIGHT}}", &preview_params.height.to_string());
         script = script.replace("{{INPUT_PIX_FMT}}", &preview_params.pix_fmt);
-        script = script.replace("{{TOTAL_FRAMES}}", &preview_params.num_frames.to_string());
+        // With a timeline the pipe carries the window's stored frames; the
+        // VFR_TIMELINE block turns them into `num_frames` slots.
+        let piped = self.timeline.as_ref().map(|t| t.src_count as i32).unwrap_or(preview_params.num_frames);
+        script = script.replace("{{TOTAL_FRAMES}}", &piped.to_string());
         script = script.replace("{{FPS_NUM}}", &preview_params.fps_num.to_string());
         script = script.replace("{{FPS_DEN}}", &preview_params.fps_den.to_string());
         script = script.replace("{{PREVIEW_OUTPUT_INDEX}}", &preview_params.output_index.to_string());
@@ -349,7 +379,12 @@ impl ScriptGenerator {
         script = script.replace("{{INPUT_PIX_FMT}}", &pipe_format.name);
 
         // Total frames — use job value or fallback
-        let total_frames = job.total_frames.unwrap_or(1);
+        // With a timeline the pipe carries the window's stored frames; the
+        // VFR_TIMELINE block turns them into the job's slots.
+        let total_frames = match &self.timeline {
+            Some(t) => t.src_count as i32,
+            None => job.total_frames.unwrap_or(1),
+        };
         script = script.replace("{{TOTAL_FRAMES}}", &total_frames.to_string());
 
         // FPS as rational number
@@ -418,6 +453,33 @@ impl ScriptGenerator {
     fn substitute_parameters_on(&self, script: &str, job: &VideoJob, pipeline: &ProcessingPipeline) -> String {
         let mut script = script.to_string();
         let params = &pipeline.deinterlace;
+
+        // ====================================================================
+        // VARIABLE FRAME RATE TIMELINE (issue #137)
+        // ====================================================================
+        match &self.timeline {
+            Some(t) => {
+                script = script.replace("{{#VFR_TIMELINE}}", "");
+                script = script.replace("{{/VFR_TIMELINE}}", "");
+                script = script.replace("{{VFR_SLOT_COUNT}}", &t.slots.len().to_string());
+                script = script.replace("{{VFR_JUMPS}}", &t.python_jumps());
+                let gaps = if Self::interpolates_gaps(job, pipeline) {
+                    t.python_gap_times()
+                } else {
+                    "{}".to_string()
+                };
+                script = script.replace("{{VFR_GAP_TIMES}}", &gaps);
+                // Gaps are found with the Frame Rate pass's own motion settings.
+                // Substituted here because that pass only fills them in for
+                // FlowFPS, and a RIFE job interpolates its gaps too.
+                let fr = &pipeline.frame_rate;
+                script = script.replace("{{FPS_BLOCK_SIZE}}", &fr.block_size.to_string());
+                script = script.replace("{{FPS_OVERLAP}}", &fr.effective_overlap().to_string());
+            }
+            None => {
+                script = remove_block("{{#VFR_TIMELINE}}", "{{/VFR_TIMELINE}}", script);
+            }
+        }
 
         // ====================================================================
         // CROP PASS (its block sits after Stabilize and Rotate / Flip, directly

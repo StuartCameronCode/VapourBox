@@ -25,6 +25,7 @@ mod dvd_reader;
 mod pipeline_executor;
 mod pixel_format;
 mod source_decode;
+mod source_timing;
 mod progress_reporter;
 mod animejanai;
 mod gpu_plugin;
@@ -470,8 +471,9 @@ fn run_preview_mode(args: &Args) -> ExitCode {
     eprintln!("Preview: source frame {} (fps: {:.2})", frame, job.input_frame_rate.unwrap_or(29.97));
 
     // Execute preview (extracts frames with ffmpeg, processes with VapourSynth)
+    let timeline = source_timeline(&job, deps.as_ref(), |msg| eprintln!("{}", msg));
     let executor = match PipelineExecutor::new(ProgressReporter::new()) {
-        Ok(e) => e,
+        Ok(e) => e.with_timeline(timeline),
         Err(e) => {
             eprintln!("Error creating executor: {}", e);
             return ExitCode::from(1);
@@ -503,6 +505,37 @@ fn fill_frame_size(
         job.input_width = Some(w);
         job.input_height = Some(h);
     }
+}
+
+/// A variable-frame-rate source's timeline (issue #137, see `source_timing`),
+/// or `None` to decode at constant rate as before.
+///
+/// IVTC and Soft Telecine are left alone: a soft-telecined MPEG-2 stream's
+/// timestamps are "variable" by design, and VDecimate expects exactly the
+/// constant-rate decode, pulldown repeats included, that it always had.
+fn source_timeline(
+    job: &VideoJob,
+    deps: Option<&dependency_locator::DependencyLocator>,
+    log: impl Fn(&str),
+) -> Option<source_timing::SourceTimeline> {
+    let pipeline = job.effective_pipeline();
+    if pipeline.deinterlace.enabled
+        && matches!(
+            pipeline.deinterlace.method,
+            models::DeinterlaceMethod::Ivtc | models::DeinterlaceMethod::SoftTelecine
+        )
+    {
+        return None;
+    }
+    let deps = deps?;
+    let ffprobe = deps.ffprobe_path().ok()?;
+    source_timing::probe(
+        &ffprobe,
+        &deps.build_environment(),
+        &job.input_path,
+        job.input_frame_rate.unwrap_or(29.97),
+        log,
+    )
 }
 
 fn run_worker(
@@ -620,6 +653,19 @@ fn run_worker(
         reporter.send_log(models::LogLevel::Debug, msg)
     });
 
+    // A variable-frame-rate source is decoded as stored and placed on the
+    // grid by the script. Its length in grid slots replaces the stored-frame
+    // count the app sends (ffprobe's nb_frames), which is short by every gap.
+    let timeline = source_timeline(&job, deps.as_ref(), |msg| {
+        reporter.send_log(models::LogLevel::Info, msg)
+    });
+    let timeline_window = timeline
+        .as_ref()
+        .map(|t| t.window_for_trim(job.start_frame, job.end_frame));
+    if let Some(w) = &timeline_window {
+        job.total_frames = Some(w.slots.len() as i32);
+    }
+
     // Generate VapourSynth script
     reporter.send_log(models::LogLevel::Info, "Generating VapourSynth script...");
     // Detect OpenCL availability so QTGMC falls back to CPU NNEDI3 on machines
@@ -663,7 +709,8 @@ fn run_worker(
         .with_animejanai(match deps.as_ref() {
             Some(d) if pipeline.uses_animejanai() => d.animejanai_runtime(),
             _ => Err(animejanai::MISSING_MESSAGE.to_string()),
-        });
+        })
+        .with_timeline(timeline_window);
     let script_path = script_generator
         .generate(&job)
         .with_context(|| "Failed to generate VapourSynth script")?;
@@ -685,7 +732,7 @@ fn run_worker(
     const MAX_PIPELINE_ATTEMPTS: u32 = 3;
     let mut attempt = 1;
     loop {
-        let mut executor = PipelineExecutor::new(reporter.clone())?;
+        let mut executor = PipelineExecutor::new(reporter.clone())?.with_timeline(timeline.clone());
         match executor.execute(&script_path, &job, || cancelled.load(Ordering::SeqCst)) {
             Ok(()) => break,
             Err(e)

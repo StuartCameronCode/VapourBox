@@ -65,6 +65,60 @@ void main() {
     });
   });
 
+  group('frameCountFor (issue #137)', () {
+    test('a constant-rate source counts its stored frames', () {
+      expect(
+          FieldOrderDetector.frameCountFor(
+              storedFrames: 3154,
+              rFrameRate: 29.97,
+              avgFrameRate: 29.97,
+              duration: 105.119,
+              frameRate: 29.97),
+          3154);
+    });
+
+    test('a variable-rate source counts its duration at the nominal rate', () {
+      // 30 fps that slowed to 20 for half its length: 250 stored frames over
+      // 10 s. Counting stored frames cut the encode off 1.7 s early.
+      expect(
+          FieldOrderDetector.frameCountFor(
+              storedFrames: 250,
+              rFrameRate: 30.0,
+              avgFrameRate: 25.0,
+              duration: 10.0,
+              frameRate: 30.0),
+          300);
+    });
+
+    test('field-coded interlaced (2:1) is constant-rate, not variable', () {
+      expect(FieldOrderDetector.isVariableRate(50.0, 25.0), isFalse);
+      expect(
+          FieldOrderDetector.frameCountFor(
+              storedFrames: 750,
+              rFrameRate: 50.0,
+              avgFrameRate: 25.0,
+              duration: 30.0,
+              frameRate: 25.0),
+          750);
+    });
+
+    test('container rounding of the average is not variable rate', () {
+      expect(FieldOrderDetector.isVariableRate(30000 / 1001, 29.97), isFalse);
+      expect(FieldOrderDetector.isVariableRate(30.0, 29.9), isTrue);
+    });
+
+    test('no stored count and constant rate leaves it to the caller', () {
+      expect(
+          FieldOrderDetector.frameCountFor(
+              storedFrames: null,
+              rFrameRate: 25.0,
+              avgFrameRate: 25.0,
+              duration: 10.0,
+              frameRate: 25.0),
+          isNull);
+    });
+  });
+
   group('Scan Type Detection', () {
     test('soft_telecine_test.mkv is detected as soft telecine', () async {
       final videoPath = path.join(testResourcesDir, 'soft_telecine_test.mkv');
