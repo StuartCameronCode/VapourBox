@@ -29,6 +29,7 @@ mod source_timing;
 mod progress_reporter;
 mod animejanai;
 mod gpu_plugin;
+mod hdr_metadata;
 mod native_res;
 mod script_generator;
 mod subtitle_generator;

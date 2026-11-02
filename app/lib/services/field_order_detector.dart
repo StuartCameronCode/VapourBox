@@ -1,8 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
-
+import '../models/hdr_display.dart';
 import '../models/video_job.dart';
 import 'tool_locator.dart';
 
@@ -136,6 +135,7 @@ class FieldOrderDetector {
         colorPrimaries: colorTag(videoStream, 'color_primaries'),
         colorTransfer: colorTag(videoStream, 'color_transfer'),
         colorRange: colorTag(videoStream, 'color_range'),
+        dolbyVision: DolbyVisionInfo.fromStream(videoStream),
       );
     } catch (e) {
       return null;
@@ -618,7 +618,7 @@ enum ScanType {
 /// forwarding that as though it were a value would put nonsense on the encoder
 /// command line. Anything unrecognised is dropped again worker-side, in
 /// `ColorMetadata::from_raw`, so a surprising value cannot reach ffmpeg.
-@visibleForTesting
+/// `PreviewGenerator` reads the tags with this too.
 String? colorTag(Map<String, dynamic> stream, String key) {
   final value = (stream[key] as String?)?.trim();
   if (value == null || value.isEmpty || value == 'unknown' || value == 'N/A') {
@@ -651,6 +651,12 @@ class VideoInfo {
   final String? colorTransfer;
   final String? colorRange;
 
+  /// The Dolby Vision configuration record, null for any other source.
+  /// Only Profile 5 changes what VapourBox can do (see
+  /// [DolbyVisionInfo.baseLayerIsUndecodable]); every other profile's base
+  /// layer is ordinary HDR10, HLG or SDR.
+  final DolbyVisionInfo? dolbyVision;
+
   const VideoInfo({
     required this.width,
     required this.height,
@@ -667,9 +673,16 @@ class VideoInfo {
     this.colorPrimaries,
     this.colorTransfer,
     this.colorRange,
+    this.dolbyVision,
   });
 
   String get resolution => '${width}x$height';
+
+  /// "HDR10", "HLG", "Dolby Vision 8.1", or null for SDR.
+  String? get dynamicRangeLabel => HdrDisplay.rangeLabel(
+        transfer: colorTransfer,
+        dolbyVision: dolbyVision,
+      );
 
   /// The actual content frame rate, which may differ from the container rate.
   /// - Soft telecine: container is ~29.97fps, content is ~23.976fps

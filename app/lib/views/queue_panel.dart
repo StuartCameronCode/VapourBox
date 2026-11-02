@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/queue_item.dart';
+import '../widgets/dynamic_range_badge.dart';
 import '../viewmodels/main_viewmodel.dart';
 import 'dropped_paths.dart';
 import '../models/app_shortcut.dart';
@@ -233,6 +234,12 @@ class _QueuePanelState extends State<QueuePanel> {
                   _InfoRow(label: 'Frames', value: '${item.videoInfo!.frameCount}'),
                   _InfoRow(label: 'Codec', value: item.videoInfo!.codec),
                   _InfoRow(label: 'Pixel Format', value: item.videoInfo!.pixelFormat),
+                  if (DynamicRangeBadge.shows(item.videoInfo!))
+                    _InfoRow(
+                      label: 'HDR',
+                      value: '${item.videoInfo!.dynamicRangeLabel}. '
+                          '${DynamicRangeBadge.explanation(item.videoInfo!)}',
+                    ),
                   _InfoRow(
                     label: 'Field Order',
                     value: item.videoInfo!.fieldOrderDescription,

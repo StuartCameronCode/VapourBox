@@ -96,6 +96,7 @@ Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract
 | **Reads** | `.dv` · `.mts` `.m2ts` · `.vob` `.m2v` `.mpg` `.mpeg` · `.mxf` · `.avi` `.mov` `.mp4` `.mkv` `.ts` `.wmv` `.webm` `.flv`, DVD discs and `VIDEO_TS` folders |
 | **Source formats** | 4:1:1 (NTSC DV), 4:1:0, 4:2:0/4:2:2/4:4:4 up to 16-bit, RGB, grayscale |
 | **Colour format** | Match the source, or convert to 4:2:0 8-bit (plays everywhere), 4:2:0 10-bit (for GPU encoders), 4:2:2 8- or 10-bit, or 4:4:4 10-bit. Matching a 10-bit source makes a 10-bit file, which some players and browsers won't open |
+| **HDR** | HDR10, HLG and Dolby Vision (profiles 7, 8 and 9) are processed and saved as HDR, and shown tone-mapped in the preview. H.265 keeps HDR10's mastering-display and light-level metadata. Dolby Vision's own dynamic metadata isn't kept, so the output plays as standard HDR. Dolby Vision Profile 5, used by some streaming services, can't be decoded and shows pink and green |
 | **Aspect ratio** | Non-square pixels preserved, even through a resize; or convert to square pixels, force a display aspect, or letterbox to a target size |
 
 ## The filter pipeline
