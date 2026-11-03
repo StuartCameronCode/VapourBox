@@ -607,7 +607,14 @@ void main() {
       available = probe.stdout.toString().contains('"available":true');
       print('  RIFE probe: ${probe.stdout.toString().trim()}');
       if (!available) return;
-      final r = await WorkerHarness.runJob(rifeJob().toJson(), label: 'rife_2x');
+      // On the GPU-less runners RIFE runs on lavapipe (CPU Vulkan), alongside
+      // the other heavy files. This 75-frame encode passed in under two
+      // minutes on one Linux job and hit the default 5 in another, so it gets
+      // the AI-upscale encodes' budget.
+      final r = await WorkerHarness.runJob(rifeJob().toJson(),
+          label: 'rife_2x',
+          timeout: const Duration(minutes: 20),
+          extraEnv: const {'VAPOURBOX_STALL_TIMEOUT_SECS': '1200'});
       expect(r.success, isTrue, reason: r.error);
       encoded = r.outputPath!;
     });
