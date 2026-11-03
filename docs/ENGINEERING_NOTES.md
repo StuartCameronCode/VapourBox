@@ -2818,6 +2818,38 @@ Full report with scripts:
   message. Only the preview path surfaces the Python error.
 - Not yet run on macOS x64, Linux, or an NVIDIA GPU.
 
+### FlowFPS's frame count depends on the MVTools version (issue #129, 2026-11-03)
+
+The custom-rate test in `integration_frame_mapping_test.dart` (25 fps to
+59.94, 75 frames, expecting `floor(75 * 2400/1001)` = 179) produced 178 on
+both macOS x64 nightly jobs and 179 everywhere it was run before. The file had
+not compiled since #142 (its harness change was never committed), so this was
+its first CI run.
+
+- **Cause.** The platforms do not ship the same MVTools. macOS arm64 and Linux
+  build dubhater's unpinned `master`; Windows (the v24 release zip) and macOS
+  x64 (Stefan-Olt's v24 build for v3, v24 from source for v2) ship v24.
+  Between them `MVFlowFPS` changed its length from
+  `1 + (n - 1) * fb / fa` (v24) to `n * fb / fa` (master). The template's
+  "FlowFPS emits floor(n * ratio)" was measured on master only. So a FlowFPS
+  job on Windows or an Intel Mac wrote one frame fewer than `FrameMap::Retime`
+  counts when the ratio is above 1 (one more below 1), and the progress total
+  and preview index were off by one at the tail.
+- **Reproduced locally** by running an x86_64 worker against the rc1
+  macos-x64 bundle under Rosetta (an arm64 worker ignores
+  `VAPOURBOX_DEPS_DIR` for its tools and quietly uses the installed arm64
+  deps, so it reproduces nothing). vspipe: "Output 178 frames".
+- **Fix: the script sets the length.** Both templates compute
+  `floor(n * ratio)` with `Fraction` before the call and trim or extend
+  after it. The frame v24 leaves off lies past the last source frame, where
+  master returns that source frame, so it is padded with the last frame.
+  `test_183` asserts the order in both scripts; the frame-mapping suite passes
+  on both arm64 (master) and x64 under Rosetta (v24).
+- **Not done: one MVTools everywhere.** Pinning arm64/Linux to v24 would lose
+  master's ARM speed work (sse2neon removals); Windows has no build newer
+  than v24. Any other FlowFPS/BlockFPS/FlowInter behaviour that differs
+  between the two versions is still per-platform.
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and

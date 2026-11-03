@@ -1180,6 +1180,11 @@ rate is `FrameRateParameters.customFps` (a plain number, default 48).
   NTSC source. Anything else is taken to three decimals. Out-of-range input is
   clamped to 1–240 rather than refused: the panel's number box doesn't
   enforce the schema's bounds. The Dart enum carries no numbers.
+- **FlowFPS's length is set by the script, not MVTools.** macOS arm64 and
+  Linux build MVTools `master` (`floor(n * ratio)` frames), Windows and macOS
+  x64 ship v24 (`floor((n - 1) * ratio) + 1`). Both templates trim or extend
+  to `floor(n * ratio)` after the call (`test_183`); a frame-count assertion
+  that passes on one platform proves nothing about the others.
 - **Don't check an NTSC output rate on an MKV.** Matroska's 1/1000 timebase
   can't hold 60000/1001, so ffprobe reports an estimate (`19001/317`) for any
   NTSC rate. `integration_frame_mapping_test.dart` encodes its custom-rate
