@@ -66,5 +66,5 @@ to it.
 
 | Date | Report | Outcome |
 |---|---|---|
-| 2026-11-03 | [Issue #144: KNLMeansCL fails on 10-bit sources (Windows), unreliable on macOS](issue-144-knlmeanscl/index.html) | Swap every platform to the maintained fork v1.3 (tag on macOS/Linux, PyPI wheel on Windows); verified on macOS arm64, Windows pending |
+| 2026-11-03 | [Issue #144: KNLMeansCL fails on 10-bit sources (Windows), unreliable on macOS](issue-144-knlmeanscl/index.html) | Swap every platform to the maintained fork v1.3 (tag on macOS/Linux, PyPI wheel on Windows); verified on macOS arm64; on Windows x64 (AMD GPU) the bug reproduces with v1.1.1 and v1.3 fixes it |
 | 2026-11-03 | [Issue #117: QTempGaussMC (vs-jetpack) as an alternate deinterlacer](issue-117-qtempgaussmc/index.html) | Worth adding as an advanced-only method (not macOS x64); +0.5–0.8 dB over havsfunc QTGMC Slower at equal speed once tuned; not built yet |

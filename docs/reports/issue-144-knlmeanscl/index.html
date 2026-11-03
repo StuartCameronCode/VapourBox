@@ -46,7 +46,7 @@
 <main>
 <h1>Issue #144 — KNLMeansCL fails on 10-bit sources on Windows, and is unreliable on macOS</h1>
 <p class="meta">2026-11-03 · issue <a href="https://github.com/StuartCameronCode/VapourBox/issues/144">#144</a> ·
-measured on an M1 Pro (macOS arm64) against the deps 1.14.0 bundle · Windows result pending</p>
+measured on an M1 Pro (macOS arm64) against the deps 1.14.0 bundle · reproduced and fixed on Windows x64 (AMD Radeon 780M), see 3d</p>
 
 <div class="card">
 <strong>Outcome.</strong> Every platform moves to the same KNLMeansCL: Jaded Encoding
@@ -57,8 +57,8 @@ That fixes two separate bugs:
 <li><strong>Windows</strong> shipped Khanattila's v1.1.1 release (2018), which refuses
 every 9–15-bit clip except packed YUV444P10 / RGB30. The KNLMeans Noise
 Reduction method failed outright on any 10-bit 4:2:0 or 4:2:2 source, as reported.
-<span class="warn">This is read from the source, not reproduced: no Windows machine has
-run it yet.</span></li>
+This was first read from the source. It has since been <span class="good">reproduced on
+Windows</span> with the 1.14.0 DLL and shown fixed with v1.3 (section 3d).</li>
 <li><strong>macOS</strong> built Khanattila's unpinned <code>master</code>. On Apple's
 OpenCL it gives a <em>different result on a repeat run</em> in 24 of 60 cases (by 110–255
 levels), and even when repeatable it does not compute the algorithm's result at low
@@ -188,20 +188,56 @@ havsfunc's call, which uses <code>device_type="auto"</code>. It used to fail on 
 back to DFTTest there. v1.3's device selection handles that, so on a Mac QTGMC now runs the
 denoiser the user chose.</p>
 
+<h3>3d. Windows x64 (deps 1.14.0 → v1.3)</h3>
+<p>Windows 11 Pro (build 26200), AMD Radeon 780M integrated graphics, driver
+32.0.32015.7029, CPU tier v3. <code>--probe-opencl</code> reported
+<code>{"knlm":true,"knlmDevice":"gpu"}</code> with both DLLs, so no KNLMeans test was skipped
+(no <code>SKIPPED</code> line in any run).</p>
+<table>
+<tr><th>DLL</th><th>SHA-256</th></tr>
+<tr><td>deps 1.14.0, Khanattila v1.1.1</td><td><code>bb60e8fa6cb531daa8d705a338c1188e202e38087f6c6c437fd2d4ee58477a42</code></td></tr>
+<tr><td>v1.3, from wheel <code>6ba28e0c…2b278b</code> (hash checked)</td><td><code>c7092121f4fde51f93e48fbbc9277e22599caf3a41027d0df5cfd9cc100ba343</code></td></tr>
+</table>
+<p class="caption">These three copies of v1.3 all have the second hash: the DLL installed by
+<code>download-deps-windows.ps1</code>, the one extracted from the PyPI wheel by hand, and the
+one in the published <code>deps-v1.15.0-rc1</code> bundle.</p>
+<table>
+<tr><th>Test</th><th>v1.1.1 (deps 1.14.0)</th><th>v1.3</th></tr>
+<tr><td><code>noise_knlmeans</code> preview, 4:2:2 10-bit</td><td class="bad">fails: <em>only YUV444P10 and RGB30 are supported!</em></td><td class="good">pass</td></tr>
+<tr><td><code>noise_knlmeans</code> preview, 4:4:4 12-bit</td><td class="bad">fails: <em>P8, P10, P16, Half and Single are supported!</em></td><td class="good">pass</td></tr>
+<tr><td><code>noise_knlmeans</code> preview, 4:2:2 16-bit</td><td class="good">pass</td><td class="good">pass</td></tr>
+<tr><td>8- vs 10-bit parity, 4:2:2</td><td class="bad">fails (the 10-bit run hits the same error)</td><td>0.638 (tolerance 2.0)</td></tr>
+<tr><td>10-bit 4:2:0 preview parity</td><td class="bad">fails: <em>only YUV444P10 and RGB30…</em></td><td>1.620, below the fixtures' own 1.885</td></tr>
+<tr><td>10-bit 4:2:0 full encode</td><td class="bad">fails (vspipe dies at evaluation; ffmpeg reports only <em>Header too large</em>)</td><td class="good">pass</td></tr>
+<tr><td>QTGMC <code>denoiser: knlmeanscl</code> on the 10-bit 4:2:0 fixture, preview and encode (a one-off test, not committed)</td><td class="bad">fails in havsfunc's <code>KNLMeansCL(noiseWindow, d=NoiseTR, h=Sigma)</code>: <em>only YUV444P10 and RGB30…</em></td><td class="good">pass</td></tr>
+<tr><td>Existing tests: KNLMeans end-to-end encode; QTGMC with <code>knlmeanscl</code> (8-bit fixture); <code>vapoursynth_integration_test</code>, <code>attribution_test</code></td><td>—</td><td class="good">pass</td></tr>
+<tr><td>The same <code>issue #144</code> tests against the published <code>deps-v1.15.0-rc1</code> bundle, downloaded by the harness</td><td>—</td><td class="good">pass (1.620 / 1.885)</td></tr>
+</table>
+<p class="caption">The diagnosis in section 1 holds exactly, including 16-bit passing under
+v1.1.1. The parity numbers are higher than on the Mac (0.638 vs 0.301; 1.620 vs 1.394), but the
+4:2:0 fixtures alone also differ more here (1.885 vs 1.717) before any filter runs. Both stay
+well inside their tolerances. I did not check whether the rest of the gap comes from the
+fixtures or from AMD's OpenCL rounding. <code>download-deps-windows.ps1</code> ran cleanly
+and installed the DLL from the wheel. It also re-downloaded FFmpeg and the other plugin archives
+instead of skipping them as already installed, which is harmless.</p>
+<p>Not run on Windows: the real app on a real 10-bit file, the repeatability matrix from 3a,
+the CPU-reference comparison from 3b, and an NVIDIA GPU like the reporter's RTX 3060.</p>
+
 <h2>4. What wasn't tested</h2>
 <ul>
-<li><strong>Windows, the reported platform.</strong> The diagnosis comes from v1.1.1's source and
-the user's log. The fix rests on the v1.3 wheel containing the same source that was measured
-on macOS. Before release, it needs one run on a Windows machine with a GPU: a 10-bit 4:2:0
-source through KNLMeans with v1.1.1 (expect the error), then with the v1.3 DLL (expect it to
-run), and the KNLMeans tests in <code>integration_high_bit_depth_filters_test.dart</code>.</li>
+<li><strong>Windows: tested since, see 3d.</strong> This was untested when the report was first
+written. It has since run on Windows x64 with an AMD GPU: v1.1.1 reproduces the error and v1.3
+fixes it, both in the Noise Reduction pass and in QTGMC's denoiser. Still untested on Windows:
+an NVIDIA GPU (the reporter's), and the real app on a real 10-bit file rather than the test
+harness.</li>
 <li>macOS x64 and Linux: the scripts are changed, but nothing has been built or run there.
 <code>build-deps-*</code> CI is the build test. Neither platform can run KNLMeans in CI (no
 OpenCL).</li>
 <li>Only one kind of input: synthetic grain on synthetic pictures. That is enough to tell right
 from wrong against the reference, but says nothing about the best <code>h</code> for real
 footage.</li>
-<li>NVIDIA, AMD and Intel OpenCL drivers: Apple's is the only one measured. The fill-buffer race is
+<li>NVIDIA and Intel OpenCL drivers. AMD's ran the app-level tests in 3d, but not the
+repeatability matrix or the CPU reference, which have run only on Apple's. The fill-buffer race is
 described as Apple-specific (see GROMACS issue 4852, linked in v1.3's source).</li>
 </ul>
 

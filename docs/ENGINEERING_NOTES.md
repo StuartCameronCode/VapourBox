@@ -2805,8 +2805,18 @@ Full report with scripts:
   (matching Windows/Linux, as designed), and its `auto` device works, so
   QTGMC's `knlmeanscl` denoiser runs on Apple Silicon instead of falling back
   to DFTTest.
-- Not yet run on Windows, macOS x64 or Linux. The Windows result is the one
-  that matters for the issue.
+- **Windows x64, verified 2026-11-03** (Radeon 780M, driver 32.0.32015.7029,
+  OpenCL probe `gpu`, so nothing skipped). With the 1.14.0 DLL (v1.1.1, sha256
+  `bb60e8fa…7a42`), every 10-bit KNLMeans case failed with the predicted
+  message, 12-bit failed with "P8, P10, P16, Half and Single", and 16-bit
+  passed. QTGMC's `knlmeanscl` failed too on a 10-bit 4:2:0 source, inside
+  havsfunc. With v1.3 (sha256 `c7092121…a343`; the same DLL from the script,
+  the wheel and the rc1 bundle), all of these pass. Parity was 0.638 at 4:2:2
+  (Mac 0.301), and 1.620 at 4:2:0 against a fixtures-only baseline of 1.885
+  (Mac 1.394 / 1.717). One thing to know when reading these runs: the 10-bit
+  encode failure shows up in ffmpeg as "Header too large", not the KNLMeans
+  message. Only the preview path surfaces the Python error.
+- Not yet run on macOS x64, Linux, or an NVIDIA GPU.
 
 ### Testing a deps change before publishing
 
