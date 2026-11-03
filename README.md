@@ -269,7 +269,7 @@ VapourBox is a front end to other people's work. Thanks in particular to:
 - **dubhater** — VapourSynth ports of MVTools, nnedi3, AWarpSharp2, TemporalMedian, FluxSmooth, Bifrost and `adjust`
 - **HolyWu** — VapourSynth ports of DFTTest, TTempSmooth, TCanny, CTMF, DCTFilter, Deblock, AddGrain, CAS, EEDI3 and NNEDI3CL
 - **mawen1250** — Retinex, BM3D and mvsfunc
-- **Edoardo Brunetti** — KNLMeansCL
+- **Edoardo Brunetti** (maintained by Jaded Encoding Thaumaturgy) — KNLMeansCL
 - **Frechdachs** (maintained by Jaded Encoding Thaumaturgy) — descale
 - **vszip** by Julek — CLAHE, the local-contrast lift in Color Correction
 - **RIFE** by hzwer (with Megvii) — the frame interpolation network, run through HolyWu's VapourSynth plugin (built on nihui's rife-ncnn-vulkan and Tencent's ncnn), with **MoltenVK** for Vulkan on macOS

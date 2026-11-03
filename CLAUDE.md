@@ -1180,6 +1180,11 @@ rate is `FrameRateParameters.customFps` (a plain number, default 48).
   NTSC source. Anything else is taken to three decimals. Out-of-range input is
   clamped to 1–240 rather than refused: the panel's number box doesn't
   enforce the schema's bounds. The Dart enum carries no numbers.
+- **FlowFPS's length is set by the script, not MVTools.** macOS arm64 and
+  Linux build MVTools `master` (`floor(n * ratio)` frames), Windows and macOS
+  x64 ship v24 (`floor((n - 1) * ratio) + 1`). Both templates trim or extend
+  to `floor(n * ratio)` after the call (`test_184`); a frame-count assertion
+  that passes on one platform proves nothing about the others.
 - **Don't check an NTSC output rate on an MKV.** Matroska's 1/1000 timebase
   can't hold 60000/1001, so ffprobe reports an estimate (`19001/317`) for any
   NTSC rate. `integration_frame_mapping_test.dart` encodes its custom-rate
@@ -1370,10 +1375,20 @@ the simple slots are full at four).
   `include_directories('include', run_command(py, '-c', 'import vapoursynth…'))`,
   and macOS x64 never ran `build_plugin`. Both failed silently because the
   plugin wasn't in their `deps-expected-plugins.json` lists.
+- **KNLMeansCL is Jaded Encoding Thaumaturgy's fork, v1.3, on every
+  platform** (issue #144): tag `v1.3` from source on macOS/Linux (`KNLM_TAG`),
+  PyPI wheel 1.3 on Windows; keep them in step. Never Khanattila's v1.1.1
+  release (refuses 9–15-bit except packed YUV444P10, so every 10-bit 4:2:0
+  source failed on Windows) or master (races its buffer fills on Apple's
+  OpenCL: unrepeatable, sometimes garbage). No runner has OpenCL, so after
+  touching it run the KNLMeans cases of
+  `integration_high_bit_depth_filters_test.dart` on a machine with a GPU —
+  they skip otherwise.
 - **KNLMeans has its own device probe**, separate from `knlm_available`.
-  havsfunc calls KNLMeansCL with the default `device_type="auto"`, which fails
-  on Apple Silicon (`CL_INVALID_VALUE`) where `"gpu"` works. So `knlm` still
-  answers for QTGMC's call, and `DependencyLocator::knlm_device` (gpu, then
+  havsfunc calls KNLMeansCL with the default `device_type="auto"`, which
+  failed on Apple Silicon (`CL_INVALID_VALUE`) before v1.3, where `"gpu"`
+  worked; v1.3's `auto` works there, so QTGMC's `knlmeanscl` now runs on a Mac
+  instead of falling back to DFTTest. `knlm` still answers for QTGMC's call, and `DependencyLocator::knlm_device` (gpu, then
   auto; `knlm-device-probe.json`) is the device our own call passes. With no
   device the job is refused with `KNLM_NO_DEVICE_MESSAGE`, the same text the
   panel shows (`knlmDevice`/`knlmMessage` from `--probe-opencl`), through
@@ -2289,3 +2304,4 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.12.0 | 2026-10-04 | **Issue #101**: akarin 1.4.1 → **1.5.0** on every platform. The 1.4.1 Linux wheel put JIT code on the `brk` heap, where SELinux denies `PROT_EXEC`, so every job segfaulted on Fedora/RHEL from deps 1.8.0 on. `download-deps-linux.sh` now fails if `libakarin.so` lacks the mmap allocator |
 | 1.13.0 | 2026-10 | One new plugin; every other binary is built from the same sources as 1.12.0. Adds **vszip** 22.1.0 (MIT) for `vszip.CLAHE`, Color Correction's local contrast (issue #90). Baseline build only, flat in the plugin directory on every platform (the wheels' AVX2/AVX-512 variants are left out); macOS x64 builds the sdist with Zig 0.16.0 for the 12.0 floor, with header padding so it can be signed. The v2 CPU tier is no longer a second full bundle: each x64 platform publishes its v3 bundle plus `…-x64-v2-delta.zip`, the files in `_tierFiles` (zsmooth; on macOS also MVTools), extracted over it (`"tierFormat": "delta"`). Every x64 machine downloads the same bundle; only an older CPU fetches the few MB more. This is also what lets the Linux AppImage carry its deps for both tiers without doubling in size |
 | 1.14.0 | 2026-10-25 | Adds **RIFE** 4.26 (`r9_mod_v33`, MIT) + its model in `vapoursynth/rife/`, and **VSNCNN** (vs-mlrt v15.16, GPL-3.0) + Real-ESRGAN / Real-CUGAN models in `vapoursynth/ncnn/`, on macos-arm64, windows-x64 and linux-x64, with **MoltenVK** 1.4.2 (Apache-2.0) in `vapoursynth/moltenvk/` on macOS. Not autoloaded; see "GPU Plugins". **BM3D** r12 (MIT) on every platform; it had been macOS arm64 only (see "BM3D and KNLMeans Noise Reduction"). **descale** r12 (MIT) on every platform, for the Descale pass. (AnimeJaNai's models, used by the same VSNCNN, are an app add-on, not in the bundle). Published as the tested `deps-v1.14.0-rc1` bundles with only the version changed; every other file is byte-identical |
+| 1.15.0 | 2026-11-03 | **Issue #144**: KNLMeansCL moves to Jaded Encoding Thaumaturgy's fork **v1.3** on every platform (Windows: PyPI wheel, replacing Khanattila's 2018 v1.1.1 zip, which refused 10-bit 4:2:0; macOS/Linux: the `v1.3` tag, replacing unpinned master, which gave unrepeatable results on Apple's OpenCL). Both meson patchers learn v1.3's assigned `run_command` include probe. Published as the tested `deps-v1.15.0-rc1` bundles with only the version changed |

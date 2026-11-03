@@ -909,7 +909,7 @@ clip = core.resize.Point(_bm3d_work, format=_bm3d_fmt.id, dither_type="error_dif
 # KNLMeansCL: non-local means on the GPU (OpenCL). d = frames each side,
 # a = search radius, s = similarity radius, h = strength. Runs on the device the
 # worker's probe found working ({{NR_KNLM_DEVICE}}): the plugin's own default,
-# "auto", fails on Apple Silicon. 4:2:0 cannot take channels="YUV", so luma and
+# "auto", failed on Apple Silicon before v1.3. 4:2:0 cannot take channels="YUV", so luma and
 # chroma are separate calls.
 clip = core.knlm.KNLMeansCL(clip, d={{NR_KNLM_D}}, a={{NR_KNLM_A}}, s={{NR_KNLM_S}}, h={{NR_KNLM_H}}, channels="Y", device_type="{{NR_KNLM_DEVICE}}")
 if {{NR_KNLM_CHROMA}} and clip.format.color_family == vs.YUV:
@@ -2215,10 +2215,13 @@ clip = haf.GrainFactory3(
 # it resamples the timeline, so anything after it would be working on invented
 # frames rather than photographed ones.
 #
-# FlowFPS rather than BlockFPS deliberately. Measured over 35 combinations,
-# FlowFPS emits floor(n_in * ratio), which is exactly what FrameMap::Retime
-# computes; BlockFPS emits floor((n_in-1) * ratio) + 1 and is off by one in 14
-# of them, which would desynchronise the progress total and the preview index.
+# FlowFPS rather than BlockFPS deliberately: BlockFPS emits
+# floor((n_in-1) * ratio) + 1, off by one in 14 of 35 measured combinations
+# from floor(n_in * ratio), which is what FrameMap::Retime computes and the
+# progress total and preview index rely on. FlowFPS's own count depends on the
+# MVTools version: master emits floor(n_in * ratio), but the v24 release
+# (Windows, macOS x64) emits floor((n_in-1) * ratio) + 1 like BlockFPS, so the
+# block below sets the length itself rather than trusting either.
 #
 # mvtools rejects 4:1:1 at Super ("input clip must be GRAY, 420, 422, 440, or
 # 444") and 4:1:1 is NTSC DV — precisely the tape an NTSC->PAL conversion
@@ -2241,10 +2244,20 @@ if _fps_pad:
 _fps_super = core.mv.Super(clip, pel=2)
 _fps_bw = core.mv.Analyse(_fps_super, isb=True, blksize={{FPS_BLOCK_SIZE}}, overlap={{FPS_OVERLAP}})
 _fps_fw = core.mv.Analyse(_fps_super, isb=False, blksize={{FPS_BLOCK_SIZE}}, overlap={{FPS_OVERLAP}})
+from fractions import Fraction as _FpsFraction
+_fps_ratio = _FpsFraction({{FPS_TARGET_NUM}}, {{FPS_TARGET_DEN}}) / _FpsFraction(clip.fps_num, clip.fps_den)
+_fps_len = len(clip) * _fps_ratio.numerator // _fps_ratio.denominator
 clip = core.mv.FlowFPS(
     clip, _fps_super, _fps_bw, _fps_fw,
     num={{FPS_TARGET_NUM}}, den={{FPS_TARGET_DEN}},
 )
+# Exactly floor(n_in * ratio) frames on every MVTools version. v24 is at most
+# one short (ratio > 1) or one long (ratio < 1). The missing frame lies past
+# the last source frame, where master returns that source frame, so repeat it.
+if len(clip) > _fps_len:
+    clip = clip[:_fps_len]
+elif len(clip) < _fps_len:
+    clip = clip + clip[-1] * (_fps_len - len(clip))
 {{/FRAME_RATE_FLOWFPS}}
 {{#FRAME_RATE_DUPLICATE}}
 # No invented pixels — whole frames are repeated or dropped. Visible judder, but

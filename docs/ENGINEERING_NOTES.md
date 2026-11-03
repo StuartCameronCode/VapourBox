@@ -2775,6 +2775,81 @@ Recommendation, if built: an `advancedOnly` Deinterlace method with its own
 small control set, tuned as above, vs-jetpack and mvutensils pinned
 together. x86 speed and the v2 CPU tier are unmeasured.
 
+### KNLMeansCL: 10-bit sources failed on Windows, results unreliable on macOS (issue #144, 2026-11-03)
+
+Full report with scripts:
+[docs/reports/issue-144-knlmeanscl/](reports/issue-144-knlmeanscl/index.html).
+
+- **Windows** shipped Khanattila's v1.1.1 release zip (2018). Its VapourSynth
+  filter accepts 10-bit only as packed YUV444P10/RGB30 with all channels
+  together, and 9/12/14-bit not at all, so our `channels="Y"` / `"UV"` calls
+  failed on every 10-bit 4:2:0/4:2:2 source ("only YUV444P10 and RGB30 are
+  supported!"). QTGMC's `knlmeanscl` goes through havsfunc's wrapper, which
+  makes the same calls. Never caught because no runner has OpenCL, and the
+  10-bit check of 2026-10-25 ran on a Mac.
+- **macOS** built Khanattila's unpinned master. Apple's `clEnqueueFillBuffer`
+  doesn't complete unless an event is requested, so the max-weight buffer
+  (meant to start at `CL_FLT_EPSILON`) holds stale data. On an M1 Pro, 24 of 60
+  depth/layout/channel cases gave a different result on a repeat run (by
+  110–255 levels), and a CPU reference showed it denoising at `h=1.2` where
+  the algorithm leaves the picture alone (3.28 levels off).
+- **Fix:** Jaded Encoding Thaumaturgy's fork, v1.3, everywhere: tag `v1.3` from
+  source on macOS/Linux, PyPI wheel 1.3 on Windows. It carries pinterf's
+  9–16-bit support and the fill fix. Same kernel as master. Repeatable in all
+  60 cases, within 0.26 of the reference, and the source build is
+  bit-identical to the wheel.
+- v1.3's `meson.build` assigns the VapourSynth include probe to a variable
+  (`r = run_command(...)`, then `r.stdout().strip()`); both scripts' meson
+  patchers now handle that form.
+- **Behaviour changes:** a Mac's KNLMeans now denoises less at low `h`
+  (matching Windows/Linux, as designed), and its `auto` device works, so
+  QTGMC's `knlmeanscl` denoiser runs on Apple Silicon instead of falling back
+  to DFTTest.
+- **Windows x64, verified 2026-11-03** (Radeon 780M, driver 32.0.32015.7029,
+  OpenCL probe `gpu`, so nothing skipped). With the 1.14.0 DLL (v1.1.1, sha256
+  `bb60e8fa…7a42`), every 10-bit KNLMeans case failed with the predicted
+  message, 12-bit failed with "P8, P10, P16, Half and Single", and 16-bit
+  passed. QTGMC's `knlmeanscl` failed too on a 10-bit 4:2:0 source, inside
+  havsfunc. With v1.3 (sha256 `c7092121…a343`; the same DLL from the script,
+  the wheel and the rc1 bundle), all of these pass. Parity was 0.638 at 4:2:2
+  (Mac 0.301), and 1.620 at 4:2:0 against a fixtures-only baseline of 1.885
+  (Mac 1.394 / 1.717). One thing to know when reading these runs: the 10-bit
+  encode failure shows up in ffmpeg as "Header too large", not the KNLMeans
+  message. Only the preview path surfaces the Python error.
+- Not yet run on macOS x64, Linux, or an NVIDIA GPU.
+
+### FlowFPS's frame count depends on the MVTools version (issue #129, 2026-11-03)
+
+The custom-rate test in `integration_frame_mapping_test.dart` (25 fps to
+59.94, 75 frames, expecting `floor(75 * 2400/1001)` = 179) produced 178 on
+both macOS x64 nightly jobs and 179 everywhere it was run before. The file had
+not compiled since #142 (its harness change was never committed), so this was
+its first CI run.
+
+- **Cause.** The platforms do not ship the same MVTools. macOS arm64 and Linux
+  build dubhater's unpinned `master`; Windows (the v24 release zip) and macOS
+  x64 (Stefan-Olt's v24 build for v3, v24 from source for v2) ship v24.
+  Between them `MVFlowFPS` changed its length from
+  `1 + (n - 1) * fb / fa` (v24) to `n * fb / fa` (master). The template's
+  "FlowFPS emits floor(n * ratio)" was measured on master only. So a FlowFPS
+  job on Windows or an Intel Mac wrote one frame fewer than `FrameMap::Retime`
+  counts when the ratio is above 1 (one more below 1), and the progress total
+  and preview index were off by one at the tail.
+- **Reproduced locally** by running an x86_64 worker against the rc1
+  macos-x64 bundle under Rosetta (an arm64 worker ignores
+  `VAPOURBOX_DEPS_DIR` for its tools and quietly uses the installed arm64
+  deps, so it reproduces nothing). vspipe: "Output 178 frames".
+- **Fix: the script sets the length.** Both templates compute
+  `floor(n * ratio)` with `Fraction` before the call and trim or extend
+  after it. The frame v24 leaves off lies past the last source frame, where
+  master returns that source frame, so it is padded with the last frame.
+  `test_184` asserts the order in both scripts; the frame-mapping suite passes
+  on both arm64 (master) and x64 under Rosetta (v24).
+- **Not done: one MVTools everywhere.** Pinning arm64/Linux to v24 would lose
+  master's ARM speed work (sse2neon removals); Windows has no build newer
+  than v24. Any other FlowFPS/BlockFPS/FlowInter behaviour that differs
+  between the two versions is still per-platform.
+
 ### Deblock before or after deinterlacing: order kept, interlaced output deblocked per field (2026-11-03)
 
 Full report with screenshots and scripts:

@@ -6854,3 +6854,28 @@ fn test_183_deblock_per_field_when_still_interlaced() {
         }
     }
 }
+
+/// FlowFPS's own output length depends on the MVTools version (master:
+/// floor(n * ratio); the v24 release on Windows and macOS x64:
+/// floor((n - 1) * ratio) + 1), so both scripts set it to FrameMap::Retime's
+/// count themselves, after the call.
+#[test]
+fn test_184_flowfps_length_is_set_by_the_script() {
+    create_output_dir();
+    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()));
+    let mut job = rife_job("test_184_flowfps_length");
+    let fr = &mut job.processing_pipeline.as_mut().unwrap().frame_rate;
+    fr.method = FrameRateMethod::FlowFps;
+    let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        let call = script.find("core.mv.FlowFPS(").expect("FlowFPS");
+        let len = script.find("_fps_len = len(clip) * _fps_ratio.numerator // _fps_ratio.denominator")
+            .unwrap_or_else(|| panic!("{name}: no length computed"));
+        let trim = script.find("    clip = clip[:_fps_len]")
+            .unwrap_or_else(|| panic!("{name}: no trim"));
+        let pad = script.find("    clip = clip + clip[-1] * (_fps_len - len(clip))")
+            .unwrap_or_else(|| panic!("{name}: no pad"));
+        assert!(len < call, "{name}: length must be taken from FlowFPS's input");
+        assert!(call < trim && call < pad, "{name}: length set before FlowFPS");
+    }
+}

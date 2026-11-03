@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #144 — KNLMeansCL fails on 10-bit sources (Windows), and is unreliable on macOS</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: -4px; }
+  .correction { border-left: 3px solid var(--warn); }
+</style>
+</head>
+<body>
+<main>
+<h1>Issue #144 — KNLMeansCL fails on 10-bit sources on Windows, and is unreliable on macOS</h1>
+<p class="meta">2026-11-03 · issue <a href="https://github.com/StuartCameronCode/VapourBox/issues/144">#144</a> ·
+measured on an M1 Pro (macOS arm64) against the deps 1.14.0 bundle · reproduced and fixed on Windows x64 (AMD Radeon 780M), see 3d</p>
+
+<div class="card">
+<strong>Outcome.</strong> Every platform moves to the same KNLMeansCL: Jaded Encoding
+Thaumaturgy's maintained fork, <code>v1.3</code> (GPL-3.0). It is built from that tag on macOS
+and Linux, and taken from its PyPI wheel <code>vapoursynth-knlmeanscl 1.3</code> on Windows.
+That fixes two separate bugs:
+<ol>
+<li><strong>Windows</strong> shipped Khanattila's v1.1.1 release (2018), which refuses
+every 9–15-bit clip except packed YUV444P10 / RGB30. The KNLMeans Noise
+Reduction method failed outright on any 10-bit 4:2:0 or 4:2:2 source, as reported.
+This was first read from the source. It has since been <span class="good">reproduced on
+Windows</span> with the 1.14.0 DLL and shown fixed with v1.3 (section 3d).</li>
+<li><strong>macOS</strong> built Khanattila's unpinned <code>master</code>. On Apple's
+OpenCL it gives a <em>different result on a repeat run</em> in 24 of 60 cases (by 110–255
+levels), and even when repeatable it does not compute the algorithm's result at low
+<code>h</code>. v1.3 is repeatable in all 60 cases and matches a CPU reference.</li>
+</ol>
+</div>
+
+<h2>1. The reported failure (Windows)</h2>
+<p>From the user's job log (Windows 11, RTX 3060), with the username path removed:</p>
+<pre>Python exception: knlm.KNLMeansCL: only YUV444P10 and RGB30 are supported!
+  clip = core.knlm.KNLMeansCL(clip, d=1, a=2, s=4, h=1.20, channels="Y", device_type="gpu")</pre>
+<p>The device had already been selected (<code>"gpu"</code>, from the worker's probe), so this
+is a format refusal, not a missing-OpenCL case. The message comes from v1.1.1's
+<code>NLMVapoursynth.cpp</code>, which the Windows script downloaded as a release zip:</p>
+<pre>} else if (d.vi-&gt;format-&gt;bitsPerSample == 10) {
+    if (d.clip_t &amp; NLM_CLIP_REF_YUV || d.clip_t &amp; NLM_CLIP_REF_RGB) {
+        ...CL_UNORM_INT_101010...          // packed 10-10-10 only
+    } else {
+        vsapi-&gt;setError(out, "knlm.KNLMeansCL: only YUV444P10 and RGB30 are supported!");
+}} else if (bitsPerSample == 16) { ... } else {
+        "knlm.KNLMeansCL: P8, P10, P16, Half and Single are supported!"   // 9/12/14-bit</pre>
+<p><code>NLM_CLIP_REF_YUV</code> is set only for <code>channels="YUV"</code> on 4:4:4. Our
+template calls <code>channels="Y"</code> then <code>channels="UV"</code> (4:2:0 can't take
+<code>"YUV"</code>), so every 10-bit source fails, and 9/12/14-bit fail with the second
+message. Only 8-bit, 16-bit and float work. pinterf's 2020 commits (<code>ad0a020</code>,
+"Add 9-15 bit support for all modes") fixed this on master, but Khanattila never cut a
+release with them, so the only Windows binaries were v1.1.1 and pinterf's own 2020 builds.</p>
+<p><strong>QTGMC's <code>knlmeanscl</code> denoiser is affected the same way</strong>:
+havsfunc's <code>KNLMeansCL</code> wrapper makes the same <code>channels='UV'</code> call. The
+user's QTGMC jobs presumably work because those sources are 8-bit, or because QTGMC's High
+precision option runs it at 16-bit. That is an inference; it has not been confirmed with the user.</p>
+
+<h3>Why nothing caught it</h3>
+<ul>
+<li>The 2026-10-25 depth-parity measurement for the new KNLMeans method ran on a Mac, which
+had the master build.</li>
+<li><code>integration_high_bit_depth_filters_test.dart</code> did not include KNLMeans.</li>
+<li>No hosted runner has an OpenCL device (lavapipe is Vulkan only), so KNLMeans has never
+run on Windows in CI, at any depth. The worker's device probe uses an 8-bit clip, so it
+passes there too.</li>
+</ul>
+
+<h2>2. The candidate: KNLMeansCL 1.3</h2>
+<p><a href="https://github.com/Jaded-Encoding-Thaumaturgy/vapoursynth-knlmeanscl">Jaded-Encoding-Thaumaturgy/vapoursynth-knlmeanscl</a>
+continues Khanattila's master (merge base <code>ca424fa</code>, 2023-01-05). Its OpenCL kernel
+(<code>NLMKernel.cpp</code>) is unchanged. Its 1.2 and 1.3 changes: VapourSynth API v4, wheels for
+every platform, Apple <code>CL_INVALID_VALUE</code> handling in <code>auto</code> device selection,
+and a fix for Apple's <code>clEnqueueFillBuffer</code> not completing when no event is
+requested, which is the macOS bug in section 3. Its 9–16-bit code
+(<code>NLMVapoursynth.cpp:693</code>) accepts every integer depth for every
+<code>channels</code> mode.</p>
+<table>
+<tr><th>Platform</th><th>Before</th><th>After</th></tr>
+<tr><td>Windows x64</td><td>Khanattila v1.1.1 release zip (2018)</td><td>PyPI wheel 1.3 (<code>win_amd64</code>), a single <code>KNLMeansCL.dll</code>, OpenCL linked statically; imports only Windows system DLLs</td></tr>
+<tr><td>macOS arm64 / x64</td><td>Khanattila <code>master</code>, unpinned</td><td>tag <code>v1.3</code>, built from source</td></tr>
+<tr><td>Linux x64 / arm64</td><td>Khanattila <code>master</code>, unpinned</td><td>tag <code>v1.3</code>, built from source</td></tr>
+</table>
+<p>Source builds rather than wheels on macOS and Linux: the macOS x86_64 wheel is minos 15.0
+(the Intel floor is 12.0), and the Linux wheel bundles its own <code>libOpenCL</code> loader;
+both platforms already build every other plugin from a pinned tag. v1.3's
+<code>meson.build</code> locates the VapourSynth headers through
+<code>r = run_command(py, '-c', 'import vapoursynth …')</code> with
+<code>r.stdout().strip()</code> used later. Neither script's meson patcher recognised that
+assigned form, so both now handle it. The patchers were checked against v1.3, BM3D r12, CAS and
+mvtools; the three existing forms patch exactly as before.</p>
+
+<h2>3. Measurements (macOS arm64)</h2>
+<p>All from <code>scripts/run.sh</code>. Synthetic clips (gradient, coloured blocks, grain
+from <code>grain.Add</code>) at 320×240; frame 5 of 11; <code>d=1 a=2 s=4</code>.
+Differences are mean absolute, in 8-bit levels.</p>
+
+<h3>3a. Does it run, and is it repeatable?</h3>
+<p>The depth matrix is 6 depths (8, 9, 10, 12, 14, 16) × 4:2:0 / 4:4:4 × <code>channels</code>
+Y / UV (and YUV on 4:4:4) × device <code>gpu</code> / <code>auto</code> = 60 cases. Each build
+ran it twice, each time in a fresh process.</p>
+<table>
+<tr><th>Build</th><th class="num">Cases that run</th><th class="num">Identical on repeat</th><th>Repeat-run differences</th></tr>
+<tr><td>deps 1.14.0 macOS (<code>master</code>)</td><td class="num">60</td><td class="num bad">36</td><td>24 cases differ by 110–255 levels</td></tr>
+<tr><td>v1.3 PyPI wheel</td><td class="num">60</td><td class="num good">60</td><td>—</td></tr>
+<tr><td>v1.3 built from source (script recipe)</td><td class="num">60</td><td class="num good">60</td><td>bit-identical to the wheel in all 60</td></tr>
+</table>
+<p class="caption">Which cases go wrong on master changes from run to run. In one pass, 18
+of 60 were garbage (more than 20 levels from v1.3) and the remaining 42 still differed by
+about 2.3–3.1 levels (see 3b). Under v1.1.1 on Windows, the 9–15-bit Y and UV cases are
+exactly the ones that would error.</p>
+
+<h3>3b. Is it computing the right thing?</h3>
+<p>To decide which build is right where they disagree, <code>nlm_reference.py</code>
+implements the kernel's maths on the CPU for 150 sampled pixels. The weight is
+<code>exp(−P·255² / (h²(2s+1)²))</code>, and the centre pixel's weight is
+<code>wref × max(largest weight, FLT_EPSILON)</code> (the max-weight buffer starts at
+<code>CL_FLT_EPSILON</code>). The input is a flat-ish picture with grain of variance 40
+(RMS 6.3 levels).</p>
+<table>
+<tr><th>h</th><th class="num">input vs reference</th><th class="num">master vs reference</th><th class="num">v1.3 vs reference</th></tr>
+<tr><td>1.2</td><td class="num">0.000</td><td class="num bad">3.280</td><td class="num good">0.000</td></tr>
+<tr><td>2.0</td><td class="num">3.174</td><td class="num warn">0.559</td><td class="num good">0.254</td></tr>
+<tr><td>3.0</td><td class="num">4.166</td><td class="num">0.253</td><td class="num good">0.253</td></tr>
+<tr><td>5.0</td><td class="num">4.668</td><td class="num">0.259</td><td class="num good">0.259</td></tr>
+</table>
+<p class="caption">Lower is better. About 0.25 is the floor from GPU float rounding and 8-bit
+output. At h=1.2 every weight here is about e<sup>−55</sup>, far below the epsilon floor, so the
+correct output is the input. Master denoises anyway because its max-weight buffer was never
+filled. The master figures are from a run where it produced no garbage; in other runs, h=2.0
+and h=5.0 came out at about 125 levels.</p>
+
+<p><strong>What this means for users.</strong> The KNLMeans default (<code>h=1.2</code>,
+KNLMeansCL's own) removes little from heavy grain. It denoises noise of a couple of levels
+RMS, but at 6 levels every weight is below the floor. Windows and Linux have always behaved
+like that. macOS users saw stronger denoising, and the occasional garbage frame, because of the
+race. After this change macOS matches the other platforms, so a macOS user's existing KNLMeans
+settings will denoise less. The defaults are unchanged; whether 1.2 is the right default for
+the sources people use KNLMeans on is a separate question.</p>
+
+<h3>3c. In the app (macOS arm64, local bundle with v1.3 swapped in)</h3>
+<table>
+<tr><th>Test</th><th>Result</th></tr>
+<tr><td>High-bit-depth suite, new <code>noise_knlmeans</code> pass (<code>h=3.0</code>): preview on 4:2:2 10-bit, 4:4:4 12-bit, 4:2:2 16-bit</td><td class="good">pass</td></tr>
+<tr><td>8- vs 10-bit parity, 4:2:2</td><td>0.301 (tolerance 2.0)</td></tr>
+<tr><td>New: 10-bit 4:2:0 (the reported format), preview parity and full encode</td><td>1.394, below the fixtures' own 1.717 difference; encode <span class="good">passes</span></td></tr>
+<tr><td>Existing: KNLMeans end-to-end encode; QTGMC with <code>knlmeanscl</code></td><td class="good">pass</td></tr>
+<tr><td><code>--probe-opencl</code></td><td><code>{"knlm":true,"knlmDevice":"gpu"}</code>. <code>knlm</code> was <code>false</code> before.</td></tr>
+</table>
+<p><strong>QTGMC behaviour change on Apple Silicon.</strong> <code>knlm</code> is the probe of
+havsfunc's call, which uses <code>device_type="auto"</code>. It used to fail on Apple Silicon
+(<code>CL_INVALID_VALUE</code>), so QTGMC's <code>knlmeanscl</code> denoiser silently fell
+back to DFTTest there. v1.3's device selection handles that, so on a Mac QTGMC now runs the
+denoiser the user chose.</p>
+
+<h3>3d. Windows x64 (deps 1.14.0 → v1.3)</h3>
+<p>Windows 11 Pro (build 26200), AMD Radeon 780M integrated graphics, driver
+32.0.32015.7029, CPU tier v3. <code>--probe-opencl</code> reported
+<code>{"knlm":true,"knlmDevice":"gpu"}</code> with both DLLs, so no KNLMeans test was skipped
+(no <code>SKIPPED</code> line in any run).</p>
+<table>
+<tr><th>DLL</th><th>SHA-256</th></tr>
+<tr><td>deps 1.14.0, Khanattila v1.1.1</td><td><code>bb60e8fa6cb531daa8d705a338c1188e202e38087f6c6c437fd2d4ee58477a42</code></td></tr>
+<tr><td>v1.3, from wheel <code>6ba28e0c…2b278b</code> (hash checked)</td><td><code>c7092121f4fde51f93e48fbbc9277e22599caf3a41027d0df5cfd9cc100ba343</code></td></tr>
+</table>
+<p class="caption">These three copies of v1.3 all have the second hash: the DLL installed by
+<code>download-deps-windows.ps1</code>, the one extracted from the PyPI wheel by hand, and the
+one in the published <code>deps-v1.15.0-rc1</code> bundle.</p>
+<table>
+<tr><th>Test</th><th>v1.1.1 (deps 1.14.0)</th><th>v1.3</th></tr>
+<tr><td><code>noise_knlmeans</code> preview, 4:2:2 10-bit</td><td class="bad">fails: <em>only YUV444P10 and RGB30 are supported!</em></td><td class="good">pass</td></tr>
+<tr><td><code>noise_knlmeans</code> preview, 4:4:4 12-bit</td><td class="bad">fails: <em>P8, P10, P16, Half and Single are supported!</em></td><td class="good">pass</td></tr>
+<tr><td><code>noise_knlmeans</code> preview, 4:2:2 16-bit</td><td class="good">pass</td><td class="good">pass</td></tr>
+<tr><td>8- vs 10-bit parity, 4:2:2</td><td class="bad">fails (the 10-bit run hits the same error)</td><td>0.638 (tolerance 2.0)</td></tr>
+<tr><td>10-bit 4:2:0 preview parity</td><td class="bad">fails: <em>only YUV444P10 and RGB30…</em></td><td>1.620, below the fixtures' own 1.885</td></tr>
+<tr><td>10-bit 4:2:0 full encode</td><td class="bad">fails (vspipe dies at evaluation; ffmpeg reports only <em>Header too large</em>)</td><td class="good">pass</td></tr>
+<tr><td>QTGMC <code>denoiser: knlmeanscl</code> on the 10-bit 4:2:0 fixture, preview and encode (a one-off test, not committed)</td><td class="bad">fails in havsfunc's <code>KNLMeansCL(noiseWindow, d=NoiseTR, h=Sigma)</code>: <em>only YUV444P10 and RGB30…</em></td><td class="good">pass</td></tr>
+<tr><td>Existing tests: KNLMeans end-to-end encode; QTGMC with <code>knlmeanscl</code> (8-bit fixture); <code>vapoursynth_integration_test</code>, <code>attribution_test</code></td><td>—</td><td class="good">pass</td></tr>
+<tr><td>The same <code>issue #144</code> tests against the published <code>deps-v1.15.0-rc1</code> bundle, downloaded by the harness</td><td>—</td><td class="good">pass (1.620 / 1.885)</td></tr>
+</table>
+<p class="caption">The diagnosis in section 1 holds exactly, including 16-bit passing under
+v1.1.1. The parity numbers are higher than on the Mac (0.638 vs 0.301; 1.620 vs 1.394), but the
+4:2:0 fixtures alone also differ more here (1.885 vs 1.717) before any filter runs. Both stay
+well inside their tolerances. I did not check whether the rest of the gap comes from the
+fixtures or from AMD's OpenCL rounding. <code>download-deps-windows.ps1</code> ran cleanly
+and installed the DLL from the wheel. It also re-downloaded FFmpeg and the other plugin archives
+instead of skipping them as already installed, which is harmless.</p>
+<p>Not run on Windows: the real app on a real 10-bit file, the repeatability matrix from 3a,
+the CPU-reference comparison from 3b, and an NVIDIA GPU like the reporter's RTX 3060.</p>
+
+<h2>4. What wasn't tested</h2>
+<ul>
+<li><strong>Windows: tested since, see 3d.</strong> This was untested when the report was first
+written. It has since run on Windows x64 with an AMD GPU: v1.1.1 reproduces the error and v1.3
+fixes it, both in the Noise Reduction pass and in QTGMC's denoiser. Still untested on Windows:
+an NVIDIA GPU (the reporter's), and the real app on a real 10-bit file rather than the test
+harness.</li>
+<li>macOS x64 and Linux: the scripts are changed, but nothing has been built or run there.
+<code>build-deps-*</code> CI is the build test. Neither platform can run KNLMeans in CI (no
+OpenCL).</li>
+<li>Only one kind of input: synthetic grain on synthetic pictures. That is enough to tell right
+from wrong against the reference, but says nothing about the best <code>h</code> for real
+footage.</li>
+<li>NVIDIA and Intel OpenCL drivers. AMD's ran the app-level tests in 3d, but not the
+repeatability matrix or the CPU reference, which have run only on Apple's. The fill-buffer race is
+described as Apple-specific (see GROMACS issue 4852, linked in v1.3's source).</li>
+</ul>
+
+<h2>5. Decisions</h2>
+<ul>
+<li><strong>Swap the plugin rather than work around the depth in the template</strong> (for
+example by converting 9–15-bit to 16-bit around the call). The workaround would have fixed only
+the Windows error. It would have left QTGMC's havsfunc call broken on the same sources and
+macOS still producing garbage.</li>
+<li><strong>One version everywhere</strong> (v1.3), as the scripts already do for BM3D (tag r12 =
+wheel 12.0), so a job produces the same picture on every OS.</li>
+<li><strong>Leave the default <code>h</code> alone</strong>: the default isn't what broke, and
+changing it would change every platform's output.</li>
+</ul>
+
+<h2>6. Corrections made during the work</h2>
+<div class="card correction">
+<ul>
+<li>The first reply to the user suggested switching Color Format to 8-bit as a workaround.
+That would not have worked: the output colour conversion is the last step in the script,
+after Noise Reduction. It was withdrawn before the reply was posted.</li>
+<li>The first probe loaded both builds into one process and got nonsense. I put that down to the two
+copies' OpenCL state colliding. Running each build in its own process showed the garbage was
+master's alone. The scripts still use one build per process.</li>
+<li>The first two versions of the CPU reference were wrong: they left out the
+<code>CL_FLT_EPSILON</code> floor and missed that luma's <code>3·d²</code> distance cancels
+<code>NLM_LEGACY = 3</code>. Those versions made master look right at h=1.2. Only the
+corrected version, the one in <code>scripts/</code>, is used in 3b.</li>
+</ul>
+</div>
+
+<h2>7. Reproducing</h2>
+<pre># compare the bundle's own knlm with the v1.3 PyPI wheel (fetched and hash-checked)
+KNLM_PROBE_DIR=/path/to/scratch docs/reports/issue-144-knlmeanscl/scripts/run.sh
+
+# compare any two builds, e.g. the deps 1.14.0 libknlmeanscl.dylib against a v1.3 build
+KNLM_PROBE_DIR=/path/to/scratch docs/reports/issue-144-knlmeanscl/scripts/run.sh OLD.dylib NEW.dylib</pre>
+<p>The deps 1.14.0 macOS arm64 <code>libknlmeanscl.dylib</code> (sha256
+<code>147879958ba65b73a5fbee2af5814a489d9a89291373041d22701a13dc001687</code>) is in the
+published <code>deps-v1.14.0</code> bundle. The app-level numbers in 3c come from
+<code>flutter test test/integration_high_bit_depth_filters_test.dart --plain-name knlm</code>
+(and <code>--plain-name "issue #144"</code>).</p>
+</main>
+</body>
+</html>

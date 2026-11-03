@@ -396,8 +396,10 @@ class _AboutDialogState extends State<AboutDialog> {
                       _ComponentTile(
                         name: 'KNLMeansCL',
                         license: 'GPL 3.0',
-                        copyright: 'Edoardo Brunetti',
-                        url: 'https://github.com/Khanattila/KNLMeansCL',
+                        copyright:
+                            'Edoardo Brunetti; maintained by Jaded Encoding Thaumaturgy',
+                        url:
+                            'https://github.com/Jaded-Encoding-Thaumaturgy/vapoursynth-knlmeanscl',
                       ),
                       _ComponentTile(
                         name: 'DeScratch',
