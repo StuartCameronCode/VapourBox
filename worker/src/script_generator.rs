@@ -364,6 +364,17 @@ impl ScriptGenerator {
         }
     }
 
+    /// Whether the picture is still interlaced when it reaches the passes after
+    /// Deinterlace, and if so whether it is top field first: deinterlacing is
+    /// off and a field order was detected. Derived from `field_based_for`, so
+    /// it agrees with the `_FieldBased` the script stamps.
+    pub fn still_interlaced_tff(job: &VideoJob, pipeline: &ProcessingPipeline) -> Option<bool> {
+        if pipeline.deinterlace.enabled {
+            return None;
+        }
+        Self::field_based_for(job, pipeline).map(|fb| fb == 2)
+    }
+
     /// Substitute parameters in a script string.
     fn substitute_parameters(&self, template: &str, job: &VideoJob, pipeline: &ProcessingPipeline, _input_path: &str) -> String {
         let mut script = template.to_string();
@@ -1479,6 +1490,20 @@ impl ScriptGenerator {
             script = script.replace("{{#DEBLOCK}}", "");
             script = script.replace("{{/DEBLOCK}}", "");
 
+            // Still interlaced: deblock each field on its own, never the woven
+            // frame (docs/reports/2026-11-deblock-order). Deinterlaced output
+            // is progressive and keeps the whole-frame path.
+            match Self::still_interlaced_tff(job, pipeline) {
+                Some(tff) => {
+                    script = script.replace("{{#DEBLOCK_PER_FIELD}}", "");
+                    script = script.replace("{{/DEBLOCK_PER_FIELD}}", "");
+                    script = script.replace("{{DEBLOCK_TFF}}", if tff { "True" } else { "False" });
+                }
+                None => {
+                    script = remove_block("{{#DEBLOCK_PER_FIELD}}", "{{/DEBLOCK_PER_FIELD}}", script);
+                }
+            }
+
             match deblock.method {
                 DeblockMethod::DeblockQed => {
                     script = script.replace("{{#DEBLOCK_QED}}", "");
@@ -2329,11 +2354,9 @@ impl ScriptGenerator {
             // A picture that is still interlaced must move down by whole field
             // pairs. Conservative: it is only off-centre by a line or two if
             // something else (IVTC) already made it progressive.
-            let still_interlaced = !pipeline.deinterlace.enabled
-                && Self::field_based_for(job, pipeline).is_some();
             script = script.replace(
                 "{{BORDER_FIELD_ALIGN}}",
-                if still_interlaced { "2" } else { "1" },
+                if Self::still_interlaced_tff(job, pipeline).is_some() { "2" } else { "1" },
             );
 
             if resize.pads_to_aspect() {

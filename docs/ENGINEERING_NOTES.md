@@ -2843,12 +2843,44 @@ its first CI run.
   `floor(n * ratio)` with `Fraction` before the call and trim or extend
   after it. The frame v24 leaves off lies past the last source frame, where
   master returns that source frame, so it is padded with the last frame.
-  `test_183` asserts the order in both scripts; the frame-mapping suite passes
+  `test_184` asserts the order in both scripts; the frame-mapping suite passes
   on both arm64 (master) and x64 under Rosetta (v24).
 - **Not done: one MVTools everywhere.** Pinning arm64/Linux to v24 would lose
   master's ARM speed work (sse2neon removals); Windows has no build newer
   than v24. Any other FlowFPS/BlockFPS/FlowInter behaviour that differs
   between the two versions is still per-platform.
+
+### Deblock before or after deinterlacing: order kept, interlaced output deblocked per field (2026-11-03)
+
+Full report with screenshots and scripts:
+[docs/reports/2026-11-deblock-order/](reports/2026-11-deblock-order/index.html).
+
+A user asked whether deblocking should precede deinterlacing (Gemini's
+advice). It should in theory: `Deblock_QED` / `deblock.Deblock` assume an 8x8
+grid from (0,0), exact only on the decoded interlaced frame, and QTGMC moves
+the horizontal block edges. Measured on two 720x576 TFF fixtures (film
+ground truth; a real capture against QTGMC of its lossless original), each
+MPEG-2 at 1000/1500/3000 kbps with `+ildct+ilme`:
+
+- **Deinterlacing on:** per-field deblocking before QTGMC beats today's
+  after-QTGMC order by ≤0.05 dB at the 24/26 default (0.05–0.14 dB at
+  36/44), blockiness equal. Not worth reordering.
+- **Deinterlacing off:** the deblocker ran on the woven frame; per field
+  (`SeparateFields → deblock → DoubleWeave[::2]`) won on PSNR and SSIM in
+  all 14 edge-deblocker comparisons, +0.03 to +0.30 dB. **DCTFilter on the
+  woven frame was destructive**: 1.5–3.7 dB *below no filtering*, because it
+  attenuates the field-to-field alternation on moving edges as high-frequency
+  detail; per field it is neutral to slightly positive. Built: every method
+  now runs per field when `ScriptGenerator::still_interlaced_tff` says the
+  picture is still interlaced (`{{#DEBLOCK_PER_FIELD}}`, both templates;
+  `test_183`). A 4:2:0 frame with an odd chroma field height (486 lines)
+  can't be split and keeps the woven path. The round trip is bit-exact with
+  frame props restored.
+- At 1000 kbps a stronger Deblock_QED (36/44) gained ~3x what 24/26 did
+  (+0.48 against +0.16 dB): more than any order choice. One clip, one
+  strength; not a reason to change the default without its own probe.
+- The film fixture's reference carries `small_clip.mp4`'s own (upscaled)
+  H.264 blocks; PSNR rewards deblocking's smoothing, and VMAF dips slightly.
 
 ### Testing a deps change before publishing
 

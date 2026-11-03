@@ -1183,7 +1183,7 @@ rate is `FrameRateParameters.customFps` (a plain number, default 48).
 - **FlowFPS's length is set by the script, not MVTools.** macOS arm64 and
   Linux build MVTools `master` (`floor(n * ratio)` frames), Windows and macOS
   x64 ship v24 (`floor((n - 1) * ratio) + 1`). Both templates trim or extend
-  to `floor(n * ratio)` after the call (`test_183`); a frame-count assertion
+  to `floor(n * ratio)` after the call (`test_184`); a frame-count assertion
   that passes on one platform proves nothing about the others.
 - **Don't check an NTSC output rate on an MKV.** Matroska's 1/1000 timebase
   can't hold 60000/1001, so ffprobe reports an estimate (`19001/317`) for any
@@ -1535,6 +1535,12 @@ derivation both the encode and preview paths must use.
 - Deinterlacing enabled → `_FieldBased` comes from `pipeline.deinterlace.tff`.
 - Deinterlacing disabled → falls back to `job.detected_field_order` (zimg
   honours `_FieldBased` for chroma resampling too).
+- **A filter that works vertically must not run on a woven interlaced frame**:
+  it blends the two fields on every moving edge. `ScriptGenerator::still_interlaced_tff`
+  (deinterlacing off + a detected order) is the one test for "still
+  interlaced"; Deblock uses it to run every method per field
+  (`{{#DEBLOCK_PER_FIELD}}`) — DCTFilter on the woven frame scored 1.5–3.7 dB
+  *below no filtering* (docs/reports/2026-11-deblock-order).
 
 ### Deinterlace Working Format (issue #49)
 
