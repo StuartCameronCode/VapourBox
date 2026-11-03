@@ -243,6 +243,8 @@ The shutdown is never forced, so an app with unsaved work can stop it. VapourBox
 
 See [docs/BUILDING.md](docs/BUILDING.md) for build instructions, project structure and the development workflow.
 
+The investigations behind feature decisions (measurements, screenshots and the reasoning, including ideas that weren't built) are written up in [docs/reports/](docs/reports/README.md).
+
 ## License
 
 Free software under the [GNU General Public License](LICENSE), version 3 or (at your option) any later version. Full licence texts and third-party attributions are in [licenses/](licenses/).

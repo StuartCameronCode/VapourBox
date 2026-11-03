@@ -16,6 +16,16 @@ check it when you need the *why*, are touching an area it covers, or are decidin
 whether a similar probe-before-building investigation is warranted before adding
 a new filter or plugin.
 
+**Investigations that rest on measurements get a report** in
+`docs/reports/<slug>/` (`issue-<N>-<topic>`): a self-contained `index.html`,
+captioned screenshots in `img/`, and the scripts that produced every number in
+`scripts/`. Write one for any probe-before-building, plugin swap, performance or
+quality comparison, whatever the outcome. Then add a short dated entry to
+ENGINEERING_NOTES that links to it, and a row to the index in
+[docs/reports/README.md](docs/reports/README.md), which holds the full rules
+(no personal or scratch paths, no network dependencies, the metric's limits
+stated beside the result, corrections left visible).
+
 ## Project Overview
 
 VapourBox is a **cross-platform** (macOS + Windows + Linux) video processing application using VapourSynth. It provides a simple drag-and-drop interface for deinterlacing, denoising, sharpening, and other video processing tasks as an alternative to more complex tools like Hybrid.
@@ -85,6 +95,8 @@ VapourBox/
 │   └── linux-arm64/
 │
 ├── licenses/                   # GPL, LGPL, NOTICES
+├── docs/                       # BUILDING, FILTER_SCHEMA, ENGINEERING_NOTES, …
+│   └── reports/                # Investigation reports (evidence behind decisions)
 ├── Scripts/                    # Build, package, and release scripts
 └── .github/workflows/          # CI build workflows
 ```

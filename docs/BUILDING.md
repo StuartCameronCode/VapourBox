@@ -76,6 +76,7 @@ VapourBox/
 ├── Scripts/                    # Build, packaging, and release scripts
 ├── Tests/TestResources/        # Committed test fixtures (small_clip.mp4, etc.)
 ├── docs/                       # Additional documentation
+│   └── reports/                # Investigation reports: screenshots, measurements, decisions
 └── .github/workflows/          # CI build, deps, test and nightly workflows
 ```
 

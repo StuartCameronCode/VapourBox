@@ -2744,6 +2744,37 @@ options that look like the answer; both were measured on `small_clip.mp4`
   recommended to be between 1 and 1"), which is why `gpu_thread` made no
   speed difference (15.3 / 14.7 / 15.1 fps at 1080p for default / 1 / 4).
 
+### QTempGaussMC (vs-jetpack) as an alternate deinterlacer: investigated, not built (issue #117, 2026-11-03)
+
+Full report with screenshots, charts and scripts:
+[docs/reports/issue-117-qtempgaussmc/](reports/issue-117-qtempgaussmc/index.html).
+
+vs-jetpack's QTGMC rewrite (`vsjetpack` 2.2.6, MIT) was run against the
+macOS arm64 bundle, with the plugins it lacks loaded from PyPI wheels. Ground
+truth: `small_clip.mp4` frames treated as 50 Hz fields, interlaced with
+`interlace=scan=tff:lowpass=0`, deinterlaced at double rate, luma PSNR
+against the originals.
+
+- **Quality:** +0.5 / +0.8 dB over havsfunc Slower at equal speed, and
+  +0.2 to +0.9 with sharpening off on both. Modest, and near-invisible side
+  by side. PSNR rewards softness here: havsfunc Medium beats its own Placebo.
+- **Speed:** its defaults run at 5.5 fps at 720x576 against havsfunc
+  Slower's 84. It hard-codes `znedi3` (scalar on ARM, the same trap as
+  havsfunc patch 6) and defaults to NNEDI3 `nns=4` (havsfunc Slower uses 1).
+  With dubhater's `nnedi3` and `nns=1` it reaches 75 fps.
+- **Deps:** needs mvutensils (`mvu`; **v9 only**, since v10 removed the
+  `fields` argument that 2.2.6 still passes), resize2, and ~54 MB of Python
+  packages. `akarin.Expr` is mandatory, so not on macOS x64.
+- **`qtgmc_convert`** (the issue's suggestion) needs Python 3.13, and its
+  author advises against it except for parity with havsfunc. Not viable.
+- A bottom-edge streak looked like havsfunc's own (MVTools border) bug, but
+  the tuned jetpack configuration has it too: it comes from the NNEDI3
+  settings. Don't cite it as a reason to switch.
+
+Recommendation, if built: an `advancedOnly` Deinterlace method with its own
+small control set, tuned as above, vs-jetpack and mvutensils pinned
+together. x86 speed and the v2 CPU tier are unmeasured.
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and
