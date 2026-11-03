@@ -1187,6 +1187,17 @@ clip = haf.HQDeringmod(
 # PASS 5: DEBLOCK
 # ============================================================================
 {{#DEBLOCK}}
+{{#DEBLOCK_PER_FIELD}}
+# The picture is still interlaced (deinterlacing is off), so each field is
+# deblocked on its own. On the woven frame every method filters vertically
+# across both fields, blending them on moving edges -- DCTFilter scored 1.5 to
+# 3.7 dB below no filtering at all (docs/reports/2026-11-deblock-order). A
+# 4:2:0 frame whose field height is odd in chroma (486 lines) cannot be split
+# into fields and keeps the woven-frame path.
+_deblock_per_field = (clip.height >> clip.format.subsampling_h) % 2 == 0
+if _deblock_per_field:
+    clip = core.std.SeparateFields(clip, tff={{DEBLOCK_TFF}})
+{{/DEBLOCK_PER_FIELD}}
 
 {{#DEBLOCK_QED}}
 # Deblock_QED - Quality Enhanced Deblocking
@@ -1232,6 +1243,10 @@ clip = core.dctf.DCTFilter(
     planes={{DEBLOCK_DCT_PLANES}},
 )
 {{/DEBLOCK_DCTFILTER}}
+{{#DEBLOCK_PER_FIELD}}
+if _deblock_per_field:
+    clip = core.std.DoubleWeave(clip, tff={{DEBLOCK_TFF}})[::2]
+{{/DEBLOCK_PER_FIELD}}
 {{/DEBLOCK}}
 
 # ============================================================================

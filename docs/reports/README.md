@@ -66,5 +66,5 @@ to it.
 
 | Date | Report | Outcome |
 |---|---|---|
-| 2026-11-03 | [Deblock before or after deinterlacing?](2026-11-deblock-order/index.html) | Keep Deblock after Deinterlace (≤0.05 dB gain from moving it); when deinterlacing is off, deblock per field rather than on the woven frame (+0.03 to +0.30 dB, never worse); not built yet |
+| 2026-11-03 | [Deblock before or after deinterlacing?](2026-11-deblock-order/index.html) | Keep Deblock after Deinterlace (≤0.05 dB gain from moving it); when deinterlacing is off, deblock per field rather than on the woven frame (+0.03 to +0.30 dB; DCTFilter on the woven frame lost 1.5–3.7 dB); built |
 | 2026-11-03 | [Issue #117: QTempGaussMC (vs-jetpack) as an alternate deinterlacer](issue-117-qtempgaussmc/index.html) | Worth adding as an advanced-only method (not macOS x64); +0.5–0.8 dB over havsfunc QTGMC Slower at equal speed once tuned; not built yet |

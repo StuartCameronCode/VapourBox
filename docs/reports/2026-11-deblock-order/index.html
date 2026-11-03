@@ -54,6 +54,7 @@
   <ul>
     <li><strong>Deinterlacing on (the normal case).</strong> Per-field deblocking before QTGMC beats today's order by at most <strong>0.05 dB</strong> at the app's default strength, and 0.05–0.14 dB at a much stronger setting. The visible blockiness left over is the same. Recommendation: <strong>don't reorder the pipeline.</strong></li>
     <li><strong>Deinterlacing off on an interlaced source.</strong> Today the deblocker runs on the woven frame. Running it per field scored better in every case: +0.03 to +0.20 dB at default strength and +0.08 to +0.30 dB at strong, with SSIM agreeing. The gain is small but always points the same way, and the change is cheap. Recommendation: <strong>deblock per field when the output stays interlaced.</strong></li>
+    <li><strong>DCTFilter on a woven frame is damaging.</strong> This was added after the main run (§3, "DCTFilter"). The third Deblock method, run on the woven frame, scored <strong>1.5–3.7 dB below not filtering at all</strong>, because it attenuates the combing between fields as if it were high-frequency detail. Per field, it's neutral to slightly positive. With deinterlacing off, today's app does the damaging version.</li>
     <li><strong>Side finding.</strong> At 1000 kbps, raising Deblock_QED from the default 24/26 to 36/44 gained more than any choice of order (about +0.5 dB against +0.2 dB). One clip is no reason to change a default, but it does put the order question in proportion.</li>
   </ul>
 </div>
@@ -219,10 +220,36 @@
 </table>
 <p>At 36/44 the deblocker does about three times as much (Δ vs none: +0.48 dB against +0.16 on film), and the gap between orders grows with it. Deinterlaced, per-field leads after by 0.14 dB (film) and 0.05 dB (vhs). Left interlaced, per-field leads woven by 0.30 and 0.08 dB. Woven deblocking now scores lower on blockiness than per-field when left interlaced (2.23 against 2.67 on film). That matches the theory: on the frame grid, per-field filtering misses frame-DCT block edges.</p>
 
+<h3>DCTFilter (added the same day, while building the fix)</h3>
+<p>The main run covered only the two edge deblockers. Before applying the per-field change to all three Deblock methods, DCTFilter was run the same way at the app's default curve (cutoff 5, strength 0.6, luma only) on the 1000 kbps fixtures (<code>scripts/dct.sh</code>).</p>
+<table><caption>Left interlaced, DCTFilter (app default curve), 1000 kbps</caption>
+<tr><th>Fixture</th><th>kbps</th><th>Order</th><th>PSNR-Y dB</th><th>Δ vs none</th><th>SSIM-Y</th><th>Blockiness</th></tr>
+<tr><td>film</td><td>1000</td><td>woven frame, before</td><td>31.71</td><td>-3.72</td><td>0.9121</td><td>9.75</td></tr>
+<tr class="best"><td>film</td><td>1000</td><td>per field, before</td><td>35.51</td><td>+0.08</td><td>0.9326</td><td>10.61</td></tr>
+<tr><td>vhs</td><td>1000</td><td>woven frame, before</td><td>30.89</td><td>-1.54</td><td>0.8875</td><td>8.86</td></tr>
+<tr class="best"><td>vhs</td><td>1000</td><td>per field, before</td><td>32.49</td><td>+0.05</td><td>0.9022</td><td>9.41</td></tr>
+</table>
+<table><caption>Deinterlaced, DCTFilter (app default curve), 1000 kbps</caption>
+<tr><th>Fixture</th><th>kbps</th><th>Order</th><th>PSNR-Y dB</th><th>Δ vs none</th><th>SSIM-Y</th><th>Blockiness</th></tr>
+<tr><td>film</td><td>1000</td><td>after QTGMC (today)</td><td>36.09</td><td>+0.07</td><td>0.9328</td><td>5.16</td></tr>
+<tr><td>film</td><td>1000</td><td>woven frame, before</td><td>31.75</td><td>-4.27</td><td>0.9111</td><td>4.91</td></tr>
+<tr class="best"><td>film</td><td>1000</td><td>per field, before</td><td>36.10</td><td>+0.08</td><td>0.9330</td><td>5.04</td></tr>
+<tr class="best"><td>vhs</td><td>1000</td><td>after QTGMC (today)</td><td>33.24</td><td>+0.06</td><td>0.9241</td><td>3.55</td></tr>
+<tr><td>vhs</td><td>1000</td><td>woven frame, before</td><td>31.21</td><td>-1.97</td><td>0.9102</td><td>3.60</td></tr>
+<tr><td>vhs</td><td>1000</td><td>per field, before</td><td>33.08</td><td>-0.10</td><td>0.9233</td><td>3.42</td></tr>
+</table>
+<p>On the woven frame it does real damage: −3.72 dB on film and −1.54 dB on vhs against no filtering, and −4.3 / −2.0 dB when QTGMC follows it. DCTFilter scales coefficients from 8×8 DCT blocks spanning both fields. On a moving edge, the line-to-line alternation between fields <em>is</em> the highest vertical frequency, so it gets attenuated, which blends the fields. Per field the same filter is neutral to slightly positive (+0.05 to +0.08 dB), the same as running it after QTGMC. Its blockiness score rises in every arrangement because DCTFilter flattens block interiors rather than smoothing edges, so it isn't a deblocker in that metric's sense.</p>
+
+<figure>
+  <a href="img/06-vhs-dctfilter-error-x8.png"><img src="img/06-vhs-dctfilter-error-x8.png" alt="DCTFilter error maps woven vs per field"></a>
+  <div class="labels" style="grid-template-columns: repeat(2, 1fr)"><span>|DCTFilter on woven frame − clean| × 8</span><span>|DCTFilter per field − clean| × 8</span></div>
+  <figcaption>vhs, 1000 kbps, deinterlacing off, frame 45, luma error amplified 8×. The woven version has bright bands along every moving horizontal edge (the bonnet, the dashboard line, the kerb), where the fields have been blended. Per field, they're gone, and what's left is the compression error.</figcaption>
+</figure>
+
 <h2>4. Decisions and why</h2>
 <ul>
   <li><strong>Keep Deblock after Deinterlace.</strong> At the defaults the gain from moving it is ≤0.05 dB, within what one clip can resolve, with no difference in blockiness. Reordering would also move it ahead of Noise Reduction and change every existing preset's output, for a gain nobody would see.</li>
-  <li><strong>When deinterlacing is off and the source is interlaced, deblock per field.</strong> It beat woven deblocking on PSNR and SSIM in all 14 comparisons (both methods, both strengths), and it's a few lines in the Deblock block of both templates, gated on the same field-order decision that <code>{{#SET_FIELD_BASED}}</code> already uses (<code>ScriptGenerator::field_based_for</code>). Not built yet.</li>
+  <li><strong>When deinterlacing is off and the source is interlaced, deblock per field, for all three methods.</strong> For the edge deblockers it beat woven deblocking on PSNR and SSIM in all 14 comparisons (both methods, both strengths). For DCTFilter it's the difference between a −3.7 dB loss and a small gain. It's a few lines in the Deblock block of both templates, gated on the same field-order decision that <code>{{#SET_FIELD_BASED}}</code> already uses (<code>ScriptGenerator::field_based_for</code>). Built in the same branch. A 4:2:0 frame whose field height is odd in chroma (486 lines) can't be split into fields; the script falls back to the woven frame there, as before.</li>
   <li><strong>Leave the default strength alone for now.</strong> 36/44 scored better at 1000 kbps, but only one strength was tried, VMAF wasn't run for it, and a stronger default would also soften sources that aren't blocky. That needs its own probe across bitrates.</li>
 </ul>
 
@@ -231,7 +258,7 @@
   <li>NTSC (720×480), DV (2-4-8 DCT), and interlaced H.264 (PAFF/MBAFF). H.264's in-loop deblocking runs in the decoder, so there's less left for us to do.</li>
   <li>Real DVD or broadcast MPEG-2 from a hardware encoder.</li>
   <li>Any QTGMC preset other than Slower. Noise Reduction between QTGMC and Deblock, as the app's order puts it.</li>
-  <li>DCTFilter (the third Deblock method), and x86. The deblock plugin is integer C on every platform, but QTGMC's interpolation differs.</li>
+  <li>DCTFilter at any curve but the default, and x86. The deblock plugin is integer C on every platform, but QTGMC's interpolation differs.</li>
   <li>More than two short clips.</li>
 </ul>
 
@@ -240,6 +267,7 @@
 docs/reports/2026-11-deblock-order/scripts/make_fixtures.sh
 docs/reports/2026-11-deblock-order/scripts/run.sh     # → $SCRATCH/results.csv (copied here as results.csv)
 docs/reports/2026-11-deblock-order/scripts/strong.sh  # → $SCRATCH/results_strong.csv
+docs/reports/2026-11-deblock-order/scripts/dct.sh     # → $SCRATCH/results_dct.csv
 docs/reports/2026-11-deblock-order/scripts/imgs.sh    # → img/
 python3 -I docs/reports/2026-11-deblock-order/scripts/tables.py   # the tables above</pre>
 <p class="muted">Needs <code>deps/macos-arm64</code>. The scripts call that platform's ffmpeg and vspipe directly, and use BSD <code>stat -f</code>.</p>

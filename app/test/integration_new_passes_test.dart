@@ -13,6 +13,7 @@ library;
 // ignore_for_file: avoid_print — these tests print diagnostics to the test log.
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -604,6 +605,57 @@ void main() {
           await WorkerHarness.runJob(job.toJson(), label: 'deblock_dctfilter');
       await _expectValidVideo(result);
     }, timeout: const Timeout(Duration(minutes: 6)));
+
+    // Deinterlacing off on an interlaced source: every Deblock method must work
+    // on each field, never the woven frame (docs/reports/2026-11-deblock-order).
+    // A job with no detected field order still takes the whole-frame path, so
+    // it is the in-test reference for what woven filtering does: DCTFilter on
+    // the woven frame attenuates the combing between fields and moves frame 45
+    // ~2.2 levels from the source, against ~0.6 per field.
+    test('deblock: interlaced output is deblocked per field, every method',
+        () async {
+      VideoJob job(String name, DeblockParameters deblock, FieldOrder? order) =>
+          _baseJob(
+            name,
+            pipeline: ProcessingPipeline(
+              deinterlace: const QTGMCParameters(enabled: false),
+              deblock: deblock,
+            ),
+          ).copyWith(
+            detectedFieldOrder: order,
+            inputWidth: 720,
+            inputHeight: 576,
+            inputPixelFormat: 'yuv422p',
+            inputFrameRate: 25,
+            totalFrames: 79,
+          );
+      Future<Uint8List> frame(VideoJob j, String label) async {
+        final r = await WorkerHarness.runPreview(j.toJson(), frame: 45, label: label);
+        expect(r.success, isTrue, reason: '$label preview failed: $r');
+        return WorkerHarness.imageToRgb24(r.png!, label: label);
+      }
+
+      for (final method in DeblockMethod.values) {
+        final params = DeblockParameters(enabled: true, method: method);
+        final name = 'deblock_per_field_${method.name}';
+        final result = await WorkerHarness.runJob(
+            job(name, params, FieldOrder.topFieldFirst).toJson(),
+            label: name);
+        await _expectValidVideo(result);
+      }
+
+      const off = DeblockParameters(enabled: false);
+      const dct = DeblockParameters(enabled: true, method: DeblockMethod.dctFilter);
+      final source = await frame(job('src', off, FieldOrder.topFieldFirst), 'dbf_src');
+      final perField = WorkerHarness.meanAbsDiff(
+          await frame(job('pf', dct, FieldOrder.topFieldFirst), 'dbf_field'), source);
+      final woven = WorkerHarness.meanAbsDiff(
+          await frame(job('wv', dct, null), 'dbf_woven'), source);
+      print('  DCTFilter vs source, frame 45: per field $perField, woven $woven');
+      expect(woven, greaterThan(perField * 2),
+          reason: 'per-field DCTFilter should change the picture far less than '
+              'woven-frame DCTFilter, which blends the fields');
+    }, timeout: const Timeout(Duration(minutes: 10)));
 
     test('grain: AddGrain and GrainFactory3 both run end-to-end', () async {
       for (final entry in <String, GrainParameters>{

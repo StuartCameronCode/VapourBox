@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Prints the report's result tables as HTML, from ../results.csv and
-../results_strong.csv (copies of run.sh's and strong.sh's output).
+"""Prints the report's result tables as HTML, from ../results.csv,
+../results_strong.csv and ../results_dct.csv (copies of run.sh's, strong.sh's
+and dct.sh's output).
 
 usage: python3 -I tables.py > tables.html
 """
@@ -67,4 +68,10 @@ print('<!-- T4 -->')
 print(table(strong, '1', 'qed-36/44', 'Deinterlaced, Deblock_QED 36/44 (strong), 1000 kbps',
             with_vmaf=False, base_rows=main))
 print(table(strong, '0', 'qed-36/44', 'Left interlaced, Deblock_QED 36/44 (strong), 1000 kbps',
+            with_vmaf=False, base_rows=main))
+dct = load('results_dct.csv')
+print('<!-- T5 -->')
+print(table(dct, '0', 'dct', 'Left interlaced, DCTFilter (app default curve), 1000 kbps',
+            with_vmaf=False, base_rows=main))
+print(table(dct, '1', 'dct', 'Deinterlaced, DCTFilter (app default curve), 1000 kbps',
             with_vmaf=False, base_rows=main))

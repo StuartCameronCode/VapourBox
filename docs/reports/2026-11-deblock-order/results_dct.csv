@@ -1,0 +1,11 @@
+fixture,bitrate,deint,order,method,psnr_y,ssim_y,vmaf,blockiness
+film,1000,1,after,dct,36.087225,0.932834,,5.159
+film,1000,1,woven,dct,31.750095,0.911100,,4.905
+film,1000,1,field,dct,36.097127,0.932969,,5.037
+film,1000,0,woven,dct,31.711826,0.912127,,9.747
+film,1000,0,field,dct,35.513658,0.932561,,10.605
+vhs,1000,1,after,dct,33.242297,0.924122,,3.547
+vhs,1000,1,woven,dct,31.212136,0.910179,,3.598
+vhs,1000,1,field,dct,33.078823,0.923329,,3.418
+vhs,1000,0,woven,dct,30.894579,0.887540,,8.857
+vhs,1000,0,field,dct,32.487243,0.902224,,9.415

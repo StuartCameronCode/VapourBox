@@ -9,7 +9,9 @@
 #              after - deblock the deinterlaced output (VapourBox today)
 #              woven - deblock the woven interlaced frame, then deinterlace
 #              field - SeparateFields -> deblock -> Weave, then deinterlace
-#   METHOD   qed | simple   (haf.Deblock_QED / core.deblock.Deblock)
+#   METHOD   qed | simple | dct  (haf.Deblock_QED / core.deblock.Deblock /
+#            core.dctf.DCTFilter with the app's default curve: cutoff 5,
+#            strength 0.6, luma only)
 #   DEINT    1 = QTGMC Slower double rate (default), 0 = leave interlaced
 #   Q1, Q2   quant1 / quant2 (defaults 24 / 26, the app's defaults)
 import os, sys
@@ -29,6 +31,8 @@ q2 = int(os.environ.get('Q2', '26'))
 def deblock(c):
     if method == 'qed':
         return haf.Deblock_QED(c, quant1=q1, quant2=q2)
+    if method == 'dct':
+        return core.dctf.DCTFilter(c, factors=[1, 1, 1, 1, 1, 1, 0.7, 0.4], planes=[0])
     return core.deblock.Deblock(c, quant=q1)
 
 
