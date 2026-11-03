@@ -542,6 +542,7 @@ class WorkerHarness {
   static Future<PreviewResult> runPreview(
     Map<String, dynamic> jobJson, {
     required int frame,
+    int subFrame = 0,
     String label = 'preview',
     Duration timeout = const Duration(minutes: 5),
     Map<String, String> extraEnv = const {},
@@ -552,7 +553,10 @@ class WorkerHarness {
     try {
       final process = await Process.start(
         workerPath,
-        ['--config', configFile.path, '--preview', '--frame', '$frame'],
+        [
+          '--config', configFile.path, '--preview', '--frame', '$frame',
+          '--sub-frame', '$subFrame',
+        ],
         environment: {...workerEnv, ...extraEnv},
         workingDirectory: File(workerPath).parent.path,
       );
