@@ -6793,3 +6793,64 @@ fn test_182_preview_retime_padding() {
         assert!(pad < retime, "{method:?}: padding after the retime");
     }
 }
+
+/// Deblocking a picture that is still interlaced works on each field, never
+/// the woven frame, for every method (docs/reports/2026-11-deblock-order:
+/// DCTFilter on the woven frame scored 1.5-3.7 dB below no filtering).
+/// Deinterlaced output, and a source with no detected field order, keep the
+/// whole-frame path. Both scripts, in the order split -> filter -> weave.
+#[test]
+fn test_183_deblock_per_field_when_still_interlaced() {
+    create_output_dir();
+    let job_for = |method: &DeblockMethod, deinterlace: bool, detected: Option<FieldOrder>| {
+        let mut job = create_base_job("test_183_deblock_per_field");
+        job.detected_field_order = detected;
+        job.qtgmc_parameters.enabled = deinterlace;
+        job.qtgmc_parameters.tff = Some(true);
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: job.qtgmc_parameters.clone(),
+            deblock: DeblockParameters { enabled: true, method: method.clone(), ..DeblockParameters::default() },
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+    let call = |m: &DeblockMethod| match m {
+        DeblockMethod::DeblockQed => "haf.Deblock_QED(",
+        DeblockMethod::Deblock => "core.deblock.Deblock(",
+        DeblockMethod::DctFilter => "core.dctf.DCTFilter(",
+    };
+
+    for method in &[DeblockMethod::DeblockQed, DeblockMethod::Deblock, DeblockMethod::DctFilter] {
+        for (detected, tff) in [
+            (FieldOrder::TopFieldFirst, "True"),
+            (FieldOrder::BottomFieldFirst, "False"),
+        ] {
+            let (encode, preview) = generate_both_scripts(&job_for(method, false, Some(detected)));
+            for (name, script) in [("encode", &encode), ("preview", &preview)] {
+                let split = script
+                    .find(&format!("clip = core.std.SeparateFields(clip, tff={tff})"))
+                    .unwrap_or_else(|| panic!("{method:?} {detected:?} {name}: no field split"));
+                let filter = script.find(call(method)).expect("deblock call");
+                let weave = script
+                    .find(&format!("clip = core.std.DoubleWeave(clip, tff={tff})[::2]"))
+                    .unwrap_or_else(|| panic!("{method:?} {detected:?} {name}: no weave"));
+                assert!(split < filter && filter < weave, "{method:?} {name}: wrong order");
+                assert!(script.contains("_deblock_per_field = (clip.height >> clip.format.subsampling_h) % 2 == 0"));
+                assert!(!script.contains("{{DEBLOCK"), "{method:?} {name}: placeholder left");
+            }
+        }
+
+        // Deinterlaced (progressive by then), or nothing says it is interlaced.
+        for job in [
+            job_for(method, true, Some(FieldOrder::TopFieldFirst)),
+            job_for(method, false, None),
+        ] {
+            let (encode, preview) = generate_both_scripts(&job);
+            for script in [&encode, &preview] {
+                assert!(script.contains(call(method)), "{method:?}: deblock missing");
+                assert!(!script.contains("_deblock_per_field"), "{method:?}: per-field on progressive");
+                assert!(!script.contains("{{DEBLOCK"), "{method:?}: placeholder left");
+            }
+        }
+    }
+}

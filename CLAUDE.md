@@ -1520,6 +1520,12 @@ derivation both the encode and preview paths must use.
 - Deinterlacing enabled → `_FieldBased` comes from `pipeline.deinterlace.tff`.
 - Deinterlacing disabled → falls back to `job.detected_field_order` (zimg
   honours `_FieldBased` for chroma resampling too).
+- **A filter that works vertically must not run on a woven interlaced frame**:
+  it blends the two fields on every moving edge. `ScriptGenerator::still_interlaced_tff`
+  (deinterlacing off + a detected order) is the one test for "still
+  interlaced"; Deblock uses it to run every method per field
+  (`{{#DEBLOCK_PER_FIELD}}`) — DCTFilter on the woven frame scored 1.5–3.7 dB
+  *below no filtering* (docs/reports/2026-11-deblock-order).
 
 ### Deinterlace Working Format (issue #49)
 

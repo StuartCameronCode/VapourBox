@@ -1483,6 +1483,39 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    test('deblock: interlaced output is deblocked per field', () async {
+      // Deinterlacing off + a detected field order: every method runs between
+      // SeparateFields and DoubleWeave (docs/reports/2026-11-deblock-order).
+      loadSchema('deblock');
+      for (final method in DeblockMethod.values) {
+        final job = buildJob(
+          testName: 'deblock_per_field_${method.name}',
+          deblock: DeblockParameters(enabled: true, method: method),
+        ).copyWith(detectedFieldOrder: FieldOrder.bottomFieldFirst);
+        final script = await generateScriptViaWorker(job);
+        final split = script.indexOf('core.std.SeparateFields(clip, tff=False)');
+        final weave = script.indexOf('core.std.DoubleWeave(clip, tff=False)[::2]');
+        expect(split, greaterThan(0), reason: '$method: no field split');
+        expect(weave, greaterThan(split), reason: '$method: no weave after split');
+        final call = switch (method) {
+          DeblockMethod.deblockQed => 'haf.Deblock_QED(',
+          DeblockMethod.deblock => 'core.deblock.Deblock(',
+          DeblockMethod.dctFilter => 'core.dctf.DCTFilter(',
+        };
+        final at = script.indexOf(call);
+        expect(at > split && at < weave, isTrue,
+            reason: '$method: the filter must run on the separated fields');
+      }
+      // Without a field order the source is treated as progressive.
+      final progressive = await generateScriptViaWorker(buildJob(
+        testName: 'deblock_whole_frame',
+        deblock: const DeblockParameters(enabled: true),
+      ));
+      expect(progressive, contains('haf.Deblock_QED('));
+      expect(progressive, isNot(contains('_deblock_per_field')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     test('grain: AddGrain params are not depth-scaled', () async {
       loadSchema('grain');
       final job = buildJob(
