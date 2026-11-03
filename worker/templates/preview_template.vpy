@@ -909,7 +909,7 @@ clip = core.resize.Point(_bm3d_work, format=_bm3d_fmt.id, dither_type="error_dif
 # KNLMeansCL: non-local means on the GPU (OpenCL). d = frames each side,
 # a = search radius, s = similarity radius, h = strength. Runs on the device the
 # worker's probe found working ({{NR_KNLM_DEVICE}}): the plugin's own default,
-# "auto", fails on Apple Silicon. 4:2:0 cannot take channels="YUV", so luma and
+# "auto", failed on Apple Silicon before v1.3. 4:2:0 cannot take channels="YUV", so luma and
 # chroma are separate calls.
 clip = core.knlm.KNLMeansCL(clip, d={{NR_KNLM_D}}, a={{NR_KNLM_A}}, s={{NR_KNLM_S}}, h={{NR_KNLM_H}}, channels="Y", device_type="{{NR_KNLM_DEVICE}}")
 if {{NR_KNLM_CHROMA}} and clip.format.color_family == vs.YUV:

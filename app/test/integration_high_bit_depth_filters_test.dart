@@ -235,10 +235,19 @@ VideoJob _job({
 /// trivially).
 class _Pass {
   const _Pass(this.name, this.pipeline,
-      {this.tolerance = 2.0, this.changesPicture = true});
+      {this.tolerance = 2.0,
+      this.changesPicture = true,
+      this.needsKnlmDevice = false});
 
   final String name;
   final ProcessingPipeline pipeline;
+
+  /// Whether the pass needs a working KNLMeansCL OpenCL device. Without one the
+  /// worker refuses the job by design, so the pass is skipped (with a printed
+  /// line) rather than failed — which means the hosted runners, which have no
+  /// OpenCL, never run it. Run this file on a machine with a GPU after touching
+  /// KNLMeansCL.
+  final bool needsKnlmDevice;
 
   /// Whether this pass is expected to visibly change the frame.
   ///
@@ -441,6 +450,24 @@ List<_Pass> _passes() => [
             bm3dChromaSigma: 2.0,
           ),
         ),
+      ),
+
+      // KNLMeansCL (issue #144). Windows shipped the 2018 v1.1.1 release, which
+      // refused every 9-15-bit clip except packed YUV444P10, so this pass failed
+      // outright on any 10-bit 4:2:0/4:2:2 source. h is raised from the default
+      // 1.2 so the pass visibly changes this fixture: with the default, weights
+      // fall under KNLMeansCL's epsilon floor on grain this heavy and the
+      // output is (correctly) almost the input.
+      _Pass(
+        'noise_knlmeans',
+        _only(
+          noiseReduction: const NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.knlMeans,
+            knlmH: 3.0,
+          ),
+        ),
+        needsKnlmDevice: true,
       ),
 
       // Deflicker measures frame brightness against a windowed average, so its
@@ -742,6 +769,28 @@ Future<Uint8List> _passthroughRgb10() async {
       await WorkerHarness.imageToRgb24(result.png!, label: 'ref10');
 }
 
+/// The worker's KNLMeansCL device probe, run once. Null when no OpenCL device
+/// can run KNLMeansCL here.
+Future<String?>? _knlmDeviceProbe;
+Future<String?> _knlmDevice() => _knlmDeviceProbe ??= () async {
+      final probe = await Process.run(
+        WorkerHarness.workerPath,
+        ['--probe-opencl'],
+        environment: WorkerHarness.workerEnv,
+        workingDirectory: File(WorkerHarness.workerPath).parent.path,
+      );
+      final match = RegExp(r'"knlmDevice":"([^"]+)"')
+          .firstMatch(probe.stdout.toString());
+      return match?.group(1);
+    }();
+
+/// True (after printing why) when [pass] cannot run on this machine.
+Future<bool> _skipWithoutDevice(_Pass pass) async {
+  if (!pass.needsKnlmDevice || await _knlmDevice() != null) return false;
+  print('  SKIPPED ${pass.name}: no OpenCL device KNLMeansCL can use here');
+  return true;
+}
+
 void main() {
   setUpAll(() async {
     await WorkerHarness.ensureReady();
@@ -754,6 +803,7 @@ void main() {
   group('preview runs on a 10-bit 4:2:2 source', () {
     for (final pass in _passes()) {
       test(pass.name, () async {
+        if (await _skipWithoutDevice(pass)) return;
         final fixture = await _fixture('yuv422p10le');
         final result = await WorkerHarness.runPreview(
           _job(
@@ -780,6 +830,7 @@ void main() {
     for (final pixFmt in ['yuv444p12le', 'yuv422p16le']) {
       for (final pass in _passes()) {
         test('${pass.name} on $pixFmt', () async {
+          if (await _skipWithoutDevice(pass)) return;
           final fixture = await _fixture(pixFmt);
           final result = await WorkerHarness.runPreview(
             _job(fixture: fixture, pixFmt: pixFmt, pipeline: pass.pipeline)
@@ -802,6 +853,7 @@ void main() {
   group('8-bit vs 10-bit result parity', () {
     for (final pass in _passes()) {
       test(pass.name, () async {
+        if (await _skipWithoutDevice(pass)) return;
         final src8 = await _fixture('yuv422p');
         final src10 = await _fixture('yuv422p10le');
 
@@ -851,6 +903,69 @@ void main() {
                 'unscaled — see the Levels and Tweak blocks in the templates.');
       }, timeout: const Timeout(Duration(minutes: 6)));
     }
+  });
+
+  // ===========================================================================
+  // 3b. KNLMeans on 10-bit 4:2:0, the format issue #144 was reported on, in
+  //     both paths. The groups above use 4:2:2 and 4:4:4 fixtures.
+  // ===========================================================================
+  group('KNLMeans on a 10-bit 4:2:0 source (issue #144)', () {
+    final pass = _passes().firstWhere((p) => p.name == 'noise_knlmeans');
+
+    test('preview matches the 8-bit 4:2:0 result', () async {
+      if (await _skipWithoutDevice(pass)) return;
+      final src8 = await _fixture('yuv420p');
+      final src10 = await _fixture('yuv420p10le');
+      final eight = await WorkerHarness.runPreview(
+        _job(fixture: src8, pixFmt: 'yuv420p', pipeline: pass.pipeline).toJson(),
+        frame: _previewFrame,
+        label: 'knlm420_8',
+      );
+      final ten = await WorkerHarness.runPreview(
+        _job(fixture: src10, pixFmt: 'yuv420p10le', pipeline: pass.pipeline)
+            .toJson(),
+        frame: _previewFrame,
+        label: 'knlm420_10',
+      );
+      expect(eight.success, isTrue, reason: '8-bit 4:2:0 run failed: $eight');
+      expect(ten.success, isTrue, reason: '10-bit 4:2:0 run failed: $ten');
+      final diff = WorkerHarness.meanAbsDiff(
+          await WorkerHarness.imageToRgb24(eight.png!, label: 'k8'),
+          await WorkerHarness.imageToRgb24(ten.png!, label: 'k10'));
+      // The 4:2:0 fixtures differ by more than rounding before any filter runs
+      // (ffmpeg subsamples the chroma separately at each depth), so measure
+      // that baseline and allow the filter only its own rounding on top.
+      final plain = _only();
+      final base8 = await WorkerHarness.runPreview(
+        _job(fixture: src8, pixFmt: 'yuv420p', pipeline: plain).toJson(),
+        frame: _previewFrame,
+        label: 'plain420_8',
+      );
+      final base10 = await WorkerHarness.runPreview(
+        _job(fixture: src10, pixFmt: 'yuv420p10le', pipeline: plain).toJson(),
+        frame: _previewFrame,
+        label: 'plain420_10',
+      );
+      final baseline = WorkerHarness.meanAbsDiff(
+          await WorkerHarness.imageToRgb24(base8.png!, label: 'b8'),
+          await WorkerHarness.imageToRgb24(base10.png!, label: 'b10'));
+      print('  knlmeans 4:2:0: mean abs diff ${diff.toStringAsFixed(3)} '
+          '(fixtures alone: ${baseline.toStringAsFixed(3)})');
+      expect(diff, lessThan(baseline + 1.0));
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('full encode succeeds', () async {
+      if (await _skipWithoutDevice(pass)) return;
+      final src10 = await _fixture('yuv420p10le');
+      final job = _job(
+          fixture: src10,
+          pixFmt: 'yuv420p10le',
+          pipeline: pass.pipeline,
+          outputName: 'knlm420_10');
+      final result =
+          await WorkerHarness.runJob(job.toJson(), label: 'knlm420_10_encode');
+      expect(result.success, isTrue, reason: 'encode failed: $result');
+    }, timeout: const Timeout(Duration(minutes: 6)));
   });
 
   // ===========================================================================

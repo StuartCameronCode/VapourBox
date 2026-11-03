@@ -646,13 +646,48 @@ FAILED_PLUGINS=()
 # which fails with our bundled Python. Replace with hardcoded include path.
 patch_meson_vs_include() {
     [ ! -f meson.build ] && return
-    python3 -c "
-import re
-with open('meson.build', 'r') as f:
+    VS_INCLUDE_DIR="$VS_INCLUDE_DIR" python3 - meson.build <<'PYEOF' 2>/dev/null || true
+import os, re, sys
+path = sys.argv[1]
+inc = os.environ["VS_INCLUDE_DIR"]
+with open(path) as f:
     content = f.read()
+
+def call_end(s, i):
+    """Index just past the ')' closing the call whose '(' is at s[i],
+    skipping parentheses inside quoted strings."""
+    depth, q = 0, None
+    while i < len(s):
+        c = s[i]
+        if q:
+            if c == "\\":
+                i += 1
+            elif c == q:
+                q = None
+        elif c in "'\"":
+            q = c
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return -1
+
+# The probe assigned to a variable, used later as VAR.stdout().strip(), as
+# KNLMeansCL v1.3 writes it: r = run_command(py, '-c', 'import vapoursynth ...').
+for m in list(re.finditer(r"^[ \t]*(\w+)\s*=\s*run_command\s*\(", content, flags=re.M))[::-1]:
+    end = call_end(content, m.end() - 1)
+    if end < 0 or "import vapoursynth" not in content[m.start():end]:
+        continue
+    var = m.group(1)
+    content = content[:m.start()] + content[end:]
+    content = re.sub(r"\b%s\.stdout\(\)\.strip\(\)" % re.escape(var), repr(inc), content)
+
 content = re.sub(
     r'incdir\s*=\s*include_directories\s*\(\s*run_command\s*\(.*?\)\.stdout\(\)\.strip\(\)\s*,?\s*\)',
-    \"incdir = include_directories('$VS_INCLUDE_DIR')\",
+    "incdir = include_directories(%r)" % inc,
     content,
     flags=re.DOTALL
 )
@@ -660,13 +695,13 @@ content = re.sub(
 # include_directories('include', run_command(py, '-c', 'import vapoursynth ...')).
 # Only a vapoursynth include probe is replaced; other run_command calls stay.
 content = re.sub(
-    r\"run_command\(\s*[^,()]+,\s*'-c',\s*'import vapoursynth[^']*'[^)]*\)\.stdout\(\)\.strip\(\)\",
-    \"'$VS_INCLUDE_DIR'\",
+    r"run_command\(\s*[^,()]+,\s*'-c',\s*'import vapoursynth[^']*'[^)]*\)\.stdout\(\)\.strip\(\)",
+    repr(inc),
     content,
 )
-with open('meson.build', 'w') as f:
+with open(path, 'w') as f:
     f.write(content)
-" 2>/dev/null || true
+PYEOF
 }
 
 build_plugin() {
@@ -1068,11 +1103,17 @@ build_plugin "bm3d" \
     "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
     "$BM3D_TAG"
 
-# KNLMeansCL (OpenCL denoiser)
+# KNLMeansCL (OpenCL denoiser - Noise Reduction's KNLMeans method and QTGMC's
+# "knlmeanscl" denoiser). Jaded-Encoding-Thaumaturgy's maintained fork, pinned:
+# keep KNLM_TAG in step with download-deps-macos.sh and the wheel version in
+# download-deps-windows.ps1 (v1.3 == wheel 1.3). Khanattila's master, built
+# here before, had no tag to pin and races its buffer fills (issue #144).
+KNLM_TAG="v1.3"
 build_plugin "knlmeanscl" \
-    "https://github.com/Khanattila/KNLMeansCL.git" \
+    "https://github.com/Jaded-Encoding-Thaumaturgy/vapoursynth-knlmeanscl.git" \
     "libknlmeanscl.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$KNLM_TAG"
 
 # TemporalMedian (core.tmedian.TemporalMedian - used by the SpotLess filter)
 build_plugin "tmedian" \

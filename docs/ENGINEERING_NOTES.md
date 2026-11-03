@@ -2775,6 +2775,39 @@ Recommendation, if built: an `advancedOnly` Deinterlace method with its own
 small control set, tuned as above, vs-jetpack and mvutensils pinned
 together. x86 speed and the v2 CPU tier are unmeasured.
 
+### KNLMeansCL: 10-bit sources failed on Windows, results unreliable on macOS (issue #144, 2026-11-03)
+
+Full report with scripts:
+[docs/reports/issue-144-knlmeanscl/](reports/issue-144-knlmeanscl/index.html).
+
+- **Windows** shipped Khanattila's v1.1.1 release zip (2018). Its VapourSynth
+  filter accepts 10-bit only as packed YUV444P10/RGB30 with all channels
+  together, and 9/12/14-bit not at all, so our `channels="Y"` / `"UV"` calls
+  failed on every 10-bit 4:2:0/4:2:2 source ("only YUV444P10 and RGB30 are
+  supported!"). QTGMC's `knlmeanscl` goes through havsfunc's wrapper, which
+  makes the same calls. Never caught because no runner has OpenCL, and the
+  10-bit check of 2026-10-25 ran on a Mac.
+- **macOS** built Khanattila's unpinned master. Apple's `clEnqueueFillBuffer`
+  doesn't complete unless an event is requested, so the max-weight buffer
+  (meant to start at `CL_FLT_EPSILON`) holds stale data. On an M1 Pro, 24 of 60
+  depth/layout/channel cases gave a different result on a repeat run (by
+  110–255 levels), and a CPU reference showed it denoising at `h=1.2` where
+  the algorithm leaves the picture alone (3.28 levels off).
+- **Fix:** Jaded Encoding Thaumaturgy's fork, v1.3, everywhere: tag `v1.3` from
+  source on macOS/Linux, PyPI wheel 1.3 on Windows. It carries pinterf's
+  9–16-bit support and the fill fix. Same kernel as master. Repeatable in all
+  60 cases, within 0.26 of the reference, and the source build is
+  bit-identical to the wheel.
+- v1.3's `meson.build` assigns the VapourSynth include probe to a variable
+  (`r = run_command(...)`, then `r.stdout().strip()`); both scripts' meson
+  patchers now handle that form.
+- **Behaviour changes:** a Mac's KNLMeans now denoises less at low `h`
+  (matching Windows/Linux, as designed), and its `auto` device works, so
+  QTGMC's `knlmeanscl` denoiser runs on Apple Silicon instead of falling back
+  to DFTTest.
+- Not yet run on Windows, macOS x64 or Linux. The Windows result is the one
+  that matters for the issue.
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and

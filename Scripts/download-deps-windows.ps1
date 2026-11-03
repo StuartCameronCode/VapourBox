@@ -417,16 +417,8 @@ $PluginsZip = @(
         Name = "fmtconv"
         Url = "https://ldesoras.fr/src/vs/fmtconv-r31.zip"
         Check = "fmtconv.dll"
-    },
-    @{
-        # core.knlm.KNLMeansCL - OpenCL denoiser used by QTGMC when its Denoiser
-        # is set to "knlmeanscl". The release zip ships a 32-bit DLL at the root
-        # AND x64\KNLMeansCL.dll; the $Win64 filter below picks the x64 one (and
-        # the PE-arch verifier rejects the 32-bit one if it ever slipped through).
-        Name = "knlmeanscl"
-        Url = "https://github.com/Khanattila/KNLMeansCL/releases/download/v1.1.1/KNLMeansCL-v1.1.1.zip"
-        Check = "KNLMeansCL.dll"
     }
+    # KNLMeansCL is NOT here: it is a PyPI wheel, see the wheel section below.
     # zsmooth is NOT here: which build ships depends on the CPU tier. See
     # section 4a below.
 )
@@ -774,7 +766,7 @@ if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
 }
 
 # =============================================================================
-# Bwdif + DeDot + vszip + BM3D + descale - PyPI wheels
+# Bwdif + DeDot + vszip + BM3D + descale + KNLMeansCL - PyPI wheels
 # =============================================================================
 # None of these upstreams publishes a Windows release asset, so each comes from
 # its PyPI wheel, resolved through the JSON API the same way akarin is (never
@@ -808,7 +800,15 @@ $WheelPlugins = @(
     @{ Name = "bm3d"; Package = "vapoursynth-bm3d"; Version = "12.0"; Dll = "bm3d.dll" },
     # core.descale (the Descale pass). Its AVX2 kernel is chosen at run time, so
     # one DLL serves both tiers. Imports VCRUNTIME140, which Python ships.
-    @{ Name = "descale"; Package = "vapoursynth-descale"; Version = "12"; Dll = "libdescale.dll" }
+    @{ Name = "descale"; Package = "vapoursynth-descale"; Version = "12"; Dll = "libdescale.dll" },
+    # core.knlm.KNLMeansCL (Noise Reduction's KNLMeans method, and QTGMC's
+    # "knlmeanscl" denoiser). Jaded-Encoding-Thaumaturgy's maintained fork:
+    # wheel 1.3 is git tag v1.3, as built from source by
+    # download-deps-{macos,linux}.sh. It replaces Khanattila's v1.1.1 release
+    # zip (2018), which refuses every 9-15-bit clip except packed YUV444P10 /
+    # RGB30 - so any 10-bit 4:2:0 source failed (issue #144). OpenCL is linked
+    # statically; the DLL imports only Windows system libraries.
+    @{ Name = "knlmeanscl"; Package = "vapoursynth-knlmeanscl"; Version = "1.3"; Dll = "KNLMeansCL.dll" }
 )
 
 foreach ($W in $WheelPlugins) {

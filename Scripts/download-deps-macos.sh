@@ -359,6 +359,14 @@ VS_TAG="R78"
 # build_plugin). Keep in step with download-deps-linux.sh and the wheel version
 # in download-deps-windows.ps1 (r12 == wheel 12.0).
 BM3D_TAG="r12"
+# KNLMeansCL is Jaded-Encoding-Thaumaturgy's maintained fork, built from source
+# on both arches. Keep in step with download-deps-linux.sh and the wheel version
+# in download-deps-windows.ps1 (v1.3 == wheel 1.3). Not Khanattila's master:
+# that fills its OpenCL buffers without waiting on the fill, which Apple's
+# OpenCL does not complete in time - KNLMeans then denoises with a stale
+# max-weight buffer, and some frames come out as garbage (issue #144).
+KNLM_REPO="https://github.com/Jaded-Encoding-Thaumaturgy/vapoursynth-knlmeanscl.git"
+KNLM_TAG="v1.3"
 VS_BUILD_DIR="$BUILD_DIR/vapoursynth"
 VS_INSTALL_DIR="$BUILD_DIR/vapoursynth-install"
 
@@ -813,6 +821,68 @@ cd "$BUILD_DIR"
 BUILT_PLUGINS=()
 FAILED_PLUGINS=()
 
+# Some plugins' meson.build locates the VapourSynth headers via a run_command
+# the clean build machine can't satisfy, in one of three forms:
+#   (a) `import vapoursynth as vs; print(vs.get_include())` in the host python
+#       (e.g. mvtools, bm3d, eedi3m) - the host python has no `vapoursynth`
+#       module (the runtime VS module is built against our embedded python).
+#   (b) `run_command('vapoursynth', 'get-include', ...)` - invokes the
+#       `vapoursynth` console script, which isn't on PATH here (e.g. CAS, which
+#       upstream switched to this form). (a) and (b) end in `.stdout().strip()`.
+#   (c) either probe assigned to a variable whose `.stdout().strip()` is used
+#       later (KNLMeansCL v1.3: `r = run_command(py, '-c', '...')`).
+# Replace the probe with the from-source VS include dir (same trick used for
+# vivtc below). Match the program form too, not just "import vapoursynth".
+# A no-op when the file has no such probe or VS_INC_DIR is not known yet.
+# Always returns 0, so it can sit in an && chain.
+patch_meson_vs_include() {
+    local file="${1:-meson.build}"
+    [ -n "$VS_INC_DIR" ] && [ -f "$file" ] || return 0
+    grep -qE "import vapoursynth|run_command\('vapoursynth'" "$file" || return 0
+    VS_INC_DIR="$VS_INC_DIR" python3 - "$file" <<'PYEOF'
+import os, re, sys
+path = sys.argv[1]
+inc = os.environ["VS_INC_DIR"]
+s = open(path).read()
+
+def call_end(s, i):
+    """Index just past the ')' closing the call whose '(' is at s[i],
+    skipping parentheses inside quoted strings."""
+    depth, q = 0, None
+    while i < len(s):
+        c = s[i]
+        if q:
+            if c == "\\":
+                i += 1
+            elif c == q:
+                q = None
+        elif c in "'\"":
+            q = c
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return -1
+
+# (c) first: VAR = run_command(...vapoursynth...), then VAR.stdout().strip().
+for m in list(re.finditer(r"^[ \t]*(\w+)\s*=\s*run_command\s*\(", s, flags=re.M))[::-1]:
+    end = call_end(s, m.end() - 1)
+    if end < 0 or "vapoursynth" not in s[m.start():end]:
+        continue
+    var = m.group(1)
+    s = s[:m.start()] + s[end:]
+    s = re.sub(r"\b%s\.stdout\(\)\.strip\(\)" % re.escape(var), repr(inc), s)
+
+# (a)/(b): run_command(...).stdout().strip() inline.
+s = re.sub(r"run_command\(.*?\)\.stdout\(\)\.strip\(\)", repr(inc), s, flags=re.S)
+open(path, "w").write(s)
+PYEOF
+    return 0
+}
+
 build_plugin() {
     local name="$1"
     local repo="$2"
@@ -837,27 +907,9 @@ build_plugin() {
 
     cd "$name"
 
-    # Some plugins' meson.build locates the VapourSynth headers via a run_command
-    # the clean build machine can't satisfy, in one of two forms:
-    #   (a) `import vapoursynth as vs; print(vs.get_include())` in the host python
-    #       (e.g. mvtools, bm3d, eedi3m) - the host python has no `vapoursynth`
-    #       module (the runtime VS module is built against our embedded python).
-    #   (b) `run_command('vapoursynth', 'get-include', ...)` - invokes the
-    #       `vapoursynth` console script, which isn't on PATH here (e.g. CAS, which
-    #       upstream switched to this form). Both end in `.stdout().strip()`.
-    # Replace either probe with the from-source VS include dir (same trick used
-    # for vivtc below). Match the program form too, not just "import vapoursynth".
-    if [ -n "$VS_INC_DIR" ] && [ -f meson.build ] \
-       && grep -qE "import vapoursynth|run_command\('vapoursynth'" meson.build; then
-        VS_INC_DIR="$VS_INC_DIR" python3 - meson.build <<'PYEOF'
-import os, re, sys
-path = sys.argv[1]
-inc = os.environ["VS_INC_DIR"]
-s = open(path).read()
-s = re.sub(r"run_command\(.*?\)\.stdout\(\)\.strip\(\)", repr(inc), s, flags=re.S)
-open(path, "w").write(s)
-PYEOF
-    fi
+    # Point any VapourSynth include probe in meson.build at our own headers
+    # (see patch_meson_vs_include above).
+    patch_meson_vs_include meson.build
 
     # Expose the from-source VapourSynth to pkg-config so plugins that use
     # `dependency('vapoursynth')` (removegrain, cas, ...) resolve against our
@@ -1217,8 +1269,9 @@ PYEOF
         cd "$BUILD_DIR"
     fi
 
-    # KNLMeansCL (OpenCL denoiser - core.knlm.KNLMeansCL). Used by QTGMC when its
-    # Denoiser is set to "knlmeanscl" (havsfunc). Stefan-Olt doesn't ship an
+    # KNLMeansCL (OpenCL denoiser - core.knlm.KNLMeansCL), pinned by KNLM_TAG.
+    # Used by Noise Reduction's KNLMeans method and by QTGMC when its Denoiser
+    # is set to "knlmeanscl" (havsfunc). Stefan-Olt doesn't ship an
     # x86_64 build, so build from source like the arm64 path does. Its meson.build
     # needs BOTH the VapourSynth headers (via pkg-config) AND Boost
     # filesystem/system (via Homebrew, same as the nnedi3cl build), so set
@@ -1228,7 +1281,8 @@ PYEOF
     if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libknlmeanscl.dylib" ]; then
         echo ""; echo "=== Building KNLMeansCL (x86_64) ==="
         rm -rf knlmeanscl
-        if git clone --depth 1 https://github.com/Khanattila/KNLMeansCL.git knlmeanscl \
+        if git clone --depth 1 --branch "$KNLM_TAG" "$KNLM_REPO" knlmeanscl \
+           && patch_meson_vs_include knlmeanscl/meson.build \
            && PKG_CONFIG_PATH="$VS_PC_DIR:${PKG_CONFIG_PATH:-}" BOOST_ROOT="$SRCLIB" \
               meson setup knlmeanscl/build knlmeanscl --buildtype=release \
            && ninja -C knlmeanscl/build; then
@@ -1463,11 +1517,12 @@ build_plugin "bm3d" \
     "meson setup build --buildtype=release && ninja -C build" \
     "$BM3D_TAG"
 
-# KNLMeansCL (OpenCL denoiser)
+# KNLMeansCL (OpenCL denoiser), pinned: see KNLM_TAG
 build_plugin "knlmeanscl" \
-    "https://github.com/Khanattila/KNLMeansCL.git" \
+    "$KNLM_REPO" \
     "libknlmeanscl.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
+    "meson setup build --buildtype=release && ninja -C build" \
+    "$KNLM_TAG"
 
 # DeScratch (vertical scratch removal - core.descratch.DeScratch)
 # Built from source: not available pre-built from Stefan-Olt. The repo carries
