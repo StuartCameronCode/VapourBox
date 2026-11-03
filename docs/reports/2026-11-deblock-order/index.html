@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deblock before or after deinterlacing?</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --best: #e3f1e6; --warn: #9a6700;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --best: #1d3324; --warn: #d9a400;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+  main { max-width: 1120px; margin: 0 auto; padding: 32px 24px 80px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 44px 0 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+  h3 { font-size: 16px; margin: 26px 0 8px; }
+  .sub { color: var(--text-secondary); margin: 0 0 20px; }
+  .muted { color: var(--text-muted); }
+  code { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  pre { font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); padding: 12px 14px; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  .limit { border-left: 3px solid var(--warn); padding: 6px 12px; margin: 12px 0; color: var(--text-secondary); }
+  table { border-collapse: collapse; margin: 14px 0 22px; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+  caption { text-align: left; font-weight: 600; padding-bottom: 6px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 10px; text-align: right; }
+  th:nth-child(-n+3), td:nth-child(-n+3) { text-align: left; }
+  tr.best td { background: var(--best); }
+  figure { margin: 18px 0 26px; }
+  figure img { max-width: 100%; image-rendering: pixelated; border: 1px solid var(--border); display: block; }
+  figcaption { color: var(--text-secondary); font-size: 13.5px; margin-top: 6px; }
+  .labels { display: grid; font-size: 12.5px; color: var(--text-muted); margin-top: 4px; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Deblock before or after deinterlacing?</h1>
+<p class="sub">Probe, 2026-11-03. No issue: a user asked whether deblocking should run before deinterlacing, as a chat with Google Gemini had suggested. VapourBox runs it after.</p>
+
+<div class="card">
+  <strong>Short answer:</strong> the advice is right in theory, but it makes almost no measurable difference to the deinterlaced result.
+  <ul>
+    <li><strong>Deinterlacing on (the normal case).</strong> Per-field deblocking before QTGMC beats today's order by at most <strong>0.05 dB</strong> at the app's default strength, and 0.05–0.14 dB at a much stronger setting. The visible blockiness left over is the same. Recommendation: <strong>don't reorder the pipeline.</strong></li>
+    <li><strong>Deinterlacing off on an interlaced source.</strong> Today the deblocker runs on the woven frame. Running it per field scored better in every case: +0.03 to +0.20 dB at default strength and +0.08 to +0.30 dB at strong, with SSIM agreeing. The gain is small but always points the same way, and the change is cheap. Recommendation: <strong>deblock per field when the output stays interlaced.</strong></li>
+    <li><strong>Side finding.</strong> At 1000 kbps, raising Deblock_QED from the default 24/26 to 36/44 gained more than any choice of order (about +0.5 dB against +0.2 dB). One clip is no reason to change a default, but it does put the order question in proportion.</li>
+  </ul>
+</div>
+
+<h2>1. Why order could matter</h2>
+<p>MPEG-2 and DV code each macroblock with either a <em>frame</em> DCT, where 8×8 blocks span both fields and edges fall every 8 frame lines, or a <em>field</em> DCT, where each block is 8 lines of one field and edges fall every 16 frame lines. Both deblockers in the app (<code>haf.Deblock_QED</code> and <code>core.deblock.Deblock</code>) assume an 8×8 grid starting at the frame's top-left corner. That grid is exact only on the decoded interlaced frame.</p>
+<p>After QTGMC, the vertical block edges stay on the grid, because there's no horizontal resampling. The horizontal ones don't: each output frame is one field interpolated to full height, the bottom field sits a line lower, and QTGMC's motion-compensated smoothing moves and softens what remains. Deblocking the woven frame has the opposite problem. In moving areas its vertical filtering mixes the two fields. Deblocking per field avoids that mixing, but misses the edges of frame-DCT blocks that fall between field-grid lines.</p>
+
+<h2>2. Method</h2>
+<p>Two 720×576 TFF 4:2:0 fixtures, each encoded with ffmpeg's <code>mpeg2video</code> at 1000, 1500 and 3000 kbps. The encoder used interlaced DCT and interlaced motion estimation (<code>-flags +ildct+ilme</code>), GOP 12 with 2 B-frames, to approximate a DVD or a capture-card recording:</p>
+<ul>
+  <li><strong>film:</strong> frames 1400–1639 of <code>small_clip.mp4</code>, treated as 50 Hz field samples (as in the <a href="../issue-117-qtempgaussmc/index.html">#117 report</a>), upscaled to 720×576 and woven into 120 interlaced frames. The 50p frames are the ground truth.</li>
+  <li><strong>vhs:</strong> <code>interlaced_test.avi</code>, a real 79-frame capture stored losslessly. It has no true 50p, so the deinterlaced reference is QTGMC Slower run on the lossless capture.</li>
+</ul>
+<p>Each decoded clip went through <code>scripts/probe.vpy</code>, using the app's own <code>pipe_source.py</code> and the bundled macOS arm64 vspipe, with one of these orders:</p>
+<ul>
+  <li><strong>no deblock</strong></li>
+  <li><strong>after QTGMC</strong>: today's order</li>
+  <li><strong>woven frame, before</strong> QTGMC</li>
+  <li><strong>per field, before</strong>: <code>SeparateFields → deblock → DoubleWeave[::2]</code>, then QTGMC</li>
+</ul>
+<p>Every order was run with QTGMC Slower at double rate, and again with deinterlacing off. Deblock_QED and simple Deblock were both run at the app defaults (24/26 and 24). Scores against the reference are luma PSNR, luma SSIM, VMAF, and ffmpeg's <code>blockdetect</code> on the output (lower means fewer visible 8-pixel edges). The machine was an Apple M1 Pro. The full matrix takes about 2.5 minutes.</p>
+
+<figure>
+  <a href="img/01-vhs-input-clean-vs-1000k.png"><img src="img/01-vhs-input-clean-vs-1000k.png" alt="vhs fixture frame 51, clean vs 1000 kbps MPEG-2"></a>
+  <figcaption><b>Left:</b> the lossless vhs capture. <b>Right:</b> the same frame after 1000 kbps MPEG-2. Frame 51 woven, sky crop at 2× nearest-neighbour. The flat sky has broken into visible blocks, which is the damage being measured. The striping is normal for a woven interlaced frame.</figcaption>
+</figure>
+
+<div class="limit"><strong>Limits of the fixtures, stated up front.</strong>
+<ul>
+  <li><strong>The film ground truth has blocks of its own.</strong> <code>small_clip.mp4</code> is 450 kbps H.264 at 320×240. Its compression blocks were upscaled 2.25× into the reference, which shows in the dark crop of Figure 3. They sit on an 18-pixel grid, not the 8-pixel one, so a deblocker barely touches them. They still lower every film score by the same amount.</li>
+  <li><strong>The vhs reference is QTGMC's own output</strong>, not the truth. It favours whatever looks most like QTGMC applied to a clean source.</li>
+  <li><strong>PSNR rewards softness.</strong> Deblocking is a smoothing filter, so part of any PSNR gain is blur. VMAF, which rewards detail, falls slightly when deblocking film (Table 1). That's why the blockiness column and the images matter as much as the dB.</li>
+  <li><strong>ffmpeg's encoder is not a DVD authoring encoder.</strong> Its choice between field and frame DCT for each macroblock may differ from a hardware encoder's.</li>
+</ul></div>
+
+<h2>3. Results</h2>
+<p>The green row in each group has the best PSNR. "Δ vs none" is the PSNR gain over not deblocking at all.</p>
+
+<h3>Deinterlacing on</h3>
+<table><caption>Deinterlaced (QTGMC Slower), Deblock_QED 24/26</caption>
+<tr><th>Fixture</th><th>kbps</th><th>Order</th><th>PSNR-Y dB</th><th>Δ vs none</th><th>SSIM-Y</th><th>VMAF</th><th>Blockiness</th></tr>
+<tr><td>film</td><td>1000</td><td>no deblock</td><td>36.02</td><td></td><td>0.9321</td><td>61.54</td><td>4.98</td></tr>
+<tr><td>film</td><td>1000</td><td>after QTGMC (today)</td><td>36.18</td><td>+0.16</td><td>0.9363</td><td>61.34</td><td>2.43</td></tr>
+<tr><td>film</td><td>1000</td><td>woven frame, before</td><td>36.17</td><td>+0.15</td><td>0.9363</td><td>61.30</td><td>2.45</td></tr>
+<tr class="best"><td>film</td><td>1000</td><td>per field, before</td><td>36.22</td><td>+0.20</td><td>0.9373</td><td>61.34</td><td>2.44</td></tr>
+<tr><td>film</td><td>1500</td><td>no deblock</td><td>38.89</td><td></td><td>0.9564</td><td>76.93</td><td>3.30</td></tr>
+<tr><td>film</td><td>1500</td><td>after QTGMC (today)</td><td>39.07</td><td>+0.18</td><td>0.9591</td><td>76.66</td><td>1.88</td></tr>
+<tr><td>film</td><td>1500</td><td>woven frame, before</td><td>39.04</td><td>+0.15</td><td>0.9588</td><td>76.58</td><td>1.91</td></tr>
+<tr class="best"><td>film</td><td>1500</td><td>per field, before</td><td>39.10</td><td>+0.21</td><td>0.9595</td><td>76.53</td><td>1.91</td></tr>
+<tr><td>film</td><td>3000</td><td>no deblock</td><td>43.48</td><td></td><td>0.9806</td><td>92.23</td><td>2.12</td></tr>
+<tr class="best"><td>film</td><td>3000</td><td>after QTGMC (today)</td><td>43.62</td><td>+0.14</td><td>0.9815</td><td>91.85</td><td>1.40</td></tr>
+<tr><td>film</td><td>3000</td><td>woven frame, before</td><td>43.53</td><td>+0.05</td><td>0.9810</td><td>91.70</td><td>1.40</td></tr>
+<tr><td>film</td><td>3000</td><td>per field, before</td><td>43.61</td><td>+0.13</td><td>0.9814</td><td>91.72</td><td>1.42</td></tr>
+<tr><td>vhs</td><td>1000</td><td>no deblock</td><td>33.18</td><td></td><td>0.9233</td><td>71.79</td><td>3.39</td></tr>
+<tr><td>vhs</td><td>1000</td><td>after QTGMC (today)</td><td>33.25</td><td>+0.08</td><td>0.9260</td><td>71.83</td><td>1.82</td></tr>
+<tr><td>vhs</td><td>1000</td><td>woven frame, before</td><td>33.25</td><td>+0.07</td><td>0.9258</td><td>71.81</td><td>1.93</td></tr>
+<tr class="best"><td>vhs</td><td>1000</td><td>per field, before</td><td>33.28</td><td>+0.10</td><td>0.9266</td><td>71.92</td><td>1.87</td></tr>
+<tr><td>vhs</td><td>1500</td><td>no deblock</td><td>33.77</td><td></td><td>0.9308</td><td>75.02</td><td>3.04</td></tr>
+<tr><td>vhs</td><td>1500</td><td>after QTGMC (today)</td><td>33.85</td><td>+0.08</td><td>0.9332</td><td>75.08</td><td>1.71</td></tr>
+<tr><td>vhs</td><td>1500</td><td>woven frame, before</td><td>33.85</td><td>+0.07</td><td>0.9330</td><td>75.06</td><td>1.79</td></tr>
+<tr class="best"><td>vhs</td><td>1500</td><td>per field, before</td><td>33.87</td><td>+0.10</td><td>0.9337</td><td>75.11</td><td>1.76</td></tr>
+<tr><td>vhs</td><td>3000</td><td>no deblock</td><td>36.95</td><td></td><td>0.9552</td><td>88.43</td><td>2.45</td></tr>
+<tr><td>vhs</td><td>3000</td><td>after QTGMC (today)</td><td>37.07</td><td>+0.12</td><td>0.9572</td><td>88.47</td><td>1.45</td></tr>
+<tr><td>vhs</td><td>3000</td><td>woven frame, before</td><td>37.05</td><td>+0.10</td><td>0.9568</td><td>88.46</td><td>1.52</td></tr>
+<tr class="best"><td>vhs</td><td>3000</td><td>per field, before</td><td>37.09</td><td>+0.14</td><td>0.9574</td><td>88.50</td><td>1.50</td></tr>
+</table>
+<p>The best PSNR alternates between per-field and after. Per-field leads at 1000 and 1500 kbps by 0.03–0.05 dB, and after leads at 3000 kbps by 0.01 dB on film. Blockiness agrees to within 0.1 across the three orders. Over individual frames of the 1000 kbps run, per-field beat after in 193 of 240 film frames and 93 of 158 vhs frames. The largest single-frame gap was +0.59 dB (vhs) and the worst −0.11 dB.</p>
+
+<table><caption>Deinterlaced, Deblock (simple) quant 24</caption>
+<tr><th>Fixture</th><th>kbps</th><th>Order</th><th>PSNR-Y dB</th><th>Δ vs none</th><th>SSIM-Y</th><th>VMAF</th><th>Blockiness</th></tr>
+<tr><td>film</td><td>1000</td><td>no deblock</td><td>36.02</td><td></td><td>0.9321</td><td>61.54</td><td>4.98</td></tr>
+<tr><td>film</td><td>1000</td><td>after QTGMC (today)</td><td>36.14</td><td>+0.12</td><td>0.9361</td><td>61.39</td><td>3.12</td></tr>
+<tr><td>film</td><td>1000</td><td>woven frame, before</td><td>36.12</td><td>+0.10</td><td>0.9354</td><td>61.39</td><td>2.96</td></tr>
+<tr class="best"><td>film</td><td>1000</td><td>per field, before</td><td>36.15</td><td>+0.13</td><td>0.9363</td><td>61.35</td><td>2.92</td></tr>
+<tr><td>film</td><td>1500</td><td>no deblock</td><td>38.89</td><td></td><td>0.9564</td><td>76.93</td><td>3.30</td></tr>
+<tr class="best"><td>film</td><td>1500</td><td>after QTGMC (today)</td><td>39.07</td><td>+0.18</td><td>0.9597</td><td>76.67</td><td>2.21</td></tr>
+<tr><td>film</td><td>1500</td><td>woven frame, before</td><td>39.01</td><td>+0.12</td><td>0.9588</td><td>76.63</td><td>2.10</td></tr>
+<tr><td>film</td><td>1500</td><td>per field, before</td><td>39.06</td><td>+0.17</td><td>0.9594</td><td>76.59</td><td>2.09</td></tr>
+<tr><td>film</td><td>3000</td><td>no deblock</td><td>43.48</td><td></td><td>0.9806</td><td>92.23</td><td>2.12</td></tr>
+<tr class="best"><td>film</td><td>3000</td><td>after QTGMC (today)</td><td>43.71</td><td>+0.23</td><td>0.9823</td><td>91.78</td><td>1.61</td></tr>
+<tr><td>film</td><td>3000</td><td>woven frame, before</td><td>43.54</td><td>+0.06</td><td>0.9813</td><td>91.73</td><td>1.52</td></tr>
+<tr><td>film</td><td>3000</td><td>per field, before</td><td>43.62</td><td>+0.14</td><td>0.9816</td><td>91.77</td><td>1.52</td></tr>
+<tr><td>vhs</td><td>1000</td><td>no deblock</td><td>33.18</td><td></td><td>0.9233</td><td>71.79</td><td>3.39</td></tr>
+<tr><td>vhs</td><td>1000</td><td>after QTGMC (today)</td><td>33.25</td><td>+0.07</td><td>0.9266</td><td>71.81</td><td>2.24</td></tr>
+<tr><td>vhs</td><td>1000</td><td>woven frame, before</td><td>33.22</td><td>+0.04</td><td>0.9256</td><td>71.77</td><td>2.13</td></tr>
+<tr class="best"><td>vhs</td><td>1000</td><td>per field, before</td><td>33.25</td><td>+0.08</td><td>0.9266</td><td>71.81</td><td>2.08</td></tr>
+<tr><td>vhs</td><td>1500</td><td>no deblock</td><td>33.77</td><td></td><td>0.9308</td><td>75.02</td><td>3.04</td></tr>
+<tr><td>vhs</td><td>1500</td><td>after QTGMC (today)</td><td>33.85</td><td>+0.08</td><td>0.9339</td><td>75.04</td><td>2.10</td></tr>
+<tr><td>vhs</td><td>1500</td><td>woven frame, before</td><td>33.83</td><td>+0.06</td><td>0.9331</td><td>75.05</td><td>1.97</td></tr>
+<tr class="best"><td>vhs</td><td>1500</td><td>per field, before</td><td>33.86</td><td>+0.08</td><td>0.9338</td><td>75.05</td><td>1.94</td></tr>
+<tr><td>vhs</td><td>3000</td><td>no deblock</td><td>36.95</td><td></td><td>0.9552</td><td>88.43</td><td>2.45</td></tr>
+<tr class="best"><td>vhs</td><td>3000</td><td>after QTGMC (today)</td><td>37.09</td><td>+0.14</td><td>0.9582</td><td>88.45</td><td>1.82</td></tr>
+<tr><td>vhs</td><td>3000</td><td>woven frame, before</td><td>37.02</td><td>+0.07</td><td>0.9571</td><td>88.41</td><td>1.67</td></tr>
+<tr><td>vhs</td><td>3000</td><td>per field, before</td><td>37.08</td><td>+0.13</td><td>0.9577</td><td>88.46</td><td>1.64</td></tr>
+</table>
+<p>Simple Deblock is much the same: the orders are within 0.04 dB of each other, except film at 3000 kbps, where after leads per-field by 0.09 dB.</p>
+
+<figure>
+  <a href="img/02-vhs-1000k-orders.png"><img src="img/02-vhs-1000k-orders.png" alt="vhs 1000k frame 103 crop, five panels"></a>
+  <div class="labels" style="grid-template-columns: repeat(5, 1fr)"><span>reference</span><span>no deblock</span><span>after QTGMC (today)</span><span>woven, before</span><span>per field, before</span></div>
+  <figcaption>vhs, 1000 kbps, output frame 103 (the blockiest output frame), sky crop at 3×. The large flat blocks are 16-pixel macroblocks that kept little more than their average colour. None of the deblocked panels looks clearly different from no deblock, and none removes the blocks: the default strength is tuned for 8-pixel edges, not for flat macroblocks. The orders are indistinguishable here.</figcaption>
+</figure>
+
+<figure>
+  <a href="img/03-film-1000k-orders.png"><img src="img/03-film-1000k-orders.png" alt="film 1000k frame 187 crop, five panels, luma x4"></a>
+  <div class="labels" style="grid-template-columns: repeat(5, 1fr)"><span>reference</span><span>no deblock</span><span>after QTGMC (today)</span><span>woven, before</span><span>per field, before</span></div>
+  <figcaption>film, 1000 kbps, output frame 187, a near-black coat at 3× with luma ×4 applied equally to every panel so the blocks show. This is the frame where order is most visible. "After QTGMC" leaves the 8-pixel steps almost as they were, while both before-deinterlacing orders smooth them. The reference has its own coarser blocks (see the limits above). This frame is not typical: averaged over the clip, the blockiness scores of the three orders are the same.</figcaption>
+</figure>
+
+<figure>
+  <a href="img/04-vhs-frame91-error-x8.png"><img src="img/04-vhs-frame91-error-x8.png" alt="error maps after vs per field, vhs frame 91"></a>
+  <div class="labels" style="grid-template-columns: repeat(2, 1fr)"><span>|after QTGMC − reference| × 8</span><span>|per field − reference| × 8</span></div>
+  <figcaption>vhs, 1000 kbps, frame 91, where per-field beat after by the most (+0.57 dB). Luma error amplified 8×. The two maps are almost identical. The error is mostly detail that the compression destroyed, which no deblocker can bring back.</figcaption>
+</figure>
+
+<h3>Deinterlacing off (output stays interlaced)</h3>
+<table><caption>Left interlaced, Deblock_QED 24/26</caption>
+<tr><th>Fixture</th><th>kbps</th><th>Order</th><th>PSNR-Y dB</th><th>Δ vs none</th><th>SSIM-Y</th><th>VMAF</th><th>Blockiness</th></tr>
+<tr><td>film</td><td>1000</td><td>no deblock</td><td>35.43</td><td></td><td>0.9317</td><td>71.01</td><td>9.49</td></tr>
+<tr><td>film</td><td>1000</td><td>woven frame, before</td><td>35.58</td><td>+0.15</td><td>0.9357</td><td>70.82</td><td>3.42</td></tr>
+<tr class="best"><td>film</td><td>1000</td><td>per field, before</td><td>35.66</td><td>+0.23</td><td>0.9372</td><td>70.82</td><td>3.35</td></tr>
+<tr><td>film</td><td>1500</td><td>no deblock</td><td>38.36</td><td></td><td>0.9573</td><td>85.49</td><td>5.73</td></tr>
+<tr><td>film</td><td>1500</td><td>woven frame, before</td><td>38.55</td><td>+0.18</td><td>0.9595</td><td>85.30</td><td>2.37</td></tr>
+<tr class="best"><td>film</td><td>1500</td><td>per field, before</td><td>38.66</td><td>+0.29</td><td>0.9610</td><td>85.21</td><td>2.34</td></tr>
+<tr><td>film</td><td>3000</td><td>no deblock</td><td>44.11</td><td></td><td>0.9832</td><td>98.95</td><td>3.25</td></tr>
+<tr><td>film</td><td>3000</td><td>woven frame, before</td><td>44.22</td><td>+0.11</td><td>0.9831</td><td>98.80</td><td>1.58</td></tr>
+<tr class="best"><td>film</td><td>3000</td><td>per field, before</td><td>44.41</td><td>+0.31</td><td>0.9844</td><td>98.70</td><td>1.60</td></tr>
+<tr><td>vhs</td><td>1000</td><td>no deblock</td><td>32.44</td><td></td><td>0.9019</td><td>76.30</td><td>8.27</td></tr>
+<tr><td>vhs</td><td>1000</td><td>woven frame, before</td><td>32.50</td><td>+0.07</td><td>0.9042</td><td>76.34</td><td>3.15</td></tr>
+<tr class="best"><td>vhs</td><td>1000</td><td>per field, before</td><td>32.53</td><td>+0.09</td><td>0.9054</td><td>76.37</td><td>3.07</td></tr>
+<tr><td>vhs</td><td>1500</td><td>no deblock</td><td>33.01</td><td></td><td>0.9103</td><td>79.28</td><td>7.22</td></tr>
+<tr><td>vhs</td><td>1500</td><td>woven frame, before</td><td>33.08</td><td>+0.07</td><td>0.9122</td><td>79.33</td><td>2.75</td></tr>
+<tr class="best"><td>vhs</td><td>1500</td><td>per field, before</td><td>33.11</td><td>+0.10</td><td>0.9136</td><td>79.35</td><td>2.70</td></tr>
+<tr><td>vhs</td><td>3000</td><td>no deblock</td><td>36.00</td><td></td><td>0.9379</td><td>91.40</td><td>5.46</td></tr>
+<tr><td>vhs</td><td>3000</td><td>woven frame, before</td><td>36.10</td><td>+0.10</td><td>0.9389</td><td>91.43</td><td>2.02</td></tr>
+<tr class="best"><td>vhs</td><td>3000</td><td>per field, before</td><td>36.15</td><td>+0.15</td><td>0.9406</td><td>91.44</td><td>2.02</td></tr>
+</table>
+<p>Scored against the clean interlaced frames. Per-field beats woven in PSNR and SSIM at every bitrate on both fixtures: by 0.08–0.20 dB on film and 0.03–0.05 dB on vhs. Blockiness is the same.</p>
+
+<figure>
+  <a href="img/05-vhs-interlaced-out-orders.png"><img src="img/05-vhs-interlaced-out-orders.png" alt="vhs interlaced output crop, four panels"></a>
+  <div class="labels" style="grid-template-columns: repeat(4, 1fr)"><span>clean interlaced</span><span>no deblock</span><span>woven deblock</span><span>per-field deblock</span></div>
+  <figcaption>vhs, 1000 kbps, woven frame 45, a moving street scene at 3×. At this strength the field-mixing that woven deblocking risks isn't visible. The difference shows up in the numbers, not to the eye.</figcaption>
+</figure>
+
+<h3>A much stronger deblock</h3>
+<table><caption>Deinterlaced, Deblock_QED 36/44 (strong), 1000 kbps</caption>
+<tr><th>Fixture</th><th>kbps</th><th>Order</th><th>PSNR-Y dB</th><th>Δ vs none</th><th>SSIM-Y</th><th>Blockiness</th></tr>
+<tr><td>film</td><td>1000</td><td>after QTGMC (today)</td><td>36.50</td><td>+0.48</td><td>0.9403</td><td>1.92</td></tr>
+<tr><td>film</td><td>1000</td><td>woven frame, before</td><td>36.46</td><td>+0.44</td><td>0.9397</td><td>1.90</td></tr>
+<tr class="best"><td>film</td><td>1000</td><td>per field, before</td><td>36.64</td><td>+0.62</td><td>0.9423</td><td>1.90</td></tr>
+<tr><td>vhs</td><td>1000</td><td>after QTGMC (today)</td><td>33.38</td><td>+0.20</td><td>0.9277</td><td>1.63</td></tr>
+<tr><td>vhs</td><td>1000</td><td>woven frame, before</td><td>33.36</td><td>+0.18</td><td>0.9272</td><td>1.67</td></tr>
+<tr class="best"><td>vhs</td><td>1000</td><td>per field, before</td><td>33.43</td><td>+0.25</td><td>0.9286</td><td>1.63</td></tr>
+</table>
+<table><caption>Left interlaced, Deblock_QED 36/44 (strong), 1000 kbps</caption>
+<tr><th>Fixture</th><th>kbps</th><th>Order</th><th>PSNR-Y dB</th><th>Δ vs none</th><th>SSIM-Y</th><th>Blockiness</th></tr>
+<tr><td>film</td><td>1000</td><td>woven frame, before</td><td>35.87</td><td>+0.43</td><td>0.9375</td><td>2.23</td></tr>
+<tr class="best"><td>film</td><td>1000</td><td>per field, before</td><td>36.16</td><td>+0.73</td><td>0.9416</td><td>2.67</td></tr>
+<tr><td>vhs</td><td>1000</td><td>woven frame, before</td><td>32.63</td><td>+0.20</td><td>0.9051</td><td>2.06</td></tr>
+<tr class="best"><td>vhs</td><td>1000</td><td>per field, before</td><td>32.71</td><td>+0.28</td><td>0.9078</td><td>2.24</td></tr>
+</table>
+<p>At 36/44 the deblocker does about three times as much (Δ vs none: +0.48 dB against +0.16 on film), and the gap between orders grows with it. Deinterlaced, per-field leads after by 0.14 dB (film) and 0.05 dB (vhs). Left interlaced, per-field leads woven by 0.30 and 0.08 dB. Woven deblocking now scores lower on blockiness than per-field when left interlaced (2.23 against 2.67 on film). That matches the theory: on the frame grid, per-field filtering misses frame-DCT block edges.</p>
+
+<h2>4. Decisions and why</h2>
+<ul>
+  <li><strong>Keep Deblock after Deinterlace.</strong> At the defaults the gain from moving it is ≤0.05 dB, within what one clip can resolve, with no difference in blockiness. Reordering would also move it ahead of Noise Reduction and change every existing preset's output, for a gain nobody would see.</li>
+  <li><strong>When deinterlacing is off and the source is interlaced, deblock per field.</strong> It beat woven deblocking on PSNR and SSIM in all 14 comparisons (both methods, both strengths), and it's a few lines in the Deblock block of both templates, gated on the same field-order decision that <code>{{#SET_FIELD_BASED}}</code> already uses (<code>ScriptGenerator::field_based_for</code>). Not built yet.</li>
+  <li><strong>Leave the default strength alone for now.</strong> 36/44 scored better at 1000 kbps, but only one strength was tried, VMAF wasn't run for it, and a stronger default would also soften sources that aren't blocky. That needs its own probe across bitrates.</li>
+</ul>
+
+<h2>5. Not tested</h2>
+<ul>
+  <li>NTSC (720×480), DV (2-4-8 DCT), and interlaced H.264 (PAFF/MBAFF). H.264's in-loop deblocking runs in the decoder, so there's less left for us to do.</li>
+  <li>Real DVD or broadcast MPEG-2 from a hardware encoder.</li>
+  <li>Any QTGMC preset other than Slower. Noise Reduction between QTGMC and Deblock, as the app's order puts it.</li>
+  <li>DCTFilter (the third Deblock method), and x86. The deblock plugin is integer C on every platform, but QTGMC's interpolation differs.</li>
+  <li>More than two short clips.</li>
+</ul>
+
+<h2>6. Reproducing</h2>
+<pre>export SCRATCH=/some/scratch/dir                  # large raw files go here (~1.3 GB)
+docs/reports/2026-11-deblock-order/scripts/make_fixtures.sh
+docs/reports/2026-11-deblock-order/scripts/run.sh     # → $SCRATCH/results.csv (copied here as results.csv)
+docs/reports/2026-11-deblock-order/scripts/strong.sh  # → $SCRATCH/results_strong.csv
+docs/reports/2026-11-deblock-order/scripts/imgs.sh    # → img/
+python3 -I docs/reports/2026-11-deblock-order/scripts/tables.py   # the tables above</pre>
+<p class="muted">Needs <code>deps/macos-arm64</code>. The scripts call that platform's ffmpeg and vspipe directly, and use BSD <code>stat -f</code>.</p>
+
+</main>
+</body>
+</html>
