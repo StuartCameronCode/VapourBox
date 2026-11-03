@@ -2214,6 +2214,14 @@ if clip.format.subsampling_w == 2:
         clip,
         format=vs.YUV422P8 if clip.format.bits_per_sample == 8 else vs.YUV422P16,
     )
+# Preview only. A retime's phase depends on where its clip starts, and this
+# clip starts at the preview window, not the encode's first frame. Copies of
+# the first frame in front move the start back to a point in the encode's
+# phase, so the frame shown is generated at the same moment the encode's is
+# (ProcessingPipeline::preview_output). The requested frame never reads them.
+_fps_pad = {{PREVIEW_RATE_PAD}}
+if _fps_pad:
+    clip = clip[0] * _fps_pad + clip
 {{#FRAME_RATE_FLOWFPS}}
 _fps_super = core.mv.Super(clip, pel=2)
 _fps_bw = core.mv.Analyse(_fps_super, isb=True, blksize={{FPS_BLOCK_SIZE}}, overlap={{FPS_OVERLAP}})

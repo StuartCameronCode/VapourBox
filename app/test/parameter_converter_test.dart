@@ -5,6 +5,7 @@ import 'package:vapourbox/models/crop_resize_parameters.dart';
 import 'package:vapourbox/models/deband_parameters.dart';
 import 'package:vapourbox/models/deblock_parameters.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
+import 'package:vapourbox/models/frame_rate_parameters.dart';
 import 'package:vapourbox/models/noise_reduction_parameters.dart';
 import 'package:vapourbox/models/parameter_converter.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
@@ -13,6 +14,20 @@ import 'package:vapourbox/models/sharpen_parameters.dart';
 
 void main() {
   group('ParameterConverter', () {
+    test('a custom frame rate survives the panel round trip', () {
+      const params = FrameRateParameters(
+          enabled: true, target: FrameRateTarget.custom, customFps: 59.94);
+      final dynamic_ = ParameterConverter.fromFrameRate(params);
+      expect(dynamic_.values['target'], 'custom');
+      expect(dynamic_.values['customFps'], 59.94);
+      final back = ParameterConverter.toFrameRate(dynamic_);
+      expect(back.target, FrameRateTarget.custom);
+      expect(back.customFps, 59.94);
+      expect(back.toJson()['target'], 'custom');
+      expect(back.summary, 'Custom (59.94 fps)');
+      expect(params.copyWith(customFps: 48).summary, 'Custom (48 fps)');
+    });
+
     group('fromQTGMC', () {
       test('converts default parameters', () {
         const params = QTGMCParameters();

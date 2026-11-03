@@ -106,6 +106,9 @@ pub struct PreviewParams {
     /// Output frame index to emit as the preview (after the pipeline runs on
     /// the decoded window). Accounts for any frame-rate change in the pipeline.
     pub output_index: i32,
+    /// Copies of the first frame to put in front of the Frame Rate pass, so
+    /// its retime runs in the encode's phase (`PreviewOutput::rate_pad`).
+    pub rate_pad: u64,
 }
 
 impl ScriptGenerator {
@@ -254,6 +257,7 @@ impl ScriptGenerator {
         script = script.replace("{{FPS_NUM}}", &preview_params.fps_num.to_string());
         script = script.replace("{{FPS_DEN}}", &preview_params.fps_den.to_string());
         script = script.replace("{{PREVIEW_OUTPUT_INDEX}}", &preview_params.output_index.to_string());
+        script = script.replace("{{PREVIEW_RATE_PAD}}", &preview_params.rate_pad.to_string());
         // Field-based: same derivation as the encode path, so the preview can't
         // deinterlace at a different field order than the final render.
         if let Some(fb) = Self::field_based_for(job, &pipeline) {
@@ -1880,7 +1884,7 @@ impl ScriptGenerator {
         if fr.enabled {
             script = script.replace("{{#FRAME_RATE}}", "");
             script = script.replace("{{/FRAME_RATE}}", "");
-            let (num, den) = fr.target.as_fraction();
+            let (num, den) = fr.target_fraction();
             script = script.replace("{{FPS_TARGET_NUM}}", &num.to_string());
             script = script.replace("{{FPS_TARGET_DEN}}", &den.to_string());
             match fr.method {

@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 
 import '../models/encoding_settings.dart';
 import '../models/hdr_display.dart';
+import '../models/preview_frame_info.dart';
 import '../models/processing_pipeline.dart';
 import '../models/video_job.dart';
 import 'field_order_detector.dart';
@@ -93,6 +94,10 @@ class PreviewGenerator {
   /// Last error message from preview generation.
   String? _lastError;
 
+  /// What the last successful processed preview showed, as the worker
+  /// reported it. Null until one has rendered, or after one failed.
+  PreviewFrameInfo? _lastFrameInfo;
+
   double get duration => _duration;
   double get frameRate => _frameRate;
   int get totalFrames => _totalFrames;
@@ -102,6 +107,9 @@ class PreviewGenerator {
 
   /// Get the last error message.
   String? get lastError => _lastError;
+
+  /// See [_lastFrameInfo].
+  PreviewFrameInfo? get lastFrameInfo => _lastFrameInfo;
 
   /// Clear the preview log.
   void clearLog() {
@@ -255,6 +263,8 @@ class PreviewGenerator {
     required ProcessingPipeline pipeline,
     required FieldOrder fieldOrder,
     required EncodingSettings encodingSettings,
+    int subFrame = 0,
+    int? startFrame,
     CancelToken? cancelToken,
   }) async {
     if (_currentVideoPath == null || _workerPath == null) {
@@ -307,6 +317,10 @@ class PreviewGenerator {
         inputColorPrimaries: _colorPrimaries,
         inputColorTransfer: _colorTransfer,
         inputColorRange: _colorRange,
+        // Not a trim: the worker's preview only uses it as the point the
+        // encode's retime starts from, so a generated frame is previewed at
+        // the moment the encode makes it.
+        startFrame: startFrame,
       );
 
       // Write job config to file
@@ -318,6 +332,7 @@ class PreviewGenerator {
       // Clear log for this preview generation
       _previewLog.clear();
       _lastError = null;
+      _lastFrameInfo = null;
       _previewLog.add('[${DateTime.now().toIso8601String()}] Starting preview generation for frame $frame');
 
       // Run worker in preview mode
@@ -329,6 +344,7 @@ class PreviewGenerator {
           '--config', configPath,
           '--preview',
           '--frame', frame.toString(),
+          '--sub-frame', subFrame.toString(),
         ],
         environment: ToolLocator.instance.workerEnvironment,
         workingDirectory: path.dirname(_workerPath!),
@@ -393,6 +409,7 @@ class PreviewGenerator {
       if (cancelToken?.isCancelled ?? false) return null;
 
       if (exitCode == 0 && pngBytes.isNotEmpty) {
+        _lastFrameInfo = PreviewFrameInfo.parse(stderrBuffer.toString());
         return Uint8List.fromList(pngBytes);
       } else if (exitCode != 0) {
         _lastError = 'Preview generation failed (exit code $exitCode)';

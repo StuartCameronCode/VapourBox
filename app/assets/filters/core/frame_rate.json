@@ -3,8 +3,8 @@
   "id": "frame_rate",
   "version": "1.0.0",
   "name": "Frame Rate",
-  "description": "Convert between PAL and NTSC frame rates",
-  "longDescription": "Changes how many frames per second the output runs at. This is for standards conversion — a tape that was converted from NTSC to PAL (or the reverse) at some point in its life, and now needs to play at the right speed on your equipment.\n\nIt is deliberately not a \"make motion smooth\" feature. Interpolating a master to a higher rate invents frames that were never photographed, which makes the file a worse record of what was shot. Converting an already-converted tape is the opposite case: the damage is already in the source, and leaving it alone means either judder or a 4% speed error.\n\nMotion interpolation gives the smoothest result and is usually invisible on a pan, but it can warp edges where something passes in front of something else. Repeat frames invents nothing at all and judders instead — the honest choice for an archival master.\n\nAI interpolation (RIFE) builds the new frames with a neural network on your graphics card. On real footage it is somewhat more accurate than motion interpolation, but it is several times slower and needs a GPU with Vulkan support (any Apple Silicon Mac, or a Windows/Linux PC with a current graphics driver). If this computer can't run it, VapourBox says why as soon as you choose it.\n\nThis pass runs last, after everything else.",
+  "description": "Convert between PAL and NTSC, or to any frame rate",
+  "longDescription": "Changes how many frames per second the output runs at.\n\nIts first use is standards conversion — a tape that was converted from NTSC to PAL (or the reverse) at some point in its life, and now needs to play at the right speed on your equipment. Converting an already-converted tape repairs damage that is already in the source: leaving it alone means either judder or a 4% speed error.\n\nChoose Custom to type any rate from 1 to 240 fps — 24 to 48 or 60 fps, for example. Raising the rate this way makes motion look smoother, but every added frame is generated, not photographed, so the file is no longer a faithful record of what was shot. Keep the original if that matters. Type NTSC rates as 23.976, 29.97 or 59.94 and they are converted exactly.\n\nMotion interpolation gives the smoothest result and is usually invisible on a pan, but it can warp edges where something passes in front of something else. Repeat frames invents nothing at all and judders instead — the honest choice for an archival master.\n\nAI interpolation (RIFE) builds the new frames with a neural network on your graphics card. On real footage it is somewhat more accurate than motion interpolation, but it is several times slower and needs a GPU with Vulkan support (any Apple Silicon Mac, or a Windows/Linux PC with a current graphics driver). If this computer can't run it, VapourBox says why as soon as you choose it.\n\nThis pass runs last, after everything else.",
   "category": "enhancement",
   "methods": [
     {
@@ -64,12 +64,43 @@
         "film23976",
         "film24",
         "pal50",
-        "ntsc5994"
+        "ntsc5994",
+        "custom"
       ],
       "ui": {
         "label": "Target rate",
-        "description": "The frame rate the output should run at.",
-        "widget": "dropdown"
+        "description": "The frame rate the output should run at. Custom lets you type any rate.",
+        "widget": "dropdown",
+        "optionLabels": {
+          "pal25": "PAL / SECAM (25 fps)",
+          "ntsc2997": "NTSC (29.97 fps)",
+          "film23976": "Film (23.976 fps)",
+          "film24": "Film (24 fps)",
+          "pal50": "PAL double rate (50 fps)",
+          "ntsc5994": "NTSC double rate (59.94 fps)",
+          "custom": "Custom…"
+        }
+      },
+      "optionSinceAppVersion": {
+        "custom": "1.6.0"
+      }
+    },
+    "customFps": {
+      "type": "number",
+      "default": 48,
+      "min": 1,
+      "max": 240,
+      "step": 0.001,
+      "sinceAppVersion": "1.6.0",
+      "ui": {
+        "label": "Custom rate (fps)",
+        "description": "Any rate from 1 to 240, e.g. 48 or 60. NTSC rates (23.976, 29.97, 59.94) are converted exactly.",
+        "widget": "number",
+        "visibleWhen": {
+          "target": [
+            "custom"
+          ]
+        }
       }
     },
     "blockSize": {
@@ -113,6 +144,7 @@
         "title": "Conversion",
         "parameters": [
           "target",
+          "customFps",
           "method"
         ],
         "expanded": true

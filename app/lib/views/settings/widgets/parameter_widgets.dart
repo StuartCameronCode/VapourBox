@@ -641,7 +641,10 @@ class _NumberParameterWidget extends StatelessWidget {
             style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 8),
         TextFormField(
-          initialValue: numValue.toString(),
+          // A whole double reads as "48", not "48.0".
+          initialValue: numValue is double && numValue == numValue.roundToDouble()
+              ? numValue.toInt().toString()
+              : numValue.toString(),
           decoration: InputDecoration(
             border: const OutlineInputBorder(),
             hintText: param.ui?.description,

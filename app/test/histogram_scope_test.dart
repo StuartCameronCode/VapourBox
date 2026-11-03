@@ -46,11 +46,29 @@ Widget host(Widget child, {Brightness brightness = Brightness.light}) {
   );
 }
 
-/// Pumps [widget] and gives the scope's decode a real moment to finish.
-Future<void> pumpScope(WidgetTester tester, Widget widget) async {
+/// Pumps [widget] and waits, in real time, for the scope's decode to finish:
+/// until nothing reads "Reading preview..." and, if given, [until] is found.
+///
+/// The decode is real async work, so its duration depends on the machine. A
+/// fixed delay (it was 100 ms) flaked on the slow macOS Intel runner; this
+/// polls instead, giving up after [deadline] and letting the caller's
+/// expectation report what was on screen.
+Future<void> pumpScope(
+  WidgetTester tester,
+  Widget widget, {
+  Finder? until,
+  Duration deadline = const Duration(seconds: 10),
+}) async {
   await tester.runAsync(() async {
     await tester.pumpWidget(widget);
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    final stopwatch = Stopwatch()..start();
+    while (stopwatch.elapsed < deadline) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await tester.pump();
+      final reading = find.text('Reading preview...').evaluate().isNotEmpty;
+      final arrived = until == null || until.evaluate().isNotEmpty;
+      if (!reading && arrived) break;
+    }
   });
   await tester.pump();
 }
@@ -86,7 +104,8 @@ void main() {
     late Uint8List png;
     await tester.runAsync(() async => png = await solidPng(0, 0, 0));
 
-    await pumpScope(tester, host(HistogramScope(imageBytes: png)));
+    await pumpScope(tester, host(HistogramScope(imageBytes: png)),
+        until: find.text('clip 100% / 0%'));
 
     // An all-black frame is 100% shadow-clipped, 0% highlight-clipped.
     expect(find.text('clip 100% / 0%'), findsOneWidget);
@@ -101,10 +120,12 @@ void main() {
       white = await solidPng(255, 255, 255);
     });
 
-    await pumpScope(tester, host(HistogramScope(imageBytes: black)));
+    await pumpScope(tester, host(HistogramScope(imageBytes: black)),
+        until: find.text('clip 100% / 0%'));
     expect(find.text('clip 100% / 0%'), findsOneWidget);
 
-    await pumpScope(tester, host(HistogramScope(imageBytes: white)));
+    await pumpScope(tester, host(HistogramScope(imageBytes: white)),
+        until: find.text('clip 0% / 100%'));
     expect(find.text('clip 0% / 100%'), findsOneWidget);
   }, timeout: timeout);
 

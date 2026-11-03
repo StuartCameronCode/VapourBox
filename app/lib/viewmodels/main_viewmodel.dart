@@ -9,6 +9,7 @@ import '../models/gpu_plugin_status.dart';
 import '../models/native_res_report.dart';
 import '../models/encoding_settings.dart';
 import '../models/parameter_converter.dart';
+import '../models/preview_frame_info.dart';
 import '../models/progress_info.dart';
 import '../models/qtgmc_parameters.dart';
 import '../models/queue_item.dart';
@@ -109,6 +110,12 @@ class MainViewModel extends ChangeNotifier {
   CancelToken? _previewCancelToken;
   Timer? _previewDebounceTimer;
   int _previewGeneration = 0;
+  // Which of the previewed source frame's output frames to show (issue #129),
+  // kept while the same frame of the same item is previewed, and what the
+  // worker said it rendered.
+  int _previewSubFrame = 0;
+  ({String itemId, int frame})? _previewSubFrameFor;
+  PreviewFrameInfo? _previewFrameInfo;
   Timer? _zoomDebounceTimer;
   bool _isLoadingZoomedThumbnails = false;
 
@@ -527,6 +534,24 @@ class MainViewModel extends ChangeNotifier {
   double get videoDuration => _previewGenerator.duration;
   List<String> get previewLog => _previewGenerator.previewLog;
   String? get previewError => _previewGenerator.lastError;
+
+  /// What the processed preview of the current frame shows: which of its
+  /// output frames, and whether that one is generated. Null while none has
+  /// rendered for this frame.
+  PreviewFrameInfo? get previewFrameInfo =>
+      _previewFrameInfo?.frame == currentFrameIndex ? _previewFrameInfo : null;
+
+  /// Show the previous / next output frame of the current source frame —
+  /// under a frame rate conversion, the frames made between this source frame
+  /// and the next. Does nothing past either end.
+  void stepPreviewSubFrame(int delta) {
+    final info = previewFrameInfo;
+    if (info == null || !info.hasSubFrames) return;
+    final next = (info.subFrame + delta).clamp(0, info.subFrames - 1);
+    if (next == info.subFrame) return;
+    _previewSubFrame = next;
+    _generateProcessedPreview();
+  }
 
   /// Total number of source frames in the loaded video (0 if not loaded).
   int get totalFrames => _previewGenerator.totalFrames;
@@ -1180,6 +1205,12 @@ class MainViewModel extends ChangeNotifier {
     final cancelToken = CancelToken();
     _previewCancelToken = cancelToken;
     final frameNumber = _frameForPosition(item.scrubberPosition);
+    // A different frame starts again from its first output frame.
+    final subFrameFor = (itemId: item.id, frame: frameNumber);
+    if (_previewSubFrameFor != subFrameFor) {
+      _previewSubFrameFor = subFrameFor;
+      _previewSubFrame = 0;
+    }
 
     try {
       final preview = await _previewGenerator.generateProcessedPreview(
@@ -1187,11 +1218,17 @@ class MainViewModel extends ChangeNotifier {
         pipeline: _processingPipeline,
         fieldOrder: effectiveFieldOrder,
         encodingSettings: _encodingSettings,
+        subFrame: _previewSubFrame,
+        startFrame: item.inPointFrame,
         cancelToken: cancelToken,
       );
 
       if (generation == _previewGeneration && !cancelToken.isCancelled) {
         item.processedPreview = preview;
+        _previewFrameInfo = preview == null ? null : _previewGenerator.lastFrameInfo;
+        // The worker clamps to the frames there are, e.g. after the frame
+        // rate pass is switched off; step on from what it showed.
+        if (_previewFrameInfo != null) _previewSubFrame = _previewFrameInfo!.subFrame;
       }
     } catch (e) {
       // Ignore errors from cancelled previews

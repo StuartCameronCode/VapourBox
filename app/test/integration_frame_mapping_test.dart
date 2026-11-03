@@ -313,6 +313,46 @@ void main() {
               'progress at 100% with no ETA for the rest of the encode');
     });
 
+    test('a custom frame rate is the exact rate typed in', () async {
+      // Issue #129. 59.94 typed in must run at 60000/1001, not 2997/50: from
+      // 25 that is 2400/1001, so 75 -> floor(75 * 2400 / 1001) = 179.
+      const expected = _interlacedFrames * 2400 ~/ 1001; // 179
+      final job = _job(
+        'custom_rate',
+        input: _interlaced,
+        pipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          frameRate: FrameRateParameters(
+            enabled: true,
+            target: FrameRateTarget.custom,
+            customFps: 59.94,
+          ),
+        ),
+        width: 720,
+        height: 576,
+        pixFmt: 'yuv422p',
+        fps: _interlacedFps,
+        totalFrames: _interlacedFrames,
+      );
+
+      // MOV, not the helper's MKV: Matroska's 1/1000 timebase cannot hold
+      // 60000/1001, so ffprobe would report an estimate (19001/317) for any
+      // NTSC rate, named or typed.
+      final json = job.toJson();
+      json['outputPath'] = '$_outDir/custom_rate.mov';
+      (json['encodingSettings'] as Map<String, dynamic>)['container'] = 'mov';
+      final r = await WorkerHarness.runJob(json, label: 'custom_rate');
+      expect(r.success, isTrue, reason: r.error);
+      final n = await _countFrames(r.outputPath!);
+      print('  $_interlacedFrames source -> $n output (expected $expected)');
+      expect(n, expected);
+      expect(_progressTotals(r), everyElement(n));
+      final v = await WorkerHarness.firstStream(r.outputPath!,
+          selector: 'v:0', entries: ['r_frame_rate']);
+      expect(v?['r_frame_rate'], '60000/1001',
+          reason: 'an NTSC decimal must become its 1001 fraction');
+    });
+
     test('a frame rate after double-rate QTGMC converts from the doubled rate',
         () async {
       // 25i doubled to 50p, then to 25: 50 -> 25 halves, so 31 -> 62 -> 31.
@@ -443,6 +483,92 @@ void main() {
     }
   });
 
+  // Issue #129. A retime's phase depends on where its clip starts, and the
+  // preview's clip starts at its window, so at a ratio that is not a whole
+  // number the preview generated its frames at different moments than the
+  // encode unless the worker pads it back into phase. 25 -> 60 (×2.4, a period
+  // of five source frames) with a 5-frame window radius puts every target here
+  // at a different padding. Lossless, so the comparison is not measuring the
+  // encoder, and FlowFPS, which is deterministic and needs no GPU.
+  group('a generated frame previews as the encode makes it', () {
+    ProcessingPipeline pipeline() => const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          frameRate: FrameRateParameters(
+            enabled: true,
+            target: FrameRateTarget.custom,
+            customFps: 60,
+          ),
+        );
+    VideoJob job(String name, {int? start, int? end}) => _job(
+          name,
+          input: _interlaced,
+          pipeline: pipeline(),
+          width: 720,
+          height: 576,
+          pixFmt: 'yuv422p',
+          fps: _interlacedFps,
+          totalFrames: start == null ? _interlacedFrames : end! - start + 1,
+          startFrame: start,
+          endFrame: end,
+          codec: VideoCodec.ffv1,
+        );
+
+    /// Previews every output frame of [sourceFrames] and checks each against
+    /// the encode's frame at the same moment: outputs sit at m * 5/12 source
+    /// frames from the in-point, so source frame t's are ceil(t * 12/5) on.
+    Future<void> check(VideoJob encodeJob, List<int> sourceFrames,
+        {int origin = 0}) async {
+      final r = await WorkerHarness.runJob(encodeJob.toJson(),
+          label: encodeJob.outputPath);
+      expect(r.success, isTrue, reason: r.error);
+      final pads = <String>{};
+      for (final t in sourceFrames) {
+        final first = ((t - origin) * 12 + 4) ~/ 5;
+        final next = ((t - origin + 1) * 12 + 4) ~/ 5;
+        for (var k = 0; k < next - first; k++) {
+          final pv = await WorkerHarness.runPreview(encodeJob.toJson(),
+              frame: t, subFrame: k, label: 'pv${t}_$k');
+          expect(pv.success, isTrue, reason: pv.toString());
+          final logs = pv.logs;
+          pads.add(RegExp(r'rate pad (\d+)').firstMatch(logs)!.group(1)!);
+          final generated = (first + k) * 5 % 12 != 0;
+          expect(logs,
+              contains('sub_frame=$k sub_frames=${next - first} '
+                  'generated=${generated ? 1 : 0}'));
+
+          final preview =
+              await WorkerHarness.imageToRgb24(pv.png!, label: 'pv${t}_$k');
+          final want = first + k;
+          final candidates = <int, double>{
+            for (final idx in [want - 1, want, want + 1])
+              idx: WorkerHarness.meanAbsDiff(
+                  preview, await _frameRgb(r.outputPath!, idx)),
+          };
+          candidates.forEach((idx, diff) => print('  source $t output $k -> '
+              'encode frame $idx: ${diff.toStringAsFixed(2)}'
+              '${idx == want ? '   <- expected' : ''}'));
+          final best =
+              candidates.entries.reduce((a, b) => a.value <= b.value ? a : b);
+          expect(best.key, want,
+              reason: 'the preview made this frame at a different moment '
+                  'than the encode did');
+          expect(candidates[want]!, lessThan(6.0));
+        }
+      }
+      expect(pads.length, greaterThan(1),
+          reason: 'the targets were chosen to need different padding');
+    }
+
+    test('from the start of the source', () async {
+      await check(job('subframe_sync'), [12, 13, 21]);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+
+    test('from an in-point', () async {
+      await check(job('subframe_sync_trim', start: 3, end: 50), [13, 19],
+          origin: 3);
+    }, timeout: const Timeout(Duration(minutes: 10)));
+  });
+
   // RIFE needs a Vulkan device. CI provisions one wherever RIFE ships (see
   // support/gpu_expectations.dart), so there this group must run; elsewhere it
   // skips, and integration_gpu_plugins_test.dart covers the refusal. Its count must match FrameMap's
@@ -519,5 +645,29 @@ void main() {
                 'through, so the preview should be the same picture');
       }, timeout: const Timeout(Duration(minutes: 6)));
     }
+
+    // Issue #129: the frame RIFE makes between two source frames can be
+    // previewed, and it is the encode's.
+    test('source frame 12, output 2, previews as generated frame 25', () async {
+      if (!available && !await requireGpuPlugin('--probe-rife')) return;
+      final pv = await WorkerHarness.runPreview(rifeJob().toJson(),
+          frame: 12, subFrame: 1, label: 'rife_pv12_1');
+      expect(pv.success, isTrue, reason: pv.toString());
+      expect(pv.logs, contains('sub_frame=1 sub_frames=2 generated=1'));
+      final preview =
+          await WorkerHarness.imageToRgb24(pv.png!, label: 'rife_pv12_1');
+      final candidates = <int, double>{
+        for (final idx in [24, 25, 26])
+          idx: WorkerHarness.meanAbsDiff(preview, await _frameRgb(encoded, idx)),
+      };
+      candidates.forEach((idx, diff) => print(
+          '  output frame $idx: meanAbsDiff ${diff.toStringAsFixed(2)}'
+          '${idx == 25 ? '   <- expected' : ''}'));
+      final best =
+          candidates.entries.reduce((a, b) => a.value <= b.value ? a : b);
+      expect(best.key, 25);
+      // RIFE runs on the GPU in fp16; allow its run-to-run noise, no more.
+      expect(candidates[25]!, lessThan(2.0));
+    }, timeout: const Timeout(Duration(minutes: 6)));
   });
 }

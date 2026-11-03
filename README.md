@@ -18,7 +18,7 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg for
 - **Fixes how the picture is stored.** Detects interlaced and telecined sources, then deinterlaces with QTGMC or recovers the original film frames with inverse telecine (or by stripping soft-telecine flags).
 - **Cleans up old footage.** Optional filters for tape noise, smeared colour, dust and scratches, flicker, ghosting, compression blocking, banding, camera shake and dark, flat pictures. They're off until you turn them on, and the presets turn on what a given kind of source needs.
 - **Restores anime.** **Descale** undoes the upscale most HD anime went through in production, **BM3D** cleans flat colour without smearing lines, and **AI upscaling** redraws line art at 2× or 4×: Real-ESRGAN (sharpest, fastest), Real-CUGAN (gentler, with denoising) or AnimeJaNai (trained on HD anime).
-- **Converts frame rates**, with motion interpolation or the **RIFE** AI interpolator.
+- **Converts frame rates** — the broadcast standards or any rate you type in (24 → 48 or 60, say) — with motion interpolation or the **RIFE** AI interpolator.
 - **Writes subtitles** from speech with Whisper AI, as an `.srt` file, an embedded track, or burnt into the picture.
 
 ## How it works
@@ -125,7 +125,7 @@ Most sources need only a few of these, and the presets pick them for you. Filter
 | 18 | **Crop & Resize** | Overscan, scaling and upscaling (edge-directed or AI), and borders to reach an exact frame size |
 | 19 | **Sharpen** | Soft pictures, sharpened after the resize so the result isn't softened again |
 | 20 | **Film Grain** | Grain added back after denoising, so the picture doesn't look plastic |
-| 21 | **Frame Rate** | PAL ↔ NTSC and other rate changes, by motion interpolation, RIFE, or frame repetition |
+| 21 | **Frame Rate** | PAL ↔ NTSC and other rate changes, or any custom rate, by motion interpolation, RIFE, or frame repetition |
 | 22 | **Subtitles** | Speech-to-text with Whisper AI |
 
 The order is designed so each step works on the right picture: damage and noise are removed first, the picture is framed and resized next, and only then sharpened and given grain. The frame rate is converted last, so every other filter works on real frames. Borders are added after everything else, so nothing touches them.
@@ -160,6 +160,7 @@ Every filter explains in place what it does and when to use it. Where two filter
 - Zoom the preview with the **mouse wheel** or **pinch**; **double-click** resets it. **1:1** shows actual pixels, the way to judge fine detail, and **Fit** shows the whole frame.
 - The **mouse wheel** or **pinch** also zooms the timeline around the cursor, and **Shift+wheel** or a **two-finger swipe** pans it.
 - **Set In** / **Set Out** process only part of the source, handy for trying settings on a short section.
+- When one source frame becomes several output frames — a frame rate conversion, or double-rate deinterlacing — arrows under the preview step through them, marking the ones the conversion **generated**. They are exactly the frames the final video will contain.
 
 </details>
 

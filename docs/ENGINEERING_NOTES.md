@@ -2712,6 +2712,38 @@ is also what ffmpeg returns for a bad argument. IVTC jobs, whose VDecimate
 always reads fewer frames than the decoder sends, could hit the same thing on
 Windows whenever the decoder had not finished writing.
 
+### RIFE's scene-change threshold and `skip`: measured, not exposed (issue #129, 2026-11-03)
+
+#129 asked for less ghosting at scene transitions. RIFE r9_mod_v33 has two
+options that look like the answer; both were measured on `small_clip.mp4`
+(3154 frames, real film) on an M1 Pro before deciding.
+
+- **Scene-change threshold.** Every boundary `misc.SCDetect` flags at the
+  default 0.1 was checked by eye: 22 real cuts, 24 fast motion within one
+  shot. Their difference values overlap completely (fight-scene motion
+  reaches 0.226; most cuts are 0.11–0.17), so a threshold only moves the
+  error: 0.15 catches 12 cuts and 10 motion frames, 0.2 catches 1 and 4.
+  With every other frame dropped and re-made by RIFE, the default makes fast
+  motion 11% worse than no detection (MAE 21.98 → 24.41 against the real
+  frames) and is a wash at cuts (20.61 vs 20.80). That protocol can't show
+  what detection is for — at a real 2x cut the made frame is a double
+  exposure without it, a clean hold with it — so detection stays on at 0.1.
+- **Motion-compensated detection** (`mv.SCDetection`, forward vectors set
+  `_SceneChangePrev`, backward `_SceneChangeNext`) at its defaults caught 18
+  of the 22 cuts and held 5 of the 24 motion frames, plus one other: 10
+  mistakes to 24. The four cuts it missed are all between dark shots, where
+  its fixed per-block threshold sees little difference. One black-and-white
+  clip at 320x240 isn't enough to swap a double exposure at dark cuts for
+  fewer holds in action, so it isn't used yet.
+- **`skip`** needs the VMAF plugin ("VMAF plugin is required when
+  skip=True"), which no bundle ships, and only triggers above PSNR 60 dB —
+  pairs that are effectively identical. RIFE already returns such a pair
+  unchanged (0.02–0.03 levels on five pairs), so it would only save time on
+  duplicate-heavy material.
+- In passing: ncnn reports a single queue on the M1 ("gpu_thread is
+  recommended to be between 1 and 1"), which is why `gpu_thread` made no
+  speed difference (15.3 / 14.7 / 15.1 fps at 1080p for default / 1 / 4).
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and

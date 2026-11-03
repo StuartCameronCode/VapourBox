@@ -133,7 +133,7 @@ extension PassTypeExtension on PassType {
       case PassType.grain:
         return 'Add film grain back after denoising';
       case PassType.frameRate:
-        return 'Convert between PAL and NTSC frame rates';
+        return 'Convert between PAL and NTSC, or to any frame rate';
       case PassType.deflicker:
         return 'Even out brightness pulsing between frames';
       case PassType.edgeRepair:

@@ -902,6 +902,37 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    test('frame rate: a custom target reaches the script as an exact fraction',
+        () async {
+      VideoJob customJob(String name, double fps, FrameRateMethod method) =>
+          VideoJob(
+            id: const Uuid().v4(),
+            inputPath: TestConfig.inputFile,
+            outputPath: '${TestConfig.outputDir}/$name.mkv',
+            processingPipeline: ProcessingPipeline(
+              deinterlace: const QTGMCParameters(enabled: false),
+              frameRate: FrameRateParameters(
+                enabled: true,
+                target: FrameRateTarget.custom,
+                customFps: fps,
+                method: method,
+              ),
+            ),
+            encodingSettings: const EncodingSettings(),
+            inputFrameRate: 25.0,
+          );
+
+      final flow = await generateScriptViaWorker(
+          customJob('fr_custom_flow', 48, FrameRateMethod.flowFps));
+      expect(flow, contains('core.mv.FlowFPS('));
+      expect(flow, contains('num=48, den=1,'));
+
+      final ntsc = await generateScriptViaWorker(
+          customJob('fr_custom_ntsc', 59.94, FrameRateMethod.duplicate));
+      expect(ntsc, contains('haf.ChangeFPS(clip, 60000, 1001)'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     // --- SPOTLESS (_SpotLess) ---
     test('spotless: SpotLess params', () async {
       loadSchema('spotless'); // confirm schema parses
