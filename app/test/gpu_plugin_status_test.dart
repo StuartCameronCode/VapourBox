@@ -2,13 +2,17 @@
 // `--probe-upscale`, and the panels' decision about what to say. Pure unit
 // tests; the probes themselves run against the real worker in
 // integration_gpu_plugins_test.dart.
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 
 import 'package:vapourbox/models/crop_resize_parameters.dart';
 import 'package:vapourbox/models/dynamic_parameters.dart';
 import 'package:vapourbox/models/frame_rate_parameters.dart';
 import 'package:vapourbox/models/gpu_plugin_status.dart';
 import 'package:vapourbox/models/parameter_converter.dart';
+import 'package:vapourbox/services/addon_service.dart';
 
 void main() {
   group('GpuPluginStatus.fromJson', () {
@@ -121,6 +125,60 @@ void main() {
         isFalse);
     expect(animeJanaiSelectedBy('frame_rate', {'useIntegerUpscale': true, 'upscaleMethod': 'animeJanai'}),
         isFalse);
+  });
+
+  test('each add-on upscaler names its add-on, only when chosen', () {
+    Map<String, dynamic> v(String m, {bool on = true}) =>
+        {'useIntegerUpscale': on, 'upscaleMethod': m};
+    expect(upscaleAddonSelectedBy('crop_resize', v('realEsrganGeneral')), 'upscale-general');
+    expect(upscaleAddonSelectedBy('crop_resize', v('liveAction')), 'upscale-general');
+    expect(upscaleAddonSelectedBy('crop_resize', v('realEsrganPlus')), 'upscale-esrgan-plus');
+    expect(upscaleAddonSelectedBy('crop_resize', v('animeJanai')), animeJanaiAddonId);
+    for (final m in ['realEsrgan', 'realCugan', 'nnedi3Rpow2', 'spline36']) {
+      expect(upscaleAddonSelectedBy('crop_resize', v(m)), isNull, reason: m);
+    }
+    expect(upscaleAddonSelectedBy('crop_resize', v('liveAction', on: false)), isNull);
+    expect(upscaleAddonSelectedBy('frame_rate', v('liveAction')), isNull);
+    // Every manifest id named is a manifest the app ships.
+    final root = Directory.current.path.endsWith('app')
+        ? Directory.current.path
+        : p.join(Directory.current.path, 'app');
+    for (final id in upscaleMethodAddons.values.where((id) => id != animeJanaiAddonId)) {
+      expect(File(p.join(root, 'assets', 'addons', '$id.json')).existsSync(), isTrue, reason: id);
+    }
+    // Every enum value is either an AI method or one of the three that run
+    // anywhere; the add-on methods are all AI methods.
+    for (final m in UpscaleMethod.values) {
+      expect(aiUpscaleMethods.contains(m.name),
+          !{'nnedi3Rpow2', 'eedi3Rpow2', 'spline36'}.contains(m.name), reason: m.name);
+    }
+    expect(aiUpscaleMethods.containsAll(upscaleMethodAddons.keys), isTrue);
+  });
+
+  test('the converter round-trips the General denoise switch and AI strength', () {
+    for (final (denoise, strength) in [(false, 1.0), (true, 0.55)]) {
+      final params = CropResizeParameters(
+          enabled: true,
+          useIntegerUpscale: true,
+          upscaleMethod: UpscaleMethod.realEsrganGeneral,
+          generalDenoise: denoise,
+          aiStrength: strength);
+      final back = ParameterConverter.toCropResize(ParameterConverter.fromCropResize(params));
+      expect(back.upscaleMethod, UpscaleMethod.realEsrganGeneral);
+      expect(back.generalDenoise, denoise);
+      expect(back.aiStrength, strength);
+      final json = params.toJson();
+      expect(json['aiStrength'], strength);
+      expect(json['upscaleMethod'], 'realEsrganGeneral');
+    }
+    // Absent from an older preset: full strength, no denoise.
+    final old = CropResizeParameters.fromJson({'enabled': true});
+    expect((old.aiStrength, old.generalDenoise), (1.0, false));
+    for (final m in [UpscaleMethod.liveAction, UpscaleMethod.realEsrganPlus]) {
+      final back = ParameterConverter.toCropResize(ParameterConverter.fromCropResize(
+          CropResizeParameters(enabled: true, useIntegerUpscale: true, upscaleMethod: m)));
+      expect(back.upscaleMethod, m);
+    }
   });
 
   test('the converter round-trips AnimeJaNai\'s model and Sharp settings', () {

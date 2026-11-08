@@ -1,0 +1,26 @@
+{
+  "id": "face-codeformer",
+  "version": "1.0.0",
+  "name": "CodeFormer face restoration model",
+  "feature": "Face restoration",
+  "description": "CodeFormer, an alternative model for the Face Restoration pass with a fidelity control: lower trusts its learned faces more, higher stays closer to the picture. Converted to ONNX from S-Lab's published weights.",
+  "licence": "S-Lab License 1.0 (NC)",
+  "licenceUrl": "https://github.com/sczhou/CodeFormer/blob/master/LICENSE",
+  "usageNote": "Non-commercial use only (S-Lab License 1.0).",
+  "credit": "S-Lab",
+  "noticeName": "CodeFormer model",
+  "homepage": "https://github.com/sczhou/CodeFormer",
+  "requires": [
+    "face-restoration"
+  ],
+  "kind": "files",
+  "platforms": "all",
+  "files": [
+    {
+      "name": "face-codeformer-v0.1.0.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/face-codeformer-v0.1.0.onnx",
+      "size": 376827102,
+      "sha256": "536db9b0d73400d09ca19ba1ea4978ba3b084e3bc0c3ab951597e5536c031e18"
+    }
+  ]
+}

@@ -80,7 +80,7 @@ source of truth for what an add-on is and what an install of it holds.
 | `licence`, `licenceUrl`, `credit`, `noticeName`, `homepage` | the main component's credit (see "Credits" below). |
 | `usageNote` | required exactly when the licence is non-commercial (`NC`), and shown bold wherever the add-on is offered. |
 | `components` | further components credited separately, each optionally limited to `platforms`. |
-| `requires` | add-on ids installed first, and removed with this one's dependants. A model run through ONNX Runtime requires `ai-runtime`. |
+| `requires` | add-on ids installed first, and removed with this one's dependants. A model run through ONNX Runtime requires `ai-runtime`; one run by the bundled VSNCNN plugin (the Crop & Resize upscalers, `upscale-*.json`) requires nothing, and lists only the platforms VSNCNN ships on. |
 | `kind` | `files` — a model pack: each file is saved as `addons/<id>/<name>`, or for an entry with `extract`, only the listed members are kept (each checked against its own hash; nothing else in the archive is written). `python` — every file is a wheel, unpacked into `addons/<id>/site-packages/` as pip lays it out (`*.data/purelib`/`platlib` at the top, other `.data` dropped). |
 | `python` | for a python add-on, the wheel tag it targets (`cp312`: the deps bundle's Python on every platform). |
 | `platforms` | `"all"`, or a table of the deps platform ids (`macos-arm64`, `macos-x64`, `windows-x64`, `linux-x64`, `linux-arm64`) it supports, each with optional `minOs` (macOS only, checked at run time against the running system). Anything else gets an `unavailableReason` and cannot be installed. |
@@ -221,6 +221,17 @@ otherwise. A pass's own block then uses `templates/ai_runtime.py`:
 | `preferred_providers(force_cpu=False)`, `available_providers()`, `session_provider(sess)` | the provider choice. `VAPOURBOX_AI_FORCE_CPU=1` forces the CPU everywhere. |
 | `frame_to_nchw(frame)` / `nchw_to_frame(array, frame)` | planar RGBS `VideoFrame` ↔ float32 `(1, 3, h, w)`. |
 | `map_frames(clip, fn, width=None, height=None)` | apply `fn(nchw) -> nchw` to every frame of an RGBS clip, at an output size, keeping frame properties. |
+| `to_rgbs(clip, matrix, range_)` / `from_rgbs(rgbs, fmt, matrix, range_)` | any clip ↔ planar float RGB with the source's matrix and range (zimg names), dithered on the way back — the conversion the AI upscaling block does, for a pass that works in RGB. |
+| `shifted(clip, offset)` | the clip moved by `offset` frames, clamped at the ends. Pass several to `std.ModifyFrame` and a callback gets its neighbours' frames without calling `get_frame()` inside a request. |
+| `FrameMemo(capacity)` | `.get(key, compute)`: a bounded cache of a pure per-frame computation, computed once even when several requests want it at the same time (several nodes reading one result, neighbours sharing a detection). |
+
+A pass that reads neighbouring frames must stay a **pure function of its
+input frames**: VapourSynth requests frames in parallel and out of order, so
+nothing may depend on which frame was computed first. Take neighbours through
+`shifted` clips, share work through a `FrameMemo` (losing an entry only costs
+recomputing it), and declare the reach as the pass's `FrameMap` radius so the
+preview decodes enough context (`worker/templates/face_restore.py` is the
+worked example).
 
 TensorRT/CUDA are hooks for a future NVIDIA add-on (its directory passed to
 `setup()` before `ai-runtime`'s); today's wheels don't offer them.

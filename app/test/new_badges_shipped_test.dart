@@ -81,4 +81,27 @@ void main() {
   test('a filter with nothing new in 1.5.0 is not badged', () {
     expect(service.isSchemaNew(_load('deband.json')), isFalse);
   });
+
+  group('1.7.0', () {
+    setUp(() async {
+      // Upgraded from 1.6.0 to 1.7.0.
+      SharedPreferences.setMockInitialValues({
+        'lastRunAppVersion': '1.6.0',
+        'lastSeenAppVersion': '1.6.0',
+      });
+      PackageInfo.setMockInitialValues(
+          appName: 'VapourBox', packageName: 'app.vapourbox.vapourbox',
+          version: '1.7.0', buildNumber: '1', buildSignature: '');
+      service.resetForTesting();
+      await service.initialize();
+    });
+
+    test('Face Restoration is a new filter', () {
+      expect(service.isSchemaNew(_load('face_restore.json')), isTrue);
+    });
+
+    test('Descale, new in 1.5.0, is no longer badged', () {
+      expect(service.isSchemaNew(_load('descale.json')), isFalse);
+    });
+  });
 }

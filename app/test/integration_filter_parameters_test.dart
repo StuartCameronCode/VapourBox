@@ -24,6 +24,7 @@ import 'package:vapourbox/models/descale_parameters.dart';
 import 'package:vapourbox/models/descratch_parameters.dart';
 import 'package:vapourbox/models/dynamic_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
+import 'package:vapourbox/models/face_restore_parameters.dart';
 import 'package:vapourbox/models/frame_rate_parameters.dart';
 import 'package:vapourbox/models/filter_schema.dart';
 import 'package:vapourbox/models/noise_reduction_parameters.dart';
@@ -35,6 +36,9 @@ import 'package:vapourbox/models/spotless_parameters.dart';
 import 'package:vapourbox/models/stabilize_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 
+import 'package:vapourbox/services/manifest_addon.dart';
+
+import 'support/gpu_expectations.dart';
 import 'support/vfr_fixture.dart';
 import 'support/worker_harness.dart';
 
@@ -177,6 +181,7 @@ VideoJob buildJob({
   GeometryParameters? geometry,
   GrainParameters? grain,
   DescaleParameters? descale,
+  FaceRestoreParameters? faceRestore,
 }) => VideoJob(
   id: const Uuid().v4(),
   inputPath: TestConfig.inputFile,
@@ -199,6 +204,7 @@ VideoJob buildJob({
     geometry: geometry ?? const GeometryParameters(),
     grain: grain ?? const GrainParameters(),
     descale: descale ?? const DescaleParameters(),
+    faceRestore: faceRestore ?? const FaceRestoreParameters(),
   ),
   encodingSettings: const EncodingSettings(
     codec: VideoCodec.h264, container: ContainerFormat.mkv, audioMode: AudioMode.none,
@@ -1189,6 +1195,69 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    test('face restoration: every setting reaches the script, or the job is refused',
+        () async {
+      // The models are add-ons of ~700 MB (base + CodeFormer), far too much
+      // for a push-gate test to download — and until the addon-models-v1
+      // release exists there is nothing to download. So: with
+      // VAPOURBOX_ADDON_MIRROR set (the converted files in addon-staging),
+      // install them the app's way and check the script; if they are already
+      // installed, check the script; otherwise check the refusal, which is
+      // what CI sees, and which names the add-ons and Settings → Add-ons.
+      loadSchema('face_restore');
+      const typed = FaceRestoreParameters(
+        enabled: true,
+        model: FaceRestoreModel.codeFormer,
+        strength: 0.6,
+        codeFormerFidelity: 0.5,
+        detectionThreshold: 0.7,
+        minFaceSize: 40,
+        maxFaces: 3,
+        temporalSmoothing: false,
+      );
+      // Through the converter, as the panel would hand it to the worker.
+      final roundTripped =
+          ParameterConverter.toFaceRestore(ParameterConverter.fromFaceRestore(typed));
+      final job = buildJob(testName: 'face_restore', faceRestore: roundTripped);
+
+      if (Platform.environment['VAPOURBOX_ADDON_MIRROR']?.isNotEmpty ?? false) {
+        await WorkerHarness.ensureAddon('face-codeformer');
+      }
+      final manifests = {
+        for (final m in AddonManifest.loadDirectory(
+            Directory('${TestConfig.projectRoot}/app/assets/addons')))
+          m.id: m,
+      };
+      final installed = ['ai-runtime', ...roundTripped.addonIds].every((id) =>
+          ManifestAddonInstaller(manifests[id]!, WorkerHarness.platform)
+              .isInstalled(WorkerHarness.addonsDirectory));
+
+      if (installed) {
+        print('  Generating Face Restoration script...');
+        final script = await generateScriptViaWorker(job);
+        expect(script, contains('import ai_runtime\n'));
+        expect(script, contains('_face_restore.restore_faces('));
+        expect(script, contains('face-codeformer-v0.1.0.onnx'));
+        expect(script, contains('face-restoration-retinaface-r50.onnx'));
+        expect(script, contains('face-restoration-bisenet.onnx'));
+        expect(script, contains('model="codeformer"'));
+        expect(script, contains('strength=0.600'));
+        expect(script, contains('fidelity=0.500'));
+        expect(script, contains('threshold=0.700'));
+        expect(script, contains('min_face=40'));
+        expect(script, contains('max_faces=3'));
+        expect(script, contains('temporal_radius=0'));
+      } else {
+        print('  Face restoration add-ons not installed: checking the refusal');
+        final result = await WorkerHarness.runJob(job.toJson(), label: 'face_restore');
+        expect(result.success, isFalse);
+        final text = '${result.error}\n${result.logs.join('\n')}';
+        expect(text, contains('Face restoration needs'));
+        expect(text, contains('Settings → Add-ons'));
+      }
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
     test('sharpen: aWarpSharp2 params', () async {
       loadSchema('sharpen');
       final typed = const SharpenParameters(
@@ -1818,5 +1887,71 @@ void main() {
       expect(script, isNot(contains('{{#DEINT')));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // --- AI upscale strength (1.7.0) ---
+    // Below 1 the network's result is blended with a Spline36 upscale of the
+    // same frame in one std.Merge; at 1 nothing is added. Needs VSNCNN to run
+    // here (the worker refuses an AI job it cannot run), so it follows the
+    // GPU rule: skipped without Vulkan unless VAPOURBOX_EXPECT_VULKAN=1.
+    test('crop_resize: AI strength blends a Spline36 upscale into the AI result', () async {
+      if (!await requireGpuPlugin('--probe-upscale')) return;
+      CropResizeParameters crop(double strength) => ParameterConverter.toCropResize(
+          ParameterConverter.fromCropResize(CropResizeParameters(
+              enabled: true,
+              useIntegerUpscale: true,
+              upscaleMethod: UpscaleMethod.realEsrgan,
+              aiStrength: strength)));
+      final blended = await generateScriptViaWorker(
+          buildJob(testName: 'ai_strength', cropResize: crop(0.7)));
+      expect(blended, contains('core.ncnn.Model(_ai_rgb, network_path=_ai_model'));
+      expect(blended, contains('clip = core.std.Merge(core.resize.Spline36(_ai_src, '
+          'width=clip.width, height=clip.height), clip, weight=0.700)'));
+      final full = await generateScriptViaWorker(
+          buildJob(testName: 'ai_strength_full', cropResize: crop(1.0)));
+      expect(full, isNot(contains('core.std.Merge(core.resize.Spline36(_ai_src')));
+      expect(full, isNot(contains('AI_STRENGTH')));
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // --- Add-on AI upscalers (1.7.0) ---
+    // Real-ESRGAN General (4x only: resampled to 2x after the network, the
+    // denoise variant on request) and Live Action SPAN (2x only: twice for
+    // 4x), each from the upscale-general add-on's directory. Installs the
+    // add-on (11 MB) with the app's own installer, so a dead link or changed
+    // hash fails here.
+    test('crop_resize: add-on upscalers load their models with their factor rules', () async {
+      if (!await requireGpuPlugin('--probe-upscale')) return;
+      await WorkerHarness.ensureAddon('upscale-general');
+      // The models the script runs, by file name, each checked to come from
+      // the add-on's own directory.
+      List<String> models(String script) {
+        final line = RegExp(r'for _ai_model in \[(.*)\]:').firstMatch(script)!.group(1)!;
+        final names = <String>[];
+        for (final m in RegExp(r"'([^']*)'").allMatches(line)) {
+          final path = m.group(1)!.replaceAll(r'\\', '/');
+          expect(path, contains('upscale-general/'), reason: path);
+          names.add(path.split('/').last);
+        }
+        return names;
+      }
+
+      Future<String> script(UpscaleMethod m, int factor, {bool denoise = false}) =>
+          generateScriptViaWorker(buildJob(
+              testName: 'addon_upscale_${m.name}_$factor',
+              cropResize: CropResizeParameters(
+                  enabled: true,
+                  useIntegerUpscale: true,
+                  upscaleMethod: m,
+                  upscaleFactor: factor,
+                  generalDenoise: denoise)));
+      final general2 = await script(UpscaleMethod.realEsrganGeneral, 2);
+      expect(models(general2), ['upscale-realesr-general-x4v3.onnx']);
+      expect(general2, contains('_ai_rgb = core.resize.Spline36(_ai_rgb, width=_ai_rgb.width * 2 // _ai_scale'));
+      final general4 = await script(UpscaleMethod.realEsrganGeneral, 4, denoise: true);
+      expect(models(general4), ['upscale-realesr-general-wdn-x4v3.onnx']);
+      expect(general4, isNot(contains('// _ai_scale')));
+      final span4 = await script(UpscaleMethod.liveAction, 4);
+      expect(models(span4), List.filled(2, '2xLiveActionV1_SPAN_490000.onnx'));
+      expect(span4, isNot(contains('// _ai_scale')));
+    }, timeout: const Timeout(Duration(minutes: 5)));
   });
 }

@@ -7160,6 +7160,325 @@ fn test_205_new_blocks_use_the_helpers() {
     }
 }
 
+/// An add-ons directory with `ids` installed for macOS arm64, as the app's
+/// installer leaves it: every expected file plus the marker, written last.
+fn fake_addons(tag: &str, ids: &[&str]) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("vb-upscale-addons-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    for id in ids {
+        let m = vapourbox_worker::addons::manifest(id).expect("manifest");
+        let dir = vapourbox_worker::addons::addon_dir(&root, id);
+        std::fs::create_dir_all(&dir).unwrap();
+        for p in m.expected_paths("macos-arm64") {
+            std::fs::write(dir.join(p), b"x").unwrap();
+        }
+        std::fs::write(
+            dir.join(vapourbox_worker::addons::MARKER),
+            format!(r#"{{"id":"{id}","version":"{}","platform":"macos-arm64"}}"#, m.version),
+        )
+        .unwrap();
+    }
+    root
+}
+
+/// A throwaway add-ons directory with `ids` (and what they require) installed
+/// as far as the worker can tell: each manifest's expected paths present
+/// (empty files will do for script generation) and its marker written.
+fn fake_addons_with_requirements(name: &str, ids: &[&str], platform: &str) -> PathBuf {
+    use vapourbox_worker::addons;
+    let root = std::env::temp_dir().join(format!("vb-addons-{name}-{}", Uuid::new_v4()));
+    for id in addons::with_requirements(ids) {
+        let m = addons::manifest(&id).expect("manifest");
+        let dir = addons::addon_dir(&root, &id);
+        for p in m.expected_paths(platform) {
+            let path = dir.join(&p);
+            if p.ends_with("site-packages") {
+                std::fs::create_dir_all(&path).unwrap();
+            } else {
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(&path, b"").unwrap();
+            }
+        }
+        std::fs::write(
+            dir.join(addons::MARKER),
+            serde_json::json!({"id": id, "version": m.version, "platform": platform}).to_string(),
+        )
+        .unwrap();
+    }
+    root
+}
+
+fn face_restore_job(name: &str, fr: FaceRestoreParameters) -> VideoJob {
+    let mut job = create_base_job(name);
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        crop_resize: CropResizeParameters {
+            enabled: true,
+            resize_enabled: true,
+            target_width: Some(1280),
+            target_height: Some(960),
+            ..Default::default()
+        },
+        sharpen: SharpenParameters { enabled: true, ..Default::default() },
+        face_restore: FaceRestoreParameters { enabled: true, ..fr },
+        ..ProcessingPipeline::default()
+    });
+    job
+}
+
+/// Face Restoration runs face_restore.restore_faces on ONNX Runtime from the
+/// add-ons, in both scripts: after the resize and before sharpening, with the
+/// AI runtime set up first and every model path taken from its add-on.
+#[test]
+fn test_189_face_restore_script_and_models() {
+    create_output_dir();
+    let platform = "macos-arm64";
+    let root = fake_addons_with_requirements("189", &["face-restoration", "face-codeformer"], platform);
+    let generator = ScriptGenerator::new().unwrap().with_addons(root.clone(), platform);
+    let job = face_restore_job("test_189_face_restore", FaceRestoreParameters {
+        model: FaceRestoreModel::CodeFormer,
+        strength: 0.6,
+        code_former_fidelity: 0.5,
+        detection_threshold: 0.7,
+        min_face_size: 40,
+        max_faces: 3,
+        temporal_smoothing: true,
+        ..Default::default()
+    });
+    let py = |id: &str, f: &str| vapourbox_worker::gpu_plugin::py_str(&root.join(id).join(f));
+    let runtime = vapourbox_worker::gpu_plugin::py_str(&root.join("ai-runtime"));
+    let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        let setup = script
+            .find(&format!("ai_runtime.setup({runtime})"))
+            .unwrap_or_else(|| panic!("{name}: no AI runtime"));
+        let call = script.find("_face_restore.restore_faces(").unwrap_or_else(|| panic!("{name}: no call"));
+        for want in [
+            format!("detector={}", py("face-restoration", "face-restoration-retinaface-r50.onnx")),
+            format!("parser={}", py("face-restoration", "face-restoration-bisenet.onnx")),
+            format!("restorer={}", py("face-codeformer", "face-codeformer-v0.1.0.onnx")),
+            "model=\"codeformer\"".into(),
+            "strength=0.600".into(),
+            "fidelity=0.500".into(),
+            "threshold=0.700".into(),
+            "min_face=40".into(),
+            "max_faces=3".into(),
+            "temporal_radius=1".into(),
+            "color_range=\"limited\"".into(),
+        ] {
+            assert!(script.contains(&want), "{name}: missing {want}");
+        }
+        assert!(setup < call, "{name}: runtime set up after the pass");
+        let resize = script.find("target_w = 1280").expect("resize");
+        let sharpen = script.find("haf.LSFmod(").expect("sharpen");
+        assert!(resize < call && call < sharpen, "{name}: after the resize, before sharpening");
+        assert!(!script.contains("{{FR_") && !script.contains("FACE_RESTORE}}"), "{name}: unsubstituted");
+    }
+    // Pass order and the preview's temporal context agree with the script.
+    let pipeline = job.effective_pipeline();
+    let passes = pipeline.enabled_passes();
+    let at = |p| passes.iter().position(|x| *x == p).unwrap();
+    assert!(at(PassType::CropResize) < at(PassType::FaceRestore));
+    assert!(at(PassType::FaceRestore) < at(PassType::Sharpen));
+    assert_eq!(pipeline.output_count(100), 100);
+    // The blend reads one neighbour each side, whose landmarks read one more.
+    let face_map = pipeline.frame_maps()[at(PassType::FaceRestore)].clone();
+    assert_eq!(face_map.radius(), 2);
+    let mut off = job.clone();
+    off.processing_pipeline.as_mut().unwrap().face_restore.temporal_smoothing = false;
+    assert!(script_text_with(&generator, &off).contains("temporal_radius=0"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Without its add-ons a Face Restoration job is refused, naming them and
+/// Settings → Add-ons; with the pass off nothing needs them and the script
+/// has neither the runtime nor the call.
+#[test]
+fn test_190_face_restore_refused_without_addons() {
+    create_output_dir();
+    let platform = "macos-arm64";
+    // The base installed but not GFPGAN's add-on.
+    let root = fake_addons_with_requirements("190", &["face-restoration"], platform);
+    let generator = ScriptGenerator::new().unwrap().with_addons(root.clone(), platform);
+    let gfpgan = face_restore_job("test_190_gfpgan", FaceRestoreParameters {
+        model: FaceRestoreModel::Gfpgan,
+        ..Default::default()
+    });
+    let err = both_scripts_with(&generator, &gfpgan).unwrap_err().to_string();
+    assert!(err.contains("Face restoration"), "{err}");
+    assert!(err.contains("Settings → Add-ons"), "{err}");
+    assert!(err.to_lowercase().contains("gfpgan"), "{err}");
+    // RestoreFormer++ needs only the base.
+    let rf = face_restore_job("test_190_rf", FaceRestoreParameters::default());
+    let (encode, _) = both_scripts_with(&generator, &rf).expect("the base add-on is enough");
+    assert!(encode.contains("model=\"restoreformer\""));
+    assert!(encode.contains("strength=0.800"));
+    // Nothing installed at all.
+    let empty = std::env::temp_dir().join(format!("vb-addons-190-empty-{}", Uuid::new_v4()));
+    let bare = ScriptGenerator::new().unwrap().with_addons(empty, platform);
+    assert!(both_scripts_with(&bare, &rf).is_err());
+    // Pass off: no add-on needed, no runtime, no call.
+    let mut off = rf.clone();
+    off.processing_pipeline.as_mut().unwrap().face_restore.enabled = false;
+    let (encode, preview) = both_scripts_with(&bare, &off).unwrap();
+    for script in [&encode, &preview] {
+        assert!(!script.contains("import ai_runtime"));
+        assert!(!script.contains("restore_faces("));
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The add-on upscalers (Real-ESRGAN General, live-action SPAN, Real-ESRGAN
+/// x4plus/x2plus): the same VSNCNN block, each model from its add-on's
+/// directory, with the factor rules — General is 4x only, so 2x resamples its
+/// result down; SPAN is 2x only, so 4x runs it twice; x4plus/x2plus by factor,
+/// in 384-pixel tiles at 4x — in both scripts.
+#[test]
+fn test_186_upscale_addon_models_and_factors() {
+    use vapourbox_worker::upscale_addons::*;
+    create_output_dir();
+    let root = fake_addons("186", &[GENERAL_ADDON, ESRGAN_PLUS_ADDON]);
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(root.clone(), "macos-arm64");
+    let py = |addon: &str, f: &str| {
+        vapourbox_worker::gpu_plugin::py_str(&vapourbox_worker::addons::addon_dir(&root, addon).join(f))
+    };
+    let cases: Vec<(UpscaleMethod, i32, bool, Vec<String>, Option<u32>)> = vec![
+        (UpscaleMethod::RealEsrganGeneral, 2, false, vec![py(GENERAL_ADDON, GENERAL_X4)], Some(2)),
+        (UpscaleMethod::RealEsrganGeneral, 4, false, vec![py(GENERAL_ADDON, GENERAL_X4)], None),
+        (UpscaleMethod::RealEsrganGeneral, 2, true, vec![py(GENERAL_ADDON, GENERAL_WDN_X4)], Some(2)),
+        (UpscaleMethod::LiveAction, 2, false, vec![py(GENERAL_ADDON, LIVE_ACTION_X2)], None),
+        (UpscaleMethod::LiveAction, 4, false, vec![py(GENERAL_ADDON, LIVE_ACTION_X2); 2], None),
+        (UpscaleMethod::RealEsrganPlus, 2, false, vec![py(ESRGAN_PLUS_ADDON, PLUS_X2)], None),
+        (UpscaleMethod::RealEsrganPlus, 4, false, vec![py(ESRGAN_PLUS_ADDON, PLUS_X4)], None),
+    ];
+    for (method, factor, denoise, models, resample) in cases {
+        let label = format!("{method:?} {factor}x denoise={denoise}");
+        let mut job = ai_upscale_job("test_186", method, factor, "");
+        job.processing_pipeline.as_mut().unwrap().crop_resize.general_denoise = denoise;
+        let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(script.contains(&format!("for _ai_model in [{}]:", models.join(", "))),
+                "{label} {name}: wrong models");
+            assert!(script.contains("core.ncnn.Model(_ai_rgb, network_path=_ai_model"), "{label} {name}");
+            match resample {
+                Some(f) => assert!(script.contains(&format!(
+                    "_ai_rgb = core.resize.Spline36(_ai_rgb, width=_ai_rgb.width * {f} // _ai_scale, \
+                     height=_ai_rgb.height * {f} // _ai_scale)")), "{label} {name}: no resample"),
+                None => assert!(!script.contains("// _ai_scale"), "{label} {name}: stray resample"),
+            }
+            let tiles = if method == UpscaleMethod::RealEsrganPlus && factor == 4 {
+                "<= 384 * 384 else dict(\n        tilesize=[min(384, _ai_rgb.width), min(384, _ai_rgb.height)]"
+            } else {
+                "<= 720 * 576 else dict(\n        tilesize=[min(512, _ai_rgb.width), min(512, _ai_rgb.height)]"
+            };
+            assert!(script.contains(tiles), "{label} {name}: tiles");
+            assert!(!script.contains("AI_RESAMPLE") && !script.contains("AI_STRENGTH") && !script.contains("{{AI_"), "{label} {name}: unsubstituted placeholder");
+            assert!(!script.contains("core.std.Merge(core.resize.Spline36(_ai_src"), "{label} {name}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Without its add-on each add-on upscaler is refused, naming the add-on and
+/// Settings → Add-ons; with the other add-on installed it is still refused,
+/// and the bundled models need none.
+#[test]
+fn test_187_upscale_addons_are_refused_when_missing() {
+    use vapourbox_worker::upscale_addons::*;
+    create_output_dir();
+    let root = fake_addons("187", &[ESRGAN_PLUS_ADDON]);
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(root.clone(), "macos-arm64");
+    for (method, feature) in [
+        (UpscaleMethod::RealEsrganGeneral, "Real-ESRGAN General upscaling"),
+        (UpscaleMethod::LiveAction, "Live-action upscaling"),
+    ] {
+        let job = ai_upscale_job("test_187", method, 2, "");
+        let err = both_scripts_with(&generator, &job).unwrap_err().to_string();
+        assert!(err.starts_with(feature), "{err}");
+        assert!(err.contains("General & live-action upscaling models"), "{err}");
+        assert!(err.contains("Settings → Add-ons"), "{err}");
+    }
+    both_scripts_with(&generator, &ai_upscale_job("test_187_plus", UpscaleMethod::RealEsrganPlus, 4, ""))
+        .expect("x4plus is installed");
+    let missing = fake_addons("187b", &[]);
+    let bare = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(missing.clone(), "macos-arm64");
+    let err = both_scripts_with(&bare, &ai_upscale_job("test_187_plus", UpscaleMethod::RealEsrganPlus, 2, ""))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("Real-ESRGAN x4plus / x2plus models"), "{err}");
+    both_scripts_with(&bare, &ai_upscale_job("test_187_esrgan", UpscaleMethod::RealEsrgan, 2, ""))
+        .expect("bundled Real-ESRGAN needs no add-on");
+    // On a platform VSNCNN doesn't ship on, the add-on is unavailable too.
+    let mac_x64 = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(root.clone(), "macos-x64");
+    let err = both_scripts_with(&mac_x64, &ai_upscale_job("test_187_x64", UpscaleMethod::LiveAction, 2, ""))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("isn't available on this platform"), "{err}");
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&missing);
+}
+
+/// AI strength blends the network's result with a Spline36 upscale of the same
+/// frame in one std.Merge at the clip's format, for every AI method, in both
+/// scripts. At full strength (the default) nothing is emitted: the script is
+/// byte-for-byte the one a job without the setting gets.
+#[test]
+fn test_188_ai_strength_blends_with_spline36() {
+    use vapourbox_worker::upscale_addons::*;
+    create_output_dir();
+    let root = fake_addons("188", &[GENERAL_ADDON]);
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(root.clone(), "macos-arm64");
+    let merge = "clip = core.std.Merge(core.resize.Spline36(_ai_src, width=clip.width, \
+                 height=clip.height), clip, weight=0.650)";
+    for method in [UpscaleMethod::RealEsrgan, UpscaleMethod::RealCugan, UpscaleMethod::LiveAction,
+                   UpscaleMethod::RealEsrganGeneral] {
+        let mut job = ai_upscale_job("test_188", method, 2, "conservative");
+        job.processing_pipeline.as_mut().unwrap().crop_resize.ai_strength = 0.65;
+        let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(script.contains(merge), "{method:?} {name}: no blend");
+            let at = script.find(merge).unwrap();
+            assert!(at > script.find("for _ai_model in").unwrap(), "{method:?} {name}: blend before the network");
+            assert!(at < script.find("clip = core.std.CopyFrameProps(clip, _ai_src)").unwrap(),
+                "{method:?} {name}: blend after the props copy");
+        }
+    }
+    // Full strength: byte-identical to a job without the field at all.
+    let full = ai_upscale_job("test_188_full", UpscaleMethod::RealEsrgan, 2, "");
+    assert_eq!(full.processing_pipeline.as_ref().unwrap().crop_resize.ai_strength, 1.0);
+    let mut json = serde_json::to_value(&full).unwrap();
+    json["processingPipeline"]["cropResize"].as_object_mut().unwrap().remove("aiStrength");
+    json["id"] = serde_json::Value::String(Uuid::new_v4().to_string());
+    let legacy: VideoJob = serde_json::from_value(json).unwrap();
+    let a = script_text_with(&generator, &full);
+    let b = script_text_with(&generator, &legacy);
+    assert_eq!(a.replace(&full.id.to_string(), "ID"), b.replace(&legacy.id.to_string(), "ID"));
+    assert!(!a.contains("core.std.Merge(core.resize.Spline36(_ai_src"));
+    assert!(!a.contains("AI_STRENGTH"));
+    // Out-of-range values clamp; 0 is all Spline36.
+    let mut zero = ai_upscale_job("test_188_zero", UpscaleMethod::RealEsrgan, 2, "");
+    zero.processing_pipeline.as_mut().unwrap().crop_resize.ai_strength = -1.0;
+    assert!(script_text_with(&generator, &zero).contains("clip, weight=0.000)"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Audio restoration is rendered by ffmpeg before the encode, never by the
 /// VapourSynth script: every step switched on — DeepFilterNet included, which
 /// is not installed here — leaves both scripts byte-for-byte as they are with

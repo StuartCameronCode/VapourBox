@@ -1,0 +1,67 @@
+{
+  "opset": 17,
+  "irVersion": 8,
+  "torch": "2.15.0",
+  "models": [
+    {
+      "file": "face-codeformer-v0.1.0.onnx",
+      "size": 376827102,
+      "sha256": "536db9b0d73400d09ca19ba1ea4978ba3b084e3bc0c3ab951597e5536c031e18",
+      "checkpoint": "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/codeformer.pth",
+      "parity": {
+        "w=0.0": {
+          "providers": [
+            "CPUExecutionProvider"
+          ],
+          "seconds": 3.2580789999919944,
+          "outputs": [
+            {
+              "output": "output",
+              "max": 4.0531158447265625e-05,
+              "mean": 2.581076167406058e-06
+            }
+          ]
+        },
+        "w=0.5": {
+          "providers": [
+            "CPUExecutionProvider"
+          ],
+          "seconds": 3.893039582995698,
+          "outputs": [
+            {
+              "output": "output",
+              "max": 4.4345855712890625e-05,
+              "mean": 3.16973939147902e-06
+            }
+          ]
+        },
+        "w=0.7": {
+          "providers": [
+            "CPUExecutionProvider"
+          ],
+          "seconds": 10.734747875016183,
+          "outputs": [
+            {
+              "output": "output",
+              "max": 6.389617919921875e-05,
+              "mean": 2.88713418880058e-06
+            }
+          ]
+        },
+        "w=1.0": {
+          "providers": [
+            "CPUExecutionProvider"
+          ],
+          "seconds": 6.94589916698169,
+          "outputs": [
+            {
+              "output": "output",
+              "max": 0.00010955333709716797,
+              "mean": 2.8745563086505894e-06
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

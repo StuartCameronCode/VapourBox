@@ -247,6 +247,37 @@ impl ScriptGenerator {
         ai_runtime_block(script, dir.as_deref())
     }
 
+    /// Emit or drop the `{{#FACE_RESTORE}}` block (both templates), with the
+    /// model paths from the add-ons directory. A job that gets here with the
+    /// pass on has passed `ensure_methods_ready`, so its add-ons are installed.
+    fn substitute_face_restore(&self, script: String, job: &VideoJob, pipeline: &ProcessingPipeline) -> String {
+        use crate::models::{FACE_DETECTOR_FILE, FACE_PARSER_FILE, FACE_RESTORATION_ADDON};
+        let fr = &pipeline.face_restore;
+        if !fr.enabled {
+            return remove_block("{{#FACE_RESTORE}}", "{{/FACE_RESTORE}}", script);
+        }
+        let path = |id: &str, file: &str| match &self.addons {
+            Some((root, _)) => py_str(&crate::addons::addon_dir(root, id).join(file)),
+            None => "''".to_string(),
+        };
+        let color = job.color_metadata();
+        script
+            .replace("{{#FACE_RESTORE}}", "")
+            .replace("{{/FACE_RESTORE}}", "")
+            .replace("{{FR_DETECTOR}}", &path(FACE_RESTORATION_ADDON, FACE_DETECTOR_FILE))
+            .replace("{{FR_PARSER}}", &path(FACE_RESTORATION_ADDON, FACE_PARSER_FILE))
+            .replace("{{FR_RESTORER}}", &path(fr.model.addon(), fr.model.file()))
+            .replace("{{FR_MODEL}}", fr.model.script_name())
+            .replace("{{FR_STRENGTH}}", &format!("{:.3}", fr.clamped_strength()))
+            .replace("{{FR_FIDELITY}}", &format!("{:.3}", fr.clamped_fidelity()))
+            .replace("{{FR_THRESHOLD}}", &format!("{:.3}", fr.clamped_threshold()))
+            .replace("{{FR_MIN_FACE}}", &fr.clamped_min_face().to_string())
+            .replace("{{FR_MAX_FACES}}", &fr.clamped_max_faces().to_string())
+            .replace("{{FR_RADIUS}}", &fr.temporal_radius().to_string())
+            .replace("{{FR_MATRIX}}", color.zimg_matrix(job.input_height))
+            .replace("{{FR_RANGE}}", if color.is_full_range() { "full" } else { "limited" })
+    }
+
     /// Generate a .vpy script file for the given job.
     pub fn generate(&self, job: &VideoJob) -> Result<PathBuf> {
         let pipeline = job.effective_pipeline();
@@ -1809,6 +1840,11 @@ impl ScriptGenerator {
         }
 
         // ====================================================================
+        // FACE RESTORATION PASS
+        // ====================================================================
+        script = self.substitute_face_restore(script, job, pipeline);
+
+        // ====================================================================
         // SHARPEN PASS
         // ====================================================================
         let sharpen = &pipeline.sharpen;
@@ -2238,6 +2274,13 @@ impl ScriptGenerator {
                                         let dir = self.animejanai.as_deref().unwrap_or(Path::new(""));
                                         format!("({}, {})", py_str(&dir.join(sd)), py_str(&dir.join(hd)))
                                     }
+                                    // ensure_methods_ready has refused the job
+                                    // unless the add-on is installed here.
+                                    AiModel::Addon { addon, file } => {
+                                        let root = self.addons.as_ref().map(|(r, _)| r.as_path());
+                                        let dir = crate::addons::addon_dir(root.unwrap_or(Path::new("")), addon);
+                                        py_str(&dir.join(file))
+                                    }
                                 })
                                 .collect::<Vec<_>>()
                                 .join(", "),
@@ -2251,6 +2294,27 @@ impl ScriptGenerator {
                         "{{AI_SD_MAX_HEIGHT}}",
                         &crate::animejanai::SD_MAX_HEIGHT.to_string(),
                     );
+                    let (tile_above, tile) = resize.ai_tiling();
+                    script = script.replace("{{AI_TILE_ABOVE}}", tile_above);
+                    script = script.replace("{{AI_TILE}}", &tile.to_string());
+                    match resize.ai_resample_to() {
+                        Some(factor) => {
+                            script = script.replace("{{#AI_RESAMPLE}}", "");
+                            script = script.replace("{{/AI_RESAMPLE}}", "");
+                            script = script.replace("{{AI_FACTOR}}", &factor.to_string());
+                        }
+                        None => script = remove_block("{{#AI_RESAMPLE}}", "{{/AI_RESAMPLE}}", script),
+                    }
+                    // Full strength emits nothing: the script is exactly the
+                    // one from before the setting existed.
+                    match resize.ai_blend_weight() {
+                        Some(weight) => {
+                            script = script.replace("{{#AI_STRENGTH}}", "");
+                            script = script.replace("{{/AI_STRENGTH}}", "");
+                            script = script.replace("{{AI_STRENGTH}}", &format!("{weight:.3}"));
+                        }
+                        None => script = remove_block("{{#AI_STRENGTH}}", "{{/AI_STRENGTH}}", script),
+                    }
                     let color = job.color_metadata();
                     script = script.replace("{{AI_MATRIX}}", color.zimg_matrix(job.input_height));
                     script = script.replace(
@@ -2290,7 +2354,10 @@ impl ScriptGenerator {
                     UpscaleMethod::Spline36
                     | UpscaleMethod::RealEsrgan
                     | UpscaleMethod::RealCugan
-                    | UpscaleMethod::AnimeJanai => {
+                    | UpscaleMethod::AnimeJanai
+                    | UpscaleMethod::RealEsrganGeneral
+                    | UpscaleMethod::LiveAction
+                    | UpscaleMethod::RealEsrganPlus => {
                         script = remove_block("{{#UPSCALE_NNEDI3}}", "{{/UPSCALE_NNEDI3}}", script);
                         script = remove_block("{{#UPSCALE_EEDI3}}", "{{/UPSCALE_EEDI3}}", script);
                     }
@@ -2652,7 +2719,7 @@ mod tests {
         }
     }
 
-    /// No pass needs an add-on yet, so a generated script never has the
+    /// A job whose passes need no add-on (the default pipeline) never has the
     /// block, whatever the generator was told about add-ons.
     #[test]
     fn a_job_without_addon_passes_has_no_ai_runtime_block() {

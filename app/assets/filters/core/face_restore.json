@@ -1,0 +1,196 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "face_restore",
+  "version": "1.0.0",
+  "sinceAppVersion": "1.7.0",
+  "name": "Face Restoration",
+  "description": "Restore detail in blurry, low-resolution faces with AI",
+  "longDescription": "Finds the faces in every frame and redraws them with a neural network trained on hundreds of thousands of portraits, so eyes, teeth and skin come back from a soft VHS or low-resolution picture. Only the face itself is replaced (not hair, neck or background), blended in at the video's own resolution, and every pixel outside the faces is left exactly as it was.\n\nIt runs after Crop & Resize, so upscaling first gives the network more to work with. A restored face is the network's best reconstruction, not the original: it can look smoother or slightly different from the person, which is what Strength is for. Faces smaller than the minimum size are left alone, since there is too little in them to restore.\n\nThe models are separate downloads. RestoreFormer++ is the default and free for any use. GFPGAN and CodeFormer are alternatives for non-commercial use only; CodeFormer adds a fidelity control. On a Mac they run on the graphics card and Neural Engine, on Windows on any DirectX 12 graphics card, and otherwise on the CPU, which is much slower.",
+  "category": "enhancement",
+  "icon": "face_retouching_natural",
+  "methods": [
+    {
+      "id": "restore",
+      "name": "Face Restoration",
+      "description": "Detect each face, restore it with the chosen model, blend it back",
+      "function": "custom",
+      "parameters": [
+        "model",
+        "strength",
+        "codeFormerFidelity",
+        "temporalSmoothing",
+        "detectionThreshold",
+        "minFaceSize",
+        "maxFaces"
+      ]
+    }
+  ],
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "hidden": true
+      }
+    },
+    "model": {
+      "type": "enum",
+      "default": "restoreFormer",
+      "options": [
+        "restoreFormer",
+        "gfpgan",
+        "codeFormer"
+      ],
+      "ui": {
+        "label": "Model",
+        "optionLabels": {
+          "restoreFormer": "RestoreFormer++",
+          "gfpgan": "GFPGAN v1.4 (download, non-commercial)",
+          "codeFormer": "CodeFormer (download, non-commercial)"
+        },
+        "description": "The network that redraws the faces. RestoreFormer++ is natural-looking and free for any use. GFPGAN gives stronger, more stylised detail; CodeFormer is good on very damaged faces and has a fidelity control. Both are separate downloads for non-commercial use only",
+        "widget": "dropdown"
+      }
+    },
+    "strength": {
+      "type": "number",
+      "default": 0.8,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "ui": {
+        "label": "Strength",
+        "description": "How much of the restored face replaces the original. Lower keeps more of the real face and its texture, and flickers less",
+        "widget": "slider",
+        "precision": 2
+      }
+    },
+    "codeFormerFidelity": {
+      "type": "number",
+      "default": 0.7,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "ui": {
+        "label": "Fidelity",
+        "description": "Lower trusts CodeFormer's learned faces more (cleaner, less like the person); higher stays closer to the picture. 0.5 to 0.7 suits most video",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": {
+          "model": [
+            "codeFormer"
+          ]
+        }
+      }
+    },
+    "temporalSmoothing": {
+      "type": "boolean",
+      "default": true,
+      "ui": {
+        "label": "Steady faces between frames",
+        "description": "Steady each face over the frames either side: its position is smoothed, one-frame gaps in detection are bridged, and the restored face is averaged with its neighbours wherever the picture is still, so detail the network invents doesn't shimmer. Turn off to restore every frame on its own",
+        "widget": "checkbox"
+      }
+    },
+    "detectionThreshold": {
+      "type": "number",
+      "default": 0.8,
+      "min": 0.3,
+      "max": 0.99,
+      "step": 0.01,
+      "ui": {
+        "label": "Detection Confidence",
+        "description": "How sure the face detector must be. Lower finds more faces in poor pictures, and more things that are not faces",
+        "widget": "slider",
+        "precision": 2
+      }
+    },
+    "minFaceSize": {
+      "type": "integer",
+      "default": 32,
+      "min": 8,
+      "max": 1024,
+      "step": 1,
+      "ui": {
+        "label": "Minimum Face Size",
+        "description": "Faces smaller than this many pixels are left alone: there is too little in them to restore, and the network would invent a face rather than recover one",
+        "widget": "number"
+      }
+    },
+    "maxFaces": {
+      "type": "integer",
+      "default": 8,
+      "min": 1,
+      "max": 64,
+      "step": 1,
+      "ui": {
+        "label": "Maximum Faces",
+        "description": "Restore at most this many faces per frame, the largest first. Each face costs as much time as the next, so a crowd is slow",
+        "widget": "number"
+      }
+    }
+  },
+  "implementation": [
+    {
+      "function": "face_restore.restore_faces",
+      "role": "finds, aligns, restores and blends back each face (ONNX Runtime)"
+    },
+    {
+      "function": "RetinaFace (ResNet-50)",
+      "role": "finds the faces and their eyes, nose and mouth"
+    },
+    {
+      "function": "RestoreFormer++",
+      "role": "restores each face",
+      "activeWhen": {
+        "model": "restoreFormer"
+      }
+    },
+    {
+      "function": "GFPGAN v1.4",
+      "role": "restores each face",
+      "activeWhen": {
+        "model": "gfpgan"
+      }
+    },
+    {
+      "function": "CodeFormer",
+      "role": "restores each face, as close to the picture as Fidelity asks",
+      "activeWhen": {
+        "model": "codeFormer"
+      }
+    },
+    {
+      "function": "BiSeNet",
+      "role": "masks the blend to the face itself"
+    },
+    {
+      "function": "core.std.MaskedMerge",
+      "role": "blends the faces in, leaving every other pixel untouched"
+    }
+  ],
+  "ui": {
+    "sections": [
+      {
+        "title": "Restoration",
+        "parameters": [
+          "model",
+          "strength",
+          "codeFormerFidelity",
+          "temporalSmoothing"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Face detection",
+        "parameters": [
+          "detectionThreshold",
+          "minFaceSize",
+          "maxFaces"
+        ],
+        "expanded": false,
+        "advancedOnly": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,74 @@
+[
+  {
+    "frame": 0,
+    "faces": [
+      1,
+      1
+    ],
+    "boxMaxDiff": 3.0517578125e-05,
+    "landmarkMaxDiff": 3.0517578125e-05,
+    "scoreDiff": 0.0,
+    "affineMaxDiff": 4.851950421880247e-05,
+    "alignedCropMaxDiff8bit": 0.002272278070449829,
+    "frameMaxDiff8bit": 0.16514296752603214,
+    "frameMeanDiff8bitInFace": 0.00460679355055863,
+    "maskReachPixels": [
+      21599,
+      21112
+    ]
+  },
+  {
+    "frame": 40,
+    "faces": [
+      1,
+      1
+    ],
+    "boxMaxDiff": 3.0517578125e-05,
+    "landmarkMaxDiff": 6.103515625e-05,
+    "scoreDiff": 0.0,
+    "affineMaxDiff": 5.0527419375612226e-05,
+    "alignedCropMaxDiff8bit": 0.002416670322418213,
+    "frameMaxDiff8bit": 0.10665217677869987,
+    "frameMeanDiff8bitInFace": 0.004561936156879923,
+    "maskReachPixels": [
+      21023,
+      20579
+    ]
+  },
+  {
+    "frame": 80,
+    "faces": [
+      1,
+      1
+    ],
+    "boxMaxDiff": 3.0517578125e-05,
+    "landmarkMaxDiff": 3.0517578125e-05,
+    "scoreDiff": 0.0,
+    "affineMaxDiff": 7.1380790927833e-05,
+    "alignedCropMaxDiff8bit": 0.001991093158721924,
+    "frameMaxDiff8bit": 0.11140976347372572,
+    "frameMeanDiff8bitInFace": 0.005738668381720679,
+    "maskReachPixels": [
+      22069,
+      21590
+    ]
+  },
+  {
+    "frame": 120,
+    "faces": [
+      1,
+      1
+    ],
+    "boxMaxDiff": 3.0517578125e-05,
+    "landmarkMaxDiff": 3.0517578125e-05,
+    "scoreDiff": 0.0,
+    "affineMaxDiff": 3.851226750839487e-05,
+    "alignedCropMaxDiff8bit": 0.001869499683380127,
+    "frameMaxDiff8bit": 0.1550988369548001,
+    "frameMeanDiff8bitInFace": 0.00432491451527014,
+    "maskReachPixels": [
+      21715,
+      21242
+    ]
+  }
+]

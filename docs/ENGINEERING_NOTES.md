@@ -2922,6 +2922,53 @@ date (groundwork, not a quality comparison, so no report):
   first; whether Core ML or the CPU fallback executed the two-node model is
   not distinguishable from `get_providers()`.
 
+### Live-action AI upscalers as add-ons, and AI strength (2026-11-08)
+
+Full report with crops, every number and the scripts:
+[docs/reports/2026-11-ai-upscale-addons/](reports/2026-11-ai-upscale-addons/index.html).
+Crop & Resize's AI upscalers were all trained on anime; three more methods
+now cover real-world footage, run by the same VSNCNN block, with their
+models in two manifest add-ons (`upscale-general`, `upscale-esrgan-plus`).
+Measured on an M1 Pro (16 GB):
+
+- **Converting Real-ESRGAN's `.pth`** (`Scripts/models/convert_realesrgan.py`):
+  SRVGGNetCompact and RRDBNet transcribed, opset 13 / IR 7 like vs-mlrt's own
+  conversions. PyTorch vs ONNX Runtime: at most 0.017 of an 8-bit level. The
+  TorchScript export of x2plus's `pixel_unshuffle` is a 6-D Reshape/Transpose
+  ncnn can't import; a one-hot stride-2 convolution is exactly equal and
+  imports. Two runs are byte-identical.
+- **VSNCNN fp32 reproduces ONNX Runtime exactly** (≤0.005 levels) for all
+  five models; fp16 (what the template uses) differs by a mean 0.05–0.12
+  levels, the same order as the bundled anime model's 0.03.
+- **2xVHS2HD (RealPLKSR) can't run on VSNCNN.** Its official ONNX (dynamic
+  shapes, in-place slice assignment) has 225 Shape, 56 Range/Where/Equal/
+  ConstantOfShape/Cast and 28 ScatterND nodes, none of which ncnn's ONNX
+  importer supports ("load param failed"). Re-exporting from the `.pth` with
+  concatenation instead of slice assignment might work; not attempted (the
+  brief was to stop there).
+- **Real-ESRGAN x4plus needs tiles at any size.** Whole-frame at 720x576 lost
+  the Vulkan device (`vkWaitForFences failed -4`, then a segfault); 512-px
+  tiles thrashed at 29 s a frame; 384 is the fastest (6.8 s a frame), 256
+  gave 10 s. x2plus runs a DVD frame whole at 0.8 fps.
+- **A tile larger than the frame segfaults VSNCNN** (found converting the
+  PSNR run: 384 tiles on a 360x288 frame). The template tiled whenever the
+  area passed the threshold, so an 800x200 picture (x4plus) — or, for every
+  AI method, a frame above 720x576 in area but under 512 lines — would have
+  crashed. Tiles are now `min(tile, width/height)`; the heavy suite runs
+  x4plus 4x on an 800x200 source.
+- **General at 2x = 4x, then resample down**, as upstream's own `--outscale`.
+  The kernel moves PSNR by under 0.7 dB, and softer kernels score higher
+  (bilinear 28.40, Spline36 27.75, Lanczos 27.70) because PSNR rewards blur;
+  Spline36 is the pipeline's kernel and was kept.
+- **Flat colour vs Spline36** on the synthetic pattern (worst channel): General
+  2.9 levels, Live Action SPAN 0.6 at 2x / 1.3 at 4x, x2plus 4.2, x4plus 12.2.
+  Bar centre within 0.3 px for all. **AI strength** 0.5 lands within 0.38
+  levels of the mid-point of network and Spline36 and halves Real-ESRGAN 4x's
+  tint (11.2 → 5.8).
+- Speed at 720x576 (fp16, two streams, quiet machine): SPAN 2x 8.9 fps, General 2x 4.0,
+  x2plus 0.9, SPAN 4x 1.5, General 4x 3.9, x4plus 4x 0.15; bundled anime
+  Real-ESRGAN 2x 8.3 and CUGAN 4.8 for scale.
+
 ### Audio restoration: rendered before the encode; four filter traps measured (2026-11-08)
 
 Full report with scripts:
@@ -3042,6 +3089,50 @@ truth, real motion).
   job (2.5 s), and fails on the old block with the SIGSEGV.
 - **vine** on an oversharpened pan: +0.9 to +1.1 dB, against DeHalo_alpha's
   +4.1 to +4.4 (which blurs the amplified texture away). Advanced-only.
+### Face restoration: RestoreFormer++ on ONNX Runtime, steadied in aligned space (2026-11-08)
+
+Full report with images and scripts:
+[docs/reports/2026-11-face-restoration/](reports/2026-11-face-restoration/index.html).
+
+A Face Restoration pass (after Crop & Resize) on the `ai-runtime` add-on, its
+models as add-ons: `face-restoration` (RetinaFace R50, BiSeNet,
+RestoreFormer++; Apache-2.0/MIT), `face-gfpgan` and `face-codeformer` (both
+non-commercial: NVIDIA's licence on GFPGAN's StyleGAN2 code, S-Lab License
+1.0). Measured on an M1 Pro with a VHS-degraded clip of NASA public-domain
+footage (`Tests/TestResources/face_restore_test.mp4`):
+
+- **Conversions are exact**: ONNX vs PyTorch ≤2.5e-4 on [-1, 1] (0.03 of an
+  8-bit level), reproducible byte for byte. Two departures from upstream:
+  GFPGAN exported with its fixed noise buffers (upstream draws fresh noise
+  per call — new texture every frame), and CodeFormer's `w` as a graph input
+  (the traced `w > 0` branch adds exactly zero at `w = 0`).
+- **The NumPy pipeline matches facexlib + OpenCV**: landmarks 6e-5 px,
+  alignment 7e-5, final frame ≤0.16 levels for the same restored face.
+- **Detector: ResNet-50 over mobilenet0.25.** Both found the face in every
+  frame, but mobilenet's landmarks jittered 1.5x (SD) to 2.2x (1080p wide
+  shot) as much; ResNet-50 costs 87 ms vs 7 ms per frame on Core ML.
+- **Temporal stability**: smoothing landmarks over n±1 (the obvious fix)
+  changed nothing measurable here (flick 2.287 → 2.284; this detector was
+  already steady). What works is blending each restored face with its
+  neighbours' in the aligned 512 space, weighted to zero where the input
+  crops moved: RestoreFormer++'s excess flicker over the clean source halved
+  (2.287 → 1.799; 1.571 at the default strength 0.8), GFPGAN's fell 86%,
+  with no rise in distance from the clean source (no ghosting the metric
+  sees). One mostly still clip; fast motion untested.
+- **Bit-exact outside the faces** (MaskedMerge in the source format): 0
+  samples changed outside the face box over 16 frames at 8 and 10 bits;
+  preview = encode exactly.
+- **Speed** (one face per frame, RestoreFormer++): 2.2 fps SD and
+  1.8 fps 1080p on Core ML; 0.085 / 0.072 fps on the CPU,
+  ~25x slower (Linux has only the CPU).
+- **Core ML traps**: concurrent predictions from VapourSynth's threads ran
+  the GPU out of memory (`kIOGPUCommandBufferCallbackErrorOutOfMemory`), so a
+  pass's model runs are serialised (`ai_runtime.Runner`, one lock) with a CPU
+  retry; `ModelCacheDirectory` made the second session fail
+  (`output_features has no value`), so every job compiles — CodeFormer takes
+  30–50 s, the others 2–8 s.
+- Untested: Windows (DirectML), Linux (CPU), macOS x64; crowds, profiles and
+  scene cuts across a face.
 
 ### Testing a deps change before publishing
 

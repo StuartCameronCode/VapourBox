@@ -1,0 +1,31 @@
+{
+  "opset": 17,
+  "irVersion": 8,
+  "torch": "2.15.0",
+  "models": [
+    {
+      "file": "face-gfpgan-v1.4.onnx",
+      "size": 340357340,
+      "sha256": "c84d5c2bf1ddc5e61cfc71524b1a155b297c1c3e884255e6a8c0ce5230a91d94",
+      "checkpoint": "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth",
+      "parity": {
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "seconds": 1.4851923339883797,
+        "outputs": [
+          {
+            "output": "output",
+            "max": 1.239776611328125e-05,
+            "mean": 2.645203949214192e-07
+          }
+        ]
+      },
+      "fixedVsRandomNoise": {
+        "max": 0.18705010414123535,
+        "mean": 0.00460228743031621,
+        "unit": "[-1, 1] output"
+      }
+    }
+  ]
+}
