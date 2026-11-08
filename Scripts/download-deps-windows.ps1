@@ -95,10 +95,26 @@ $VSRelease = "R78"
 $PythonVersion = "3.12.10"
 $PythonTag = "312"
 
+# Every download goes through Invoke-WithRetry. Upstream hosts (GitHub's release
+# CDN above all) sometimes time out with a 5xx or cut a transfer short; a few
+# spaced retries ride that out instead of failing the whole build. Written as
+# a loop rather than -MaximumRetryCount, which Windows PowerShell 5.1 lacks.
+function Invoke-WithRetry {
+    param([scriptblock]$Action, [string]$What, [int]$Attempts = 6, [int]$DelaySec = 15)
+    for ($i = 1; ; $i++) {
+        try { return & $Action }
+        catch {
+            if ($i -ge $Attempts) { throw }
+            Write-Host "    $What failed (attempt $i of $Attempts): $($_.Exception.Message); retrying in $DelaySec s" -ForegroundColor Yellow
+            Start-Sleep -Seconds $DelaySec
+        }
+    }
+}
+
 function Download-File {
     param([string]$Url, [string]$OutFile)
     Write-Host "  Downloading: $Url" -ForegroundColor Gray
-    Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing
+    Invoke-WithRetry -What $Url { Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing }
 }
 
 # =============================================================================
@@ -729,7 +745,7 @@ Write-Host ""
 Write-Host "Downloading akarin $AkarinVersion (LLVM JIT for std.Expr)..." -ForegroundColor Yellow
 if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
     try {
-        $AkMeta = Invoke-RestMethod -Uri "https://pypi.org/pypi/vapoursynth-akarin/$AkarinVersion/json"
+        $AkMeta = Invoke-WithRetry -What "PyPI vapoursynth-akarin" { Invoke-RestMethod -Uri "https://pypi.org/pypi/vapoursynth-akarin/$AkarinVersion/json" }
         $AkUrl = ($AkMeta.urls | Where-Object { $_.filename -like "*win_amd64.whl" } |
                   Select-Object -First 1).url
         if (-not $AkUrl) { throw "no win_amd64 wheel for akarin $AkarinVersion" }
@@ -737,7 +753,7 @@ if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
         $AkWhl = Join-Path $TempDir "akarin.whl"
         $AkZip = Join-Path $TempDir "akarin-wheel.zip"
         $AkOut = Join-Path $TempDir "akarin-extract"
-        Invoke-WebRequest -Uri $AkUrl -OutFile $AkWhl -UseBasicParsing
+        Download-File -Url $AkUrl -OutFile $AkWhl
         # A wheel is a zip, but Expand-Archive validates the *extension* and
         # refuses .whl outright -- same trap as the VapourSynth wheel above.
         Copy-Item $AkWhl $AkZip -Force
@@ -823,7 +839,7 @@ foreach ($W in $WheelPlugins) {
     Write-Host "Downloading $($W.Name) $($W.Version) (PyPI wheel)..." -ForegroundColor Yellow
     if (-not (Test-Path "$PluginsDir\$($W.Dll)")) {
         try {
-            $Meta = Invoke-RestMethod -Uri "https://pypi.org/pypi/$($W.Package)/$($W.Version)/json"
+            $Meta = Invoke-WithRetry -What "PyPI $($W.Package)" { Invoke-RestMethod -Uri "https://pypi.org/pypi/$($W.Package)/$($W.Version)/json" }
             $Url = ($Meta.urls | Where-Object { $_.filename -like "*win_amd64.whl" } |
                     Select-Object -First 1).url
             if (-not $Url) { throw "no win_amd64 wheel for $($W.Package) $($W.Version)" }
@@ -831,7 +847,7 @@ foreach ($W in $WheelPlugins) {
             $Whl = Join-Path $TempDir "$($W.Name).whl"
             $Zip = Join-Path $TempDir "$($W.Name)-wheel.zip"
             $Out = Join-Path $TempDir "$($W.Name)-extract"
-            Invoke-WebRequest -Uri $Url -OutFile $Whl -UseBasicParsing
+            Download-File -Url $Url -OutFile $Whl
             # Expand-Archive validates the *extension* and refuses .whl outright.
             Copy-Item $Whl $Zip -Force
             Remove-Item $Out -Recurse -Force -ErrorAction SilentlyContinue

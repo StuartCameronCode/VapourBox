@@ -13,6 +13,14 @@
 
 set -e
 
+# Every download goes through this. Upstream hosts (GitHub's release CDN above
+# all) sometimes answer with a 5xx error page or cut a transfer short: plain
+# `curl -L` saves that page as the archive and the build dies later on a
+# baffling "not in gzip format". --fail turns an HTTP error into a failed
+# command, and the retries (any error, transfer cut short included) ride out a
+# transient outage. Output is rewritten from the start on each attempt.
+curl() { command curl --fail --retry 6 --retry-delay 15 --retry-all-errors "$@"; }
+
 FORCE=false
 TIER=v3
 while [[ $# -gt 0 ]]; do
