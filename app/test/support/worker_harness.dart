@@ -33,6 +33,7 @@ import 'package:path/path.dart' as p;
 import 'package:vapourbox/services/addon_manager.dart';
 import 'package:vapourbox/services/addon_service.dart';
 import 'package:vapourbox/services/manifest_addon.dart';
+import 'package:vapourbox/services/process_tree.dart';
 import 'package:vapourbox/services/whisper_addon_manager.dart';
 import 'package:vapourbox/services/dependency_manager.dart'
     show DepsVersionInfo, DependencyManager;
@@ -437,8 +438,10 @@ class WorkerHarness {
 
       final exitCode = await process.exitCode.timeout(
         timeout,
-        onTimeout: () {
-          process.kill();
+        onTimeout: () async {
+          // The whole tree: on Windows killing the worker alone leaves its
+          // vspipe running a network on every core, starving later tests.
+          await ProcessTree.killTree(process, ProcessSignal.sigkill);
           throw TimeoutException('$label timed out after ${timeout.inSeconds}s');
         },
       );
@@ -513,7 +516,7 @@ class WorkerHarness {
       if (logLines.any((l) => l.contains('"type":"error"'))) break;
     }
 
-    process.kill();
+    await ProcessTree.killTree(process);
     await process.exitCode.timeout(const Duration(seconds: 5), onTimeout: () {
       Process.killPid(process.pid, ProcessSignal.sigkill);
       return -1;
@@ -646,8 +649,8 @@ class WorkerHarness {
           .fold<BytesBuilder>(BytesBuilder(), (b, chunk) => b..add(chunk));
       final stderrFuture = process.stderr.transform(utf8.decoder).join();
 
-      final exitCode = await process.exitCode.timeout(timeout, onTimeout: () {
-        process.kill();
+      final exitCode = await process.exitCode.timeout(timeout, onTimeout: () async {
+        await ProcessTree.killTree(process, ProcessSignal.sigkill);
         throw TimeoutException('$label timed out after ${timeout.inSeconds}s');
       });
       final png = (await stdoutFuture).takeBytes();

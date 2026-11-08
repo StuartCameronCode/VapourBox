@@ -70,17 +70,18 @@ VideoJob _upscaleJob(UpscaleMethod method, {String noise = 'conservative'}) => _
       'upscale_${method.name}',
       ProcessingPipeline(
         deinterlace: const QTGMCParameters(enabled: false),
-        // Cropped to 240x192 first: on a CPU Vulkan driver (lavapipe, on the
+        // Cropped to 120x96 first: on a CPU Vulkan driver (lavapipe, on the
         // GPU-less CI runners) one whole 720x576 Real-CUGAN frame took over
-        // five minutes on Windows. This test only needs a real frame out of
-        // the GPU at the right size; full-size encodes are the heavy suite's.
+        // five minutes on Windows, and even 240x192 took 2.5 to over 5. This
+        // test only needs a real frame out of the GPU at the right size;
+        // full-size encodes are the heavy suite's.
         cropResize: CropResizeParameters(
           enabled: true,
           cropEnabled: true,
-          cropLeft: 240,
-          cropRight: 240,
-          cropTop: 192,
-          cropBottom: 192,
+          cropLeft: 300,
+          cropRight: 300,
+          cropTop: 240,
+          cropBottom: 240,
           useIntegerUpscale: true,
           upscaleMethod: method,
           upscaleFactor: 2,
@@ -115,17 +116,17 @@ final _features = <String, _Feature>{
   'Real-ESRGAN': _Feature(GpuPlugin.upscale, () => _upscaleJob(UpscaleMethod.realEsrgan), 'ncnn', [
     'RealESRGANv2-animevideo-xsx2.onnx',
     'core.ncnn.Model(_ai_rgb, network_path=_ai_model, fp16=True',
-  ], (480, 384)),
+  ], (240, 192)),
   'Real-CUGAN': _Feature(GpuPlugin.upscale, () => _upscaleJob(UpscaleMethod.realCugan, noise: 'denoise3x'), 'ncnn', [
     'up2x-latest-denoise3x.onnx',
     'core.ncnn.Model(_ai_rgb, network_path=_ai_model, fp16=True',
-  ], (480, 384)),
+  ], (240, 192)),
   'AnimeJaNai': _Feature(GpuPlugin.upscale, () => _upscaleJob(UpscaleMethod.animeJanai), 'animejanai', [
     '2x_AnimeJaNai_SD_V1beta34_Compact.onnx',
     '2x_AnimeJaNai_HD_V3_Compact.onnx',
     '_ai_model = _ai_model[0] if _ai_rgb.height <= 576 else _ai_model[1]',
     'core.ncnn.Model(_ai_rgb, network_path=_ai_model, fp16=True',
-  ], (480, 384), needsAnimeJanai: true),
+  ], (240, 192), needsAnimeJanai: true),
 };
 
 void main() {

@@ -77,7 +77,11 @@ Map<String, dynamic> _job(String name, FaceRestoreParameters? fr,
 Future<String> _encode(String name, FaceRestoreParameters? fr,
     {String? input, String pixFmt = 'yuv420p'}) async {
   final r = await WorkerHarness.runJob(_job(name, fr, input: input, pixFmt: pixFmt),
-      label: name, timeout: const Duration(minutes: 15));
+      label: name, timeout: const Duration(minutes: 25),
+      // On the Intel-Mac CI VMs Core ML's virtual GPU fails and the models run
+      // on a slow CPU: CodeFormer's first frame (five frames of faces, for the
+      // smoothing) took ~10 min, past the worker's 600 s stall limit.
+      extraEnv: const {'VAPOURBOX_STALL_TIMEOUT_SECS': '1200'});
   expect(r.success, isTrue, reason: '${r.error}\n${r.logs.reversed.take(30).toList().reversed.join('\n')}');
   // ignore: avoid_print
   print('  $name: ${r.duration.inMilliseconds / 1000}s for $_count frames');
