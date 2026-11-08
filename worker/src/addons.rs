@@ -24,6 +24,10 @@ pub const MARKER: &str = ".vapourbox-addon.json";
 /// The AI runtime: ONNX Runtime and NumPy for the job's Python.
 pub const AI_RUNTIME: &str = "ai-runtime";
 
+/// DeepFilterNet's `deep-filter` program, for audio restoration's speech
+/// enhancement (`audio_restoration.rs`).
+pub const DEEPFILTERNET: &str = "deepfilternet";
+
 /// Where in the add-ons UI to install them — named in every refusal.
 const WHERE: &str = "Settings → Add-ons";
 
@@ -36,6 +40,9 @@ pub struct ManifestFile {
     pub platforms: Option<Vec<String>>,
     #[serde(default)]
     pub extract: Option<Vec<ArchiveMember>>,
+    /// A program the worker runs: the app marks it executable on install.
+    #[serde(default)]
+    pub executable: bool,
 }
 
 impl ManifestFile {
@@ -107,6 +114,14 @@ impl Manifest {
             }
         }
         out
+    }
+}
+
+impl Manifest {
+    /// The program this add-on installs for `platform` (the file marked
+    /// `executable`), by its installed name.
+    pub fn executable_for(&self, platform: &str) -> Option<&str> {
+        self.files.iter().find(|f| f.executable && f.is_for(platform)).map(|f| f.name.as_str())
     }
 }
 
@@ -382,6 +397,22 @@ mod tests {
         let err = require(&root, &[AI_RUNTIME], "Face restoration", "macos-arm64").unwrap_err().to_string();
         assert!(err.contains("out of date") && err.contains("0.0.1"), "{err}");
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// DeepFilterNet is one program per platform, each the platform's own
+    /// upstream build, marked executable so the app sets the bit on install.
+    #[test]
+    fn deepfilternet_has_one_program_per_platform() {
+        let m = manifest(DEEPFILTERNET).unwrap();
+        assert_eq!(m.kind, "files");
+        for p in PLATFORMS {
+            assert!(m.supports(p), "{p}");
+            let exe = m.executable_for(p).unwrap_or_else(|| panic!("no program for {p}"));
+            assert_eq!(m.expected_paths(p), vec![exe.to_string()]);
+            assert_eq!(exe.ends_with(".exe"), *p == "windows-x64", "{exe}");
+        }
+        // Nothing else is marked executable.
+        assert!(manifest(AI_RUNTIME).unwrap().files.iter().all(|f| !f.executable));
     }
 
     #[test]
