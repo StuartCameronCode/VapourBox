@@ -128,6 +128,7 @@ VapourBox/
 | `worker/src/comment_metadata.rs` | The source's comment tag, prefixed with the version and passed to ffmpeg as an FFMETADATA file (issue #138) |
 | `worker/src/hdr_metadata.rs` | HDR10 mastering display / MaxCLL read from the source for x265, and the Dolby Vision profile (see "HDR Sources and Dolby Vision") |
 | `worker/src/native_res.rs` | `--detect-native`: the resolution and kernel a source was upscaled from, for the Descale pass (see "Descale") |
+| `worker/src/crop_detect.rs` | `--detect-crop`: black borders, blanking, letterbox bars and the head-switching band, for Crop & Resize's Detect (see "Crop Detection") |
 | `worker/src/audio_restoration.rs` | Audio restoration: probes, the one `AudioPlan` (every `-af` filter, in order), the render before the encode, and the encoder's audio map/codec args (see "Audio Restoration") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
@@ -144,6 +145,8 @@ VapourBox/
 | `app/lib/services/temp_directory_service.dart` | Configurable scratch-file directory (see "Temporary Files Directory") |
 | `app/lib/services/overwrite_behavior_service.dart` | Default action for existing output files (see "Existing Output Files") |
 | `app/lib/models/native_res_report.dart` | What `--detect-native` found, as the Descale panel's Detect shows and applies it |
+| `app/lib/models/crop_detect_report.dart` | What `--detect-crop` found, and which suggestion (`CropApply`) the panel applies |
+| `app/lib/views/pass_settings/crop_detect_panel.dart` | Crop & Resize's Detect borders panel: findings, Apply crop / Crop the bars too / Repair the band instead |
 | `app/lib/services/addon_service.dart` | Every optional third-party download (Whisper, AnimeJaNai): catalogue, install with requirements, remove with dependants (see "Add-ons") |
 | `app/lib/services/manifest_addon.dart` | `AddonManifest` + `ManifestAddonInstaller`: the generic installer for `app/assets/addons/*.json` (docs/ADDONS.md) |
 | `app/lib/models/audio_restoration_parameters.dart` | The Audio Restoration pass (`ProcessingPipeline.audio`, `PassType.audioRestoration`) and the DeepFilterNet add-on prompt |
@@ -487,8 +490,8 @@ tried again — is in the renderer's header comment.
 **Name presets after the source, not the technique.** The user knows they
 captured a DV tape; they don't know it wants SMDegrain with a chroma-bleed fix.
 That is why the set includes `DV Camcorder Tape`, `PAL DVD / Broadcast`,
-`Anime DVD`, `8mm / Super 8 Film Scan` and `Low-Light Phone / Camera Video`
-alongside the three quality tiers.
+`Anime DVD`, `8mm / Super 8 Film Scan`, `Low-Light Phone / Camera Video` and
+`SD Tape → HD (YouTube / TV)` alongside the three quality tiers.
 
 **Set `category`.** `PresetCategory.quality` for a speed/quality tier,
 `PresetCategory.source` for one shaped around a kind of source; the menu in
@@ -877,6 +880,34 @@ rather than calling it, so anything added to one must be added to the other.
 The preview path needs the same source tags fed to swscale
 (`swscale_input_opts()`) or it guesses the matrix and shows a colour shift the
 real encode doesn't have.
+
+**BT.601 → BT.709 on SD → HD (app 1.7.0) is the one place the script
+converts colour.** Crop & Resize's `convertToBt709` (`Bt709Conversion`:
+`auto` default, `on`, `off`) converts a BT.601 source (tagged
+`bt470bg`/`smpte170m`, or untagged below 720 lines) when the output is HD
+(≥ 720 lines or ≥ 1280 wide, from `CropResizeParameters::output_size`, which
+mirrors the script's fitting). Rules:
+
+- **One decision: `VideoJob::converts_to_bt709`.** Everything that describes
+  what the script DELIVERS uses `VideoJob::output_color_metadata()`, never
+  `color_metadata()`: the encoder's input and output tags, the preview's
+  swscale step, and the passes after Crop & Resize (Face Restoration, RIFE,
+  the border fill). Only the AI upscale, which runs inside the resize before
+  the conversion, keeps the source's. A missed site relabels the converted
+  samples back to 601 — a silent colour shift.
+- **The matrix only.** Output tags say `bt709` for matrix and transfer; the
+  primaries keep the source's (tagged, or EBU/SMPTE C by height), because the
+  samples were not gamut-converted. A gamut conversion moved a 75% green by
+  55 levels on a player that does not colour-manage
+  (docs/reports/2026-11-crop-detect-709).
+- **R78's resizers let frame properties override `*_in_s` arguments**, so the
+  `{{#COLOR_709}}` block (both templates, right after `{{/RESIZE}}`) removes
+  `_Matrix`/`_Range` first. Any new block that converts colour with explicit
+  `*_in_s` arguments needs the same.
+- `integration_bt709_conversion_test.dart` (heavy) checks the pixels: every
+  patch within 3 levels (measured ≤ 0.67) of the source decoded as 601,
+  through the tags and when read as 709 regardless, preview = encode, and Off
+  stays 601 and bit-identical in YUV.
 
 ### HDR Sources and Dolby Vision (issue #133)
 
@@ -1375,6 +1406,39 @@ keeps chroma and the source size. Rules:
 - The panel never applies a guess: no clear dip is reported as such.
   `integration_descale_test.dart` (heavy) checks detection on known masters,
   protection (grid exact vs. destroyed without the mask) and preview = encode.
+
+### Crop Detection (`--detect-crop`, app 1.7.0)
+
+Crop & Resize's **Detect borders** (`CropDetectPanel`) runs
+`crop_detect::detect`: 24 frames across the source or its trim, decoded as
+8-bit 4:4:4 and measured line by line in plain Rust (no VapourSynth). It is
+advisory exactly like Descale's Detect: nothing changes until the user picks
+Apply crop, Crop the bars too, or Repair the band instead. Rules:
+
+- **Brightness is a high percentile over every usable frame**, so a line that
+  carries picture in any frame is picture; a border line must also be flat
+  (detail floor 6 levels, so noisy blanking still counts). Frames too dark to
+  judge (central p90 < 48) are left out of everything. One line counts only if
+  it is true black in every frame (a capture card's first line).
+- **Bars wider than 5% of the dimension are framing** (letterbox / pillarbox):
+  reported, in `cropWithBars`, never in the recommended `crop`.
+- **Head switching**: a bottom line torn against the line above *in the same
+  field* (d = 2 when the job's field order is TFF/BFF), in luma or chroma
+  across ≥ 6 of 8 width segments, or shifted sideways by ≥ 3 px; in ≥ 50% of
+  usable frames; touching the bottom (≤ 2 lines skipped). Breadth and
+  persistence are what keep a burnt-in subtitle out.
+- **Rounded outward to steps the Crop pass accepts**, in the Crop pass's
+  orientation (`orient` maps through Rotate / Flip): even everywhere, fours
+  vertically when a 4:2:0 picture is still interlaced at the crop. Edge
+  Repair's alternative stays in source orientation and is offered only up to
+  its panel's 16-line maximum.
+- `confidence` is the share of usable frames whose picture reaches the edge;
+  low means thin evidence (a dark film), not a wrong edge. The panel warns
+  below 0.25.
+- `integration_crop_detect_test.dart` (heavy) builds fixtures from real VHS
+  picture with known borders, a band, a letterbox, subtitles and fades, and
+  asserts every edge within 2 lines; the unit tests in `crop_detect.rs` cover
+  the same traps on synthetic frames.
 
 ### Add-ons: optional third-party downloads
 

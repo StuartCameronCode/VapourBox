@@ -3134,6 +3134,58 @@ footage (`Tests/TestResources/face_restore_test.mp4`):
 - Untested: Windows (DirectML), Linux (CPU), macOS x64; crowds, profiles and
   scene cuts across a face.
 
+### Crop & Resize: BT.601 → BT.709 on SD → HD, and Detect borders (2026-11-08)
+
+Full report with images and scripts:
+[docs/reports/2026-11-crop-detect-709/](reports/2026-11-crop-detect-709/index.html).
+
+**BT.709 conversion.** An SD source resized to HD kept its BT.601 matrix and
+tag; a player that ignores the tag on an HD picture (many do) decodes it as
+709. Measured: a 75% green comes back 30 levels dark (191 → 161), 100% green
+40, magenta and red 25–30. Crop & Resize now converts the matrix in the
+script when the output is HD (`convertToBt709`, default `auto`), and
+`VideoJob::output_color_metadata` is the one decision every site after the
+conversion follows. Measured through the real worker: every patch within
+0.67 levels of the source decoded as 601, whether the output is read through
+its tags or as 709 regardless; preview = encode exactly. The conversion costs
+~7–10 ms per 1350x1080 frame (8 threads, M1 Pro); a 601 → 709 → 601 round
+trip changes luma by 0.25/255 on average.
+
+- **Matrix only, primaries kept and tagged as the source's.** Also converting
+  SMPTE C → BT.709 primaries moved a 75% green to (55,188,0) and a 75% magenta
+  to (187,47,191) when decoded without colour management (most players): a
+  hue shift of its own, as large as the one being fixed. EBU (PAL) primaries
+  differ only in green, and still moved 75% green to (0,191,30). A
+  colour-managed player reads the kept primaries tag and shows the source's
+  colour either way.
+- **Default `auto`, deliberately changing existing output**: an SD job that
+  resizes to HD now writes 709-tagged, converted samples where it wrote
+  601-tagged ones. The 601-tagged HD file was correct but shown wrong by the
+  players people use; the converted one is shown right by all of them. No
+  built-in preset resized before, so none changes; the new `SD Tape → HD
+  (YouTube / TV)` preset sets `on`.
+- **VapourSynth R78 trap**: a frame's `_Matrix` property overrides
+  `matrix_in_s`. The first measurement script read "601 decoded as 709" equal
+  to the source because of it; the template's block removes `_Matrix`/`_Range`
+  before converting.
+
+**Detect borders (`--detect-crop`).** VCG Deinterlacer 2.0's `edges.rs` (MIT)
+was read for the signals; the code is our own (nothing ported, so no NOTICES
+entry). On fixtures built from real VHS picture with known borders every edge
+came back exact (noisy blanking 14/10 px, a 2-line top, an 8-line band; 12
+lines per field interlaced; 72-line letterbox bars reported apart; subtitles
+40 lines up and fades to black ignored); on a real DVB-T broadcast 7/8 black
+columns and 4 black + 1 dim bottom line, as measured by eye; ~0.5–1.5 s per SD
+source and ~2.9 s at 1080p (release worker, 24 frames). Traps designed
+against, each with a unit test: dark scenes (98th percentile over all frames,
+dark frames dropped), noisy blanking (absolute detail floor), letterbox
+(bars over 5% are framing), subtitles (band must span 6 of 8 width segments in
+half the frames, from the bottom), interlaced (compare within the field).
+Untested: a real capture with a visible head-switching band (none in
+`Tests/TestResources/`; the real VHS fixture's bottom is too dark to show
+one), and Windows/Linux (the analysis is plain Rust; only the decode is
+platform-specific).
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and

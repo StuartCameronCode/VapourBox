@@ -15,6 +15,7 @@ import '../../utils/pixel_format.dart';
 import '../../viewmodels/main_viewmodel.dart';
 import '../../widgets/warning_banner.dart';
 import '../settings/dynamic_filter_panel.dart';
+import 'crop_detect_panel.dart';
 import '../addon_dialogs.dart';
 
 /// The settings for one processing pass, rendered inline underneath that pass's
@@ -117,6 +118,7 @@ class PassSettingsInline extends StatelessWidget {
                 model: FaceRestoreModel.fromValue(params.values['model'] as String?),
               ),
             if (filterId == 'descale') _buildDescaleDetect(context, viewModel),
+            if (filterId == 'crop_resize') CropDetectPanel(viewModel: viewModel),
             _buildBitDepthWarning(context, viewModel, schema, params),
             DynamicFilterPanelCompact(
               schema: schema,

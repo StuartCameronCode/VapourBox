@@ -971,6 +971,7 @@ class ParameterConverter {
       'animejanaiSharp': params.animejanaiSharp,
       'generalDenoise': params.generalDenoise,
       'aiStrength': params.aiStrength,
+      'convertToBt709': params.convertToBt709.name,
     };
     // Kernel tuning and the nnedi3/EEDI3 controls start unticked, so the
     // plugin's own default applies until the user opts in. Fallbacks are those
@@ -1695,6 +1696,10 @@ class ParameterConverter {
       animejanaiSharp: v['animejanaiSharp'] as bool? ?? false,
       generalDenoise: v['generalDenoise'] as bool? ?? false,
       aiStrength: (v['aiStrength'] as num?)?.toDouble() ?? 1.0,
+      convertToBt709: Bt709Conversion.values.firstWhere(
+        (m) => m.name == (v['convertToBt709'] as String? ?? 'auto'),
+        orElse: () => Bt709Conversion.auto,
+      ),
       // Absent (checkbox off) stays null so the script omits it entirely.
       bicubicB: (v['bicubicB'] as num?)?.toDouble(),
       bicubicC: (v['bicubicC'] as num?)?.toDouble(),

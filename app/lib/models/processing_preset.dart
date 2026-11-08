@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import 'chroma_denoise_parameters.dart';
 import 'chroma_fix_parameters.dart';
 import 'color_correction_parameters.dart';
+import 'crop_resize_parameters.dart';
 import 'deband_parameters.dart';
 import 'deblock_parameters.dart';
 import 'dehalo_parameters.dart';
@@ -480,12 +481,87 @@ class ProcessingPreset {
     );
   }
 
+  /// Built-in preset: an SD tape capture made into an HD file for YouTube or
+  /// a TV (app 1.7.0).
+  ///
+  /// The tape cleanup of [builtInVhsCleanup], kept lighter, then the three
+  /// things an SD capture needs before an HD screen shows it properly: square
+  /// pixels (a TV or YouTube stretches anamorphic SD unpredictably), an NNEDI3
+  /// doubling resized to 1080 lines (a plain resize from 576 lines is soft),
+  /// and BT.709 colour — an HD-sized picture left in BT.601 is decoded as 709
+  /// by many players, which shifts greens and reds. Light CAS after the
+  /// upscale, on the delivered pixels. H.264 at CRF 17 in 8-bit 4:2:0 MP4 with
+  /// AAC: what every TV, browser and upload service plays, which a 4:2:2
+  /// capture-card source would otherwise not be.
+  static ProcessingPreset builtInSdTapeToHd() {
+    return ProcessingPreset(
+      id: 'builtin-sd-tape-to-hd',
+      name: 'SD Tape \u2192 HD (YouTube / TV)',
+      description:
+          'VHS / Hi8 / DV capture: deinterlace, clean up, upscale to 1080 lines in BT.709',
+      pipeline: ProcessingPipeline(
+        deinterlace: QTGMCParameters(
+          enabled: true,
+          preset: QTGMCPreset.slow,
+        ),
+        // fromPreset: the enum alone is only a label.
+        noiseReduction:
+            NoiseReductionParameters.fromPreset(NoiseReductionPreset.light),
+        chromaDenoise: ChromaDenoiseParameters(
+          enabled: true,
+          threshold: 4.0,
+        ),
+        cropResize: CropResizeParameters(
+          enabled: true,
+          preset: CropResizePreset.custom,
+          // Cropping stays off: how much a tape needs is measured per source
+          // (Crop & Resize's Detect). These are the panel's own starting
+          // values, so ticking Enable Cropping shows what it always shows.
+          cropLeft: 8,
+          cropRight: 8,
+          cropTop: 4,
+          cropBottom: 4,
+          pixelAspect: PixelAspectMode.square,
+          useIntegerUpscale: true,
+          upscaleMethod: UpscaleMethod.nnedi3Rpow2,
+          upscaleFactor: 2,
+          resizeEnabled: true,
+          // A box: 4:3 lands at 1440x1080, 16:9 at 1920x1080.
+          targetWidth: 1920,
+          targetHeight: 1080,
+          kernel: ResizeKernel.spline36,
+          maintainAspect: true,
+          // Auto would convert here too (the output is 1080 lines); stated, so
+          // the preset says what its name promises whatever the default.
+          convertToBt709: Bt709Conversion.on,
+        ),
+        sharpen: SharpenParameters(
+          enabled: true,
+          method: SharpenMethod.cas,
+          casSharpness: 0.3,
+        ),
+      ),
+      encodingSettings: EncodingSettings(
+        codec: VideoCodec.h264,
+        container: ContainerFormat.mp4,
+        encoderPreset: 'slow',
+        quality: 17,
+        chromaSubsampling: ChromaSubsampling.yuv420,
+        audioMode: AudioMode.convert,
+        audioCodec: AudioCodec.aac,
+      ),
+      isBuiltIn: true,
+      category: PresetCategory.source,
+    );
+  }
+
   static List<ProcessingPreset> builtInPresets() {
     return [
       builtInFast(),
       builtInBalanced(),
       builtInHighQuality(),
       builtInVhsCleanup(),
+      builtInSdTapeToHd(),
       builtInDvCamcorder(),
       builtInPalDvd(),
       builtInDvdIvtc(),
