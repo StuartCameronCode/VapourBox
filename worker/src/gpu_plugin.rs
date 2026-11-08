@@ -537,8 +537,21 @@ fn run_with_timeout(
 ) -> std::io::Result<(ProbeExit, String)> {
     // Frame 1: for RIFE's 2x output the first interpolated frame (frame 0 is a
     // copy and would never touch the GPU); for upscaling, any frame runs it.
+    run_vspipe_probe(vspipe, script, env, &["-s", "1", "-e", "1"], PROBE_TIMEOUT)
+}
+
+/// Run a probe script through vspipe with `args` (the frame range), output
+/// discarded, killing it after `timeout`; returns how it ended and its stderr.
+/// Shared with the AI runtime's probe (`ai_runtime.rs`).
+pub(crate) fn run_vspipe_probe(
+    vspipe: &Path,
+    script: &Path,
+    env: &HashMap<String, String>,
+    args: &[&str],
+    timeout: Duration,
+) -> std::io::Result<(ProbeExit, String)> {
     let mut child = Command::new(vspipe)
-        .args(["-s", "1", "-e", "1"])
+        .args(args)
         .arg(script)
         .arg("-")
         .envs(env)
@@ -559,7 +572,7 @@ fn run_with_timeout(
         if let Some(status) = child.try_wait()? {
             break Some(status);
         }
-        if start.elapsed() > PROBE_TIMEOUT {
+        if start.elapsed() > timeout {
             let _ = child.kill();
             let _ = child.wait();
             break None;

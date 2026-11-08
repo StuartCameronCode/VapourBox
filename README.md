@@ -82,7 +82,7 @@ Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract
 
 **GPU features.** RIFE frame interpolation and AI upscaling run on the graphics card through Vulkan: on any Apple Silicon Mac, and on Windows and Linux x64 PCs with a current graphics driver (RIFE on Windows also needs the Microsoft Visual C++ Redistributable). They aren't available on Intel Macs or Linux on ARM yet. GPU deinterlacing and KNLMeans denoising use OpenCL instead; without it, deinterlacing falls back to the CPU. Whenever you choose a GPU feature your machine can't run, VapourBox says what's missing and how to fix it.
 
-**Add-ons.** A few features use third-party downloads that aren't part of VapourBox: the Whisper engine and language models for subtitles, and the AnimeJaNai models for AI upscaling. VapourBox offers to download one the first time you need it, stating its source, size and licence, and **Settings → Add-ons** installs or removes them at any time. AnimeJaNai is free for **non-commercial use only** (CC BY-NC-SA 4.0); for paid work, use Real-ESRGAN or Real-CUGAN instead.
+**Add-ons.** A few features use third-party downloads that aren't part of VapourBox: the Whisper engine and language models for subtitles, the AnimeJaNai models for AI upscaling, and the AI runtime (Microsoft's ONNX Runtime) that AI model add-ons run on. VapourBox offers to download one the first time you need it, stating its source, size and licence, and **Settings → Add-ons** installs or removes them at any time. AnimeJaNai is free for **non-commercial use only** (CC BY-NC-SA 4.0); for paid work, use Real-ESRGAN or Real-CUGAN instead.
 
 **Older processors.** Intel and AMD CPUs from before about 2013 (no AVX2) are supported on every platform. VapourBox checks the processor on first launch and installs a matching set of components, which runs some filters more slowly but never differently.
 
@@ -241,7 +241,7 @@ The shutdown is never forced, so an app with unsaved work can stop it. VapourBox
 
 ## Building from source
 
-See [docs/BUILDING.md](docs/BUILDING.md) for build instructions, project structure and the development workflow.
+See [docs/BUILDING.md](docs/BUILDING.md) for build instructions, project structure and the development workflow, and [docs/ADDONS.md](docs/ADDONS.md) for how optional downloads (AI models and the AI runtime) are described, installed and tested.
 
 The investigations behind feature decisions (measurements, screenshots and the reasoning, including ideas that weren't built) are written up in [docs/reports/](docs/reports/README.md).
 
@@ -276,6 +276,7 @@ VapourBox is a front end to other people's work. Thanks in particular to:
 - **Real-ESRGAN** by Xintao Wang and **Real-CUGAN** by bilibili — the AI upscaling networks, run through AmusementClub's **vs-mlrt** (VSNCNN)
 - **AnimeJaNai** by the-database — anime upscaling models, an optional download (CC BY-NC-SA 4.0, non-commercial use only)
 - **whisper.cpp** by the ggml authors and OpenAI's **Whisper** models — speech recognition for subtitles, an optional download
+- **ONNX Runtime** by Microsoft Corporation, with **NumPy** by the NumPy Developers and, on Windows, Microsoft's **DirectML** — the AI runtime add-on that runs the optional AI models, an optional download
 - **libdvdread** by VideoLAN — DVD reading
 - **FFmpeg** — encoding and decoding
 - **Hybrid** by Selur — the inspiration for this project

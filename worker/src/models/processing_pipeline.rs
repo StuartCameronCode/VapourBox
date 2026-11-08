@@ -525,6 +525,19 @@ impl ProcessingPipeline {
         self.crop_resize.uses_animejanai()
     }
 
+    /// The manifest add-ons (`app/assets/addons/`, see `addons.rs`) each
+    /// enabled feature of this pipeline needs. `ScriptGenerator` refuses the
+    /// job, naming them and Settings → Add-ons, unless all are installed, and
+    /// emits the `{{#AI_RUNTIME}}` block when any of them needs the AI runtime.
+    ///
+    /// No pass uses one yet. A pass that runs a model from an add-on adds an
+    /// entry here when enabled, e.g.
+    /// `AddonNeed { feature: "Face restoration", ids: vec!["gfpgan"] }`
+    /// (a model add-on whose manifest `requires` `ai-runtime`).
+    pub fn required_addons(&self) -> Vec<crate::addons::AddonNeed> {
+        Vec::new()
+    }
+
     /// Whether this pipeline denoises with KNLMeans, which needs a working
     /// OpenCL device before its script can be generated.
     pub fn uses_knlm(&self) -> bool {

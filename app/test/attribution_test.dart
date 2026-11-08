@@ -340,6 +340,7 @@ Set<String> _licenceFamilies(String text) {
     'bsd': 'bsd', 'apache': 'apache', 'isc': 'isc', 'boost': 'bsl', 'bsl': 'bsl',
     'psf': 'psf', 'python software': 'psf', 'zlib': 'zlib', 'unlicense': 'unlicense',
     'no licence': 'none stated', 'no license': 'none stated', 'no copyright': 'no copyright',
+    'microsoft software license': 'microsoft proprietary',
   };
   final out = {for (final MapEntry(key: w, value: f) in words.entries) if (t.contains(w)) f};
   for (final m in RegExp(r'(?<!l)gpl[ -]?v?([23])').allMatches(t)) {

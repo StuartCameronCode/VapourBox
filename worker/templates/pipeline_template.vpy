@@ -24,6 +24,15 @@ import os
 sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
 from pipe_source import create_pipe_clip
 
+{{#AI_RUNTIME}}
+# ONNX Runtime from the ai-runtime add-on (Settings -> Add-ons), for passes
+# that run a model through ai_runtime.session() / ai_runtime.map_frames().
+# ai_runtime.py sits beside pipe_source.py and puts the add-on's packages on
+# sys.path itself: Windows' embeddable Python ignores PYTHONPATH.
+import ai_runtime
+ai_runtime.setup({{AI_RUNTIME_DIR}})
+{{/AI_RUNTIME}}
+
 clip = create_pipe_clip(
     width={{INPUT_WIDTH}},
     height={{INPUT_HEIGHT}},
