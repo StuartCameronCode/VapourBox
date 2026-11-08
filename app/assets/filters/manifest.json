@@ -21,5 +21,6 @@
   "edge_repair.json",
   "ghost_removal.json",
   "descale.json",
-  "face_restore.json"
+  "face_restore.json",
+  "audio_restoration.json"
 ]

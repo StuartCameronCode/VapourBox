@@ -137,6 +137,8 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info) {
     // Whether a video has faces worth restoring is not in its metadata.
     case PassType.faceRestore:
     case PassType.subtitles:
+    // A dead channel, hum or drift is not in the metadata either.
+    case PassType.audioRestoration:
     // Anti-aliasing and stabilisation are tempting to tie to detection —
     // jaggies follow deinterlacing, shake follows handheld capture — but
     // neither is actually visible in the metadata, only plausible from it.

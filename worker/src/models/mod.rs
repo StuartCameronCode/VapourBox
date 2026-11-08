@@ -26,6 +26,7 @@ mod face_restore_parameters;
 mod spotless_parameters;
 mod stabilize_parameters;
 mod sharpen_parameters;
+mod audio_restoration_parameters;
 mod processing_pipeline;
 mod dvd_info;
 
@@ -54,5 +55,6 @@ pub use face_restore_parameters::*;
 pub use stabilize_parameters::*;
 pub use spotless_parameters::*;
 pub use sharpen_parameters::*;
+pub use audio_restoration_parameters::*;
 pub use processing_pipeline::*;
 pub use dvd_info::*;

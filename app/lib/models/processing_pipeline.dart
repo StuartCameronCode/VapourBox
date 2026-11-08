@@ -1,6 +1,7 @@
 import 'package:json_annotation/json_annotation.dart';
 
 import 'anti_alias_parameters.dart';
+import 'audio_restoration_parameters.dart';
 import 'geometry_parameters.dart';
 import 'deflicker_parameters.dart';
 import 'descale_parameters.dart';
@@ -52,6 +53,7 @@ enum PassType {
   chromaFixes,
   cropResize,
   faceRestore,
+  audioRestoration,
   subtitles,
 }
 
@@ -103,6 +105,8 @@ extension PassTypeExtension on PassType {
         return 'Crop / Resize';
       case PassType.faceRestore:
         return 'Face Restoration';
+      case PassType.audioRestoration:
+        return 'Audio Restoration';
       case PassType.subtitles:
         return 'Subtitles';
     }
@@ -154,6 +158,8 @@ extension PassTypeExtension on PassType {
         return 'Crop borders and resize output';
       case PassType.faceRestore:
         return 'Restore detail in blurry, low-resolution faces with AI';
+      case PassType.audioRestoration:
+        return 'Repair, clean and re-sync the soundtrack';
       case PassType.subtitles:
         return 'Generate subtitles using Whisper AI';
     }
@@ -211,6 +217,9 @@ class ProcessingPipeline {
 
   /// Face restoration pass parameters (an add-on model).
   final FaceRestoreParameters faceRestore;
+  /// Audio restoration (rendered by ffmpeg before the encode; not a
+  /// VapourSynth pass, so not in [enabledPasses]).
+  final AudioRestorationParameters audio;
 
   /// Subtitle generation pass parameters (Whisper AI).
   final SubtitleParameters subtitles;
@@ -238,6 +247,7 @@ class ProcessingPipeline {
     this.chromaFixes = const ChromaFixParameters(),
     this.cropResize = const CropResizeParameters(),
     this.faceRestore = const FaceRestoreParameters(),
+    this.audio = const AudioRestorationParameters(),
     this.subtitles = const SubtitleParameters(),
   });
 
@@ -267,6 +277,7 @@ class ProcessingPipeline {
       chromaFixes: const ChromaFixParameters(enabled: false),
       cropResize: const CropResizeParameters(enabled: false),
       faceRestore: const FaceRestoreParameters(enabled: false),
+      audio: const AudioRestorationParameters(enabled: false),
       subtitles: const SubtitleParameters(enabled: false),
     );
   }
@@ -379,7 +390,7 @@ class ProcessingPipeline {
     return passes;
   }
 
-  /// Get count of enabled passes (includes subtitles).
+  /// Get count of enabled passes (includes audio restoration and subtitles).
   int get enabledPassCount {
     var count = 0;
     if (deinterlace.enabled) count++;
@@ -404,11 +415,13 @@ class ProcessingPipeline {
     if (chromaFixes.enabled) count++;
     if (cropResize.enabled) count++;
     if (faceRestore.enabled) count++;
+    if (audio.enabled) count++;
     if (subtitles.enabled) count++;
     return count;
   }
 
-  /// Get count of enabled video processing passes (excludes subtitles).
+  /// Get count of enabled video processing passes (excludes audio
+  /// restoration and subtitles).
   int get videoPassCount {
     var count = 0;
     if (deinterlace.enabled) count++;
@@ -483,6 +496,8 @@ class ProcessingPipeline {
         return cropResize.enabled;
       case PassType.faceRestore:
         return faceRestore.enabled;
+      case PassType.audioRestoration:
+        return audio.enabled;
       case PassType.subtitles:
         return subtitles.enabled;
     }
@@ -537,6 +552,8 @@ class ProcessingPipeline {
         return cropResize.summary;
       case PassType.faceRestore:
         return faceRestore.summary;
+      case PassType.audioRestoration:
+        return audio.summary;
       case PassType.subtitles:
         return subtitles.summary;
     }
@@ -565,6 +582,7 @@ class ProcessingPipeline {
     ChromaFixParameters? chromaFixes,
     CropResizeParameters? cropResize,
     FaceRestoreParameters? faceRestore,
+    AudioRestorationParameters? audio,
     SubtitleParameters? subtitles,
   }) {
     return ProcessingPipeline(
@@ -590,6 +608,7 @@ class ProcessingPipeline {
       chromaFixes: chromaFixes ?? this.chromaFixes,
       cropResize: cropResize ?? this.cropResize,
       faceRestore: faceRestore ?? this.faceRestore,
+      audio: audio ?? this.audio,
       subtitles: subtitles ?? this.subtitles,
     );
   }
@@ -677,6 +696,8 @@ class ProcessingPipeline {
         );
       case PassType.faceRestore:
         return copyWith(faceRestore: faceRestore.copyWith(enabled: enabled));
+      case PassType.audioRestoration:
+        return copyWith(audio: audio.copyWith(enabled: enabled));
       case PassType.subtitles:
         return copyWith(
           subtitles: subtitles.copyWith(enabled: enabled),

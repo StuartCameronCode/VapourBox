@@ -1,0 +1,63 @@
+{
+  "id": "deepfilternet",
+  "version": "1.0.0",
+  "name": "DeepFilterNet speech enhancement",
+  "feature": "Audio restoration",
+  "description": "Turns down the noise behind speech — hiss, hum, traffic, a noisy room — with a small neural network that runs on the CPU. Audio Restoration's Speech enhancement uses it. One self-contained program (DeepFilterNet 3, deep-filter 0.5.6), downloaded from the DeepFilterNet project's own release.",
+  "licence": "MIT OR Apache-2.0",
+  "licenceUrl": "https://github.com/Rikorose/DeepFilterNet/blob/v0.5.6/LICENSE-MIT",
+  "credit": "Hendrik Schröter",
+  "noticeName": "DeepFilterNet",
+  "homepage": "https://github.com/Rikorose/DeepFilterNet",
+  "requires": [],
+  "kind": "files",
+  "platforms": {
+    "macos-arm64": { "minOs": "13.0" },
+    "macos-x64": { "minOs": "13.0" },
+    "windows-x64": {},
+    "linux-x64": {},
+    "linux-arm64": {}
+  },
+  "files": [
+    {
+      "name": "deep-filter-0.5.6-aarch64-apple-darwin",
+      "url": "https://github.com/Rikorose/DeepFilterNet/releases/download/v0.5.6/deep-filter-0.5.6-aarch64-apple-darwin",
+      "size": 27877081,
+      "sha256": "4601e7f4e4c03e59a4c5b5000216ef3add3e808799cfccd95e14e83ea4611081",
+      "platforms": ["macos-arm64"],
+      "executable": true
+    },
+    {
+      "name": "deep-filter-0.5.6-x86_64-apple-darwin",
+      "url": "https://github.com/Rikorose/DeepFilterNet/releases/download/v0.5.6/deep-filter-0.5.6-x86_64-apple-darwin",
+      "size": 29933512,
+      "sha256": "d3be84003acb7c23e738ad7f70a158ec779a8d233a82e7fa3e717d112eb5b50f",
+      "platforms": ["macos-x64"],
+      "executable": true
+    },
+    {
+      "name": "deep-filter-0.5.6-x86_64-pc-windows-msvc.exe",
+      "url": "https://github.com/Rikorose/DeepFilterNet/releases/download/v0.5.6/deep-filter-0.5.6-x86_64-pc-windows-msvc.exe",
+      "size": 26912256,
+      "sha256": "75e11fa16445f560cb6b021521ddb89e89270d13b83089705d98776f58fd7915",
+      "platforms": ["windows-x64"],
+      "executable": true
+    },
+    {
+      "name": "deep-filter-0.5.6-x86_64-unknown-linux-musl",
+      "url": "https://github.com/Rikorose/DeepFilterNet/releases/download/v0.5.6/deep-filter-0.5.6-x86_64-unknown-linux-musl",
+      "size": 36417296,
+      "sha256": "70775e251eee44c0f2451a1e833326cf8bcbbe304d3e7cd12851e6fce72ef7da",
+      "platforms": ["linux-x64"],
+      "executable": true
+    },
+    {
+      "name": "deep-filter-0.5.6-aarch64-unknown-linux-gnu",
+      "url": "https://github.com/Rikorose/DeepFilterNet/releases/download/v0.5.6/deep-filter-0.5.6-aarch64-unknown-linux-gnu",
+      "size": 39238496,
+      "sha256": "14e02a1c0028f3ca0bdf83b62b3336e56ba0556894ef295a95e8573f06557166",
+      "platforms": ["linux-arm64"],
+      "executable": true
+    }
+  ]
+}

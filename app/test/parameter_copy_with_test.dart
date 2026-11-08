@@ -26,6 +26,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vapourbox/models/anti_alias_parameters.dart';
+import 'package:vapourbox/models/audio_restoration_parameters.dart';
 import 'package:vapourbox/models/chroma_denoise_parameters.dart';
 import 'package:vapourbox/models/chroma_fix_parameters.dart';
 import 'package:vapourbox/models/color_correction_parameters.dart';
@@ -73,6 +74,9 @@ void main() {
   final models = <_Model>[
     _Model('AntiAliasParameters', () => const AntiAliasParameters().toJson(),
         (j) => AntiAliasParameters.fromJson(j).copyWith().toJson()),
+    _Model('AudioRestorationParameters',
+        () => const AudioRestorationParameters().toJson(),
+        (j) => AudioRestorationParameters.fromJson(j).copyWith().toJson()),
     _Model('ChromaDenoiseParameters',
         () => const ChromaDenoiseParameters().toJson(),
         (j) => ChromaDenoiseParameters.fromJson(j).copyWith().toJson()),
@@ -143,7 +147,7 @@ void main() {
     test('every parameter model is covered', () {
       // The count is the guard: a new model with a forgetful copyWith would
       // otherwise be caught by nothing at all.
-      expect(models.length, 22,
+      expect(models.length, 23,
           reason: 'a parameter model was added or removed — add it to this '
               'list and update the count');
     });

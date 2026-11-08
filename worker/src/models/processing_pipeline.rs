@@ -8,7 +8,7 @@ use super::{
     AntiAliasParameters, GeometryParameters, GrainParameters, StabilizeParameters,
     ChromaDenoiseParameters, ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
     DebandParameters, DeblockParameters, DehaloParameters, DeinterlaceMethod, DeScratchParameters,
-    SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters, FrameRateParameters, FrameRateMethod, NoiseReductionMethod, DeflickerParameters, EdgeRepairParameters, GhostRemovalParameters, DescaleParameters, FaceRestoreParameters,};
+    SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters, FrameRateParameters, FrameRateMethod, NoiseReductionMethod, DeflickerParameters, EdgeRepairParameters, GhostRemovalParameters, DescaleParameters, FaceRestoreParameters, AudioRestorationParameters,};
 
 /// Minimum temporal context (frames on each side of the target) a windowed
 /// preview decodes, regardless of which filters are enabled. Motion-compensated
@@ -321,6 +321,11 @@ pub struct ProcessingPipeline {
     /// Face restoration (RestoreFormer++ / GFPGAN / CodeFormer). Off by default.
     #[serde(default)]
     pub face_restore: FaceRestoreParameters,
+    /// Audio restoration. Not a VapourSynth pass — it is rendered by ffmpeg
+    /// before the encode (`audio_restoration.rs`) — so it is not in
+    /// `PassType` or `enabled_passes`, which describe the picture.
+    #[serde(default)]
+    pub audio: AudioRestorationParameters,
 }
 
 impl Default for ProcessingPipeline {
@@ -348,6 +353,7 @@ impl Default for ProcessingPipeline {
             chroma_fixes: ChromaFixParameters::default(),
             crop_resize: CropResizeParameters::default(),
             face_restore: FaceRestoreParameters::default(),
+            audio: AudioRestorationParameters::default(),
         }
     }
 }
@@ -379,6 +385,7 @@ impl ProcessingPipeline {
             chroma_fixes: ChromaFixParameters { enabled: false, ..Default::default() },
             crop_resize: CropResizeParameters { enabled: false, ..Default::default() },
             face_restore: FaceRestoreParameters::default(),
+            audio: AudioRestorationParameters::default(),
         }
     }
 
@@ -553,6 +560,10 @@ impl ProcessingPipeline {
     ///
     /// A pass that runs a model from an add-on adds an entry here when
     /// enabled (a model add-on whose manifest `requires` `ai-runtime`).
+    ///
+    /// Picture passes only. Audio restoration's DeepFilterNet add-on is
+    /// checked by `audio_restoration` when the track is rendered: a preview
+    /// never touches the audio, so it must not be refused for it.
     pub fn required_addons(&self) -> Vec<crate::addons::AddonNeed> {
         let mut needs = Vec::new();
         if self.face_restore.enabled {
@@ -696,6 +707,29 @@ impl ProcessingPipeline {
         self.frame_maps()
             .iter()
             .fold(source_frames, |n, m| m.output_count(n))
+    }
+
+    /// How long the encoded picture is, in seconds, for `source_frames` at
+    /// `source_fps`: the output frame count over the output rate, both
+    /// composed from every pass's `FrameMap`. Double-rate deinterlacing and
+    /// IVTC change the count and the rate together, so the length stays the
+    /// source's; a frame-rate conversion's count is floored, so it can be up
+    /// to one output frame short. Audio restoration fits the sound to this.
+    pub fn output_duration_secs(&self, source_frames: u64, source_fps: f64) -> Option<f64> {
+        if !(source_fps > 0.0) {
+            return None;
+        }
+        let (mut num, mut den) = (1u64, 1u64);
+        for m in self.frame_maps() {
+            let (a, b) = m.rate_factor();
+            num *= a;
+            den *= b;
+            let g = gcd(num, den);
+            num /= g;
+            den /= g;
+        }
+        let out_rate = source_fps * num as f64 / den as f64;
+        Some(self.output_count(source_frames) as f64 / out_rate)
     }
 
     /// Map a final output frame index back to the source frame span that

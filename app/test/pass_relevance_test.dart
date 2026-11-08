@@ -208,6 +208,7 @@ void main() {
         PassType.sharpen,
         PassType.colorCorrection,
         PassType.subtitles,
+        PassType.audioRestoration,
       ];
 
       for (final scan in ScanType.values) {

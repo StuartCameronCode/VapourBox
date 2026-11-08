@@ -6930,12 +6930,12 @@ fn face_restore_job(name: &str, fr: FaceRestoreParameters) -> VideoJob {
 /// add-ons, in both scripts: after the resize and before sharpening, with the
 /// AI runtime set up first and every model path taken from its add-on.
 #[test]
-fn test_185_face_restore_script_and_models() {
+fn test_186_face_restore_script_and_models() {
     create_output_dir();
     let platform = "macos-arm64";
-    let root = fake_addons("185", &["face-restoration", "face-codeformer"], platform);
+    let root = fake_addons("186", &["face-restoration", "face-codeformer"], platform);
     let generator = ScriptGenerator::new().unwrap().with_addons(root.clone(), platform);
-    let job = face_restore_job("test_185_face_restore", FaceRestoreParameters {
+    let job = face_restore_job("test_186_face_restore", FaceRestoreParameters {
         model: FaceRestoreModel::CodeFormer,
         strength: 0.6,
         code_former_fidelity: 0.5,
@@ -6994,13 +6994,13 @@ fn test_185_face_restore_script_and_models() {
 /// Settings → Add-ons; with the pass off nothing needs them and the script
 /// has neither the runtime nor the call.
 #[test]
-fn test_186_face_restore_refused_without_addons() {
+fn test_187_face_restore_refused_without_addons() {
     create_output_dir();
     let platform = "macos-arm64";
     // The base installed but not GFPGAN's add-on.
-    let root = fake_addons("186", &["face-restoration"], platform);
+    let root = fake_addons("187", &["face-restoration"], platform);
     let generator = ScriptGenerator::new().unwrap().with_addons(root.clone(), platform);
-    let gfpgan = face_restore_job("test_186_gfpgan", FaceRestoreParameters {
+    let gfpgan = face_restore_job("test_187_gfpgan", FaceRestoreParameters {
         model: FaceRestoreModel::Gfpgan,
         ..Default::default()
     });
@@ -7009,12 +7009,12 @@ fn test_186_face_restore_refused_without_addons() {
     assert!(err.contains("Settings → Add-ons"), "{err}");
     assert!(err.to_lowercase().contains("gfpgan"), "{err}");
     // RestoreFormer++ needs only the base.
-    let rf = face_restore_job("test_186_rf", FaceRestoreParameters::default());
+    let rf = face_restore_job("test_187_rf", FaceRestoreParameters::default());
     let (encode, _) = both_scripts_with(&generator, &rf).expect("the base add-on is enough");
     assert!(encode.contains("model=\"restoreformer\""));
     assert!(encode.contains("strength=0.800"));
     // Nothing installed at all.
-    let empty = std::env::temp_dir().join(format!("vb-addons-186-empty-{}", Uuid::new_v4()));
+    let empty = std::env::temp_dir().join(format!("vb-addons-187-empty-{}", Uuid::new_v4()));
     let bare = ScriptGenerator::new().unwrap().with_addons(empty, platform);
     assert!(both_scripts_with(&bare, &rf).is_err());
     // Pass off: no add-on needed, no runtime, no call.
@@ -7026,4 +7026,46 @@ fn test_186_face_restore_refused_without_addons() {
         assert!(!script.contains("restore_faces("));
     }
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Audio restoration is rendered by ffmpeg before the encode, never by the
+/// VapourSynth script: every step switched on — DeepFilterNet included, which
+/// is not installed here — leaves both scripts byte-for-byte as they are with
+/// the pass off. (A preview must never be refused for an audio add-on.)
+#[test]
+fn test_185_audio_restoration_never_touches_the_scripts() {
+    create_output_dir();
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_addons(std::env::temp_dir().join("vb-no-addons-here"), "macos-arm64");
+    let mut job = create_base_job("test_185_audio_restoration");
+    job.processing_pipeline = Some(ProcessingPipeline::default());
+    let (encode_off, preview_off) = both_scripts_with(&generator, &job).unwrap();
+
+    job.processing_pipeline = Some(ProcessingPipeline {
+        audio: AudioRestorationParameters {
+            enabled: true,
+            channel_fix: ChannelFix::Auto,
+            offset_ms: -250,
+            drift_correction: true,
+            declip: true,
+            declick: true,
+            hum_removal: true,
+            rumble_filter: true,
+            denoise: true,
+            deep_filter: true,
+            loudness_normalize: true,
+            limiter: true,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let (encode_on, preview_on) = both_scripts_with(&generator, &job).unwrap();
+    assert_eq!(encode_on, encode_off, "the encode script must not change");
+    assert_eq!(preview_on, preview_off, "the preview script must not change");
+    for script in [&encode_on, &preview_on] {
+        for word in ["afftdn", "loudnorm", "deep-filter", "atempo"] {
+            assert!(!script.contains(word), "{word} reached the script");
+        }
+    }
 }

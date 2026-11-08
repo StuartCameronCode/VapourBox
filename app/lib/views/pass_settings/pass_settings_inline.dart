@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/dynamic_parameters.dart';
 import '../../models/face_restore_parameters.dart';
+import '../../models/audio_restoration_parameters.dart';
 import '../../models/filter_registry.dart';
 import '../../models/filter_schema.dart';
 import '../../models/pass_advice.dart';
@@ -77,6 +78,8 @@ class PassSettingsInline extends StatelessWidget {
         return 'crop_resize';
       case PassType.faceRestore:
         return 'face_restore';
+      case PassType.audioRestoration:
+        return 'audio_restoration';
       case PassType.subtitles:
         return 'subtitles';
     }
@@ -394,6 +397,17 @@ class PassSettingsInline extends StatelessWidget {
         context,
         faceAddons,
         reason: faceRestoreAddonReason,
+      );
+      if (!ready) return;
+    }
+    // DeepFilterNet is an add-on too: choosing speech enhancement offers it.
+    if (deepFilterChosen(filterId, oldParams.values, newParams.values) &&
+        newParams.enabled) {
+      if (!context.mounted) return;
+      final ready = await AddonPrompt.ensure(
+        context,
+        [deepFilterNetAddonId],
+        reason: 'Speech enhancement needs DeepFilterNet.',
       );
       if (!ready) return;
     }
