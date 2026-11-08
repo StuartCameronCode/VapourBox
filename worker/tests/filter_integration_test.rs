@@ -7520,3 +7520,75 @@ fn test_185_audio_restoration_never_touches_the_scripts() {
         }
     }
 }
+
+/// BT.601 -> BT.709 on SD -> HD (app 1.7.0). The conversion block appears in
+/// BOTH scripts exactly when the job decides to convert, converts from the
+/// source's own matrix and range, and everything after it (the border fill
+/// here) works in BT.709. Off, or an SD-sized output, leaves no block at all.
+#[test]
+fn test_206_bt601_to_bt709_on_sd_to_hd() {
+    create_output_dir();
+    let job_for = |mode: Bt709Conversion, target_h: i32, matrix: Option<&str>, range: &str| {
+        let mut job = create_base_job("test_206_bt709");
+        job.qtgmc_parameters.enabled = false;
+        job.input_width = Some(720);
+        job.input_height = Some(576);
+        job.input_pixel_format = Some("yuv420p".to_string());
+        job.input_color_matrix = matrix.map(str::to_string);
+        job.input_color_range = Some(range.to_string());
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            crop_resize: CropResizeParameters {
+                enabled: true,
+                resize_enabled: true,
+                target_width: Some(target_h * 4 / 3),
+                target_height: Some(target_h),
+                pad_enabled: true,
+                pad_width: Some(target_h * 16 / 9),
+                pad_height: Some(target_h),
+                convert_to_bt709: mode,
+                ..CropResizeParameters::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+
+    // PAL, tagged: converts from 470bg, limited range, in both scripts.
+    let job = job_for(Bt709Conversion::Auto, 1080, Some("bt470bg"), "tv");
+    assert!(job.converts_to_bt709());
+    let (encode, preview) = generate_both_scripts(&job);
+    for script in [&encode, &preview] {
+        assert!(script.contains(r#"matrix_in_s="470bg""#), "converts from the source's matrix");
+        assert!(script.contains(r#"matrix_s="709""#));
+        assert!(script.contains(r#"range_in_s="limited""#));
+        assert!(script.contains(r#"RemoveFrameProps(clip, props=["_Matrix", "_Range", "_ColorRange"])"#));
+        assert!(!script.contains("{{C709") && !script.contains("{{#COLOR_709"), "unsubstituted placeholder");
+        // The bars go on after the conversion, so their colour is 709's.
+        assert!(script.contains(r#"matrix_s="709", range_s="limited")"#), "border fill in 709");
+        // After the resize and before Face Restoration.
+        let at = script.find(r#"matrix_in_s="470bg""#).unwrap();
+        assert!(script.find("PASS: FACE RESTORATION").unwrap() > at);
+    }
+    run_job_and_verify(&job, "BT.709 conversion", &[r#"matrix_s="709""#]).unwrap();
+
+    // Untagged full-range SD: read as 601 (170m), range kept full.
+    let (encode, _) = generate_both_scripts(&job_for(Bt709Conversion::Auto, 1080, None, "pc"));
+    assert!(encode.contains(r#"matrix_in_s="170m""#));
+    assert!(encode.contains(r#"range_in_s="full""#));
+
+    // Off, an SD-sized output under Auto, or an HD source: no conversion.
+    for job in [
+        job_for(Bt709Conversion::Off, 1080, Some("bt470bg"), "tv"),
+        job_for(Bt709Conversion::Auto, 576, Some("bt470bg"), "tv"),
+        job_for(Bt709Conversion::Auto, 1080, Some("bt709"), "tv"),
+    ] {
+        assert!(!job.converts_to_bt709());
+        let (encode, preview) = generate_both_scripts(&job);
+        for script in [&encode, &preview] {
+            assert!(!script.contains(r#"RemoveFrameProps(clip, props=["_Matrix""#), "no conversion expected");
+        }
+    }
+    // On converts whatever the size.
+    assert!(job_for(Bt709Conversion::On, 576, Some("smpte170m"), "tv").converts_to_bt709());
+}

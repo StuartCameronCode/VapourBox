@@ -2404,6 +2404,38 @@ _aspect_box_h = _even(_box_h) if _box_h > 0 else 0
 {{/RESIZE}}
 
 # ============================================================================
+# BT.601 -> BT.709 (Crop & Resize, app 1.7.0)
+# ============================================================================
+{{#COLOR_709}}
+# An SD source keeps its BT.601 matrix through an upscale unless something
+# converts it, and many players and TVs ignore the tag on an HD-sized picture
+# and decode it as BT.709 - a 75% green then shows as 161 instead of 191. So
+# the samples are converted here, and the worker declares BT.709 on both sides
+# of the encoder to match (VideoJob::output_color_metadata, the one decision).
+#
+# The matrix only: the primaries keep the source's, and so does its tag (see
+# ColorMetadata::bt709_converted for the measurement behind that). zimg works
+# through 4:4:4 float and the result is dithered back to the clip's own
+# format; _FieldBased keeps the chroma resampling per field on a picture that
+# is still interlaced.
+#
+# VapourSynth R78's resizers let a frame's own _Matrix / _Range properties
+# override matrix_in_s / range_in_s, so they are removed first: the worker's
+# reading of the source's tags is what decides the conversion.
+if clip.format.color_family == vs.YUV:
+    clip = core.std.RemoveFrameProps(clip, props=["_Matrix", "_Range", "_ColorRange"])
+    clip = core.resize.Spline36(
+        clip,
+        format=clip.format.id,
+        matrix_in_s="{{C709_MATRIX_IN}}",
+        matrix_s="709",
+        range_in_s="{{C709_RANGE}}",
+        range_s="{{C709_RANGE}}",
+        dither_type="error_diffusion",
+    )
+{{/COLOR_709}}
+
+# ============================================================================
 # PASS: FACE RESTORATION
 # ============================================================================
 # Each face is found (RetinaFace), aligned to the FFHQ template, restored

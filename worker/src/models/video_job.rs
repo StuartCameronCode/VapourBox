@@ -103,6 +103,54 @@ impl VideoJob {
         )
     }
 
+    /// The frame size the pipeline delivers, as far as the worker can tell
+    /// before the script runs: the source, turned by Rotate / Flip, then
+    /// Crop & Resize (`CropResizeParameters::output_size`). `None` when the
+    /// source size is unknown.
+    pub fn estimated_output_size(&self) -> Option<(i32, i32)> {
+        let (w, h) = match (self.input_width, self.input_height) {
+            (Some(w), Some(h)) if w > 0 && h > 0 => (w, h),
+            _ => return None,
+        };
+        let pipeline = self.effective_pipeline();
+        let (w, h) = if pipeline.geometry.swaps_axes() { (h, w) } else { (w, h) };
+        let sar = pipeline
+            .geometry
+            .adjusted_sar(self.input_sar.as_deref())
+            .as_deref()
+            .and_then(super::parse_ratio)
+            .unwrap_or(1.0);
+        Some(pipeline.crop_resize.output_size(w, h, sar))
+    }
+
+    /// Whether the script converts the samples from BT.601 to BT.709 (Crop &
+    /// Resize's "Convert colour to BT.709", app 1.7.0). The ONE decision: the
+    /// script's `COLOR_709` block, the tags declared on both sides of the
+    /// encoder and the preview's display conversion all follow it, through
+    /// [`Self::output_color_metadata`].
+    pub fn converts_to_bt709(&self) -> bool {
+        let Some(size) = self.estimated_output_size() else {
+            return false;
+        };
+        let source_is_601 = self.color_metadata().is_bt601_family(self.input_height);
+        self.effective_pipeline().crop_resize.converts_to_bt709(source_is_601, size)
+    }
+
+    /// The colour tags of the samples the script delivers: the source's, or
+    /// BT.709's after the conversion above. Everything that describes the
+    /// pipeline's OUTPUT — the encoder's input and output flags, the preview's
+    /// YUV-to-RGB step, and the passes that run after Crop & Resize (Face
+    /// Restoration, RIFE, the border fill) — must use this, never
+    /// [`Self::color_metadata`], or the conversion is undone as a relabel.
+    pub fn output_color_metadata(&self) -> ColorMetadata {
+        let source = self.color_metadata();
+        if self.converts_to_bt709() {
+            source.bt709_converted(self.input_height)
+        } else {
+            source
+        }
+    }
+
     /// The pixel format the encoder ffmpeg is handed on stdin.
     ///
     /// The output conversion is the last thing the `.vpy` does, so when one is

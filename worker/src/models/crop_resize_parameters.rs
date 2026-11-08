@@ -184,6 +184,34 @@ pub fn parse_hex_color(text: &str) -> Option<[u8; 3]> {
     Some([channel(0)?, channel(2)?, channel(4)?])
 }
 
+/// Whether an SD (BT.601) source is converted to BT.709 colour (app 1.7.0).
+///
+/// An SD source upscaled to HD keeps its BT.601 matrix unless something
+/// converts it. The tag on the file says 601, which is correct, but many
+/// players and TVs ignore the tag on an HD-sized picture and decode it as 709,
+/// shifting greens by up to 40 levels and reds by up to 25 (measured: 75%
+/// green comes back as 161 instead of 191). Converting the samples and
+/// declaring 709 makes every player agree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Bt709Conversion {
+    /// Convert a BT.601 source when the output is HD-sized
+    /// (`HD_MIN_HEIGHT` lines or `HD_MIN_WIDTH` columns).
+    #[default]
+    Auto,
+    /// Convert a BT.601 source whatever the output size.
+    On,
+    /// Never convert: the output keeps the source's matrix and tags.
+    Off,
+}
+
+/// The smallest output that counts as HD for [`Bt709Conversion::Auto`]: 720
+/// lines, or 1280 columns for a wide picture cropped short (1280x536 scope).
+/// The same height `ColorMetadata::zimg_matrix` guesses 709 from, and the
+/// definition players use when they pick a matrix by size.
+pub const HD_MIN_HEIGHT: i32 = 720;
+pub const HD_MIN_WIDTH: i32 = 1280;
+
 /// Crop/resize preset options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -391,6 +419,11 @@ pub struct CropResizeParameters {
     /// Maximum search distance (EEDI3 `mdis`).
     #[serde(default)]
     pub upscale_mdis: Option<i32>,
+
+    /// BT.601 -> BT.709 colour conversion (app 1.7.0). Absent in a job or
+    /// preset saved before it existed, which therefore gets `Auto`.
+    #[serde(default)]
+    pub convert_to_bt709: Bt709Conversion,
 }
 
 fn default_true() -> bool { true }
@@ -444,6 +477,7 @@ impl Default for CropResizeParameters {
             upscale_gamma: None,
             upscale_nrad: None,
             upscale_mdis: None,
+            convert_to_bt709: Bt709Conversion::default(),
         }
     }
 }
@@ -705,6 +739,92 @@ impl CropResizeParameters {
                 .as_deref()
                 .and_then(parse_hex_color)
                 .unwrap_or([0, 0, 0]),
+        }
+    }
+
+    /// The frame size this pass delivers from a `width` x `height` picture
+    /// whose samples are `sar` wide, mirroring the script: crop, then the
+    /// integer upscale, then the resize fitting (`RESIZE_STANDARD`), then the
+    /// bars. The script stays the authority on the exact size; this is what
+    /// the worker needs to decide things that must be fixed before the script
+    /// runs, such as the colour tags on both sides of the encoder.
+    pub fn output_size(&self, width: i32, height: i32, sar: f64) -> (i32, i32) {
+        if !self.enabled {
+            return (width, height);
+        }
+        let (mut w, mut h) = (width as f64, height as f64);
+        if self.crop_enabled {
+            w -= f64::from(self.crop_left.max(0) + self.crop_right.max(0));
+            h -= f64::from(self.crop_top.max(0) + self.crop_bottom.max(0));
+        }
+        let squares = self.squares_pixels();
+        if self.resize_enabled || self.use_integer_upscale || squares {
+            if self.use_integer_upscale {
+                let factor = if self.upscale_method.is_ai() {
+                    f64::from(self.ai_upscale_factor())
+                } else if self.upscale_method == UpscaleMethod::Spline36 {
+                    f64::from(self.upscale_factor.max(1))
+                } else {
+                    // Edge-directed: max(factor // 2, 1) doublings.
+                    f64::from(1 << (self.upscale_factor / 2).max(1))
+                };
+                w *= factor;
+                h *= factor;
+            }
+            if self.resize_enabled || squares {
+                let even = |v: f64| ((v.round() as i32) & !1).max(2) as f64;
+                let display = self.display_aspect_ratio().unwrap_or(w * sar / h.max(1.0));
+                let fit = if squares { display } else { w / h.max(1.0) };
+                let mut tw = if self.resize_enabled { self.target_width.unwrap_or(-1) } else { -1 } as f64;
+                let mut th = if self.resize_enabled { self.target_height.unwrap_or(-1) } else { -1 } as f64;
+                if squares && tw <= 0.0 && th <= 0.0 {
+                    th = h;
+                }
+                if self.maintain_aspect || (squares && tw <= 0.0 && th <= 0.0) {
+                    if tw > 0.0 && th <= 0.0 {
+                        th = even(tw / fit);
+                    } else if th > 0.0 && tw <= 0.0 {
+                        tw = even(th * fit);
+                    } else if tw > 0.0 && th > 0.0 {
+                        let scale = (tw / (h * fit)).min(th / h);
+                        tw = even(h * fit * scale);
+                        th = even(h * scale);
+                    }
+                }
+                if tw > 0.0 {
+                    w = tw;
+                }
+                if th > 0.0 {
+                    h = th;
+                }
+                if self.pads_to_aspect() {
+                    w = w.max(f64::from(self.target_width.unwrap_or(0)));
+                    h = h.max(f64::from(self.target_height.unwrap_or(0)));
+                }
+            }
+        }
+        if let Some((cw, ch)) = self.pad_canvas() {
+            if cw > 0 {
+                w = w.max(f64::from(cw));
+            }
+            if ch > 0 {
+                h = h.max(f64::from(ch));
+            }
+        }
+        (w.round() as i32, h.round() as i32)
+    }
+
+    /// Whether the samples are converted from BT.601 to BT.709, for a source
+    /// whose colour is BT.601 (`source_is_601`, see
+    /// `ColorMetadata::is_bt601_family`) delivered at `output` size.
+    pub fn converts_to_bt709(&self, source_is_601: bool, output: (i32, i32)) -> bool {
+        if !self.enabled || !source_is_601 {
+            return false;
+        }
+        match self.convert_to_bt709 {
+            Bt709Conversion::Off => false,
+            Bt709Conversion::On => true,
+            Bt709Conversion::Auto => output.1 >= HD_MIN_HEIGHT || output.0 >= HD_MIN_WIDTH,
         }
     }
 
@@ -1046,5 +1166,78 @@ mod tests {
         for (v, s) in [(UpscaleMethod::LiveAction, "liveAction"), (UpscaleMethod::RealEsrganPlus, "realEsrganPlus")] {
             assert_eq!(serde_json::to_string(&v).unwrap(), format!("\"{s}\""));
         }
+    }
+
+    #[test]
+    fn output_size_follows_the_script() {
+        let base = CropResizeParameters { enabled: true, ..Default::default() };
+        // Nothing switched on: the source size.
+        assert_eq!(base.output_size(720, 576, 1.0), (720, 576));
+        // Crop, then a 2x NNEDI3 doubling.
+        let p = CropResizeParameters {
+            crop_enabled: true,
+            crop_left: 8,
+            crop_right: 8,
+            crop_bottom: 8,
+            use_integer_upscale: true,
+            ..base.clone()
+        };
+        assert_eq!(p.output_size(720, 576, 1.0), (1408, 1136));
+        // 4x edge-directed is two doublings; Spline36 multiplies by the factor.
+        let p4 = CropResizeParameters { use_integer_upscale: true, upscale_factor: 4, ..base.clone() };
+        assert_eq!(p4.output_size(720, 480, 1.0), (2880, 1920));
+        // A 1920x1080 box with the storage aspect kept: 720x576 fits as 1350x1080.
+        let fit = CropResizeParameters {
+            resize_enabled: true,
+            target_width: Some(1920),
+            target_height: Some(1080),
+            ..base.clone()
+        };
+        assert_eq!(fit.output_size(720, 576, 1.0), (1350, 1080));
+        // Squared up from a 16:9 PAL DVD (SAR 64:45): fills the box exactly.
+        let square = CropResizeParameters { pixel_aspect: PixelAspectMode::Square, ..fit.clone() };
+        assert_eq!(square.output_size(720, 576, 64.0 / 45.0), (1920, 1080));
+        // Squared with no target size keeps the height.
+        let square_only = CropResizeParameters { pixel_aspect: PixelAspectMode::Square, ..base.clone() };
+        assert_eq!(square_only.output_size(720, 576, 16.0 / 15.0).1, 576);
+        // A canvas only ever adds.
+        let canvas = CropResizeParameters {
+            pad_enabled: true,
+            pad_width: Some(1920),
+            pad_height: Some(1080),
+            ..base.clone()
+        };
+        assert_eq!(canvas.output_size(720, 576, 1.0), (1920, 1080));
+        // A disabled pass changes nothing.
+        let off = CropResizeParameters { enabled: false, ..fit };
+        assert_eq!(off.output_size(720, 576, 1.0), (720, 576));
+    }
+
+    #[test]
+    fn bt709_conversion_auto_converts_only_bt601_to_hd() {
+        let p = CropResizeParameters { enabled: true, ..Default::default() };
+        assert_eq!(p.convert_to_bt709, Bt709Conversion::Auto, "the default");
+        assert!(p.converts_to_bt709(true, (1440, 1080)));
+        assert!(p.converts_to_bt709(true, (1280, 536)), "a wide picture cropped short is HD");
+        assert!(p.converts_to_bt709(true, (960, 720)));
+        assert!(!p.converts_to_bt709(true, (1024, 576)), "SD-sized output stays 601");
+        assert!(!p.converts_to_bt709(false, (1920, 1080)), "only a 601 source");
+        let on = CropResizeParameters { convert_to_bt709: Bt709Conversion::On, ..p.clone() };
+        assert!(on.converts_to_bt709(true, (720, 576)));
+        assert!(!on.converts_to_bt709(false, (720, 576)));
+        let off = CropResizeParameters { convert_to_bt709: Bt709Conversion::Off, ..p.clone() };
+        assert!(!off.converts_to_bt709(true, (1920, 1080)));
+        let disabled = CropResizeParameters { enabled: false, convert_to_bt709: Bt709Conversion::On, ..p };
+        assert!(!disabled.converts_to_bt709(true, (1920, 1080)), "a disabled pass converts nothing");
+    }
+
+    #[test]
+    fn bt709_conversion_wire_names_and_missing_field() {
+        for (v, s) in [(Bt709Conversion::Auto, "auto"), (Bt709Conversion::On, "on"), (Bt709Conversion::Off, "off")] {
+            assert_eq!(serde_json::to_string(&v).unwrap(), format!("\"{s}\""));
+        }
+        // A preset saved before 1.7.0 has no field: Auto.
+        let p: CropResizeParameters = serde_json::from_str(r#"{"enabled": true}"#).unwrap();
+        assert_eq!(p.convert_to_bt709, Bt709Conversion::Auto);
     }
 }
