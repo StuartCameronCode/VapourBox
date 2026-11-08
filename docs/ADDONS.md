@@ -228,7 +228,7 @@ otherwise. A pass's own block then uses `templates/ai_runtime.py`:
 | Call | |
 |---|---|
 | `setup(*addon_dirs)` | puts each add-on's `site-packages` on `sys.path` (first argument wins) and, on Windows, registers onnxruntime's DLL directory. Done by the block; never rely on `PYTHONPATH` — Windows' embeddable Python ignores it. |
-| `session(model, force_cpu=False, providers=None)` | a cached `InferenceSession` for a path or the model's bytes, on TensorRT → CUDA → DirectML → Core ML → CPU (those available), retried on the CPU if a GPU provider fails (`ai_runtime.last_fallback` says why). |
+| `session(model, force_cpu=False, providers=None, dims=None)` | a cached `InferenceSession` for a path or the model's bytes, on TensorRT → CUDA → DirectML → Core ML → CPU (those available), retried on the CPU if a GPU provider fails (`ai_runtime.last_fallback` says why). `dims` (`{"height": 512, "width": 512}`) fixes a model's named dynamic dimensions for the session (free-dimension overrides), so one exported file serves several input sizes and Core ML still gets static shapes (the colourisation models use it). `Runner(model, force_cpu, lock, dims)` takes the same. |
 | `preferred_providers(force_cpu=False)`, `available_providers()`, `session_provider(sess)` | the provider choice. `VAPOURBOX_AI_FORCE_CPU=1` forces the CPU everywhere. |
 | `frame_to_nchw(frame)` / `nchw_to_frame(array, frame)` | planar RGBS `VideoFrame` ↔ float32 `(1, 3, h, w)`. |
 | `map_frames(clip, fn, width=None, height=None)` | apply `fn(nchw) -> nchw` to every frame of an RGBS clip, at an output size, keeping frame properties. |

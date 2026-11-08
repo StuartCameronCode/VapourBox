@@ -50,6 +50,7 @@ void main() {
       PassType.deband,
       PassType.antiAlias,
       PassType.chromaFixes,
+      PassType.colorize,
       PassType.colorCorrection,
       PassType.stabilize,
       PassType.geometry,
@@ -116,6 +117,17 @@ void main() {
         lessThan(flattened.indexOf(PassType.sharpen)));
     expect(flattened.indexOf(PassType.faceRestore),
         lessThan(flattened.indexOf(PassType.grain)));
+  });
+
+  test('colourisation follows Chroma Fixes and precedes Colour Correction', () {
+    // The model judges the cleaned-up grey picture, its colour replaces the
+    // chroma Chroma Fixes repaired, and Colour Correction can grade it.
+    expect(flattened.indexOf(PassType.colorize),
+        greaterThan(flattened.indexOf(PassType.chromaFixes)));
+    expect(flattened.indexOf(PassType.colorize),
+        greaterThan(flattened.indexOf(PassType.noiseReduction)));
+    expect(flattened.indexOf(PassType.colorize),
+        lessThan(flattened.indexOf(PassType.colorCorrection)));
   });
 
   test('grain is the last video pass', () {

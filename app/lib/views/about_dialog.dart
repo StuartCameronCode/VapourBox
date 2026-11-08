@@ -358,6 +358,18 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/sczhou/CodeFormer',
                       ),
                       _ComponentTile(
+                        name: 'DDColor model (optional download, colourisation add-on)',
+                        license: 'Apache-2.0',
+                        copyright: 'Xiaoyang Kang, Tao Yang, Wenqi Ouyang, Peiran Ren, Lingzhi Li and Xuansong Xie',
+                        url: 'https://github.com/piddnad/DDColor',
+                      ),
+                      _ComponentTile(
+                        name: 'DeOldify Video model (optional download, colourisation add-on)',
+                        license: 'MIT',
+                        copyright: 'Jason Antic',
+                        url: 'https://github.com/jantic/DeOldify',
+                      ),
+                      _ComponentTile(
                         name: 'Real-ESRGAN general model (optional download, upscaling add-on)',
                         license: 'BSD-3-Clause',
                         copyright: 'Xintao Wang',

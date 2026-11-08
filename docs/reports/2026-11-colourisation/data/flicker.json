@@ -1,0 +1,87 @@
+{
+  "block": 8,
+  "still": 1.0,
+  "moving": 4.0,
+  "rows": {
+    "ddcolor_r0": {
+      "staticFlicker": 1.446,
+      "staticChange": 1.828,
+      "stillShare": 0.501,
+      "chroma": 31.837,
+      "motionLag": 0.0,
+      "movingShare": 0.056
+    },
+    "ddcolor_r1": {
+      "staticFlicker": 0.499,
+      "staticChange": 0.9,
+      "stillShare": 0.501,
+      "chroma": 31.839,
+      "motionLag": 0.965,
+      "movingShare": 0.056
+    },
+    "ddcolor_r2": {
+      "staticFlicker": 0.233,
+      "staticChange": 0.578,
+      "stillShare": 0.501,
+      "chroma": 31.844,
+      "motionLag": 1.326,
+      "movingShare": 0.056
+    },
+    "ddcolor_r3": {
+      "staticFlicker": 0.153,
+      "staticChange": 0.439,
+      "stillShare": 0.501,
+      "chroma": 31.851,
+      "motionLag": 1.466,
+      "movingShare": 0.056
+    },
+    "ddcolor_r2nomotion": {
+      "staticFlicker": 0.227,
+      "staticChange": 0.575,
+      "stillShare": 0.501,
+      "chroma": 31.838,
+      "motionLag": 2.0,
+      "movingShare": 0.056
+    },
+    "deoldify_r0": {
+      "staticFlicker": 0.325,
+      "staticChange": 0.399,
+      "stillShare": 0.501,
+      "chroma": 7.145,
+      "motionLag": 0.0,
+      "movingShare": 0.056
+    },
+    "deoldify_r1": {
+      "staticFlicker": 0.101,
+      "staticChange": 0.186,
+      "stillShare": 0.501,
+      "chroma": 7.138,
+      "motionLag": 0.195,
+      "movingShare": 0.056
+    },
+    "deoldify_r2": {
+      "staticFlicker": 0.053,
+      "staticChange": 0.123,
+      "stillShare": 0.501,
+      "chroma": 7.135,
+      "motionLag": 0.276,
+      "movingShare": 0.056
+    },
+    "deoldify_r3": {
+      "staticFlicker": 0.033,
+      "staticChange": 0.092,
+      "stillShare": 0.501,
+      "chroma": 7.133,
+      "motionLag": 0.318,
+      "movingShare": 0.056
+    },
+    "deoldify_r2nomotion": {
+      "staticFlicker": 0.049,
+      "staticChange": 0.121,
+      "stillShare": 0.501,
+      "chroma": 7.134,
+      "motionLag": 0.481,
+      "movingShare": 0.056
+    }
+  }
+}

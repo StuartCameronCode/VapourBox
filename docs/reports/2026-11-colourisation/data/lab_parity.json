@@ -1,0 +1,1 @@
+{"opencv": "5.0.0", "pixels": 65536, "exprVsOpenCV": {"maxLevels": [3.8456, 3.7817, 2.0103], "meanLevels": [0.11864, 0.18737, 0.13204]}, "exprVsExactFormula": {"maxLevels": [0.0014, 0.0006, 0.0002], "meanLevels": [1e-05, 1e-05, 1e-05]}, "exactFormulaVsOpenCV": {"maxLevels": [3.8471, 3.7816, 2.0101], "meanLevels": [0.11864, 0.18737, 0.13203]}}

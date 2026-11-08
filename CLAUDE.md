@@ -125,6 +125,8 @@ VapourBox/
 | `worker/templates/ai_runtime.py` | ONNX Runtime helpers for passes: `setup`, `session` (provider choice), `map_frames`, NCHW frame conversion, `to_rgbs`/`from_rgbs`, `shifted`, `FrameMemo`, `Runner` |
 | `worker/templates/face_restore.py` | The Face Restoration pass: RetinaFace decode, FFHQ alignment, restore, BiSeNet mask, temporal smoothing, bit-exact merge (see "Face Restoration") |
 | `worker/src/models/face_restore_parameters.rs` | Face Restoration's parameters, its add-ons per model, and its temporal reach |
+| `worker/templates/colorize.py` | The Colourisation pass: model run at a fixed square size, temporal smoothing, Lab/RGB to chroma, luma kept bit-exact (see "Colourisation") |
+| `worker/src/models/colorize_parameters.rs` | Colourisation's parameters, its add-on per model, render size and temporal reach |
 | `worker/src/comment_metadata.rs` | The source's comment tag, prefixed with the version and passed to ffmpeg as an FFMETADATA file (issue #138) |
 | `worker/src/hdr_metadata.rs` | HDR10 mastering display / MaxCLL read from the source for x265, and the Dolby Vision profile (see "HDR Sources and Dolby Vision") |
 | `worker/src/native_res.rs` | `--detect-native`: the resolution and kernel a source was upscaled from, for the Descale pass (see "Descale") |
@@ -152,6 +154,7 @@ VapourBox/
 | `app/lib/models/audio_restoration_parameters.dart` | The Audio Restoration pass (`ProcessingPipeline.audio`, `PassType.audioRestoration`) and the DeepFilterNet add-on prompt |
 | `app/lib/models/ai_runtime_status.dart` | The worker's `--probe-ai-runtime` result |
 | `app/lib/models/face_restore_parameters.dart` | Face Restoration's parameters and the add-ons each model needs (`faceRestoreAddonIds`) |
+| `app/lib/models/colorize_parameters.dart` | Colourisation's parameters and the add-on each model needs (`colorizeAddonSelectedBy`) |
 | `app/lib/models/hdr_display.dart` | The display tone-map for the app's own source decodes (twin of `ColorMetadata::display_tonemap_filter`) and Dolby Vision detection |
 | `app/lib/models/gpu_plugin_status.dart` | The worker's GPU-plugin probe results, and the panels' notice decision |
 | `app/assets/filters/core/*.json` | Built-in filter schema definitions |
@@ -1560,6 +1563,51 @@ it to the face itself with BiSeNet and blends it back
 sample outside it is bit-exact (8- and 10-bit), each model runs, and preview =
 encode. See docs/ENGINEERING_NOTES.md (2026-11-08) and
 docs/reports/2026-11-face-restoration.
+
+### Colourisation
+
+The Colourisation pass (`ColorizeParameters`, `PassType::Colorize`, app 1.7.0)
+colours black-and-white footage with DDColor-T (default) or DeOldify's Video
+model (`worker/templates/colorize.py`, on `ai_runtime`). Rules:
+
+- **The luma is never touched.** The model's colour (DDColor: CIELAB a/b,
+  recombined with the frame's own lightness by a chain of `std.Expr` stages;
+  DeOldify: RGB) becomes YUV with the source's matrix, is converted to the
+  source format, and only its U and V are taken (`ShufflePlanes` with the
+  input as plane 0). Y is bit-exact at every depth; strength 0 is the input.
+  A source that already has colour is coloured from its luma all the same
+  (its own chroma replaced) — said in the panel's text, never blocked.
+- **Between Chroma Fixes and Color Correction** (Detail & Color stage): the
+  model judges the cleaned-up picture, and the result can be graded. It runs
+  before Crop & Resize, so it uses the source's colour tags, not the BT.709
+  conversion's.
+- **Models are add-ons, one per model** (`colorize-ddcolor`, 220 MB, Apache-2.0;
+  `colorize-deoldify`, 870 MB, MIT; each `requires` `ai-runtime`), converted by
+  `Scripts/models/make_colorize_{ddcolor,deoldify}.py` byte for byte. DeOldify
+  is rebuilt in plain PyTorch (fastai v1 does not install with a current
+  torch) and verified against an independent export. Both exports have
+  **dynamic** height/width; each session fixes them with ONNX Runtime's
+  free-dimension overrides (`ai_runtime.session(..., dims=)`), so one file
+  serves every render size and Core ML still gets static shapes. Core ML takes
+  each whole graph only because the exports rewrite `ReplicationPad2d`,
+  `Tensor.repeat` and DDColor's einsum (`colorize_models_common.py`) — without
+  that DDColor split into six partitions and ran 2.6x slower.
+- **Core ML compiles DDColor for 50-80 s per session** (every vspipe process;
+  DeOldify ~5 s). So the preview template passes `preview=True` and DDColor
+  previews on the CPU (`colorize.PREVIEW_ON_CPU`); outputs agree to <0.001
+  CIELAB units. Don't add `ModelCacheDirectory` casually: its cache is ~900 MB
+  per render size and the key is the model path, not the overridden shape.
+- **Temporal smoothing is a pure function of frames n-r..n+r**: each frame's
+  render-size prediction is averaged with its neighbours' (`shifted` +
+  `FrameMemo`), weighted to zero where the grey picture differs
+  (`MOTION_LIMIT`), so colour follows motion and a cut takes nothing from the
+  last shot. The `FrameMap` radius is `temporal_radius`.
+- No built-in preset turns it on (not even the film-scan one): a download of
+  220-870 MB and an invented colour are the user's choice.
+
+`integration_colorize_test.dart` (heavy) checks luma bit-exact (8- and 10-bit,
+and on a colour source), strength 0 = input, both models, and preview = encode.
+See docs/ENGINEERING_NOTES.md (2026-11-08) and docs/reports/2026-11-colourisation.
 
 ### Audio Restoration
 

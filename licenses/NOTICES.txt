@@ -392,6 +392,30 @@ CodeFormer model — S-Lab License 1.0 (NC)
   (face-codeformer), downloaded as an ONNX conversion only when the user asks,
   after stating that restriction. Non-commercial use only.
 
+DDColor model — Apache-2.0
+  By Xiaoyang Kang, Tao Yang, Wenqi Ouyang, Peiran Ren, Lingzhi Li and Xuansong Xie
+  (the authors its README cites); its LICENSE names no copyright holder.
+  https://github.com/piddnad/DDColor
+  Licence text: Apache-2.0.txt
+  The trained DDColor-T network (the ddcolor_paper_tiny checkpoint, whose model
+  card states Apache-2.0), the Colourisation pass's default model. Its network
+  code adapts ConvNeXt (MIT, Meta Platforms), DETR and Mask2Former (Facebook).
+  NOT distributed with VapourBox: an optional add-on (colorize-ddcolor), which
+  the app downloads only when the user asks (Settings → Add-ons, or on
+  switching the pass on), as an ONNX conversion of the published weights
+  (Scripts/models/make_colorize_ddcolor.py).
+
+DeOldify Video model — MIT
+  Copyright (c) 2018 Jason Antic
+  https://github.com/jantic/DeOldify
+  The trained DeOldify Video generator (ColorizeVideo_gen.pth), an alternative
+  model for the Colourisation pass; DeOldify's README states that its
+  published weights are released under the MIT licence. Built on fastai
+  (Apache-2.0) and a ResNet-101 backbone (torchvision, BSD-3-Clause). NOT
+  distributed with VapourBox: an optional add-on (colorize-deoldify), which the
+  app downloads only when the user asks, as an ONNX conversion of the
+  published weights (Scripts/models/make_colorize_deoldify.py).
+
 Real-ESRGAN general model — BSD-3-Clause
   Copyright (c) 2021, Xintao Wang
   https://github.com/xinntao/Real-ESRGAN
@@ -705,7 +729,8 @@ MIT License
 source, the code ported from vs-jetpack, CAS,
 DCTFilter, BM3D, descale, the RIFE plugin, rife-ncnn-vulkan, the RIFE model and
 ECCV2022-RIFE, the Real-CUGAN models, whisper.cpp, the Whisper models, ONNX
-Runtime, the RetinaFace face detector, the BiSeNet face parser, facexlib, pip
+Runtime, the RetinaFace face detector, the BiSeNet face parser, facexlib, the
+DeOldify Video model, pip
 and the Clense filter
 in vs-removegrain, each
 under the copyright notice given in its entry above.)

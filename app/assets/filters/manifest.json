@@ -22,5 +22,6 @@
   "ghost_removal.json",
   "descale.json",
   "face_restore.json",
+  "colorize.json",
   "audio_restoration.json"
 ]

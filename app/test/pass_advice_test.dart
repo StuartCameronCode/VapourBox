@@ -10,6 +10,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vapourbox/models/chroma_denoise_parameters.dart';
 import 'package:vapourbox/models/color_correction_parameters.dart';
+import 'package:vapourbox/models/colorize_parameters.dart';
 import 'package:vapourbox/models/deband_parameters.dart';
 import 'package:vapourbox/models/geometry_parameters.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
@@ -378,6 +379,29 @@ void main() {
           isNull,
         );
       }
+    });
+  });
+
+  group('chroma denoise before colourisation', () {
+    test('warns on Chroma Denoise, whose colour Colourisation replaces', () {
+      final pipeline = const ProcessingPipeline(
+        chromaDenoise: ChromaDenoiseParameters(enabled: true),
+        colorize: ColorizeParameters(enabled: true),
+      );
+      final advice = adviceFor(PassType.chromaDenoise, pipeline);
+      expect(advice, isNotNull);
+      expect(advice, contains('replaces the colour'));
+      // The order it states is the pipeline's.
+      final passes = pipeline.enabledPasses;
+      expect(passes.indexOf(PassType.chromaDenoise), lessThan(passes.indexOf(PassType.colorize)));
+      // And Colourisation itself carries no warning.
+      expect(adviceFor(PassType.colorize, pipeline), isNull);
+    });
+
+    test('silent with either alone', () {
+      expect(adviseOn(const ProcessingPipeline(colorize: ColorizeParameters(enabled: true))), isEmpty);
+      expect(adviseOn(const ProcessingPipeline(chromaDenoise: ChromaDenoiseParameters(enabled: true))),
+          isEmpty);
     });
   });
 

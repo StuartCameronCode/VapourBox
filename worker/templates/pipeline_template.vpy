@@ -1785,6 +1785,31 @@ clip = haf.Vinverse(
 {{/CHROMA_FIXES}}
 
 # ============================================================================
+# PASS: COLOURISATION
+# ============================================================================
+# DDColor or DeOldify Video predicts colour from the luma, at a fixed square
+# size; the colour is scaled up to the frame, converted to this clip's YUV with
+# the source's matrix, and only its chroma is kept: the Y plane is the input's,
+# bit-exact (any colour the source had is replaced). After the cleanup and
+# Chroma Fixes, before Colour Correction, so the result can be graded. ONNX
+# Runtime comes from the ai-runtime add-on (the AI runtime block above) and the
+# models are add-ons; colorize.py sits beside pipe_source.py. Each frame's
+# colour is averaged with its neighbours' where the picture did not move.
+{{#COLORIZE}}
+import colorize as _colorize
+clip = _colorize.colorize(
+    clip,
+    model_path={{CZ_MODEL_PATH}},
+    model="{{CZ_MODEL}}",
+    render_size={{CZ_RENDER_SIZE}},
+    strength={{CZ_STRENGTH}},
+    temporal_radius={{CZ_RADIUS}},
+    matrix="{{CZ_MATRIX}}",
+    color_range="{{CZ_RANGE}}",
+)
+{{/COLORIZE}}
+
+# ============================================================================
 # PASS 9: COLOR CORRECTION
 # ============================================================================
 {{#COLOR_CORRECTION}}

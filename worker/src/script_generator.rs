@@ -279,6 +279,32 @@ impl ScriptGenerator {
             .replace("{{FR_RANGE}}", if color.is_full_range() { "full" } else { "limited" })
     }
 
+    /// Emit or drop the `{{#COLORIZE}}` block (both templates), with the
+    /// chosen model's path from the add-ons directory. A job that gets here
+    /// with the pass on has passed `ensure_methods_ready`, so its add-on is
+    /// installed.
+    fn substitute_colorize(&self, script: String, job: &VideoJob, pipeline: &ProcessingPipeline) -> String {
+        let cz = &pipeline.colorize;
+        if !cz.enabled {
+            return remove_block("{{#COLORIZE}}", "{{/COLORIZE}}", script);
+        }
+        let model_path = match &self.addons {
+            Some((root, _)) => py_str(&crate::addons::addon_dir(root, cz.model.addon()).join(cz.model.file())),
+            None => "''".to_string(),
+        };
+        let color = job.color_metadata();
+        script
+            .replace("{{#COLORIZE}}", "")
+            .replace("{{/COLORIZE}}", "")
+            .replace("{{CZ_MODEL_PATH}}", &model_path)
+            .replace("{{CZ_MODEL}}", cz.model.script_name())
+            .replace("{{CZ_RENDER_SIZE}}", &cz.render_size().to_string())
+            .replace("{{CZ_STRENGTH}}", &format!("{:.3}", cz.clamped_strength()))
+            .replace("{{CZ_RADIUS}}", &cz.temporal_radius().to_string())
+            .replace("{{CZ_MATRIX}}", color.zimg_matrix(job.input_height))
+            .replace("{{CZ_RANGE}}", if color.is_full_range() { "full" } else { "limited" })
+    }
+
     /// Generate a .vpy script file for the given job.
     pub fn generate(&self, job: &VideoJob) -> Result<PathBuf> {
         let pipeline = job.effective_pipeline();
@@ -2088,6 +2114,11 @@ impl ScriptGenerator {
         } else {
             script = remove_block("{{#FRAME_RATE}}", "{{/FRAME_RATE}}", script);
         }
+
+        // ====================================================================
+        // COLOURISATION PASS
+        // ====================================================================
+        script = self.substitute_colorize(script, job, pipeline);
 
         // ====================================================================
         // COLOR CORRECTION PASS

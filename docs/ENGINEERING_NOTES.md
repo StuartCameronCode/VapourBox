@@ -3134,6 +3134,49 @@ footage (`Tests/TestResources/face_restore_test.mp4`):
 - Untested: Windows (DirectML), Linux (CPU), macOS x64; crowds, profiles and
   scene cuts across a face.
 
+### Colourisation: DDColor and DeOldify Video, luma kept bit-exact (2026-11-08)
+
+Full report with images and scripts:
+[docs/reports/2026-11-colourisation/](reports/2026-11-colourisation/index.html).
+
+A Colourisation pass (between Chroma Fixes and Color Correction) on the
+`ai-runtime` add-on, one add-on per model: `colorize-ddcolor` (DDColor-T,
+Apache-2.0, 220.7 MB) and `colorize-deoldify` (DeOldify's Video generator,
+MIT, 872.8 MB; DeepAI's copy cross-checked by SHA-256 against a Hugging Face
+mirror). Measured on an M1 Pro with 5 s of "Diary of a Sergeant" (1945, US
+War Department, public domain; `Tests/TestResources/colorize_test.mp4`):
+
+- **Conversions are exact and reproducible byte for byte.** DDColor ≤1.8e-3
+  CIELAB units from PyTorch at 256-640; DeOldify ≤1.4e-6. DeOldify had to be
+  rebuilt without fastai (v1 doesn't install with a current torch); checked
+  against FaceFusion's independent export it first differed by 0.016 mean —
+  fastai's `PixelShuffle_ICNR(blur=False)` blurs anyway (it tests the module,
+  not the flag) — then agreed to 1.8e-6.
+- **Core ML needs the graph rewritten, and still compiles DDColor slowly.**
+  Edge-mode `Pad`, `Expand` (`Tensor.repeat`) and `Einsum` aren't in ML
+  Program: DDColor split into six partitions. Rewritten exactly, each model is
+  one partition and DDColor runs at 101 ms per frame at 512 (261 ms before), but compiling it
+  takes 77 s in every process (DeOldify: 3 s). Previews (a process each) run
+  DDColor on the CPU (5 frames in 3.8 s); `ModelCacheDirectory` cut a second
+  session to 14.5 s but cached 898 MB per render size, keyed by model path.
+  Core ML refused DDColor with free dimensions outright, so one dynamic-shape
+  file serves every size through ONNX Runtime's free-dimension overrides
+  (`ai_runtime.session(dims=)`).
+- **Luma bit-exact** at 8, 10 and 16 bits, field-based, and on a colour source:
+  the colour becomes YUV in the source's matrix and only U/V are taken.
+  DDColor's CIELAB recombination (std.Expr) matches the exact formulas to
+  0.0014 levels; OpenCV's float path (what upstream calls) differs by up to
+  3.8 levels near black because it tabulates the sRGB curve. Upstream scales
+  DDColor's a/b nearest-neighbour; the pass uses bilinear.
+- **Flicker**: per frame, colour flickers by 1.45 levels where the picture is
+  still (DDColor; DeOldify 0.33, but with 4.5x less colour). Averaging each
+  prediction with 2 neighbours either side, weighted to zero where the grey
+  picture moved, cuts both by 84%; the motion weighting changes still flicker
+  by <0.01 but cuts the colour lag in moving areas by a third (2.00 → 1.33).
+- **Speed** (whole pass, steady colour 2): DDColor 9.1 fps SD / 8.4 fps 1080p
+  on Core ML (1.3 on the CPU); DeOldify 6.0 / 6.0 (0.65 on the CPU).
+- No preset turns it on (8 mm home movies are mostly colour). Untested:
+  Windows (DirectML), Linux, macOS x64; fast pans.
 ### Crop & Resize: BT.601 → BT.709 on SD → HD, and Detect borders (2026-11-08)
 
 Full report with images and scripts:
