@@ -117,7 +117,7 @@ BundledDependencies/Scripts/*.py
 !BundledDependencies/Scripts/.gitkeep
 
 # Add-ons (whisper binary + models, downloaded at runtime)
-addons/
+/addons/
 
 # Claude Code
 .claude/
