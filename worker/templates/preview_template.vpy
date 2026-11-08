@@ -1512,8 +1512,9 @@ clip = haf.santiag(
 {{/AA_SANTIAG}}
 {{#AA_SANGNOM}}
 # SangNom AA: supersample 2x, run SangNom along each axis keeping the even
-# lines (order=1: same rate, no shift) and come back down. About twice
-# santiag's speed and about daa's (M1 Pro, vspipe), and the sharper of the three. `aa`
+# lines (order=1: same rate, no shift) and come back down. The sharpest of
+# the three; at 1080p the slowest (8.6 fps against daa's 15.9, M1 Pro), since it
+# works at twice the size. `aa`
 # is in 8-bit units at every depth: the plugin scales it itself (an 8-bit and
 # a 10-bit run agree to 0.05 levels). SangNom flags its output progressive, so
 # the field order set above is put back.

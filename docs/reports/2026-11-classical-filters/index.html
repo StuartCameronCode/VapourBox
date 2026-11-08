@@ -52,7 +52,7 @@
   <ul>
     <li><strong>SangNom: built, as its own Anti-aliasing method.</strong> havsfunc's <code>santiag(type="sangnom")</code> cannot be used: at strength 0 it calls <code>SangNom(order=0)</code>, which SangNom r45 treats as double-rate and refuses without <code>_FieldBased</code> (measured: <em>"clip's frames must have the _FieldBased property when order is 0"</em> at every depth). The method supersamples 2x, runs SangNom (<code>order=1</code>) along each axis and comes back down. It runs at 8/10/12/16-bit and float; <code>aa</code> is scaled by the plugin (raw SangNom, 8 vs 10-bit: 0.047 levels).</li>
     <li><strong>vszip 22.1.0 → 24.0.0: built.</strong> 24.0.0 is the first release with CPU <code>NLMeans</code>; <code>WNNM</code> arrived in 22.0.0. <strong>NLMeans (CPU)</strong> is an advanced Noise Reduction method sharing KNLMeansCL's settings: on the same input and arguments it gives KNLMeansCL's picture (see the parity line below), with no OpenCL device. The KNLMeans "no device" message now points at it. CLAHE still passes its depth-parity test (1.34 levels against a 3.0 tolerance).</li>
-    <li><strong>WNNM: not added.</strong> Each at its best sigma, its luma runs from +0.7 to −2.3 dB against the shipped BM3D (ahead only at sigma 4, with a temporal radius), and its chroma is 2.6–7.2 dB worse. A wider sweep (to 4× the noise, <code>scripts/wnnm_wide.py</code>) found nothing better than 2–2.5×. It is fast — 25 fps at 640×480 here, where the shipped BM3D path manages under 1 — but NLMeans (CPU), added in this change, is faster still (38 fps) with chroma 1–4 dB better than WNNM's, so the fast-CPU slot is taken.</li>
+    <li><strong>WNNM: not added.</strong> Each at its best sigma, its luma runs from +0.7 to −2.3 dB against the shipped BM3D (ahead only at sigma 4, with a temporal radius), and its chroma is 2.6–7.2 dB worse. A wider sweep (to 4× the noise, <code>scripts/wnnm_wide.py</code>) found nothing better than 2–2.5×. It is fast — 10.3 fps at 1080p with a temporal radius, where the shipped BM3D path manages 0.2 — but NLMeans (CPU), added in this change, is faster still (23.0 fps) with chroma 1–4 dB better than WNNM's, so the fast-CPU slot is taken.</li>
     <li><strong>FixInterlacedFades: built, as an IVTC option.</strong> Matches vs-jetpack exactly (0.0000 levels, both modes). On a fade applied after the field split it closes the field-brightness gap from 5.27 to 0.29 levels (average) / 0.00004 (match); on ordinary frames it changes nothing measurable.</li>
     <li><strong>vine_dehalo: built, advanced-only.</strong> A faithful port (vs-jetpack's own function could not run against the bundle; see §5). On the oversharpened fixtures it recovers +0.9 to +1.1 dB, where DeHalo_alpha recovers +4.1 to +4.4 dB by blurring, at a fraction of vine's cost.</li>
     <li><strong>mpeg2stinx: built, advanced-only, with a warning in its description.</strong> Matches vs-jetpack to 0.04 levels, but it <em>lost</em> PSNR on every fixture tried, up to −3.0 dB on detailed content: it clamps each field to a bob of the other, which costs vertical detail. None of these fixtures carries the specific artefact it is written for, so it ships for the user who has that artefact, and says what it costs.</li>
@@ -109,11 +109,30 @@
 </figure>
 <h3>Speed</h3>
 <!--BENCH-->
-
+<div class="scroll"><table><caption>Speed: vspipe, median of runs, frames per second (M1 Pro)</caption><tr><th>method</th><th>640x480</th><th>1920x1080</th></tr>
+<tr><td>BM3D (bm3d r12, r=1, Final, sigma 16) - shipped</td><td>1.5</td><td>0.2</td></tr>
+<tr><td>BM3D (bm3d r12, r=0, Final, sigma 16)</td><td>1.1</td><td>0.1</td></tr>
+<tr><td>NLMeans vszip CPU (d=1 a=2 s=4, h 7)</td><td>181.3</td><td>23.0</td></tr>
+<tr><td>KNLMeansCL GPU (d=1 a=2 s=4, h 7)</td><td>126.5</td><td>18.5</td></tr>
+<tr><td>WNNM vszip (r=0, sigma 16)</td><td>159.1</td><td>16.7</td></tr>
+<tr><td>WNNM vszip (r=1, sigma 16)</td><td>90.3</td><td>10.3</td></tr>
+<tr><td>BM3D vszip (r=1, sigma 10)</td><td>150.4</td><td>16.9</td></tr>
+<tr><td>input only (decode + noise)</td><td>1999.4</td><td>1146.7</td></tr>
+<tr><td>AA: daa</td><td>60.7</td><td>15.9</td></tr>
+<tr><td>AA: santiag (nnedi3, strength 1/1)</td><td>27.2</td><td>19.6</td></tr>
+<tr><td>AA: SangNom (aa 48)</td><td>79.9</td><td>8.6</td></tr>
+<tr><td>Dehalo: DeHalo_alpha (defaults)</td><td>1399.0</td><td>211.5</td></tr>
+<tr><td>Dehalo: vine (16, 0.5, 1.0)</td><td>31.6</td><td>15.3</td></tr>
+<tr><td>Deblock: Deblock_QED (defaults)</td><td>1073.5</td><td>151.7</td></tr>
+<tr><td>Deblock: mpeg2stinx</td><td>36.1</td><td>10.0</td></tr>
+<tr><td>IVTC fade fix (average), alone</td><td>588.2</td><td>75.8</td></tr>
+</table></div>
 <!--/BENCH-->
+<div class="limit"><strong>Reading the speed table.</strong> The 640×480 rows ran while other jobs shared the machine: their three runs spread widely (daa 8.3–16.5 fps) and several are slower than the same method at 1080p, which cannot be the method. The 1080p rows ran on a quieter machine and their runs agree within a few percent; they are only 10 frames each, so per-run start-up weighs on the fastest methods (the "input only" row is not a real 1146 fps). Use the 1080p column for comparisons. The shipped BM3D path processes all three planes at sigma 16 here, which is slower than its luma-only default — but 0.2 fps at 1080p (0.9 at 640×480) is far below the ~14 fps at SD a code comment claims for it on the defaults, and r=0 measured slower than r=1. That is worth a dedicated look on arm64; it is not explained here.</div>
 <p>NLMeans (CPU and GPU, identical) sits 0.3–1.2 dB below BM3D on luma. The vszip BM3D (new in 24.0.0) was measured for the record only: 1.1–2.2 dB below the shipped bm3d r12 path on every fixture and sigma, so it is not used.</p>
 
 <h2>3. SangNom anti-aliasing</h2>
+<p><strong>Speed, corrected.</strong> An early probe (Python <code>clip.frames()</code>, 60 frames, other jobs running) put SangNom at 45 fps against santiag's 17 and daa's 26, and the first draft of this change called it the fastest method. The vspipe benchmark disagrees: at 1080p SangNom runs 8.6 fps against daa's 15.9 and santiag's 19.6 — it works on a picture twice the size in each direction. It is offered as the sharpest, not the fastest, and the method's description says it is slower on HD.</p>
 <p>Every depth runs: raw SangNom changes the picture by 4.97 levels at 8, 10, 12 and 16-bit alike, and the method by 4.37–4.39. The method's 8 vs 10/16-bit difference is 0.44–0.48 levels (santiag's own is 0.37), most of it the 2× Spline36 round trip. A still frame repeated gives bit-identical output, so it does not shimmer.</p>
 <!--AA_TABLES-->
 <div class="scroll"><table><caption>Anti-aliasing (kodim08 pan)</caption><tr><th>method</th><th>mean change, levels</th></tr>

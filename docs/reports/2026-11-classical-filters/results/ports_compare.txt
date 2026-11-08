@@ -1,15 +1,15 @@
 vine kodim08_pan: haloed (no filter)           Y 21.93 dB  0.0 fps
-vine kodim08_pan: vine (16, 0.5, 1.0)          Y 22.80 dB  3.8 fps
+vine kodim08_pan: vine (16, 0.5, 1.0)          Y 22.80 dB  14.2 fps
 vine kodim08_pan: vine (24, 0.5, 1.0)          Y 23.06 dB  0.0 fps
 vine kodim08_pan: vine (8, 0.5, 1.0)           Y 22.45 dB  0.0 fps
-vine kodim08_pan: DeHalo_alpha (defaults)      Y 26.28 dB  419.7 fps
-vine kodim08_pan: FineDehalo (defaults)        Y 22.00 dB  386.9 fps
+vine kodim08_pan: DeHalo_alpha (defaults)      Y 26.28 dB  1201.2 fps
+vine kodim08_pan: FineDehalo (defaults)        Y 22.00 dB  884.5 fps
 vine kodim23_pan: haloed (no filter)           Y 31.99 dB  0.0 fps
-vine kodim23_pan: vine (16, 0.5, 1.0)          Y 33.12 dB  18.7 fps
+vine kodim23_pan: vine (16, 0.5, 1.0)          Y 33.12 dB  55.4 fps
 vine kodim23_pan: vine (24, 0.5, 1.0)          Y 33.26 dB  0.0 fps
 vine kodim23_pan: vine (8, 0.5, 1.0)           Y 32.83 dB  0.0 fps
-vine kodim23_pan: DeHalo_alpha (defaults)      Y 36.11 dB  687.5 fps
-vine kodim23_pan: FineDehalo (defaults)        Y 32.25 dB  450.6 fps
+vine kodim23_pan: DeHalo_alpha (defaults)      Y 36.11 dB  1221.4 fps
+vine kodim23_pan: FineDehalo (defaults)        Y 32.25 dB  853.2 fps
 mpeg2stinx kodim08 telecined @1000k: decoded (no filter)            Y 33.30  U 41.61
 mpeg2stinx kodim08 telecined @1000k: mpeg2stinx (TFF)               Y 31.54  U 41.68
 mpeg2stinx kodim08 telecined @1000k: mpeg2stinx (wrong order: BFF)  Y 31.53  U 41.68
@@ -59,11 +59,11 @@ fades: {
  "psnr_fixed_vs_truth": 52.9205588884955,
  "unfaded_change_mad": 0.0,
  "unfaded_change_mad_mpeg2": 0.0,
- "fps": 323.20811275246393
+ "fps": 478.61060078735665
 }
-AA daa                      22.4 fps, mean change 3.41
-AA santiag (nnedi3, 1/1)    12.9 fps, mean change 4.18
-AA SangNom AA (48)          19.2 fps, mean change 4.11
+AA daa                      53.9 fps, mean change 3.41
+AA santiag (nnedi3, 1/1)    20.9 fps, mean change 4.18
+AA SangNom AA (48)          60.1 fps, mean change 4.11
 parity vine                 10-bit 0.450  16-bit 0.455
 parity mpeg2stinx           10-bit 0.009  16-bit 0.010
 parity FixInterlacedFades   10-bit 0.251  16-bit 0.257

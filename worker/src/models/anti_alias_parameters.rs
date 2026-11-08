@@ -23,7 +23,7 @@ pub enum AntiAliasMethod {
     /// at one axis. Stronger, and slower.
     Santiag,
     /// SangNom AA: supersample 2x, SangNom along each axis, back down. The
-    /// sharpest of the three, about daa's speed (app 1.7.0, deps 1.16.0).
+    /// sharpest of the three; slower than daa at HD (app 1.7.0, deps 1.16.0).
     #[serde(rename = "sangnom")]
     SangNom,
 }

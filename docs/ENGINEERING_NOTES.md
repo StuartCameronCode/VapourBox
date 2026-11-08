@@ -2997,9 +2997,12 @@ truth, real motion).
 - **WNNM was measured and not added.** At each method's best sigma, against
   the shipped BM3D path: luma +0.7 to −2.3 dB (ahead only at sigma 4 with
   `radius=1`), chroma 2.6–7.2 dB worse. Widening its sweep to 4x the noise
-  found nothing past 2–2.5x. It is fast (25 fps at 640x480 with `radius=1`;
-  the shipped BM3D path ran 0.9 fps there on arm64, all three planes at
-  sigma 16), but NLMeans (CPU) is faster (38 fps) with better chroma. WNNM needs 32-bit float and divides sigma by 255,
+  found nothing past 2–2.5x. It is fast (10.3 fps at 1080p with `radius=1`;
+  the shipped BM3D path ran 0.2 fps there on arm64, all three planes at
+  sigma 16), but NLMeans (CPU) is faster (23.0 fps) with better chroma.
+  SangNom AA turned out the slowest AA method at 1080p (8.6 fps; daa 15.9,
+  santiag 19.6) — an early clip.frames() probe under load had it fastest,
+  and the first draft said so. WNNM needs 32-bit float and divides sigma by 255,
   so its float conversion must keep sigma in 8-bit units: with the default
   (limited) range, luma spans 219 levels per 1.0 and chroma 224. Passing
   `range_in_s="full"` instead broke at 10-bit (a 7-level offset) because the

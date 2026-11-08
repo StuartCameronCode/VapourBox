@@ -70,7 +70,8 @@ def vspipe_fps(body, hd):
         f.write(code)
         path = f.name
     try:
-        r = subprocess.run(['vspipe', '-p', path, '--'], capture_output=True, text=True)
+        # Bounded: the first fade-fix block hung vspipe for 97 minutes here.
+        r = subprocess.run(['vspipe', '-p', path, '--'], capture_output=True, text=True, timeout=900)
         m = re.search(r'Output (\d+) frames in ([\d.]+) seconds \(([\d.]+) fps\)', r.stderr)
         if not m:
             raise RuntimeError(r.stderr[-800:])

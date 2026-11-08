@@ -1558,8 +1558,9 @@ Five classical additions, all in the deps bundle (no add-ons). The evidence is
 - **WNNM is not a method.** Measured against the shipped BM3D on three Kodak
   pans at sigma 4/8/12, each at its best sigma: luma +0.7 to −2.3 dB (ahead
   only at sigma 4 with a temporal radius), chroma 2.6–7.2 dB worse. It is
-  fast (25 fps at 640x480 on an M1 Pro, where the shipped BM3D path runs
-  under 1 fps), but NLMeans (CPU) fills that niche with better chroma (38 fps).
+  fast (10 fps at 1080p with a temporal radius on an M1 Pro, where the shipped
+  BM3D path runs 0.2 fps), but NLMeans (CPU) fills that niche with better
+  chroma (23 fps).
   Revisit only with a reason BM3D's quality and NLMeans' speed don't cover.
 - **The vs-jetpack ports are template code, not a dependency**: vine_dehalo
   (`DehaloMethod::Vine`, advanced), mpeg2stinx (`DeblockMethod::Mpeg2Stinx`,
