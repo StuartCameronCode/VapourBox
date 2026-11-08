@@ -17,6 +17,7 @@ pub mod progress_reporter;
 pub mod addons;
 pub mod ai_runtime;
 pub mod animejanai;
+pub mod upscale_addons;
 pub mod gpu_plugin;
 pub mod hdr_metadata;
 pub mod native_res;

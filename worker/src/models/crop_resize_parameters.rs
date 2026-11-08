@@ -75,6 +75,16 @@ pub enum UpscaleMethod {
     /// Its models are an optional download, not in the deps bundle — see
     /// `animejanai.rs`.
     AnimeJanai,
+    /// Real-ESRGAN's general model for real-world footage (`realesr-general-x4v3`,
+    /// BSD-3), 4x native; a 2x upscale runs it at 4x and resamples down. Its
+    /// model is an add-on — see `upscale_addons.rs`.
+    RealEsrganGeneral,
+    /// jcj83429's 2xLiveActionV1_SPAN (Apache-2.0), 2x native, for live
+    /// action; 4x runs it twice. Add-on, as above.
+    LiveAction,
+    /// Real-ESRGAN x4plus / x2plus (BSD-3), the large RRDB networks, chosen by
+    /// factor. Add-on, as above.
+    RealEsrganPlus,
 }
 
 impl UpscaleMethod {
@@ -83,8 +93,27 @@ impl UpscaleMethod {
     pub fn is_ai(self) -> bool {
         matches!(
             self,
-            UpscaleMethod::RealEsrgan | UpscaleMethod::RealCugan | UpscaleMethod::AnimeJanai
+            UpscaleMethod::RealEsrgan
+                | UpscaleMethod::RealCugan
+                | UpscaleMethod::AnimeJanai
+                | UpscaleMethod::RealEsrganGeneral
+                | UpscaleMethod::LiveAction
+                | UpscaleMethod::RealEsrganPlus
         )
+    }
+
+    /// The manifest add-on holding this method's models, and the feature name
+    /// the worker's refusal starts with when it is missing. `None` for the
+    /// methods whose models are in the deps bundle (and for AnimeJaNai, whose
+    /// hand-written add-on is checked separately — see `animejanai.rs`).
+    pub fn addon(self) -> Option<(&'static str, &'static str)> {
+        use crate::upscale_addons::{ESRGAN_PLUS_ADDON, GENERAL_ADDON};
+        match self {
+            UpscaleMethod::RealEsrganGeneral => Some((GENERAL_ADDON, "Real-ESRGAN General upscaling")),
+            UpscaleMethod::LiveAction => Some((GENERAL_ADDON, "Live-action upscaling")),
+            UpscaleMethod::RealEsrganPlus => Some((ESRGAN_PLUS_ADDON, "Real-ESRGAN x4plus upscaling")),
+            _ => None,
+        }
     }
 }
 
@@ -98,6 +127,21 @@ pub enum AiModel {
     /// Decided in the script, per doubling, because only it knows the height
     /// after cropping (and after a first doubling).
     AnimeJanai { sd: &'static str, hd: &'static str },
+    /// A model from a manifest add-on: `addons/<addon>/<file>` (see
+    /// `upscale_addons.rs`).
+    Addon { addon: &'static str, file: &'static str },
+}
+
+impl AiModel {
+    /// The network's own scale factor. Every bundled model and AnimeJaNai's
+    /// double; add-on models say (`upscale_addons::MODELS`).
+    pub fn scale(&self) -> u32 {
+        match self {
+            AiModel::Bundled(name) if name.ends_with("xsx4.onnx") => 4,
+            AiModel::Bundled(_) | AiModel::AnimeJanai { .. } => 2,
+            AiModel::Addon { file, .. } => crate::upscale_addons::scale_of(file),
+        }
+    }
 }
 
 /// What to do with the pixel aspect ratio (SAR) on output.
@@ -291,6 +335,18 @@ pub struct CropResizeParameters {
     #[serde(default)]
     pub animejanai_sharp: bool,
 
+    /// Real-ESRGAN General's denoise variant (`realesr-general-wdn-x4v3`),
+    /// which also removes noise as it upscales.
+    #[serde(default)]
+    pub general_denoise: bool,
+
+    /// How much of an AI upscale to keep, 0.0-1.0: the result is blended with
+    /// a Spline36 upscale of the same frame (`std.Merge`) at the clip's own
+    /// format. 1.0 (the default) is the network's output alone, and leaves the
+    /// script exactly as it was before this setting existed.
+    #[serde(default = "default_ai_strength")]
+    pub ai_strength: f64,
+
     // --- nnedi3 controls for the edge-directed upscale paths ---
     // With EEDI3 selected these shape the nnedi3 sclip that guides it.
 
@@ -341,6 +397,7 @@ fn default_true() -> bool { true }
 fn default_upscale_factor() -> i32 { 2 }
 fn default_cugan_noise() -> String { "conservative".to_string() }
 fn default_animejanai_model() -> String { "compact".to_string() }
+fn default_ai_strength() -> f64 { 1.0 }
 
 impl Default for CropResizeParameters {
     fn default() -> Self {
@@ -375,6 +432,8 @@ impl Default for CropResizeParameters {
             cugan_noise: default_cugan_noise(),
             animejanai_model: default_animejanai_model(),
             animejanai_sharp: false,
+            general_denoise: false,
+            ai_strength: default_ai_strength(),
             upscale_nsize: None,
             upscale_neurons: None,
             upscale_qual: None,
@@ -441,8 +500,15 @@ impl CropResizeParameters {
         self.uses_ai_upscale() && self.upscale_method == UpscaleMethod::AnimeJanai
     }
 
+    /// The manifest add-on this pass's AI upscale needs, with the feature name
+    /// for the refusal (see `UpscaleMethod::addon`).
+    pub fn upscale_addon(&self) -> Option<(&'static str, &'static str)> {
+        if self.uses_ai_upscale() { self.upscale_method.addon() } else { None }
+    }
+
     /// The models an AI upscale runs, in order, as paths under
-    /// `vapoursynth/ncnn/models/`. Factors follow the edge-directed path's
+    /// `vapoursynth/ncnn/models/` (or an add-on's directory for
+    /// `AiModel::Addon`). Factors follow the edge-directed path's
     /// rule (3x behaves as 2x). Real-ESRGAN has a 4x model; Real-CUGAN's
     /// bundled models are 2x only, so 4x runs it twice, denoising on the first
     /// pass only — a second denoise pass would smooth the result twice.
@@ -476,7 +542,75 @@ impl CropResizeParameters {
                     vec![first]
                 })
             }
+            UpscaleMethod::RealEsrganGeneral => {
+                use crate::upscale_addons::{GENERAL_ADDON, GENERAL_WDN_X4, GENERAL_X4};
+                let file = if self.general_denoise { GENERAL_WDN_X4 } else { GENERAL_X4 };
+                // 4x only: a 2x upscale resamples its result down (see
+                // `ai_resample_to`).
+                vec![AiModel::Addon { addon: GENERAL_ADDON, file }]
+            }
+            UpscaleMethod::LiveAction => {
+                use crate::upscale_addons::{GENERAL_ADDON, LIVE_ACTION_X2};
+                let m = AiModel::Addon { addon: GENERAL_ADDON, file: LIVE_ACTION_X2 };
+                vec![m; if four { 2 } else { 1 }]
+            }
+            UpscaleMethod::RealEsrganPlus => {
+                use crate::upscale_addons::{ESRGAN_PLUS_ADDON, PLUS_X2, PLUS_X4};
+                vec![AiModel::Addon { addon: ESRGAN_PLUS_ADDON, file: if four { PLUS_X4 } else { PLUS_X2 } }]
+            }
             _ => Vec::new(),
+        }
+    }
+
+    /// The factor an AI upscale delivers: 4 for 4x, else 2 (3x behaves as 2x,
+    /// as on the edge-directed path).
+    pub fn ai_upscale_factor(&self) -> u32 {
+        if self.upscale_factor >= 4 { 4 } else { 2 }
+    }
+
+    /// When the networks enlarge further than asked — Real-ESRGAN General is
+    /// 4x only, so a 2x job runs it at 4x — the factor to resample their
+    /// result down to (Spline36, in the networks' float RGB, before the
+    /// conversion back). `None` when the networks land on the factor exactly,
+    /// which leaves the script as it was. Upstream does the same for its own
+    /// `--outscale` (4x, then a Lanczos resize); see the report in
+    /// docs/reports/issue-ai-upscale-addons/ for the kernel comparison.
+    pub fn ai_resample_to(&self) -> Option<u32> {
+        let models = self.ai_upscale_models();
+        if models.is_empty() {
+            return None;
+        }
+        let total: u32 = models.iter().map(AiModel::scale).product();
+        (total != self.ai_upscale_factor()).then(|| self.ai_upscale_factor())
+    }
+
+    /// The AI strength as a blend weight for the network's output, or `None`
+    /// at full strength (1.0, the default), where no blend is emitted and the
+    /// script is unchanged. Clamped to 0..1; a non-finite value (a hand-edited
+    /// preset) is full strength.
+    pub fn ai_blend_weight(&self) -> Option<f64> {
+        let s = self.ai_strength;
+        if !s.is_finite() || s >= 1.0 {
+            None
+        } else {
+            Some(s.max(0.0))
+        }
+    }
+
+    /// When a frame runs in tiles, and their size: `(largest whole frame in
+    /// pixels, tile size)`. Above SD every model tiles at 512 — whole-frame
+    /// Real-CUGAN at 1080p ran out of GPU memory on a 16 GB Mac. Real-ESRGAN
+    /// x4plus (23 RRDB blocks, then two doublings at full width) is far larger:
+    /// whole-frame at 720x576 lost the Vulkan device (`VK_ERROR_DEVICE_LOST`,
+    /// then a segfault) and 512-pixel tiles thrashed at 29 s a frame, so it
+    /// runs in 384-pixel tiles (6.8 s a frame there; 256 took 10 s). x2plus
+    /// works at a quarter of the area until its last layers and runs a DVD
+    /// frame whole, so it keeps the common rule.
+    pub fn ai_tiling(&self) -> (&'static str, u32) {
+        if self.upscale_method == UpscaleMethod::RealEsrganPlus && self.ai_upscale_factor() == 4 {
+            ("384 * 384", 384)
+        } else {
+            ("720 * 576", 512)
         }
     }
 
@@ -835,5 +969,82 @@ mod tests {
         // Defaults: Compact, not sharp.
         let d = CropResizeParameters::default();
         assert_eq!((d.animejanai_model.as_str(), d.animejanai_sharp), ("compact", false));
+    }
+
+    #[test]
+    fn test_addon_upscalers_follow_their_factor_rules() {
+        use crate::upscale_addons::*;
+        let p = |method, factor, denoise| CropResizeParameters {
+            enabled: true,
+            use_integer_upscale: true,
+            upscale_method: method,
+            upscale_factor: factor,
+            general_denoise: denoise,
+            ..Default::default()
+        };
+        let a = |addon, file| AiModel::Addon { addon, file };
+        // General is 4x only: 2x (and 3x) run it at 4x and resample down.
+        for f in [2, 3] {
+            let g = p(UpscaleMethod::RealEsrganGeneral, f, false);
+            assert_eq!(g.ai_upscale_models(), [a(GENERAL_ADDON, GENERAL_X4)]);
+            assert_eq!(g.ai_resample_to(), Some(2));
+        }
+        let g4 = p(UpscaleMethod::RealEsrganGeneral, 4, true);
+        assert_eq!(g4.ai_upscale_models(), [a(GENERAL_ADDON, GENERAL_WDN_X4)]);
+        assert_eq!(g4.ai_resample_to(), None);
+        // SPAN is 2x only: 4x runs it twice.
+        assert_eq!(p(UpscaleMethod::LiveAction, 2, false).ai_upscale_models(), [a(GENERAL_ADDON, LIVE_ACTION_X2)]);
+        assert_eq!(p(UpscaleMethod::LiveAction, 4, false).ai_upscale_models(), [a(GENERAL_ADDON, LIVE_ACTION_X2); 2]);
+        assert_eq!(p(UpscaleMethod::LiveAction, 4, false).ai_resample_to(), None);
+        // x2plus / x4plus by factor, the 4x one in its own tiles.
+        let plus2 = p(UpscaleMethod::RealEsrganPlus, 2, false);
+        let plus4 = p(UpscaleMethod::RealEsrganPlus, 4, false);
+        assert_eq!(plus2.ai_upscale_models(), [a(ESRGAN_PLUS_ADDON, PLUS_X2)]);
+        assert_eq!(plus4.ai_upscale_models(), [a(ESRGAN_PLUS_ADDON, PLUS_X4)]);
+        assert_eq!(plus2.ai_tiling(), ("720 * 576", 512));
+        assert_eq!(plus4.ai_tiling(), ("384 * 384", 384));
+        // The bundled models never resample, and keep the common tiles.
+        for m in [UpscaleMethod::RealEsrgan, UpscaleMethod::RealCugan, UpscaleMethod::AnimeJanai] {
+            for f in [2, 4] {
+                assert_eq!(p(m, f, false).ai_resample_to(), None, "{m:?} {f}");
+                assert_eq!(p(m, f, false).ai_tiling(), ("720 * 576", 512));
+            }
+        }
+        // The add-on each needs, only when it is what the pass runs.
+        assert_eq!(plus4.upscale_addon().map(|a| a.0), Some(ESRGAN_PLUS_ADDON));
+        assert_eq!(p(UpscaleMethod::LiveAction, 2, false).upscale_addon().map(|a| a.0), Some(GENERAL_ADDON));
+        assert_eq!(p(UpscaleMethod::RealEsrgan, 2, false).upscale_addon(), None);
+        assert_eq!(p(UpscaleMethod::AnimeJanai, 2, false).upscale_addon(), None);
+        let off = CropResizeParameters { use_integer_upscale: false, ..plus4.clone() };
+        assert_eq!(off.upscale_addon(), None);
+        for m in [UpscaleMethod::RealEsrganGeneral, UpscaleMethod::LiveAction, UpscaleMethod::RealEsrganPlus] {
+            assert!(m.is_ai(), "{m:?}");
+        }
+    }
+
+    #[test]
+    fn test_ai_strength_defaults_to_full_and_clamps() {
+        let d = CropResizeParameters::default();
+        assert_eq!(d.ai_strength, 1.0);
+        assert_eq!(d.ai_blend_weight(), None);
+        let with = |s| CropResizeParameters { ai_strength: s, ..Default::default() }.ai_blend_weight();
+        assert_eq!(with(0.5), Some(0.5));
+        assert_eq!(with(-0.2), Some(0.0));
+        assert_eq!(with(1.5), None);
+        assert_eq!(with(f64::NAN), None);
+        // Absent from old JSON = full strength; the camel-case wire names.
+        let p: CropResizeParameters = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
+        assert_eq!((p.ai_strength, p.general_denoise), (1.0, false));
+        let json = serde_json::to_string(&CropResizeParameters {
+            upscale_method: UpscaleMethod::RealEsrganGeneral,
+            ..Default::default()
+        })
+        .unwrap();
+        assert!(json.contains("\"aiStrength\":1.0"), "{json}");
+        assert!(json.contains("\"generalDenoise\":false"), "{json}");
+        assert!(json.contains("\"upscaleMethod\":\"realEsrganGeneral\""), "{json}");
+        for (v, s) in [(UpscaleMethod::LiveAction, "liveAction"), (UpscaleMethod::RealEsrganPlus, "realEsrganPlus")] {
+            assert_eq!(serde_json::to_string(&v).unwrap(), format!("\"{s}\""));
+        }
     }
 }

@@ -31,6 +31,7 @@ mod progress_reporter;
 mod addons;
 mod ai_runtime;
 mod animejanai;
+mod upscale_addons;
 mod gpu_plugin;
 mod hdr_metadata;
 mod native_res;

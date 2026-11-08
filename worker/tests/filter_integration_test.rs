@@ -6879,3 +6879,174 @@ fn test_184_flowfps_length_is_set_by_the_script() {
         assert!(call < trim && call < pad, "{name}: length set before FlowFPS");
     }
 }
+
+/// An add-ons directory with `ids` installed for macOS arm64, as the app's
+/// installer leaves it: every expected file plus the marker, written last.
+fn fake_addons(tag: &str, ids: &[&str]) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("vb-upscale-addons-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    for id in ids {
+        let m = vapourbox_worker::addons::manifest(id).expect("manifest");
+        let dir = vapourbox_worker::addons::addon_dir(&root, id);
+        std::fs::create_dir_all(&dir).unwrap();
+        for p in m.expected_paths("macos-arm64") {
+            std::fs::write(dir.join(p), b"x").unwrap();
+        }
+        std::fs::write(
+            dir.join(vapourbox_worker::addons::MARKER),
+            format!(r#"{{"id":"{id}","version":"{}","platform":"macos-arm64"}}"#, m.version),
+        )
+        .unwrap();
+    }
+    root
+}
+
+/// The add-on upscalers (Real-ESRGAN General, live-action SPAN, Real-ESRGAN
+/// x4plus/x2plus): the same VSNCNN block, each model from its add-on's
+/// directory, with the factor rules — General is 4x only, so 2x resamples its
+/// result down; SPAN is 2x only, so 4x runs it twice; x4plus/x2plus by factor,
+/// in 384-pixel tiles at 4x — in both scripts.
+#[test]
+fn test_185_upscale_addon_models_and_factors() {
+    use vapourbox_worker::upscale_addons::*;
+    create_output_dir();
+    let root = fake_addons("185", &[GENERAL_ADDON, ESRGAN_PLUS_ADDON]);
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(root.clone(), "macos-arm64");
+    let py = |addon: &str, f: &str| {
+        vapourbox_worker::gpu_plugin::py_str(&vapourbox_worker::addons::addon_dir(&root, addon).join(f))
+    };
+    let cases: Vec<(UpscaleMethod, i32, bool, Vec<String>, Option<u32>)> = vec![
+        (UpscaleMethod::RealEsrganGeneral, 2, false, vec![py(GENERAL_ADDON, GENERAL_X4)], Some(2)),
+        (UpscaleMethod::RealEsrganGeneral, 4, false, vec![py(GENERAL_ADDON, GENERAL_X4)], None),
+        (UpscaleMethod::RealEsrganGeneral, 2, true, vec![py(GENERAL_ADDON, GENERAL_WDN_X4)], Some(2)),
+        (UpscaleMethod::LiveAction, 2, false, vec![py(GENERAL_ADDON, LIVE_ACTION_X2)], None),
+        (UpscaleMethod::LiveAction, 4, false, vec![py(GENERAL_ADDON, LIVE_ACTION_X2); 2], None),
+        (UpscaleMethod::RealEsrganPlus, 2, false, vec![py(ESRGAN_PLUS_ADDON, PLUS_X2)], None),
+        (UpscaleMethod::RealEsrganPlus, 4, false, vec![py(ESRGAN_PLUS_ADDON, PLUS_X4)], None),
+    ];
+    for (method, factor, denoise, models, resample) in cases {
+        let label = format!("{method:?} {factor}x denoise={denoise}");
+        let mut job = ai_upscale_job("test_185", method, factor, "");
+        job.processing_pipeline.as_mut().unwrap().crop_resize.general_denoise = denoise;
+        let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(script.contains(&format!("for _ai_model in [{}]:", models.join(", "))),
+                "{label} {name}: wrong models");
+            assert!(script.contains("core.ncnn.Model(_ai_rgb, network_path=_ai_model"), "{label} {name}");
+            match resample {
+                Some(f) => assert!(script.contains(&format!(
+                    "_ai_rgb = core.resize.Spline36(_ai_rgb, width=_ai_rgb.width * {f} // _ai_scale, \
+                     height=_ai_rgb.height * {f} // _ai_scale)")), "{label} {name}: no resample"),
+                None => assert!(!script.contains("// _ai_scale"), "{label} {name}: stray resample"),
+            }
+            let tiles = if method == UpscaleMethod::RealEsrganPlus && factor == 4 {
+                "<= 384 * 384 else dict(tilesize=[384, 384]"
+            } else {
+                "<= 720 * 576 else dict(tilesize=[512, 512]"
+            };
+            assert!(script.contains(tiles), "{label} {name}: tiles");
+            assert!(!script.contains("AI_RESAMPLE") && !script.contains("AI_STRENGTH") && !script.contains("{{AI_"), "{label} {name}: unsubstituted placeholder");
+            assert!(!script.contains("core.std.Merge(core.resize.Spline36(_ai_src"), "{label} {name}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Without its add-on each add-on upscaler is refused, naming the add-on and
+/// Settings → Add-ons; with the other add-on installed it is still refused,
+/// and the bundled models need none.
+#[test]
+fn test_186_upscale_addons_are_refused_when_missing() {
+    use vapourbox_worker::upscale_addons::*;
+    create_output_dir();
+    let root = fake_addons("186", &[ESRGAN_PLUS_ADDON]);
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(root.clone(), "macos-arm64");
+    for (method, feature) in [
+        (UpscaleMethod::RealEsrganGeneral, "Real-ESRGAN General upscaling"),
+        (UpscaleMethod::LiveAction, "Live-action upscaling"),
+    ] {
+        let job = ai_upscale_job("test_186", method, 2, "");
+        let err = both_scripts_with(&generator, &job).unwrap_err().to_string();
+        assert!(err.starts_with(feature), "{err}");
+        assert!(err.contains("General & live-action upscaling models"), "{err}");
+        assert!(err.contains("Settings → Add-ons"), "{err}");
+    }
+    both_scripts_with(&generator, &ai_upscale_job("test_186_plus", UpscaleMethod::RealEsrganPlus, 4, ""))
+        .expect("x4plus is installed");
+    let missing = fake_addons("186b", &[]);
+    let bare = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(missing.clone(), "macos-arm64");
+    let err = both_scripts_with(&bare, &ai_upscale_job("test_186_plus", UpscaleMethod::RealEsrganPlus, 2, ""))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("Real-ESRGAN x4plus / x2plus models"), "{err}");
+    both_scripts_with(&bare, &ai_upscale_job("test_186_esrgan", UpscaleMethod::RealEsrgan, 2, ""))
+        .expect("bundled Real-ESRGAN needs no add-on");
+    // On a platform VSNCNN doesn't ship on, the add-on is unavailable too.
+    let mac_x64 = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(root.clone(), "macos-x64");
+    let err = both_scripts_with(&mac_x64, &ai_upscale_job("test_186_x64", UpscaleMethod::LiveAction, 2, ""))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("isn't available on this platform"), "{err}");
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&missing);
+}
+
+/// AI strength blends the network's result with a Spline36 upscale of the same
+/// frame in one std.Merge at the clip's format, for every AI method, in both
+/// scripts. At full strength (the default) nothing is emitted: the script is
+/// byte-for-byte the one a job without the setting gets.
+#[test]
+fn test_187_ai_strength_blends_with_spline36() {
+    use vapourbox_worker::upscale_addons::*;
+    create_output_dir();
+    let root = fake_addons("187", &[GENERAL_ADDON]);
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(root.clone(), "macos-arm64");
+    let merge = "clip = core.std.Merge(core.resize.Spline36(_ai_src, width=clip.width, \
+                 height=clip.height), clip, weight=0.650)";
+    for method in [UpscaleMethod::RealEsrgan, UpscaleMethod::RealCugan, UpscaleMethod::LiveAction,
+                   UpscaleMethod::RealEsrganGeneral] {
+        let mut job = ai_upscale_job("test_187", method, 2, "conservative");
+        job.processing_pipeline.as_mut().unwrap().crop_resize.ai_strength = 0.65;
+        let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(script.contains(merge), "{method:?} {name}: no blend");
+            let at = script.find(merge).unwrap();
+            assert!(at > script.find("for _ai_model in").unwrap(), "{method:?} {name}: blend before the network");
+            assert!(at < script.find("clip = core.std.CopyFrameProps(clip, _ai_src)").unwrap(),
+                "{method:?} {name}: blend after the props copy");
+        }
+    }
+    // Full strength: byte-identical to a job without the field at all.
+    let full = ai_upscale_job("test_187_full", UpscaleMethod::RealEsrgan, 2, "");
+    assert_eq!(full.processing_pipeline.as_ref().unwrap().crop_resize.ai_strength, 1.0);
+    let mut json = serde_json::to_value(&full).unwrap();
+    json["processingPipeline"]["cropResize"].as_object_mut().unwrap().remove("aiStrength");
+    json["id"] = serde_json::Value::String(Uuid::new_v4().to_string());
+    let legacy: VideoJob = serde_json::from_value(json).unwrap();
+    let a = script_text_with(&generator, &full);
+    let b = script_text_with(&generator, &legacy);
+    assert_eq!(a.replace(&full.id.to_string(), "ID"), b.replace(&legacy.id.to_string(), "ID"));
+    assert!(!a.contains("core.std.Merge(core.resize.Spline36(_ai_src"));
+    assert!(!a.contains("AI_STRENGTH"));
+    // Out-of-range values clamp; 0 is all Spline36.
+    let mut zero = ai_upscale_job("test_187_zero", UpscaleMethod::RealEsrgan, 2, "");
+    zero.processing_pipeline.as_mut().unwrap().crop_resize.ai_strength = -1.0;
+    assert!(script_text_with(&generator, &zero).contains("clip, weight=0.000)"));
+    let _ = std::fs::remove_dir_all(&root);
+}
