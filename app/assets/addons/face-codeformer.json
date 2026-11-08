@@ -18,7 +18,7 @@
   "files": [
     {
       "name": "face-codeformer-v0.1.0.onnx",
-      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/face-codeformer-v0.1.0.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/deps-v1.16.0-rc1/face-codeformer-v0.1.0.onnx",
       "size": 376827102,
       "sha256": "536db9b0d73400d09ca19ba1ea4978ba3b084e3bc0c3ab951597e5536c031e18"
     }

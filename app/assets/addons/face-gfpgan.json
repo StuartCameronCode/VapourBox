@@ -18,7 +18,7 @@
   "files": [
     {
       "name": "face-gfpgan-v1.4.onnx",
-      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/face-gfpgan-v1.4.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/deps-v1.16.0-rc1/face-gfpgan-v1.4.onnx",
       "size": 340357340,
       "sha256": "c84d5c2bf1ddc5e61cfc71524b1a155b297c1c3e884255e6a8c0ce5230a91d94"
     }

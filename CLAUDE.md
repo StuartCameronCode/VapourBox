@@ -1440,7 +1440,10 @@ by `AddonService.addonsDir`), only when the user asks. Rules:
   and hash-checked — how an add-on is tested before its files are uploaded.
   Files we convert ourselves are staged in `addon-staging/` (gitignored, with
   the conversion venv in `addon-staging/convert-venv`) and hosted on the
-  `addon-models-v1` release, which only the owner uploads to.
+  `addon-models-v1` release, which only the owner uploads to. **During 1.7.0
+  development they are hosted on the `deps-v1.16.0-rc1` prerelease** and the
+  manifests point there; `release.sh` refuses to cut an app release while any
+  manifest names an `-rc` tag (docs/ADDONS.md, "Hosting").
 - **Tested for real**: `WorkerHarness.ensureAddon(id)` installs an add-on and
   its requirements with the app's own installer; `integration_ai_runtime_test.dart`
   (heavy) installs `ai-runtime` and runs the probe. `manifest_addon_test.dart`
