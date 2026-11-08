@@ -494,6 +494,24 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/openai/whisper',
                       ),
                       _ComponentTile(
+                        name: 'ONNX Runtime (optional download, AI runtime add-on)',
+                        license: 'MIT',
+                        copyright: 'Microsoft Corporation',
+                        url: 'https://github.com/microsoft/onnxruntime',
+                      ),
+                      _ComponentTile(
+                        name: 'NumPy (optional download, AI runtime add-on)',
+                        license: 'BSD-3-Clause',
+                        copyright: 'NumPy Developers',
+                        url: 'https://github.com/numpy/numpy',
+                      ),
+                      _ComponentTile(
+                        name: 'DirectML (optional download, AI runtime add-on, Windows)',
+                        license: 'Microsoft Software License Terms',
+                        copyright: 'Microsoft Corporation',
+                        url: 'https://github.com/microsoft/DirectML',
+                      ),
+                      _ComponentTile(
                         name: 'libdvdread',
                         license: 'GPL 2.0+',
                         copyright: 'VideoLAN and contributors',

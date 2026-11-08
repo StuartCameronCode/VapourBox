@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 
+import '../models/ai_runtime_status.dart';
 import '../models/progress_info.dart';
 import '../models/gpu_plugin_status.dart';
 import '../models/native_res_report.dart';
@@ -264,6 +265,39 @@ class WorkerManager implements JobRunner {
       return GpuPluginStatus.unknown(plugin);
     } catch (_) {
       return GpuPluginStatus.unknown(plugin);
+    }
+  }
+
+  /// Ask the worker whether the AI runtime add-on runs here, and on which
+  /// execution provider (`--probe-ai-runtime`). The first call after a boot
+  /// (or after installing the add-on) imports ONNX Runtime and runs a test
+  /// model, so it takes a few seconds; a positive answer is cached by the
+  /// worker. Never throws: an unreadable answer is [AiRuntimeStatus.unknown].
+  static Future<AiRuntimeStatus> probeAiRuntime() async {
+    final toolLocator = ToolLocator.instance;
+    final workerPath = toolLocator.workerPath;
+    if (workerPath == null) return const AiRuntimeStatus.unknown();
+    try {
+      final result = await Process.run(
+        workerPath,
+        ['--probe-ai-runtime'],
+        environment: toolLocator.workerEnvironment,
+        workingDirectory: File(workerPath).parent.path,
+      );
+      if (result.exitCode != 0) return const AiRuntimeStatus.unknown();
+      for (final line in const LineSplitter().convert(result.stdout.toString())) {
+        try {
+          final decoded = jsonDecode(line.trim());
+          if (decoded is Map<String, dynamic> && decoded['available'] is bool) {
+            return AiRuntimeStatus.fromJson(decoded);
+          }
+        } catch (_) {
+          // Not the JSON line; keep scanning.
+        }
+      }
+      return const AiRuntimeStatus.unknown();
+    } catch (_) {
+      return const AiRuntimeStatus.unknown();
     }
   }
 

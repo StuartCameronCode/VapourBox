@@ -28,6 +28,8 @@ mod pixel_format;
 mod source_decode;
 mod source_timing;
 mod progress_reporter;
+mod addons;
+mod ai_runtime;
 mod animejanai;
 mod gpu_plugin;
 mod hdr_metadata;
@@ -120,6 +122,18 @@ struct Args {
     /// from (for the Descale pass); prints a JSON report.
     #[arg(long)]
     detect_native: bool,
+
+    /// Probe whether the AI runtime add-on (ONNX Runtime) runs here: imports
+    /// it the way a job does, runs a tiny test model, and prints JSON
+    /// (`{"available", "reason", "detail", "message", "version", "providers",
+    /// "provider", "fallback"}`). `VAPOURBOX_AI_FORCE_CPU=1` tests the CPU path.
+    #[arg(long)]
+    probe_ai_runtime: bool,
+
+    /// Print the add-on manifests compiled into this worker, as JSON
+    /// (`{"<id>": "<version>", …}`), and exit.
+    #[arg(long)]
+    list_addons: bool,
 }
 
 fn main() -> ExitCode {
@@ -179,6 +193,19 @@ fn main() -> ExitCode {
 
     if args.detect_native {
         return run_detect_native(&args);
+    }
+
+    if args.probe_ai_runtime {
+        return run_probe_ai_runtime();
+    }
+
+    if args.list_addons {
+        let list: serde_json::Map<String, serde_json::Value> = addons::manifests()
+            .iter()
+            .map(|m| (m.id.clone(), serde_json::Value::String(m.version.clone())))
+            .collect();
+        println!("{}", serde_json::Value::Object(list));
+        return ExitCode::SUCCESS;
     }
 
     // Preview mode outputs raw PNG to stdout - no JSON messages
@@ -296,6 +323,19 @@ fn run_detect_native(args: &Args) -> ExitCode {
 /// result as JSON to stdout. Deps that cannot be located are reported as "not
 /// installed" rather than as a failure of the probe: the remedy is the same,
 /// let the app download them.
+fn run_probe_ai_runtime() -> ExitCode {
+    let json = match dependency_locator::DependencyLocator::new() {
+        Ok(deps) => deps.ai_runtime_status().to_json(deps.platform_suffix()),
+        Err(e) => ai_runtime::AiRuntimeStatus::unavailable(
+            ai_runtime::AiRuntimeReason::ProbeFailed,
+            e.to_string(),
+        )
+        .to_json(""),
+    };
+    println!("{json}");
+    ExitCode::SUCCESS
+}
+
 fn run_probe_gpu_plugin(plugin: gpu_plugin::GpuPlugin) -> ExitCode {
     let json = match dependency_locator::DependencyLocator::new() {
         Ok(deps) => deps.gpu_plugin_status(plugin).to_json(plugin, deps.platform_suffix()),
@@ -719,6 +759,10 @@ fn run_worker(
             _ => Err(animejanai::MISSING_MESSAGE.to_string()),
         })
         .with_timeline(timeline_window);
+    let script_generator = match deps.as_ref() {
+        Some(d) => script_generator.with_addons(d.addons_dir(), d.platform_suffix()),
+        None => script_generator,
+    };
     let script_path = script_generator
         .generate(&job)
         .with_context(|| "Failed to generate VapourSynth script")?;

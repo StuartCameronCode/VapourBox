@@ -50,6 +50,35 @@ Flutter — BSD 3-Clause
   https://github.com/flutter/flutter
   The UI toolkit the application is written in.
 
+ONNX Runtime — MIT
+  Copyright (c) Microsoft Corporation
+  https://github.com/microsoft/onnxruntime
+  Runs AI models for the features that need it. NOT distributed with
+  VapourBox: part of the optional AI runtime add-on, which the app downloads
+  as the project's own unmodified Python wheels from PyPI (onnxruntime; on
+  Windows onnxruntime-directml) only when the user asks (Settings → Add-ons).
+  ONNX Runtime's ThirdPartyNotices.txt, inside each wheel, lists the
+  open-source components it includes.
+
+NumPy — BSD-3-Clause
+  Copyright (c) 2005-2025, NumPy Developers.
+  https://github.com/numpy/numpy
+  The array library ONNX Runtime's Python interface uses. NOT distributed
+  with VapourBox: part of the optional AI runtime add-on, downloaded as the
+  project's own unmodified wheels from PyPI. Some platforms' wheels bundle
+  further libraries (OpenBLAS, LAPACK, the GCC runtime libraries), each under
+  the licence given in the LICENSE.txt inside the wheel.
+
+DirectML — Microsoft Software License Terms (DirectML redistributable)
+  © Microsoft Corporation. All rights reserved.
+  https://github.com/microsoft/DirectML
+  Licence: https://www.nuget.org/packages/Microsoft.AI.DirectML/1.15.4/License
+  The DirectX Machine Learning library (DirectML.dll) that lets ONNX Runtime
+  use any DirectX 12 graphics card. Windows only, and NOT distributed with
+  VapourBox: it comes inside the onnxruntime-directml wheel that the optional
+  AI runtime add-on downloads from PyPI when the user asks. Proprietary;
+  Microsoft permits its redistribution in applications for Windows.
+
 
 -------------------------------------------------------------------------------
 2. VapourSynth Python modules
@@ -534,8 +563,8 @@ MIT License
 -----------
 (Applies to zsmooth, vszip and the zigimg library it includes, CAS,
 DCTFilter, BM3D, descale, the RIFE plugin, rife-ncnn-vulkan, the RIFE model and
-ECCV2022-RIFE, the Real-CUGAN models, whisper.cpp, the Whisper models, pip and
-the Clense filter
+ECCV2022-RIFE, the Real-CUGAN models, whisper.cpp, the Whisper models, ONNX
+Runtime, pip and the Clense filter
 in vs-removegrain, each
 under the copyright notice given in its entry above.)
 
@@ -596,8 +625,8 @@ DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE, Version 2
 
 BSD 3-Clause License
 --------------------
-(Applies to Flutter, Zstandard, ncnn, the core of glslang, Protocol Buffers
-and the Real-ESRGAN model, under the copyright notices given above.)
+(Applies to Flutter, Zstandard, ncnn, the core of glslang, Protocol Buffers,
+the Real-ESRGAN model and NumPy, under the copyright notices given above.)
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:

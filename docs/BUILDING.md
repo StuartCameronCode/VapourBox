@@ -46,6 +46,7 @@ VapourBox/
 │   │   ├── services/           # WorkerManager, PresetService, FilterLoader
 │   │   └── widgets/            # Reusable UI widgets
 │   ├── assets/filters/         # Built-in filter schemas (JSON) + manifest.json
+│   ├── assets/addons/          # Add-on manifests, one JSON per add-on (docs/ADDONS.md)
 │   ├── assets/deps-version.json# Which deps release the app expects
 │   ├── test/                   # Unit, shell-out and integration tests
 │   ├── macos/                  # macOS platform config
@@ -74,6 +75,7 @@ VapourBox/
 ├── packaging/                  # macOS + Windows packaging assets (entitlements etc.)
 ├── licenses/                   # License files (GPL, LGPL, NOTICES)
 ├── Scripts/                    # Build, packaging, and release scripts
+│   └── models/                 # Model conversion scripts for self-hosted add-on files
 ├── Tests/TestResources/        # Committed test fixtures (small_clip.mp4, etc.)
 ├── docs/                       # Additional documentation
 │   └── reports/                # Investigation reports: screenshots, measurements, decisions

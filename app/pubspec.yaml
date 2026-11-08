@@ -58,5 +58,6 @@ flutter:
     - assets/deps-version.json
     - assets/whisper-addon.json
     - assets/animejanai-addon.json
+    - assets/addons/
     - assets/filters/
     - assets/filters/core/

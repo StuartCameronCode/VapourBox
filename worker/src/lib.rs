@@ -14,6 +14,8 @@ pub mod pixel_format;
 pub mod source_decode;
 pub mod source_timing;
 pub mod progress_reporter;
+pub mod addons;
+pub mod ai_runtime;
 pub mod animejanai;
 pub mod gpu_plugin;
 pub mod hdr_metadata;

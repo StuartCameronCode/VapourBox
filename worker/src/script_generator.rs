@@ -83,6 +83,10 @@ pub struct ScriptGenerator {
     /// addition to `upscale`. Defaults to "not checked"; callers set it from
     /// `DependencyLocator::animejanai_runtime()`.
     animejanai: std::result::Result<PathBuf, String>,
+    /// The add-ons directory and this platform's id, for the manifest add-ons
+    /// a job's passes need (`ProcessingPipeline::required_addons`, see
+    /// `addons.rs`). `None` ("not checked") refuses any job that needs one.
+    addons: Option<(PathBuf, String)>,
     /// For a variable-frame-rate source, where the decoded window's stored
     /// frames fall on the grid (see `source_timing`). `None` for a
     /// constant-rate source, whose script is unchanged.
@@ -125,8 +129,17 @@ impl ScriptGenerator {
             upscale: Err("AI upscaling was not checked for this job.".to_string()),
             knlm: Err("KNLMeansCL was not checked for this job.".to_string()),
             animejanai: Err("AnimeJaNai was not checked for this job.".to_string()),
+            addons: None,
             timeline: None,
         })
+    }
+
+    /// Set the add-ons directory and platform id the job's add-ons are
+    /// checked against and loaded from (`DependencyLocator::addons_dir`,
+    /// `platform_suffix`).
+    pub fn with_addons(mut self, addons_dir: PathBuf, platform: &str) -> Self {
+        self.addons = Some((addons_dir, platform.to_string()));
+        self
     }
 
     /// Set whether OpenCL is available (probe result from `DependencyLocator`).
@@ -212,7 +225,26 @@ impl ScriptGenerator {
                 anyhow::bail!("{message}");
             }
         }
+        for need in pipeline.required_addons() {
+            match &self.addons {
+                Some((dir, platform)) => crate::addons::require(dir, &need.ids, need.feature, platform)?,
+                None => anyhow::bail!("{} needs add-ons, which were not checked for this job.", need.feature),
+            }
+        }
         Ok(())
+    }
+
+    /// Emit or drop the `{{#AI_RUNTIME}}` block: emitted, with the add-on's
+    /// directory, when a pass needs an add-on that requires the AI runtime.
+    fn substitute_addons(&self, script: String, pipeline: &ProcessingPipeline) -> String {
+        let ids: Vec<&str> = pipeline.required_addons().iter().flat_map(|n| n.ids.clone()).collect();
+        let dir = match &self.addons {
+            Some((root, _)) if crate::addons::needs_ai_runtime(&ids) => {
+                Some(crate::addons::addon_dir(root, crate::addons::AI_RUNTIME))
+            }
+            _ => None,
+        };
+        ai_runtime_block(script, dir.as_deref())
     }
 
     /// Generate a .vpy script file for the given job.
@@ -466,7 +498,7 @@ impl ScriptGenerator {
 
     /// Substitute pipeline parameters on an already-prepared script.
     fn substitute_parameters_on(&self, script: &str, job: &VideoJob, pipeline: &ProcessingPipeline) -> String {
-        let mut script = script.to_string();
+        let mut script = self.substitute_addons(script.to_string(), pipeline);
         let params = &pipeline.deinterlace;
 
         // ====================================================================
@@ -2500,6 +2532,20 @@ const DEINT_METHOD_BLOCKS: [(DeinterlaceMethod, &str); 4] = [
     (DeinterlaceMethod::Bwdif, "DEINT_BWDIF"),
 ];
 
+/// The `{{#AI_RUNTIME}}` block with `{{AI_RUNTIME_DIR}}` set to the AI runtime
+/// add-on's directory, or removed when `dir` is `None`. The block imports
+/// `ai_runtime.py` (beside `pipe_source.py`) and calls its `setup()`, after
+/// which any later block can use `ai_runtime.session(...)` and friends.
+pub(crate) fn ai_runtime_block(script: String, dir: Option<&Path>) -> String {
+    match dir {
+        Some(dir) => script
+            .replace("{{#AI_RUNTIME}}", "")
+            .replace("{{/AI_RUNTIME}}", "")
+            .replace("{{AI_RUNTIME_DIR}}", &py_str(dir)),
+        None => remove_block("{{#AI_RUNTIME}}", "{{/AI_RUNTIME}}", script),
+    }
+}
+
 /// Remove a block from start tag to end tag (including the line).
 fn remove_block(start_tag: &str, end_tag: &str, mut script: String) -> String {
     while let Some(start_pos) = script.find(start_tag) {
@@ -2522,6 +2568,40 @@ fn remove_block(start_tag: &str, end_tag: &str, mut script: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Both templates carry the AI runtime block once, before any pass, and
+    /// it imports the helper and sets it up from the substituted directory.
+    #[test]
+    fn ai_runtime_block_in_both_templates() {
+        for name in ["pipeline_template.vpy", "preview_template.vpy"] {
+            let t = ScriptGenerator::load_template_by_name(name).unwrap();
+            assert_eq!(t.matches("{{#AI_RUNTIME}}").count(), 1, "{name}");
+            let block_at = t.find("{{#AI_RUNTIME}}").unwrap();
+            assert!(block_at > t.find("from pipe_source import").unwrap(), "{name}: after the pipe source");
+            assert!(block_at < t.find("{{#DEINTERLACE}}").unwrap(), "{name}: before the passes");
+
+            let on = ai_runtime_block(t.clone(), Some(Path::new("/x/addons/ai-runtime")));
+            assert!(on.contains("import ai_runtime\n"), "{name}");
+            assert!(on.contains("ai_runtime.setup('/x/addons/ai-runtime')"), "{name}");
+            assert!(!on.contains("AI_RUNTIME}}"), "{name}");
+
+            let off = ai_runtime_block(t, None);
+            assert!(!off.contains("import ai_runtime"), "{name}");
+            assert!(!off.contains("AI_RUNTIME"), "{name}");
+        }
+    }
+
+    /// No pass needs an add-on yet, so a generated script never has the
+    /// block, whatever the generator was told about add-ons.
+    #[test]
+    fn a_job_without_addon_passes_has_no_ai_runtime_block() {
+        let gen = ScriptGenerator::new().unwrap().with_addons(PathBuf::from("/nonexistent"), "macos-arm64");
+        let pipeline = ProcessingPipeline::default();
+        assert!(pipeline.required_addons().is_empty());
+        gen.ensure_methods_ready(&pipeline).unwrap();
+        let script = gen.substitute_addons(gen.template.clone(), &pipeline);
+        assert!(!script.contains("ai_runtime"));
+    }
 
     /// A method missing from DEINT_METHOD_BLOCKS keeps every other method's
     /// block in its script (issue #108). The match has no catch-all, so a new

@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:vapourbox/services/addon_manager.dart';
 import 'package:vapourbox/services/addon_service.dart';
+import 'package:vapourbox/services/manifest_addon.dart';
 import 'package:vapourbox/services/whisper_addon_manager.dart';
 
 /// An add-on that is a single marker file.
@@ -265,10 +266,23 @@ void main() {
               jsonDecode(_repoFile('app/assets/animejanai-addon.json')) as Map<String, dynamic>,
               'macos-arm64')
           .info,
+      // Every manifest add-on, on every platform (a component can be
+      // platform-specific, like the AI runtime's DirectML on Windows).
+      for (final manifest in AddonManifest.loadDirectory(Directory(p.join(
+          Directory.current.path.endsWith('app') ? Directory.current.parent.path : Directory.current.path,
+          'app', 'assets', 'addons'))))
+        for (final platform in addonPlatformIds)
+          ManifestAddonInstaller(manifest, platform, osVersion: '99.0').info,
     ];
-    final byNotice = {for (final i in infos) '${i.noticeName}|${i.licence}|${i.credit}': i}.values;
+    // Each component to credit, with whether it is the add-on's main one (the
+    // one whose licence a usage note is about).
+    final byNotice = {
+      for (final i in infos)
+        for (final (index, c) in i.credits.indexed)
+          '${c.noticeName}|${c.licence}|${c.credit}': (c, index == 0 ? i : null),
+    }.values;
 
-    for (final info in byNotice) {
+    for (final (info, main) in byNotice) {
       test(info.noticeName, () {
         final heading = RegExp('^${RegExp.escape(info.noticeName)} — (.*)\$', multiLine: true)
             .firstMatch(notices);
@@ -289,8 +303,13 @@ void main() {
         final acks = readme.substring(readme.indexOf('## Acknowledgments'));
         expect(acks.toLowerCase(), contains(who), reason: 'README Acknowledgments omit $who');
 
-        expect(info.usageNote != null, info.licence.contains('NC'),
-            reason: 'a non-commercial licence must be shown as a usage note, and only that');
+        if (main != null) {
+          expect(main.usageNote != null, main.licence.contains('NC'),
+              reason: 'a non-commercial licence must be shown as a usage note, and only that');
+        } else {
+          expect(info.licence.contains('NC'), isFalse,
+              reason: 'a non-commercial component needs a usage note: make it its own add-on');
+        }
       });
     }
   });

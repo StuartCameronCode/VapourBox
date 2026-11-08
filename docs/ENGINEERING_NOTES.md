@@ -2882,6 +2882,39 @@ MPEG-2 at 1000/1500/3000 kbps with `+ildct+ilme`:
 - The film fixture's reference carries `small_clip.mp4`'s own (upscaled)
   H.264 blocks; PSNR rewards deblocking's smoothing, and VMAF dips slightly.
 
+### AI models become add-ons; the AI runtime is ONNX Runtime wheels (2026-11-08)
+
+Policy (owner's decision): every AI model ships as an optional add-on, never
+in the deps bundle, through one generic manifest format (docs/ADDONS.md). The
+first manifest add-on is `ai-runtime`, ONNX Runtime + NumPy for passes that
+need per-crop inference or NumPy around a network, which VSNCNN can't do.
+The facts the manifest rests on, checked against PyPI and the wheels on this
+date (groundwork, not a quality comparison, so no report):
+
+- **What `import onnxruntime` needs is NumPy, nothing else.** The wheels
+  declare flatbuffers, packaging, protobuf (and on 1.23.2 / DirectML
+  coloredlogs and sympy), but importing the package and running an
+  `InferenceSession` in the deps Python with only onnxruntime + numpy on
+  `sys.path` loaded no other third-party module; a scan of the 1.23.2 and
+  DirectML wheels' runtime modules found no top-level import of them
+  either (they are used by `tools/`, `transformers/`, `quantization/`).
+- **Intel Macs stop at onnxruntime 1.23.2**, whose wheel is
+  `macosx_13_0_x86_64` — above the x64 app floor (12.0), so the add-on carries
+  `minOs: 13.0` there and an older Mac is told so. NumPy 2.5.4's Intel wheel
+  is `macosx_10_13`, and its arm64 one `macosx_14_0` (Accelerate), both
+  within their app floors.
+- **Windows uses onnxruntime-directml 1.24.4**, so any DirectX 12 GPU works.
+  Its `DirectML.dll` (1.15.4) is under Microsoft's proprietary DirectML
+  licence (read from the Microsoft.AI.DirectML 1.15.4 NuGet package — the
+  wheel ships no licence text for it), credited as its own component.
+- **Windows' embeddable Python ignores PYTHONPATH** (its `._pth` fixes
+  `sys.path`), so `ai_runtime.setup()` inserts the add-on's `site-packages`
+  itself, and registers `onnxruntime/capi` with `os.add_dll_directory`.
+  Untested on Windows from macOS: the nightly heavy run is the first check.
+- On an M-series Mac the self-test session reports `CoreMLExecutionProvider`
+  first; whether Core ML or the CPU fallback executed the two-node model is
+  not distinguishable from `get_providers()`.
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and

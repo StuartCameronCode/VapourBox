@@ -71,6 +71,7 @@ VapourBox/
 │   │   └── widgets/            # Reusable UI widgets
 │   ├── assets/filters/         # Built-in filter schemas (JSON)
 │   │   └── core/               # Core filters (deinterlace, denoise, etc.)
+│   ├── assets/addons/          # Add-on manifests, one JSON per add-on (docs/ADDONS.md)
 │   ├── macos/                  # macOS platform config
 │   ├── windows/                # Windows platform config
 │   └── linux/                  # Linux platform config
@@ -95,9 +96,10 @@ VapourBox/
 │   └── linux-arm64/
 │
 ├── licenses/                   # GPL, LGPL, NOTICES
-├── docs/                       # BUILDING, FILTER_SCHEMA, ENGINEERING_NOTES, …
+├── docs/                       # BUILDING, FILTER_SCHEMA, ADDONS, ENGINEERING_NOTES, …
 │   └── reports/                # Investigation reports (evidence behind decisions)
 ├── Scripts/                    # Build, package, and release scripts
+│   └── models/                 # Model conversion scripts for self-hosted add-on files
 └── .github/workflows/          # CI build workflows
 ```
 
@@ -117,6 +119,9 @@ VapourBox/
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, the `--probe-rife` / `--probe-upscale` probe, and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
+| `worker/src/addons.rs` | Manifest add-ons (compiled in from `app/assets/addons/` by `worker/build.rs`): install state, `require`, `addon_dir` (see "Add-ons", docs/ADDONS.md) |
+| `worker/src/ai_runtime.rs` | The AI runtime add-on's `--probe-ai-runtime`: runs the self-test model through `templates/ai_runtime.py`, classifies failures |
+| `worker/templates/ai_runtime.py` | ONNX Runtime helpers for passes: `setup`, `session` (provider choice), `map_frames`, NCHW frame conversion |
 | `worker/src/comment_metadata.rs` | The source's comment tag, prefixed with the version and passed to ffmpeg as an FFMETADATA file (issue #138) |
 | `worker/src/hdr_metadata.rs` | HDR10 mastering display / MaxCLL read from the source for x265, and the Dolby Vision profile (see "HDR Sources and Dolby Vision") |
 | `worker/src/native_res.rs` | `--detect-native`: the resolution and kernel a source was upscaled from, for the Descale pass (see "Descale") |
@@ -136,6 +141,8 @@ VapourBox/
 | `app/lib/services/overwrite_behavior_service.dart` | Default action for existing output files (see "Existing Output Files") |
 | `app/lib/models/native_res_report.dart` | What `--detect-native` found, as the Descale panel's Detect shows and applies it |
 | `app/lib/services/addon_service.dart` | Every optional third-party download (Whisper, AnimeJaNai): catalogue, install with requirements, remove with dependants (see "Add-ons") |
+| `app/lib/services/manifest_addon.dart` | `AddonManifest` + `ManifestAddonInstaller`: the generic installer for `app/assets/addons/*.json` (docs/ADDONS.md) |
+| `app/lib/models/ai_runtime_status.dart` | The worker's `--probe-ai-runtime` result |
 | `app/lib/models/hdr_display.dart` | The display tone-map for the app's own source decodes (twin of `ColorMetadata::display_tonemap_filter`) and Dolby Vision detection |
 | `app/lib/models/gpu_plugin_status.dart` | The worker's GPU-plugin probe results, and the panels' notice decision |
 | `app/assets/filters/core/*.json` | Built-in filter schema definitions |
@@ -1357,6 +1364,41 @@ by `AddonService.addonsDir`), only when the user asks. Rules:
 - **Tested against the real download**: `WorkerHarness.ensureAnimeJanai()`
   installs from the pinned URL with the app's own extraction, so CI fails if
   the link or hashes stop holding.
+- **Every AI model is an add-on, never in the deps bundle**, and every new
+  add-on is a **manifest add-on**: one `app/assets/addons/<id>.json`
+  (format, checklist and hosting: **[docs/ADDONS.md](docs/ADDONS.md)**),
+  installed by the generic `ManifestAddonInstaller`
+  (`app/lib/services/manifest_addon.dart`) and compiled into the worker by
+  `worker/build.rs` (`worker/src/addons.rs`), so both sides read the same
+  file. Kinds: `files` (model pack, archive members hash-checked one by one)
+  and `python` (wheels unpacked into `addons/<id>/site-packages/`). An install
+  is staged in `<id>.new` and ends with the `.vapourbox-addon.json` marker
+  (id, version, platform); a manifest `version` bump makes the old install
+  count as missing. Whisper and AnimeJaNai keep their hand-written installers.
+- **A pass declares its add-ons in `ProcessingPipeline::required_addons()`**
+  (`AddonNeed { feature, ids }`); `ScriptGenerator::ensure_methods_ready`
+  refuses the job via `addons::require` (naming them and Settings → Add-ons),
+  and emits the `{{#AI_RUNTIME}}` block (both templates) when one needs
+  `ai-runtime`.
+- **The AI runtime (`ai-runtime`, python kind)** is ONNX Runtime + NumPy for
+  the deps Python 3.12: onnxruntime 1.31.1 (macOS arm64, Linux),
+  onnxruntime-directml 1.24.4 (Windows), 1.23.2 on Intel Macs (`minOs` 13.0 —
+  the last Intel wheel). Passes use `templates/ai_runtime.py` (`setup`,
+  `session`, `map_frames`, NCHW helpers): it puts `site-packages` on
+  `sys.path` itself because **Windows' embeddable Python ignores
+  PYTHONPATH**. `--probe-ai-runtime` runs a committed self-test model the way
+  a job would (`ai_runtime.rs`, positive results cached per boot);
+  `VAPOURBOX_AI_FORCE_CPU=1` forces the CPU provider.
+- **`VAPOURBOX_ADDON_MIRROR=<dir>`** makes the installer (app and
+  `WorkerHarness.ensureAddon`) take files from a local directory, still size-
+  and hash-checked — how an add-on is tested before its files are uploaded.
+  Files we convert ourselves are staged in `addon-staging/` (gitignored, with
+  the conversion venv in `addon-staging/convert-venv`) and hosted on the
+  `addon-models-v1` release, which only the owner uploads to.
+- **Tested for real**: `WorkerHarness.ensureAddon(id)` installs an add-on and
+  its requirements with the app's own installer; `integration_ai_runtime_test.dart`
+  (heavy) installs `ai-runtime` and runs the probe. `manifest_addon_test.dart`
+  asserts the worker (`--list-addons`) compiled in the same manifests.
 
 ### BM3D and KNLMeans Noise Reduction
 
