@@ -12,9 +12,10 @@ use crate::gpu_plugin::{self, GpuPlugin, GpuPluginFiles, GpuPluginReason, GpuPlu
 /// Why the KNLMeans noise-reduction method can't run, as the app shows it.
 pub const KNLM_NO_DEVICE_MESSAGE: &str = "KNLMeans runs on the graphics card through OpenCL, \
 and no OpenCL device that works with it was found on this computer. Updating the graphics \
-driver may fix this. BM3D does the same job on the CPU and needs nothing extra.";
+driver may fix this. Or choose NLMeans (CPU): the same filter with the same settings, run \
+on the processor instead, so it needs nothing extra.";
 pub const KNLM_DISABLED_MESSAGE: &str = "KNLMeans is turned off on this computer \
-(VAPOURBOX_DISABLE_OPENCL is set). BM3D does the same job on the CPU.";
+(VAPOURBOX_DISABLE_OPENCL is set). NLMeans (CPU) is the same filter run on the processor.";
 
 /// Platform-specific dependency locator.
 pub struct DependencyLocator {

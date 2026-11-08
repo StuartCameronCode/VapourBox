@@ -46,6 +46,11 @@ pub enum NoiseReductionMethod {
     /// works; refused with a reason where none does (see
     /// `DependencyLocator::knlm_device`).
     KnlMeans,
+    /// vszip's NLMeans: KNLMeansCL's algorithm, arguments and defaults on the
+    /// CPU, so it runs anywhere (app 1.7.0, deps 1.16.0). Shares the `knlm_*`
+    /// parameters with KnlMeans: the two take the same arguments and give the
+    /// same picture.
+    NlMeans,
 }
 
 /// Noise reduction preset levels.
@@ -478,7 +483,7 @@ impl NoiseReductionParameters {
                 let r = self.bm3d_effective_radius();
                 if self.bm3d_final { 2 * r } else { r }
             }
-            NoiseReductionMethod::KnlMeans => self.knlm_effective().1,
+            NoiseReductionMethod::KnlMeans | NoiseReductionMethod::NlMeans => self.knlm_effective().1,
             _ => 0,
         };
         own.max(3) as u32
@@ -686,6 +691,7 @@ mod tests {
             (NoiseReductionMethod::Ctmf, "ctmf"),
             (NoiseReductionMethod::Bm3d, "bm3d"),
             (NoiseReductionMethod::KnlMeans, "knlMeans"),
+            (NoiseReductionMethod::NlMeans, "nlMeans"),
         ] {
             let json = name(method);
             assert!(

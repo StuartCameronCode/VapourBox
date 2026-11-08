@@ -5,8 +5,9 @@
 //! the frame with an edge-directed kernel and take the smoother of the two
 //! results, so the edge is rebuilt rather than blurred.
 //!
-//! Neither has a bit-depth limit — verified against the bundle at 8/10/12/16-bit
-//! and 4:2:2, so no conversion guard is needed.
+//! None has a bit-depth limit — verified against the bundle at 8/10/12/16-bit
+//! and 4:2:2, so no conversion guard is needed. SangNom's `aa` is in 8-bit
+//! units at every depth; the plugin scales it itself.
 
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +22,10 @@ pub enum AntiAliasMethod {
     /// santiag: separate horizontal and vertical strength, so it can be aimed
     /// at one axis. Stronger, and slower.
     Santiag,
+    /// SangNom AA: supersample 2x, SangNom along each axis, back down. The
+    /// fastest and sharpest of the three (app 1.7.0, deps 1.16.0).
+    #[serde(rename = "sangnom")]
+    SangNom,
 }
 
 /// Parameters for the anti-aliasing pass.
@@ -46,13 +51,22 @@ pub struct AntiAliasParameters {
     pub santiag_strh: i32,
 
     /// Interpolator for the vertical pass: `nnedi3`, `eedi2` or `sangnom`.
-    /// Only `nnedi3` is bundled, so the others are not offered.
+    /// Pinned to `nnedi3` (see [`Self::effective_santiag_type`]).
     #[serde(default = "default_santiag_type")]
     pub santiag_type: String,
+
+    // --- SangNom parameters ---
+
+    /// SangNom's anti-aliasing strength, 0-128 in 8-bit units (the plugin's
+    /// default is 48). 0 still re-interpolates every other line; it only stops
+    /// SangNom smoothing the edge direction it finds.
+    #[serde(default = "default_sangnom_aa")]
+    pub sangnom_aa: i32,
 }
 
 fn default_strength() -> i32 { 1 }
 fn default_santiag_type() -> String { "nnedi3".to_string() }
+fn default_sangnom_aa() -> i32 { 48 }
 
 impl Default for AntiAliasParameters {
     fn default() -> Self {
@@ -62,17 +76,20 @@ impl Default for AntiAliasParameters {
             santiag_strv: default_strength(),
             santiag_strh: default_strength(),
             santiag_type: default_santiag_type(),
+            sangnom_aa: default_sangnom_aa(),
         }
     }
 }
 
 impl AntiAliasParameters {
-    /// santiag's interpolator name, restricted to what is bundled.
+    /// santiag's interpolator name, pinned to nnedi3.
     ///
-    /// havsfunc accepts `nnedi3`, `eedi2` and `sangnom`; only nnedi3 ships here,
-    /// and naming an absent one fails at script evaluation with a bare "no
-    /// attribute" error. Anything unrecognised falls back to nnedi3 rather than
-    /// reaching havsfunc.
+    /// havsfunc accepts `nnedi3`, `eedi2` and `sangnom`. eedi2 is not bundled
+    /// (naming it fails at script evaluation with a bare "no attribute"), and
+    /// `sangnom`, although SangNom ships from deps 1.16.0, is broken in
+    /// havsfunc: its strength-0 step calls `SangNom(order=0)`, which SangNom r45
+    /// treats as double-rate and refuses without `_FieldBased` (measured).
+    /// SangNom is offered as its own method instead.
     pub fn effective_santiag_type(&self) -> &'static str {
         match self.santiag_type.to_ascii_lowercase().as_str() {
             "nnedi3" => "nnedi3",
@@ -88,6 +105,12 @@ impl AntiAliasParameters {
     /// See [`Self::effective_strv`].
     pub fn effective_strh(&self) -> i32 {
         self.santiag_strh.clamp(0, 3)
+    }
+
+    /// SangNom's `aa`, clamped to the 0-128 the plugin accepts (it rejects
+    /// anything outside with a script error).
+    pub fn effective_sangnom_aa(&self) -> i32 {
+        self.sangnom_aa.clamp(0, 128)
     }
 }
 
@@ -106,7 +129,8 @@ mod tests {
 
     #[test]
     fn test_santiag_type_is_restricted_to_what_is_bundled() {
-        // eedi2 and sangnom are not in the deps bundle; naming one would fail at
+        // eedi2 is not in the deps bundle, and havsfunc's sangnom type calls
+        // SangNom(order=0), which SangNom r45 refuses; either would fail at
         // script evaluation rather than degrade.
         let with = |t: &str| AntiAliasParameters {
             santiag_type: t.to_string(),
@@ -128,6 +152,17 @@ mod tests {
         assert_eq!(with(-2).effective_strv(), 0);
         assert_eq!(with(1).effective_strv(), 1);
         assert_eq!(with(9).effective_strh(), 3);
+    }
+
+    #[test]
+    fn test_sangnom_method_wire_name_and_strength() {
+        let p: AntiAliasParameters =
+            serde_json::from_str(r#"{"enabled":true,"method":"sangnom","sangnomAa":200}"#).unwrap();
+        assert_eq!(p.method, AntiAliasMethod::SangNom);
+        assert_eq!(p.effective_sangnom_aa(), 128);
+        assert_eq!(AntiAliasParameters::default().sangnom_aa, 48);
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(json.contains("\"method\":\"sangnom\""), "{json}");
     }
 
     #[test]

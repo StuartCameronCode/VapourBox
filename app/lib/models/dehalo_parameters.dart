@@ -20,7 +20,9 @@ enum DehaloMethod {
   @JsonValue('Vinverse2')
   vinverse2('Vinverse2', 'Vinverse 2 (de-ghost)'),
   @JsonValue('HQDeringmod')
-  hqDeringmod('HQDeringmod', 'HQDeringmod (de-ring)');
+  hqDeringmod('HQDeringmod', 'HQDeringmod (de-ring)'),
+  @JsonValue('vine')
+  vine('vine', 'vine (NLMeans)');
 
   const DehaloMethod(this.value, this.displayName);
   final String value;
@@ -45,6 +47,9 @@ enum DehaloMethod {
       case DehaloMethod.hqDeringmod:
         return 'Masked ring removal — treats the overshoot beside an edge '
             'while protecting the edge itself';
+      case DehaloMethod.vine:
+        return 'Non-local-means dehalo that keeps the edge detail the halo '
+            'rides on (vs-jetpack\'s vine_dehalo)';
     }
   }
 }
@@ -165,6 +170,17 @@ class DehaloParameters {
   /// `thr / 4`, which is usually what you want.
   final double? deringDarkthr;
 
+  // --- vine parameters ---
+
+  /// NLMeans strength (vs-jetpack's `strength`).
+  final double vineStrength;
+
+  /// How much of the supersampled pass is blended in (`sharp`, 0-1].
+  final double vineSharp;
+
+  /// Gaussian sigma of the low/high frequency split.
+  final double vineSigma;
+
   const DehaloParameters({
     this.enabled = false,
     this.method = DehaloMethod.dehaloAlpha,
@@ -197,6 +213,9 @@ class DehaloParameters {
     this.deringMthr,
     this.deringThr,
     this.deringDarkthr,
+    this.vineStrength = 16.0,
+    this.vineSharp = 0.5,
+    this.vineSigma = 1.0,
   });
 
   DehaloParameters copyWith({
@@ -231,6 +250,9 @@ class DehaloParameters {
     int? deringMthr,
     double? deringThr,
     double? deringDarkthr,
+    double? vineStrength,
+    double? vineSharp,
+    double? vineSigma,
   }) {
     return DehaloParameters(
       enabled: enabled ?? this.enabled,
@@ -264,6 +286,9 @@ class DehaloParameters {
       deringMthr: deringMthr ?? this.deringMthr,
       deringThr: deringThr ?? this.deringThr,
       deringDarkthr: deringDarkthr ?? this.deringDarkthr,
+      vineStrength: vineStrength ?? this.vineStrength,
+      vineSharp: vineSharp ?? this.vineSharp,
+      vineSigma: vineSigma ?? this.vineSigma,
     );
   }
 

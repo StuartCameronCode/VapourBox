@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "name": "Anti-Aliasing",
   "description": "Smooth stair-stepping on diagonal edges",
-  "longDescription": "Removes the stair-stepping — \"jaggies\" — that appears along diagonal edges. Both methods work by re-interpolating the frame with an edge-directed kernel and keeping the smoother result, so the edge is rebuilt rather than blurred.\n\nUse it after deinterlacing and after upscaling, which are the two things that create the stepping. It runs before sharpening on purpose: sharpening a stair-stepped edge makes the steps more visible, not less. On a source with no diagonal detail it does nothing but cost time.",
+  "longDescription": "Removes the stair-stepping — \"jaggies\" — that appears along diagonal edges. Every method works by re-interpolating the frame with an edge-directed kernel and keeping the smoother result, so the edge is rebuilt rather than blurred.\n\nUse it after deinterlacing and after upscaling, which are the two things that create the stepping. It runs before sharpening on purpose: sharpening a stair-stepped edge makes the steps more visible, not less. On a source with no diagonal detail it does nothing but cost time.",
   "category": "enhancement",
   "icon": "gesture",
   "order": 7,
@@ -33,6 +33,16 @@
         "santiagStrh",
         "santiagStrv"
       ]
+    },
+    {
+      "id": "sangnom",
+      "sinceAppVersion": "1.7.0",
+      "name": "SangNom",
+      "description": "The fastest and the sharpest: rebuilds edges at twice the size with SangNom, then scales back down. Strong enough to thin line art slightly, which suits anime more than live action",
+      "function": "core.sangnom.SangNom",
+      "parameters": [
+        "sangnomAa"
+      ]
     }
   ],
   "parameters": {
@@ -48,7 +58,8 @@
       "default": "daa",
       "options": [
         "daa",
-        "santiag"
+        "santiag",
+        "sangnom"
       ],
       "ui": {
         "hidden": true
@@ -67,6 +78,23 @@
         "visibleWhen": {
           "method": [
             "santiag"
+          ]
+        }
+      }
+    },
+    "sangnomAa": {
+      "type": "integer",
+      "default": 48,
+      "min": 0,
+      "max": 128,
+      "step": 4,
+      "ui": {
+        "label": "Strength",
+        "description": "How hard SangNom smooths along the edges it finds. 48 is the plugin's default; 0 still rebuilds the edges but without smoothing them",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "sangnom"
           ]
         }
       }
@@ -95,7 +123,8 @@
         "title": "Settings",
         "parameters": [
           "santiagStrh",
-          "santiagStrv"
+          "santiagStrv",
+          "sangnomAa"
         ],
         "expanded": true
       }

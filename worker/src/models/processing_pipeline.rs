@@ -574,6 +574,10 @@ impl ProcessingPipeline {
             PassType::EdgeRepair => FrameMap::Identity { radius: 0 },
             PassType::GhostRemoval => FrameMap::Identity { radius: 0 },
             PassType::Descale => FrameMap::Identity { radius: 0 },
+            // mpeg2stinx limits each change by the neighbouring frames.
+            PassType::Deblock => FrameMap::Identity {
+                radius: if self.deblock.method == super::DeblockMethod::Mpeg2Stinx { 1 } else { 0 },
+            },
             // The one pass that emits a Retime. The ratio is known up front, so
             // the count is exact; `synthesizes` is true only for the
             // interpolating method, where an output frame has no single source.

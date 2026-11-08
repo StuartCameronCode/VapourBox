@@ -411,7 +411,21 @@ pub struct QTGMCParameters {
     /// VDecimate scene change threshold
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ivtc_scthresh: Option<f64>,
+
+    /// Fix fades added after telecine (vs-jetpack's FixInterlacedFades, run
+    /// right after field matching). Off by default: it only helps a fade that
+    /// combs, and touches every frame.
+    #[serde(default)]
+    pub ivtc_fix_fades: bool,
+
+    /// How the two fields of a fading frame are reconciled: `average` (both
+    /// to their mean, upstream's AVERAGE) or `match` (the brighter to the
+    /// darker, MATCH). See [`Self::effective_ivtc_fade_mode`].
+    #[serde(default = "default_ivtc_fade_mode")]
+    pub ivtc_fade_mode: String,
 }
+
+fn default_ivtc_fade_mode() -> String { "average".to_string() }
 
 // Default value functions
 fn default_true() -> bool { true }
@@ -423,6 +437,16 @@ fn default_true() -> bool { true }
 const SUPPORTED_CHROMA_EDI: [&str; 2] = ["nnedi3", "bob"];
 
 impl QTGMCParameters {
+    /// The fade fix's mode as the template spells it. Anything but `match`
+    /// is `average`, upstream's first and gentler mode: it keeps a fade's
+    /// overall level, where `match` darkens every frame to its darker field.
+    /// `match` is the one that also cleans the last frames of a fade that
+    /// reaches full black, where one field is already black and `average`
+    /// leaves the other at half.
+    pub fn effective_ivtc_fade_mode(&self) -> &'static str {
+        if self.ivtc_fade_mode.eq_ignore_ascii_case("match") { "match" } else { "average" }
+    }
+
     /// Whether to upsample 4:2:0 chroma to 4:2:2 around the deinterlace pass.
     /// Defaults to disabled: it is the more correct way to handle interlaced
     /// 4:2:0 chroma, but it costs roughly 30% throughput, so it is offered as
@@ -548,6 +572,8 @@ impl Default for QTGMCParameters {
             ivtc_cycle: None,
             ivtc_dupthresh: None,
             ivtc_scthresh: None,
+            ivtc_fix_fades: false,
+            ivtc_fade_mode: default_ivtc_fade_mode(),
         }
     }
 }

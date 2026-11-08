@@ -38,7 +38,9 @@ enum NoiseReductionMethod {
   @JsonValue('bm3d')
   bm3d('BM3D'),
   @JsonValue('knlMeans')
-  knlMeans('KNLMeansCL');
+  knlMeans('KNLMeansCL'),
+  @JsonValue('nlMeans')
+  nlMeans('NLMeans (CPU)');
 
   const NoiseReductionMethod(this.displayName);
   final String displayName;
