@@ -25,7 +25,7 @@ void main() {
     // And an empty object decodes to them, as the worker's serde defaults do.
     expect(ColorizeParameters.fromJson(const {}).toJson(), p.toJson());
 
-    final rust = File('../worker/src/models/colorize_parameters.rs').readAsStringSync();
+    final rust = File('../worker/src/models/colorize_parameters.rs').readAsStringSync().replaceAll('\r\n', '\n');
     expect(rust, contains('fn default_ddcolor_size() -> i32 { 512 }'));
     expect(rust, contains('fn default_render_factor() -> i32 { 21 }'));
     expect(rust, contains('fn default_strength() -> f64 { 1.0 }'));
@@ -49,7 +49,7 @@ void main() {
       'enabled', 'model', 'ddcolorRenderSize', 'deoldifyRenderFactor', 'strength', 'temporalRadius',
     });
     expect(json['model'], 'deoldify');
-    final rust = File('../worker/src/models/colorize_parameters.rs').readAsStringSync();
+    final rust = File('../worker/src/models/colorize_parameters.rs').readAsStringSync().replaceAll('\r\n', '\n');
     for (final m in ColorizeModel.values) {
       expect(ColorizeParameters.fromJson({'model': m.value}).model, m);
       expect(rust, contains('#[serde(rename = "${m.value}")]'), reason: m.value);

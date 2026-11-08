@@ -94,7 +94,7 @@ class AudioFixtures {
       ..writeAsStringSync(jsonEncode(jobJson));
     try {
       final r = await Process.run(WorkerHarness.workerPath, ['--audio-plan', '--config', cfg.path],
-          environment: WorkerHarness.workerEnv);
+          environment: WorkerHarness.workerEnv, stdoutEncoding: utf8, stderrEncoding: utf8);
       final line = (r.stdout as String).trim().split('\n').last;
       return jsonDecode(line) as Map<String, dynamic>;
     } finally {

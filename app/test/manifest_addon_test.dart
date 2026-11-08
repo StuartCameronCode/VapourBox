@@ -269,15 +269,21 @@ void main() {
   group('executable files', () {
     test('a program is installed runnable (and signed on macOS)', () async {
       // A real program, so there is something to run and sign. On macOS a
-      // copy of a system binary with its signature stripped: an unsigned
-      // program, as upstream DeepFilterNet's Intel build is, which Apple
-      // Silicon refuses to run until it is signed. (A copy that keeps Apple's
-      // own signature is killed outside /bin, so it would prove nothing.)
-      final source = File(Platform.isWindows ? r'C:\Windows\System32\whoami.exe' : '/bin/echo');
-      final unsigned = File(p.join(tmp.path, 'unsigned'))..writeAsBytesSync(source.readAsBytesSync());
+      // plain C program with its signature stripped: an unsigned program, as
+      // upstream DeepFilterNet's Intel build is, which Apple Silicon refuses
+      // to run until it is signed. Not a copy of a system binary: those are
+      // arm64e, which macOS 15 kills once Apple's signature is gone, signed or
+      // not, so the test would fail for a reason no add-on can have.
+      final unsigned = File(p.join(tmp.path, 'unsigned'));
       if (Platform.isMacOS) {
+        final src = File(p.join(tmp.path, 'tool.c'))..writeAsStringSync('int main(void) { return 0; }\n');
+        final cc = await Process.run('xcrun', ['clang', '-o', unsigned.path, src.path]);
+        expect(cc.exitCode, 0, reason: '${cc.stderr}');
         final strip = await Process.run('codesign', ['--remove-signature', unsigned.path]);
         expect(strip.exitCode, 0, reason: '${strip.stderr}');
+      } else {
+        final source = File(Platform.isWindows ? r'C:\Windows\System32\whoami.exe' : '/bin/echo');
+        unsigned.writeAsBytesSync(source.readAsBytesSync());
       }
       final bytes = unsigned.readAsBytesSync();
       final m = AddonManifest.fromJson(_manifest(files: [

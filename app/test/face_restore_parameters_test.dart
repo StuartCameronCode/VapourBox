@@ -42,7 +42,7 @@ void main() {
     }
     // The Rust enum has the same three variants; serde's camelCase renaming
     // turns `RestoreFormer` into `restoreFormer`, and so on.
-    final rust = File('../worker/src/models/face_restore_parameters.rs').readAsStringSync();
+    final rust = File('../worker/src/models/face_restore_parameters.rs').readAsStringSync().replaceAll('\r\n', '\n');
     expect(rust, contains('#[serde(rename_all = "camelCase")]\npub enum FaceRestoreModel'));
     for (final m in FaceRestoreModel.values) {
       final variant = m.value[0].toUpperCase() + m.value.substring(1);
