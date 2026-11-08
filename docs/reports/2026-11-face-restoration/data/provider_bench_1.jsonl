@@ -1,0 +1,14 @@
+{"model": "face-restoration-retinaface-r50.onnx", "provider": "CPUExecutionProvider", "sessionSeconds": 0.16, "msPerRun": 405.2}
+{"model": "face-restoration-retinaface-r50.onnx", "provider": "CoreMLExecutionProvider", "sessionSeconds": 2.05, "msPerRun": 87.2, "maxDiffVsCpu": 1.430511474609375e-05}
+{"model": "face-restoration-retinaface-mnet.onnx", "provider": "CPUExecutionProvider", "sessionSeconds": 0.12, "msPerRun": 16.0}
+{"model": "face-restoration-retinaface-mnet.onnx", "provider": "CoreMLExecutionProvider", "sessionSeconds": 0.37, "msPerRun": 6.7, "maxDiffVsCpu": 1.1086463928222656e-05}
+{"model": "face-restoration-bisenet.onnx", "provider": "CPUExecutionProvider", "sessionSeconds": 0.08, "msPerRun": 98.3}
+{"model": "face-restoration-bisenet.onnx", "provider": "CoreMLExecutionProvider", "sessionSeconds": 0.48, "msPerRun": 33.3, "maxDiffVsCpu": 1.0441988706588745e-05}
+{"model": "face-restoration-restoreformerpp.onnx", "provider": "CPUExecutionProvider", "sessionSeconds": 0.6, "msPerRun": 6775.4}
+{"model": "face-restoration-restoreformerpp.onnx", "provider": "CoreMLExecutionProvider", "sessionSeconds": 5.57, "msPerRun": 292.6, "maxDiffVsCpu": 0.00019106268882751465}
+{"model": "face-gfpgan-v1.4.onnx", "provider": "CPUExecutionProvider", "sessionSeconds": 2.58, "msPerRun": 2012.2}
+{"model": "face-gfpgan-v1.4.onnx", "provider": "CoreMLExecutionProvider", "sessionSeconds": 7.92, "msPerRun": 638.5, "maxDiffVsCpu": 8.225440979003906e-06}
+{"model": "face-codeformer-v0.1.0.onnx", "provider": "CPUExecutionProvider", "sessionSeconds": 0.83, "msPerRun": 6094.5}
+{"model": "face-codeformer-v0.1.0.onnx", "provider": "CoreMLExecutionProvider", "sessionSeconds": 46.02, "msPerRun": 676.6, "maxDiffVsCpu": 7.164478302001953e-05}
+
+[exited with code 0]

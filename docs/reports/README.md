@@ -66,6 +66,7 @@ to it.
 
 | Date | Report | Outcome |
 |---|---|---|
+| 2026-11-08 | [Face restoration: RestoreFormer++, GFPGAN and CodeFormer on ONNX Runtime](2026-11-face-restoration/index.html) | Built: RetinaFace R50 (steadier landmarks than mobilenet0.25) + BiSeNet + RestoreFormer++ as the base add-on, GFPGAN/CodeFormer as non-commercial add-ons; ONNX parity ≤2.5e-4; NumPy pipeline within 0.16/255 of facexlib; bit-exact outside the faces; flicker cut by blending restored faces in aligned space |
 | 2026-11-08 | [Audio restoration: filter delays, drift and DeepFilterNet](2026-11-audio-restoration/index.html) | Built: render the soundtrack before the encode; trim afftdn's 25 ms delay and give it the measured noise floor; correct drift by resampling (atempo moved audio ~20 ms); alimiter `latency=1:level=0`; DeepFilterNet as an add-on with `-D` |
 | 2026-11-03 | [Deblock before or after deinterlacing?](2026-11-deblock-order/index.html) | Keep Deblock after Deinterlace (≤0.05 dB gain from moving it); when deinterlacing is off, deblock per field rather than on the woven frame (+0.03 to +0.30 dB; DCTFilter on the woven frame lost 1.5–3.7 dB); built |
 | 2026-11-03 | [Issue #144: KNLMeansCL fails on 10-bit sources (Windows), unreliable on macOS](issue-144-knlmeanscl/index.html) | Swap every platform to the maintained fork v1.3 (tag on macOS/Linux, PyPI wheel on Windows); verified on macOS arm64; on Windows x64 (AMD GPU) the bug reproduces with v1.1.1 and v1.3 fixes it |
