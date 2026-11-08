@@ -56,6 +56,10 @@ class AddonManifestFile {
   /// for a file kept as downloaded, or a wheel.
   final List<AddonArchiveMember>? extract;
 
+  /// A program the worker runs (DeepFilterNet's `deep-filter`): installed
+  /// with its executable bit set and, on macOS, signed if it is not.
+  final bool executable;
+
   const AddonManifestFile({
     required this.name,
     required this.url,
@@ -63,6 +67,7 @@ class AddonManifestFile {
     required this.sha256,
     this.platforms,
     this.extract,
+    this.executable = false,
   });
 
   factory AddonManifestFile.fromJson(Map<String, dynamic> json) => AddonManifestFile(
@@ -74,6 +79,7 @@ class AddonManifestFile {
         extract: (json['extract'] as List<dynamic>?)
             ?.map((m) => AddonArchiveMember.fromJson((m as Map).cast<String, dynamic>()))
             .toList(),
+        executable: json['executable'] as bool? ?? false,
       );
 
   bool isFor(String platformId) => platforms == null || platforms!.contains(platformId);
@@ -198,6 +204,9 @@ class AddonManifest {
       }
       if (kind == 'python' && (!f.name.endsWith('.whl') || f.extract != null)) {
         fail('a python add-on lists only wheels (${f.name})');
+      }
+      if (f.executable && (kind != 'files' || f.extract != null)) {
+        fail('only a plain file of a files add-on can be executable (${f.name})');
       }
       for (final member in f.extract ?? const <AddonArchiveMember>[]) {
         if (!hash.hasMatch(member.sha256)) fail('${member.path} needs a sha256');
@@ -410,6 +419,9 @@ class ManifestAddonInstaller implements AddonInstaller {
         // copy may be; a quarantined dylib is killed on load.
         await Process.run('xattr', ['-cr', staging.path]);
       }
+      for (final f in fetched.keys.where((f) => f.executable)) {
+        await prepareExecutable(File(path.join(staging.path, f.name)));
+      }
       await File(path.join(staging.path, markerName)).writeAsString(jsonEncode({
         'id': manifest.id,
         'version': manifest.version,
@@ -423,6 +435,26 @@ class ManifestAddonInstaller implements AddonInstaller {
       await downloads.delete(recursive: true);
     } finally {
       if (await staging.exists()) await staging.delete(recursive: true);
+    }
+  }
+
+  /// Make a downloaded program runnable: the executable bit (a download
+  /// has none), and on macOS a signature. Apple Silicon refuses to run an
+  /// unsigned arm64 binary at all, and upstream's Intel build is unsigned;
+  /// one that verifies (DeepFilterNet's arm64 build is linker-signed) is left
+  /// as it is. Quarantine was cleared with the rest of the install above.
+  static Future<void> prepareExecutable(File file) async {
+    if (Platform.isWindows) return;
+    final chmod = await Process.run('chmod', ['755', file.path]);
+    if (chmod.exitCode != 0) {
+      throw StateError('Could not make ${path.basename(file.path)} executable: ${chmod.stderr}');
+    }
+    if (!Platform.isMacOS) return;
+    final verify = await Process.run('codesign', ['--verify', file.path]);
+    if (verify.exitCode == 0) return;
+    final sign = await Process.run('codesign', ['--sign', '-', '--force', file.path]);
+    if (sign.exitCode != 0) {
+      throw StateError('Could not sign ${path.basename(file.path)}: ${sign.stderr}');
     }
   }
 
