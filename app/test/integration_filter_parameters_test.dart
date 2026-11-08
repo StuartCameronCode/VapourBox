@@ -1235,8 +1235,7 @@ void main() {
     test('face restoration: every setting reaches the script, or the job is refused',
         () async {
       // The models are add-ons of ~700 MB (base + CodeFormer), far too much
-      // for a push-gate test to download — and until the addon-models-v1
-      // release exists there is nothing to download. So: with
+      // for a push-gate test to download. So: with
       // VAPOURBOX_ADDON_MIRROR set (the converted files in addon-staging),
       // install them the app's way and check the script; if they are already
       // installed, check the script; otherwise check the refusal, which is

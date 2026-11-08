@@ -19,13 +19,13 @@
   "files": [
     {
       "name": "upscale-RealESRGAN_x4plus.onnx",
-      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/upscale-RealESRGAN_x4plus.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/deps-v1.16.0-rc1/upscale-RealESRGAN_x4plus.onnx",
       "size": 67051646,
       "sha256": "86df1f74dbb7ee7521f2e342fb610eb7c147e161cbd377faafa706d4880716ca"
     },
     {
       "name": "upscale-RealESRGAN_x2plus.onnx",
-      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/upscale-RealESRGAN_x2plus.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/deps-v1.16.0-rc1/upscale-RealESRGAN_x2plus.onnx",
       "size": 67073184,
       "sha256": "0fb8264f02ead334932e50fd5a23d8ca4884fcbaa747943acf5ae6278a112d49"
     }

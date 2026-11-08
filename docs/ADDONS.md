@@ -135,9 +135,18 @@ ONNX and host the result on this repository's releases:
 https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/<file>
 ```
 
-That release is created by the project owner, not by a change. Until it
-exists, put converted files in `addon-staging/` at the repo root (gitignored)
-and test through the mirror:
+That release is created by the project owner, not by a change.
+
+**While a release is in development** (currently app 1.7.0), converted files
+are hosted on the deps release candidate instead (`deps-v1.16.0-rc1`, a
+prerelease), and the manifests point there, so CI and nightly can install
+them. Before the app release they move to `addon-models-v1` and the manifests
+are repointed: `Scripts/release.sh` refuses to cut a release while any
+manifest downloads from an `-rc` tag, exactly as it does for
+`deps-version.json`.
+
+Before a file is uploaded anywhere, put it in `addon-staging/` at the repo
+root (gitignored) and test through the mirror:
 
 ```bash
 VAPOURBOX_ADDON_MIRROR=$PWD/addon-staging \
