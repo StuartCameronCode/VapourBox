@@ -81,10 +81,18 @@ LAB_F = 0.206893  # 6/29: the threshold on f
 last_runner = None
 
 
-def _expr(core):
-    """akarin's JIT where the bundle has it (every platform but macOS x64),
-    else VapourSynth's own Expr; the expressions use only the shared subset."""
-    return core.akarin.Expr if hasattr(core, "akarin") else core.std.Expr
+# See the identical helper in the two .vpy templates: VapourSynth's std.Expr
+# JIT is x86-only, so on ARM every expression is walked once per pixel. akarin
+# has a real LLVM JIT that works on aarch64 (and is in every bundle but macOS
+# x64). The fallback names core.std.Expr explicitly -- calling _expr() would
+# recurse forever. The expressions here use only the subset both share.
+def _expr(clips, expr, **kwargs):
+    import vapoursynth as vs
+    core = vs.core
+    _akarin_expr = getattr(getattr(core, "akarin", None), "Expr", None)
+    if _akarin_expr is not None:
+        return _akarin_expr(clips, expr, **kwargs)
+    return core.std.Expr(clips, expr, **kwargs)
 
 
 def lab_stages(core, y, a, b):
@@ -95,7 +103,7 @@ def lab_stages(core, y, a, b):
 
     A grey pixel's L is the lightness of its own value, so the chain starts
     from the linear luminance: cv2 would take L back to the same Y."""
-    expr = _expr(core)
+    expr = _expr
     ylin = expr([y], "x 0.04045 <= x 12.92 / x 0.055 + 1.055 / 2.4 pow ?")
     fy = expr([ylin], f"x {LAB_T} > x 0.0 max 0.3333333333 pow x {LAB_K} * 0.1379310345 + ?")
 
@@ -253,7 +261,7 @@ def colorize(
 
     yuv = core.resize.Bilinear(rgb, format=vs.YUV444PS, matrix_in_s="rgb", matrix_s=matrix)
     s = "%.6f" % strength
-    yuv = _expr(core)(yuv, ["", "x %s *" % s, "x %s *" % s])
+    yuv = _expr(yuv, ["", "x %s *" % s, "x %s *" % s])
     yuv = core.std.ShufflePlanes([yf, yuv, yuv], [0, 1, 2], vs.YUV)
     out = core.resize.Bicubic(yuv, format=fmt.id, matrix_in_s=matrix, matrix_s=matrix, range_s=color_range,
                               dither_type="error_diffusion")
