@@ -1,0 +1,25 @@
+{
+  "id": "colorize-deoldify",
+  "version": "1.0.0",
+  "name": "DeOldify Video colourisation model",
+  "feature": "Colourisation",
+  "description": "DeOldify's Video model, an alternative for the Colourisation pass: more muted colour than DDColor, trained to stay steady from frame to frame. Converted to ONNX from the project's own published weights.",
+  "licence": "MIT",
+  "licenceUrl": "https://github.com/jantic/DeOldify/blob/master/LICENSE",
+  "credit": "Jason Antic",
+  "noticeName": "DeOldify Video model",
+  "homepage": "https://github.com/jantic/DeOldify",
+  "requires": [
+    "ai-runtime"
+  ],
+  "kind": "files",
+  "platforms": "all",
+  "files": [
+    {
+      "name": "colorize-deoldify-video.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/deps-v1.16.0-rc1/colorize-deoldify-video.onnx",
+      "size": 872841884,
+      "sha256": "aadb46c7d44af94ba0d01b1d3069f90ec83d08c14c60f0d203b3962094835e5a"
+    }
+  ]
+}

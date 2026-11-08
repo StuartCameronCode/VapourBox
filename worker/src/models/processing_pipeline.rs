@@ -8,7 +8,7 @@ use super::{
     AntiAliasParameters, GeometryParameters, GrainParameters, StabilizeParameters,
     ChromaDenoiseParameters, ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
     DebandParameters, DeblockParameters, DehaloParameters, DeinterlaceMethod, DeScratchParameters,
-    SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters, FrameRateParameters, FrameRateMethod, NoiseReductionMethod, DeflickerParameters, EdgeRepairParameters, GhostRemovalParameters, DescaleParameters, FaceRestoreParameters, AudioRestorationParameters,};
+    SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters, FrameRateParameters, FrameRateMethod, NoiseReductionMethod, DeflickerParameters, EdgeRepairParameters, GhostRemovalParameters, DescaleParameters, FaceRestoreParameters, ColorizeParameters, AudioRestorationParameters,};
 
 /// Minimum temporal context (frames on each side of the target) a windowed
 /// preview decodes, regardless of which filters are enabled. Motion-compensated
@@ -171,6 +171,8 @@ pub enum PassType {
     CropResize,
     /// Restore faces with a neural network (an add-on).
     FaceRestore,
+    /// Colour black-and-white footage with a neural network (an add-on).
+    Colorize,
 }
 
 #[allow(dead_code)]
@@ -200,6 +202,7 @@ impl PassType {
             PassType::ChromaFixes => "Chroma Fixes",
             PassType::CropResize => "Crop / Resize",
             PassType::FaceRestore => "Face Restoration",
+            PassType::Colorize => "Colourisation",
         }
     }
 
@@ -228,6 +231,7 @@ impl PassType {
             PassType::ChromaFixes => "Fix chroma bleeding and crawl artifacts",
             PassType::CropResize => "Crop borders and resize output",
             PassType::FaceRestore => "Restore detail in blurry, low-resolution faces with AI",
+            PassType::Colorize => "Colour black-and-white footage with AI",
         }
     }
 }
@@ -321,6 +325,10 @@ pub struct ProcessingPipeline {
     /// Face restoration (RestoreFormer++ / GFPGAN / CodeFormer). Off by default.
     #[serde(default)]
     pub face_restore: FaceRestoreParameters,
+
+    /// Colourisation (DDColor / DeOldify Video). Off by default.
+    #[serde(default)]
+    pub colorize: ColorizeParameters,
     /// Audio restoration. Not a VapourSynth pass — it is rendered by ffmpeg
     /// before the encode (`audio_restoration.rs`) — so it is not in
     /// `PassType` or `enabled_passes`, which describe the picture.
@@ -353,6 +361,7 @@ impl Default for ProcessingPipeline {
             chroma_fixes: ChromaFixParameters::default(),
             crop_resize: CropResizeParameters::default(),
             face_restore: FaceRestoreParameters::default(),
+            colorize: ColorizeParameters::default(),
             audio: AudioRestorationParameters::default(),
         }
     }
@@ -385,6 +394,7 @@ impl ProcessingPipeline {
             chroma_fixes: ChromaFixParameters { enabled: false, ..Default::default() },
             crop_resize: CropResizeParameters { enabled: false, ..Default::default() },
             face_restore: FaceRestoreParameters::default(),
+            colorize: ColorizeParameters::default(),
             audio: AudioRestorationParameters::default(),
         }
     }
@@ -394,9 +404,8 @@ impl ProcessingPipeline {
         let mut passes = Vec::new();
 
         // Order: deinterlace, damage, noise, dehalo, deblock, deband, anti-alias,
-        // chroma, color, stabilize, rotate, crop + resize, face restoration, then
-        // sharpen, grain,
-        // frame rate.
+        // chroma, colourisation, color, stabilize, rotate, crop + resize, face
+        // restoration, then sharpen, grain, frame rate.
         if self.deinterlace_enabled() {
             passes.push(PassType::Deinterlace);
         }
@@ -453,6 +462,16 @@ impl ProcessingPipeline {
         }
         if self.chroma_fixes.enabled {
             passes.push(PassType::ChromaFixes);
+        }
+        // Colourisation follows the cleanup (a denoised, deblocked grey picture
+        // is what the model should judge, and its colour should not be
+        // denoised or deblocked again) and Chroma Fixes (which repair the
+        // source's chroma, which colourisation replaces), and precedes Colour
+        // Correction, so the result can be graded. Before the resize: the
+        // model sees a fixed-size copy either way, and the chroma is rebuilt
+        // at the source's size, so the resize then treats it as any chroma.
+        if self.colorize.enabled {
+            passes.push(PassType::Colorize);
         }
         if self.color_correction.enabled {
             passes.push(PassType::ColorCorrection);
@@ -532,6 +551,7 @@ impl ProcessingPipeline {
         if self.chroma_fixes.enabled { count += 1; }
         if self.crop_resize.enabled { count += 1; }
         if self.face_restore.enabled { count += 1; }
+        if self.colorize.enabled { count += 1; }
         count
     }
 
@@ -570,6 +590,12 @@ impl ProcessingPipeline {
             needs.push(crate::addons::AddonNeed {
                 feature: "Face restoration",
                 ids: self.face_restore.required_addons(),
+            });
+        }
+        if self.colorize.enabled {
+            needs.push(crate::addons::AddonNeed {
+                feature: "Colourisation",
+                ids: self.colorize.required_addons(),
             });
         }
         // Crop & Resize's add-on upscalers (`upscale_addons.rs`).
@@ -622,6 +648,9 @@ impl ProcessingPipeline {
             // Restored faces are blended with their neighbours', whose landmarks
             // are smoothed over theirs: twice the smoothing radius.
             PassType::FaceRestore => FrameMap::Identity { radius: self.face_restore.frames_read_either_side() },
+            // Each frame's colour is averaged with the predictions r frames
+            // either side.
+            PassType::Colorize => FrameMap::Identity { radius: self.colorize.temporal_radius() },
             // The one pass that emits a Retime. The ratio is known up front, so
             // the count is exact; `synthesizes` is true only for the
             // interpolating method, where an output frame has no single source.
@@ -849,6 +878,7 @@ impl ProcessingPipeline {
             PassType::ChromaFixes => self.chroma_fixes.enabled,
             PassType::CropResize => self.crop_resize.enabled,
             PassType::FaceRestore => self.face_restore.enabled,
+            PassType::Colorize => self.colorize.enabled,
         }
     }
 }

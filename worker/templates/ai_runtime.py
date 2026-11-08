@@ -116,7 +116,7 @@ def preferred_providers(force_cpu=False):
     return [p for p in GPU_PROVIDERS if p in available] + [CPU_PROVIDER]
 
 
-def _session_options(providers):
+def _session_options(providers, dims=None):
     rt = ort()
     opts = rt.SessionOptions()
     opts.log_severity_level = 3  # errors only: Core ML warns per unsupported node
@@ -124,41 +124,49 @@ def _session_options(providers):
         # DirectML requires both (onnxruntime's DirectML documentation).
         opts.enable_mem_pattern = False
         opts.execution_mode = rt.ExecutionMode.ORT_SEQUENTIAL
+    for name, value in sorted((dims or {}).items()):
+        opts.add_free_dimension_override_by_name(name, int(value))
     return opts
 
 
-def _create(model, providers):
+def _create(model, providers, dims=None):
     rt = ort()
     with_options = [(p, PROVIDER_OPTIONS[p]) if p in PROVIDER_OPTIONS else p for p in providers]
     try:
-        return rt.InferenceSession(model, sess_options=_session_options(providers), providers=with_options)
+        return rt.InferenceSession(model, sess_options=_session_options(providers, dims), providers=with_options)
     except Exception:
         if with_options == providers:
             raise
         # An older runtime that doesn't know an option: the provider's defaults.
-        return rt.InferenceSession(model, sess_options=_session_options(providers), providers=providers)
+        return rt.InferenceSession(model, sess_options=_session_options(providers, dims), providers=providers)
 
 
-def session(model, force_cpu=False, providers=None):
+def session(model, force_cpu=False, providers=None, dims=None):
     """An InferenceSession for `model` (a path, or the model's bytes), on the
-    preferred providers unless `providers` is given. Cached per model and
-    provider list, so a pass calling this from a frame callback creates it
-    once. Falls back to the CPU if a GPU provider can't create it."""
+    preferred providers unless `providers` is given. Cached per model,
+    provider list and `dims`, so a pass calling this from a frame callback
+    creates it once. Falls back to the CPU if a GPU provider can't create it.
+
+    `dims` ({"height": 512, "width": 512}) fixes a model's named dynamic
+    dimensions for this session (ONNX Runtime's free-dimension overrides):
+    one exported file serves several input sizes, and each session still has
+    the static shapes Core ML needs to take the whole graph."""
     global last_fallback
     chosen = list(providers) if providers else preferred_providers(force_cpu)
-    key = (model if isinstance(model, str) else hash(bytes(model)), tuple(chosen))
+    key = (model if isinstance(model, str) else hash(bytes(model)), tuple(chosen),
+           tuple(sorted((dims or {}).items())))
     with _lock:
         cached = _sessions.get(key)
         if cached is not None:
             return cached
         try:
-            sess = _create(model, chosen)
+            sess = _create(model, chosen, dims)
             last_fallback = None
         except Exception as e:
             if chosen == [CPU_PROVIDER]:
                 raise
             last_fallback = "%s: %s" % (chosen[0], e)
-            sess = _create(model, [CPU_PROVIDER])
+            sess = _create(model, [CPU_PROVIDER], dims)
         _sessions[key] = sess
         return sess
 
@@ -372,11 +380,13 @@ class Runner:
     InferenceSession (`run(output_names, feeds)`, `get_inputs()`), so code
     written against a session takes either."""
 
-    def __init__(self, model, force_cpu=False, lock=None):
+    def __init__(self, model, force_cpu=False, lock=None, dims=None):
         """`lock`: share one between the runners of a pass to serialise all
-        of its models' runs, not just each model's."""
+        of its models' runs, not just each model's. `dims`: fixed sizes for
+        the model's named dynamic dimensions (see session())."""
         self.model = model
-        self.session = session(model, force_cpu=force_cpu)
+        self.dims = dims
+        self.session = session(model, force_cpu=force_cpu, dims=dims)
         self.fallback = last_fallback
         self._lock = lock or threading.Lock()
 
@@ -395,5 +405,5 @@ class Runner:
                 if self.provider == CPU_PROVIDER:
                     raise
                 self.fallback = "%s failed at run time: %s" % (self.provider, e)
-                self.session = session(self.model, force_cpu=True)
+                self.session = session(self.model, force_cpu=True, dims=self.dims)
                 return self.session.run(output_names, feeds)

@@ -7330,6 +7330,128 @@ fn test_190_face_restore_refused_without_addons() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+fn colorize_job(name: &str, cz: ColorizeParameters) -> VideoJob {
+    let mut job = create_base_job(name);
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        chroma_fixes: ChromaFixParameters {
+            enabled: true,
+            apply_chroma_bleeding_fix: true,
+            ..ChromaFixParameters::default()
+        },
+        color_correction: ColorCorrectionParameters {
+            enabled: true,
+            saturation: 1.2,
+            ..ColorCorrectionParameters::default()
+        },
+        colorize: ColorizeParameters { enabled: true, ..cz },
+        ..ProcessingPipeline::default()
+    });
+    job
+}
+
+/// Colourisation runs colorize.colorize on ONNX Runtime from the add-ons, in
+/// both scripts: after Chroma Fixes and before Colour Correction, with the AI
+/// runtime set up first, the chosen model's path from its add-on, and each
+/// model's render size (DDColor's in pixels, DeOldify's render factor x 16).
+#[test]
+fn test_191_colorize_script_and_model() {
+    create_output_dir();
+    let platform = "macos-arm64";
+    let root = fake_addons_with_requirements("191", &["colorize-ddcolor", "colorize-deoldify"], platform);
+    let generator = ScriptGenerator::new().unwrap().with_addons(root.clone(), platform);
+    let job = colorize_job("test_191_colorize", ColorizeParameters {
+        model: ColorizeModel::DeOldify,
+        deoldify_render_factor: 25,
+        strength: 0.7,
+        temporal_radius: 3,
+        ..Default::default()
+    });
+    let py = |id: &str, f: &str| vapourbox_worker::gpu_plugin::py_str(&root.join(id).join(f));
+    let runtime = vapourbox_worker::gpu_plugin::py_str(&root.join("ai-runtime"));
+    let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        let setup = script
+            .find(&format!("ai_runtime.setup({runtime})"))
+            .unwrap_or_else(|| panic!("{name}: no AI runtime"));
+        let call = script.find("_colorize.colorize(").unwrap_or_else(|| panic!("{name}: no call"));
+        for want in [
+            format!("model_path={}", py("colorize-deoldify", "colorize-deoldify-video.onnx")),
+            "model=\"deoldify\"".into(),
+            "render_size=400".into(),
+            "strength=0.700".into(),
+            "temporal_radius=3".into(),
+            "matrix=\"".into(),
+            "color_range=\"limited\"".into(),
+        ] {
+            assert!(script.contains(&want), "{name}: missing {want}");
+        }
+        assert!(setup < call, "{name}: runtime set up after the pass");
+        let chroma = script.find("# PASS 8: CHROMA FIXES").expect("chroma fixes");
+        let color = script.find("clip = adjust.Tweak(").expect("colour correction");
+        assert!(chroma < call && call < color, "{name}: after Chroma Fixes, before Colour Correction");
+        assert!(!script.contains("{{CZ_") && !script.contains("COLORIZE}}"), "{name}: unsubstituted");
+    }
+    // Only the preview says it is one (DDColor previews on the CPU, see
+    // colorize.PREVIEW_ON_CPU).
+    assert!(preview.contains("    preview=True,"));
+    assert!(!encode.contains("preview=True"));
+    // Pass order and the preview's temporal context agree with the script.
+    let pipeline = job.effective_pipeline();
+    let passes = pipeline.enabled_passes();
+    let at = |p| passes.iter().position(|x| *x == p).unwrap();
+    assert!(at(PassType::ChromaFixes) < at(PassType::Colorize));
+    assert!(at(PassType::Colorize) < at(PassType::ColorCorrection));
+    assert_eq!(pipeline.output_count(100), 100);
+    assert_eq!(pipeline.frame_maps()[at(PassType::Colorize)].radius(), 3);
+    // DDColor's defaults: 512 pixels, two frames either side.
+    let ddcolor = colorize_job("test_191_ddcolor", ColorizeParameters::default());
+    let script = script_text_with(&generator, &ddcolor);
+    for want in [
+        format!("model_path={}", py("colorize-ddcolor", "colorize-ddcolor-tiny.onnx")),
+        "model=\"ddcolor\"".into(),
+        "render_size=512".into(),
+        "strength=1.000".into(),
+        "temporal_radius=2".into(),
+    ] {
+        assert!(script.contains(&want), "ddcolor: missing {want}");
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Without the chosen model's add-on a Colourisation job is refused, naming it
+/// and Settings → Add-ons; with the pass off nothing needs it and the script
+/// has neither the runtime nor the call.
+#[test]
+fn test_192_colorize_refused_without_addon() {
+    create_output_dir();
+    let platform = "macos-arm64";
+    let root = fake_addons_with_requirements("192", &["colorize-ddcolor"], platform);
+    let generator = ScriptGenerator::new().unwrap().with_addons(root.clone(), platform);
+    let deoldify = colorize_job("test_192_deoldify", ColorizeParameters {
+        model: ColorizeModel::DeOldify,
+        ..Default::default()
+    });
+    let err = both_scripts_with(&generator, &deoldify).unwrap_err().to_string();
+    assert!(err.contains("Colourisation"), "{err}");
+    assert!(err.contains("Settings → Add-ons"), "{err}");
+    assert!(err.to_lowercase().contains("deoldify"), "{err}");
+    let ddcolor = colorize_job("test_192_ddcolor", ColorizeParameters::default());
+    both_scripts_with(&generator, &ddcolor).expect("DDColor's add-on is installed");
+    let empty = std::env::temp_dir().join(format!("vb-addons-192-empty-{}", Uuid::new_v4()));
+    let bare = ScriptGenerator::new().unwrap().with_addons(empty, platform);
+    assert!(both_scripts_with(&bare, &ddcolor).is_err());
+    let mut off = ddcolor.clone();
+    off.processing_pipeline.as_mut().unwrap().colorize.enabled = false;
+    let (encode, preview) = both_scripts_with(&bare, &off).unwrap();
+    for script in [&encode, &preview] {
+        assert!(!script.contains("import ai_runtime"));
+        assert!(!script.contains("_colorize.colorize("));
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// The add-on upscalers (Real-ESRGAN General, live-action SPAN, Real-ESRGAN
 /// x4plus/x2plus): the same VSNCNN block, each model from its add-on's
 /// directory, with the factor rules — General is 4x only, so 2x resamples its
