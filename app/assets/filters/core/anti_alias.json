@@ -38,7 +38,7 @@
       "id": "sangnom",
       "sinceAppVersion": "1.7.0",
       "name": "SangNom",
-      "description": "The fastest and the sharpest: rebuilds edges at twice the size with SangNom, then scales back down. Strong enough to thin line art slightly, which suits anime more than live action",
+      "description": "The sharpest: rebuilds edges at twice the size with SangNom, then scales back down. About as fast as daa, twice as fast as santiag. Strong enough to thin line art slightly, which suits anime more than live action",
       "function": "core.sangnom.SangNom",
       "parameters": [
         "sangnomAa"

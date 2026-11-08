@@ -74,6 +74,8 @@ if ports:
     print('<table><caption>IVTC fade fix (kodim23 pan, faded after the field split)</caption>'
           '<tr><th>measure</th><th>value</th></tr>')
     for k, v in f.items():
+        if k == 'fps':  # taken under load; bench.py has the speeds
+            continue
         print(f'<tr><td>{k}</td><td>{v:.4f}</td></tr>')
     print('</table>')
     print('<table><caption>Anti-aliasing (kodim08 pan)</caption><tr><th>method</th><th>mean change, levels</th></tr>')

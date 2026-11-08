@@ -7080,6 +7080,12 @@ fn test_204_ivtc_fix_fades() {
             let fix = script.find("_fade_fields = core.std.SeparateFields(").unwrap_or_else(|| panic!("{name}: no fix"));
             assert!(fix > vfm, "{name}: the fix must follow field matching");
             assert!(script.contains(&format!("if '{expect}' == 'average' else min(a, b)")), "{name}: mode {mode}");
+            // Where akarin exists the gains are frame properties read by ONE
+            // expression: an akarin node made per frame inside FrameEval
+            // crashed or hung vspipe under concurrency.
+            assert!(script.contains("core.std.ModifyFrame(_fade_top, [_fade_top] + _fade_props,"), "{name}");
+            assert!(script.contains("_fade_apply = [f'x x.FadeGain{i} *' for i in range(_fade_fmt.num_planes)]"),
+                    "{name}");
             if let Some(decimate) = script.find("core.vivtc.VDecimate(") {
                 assert!(fix < decimate, "{name}: before decimation");
             }

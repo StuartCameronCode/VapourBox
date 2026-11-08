@@ -1556,9 +1556,11 @@ Five classical additions, all in the deps bundle (no add-ons). The evidence is
   needs no OpenCL, so `KNLM_NO_DEVICE_MESSAGE` (and the app's fallback text
   in `worker_manager.dart`) names it as the way out.
 - **WNNM is not a method.** Measured against the shipped BM3D on three Kodak
-  pans at sigma 4/8/12: luma within ±0.6 dB (ahead at sigma 4, behind at 12),
-  chroma 2-7 dB worse at the same sigma, and no faster in practice. It adds
-  nothing BM3D does not already do.
+  pans at sigma 4/8/12, each at its best sigma: luma +0.7 to −2.3 dB (ahead
+  only at sigma 4 with a temporal radius), chroma 2.6–7.2 dB worse. It is
+  fast (25 fps at 640x480 on an M1 Pro, where the shipped BM3D path runs
+  under 1 fps), but NLMeans (CPU) fills that niche with better chroma (38 fps).
+  Revisit only with a reason BM3D's quality and NLMeans' speed don't cover.
 - **The vs-jetpack ports are template code, not a dependency**: vine_dehalo
   (`DehaloMethod::Vine`, advanced), mpeg2stinx (`DeblockMethod::Mpeg2Stinx`,
   advanced) and FixInterlacedFades (`QTGMCParameters::ivtc_fix_fades`, an IVTC
@@ -1572,8 +1574,14 @@ Five classical additions, all in the deps bundle (no add-ons). The evidence is
   (`FrameMap::Identity { radius: 1 }`). On every synthetic fixture tried it
   *lost* PSNR (it softens vertical detail); the schema says so. It is for the
   specific comb-like noise of film DVDs encoded as interlaced MPEG-2.
-- **The fade fix runs right after VFM, before VDecimate**, in float, as a
-  FrameEval with per-frame constants. `std.DoubleWeave` flags its output
+- **The fade fix runs right after VFM, before VDecimate**, in float. Its
+  per-frame gains are stamped as frame properties by `ModifyFrame` and applied
+  by **one** akarin expression (`x x.FadeGain0 *`); only where akarin is
+  absent (macOS x64) does a FrameEval make a `std.Expr` per frame. **Never
+  create an akarin node per frame inside concurrent FrameEvals**: the first
+  version did, and vspipe segfaulted, aborted or spun one core for 97 minutes
+  on 30 frames — fine single-threaded, and the small heavy test missed it. The
+  heavy suite now times a full 720x576 IVTC job. `std.DoubleWeave` flags its output
   interlaced, so the block sets `_FieldBased` back to 0 — without it a later
   resize treats progressive frames as fields. `average` leaves the last frames
   of a fade to full black half-lit (one field is already black); `match`

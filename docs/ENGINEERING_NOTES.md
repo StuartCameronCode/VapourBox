@@ -2997,7 +2997,9 @@ truth, real motion).
 - **WNNM was measured and not added.** At each method's best sigma, against
   the shipped BM3D path: luma +0.7 to −2.3 dB (ahead only at sigma 4 with
   `radius=1`), chroma 2.6–7.2 dB worse. Widening its sweep to 4x the noise
-  found nothing past 2–2.5x. WNNM needs 32-bit float and divides sigma by 255,
+  found nothing past 2–2.5x. It is fast (25 fps at 640x480 with `radius=1`;
+  the shipped BM3D path ran 0.9 fps there on arm64, all three planes at
+  sigma 16), but NLMeans (CPU) is faster (38 fps) with better chroma. WNNM needs 32-bit float and divides sigma by 255,
   so its float conversion must keep sigma in 8-bit units: with the default
   (limited) range, luma spans 219 levels per 1.0 and chroma 224. Passing
   `range_in_s="full"` instead broke at 10-bit (a 7-level offset) because the
@@ -3022,6 +3024,19 @@ truth, real motion).
   `_FieldBased=2`, which made a later 4:2:0 resize treat the progressive
   frames as fields ("dimensions must be divisible by subsampling factor" at
   an odd field-chroma height) until the block reset it.
+- **The first fade fix crashed or hung real jobs.** It made an akarin
+  `Expr` per frame inside two concurrent FrameEvals. Under vspipe that
+  aborted (SIGABRT, 10 frames), segfaulted (SIGSEGV, a 720x576 IVTC job
+  through the worker) or spun one core indefinitely (97 minutes on 30
+  frames, found when the benchmark hung); single-threaded, or with
+  `std.Expr`, it was fine, and the 320x240 heavy test and the Python-side
+  probes never tripped it. Fixed by stamping the gains as frame properties
+  (`ModifyFrame`, no node creation) and applying them with one akarin
+  expression; the std.Expr FrameEval remains only where akarin is absent.
+  Colour Correction's auto white balance makes an akarin node per frame in a
+  single FrameEval the same way; it did not reproduce (30 frames, vspipe), but
+  it is the same pattern. A heavy test now times a full-size IVTC + fade-fix
+  job (2.5 s), and fails on the old block with the SIGSEGV.
 - **vine** on an oversharpened pan: +0.9 to +1.1 dB, against DeHalo_alpha's
   +4.1 to +4.4 (which blurs the amplified texture away). Advanced-only.
 

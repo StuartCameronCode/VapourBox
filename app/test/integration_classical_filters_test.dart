@@ -168,6 +168,27 @@ void main() {
       await _expectValidVideo(result);
     }, timeout: const Timeout(Duration(minutes: 8)));
 
+    test('ivtc: the fade fix finishes a full-size job in bounded time', () async {
+      // The first version created an akarin node per frame inside two
+      // concurrent FrameEvals: vspipe aborted, or spun one core for 97 minutes
+      // on 30 frames, while the same graph single-threaded took a second. The
+      // whole 720x576 fixture must encode well inside the timeout.
+      final sw = Stopwatch()..start();
+      final result = await WorkerHarness.runJob(
+          _job('ivtc_fades_bounded', const ProcessingPipeline(
+            deinterlace: QTGMCParameters(
+                enabled: true,
+                method: DeinterlaceMethod.ivtc,
+                tff: true,
+                ivtcFixFades: true),
+          )).toJson(),
+          label: 'ivtc_fades_bounded',
+          timeout: const Duration(minutes: 3));
+      print('  IVTC + fade fix, 720x576: ${sw.elapsed.inMilliseconds} ms');
+      await _expectValidVideo(result);
+      expect(sw.elapsed, lessThan(const Duration(minutes: 2)));
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
     test('ivtc: the fade fix closes the gap between a fading frame\'s fields',
         () async {
       // A fade applied AFTER the fields were split (as one applied to

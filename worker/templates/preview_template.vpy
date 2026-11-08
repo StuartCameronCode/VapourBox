@@ -434,9 +434,15 @@ clip = core.vivtc.VFM(_ivtc_metrics, order={{IVTC_ORDER}},
 # about black (neutral for chroma) so its mean distance from it equals the
 # {{IVTC_FADE_MODE}} of the two fields': exact for fades to or from black, and
 # blur-free. On frames that are not fading the two fields' means agree and the
-# change is negligible (measured ~0.1 levels). Float, as upstream requires;
-# FrameEval with constants rather than akarin's frame-property Expr, which
-# macOS x64 lacks.
+# change is negligible (measured ~0.1 levels). Float, as upstream requires.
+#
+# The per-frame gains are stamped on each field as frame properties by
+# ModifyFrame and applied by ONE akarin expression that reads them. Never
+# create an akarin node per frame inside a FrameEval here: with two such
+# FrameEvals running concurrently under vspipe, the job aborted (SIGABRT) or
+# spun one core indefinitely (a 97-minute hang on 30 frames, 2026-11-08), and
+# ran fine single-threaded. macOS x64 has no akarin (so no frame-property
+# Expr); there std.Expr nodes are made per frame instead, which does not hang.
 _fade_fmt = clip.format
 _fade_f = core.resize.Point(clip, format=_fade_fmt.replace(sample_type=vs.FLOAT, bits_per_sample=32).id)
 _fade_fields = core.std.SeparateFields(core.std.SetFieldBased(_fade_f, 0), tff=True)
@@ -445,12 +451,24 @@ for _fade_i in range(_fade_fmt.num_planes):
     _fade_dist = core.std.PlaneStats(_fade_dist, plane=_fade_i, prop=f'P{_fade_i}')
 
 
-def _fade_scale(n, f, c, own, other):
+def _fade_gains(own, other):
     gains = []
     for i in range(_fade_fmt.num_planes):
-        a, b = f[own].props[f'P{i}Average'], f[other].props[f'P{i}Average']
+        a, b = own.props[f'P{i}Average'], other.props[f'P{i}Average']
         target = (a + b) / 2 if '{{IVTC_FADE_MODE}}' == 'average' else min(a, b)
         gains.append(target / a if a > 1e-6 else 1.0)
+    return gains
+
+
+def _fade_stamp(n, f, own, other):
+    out = f[0].copy()
+    for i, g in enumerate(_fade_gains(f[own], f[other])):
+        out.props[f'FadeGain{i}'] = g
+    return out
+
+
+def _fade_scale(n, f, c, own, other):
+    gains = _fade_gains(f[own], f[other])
     if all(abs(g - 1.0) < 1e-6 for g in gains):
         return c
     return _expr([c], [f'x {g} *' for g in gains])
@@ -458,10 +476,19 @@ def _fade_scale(n, f, c, own, other):
 
 _fade_top, _fade_bot = _fade_fields[::2], _fade_fields[1::2]
 _fade_props = [_fade_dist[::2], _fade_dist[1::2]]
-_fade_top = core.std.FrameEval(_fade_top, functools.partial(_fade_scale, c=_fade_top, own=0, other=1),
-                               prop_src=_fade_props)
-_fade_bot = core.std.FrameEval(_fade_bot, functools.partial(_fade_scale, c=_fade_bot, own=1, other=0),
-                               prop_src=_fade_props)
+if _akarin_expr is not None:
+    _fade_top = core.std.ModifyFrame(_fade_top, [_fade_top] + _fade_props,
+                                     functools.partial(_fade_stamp, own=1, other=2))
+    _fade_bot = core.std.ModifyFrame(_fade_bot, [_fade_bot] + _fade_props,
+                                     functools.partial(_fade_stamp, own=2, other=1))
+    _fade_apply = [f'x x.FadeGain{i} *' for i in range(_fade_fmt.num_planes)]
+    _fade_top = _expr([_fade_top], _fade_apply)
+    _fade_bot = _expr([_fade_bot], _fade_apply)
+else:
+    _fade_top = core.std.FrameEval(_fade_top, functools.partial(_fade_scale, c=_fade_top, own=0, other=1),
+                                   prop_src=_fade_props)
+    _fade_bot = core.std.FrameEval(_fade_bot, functools.partial(_fade_scale, c=_fade_bot, own=1, other=0),
+                                   prop_src=_fade_props)
 clip = core.std.DoubleWeave(core.std.Interleave([_fade_top, _fade_bot]), tff=True)[::2]
 # DoubleWeave flags its output interlaced; field-matched frames are
 # progressive, and a later resize would otherwise treat them as fields.
@@ -1485,8 +1512,8 @@ clip = haf.santiag(
 {{/AA_SANTIAG}}
 {{#AA_SANGNOM}}
 # SangNom AA: supersample 2x, run SangNom along each axis keeping the even
-# lines (order=1: same rate, no shift) and come back down. Much faster than
-# santiag (45 vs 17 fps at SD on an M1 Pro) and the sharper of the three. `aa`
+# lines (order=1: same rate, no shift) and come back down. About twice
+# santiag's speed and about daa's (M1 Pro, vspipe), and the sharper of the three. `aa`
 # is in 8-bit units at every depth: the plugin scales it itself (an 8-bit and
 # a 10-bit run agree to 0.05 levels). SangNom flags its output progressive, so
 # the field order set above is put back.

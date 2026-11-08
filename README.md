@@ -118,7 +118,7 @@ Most sources need only a few of these, and the presets pick them for you. Filter
 | 10 | **Dehalo** | Bright outlines and ringing around edges |
 | 11 | **Deblock** | Blocking from heavy compression |
 | 12 | **Deband** | Visible steps in gradients and skies |
-| 13 | **Anti-Aliasing** | Stair-stepping on diagonal edges: daa, santiag, or SangNom (fastest) |
+| 13 | **Anti-Aliasing** | Stair-stepping on diagonal edges: daa, santiag, or SangNom (sharpest) |
 | 14 | **Chroma Fixes** | Colour shifted off the picture, bleeding, rainbowing, dot crawl and leftover combing |
 | 15 | **Color Correction** | Brightness, contrast, saturation, levels, white balance, shadow detail and local contrast, set by hand or measured |
 | 16 | **Stabilize** | Shake and weave from telecine, film scans or a handheld camera |
