@@ -103,7 +103,9 @@ class PassSettingsInline extends StatelessWidget {
             _buildGpuPluginNotice(context, viewModel, filterId, params),
             _buildKnlmNotice(viewModel, filterId, params),
             if (animeJanaiSelectedBy(filterId, params.values))
-              const AnimeJanaiNotice(),
+              const AnimeJanaiNotice()
+            else if (upscaleAddonSelectedBy(filterId, params.values) case final id?)
+              UpscaleAddonNotice(addonId: id, reason: upscaleAddonReason(id)),
             if (filterId == 'descale') _buildDescaleDetect(context, viewModel),
             _buildBitDepthWarning(context, viewModel, schema, params),
             DynamicFilterPanelCompact(
@@ -364,27 +366,22 @@ class PassSettingsInline extends StatelessWidget {
       if (!ready) return;
     }
 
-    // AnimeJaNai's models are an add-on: choosing it downloads them, after
-    // saying what they are and that they are for non-commercial use only.
-    if (_choosesAnimeJanai(filterId, oldParams, newParams)) {
+    // AnimeJaNai's and the other add-on upscalers' models are add-ons:
+    // choosing one downloads its models, after saying what they are, their
+    // licence and size (AnimeJaNai's: non-commercial use only). Moving
+    // between two methods of one add-on asks once.
+    final addon = upscaleAddonSelectedBy(filterId, newParams.values);
+    if (addon != null && addon != upscaleAddonSelectedBy(filterId, oldParams.values)) {
       if (!context.mounted) return;
       final ready = await AddonPrompt.ensure(
         context,
-        [animeJanaiAddonId],
-        reason: 'AnimeJaNai upscaling needs its models.',
+        [addon],
+        reason: upscaleAddonReason(addon),
       );
       if (!ready) return;
     }
     viewModel.updateDynamicParams(filterId, newParams);
   }
-
-  bool _choosesAnimeJanai(
-    String filterId,
-    DynamicParameters oldParams,
-    DynamicParameters newParams,
-  ) =>
-      animeJanaiSelectedBy(filterId, newParams.values) &&
-      !animeJanaiSelectedBy(filterId, oldParams.values);
 
   Widget _buildFallbackPanel(BuildContext context, PassType passType) {
     return Padding(
@@ -543,19 +540,50 @@ class _FilterDescriptionState extends State<_FilterDescription> {
   }
 }
 
+/// Why an AI upscale method asks for its add-on, in [AddonPrompt.ensure].
+String upscaleAddonReason(String addonId) => switch (addonId) {
+      animeJanaiAddonId => 'AnimeJaNai upscaling needs its models.',
+      'upscale-esrgan-plus' => 'Real-ESRGAN x4plus upscaling needs its models.',
+      _ => 'Real-ESRGAN General and Live Action SPAN upscaling need their models.',
+    };
+
 /// Under Crop & Resize while AnimeJaNai is chosen: its terms, always — the
 /// non-commercial restriction is the user's to keep in mind on every job —
 /// and, if its models are not installed (deleted since, or chosen by a
 /// preset), a button to download them.
-class AnimeJanaiNotice extends StatefulWidget {
-  final AddonService? service;
-  const AnimeJanaiNotice({super.key, this.service});
-
-  @override
-  State<AnimeJanaiNotice> createState() => _AnimeJanaiNoticeState();
+class AnimeJanaiNotice extends UpscaleAddonNotice {
+  const AnimeJanaiNotice({super.key, super.service})
+      : super(
+          addonId: animeJanaiAddonId,
+          reason: 'AnimeJaNai upscaling needs its models.',
+          label: 'AnimeJaNai',
+        );
 }
 
-class _AnimeJanaiNoticeState extends State<AnimeJanaiNotice> {
+/// Under Crop & Resize while an add-on upscaler is chosen: the add-on's terms
+/// and, if its models are not installed (deleted since, or chosen by a
+/// preset), a button to download them.
+class UpscaleAddonNotice extends StatefulWidget {
+  final String addonId;
+  final String reason;
+
+  /// Names the models in the status line ("AnimeJaNai models installed.");
+  /// without it the add-on's own name is used.
+  final String? label;
+  final AddonService? service;
+  const UpscaleAddonNotice({
+    super.key,
+    required this.addonId,
+    required this.reason,
+    this.label,
+    this.service,
+  });
+
+  @override
+  State<UpscaleAddonNotice> createState() => _UpscaleAddonNoticeState();
+}
+
+class _UpscaleAddonNoticeState extends State<UpscaleAddonNotice> {
   AddonService get _service => widget.service ?? AddonService.instance;
 
   @override
@@ -569,9 +597,11 @@ class _AnimeJanaiNoticeState extends State<AnimeJanaiNotice> {
     return ListenableBuilder(
       listenable: _service,
       builder: (context, _) {
-        final info = _service.info(animeJanaiAddonId);
+        final id = widget.addonId;
+        final info = _service.info(id);
         if (info == null) return const SizedBox.shrink();
-        final installed = _service.isInstalled(animeJanaiAddonId);
+        final installed = _service.isInstalled(id);
+        final label = widget.label;
         return Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: Row(
@@ -581,9 +611,13 @@ class _AnimeJanaiNoticeState extends State<AnimeJanaiNotice> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      installed
-                          ? 'AnimeJaNai models installed.'
-                          : 'AnimeJaNai\'s models are not installed.',
+                      label != null
+                          ? (installed
+                              ? '$label models installed.'
+                              : '$label\'s models are not installed.')
+                          : (installed
+                              ? '${info.name}: installed.'
+                              : '${info.name}: not installed.'),
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     AddonTerms(info: info),
@@ -594,9 +628,8 @@ class _AnimeJanaiNoticeState extends State<AnimeJanaiNotice> {
                 OutlinedButton.icon(
                   onPressed: _service.installingId != null
                       ? null
-                      : () => AddonPrompt.ensure(context, [animeJanaiAddonId],
-                          reason: 'AnimeJaNai upscaling needs its models.',
-                          service: _service),
+                      : () => AddonPrompt.ensure(context, [id],
+                          reason: widget.reason, service: _service),
                   icon: const Icon(Icons.download, size: 16),
                   label: Text('Download (${formatAddonSize(info.downloadBytes)})'),
                 ),

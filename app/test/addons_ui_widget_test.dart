@@ -122,6 +122,24 @@ void main() {
     expect(find.text('AnimeJaNai models installed.'), findsOneWidget);
   });
 
+  testWidgets('an add-on upscaler\'s notice names its add-on and offers it while missing',
+      (tester) async {
+    final own = AddonService.forTest(addonsDir: tmp, installers: [
+      _Marker(_info('upscale-general', 'AI upscaling', bytes: 11400000)),
+    ]);
+    await own.load();
+    await pump(tester, UpscaleAddonNotice(
+        addonId: 'upscale-general', reason: upscaleAddonReason('upscale-general'), service: own));
+    expect(find.text('Name of upscale-general: not installed.'), findsOneWidget);
+    expect(find.textContaining('Download (11 MB)'), findsOneWidget);
+    expect(find.text('MIT'), findsOneWidget, reason: 'the licence is shown with it');
+
+    await tester.runAsync(() => own.install('upscale-general'));
+    await tester.pumpAndSettle();
+    expect(find.text('Name of upscale-general: installed.'), findsOneWidget);
+    expect(find.textContaining('Download'), findsNothing);
+  });
+
   // The Settings tabs share the dialog's width equally (at most 600 px). A
   // NEW pill set beside "Add-ons" overflowed its tab by 14 px; overlaid, it
   // takes no width. Flutter reports a RenderFlex overflow as a test failure.

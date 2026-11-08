@@ -42,6 +42,19 @@ enum UpscaleMethod {
   /// non-commercial use only, downloaded when it is chosen.
   @JsonValue('animeJanai')
   animeJanai,
+  /// Real-ESRGAN's general model, for real-world footage, on the GPU (needs
+  /// Vulkan). 4x only: a 2x upscale resamples its result down. Its model is
+  /// the `upscale-general` add-on.
+  @JsonValue('realEsrganGeneral')
+  realEsrganGeneral,
+  /// jcj83429's 2xLiveActionV1 SPAN model, for live action, on the GPU. 2x
+  /// only: 4x runs it twice. Also in the `upscale-general` add-on.
+  @JsonValue('liveAction')
+  liveAction,
+  /// Real-ESRGAN x4plus / x2plus, the large, slow models, on the GPU. The
+  /// `upscale-esrgan-plus` add-on.
+  @JsonValue('realEsrganPlus')
+  realEsrganPlus,
 }
 
 /// What to do with the pixel aspect ratio (SAR) on output.
@@ -196,6 +209,13 @@ class CropResizeParameters {
   /// AnimeJaNai's Sharp variant of the HD model.
   final bool animejanaiSharp;
 
+  /// Real-ESRGAN General's denoise variant (realesr-general-wdn-x4v3).
+  final bool generalDenoise;
+
+  /// How much of an AI upscale to keep, 0.0-1.0: the rest is a Spline36
+  /// upscale of the same frame. 1.0 (the default) is the network alone.
+  final double aiStrength;
+
   // --- nnedi3 controls for the edge-directed upscale paths ---
   // With EEDI3 selected these shape the nnedi3 sclip that guides it.
 
@@ -267,6 +287,8 @@ class CropResizeParameters {
     this.cuganNoise = 'conservative',
     this.animejanaiModel = 'compact',
     this.animejanaiSharp = false,
+    this.generalDenoise = false,
+    this.aiStrength = 1.0,
     this.upscaleNsize,
     this.upscaleNeurons,
     this.upscaleQual,
@@ -365,6 +387,8 @@ class CropResizeParameters {
     String? cuganNoise,
     String? animejanaiModel,
     bool? animejanaiSharp,
+    bool? generalDenoise,
+    double? aiStrength,
     int? upscaleNsize,
     int? upscaleNeurons,
     int? upscaleQual,
@@ -407,6 +431,8 @@ class CropResizeParameters {
       cuganNoise: cuganNoise ?? this.cuganNoise,
       animejanaiModel: animejanaiModel ?? this.animejanaiModel,
       animejanaiSharp: animejanaiSharp ?? this.animejanaiSharp,
+      generalDenoise: generalDenoise ?? this.generalDenoise,
+      aiStrength: aiStrength ?? this.aiStrength,
       upscaleNsize: upscaleNsize ?? this.upscaleNsize,
       upscaleNeurons: upscaleNeurons ?? this.upscaleNeurons,
       upscaleQual: upscaleQual ?? this.upscaleQual,
