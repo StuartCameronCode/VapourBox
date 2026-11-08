@@ -113,11 +113,6 @@ jobs:
           ln -sfn "$WP/lib" addons/whisper/lib
           test -x addons/whisper/bin/whisper-cli || { echo "::error::whisper-cli not found under $WP/bin"; exit 1; }
 
-      - name: Provision Vulkan (RIFE, AI upscaling)
-        # Lavapipe on the GPU-less Linux/Windows runners; sets
-        # VAPOURBOX_EXPECT_VULKAN=1 so the GPU tests must run, not skip.
-        run: bash .github/scripts/provision-vulkan.sh macos-${{ matrix.arch }}
-
       - name: Build worker (debug)
         run: cd worker && cargo build
 
@@ -135,7 +130,8 @@ jobs:
         # found" and prove nothing.
         env:
           VAPOURBOX_WORKER: ${{ github.workspace }}/worker/target/debug/vapourbox-worker
-        run: cd app && flutter test --tags heavy
+        # Not @Tags(['gpu']): the hosted runners have no GPU (dart_test.yaml).
+        run: cd app && flutter test --tags heavy --exclude-tags gpu
 
       - name: Crash reports (on failure)
         # A plugin that segfaults in vspipe shows only "signal 11" in the test
@@ -204,12 +200,6 @@ jobs:
           cp "$(dirname "$CLI")"/*.exe addons/whisper/ 2>/dev/null || true
           cp "$(dirname "$CLI")"/*.dll addons/whisper/ 2>/dev/null || true
 
-      - name: Provision Vulkan (RIFE, AI upscaling)
-        # Lavapipe on the GPU-less Linux/Windows runners; sets
-        # VAPOURBOX_EXPECT_VULKAN=1 so the GPU tests must run, not skip.
-        shell: bash
-        run: bash .github/scripts/provision-vulkan.sh windows-x64
-
       - name: Build worker (debug)
         run: cd worker && cargo build
 
@@ -224,7 +214,8 @@ jobs:
         # `flutter test`, where the running executable is the test runner.
         env:
           VAPOURBOX_WORKER: ${{ github.workspace }}\worker\target\debug\vapourbox-worker.exe
-        run: cd app && flutter test --tags heavy
+        # Not @Tags(['gpu']): the hosted runners have no GPU (dart_test.yaml).
+        run: cd app && flutter test --tags heavy --exclude-tags gpu
 
   linux:
     if: ${{ github.event_name == 'schedule' || inputs.platform == 'all' || inputs.platform == 'linux' }}
@@ -294,11 +285,6 @@ jobs:
           ln -sfn "${{ github.workspace }}/deps" "$HOME/.local/share/VapourBox/deps"
           ln -sfn "${{ github.workspace }}/addons" "$HOME/.local/share/VapourBox/addons"
 
-      - name: Provision Vulkan (RIFE, AI upscaling)
-        # Lavapipe on the GPU-less Linux/Windows runners; sets
-        # VAPOURBOX_EXPECT_VULKAN=1 so the GPU tests must run, not skip.
-        run: bash .github/scripts/provision-vulkan.sh linux-x64
-
       - name: Build worker (debug)
         run: cd worker && cargo build
 
@@ -316,4 +302,5 @@ jobs:
         # found" and prove nothing.
         env:
           VAPOURBOX_WORKER: ${{ github.workspace }}/worker/target/debug/vapourbox-worker
-        run: cd app && flutter test --tags heavy
+        # Not @Tags(['gpu']): the hosted runners have no GPU (dart_test.yaml).
+        run: cd app && flutter test --tags heavy --exclude-tags gpu

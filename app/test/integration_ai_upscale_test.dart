@@ -5,12 +5,12 @@
 // install through WorkerHarness.ensureAddon (VAPOURBOX_ADDON_MIRROR before
 // their files are uploaded).
 //
-// Wherever AI upscaling ships, CI gives the runner a Vulkan device (a software
-// one, lavapipe, on the GPU-less Linux and Windows runners) and sets
-// VAPOURBOX_EXPECT_VULKAN=1, so these must run there; see
-// support/gpu_expectations.dart. The source is the small progressive clip
-// (320x240) and each job encodes five frames, so even 4x CUGAN on a CPU Vulkan
-// driver finishes in minutes. It must be progressive: on a combed source the
+// Every test here needs a Vulkan device, so the file is tagged `gpu` and the
+// GPU-less CI runners leave it out (dart_test.yaml). Run it on a machine with
+// a GPU, with VAPOURBOX_EXPECT_VULKAN=1 so an unavailable feature fails rather
+// than skips; see support/gpu_expectations.dart. The source is the small
+// progressive clip (320x240) and each job encodes five frames, so even 4x
+// CUGAN on a CPU Vulkan driver (Mesa's lavapipe) finishes in minutes. It must be progressive: on a combed source the
 // networks rightly remove the combing, and that difference from Spline36 —
 // real detail at the source's own resolution — would swamp the comparison.
 //
@@ -43,7 +43,7 @@
 //   * a 10-bit source stays 10-bit and matches the 8-bit result;
 //   * AnimeJaNai picks its SD model for an SD picture (where the HD size
 //     setting changes nothing) and the chosen HD model above 576 lines.
-@Tags(['heavy'])
+@Tags(['heavy', 'gpu'])
 library;
 
 import 'dart:io';
@@ -110,15 +110,16 @@ VideoJob _job(String name, UpscaleMethod method, int factor,
 
 const _slowGpu = {'VAPOURBOX_STALL_TIMEOUT_SECS': '1200'};
 
-/// One preview frame, with the same budget as an encode: on Windows lavapipe a
-/// single 4x Real-CUGAN preview frame took over the harness's default 5 min.
+/// One preview frame, with the same budget as an encode: on a CPU Vulkan
+/// driver (Windows lavapipe) a single 4x Real-CUGAN preview frame took over
+/// the harness's default 5 min.
 Future<PreviewResult> _preview(Map<String, dynamic> job, int frame, String label,
         {Duration budget = const Duration(minutes: 20)}) =>
     WorkerHarness.runPreview(job, frame: frame, label: label, timeout: budget, extraEnv: _slowGpu);
 
 Future<String> _encode(VideoJob job, String label, {Duration budget = const Duration(minutes: 20)}) async {
   // The worker's stall watchdog fails a job after 600 s without a frame. On a
-  // CPU Vulkan driver (lavapipe, on the GPU-less CI runners) 4x Real-CUGAN's
+  // CPU Vulkan driver (Mesa's lavapipe, on Windows) 4x Real-CUGAN's
   // first frame — two whole network passes — took longer than that on
   // Windows, so allow the test's own budget instead.
   final r = await WorkerHarness.runJob(job.toJson(), label: label,

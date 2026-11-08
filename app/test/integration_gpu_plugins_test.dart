@@ -70,8 +70,8 @@ VideoJob _upscaleJob(UpscaleMethod method, {String noise = 'conservative'}) => _
       'upscale_${method.name}',
       ProcessingPipeline(
         deinterlace: const QTGMCParameters(enabled: false),
-        // Cropped to 120x96 first: on a CPU Vulkan driver (lavapipe, on the
-        // GPU-less CI runners) one whole 720x576 Real-CUGAN frame took over
+        // Cropped to 120x96 first: on a CPU Vulkan driver (Windows lavapipe,
+        // which CI once used) one whole 720x576 Real-CUGAN frame took over
         // five minutes on Windows, and even 240x192 took 2.5 to over 5. This
         // test only needs a real frame out of the GPU at the right size;
         // full-size encodes are the heavy suite's.
@@ -148,7 +148,7 @@ void main() {
               reason: '$platformId ships no ${plugin.label}, and must say so');
         } else if (expectVulkan) {
           expect(probe['available'], isTrue,
-              reason: 'CI provisions Vulkan here: ${probe['message']}');
+              reason: 'VAPOURBOX_EXPECT_VULKAN=1: ${probe['message']}');
         }
         if (probe['available'] != true) {
           final status = GpuPluginStatus.fromJson(plugin, probe);
@@ -160,7 +160,7 @@ void main() {
                   'reason from the user: ${status.message}');
         }
         // The first probe initialises the device and compiles shaders; on a
-        // CPU Vulkan driver (lavapipe on CI) that took 30.4 s on Windows.
+        // CPU Vulkan driver (Mesa's lavapipe) that took 30.4 s on Windows.
       }, timeout: const Timeout(Duration(minutes: 3)));
     });
   }
@@ -217,7 +217,7 @@ void main() {
         if (platformId.startsWith('macos')) {
           expect(script, contains('moltenvk'), reason: 'MoltenVK must be preloaded on macOS');
         }
-      }, timeout: const Timeout(Duration(minutes: 5)));
+      }, timeout: const Timeout(Duration(minutes: 5)), tags: ['gpu']);
 
       test('where it runs, a real frame comes out of the GPU at the right size', () async {
         if (!await requireGpuPlugin(f.plugin.probeFlag)) return;
@@ -225,7 +225,7 @@ void main() {
         final pv = await WorkerHarness.runPreview(f.job().toJson(), frame: 21, label: 'gpu_$name');
         expect(pv.success, isTrue, reason: pv.errorTail);
         expect(_pngSize(pv.png!), f.previewSize);
-      }, timeout: const Timeout(Duration(minutes: 5)));
+      }, timeout: const Timeout(Duration(minutes: 5)), tags: ['gpu']);
     });
   }
 }

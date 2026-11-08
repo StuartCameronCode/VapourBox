@@ -3,7 +3,8 @@ name: CI Tests
 # Pulls the published dependency bundle + the whisper add-on (binary + small
 # model) and runs the Rust test suite plus the Flutter tests, EXCLUDING the
 # heavy full-encode integration tests (those run in nightly.yml via
-# `--tags heavy`). macOS is tested natively on both arm64 (macos-15) and x64
+# `--tags heavy`) and the `gpu` tests, which need a Vulkan device these
+# runners lack (app/dart_test.yaml). macOS is tested natively on both arm64 (macos-15) and x64
 # (macos-15-intel); Windows on x64; Linux on x64 (ubuntu-24.04).
 
 on:
@@ -104,11 +105,6 @@ jobs:
           ln -sfn "$WP/lib" addons/whisper/lib
           test -x addons/whisper/bin/whisper-cli || { echo "::error::whisper-cli not found under $WP/bin"; exit 1; }
 
-      - name: Provision Vulkan (RIFE, AI upscaling)
-        # Lavapipe on the GPU-less Linux/Windows runners; sets
-        # VAPOURBOX_EXPECT_VULKAN=1 so the GPU tests must run, not skip.
-        run: bash .github/scripts/provision-vulkan.sh macos-${{ matrix.arch }}
-
       - name: Rust tests
         # Debug build: DependencyLocator's upward search then finds the repo-root
         # deps/ and addons/ (release mode looks under ~/Library).
@@ -123,7 +119,9 @@ jobs:
       - name: Flutter tests
         # Excludes @Tags(['heavy']) — the full-encode integration tests, which
         # run in nightly.yml. The script-only integration tests + unit tests run here.
-        run: cd app && flutter test --exclude-tags heavy
+        # Also excludes @Tags(['gpu']): the hosted runners have no GPU, and the
+        # tests that run RIFE / AI upscaling need a Vulkan device (dart_test.yaml).
+        run: cd app && flutter test --exclude-tags heavy,gpu
 
       - name: Crash reports (on failure)
         # A plugin that segfaults in vspipe shows only "signal 11" in the test
@@ -187,12 +185,6 @@ jobs:
           cp "$(dirname "$CLI")"/*.dll addons/whisper/ 2>/dev/null || true
           ls addons/whisper/
 
-      - name: Provision Vulkan (RIFE, AI upscaling)
-        # Lavapipe on the GPU-less Linux/Windows runners; sets
-        # VAPOURBOX_EXPECT_VULKAN=1 so the GPU tests must run, not skip.
-        shell: bash
-        run: bash .github/scripts/provision-vulkan.sh windows-x64
-
       - name: Rust tests
         run: cd worker && cargo test -- --nocapture
 
@@ -205,7 +197,9 @@ jobs:
       - name: Flutter tests
         # Excludes @Tags(['heavy']) — the full-encode integration tests, which
         # run in nightly.yml. The script-only integration tests + unit tests run here.
-        run: cd app && flutter test --exclude-tags heavy
+        # Also excludes @Tags(['gpu']): the hosted runners have no GPU, and the
+        # tests that run RIFE / AI upscaling need a Vulkan device (dart_test.yaml).
+        run: cd app && flutter test --exclude-tags heavy,gpu
 
   linux:
     runs-on: ubuntu-24.04  # must match the deps-build runner: those binaries
@@ -281,11 +275,6 @@ jobs:
           ln -sfn "${{ github.workspace }}/deps" "$HOME/.local/share/VapourBox/deps"
           ln -sfn "${{ github.workspace }}/addons" "$HOME/.local/share/VapourBox/addons"
 
-      - name: Provision Vulkan (RIFE, AI upscaling)
-        # Lavapipe on the GPU-less Linux/Windows runners; sets
-        # VAPOURBOX_EXPECT_VULKAN=1 so the GPU tests must run, not skip.
-        run: bash .github/scripts/provision-vulkan.sh linux-x64
-
       - name: Rust tests
         run: cd worker && cargo test -- --nocapture
 
@@ -298,4 +287,6 @@ jobs:
       - name: Flutter tests
         # Excludes @Tags(['heavy']) — the full-encode integration tests, which
         # run in nightly.yml. The script-only integration tests + unit tests run here.
-        run: cd app && flutter test --exclude-tags heavy
+        # Also excludes @Tags(['gpu']): the hosted runners have no GPU, and the
+        # tests that run RIFE / AI upscaling need a Vulkan device (dart_test.yaml).
+        run: cd app && flutter test --exclude-tags heavy,gpu

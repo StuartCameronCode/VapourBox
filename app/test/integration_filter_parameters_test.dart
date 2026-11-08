@@ -1987,7 +1987,8 @@ void main() {
     // Below 1 the network's result is blended with a Spline36 upscale of the
     // same frame in one std.Merge; at 1 nothing is added. Needs VSNCNN to run
     // here (the worker refuses an AI job it cannot run), so it follows the
-    // GPU rule: skipped without Vulkan unless VAPOURBOX_EXPECT_VULKAN=1.
+    // GPU rule: tagged `gpu` (left out on the GPU-less CI runners), skipped
+    // without Vulkan unless VAPOURBOX_EXPECT_VULKAN=1.
     test('crop_resize: AI strength blends a Spline36 upscale into the AI result', () async {
       if (!await requireGpuPlugin('--probe-upscale')) return;
       CropResizeParameters crop(double strength) => ParameterConverter.toCropResize(
@@ -2005,7 +2006,7 @@ void main() {
           buildJob(testName: 'ai_strength_full', cropResize: crop(1.0)));
       expect(full, isNot(contains('core.std.Merge(core.resize.Spline36(_ai_src')));
       expect(full, isNot(contains('AI_STRENGTH')));
-    }, timeout: const Timeout(Duration(minutes: 2)));
+    }, timeout: const Timeout(Duration(minutes: 2)), tags: ['gpu']);
 
     // --- Add-on AI upscalers (1.7.0) ---
     // Real-ESRGAN General (4x only: resampled to 2x after the network, the
@@ -2047,6 +2048,6 @@ void main() {
       final span4 = await script(UpscaleMethod.liveAction, 4);
       expect(models(span4), List.filled(2, '2xLiveActionV1_SPAN_490000.onnx'));
       expect(span4, isNot(contains('// _ai_scale')));
-    }, timeout: const Timeout(Duration(minutes: 5)));
+    }, timeout: const Timeout(Duration(minutes: 5)), tags: ['gpu']);
   });
 }

@@ -2481,9 +2481,10 @@ Pixel checks (heavy test), against a plain Spline36 upscale of the same frames:
   centre on both axes (0.75 px), and that Spline36 itself lands on factor x
   source (within 0.25 px), so the reference is known-good.
 
-CI runs it for real on Linux and Windows: Mesa lavapipe (ncnn tags a CPU
-device as type 3 but does not skip it) and `VAPOURBOX_EXPECT_VULKAN=1`, so an
-unavailable feature is a failure there, not a skip. The first lavapipe probe
+CI ran it for real on Linux and Windows until 2026-11-09 (see "GPU tests
+leave CI" below): Mesa lavapipe (ncnn tags a CPU device as type 3 but does not
+skip it) and `VAPOURBOX_EXPECT_VULKAN=1`, so an unavailable feature was a
+failure there, not a skip. The first lavapipe probe
 takes ~30 s (Windows: 30.4 s), past flutter_test's default timeout, and one
 whole 720x576 Real-CUGAN frame took over five minutes, so the push gate crops
 to 240x192 first.
@@ -3312,4 +3313,30 @@ The workflow:
 names an `-rc` tag. That is the one way this bites: an rc escaping into a shipped
 build, where later deleting the prerelease breaks the download for everyone who
 installed it.
+
+### GPU tests leave CI: the `gpu` tag (2026-11-09)
+
+From 2026-10-25 the Linux and Windows CI jobs ran the RIFE and AI upscaling
+tests on Mesa's lavapipe, a CPU Vulkan driver, with `VAPOURBOX_EXPECT_VULKAN=1`.
+On the 1.7.0 branch that stopped being workable, almost all of it on Windows:
+
+- One 240x192 Real-CUGAN preview frame took 2m21s on `main` and from 3 to over
+  5 minutes on the branch, with nothing in our code to account for it (CI runs
+  42484522476, 42499908163). Real-ESRGAN x4plus at 4x took ~18 minutes for five
+  frames on Linux and ran past 20 on Windows (nightly 42484525297).
+- When a timed-out test's harness killed only the worker, Windows left vspipe
+  running the network on every core and the next test timed out too. The
+  harness now kills the whole tree (`ProcessTree.killTree`). Even so, run
+  42516550724 timed out both AnimeJaNai tests at 5 minutes; that test had
+  taken about 15 s before.
+
+These timings measure the runner's CPU, not the GPU path a user has, and every
+budget raise was followed by another timeout. So tests that need a Vulkan device
+are tagged `gpu` and both workflows exclude the tag, and
+`.github/scripts/provision-vulkan.sh` is deleted (it is in git history if a GPU
+runner ever appears). Without a device CI keeps the probe-answer and refusal
+tests. What is lost: CI no longer proves that RIFE and VSNCNN load and run on
+the Windows and Linux bundles. That now has to be checked by hand on a machine
+with a GPU (`VAPOURBOX_EXPECT_VULKAN=1 flutter test --tags gpu`), as MoltenVK
+always was.
 

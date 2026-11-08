@@ -1355,24 +1355,29 @@ than fail cleanly.
   the R78 tag. Models come from vs-mlrt's ~810 MB `models.vX.7z` (the only
   place they are published), extracted in one pass and each checked by hash.
   Every pin and hash is in all three `download-deps-*` scripts.
-- **Tested for real in CI.** The hosted runners have no GPU, so
-  `.github/scripts/provision-vulkan.sh` gives Linux and Windows Mesa's
-  lavapipe (a CPU Vulkan driver ncnn accepts) and sets
-  `VAPOURBOX_EXPECT_VULKAN=1`. **macOS arm64 gets nothing and its GPU tests
-  skip**: the runners are VMs whose Metal device MoltenVK cannot open, and
-  lavapipe crashes there because the bundle's akarin exports its static
-  LLVM's symbols, which dyld then binds lavapipe's own LLVM to (see
-  docs/ENGINEERING_NOTES.md). MoltenVK is tested on real Macs only — run
-  the GPU suites locally with `VAPOURBOX_EXPECT_VULKAN=1` after touching it.
-  Under that variable every GPU test
-  **fails** rather than skips if a feature reports itself unavailable
+- **Tests that need a Vulkan device are tagged `gpu`, and CI leaves them
+  out.** The hosted runners have no GPU, so the push gate runs
+  `--exclude-tags heavy,gpu` and nightly `--tags heavy --exclude-tags
+  gpu` (`app/dart_test.yaml`). Without a device CI still checks that each
+  probe answers with a real reason (not `probeFailed`) and that a job that
+  cannot run is refused with the probe's wording. **Run the `gpu` tests on a
+  machine with a GPU after touching RIFE, VSNCNN, MoltenVK, the upscale
+  block or a model add-on**, with `VAPOURBOX_EXPECT_VULKAN=1`
+  (`flutter test --tags gpu`, plus `--tags heavy` for the encodes): under
+  that variable an unavailable feature **fails** rather than skips
   (`app/test/support/gpu_expectations.dart`), so a broken bundle cannot hide
-  behind "no GPU". `integration_gpu_plugins_test.dart` (push gate) probes,
-  checks the refusal and the script, and renders a real frame per feature;
+  behind "no GPU". Nothing else proves the Windows and Linux bundles' GPU
+  plugins actually run, so do it on those platforms before a deps or app
+  release too. Any test that runs a network through ncnn gets the tag (a
+  `group` cannot take tags in flutter_test, so tag each `test`).
+  `integration_gpu_plugins_test.dart` probes, checks the refusal and the
+  script, and renders a real frame per feature;
   `integration_ai_upscale_test.dart` and the RIFE group of
   `integration_frame_mapping_test.dart` (heavy) encode and check pixels — the
   upscalers against Spline36 on a synthetic pattern (colour within 2 levels for
-  CUGAN 2x, bar centre within 0.75 px for all).
+  CUGAN 2x, bar centre within 0.75 px for all). The ONNX Runtime passes (Face
+  Restoration, Colourisation) are not `gpu`: they run on the CPU provider
+  where there is no GPU, which is a path users take.
 
 See docs/ENGINEERING_NOTES.md (2026-10-24, 2026-10-25) for the measurements.
 
@@ -1971,7 +1976,7 @@ cd worker && cargo test --test subtitle_integration_test -- --nocapture
 ### 2. Flutter `test/` suite — `app/test/`, run by `flutter test`  ← the CI gate
 
 ```bash
-cd app && flutter test --exclude-tags heavy   # what the push gate runs
+cd app && flutter test --exclude-tags heavy,gpu   # what the push gate runs
 cd app && flutter test                          # everything, incl. heavy (local)
 ```
 
@@ -1989,9 +1994,11 @@ Headless Dart-VM tests. Three groups:
   `addons/`.
 - **Integration tests** — `integration_*_test.dart`. They spawn the worker
   end-to-end via `app/test/support/worker_harness.dart`. The encode-heavy ones
-  are `@Tags(['heavy'])`: the **push gate** runs `--exclude-tags heavy`
+  are `@Tags(['heavy'])`: the **push gate** runs `--exclude-tags heavy,gpu`
   (script-only: `integration_filter_parameters_test`,
-  `integration_qtgmc_parameters_test`); **nightly.yml** runs `--tags heavy`.
+  `integration_qtgmc_parameters_test`); **nightly.yml** runs `--tags heavy
+  --exclude-tags gpu`. Tests that need a Vulkan device are tagged `gpu` and
+  run on no CI runner (see "GPU Plugins: RIFE and AI Upscaling").
   `grep -l "Tags(\['heavy'\])" app/test/*.dart` is the authority for which files
   those are.
 
@@ -2038,12 +2045,12 @@ cd worker && cargo run --release -- --config test_job.json
 
 Runs on push to `main` + PRs (skipped for doc-only changes via `paths-ignore`).
 Each job pulls the published deps bundle + the whisper add-on, then runs
-**suite #1 (`cargo test`) and suite #2 (`flutter test --exclude-tags heavy`)** —
+**suite #1 (`cargo test`) and suite #2 (`flutter test --exclude-tags heavy,gpu`)** —
 including the subtitle integration test, excluding the heavy full-encode
 integration tests. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
 (`macos-15-intel`), **Windows x64**, **Linux x64** (`ubuntu-24.04`). The heavy
 full-encode integration tests run separately in `.github/workflows/nightly.yml`
-(cron + `workflow_dispatch`) via `flutter test --tags heavy` on the same
+(cron + `workflow_dispatch`) via `flutter test --tags heavy --exclude-tags gpu` on the same
 4-platform matrix, running each x64 platform against **both** CPU-tier bundles.
 Fixtures (`small_clip.mp4`, telecine/interlaced clips) are
 committed under `Tests/TestResources/`.
