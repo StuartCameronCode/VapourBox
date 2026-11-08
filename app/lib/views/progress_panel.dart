@@ -242,6 +242,7 @@ class ProgressPanel extends StatelessWidget {
           if (progress.isExtractingPhase) return 'Extracting DVD Title';
           if (progress.isSubtitlePhase) return 'Generating Subtitles';
           if (progress.isEmbeddingPhase) return 'Embedding Subtitles';
+          if (progress.isAudioPhase) return 'Restoring Audio';
         }
         return 'Processing';
       case ProcessingState.cancelling:
@@ -279,6 +280,23 @@ class ProgressPanel extends StatelessWidget {
             context,
             icon: Icons.subtitles,
             value: 'Generating subtitles... ${progress.percentComplete}%',
+          ),
+        ],
+      );
+    }
+
+    // Audio restoration: a percentage, or just the label while DeepFilterNet
+    // (which reports nothing) runs.
+    if (progress.isAudioPhase) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _buildDetailChip(
+            context,
+            icon: Icons.graphic_eq,
+            value: progress.isIndeterminate
+                ? 'Restoring audio...'
+                : 'Restoring audio... ${progress.percentComplete}%',
           ),
         ],
       );

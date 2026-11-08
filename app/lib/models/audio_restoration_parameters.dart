@@ -148,31 +148,32 @@ class AudioRestorationParameters {
     double? loudnessTarget,
     bool? limiter,
     double? limiterCeilingDb,
-  }) =>
-      AudioRestorationParameters(
-        enabled: enabled ?? this.enabled,
-        streamIndex: streamIndex ?? this.streamIndex,
-        channelFix: channelFix ?? this.channelFix,
-        offsetMs: offsetMs ?? this.offsetMs,
-        driftCorrection: driftCorrection ?? this.driftCorrection,
-        driftMaxPercent: driftMaxPercent ?? this.driftMaxPercent,
-        declip: declip ?? this.declip,
-        declick: declick ?? this.declick,
-        declickThreshold: declickThreshold ?? this.declickThreshold,
-        humRemoval: humRemoval ?? this.humRemoval,
-        humFrequency: humFrequency ?? this.humFrequency,
-        rumbleFilter: rumbleFilter ?? this.rumbleFilter,
-        rumbleCutoffHz: rumbleCutoffHz ?? this.rumbleCutoffHz,
-        denoise: denoise ?? this.denoise,
-        denoiseStrength: denoiseStrength ?? this.denoiseStrength,
-        deepFilter: deepFilter ?? this.deepFilter,
-        deepFilterAttenuation:
-            deepFilterAttenuation ?? this.deepFilterAttenuation,
-        loudnessNormalize: loudnessNormalize ?? this.loudnessNormalize,
-        loudnessTarget: loudnessTarget ?? this.loudnessTarget,
-        limiter: limiter ?? this.limiter,
-        limiterCeilingDb: limiterCeilingDb ?? this.limiterCeilingDb,
-      );
+  }) {
+    return AudioRestorationParameters(
+      enabled: enabled ?? this.enabled,
+      streamIndex: streamIndex ?? this.streamIndex,
+      channelFix: channelFix ?? this.channelFix,
+      offsetMs: offsetMs ?? this.offsetMs,
+      driftCorrection: driftCorrection ?? this.driftCorrection,
+      driftMaxPercent: driftMaxPercent ?? this.driftMaxPercent,
+      declip: declip ?? this.declip,
+      declick: declick ?? this.declick,
+      declickThreshold: declickThreshold ?? this.declickThreshold,
+      humRemoval: humRemoval ?? this.humRemoval,
+      humFrequency: humFrequency ?? this.humFrequency,
+      rumbleFilter: rumbleFilter ?? this.rumbleFilter,
+      rumbleCutoffHz: rumbleCutoffHz ?? this.rumbleCutoffHz,
+      denoise: denoise ?? this.denoise,
+      denoiseStrength: denoiseStrength ?? this.denoiseStrength,
+      deepFilter: deepFilter ?? this.deepFilter,
+      deepFilterAttenuation:
+          deepFilterAttenuation ?? this.deepFilterAttenuation,
+      loudnessNormalize: loudnessNormalize ?? this.loudnessNormalize,
+      loudnessTarget: loudnessTarget ?? this.loudnessTarget,
+      limiter: limiter ?? this.limiter,
+      limiterCeilingDb: limiterCeilingDb ?? this.limiterCeilingDb,
+    );
+  }
 
   /// On, with at least one step chosen (twin of the worker's `has_effect`).
   bool get hasEffect =>

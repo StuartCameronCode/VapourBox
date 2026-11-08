@@ -38,9 +38,15 @@
 //! 5. rumble `highpass`, 6. hum notches (`bandreject` at f, 2f, 3f).
 //! 7. `afftdn`, then `atrim` of its delay: it puts out its input 25 ms late
 //!    at every sample rate and strength (measured: 1200 samples at 48 kHz,
-//!    1102 at 44.1, 800 at 32).
-//! 8. timing — `atempo` (drift) and a silent lead (`adelay`) where a positive
-//!    offset reaches before the start; a negative one just reads later.
+//!    1102 at 44.1, 800 at 32). Its noise floor (`nf`) is the source's,
+//!    measured: at its −50 dB default it took 0.7 dB off −39 dB hiss, with
+//!    the measured floor 13.6 dB; and its noise tracking (`tn`) undid that.
+//! 8. timing — drift is corrected by resampling (`aresample` up, `asetrate`
+//!    to relabel by the exact ratio, `aresample` back), not `atempo`: atempo
+//!    moved every click ~20 ms early, and drift *is* a sample-clock error,
+//!    so resampling restores the original pitch as well as the length. Then
+//!    a silent lead (`adelay`) where a positive offset reaches before the
+//!    start; a negative one just reads later.
 //! 9. DeepFilterNet (a separate program, `-D` compensates its 30 ms delay).
 //! 10. `loudnorm` (two passes, linear), `aresample` back from its 192 kHz.
 //! 11. `alimiter` with `latency=1` (otherwise it delays by its attack time)
@@ -77,7 +83,8 @@ pub const AFFTDN_DELAY_SECONDS: f64 = 0.025;
 /// accuracy of a container's stated durations.
 pub const DRIFT_MIN_SECONDS: f64 = 0.05;
 
-/// A tempo this close to 1 is not applied: `atempo=1.0` still resamples.
+/// A drift factor this close to 1 is not applied: the resample would still
+/// run, for nothing.
 pub const TEMPO_EPSILON: f64 = 1e-6;
 
 /// Loudness normalisation's true-peak ceiling and loudness range: the
@@ -85,10 +92,17 @@ pub const TEMPO_EPSILON: f64 = 1e-6;
 pub const LOUDNORM_TRUE_PEAK: f64 = -1.5;
 pub const LOUDNORM_RANGE: f64 = 11.0;
 
-/// How much audio the automatic channel and hum checks look at, and at what
-/// rate (hum and its harmonics are all under 200 Hz).
+/// How much audio the automatic checks (channels, hum, noise floor) look at,
+/// and the highest rate they decode it at (the noise floor needs the whole
+/// band: white hiss is 8 dB quieter below 4 kHz than across 24).
 pub const ANALYSIS_SECONDS: f64 = 60.0;
-pub const ANALYSIS_RATE: u32 = 8000;
+pub const ANALYSIS_MAX_RATE: u32 = 48_000;
+
+/// `afftdn`'s noise floor is the quietest tenth of 50 ms windows, clamped to
+/// what it accepts (-80) and to -30: a "floor" louder than that is the
+/// content itself (music with no pauses), which afftdn would eat.
+pub const NOISE_FLOOR_PERCENTILE: f64 = 0.10;
+pub const NOISE_FLOOR_RANGE: (f64, f64) = (-80.0, -30.0);
 
 /// Extra source audio read past the end, so the filters that trim their own
 /// delay off the front still fill the window.
@@ -146,12 +160,16 @@ pub enum DeadChannel {
 }
 
 /// What the automatic checks found, on a sample of the window.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Analysis {
     pub dead_channel: Option<DeadChannel>,
     /// 50 or 60 when a mains hum stands out of the spectrum.
     pub hum: Option<u32>,
+    /// The noise floor in dBFS (for `afftdn`), when measured.
+    pub noise_floor_db: Option<f64>,
 }
+
+
 
 /// A channel is dead when it is this far below the other…
 pub const DEAD_CHANNEL_GAP_DB: f64 = 30.0;
@@ -178,6 +196,49 @@ pub fn channel_levels_db(interleaved: &[f32], channels: usize) -> Vec<f64> {
             20.0 * (rms + 1e-12).log10()
         })
         .collect()
+}
+
+/// The noise floor of `mono` in dBFS: the [`NOISE_FLOOR_PERCENTILE`] quietest
+/// 50 ms window's RMS level, clamped to [`NOISE_FLOOR_RANGE`] (digital
+/// silence reads as the bottom of the range).
+pub fn noise_floor_db(mono: &[f32], rate: u32) -> f64 {
+    let win = (rate as usize / 20).max(1);
+    let mut levels: Vec<f64> = mono
+        .chunks_exact(win)
+        .map(|w| {
+            let rms = (w.iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / win as f64).sqrt();
+            20.0 * (rms + 1e-12).log10()
+        })
+        .collect();
+    if levels.is_empty() {
+        return NOISE_FLOOR_RANGE.0;
+    }
+    levels.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let idx = ((levels.len() - 1) as f64 * NOISE_FLOOR_PERCENTILE).round() as usize;
+    levels[idx].clamp(NOISE_FLOOR_RANGE.0, NOISE_FLOOR_RANGE.1)
+}
+
+/// The integer rates that resample by `factor` most exactly: upsample to
+/// `r1`, relabel as `s` (`asetrate` takes only an integer), resample back.
+/// `r1` is searched between 4× and 8× the rate, so the content is never
+/// low-passed and the ratio `s / r1` is within ~1e-11 of `factor` — an
+/// integer `asetrate` straight from 48 kHz would be off by up to 1e-5, 37 ms
+/// over an hour.
+pub fn resample_ratio(rate: u32, factor: f64) -> (u32, u32) {
+    let mut best = (rate, (rate as f64 * factor).round() as u32);
+    let mut best_err = f64::MAX;
+    for r1 in rate * 4..=rate * 8 {
+        let s = (r1 as f64 * factor).round();
+        let err = (s / r1 as f64 - factor).abs();
+        if err < best_err {
+            best_err = err;
+            best = (r1, s as u32);
+            if err < 1e-13 {
+                break;
+            }
+        }
+    }
+    best
 }
 
 /// Power at `freq` by the Goertzel algorithm, averaged over 2-second blocks
@@ -240,7 +301,7 @@ pub fn detect_hum(mono: &[f32], rate: u32) -> Option<u32> {
 /// What drift correction will do.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DriftDecision {
-    /// Stretch by this tempo factor (`atempo`), audio length / picture length.
+    /// Resample by this factor, audio length / picture length.
     Apply(f64),
     /// Leave it, with the reason for the job log.
     Skip(String),
@@ -270,7 +331,7 @@ pub fn drift_decision(audio_secs: f64, video_secs: f64, max_percent: f64) -> Dri
         ));
     }
     if (factor - 1.0).abs() < TEMPO_EPSILON {
-        return DriftDecision::Skip("the tempo change would be below 1e-6".into());
+        return DriftDecision::Skip("the change would be below 1e-6".into());
     }
     DriftDecision::Apply(factor)
 }
@@ -315,7 +376,7 @@ pub struct AudioPlan {
 }
 
 impl AudioPlan {
-    /// Decide everything. `drift` is the tempo factor to apply, already
+    /// Decide everything. `drift` is the factor to apply, already
     /// vetted by [`drift_decision`].
     pub fn new(
         p: &AudioRestorationParameters,
@@ -390,13 +451,15 @@ impl AudioPlan {
             }
         }
         if p.denoise {
-            f.push(format!("afftdn=nr={}:nf=-50:tn=1", num(p.denoise_strength.clamp(0.01, 97.0))));
+            let floor = analysis.noise_floor_db.unwrap_or(-50.0).round();
+            f.push(format!("afftdn=nr={}:nf={}", num(p.denoise_strength.clamp(0.01, 97.0)), num(floor)));
+            notes.push(format!("Noise reduction: noise floor {} dB.", num(floor)));
             let delay = (rate as f64 * AFFTDN_DELAY_SECONDS).round() as u64;
             f.push(format!("atrim=start_sample={delay}"));
             f.push("asetpts=PTS-STARTPTS".to_string());
         }
 
-        // 8. Timing. Source time for output time t is (start + t - offset) × tempo.
+        // 8. Timing. Source time for output time t is (start + t - offset) × factor.
         let tempo = drift.filter(|t| (t - 1.0).abs() >= TEMPO_EPSILON);
         let factor = tempo.unwrap_or(1.0);
         let offset = p.offset_ms as f64 / 1000.0;
@@ -408,8 +471,15 @@ impl AudioPlan {
             (0.0, -source_start / factor)
         };
         if let Some(t) = tempo {
-            f.push(format!("atempo={}", num_precise(t)));
-            notes.push(format!("Drift correction: tempo × {} .", num_precise(t)));
+            let (r1, s) = resample_ratio(rate, t);
+            f.push(format!("aresample={r1}"));
+            f.push(format!("asetrate={s}"));
+            f.push(format!("aresample={rate}"));
+            notes.push(format!(
+                "Drift correction: the sound is {:.3}% {} than the picture; resampled to fit.",
+                (t - 1.0).abs() * 100.0,
+                if t > 1.0 { "longer" } else { "shorter" }
+            ));
         }
         let lead_samples = (lead * rate as f64).round() as u64;
         if lead_samples > 0 {
@@ -646,10 +716,16 @@ pub fn encode_map_args(settings: &EncodingSettings, track: Option<&RestoredTrack
         return vec!["-map".into(), "1:a?".into()];
     };
     let mut args = vec!["-map".into(), format!("{track_input}:a:0")];
-    for k in (0..t.source_streams).filter(|k| *k != t.stream) {
+    let others: Vec<u32> = (0..t.source_streams).filter(|k| *k != t.stream).collect();
+    for k in &others {
         args.extend(["-map".into(), format!("1:a:{k}")]);
     }
+    // Tags per output stream. Naming one stream's switches off ffmpeg's own
+    // copying for the rest, so every audio stream is named.
     args.extend(["-map_metadata:s:a:0".into(), format!("1:s:a:{}", t.stream)]);
+    for (j, k) in others.iter().enumerate() {
+        args.extend([format!("-map_metadata:s:a:{}", j + 1), format!("1:s:a:{k}")]);
+    }
     args
 }
 
@@ -761,7 +837,8 @@ impl AudioRestorer {
         let window = OutputWindow::for_job(job);
 
         let needs_analysis = p.channel_fix == ChannelFix::Auto
-            || (p.hum_removal && p.hum_frequency == HumFrequency::Auto);
+            || (p.hum_removal && p.hum_frequency == HumFrequency::Auto)
+            || p.denoise;
         let analysis = if needs_analysis {
             self.analyse(&job.input_path, &p, &source, window).unwrap_or_else(|e| {
                 self.log(LogLevel::Warning, &format!("Audio analysis failed ({e}); automatic choices are off."));
@@ -867,10 +944,11 @@ impl AudioRestorer {
     fn analyse(&self, input: &str, p: &AudioRestorationParameters, source: &SourceAudio, window: OutputWindow) -> Result<Analysis> {
         let ffmpeg = self.deps.ffmpeg_path()?;
         let start = window.start + window.duration.map_or(0.0, |d| (d / 2.0 - ANALYSIS_SECONDS / 2.0).max(0.0));
+        let rate = source.sample_rate.clamp(8000, ANALYSIS_MAX_RATE);
         let out = Command::new(&ffmpeg)
             .args(["-v", "error", "-nostdin", "-ss", &format!("{start:.3}"), "-t", &format!("{ANALYSIS_SECONDS}"),
                    "-i", input, "-map", &format!("0:a:{}", p.stream_index),
-                   "-ar", &ANALYSIS_RATE.to_string(), "-f", "f32le", "-"])
+                   "-ar", &rate.to_string(), "-f", "f32le", "-"])
             .envs(self.deps.build_environment())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -885,11 +963,16 @@ impl AudioRestorer {
             self.log(LogLevel::Debug, &format!("Audio analysis: channel levels L {:.1} dB, R {:.1} dB", levels[0], levels[1]));
         }
         let mono: Vec<f32> = samples.chunks_exact(ch).map(|f| f.iter().sum::<f32>() / ch as f32).collect();
-        a.hum = detect_hum(&mono, ANALYSIS_RATE);
-        self.log(LogLevel::Debug, &format!(
-            "Audio analysis: hum prominence 50 Hz {:.1} dB, 60 Hz {:.1} dB",
-            hum_prominence_db(&mono, ANALYSIS_RATE, 50.0), hum_prominence_db(&mono, ANALYSIS_RATE, 60.0)
-        ));
+        if p.hum_removal && p.hum_frequency == HumFrequency::Auto {
+            a.hum = detect_hum(&mono, rate);
+            self.log(LogLevel::Debug, &format!(
+                "Audio analysis: hum prominence 50 Hz {:.1} dB, 60 Hz {:.1} dB",
+                hum_prominence_db(&mono, rate, 50.0), hum_prominence_db(&mono, rate, 60.0)
+            ));
+        }
+        if p.denoise {
+            a.noise_floor_db = Some(noise_floor_db(&mono, rate));
+        }
         Ok(a)
     }
 
@@ -1113,7 +1196,7 @@ mod tests {
     fn every_combination_keeps_the_order_and_one_af_per_run() {
         let order = [
             "aresample", "pan", "adeclip", "adeclick", "highpass", "bandreject", "afftdn", "atrim",
-            "asetpts", "atempo", "adelay", "alimiter", "apad",
+            "asetpts", "asetrate", "adelay", "alimiter", "apad",
         ];
         let rank = |n: &str| order.iter().position(|o| *o == n).unwrap_or_else(|| panic!("unexpected filter {n}"));
         // 9 toggles → 512 combinations, each with and without a negative offset.
@@ -1139,8 +1222,11 @@ mod tests {
                 let ranks: Vec<usize> = names(&plan.restore_filters)
                     .iter()
                     .enumerate()
-                    // The trailing atrim of the length fix is the last filter.
+                    // The trailing atrim of the length fix is the last filter;
+                    // the first aresample is step 1, the drift resample's two
+                    // aresamples belong with its asetrate.
                     .filter(|(i, n)| !(n.as_str() == "atrim" && *i == plan.restore_filters.len() - 1))
+                    .filter(|(i, n)| !(n.as_str() == "aresample" && *i > 0))
                     .map(|(_, n)| rank(n))
                     .collect();
                 assert!(ranks.windows(2).all(|w| w[0] <= w[1]), "mask {mask}: {:?}", plan.restore_filters);
@@ -1177,10 +1263,12 @@ mod tests {
                 "bandreject=f=50:width_type=q:w=8",
                 "bandreject=f=100:width_type=q:w=8",
                 "bandreject=f=150:width_type=q:w=8",
-                "afftdn=nr=12:nf=-50:tn=1",
+                "afftdn=nr=12:nf=-50",
                 "atrim=start_sample=1200",
                 "asetpts=PTS-STARTPTS",
-                "atempo=1.001",
+                "aresample=192000",
+                "asetrate=192192",
+                "aresample=48000",
                 // 120 ms delay from a start of 0 reaches before the source: lead silence.
                 "adelay=delays=5760S:all=1",
                 "apad=whole_len=480000",
@@ -1246,17 +1334,53 @@ mod tests {
         let plan = AudioPlan::new(&p, &stereo48(), window(10.0, 20.0), &Analysis::default(), Some(1.004));
         assert!((plan.read_start - 10.1 * 1.004).abs() < 1e-9);
         assert!((plan.read_duration.unwrap() - (20.0 * 1.004 + READ_MARGIN_SECONDS)).abs() < 1e-9);
-        assert!(plan.restore_filters.contains(&"atempo=1.004".to_string()));
+        let (r1, s) = resample_ratio(48_000, 1.004);
+        assert!(plan.restore_filters.contains(&format!("asetrate={s}")));
+        assert!(plan.restore_filters.contains(&format!("aresample={r1}")));
     }
 
     #[test]
-    fn atempo_is_skipped_within_1e6_of_one() {
+    fn drift_resample_is_skipped_within_1e6_of_one() {
         for t in [1.0, 1.0 + 5e-7, 1.0 - 9e-7] {
             let plan = AudioPlan::new(&on(), &stereo48(), window(0.0, 1.0), &Analysis::default(), Some(t));
-            assert!(!plan.restore_filters.iter().any(|f| f.starts_with("atempo")), "{t}");
+            assert!(!plan.restore_filters.iter().any(|f| f.starts_with("asetrate")), "{t}");
+            assert_eq!(plan.restore_filters.iter().filter(|f| f.starts_with("aresample")).count(), 1);
         }
         let plan = AudioPlan::new(&on(), &stereo48(), window(0.0, 1.0), &Analysis::default(), Some(1.0 + 2e-6));
-        assert!(plan.restore_filters.contains(&"atempo=1.000002".to_string()), "{:?}", plan.restore_filters);
+        assert!(plan.restore_filters.iter().any(|f| f.starts_with("asetrate")), "{:?}", plan.restore_filters);
+    }
+
+    /// The relabelled rate is an integer, so the ratio is found where it can
+    /// be exact: within 1e-10 of the factor for any drift, never below 4×.
+    #[test]
+    fn resample_ratio_is_exact_enough_for_an_hour() {
+        for rate in [44_100u32, 48_000] {
+            for f in [1.004, 0.996, 1.000123456, 0.99987654321, 1.005] {
+                let (r1, s) = resample_ratio(rate, f);
+                assert!(r1 >= rate * 4 && r1 <= rate * 8, "{r1}");
+                let err = (s as f64 / r1 as f64 - f).abs();
+                // Under 0.4 ms over an hour.
+                assert!(err * 3600.0 < 0.0004, "{rate} {f}: {r1}->{s} err {err:e}");
+            }
+        }
+        assert_eq!(resample_ratio(48_000, 1.001), (192_000, 192_192));
+    }
+
+    #[test]
+    fn noise_floor_is_the_quiet_tenth() {
+        let mut seed = 99u64;
+        // 9 s of -40 dB noise with 1 s bursts of a loud tone every 2 s.
+        let x = synth(48_000, 9.0, |t| {
+            let n = 0.01 * 3f64.sqrt() * noise(&mut seed);
+            if (t as u64) % 2 == 0 && t.fract() < 0.5 { n + 0.5 * (1000.0 * t).sin() } else { n }
+        });
+        let floor = noise_floor_db(&x, 48_000);
+        assert!((floor - (-40.0)).abs() < 1.0, "{floor}");
+        assert_eq!(noise_floor_db(&vec![0.0; 48_000], 48_000), NOISE_FLOOR_RANGE.0);
+        let p = AudioRestorationParameters { denoise: true, ..on() };
+        let a = Analysis { noise_floor_db: Some(-41.4), ..Default::default() };
+        let plan = AudioPlan::new(&p, &stereo48(), window(0.0, 1.0), &a, None);
+        assert!(plan.restore_filters.contains(&"afftdn=nr=12:nf=-41".to_string()), "{:?}", plan.restore_filters);
     }
 
     #[test]
@@ -1275,7 +1399,7 @@ mod tests {
     #[test]
     fn channel_fix_auto_uses_the_analysis() {
         let p = AudioRestorationParameters { channel_fix: ChannelFix::Auto, ..on() };
-        let with = |dead| AudioPlan::new(&p, &stereo48(), window(0.0, 1.0), &Analysis { dead_channel: dead, hum: None }, None);
+        let with = |dead| AudioPlan::new(&p, &stereo48(), window(0.0, 1.0), &Analysis { dead_channel: dead, ..Default::default() }, None);
         assert!(with(Some(DeadChannel::Right)).restore_filters.contains(&"pan=stereo|c0=c0|c1=c0".to_string()));
         assert!(with(Some(DeadChannel::Left)).restore_filters.contains(&"pan=stereo|c0=c1|c1=c1".to_string()));
         assert!(!with(None).restore_filters.iter().any(|f| f.starts_with("pan")));
@@ -1298,7 +1422,7 @@ mod tests {
     #[test]
     fn hum_auto_notches_only_what_was_found() {
         let p = AudioRestorationParameters { hum_removal: true, ..on() };
-        let plan = |hum| AudioPlan::new(&p, &stereo48(), window(0.0, 1.0), &Analysis { dead_channel: None, hum }, None);
+        let plan = |hum| AudioPlan::new(&p, &stereo48(), window(0.0, 1.0), &Analysis { hum, ..Default::default() }, None);
         let f60 = plan(Some(60)).restore_filters;
         assert!(f60.iter().any(|f| f == "bandreject=f=180:width_type=q:w=8"));
         assert!(!f60.iter().any(|f| f.contains("f=50:")));
@@ -1433,7 +1557,11 @@ mod tests {
         let t = RestoredTrack { path: "r.wav".into(), stream: 1, source_streams: 3 };
         assert_eq!(
             encode_map_args(&s, Some(&t), 3),
-            vec!["-map", "3:a:0", "-map", "1:a:0", "-map", "1:a:2", "-map_metadata:s:a:0", "1:s:a:1"]
+            vec![
+                "-map", "3:a:0", "-map", "1:a:0", "-map", "1:a:2",
+                "-map_metadata:s:a:0", "1:s:a:1", "-map_metadata:s:a:1", "1:s:a:0",
+                "-map_metadata:s:a:2", "1:s:a:2",
+            ]
         );
         assert!(encode_map_args(&settings(AudioMode::None, ContainerFormat::Mkv), Some(&t), 3).is_empty());
         assert_eq!(encode_input_args(Some(&t)), vec!["-i", "r.wav"]);
