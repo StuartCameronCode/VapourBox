@@ -81,6 +81,11 @@ MASK_FLOOR = 1.0 / 1024.0
 
 MODELS = ("restoreformer", "gfpgan", "codeformer")
 
+# The runners of the most recent restore_faces() call ({"detector", "parser",
+# "restorer"} -> ai_runtime.Runner), for diagnostics: which provider each
+# model runs on and any fallback to the CPU.
+last_restorer = {}
+
 
 # ----------------------------------------------------------------------------
 # Detection
@@ -129,7 +134,7 @@ def nms(boxes, scores, threshold):
 
 
 def detect(session, rgb, scale, floor):
-    """Faces in one frame. `rgb` is the detection copy, (3, h, w) float RGB in
+    """Faces in one frame (`session`: an InferenceSession or ai_runtime.Runner). `rgb` is the detection copy, (3, h, w) float RGB in
     [0, 1] with h, w <= DET_SIZE; `scale` (x, y) maps its pixels to the
     clip's (clip = (det + 0.5) / scale - 0.5). Returns (scores (k,), boxes (k, 4)
     x1 y1 x2 y2, landmarks (k, 5, 2)) in clip pixels, every face scoring at
@@ -352,9 +357,14 @@ class FaceRestorer:
     def __init__(self, detector, parser, restorer, model, fidelity):
         if model not in MODELS:
             raise ValueError("face_restore: unknown model %r" % model)
-        self.det = ai_runtime.session(detector)
-        self.parse = ai_runtime.session(parser)
-        self.restore = ai_runtime.session(restorer)
+        # One lock for all three models: their runs are serialised (one GPU,
+        # and concurrent Core ML predictions ran it out of memory), with a CPU
+        # retry (see ai_runtime.Runner). The NumPy work around them, and the
+        # rest of the script, stay parallel.
+        lock = threading.Lock()
+        self.det = ai_runtime.Runner(detector, lock=lock)
+        self.parse = ai_runtime.Runner(parser, lock=lock)
+        self.restore = ai_runtime.Runner(restorer, lock=lock)
         self.model = model
         self.fidelity = float(fidelity)
         self.restore_input = self.restore.get_inputs()[0].name
@@ -471,6 +481,13 @@ def restore_faces(
     blend_r = r if temporal_blend else 0
     strength = min(max(float(strength), 0.0), 1.0)
     models = FaceRestorer(detector, parser, restorer, model, fidelity)
+    last_restorer.clear()
+    last_restorer.update(detector=models.det, parser=models.parse, restorer=models.restore)
+    import sys
+
+    sys.stderr.write("Face restoration: %s on %s%s\n" % (
+        model, models.restore.provider,
+        "" if not models.restore.fallback else " (%s)" % models.restore.fallback))
 
     rgbs = ai_runtime.to_rgbs(clip, matrix, color_range)
     scale = min(1.0, DET_SIZE / max(clip.width, clip.height))
@@ -555,27 +572,37 @@ def restore_faces(
                         weight += w
                     restored = total / weight
                 paste(rgb, out, alpha, restored, face["mask"].astype(np.float32), face["m"])
-            return out, alpha * strength, len(here)
+            # Keep only the region the faces reach: a whole 1080p RGB frame
+            # is 25 MB, and the memo holds several.
+            ys, xs = np.nonzero(alpha)
+            if not len(ys):
+                return None, None, None, len(here)
+            y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+            return (y0, y1, x0, x1), out[:, y0:y1, x0:x1].copy(), alpha[y0:y1, x0:x1] * strength, len(here)
 
         return results.get(n, run)
 
     def restored_frame(n, f):
-        out_rgb, _alpha, count = compute(n, f[1:])
+        region, patch, _alpha, count = compute(n, f[1:])
         dst = f[0].copy()
-        for p in range(3):
-            np.copyto(np.asarray(dst[p]), out_rgb[p])
+        if region is not None:
+            y0, y1, x0, x1 = region
+            for p in range(3):
+                np.asarray(dst[p])[y0:y1, x0:x1] = patch[p]
         dst.props["FaceRestoreFaces"] = count
         return dst
 
     def mask_frame(n, f):
-        _out, alpha, _count = compute(n, f[1:])
-        dst = f[0].copy()
-        plane = np.asarray(dst[0])
-        if mask_fmt.sample_type == vs.FLOAT:
-            np.copyto(plane, alpha)
-        else:
-            peak = (1 << mask_fmt.bits_per_sample) - 1
-            np.copyto(plane, np.rint(alpha * peak).astype(plane.dtype))
+        region, _patch, alpha, _count = compute(n, f[1:])
+        dst = f[0].copy()  # a blank (zero) frame
+        if region is not None:
+            y0, y1, x0, x1 = region
+            plane = np.asarray(dst[0])
+            if mask_fmt.sample_type == vs.FLOAT:
+                plane[y0:y1, x0:x1] = alpha
+            else:
+                peak = (1 << mask_fmt.bits_per_sample) - 1
+                plane[y0:y1, x0:x1] = np.rint(alpha * peak).astype(plane.dtype)
         return dst
 
     mask_fmt = core.query_video_format(vs.GRAY, fmt.sample_type, fmt.bits_per_sample, 0, 0)

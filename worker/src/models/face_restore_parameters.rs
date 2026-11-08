@@ -96,9 +96,10 @@ pub struct FaceRestoreParameters {
     #[serde(default = "default_max_faces")]
     pub max_faces: i32,
 
-    /// Average each face's landmarks with its neighbours' (one frame either
-    /// side) and bridge one-frame detection gaps, so the restored face does
-    /// not jitter or blink.
+    /// Steady each face over one frame either side: its landmarks smoothed,
+    /// one-frame detection gaps bridged, and the restored face averaged (in
+    /// the aligned face space, weighted down where the input moved) with its
+    /// neighbours', so it does not jitter, blink or shimmer.
     #[serde(default = "default_true")]
     pub temporal_smoothing: bool,
 }

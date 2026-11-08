@@ -358,3 +358,42 @@ class FrameMemo:
             with self._lock:
                 self._pending.pop(key, None)
             event.set()
+
+
+class Runner:
+    """One model's session for a pass that calls it from frame requests.
+
+    Runs are serialised: VapourSynth asks for several frames at once, and on
+    a GPU provider concurrent runs each allocate their own working memory
+    without running any faster (Core ML ran out of GPU memory on a 16 GB Mac
+    with two jobs' worth). A run that fails on a GPU provider (out of memory,
+    an unsupported shape at run time) is retried on the CPU, which this
+    runner then keeps using; `fallback` says why. It runs like an
+    InferenceSession (`run(output_names, feeds)`, `get_inputs()`), so code
+    written against a session takes either."""
+
+    def __init__(self, model, force_cpu=False, lock=None):
+        """`lock`: share one between the runners of a pass to serialise all
+        of its models' runs, not just each model's."""
+        self.model = model
+        self.session = session(model, force_cpu=force_cpu)
+        self.fallback = last_fallback
+        self._lock = lock or threading.Lock()
+
+    @property
+    def provider(self):
+        return session_provider(self.session)
+
+    def get_inputs(self):
+        return self.session.get_inputs()
+
+    def run(self, output_names, feeds):
+        with self._lock:
+            try:
+                return self.session.run(output_names, feeds)
+            except Exception as e:
+                if self.provider == CPU_PROVIDER:
+                    raise
+                self.fallback = "%s failed at run time: %s" % (self.provider, e)
+                self.session = session(self.model, force_cpu=True)
+                return self.session.run(output_names, feeds)

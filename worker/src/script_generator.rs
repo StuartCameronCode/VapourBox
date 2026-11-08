@@ -2627,7 +2627,7 @@ mod tests {
         }
     }
 
-    /// No pass needs an add-on yet, so a generated script never has the
+    /// A job whose passes need no add-on (the default pipeline) never has the
     /// block, whatever the generator was told about add-ons.
     #[test]
     fn a_job_without_addon_passes_has_no_ai_runtime_block() {
