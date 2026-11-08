@@ -125,6 +125,7 @@ VapourBox/
 | `worker/src/comment_metadata.rs` | The source's comment tag, prefixed with the version and passed to ffmpeg as an FFMETADATA file (issue #138) |
 | `worker/src/hdr_metadata.rs` | HDR10 mastering display / MaxCLL read from the source for x265, and the Dolby Vision profile (see "HDR Sources and Dolby Vision") |
 | `worker/src/native_res.rs` | `--detect-native`: the resolution and kernel a source was upscaled from, for the Descale pass (see "Descale") |
+| `worker/src/audio_restoration.rs` | Audio restoration: probes, the one `AudioPlan` (every `-af` filter, in order), the render before the encode, and the encoder's audio map/codec args (see "Audio Restoration") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
 
@@ -142,6 +143,7 @@ VapourBox/
 | `app/lib/models/native_res_report.dart` | What `--detect-native` found, as the Descale panel's Detect shows and applies it |
 | `app/lib/services/addon_service.dart` | Every optional third-party download (Whisper, AnimeJaNai): catalogue, install with requirements, remove with dependants (see "Add-ons") |
 | `app/lib/services/manifest_addon.dart` | `AddonManifest` + `ManifestAddonInstaller`: the generic installer for `app/assets/addons/*.json` (docs/ADDONS.md) |
+| `app/lib/models/audio_restoration_parameters.dart` | The Audio Restoration pass (`ProcessingPipeline.audio`, `PassType.audioRestoration`) and the DeepFilterNet add-on prompt |
 | `app/lib/models/ai_runtime_status.dart` | The worker's `--probe-ai-runtime` result |
 | `app/lib/models/hdr_display.dart` | The display tone-map for the app's own source decodes (twin of `ColorMetadata::display_tonemap_filter`) and Dolby Vision detection |
 | `app/lib/models/gpu_plugin_status.dart` | The worker's GPU-plugin probe results, and the panels' notice decision |
@@ -690,19 +692,27 @@ default pipeline must be completely silent — both are asserted in
 `pass_advice_test.dart` / `pass_relevance_test.dart`.
 
 **Subtitles: transcribe first, mux last.** The pipeline order is
-`transcribe the source -> encode (burning in if asked) -> mux as a post-pass`,
-and it is load-bearing: burn-in needs the transcript before the encoder runs;
-muxing needs the encoded file to exist first. Transcription must run against the
-same trimmed audio window the encode uses (`extract_audio_range`), or cues drift
-by exactly the trimmed-off head — this is safe only because **nothing in the
-pipeline retimes audio**; a future audio-retiming pass would need to account for
-it. `SubtitleOutput::{burns_in, muxes, keeps_srt_file}` are asserted to cover
-every mode, so a mode that does none of the three can't silently produce nothing.
+`render restored audio (if on) -> transcribe -> encode (burning in if asked) ->
+mux as a post-pass`, and it is load-bearing: burn-in needs the transcript before
+the encoder runs; muxing needs the encoded file to exist first. **Transcription
+must hear exactly the output's soundtrack.** With Audio Restoration on, that is
+the rendered track (`AudioRestorer::render`), which is the output's audio
+sample for sample — trimmed, offset, drift-corrected — so cues follow any
+retiming by construction (`integration_audio_restoration_test.dart` checks a
+2 s offset moves the cues ~2 s). Without it, transcription reads the same
+trimmed window the encode uses (`extract_audio_range`), or cues drift by exactly
+the trimmed-off head; that is safe because nothing *else* retimes audio (IVTC
+and frame-rate conversion change the video timeline only). Any new step that
+moves audio in time belongs in `audio_restoration`, never in the encode.
+`SubtitleOutput::{burns_in, muxes, keeps_srt_file}` are asserted to cover every
+mode, so a mode that does none of the three can't silently produce nothing.
 
 **FFmpeg's `-vf` chain accumulates into one `Vec<String>` joined with commas —
 never push a second bare `-vf`.** ffmpeg only honours the *last* `-vf`, so two
 separate pushes (e.g. aspect stamping and subtitle burn-in) would silently drop
-the first one's effect.
+the first one's effect. The same goes for `-af`: every audio filter is chosen in
+`AudioPlan::new` and each ffmpeg run gets exactly one `-af`; the encode itself
+never filters audio (`test_real_ffmpeg_builder_delegates_audio_to_audio_restoration`).
 
 **Nothing of unbounded length goes on a child process's command line.**
 Windows caps it at 32,767 characters and refuses to start the process (os
@@ -1375,6 +1385,10 @@ by `AddonService.addonsDir`), only when the user asks. Rules:
   is staged in `<id>.new` and ends with the `.vapourbox-addon.json` marker
   (id, version, platform); a manifest `version` bump makes the old install
   count as missing. Whisper and AnimeJaNai keep their hand-written installers.
+  A plain file marked `"executable": true` is a program the worker runs
+  (DeepFilterNet): the installer sets its executable bit and, on macOS, signs
+  it ad hoc if `codesign --verify` fails (Apple Silicon will not run an
+  unsigned arm64 binary); the worker finds it with `Manifest::executable_for`.
 - **A pass declares its add-ons in `ProcessingPipeline::required_addons()`**
   (`AddonNeed { feature, ids }`); `ScriptGenerator::ensure_methods_ready`
   refuses the job via `addons::require` (naming them and Settings → Add-ons),
@@ -1399,6 +1413,72 @@ by `AddonService.addonsDir`), only when the user asks. Rules:
   its requirements with the app's own installer; `integration_ai_runtime_test.dart`
   (heavy) installs `ai-runtime` and runs the probe. `manifest_addon_test.dart`
   asserts the worker (`--list-addons`) compiled in the same manifests.
+
+### Audio Restoration
+
+The one pass that works on the soundtrack (`AudioRestorationParameters`,
+`ProcessingPipeline.audio`, app 1.7.0), in the pass list's "Audio & Subtitles"
+stage. **Not a VapourSynth pass**: it is not in `PassType` (Rust) or
+`enabled_passes`, never touches either `.vpy` (`test_185`), and the preview is
+picture only (the panel says so; its edits don't regenerate the preview).
+Rules, from docs/reports/2026-11-audio-restoration:
+
+- **Rendered before the encode, to a WAV, then mapped by the encoder** — never
+  an `-af` on the encode. That is what makes DeepFilterNet (a separate
+  program), two-pass loudness, a negative offset (reading audio from before the
+  trim point) and transcribing the output's own soundtrack possible, and it
+  keeps audio independent of how the video encode is run. `RenderedAudio` owns
+  the scratch directory and is held to the end of the job (after the mux).
+- **One decision site, fixed order.** `AudioPlan::new` chooses every filter:
+  `aresample=first_pts=0` (a stream that starts after the video keeps its gap —
+  a WAV has no timestamps) → `pan` → `adeclip` → `adeclick` → rumble `highpass`
+  → hum `bandreject` ×3 → `afftdn` + `atrim` of its delay → drift resample →
+  lead `adelay` → [DeepFilterNet] → `loudnorm` + `aresample` → `alimiter` →
+  `apad`+`atrim` to the picture's length. Each ffmpeg run gets one `-af`
+  (`every_combination_keeps_the_order_and_one_af_per_run`, 512 × 3 cases).
+- **Measured traps, each now handled in the plan:** `afftdn` outputs 25 ms
+  late at every rate (`atrim=start_sample=rate/40`); its default `nf=-50` took
+  0.7 dB off −39 dB hiss — it gets the source's measured floor (quietest tenth
+  of 50 ms windows, clamped −80…−30), and never `tn=1`, which undid it;
+  `alimiter` needs `latency=1` (else it delays by its attack) and `level=0`
+  (else it normalises up to 0 dBFS); `loudnorm` resamples to 192 kHz, so an
+  `aresample` follows it; DeepFilterNet delays 30 ms — `-D` compensates and
+  shortens the tail, which `apad` restores.
+- **Drift is corrected by resampling, not `atempo`.** atempo moved every click
+  ~20 ms early; drift is a sample-clock error, so resampling restores pitch as
+  well as length. `asetrate` takes only an integer, so the plan upsamples to an
+  `r1` in 4–8× the rate where `s / r1` is within ~1e-11 of the factor
+  (`resample_ratio`). The factor is (whole source's audio length) / (whole
+  encoded picture's length, `ProcessingPipeline::output_duration_secs` —
+  output frames over output rate from the `FrameMap`s); applied only when the
+  difference is > 0.05 s and ≤ the user's cap (0.5% default), skipped within
+  1e-6 of 1.
+- **Offset and drift compose on the source's timeline**: source time for output
+  time t is `(start + t − offset) × factor`; a positive offset from the start
+  is silence (`adelay`), never a negative seek.
+- **The window is the encoded picture's** (`OutputWindow::for_job`): from the
+  trim's in-point, `output_duration_secs` long. The rendered track is exactly
+  that many samples, so with restoration the output's audio is the picture's
+  length (passthrough could leave it longer).
+- **One stream is restored** (`streamIndex`, default the first). The encoder
+  maps the rendered track first, then the source's other audio streams
+  untouched, each with its own tags (`encode_map_args`; naming one stream's
+  `-map_metadata` switches off ffmpeg's copying for the rest). Passthrough
+  copies the others but must encode the restored one: FLAC in MKV, AAC at the
+  chosen quality in MP4/MOV, PCM in AVI (`restored_passthrough_codec`).
+- **Automatic choices are measured, never guessed**: a dead channel (≥30 dB
+  below the other, which is above −60 dBFS) and 50/60 Hz hum (Goertzel over
+  2 s blocks, a line ≥12 dB above its neighbours) are read from a minute in
+  the middle of the window; finding nothing leaves the audio alone and says so.
+- **DeepFilterNet is the `deepfilternet` manifest add-on** (upstream
+  deep-filter 0.5.6 binaries pinned by hash, MIT OR Apache-2.0, `minOs` 13.0
+  on macOS since upstream builds target it). The worker checks it in
+  `AudioRestorer::plan` (`DEEP_FILTER_FEATURE`), **not** in
+  `required_addons()`: that list gates the script generator, and a preview
+  must never be refused for an audio add-on.
+- `vapourbox-worker --audio-plan --config job.json` prints every argument list
+  without rendering (`integration_audio_plan_test.dart`, push gate);
+  `integration_audio_restoration_test.dart` (heavy) measures the encoded audio.
 
 ### BM3D and KNLMeans Noise Reduction
 

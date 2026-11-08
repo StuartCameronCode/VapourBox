@@ -19,6 +19,7 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg for
 - **Cleans up old footage.** Optional filters for tape noise, smeared colour, dust and scratches, flicker, ghosting, compression blocking, banding, camera shake and dark, flat pictures. They're off until you turn them on, and the presets turn on what a given kind of source needs.
 - **Restores anime.** **Descale** undoes the upscale most HD anime went through in production, **BM3D** cleans flat colour without smearing lines, and **AI upscaling** redraws line art at 2× or 4×: Real-ESRGAN (sharpest, fastest), Real-CUGAN (gentler, with denoising) or AnimeJaNai (trained on HD anime).
 - **Converts frame rates** — the broadcast standards or any rate you type in (24 → 48 or 60, say) — with motion interpolation or the **RIFE** AI interpolator.
+- **Restores the sound too.** Replaces a dead channel, removes hum, rumble, clicks, clipping and hiss, cleans up speech with the **DeepFilterNet** AI model, puts sound that is out of step or drifting back in sync, and evens out loudness.
 - **Writes subtitles** from speech with Whisper AI, as an `.srt` file, an embedded track, or burnt into the picture.
 
 ## How it works
@@ -82,7 +83,7 @@ Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract
 
 **GPU features.** RIFE frame interpolation and AI upscaling run on the graphics card through Vulkan: on any Apple Silicon Mac, and on Windows and Linux x64 PCs with a current graphics driver (RIFE on Windows also needs the Microsoft Visual C++ Redistributable). They aren't available on Intel Macs or Linux on ARM yet. GPU deinterlacing and KNLMeans denoising use OpenCL instead; without it, deinterlacing falls back to the CPU. Whenever you choose a GPU feature your machine can't run, VapourBox says what's missing and how to fix it.
 
-**Add-ons.** A few features use third-party downloads that aren't part of VapourBox: the Whisper engine and language models for subtitles, the AnimeJaNai models for AI upscaling, and the AI runtime (Microsoft's ONNX Runtime) that AI model add-ons run on. VapourBox offers to download one the first time you need it, stating its source, size and licence, and **Settings → Add-ons** installs or removes them at any time. AnimeJaNai is free for **non-commercial use only** (CC BY-NC-SA 4.0); for paid work, use Real-ESRGAN or Real-CUGAN instead.
+**Add-ons.** A few features use third-party downloads that aren't part of VapourBox: the Whisper engine and language models for subtitles, the AnimeJaNai models for AI upscaling, DeepFilterNet for speech enhancement in Audio Restoration, and the AI runtime (Microsoft's ONNX Runtime) that AI model add-ons run on. VapourBox offers to download one the first time you need it, stating its source, size and licence, and **Settings → Add-ons** installs or removes them at any time. AnimeJaNai is free for **non-commercial use only** (CC BY-NC-SA 4.0); for paid work, use Real-ESRGAN or Real-CUGAN instead.
 
 **Older processors.** Intel and AMD CPUs from before about 2013 (no AVX2) are supported on every platform. VapourBox checks the processor on first launch and installs a matching set of components, which runs some filters more slowly but never differently.
 

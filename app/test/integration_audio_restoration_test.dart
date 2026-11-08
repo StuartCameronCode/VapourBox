@@ -15,6 +15,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 
 import 'support/audio_fixtures.dart';
 import 'support/worker_harness.dart';
@@ -253,6 +254,61 @@ void main() {
       expect(first!['codec_name'], 'aac');
     });
   });
+
+  test('subtitles are transcribed from the restored sound, so cues follow the offset', () async {
+    // CI provisions Whisper; locally, VAPOURBOX_FETCH_WHISPER=1 installs the
+    // engine and the small model (466 MB) with the app's own installers.
+    if (Platform.environment['VAPOURBOX_FETCH_WHISPER'] == '1') await WorkerHarness.ensureWhisper();
+    // Where the worker looks (DependencyLocator::whisper_path / whisper_model_path).
+    final whisper = p.join(WorkerHarness.addonsDirectory.path, 'whisper');
+    final cli = Platform.isWindows ? p.join(whisper, 'whisper-cli.exe') : p.join(whisper, 'bin', 'whisper-cli');
+    if (!File(cli).existsSync() || !File(p.join(whisper, 'models', 'ggml-small.bin')).existsSync()) {
+      markTestSkipped('whisper add-on not present (VAPOURBOX_FETCH_WHISPER=1 installs it)');
+      return;
+    }
+    final clip = p.join(WorkerHarness.repoRoot, 'Tests', 'TestResources', 'small_clip.mp4');
+    final video = await WorkerHarness.firstStream(clip,
+        selector: 'v:0', entries: ['width', 'height', 'pix_fmt']);
+    /// Cue start times by their text (letters only, lower case), for texts
+    /// that occur once.
+    Future<Map<String, double>> cues(int offsetMs) async {
+      final job = AudioFixtures.job(clip, {'offsetMs': offsetMs},
+          label: 'subtitles_offset_$offsetMs',
+          extra: {
+            // The first 30 s.
+            'startFrame': 0, 'endFrame': 899, 'totalFrames': 900,
+            'inputFrameRate': 29.97, 'inputWidth': video!['width'], 'inputHeight': video['height'],
+            'inputPixelFormat': video['pix_fmt'],
+            'subtitleSettings': {'enabled': true, 'model': 'small', 'output': 'srt_file', 'language': 'en'},
+          });
+      final out = await _encode(job);
+      final srt = File(p.setExtension(out, '.srt')).readAsStringSync().replaceAll('\r\n', '\n');
+      final byText = <String, List<double>>{};
+      for (final block in srt.split(RegExp(r'\n\s*\n'))) {
+        final m = RegExp(r'(\d\d):(\d\d):(\d\d),(\d\d\d) -->[^\n]*\n([\s\S]*)').firstMatch(block);
+        if (m == null) continue;
+        final start = int.parse(m.group(1)!) * 3600 + int.parse(m.group(2)!) * 60 +
+            int.parse(m.group(3)!) + int.parse(m.group(4)!) / 1000;
+        final text = m.group(5)!.toLowerCase().replaceAll(RegExp(r'[^a-z]'), '');
+        if (text.length >= 8) byText.putIfAbsent(text, () => []).add(start);
+      }
+      return {for (final e in byText.entries) if (e.value.length == 1) e.key: e.value.single};
+    }
+
+    final plain = await cues(0);
+    final delayed = await cues(2000);
+    final shifts = [
+      for (final text in plain.keys)
+        if (delayed.containsKey(text)) delayed[text]! - plain[text]!,
+    ]..sort();
+    // Whisper segments the two runs differently and its timestamps are
+    // coarse, so the cues it transcribed identically are compared, by their
+    // median shift, to the 2 s the sound was moved.
+    expect(shifts.length, greaterThanOrEqualTo(2),
+        reason: 'too few cues transcribed alike to compare: $plain / $delayed');
+    expect(shifts[shifts.length ~/ 2], closeTo(2.0, 0.6),
+        reason: 'cue shifts $shifts (cues $plain, then $delayed)');
+  }, timeout: const Timeout(Duration(minutes: 15)));
 
   test('DeepFilterNet lowers stationary noise and keeps the timing', () async {
     await WorkerHarness.ensureAddon('deepfilternet');
