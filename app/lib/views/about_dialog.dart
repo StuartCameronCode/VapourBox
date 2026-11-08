@@ -183,6 +183,14 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/HomeOfVapourSynthEvolution/mvsfunc',
                       ),
                       _ComponentTile(
+                        name: 'vs-jetpack (ported code)',
+                        license: 'MIT',
+                        copyright: 'Jaded-Encoding-Thaumaturgy; '
+                            'FixInterlacedFades, vine_dehalo and mpeg2stinx '
+                            'ported into VapourBox\'s templates',
+                        url: 'https://github.com/Jaded-Encoding-Thaumaturgy/vs-jetpack',
+                      ),
+                      _ComponentTile(
                         name: 'adjust',
                         license: 'WTFPL',
                         copyright: 'dubhater',
@@ -265,6 +273,12 @@ class _AboutDialogState extends State<AboutDialog> {
                         copyright: 'Julek; includes zigimg (MIT) and '
                             'vapoursynth-zig (LGPL 2.1)',
                         url: 'https://github.com/dnjulek/vapoursynth-zip',
+                      ),
+                      _ComponentTile(
+                        name: 'SangNom',
+                        license: 'MIT source; binaries GPL 2.0',
+                        copyright: 'james1201; Victor Efimov',
+                        url: 'https://github.com/dubhatervapoursynth/vapoursynth-sangnom',
                       ),
                       _ComponentTile(
                         name: 'RIFE (VapourSynth-RIFE-ncnn-Vulkan)',

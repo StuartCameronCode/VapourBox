@@ -129,7 +129,12 @@ required = ['std', 'resize', 'mv', 'znedi3', 'eedi3m', 'fmtc',
             'descratch', 'vivtc', 'ttmpsm', 'tmedian',
             'fft3dfilter', 'flux', 'bifrost', 'retinex',
             'bwdif', 'fb', 'removedirt', 'dedot', 'lghost', 'zsmooth',
-            'vszip', 'bm3d', 'descale']
+            'vszip', 'bm3d', 'descale', 'sangnom']
+
+# A namespace is not a version: vszip 22.1.0 (deps <= 1.15.0) has CLAHE but no
+# NLMeans, which Noise Reduction's NLMeans method and the vine dehalo need. A
+# stale bundle would pass the namespace check and fail those jobs.
+required_functions = [('vszip', 'NLMeans'), ('vszip', 'CLAHE')]
 
 # On ARM, `nnedi3` is load-bearing and `znedi3` is only the fallback: znedi3's
 # SIMD is x86-only, so the ARM bundles build it scalar and both the templates'
@@ -163,6 +168,9 @@ missing = []
 for plugin in required:
     if not hasattr(core, plugin):
         missing.append(plugin)
+for ns, fn in required_functions:
+    if hasattr(core, ns) and not hasattr(getattr(core, ns), fn):
+        missing.append(f'{ns}.{fn}')
 
 if missing:
     raise Exception(f"Missing plugins: {missing}")

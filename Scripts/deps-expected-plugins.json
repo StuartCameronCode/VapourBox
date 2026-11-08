@@ -108,7 +108,8 @@
     "vsznedi3.dll",
     "zsmooth.dll",
     "bm3d.dll",
-    "libdescale.dll"
+    "libdescale.dll",
+    "sangnom.dll"
   ],
   "windows-x64-v2": [
     "AddGrain.dll",
@@ -146,7 +147,8 @@
     "vsznedi3.dll",
     "zsmooth.dll",
     "bm3d.dll",
-    "libdescale.dll"
+    "libdescale.dll",
+    "sangnom.dll"
   ],
   "macos-arm64": [
     "libaddgrain.dylib",
@@ -184,7 +186,8 @@
     "libvszip.dylib",
     "libznedi3.dylib",
     "libzsmooth.dylib",
-    "libdescale.dylib"
+    "libdescale.dylib",
+    "libsangnom.dylib"
   ],
   "macos-x64": [
     "libaddgrain.dylib",
@@ -220,7 +223,8 @@
     "libznedi3.dylib",
     "libzsmooth.dylib",
     "libbm3d.dylib",
-    "libdescale.dylib"
+    "libdescale.dylib",
+    "libsangnom.dylib"
   ],
   "macos-x64-v2": [
     "libaddgrain.dylib",
@@ -256,7 +260,8 @@
     "libznedi3.dylib",
     "libzsmooth.dylib",
     "libbm3d.dylib",
-    "libdescale.dylib"
+    "libdescale.dylib",
+    "libsangnom.dylib"
   ],
   "linux-x64": [
     "libaddgrain.so",
@@ -293,7 +298,8 @@
     "libznedi3.so",
     "libzsmooth.so",
     "libbm3d.so",
-    "libdescale.so"
+    "libdescale.so",
+    "libsangnom.so"
   ],
   "linux-x64-v2": [
     "libaddgrain.so",
@@ -330,7 +336,8 @@
     "libznedi3.so",
     "libzsmooth.so",
     "libbm3d.so",
-    "libdescale.so"
+    "libdescale.so",
+    "libsangnom.so"
   ],
   "linux-arm64": [
     "libaddgrain.so",
@@ -368,6 +375,7 @@
     "libznedi3.so",
     "libzsmooth.so",
     "libbm3d.so",
-    "libdescale.so"
+    "libdescale.so",
+    "libsangnom.so"
   ]
 }

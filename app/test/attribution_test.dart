@@ -77,6 +77,7 @@ const _pluginToNotice = <String, String>{
   'removegrain': 'RemoveGrain',
   'removegrainvs': 'RemoveGrain',
   'retinex': 'Retinex',
+  'sangnom': 'SangNom — MIT',
   'tcanny': 'TCanny',
   'temporalmedian': 'TemporalMedian',
   'tmedian': 'TemporalMedian',

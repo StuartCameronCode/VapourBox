@@ -271,7 +271,9 @@ VapourBox is a front end to other people's work. Thanks in particular to:
 - **mawen1250** — Retinex, BM3D and mvsfunc
 - **Edoardo Brunetti** (maintained by Jaded Encoding Thaumaturgy) — KNLMeansCL
 - **Frechdachs** (maintained by Jaded Encoding Thaumaturgy) — descale
-- **vszip** by Julek — CLAHE, the local-contrast lift in Color Correction
+- **vszip** by Julek — CLAHE, the local-contrast lift in Color Correction, and NLMeans, the CPU non-local-means denoiser
+- **SangNom** by james1201 and Victor Efimov — the SangNom anti-aliasing method
+- **vs-jetpack** by the Jaded Encoding Thaumaturgy project — FixInterlacedFades, vine_dehalo and mpeg2stinx, ported into VapourBox's filter scripts
 - **RIFE** by hzwer (with Megvii) — the frame interpolation network, run through HolyWu's VapourSynth plugin (built on nihui's rife-ncnn-vulkan and Tencent's ncnn), with **MoltenVK** for Vulkan on macOS
 - **Real-ESRGAN** by Xintao Wang and **Real-CUGAN** by bilibili — the AI upscaling networks, run through AmusementClub's **vs-mlrt** (VSNCNN)
 - **AnimeJaNai** by the-database — anime upscaling models, an optional download (CC BY-NC-SA 4.0, non-commercial use only)

@@ -2074,19 +2074,20 @@ else
 fi
 
 # ============================================================================
-# vszip — CLAHE (Colour Correction's local contrast, issue #90)
+# vszip — CLAHE, NLMeans (CPU) and the vine dehalo method
 # ============================================================================
-# Only core.vszip.CLAHE is used. Keep VSZIP_VERSION in step across
-# download-deps-{macos,linux}.sh and download-deps-windows.ps1.
+# core.vszip.CLAHE (Colour Correction's local contrast, issue #90) and, from
+# 24.0.0 (the first release with it), core.vszip.NLMeans: Noise Reduction's
+# CPU non-local means and the Dehalo pass's vine method. Keep VSZIP_VERSION in
+# step across download-deps-{macos,linux}.sh and download-deps-windows.ps1.
 #
-# arm64 takes the PyPI wheel's dylib: minos 13, under this arch's 15.0 target.
-# It has zero bytes between its load commands and __text, so install_name_tool
-# cannot fit a longer id (the repoint loop below fails quietly and leaves
-# @rpath, which is harmless for a dlopen'd plugin). Re-signing is safe: it is
-# already linker-signed, and codesign replaces an existing signature in place
-# rather than adding a load command.
+# arm64 takes the PyPI wheel's dylib: minos 15.0 from 24.0.0 (13 before), which
+# is exactly this arch's 15.0 target. 24.0.0's has 4 KB free after its load
+# commands (22.1.0's had none); re-signing is safe either way: it is already
+# linker-signed, and codesign replaces an existing signature in place rather
+# than adding a load command.
 #
-# x64 builds the same release's sdist, for two reasons. The wheel is minos 13.0
+# x64 builds the same release's sdist, for two reasons. The wheel is minos 15.0
 # against this bundle's 12.0 floor (issue #39). And Zig's x86_64 macOS output
 # carries NO code signature and leaves 8 bytes after its load commands, so
 # `codesign` — which must add a 16-byte LC_CODE_SIGNATURE — silently writes the
@@ -2095,15 +2096,18 @@ fi
 # gives the header room; the guard below fails the build if it ever doesn't.
 # Built with upstream's default x86_64-macos CPU (same as its wheel), which has
 # no AVX — so one build serves both CPU tiers and needs no _tierFiles entry.
-VSZIP_VERSION="22.1.0"
-VSZIP_SDIST_SHA256="93c1aaf5867ad43e1f21b77418fa89b0b1ed2191d0c4bfb03a65c958826ed8c9"
-# The sdist's pyproject pins ziglang==0.16.0; its build.zig does not compile
-# under 0.17 (Optimize enum rename).
-VSZIP_ZIG_VERSION="0.16.0"
-VSZIP_ZIG_SHA256="0387557ed1877bc6a2e1802c8391953baddba76081876301c522f52977b52ba7"
+VSZIP_VERSION="24.0.0"
+VSZIP_SDIST_SHA256="b2d6157228d0e786a19ac9055814e6141841ffc2c7b42ac1858b0600fc4a69cb"
+# The sdist's pyproject pins ziglang==0.17.0 (from vszip 23.0.0; its
+# build.zig.zon refuses anything older). 0.17 renamed the optimize modes, hence
+# -Doptimize=fast below rather than ReleaseFast. Cross-built from arm64 with
+# the same recipe on 2026-11-08: minos 12.0, 4 KB header room, no AVX, no
+# static initializers (check-load-time-simd.py).
+VSZIP_ZIG_VERSION="0.17.0"
+VSZIP_ZIG_SHA256="4f9a1c5269aa17ebda5e6d3c2b89d6cbf36f7d2b22a0306e9ab98f25f95529c6"
 VSZIP_OUT="$PLUGINS_DIR/libvszip.dylib"
 echo ""
-echo "=== Installing vszip $VSZIP_VERSION (CLAHE) ==="
+echo "=== Installing vszip $VSZIP_VERSION (CLAHE, NLMeans) ==="
 if [ "$FORCE" = false ] && [ -f "$VSZIP_OUT" ]; then
     echo "  vszip already exists, skipping"
 else
@@ -2145,10 +2149,12 @@ else
         mkdir -p vszip-src
         tar -xzf vszip.tar.gz -C vszip-src --strip-components=1
         cd vszip-src
-        grep -q '^    lib.use_llvm = true;$' build.zig || {
+        # The VapourSynth library's `lib.use_llvm` sits inside `if (build_vs)`
+        # from 23.0.0 (8 spaces); the AviSynth+ one (12 spaces) is never built.
+        grep -q '^        lib.use_llvm = true;$' build.zig || {
             echo "  ERROR: vszip build.zig changed; re-check the headerpad patch" >&2; exit 1; }
-        sed -i.bak 's/^    lib.use_llvm = true;$/    lib.use_llvm = true;\
-    lib.headerpad_max_install_names = true;/' build.zig
+        sed -i.bak 's/^        lib.use_llvm = true;$/        lib.use_llvm = true;\
+        lib.headerpad_max_install_names = true;/' build.zig
         grep -q 'lib.headerpad_max_install_names = true;' build.zig
         # Also fetches vszip's own Zig dependencies (pinned by hash in
         # build.zig.zon), so this step needs network access.
@@ -2157,7 +2163,7 @@ else
             *.*) vszip_min="$MACOS_MIN_VERSION" ;;
             *)   vszip_min="${MACOS_MIN_VERSION}.0" ;;
         esac
-        ../vszip-zig/zig build -Doptimize=ReleaseFast -Dtarget="x86_64-macos.${vszip_min}"
+        ../vszip-zig/zig build -Doptimize=fast -Dtarget="x86_64-macos.${vszip_min}"
         cp zig-out/lib/libvszip.dylib "$VSZIP_OUT"
     ) || true
     rm -rf "$BUILD_DIR/vszip-zig" "$BUILD_DIR/vszip-zig.tar.xz" \
@@ -2195,6 +2201,64 @@ else
     FAILED_PLUGINS+=("vszip")
 fi
 fi  # end vszip install
+
+# ============================================================================
+# SangNom — Anti-aliasing's SangNom method (core.sangnom.SangNom)
+# ============================================================================
+# The PyPI wheels (r45), pinned by hash: arm64 is minos 11.0 and x86_64 10.15,
+# both under their bundle's floor. Source is MIT; upstream states its binaries
+# are GPL v2 (see licenses/NOTICES.txt). The x86_64 dylib has SSE2 code only
+# (no AVX anywhere, checked with objdump; no static initializers), so one file
+# serves both CPU tiers. It links only libc++ and libSystem. Keep
+# SANGNOM_VERSION in step with download-deps-{linux.sh,windows.ps1}.
+SANGNOM_VERSION="45.0"
+if [ "$ARCH" = "arm64" ]; then
+    SANGNOM_TAG="macosx_11_0_arm64"
+    SANGNOM_SHA256="e558c2ffd7d5f6657878e97504c536cdb5e199c558537767b229bd37f8764810"
+else
+    SANGNOM_TAG="macosx_10_15_x86_64"
+    SANGNOM_SHA256="cbcb274aa86732d01d4f39ab4058c32d580901163ac372c0219cdb3fa468840d"
+fi
+SANGNOM_OUT="$PLUGINS_DIR/libsangnom.dylib"
+echo ""
+echo "=== Installing SangNom $SANGNOM_VERSION ==="
+if [ "$FORCE" = false ] && [ -f "$SANGNOM_OUT" ]; then
+    echo "  SangNom already exists, skipping"
+else
+    rm -f "$SANGNOM_OUT"
+    # Run on its own, not as `if ( set -e ... ); then` (see descale below).
+    set +e
+    (
+        set -e
+        cd "$BUILD_DIR"
+        rm -rf sangnom-whl sangnom.whl
+        url=$("$PYTHON_BIN" - "$SANGNOM_VERSION" "$SANGNOM_TAG" <<'PYEOF2'
+import json, sys, urllib.request
+ver, tag = sys.argv[1], sys.argv[2]
+d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/vapoursynth-sangnom/{ver}/json"))
+print(next(f["url"] for f in d["urls"] if f["filename"].endswith(tag + ".whl")))
+PYEOF2
+)
+        curl -fsSL -o sangnom.whl "$url"
+        echo "$SANGNOM_SHA256  sangnom.whl" | shasum -a 256 -c -
+        mkdir sangnom-whl && unzip -q sangnom.whl -d sangnom-whl
+        cp sangnom-whl/vapoursynth/plugins/sangnom.dylib "$SANGNOM_OUT"
+        chmod u+w "$SANGNOM_OUT"
+        install_name_tool -id "@loader_path/libsangnom.dylib" "$SANGNOM_OUT"
+        codesign -s - -f "$SANGNOM_OUT"
+        rm -rf sangnom-whl sangnom.whl
+    )
+    _block_status=$?
+    set -e
+    if [ "$_block_status" -eq 0 ]; then
+        echo "  Installed SangNom -> libsangnom.dylib"
+        BUILT_PLUGINS+=("sangnom")
+    else
+        rm -f "$SANGNOM_OUT"
+        echo "  Failed to install SangNom"
+        FAILED_PLUGINS+=("sangnom")
+    fi
+fi
 
 # ============================================================================
 # descale — the Descale pass (core.descale.De*)
