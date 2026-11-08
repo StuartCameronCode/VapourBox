@@ -538,8 +538,8 @@ impl ProcessingPipeline {
     /// job, naming them and Settings → Add-ons, unless all are installed, and
     /// emits the `{{#AI_RUNTIME}}` block when any of them needs the AI runtime.
     ///
-    /// No pass uses one yet. A pass that runs a model from an add-on adds an
-    /// entry here when enabled, e.g.
+    /// A pass that runs a model from an add-on adds an entry here when
+    /// enabled, e.g.
     /// `AddonNeed { feature: "Face restoration", ids: vec!["gfpgan"] }`
     /// (a model add-on whose manifest `requires` `ai-runtime`).
     ///
@@ -547,7 +547,12 @@ impl ProcessingPipeline {
     /// checked by `audio_restoration` when the track is rendered: a preview
     /// never touches the audio, so it must not be refused for it.
     pub fn required_addons(&self) -> Vec<crate::addons::AddonNeed> {
-        Vec::new()
+        let mut needs = Vec::new();
+        // Crop & Resize's add-on upscalers (`upscale_addons.rs`).
+        if let Some((id, feature)) = self.crop_resize.upscale_addon() {
+            needs.push(crate::addons::AddonNeed { feature, ids: vec![id] });
+        }
+        needs
     }
 
     /// Whether this pipeline denoises with KNLMeans, which needs a working

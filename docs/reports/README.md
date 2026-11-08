@@ -66,6 +66,7 @@ to it.
 
 | Date | Report | Outcome |
 |---|---|---|
+| 2026-11-08 | [Live-action AI upscalers as add-ons, and AI strength](2026-11-ai-upscale-addons/index.html) | Built: Real-ESRGAN General (+ denoise), Live Action SPAN and Real-ESRGAN x4plus/x2plus on VSNCNN as two add-ons; conversions match PyTorch to 0.02 levels; 2xVHS2HD rejected (ncnn has no ScatterND/Shape/Range); AI strength blend halves a model's tint |
 | 2026-11-08 | [Audio restoration: filter delays, drift and DeepFilterNet](2026-11-audio-restoration/index.html) | Built: render the soundtrack before the encode; trim afftdn's 25 ms delay and give it the measured noise floor; correct drift by resampling (atempo moved audio ~20 ms); alimiter `latency=1:level=0`; DeepFilterNet as an add-on with `-D` |
 | 2026-11-03 | [Deblock before or after deinterlacing?](2026-11-deblock-order/index.html) | Keep Deblock after Deinterlace (≤0.05 dB gain from moving it); when deinterlacing is off, deblock per field rather than on the woven frame (+0.03 to +0.30 dB; DCTFilter on the woven frame lost 1.5–3.7 dB); built |
 | 2026-11-03 | [Issue #144: KNLMeansCL fails on 10-bit sources (Windows), unreliable on macOS](issue-144-knlmeanscl/index.html) | Swap every platform to the maintained fork v1.3 (tag on macOS/Linux, PyPI wheel on Windows); verified on macOS arm64; on Windows x64 (AMD GPU) the bug reproduces with v1.1.1 and v1.3 fixes it |

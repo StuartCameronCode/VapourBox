@@ -80,7 +80,7 @@ source of truth for what an add-on is and what an install of it holds.
 | `licence`, `licenceUrl`, `credit`, `noticeName`, `homepage` | the main component's credit (see "Credits" below). |
 | `usageNote` | required exactly when the licence is non-commercial (`NC`), and shown bold wherever the add-on is offered. |
 | `components` | further components credited separately, each optionally limited to `platforms`. |
-| `requires` | add-on ids installed first, and removed with this one's dependants. A model run through ONNX Runtime requires `ai-runtime`. |
+| `requires` | add-on ids installed first, and removed with this one's dependants. A model run through ONNX Runtime requires `ai-runtime`; one run by the bundled VSNCNN plugin (the Crop & Resize upscalers, `upscale-*.json`) requires nothing, and lists only the platforms VSNCNN ships on. |
 | `kind` | `files` — a model pack: each file is saved as `addons/<id>/<name>`, or for an entry with `extract`, only the listed members are kept (each checked against its own hash; nothing else in the archive is written). `python` — every file is a wheel, unpacked into `addons/<id>/site-packages/` as pip lays it out (`*.data/purelib`/`platlib` at the top, other `.data` dropped). |
 | `python` | for a python add-on, the wheel tag it targets (`cp312`: the deps bundle's Python on every platform). |
 | `platforms` | `"all"`, or a table of the deps platform ids (`macos-arm64`, `macos-x64`, `windows-x64`, `linux-x64`, `linux-arm64`) it supports, each with optional `minOs` (macOS only, checked at run time against the running system). Anything else gets an `unavailableReason` and cannot be installed. |

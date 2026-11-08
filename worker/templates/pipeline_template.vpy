@@ -2058,14 +2058,16 @@ clip = _upscale_fix_shift(clip, _upscale_shift)
 clip = core.resize.Spline36(clip, width=clip.width * {{UPSCALE_FACTOR}}, height=clip.height * {{UPSCALE_FACTOR}})
 {{/UPSCALE_SPLINE36}}
 {{#UPSCALE_AI}}
-# AI upscaling: Real-ESRGAN / Real-CUGAN through vs-mlrt's VSNCNN (ncnn on
-# Vulkan), loaded explicitly from vapoursynth/ncnn/ (never autoloaded) after
-# MoltenVK on macOS, exactly as RIFE is. The networks take float RGB, so the
-# source's matrix and range convert there and back, and the result is dithered
-# to the source format. Above SD the frame runs in overlapping 512-pixel tiles:
-# whole-frame Real-CUGAN at 1080p ran out of GPU memory on a 16 GB Mac. An odd
-# size is padded to even by repeating the edge (CUGAN works in 2-pixel steps)
-# and cropped after. fp16 differs from fp32 by at most 0.3/255 and is ~3x faster.
+# AI upscaling: Real-ESRGAN / Real-CUGAN (and the add-on models) through
+# vs-mlrt's VSNCNN (ncnn on Vulkan), loaded explicitly from vapoursynth/ncnn/
+# (never autoloaded) after MoltenVK on macOS, exactly as RIFE is. The networks
+# take float RGB, so the source's matrix and range convert there and back, and
+# the result is dithered to the source format. Above a size the frame runs in
+# overlapping tiles: whole-frame Real-CUGAN at 1080p ran out of GPU memory on a
+# 16 GB Mac (512-pixel tiles above SD), and the large Real-ESRGAN x4plus lost
+# the device at SD (384-pixel tiles at 4x, any size). An odd size is padded to even by
+# repeating the edge (CUGAN works in 2-pixel steps) and cropped after. fp16
+# differs from fp32 by at most 0.3/255 and is ~3x faster.
 import ctypes as _ai_ctypes
 _ai_preload = {{AI_PRELOAD}}
 if _ai_preload:
@@ -2093,17 +2095,30 @@ for _ai_model in [{{AI_MODELS}}]:
         # AnimeJaNai: its SD model for a picture at most {{AI_SD_MAX_HEIGHT}} tall, else
         # the HD one (trained on 1080p anime), chosen per doubling.
         _ai_model = _ai_model[0] if _ai_rgb.height <= {{AI_SD_MAX_HEIGHT}} else _ai_model[1]
-    _ai_tiles = {} if _ai_rgb.width * _ai_rgb.height <= 720 * 576 else dict(tilesize=[512, 512], overlap=[16, 16])
+    # A tile larger than the frame in either direction segfaults VSNCNN (a
+    # wide, short frame can pass the area test), so it never exceeds the frame.
+    _ai_tiles = {} if _ai_rgb.width * _ai_rgb.height <= {{AI_TILE_ABOVE}} else dict(
+        tilesize=[min({{AI_TILE}}, _ai_rgb.width), min({{AI_TILE}}, _ai_rgb.height)], overlap=[16, 16])
     _ai_rgb = core.ncnn.Model(_ai_rgb, network_path=_ai_model, fp16=True, num_streams=2, **_ai_tiles)
 _ai_scale = _ai_rgb.width // _ai_in_w
 if _ai_pad_w or _ai_pad_h:
     _ai_rgb = core.std.Crop(_ai_rgb, right=_ai_pad_w * _ai_scale, bottom=_ai_pad_h * _ai_scale)
+{{#AI_RESAMPLE}}
+# The network enlarges further than asked (Real-ESRGAN General is 4x only), so
+# resample to {{AI_FACTOR}}x here, in float RGB, before the conversion back.
+_ai_rgb = core.resize.Spline36(_ai_rgb, width=_ai_rgb.width * {{AI_FACTOR}} // _ai_scale, height=_ai_rgb.height * {{AI_FACTOR}} // _ai_scale)
+{{/AI_RESAMPLE}}
 if _ai_fmt.color_family == vs.YUV:
     clip = core.resize.Spline36(_ai_rgb, format=_ai_fmt.id, matrix_s="{{AI_MATRIX}}", range_s="{{AI_RANGE}}", dither_type="error_diffusion")
 elif _ai_fmt.color_family == vs.GRAY:
     clip = core.resize.Point(core.std.ShufflePlanes(_ai_rgb, 1, vs.GRAY), format=_ai_fmt.id, range_s="{{AI_RANGE}}", dither_type="error_diffusion")
 else:
     clip = core.resize.Point(_ai_rgb, format=_ai_fmt.id, dither_type="error_diffusion")
+{{#AI_STRENGTH}}
+# AI strength: keep {{AI_STRENGTH}} of the network's picture and blend in a Spline36
+# upscale of the same frame for the rest, at the clip's own format.
+clip = core.std.Merge(core.resize.Spline36(_ai_src, width=clip.width, height=clip.height), clip, weight={{AI_STRENGTH}})
+{{/AI_STRENGTH}}
 # The network drops frame properties; field order, matrix and the rest are the source's.
 clip = core.std.CopyFrameProps(clip, _ai_src)
 {{/UPSCALE_AI}}
