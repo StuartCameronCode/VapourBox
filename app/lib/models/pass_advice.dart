@@ -161,6 +161,18 @@ List<PassAdvice> adviseOn(ProcessingPipeline pipeline) {
     ));
   }
 
+  // --- Chroma Denoise before Colourisation ---
+  // Colourisation keeps only the luma and predicts the colour from it, so
+  // the colour Chroma Denoise cleaned (which runs first) is thrown away.
+  if (on(PassType.colorize) && on(PassType.chromaDenoise)) {
+    advice.add(const PassAdvice(
+      PassType.chromaDenoise,
+      'Colourisation runs after this and replaces the colour with its own, '
+      'predicted from the brightness alone, so the colour cleaned here does '
+      'not reach the result. Turn Chroma Denoise off to save time.',
+    ));
+  }
+
   // --- Rotating interlaced material destroys it ---
   // Fields are stored as alternating horizontal lines. A quarter turn puts them
   // in alternating COLUMNS, where no deinterlacer can find them: measured,
