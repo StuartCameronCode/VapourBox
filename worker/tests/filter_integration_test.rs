@@ -6944,9 +6944,9 @@ fn test_185_upscale_addon_models_and_factors() {
                 None => assert!(!script.contains("// _ai_scale"), "{label} {name}: stray resample"),
             }
             let tiles = if method == UpscaleMethod::RealEsrganPlus && factor == 4 {
-                "<= 384 * 384 else dict(tilesize=[384, 384]"
+                "<= 384 * 384 else dict(\n        tilesize=[min(384, _ai_rgb.width), min(384, _ai_rgb.height)]"
             } else {
-                "<= 720 * 576 else dict(tilesize=[512, 512]"
+                "<= 720 * 576 else dict(\n        tilesize=[min(512, _ai_rgb.width), min(512, _ai_rgb.height)]"
             };
             assert!(script.contains(tiles), "{label} {name}: tiles");
             assert!(!script.contains("AI_RESAMPLE") && !script.contains("AI_STRENGTH") && !script.contains("{{AI_"), "{label} {name}: unsubstituted placeholder");

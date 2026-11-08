@@ -2095,7 +2095,10 @@ for _ai_model in [{{AI_MODELS}}]:
         # AnimeJaNai: its SD model for a picture at most {{AI_SD_MAX_HEIGHT}} tall, else
         # the HD one (trained on 1080p anime), chosen per doubling.
         _ai_model = _ai_model[0] if _ai_rgb.height <= {{AI_SD_MAX_HEIGHT}} else _ai_model[1]
-    _ai_tiles = {} if _ai_rgb.width * _ai_rgb.height <= {{AI_TILE_ABOVE}} else dict(tilesize=[{{AI_TILE}}, {{AI_TILE}}], overlap=[16, 16])
+    # A tile larger than the frame in either direction segfaults VSNCNN (a
+    # wide, short frame can pass the area test), so it never exceeds the frame.
+    _ai_tiles = {} if _ai_rgb.width * _ai_rgb.height <= {{AI_TILE_ABOVE}} else dict(
+        tilesize=[min({{AI_TILE}}, _ai_rgb.width), min({{AI_TILE}}, _ai_rgb.height)], overlap=[16, 16])
     _ai_rgb = core.ncnn.Model(_ai_rgb, network_path=_ai_model, fp16=True, num_streams=2, **_ai_tiles)
 _ai_scale = _ai_rgb.width // _ai_in_w
 if _ai_pad_w or _ai_pad_h:

@@ -35,6 +35,7 @@ import 'package:vapourbox/models/spotless_parameters.dart';
 import 'package:vapourbox/models/stabilize_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 
+import 'support/gpu_expectations.dart';
 import 'support/vfr_fixture.dart';
 import 'support/worker_harness.dart';
 
@@ -1705,5 +1706,71 @@ void main() {
       expect(script, isNot(contains('{{#DEINT')));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // --- AI upscale strength (1.7.0) ---
+    // Below 1 the network's result is blended with a Spline36 upscale of the
+    // same frame in one std.Merge; at 1 nothing is added. Needs VSNCNN to run
+    // here (the worker refuses an AI job it cannot run), so it follows the
+    // GPU rule: skipped without Vulkan unless VAPOURBOX_EXPECT_VULKAN=1.
+    test('crop_resize: AI strength blends a Spline36 upscale into the AI result', () async {
+      if (!await requireGpuPlugin('--probe-upscale')) return;
+      CropResizeParameters crop(double strength) => ParameterConverter.toCropResize(
+          ParameterConverter.fromCropResize(CropResizeParameters(
+              enabled: true,
+              useIntegerUpscale: true,
+              upscaleMethod: UpscaleMethod.realEsrgan,
+              aiStrength: strength)));
+      final blended = await generateScriptViaWorker(
+          buildJob(testName: 'ai_strength', cropResize: crop(0.7)));
+      expect(blended, contains('core.ncnn.Model(_ai_rgb, network_path=_ai_model'));
+      expect(blended, contains('clip = core.std.Merge(core.resize.Spline36(_ai_src, '
+          'width=clip.width, height=clip.height), clip, weight=0.700)'));
+      final full = await generateScriptViaWorker(
+          buildJob(testName: 'ai_strength_full', cropResize: crop(1.0)));
+      expect(full, isNot(contains('core.std.Merge(core.resize.Spline36(_ai_src')));
+      expect(full, isNot(contains('AI_STRENGTH')));
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // --- Add-on AI upscalers (1.7.0) ---
+    // Real-ESRGAN General (4x only: resampled to 2x after the network, the
+    // denoise variant on request) and Live Action SPAN (2x only: twice for
+    // 4x), each from the upscale-general add-on's directory. Installs the
+    // add-on (11 MB) with the app's own installer, so a dead link or changed
+    // hash fails here.
+    test('crop_resize: add-on upscalers load their models with their factor rules', () async {
+      if (!await requireGpuPlugin('--probe-upscale')) return;
+      await WorkerHarness.ensureAddon('upscale-general');
+      // The models the script runs, by file name, each checked to come from
+      // the add-on's own directory.
+      List<String> models(String script) {
+        final line = RegExp(r'for _ai_model in \[(.*)\]:').firstMatch(script)!.group(1)!;
+        final names = <String>[];
+        for (final m in RegExp(r"'([^']*)'").allMatches(line)) {
+          final path = m.group(1)!.replaceAll(r'\\', '/');
+          expect(path, contains('upscale-general/'), reason: path);
+          names.add(path.split('/').last);
+        }
+        return names;
+      }
+
+      Future<String> script(UpscaleMethod m, int factor, {bool denoise = false}) =>
+          generateScriptViaWorker(buildJob(
+              testName: 'addon_upscale_${m.name}_$factor',
+              cropResize: CropResizeParameters(
+                  enabled: true,
+                  useIntegerUpscale: true,
+                  upscaleMethod: m,
+                  upscaleFactor: factor,
+                  generalDenoise: denoise)));
+      final general2 = await script(UpscaleMethod.realEsrganGeneral, 2);
+      expect(models(general2), ['upscale-realesr-general-x4v3.onnx']);
+      expect(general2, contains('_ai_rgb = core.resize.Spline36(_ai_rgb, width=_ai_rgb.width * 2 // _ai_scale'));
+      final general4 = await script(UpscaleMethod.realEsrganGeneral, 4, denoise: true);
+      expect(models(general4), ['upscale-realesr-general-wdn-x4v3.onnx']);
+      expect(general4, isNot(contains('// _ai_scale')));
+      final span4 = await script(UpscaleMethod.liveAction, 4);
+      expect(models(span4), List.filled(2, '2xLiveActionV1_SPAN_490000.onnx'));
+      expect(span4, isNot(contains('// _ai_scale')));
+    }, timeout: const Timeout(Duration(minutes: 5)));
   });
 }
