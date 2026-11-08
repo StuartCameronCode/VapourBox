@@ -55,7 +55,15 @@ void main() {
 
   test('Noise Reduction: BM3D and KNLMeans in the method list', () {
     final s = _load('noise_reduction.json');
-    expect(s.methods.where(service.isMethodNew).map((m) => m.id).toSet(), {'bm3d', 'knlmeans'});
+    // Only the 1.5.0 stamps: NLMeans (CPU) carries 1.7.0 and is not part of
+    // this upgrade's story.
+    expect(
+        s.methods
+            .where((m) => m.sinceAppVersion == '1.5.0')
+            .where(service.isMethodNew)
+            .map((m) => m.id)
+            .toSet(),
+        {'bm3d', 'knlmeans'});
     expect(service.isMethodChoiceNew(s), isTrue);
     expect(service.isSchemaNew(s), isTrue);
   });

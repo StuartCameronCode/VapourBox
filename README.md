@@ -81,7 +81,7 @@ Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract
 
 ## Hardware and add-ons
 
-**GPU features.** RIFE frame interpolation and AI upscaling run on the graphics card through Vulkan: on any Apple Silicon Mac, and on Windows and Linux x64 PCs with a current graphics driver (RIFE on Windows also needs the Microsoft Visual C++ Redistributable). They aren't available on Intel Macs or Linux on ARM yet. GPU deinterlacing and KNLMeans denoising use OpenCL instead; without it, deinterlacing falls back to the CPU. Whenever you choose a GPU feature your machine can't run, VapourBox says what's missing and how to fix it.
+**GPU features.** RIFE frame interpolation and AI upscaling run on the graphics card through Vulkan: on any Apple Silicon Mac, and on Windows and Linux x64 PCs with a current graphics driver (RIFE on Windows also needs the Microsoft Visual C++ Redistributable). They aren't available on Intel Macs or Linux on ARM yet. GPU deinterlacing and KNLMeans denoising use OpenCL instead; without it, deinterlacing falls back to the CPU, and NLMeans gives KNLMeans' result on the CPU. Whenever you choose a GPU feature your machine can't run, VapourBox says what's missing and how to fix it.
 
 **Add-ons.** A few features use third-party downloads that aren't part of VapourBox: the Whisper engine and language models for subtitles, the AnimeJaNai models for AI upscaling, DeepFilterNet for speech enhancement in Audio Restoration, and the AI runtime (Microsoft's ONNX Runtime) that AI model add-ons run on. VapourBox offers to download one the first time you need it, stating its source, size and licence, and **Settings → Add-ons** installs or removes them at any time. AnimeJaNai is free for **non-commercial use only** (CC BY-NC-SA 4.0); for paid work, use Real-ESRGAN or Real-CUGAN instead.
 
@@ -118,7 +118,7 @@ Most sources need only a few of these, and the presets pick them for you. Filter
 | 10 | **Dehalo** | Bright outlines and ringing around edges |
 | 11 | **Deblock** | Blocking from heavy compression |
 | 12 | **Deband** | Visible steps in gradients and skies |
-| 13 | **Anti-Aliasing** | Stair-stepping on diagonal edges |
+| 13 | **Anti-Aliasing** | Stair-stepping on diagonal edges: daa, santiag, or SangNom (fastest) |
 | 14 | **Chroma Fixes** | Colour shifted off the picture, bleeding, rainbowing, dot crawl and leftover combing |
 | 15 | **Color Correction** | Brightness, contrast, saturation, levels, white balance, shadow detail and local contrast, set by hand or measured |
 | 16 | **Stabilize** | Shake and weave from telecine, film scans or a handheld camera |
@@ -204,7 +204,8 @@ Your own presets are saved alongside these, and can be **exported and imported**
 By default each filter shows a short, curated set of choices. **Settings → General → Show advanced options** (or the switch beside any filter's settings) reveals every method and parameter, including:
 
 - all 70+ QTGMC parameters, and opt-in higher-precision deinterlacing (4:2:2 chroma, 16-bit processing);
-- the less common denoisers: DFTTest, FFT3DFilter, TTempSmooth, FluxSmooth, STPresso, TemporalDegrain2, BM3D, KNLMeans and a large-window median;
+- the less common denoisers: DFTTest, FFT3DFilter, TTempSmooth, FluxSmooth, STPresso, TemporalDegrain2, BM3D, KNLMeans (GPU), NLMeans (the same filter on the CPU) and a large-window median;
+- specialist repairs: the vine dehalo, mpeg2stinx for the comb-like noise of film DVDs, and a fade-fix mode for IVTC (fades added after telecine);
 - fine control of edge-directed upscaling (NNEDI3's neurons, quality and prescreener; EEDI3's weights);
 - Descale's explicit native width and edge handling.
 
