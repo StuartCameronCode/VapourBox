@@ -7049,6 +7049,8 @@ fn test_188_ai_strength_blends_with_spline36() {
     zero.processing_pipeline.as_mut().unwrap().crop_resize.ai_strength = -1.0;
     assert!(script_text_with(&generator, &zero).contains("clip, weight=0.000)"));
     let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Audio restoration is rendered by ffmpeg before the encode, never by the
 /// VapourSynth script: every step switched on — DeepFilterNet included, which
 /// is not installed here — leaves both scripts byte-for-byte as they are with
