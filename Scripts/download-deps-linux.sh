@@ -1567,10 +1567,12 @@ else
 fi
 
 # ============================================================================
-# vszip — CLAHE (Colour Correction's local contrast, issue #90)
+# vszip — CLAHE, NLMeans (CPU) and the vine dehalo method
 # ============================================================================
-# Only core.vszip.CLAHE is used. Keep VSZIP_VERSION in step across
-# download-deps-{macos,linux}.sh and download-deps-windows.ps1.
+# core.vszip.CLAHE (Colour Correction's local contrast, issue #90) and, from
+# 24.0.0 (the first release with it), core.vszip.NLMeans: Noise Reduction's
+# CPU non-local means and the Dehalo pass's vine method. Keep VSZIP_VERSION in
+# step across download-deps-{macos,linux}.sh and download-deps-windows.ps1.
 #
 # The x86_64 wheel carries three builds — libvszip.so (baseline x86-64),
 # libvszip.avx2.so and libvszip.zn4.so (AVX-512) — that VapourSynth picks
@@ -1581,14 +1583,18 @@ fi
 # by path and fault); and the AVX-512 build is never chosen on a machine no
 # runner can test (the CTMF lesson). CLAHE is cheap next to anything else in a
 # job, so the AVX2 speedup is not worth that machinery.
-# manylinux_2_17 is far under our glibc 2.39 floor.
-VSZIP_VERSION="22.1.0"
+# manylinux_2_17 is far under our glibc 2.39 floor. 24.0.0's baseline build no
+# longer calls libm's fmaf per lane, and contains no AVX at all (checked with
+# objdump), so it still needs no _tierFiles entry. Pinned by hash.
+VSZIP_VERSION="24.0.0"
 echo ""
-echo "=== Downloading vszip $VSZIP_VERSION (CLAHE) ==="
+echo "=== Downloading vszip $VSZIP_VERSION (CLAHE, NLMeans) ==="
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libvszip.so" ]; then
     case "$ARCH" in
-        x86_64)  VSZIP_TAG="manylinux_2_17_x86_64" ;;
-        aarch64) VSZIP_TAG="manylinux_2_17_aarch64" ;;
+        x86_64)  VSZIP_TAG="manylinux_2_17_x86_64"
+                 VSZIP_SHA256="abf1be51f3b4733500eca04f7179236f8383e09b298ac4ca2c8e8959a93a92da" ;;
+        aarch64) VSZIP_TAG="manylinux_2_17_aarch64"
+                 VSZIP_SHA256="8f2a87cd1cbb0a6b5392b6f43c9dd22bb531c7d2021c4c2b66fe6856c8dc7f92" ;;
         *)       VSZIP_TAG="" ;;
     esac
     VSZIP_URL=""
@@ -1605,6 +1611,7 @@ PYEOF
     mkdir -p "$BUILD_DIR/vszip"
     if [ -n "$VSZIP_URL" ] \
        && curl -fL -o "$BUILD_DIR/vszip.whl" "$VSZIP_URL" \
+       && echo "$VSZIP_SHA256  $BUILD_DIR/vszip.whl" | sha256sum -c - \
        && unzip -q "$BUILD_DIR/vszip.whl" -d "$BUILD_DIR/vszip"; then
         # The baseline build only, by exact name — see above.
         cp "$BUILD_DIR/vszip/vapoursynth/plugins/vszip/libvszip.so" "$PLUGINS_DIR/" 2>/dev/null || true
@@ -1620,6 +1627,64 @@ PYEOF
     fi
 else
     echo "  vszip already exists, skipping"
+fi
+
+# ============================================================================
+# SangNom — Anti-aliasing's SangNom method (core.sangnom.SangNom)
+# ============================================================================
+# The PyPI wheels (r45), pinned by hash. Source is MIT; upstream states its
+# binaries are GPL v2 (see licenses/NOTICES.txt). x86_64 has SSE2 code only
+# (no AVX anywhere, checked with objdump), so one file serves both CPU tiers.
+# manylinux_2_28 (glibc 2.28) is under our 2.39 floor; it needs the system
+# libstdc++, as every C++ plugin here does. Keep SANGNOM_VERSION in step with
+# download-deps-{macos.sh,windows.ps1}.
+SANGNOM_VERSION="45.0"
+case "$ARCH" in
+    x86_64)  SANGNOM_TAG="manylinux_2_28_x86_64"
+             SANGNOM_SHA256="dd71e28fa7d0383101b6ab5e84307be80984f69a43838238686de1480793525d" ;;
+    aarch64) SANGNOM_TAG="manylinux_2_28_aarch64"
+             SANGNOM_SHA256="4fd6e39bc32aec755853f974936324081223d6b7e082cc38e717c9b8dad0cf6a" ;;
+    *)       SANGNOM_TAG="" ;;
+esac
+SANGNOM_OUT="$PLUGINS_DIR/libsangnom.so"
+echo ""
+echo "=== Installing SangNom $SANGNOM_VERSION ==="
+if [ "$FORCE" = false ] && [ -f "$SANGNOM_OUT" ]; then
+    echo "  SangNom already exists, skipping"
+else
+    rm -f "$SANGNOM_OUT"
+    # Run on its own, not as `if ( set -e ... ); then`: bash ignores set -e in
+    # anything that is an if/&&/|| condition, subshells included.
+    set +e
+    (
+        set -e
+        [ -n "$SANGNOM_TAG" ]
+        cd "$BUILD_DIR"
+        rm -rf sangnom-whl sangnom.whl
+        url=$("$PYTHON_BIN" - "$SANGNOM_VERSION" "$SANGNOM_TAG" <<'PYEOF2'
+import json, sys, urllib.request
+ver, tag = sys.argv[1], sys.argv[2]
+d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/vapoursynth-sangnom/{ver}/json"))
+print(next(f["url"] for f in d["urls"] if f["filename"].endswith(tag + ".whl")))
+PYEOF2
+)
+        curl -fsSL -o sangnom.whl "$url"
+        echo "$SANGNOM_SHA256  sangnom.whl" | sha256sum -c -
+        mkdir sangnom-whl && unzip -q sangnom.whl -d sangnom-whl
+        cp sangnom-whl/vapoursynth/plugins/sangnom.so "$SANGNOM_OUT"
+        chmod 755 "$SANGNOM_OUT"
+        rm -rf sangnom-whl sangnom.whl
+    )
+    _block_status=$?
+    set -e
+    if [ "$_block_status" -eq 0 ]; then
+        echo "  Installed SangNom -> libsangnom.so"
+        BUILT_PLUGINS+=("sangnom")
+    else
+        rm -f "$SANGNOM_OUT"
+        echo "  Failed to install SangNom"
+        FAILED_PLUGINS+=("sangnom")
+    fi
 fi
 
 # ============================================================================

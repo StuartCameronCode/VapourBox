@@ -10,7 +10,9 @@ enum DeblockMethod {
   @JsonValue('Deblock')
   deblock('Deblock', 'Deblock'),
   @JsonValue('DCTFilter')
-  dctFilter('DCTFilter', 'DCTFilter');
+  dctFilter('DCTFilter', 'DCTFilter'),
+  @JsonValue('mpeg2stinx')
+  mpeg2stinx('mpeg2stinx', 'mpeg2stinx');
 
   const DeblockMethod(this.value, this.displayName);
   final String value;
@@ -25,6 +27,9 @@ enum DeblockMethod {
       case DeblockMethod.dctFilter:
         return 'Attenuates high DCT frequency bands — targets ringing and '
             'mosquito noise rather than block edges';
+      case DeblockMethod.mpeg2stinx:
+        return 'Comb-like noise in film DVDs encoded as interlaced MPEG-2 '
+            '(vs-jetpack\'s mpeg2stinx)';
     }
   }
 }

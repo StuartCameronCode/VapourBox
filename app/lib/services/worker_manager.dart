@@ -190,7 +190,8 @@ class WorkerManager implements JobRunner {
       opencl: false,
       knlm: false,
       knlmMessage: 'VapourBox could not check for an OpenCL device, which '
-          'KNLMeans needs. BM3D does the same job on the CPU.',
+          'KNLMeans needs. NLMeans (CPU) is the same filter run on the '
+          'processor.',
     );
     final toolLocator = ToolLocator.instance;
     final workerPath = toolLocator.workerPath;

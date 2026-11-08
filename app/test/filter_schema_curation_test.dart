@@ -210,8 +210,13 @@ void main() {
         ['dehalo_alpha', 'fine_dehalo', 'yahr', 'hq_deringmod'],
       );
       // Vinverse is offered by Chroma Fixes too; Fine Dehalo 2 is a follow-up
-      // pass rather than a first choice.
-      expect(dehalo.methods.length, 8);
+      // pass rather than a first choice; vine (app 1.7.0) is the slower,
+      // detail-keeping alternative.
+      expect(dehalo.methods.length, 9);
+      expect(
+        dehalo.methods.where((m) => m.advancedOnly).map((m) => m.id),
+        contains('vine'),
+      );
     });
 
     test('the filters added from the gap analysis are behind advanced mode', () {

@@ -833,6 +833,15 @@ impl ScriptGenerator {
                     };
                     script = script.replace("{{IVTC_ORDER}}", &order.to_string());
 
+                    // Fades added after telecine (vs-jetpack's FixInterlacedFades).
+                    if params.ivtc_fix_fades {
+                        script = script.replace("{{#DEINT_IVTC_FIX_FADES}}", "");
+                        script = script.replace("{{/DEINT_IVTC_FIX_FADES}}", "");
+                        script = script.replace("{{IVTC_FADE_MODE}}", params.effective_ivtc_fade_mode());
+                    } else {
+                        script = remove_block("{{#DEINT_IVTC_FIX_FADES}}", "{{/DEINT_IVTC_FIX_FADES}}", script);
+                    }
+
                     // VFM parameters
                     script = process_optional_int("IVTC_MODE", params.ivtc_mode, script);
                     script = process_optional_int("IVTC_CTHRESH", params.ivtc_cthresh, script);
@@ -960,17 +969,20 @@ impl ScriptGenerator {
             script = script.replace("{{#NOISE_REDUCTION}}", "");
             script = script.replace("{{/NOISE_REDUCTION}}", "");
 
-            // BM3D and KNLMeans are removed here rather than in every other
-            // method's arm below.
+            // BM3D, KNLMeans and NLMeans are removed here rather than in every
+            // other method's arm below.
             if nr.method != NoiseReductionMethod::Bm3d {
                 script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
             }
             if nr.method != NoiseReductionMethod::KnlMeans {
                 script = remove_block("{{#NR_KNLM}}", "{{/NR_KNLM}}", script);
             }
+            if nr.method != NoiseReductionMethod::NlMeans {
+                script = remove_block("{{#NR_NLM}}", "{{/NR_NLM}}", script);
+            }
 
             match nr.method {
-                NoiseReductionMethod::Bm3d | NoiseReductionMethod::KnlMeans => {
+                NoiseReductionMethod::Bm3d | NoiseReductionMethod::KnlMeans | NoiseReductionMethod::NlMeans => {
                     for other in [
                         "NR_SMDEGRAIN", "NR_MCTD", "NR_MCDEGRAINSHARP", "NR_CTMF",
                         "NR_FLUXSMOOTH_T", "NR_FLUXSMOOTH_ST", "NR_STPRESSO", "NR_MCLEAN",
@@ -987,6 +999,17 @@ impl ScriptGenerator {
                         script = script.replace("{{NR_BM3D_RADIUS}}", &nr.bm3d_effective_radius().to_string());
                         script = script.replace("{{NR_BM3D_FINAL}}", if nr.bm3d_final { "True" } else { "False" });
                         script = script.replace("{{NR_BM3D_PROFILE}}", nr.bm3d_effective_profile());
+                    } else if nr.method == NoiseReductionMethod::NlMeans {
+                        // The same arguments as KNLMeansCL (vszip's port takes
+                        // its argument names and defaults), on the CPU.
+                        let (h, d, a, s) = nr.knlm_effective();
+                        script = script.replace("{{#NR_NLM}}", "");
+                        script = script.replace("{{/NR_NLM}}", "");
+                        script = script.replace("{{NR_NLM_H}}", &format!("{h:.2}"));
+                        script = script.replace("{{NR_NLM_D}}", &d.to_string());
+                        script = script.replace("{{NR_NLM_A}}", &a.to_string());
+                        script = script.replace("{{NR_NLM_S}}", &s.to_string());
+                        script = script.replace("{{NR_NLM_CHROMA}}", if nr.knlm_chroma { "True" } else { "False" });
                     } else {
                         let (h, d, a, s) = nr.knlm_effective();
                         // ensure_methods_ready has already refused a job without one.
@@ -1459,7 +1482,7 @@ impl ScriptGenerator {
             // every block per arm is what the other passes do, but with seven
             // methods it stops being readable — so keep the block the method
             // selects and drop the others by difference.
-            const DEHALO_BLOCKS: [&str; 7] = [
+            const DEHALO_BLOCKS: [&str; 8] = [
                 "DEHALO_DEHALO_ALPHA",
                 "DEHALO_FINE_DEHALO",
                 "DEHALO_FINE_DEHALO2",
@@ -1467,6 +1490,7 @@ impl ScriptGenerator {
                 "DEHALO_EDGE_CLEANER",
                 "DEHALO_VINVERSE",
                 "DEHALO_HQDERING",
+                "DEHALO_VINE",
             ];
 
             let selected = match dehalo.method {
@@ -1479,6 +1503,7 @@ impl ScriptGenerator {
                 // name differs.
                 DehaloMethod::Vinverse | DehaloMethod::Vinverse2 => "DEHALO_VINVERSE",
                 DehaloMethod::HqDeringmod => "DEHALO_HQDERING",
+                DehaloMethod::Vine => "DEHALO_VINE",
             };
 
             for block in DEHALO_BLOCKS {
@@ -1532,6 +1557,12 @@ impl ScriptGenerator {
                     script = process_optional_double("DEHALO_DERING_THR", dehalo.dering_thr, script);
                     script = process_optional_double("DEHALO_DERING_DARKTHR", dehalo.dering_darkthr, script);
                 }
+                DehaloMethod::Vine => {
+                    let (strength, sharp, sigma) = dehalo.vine_effective();
+                    script = script.replace("{{DEHALO_VINE_STRENGTH}}", &format!("{strength:.3}"));
+                    script = script.replace("{{DEHALO_VINE_SHARP}}", &format!("{sharp:.3}"));
+                    script = script.replace("{{DEHALO_VINE_SIGMA}}", &format!("{sigma:.3}"));
+                }
             }
 
             // Radius and strength are shared by DeHalo_alpha and FineDehalo only.
@@ -1555,8 +1586,14 @@ impl ScriptGenerator {
 
             // Still interlaced: deblock each field on its own, never the woven
             // frame (docs/reports/2026-11-deblock-order). Deinterlaced output
-            // is progressive and keeps the whole-frame path.
-            match Self::still_interlaced_tff(job, pipeline) {
+            // is progressive and keeps the whole-frame path. mpeg2stinx is a
+            // cross-field filter by design and always takes the whole frame.
+            let per_field = if deblock.method == DeblockMethod::Mpeg2Stinx {
+                None
+            } else {
+                Self::still_interlaced_tff(job, pipeline)
+            };
+            match per_field {
                 Some(tff) => {
                     script = script.replace("{{#DEBLOCK_PER_FIELD}}", "");
                     script = script.replace("{{/DEBLOCK_PER_FIELD}}", "");
@@ -1568,7 +1605,20 @@ impl ScriptGenerator {
             }
 
             match deblock.method {
+                DeblockMethod::Mpeg2Stinx => {
+                    for other in ["DEBLOCK_QED", "DEBLOCK_SIMPLE", "DEBLOCK_DCTFILTER"] {
+                        script = remove_block(&format!("{{{{#{other}}}}}"), &format!("{{{{/{other}}}}}"), script);
+                    }
+                    script = script.replace("{{#DEBLOCK_MPEG2STINX}}", "");
+                    script = script.replace("{{/DEBLOCK_MPEG2STINX}}", "");
+                    // The field order the frames were ENCODED with: the
+                    // deinterlace pass's (IVTC) when it runs, else what was
+                    // detected, else top field first (DVD's usual order).
+                    let tff = Self::field_based_for(job, pipeline).map_or(true, |fb| fb == 2);
+                    script = script.replace("{{DEBLOCK_STINX_TFF}}", if tff { "True" } else { "False" });
+                }
                 DeblockMethod::DeblockQed => {
+                    script = remove_block("{{#DEBLOCK_MPEG2STINX}}", "{{/DEBLOCK_MPEG2STINX}}", script);
                     script = script.replace("{{#DEBLOCK_QED}}", "");
                     script = script.replace("{{/DEBLOCK_QED}}", "");
                     script = remove_block("{{#DEBLOCK_SIMPLE}}", "{{/DEBLOCK_SIMPLE}}", script);
@@ -1580,6 +1630,7 @@ impl ScriptGenerator {
                     script = process_optional_int("DEBLOCK_AOFFSET2", Some(deblock.a_offset2), script);
                 }
                 DeblockMethod::Deblock => {
+                    script = remove_block("{{#DEBLOCK_MPEG2STINX}}", "{{/DEBLOCK_MPEG2STINX}}", script);
                     script = remove_block("{{#DEBLOCK_QED}}", "{{/DEBLOCK_QED}}", script);
                     script = script.replace("{{#DEBLOCK_SIMPLE}}", "");
                     script = script.replace("{{/DEBLOCK_SIMPLE}}", "");
@@ -1588,6 +1639,7 @@ impl ScriptGenerator {
                     script = process_optional_int("DEBLOCK_QUANT1", Some(deblock.quant1), script);
                 }
                 DeblockMethod::DctFilter => {
+                    script = remove_block("{{#DEBLOCK_MPEG2STINX}}", "{{/DEBLOCK_MPEG2STINX}}", script);
                     script = remove_block("{{#DEBLOCK_QED}}", "{{/DEBLOCK_QED}}", script);
                     script = remove_block("{{#DEBLOCK_SIMPLE}}", "{{/DEBLOCK_SIMPLE}}", script);
                     script = script.replace("{{#DEBLOCK_DCTFILTER}}", "");
@@ -1659,9 +1711,18 @@ impl ScriptGenerator {
                     script = script.replace("{{#AA_DAA}}", "");
                     script = script.replace("{{/AA_DAA}}", "");
                     script = remove_block("{{#AA_SANTIAG}}", "{{/AA_SANTIAG}}", script);
+                    script = remove_block("{{#AA_SANGNOM}}", "{{/AA_SANGNOM}}", script);
+                }
+                AntiAliasMethod::SangNom => {
+                    script = remove_block("{{#AA_DAA}}", "{{/AA_DAA}}", script);
+                    script = remove_block("{{#AA_SANTIAG}}", "{{/AA_SANTIAG}}", script);
+                    script = script.replace("{{#AA_SANGNOM}}", "");
+                    script = script.replace("{{/AA_SANGNOM}}", "");
+                    script = script.replace("{{AA_SANGNOM_AA}}", &anti_alias.effective_sangnom_aa().to_string());
                 }
                 AntiAliasMethod::Santiag => {
                     script = remove_block("{{#AA_DAA}}", "{{/AA_DAA}}", script);
+                    script = remove_block("{{#AA_SANGNOM}}", "{{/AA_SANGNOM}}", script);
                     script = script.replace("{{#AA_SANTIAG}}", "");
                     script = script.replace("{{/AA_SANTIAG}}", "");
 

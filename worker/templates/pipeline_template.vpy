@@ -457,6 +457,75 @@ clip = core.vivtc.VFM(_ivtc_metrics, order={{IVTC_ORDER}},
     blocky={{IVTC_BLOCK_Y}},
 {{/IVTC_BLOCK_Y}}
     clip2=_ivtc_src)
+{{#DEINT_IVTC_FIX_FADES}}
+# Fades added after telecine (vs-jetpack's FixInterlacedFades, MIT, ported from
+# release v3.0.0; upstream calls it an improved Fix-Telecined-Fades). A fade
+# applied to the telecined video changes brightness between the two fields of
+# a frame, so no field match is clean and the fade combs. Each field is scaled
+# about black (neutral for chroma) so its mean distance from it equals the
+# {{IVTC_FADE_MODE}} of the two fields': exact for fades to or from black, and
+# blur-free. On frames that are not fading the two fields' means agree and the
+# change is negligible (measured ~0.1 levels). Float, as upstream requires.
+#
+# The per-frame gains are stamped on each field as frame properties by
+# ModifyFrame and applied by ONE akarin expression that reads them. Never
+# create an akarin node per frame inside a FrameEval here: with two such
+# FrameEvals running concurrently under vspipe, the job aborted (SIGABRT) or
+# spun one core indefinitely (a 97-minute hang on 30 frames, 2026-11-08), and
+# ran fine single-threaded. macOS x64 has no akarin (so no frame-property
+# Expr); there std.Expr nodes are made per frame instead, which does not hang.
+_fade_fmt = clip.format
+_fade_f = core.resize.Point(clip, format=_fade_fmt.replace(sample_type=vs.FLOAT, bits_per_sample=32).id)
+_fade_fields = core.std.SeparateFields(core.std.SetFieldBased(_fade_f, 0), tff=True)
+_fade_dist = _expr([_fade_fields], 'x abs')
+for _fade_i in range(_fade_fmt.num_planes):
+    _fade_dist = core.std.PlaneStats(_fade_dist, plane=_fade_i, prop=f'P{_fade_i}')
+
+
+def _fade_gains(own, other):
+    gains = []
+    for i in range(_fade_fmt.num_planes):
+        a, b = own.props[f'P{i}Average'], other.props[f'P{i}Average']
+        target = (a + b) / 2 if '{{IVTC_FADE_MODE}}' == 'average' else min(a, b)
+        gains.append(target / a if a > 1e-6 else 1.0)
+    return gains
+
+
+def _fade_stamp(n, f, own, other):
+    out = f[0].copy()
+    for i, g in enumerate(_fade_gains(f[own], f[other])):
+        out.props[f'FadeGain{i}'] = g
+    return out
+
+
+def _fade_scale(n, f, c, own, other):
+    gains = _fade_gains(f[own], f[other])
+    if all(abs(g - 1.0) < 1e-6 for g in gains):
+        return c
+    return _expr([c], [f'x {g} *' for g in gains])
+
+
+_fade_top, _fade_bot = _fade_fields[::2], _fade_fields[1::2]
+_fade_props = [_fade_dist[::2], _fade_dist[1::2]]
+if _akarin_expr is not None:
+    _fade_top = core.std.ModifyFrame(_fade_top, [_fade_top] + _fade_props,
+                                     functools.partial(_fade_stamp, own=1, other=2))
+    _fade_bot = core.std.ModifyFrame(_fade_bot, [_fade_bot] + _fade_props,
+                                     functools.partial(_fade_stamp, own=2, other=1))
+    _fade_apply = [f'x x.FadeGain{i} *' for i in range(_fade_fmt.num_planes)]
+    _fade_top = _expr([_fade_top], _fade_apply)
+    _fade_bot = _expr([_fade_bot], _fade_apply)
+else:
+    _fade_top = core.std.FrameEval(_fade_top, functools.partial(_fade_scale, c=_fade_top, own=0, other=1),
+                                   prop_src=_fade_props)
+    _fade_bot = core.std.FrameEval(_fade_bot, functools.partial(_fade_scale, c=_fade_bot, own=1, other=0),
+                                   prop_src=_fade_props)
+clip = core.std.DoubleWeave(core.std.Interleave([_fade_top, _fade_bot]), tff=True)[::2]
+# DoubleWeave flags its output interlaced; field-matched frames are
+# progressive, and a later resize would otherwise treat them as fields.
+clip = core.std.SetFieldBased(clip, 0)
+clip = core.resize.Point(clip, format=_fade_fmt.id, dither_type="error_diffusion")
+{{/DEINT_IVTC_FIX_FADES}}
 # VFM output is full-depth again; VDecimate accepts 8..16 bit natively.
 clip = core.vivtc.VDecimate(clip,
 {{#IVTC_CYCLE}}
@@ -981,6 +1050,20 @@ clip = core.knlm.KNLMeansCL(clip, d={{NR_KNLM_D}}, a={{NR_KNLM_A}}, s={{NR_KNLM_
 if {{NR_KNLM_CHROMA}} and clip.format.color_family == vs.YUV:
     clip = core.knlm.KNLMeansCL(clip, d={{NR_KNLM_D}}, a={{NR_KNLM_A}}, s={{NR_KNLM_S}}, h={{NR_KNLM_H}}, channels="UV", device_type="{{NR_KNLM_DEVICE}}")
 {{/NR_KNLM}}
+{{#NR_NLM}}
+# NLMeans on the CPU (vszip >= 24.0.0): a port of KNLMeansCL with its
+# arguments and defaults, so it needs no OpenCL device. Same output as
+# KNLMeansCL for the same arguments (measured: identical to the level on the
+# same input). Every depth natively; h is depth-independent (an 8-bit and a
+# 10-bit run agree to ~0.2 levels). Chroma in its own pass, as for KNLMeansCL:
+# channels="YUV" needs 4:4:4.
+if clip.format.color_family == vs.YUV:
+    clip = core.vszip.NLMeans(clip, d={{NR_NLM_D}}, a={{NR_NLM_A}}, s={{NR_NLM_S}}, h={{NR_NLM_H}}, channels="Y")
+    if {{NR_NLM_CHROMA}}:
+        clip = core.vszip.NLMeans(clip, d={{NR_NLM_D}}, a={{NR_NLM_A}}, s={{NR_NLM_S}}, h={{NR_NLM_H}}, channels="UV")
+else:
+    clip = core.vszip.NLMeans(clip, d={{NR_NLM_D}}, a={{NR_NLM_A}}, s={{NR_NLM_S}}, h={{NR_NLM_H}})
+{{/NR_NLM}}
 {{#NR_MCLEAN}}
 # mClean — denoise, then put detail and grain back, so the result does not look
 # plastic. The only method here that is a goal rather than a mechanism.
@@ -1247,6 +1330,53 @@ clip = haf.HQDeringmod(
 {{/DEHALO_DERING_DARKTHR}}
 )
 {{/DEHALO_HQDERING}}
+{{#DEHALO_VINE}}
+# vine: dehalo by non-local-means filtering of the error (vs-jetpack's
+# vine_dehalo, MIT, ported from release v3.0.0). Luma only, as upstream.
+#  1. NLMeans (single-pixel similarity, s=0) on a 2x NNEDI3 supersample and on
+#     the picture itself, blended by a weight derived from `sharp`;
+#  2. keep the source's low frequencies and the smoothed picture's high ones
+#     (a Gaussian split at `sigma`);
+#  3. NLMeans the difference between the source and that, guided by it, and
+#     add it back: the halo goes, the edge detail it was riding on returns.
+# The constants are upstream's. NLMeans' h is depth-independent, so nothing is
+# rescaled for >8-bit sources (8-bit and 10-bit runs agree to within rounding).
+import math as _vine_math
+
+
+def _vine_gauss(c, sigma):
+    r = max(1, min(12, int(_vine_math.ceil(sigma * 3))))
+    k = [_vine_math.exp(-(x * x) / (2.0 * sigma * sigma)) for x in range(-r, r + 1)]
+    return core.std.Convolution(core.std.Convolution(c, matrix=k, mode='h'), matrix=k, mode='v')
+
+
+_vine_strength = {{DEHALO_VINE_STRENGTH}}
+_vine_sharp = {{DEHALO_VINE_SHARP}}
+_vine_sigma = {{DEHALO_VINE_SIGMA}}
+_vine_c0 = 0.3926327792690057290863679493724 * min(_vine_sharp, 1.0)
+_vine_weight = _vine_c0 * _vine_math.log(1 + 1 / _vine_c0)
+_vine_h_refine = 18.880334973195822973214959957208 * (
+    _vine_strength / 18.880334973195822973214959957208) ** 0.5862453661304626725671053478676
+_vine_y = core.std.ShufflePlanes(clip, 0, vs.GRAY) if clip.format.num_planes > 1 else clip
+# 2x supersample: NNEDI3 keeping the source lines on the even rows (field=1),
+# then the half-pixel shift that leaves is folded into the Catrom downscale.
+_vine_ss = _nnedi3(_vine_y, field=1, dh=True)
+_vine_ss = core.std.Transpose(_nnedi3(core.std.Transpose(_vine_ss), field=1, dh=True))
+_vine_ss = core.vszip.NLMeans(_vine_ss, d=0, a=2, s=0, h=_vine_strength)
+_vine_ss = core.resize.Bicubic(_vine_ss, _vine_y.width, _vine_y.height, filter_param_a=0,
+                               filter_param_b=0.5, src_left=-0.5, src_top=-0.5)
+_vine_sm = core.vszip.NLMeans(_vine_y, d=0, a=2, s=0, h=_vine_strength)
+_vine_sm = core.std.Merge(_vine_ss, _vine_sm, _vine_weight)
+_vine_high = core.std.MergeDiff(_vine_gauss(_vine_y, _vine_sigma),
+                                core.std.MakeDiff(_vine_sm, _vine_gauss(_vine_sm, _vine_sigma)))
+_vine_ref = core.vszip.NLMeans(core.std.MakeDiff(_vine_y, _vine_high), d=0, a=2, s=4,
+                               h=_vine_h_refine, rclip=_vine_high)
+_vine_y = core.std.MergeDiff(_vine_high, _vine_ref)
+if clip.format.num_planes > 1:
+    clip = core.std.ShufflePlanes([_vine_y, clip], [0, 1, 2], clip.format.color_family)
+else:
+    clip = _vine_y
+{{/DEHALO_VINE}}
 {{/DEHALO}}
 
 # ============================================================================
@@ -1309,6 +1439,64 @@ clip = core.dctf.DCTFilter(
     planes={{DEBLOCK_DCT_PLANES}},
 )
 {{/DEBLOCK_DCTFILTER}}
+{{#DEBLOCK_MPEG2STINX}}
+# mpeg2stinx: removes the comb-like noise a film DVD picks up when its
+# progressive frames were encoded as interlaced MPEG-2 (vs-jetpack's
+# mpeg2stinx, MIT, ported from release v3.0.0, with its defaults: NNEDI3 bob
+# motion-masked by BWDIF, radius 2, limit 1.0). Each field is clamped to the
+# local range of a bob of the other field; that is done twice, each time
+# limited to how much the frame differs from its neighbours, and the two
+# results averaged. It works on the whole frame by design (it is a cross-field
+# filter), so it never takes the per-field path. Every operation is a min/max
+# or a ratio, so nothing needs rescaling for >8-bit sources.
+_stx_tff = {{DEBLOCK_STINX_TFF}}
+_stx_field = 3 if _stx_tff else 2
+
+
+def _stx_morpho(c, rx, ry, grow):
+    # vsmasktools' Morpho.expand/inpand: a (2rx+1)x(2ry+1) rectangle.
+    f = core.std.Maximum if grow else core.std.Minimum
+    for i in range(max(rx, ry)):
+        h, v = i < rx, i < ry
+        coords = [1] * 8 if (h and v) else ([0, 0, 0, 1, 1, 0, 0, 0] if h else [0, 1, 0, 0, 0, 0, 1, 0])
+        c = f(c, coordinates=coords)
+    return c
+
+
+def _stx_weave(c):
+    return core.std.DoubleWeave(c, tff=_stx_tff)[::2]
+
+
+def _stx_fields(c):
+    # _FieldBased=0 so SeparateFields honours tff (a set 1/2 overrides it).
+    return core.std.SeparateFields(core.std.SetFieldBased(c, 0), tff=_stx_tff)
+
+
+def _stx_bob(c):
+    c = core.std.SetFieldBased(c, 2 if _stx_tff else 1)
+    return core.bwdif.Bwdif(c, field=_stx_field, edeint=_nnedi3(c, field=_stx_field))
+
+
+def _stx_crossfield(c, bobbed):
+    lo, hi = _stx_morpho(bobbed, 2, 2, False), _stx_morpho(bobbed, 2, 2, True)
+    rep = _expr([core.std.Interleave([c, c]), lo, hi], 'x y max z min')
+    return _stx_weave(core.std.SelectEvery(_stx_fields(rep), 4, (2, 1)))
+
+
+def _stx_limit(src, flt, adj):
+    d = _expr([core.std.Interleave([src, src]), adj], 'x y - abs')
+    d = _stx_fields(d)
+    d = _expr([core.std.SelectEvery(d, 4, (0, 1)), core.std.SelectEvery(d, 4, (2, 3))], 'x y min')
+    d = _stx_weave(_stx_morpho(d, 2, 1, True))
+    return _expr([flt, src, d], 'x y z - max y z + min')
+
+
+clip = core.std.SetFieldBased(clip, 0)
+_stx_adj = core.std.Interleave([clip[0] + clip[:-1], clip[1:] + clip[-1]])
+_stx_1 = _stx_limit(clip, _stx_crossfield(clip, _stx_bob(clip)), _stx_adj)
+_stx_2 = _stx_limit(_stx_1, _stx_crossfield(_stx_1, _stx_bob(_stx_1)), _stx_adj)
+clip = core.std.SetFieldBased(core.std.Merge(_stx_1, _stx_2), 0)
+{{/DEBLOCK_MPEG2STINX}}
 {{#DEBLOCK_PER_FIELD}}
 if _deblock_per_field:
     clip = core.std.DoubleWeave(clip, tff={{DEBLOCK_TFF}})[::2]
@@ -1378,9 +1566,11 @@ clip = haf.daa(clip)
 
 {{#AA_SANTIAG}}
 # santiag - stronger anti-aliasing with independent horizontal and vertical
-# strength, so it can be aimed at one axis. `type` is pinned to nnedi3: havsfunc
-# also accepts eedi2 and sangnom, neither of which is in the deps bundle, and
-# naming an absent one fails at script evaluation with a bare "no attribute".
+# strength, so it can be aimed at one axis. `type` is pinned to nnedi3: eedi2 is
+# not in the deps bundle, and havsfunc's `sangnom` type calls SangNom with
+# order=0, which SangNom r45 treats as double-rate (it refuses the clip without
+# _FieldBased, and would double the frame count with it). SangNom has its own
+# method below.
 clip = haf.santiag(
     clip,
     strh={{AA_STRH}},
@@ -1388,6 +1578,21 @@ clip = haf.santiag(
     type="{{AA_TYPE}}",
 )
 {{/AA_SANTIAG}}
+{{#AA_SANGNOM}}
+# SangNom AA: supersample 2x, run SangNom along each axis keeping the even
+# lines (order=1: same rate, no shift) and come back down. The sharpest of
+# the three; at 1080p the slowest (8.6 fps against daa's 15.9, M1 Pro), since it
+# works at twice the size. `aa`
+# is in 8-bit units at every depth: the plugin scales it itself (an 8-bit and
+# a 10-bit run agree to 0.05 levels). SangNom flags its output progressive, so
+# the field order set above is put back.
+_aa_w, _aa_h = clip.width, clip.height
+_aa = core.resize.Spline36(clip, _aa_w * 2, _aa_h * 2)
+_aa = core.sangnom.SangNom(_aa, order=1, aa={{AA_SANGNOM_AA}})
+_aa = core.sangnom.SangNom(core.std.Transpose(_aa), order=1, aa={{AA_SANGNOM_AA}})
+clip = core.resize.Spline36(core.std.Transpose(_aa), _aa_w, _aa_h)
+clip = core.std.SetFieldBased(clip, {{AA_FIELD_BASED_VALUE}})
+{{/AA_SANGNOM}}
 {{/ANTI_ALIAS}}
 
 # ============================================================================

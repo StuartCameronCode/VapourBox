@@ -115,6 +115,16 @@ mvsfunc — no licence stated upstream
   would prefer it not be redistributed, please open an issue and it will be
   removed.
 
+vs-jetpack (ported code) — MIT
+  Copyright (c) 2020 - 2025 Jaded-Encoding-Thaumaturgy
+  https://github.com/Jaded-Encoding-Thaumaturgy/vs-jetpack
+  Not bundled as a package: three of its functions are ported, as VapourBox's
+  own template code, from release v3.0.0 — FixInterlacedFades (vsdeinterlace;
+  upstream describes it as an improved version of the Fix-Telecined-Fades
+  plugin), vine_dehalo (vsdehalo) and mpeg2stinx (vsdenoise). Used by the
+  Deinterlace pass's IVTC fade fix, the Dehalo pass's vine method and the
+  Deblock pass's mpeg2stinx method.
+
 adjust — WTFPL
   Copyright (c) dubhater
   https://github.com/dubhater/vapoursynth-adjust
@@ -216,7 +226,9 @@ vszip — MIT
   Copyright (c) 2024 Julek
   https://github.com/dnjulek/vapoursynth-zip
   Provides core.vszip.CLAHE (contrast-limited adaptive histogram
-  equalization), used by Color Correction's local contrast option.
+  equalization), used by Color Correction's local contrast option, and
+  core.vszip.NLMeans (non-local means on the CPU), used by Noise Reduction's
+  NLMeans method and the Dehalo pass's vine method.
   The binary statically includes two Zig libraries:
     zigimg — MIT, Copyright (c) 2019-2021 zigimg developers
       https://github.com/zigimg/zigimg
@@ -224,6 +236,16 @@ vszip — MIT
       copyright notice is given upstream
       https://github.com/dnjulek/vapoursynth-zig
       Licence text: LGPL-2.1.txt
+
+SangNom — MIT (source); binaries GPL-2.0
+  Copyright (c) 2016 james1201
+  Copyright (c) 2013 Victor Efimov
+  https://github.com/dubhatervapoursynth/vapoursynth-sangnom
+  The source header and LICENSE grant MIT; the same header states "Binaries
+  are GPL v2", and the PyPI wheels VapourBox ships declare GPL-2.0, so the
+  binaries are redistributed under GPL-2.0. Licence text: GPL-2.0.txt
+  Provides core.sangnom.SangNom, used by the Anti-aliasing pass's SangNom
+  method. Taken unmodified from the project's PyPI wheels (r45).
 
 RIFE (VapourSynth-RIFE-ncnn-Vulkan) — MIT
   Copyright (c) 2021-2022 HolyWu
@@ -679,7 +701,8 @@ Appendix — full text of the short permissive licences
 
 MIT License
 -----------
-(Applies to zsmooth, vszip and the zigimg library it includes, CAS,
+(Applies to zsmooth, vszip and the zigimg library it includes, SangNom's
+source, the code ported from vs-jetpack, CAS,
 DCTFilter, BM3D, descale, the RIFE plugin, rife-ncnn-vulkan, the RIFE model and
 ECCV2022-RIFE, the Real-CUGAN models, whisper.cpp, the Whisper models, ONNX
 Runtime, the RetinaFace face detector, the BiSeNet face parser, facexlib, pip

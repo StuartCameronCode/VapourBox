@@ -3017,6 +3017,78 @@ and subtitle alignment all need. Measured with ffmpeg 9.0.2 and deep-filter
   enforces it, so `WorkerHarness.ensureWhisper(model: 'small')` fails until
   the manifest is corrected.
 
+### SangNom, vszip 24 (NLMeans, WNNM) and three vs-jetpack ports (2026-11-08, deps 1.16.0 unreleased)
+
+Report: [docs/reports/2026-11-classical-filters](reports/2026-11-classical-filters/index.html).
+Probed on macOS arm64 against a private deps copy with vszip 24.0.0 and
+SangNom r45; fixtures are three Kodak images panned 2 px/frame (exact ground
+truth, real motion).
+
+- **havsfunc's `santiag(type="sangnom")` is broken against SangNom r45.** Its
+  strength-0 step calls `SangNom(order=0)`; r45 documents order 0 as
+  double-rate and refuses a clip without `_FieldBased`. So SangNom became its
+  own Anti-aliasing method (2x Spline36, `SangNom(order=1)` per axis, back
+  down). Every depth runs; 8 vs 10-bit 0.44 levels (santiag's own: 0.37).
+- **SangNom's licence is split.** Source header + LICENSE: MIT (james1201,
+  Victor Efimov); the same header: "Binaries are GPL v2"; PyPI metadata:
+  GPL-2.0. GitHub's SPDX detection only sees the MIT file. Credited as both.
+- **vszip: NLMeans arrived in 24.0.0, WNNM in 22.0.0.** 23.0.0 moved to Zig
+  0.17 (the macOS x64 sdist build needs `-Doptimize=fast` and the headerpad
+  patch on the 8-space `use_llvm` inside `if (build_vs)`; cross-built and
+  loaded under Rosetta with the 1.10.0 x64 VapourSynth) and made CLAHE accept
+  every depth. The arm64 wheel is now minos 15.0, exactly the floor.
+- **vszip's NLMeans is KNLMeansCL on the CPU.** Same arguments, identical
+  output (0.0000 levels on the probe, 0.0003 through the worker), h
+  depth-independent (8 vs 10-bit 0.005). Hence one set of `knlm_*` parameters
+  for both methods.
+- **WNNM was measured and not added.** At each method's best sigma, against
+  the shipped BM3D path: luma +0.7 to −2.3 dB (ahead only at sigma 4 with
+  `radius=1`), chroma 2.6–7.2 dB worse. Widening its sweep to 4x the noise
+  found nothing past 2–2.5x. It is fast (10.3 fps at 1080p with `radius=1`;
+  the shipped BM3D path ran 0.2 fps there on arm64, all three planes at
+  sigma 16), but NLMeans (CPU) is faster (23.0 fps) with better chroma.
+  SangNom AA turned out the slowest AA method at 1080p (8.6 fps; daa 15.9,
+  santiag 19.6) — an early clip.frames() probe under load had it fastest,
+  and the first draft said so. WNNM needs 32-bit float and divides sigma by 255,
+  so its float conversion must keep sigma in 8-bit units: with the default
+  (limited) range, luma spans 219 levels per 1.0 and chroma 224. Passing
+  `range_in_s="full"` instead broke at 10-bit (a 7-level offset) because the
+  clip carried `_ColorRange=limited`.
+- **vszip's own CPU BM3D** (also new in 24.0.0) scored 1.1–2.2 dB below the
+  bm3d r12 path on every fixture; not used.
+- **The ports were checked against vs-jetpack itself** (vsjetpack 2.2.7 on the
+  bundle's Python 3.12; its three functions are byte-identical to 3.0.0's):
+  mpeg2stinx 0.04 levels, FixInterlacedFades exact in both modes. vine could
+  not run there — vs-jetpack's Catrom is a custom resize2 kernel.
+- **mpeg2stinx lost PSNR on every fixture** (progressive pans as interlaced
+  MPEG-2, and 3:2-telecined MPEG-2 after VIVTC): −0.1 to −3.0 dB, about −4.5 dB
+  on cleanly coded frames and +0.1 on starved ones. It clamps each field to a
+  bob of the other, which costs vertical detail; the fixtures lack the
+  comb-like noise it targets. Shipped advanced-only with that in its
+  description. VFM flagged every frame of the detailed pan `_Combed`.
+- **FixInterlacedFades closes the comb of a fade applied after the field
+  split**: field gap 5.27 → 0.29 levels (average), 0.00004 (match); through the
+  worker on a real clip 4.12 → 0.06. Two traps: `average` leaves the last
+  frame of a fade to full black half-lit (one field's distance is 0, so it is
+  left alone and the other set to half); and `std.DoubleWeave` sets
+  `_FieldBased=2`, which made a later 4:2:0 resize treat the progressive
+  frames as fields ("dimensions must be divisible by subsampling factor" at
+  an odd field-chroma height) until the block reset it.
+- **The first fade fix crashed or hung real jobs.** It made an akarin
+  `Expr` per frame inside two concurrent FrameEvals. Under vspipe that
+  aborted (SIGABRT, 10 frames), segfaulted (SIGSEGV, a 720x576 IVTC job
+  through the worker) or spun one core indefinitely (97 minutes on 30
+  frames, found when the benchmark hung); single-threaded, or with
+  `std.Expr`, it was fine, and the 320x240 heavy test and the Python-side
+  probes never tripped it. Fixed by stamping the gains as frame properties
+  (`ModifyFrame`, no node creation) and applying them with one akarin
+  expression; the std.Expr FrameEval remains only where akarin is absent.
+  Colour Correction's auto white balance makes an akarin node per frame in a
+  single FrameEval the same way; it did not reproduce (30 frames, vspipe), but
+  it is the same pattern. A heavy test now times a full-size IVTC + fade-fix
+  job (2.5 s), and fails on the old block with the SIGSEGV.
+- **vine** on an oversharpened pan: +0.9 to +1.1 dB, against DeHalo_alpha's
+  +4.1 to +4.4 (which blurs the amplified texture away). Advanced-only.
 ### Face restoration: RestoreFormer++ on ONNX Runtime, steadied in aligned space (2026-11-08)
 
 Full report with images and scripts:

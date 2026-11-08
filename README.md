@@ -83,7 +83,7 @@ Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract
 
 ## Hardware and add-ons
 
-**GPU features.** RIFE frame interpolation and AI upscaling run on the graphics card through Vulkan: on any Apple Silicon Mac, and on Windows and Linux x64 PCs with a current graphics driver (RIFE on Windows also needs the Microsoft Visual C++ Redistributable). They aren't available on Intel Macs or Linux on ARM yet. GPU deinterlacing and KNLMeans denoising use OpenCL instead; without it, deinterlacing falls back to the CPU. Whenever you choose a GPU feature your machine can't run, VapourBox says what's missing and how to fix it. Face restoration runs through the AI runtime instead: on the graphics card and Neural Engine on a Mac (Core ML), on any DirectX 12 graphics card on Windows (DirectML), and on the CPU on Linux, which is several times slower.
+**GPU features.** RIFE frame interpolation and AI upscaling run on the graphics card through Vulkan: on any Apple Silicon Mac, and on Windows and Linux x64 PCs with a current graphics driver (RIFE on Windows also needs the Microsoft Visual C++ Redistributable). They aren't available on Intel Macs or Linux on ARM yet. GPU deinterlacing and KNLMeans denoising use OpenCL instead; without it, deinterlacing falls back to the CPU, and NLMeans gives KNLMeans' result on the CPU. Whenever you choose a GPU feature your machine can't run, VapourBox says what's missing and how to fix it. Face restoration runs through the AI runtime instead: on the graphics card and Neural Engine on a Mac (Core ML), on any DirectX 12 graphics card on Windows (DirectML), and on the CPU on Linux, which is several times slower.
 
 **Add-ons.** A few features use third-party downloads that aren't part of VapourBox: the Whisper engine and language models for subtitles, the AnimeJaNai and live-action models for AI upscaling, DeepFilterNet for speech enhancement in Audio Restoration, the face restoration models, and the AI runtime (Microsoft's ONNX Runtime) that AI model add-ons run on. VapourBox offers to download one the first time you need it, stating its source, size and licence, and **Settings → Add-ons** installs or removes them at any time. AnimeJaNai is free for **non-commercial use only** (CC BY-NC-SA 4.0); for paid work, use Real-ESRGAN or Real-CUGAN instead. Of the face restoration models, RestoreFormer++ (the default) is free for any use; GFPGAN and CodeFormer are for **non-commercial use only**.
 
@@ -120,7 +120,7 @@ Most sources need only a few of these, and the presets pick them for you. Filter
 | 10 | **Dehalo** | Bright outlines and ringing around edges |
 | 11 | **Deblock** | Blocking from heavy compression |
 | 12 | **Deband** | Visible steps in gradients and skies |
-| 13 | **Anti-Aliasing** | Stair-stepping on diagonal edges |
+| 13 | **Anti-Aliasing** | Stair-stepping on diagonal edges: daa, santiag, or SangNom (sharpest) |
 | 14 | **Chroma Fixes** | Colour shifted off the picture, bleeding, rainbowing, dot crawl and leftover combing |
 | 15 | **Color Correction** | Brightness, contrast, saturation, levels, white balance, shadow detail and local contrast, set by hand or measured |
 | 16 | **Stabilize** | Shake and weave from telecine, film scans or a handheld camera |
@@ -207,7 +207,8 @@ Your own presets are saved alongside these, and can be **exported and imported**
 By default each filter shows a short, curated set of choices. **Settings → General → Show advanced options** (or the switch beside any filter's settings) reveals every method and parameter, including:
 
 - all 70+ QTGMC parameters, and opt-in higher-precision deinterlacing (4:2:2 chroma, 16-bit processing);
-- the less common denoisers: DFTTest, FFT3DFilter, TTempSmooth, FluxSmooth, STPresso, TemporalDegrain2, BM3D, KNLMeans and a large-window median;
+- the less common denoisers: DFTTest, FFT3DFilter, TTempSmooth, FluxSmooth, STPresso, TemporalDegrain2, BM3D, KNLMeans (GPU), NLMeans (the same filter on the CPU) and a large-window median;
+- specialist repairs: the vine dehalo, mpeg2stinx for the comb-like noise of film DVDs, and a fade-fix mode for IVTC (fades added after telecine);
 - fine control of edge-directed upscaling (NNEDI3's neurons, quality and prescreener; EEDI3's weights);
 - Descale's explicit native width and edge handling.
 
@@ -276,7 +277,9 @@ VapourBox is a front end to other people's work. Thanks in particular to:
 - **mawen1250** — Retinex, BM3D and mvsfunc
 - **Edoardo Brunetti** (maintained by Jaded Encoding Thaumaturgy) — KNLMeansCL
 - **Frechdachs** (maintained by Jaded Encoding Thaumaturgy) — descale
-- **vszip** by Julek — CLAHE, the local-contrast lift in Color Correction
+- **vszip** by Julek — CLAHE, the local-contrast lift in Color Correction, and NLMeans, the CPU non-local-means denoiser
+- **SangNom** by james1201 and Victor Efimov — the SangNom anti-aliasing method
+- **vs-jetpack** by the Jaded Encoding Thaumaturgy project — FixInterlacedFades, vine_dehalo and mpeg2stinx, ported into VapourBox's filter scripts
 - **RIFE** by hzwer (with Megvii) — the frame interpolation network, run through HolyWu's VapourSynth plugin (built on nihui's rife-ncnn-vulkan and Tencent's ncnn), with **MoltenVK** for Vulkan on macOS
 - **Real-ESRGAN** by Xintao Wang and **Real-CUGAN** by bilibili — the AI upscaling networks, run through AmusementClub's **vs-mlrt** (VSNCNN)
 - **AnimeJaNai** by the-database — anime upscaling models, an optional download (CC BY-NC-SA 4.0, non-commercial use only)

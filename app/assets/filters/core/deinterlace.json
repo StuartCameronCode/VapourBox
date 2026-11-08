@@ -1961,6 +1961,45 @@
           ]
         }
       }
+    },
+    "ivtcFixFades": {
+      "type": "boolean",
+      "default": false,
+      "sinceAppVersion": "1.7.0",
+      "ui": {
+        "label": "Fix fades added after telecine",
+        "description": "For fades that still comb after inverse telecine (the fade was applied to the telecined video). Rescales each field so both sit at the same point in the fade, without blurring. Leaves other frames practically unchanged",
+        "widget": "checkbox",
+        "visibleWhen": {
+          "method": [
+            "ivtc"
+          ]
+        }
+      }
+    },
+    "ivtcFadeMode": {
+      "type": "enum",
+      "default": "average",
+      "options": [
+        "average",
+        "match"
+      ],
+      "sinceAppVersion": "1.7.0",
+      "ui": {
+        "label": "Fade fix mode",
+        "description": "Average puts both fields at their mean level; Match darkens the brighter field to the darker one, which also cleans the last frames of a fade to full black",
+        "widget": "dropdown",
+        "optionLabels": {
+          "average": "Average",
+          "match": "Match"
+        },
+        "visibleWhen": {
+          "method": [
+            "ivtc"
+          ],
+          "ivtcFixFades": true
+        }
+      }
     }
   },
   "parameterPresets": {
@@ -2095,7 +2134,8 @@
         "title": "IVTC Settings",
         "parameters": [
           "ivtcMode",
-          "ivtcCycle"
+          "ivtcCycle",
+          "ivtcFixFades"
         ],
         "expanded": true
       },
@@ -2107,7 +2147,8 @@
           "ivtcBlockX",
           "ivtcBlockY",
           "ivtcDupthresh",
-          "ivtcScthresh"
+          "ivtcScthresh",
+          "ivtcFadeMode"
         ],
         "expanded": false,
         "advancedOnly": true

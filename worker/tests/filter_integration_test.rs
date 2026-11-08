@@ -4022,8 +4022,9 @@ fn test_105_anti_alias_santiag() {
 
 #[test]
 fn test_106_santiag_type_cannot_name_an_unbundled_interpolator() {
-    // havsfunc accepts eedi2 and sangnom; neither is in the deps bundle, and
-    // naming one fails at script evaluation rather than degrading.
+    // havsfunc accepts eedi2 and sangnom. eedi2 is not in the deps bundle, and
+    // havsfunc's sangnom type calls SangNom(order=0), which SangNom r45 refuses
+    // without _FieldBased; either fails at script evaluation.
     create_output_dir();
     let mut job = create_base_job("test_106_aa_santiag_type");
     job.qtgmc_parameters.enabled = false;
@@ -4325,6 +4326,7 @@ fn test_115_every_noise_method_still_emits_only_its_own_filter() {
         ("stpresso", "haf.STPresso"),
         ("bm3d", "core.bm3d."),
         ("knlm", "core.knlm.KNLMeansCL("),
+        ("nlm", "core.vszip.NLMeans("),
     ];
 
     let methods = [
@@ -4338,6 +4340,7 @@ fn test_115_every_noise_method_still_emits_only_its_own_filter() {
         (NoiseReductionMethod::StPresso, "stpresso"),
         (NoiseReductionMethod::Bm3d, "bm3d"),
         (NoiseReductionMethod::KnlMeans, "knlm"),
+        (NoiseReductionMethod::NlMeans, "nlm"),
     ];
 
     for (method, key) in methods {
@@ -5467,6 +5470,7 @@ fn test_149_every_noise_reduction_method_emits_its_filter() {
         (NoiseReductionMethod::TemporalDegrain2, "_TemporalDegrain2("),
         (NoiseReductionMethod::Bm3d, "core.bm3d.VBasic("),
         (NoiseReductionMethod::KnlMeans, "core.knlm.KNLMeansCL("),
+        (NoiseReductionMethod::NlMeans, "core.vszip.NLMeans("),
     ];
     // The list above is hand-written; this match is not. A new method fails to
     // compile here until it is added both here and to the list.
@@ -5475,11 +5479,11 @@ fn test_149_every_noise_reduction_method_emits_its_filter() {
         match m {
             SmDegrain | McTemporalDenoise | McDegrainSharp | DfTtest | Fft3dFilter
             | TTempSmooth | FluxSmoothT | FluxSmoothSt | StPresso | Ctmf | MClean
-            | TemporalDegrain2 | Bm3d | KnlMeans => true,
+            | TemporalDegrain2 | Bm3d | KnlMeans | NlMeans => true,
             QtgmcBuiltin => false, // denoises inside the QTGMC pass
         }
     }
-    assert_eq!(expected.len(), 14);
+    assert_eq!(expected.len(), 15);
     assert!(expected.iter().all(|(m, _)| listed(*m)));
 
     for (method, call) in expected {
@@ -6818,6 +6822,8 @@ fn test_183_deblock_per_field_when_still_interlaced() {
         DeblockMethod::DeblockQed => "haf.Deblock_QED(",
         DeblockMethod::Deblock => "core.deblock.Deblock(",
         DeblockMethod::DctFilter => "core.dctf.DCTFilter(",
+        // Never per field; test_203's.
+        DeblockMethod::Mpeg2Stinx => unreachable!("mpeg2stinx takes the whole frame"),
     };
 
     for method in &[DeblockMethod::DeblockQed, DeblockMethod::Deblock, DeblockMethod::DctFilter] {
@@ -6877,6 +6883,280 @@ fn test_184_flowfps_length_is_set_by_the_script() {
             .unwrap_or_else(|| panic!("{name}: no pad"));
         assert!(len < call, "{name}: length must be taken from FlowFPS's input");
         assert!(call < trim && call < pad, "{name}: length set before FlowFPS");
+    }
+}
+
+
+// ===========================================================================
+// deps 1.16.0: SangNom, vszip NLMeans, and the vs-jetpack ports (app 1.7.0)
+// ===========================================================================
+
+/// SangNom AA: its own block, `aa` clamped to the plugin's 0-128, the field
+/// order put back afterwards, and neither of the other methods emitted.
+#[test]
+fn test_200_anti_alias_sangnom() {
+    create_output_dir();
+    let job_with = |aa: i32| {
+        let mut job = create_base_job("test_200_aa_sangnom");
+        job.qtgmc_parameters.enabled = false;
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            anti_alias: AntiAliasParameters {
+                enabled: true,
+                method: AntiAliasMethod::SangNom,
+                sangnom_aa: aa,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+    let (encode, preview) = generate_both_scripts(&job_with(64));
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("_aa = core.sangnom.SangNom(_aa, order=1, aa=64)"), "{name}: first axis");
+        assert!(
+            script.contains("_aa = core.sangnom.SangNom(core.std.Transpose(_aa), order=1, aa=64)"),
+            "{name}: second axis"
+        );
+        assert!(script.contains("core.resize.Spline36(clip, _aa_w * 2, _aa_h * 2)"), "{name}: supersample");
+        let sangnom = script.find("core.sangnom.SangNom(").unwrap();
+        let restore = script.rfind("clip = core.std.SetFieldBased(clip, ").unwrap();
+        assert!(restore > sangnom, "{name}: field order not put back after SangNom");
+        assert!(!script.contains("haf.daa("), "{name}: daa emitted too");
+        assert!(!script.contains("haf.santiag("), "{name}: santiag emitted too");
+        assert!(!script.contains("{{AA_"), "{name}: placeholder left");
+    }
+    assert!(script_text(&job_with(500)).contains("order=1, aa=128)"));
+    assert!(script_text(&job_with(-3)).contains("order=1, aa=0)"));
+}
+
+/// NLMeans (CPU): vszip's NLMeans with the knlm_* values, chroma in its own
+/// pass, and it runs where KNLMeansCL is refused for want of a device.
+#[test]
+fn test_201_noise_reduction_nlmeans_cpu() {
+    create_output_dir();
+    let job = nr_job("test_201_nlm", NoiseReductionParameters {
+        method: NoiseReductionMethod::NlMeans,
+        knlm_h: 2.5,
+        knlm_d: 2,
+        knlm_a: 3,
+        knlm_s: 1,
+        knlm_chroma: true,
+        ..Default::default()
+    });
+    // No OpenCL device at all: NLMeans must not care.
+    let message = vapourbox_worker::dependency_locator::KNLM_NO_DEVICE_MESSAGE;
+    let generator = ScriptGenerator::new().unwrap().with_knlm(Err(message.into()));
+    let (encode, preview) = both_scripts_with(&generator, &job).expect("NLMeans needs no OpenCL");
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains(
+            "clip = core.vszip.NLMeans(clip, d=2, a=3, s=1, h=2.50, channels=\"Y\")"), "{name}: luma");
+        assert!(script.contains(
+            "clip = core.vszip.NLMeans(clip, d=2, a=3, s=1, h=2.50, channels=\"UV\")"), "{name}: chroma");
+        assert!(script.contains("    if True:"), "{name}: chroma switch");
+        assert!(!script.contains("core.knlm.KNLMeansCL("), "{name}: KNLMeansCL emitted");
+        assert!(!script.contains("core.bm3d."), "{name}: BM3D emitted");
+        assert!(!script.contains("{{NR_NLM"), "{name}: placeholder left");
+    }
+    // The refusal names the CPU method as the way out.
+    assert!(message.contains("NLMeans (CPU)"), "{message}");
+    // Same preview radius as KNLMeans: d frames each side, at least 3.
+    let mut nr = NoiseReductionParameters { method: NoiseReductionMethod::NlMeans, knlm_d: 4, ..Default::default() };
+    assert_eq!(nr.temporal_radius(), 4);
+    nr.knlm_d = 1;
+    assert_eq!(nr.temporal_radius(), 3);
+}
+
+/// vine: the ported block with the clamped values, through the helpers.
+#[test]
+fn test_202_dehalo_vine() {
+    create_output_dir();
+    let job_with = |strength: f64, sharp: f64, sigma: f64| {
+        let mut job = create_base_job("test_202_vine");
+        job.qtgmc_parameters.enabled = false;
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            dehalo: DehaloParameters {
+                enabled: true,
+                method: DehaloMethod::Vine,
+                vine_strength: strength,
+                vine_sharp: sharp,
+                vine_sigma: sigma,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+    let (encode, preview) = generate_both_scripts(&job_with(24.0, 0.25, 1.5));
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("_vine_strength = 24.000"), "{name}");
+        assert!(script.contains("_vine_sharp = 0.250"), "{name}");
+        assert!(script.contains("_vine_sigma = 1.500"), "{name}");
+        assert!(script.contains("_nnedi3(_vine_y, field=1, dh=True)"), "{name}: supersample");
+        assert!(script.contains("core.vszip.NLMeans(_vine_ss, d=0, a=2, s=0, h=_vine_strength)"), "{name}");
+        assert!(script.contains("rclip=_vine_high"), "{name}: refine pass");
+        assert!(!script.contains("haf.DeHalo_alpha("), "{name}: other method emitted");
+        assert!(!script.contains("{{DEHALO_VINE"), "{name}: placeholder left");
+    }
+    // NLMeans refuses h <= 0; vs-jetpack refuses sharp <= 0; 25 taps max.
+    let clamped = script_text(&job_with(0.0, -1.0, 99.0));
+    assert!(clamped.contains("_vine_strength = 1.000"));
+    assert!(clamped.contains("_vine_sharp = 0.050"));
+    assert!(clamped.contains("_vine_sigma = 4.000"));
+    let nan = script_text(&job_with(f64::NAN, f64::INFINITY, f64::NAN));
+    assert!(nan.contains("_vine_strength = 16.000") && nan.contains("_vine_sharp = 0.500"));
+}
+
+/// mpeg2stinx: always the whole frame (it is a cross-field filter), with the
+/// encode's field order, and a preview window of one frame each side.
+#[test]
+fn test_203_deblock_mpeg2stinx() {
+    create_output_dir();
+    let job_for = |deinterlace: bool, detected: Option<FieldOrder>| {
+        let mut job = create_base_job("test_203_mpeg2stinx");
+        job.detected_field_order = detected;
+        job.qtgmc_parameters.enabled = deinterlace;
+        job.qtgmc_parameters.tff = Some(false);
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: job.qtgmc_parameters.clone(),
+            deblock: DeblockParameters { enabled: true, method: DeblockMethod::Mpeg2Stinx, ..Default::default() },
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+    for (job, tff) in [
+        (job_for(false, Some(FieldOrder::BottomFieldFirst)), "False"),
+        (job_for(false, Some(FieldOrder::TopFieldFirst)), "True"),
+        (job_for(false, None), "True"),
+        (job_for(true, Some(FieldOrder::TopFieldFirst)), "False"), // the deinterlace pass's order wins
+    ] {
+        let (encode, preview) = generate_both_scripts(&job);
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(script.contains(&format!("_stx_tff = {tff}")), "{name}: field order {tff}");
+            assert!(script.contains("core.bwdif.Bwdif(c, field=_stx_field, edeint=_nnedi3(c, field=_stx_field))"));
+            assert!(script.contains("clip = core.std.SetFieldBased(core.std.Merge(_stx_1, _stx_2), 0)"));
+            assert!(!script.contains("_deblock_per_field"), "{name}: mpeg2stinx must not run per field");
+            assert!(!script.contains("haf.Deblock_QED(") && !script.contains("core.dctf.DCTFilter("));
+            assert!(!script.contains("{{DEBLOCK"), "{name}: placeholder left");
+        }
+    }
+    let p = job_for(false, None).processing_pipeline.unwrap();
+    let deblock_map = p
+        .enabled_passes()
+        .into_iter()
+        .zip(p.frame_maps())
+        .find(|(pass, _)| *pass == PassType::Deblock)
+        .map(|(_, m)| m)
+        .unwrap();
+    assert_eq!(deblock_map, FrameMap::Identity { radius: 1 });
+}
+
+/// The IVTC fade fix: right after VFM in both scripts when ticked, absent
+/// otherwise and for every other deinterlace method.
+#[test]
+fn test_204_ivtc_fix_fades() {
+    create_output_dir();
+    let job_for = |method: DeinterlaceMethod, fix: bool, mode: &str| {
+        let mut job = create_base_job("test_204_ivtc_fades");
+        job.qtgmc_parameters = QTGMCParameters {
+            enabled: true,
+            method,
+            tff: Some(true),
+            ivtc_fix_fades: fix,
+            ivtc_fade_mode: mode.to_string(),
+            ..Default::default()
+        };
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: job.qtgmc_parameters.clone(),
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+    for (mode, expect) in [("average", "average"), ("match", "match"), ("MATCH", "match"), ("bogus", "average")] {
+        let (encode, preview) = generate_both_scripts(&job_for(DeinterlaceMethod::Ivtc, true, mode));
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            let vfm = script.find("core.vivtc.VFM(").expect("VFM");
+            let fix = script.find("_fade_fields = core.std.SeparateFields(").unwrap_or_else(|| panic!("{name}: no fix"));
+            assert!(fix > vfm, "{name}: the fix must follow field matching");
+            assert!(script.contains(&format!("if '{expect}' == 'average' else min(a, b)")), "{name}: mode {mode}");
+            // Where akarin exists the gains are frame properties read by ONE
+            // expression: an akarin node made per frame inside FrameEval
+            // crashed or hung vspipe under concurrency.
+            assert!(script.contains("core.std.ModifyFrame(_fade_top, [_fade_top] + _fade_props,"), "{name}");
+            assert!(script.contains("_fade_apply = [f'x x.FadeGain{i} *' for i in range(_fade_fmt.num_planes)]"),
+                    "{name}");
+            if let Some(decimate) = script.find("core.vivtc.VDecimate(") {
+                assert!(fix < decimate, "{name}: before decimation");
+            }
+            assert!(!script.contains("{{IVTC_FADE_MODE}}") && !script.contains("DEINT_IVTC_FIX_FADES"));
+        }
+    }
+    for job in [
+        job_for(DeinterlaceMethod::Ivtc, false, "average"),
+        job_for(DeinterlaceMethod::Qtgmc, true, "average"),
+    ] {
+        let (encode, preview) = generate_both_scripts(&job);
+        for script in [&encode, &preview] {
+            assert!(!script.contains("_fade_fields"), "fade fix emitted when not asked for");
+            assert!(!script.contains("DEINT_IVTC_FIX_FADES"), "marker left");
+        }
+    }
+    let p: QTGMCParameters = serde_json::from_str("{}").unwrap();
+    assert!(!p.ivtc_fix_fades);
+    assert_eq!(p.effective_ivtc_fade_mode(), "average");
+}
+
+/// Every block added for deps 1.16.0 goes through the templates' helpers
+/// (test_92 / test_93 enforce the rule template-wide; this pins it to the new
+/// code paths by generating each one) and leaves no placeholder behind.
+#[test]
+fn test_205_new_blocks_use_the_helpers() {
+    create_output_dir();
+    let base = || {
+        let mut job = create_base_job("test_205_helpers");
+        job.qtgmc_parameters.enabled = false;
+        job
+    };
+    let pipelines = [
+        ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            anti_alias: AntiAliasParameters { enabled: true, method: AntiAliasMethod::SangNom, ..Default::default() },
+            dehalo: DehaloParameters { enabled: true, method: DehaloMethod::Vine, ..Default::default() },
+            deblock: DeblockParameters { enabled: true, method: DeblockMethod::Mpeg2Stinx, ..Default::default() },
+            noise_reduction: NoiseReductionParameters {
+                enabled: true,
+                method: NoiseReductionMethod::NlMeans,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        },
+        ProcessingPipeline {
+            deinterlace: QTGMCParameters {
+                enabled: true,
+                method: DeinterlaceMethod::Ivtc,
+                ivtc_fix_fades: true,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        },
+    ];
+    for pipeline in pipelines {
+        let mut job = base();
+        job.qtgmc_parameters = pipeline.deinterlace.clone();
+        job.processing_pipeline = Some(pipeline);
+        let (encode, preview) = generate_both_scripts(&job);
+        for script in [&encode, &preview] {
+            for banned in ["core.std.Expr(", "core.znedi3.nnedi3(", "core.nnedi3.nnedi3("] {
+                // The helper's own body is the only call site.
+                let uses = script.matches(banned).count();
+                assert!(uses <= 1, "{banned} called outside its helper ({uses} uses)");
+            }
+            for marker in ["{{AA_", "NR_NLM", "DEHALO_VINE", "DEBLOCK_STINX", "DEBLOCK_MPEG2STINX", "IVTC_FADE",
+                           "DEINT_IVTC_FIX_FADES"] {
+                assert!(!script.contains(marker), "{marker} left in a generated script");
+            }
+        }
     }
 }
 

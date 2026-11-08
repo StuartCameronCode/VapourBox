@@ -27,6 +27,12 @@ pub enum DehaloMethod {
     /// dehalo's wider bright band.
     #[serde(rename = "HQDeringmod")]
     HqDeringmod,
+    /// vine: dehalo by non-local-means filtering of the error (vs-jetpack's
+    /// vine_dehalo, ported into the templates). Keeps the edge detail the halo
+    /// rides on rather than blurring the band (app 1.7.0, deps 1.16.0: needs
+    /// vszip's NLMeans).
+    #[serde(rename = "vine")]
+    Vine,
 }
 
 #[allow(dead_code)]
@@ -41,6 +47,7 @@ impl DehaloMethod {
             DehaloMethod::Vinverse => "Vinverse",
             DehaloMethod::Vinverse2 => "Vinverse2",
             DehaloMethod::HqDeringmod => "HQDeringmod",
+            DehaloMethod::Vine => "vine",
         }
     }
 
@@ -203,6 +210,20 @@ pub struct DehaloParameters {
     /// inside havsfunc, which is usually what you want.
     #[serde(default)]
     pub dering_darkthr: Option<f64>,
+
+    // --- vine parameters ---
+
+    /// NLMeans strength (vs-jetpack's `strength`, default 16). Depth-independent.
+    #[serde(default = "default_vine_strength")]
+    pub vine_strength: f64,
+
+    /// How much of the supersampled pass to blend in (`sharp`, default 0.5).
+    #[serde(default = "default_vine_sharp")]
+    pub vine_sharp: f64,
+
+    /// Gaussian sigma of the low/high frequency split (`sigma`, default 1.0).
+    #[serde(default = "default_vine_sigma")]
+    pub vine_sigma: f64,
 }
 
 fn default_rx() -> f64 { 2.0 }
@@ -213,6 +234,9 @@ fn default_low_threshold() -> i32 { 80 }
 fn default_high_threshold() -> i32 { 128 }
 fn default_yahr_blur() -> i32 { 2 }
 fn default_yahr_depth() -> i32 { 32 }
+fn default_vine_strength() -> f64 { 16.0 }
+fn default_vine_sharp() -> f64 { 0.5 }
+fn default_vine_sigma() -> f64 { 1.0 }
 
 impl Default for DehaloParameters {
     fn default() -> Self {
@@ -248,6 +272,24 @@ impl Default for DehaloParameters {
             dering_mthr: None,
             dering_thr: None,
             dering_darkthr: None,
+            vine_strength: default_vine_strength(),
+            vine_sharp: default_vine_sharp(),
+            vine_sigma: default_vine_sigma(),
         }
+    }
+}
+
+impl DehaloParameters {
+    /// vine's (strength, sharp, sigma), clamped to what the script can take:
+    /// NLMeans needs h > 0; vs-jetpack refuses sharp <= 0 and caps its effect
+    /// at 1; the Gaussian kernel is limited to 25 taps (sigma 4). A non-finite
+    /// value falls back to the default rather than reaching the script.
+    pub fn vine_effective(&self) -> (f64, f64, f64) {
+        let pick = |v: f64, d: f64, lo: f64, hi: f64| if v.is_finite() { v.clamp(lo, hi) } else { d };
+        (
+            pick(self.vine_strength, default_vine_strength(), 1.0, 64.0),
+            pick(self.vine_sharp, default_vine_sharp(), 0.05, 1.0),
+            pick(self.vine_sigma, default_vine_sigma(), 0.3, 4.0),
+        )
     }
 }

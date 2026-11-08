@@ -1556,7 +1556,10 @@ void main() {
       // Deinterlacing off + a detected field order: every method runs between
       // SeparateFields and DoubleWeave (docs/reports/2026-11-deblock-order).
       loadSchema('deblock');
-      for (final method in DeblockMethod.values) {
+      // mpeg2stinx is a cross-field filter and always takes the whole frame
+      // (asserted in its own test below).
+      for (final method
+          in DeblockMethod.values.where((m) => m != DeblockMethod.mpeg2stinx)) {
         final job = buildJob(
           testName: 'deblock_per_field_${method.name}',
           deblock: DeblockParameters(enabled: true, method: method),
@@ -1570,6 +1573,7 @@ void main() {
           DeblockMethod.deblockQed => 'haf.Deblock_QED(',
           DeblockMethod.deblock => 'core.deblock.Deblock(',
           DeblockMethod.dctFilter => 'core.dctf.DCTFilter(',
+          DeblockMethod.mpeg2stinx => throw StateError('excluded above'),
         };
         final at = script.indexOf(call);
         expect(at > split && at < weave, isTrue,
@@ -1582,6 +1586,115 @@ void main() {
       ));
       expect(progressive, contains('haf.Deblock_QED('));
       expect(progressive, isNot(contains('_deblock_per_field')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // --- deps 1.16.0: SangNom, vszip NLMeans, vs-jetpack ports (app 1.7.0) ---
+
+    test('anti-alias: SangNom AA, strength reaching both axes', () async {
+      loadSchema('anti_alias');
+      final job = buildJob(
+        testName: 'aa_sangnom',
+        antiAlias: const AntiAliasParameters(
+          enabled: true,
+          method: AntiAliasMethod.sangnom,
+          sangnomAa: 72,
+        ),
+      );
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.sangnom.SangNom(_aa, order=1, aa=72)'));
+      expect(script,
+          contains('core.sangnom.SangNom(core.std.Transpose(_aa), order=1, aa=72)'));
+      expect(script, isNot(contains('haf.santiag(')));
+      expect(script, isNot(contains('haf.daa(')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('noise reduction: NLMeans (CPU) uses the KNLMeans settings, no OpenCL',
+        () async {
+      loadSchema('noise_reduction');
+      final job = buildJob(
+        testName: 'nr_nlm_cpu',
+        noiseReduction: const NoiseReductionParameters(
+          enabled: true,
+          method: NoiseReductionMethod.nlMeans,
+          knlmH: 2.5,
+          knlmD: 2,
+          knlmChroma: false,
+        ),
+      );
+      // No OpenCL involved (test_201 checks it runs where KNLMeans is refused).
+      final script = await generateScriptViaWorker(job);
+      expect(script,
+          contains('core.vszip.NLMeans(clip, d=2, a=2, s=4, h=2.50, channels="Y")'));
+      expect(script, contains('    if False:'));
+      expect(script, isNot(contains('core.knlm.KNLMeansCL(')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('dehalo: vine params reach the ported block', () async {
+      loadSchema('dehalo');
+      final job = buildJob(
+        testName: 'dehalo_vine',
+        dehalo: const DehaloParameters(
+          enabled: true,
+          method: DehaloMethod.vine,
+          vineStrength: 20.0,
+          vineSharp: 0.75,
+          vineSigma: 1.5,
+        ),
+      );
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('_vine_strength = 20.000'));
+      expect(script, contains('_vine_sharp = 0.750'));
+      expect(script, contains('_vine_sigma = 1.500'));
+      expect(script, contains('core.vszip.NLMeans(_vine_y, d=0, a=2, s=0, h=_vine_strength)'));
+      expect(script, isNot(contains('haf.DeHalo_alpha(')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('deblock: mpeg2stinx takes the whole frame with the detected order',
+        () async {
+      loadSchema('deblock');
+      final job = buildJob(
+        testName: 'deblock_mpeg2stinx',
+        deblock: const DeblockParameters(
+            enabled: true, method: DeblockMethod.mpeg2stinx),
+      ).copyWith(detectedFieldOrder: FieldOrder.bottomFieldFirst);
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('_stx_tff = False'));
+      expect(script,
+          contains('clip = core.std.SetFieldBased(core.std.Merge(_stx_1, _stx_2), 0)'));
+      expect(script, isNot(contains('_deblock_per_field')),
+          reason: 'mpeg2stinx is a cross-field filter: never per field');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('ivtc: fade fix follows field matching, in the chosen mode', () async {
+      loadSchema('deinterlace');
+      for (final (fix, mode) in [(true, 'match'), (false, 'average')]) {
+        final job = buildJob(
+          testName: 'ivtc_fades_$fix',
+          deinterlace: QTGMCParameters(
+            enabled: true,
+            method: DeinterlaceMethod.ivtc,
+            tff: true,
+            ivtcFixFades: fix,
+            ivtcFadeMode: mode,
+          ),
+        );
+        final script = await generateScriptViaWorker(job);
+        if (fix) {
+          final vfm = script.indexOf('core.vivtc.VFM(');
+          final at = script.indexOf('_fade_fields = core.std.SeparateFields(');
+          final decimate = script.indexOf('core.vivtc.VDecimate(');
+          expect(at, greaterThan(vfm));
+          expect(at, lessThan(decimate));
+          expect(script, contains("if 'match' == 'average' else min(a, b)"));
+        } else {
+          expect(script, isNot(contains('_fade_fields')));
+        }
+      }
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 

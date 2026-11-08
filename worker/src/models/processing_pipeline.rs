@@ -615,6 +615,10 @@ impl ProcessingPipeline {
             PassType::EdgeRepair => FrameMap::Identity { radius: 0 },
             PassType::GhostRemoval => FrameMap::Identity { radius: 0 },
             PassType::Descale => FrameMap::Identity { radius: 0 },
+            // mpeg2stinx limits each change by the neighbouring frames.
+            PassType::Deblock => FrameMap::Identity {
+                radius: if self.deblock.method == super::DeblockMethod::Mpeg2Stinx { 1 } else { 0 },
+            },
             // Restored faces are blended with their neighbours', whose landmarks
             // are smoothed over theirs: twice the smoothing radius.
             PassType::FaceRestore => FrameMap::Identity { radius: self.face_restore.frames_read_either_side() },

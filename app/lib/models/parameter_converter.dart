@@ -141,6 +141,8 @@ class ParameterConverter {
         'ivtcCycle': params.ivtcCycle,
         'ivtcDupthresh': params.ivtcDupthresh,
         'ivtcScthresh': params.ivtcScthresh,
+        'ivtcFixFades': params.ivtcFixFades,
+        'ivtcFadeMode': params.ivtcFadeMode,
       },
     );
   }
@@ -193,6 +195,9 @@ class ParameterConverter {
         break;
       case NoiseReductionMethod.knlMeans:
         method = 'knlmeans';
+        break;
+      case NoiseReductionMethod.nlMeans:
+        method = 'nlmeans';
         break;
     }
 
@@ -283,6 +288,7 @@ class ParameterConverter {
         DehaloMethod.vinverse => 'vinverse',
         DehaloMethod.vinverse2 => 'vinverse2',
         DehaloMethod.hqDeringmod => 'hq_deringmod',
+        DehaloMethod.vine => 'vine',
       };
 
   /// Convert chroma denoise (CCD) parameters to dynamic format.
@@ -328,6 +334,9 @@ class ParameterConverter {
       'highThreshold': params.highThreshold,
       'yahrBlur': params.yahrBlur,
       'yahrDepth': params.yahrDepth,
+      'vineStrength': params.vineStrength,
+      'vineSharp': params.vineSharp,
+      'vineSigma': params.vineSigma,
     };
     final lastOptional = <String, dynamic>{};
 
@@ -379,9 +388,10 @@ class ParameterConverter {
       filterId: 'anti_alias',
       enabled: params.enabled,
       values: {
-        'method': params.method == AntiAliasMethod.santiag ? 'santiag' : 'daa',
+        'method': params.method.value,
         'santiagStrh': params.santiagStrh,
         'santiagStrv': params.santiagStrv,
+        'sangnomAa': params.sangnomAa,
       },
     );
   }
@@ -391,12 +401,14 @@ class ParameterConverter {
     final v = params.values;
     return AntiAliasParameters(
       enabled: params.enabled,
-      method: v['method'] == 'santiag'
-          ? AntiAliasMethod.santiag
-          : AntiAliasMethod.daa,
+      method: AntiAliasMethod.values.firstWhere(
+        (m) => m.value == v['method'],
+        orElse: () => AntiAliasMethod.daa,
+      ),
       santiagStrh: _asInt(v['santiagStrh']) ?? 1,
       santiagStrv: _asInt(v['santiagStrv']) ?? 1,
-      // Not exposed: only nnedi3 is bundled, and the worker pins it there.
+      sangnomAa: _asInt(v['sangnomAa']) ?? 48,
+      // santiagType is not exposed: the worker pins it to nnedi3.
     );
   }
 
@@ -726,6 +738,9 @@ class ParameterConverter {
         break;
       case DeblockMethod.dctFilter:
         method = 'dctfilter';
+        break;
+      case DeblockMethod.mpeg2stinx:
+        method = 'mpeg2stinx';
         break;
     }
 
@@ -1236,6 +1251,8 @@ class ParameterConverter {
       ivtcCycle: v['ivtcCycle'] as int?,
       ivtcDupthresh: (v['ivtcDupthresh'] as num?)?.toDouble(),
       ivtcScthresh: (v['ivtcScthresh'] as num?)?.toDouble(),
+      ivtcFixFades: v['ivtcFixFades'] as bool? ?? false,
+      ivtcFadeMode: v['ivtcFadeMode'] as String? ?? 'average',
     );
   }
 
@@ -1286,6 +1303,9 @@ class ParameterConverter {
         break;
       case 'knlmeans':
         method = NoiseReductionMethod.knlMeans;
+        break;
+      case 'nlmeans':
+        method = NoiseReductionMethod.nlMeans;
         break;
       default:
         method = NoiseReductionMethod.smDegrain;
@@ -1389,6 +1409,7 @@ class ParameterConverter {
       'vinverse' => DehaloMethod.vinverse,
       'vinverse2' => DehaloMethod.vinverse2,
       'hq_deringmod' => DehaloMethod.hqDeringmod,
+      'vine' => DehaloMethod.vine,
       _ => DehaloMethod.dehaloAlpha,
     };
 
@@ -1425,6 +1446,9 @@ class ParameterConverter {
       deringMthr: _asInt(v['deringMthr']),
       deringThr: (v['deringThr'] as num?)?.toDouble(),
       deringDarkthr: (v['deringDarkthr'] as num?)?.toDouble(),
+      vineStrength: (v['vineStrength'] as num?)?.toDouble() ?? 16.0,
+      vineSharp: (v['vineSharp'] as num?)?.toDouble() ?? 0.5,
+      vineSigma: (v['vineSigma'] as num?)?.toDouble() ?? 1.0,
     );
   }
 
@@ -1439,6 +1463,9 @@ class ParameterConverter {
         break;
       case 'dctfilter':
         method = DeblockMethod.dctFilter;
+        break;
+      case 'mpeg2stinx':
+        method = DeblockMethod.mpeg2stinx;
         break;
       default:
         method = DeblockMethod.deblockQed;

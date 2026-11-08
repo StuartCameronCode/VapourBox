@@ -46,6 +46,7 @@ import 'package:vapourbox/models/chroma_fix_parameters.dart';
 import 'package:vapourbox/models/color_correction_parameters.dart';
 import 'package:vapourbox/models/crop_resize_parameters.dart';
 import 'package:vapourbox/models/deband_parameters.dart';
+import 'package:vapourbox/models/anti_alias_parameters.dart';
 import 'package:vapourbox/models/deblock_parameters.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
 import 'package:vapourbox/models/deflicker_parameters.dart';
@@ -289,6 +290,7 @@ ProcessingPipeline _only({
   GhostRemovalParameters ghostRemoval = const GhostRemovalParameters(),
   FrameRateParameters frameRate = const FrameRateParameters(),
   DescaleParameters descale = const DescaleParameters(),
+  AntiAliasParameters antiAlias = const AntiAliasParameters(),
 }) {
   return ProcessingPipeline(
     deinterlace: deinterlace,
@@ -308,6 +310,7 @@ ProcessingPipeline _only({
     ghostRemoval: ghostRemoval,
     frameRate: frameRate,
     descale: descale,
+    antiAlias: antiAlias,
   );
 }
 
@@ -468,6 +471,51 @@ List<_Pass> _passes() => [
           ),
         ),
         needsKnlmDevice: true,
+      ),
+
+      // NLMeans on the CPU (vszip, deps 1.16.0): KNLMeansCL's arguments, every
+      // depth natively, h depth-independent. Same h as the KNLMeans case above
+      // so the two read alike; unlike it, this one runs on every runner.
+      _Pass(
+        'noise_nlmeans_cpu',
+        _only(
+          noiseReduction: const NoiseReductionParameters(
+            enabled: true,
+            method: NoiseReductionMethod.nlMeans,
+            knlmH: 3.0,
+          ),
+        ),
+      ),
+
+      // SangNom AA: `aa` is in 8-bit units and the plugin scales it itself
+      // (measured: an 8-bit and a 10-bit run agree to 0.05 levels); the 2x
+      // Spline36 round trip adds the rest.
+      _Pass(
+        'anti_alias_sangnom',
+        _only(
+          antiAlias: const AntiAliasParameters(
+            enabled: true,
+            method: AntiAliasMethod.sangnom,
+          ),
+        ),
+      ),
+
+      // The IVTC fade fix works in float, so a correct block is depth-blind.
+      // This fixture holds no fade, and on a frame that is not fading the fix
+      // changes ~0.1 levels by design — so it cannot be required to change
+      // the picture; the parity check is what this case is for (the fix's
+      // effect is integration_classical_filters_test's).
+      _Pass(
+        'ivtc_fix_fades',
+        _only(
+          deinterlace: const QTGMCParameters(
+            enabled: true,
+            method: DeinterlaceMethod.ivtc,
+            tff: true,
+            ivtcFixFades: true,
+          ),
+        ),
+        changesPicture: false,
       ),
 
       // Deflicker measures frame brightness against a windowed average, so its

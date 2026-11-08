@@ -766,7 +766,7 @@ if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
 }
 
 # =============================================================================
-# Bwdif + DeDot + vszip + BM3D + descale + KNLMeansCL - PyPI wheels
+# Bwdif + DeDot + vszip + BM3D + descale + KNLMeansCL + SangNom - PyPI wheels
 # =============================================================================
 # None of these upstreams publishes a Windows release asset, so each comes from
 # its PyPI wheel, resolved through the JSON API the same way akarin is (never
@@ -777,7 +777,9 @@ if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
 # only the system runtime, so there is nothing to place beside it. Bwdif and
 # DeDot hold exactly vapoursynth\plugins\<name>.dll.
 #
-# vszip (core.vszip.CLAHE, Colour Correction's local contrast, issue #90) holds
+# vszip (core.vszip.CLAHE, Colour Correction's local contrast, issue #90; and
+# from 24.0.0, the first release with it, core.vszip.NLMeans for Noise
+# Reduction's CPU non-local means and the Dehalo pass's vine method) holds
 # three builds under vapoursynth\plugins\vszip\ - vszip.dll (baseline x86-64),
 # vszip.avx2.dll and vszip.zn4.dll (AVX-512) - that VapourSynth picks between
 # through the wheel's manifest.vs. Only the baseline is taken, flat in
@@ -793,7 +795,7 @@ if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
 $WheelPlugins = @(
     @{ Name = "bwdif"; Package = "vapoursynth-bwdif"; Version = "5.1"; Dll = "bwdif.dll" },
     @{ Name = "dedot"; Package = "vapoursynth-dedot"; Version = "3.0"; Dll = "dedot.dll" },
-    @{ Name = "vszip"; Package = "vapoursynth-vszip"; Version = "22.1.0"; Dll = "vszip.dll"; Src = "vszip\vszip.dll" },
+    @{ Name = "vszip"; Package = "vapoursynth-vszip"; Version = "24.0.0"; Dll = "vszip.dll"; Src = "vszip\vszip.dll" },
     # core.bm3d (Noise Reduction's BM3D method). Wheel 12.0 is git tag r12, as
     # built from source by download-deps-{macos,linux}.sh. fftw is linked in
     # statically: the DLL imports only the UCRT.
@@ -808,7 +810,12 @@ $WheelPlugins = @(
     # zip (2018), which refuses every 9-15-bit clip except packed YUV444P10 /
     # RGB30 - so any 10-bit 4:2:0 source failed (issue #144). OpenCL is linked
     # statically; the DLL imports only Windows system libraries.
-    @{ Name = "knlmeanscl"; Package = "vapoursynth-knlmeanscl"; Version = "1.3"; Dll = "KNLMeansCL.dll" }
+    @{ Name = "knlmeanscl"; Package = "vapoursynth-knlmeanscl"; Version = "1.3"; Dll = "KNLMeansCL.dll" },
+    # core.sangnom.SangNom (Anti-aliasing's SangNom method). Wheel 45.0 is git
+    # tag r45, the same release the macOS/Linux wheels give. SSE2 only (no AVX
+    # in the DLL), so one file serves both tiers; imports only the UCRT. Source
+    # is MIT, upstream states its binaries are GPL v2 (licenses\NOTICES.txt).
+    @{ Name = "sangnom"; Package = "vapoursynth-sangnom"; Version = "45.0"; Dll = "sangnom.dll" }
 )
 
 foreach ($W in $WheelPlugins) {

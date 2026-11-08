@@ -1002,7 +1002,7 @@ A >8-bit source is read natively off the pipe. Two ways this breaks after that:
    computed **in the script from `clip.format`**, since a preceding pass may
    have changed the depth.
 3. **A limit counted per histogram bin scales with the CONTENT's depth, not
-   the container's.** `vszip.CLAHE` (8/16-bit only, so deeper clips run at
+   the container's.** `vszip.CLAHE` (8/16-bit only before vszip 23; the template still runs deeper clips at
    16-bit) needs `limit << (16 - content_depth)`: 8-bit content in a 16-bit
    histogram fills every 256th bin, genuine 10-bit every 64th, and ProRes 4444
    decodes as 12-bit whatever it holds. The template measures the content depth
@@ -1603,6 +1603,70 @@ the simple slots are full at four).
 - **The Noise Reduction pass's preview radius is per method**
   (`NoiseReductionParameters::temporal_radius`): BM3D's Final step re-reads
   its basic estimate's neighbours, so it reaches 2r; a fixed 3 was too few.
+
+### SangNom, NLMeans (CPU) and the vs-jetpack ports (deps 1.16.0, app 1.7.0)
+
+Five classical additions, all in the deps bundle (no add-ons). The evidence is
+[docs/reports/2026-11-classical-filters](docs/reports/2026-11-classical-filters/index.html).
+
+- **SangNom is its own Anti-aliasing method, never santiag's `type`.**
+  havsfunc's `santiag(type="sangnom")` calls `SangNom(order=0)` at strength
+  0, which SangNom r45 treats as double-rate: it refuses a clip without
+  `_FieldBased` and would double the frame count with it. So
+  `effective_santiag_type` stays pinned to nnedi3 and `AntiAliasMethod::SangNom`
+  runs its own block (2x Spline36, `SangNom(order=1)` per axis, back down,
+  field order restored — SangNom flags its output progressive). `aa` is in
+  8-bit units; the plugin scales it (8 vs 10-bit: 0.05 levels).
+- **SangNom's licence is split**: the source header and LICENSE grant MIT
+  (james1201, Victor Efimov) and the same header says "Binaries are GPL v2";
+  the PyPI wheels we ship declare GPL-2.0. NOTICES, About and the README say
+  both. One file per platform from the r45 wheels; x64 is SSE2 only, so no
+  `_tierFiles` entry.
+- **vszip must be >= 24.0.0** — the first release with the CPU `NLMeans`
+  (WNNM has been there since 22.0.0). `vapoursynth_integration_test` checks
+  `vszip.NLMeans` itself, not just the namespace, so a stale 22.1.0 bundle
+  fails. macOS x64 builds the sdist with **Zig 0.17.0** (`-Doptimize=fast`;
+  0.17 renamed the modes), and the headerpad patch now matches the
+  8-space `lib.use_llvm` inside `if (build_vs)`. vszip 23 made CLAHE accept
+  every depth; the template still feeds it 16-bit and its parity test holds
+  (1.34 levels against a 3.0 tolerance).
+- **NLMeans (CPU)** (`NoiseReductionMethod::NlMeans`, advanced) shares the
+  `knlm_*` parameters with KNLMeansCL: same algorithm, same arguments, same
+  picture (0.000 levels apart on the probe, 0.0003 in the heavy test). It
+  needs no OpenCL, so `KNLM_NO_DEVICE_MESSAGE` (and the app's fallback text
+  in `worker_manager.dart`) names it as the way out.
+- **WNNM is not a method.** Measured against the shipped BM3D on three Kodak
+  pans at sigma 4/8/12, each at its best sigma: luma +0.7 to −2.3 dB (ahead
+  only at sigma 4 with a temporal radius), chroma 2.6–7.2 dB worse. It is
+  fast (10 fps at 1080p with a temporal radius on an M1 Pro, where the shipped
+  BM3D path runs 0.2 fps), but NLMeans (CPU) fills that niche with better
+  chroma (23 fps).
+  Revisit only with a reason BM3D's quality and NLMeans' speed don't cover.
+- **The vs-jetpack ports are template code, not a dependency**: vine_dehalo
+  (`DehaloMethod::Vine`, advanced), mpeg2stinx (`DeblockMethod::Mpeg2Stinx`,
+  advanced) and FixInterlacedFades (`QTGMCParameters::ivtc_fix_fades`, an IVTC
+  option, mode `average`/`match`). Ported from release 3.0.0 (MIT,
+  Jaded-Encoding-Thaumaturgy) through `_expr()` / `_nnedi3()` (test_92/93),
+  without akarin's frame-property Expr (macOS x64 has no akarin), and checked
+  against vs-jetpack itself: mpeg2stinx 0.04 levels, the fade fix exact
+  (vine could not run there: its scalers need resize2, which we don't ship).
+- **mpeg2stinx is a cross-field filter and always takes the whole frame** —
+  the Deblock pass's per-field path skips it — and reads one frame each side
+  (`FrameMap::Identity { radius: 1 }`). On every synthetic fixture tried it
+  *lost* PSNR (it softens vertical detail); the schema says so. It is for the
+  specific comb-like noise of film DVDs encoded as interlaced MPEG-2.
+- **The fade fix runs right after VFM, before VDecimate**, in float. Its
+  per-frame gains are stamped as frame properties by `ModifyFrame` and applied
+  by **one** akarin expression (`x x.FadeGain0 *`); only where akarin is
+  absent (macOS x64) does a FrameEval make a `std.Expr` per frame. **Never
+  create an akarin node per frame inside concurrent FrameEvals**: the first
+  version did, and vspipe segfaulted, aborted or spun one core for 97 minutes
+  on 30 frames — fine single-threaded, and the small heavy test missed it. The
+  heavy suite now times a full 720x576 IVTC job. `std.DoubleWeave` flags its output
+  interlaced, so the block sets `_FieldBased` back to 0 — without it a later
+  resize treats progressive frames as fields. `average` leaves the last frames
+  of a fade to full black half-lit (one field is already black); `match`
+  cleans them.
 
 ### Preset System
 
@@ -2511,4 +2575,5 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.12.0 | 2026-10-04 | **Issue #101**: akarin 1.4.1 → **1.5.0** on every platform. The 1.4.1 Linux wheel put JIT code on the `brk` heap, where SELinux denies `PROT_EXEC`, so every job segfaulted on Fedora/RHEL from deps 1.8.0 on. `download-deps-linux.sh` now fails if `libakarin.so` lacks the mmap allocator |
 | 1.13.0 | 2026-10 | One new plugin; every other binary is built from the same sources as 1.12.0. Adds **vszip** 22.1.0 (MIT) for `vszip.CLAHE`, Color Correction's local contrast (issue #90). Baseline build only, flat in the plugin directory on every platform (the wheels' AVX2/AVX-512 variants are left out); macOS x64 builds the sdist with Zig 0.16.0 for the 12.0 floor, with header padding so it can be signed. The v2 CPU tier is no longer a second full bundle: each x64 platform publishes its v3 bundle plus `…-x64-v2-delta.zip`, the files in `_tierFiles` (zsmooth; on macOS also MVTools), extracted over it (`"tierFormat": "delta"`). Every x64 machine downloads the same bundle; only an older CPU fetches the few MB more. This is also what lets the Linux AppImage carry its deps for both tiers without doubling in size |
 | 1.14.0 | 2026-10-25 | Adds **RIFE** 4.26 (`r9_mod_v33`, MIT) + its model in `vapoursynth/rife/`, and **VSNCNN** (vs-mlrt v15.16, GPL-3.0) + Real-ESRGAN / Real-CUGAN models in `vapoursynth/ncnn/`, on macos-arm64, windows-x64 and linux-x64, with **MoltenVK** 1.4.2 (Apache-2.0) in `vapoursynth/moltenvk/` on macOS. Not autoloaded; see "GPU Plugins". **BM3D** r12 (MIT) on every platform; it had been macOS arm64 only (see "BM3D and KNLMeans Noise Reduction"). **descale** r12 (MIT) on every platform, for the Descale pass. (AnimeJaNai's models, used by the same VSNCNN, are an app add-on, not in the bundle). Published as the tested `deps-v1.14.0-rc1` bundles with only the version changed; every other file is byte-identical |
+| 1.16.0 (unreleased) | — | **vszip 22.1.0 → 24.0.0** on every platform (CPU `NLMeans` for Noise Reduction's NLMeans (CPU) and the vine dehalo; macOS x64 sdist now built with Zig 0.17.0). Adds **SangNom** r45 (PyPI wheels; MIT source, GPL-2.0 binaries) on every platform for Anti-aliasing's SangNom method. Both single-file on x64 (no AVX), so `_tierFiles` is unchanged. Needs a deps release before app 1.7.0 ships these methods |
 | 1.15.0 | 2026-11-03 | **Issue #144**: KNLMeansCL moves to Jaded Encoding Thaumaturgy's fork **v1.3** on every platform (Windows: PyPI wheel, replacing Khanattila's 2018 v1.1.1 zip, which refused 10-bit 4:2:0; macOS/Linux: the `v1.3` tag, replacing unpinned master, which gave unrepeatable results on Apple's OpenCL). Both meson patchers learn v1.3's assigned `run_command` include probe. Published as the tested `deps-v1.15.0-rc1` bundles with only the version changed |
