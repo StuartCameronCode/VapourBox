@@ -112,17 +112,17 @@ const _slowGpu = {'VAPOURBOX_STALL_TIMEOUT_SECS': '1200'};
 
 /// One preview frame, with the same budget as an encode: on Windows lavapipe a
 /// single 4x Real-CUGAN preview frame took over the harness's default 5 min.
-Future<PreviewResult> _preview(Map<String, dynamic> job, int frame, String label) =>
-    WorkerHarness.runPreview(job, frame: frame, label: label,
-        timeout: const Duration(minutes: 20), extraEnv: _slowGpu);
+Future<PreviewResult> _preview(Map<String, dynamic> job, int frame, String label,
+        {Duration budget = const Duration(minutes: 20)}) =>
+    WorkerHarness.runPreview(job, frame: frame, label: label, timeout: budget, extraEnv: _slowGpu);
 
-Future<String> _encode(VideoJob job, String label) async {
+Future<String> _encode(VideoJob job, String label, {Duration budget = const Duration(minutes: 20)}) async {
   // The worker's stall watchdog fails a job after 600 s without a frame. On a
   // CPU Vulkan driver (lavapipe, on the GPU-less CI runners) 4x Real-CUGAN's
   // first frame — two whole network passes — took longer than that on
   // Windows, so allow the test's own budget instead.
   final r = await WorkerHarness.runJob(job.toJson(), label: label,
-      timeout: const Duration(minutes: 20), extraEnv: _slowGpu);
+      timeout: budget, extraEnv: _slowGpu);
   expect(r.success, isTrue, reason: '$label: ${r.error}\n${r.logs.join('\n')}');
   return r.outputPath!;
 }
@@ -207,7 +207,10 @@ void main() {
     test(name, () async {
       if (!await ready(method)) return;
       final job = _job(name, method, factor, noise: noise);
-      final out = await _encode(job, name);
+      // x4plus at 4x is by far the heaviest network: five frames and a preview
+      // took 18 min on Linux lavapipe and ran past 20 on Windows'.
+      final budget = Duration(minutes: method == UpscaleMethod.realEsrganPlus && factor == 4 ? 50 : 20);
+      final out = await _encode(job, name, budget: budget);
 
       final s = await _stream(out);
       expect(s['width'], _w * factor);
@@ -233,7 +236,7 @@ void main() {
       }
 
       // The preview runs the same script on the same frame.
-      final pv = await _preview(job.toJson(), _start + 2, '${name}_pv');
+      final pv = await _preview(job.toJson(), _start + 2, '${name}_pv', budget: budget);
       expect(pv.success, isTrue, reason: pv.errorTail);
       final pvDiff = WorkerHarness.meanAbsDiff(
           await WorkerHarness.imageToRgb24(pv.png!, label: '${name}_pv'),
@@ -241,7 +244,7 @@ void main() {
       // ignore: avoid_print
       print('  $name preview vs encode: meanAbsDiff ${pvDiff.toStringAsFixed(2)}');
       expect(pvDiff, lessThan(1.0), reason: 'the preview is not the encoded picture');
-    }, timeout: const Timeout(Duration(minutes: 60)));
+    }, timeout: const Timeout(Duration(minutes: 120)));
   }
 
   // Flat patches keep their colour and a hard edge keeps its position — the

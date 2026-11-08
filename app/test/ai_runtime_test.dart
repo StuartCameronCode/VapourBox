@@ -72,7 +72,7 @@ void main() {
   });
 
   test('the self-test model in ai_runtime.py is the committed one', () {
-    final helper = File(p.join(_root, 'worker', 'templates', 'ai_runtime.py')).readAsStringSync();
+    final helper = File(p.join(_root, 'worker', 'templates', 'ai_runtime.py')).readAsStringSync().replaceAll('\r\n', '\n');
     final literal = RegExp(r'_SELFTEST_MODEL_B64 = \(\n((?:\s*"[^"]*"\n)+)\)').firstMatch(helper)!.group(1)!;
     final b64 = RegExp(r'"([^"]*)"').allMatches(literal).map((x) => x.group(1)).join();
     final committed =
