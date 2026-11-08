@@ -2213,6 +2213,13 @@ impl ScriptGenerator {
                                         let dir = self.animejanai.as_deref().unwrap_or(Path::new(""));
                                         format!("({}, {})", py_str(&dir.join(sd)), py_str(&dir.join(hd)))
                                     }
+                                    // ensure_methods_ready has refused the job
+                                    // unless the add-on is installed here.
+                                    AiModel::Addon { addon, file } => {
+                                        let root = self.addons.as_ref().map(|(r, _)| r.as_path());
+                                        let dir = crate::addons::addon_dir(root.unwrap_or(Path::new("")), addon);
+                                        py_str(&dir.join(file))
+                                    }
                                 })
                                 .collect::<Vec<_>>()
                                 .join(", "),
@@ -2226,6 +2233,27 @@ impl ScriptGenerator {
                         "{{AI_SD_MAX_HEIGHT}}",
                         &crate::animejanai::SD_MAX_HEIGHT.to_string(),
                     );
+                    let (tile_above, tile) = resize.ai_tiling();
+                    script = script.replace("{{AI_TILE_ABOVE}}", tile_above);
+                    script = script.replace("{{AI_TILE}}", &tile.to_string());
+                    match resize.ai_resample_to() {
+                        Some(factor) => {
+                            script = script.replace("{{#AI_RESAMPLE}}", "");
+                            script = script.replace("{{/AI_RESAMPLE}}", "");
+                            script = script.replace("{{AI_FACTOR}}", &factor.to_string());
+                        }
+                        None => script = remove_block("{{#AI_RESAMPLE}}", "{{/AI_RESAMPLE}}", script),
+                    }
+                    // Full strength emits nothing: the script is exactly the
+                    // one from before the setting existed.
+                    match resize.ai_blend_weight() {
+                        Some(weight) => {
+                            script = script.replace("{{#AI_STRENGTH}}", "");
+                            script = script.replace("{{/AI_STRENGTH}}", "");
+                            script = script.replace("{{AI_STRENGTH}}", &format!("{weight:.3}"));
+                        }
+                        None => script = remove_block("{{#AI_STRENGTH}}", "{{/AI_STRENGTH}}", script),
+                    }
                     let color = job.color_metadata();
                     script = script.replace("{{AI_MATRIX}}", color.zimg_matrix(job.input_height));
                     script = script.replace(
@@ -2265,7 +2293,10 @@ impl ScriptGenerator {
                     UpscaleMethod::Spline36
                     | UpscaleMethod::RealEsrgan
                     | UpscaleMethod::RealCugan
-                    | UpscaleMethod::AnimeJanai => {
+                    | UpscaleMethod::AnimeJanai
+                    | UpscaleMethod::RealEsrganGeneral
+                    | UpscaleMethod::LiveAction
+                    | UpscaleMethod::RealEsrganPlus => {
                         script = remove_block("{{#UPSCALE_NNEDI3}}", "{{/UPSCALE_NNEDI3}}", script);
                         script = remove_block("{{#UPSCALE_EEDI3}}", "{{/UPSCALE_EEDI3}}", script);
                     }

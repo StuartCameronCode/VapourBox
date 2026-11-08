@@ -4,7 +4,7 @@
   "version": "1.3.0",
   "name": "Crop & Resize",
   "description": "Crop borders, resize or upscale, and add bars to a target size",
-  "longDescription": "Trims unwanted borders, changes the output resolution, and adds bars out to a target frame size. Cropping happens first, then resizing, then the bars.\n\nUse crop to cut the head-switching noise along the bottom of VHS captures and the black overscan edges of broadcast material — otherwise the encoder spends bitrate on them. Use resize for a target resolution, or Upscale for a much better 2x/4x enlargement than a plain kernel: NNEDI3 or EEDI3 on any machine, or an AI upscaler trained on anime (Real-ESRGAN, Real-CUGAN, AnimeJaNai) on the graphics card. Keep crop values even so they stay aligned with chroma subsampling.\n\nUse Add Borders to bring a cropped picture back to an exact frame size for authoring (720x576 for PAL DVD, 720x480 for NTSC) without rescaling it: the picture is centred and the rest filled with bars.",
+  "longDescription": "Trims unwanted borders, changes the output resolution, and adds bars out to a target frame size. Cropping happens first, then resizing, then the bars.\n\nUse crop to cut the head-switching noise along the bottom of VHS captures and the black overscan edges of broadcast material — otherwise the encoder spends bitrate on them. Use resize for a target resolution, or Upscale for a much better 2x/4x enlargement than a plain kernel: NNEDI3 or EEDI3 on any machine, or an AI upscaler on the graphics card: trained on anime (Real-ESRGAN, Real-CUGAN, AnimeJaNai) or on real-world footage (Real-ESRGAN General, Live Action SPAN, Real-ESRGAN x4plus, each a separate download). Keep crop values even so they stay aligned with chroma subsampling.\n\nUse Add Borders to bring a cropped picture back to an exact frame size for authoring (720x576 for PAL DVD, 720x480 for NTSC) without rescaling it: the picture is centred and the rest filled with bars.",
   "category": "transform",
   "icon": "crop",
   "order": 9,
@@ -249,7 +249,10 @@
         "spline36",
         "realEsrgan",
         "realCugan",
-        "animeJanai"
+        "animeJanai",
+        "realEsrganGeneral",
+        "liveAction",
+        "realEsrganPlus"
       ],
       "optional": true,
       "ui": {
@@ -260,9 +263,12 @@
           "spline36": "Spline36",
           "realEsrgan": "Real-ESRGAN",
           "realCugan": "Real-CUGAN",
-          "animeJanai": "AnimeJaNai (download, non-commercial)"
+          "animeJanai": "AnimeJaNai (download, non-commercial)",
+          "realEsrganGeneral": "Real-ESRGAN General (download)",
+          "liveAction": "Live Action SPAN (download)",
+          "realEsrganPlus": "Real-ESRGAN x4plus (download, slow)"
         },
-        "description": "How the picture is enlarged. NNEDI3 is the usual choice, an edge-directed doubler that runs anywhere; EEDI3 is slower and follows near-horizontal edges better (it uses NNEDI3 to guide its search); Spline36 is plain resampling with no edge direction. Real-ESRGAN and Real-CUGAN are neural upscalers trained on anime: they redraw clean line art rather than interpolating it, and run on the graphics card (Vulkan). Real-ESRGAN is sharper and faster; Real-CUGAN is gentler and can remove noise as it goes. AnimeJaNai, trained on HD anime, keeps colour almost exactly and comes in three speeds; it is a separate download, free for non-commercial use only. Use them after deinterlacing: on a combed picture they sharpen the combing too",
+        "description": "How the picture is enlarged. NNEDI3 is the usual choice, an edge-directed doubler that runs anywhere; EEDI3 is slower and follows near-horizontal edges better (it uses NNEDI3 to guide its search); Spline36 is plain resampling with no edge direction. Real-ESRGAN and Real-CUGAN are neural upscalers trained on anime: they redraw clean line art rather than interpolating it, and run on the graphics card (Vulkan). Real-ESRGAN is sharper and faster; Real-CUGAN is gentler and can remove noise as it goes. AnimeJaNai, trained on HD anime, keeps colour almost exactly and comes in three speeds; it is a separate download, free for non-commercial use only. For live action and other real-world footage there are three more, each a separate download: Real-ESRGAN General, fast and sharp, which redraws texture and can remove noise too; Live Action SPAN, trained on film and video to repair compression, blur and halos while keeping detail and colour (it cannot handle VHS damage — use it on DVD, broadcast or digital sources); and Real-ESRGAN x4plus, the most detailed and very slow. Use them after deinterlacing: on a combed picture they sharpen the combing too",
         "widget": "dropdown",
         "visibleWhen": {
           "useIntegerUpscale": true
@@ -271,7 +277,10 @@
       "optionSinceAppVersion": {
         "realEsrgan": "1.5.0",
         "realCugan": "1.5.0",
-        "animeJanai": "1.5.0"
+        "animeJanai": "1.5.0",
+        "realEsrganGeneral": "1.7.0",
+        "liveAction": "1.7.0",
+        "realEsrganPlus": "1.7.0"
       }
     },
     "upscaleFactor": {
@@ -348,6 +357,46 @@
           "useIntegerUpscale": true,
           "upscaleMethod": [
             "animeJanai"
+          ]
+        }
+      }
+    },
+    "generalDenoise": {
+      "type": "boolean",
+      "default": false,
+      "sinceAppVersion": "1.7.0",
+      "ui": {
+        "label": "Real-ESRGAN General Denoise",
+        "description": "Use the variant trained to remove noise as it upscales (realesr-general-wdn-x4v3). Leave off for clean sources: it also smooths fine texture",
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "realEsrganGeneral"
+          ]
+        }
+      }
+    },
+    "aiStrength": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "sinceAppVersion": "1.7.0",
+      "ui": {
+        "label": "AI Strength",
+        "description": "How much of the AI upscale to keep. Below 1 the result is blended with a plain Spline36 upscale of the same frame, which tones down a model that redraws too much or shifts flat colours (Real-ESRGAN tints flat areas by a few levels). 1 is the model alone",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": {
+          "useIntegerUpscale": true,
+          "upscaleMethod": [
+            "realEsrgan",
+            "realCugan",
+            "animeJanai",
+            "realEsrganGeneral",
+            "liveAction",
+            "realEsrganPlus"
           ]
         }
       }
@@ -904,7 +953,9 @@
           "upscaleFactor",
           "cuganNoise",
           "animejanaiModel",
-          "animejanaiSharp"
+          "animejanaiSharp",
+          "generalDenoise",
+          "aiStrength"
         ],
         "expanded": false
       },
@@ -1013,6 +1064,30 @@
       "activeWhen": {
         "useIntegerUpscale": true,
         "upscaleMethod": "animeJanai"
+      }
+    },
+    {
+      "function": "core.ncnn.Model",
+      "role": "Real-ESRGAN General (add-on), 4x, on the GPU (vs-mlrt's VSNCNN); core.resize.Spline36 to 2x after it",
+      "activeWhen": {
+        "useIntegerUpscale": true,
+        "upscaleMethod": "realEsrganGeneral"
+      }
+    },
+    {
+      "function": "core.ncnn.Model",
+      "role": "2xLiveActionV1 SPAN (add-on), 2x, twice for 4x, on the GPU (vs-mlrt's VSNCNN)",
+      "activeWhen": {
+        "useIntegerUpscale": true,
+        "upscaleMethod": "liveAction"
+      }
+    },
+    {
+      "function": "core.ncnn.Model",
+      "role": "Real-ESRGAN x2plus / x4plus (add-on), by factor, on the GPU (vs-mlrt's VSNCNN)",
+      "activeWhen": {
+        "useIntegerUpscale": true,
+        "upscaleMethod": "realEsrganPlus"
       }
     },
     {

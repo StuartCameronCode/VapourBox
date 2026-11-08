@@ -344,6 +344,24 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/sczhou/CodeFormer',
                       ),
                       _ComponentTile(
+                        name: 'Real-ESRGAN general model (optional download, upscaling add-on)',
+                        license: 'BSD-3-Clause',
+                        copyright: 'Xintao Wang',
+                        url: 'https://github.com/xinntao/Real-ESRGAN',
+                      ),
+                      _ComponentTile(
+                        name: '2xLiveActionV1_SPAN model (optional download, upscaling add-on)',
+                        license: 'Apache-2.0',
+                        copyright: 'Copyright 2025 jcj83429',
+                        url: 'https://github.com/jcj83429/upscaling/tree/main/2xLiveActionV1_SPAN',
+                      ),
+                      _ComponentTile(
+                        name: 'Real-ESRGAN x4plus / x2plus models (optional download, upscaling add-on)',
+                        license: 'BSD-3-Clause',
+                        copyright: 'Xintao Wang',
+                        url: 'https://github.com/xinntao/Real-ESRGAN',
+                      ),
+                      _ComponentTile(
                         name: 'Real-CUGAN models',
                         license: 'MIT',
                         copyright: 'bilibili',

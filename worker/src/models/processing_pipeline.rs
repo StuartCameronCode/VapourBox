@@ -572,6 +572,10 @@ impl ProcessingPipeline {
                 ids: self.face_restore.required_addons(),
             });
         }
+        // Crop & Resize's add-on upscalers (`upscale_addons.rs`).
+        if let Some((id, feature)) = self.crop_resize.upscale_addon() {
+            needs.push(crate::addons::AddonNeed { feature, ids: vec![id] });
+        }
         needs
     }
 

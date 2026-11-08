@@ -32,6 +32,7 @@ mod addons;
 mod audio_restoration;
 mod ai_runtime;
 mod animejanai;
+mod upscale_addons;
 mod gpu_plugin;
 mod hdr_metadata;
 mod native_res;

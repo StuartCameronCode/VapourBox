@@ -1,0 +1,48 @@
+{
+  "id": "upscale-general",
+  "version": "1.0.0",
+  "name": "General & live-action upscaling models",
+  "feature": "AI upscaling",
+  "description": "Two upscaling models for real-world footage rather than anime, run on the graphics card by Crop & Resize: Real-ESRGAN's general model (4x, with a noise-removing variant) and jcj83429's 2xLiveActionV1 SPAN model (2x), which repairs compression, blur and halos while keeping detail.",
+  "licence": "BSD-3-Clause",
+  "licenceUrl": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+  "credit": "Xintao Wang",
+  "noticeName": "Real-ESRGAN general model",
+  "homepage": "https://github.com/xinntao/Real-ESRGAN",
+  "components": [
+    {
+      "noticeName": "2xLiveActionV1_SPAN model",
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://github.com/jcj83429/upscaling/blob/5d8cdd2e17750b64be39ccab3a8763d91128fe15/2xLiveActionV1_SPAN/LICENSE",
+      "credit": "jcj83429",
+      "homepage": "https://github.com/jcj83429/upscaling/tree/main/2xLiveActionV1_SPAN"
+    }
+  ],
+  "requires": [],
+  "kind": "files",
+  "platforms": {
+    "macos-arm64": {},
+    "windows-x64": {},
+    "linux-x64": {}
+  },
+  "files": [
+    {
+      "name": "upscale-realesr-general-x4v3.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/upscale-realesr-general-x4v3.onnx",
+      "size": 4866424,
+      "sha256": "f3fe05b8a48076ec0fe58143cf39f34fbc93b42197f897e329613cf8521d79d8"
+    },
+    {
+      "name": "upscale-realesr-general-wdn-x4v3.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/upscale-realesr-general-wdn-x4v3.onnx",
+      "size": 4866424,
+      "sha256": "d0b7c5d84193670b94db88585fe2120cd48816c12f3cedfd8c803167db6b451a"
+    },
+    {
+      "name": "2xLiveActionV1_SPAN_490000.onnx",
+      "url": "https://raw.githubusercontent.com/jcj83429/upscaling/5d8cdd2e17750b64be39ccab3a8763d91128fe15/2xLiveActionV1_SPAN/2xLiveActionV1_SPAN_490000.onnx",
+      "size": 1654748,
+      "sha256": "bfa72f3c6347076aed140d0836cee30c27ea434c047beeaf9466469483836ecc"
+    }
+  ]
+}

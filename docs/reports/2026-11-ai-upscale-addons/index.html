@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live-action AI upscalers as add-ons, and AI strength</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+  .grid figure { margin: 0; }
+  .grid img { width: 100%; image-rendering: pixelated; border: 1px solid var(--border); border-radius: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+</style>
+</head>
+<body>
+<main>
+<h1>Live-action AI upscalers as add-ons, and AI strength</h1>
+<p class="meta">2026-11-08 · app 1.7.0 · measured on an M1 Pro (16 GB, macOS arm64) against the
+deps 1.15.0 bundle's VSNCNN (vs-mlrt v15.16, ncnn on MoltenVK) · scripts in
+<a href="scripts/">scripts/</a></p>
+
+<div class="card">
+<strong>Outcome.</strong> Crop &amp; Resize gains three AI upscalers for real-world footage, run
+by the same VSNCNN block as the bundled anime models, with their models in two
+manifest add-ons (never the deps bundle):
+<ul>
+<li><code>upscale-general</code> (11 MB): <strong>Real-ESRGAN General</strong>
+(<code>realesr-general-x4v3</code>, plus its denoise variant <code>-wdn-</code>; BSD-3-Clause,
+converted here) and <strong>Live Action SPAN</strong> (jcj83429's
+<code>2xLiveActionV1_SPAN</code>, Apache-2.0, upstream's own ONNX).</li>
+<li><code>upscale-esrgan-plus</code> (134 MB): <strong>Real-ESRGAN x4plus / x2plus</strong>
+(BSD-3-Clause, converted here).</li>
+</ul>
+Every converted model matches PyTorch to <span class="good">0.017 of an 8-bit level</span>,
+and VSNCNN in fp32 matches ONNX Runtime to 0.012. An <strong>AI Strength</strong> control
+(0–1) blends any AI upscale with Spline36; 0.5 halves Real-ESRGAN 4x's flat-colour tint.
+<strong>2xVHS2HD (RealPLKSR) was rejected</strong>: ncnn's ONNX importer cannot load it
+(<a href="#vhs2hd">section 4</a>).
+</div>
+
+<h2>1. Converting Real-ESRGAN's checkpoints</h2>
+<p>Upstream (<a href="https://github.com/xinntao/Real-ESRGAN">xinntao/Real-ESRGAN</a>) publishes
+these models only as PyTorch <code>.pth</code>. <code>Scripts/models/convert_realesrgan.py</code>
+transcribes the two architectures (SRVGGNetCompact; RRDBNet with 23 blocks), loads each checkpoint
+(pinned by URL and SHA-256) and exports ONNX in the shape VSNCNN already runs: one
+<code>input</code>, one <code>output</code>, float32 NCHW RGB, batch/height/width dynamic, opset 13,
+IR 7 — vs-mlrt's own conversions use the same. Two details:</p>
+<ul>
+<li><strong>x2plus starts with <code>pixel_unshuffle(2)</code></strong>, which the TorchScript
+exporter writes as a 6-D Reshape/Transpose that ncnn's importer can't handle. It is replaced by a
+stride-2 convolution with one-hot weights, checked <code>torch.equal</code> to
+<code>F.pixel_unshuffle</code> on every run (each output is one input sample times 1.0).</li>
+<li>With torch 2.15.0 / onnx 1.23.2, two runs produce byte-identical files (the hashes the
+manifests pin).</li>
+</ul>
+<table>
+<tr><th>Model</th><th class="num">ONNX bytes</th><th>ops</th><th class="num">PyTorch vs ORT, random image (max, levels)</th><th class="num">smooth image (max)</th></tr>
+<tr><td>realesr-general-x4v3</td><td class="num">4,866,424</td><td>Conv PRelu DepthToSpace Resize Add</td><td class="num">0.0012</td><td class="num">0.0069</td></tr>
+<tr><td>realesr-general-wdn-x4v3</td><td class="num">4,866,424</td><td>same</td><td class="num">0.0056</td><td class="num">0.0089</td></tr>
+<tr><td>RealESRGAN_x4plus</td><td class="num">67,051,646</td><td>Conv LeakyRelu Concat Mul Add Resize</td><td class="num">0.0006</td><td class="num">0.0171</td></tr>
+<tr><td>RealESRGAN_x2plus</td><td class="num">67,073,184</td><td>same (unshuffle as Conv)</td><td class="num">0.0006</td><td class="num">0.0118</td></tr>
+</table>
+<p class="caption">In 8-bit levels (255 × the 0..1 difference); 96x128 inputs, seeded. Printed by the
+conversion script itself.</p>
+
+<h2>2. VSNCNN against ONNX Runtime</h2>
+<p>The same 320x240 frame of <code>small_clip.mp4</code> through VSNCNN (as the template runs it)
+and through ONNX Runtime on the CPU in fp32. fp32 shows the conversion and ncnn's import are exact;
+fp16 is what the template uses (as for the bundled models, ~3x faster).</p>
+<table id="parity">
+<tr><th>Model</th><th class="num">fp32 max</th><th class="num">fp16 max</th><th class="num">fp16 mean</th><th class="num">fp16 99.9th pct</th></tr>
+<tr><td>Real-ESRGAN General</td><td class="num">0.001</td><td class="num">2.349</td><td class="num">0.046</td><td class="num">0.726</td></tr>
+<tr><td>Real-ESRGAN General denoise</td><td class="num">0.012</td><td class="num">10.281</td><td class="num">0.112</td><td class="num">2.256</td></tr>
+<tr><td>Live Action SPAN</td><td class="num">0.000</td><td class="num">1.447</td><td class="num">0.052</td><td class="num">0.662</td></tr>
+<tr><td>Real-ESRGAN x2plus</td><td class="num">0.001</td><td class="num">1.946</td><td class="num">0.112</td><td class="num">1.111</td></tr>
+<tr><td>Real-ESRGAN x4plus</td><td class="num">0.005</td><td class="num">5.142</td><td class="num">0.122</td><td class="num">1.433</td></tr>
+<tr><td><em>(bundled) Real-ESRGAN anime 4x</em></td><td class="num">0.000</td><td class="num">3.006</td><td class="num">0.030</td><td class="num">0.512</td></tr>
+</table>
+<p class="caption"><code>run.sh parity</code>. Both clipped to 0..1 first, as the template's
+conversion back does. The fp16 maxima are single pixels at hard edges; the mean is what a viewer
+sees. The bundled anime model is the reference for what VSNCNN's fp16 already does in shipped
+builds.</p>
+
+<h2>3. Fidelity, colour and position</h2>
+<h3>3a. Restoring a downscaled broadcast frame (PSNR)</h3>
+<p>A 720x576 DVB-T frame (<code>pal-dvbt-fieldcoded-25i.ts</code>, bwdif) is the ground truth; its
+360x288 bicubic downscale is upscaled 2x by each method. <span class="warn">PSNR rewards
+softness</span>: the source is itself an H.264 broadcast, and a model that removes its compression
+noise or redraws texture scores <em>lower</em>. Read this as fidelity to the source, not as
+"which looks better" — and it is one frame.</p>
+<table id="psnr">
+<tr><th>Method</th><th class="num">PSNR</th><th class="num">mean abs (levels)</th></tr>
+<tr><td>Spline36</td><td class="num">30.99</td><td class="num">1.77</td></tr>
+<tr><td>Real-ESRGAN General 4x, then Spline36 to 2x (shipped)</td><td class="num">27.75</td><td class="num">3.74</td></tr>
+<tr><td>General 4x, then Lanczos to 2x</td><td class="num">27.70</td><td class="num">3.75</td></tr>
+<tr><td>General 4x, then Bicubic to 2x</td><td class="num">27.89</td><td class="num">3.70</td></tr>
+<tr><td>General 4x, then Bilinear to 2x</td><td class="num">28.40</td><td class="num">3.57</td></tr>
+<tr><td>General denoise 4x, Spline36 to 2x</td><td class="num">28.31</td><td class="num">3.00</td></tr>
+<tr><td><strong>Live Action SPAN 2x</strong></td><td class="num"><strong>32.04</strong></td><td class="num">2.01</td></tr>
+<tr><td>Real-ESRGAN x2plus 2x (shipped for 2x)</td><td class="num">27.22</td><td class="num">3.73</td></tr>
+<tr><td>Real-ESRGAN x4plus 4x, Spline36 to 2x</td><td class="num">28.60</td><td class="num">3.58</td></tr>
+<tr><td><em>(bundled) Real-ESRGAN anime 2x</em></td><td class="num">27.42</td><td class="num">4.83</td></tr>
+<tr><td><em>(bundled) Real-CUGAN conservative 2x</em></td><td class="num">30.55</td><td class="num">2.52</td></tr>
+</table>
+<p class="caption"><code>run.sh psnr</code>, 8-pixel border excluded.</p>
+<p><strong>General at 2x.</strong> The network is 4x only. Running it at 4x and resampling down is
+what upstream's own <code>--outscale</code> does (with Lanczos). The downscale kernel moves PSNR by
+under 0.7 dB, and in the order of their softness (bilinear best), which is PSNR preferring blur
+rather than a reason to pick bilinear. The pipeline's own kernel, Spline36, was kept: it sits next
+to Lanczos (0.05 dB apart). The resample runs in float RGB, before the conversion back to the
+source format (<code>{{#AI_RESAMPLE}}</code>).</p>
+<p><strong>Live Action SPAN</strong> is the only AI method here that beats Spline36 on PSNR: it was
+trained to repair compression, blur and halos without denoising or shifting colour, and it
+does what it says. Its author notes it "generally cannot handle VHS degradation" — the method
+description in the app says so.</p>
+
+<h3>3b. Crops</h3>
+<p>240x200 from the frame (face, glasses, hair), shown 2x with nearest-neighbour
+scaling so pixels are real. Click for full size.</p>
+<div class="grid">
+<figure><a href="img/01-original.png"><img src="img/01-original.png" alt="Original 720x576 crop"></a><figcaption class="caption">1. The original frame (the ground truth).</figcaption></figure>
+<figure><a href="img/02-spline36.png"><img src="img/02-spline36.png" alt="Spline36 2x"></a><figcaption class="caption">2. Spline36 from 360x288: soft, as expected.</figcaption></figure>
+<figure><a href="img/03-general.png"><img src="img/03-general.png" alt="Real-ESRGAN General"></a><figcaption class="caption">3. Real-ESRGAN General (4x, Spline36 to 2x): crisp edges, skin and hair texture redrawn smoother.</figcaption></figure>
+<figure><a href="img/04-general-denoise.png"><img src="img/04-general-denoise.png" alt="Real-ESRGAN General denoise"></a><figcaption class="caption">4. General's denoise variant: smoother again — for noisy sources only.</figcaption></figure>
+<figure><a href="img/05-live-action-span.png"><img src="img/05-live-action-span.png" alt="Live Action SPAN"></a><figcaption class="caption">5. Live Action SPAN: closest to the original; keeps texture and colour.</figcaption></figure>
+<figure><a href="img/06-x2plus.png"><img src="img/06-x2plus.png" alt="Real-ESRGAN x2plus"></a><figcaption class="caption">6. Real-ESRGAN x2plus: the most "restored" look, painterly in flat areas.</figcaption></figure>
+<figure><a href="img/07-anime-esrgan.png"><img src="img/07-anime-esrgan.png" alt="Bundled anime Real-ESRGAN"></a><figcaption class="caption">7. For contrast, the bundled anime Real-ESRGAN: flattens the face into cel shading — why live action needed its own models.</figcaption></figure>
+</div>
+
+<h3>3c. Colour and position on the synthetic pattern</h3>
+<p>The pattern of <code>integration_ai_upscale_test.dart</code> (six mid-saturation patches and a
+white bar on grey, 320x240, encoded through the whole pipeline to FFV1) against a Spline36 upscale
+of the same frames. Worst channel of the worst patch, and the bar's centre.</p>
+<table>
+<tr><th>Method</th><th class="num">Flat colour drift (levels)</th><th class="num">Bar centre offset (px, x / y)</th><th class="num">Test bound</th></tr>
+<tr><td>Real-ESRGAN General 2x</td><td class="num">2.9</td><td class="num">0.10 / 0.03</td><td class="num">4.0</td></tr>
+<tr><td>Real-ESRGAN General 4x</td><td class="num">2.9</td><td class="num">0.29 / 0.09</td><td class="num">4.0</td></tr>
+<tr><td>Live Action SPAN 2x</td><td class="num"><span class="good">0.6</span></td><td class="num">0.03 / 0.02</td><td class="num">1.5</td></tr>
+<tr><td>Live Action SPAN 4x (twice)</td><td class="num"><span class="good">1.3</span></td><td class="num">0.11 / 0.06</td><td class="num">2.0</td></tr>
+<tr><td>Real-ESRGAN x2plus</td><td class="num">4.2</td><td class="num">0.13 / 0.22</td><td class="num">6.0</td></tr>
+<tr><td>Real-ESRGAN x4plus</td><td class="num"><span class="warn">12.2</span></td><td class="num">0.27 / 0.11</td><td class="num">14.0</td></tr>
+<tr><td><em>(bundled) Real-ESRGAN anime 4x</em></td><td class="num">11.2</td><td class="num">—</td><td class="num">14.0</td></tr>
+<tr><td><em>AI strength 0.5, anime Real-ESRGAN 4x</em></td><td class="num">5.8</td><td class="num">—</td><td class="num">half ±1</td></tr>
+</table>
+<p class="caption">From <code>flutter test test/integration_ai_upscale_test.dart</code> (heavy) with
+<code>VAPOURBOX_EXPECT_VULKAN=1</code>, which prints every value. Every bar centre is within 0.3
+px of Spline36's (the test allows 0.75 px). General's 2x and 4x patches are identical: its 2x is the
+same 4x network, resampled. x4plus's tint is the model's, as with the anime Real-ESRGAN: the
+pipeline is shared with CUGAN and AnimeJaNai, which keep flat colour within 2 and 0.5 levels.</p>
+
+<h3>3d. AI strength</h3>
+<p><code>aiStrength</code> below 1 adds one <code>std.Merge</code> of a Spline36 upscale of the
+source frame with the network's result, at the clip's own format, before the frame properties are
+copied back. At strength 0.5 the result is within <strong>0.38 levels</strong> (mean) of the
+per-pixel mid-point of the two, and the anime Real-ESRGAN 4x tint falls from 11.2 to 5.8 levels.
+At 1.0 (the default) the block is removed: the script is byte-for-byte the one a job without the
+setting produces (<code>test_188</code>).</p>
+
+<h2 id="vhs2hd">4. 2xVHS2HD (RealPLKSR): rejected</h2>
+<p><a href="https://github.com/starinspace/StarinspaceUpscale">starinspace/StarinspaceUpscale</a>'s
+<code>2xVHS2HD-RealPLKSR.onnx</code> (release tag <code>Models</code>, 29,722,757 bytes, SHA-256
+<code>2b7ec70d…c826</code>; CC BY-SA 4.0; upstream names no author other than the account) is
+exported with dynamic shapes and in-place slice assignment (RealPLKSR's partial large-kernel
+convolution, <code>x[:, :idx] = conv(x[:, :idx])</code>). ncnn's ONNX importer, inside VSNCNN,
+rejects it at load:</p>
+<pre id="vhs2hd-log">  225 Shape not supported yet!
+   84 Expand not supported yet!
+   56 Where not supported yet!
+   56 Range not supported yet!
+   56 Equal not supported yet!
+   56 ConstantOfShape not supported yet!
+   56 Cast not supported yet!
+   28 ScatterND not supported yet!
+    1 Tile not supported yet!
+    1 layer Shape not exists or registered
+vapoursynth.Error: operator(): load param failed</pre>
+<p class="caption"><code>run.sh vhs2hd</code>. Counted import messages; the job fails with
+<code>operator(): load param failed</code>.</p>
+<p>So it was not built, and no add-on was made. A re-export from the published <code>.pth</code>
+with concatenation instead of slice assignment and static shape handling might import; that is a
+conversion of a CC BY-SA model (the result would be an adaptation under the same licence) and was
+not attempted.</p>
+
+<h2>5. Speed and GPU memory</h2>
+<table id="fps">
+<tr><th>720x576 source, 10 frames</th><th class="num">fps, <code>run.sh fps</code> (GPU shared)</th><th class="num">fps, first run (machine quiet)</th></tr>
+<tr><td>(bundled) Real-ESRGAN anime 2x</td><td class="num">5.07</td><td class="num">8.3</td></tr>
+<tr><td>(bundled) Real-CUGAN 2x</td><td class="num">3.51</td><td class="num">4.8</td></tr>
+<tr><td>Real-ESRGAN General 2x (4x, then resample)</td><td class="num">2.69</td><td class="num">4.0</td></tr>
+<tr><td>Real-ESRGAN General 4x</td><td class="num">2.83</td><td class="num">3.9</td></tr>
+<tr><td>Live Action SPAN 2x</td><td class="num">3.80</td><td class="num">8.9</td></tr>
+<tr><td>Live Action SPAN 4x (twice)</td><td class="num">0.86</td><td class="num">1.5</td></tr>
+<tr><td>Real-ESRGAN x2plus 2x</td><td class="num">0.45</td><td class="num">0.9</td></tr>
+<tr><td>Real-ESRGAN x4plus 4x (384 tiles)</td><td class="num">0.08</td><td class="num">0.15</td></tr>
+</table>
+<p class="caption"><code>run.sh fps</code>: fp16, <code>num_streams=2</code>, whole frames except
+x4plus — the template's settings for an SD source. Network time only (no decode or encode). One
+machine: an M1 Pro's GPU through MoltenVK; Windows and Linux GPUs will differ, and lavapipe on the CI
+runners is far slower. <span class="warn">The committed-script run shared the GPU with other
+jobs</span> (another agent's Core ML work); the first column is that run. The second is the same
+measurement made earlier the same day, through a scratch copy of these scripts, on a quiet machine —
+kept here because it is the better estimate of real speed. Ratios between methods agree.</p>
+<h3>Real-ESRGAN x4plus needs tiles at any size</h3>
+<table id="tiles">
+<tr><th>Configuration (4 frames)</th><th>Result</th></tr>
+<tr><td>x4plus, whole frame</td><td><span class="bad">segfault</span> after <code>vkWaitForFences failed -4</code> (device lost)</td></tr>
+<tr><td>x4plus, 512 tiles, 2 streams</td><td>0.01 fps (632 s for 4 frames: thrashing)</td></tr>
+<tr><td>x4plus, 512 tiles, 1 stream</td><td>0.05 fps</td></tr>
+<tr><td>x4plus, <strong>384 tiles, 2 streams</strong></td><td><span class="good">0.12 fps</span> (fastest)</td></tr>
+<tr><td>x4plus, 384 tiles, 1 stream</td><td>0.09 fps</td></tr>
+<tr><td>x4plus, 256 tiles, 2 / 1 streams</td><td>0.10 / 0.06 fps</td></tr>
+<tr><td>x4plus, 192 / 128 tiles</td><td>0.07 / 0.07 fps</td></tr>
+<tr><td>x2plus, whole frame, 2 / 1 streams</td><td>0.79 / 0.38 fps</td></tr>
+<tr><td>x2plus, 512 / 256 tiles</td><td>0.32 / 0.27 fps</td></tr>
+<tr><td>General on 360x288, 384 tile as given (larger than the frame)</td><td><span class="bad">segfault</span></td></tr>
+<tr><td>General on 360x288, tile clamped to the frame</td><td>runs (10.6 fps)</td></tr>
+</table>
+<p class="caption"><code>run.sh tiles</code>. "tile=0" is the whole frame.</p>
+<p>Whole-frame x4plus at 720x576 <span class="bad">lost the Vulkan device</span>
+(<code>vkWaitForFences failed -4</code>, <code>VK_ERROR_DEVICE_LOST</code>, then a segfault) — its
+last layers run 64 channels at 2880x2304. 512-pixel tiles ran but thrashed; 384 is fastest. So
+x4plus at 4x always runs in 384-pixel tiles (<code>CropResizeParameters::ai_tiling</code>) whenever the frame is above 384x384. x2plus works at a quarter of the area until its last layers and runs a DVD frame whole,
+so it keeps the common rule (512 tiles above SD).</p>
+<div class="card correction"><strong>Found on the way: a tile larger than the frame segfaults
+VSNCNN.</strong> The first committed run of <code>run.sh psnr</code> passed x4plus's 384 tile to a
+360x288 frame and crashed. The template only tiles above an area threshold, but a wide, short picture
+passes the area test while being shorter than a tile (800x200 for x4plus; any frame above 720x576 in
+area but under 512 lines for every AI method, the bundled ones included). Tiles are now
+<code>min(tile, width/height)</code> in both templates, and the heavy suite runs x4plus 4x on an
+800x200 source.</div>
+
+<h2>6. Decisions</h2>
+<ul>
+<li><strong>Two add-ons, not five.</strong> General and SPAN are small (11 MB together) and both
+for real-world footage; x4plus/x2plus are 134 MB and slow, so they are their own download.</li>
+<li><strong>VSNCNN, not ONNX Runtime.</strong> All four architectures import into ncnn and run
+exactly, on the same GPU path as the bundled models, so the add-ons need no <code>ai-runtime</code>
+and are offered exactly where VSNCNN ships (macOS arm64, Windows x64, Linux x64; asserted).</li>
+<li><strong>Factor rules:</strong> General runs 4x and resamples for 2x (as upstream); SPAN runs
+twice for 4x; x2plus / x4plus by factor (x2plus is 4x faster than x4plus-then-downscale).</li>
+<li><strong>The denoise variant is a switch</strong> on General, not a method: same network,
+different weights, 4.9 MB.</li>
+<li><strong>AI strength</strong> is one control for every AI method, 0–1 in 0.05 steps.</li>
+<li><strong>Not gated to advanced mode.</strong> The four-methods-in-simple-mode rule applies to a
+schema's <code>methods</code>; the upscaler is an enum parameter, and the schema has no per-option
+advanced flag. The x4plus option's label says "slow".</li>
+</ul>
+
+<h2>7. Not tested here</h2>
+<ul>
+<li>Windows (DirectX/Vulkan drivers) and Linux GPUs; the CI nightly runs the heavy suite on lavapipe.
+x4plus's tile size was chosen on a 16 GB unified-memory Mac; a discrete GPU with less memory may
+want smaller tiles.</li>
+<li>Real VHS, film scans and noisy low-light video — the quality comparison is one broadcast frame
+and a synthetic pattern.</li>
+<li>The hosted files: until the owner uploads them to <code>addon-models-v1</code>, every test ran
+through <code>VAPOURBOX_ADDON_MIRROR</code>, which checks the same sizes and hashes.</li>
+</ul>
+</main>
+</body>
+</html>

@@ -1,0 +1,33 @@
+{
+  "id": "upscale-esrgan-plus",
+  "version": "1.0.0",
+  "name": "Real-ESRGAN x4plus / x2plus models",
+  "feature": "AI upscaling",
+  "description": "Real-ESRGAN's original large models (x4plus and x2plus) for Crop & Resize: the most detailed Real-ESRGAN upscale of real-world footage, run on the graphics card, and very slow — about a second per DVD frame at 2x and ten at 4x on an M1 Pro.",
+  "licence": "BSD-3-Clause",
+  "licenceUrl": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+  "credit": "Xintao Wang",
+  "noticeName": "Real-ESRGAN x4plus / x2plus models",
+  "homepage": "https://github.com/xinntao/Real-ESRGAN",
+  "requires": [],
+  "kind": "files",
+  "platforms": {
+    "macos-arm64": {},
+    "windows-x64": {},
+    "linux-x64": {}
+  },
+  "files": [
+    {
+      "name": "upscale-RealESRGAN_x4plus.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/upscale-RealESRGAN_x4plus.onnx",
+      "size": 67051646,
+      "sha256": "86df1f74dbb7ee7521f2e342fb610eb7c147e161cbd377faafa706d4880716ca"
+    },
+    {
+      "name": "upscale-RealESRGAN_x2plus.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/upscale-RealESRGAN_x2plus.onnx",
+      "size": 67073184,
+      "sha256": "0fb8264f02ead334932e50fd5a23d8ca4884fcbaa747943acf5ae6278a112d49"
+    }
+  ]
+}
