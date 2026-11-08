@@ -1,0 +1,104 @@
+{
+  "opset": 17,
+  "irVersion": 8,
+  "torch": "2.15.0",
+  "models": [
+    {
+      "file": "face-restoration-retinaface-r50.onnx",
+      "size": 109106945,
+      "sha256": "da4d5fa7473e3043b5b15df3aa3586d25c5cd94d5cbb53cb8d6309f525381098",
+      "checkpoint": "https://github.com/xinntao/facexlib/releases/download/v0.1.0/detection_Resnet50_Final.pth",
+      "parity": {
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "seconds": 0.32051425002282485,
+        "outputs": [
+          {
+            "output": "loc",
+            "max": 1.1354684829711914e-05,
+            "mean": 9.606442592006e-07
+          },
+          {
+            "output": "conf",
+            "max": 1.1920928955078125e-07,
+            "mean": 7.331378323475032e-10
+          },
+          {
+            "output": "landmarks",
+            "max": 1.8596649169921875e-05,
+            "mean": 1.4495417096787561e-06
+          }
+        ]
+      }
+    },
+    {
+      "file": "face-restoration-retinaface-mnet.onnx",
+      "size": 1729296,
+      "sha256": "92d3bdd20d0a31bfff78e9312974637abe4471b86ad6470ad663c731b7489210",
+      "checkpoint": "https://github.com/xinntao/facexlib/releases/download/v0.1.0/detection_mobilenet0.25_Final.pth",
+      "parity": {
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "seconds": 0.012891915976069868,
+        "outputs": [
+          {
+            "output": "loc",
+            "max": 1.2129545211791992e-05,
+            "mean": 1.2732803146978509e-06
+          },
+          {
+            "output": "conf",
+            "max": 1.1920928955078125e-07,
+            "mean": 2.5632617247798147e-09
+          },
+          {
+            "output": "landmarks",
+            "max": 2.3603439331054688e-05,
+            "mean": 1.7438624740428903e-06
+          }
+        ]
+      }
+    },
+    {
+      "file": "face-restoration-bisenet.onnx",
+      "size": 52598302,
+      "sha256": "2e8a24164b64477200bf7d0c7022858a736f36409e184e4bf3c8cb39844bf048",
+      "checkpoint": "https://github.com/xinntao/facexlib/releases/download/v0.2.0/parsing_bisenet.pth",
+      "parity": {
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "seconds": 0.08913283300353214,
+        "outputs": [
+          {
+            "output": "parsing",
+            "max": 1.2159347534179688e-05,
+            "mean": 1.3916364676476664e-06
+          }
+        ],
+        "argmaxAgreement": 1.0
+      }
+    },
+    {
+      "file": "face-restoration-restoreformerpp.onnx",
+      "size": 295272527,
+      "sha256": "640da24f9eaae52fe4e840b4394c65583b69e0091947a0d659ccd2176c8cd86b",
+      "checkpoint": "https://github.com/wzhouxiff/RestoreFormerPlusPlus/releases/download/v1.0.0/RestoreFormer++.ckpt",
+      "parity": {
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "seconds": 2.610279541986529,
+        "outputs": [
+          {
+            "output": "output",
+            "max": 0.0002478957176208496,
+            "mean": 2.636080659354356e-06
+          }
+        ]
+      }
+    }
+  ]
+}

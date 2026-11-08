@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/dynamic_parameters.dart';
+import '../../models/face_restore_parameters.dart';
 import '../../models/audio_restoration_parameters.dart';
 import '../../models/filter_registry.dart';
 import '../../models/filter_schema.dart';
@@ -75,6 +76,8 @@ class PassSettingsInline extends StatelessWidget {
         return 'chroma_fixes';
       case PassType.cropResize:
         return 'crop_resize';
+      case PassType.faceRestore:
+        return 'face_restore';
       case PassType.audioRestoration:
         return 'audio_restoration';
       case PassType.subtitles:
@@ -109,6 +112,10 @@ class PassSettingsInline extends StatelessWidget {
               const AnimeJanaiNotice()
             else if (upscaleAddonSelectedBy(filterId, params.values) case final id?)
               UpscaleAddonNotice(addonId: id, reason: upscaleAddonReason(id)),
+            if (filterId == 'face_restore')
+              FaceRestoreNotice(
+                model: FaceRestoreModel.fromValue(params.values['model'] as String?),
+              ),
             if (filterId == 'descale') _buildDescaleDetect(context, viewModel),
             _buildBitDepthWarning(context, viewModel, schema, params),
             DynamicFilterPanelCompact(
@@ -383,6 +390,21 @@ class PassSettingsInline extends StatelessWidget {
       );
       if (!ready) return;
     }
+    // Face Restoration's models are add-ons: switching it on, or choosing
+    // another model while it is on, offers to download what that model needs
+    // (with its terms: GFPGAN and CodeFormer are non-commercial).
+    final faceAddons =
+        faceRestoreAddonsSelectedBy(filterId, newParams.enabled, newParams.values);
+    if (faceAddons != null &&
+        (!oldParams.enabled || oldParams.values['model'] != newParams.values['model'])) {
+      if (!context.mounted) return;
+      final ready = await AddonPrompt.ensure(
+        context,
+        faceAddons,
+        reason: faceRestoreAddonReason,
+      );
+      if (!ready) return;
+    }
     // DeepFilterNet is an add-on too: choosing speech enhancement offers it.
     if (deepFilterChosen(filterId, oldParams.values, newParams.values) &&
         newParams.enabled) {
@@ -646,6 +668,79 @@ class _UpscaleAddonNoticeState extends State<UpscaleAddonNotice> {
                           reason: widget.reason, service: _service),
                   icon: const Icon(Icons.download, size: 16),
                   label: Text('Download (${formatAddonSize(info.downloadBytes)})'),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Under Face Restoration: whether the chosen model's add-ons are installed
+/// (with a button to download them if not — deleted since, or chosen by a
+/// preset), and the model add-on's terms. GFPGAN's and CodeFormer's
+/// non-commercial restriction is shown in bold whenever either is chosen,
+/// since it is the user's to keep in mind on every job. Advisory only: the
+/// worker refuses a job whose add-ons are missing.
+class FaceRestoreNotice extends StatefulWidget {
+  final FaceRestoreModel model;
+  final AddonService? service;
+  const FaceRestoreNotice({super.key, required this.model, this.service});
+
+  @override
+  State<FaceRestoreNotice> createState() => _FaceRestoreNoticeState();
+}
+
+class _FaceRestoreNoticeState extends State<FaceRestoreNotice> {
+  AddonService get _service => widget.service ?? AddonService.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _service.load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: _service,
+      builder: (context, _) {
+        final ids = faceRestoreAddonIds(widget.model);
+        final info = _service.info(widget.model.addonId);
+        if (info == null) return const SizedBox.shrink();
+        final missing = _service.missing(ids);
+        final installed = missing.isEmpty;
+        final bytes = missing
+            .map(_service.info)
+            .whereType<AddonInfo>()
+            .fold<int>(0, (sum, i) => sum + i.downloadBytes);
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      installed
+                          ? '${widget.model.displayName} is installed.'
+                          : 'The ${widget.model.displayName} add-on is not installed.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    AddonTerms(info: info),
+                  ],
+                ),
+              ),
+              if (!installed)
+                OutlinedButton.icon(
+                  onPressed: _service.installingId != null
+                      ? null
+                      : () => AddonPrompt.ensure(context, ids,
+                          reason: faceRestoreAddonReason, service: _service),
+                  icon: const Icon(Icons.download, size: 16),
+                  label: Text('Download (${formatAddonSize(bytes)})'),
                 ),
             ],
           ),

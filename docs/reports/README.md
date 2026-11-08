@@ -66,6 +66,7 @@ to it.
 
 | Date | Report | Outcome |
 |---|---|---|
+| 2026-11-08 | [Face restoration: RestoreFormer++, GFPGAN and CodeFormer on ONNX Runtime](2026-11-face-restoration/index.html) | Built: RetinaFace R50 (steadier landmarks than mobilenet0.25) + BiSeNet + RestoreFormer++ as the base add-on, GFPGAN/CodeFormer as non-commercial add-ons; ONNX parity ≤2.5e-4; NumPy pipeline within 0.16/255 of facexlib; bit-exact outside the faces; flicker cut by blending restored faces in aligned space |
 | 2026-11-08 | [Live-action AI upscalers as add-ons, and AI strength](2026-11-ai-upscale-addons/index.html) | Built: Real-ESRGAN General (+ denoise), Live Action SPAN and Real-ESRGAN x4plus/x2plus on VSNCNN as two add-ons; conversions match PyTorch to 0.02 levels; 2xVHS2HD rejected (ncnn has no ScatterND/Shape/Range); AI strength blend halves a model's tint |
 | 2026-11-08 | [Audio restoration: filter delays, drift and DeepFilterNet](2026-11-audio-restoration/index.html) | Built: render the soundtrack before the encode; trim afftdn's 25 ms delay and give it the measured noise floor; correct drift by resampling (atempo moved audio ~20 ms); alimiter `latency=1:level=0`; DeepFilterNet as an add-on with `-D` |
 | 2026-11-03 | [Deblock before or after deinterlacing?](2026-11-deblock-order/index.html) | Keep Deblock after Deinterlace (≤0.05 dB gain from moving it); when deinterlacing is off, deblock per field rather than on the woven frame (+0.03 to +0.30 dB; DCTFilter on the woven frame lost 1.5–3.7 dB); built |

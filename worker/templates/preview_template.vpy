@@ -2131,6 +2131,37 @@ _aspect_box_h = _even(_box_h) if _box_h > 0 else 0
 {{/RESIZE}}
 
 # ============================================================================
+# PASS: FACE RESTORATION
+# ============================================================================
+# Each face is found (RetinaFace), aligned to the FFHQ template, restored
+# (RestoreFormer++, GFPGAN or CodeFormer), masked to the face itself (BiSeNet)
+# and blended back at this resolution: after the resize, so an upscale gives the
+# restorer more pixels and no later resample softens what it recovered; before
+# sharpening and grain. ONNX Runtime comes from the ai-runtime add-on (the AI
+# runtime block above) and the models are add-ons; face_restore.py sits beside
+# pipe_source.py. Landmarks are smoothed over the detections either side, and
+# the faces are merged in the source format, so every pixel outside them is the
+# input, bit-exact.
+{{#FACE_RESTORE}}
+import face_restore as _face_restore
+clip = _face_restore.restore_faces(
+    clip,
+    detector={{FR_DETECTOR}},
+    parser={{FR_PARSER}},
+    restorer={{FR_RESTORER}},
+    model="{{FR_MODEL}}",
+    strength={{FR_STRENGTH}},
+    fidelity={{FR_FIDELITY}},
+    threshold={{FR_THRESHOLD}},
+    min_face={{FR_MIN_FACE}},
+    max_faces={{FR_MAX_FACES}},
+    temporal_radius={{FR_RADIUS}},
+    matrix="{{FR_MATRIX}}",
+    color_range="{{FR_RANGE}}",
+)
+{{/FACE_RESTORE}}
+
+# ============================================================================
 # PASS: SHARPEN
 # ============================================================================
 # Sharpening runs after the resize (issue #109), on the pixels that are actually

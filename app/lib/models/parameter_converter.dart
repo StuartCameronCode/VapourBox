@@ -4,6 +4,7 @@ import 'geometry_parameters.dart';
 import 'audio_restoration_parameters.dart';
 import 'deflicker_parameters.dart';
 import 'descale_parameters.dart';
+import 'face_restore_parameters.dart';
 import 'edge_repair_parameters.dart';
 import 'frame_rate_parameters.dart';
 import 'ghost_removal_parameters.dart';
@@ -490,6 +491,38 @@ class ParameterConverter {
           orElse: () => DescaleBorder.mirror),
       protectDetail: v['protectDetail'] as bool? ?? true,
       detailThreshold: (v['detailThreshold'] as num?)?.toDouble() ?? 4.0,
+    );
+  }
+
+  /// Convert face restoration parameters to dynamic format.
+  static DynamicParameters fromFaceRestore(FaceRestoreParameters params) {
+    return DynamicParameters(
+      filterId: 'face_restore',
+      enabled: params.enabled,
+      values: {
+        'model': params.model.value,
+        'strength': params.strength,
+        'codeFormerFidelity': params.codeFormerFidelity,
+        'detectionThreshold': params.detectionThreshold,
+        'minFaceSize': params.minFaceSize,
+        'maxFaces': params.maxFaces,
+        'temporalSmoothing': params.temporalSmoothing,
+      },
+    );
+  }
+
+  /// Convert dynamic parameters to face restoration parameters.
+  static FaceRestoreParameters toFaceRestore(DynamicParameters params) {
+    final v = params.values;
+    return FaceRestoreParameters(
+      enabled: params.enabled,
+      model: FaceRestoreModel.fromValue(v['model'] as String?),
+      strength: (v['strength'] as num?)?.toDouble() ?? 0.8,
+      codeFormerFidelity: (v['codeFormerFidelity'] as num?)?.toDouble() ?? 0.7,
+      detectionThreshold: (v['detectionThreshold'] as num?)?.toDouble() ?? 0.8,
+      minFaceSize: _asInt(v['minFaceSize']) ?? 32,
+      maxFaces: _asInt(v['maxFaces']) ?? 8,
+      temporalSmoothing: v['temporalSmoothing'] as bool? ?? true,
     );
   }
 
@@ -1077,6 +1110,7 @@ class ParameterConverter {
         'color_correction': fromColorCorrection(pipeline.colorCorrection),
         'chroma_fixes': fromChromaFixes(pipeline.chromaFixes),
         'crop_resize': fromCropResize(pipeline.cropResize),
+        'face_restore': fromFaceRestore(pipeline.faceRestore),
         'audio_restoration': fromAudioRestoration(pipeline.audio),
         'subtitles': fromSubtitles(pipeline.subtitles),
       },
@@ -1697,6 +1731,9 @@ class ParameterConverter {
       descale: dynamic.get('descale') != null
           ? toDescale(dynamic.get('descale')!)
           : const DescaleParameters(),
+      faceRestore: dynamic.get('face_restore') != null
+          ? toFaceRestore(dynamic.get('face_restore')!)
+          : const FaceRestoreParameters(),
       edgeRepair: dynamic.get('edge_repair') != null
           ? toEdgeRepair(dynamic.get('edge_repair')!)
           : const EdgeRepairParameters(),

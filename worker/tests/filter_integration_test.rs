@@ -6902,6 +6902,154 @@ fn fake_addons(tag: &str, ids: &[&str]) -> PathBuf {
     root
 }
 
+/// A throwaway add-ons directory with `ids` (and what they require) installed
+/// as far as the worker can tell: each manifest's expected paths present
+/// (empty files will do for script generation) and its marker written.
+fn fake_addons_with_requirements(name: &str, ids: &[&str], platform: &str) -> PathBuf {
+    use vapourbox_worker::addons;
+    let root = std::env::temp_dir().join(format!("vb-addons-{name}-{}", Uuid::new_v4()));
+    for id in addons::with_requirements(ids) {
+        let m = addons::manifest(&id).expect("manifest");
+        let dir = addons::addon_dir(&root, &id);
+        for p in m.expected_paths(platform) {
+            let path = dir.join(&p);
+            if p.ends_with("site-packages") {
+                std::fs::create_dir_all(&path).unwrap();
+            } else {
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(&path, b"").unwrap();
+            }
+        }
+        std::fs::write(
+            dir.join(addons::MARKER),
+            serde_json::json!({"id": id, "version": m.version, "platform": platform}).to_string(),
+        )
+        .unwrap();
+    }
+    root
+}
+
+fn face_restore_job(name: &str, fr: FaceRestoreParameters) -> VideoJob {
+    let mut job = create_base_job(name);
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        crop_resize: CropResizeParameters {
+            enabled: true,
+            resize_enabled: true,
+            target_width: Some(1280),
+            target_height: Some(960),
+            ..Default::default()
+        },
+        sharpen: SharpenParameters { enabled: true, ..Default::default() },
+        face_restore: FaceRestoreParameters { enabled: true, ..fr },
+        ..ProcessingPipeline::default()
+    });
+    job
+}
+
+/// Face Restoration runs face_restore.restore_faces on ONNX Runtime from the
+/// add-ons, in both scripts: after the resize and before sharpening, with the
+/// AI runtime set up first and every model path taken from its add-on.
+#[test]
+fn test_189_face_restore_script_and_models() {
+    create_output_dir();
+    let platform = "macos-arm64";
+    let root = fake_addons_with_requirements("189", &["face-restoration", "face-codeformer"], platform);
+    let generator = ScriptGenerator::new().unwrap().with_addons(root.clone(), platform);
+    let job = face_restore_job("test_189_face_restore", FaceRestoreParameters {
+        model: FaceRestoreModel::CodeFormer,
+        strength: 0.6,
+        code_former_fidelity: 0.5,
+        detection_threshold: 0.7,
+        min_face_size: 40,
+        max_faces: 3,
+        temporal_smoothing: true,
+        ..Default::default()
+    });
+    let py = |id: &str, f: &str| vapourbox_worker::gpu_plugin::py_str(&root.join(id).join(f));
+    let runtime = vapourbox_worker::gpu_plugin::py_str(&root.join("ai-runtime"));
+    let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        let setup = script
+            .find(&format!("ai_runtime.setup({runtime})"))
+            .unwrap_or_else(|| panic!("{name}: no AI runtime"));
+        let call = script.find("_face_restore.restore_faces(").unwrap_or_else(|| panic!("{name}: no call"));
+        for want in [
+            format!("detector={}", py("face-restoration", "face-restoration-retinaface-r50.onnx")),
+            format!("parser={}", py("face-restoration", "face-restoration-bisenet.onnx")),
+            format!("restorer={}", py("face-codeformer", "face-codeformer-v0.1.0.onnx")),
+            "model=\"codeformer\"".into(),
+            "strength=0.600".into(),
+            "fidelity=0.500".into(),
+            "threshold=0.700".into(),
+            "min_face=40".into(),
+            "max_faces=3".into(),
+            "temporal_radius=1".into(),
+            "color_range=\"limited\"".into(),
+        ] {
+            assert!(script.contains(&want), "{name}: missing {want}");
+        }
+        assert!(setup < call, "{name}: runtime set up after the pass");
+        let resize = script.find("target_w = 1280").expect("resize");
+        let sharpen = script.find("haf.LSFmod(").expect("sharpen");
+        assert!(resize < call && call < sharpen, "{name}: after the resize, before sharpening");
+        assert!(!script.contains("{{FR_") && !script.contains("FACE_RESTORE}}"), "{name}: unsubstituted");
+    }
+    // Pass order and the preview's temporal context agree with the script.
+    let pipeline = job.effective_pipeline();
+    let passes = pipeline.enabled_passes();
+    let at = |p| passes.iter().position(|x| *x == p).unwrap();
+    assert!(at(PassType::CropResize) < at(PassType::FaceRestore));
+    assert!(at(PassType::FaceRestore) < at(PassType::Sharpen));
+    assert_eq!(pipeline.output_count(100), 100);
+    // The blend reads one neighbour each side, whose landmarks read one more.
+    let face_map = pipeline.frame_maps()[at(PassType::FaceRestore)].clone();
+    assert_eq!(face_map.radius(), 2);
+    let mut off = job.clone();
+    off.processing_pipeline.as_mut().unwrap().face_restore.temporal_smoothing = false;
+    assert!(script_text_with(&generator, &off).contains("temporal_radius=0"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Without its add-ons a Face Restoration job is refused, naming them and
+/// Settings → Add-ons; with the pass off nothing needs them and the script
+/// has neither the runtime nor the call.
+#[test]
+fn test_190_face_restore_refused_without_addons() {
+    create_output_dir();
+    let platform = "macos-arm64";
+    // The base installed but not GFPGAN's add-on.
+    let root = fake_addons_with_requirements("190", &["face-restoration"], platform);
+    let generator = ScriptGenerator::new().unwrap().with_addons(root.clone(), platform);
+    let gfpgan = face_restore_job("test_190_gfpgan", FaceRestoreParameters {
+        model: FaceRestoreModel::Gfpgan,
+        ..Default::default()
+    });
+    let err = both_scripts_with(&generator, &gfpgan).unwrap_err().to_string();
+    assert!(err.contains("Face restoration"), "{err}");
+    assert!(err.contains("Settings → Add-ons"), "{err}");
+    assert!(err.to_lowercase().contains("gfpgan"), "{err}");
+    // RestoreFormer++ needs only the base.
+    let rf = face_restore_job("test_190_rf", FaceRestoreParameters::default());
+    let (encode, _) = both_scripts_with(&generator, &rf).expect("the base add-on is enough");
+    assert!(encode.contains("model=\"restoreformer\""));
+    assert!(encode.contains("strength=0.800"));
+    // Nothing installed at all.
+    let empty = std::env::temp_dir().join(format!("vb-addons-190-empty-{}", Uuid::new_v4()));
+    let bare = ScriptGenerator::new().unwrap().with_addons(empty, platform);
+    assert!(both_scripts_with(&bare, &rf).is_err());
+    // Pass off: no add-on needed, no runtime, no call.
+    let mut off = rf.clone();
+    off.processing_pipeline.as_mut().unwrap().face_restore.enabled = false;
+    let (encode, preview) = both_scripts_with(&bare, &off).unwrap();
+    for script in [&encode, &preview] {
+        assert!(!script.contains("import ai_runtime"));
+        assert!(!script.contains("restore_faces("));
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// The add-on upscalers (Real-ESRGAN General, live-action SPAN, Real-ESRGAN
 /// x4plus/x2plus): the same VSNCNN block, each model from its add-on's
 /// directory, with the factor rules — General is 4x only, so 2x resamples its

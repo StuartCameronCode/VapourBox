@@ -392,6 +392,8 @@ class MainViewModel extends ChangeNotifier {
         return ParameterConverter.fromChromaFixes(_processingPipeline.chromaFixes);
       case 'crop_resize':
         return ParameterConverter.fromCropResize(_processingPipeline.cropResize);
+      case 'face_restore':
+        return ParameterConverter.fromFaceRestore(_processingPipeline.faceRestore);
       case 'audio_restoration':
         return ParameterConverter.fromAudioRestoration(_processingPipeline.audio);
       case 'subtitles':
@@ -477,6 +479,11 @@ class MainViewModel extends ChangeNotifier {
       case 'descale':
         _processingPipeline = _processingPipeline.copyWith(
           descale: ParameterConverter.toDescale(params),
+        );
+        break;
+      case 'face_restore':
+        _processingPipeline = _processingPipeline.copyWith(
+          faceRestore: ParameterConverter.toFaceRestore(params),
         );
         break;
       case 'edge_repair':
@@ -1388,6 +1395,8 @@ class MainViewModel extends ChangeNotifier {
         return 'chroma_fixes';
       case PassType.cropResize:
         return 'crop_resize';
+      case PassType.faceRestore:
+        return 'face_restore';
       case PassType.audioRestoration:
         return 'audio_restoration';
       case PassType.subtitles:

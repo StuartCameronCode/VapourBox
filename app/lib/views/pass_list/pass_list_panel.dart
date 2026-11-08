@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../models/face_restore_parameters.dart';
 import '../../models/filter_registry.dart';
 import '../../models/pass_relevance.dart';
 import '../../models/processing_pipeline.dart';
@@ -69,7 +70,12 @@ class PassListPanel extends StatelessWidget {
     ),
     (
       title: 'Finishing',
-      passes: [PassType.sharpen, PassType.grain, PassType.frameRate],
+      passes: [
+        PassType.faceRestore,
+        PassType.sharpen,
+        PassType.grain,
+        PassType.frameRate,
+      ],
     ),
     // Neither is a picture pass: the soundtrack is rendered, then (when
     // subtitles are on) transcribed, both before the encode. Restoration
@@ -179,6 +185,15 @@ class PassListPanel extends StatelessWidget {
             case PassType.cropResize:
               return item(passType, 'Crop / Resize', pipeline.cropResize.summary,
                   pipeline.cropResize.enabled);
+            case PassType.faceRestore:
+              return item(
+                passType,
+                'Face Restoration',
+                pipeline.faceRestore.summary,
+                pipeline.faceRestore.enabled,
+                onToggle: (enabled) =>
+                    _handleFaceRestoreToggle(context, viewModel, enabled),
+              );
             case PassType.audioRestoration:
               return item(passType, 'Audio Restoration', pipeline.audio.summary,
                   pipeline.audio.enabled);
@@ -288,6 +303,25 @@ class PassListPanel extends StatelessWidget {
       if (!ready) return;
     }
     viewModel.togglePass(PassType.subtitles, enabled);
+  }
+
+  /// Face Restoration's models are add-ons: switching the pass on offers to
+  /// download the ones its chosen model needs (with their licence terms; the
+  /// GFPGAN and CodeFormer ones are non-commercial). Declining leaves it off.
+  Future<void> _handleFaceRestoreToggle(
+    BuildContext context,
+    MainViewModel viewModel,
+    bool enabled,
+  ) async {
+    if (enabled) {
+      final ready = await AddonPrompt.ensure(
+        context,
+        viewModel.processingPipeline.faceRestore.addonIds,
+        reason: faceRestoreAddonReason,
+      );
+      if (!ready) return;
+    }
+    viewModel.togglePass(PassType.faceRestore, enabled);
   }
 
   String _getPassSummary(ProcessingPipeline pipeline) {

@@ -134,6 +134,8 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info) {
     case PassType.deband:
     case PassType.sharpen:
     case PassType.colorCorrection:
+    // Whether a video has faces worth restoring is not in its metadata.
+    case PassType.faceRestore:
     case PassType.subtitles:
     // A dead channel, hum or drift is not in the metadata either.
     case PassType.audioRestoration:

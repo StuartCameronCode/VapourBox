@@ -54,6 +54,7 @@ void main() {
       PassType.stabilize,
       PassType.geometry,
       PassType.cropResize,
+      PassType.faceRestore,
       PassType.sharpen,
       PassType.grain,
       PassType.frameRate,
@@ -102,6 +103,19 @@ void main() {
       expect(indexOf(PassType.stabilize),
           greaterThan(indexOf(PassType.colorCorrection)));
     });
+  });
+
+  test('faces are restored after the resize and before sharpening', () {
+    // At the delivered resolution: an upscale gives the restorer more pixels
+    // per face, and nothing resamples its detail away afterwards. Sharpening
+    // and grain follow, so they act on the restored face rather than the one
+    // it replaced.
+    expect(flattened.indexOf(PassType.faceRestore),
+        greaterThan(flattened.indexOf(PassType.cropResize)));
+    expect(flattened.indexOf(PassType.faceRestore),
+        lessThan(flattened.indexOf(PassType.sharpen)));
+    expect(flattened.indexOf(PassType.faceRestore),
+        lessThan(flattened.indexOf(PassType.grain)));
   });
 
   test('grain is the last video pass', () {

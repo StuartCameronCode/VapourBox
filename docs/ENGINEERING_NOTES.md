@@ -3017,6 +3017,51 @@ and subtitle alignment all need. Measured with ffmpeg 9.0.2 and deep-filter
   enforces it, so `WorkerHarness.ensureWhisper(model: 'small')` fails until
   the manifest is corrected.
 
+### Face restoration: RestoreFormer++ on ONNX Runtime, steadied in aligned space (2026-11-08)
+
+Full report with images and scripts:
+[docs/reports/2026-11-face-restoration/](reports/2026-11-face-restoration/index.html).
+
+A Face Restoration pass (after Crop & Resize) on the `ai-runtime` add-on, its
+models as add-ons: `face-restoration` (RetinaFace R50, BiSeNet,
+RestoreFormer++; Apache-2.0/MIT), `face-gfpgan` and `face-codeformer` (both
+non-commercial: NVIDIA's licence on GFPGAN's StyleGAN2 code, S-Lab License
+1.0). Measured on an M1 Pro with a VHS-degraded clip of NASA public-domain
+footage (`Tests/TestResources/face_restore_test.mp4`):
+
+- **Conversions are exact**: ONNX vs PyTorch ≤2.5e-4 on [-1, 1] (0.03 of an
+  8-bit level), reproducible byte for byte. Two departures from upstream:
+  GFPGAN exported with its fixed noise buffers (upstream draws fresh noise
+  per call — new texture every frame), and CodeFormer's `w` as a graph input
+  (the traced `w > 0` branch adds exactly zero at `w = 0`).
+- **The NumPy pipeline matches facexlib + OpenCV**: landmarks 6e-5 px,
+  alignment 7e-5, final frame ≤0.16 levels for the same restored face.
+- **Detector: ResNet-50 over mobilenet0.25.** Both found the face in every
+  frame, but mobilenet's landmarks jittered 1.5x (SD) to 2.2x (1080p wide
+  shot) as much; ResNet-50 costs 87 ms vs 7 ms per frame on Core ML.
+- **Temporal stability**: smoothing landmarks over n±1 (the obvious fix)
+  changed nothing measurable here (flick 2.287 → 2.284; this detector was
+  already steady). What works is blending each restored face with its
+  neighbours' in the aligned 512 space, weighted to zero where the input
+  crops moved: RestoreFormer++'s excess flicker over the clean source halved
+  (2.287 → 1.799; 1.571 at the default strength 0.8), GFPGAN's fell 86%,
+  with no rise in distance from the clean source (no ghosting the metric
+  sees). One mostly still clip; fast motion untested.
+- **Bit-exact outside the faces** (MaskedMerge in the source format): 0
+  samples changed outside the face box over 16 frames at 8 and 10 bits;
+  preview = encode exactly.
+- **Speed** (one face per frame, RestoreFormer++): 2.2 fps SD and
+  1.8 fps 1080p on Core ML; 0.085 / 0.072 fps on the CPU,
+  ~25x slower (Linux has only the CPU).
+- **Core ML traps**: concurrent predictions from VapourSynth's threads ran
+  the GPU out of memory (`kIOGPUCommandBufferCallbackErrorOutOfMemory`), so a
+  pass's model runs are serialised (`ai_runtime.Runner`, one lock) with a CPU
+  retry; `ModelCacheDirectory` made the second session fail
+  (`output_features has no value`), so every job compiles — CodeFormer takes
+  30–50 s, the others 2–8 s.
+- Untested: Windows (DirectML), Linux (CPU), macOS x64; crowds, profiles and
+  scene cuts across a face.
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and

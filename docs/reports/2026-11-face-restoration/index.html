@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Face Restoration</title>
+<style>
+:root { --bg:#fff; --fg:#1d1d1f; --muted:#5f6368; --line:#d9dce1; --accent:#1a5fb4; --good:#1e7b34; --warn:#9a6700; --card:#f6f7f9; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#161718; --fg:#e8eaed; --muted:#a0a4a9; --line:#3a3d41; --accent:#78aeed; --good:#6cc586; --warn:#e2b340; --card:#202124; } }
+:root[data-theme="dark"] { --bg:#161718; --fg:#e8eaed; --muted:#a0a4a9; --line:#3a3d41; --accent:#78aeed; --good:#6cc586; --warn:#e2b340; --card:#202124; }
+body { background:var(--bg); color:var(--fg); font:16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin:0; padding:0 16px; }
+main { max-width: 960px; margin: 0 auto; padding: 24px 0 64px; }
+h1 { font-size: 1.8rem; margin: 0 0 4px; } h2 { margin-top: 2.2rem; border-bottom: 1px solid var(--line); padding-bottom: 4px; } h3 { margin-top: 1.5rem; }
+.sub { color: var(--muted); margin: 0 0 1.5rem; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.92rem; display: block; overflow-x: auto; }
+th, td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; white-space: nowrap; }
+td.wrap, th.wrap { white-space: normal; }
+th { background: var(--card); } td.num { text-align: right; font-variant-numeric: tabular-nums; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em; }
+.box { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 16px 0; }
+.good { color: var(--good); } .warn { color: var(--warn); }
+figure { margin: 16px 0; } figure img { max-width: 100%; image-rendering: pixelated; border: 1px solid var(--line); }
+figcaption { color: var(--muted); font-size: 0.9rem; }
+.correction { border-left: 4px solid var(--warn); padding-left: 12px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Face Restoration</h1>
+<p class="sub">RestoreFormer++, GFPGAN and CodeFormer on ONNX Runtime, as a VapourSynth pass. 2026-11-08, macOS 27 on an M1 Pro (16 GB). Scripts: <a href="scripts/">scripts/</a>; raw results: <a href="data/">data/</a> (the bench runs, flicker metrics, conversion and pipeline parity records). To reproduce: <code>scripts/make_refs.sh</code>, then <code>scripts/bench.sh</code>, <code>scripts/flicker.py</code>, <code>scripts/tables.py</code> and <code>scripts/make_figures.sh</code>.</p>
+
+<div class="box">
+<strong>Outcome: built.</strong> A Face Restoration pass after Crop &amp; Resize, on the <code>ai-runtime</code> add-on, with three model add-ons:
+<code>face-restoration</code> (RetinaFace ResNet-50 + BiSeNet + RestoreFormer++, the default, Apache-2.0/MIT),
+<code>face-gfpgan</code> and <code>face-codeformer</code> (both non-commercial). The NumPy reimplementation of facexlib's
+pipeline matches it to 0.16/255; every pixel outside the faces is bit-exact; a temporal blend in aligned face space cuts
+the restored face's frame-to-frame flicker by half (RestoreFormer++, excess over the clean source) to 86% (GFPGAN); RestoreFormer++ runs at 2.2 fps on SD and
+1.8 fps at 1080p on Core ML (about 25× slower on the CPU).
+</div>
+
+<h2>1. Licences, read upstream</h2>
+<table>
+<tr><th>Component</th><th>Licence (as its LICENSE file states it)</th><th>Holder named</th><th>Decision</th></tr>
+<tr><td>RestoreFormer++ (wzhouxiff/RestoreFormerPlusPlus v1.0.0)</td><td>Apache-2.0</td><td class="wrap">none (template line left unfilled); authors per its citation</td><td>default model, base add-on</td></tr>
+<tr><td>RetinaFace (biubug6/Pytorch_Retinaface; weights as published by facexlib)</td><td>MIT</td><td class="wrap">"Copyright (c) 2019", no name</td><td>detector, base add-on</td></tr>
+<tr><td>BiSeNet (zllrunning/face-parsing.PyTorch; facexlib's parsing_bisenet.pth)</td><td>MIT</td><td>zll, 2019</td><td>face parser, base add-on</td></tr>
+<tr><td>facexlib (xinntao/facexlib)</td><td>MIT</td><td>Xintao Wang, 2020</td><td>hosts the weights; alignment template</td></tr>
+<tr><td>GFPGAN v1.4 (TencentARC/GFPGAN)</td><td class="wrap">Apache-2.0 except third-party code: the StyleGAN2-derived network is under NVIDIA's licence, §3.3 "may be used … non-commercially … research or evaluation purposes only"</td><td class="wrap">THL A29 Limited, a Tencent company, 2021</td><td>own add-on, non-commercial usage note</td></tr>
+<tr><td>CodeFormer (sczhou/CodeFormer v0.1.0)</td><td class="wrap">S-Lab License 1.0: redistribution and use for non-commercial purposes, with the notice</td><td>S-Lab, 2022</td><td>own add-on, non-commercial usage note</td></tr>
+<tr><td>ParseNet (facexlib's default parser)</td><td>derived from PSFRGAN, CC BY-NC-SA</td><td></td><td><strong>not used</strong></td></tr>
+<tr><td>InsightFace / FaceFusion retinaface_10g</td><td>non-commercial</td><td></td><td><strong>not used</strong></td></tr>
+</table>
+
+<h2>2. Conversion to ONNX</h2>
+<p>Each model is exported by a committed script (<code>Scripts/models/make_face_restoration.py</code>,
+<code>make_face_gfpgan.py</code>, <code>make_face_codeformer.py</code>) from the upstream checkpoint pinned by SHA-256 and
+the network source pinned by commit, with the TorchScript exporter at opset 17 / IR 8 (loadable by ONNX Runtime 1.23.2, the
+Intel-Mac floor). Shapes are static (detector 640×640, faces 512×512) so Core ML can take whole graphs. Re-running the
+script reproduces the files byte for byte (checked for the detector and parser). Parity is ONNX Runtime (CPU) against
+PyTorch on the same input, in the networks' own units:</p>
+<table>
+<tr><th>File</th><th class="num">Size</th><th>Output</th><th class="num">max |Δ|</th><th class="num">mean |Δ|</th></tr>
+<tr><td>face-restoration-retinaface-r50.onnx</td><td class="num">109.1 MB</td><td>loc / conf / landmarks</td><td class="num">1.1e-5 / 1.2e-7 / 1.9e-5</td><td class="num">9.6e-7 / 7.3e-10 / 1.5e-6</td></tr>
+<tr><td>face-restoration-bisenet.onnx</td><td class="num">52.6 MB</td><td>logits (argmax agrees on 100% of pixels)</td><td class="num">1.2e-5</td><td class="num">1.4e-6</td></tr>
+<tr><td>face-restoration-restoreformerpp.onnx</td><td class="num">295.3 MB</td><td>image, [-1, 1]</td><td class="num">2.5e-4</td><td class="num">2.6e-6</td></tr>
+<tr><td>face-gfpgan-v1.4.onnx</td><td class="num">340.4 MB</td><td>image, [-1, 1]</td><td class="num">1.2e-5</td><td class="num">2.6e-7</td></tr>
+<tr><td>face-codeformer-v0.1.0.onnx</td><td class="num">376.8 MB</td><td>image at w = 0 / 0.5 / 0.7 / 1</td><td class="num">4.1e-5 / 4.4e-5 / 6.4e-5 / 1.1e-4</td><td class="num">≤3.2e-6</td></tr>
+</table>
+<p>The worst case, 2.5e-4 on a [-1, 1] scale, is 0.03 of an 8-bit level.</p>
+<h3>Two deliberate departures from upstream inference</h3>
+<ul>
+<li><strong>GFPGAN with fixed noise.</strong> GFPGANer runs the StyleGAN2 decoder with <code>randomize_noise=True</code>:
+fresh random noise on every call, i.e. new texture on every frame of a video. The export uses the generator's fixed noise
+buffers (part of the checkpoint), which makes the model a pure function of its input. For scale, upstream's random-noise
+output differs from the fixed-noise one by up to 0.19 (mean 0.0046) on the [-1, 1] scale.</li>
+<li><strong>CodeFormer's fidelity <code>w</code> as an input.</strong> CodeFormer uses <code>w</code> only in each fusion
+block's <code>out = dec + w·(dec·scale + shift)</code>, behind <code>if w &gt; 0</code>. The export traces the <code>w &gt; 0</code>
+branch; at <code>w = 0</code> it adds exactly zero, so one graph is the network at every <code>w</code> (parity above at four
+values, including 0 against upstream's skipped branch), where fixed exports would cost 377 MB per offered value.</li>
+</ul>
+
+<h2>3. The pipeline without OpenCV</h2>
+<p>Neither the deps bundle nor the ai-runtime add-on has OpenCV, and nothing needs it: RetinaFace's priors, box/landmark
+decoding and NMS, the five-point similarity transform (Umeyama, in place of <code>cv2.estimateAffinePartial2D</code>),
+bilinear warps, the Gaussian feathering and the paste-back are NumPy in <code>worker/templates/face_restore.py</code>.
+<code>scripts/pipeline_parity.py</code> runs facexlib's PyTorch <code>detect_faces</code> and OpenCV beside it on four frames
+of the fixture:</p>
+<table>
+<tr><th>Step</th><th class="num">max difference over 4 frames</th></tr>
+<tr><td>Box / landmarks (pixels)</td><td class="num">3.1e-5 / 6.1e-5</td></tr>
+<tr><td>Detection score</td><td class="num">0</td></tr>
+<tr><td>Alignment matrix</td><td class="num">7.1e-5</td></tr>
+<tr><td>Aligned 512×512 crop (8-bit levels)</td><td class="num">0.0024</td></tr>
+<tr><td>Final frame given the same restored face (8-bit levels)</td><td class="num">0.16 (mean in the face 0.006)</td></tr>
+</table>
+<p>The pass's mask reaches ~2% fewer pixels than facexlib's (21,112 vs 21,599 on frame 0): values below 1/1024 are cut to
+exactly zero, so that the blend has a finite reach and everything past it can be left bit-exact (section 6).</p>
+
+<h2>4. Detector: ResNet-50, not mobilenet0.25</h2>
+<table>
+<tr><th></th><th class="num">ResNet-50</th><th class="num">mobilenet0.25</th></tr>
+<tr><td>File</td><td class="num">109 MB</td><td class="num">1.7 MB</td></tr>
+<tr><td>640×640 on Core ML / CPU (ms)</td><td class="num">87 / 405</td><td class="num">6.7 / 16</td></tr>
+<tr><td>WIDER FACE val, hard, original scale (upstream README)</td><td class="num">84.4%</td><td class="num">73.8%</td></tr>
+<tr><td>Faces found ≥ 0.8, SD fixture / 1080p wide shot</td><td class="num">150/150, 90/90</td><td class="num">150/150, 90/90</td></tr>
+<tr><td>Landmark jitter (px, second difference), SD fixture</td><td class="num">0.166</td><td class="num">0.243</td></tr>
+<tr><td>Landmark jitter, 1080p wide shot (face ~125 px)</td><td class="num">0.201</td><td class="num">0.445</td></tr>
+</table>
+<p>Both find this clip's one face in every frame; the difference is in how steadily. Mobilenet's landmarks jitter 1.5–2.2×
+as much, and jitter is what a restorer turns into a face that swims; on hard faces (small, blurred, turned) the published
+gap is 10 points. Against that, ResNet-50 costs ~80 ms more per frame on Core ML, which is small beside the restorer's
+~300 ms per face — but it is the whole cost of a frame with no face, and on the CPU (Linux) 405 ms. Chosen for quality;
+and its steadier landmarks show in the restored face too: flick 1.799 against 1.951 with mobilenet (section 5).</p>
+
+<h2>5. Temporal stability</h2>
+<p>A per-frame restorer re-invents fine texture on every frame from noisy input, and a face that is
+detected a pixel differently each frame is aligned, and so restored, differently. On a mostly still talking head
+(<code>scripts/flicker.py</code>, a fixed rectangle in the middle of the face, 150 frames, luma in 8-bit levels):</p>
+<ul>
+<li><strong>flick</strong> = mean |Y[t] − (Y[t−1] + Y[t+1]) / 2|: change from frame to frame that smooth motion does not
+explain — shimmer, texture that comes and goes, a face that jumps.</li>
+<li><strong>tdiff</strong> = mean |Y[t] − Y[t−1]|: all temporal change, motion included.</li>
+<li><strong>vs clean</strong> = mean |Y − clean source|: a check that blending neighbours didn't ghost or smear; <em>not</em>
+a quality score (restorers invent plausible detail, which a pixel metric counts as error — every restorer scores
+worse than the soft input here).</li>
+</ul>
+<table>
+<tr><th>Variant</th><th class="num">flick</th><th class="num">tdiff</th><th class="num">vs clean</th></tr>
+<tr><td>Clean source, same crop (the floor: real motion)</td><td class="num">1.273</td><td class="num">2.448</td><td class="num">—</td></tr>
+<tr><td>Input (degraded fixture)</td><td class="num">1.140</td><td class="num">1.998</td><td class="num">5.47</td></tr>
+<tr><td>RestoreFormer++, no smoothing</td><td class="num">2.287</td><td class="num">3.453</td><td class="num">7.89</td></tr>
+<tr><td>RestoreFormer++, landmarks smoothed only (r = 1)</td><td class="num">2.284</td><td class="num">3.514</td><td class="num">7.92</td></tr>
+<tr><td>RestoreFormer++, landmarks + aligned-space blend (r = 1)</td><td class="num">1.799</td><td class="num">3.228</td><td class="num">7.86</td></tr>
+<tr><td>RestoreFormer++, landmarks + blend (r = 2)</td><td class="num">1.657</td><td class="num">3.125</td><td class="num">7.83</td></tr>
+<tr><td>RestoreFormer++, r = 1, strength 0.8 (<strong>the default</strong>)</td><td class="num">1.571</td><td class="num">2.878</td><td class="num">7.13</td></tr>
+<tr><td>RestoreFormer++, r = 1, mobilenet0.25 detector</td><td class="num">1.951</td><td class="num">3.371</td><td class="num">7.98</td></tr>
+<tr><td>GFPGAN, no smoothing</td><td class="num">1.914</td><td class="num">2.938</td><td class="num">5.96</td></tr>
+<tr><td>GFPGAN, r = 1</td><td class="num">1.359</td><td class="num">2.642</td><td class="num">5.88</td></tr>
+<tr><td>CodeFormer (w 0.7), no smoothing</td><td class="num">2.421</td><td class="num">3.537</td><td class="num">6.97</td></tr>
+<tr><td>CodeFormer (w 0.7), r = 1</td><td class="num">1.789</td><td class="num">3.158</td><td class="num">6.87</td></tr>
+</table>
+<div class="correction"><p><strong>Correction, found during the work.</strong> The brief's minimum — smoothing landmarks
+over n−1, n, n+1 — was built first and changed nothing measurable here: flick 2.287 → 2.284. On this clip the
+detector is already steady (landmark jitter 0.17 px), so the restorer's own per-frame texture is the whole problem.
+That is what led to the second step, which is what the pass ships: each restored face is averaged with the restored
+faces it matches in the neighbouring frames, in the aligned 512×512 space where they line up, weighted down to
+nothing wherever the <em>input</em> crops differ by more than 15 levels (a moving mouth or eye keeps its own frame).
+Landmark smoothing stays: it costs nothing and matters where detection is less steady than here (the mobilenet row:
+flick 1.951 against 1.799 with ResNet-50's steadier landmarks).</p></div>
+<p>The blend cuts RestoreFormer++'s excess flicker (above the clean source's 1.273) by half at r = 1
+(2.287 → 1.799) and GFPGAN's by 86% (1.914 → 1.359), with "vs clean" unchanged or lower, i.e. no ghosting the metric
+can see. r = 2 gains another 0.14 but reads four frames either side for the preview and widens the window over which
+a turning head is averaged; r = 1 ships. Strength 0.8 (the default) keeps a fifth of the real face's texture and
+takes flicker to 1.571. <strong>Limits:</strong> one clip of one mostly still face; no measurement of fast motion,
+turning heads or scene cuts, where the motion weight is what stops ghosting and is untested beyond this clip.</p>
+<figure><a href="img/01-models.png"><img src="img/01-models.png" alt="Five face crops side by side"></a>
+<figcaption>Frame 75, 200×200 crop at 2× (nearest neighbour). Left to right: the degraded input; the clean source
+(same crop and scale, no damage — not available to the pass); RestoreFormer++; GFPGAN v1.4; CodeFormer w 0.7 — all at
+strength 1 with smoothing. Look at the eyes and teeth: every model recovers them; GFPGAN and CodeFormer invent a
+lighter iris colour than the source has.</figcaption></figure>
+<figure><a href="img/02-strength.png"><img src="img/02-strength.png" alt="Input, strength 1, strength 0.8"></a>
+<figcaption>Input | RestoreFormer++ at strength 1 | at 0.8, the default. 0.8 keeps some of the real face's skin texture
+and flickers less (table above).</figcaption></figure>
+<figure><a href="img/03-frame.png"><img src="img/03-frame.png" alt="Full frame before and after"></a>
+<figcaption>The whole frame, input above, restored (default settings) below: only the face changes; the background,
+hair and clothes are the input's pixels.</figcaption></figure>
+
+<h2>6. Bit-exact outside the faces</h2>
+<p>The pass converts the frame to float RGB (the source's matrix and range), restores and pastes the faces there, converts
+back, and composites with <code>std.MaskedMerge</code> in the source's own format using the face mask (luma-sized,
+<code>first_plane=True</code>, so 4:2:0 chroma takes it resampled). Wherever the mask is zero — everything outside the
+feathered faces, and every frame without one — the output <em>is</em> the input. <code>integration_face_restore_test.dart</code>
+compares a lossless encode with the pass on against one with it off, sample by sample in every plane:</p>
+<table>
+<tr><th>Case (16 frames, FFV1)</th><th class="num">Face mean |Δ| (8-bit levels)</th><th class="num">Samples changed outside the face box</th></tr>
+<tr><td>RestoreFormer++, defaults, 8-bit 4:2:0</td><td class="num">4.70</td><td class="num">0</td></tr>
+<tr><td>Strength 0</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td>GFPGAN, smoothing on</td><td class="num">2.92</td><td class="num">0</td></tr>
+<tr><td>CodeFormer, smoothing on / off</td><td class="num">3.59 / 3.65</td><td class="num">0 / 0</td></tr>
+<tr><td>RestoreFormer++, 10-bit 4:2:0 source (stays 10-bit)</td><td class="num">4.68</td><td class="num">0</td></tr>
+</table>
+<p>The "face box" is generous (x 190–430, y 70–370 of 640×480, about half the face's size added on every side),
+because the feathered mask reaches past the face and the head moves; the test proves nothing changed outside it,
+not where exactly inside it the change stops. Preview against encode at two frames: mean |Δ| 0.0 (identical).</p>
+
+<h2>7. Speed and providers</h2>
+<p>One face in every frame, <code>scripts/face_run.py</code> in the deps bundle's Python (the code the
+generated script runs), M1 Pro, smoothing on. Other agents' jobs shared the GPU during parts of this session; these
+runs were made with no other VapourSynth process running, but the numbers are one sample each.</p>
+<table>
+<tr><th>Run</th><th>Size</th><th class="num">Frames</th><th class="num">fps</th><th class="num">Setup (s)</th><th>Note</th></tr>
+<tr><td>RestoreFormer++, Core ML</td><td>640x480</td><td class="num">60</td><td class="num">2.15</td><td class="num">3.4</td><td class="wrap"></td></tr>
+<tr><td>RestoreFormer++, Core ML</td><td>1920x1080</td><td class="num">60</td><td class="num">1.84</td><td class="num">3.4</td><td class="wrap">detection on a 640 copy; conversions and paste-back at 1080p</td></tr>
+<tr><td>RestoreFormer++, CPU (VAPOURBOX_AI_FORCE_CPU=1)</td><td>640x480</td><td class="num">12</td><td class="num">0.09</td><td class="num">0.3</td><td class="wrap"></td></tr>
+<tr><td>RestoreFormer++, CPU</td><td>1920x1080</td><td class="num">12</td><td class="num">0.07</td><td class="num">0.3</td><td class="wrap"></td></tr>
+<tr><td>GFPGAN, Core ML</td><td>640x480</td><td class="num">60</td><td class="num">0.80</td><td class="num">4.6</td><td class="wrap"></td></tr>
+<tr><td>CodeFormer, Core ML</td><td>640x480</td><td class="num">60</td><td class="num">0.36</td><td class="num">49.2</td><td class="wrap">setup includes Core ML compiling the model</td></tr>
+</table>
+<p>Core ML runs RestoreFormer++ about 25× faster than the CPU. The cost is per face, so a
+frame with two faces takes about twice as long, and 1080p costs little more than SD (the face is restored at 512×512
+either way). Per-model latency on this Mac (<code>Scripts/models/face_provider_bench.py</code>, one 512² face or one 640²
+detection, after warm-up):</p>
+<table>
+<tr><th>Model</th><th class="num">Core ML (ms)</th><th class="num">CPU (ms)</th><th class="num">Core ML vs CPU max |Δ|</th><th class="num">Core ML session (s)</th></tr>
+<tr><td>RetinaFace R50</td><td class="num">87</td><td class="num">405</td><td class="num">1.4e-5</td><td class="num">2.1</td></tr>
+<tr><td>BiSeNet</td><td class="num">33</td><td class="num">98</td><td class="num">1.0e-5</td><td class="num">0.5</td></tr>
+<tr><td>RestoreFormer++</td><td class="num">293</td><td class="num">6,775</td><td class="num">1.9e-4</td><td class="num">5.6</td></tr>
+<tr><td>GFPGAN v1.4</td><td class="num">639</td><td class="num">2,012</td><td class="num">8.2e-6</td><td class="num">7.9</td></tr>
+<tr><td>CodeFormer</td><td class="num">677</td><td class="num">6,095</td><td class="num">7.2e-5</td><td class="num">46 (30 with CPUAndGPU units)</td></tr>
+</table>
+<p>Linux has only the CPU provider, so there a minute of SD video with a face throughout takes on the order of
+5.9 hours; Windows uses DirectML (untested here).</p>
+
+<h2>8. What wasn't tested</h2>
+<ul>
+<li><strong>Windows (DirectML), Linux (CPU), macOS x64</strong>: only macOS arm64 was run. The models are plain opset-17
+graphs and ran on ONNX Runtime's CPU provider here, but DirectML's operator coverage for the transformer models
+(RestoreFormer++, CodeFormer) is unverified; a failure there falls back to the CPU at session creation, or at the first run
+(<code>ai_runtime.Runner</code>).</li>
+<li>TensorRT/CUDA: hooks only, as for every ai-runtime pass.</li>
+<li>One clip, one face, frontal, mostly still. Crowds, profiles, occlusion, scene cuts across a face, and faces smaller
+than ~60 px at 640 were not measured.</li>
+<li>Faithfulness: a restorer invents plausible detail. No metric here says the restored face is the person; Strength is
+the user's control for that.</li>
+</ul>
+
+<h2>9. Decisions</h2>
+<ul>
+<li><strong>Pass position: after Crop &amp; Resize, before Sharpen.</strong> Faces are restored at the delivered
+resolution (an upscale gives the restorer more pixels per face; nothing resamples the result afterwards); sharpening
+before would sharpen a face that is then replaced; grain after puts texture back over the smooth result.</li>
+<li><strong>RestoreFormer++ as the default</strong> — the only one of the three with a clean licence.</li>
+<li><strong>BiSeNet, not ParseNet</strong> (licence), with facexlib's classes for the face (skin, brows, eyes, glasses,
+ears, nose, mouth, lips) and its feathering.</li>
+<li><strong>CodeFormer <code>w</code> as a graph input</strong> (section 2).</li>
+<li><strong>Static shapes</strong>, the detector fed a padded 640 square: Core ML takes static graphs whole.</li>
+<li><strong>Runs serialised per pass</strong> (<code>ai_runtime.Runner</code>, one lock for the three models) with a CPU retry:
+two jobs' worth of concurrent Core ML predictions ran the GPU out of memory (<code>kIOGPUCommandBufferCallbackErrorOutOfMemory</code>).</li>
+<li><strong>Default strength 0.8</strong>, smoothing on (section 5).</li>
+<li><strong>No Core ML model cache.</strong> ONNX Runtime's <code>ModelCacheDirectory</code> cut RestoreFormer++'s session
+creation but the second session from the cache failed (<code>output_features has no value</code>), so each job compiles:
+RestoreFormer++ 2–6 s, GFPGAN 2–8 s, CodeFormer 30–50 s.</li>
+</ul>
+</main>
+</body>
+</html>
