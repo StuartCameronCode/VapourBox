@@ -80,6 +80,13 @@ Map<String, dynamic> _manifest({
 void main() {
   late Directory tmp;
   late Directory addons;
+  // Every installer here ignores VAPOURBOX_ADDON_MIRROR (an empty mirror),
+  // so a run with it set for the integration tests still exercises the
+  // fake server; the mirror test passes its own directory.
+  ManifestAddonInstaller newInstaller(AddonManifest m, String platformId,
+          {String? osVersion, String? mirror}) =>
+      ManifestAddonInstaller(m, platformId, osVersion: osVersion, mirror: mirror ?? '');
+
   setUp(() {
     tmp = Directory.systemTemp.createTempSync('vb_manifest_addon_');
     addons = Directory(p.join(tmp.path, 'addons'))..createSync();
@@ -95,7 +102,7 @@ void main() {
       final server = _Serve({'https://example.invalid/dl/a.onnx': model});
       final service = AddonService.forTest(
           addonsDir: addons,
-          installers: [ManifestAddonInstaller(m, 'linux-x64')],
+          installers: [newInstaller(m, 'linux-x64')],
           downloader: server);
       await service.load();
       expect(service.isInstalled('test-addon'), isFalse);
@@ -125,12 +132,12 @@ void main() {
         'https://example.invalid/dl/linux.onnx': model,
         'https://example.invalid/dl/windows.onnx': other,
       });
-      final installer = ManifestAddonInstaller(m, 'windows-x64');
+      final installer = newInstaller(m, 'windows-x64');
       expect(installer.info.downloadBytes, other.length);
       await installer.install(addons, server);
       expect(server.fetched, ['https://example.invalid/dl/windows.onnx']);
       expect(installer.isInstalled(addons), isTrue);
-      expect(ManifestAddonInstaller(m, 'linux-x64').isInstalled(addons), isFalse,
+      expect(newInstaller(m, 'linux-x64').isInstalled(addons), isFalse,
           reason: 'another platform\'s install is not this one\'s');
     });
 
@@ -141,7 +148,7 @@ void main() {
           {'path': 'pack/a.onnx', 'sha256': _sha(model)},
         ]),
       ]));
-      final installer = ManifestAddonInstaller(m, 'macos-arm64', osVersion: '15.0');
+      final installer = newInstaller(m, 'macos-arm64', osVersion: '15.0');
       await installer.install(addons, _Serve({'https://example.invalid/dl/pack.zip': zip}));
       final dir = Directory(p.join(addons.path, 'test-addon'));
       expect(dir.listSync().map((e) => p.basename(e.path)).toSet(),
@@ -156,7 +163,7 @@ void main() {
           {'path': 'pack/a.onnx', 'sha256': _sha(model)},
         ]),
       ]));
-      final installer = ManifestAddonInstaller(m, 'linux-x64');
+      final installer = newInstaller(m, 'linux-x64');
       await expectLater(installer.install(addons, _Serve({'https://example.invalid/dl/pack.zip': zip})),
           throwsA(predicate((e) => '$e'.contains('does not match its expected hash'))));
       expect(Directory(p.join(addons.path, 'test-addon')).existsSync(), isFalse);
@@ -171,8 +178,8 @@ void main() {
         'https://example.invalid/dl/a.onnx': model,
         'https://example.invalid/dl/b.onnx': other,
       });
-      await ManifestAddonInstaller(v1, 'linux-x64').install(addons, server);
-      final upgraded = ManifestAddonInstaller(v2, 'linux-x64');
+      await newInstaller(v1, 'linux-x64').install(addons, server);
+      final upgraded = newInstaller(v2, 'linux-x64');
       expect(upgraded.isInstalled(addons), isFalse);
       await upgraded.install(addons, server);
       expect(upgraded.isInstalled(addons), isTrue);
@@ -186,7 +193,7 @@ void main() {
       File(p.join(mirror.path, 'a.onnx')).writeAsBytesSync(model);
       final m = AddonManifest.fromJson(_manifest(files: [_entry('a.onnx', model)]));
       final server = _Serve({});
-      final installer = ManifestAddonInstaller(m, 'linux-x64', mirror: mirror.path);
+      final installer = newInstaller(m, 'linux-x64', mirror: mirror.path);
       await installer.install(addons, server);
       expect(server.fetched, isEmpty);
       expect(installer.isInstalled(addons), isTrue);
@@ -213,7 +220,7 @@ void main() {
       });
       final m = AddonManifest.fromJson(
           _manifest(kind: 'python', files: [_entry('pkg-1.0-cp312-cp312-any.whl', wheel)]));
-      final installer = ManifestAddonInstaller(m, 'linux-arm64');
+      final installer = newInstaller(m, 'linux-arm64');
       await installer.install(
           addons, _Serve({'https://example.invalid/dl/pkg-1.0-cp312-cp312-any.whl': wheel}));
       final site = Directory(p.join(addons.path, 'test-addon', 'site-packages'));
@@ -227,7 +234,7 @@ void main() {
       final wheel = _zip({'../evil.py': utf8.encode('boom')});
       final m = AddonManifest.fromJson(_manifest(kind: 'python', files: [_entry('evil.whl', wheel)]));
       await expectLater(
-          ManifestAddonInstaller(m, 'linux-x64')
+          newInstaller(m, 'linux-x64')
               .install(addons, _Serve({'https://example.invalid/dl/evil.whl': wheel})),
           throwsStateError);
       expect(File(p.join(addons.path, 'evil.py')).existsSync(), isFalse);
@@ -241,7 +248,7 @@ void main() {
         files: [_entry('a.onnx', model)]));
 
     test('a platform outside the table is unavailable, and refused', () async {
-      final installer = ManifestAddonInstaller(m, 'windows-x64');
+      final installer = newInstaller(m, 'windows-x64');
       expect(installer.unavailableReason, contains('isn\'t available for Windows'));
       final service = AddonService.forTest(addonsDir: addons, installers: [installer]);
       await service.load();
@@ -249,10 +256,10 @@ void main() {
     });
 
     test('minOs is checked against the running macOS', () {
-      expect(ManifestAddonInstaller(m, 'macos-x64', osVersion: '12.7.6').unavailableReason,
+      expect(newInstaller(m, 'macos-x64', osVersion: '12.7.6').unavailableReason,
           contains('needs macOS 13.0 or later'));
-      expect(ManifestAddonInstaller(m, 'macos-x64', osVersion: '13.0').unavailableReason, isNull);
-      expect(ManifestAddonInstaller(m, 'macos-x64', osVersion: '15.1').unavailableReason, isNull);
+      expect(newInstaller(m, 'macos-x64', osVersion: '13.0').unavailableReason, isNull);
+      expect(newInstaller(m, 'macos-x64', osVersion: '15.1').unavailableReason, isNull);
       expect(ManifestAddonInstaller.compareOsVersions('13.10', '13.9'), greaterThan(0));
     });
   });
@@ -275,7 +282,7 @@ void main() {
         {..._entry('tool', bytes), 'executable': true},
       ]));
       expect(m.files.single.executable, isTrue);
-      final installer = ManifestAddonInstaller(m, 'linux-x64');
+      final installer = newInstaller(m, 'linux-x64');
       await installer.install(addons, _Serve({'https://example.invalid/dl/tool': bytes}));
       final tool = File(p.join(addons.path, 'test-addon', 'tool'));
       if (!Platform.isWindows) {

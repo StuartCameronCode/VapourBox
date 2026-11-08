@@ -262,7 +262,8 @@ class ManifestAddonInstaller implements AddonInstaller {
   final String? _osVersion;
 
   /// Where to take files from instead of the network; defaults to
-  /// [addonMirrorEnv].
+  /// [addonMirrorEnv]. An empty string means no mirror whatever the
+  /// environment says (the installer's own unit tests use it).
   final String? _mirror;
 
   ManifestAddonInstaller(this.manifest, this.platformId, {String? osVersion, String? mirror})
@@ -274,7 +275,7 @@ class ManifestAddonInstaller implements AddonInstaller {
   static const markerName = '.vapourbox-addon.json';
 
   String? get mirror {
-    if (_mirror != null) return _mirror;
+    if (_mirror != null) return _mirror.isEmpty ? null : _mirror;
     final env = Platform.environment[addonMirrorEnv];
     return env == null || env.isEmpty ? null : env;
   }
