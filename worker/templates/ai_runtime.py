@@ -263,3 +263,98 @@ def self_test(force_cpu=False):
         "fallback": last_fallback,
         "maxError": err,
     }
+
+
+# ----------------------------------------------------------------------------
+# Helpers for passes that run a model on part of a frame (face restoration,
+# and anything else that crops, warps or masks around a network). They keep a
+# pass a pure function of its input frames, which VapourSynth needs: it asks
+# for frames in parallel and out of order, so nothing may depend on the order
+# frames were computed in.
+# ----------------------------------------------------------------------------
+
+
+def to_rgbs(clip, matrix, range_):
+    """`clip` (YUV, GRAY or RGB, any depth) as planar float RGB, using the
+    source's matrix and range (zimg names, e.g. "709" / "limited") for YUV."""
+    import vapoursynth as vs
+
+    core = vs.core
+    family = clip.format.color_family
+    if family == vs.YUV:
+        return core.resize.Spline36(clip, format=vs.RGBS, matrix_in_s=matrix, range_in_s=range_)
+    if family == vs.GRAY:
+        gray = core.resize.Point(clip, format=vs.GRAYS, range_in_s=range_)
+        return core.std.ShufflePlanes(gray, [0, 0, 0], vs.RGB)
+    return core.resize.Point(clip, format=vs.RGBS)
+
+
+def from_rgbs(rgbs, fmt, matrix, range_):
+    """The inverse of to_rgbs: back to `fmt` (a VideoFormat), dithered. A GRAY
+    source takes the green plane, as the AI upscaling block does."""
+    import vapoursynth as vs
+
+    core = vs.core
+    if fmt.color_family == vs.YUV:
+        return core.resize.Spline36(rgbs, format=fmt.id, matrix_s=matrix, range_s=range_,
+                                    dither_type="error_diffusion")
+    if fmt.color_family == vs.GRAY:
+        return core.resize.Point(core.std.ShufflePlanes(rgbs, 1, vs.GRAY), format=fmt.id, range_s=range_,
+                                 dither_type="error_diffusion")
+    return core.resize.Point(rgbs, format=fmt.id, dither_type="error_diffusion")
+
+
+def shifted(clip, offset):
+    """`clip` moved by `offset` frames, clamped at both ends: frame n of the
+    result is frame clamp(n + offset) of `clip`. Passing these to
+    std.ModifyFrame alongside the clip gives a callback its neighbours'
+    frames without calling get_frame() from inside a frame request."""
+    n = clip.num_frames
+    if offset == 0 or n < 2:
+        return clip
+    offset = max(-(n - 1), min(n - 1, offset))
+    if offset > 0:
+        return clip[offset:] + clip[-1] * offset
+    return clip[0] * (-offset) + clip[: n + offset]
+
+
+class FrameMemo:
+    """A bounded cache of a pure per-frame computation, computed once even
+    when several frame requests (several nodes reading the same result, or
+    neighbours sharing a detection) ask for the same key at the same time.
+    Losing an entry only costs recomputing it, which gives the same answer."""
+
+    def __init__(self, capacity=64):
+        import collections
+
+        self._capacity = capacity
+        self._lock = threading.Lock()
+        self._done = collections.OrderedDict()
+        self._pending = {}
+
+    def get(self, key, compute):
+        with self._lock:
+            if key in self._done:
+                self._done.move_to_end(key)
+                return self._done[key]
+            event = self._pending.get(key)
+            owner = event is None
+            if owner:
+                event = self._pending[key] = threading.Event()
+        if not owner:
+            event.wait()
+            with self._lock:
+                if key in self._done:
+                    return self._done[key]
+            return compute()  # evicted already (or the owner failed): recompute
+        try:
+            value = compute()
+            with self._lock:
+                self._done[key] = value
+                while len(self._done) > self._capacity:
+                    self._done.popitem(last=False)
+            return value
+        finally:
+            with self._lock:
+                self._pending.pop(key, None)
+            event.set()

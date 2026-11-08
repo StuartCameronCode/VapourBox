@@ -1,0 +1,60 @@
+{
+  "id": "face-restoration",
+  "version": "1.0.0",
+  "name": "Face restoration (RestoreFormer++)",
+  "feature": "Face restoration",
+  "description": "Restores blurry, low-resolution faces in the Face Restoration pass: the RetinaFace face detector, the BiSeNet face parser that keeps the blend to the face itself, and RestoreFormer++, the default restoration model. Converted to ONNX from the projects' own published weights.",
+  "licence": "Apache-2.0",
+  "licenceUrl": "https://github.com/wzhouxiff/RestoreFormerPlusPlus/blob/main/LICENSE",
+  "credit": "Zhouxia Wang, Jiawei Zhang, Tianshui Chen, Wenping Wang and Ping Luo",
+  "noticeName": "RestoreFormer++ model",
+  "homepage": "https://github.com/wzhouxiff/RestoreFormerPlusPlus",
+  "components": [
+    {
+      "noticeName": "RetinaFace face detector",
+      "licence": "MIT",
+      "licenceUrl": "https://github.com/biubug6/Pytorch_Retinaface/blob/master/LICENSE.MIT",
+      "credit": "biubug6 (Pytorch_Retinaface)",
+      "homepage": "https://github.com/biubug6/Pytorch_Retinaface"
+    },
+    {
+      "noticeName": "BiSeNet face parser",
+      "licence": "MIT",
+      "licenceUrl": "https://github.com/zllrunning/face-parsing.PyTorch/blob/master/LICENSE",
+      "credit": "zll (face-parsing.PyTorch)",
+      "homepage": "https://github.com/zllrunning/face-parsing.PyTorch"
+    },
+    {
+      "noticeName": "facexlib",
+      "licence": "MIT",
+      "licenceUrl": "https://github.com/xinntao/facexlib/blob/master/LICENSE",
+      "credit": "Xintao Wang",
+      "homepage": "https://github.com/xinntao/facexlib"
+    }
+  ],
+  "requires": [
+    "ai-runtime"
+  ],
+  "kind": "files",
+  "platforms": "all",
+  "files": [
+    {
+      "name": "face-restoration-retinaface-r50.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/face-restoration-retinaface-r50.onnx",
+      "size": 109106945,
+      "sha256": "da4d5fa7473e3043b5b15df3aa3586d25c5cd94d5cbb53cb8d6309f525381098"
+    },
+    {
+      "name": "face-restoration-bisenet.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/face-restoration-bisenet.onnx",
+      "size": 52598302,
+      "sha256": "2e8a24164b64477200bf7d0c7022858a736f36409e184e4bf3c8cb39844bf048"
+    },
+    {
+      "name": "face-restoration-restoreformerpp.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/face-restoration-restoreformerpp.onnx",
+      "size": 295272527,
+      "sha256": "640da24f9eaae52fe4e840b4394c65583b69e0091947a0d659ccd2176c8cd86b"
+    }
+  ]
+}
