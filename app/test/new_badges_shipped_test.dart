@@ -100,6 +100,10 @@ void main() {
       expect(service.isSchemaNew(_load('face_restore.json')), isTrue);
     });
 
+    test('Colourisation is a new filter', () {
+      expect(service.isSchemaNew(_load('colorize.json')), isTrue);
+    });
+
     test('Descale, new in 1.5.0, is no longer badged', () {
       expect(service.isSchemaNew(_load('descale.json')), isFalse);
     });

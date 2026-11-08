@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../models/colorize_parameters.dart';
 import '../../models/face_restore_parameters.dart';
 import '../../models/filter_registry.dart';
 import '../../models/pass_relevance.dart';
@@ -61,6 +62,7 @@ class PassListPanel extends StatelessWidget {
       passes: [
         PassType.antiAlias,
         PassType.chromaFixes,
+        PassType.colorize,
         PassType.colorCorrection,
       ],
     ),
@@ -194,6 +196,15 @@ class PassListPanel extends StatelessWidget {
                 onToggle: (enabled) =>
                     _handleFaceRestoreToggle(context, viewModel, enabled),
               );
+            case PassType.colorize:
+              return item(
+                passType,
+                'Colourisation',
+                pipeline.colorize.summary,
+                pipeline.colorize.enabled,
+                onToggle: (enabled) =>
+                    _handleColorizeToggle(context, viewModel, enabled),
+              );
             case PassType.audioRestoration:
               return item(passType, 'Audio Restoration', pipeline.audio.summary,
                   pipeline.audio.enabled);
@@ -322,6 +333,25 @@ class PassListPanel extends StatelessWidget {
       if (!ready) return;
     }
     viewModel.togglePass(PassType.faceRestore, enabled);
+  }
+
+  /// Colourisation's models are add-ons: switching the pass on offers to
+  /// download the chosen model (and the AI runtime it runs on). Declining
+  /// leaves it off.
+  Future<void> _handleColorizeToggle(
+    BuildContext context,
+    MainViewModel viewModel,
+    bool enabled,
+  ) async {
+    if (enabled) {
+      final ready = await AddonPrompt.ensure(
+        context,
+        [viewModel.processingPipeline.colorize.addonId],
+        reason: colorizeAddonReason,
+      );
+      if (!ready) return;
+    }
+    viewModel.togglePass(PassType.colorize, enabled);
   }
 
   String _getPassSummary(ProcessingPipeline pipeline) {

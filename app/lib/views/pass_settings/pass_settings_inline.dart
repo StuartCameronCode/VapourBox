@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/dynamic_parameters.dart';
+import '../../models/colorize_parameters.dart';
 import '../../models/face_restore_parameters.dart';
 import '../../models/audio_restoration_parameters.dart';
 import '../../models/filter_registry.dart';
@@ -78,6 +79,8 @@ class PassSettingsInline extends StatelessWidget {
         return 'crop_resize';
       case PassType.faceRestore:
         return 'face_restore';
+      case PassType.colorize:
+        return 'colorize';
       case PassType.audioRestoration:
         return 'audio_restoration';
       case PassType.subtitles:
@@ -115,6 +118,11 @@ class PassSettingsInline extends StatelessWidget {
             if (filterId == 'face_restore')
               FaceRestoreNotice(
                 model: FaceRestoreModel.fromValue(params.values['model'] as String?),
+              ),
+            if (filterId == 'colorize')
+              UpscaleAddonNotice(
+                addonId: ColorizeModel.fromValue(params.values['method'] as String?).addonId,
+                reason: colorizeAddonReason,
               ),
             if (filterId == 'descale') _buildDescaleDetect(context, viewModel),
             _buildBitDepthWarning(context, viewModel, schema, params),
@@ -402,6 +410,19 @@ class PassSettingsInline extends StatelessWidget {
         context,
         faceAddons,
         reason: faceRestoreAddonReason,
+      );
+      if (!ready) return;
+    }
+    // Colourisation's models are add-ons: switching it on, or choosing the
+    // other model while it is on, offers that model's download.
+    final colorizeAddon = colorizeAddonSelectedBy(filterId, newParams.enabled, newParams.values);
+    if (colorizeAddon != null &&
+        (!oldParams.enabled || oldParams.values['method'] != newParams.values['method'])) {
+      if (!context.mounted) return;
+      final ready = await AddonPrompt.ensure(
+        context,
+        [colorizeAddon],
+        reason: colorizeAddonReason,
       );
       if (!ready) return;
     }

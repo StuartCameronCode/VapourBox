@@ -1,0 +1,155 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "colorize",
+  "version": "1.0.0",
+  "sinceAppVersion": "1.7.0",
+  "name": "Colourisation",
+  "description": "Colour black-and-white footage with AI",
+  "longDescription": "Turns black-and-white film scans, old broadcasts and home movies into colour. A neural network trained on over a million colour photographs judges what colour each thing in the picture probably was — skin, sky, foliage, clothing — from its shapes and shading alone.\n\nOnly the colour is added: the brightness of every pixel stays exactly as it was, so no detail is lost or invented. The colours are the network's best guess, not a record of the original, and it can be wrong about anything whose colour could have been anything, such as clothes or cars. Each frame's colour is steadied against its neighbours so it doesn't flicker, and it runs before Color Correction, so you can grade the result there.\n\nIf the video already has colour, that colour is replaced by the network's.\n\nThe models are separate downloads, free for any use. DDColor (220 MB) gives vivid, natural colour. DeOldify Video (870 MB) is more muted and was trained to stay steady on video. On a Mac they run on the graphics card and Neural Engine, on Windows on any DirectX 12 graphics card, and otherwise on the CPU, which is much slower.",
+  "category": "color",
+  "icon": "colorize",
+  "methods": [
+    {
+      "id": "ddcolor",
+      "name": "DDColor",
+      "description": "Vivid, natural colour (220 MB download). The default",
+      "function": "custom",
+      "parameters": [
+        "ddcolorRenderSize",
+        "strength",
+        "temporalRadius"
+      ]
+    },
+    {
+      "id": "deoldify",
+      "name": "DeOldify Video",
+      "description": "More muted colour, trained to stay steady on video (870 MB download)",
+      "function": "custom",
+      "parameters": [
+        "deoldifyRenderFactor",
+        "strength",
+        "temporalRadius"
+      ]
+    }
+  ],
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "hidden": true
+      }
+    },
+    "method": {
+      "type": "enum",
+      "default": "ddcolor",
+      "options": [
+        "ddcolor",
+        "deoldify"
+      ],
+      "ui": {
+        "hidden": true
+      }
+    },
+    "ddcolorRenderSize": {
+      "type": "integer",
+      "default": 512,
+      "min": 256,
+      "max": 768,
+      "step": 32,
+      "ui": {
+        "label": "Render Size",
+        "description": "The size (in pixels, square) the network sees the picture at. 512 is what DDColor was made for; smaller is faster and can give more uniform colour, larger is slower. The colour is scaled to the video's own size either way",
+        "widget": "slider",
+        "precision": 0,
+        "visibleWhen": {
+          "method": [
+            "ddcolor"
+          ]
+        }
+      }
+    },
+    "deoldifyRenderFactor": {
+      "type": "integer",
+      "default": 21,
+      "min": 10,
+      "max": 40,
+      "step": 1,
+      "ui": {
+        "label": "Render Factor",
+        "description": "DeOldify's render resolution: the network sees a square 16 times this many pixels across (21 = 336 pixels, its default for video). Higher picks up smaller things and tends to steadier colour, but is slower and can wash colour out",
+        "widget": "slider",
+        "precision": 0,
+        "visibleWhen": {
+          "method": [
+            "deoldify"
+          ]
+        }
+      }
+    },
+    "strength": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 1.5,
+      "step": 0.05,
+      "ui": {
+        "label": "Colour Strength",
+        "description": "How much of the predicted colour is applied. 1 is the network's colour; lower fades it toward black and white, higher makes it more saturated",
+        "widget": "slider",
+        "precision": 2
+      }
+    },
+    "temporalRadius": {
+      "type": "integer",
+      "default": 2,
+      "min": 0,
+      "max": 4,
+      "step": 1,
+      "ui": {
+        "label": "Steady Colour",
+        "description": "How many frames either side each frame's colour is averaged with, wherever the picture did not move, so colour doesn't flicker from frame to frame. 0 colours every frame on its own; more is steadier on still shots and slower to start a preview",
+        "widget": "slider",
+        "precision": 0
+      }
+    }
+  },
+  "implementation": [
+    {
+      "function": "colorize.colorize",
+      "role": "predicts the colour, steadies it over neighbouring frames and puts it with the source's own luma (ONNX Runtime)"
+    },
+    {
+      "function": "DDColor-T",
+      "role": "predicts CIELAB colour, recombined with the frame's lightness",
+      "activeWhen": {
+        "method": "ddcolor"
+      }
+    },
+    {
+      "function": "DeOldify Video",
+      "role": "predicts a colour picture, of which only the colour is kept",
+      "activeWhen": {
+        "method": "deoldify"
+      }
+    },
+    {
+      "function": "core.std.ShufflePlanes",
+      "role": "keeps the source's Y plane bit-exact, replacing only U and V"
+    }
+  ],
+  "ui": {
+    "sections": [
+      {
+        "title": "Colourisation",
+        "parameters": [
+          "ddcolorRenderSize",
+          "deoldifyRenderFactor",
+          "strength",
+          "temporalRadius"
+        ],
+        "expanded": true
+      }
+    ]
+  }
+}

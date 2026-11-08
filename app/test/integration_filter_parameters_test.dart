@@ -24,6 +24,7 @@ import 'package:vapourbox/models/descale_parameters.dart';
 import 'package:vapourbox/models/descratch_parameters.dart';
 import 'package:vapourbox/models/dynamic_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
+import 'package:vapourbox/models/colorize_parameters.dart';
 import 'package:vapourbox/models/face_restore_parameters.dart';
 import 'package:vapourbox/models/frame_rate_parameters.dart';
 import 'package:vapourbox/models/filter_schema.dart';
@@ -182,6 +183,7 @@ VideoJob buildJob({
   GrainParameters? grain,
   DescaleParameters? descale,
   FaceRestoreParameters? faceRestore,
+  ColorizeParameters? colorize,
 }) => VideoJob(
   id: const Uuid().v4(),
   inputPath: TestConfig.inputFile,
@@ -205,6 +207,7 @@ VideoJob buildJob({
     grain: grain ?? const GrainParameters(),
     descale: descale ?? const DescaleParameters(),
     faceRestore: faceRestore ?? const FaceRestoreParameters(),
+    colorize: colorize ?? const ColorizeParameters(),
   ),
   encodingSettings: const EncodingSettings(
     codec: VideoCodec.h264, container: ContainerFormat.mkv, audioMode: AudioMode.none,
@@ -1256,6 +1259,62 @@ void main() {
       }
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('colourisation: every setting reaches the script, or the job is refused',
+        () async {
+      // The models are add-ons of 220 MB (DDColor) and 870 MB (DeOldify),
+      // too much for a push-gate test to download. So, as for Face
+      // Restoration: with VAPOURBOX_ADDON_MIRROR set, install the add-on the
+      // app's way and check the script; if it is already installed, check the
+      // script; otherwise check the refusal (what CI sees), which names the
+      // add-on and Settings → Add-ons.
+      loadSchema('colorize');
+      const typed = ColorizeParameters(
+        enabled: true,
+        model: ColorizeModel.deoldify,
+        ddcolorRenderSize: 384,
+        deoldifyRenderFactor: 25,
+        strength: 0.75,
+        temporalRadius: 3,
+      );
+      // Through the converter, as the panel would hand it to the worker.
+      final roundTripped =
+          ParameterConverter.toColorize(ParameterConverter.fromColorize(typed));
+      expect(roundTripped.toJson(), typed.toJson());
+      final job = buildJob(testName: 'colorize', colorize: roundTripped);
+
+      if (Platform.environment['VAPOURBOX_ADDON_MIRROR']?.isNotEmpty ?? false) {
+        await WorkerHarness.ensureAddon('colorize-deoldify');
+      }
+      final manifests = {
+        for (final m in AddonManifest.loadDirectory(
+            Directory('${TestConfig.projectRoot}/app/assets/addons')))
+          m.id: m,
+      };
+      final installed = ['ai-runtime', roundTripped.addonId].every((id) =>
+          ManifestAddonInstaller(manifests[id]!, WorkerHarness.platform)
+              .isInstalled(WorkerHarness.addonsDirectory));
+
+      if (installed) {
+        print('  Generating Colourisation script...');
+        final script = await generateScriptViaWorker(job);
+        expect(script, contains('import ai_runtime\n'));
+        expect(script, contains('_colorize.colorize('));
+        expect(script, contains('colorize-deoldify-video.onnx'));
+        expect(script, contains('model="deoldify"'));
+        expect(script, contains('render_size=400'));
+        expect(script, contains('strength=0.750'));
+        expect(script, contains('temporal_radius=3'));
+      } else {
+        print('  Colourisation add-on not installed: checking the refusal');
+        final result = await WorkerHarness.runJob(job.toJson(), label: 'colorize');
+        expect(result.success, isFalse);
+        final text = '${result.error}\n${result.logs.join('\n')}';
+        expect(text, contains('Colourisation needs'));
+        expect(text, contains('Settings → Add-ons'));
+      }
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 10)));
 
     test('sharpen: aWarpSharp2 params', () async {
       loadSchema('sharpen');

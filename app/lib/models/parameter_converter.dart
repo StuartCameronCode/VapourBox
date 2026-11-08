@@ -4,6 +4,7 @@ import 'geometry_parameters.dart';
 import 'audio_restoration_parameters.dart';
 import 'deflicker_parameters.dart';
 import 'descale_parameters.dart';
+import 'colorize_parameters.dart';
 import 'face_restore_parameters.dart';
 import 'edge_repair_parameters.dart';
 import 'frame_rate_parameters.dart';
@@ -503,6 +504,35 @@ class ParameterConverter {
           orElse: () => DescaleBorder.mirror),
       protectDetail: v['protectDetail'] as bool? ?? true,
       detailThreshold: (v['detailThreshold'] as num?)?.toDouble() ?? 4.0,
+    );
+  }
+
+  /// Convert colourisation parameters to dynamic format. The model is the
+  /// schema's method.
+  static DynamicParameters fromColorize(ColorizeParameters params) {
+    return DynamicParameters(
+      filterId: 'colorize',
+      enabled: params.enabled,
+      values: {
+        'method': params.model.value,
+        'ddcolorRenderSize': params.ddcolorRenderSize,
+        'deoldifyRenderFactor': params.deoldifyRenderFactor,
+        'strength': params.strength,
+        'temporalRadius': params.temporalRadius,
+      },
+    );
+  }
+
+  /// Convert dynamic parameters to colourisation parameters.
+  static ColorizeParameters toColorize(DynamicParameters params) {
+    final v = params.values;
+    return ColorizeParameters(
+      enabled: params.enabled,
+      model: ColorizeModel.fromValue(v['method'] as String?),
+      ddcolorRenderSize: _asInt(v['ddcolorRenderSize']) ?? 512,
+      deoldifyRenderFactor: _asInt(v['deoldifyRenderFactor']) ?? 21,
+      strength: (v['strength'] as num?)?.toDouble() ?? 1.0,
+      temporalRadius: _asInt(v['temporalRadius']) ?? 2,
     );
   }
 
@@ -1126,6 +1156,7 @@ class ParameterConverter {
         'chroma_fixes': fromChromaFixes(pipeline.chromaFixes),
         'crop_resize': fromCropResize(pipeline.cropResize),
         'face_restore': fromFaceRestore(pipeline.faceRestore),
+        'colorize': fromColorize(pipeline.colorize),
         'audio_restoration': fromAudioRestoration(pipeline.audio),
         'subtitles': fromSubtitles(pipeline.subtitles),
       },
@@ -1761,6 +1792,9 @@ class ParameterConverter {
       faceRestore: dynamic.get('face_restore') != null
           ? toFaceRestore(dynamic.get('face_restore')!)
           : const FaceRestoreParameters(),
+      colorize: dynamic.get('colorize') != null
+          ? toColorize(dynamic.get('colorize')!)
+          : const ColorizeParameters(),
       edgeRepair: dynamic.get('edge_repair') != null
           ? toEdgeRepair(dynamic.get('edge_repair')!)
           : const EdgeRepairParameters(),

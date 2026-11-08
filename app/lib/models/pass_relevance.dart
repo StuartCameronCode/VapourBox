@@ -136,6 +136,9 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info) {
     case PassType.colorCorrection:
     // Whether a video has faces worth restoring is not in its metadata.
     case PassType.faceRestore:
+    // Black-and-white footage is usually stored as colour video with neutral
+    // chroma, so its metadata does not say it is black and white.
+    case PassType.colorize:
     case PassType.subtitles:
     // A dead channel, hum or drift is not in the metadata either.
     case PassType.audioRestoration:
