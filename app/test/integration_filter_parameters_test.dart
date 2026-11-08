@@ -460,6 +460,43 @@ void main() {
     }, timeout: const Timeout(Duration(minutes: 2)));
 
 
+    // App 1.7.0: BT.601 -> BT.709 when an SD source is resized to HD. From the
+    // panel's own values, so the schema key, the converter and the Rust field
+    // are all on the trip. The fixture is an untagged 720x576 capture, which
+    // the worker reads as BT.601 (170m).
+    test('crop_resize: Convert Colour to BT.709 converts SD resized to HD', () async {
+      final schema = loadSchema('crop_resize');
+      expect(schema.parameters['convertToBt709']?.options, ['auto', 'on', 'off']);
+      Future<String> scriptFor(String mode, {int targetHeight = 1080}) async {
+        final dyn = ParameterConverter.fromCropResize(const CropResizeParameters(enabled: true))
+            .withValues({
+          'resizeEnabled': true,
+          'targetWidth': targetHeight * 16 ~/ 9,
+          'targetHeight': targetHeight,
+          'convertToBt709': mode,
+        });
+        final job = buildJob(
+          testName: 'bt709_$mode$targetHeight',
+          cropResize: ParameterConverter.toCropResize(dyn),
+        );
+        return generateScriptViaWorker(job);
+      }
+
+      const block = 'RemoveFrameProps(clip, props=["_Matrix", "_Range", "_ColorRange"])';
+      final auto = await scriptFor('auto');
+      expect(auto, contains(block));
+      expect(auto, contains('matrix_in_s="170m"'));
+      expect(auto, contains('matrix_s="709"'));
+      expect(auto, contains('range_in_s="limited"'));
+      // After the resize, so the conversion sees the HD picture.
+      expect(auto.indexOf(block), greaterThan(auto.indexOf('core.resize.Spline36(\n    clip,\n    width=target_w')));
+      expect(await scriptFor('off'), isNot(contains(block)));
+      expect(await scriptFor('auto', targetHeight: 576), isNot(contains(block)),
+          reason: 'an SD-sized output keeps BT.601 under Auto');
+      expect(await scriptFor('on', targetHeight: 576), contains(block));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     // Issue #50: temperature/tint white balance. U carries blue-yellow and V
     // carries red-cyan, so warm is -U/+V; a sign error here is invisible until
     // you look at the picture.

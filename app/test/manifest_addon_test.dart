@@ -192,7 +192,7 @@ void main() {
       final mirror = Directory(p.join(tmp.path, 'mirror'))..createSync();
       File(p.join(mirror.path, 'a.onnx')).writeAsBytesSync(model);
       final m = AddonManifest.fromJson(_manifest(files: [_entry('a.onnx', model)]));
-      final server = _Serve({});
+      final server = _Serve({'https://example.invalid/dl/a.onnx': model});
       final installer = newInstaller(m, 'linux-x64', mirror: mirror.path);
       await installer.install(addons, server);
       expect(server.fetched, isEmpty);
@@ -204,9 +204,11 @@ void main() {
           throwsA(predicate((e) => '$e'.contains('does not match the pinned size and hash'))));
       expect(installer.isInstalled(addons), isFalse);
 
+      // A file the mirror doesn't hold (an upstream wheel, say) is downloaded.
       File(p.join(mirror.path, 'a.onnx')).deleteSync();
-      await expectLater(installer.install(addons, server),
-          throwsA(predicate((e) => '$e'.contains(addonMirrorEnv))));
+      await installer.install(addons, server);
+      expect(server.fetched, ['https://example.invalid/dl/a.onnx']);
+      expect(installer.isInstalled(addons), isTrue);
     });
   });
 

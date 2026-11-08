@@ -863,7 +863,7 @@ impl PipelineExecutor {
         // "unknown" as BT.601 and re-matrixes every pixel to the output's tag.
         // Declaring the same tags here leaves it nothing to convert. Must match
         // the output flags exactly — see ColorMetadata.
-        args.extend(job.color_metadata().to_ffmpeg_input_args());
+        args.extend(job.output_color_metadata().to_ffmpeg_input_args());
         args.extend(["-i".to_string(), "-".to_string()]);
 
         // Input 1: Original file for audio stream
@@ -1025,7 +1025,7 @@ impl PipelineExecutor {
         // stops ffmpeg treating them as a conversion target. A Custom FFmpeg
         // Argument such as `-colorspace smpte170m` still wins (it comes later)
         // and is then a genuine conversion from the source's real matrix.
-        args.extend(job.color_metadata().to_ffmpeg_output_args());
+        args.extend(job.output_color_metadata().to_ffmpeg_output_args());
 
         // Audio handling: copy / convert / none, and a restored track is
         // always encoded (see audio_restoration::encode_codec_args).
@@ -1441,7 +1441,11 @@ impl PipelineExecutor {
         //
         // An HDR source is tone-mapped for display instead (issue #133), with
         // the same chain the app uses for its "before" frame.
-        let color = job.color_metadata();
+        //
+        // The OUTPUT's tags, not the source's: when Crop & Resize converts a
+        // BT.601 source to BT.709, the pipe carries 709 samples, and reading
+        // them as 601 would show a colour shift the encode does not have.
+        let color = job.output_color_metadata();
         let scale_filter = color.display_tonemap_filter().unwrap_or_else(|| {
             let mut scale_opts = color.swscale_input_opts();
             scale_opts.push("out_range=pc".to_string());
@@ -1888,7 +1892,7 @@ mod tests {
         // Input 0: Processed video from vspipe (Y4M pipe), with the source's
         // colour tags declared on it (mirrors build_ffmpeg_args).
         args.extend(["-f".to_string(), "yuv4mpegpipe".to_string()]);
-        args.extend(job.color_metadata().to_ffmpeg_input_args());
+        args.extend(job.output_color_metadata().to_ffmpeg_input_args());
         args.extend(["-i".to_string(), "-".to_string()]);
 
         // Input 1: Original file for audio stream
@@ -1931,7 +1935,7 @@ mod tests {
         // Colour tags. This helper duplicates build_ffmpeg_args rather than
         // calling it, so anything added there has to be added here too — the
         // SAR block was missed that way and is still absent below.
-        args.extend(job.color_metadata().to_ffmpeg_output_args());
+        args.extend(job.output_color_metadata().to_ffmpeg_output_args());
 
         // Audio handling (mirrors build_ffmpeg_args; no restored track here).
         args.extend(audio_restoration::encode_codec_args(settings, None));
@@ -2039,7 +2043,7 @@ mod tests {
                 .flat_map(|w| [w[0].clone(), w[1].clone()])
                 .collect()
         };
-        let expected = job.color_metadata().to_ffmpeg_output_args();
+        let expected = job.output_color_metadata().to_ffmpeg_output_args();
         assert_eq!(input_side, expected.as_slice(), "input declaration");
         assert_eq!(output_side, expected, "output tags");
     }
@@ -2071,6 +2075,12 @@ mod tests {
             body.contains("to_ffmpeg_output_args()"),
             "build_ffmpeg_args must still tag the output"
         );
+        // Both sides describe what the SCRIPT delivers, which is not the
+        // source's colour when it converts to BT.709.
+        assert!(
+            !body.contains("job.color_metadata().to_ffmpeg"),
+            "the encoder must be told the output's colour, not the source's"
+        );
     }
 
     /// An untagged source must stay untagged rather than being guessed at.
@@ -2081,6 +2091,51 @@ mod tests {
         for flag in ["-colorspace", "-color_primaries", "-color_trc", "-color_range"] {
             assert!(!args.iter().any(|a| a == flag), "{flag} should be absent");
         }
+    }
+
+    /// An SD BT.601 source resized to 1080 lines is converted to BT.709 by the
+    /// script (app 1.7.0), so both sides of the encoder must say 709 — the
+    /// source's 601 tags there would relabel the converted samples back.
+    #[test]
+    fn test_sd_to_hd_declares_the_converted_bt709_on_both_sides() {
+        let mut job = create_test_job("out.mkv");
+        job.input_width = Some(720);
+        job.input_height = Some(576);
+        job.input_color_matrix = Some("bt470bg".to_string());
+        job.input_color_primaries = Some("bt470bg".to_string());
+        job.input_color_range = Some("tv".to_string());
+        let mut pipeline = crate::models::ProcessingPipeline::default();
+        pipeline.deinterlace.enabled = false;
+        pipeline.crop_resize.enabled = true;
+        pipeline.crop_resize.resize_enabled = true;
+        pipeline.crop_resize.target_width = Some(1920);
+        pipeline.crop_resize.target_height = Some(1080);
+        job.processing_pipeline = Some(pipeline.clone());
+        let args = build_ffmpeg_args_for_test(&job);
+        let pairs: Vec<(String, String)> = args
+            .windows(2)
+            .filter(|w| w[0] == "-colorspace" || w[0] == "-color_primaries" || w[0] == "-color_trc")
+            .map(|w| (w[0].clone(), w[1].clone()))
+            .collect();
+        let expected = |flag: &str, v: &str| (flag.to_string(), v.to_string());
+        assert_eq!(
+            pairs,
+            vec![
+                expected("-colorspace", "bt709"),
+                expected("-color_primaries", "bt470bg"),
+                expected("-color_trc", "bt709"),
+                expected("-colorspace", "bt709"),
+                expected("-color_primaries", "bt470bg"),
+                expected("-color_trc", "bt709"),
+            ]
+        );
+
+        // Off: the source's tags, exactly as before the option existed.
+        pipeline.crop_resize.convert_to_bt709 = crate::models::Bt709Conversion::Off;
+        job.processing_pipeline = Some(pipeline);
+        let args = build_ffmpeg_args_for_test(&job);
+        assert_eq!(args.iter().filter(|a| *a == "bt470bg").count(), 4);
+        assert!(!args.iter().any(|a| a == "bt709"));
     }
 
     /// ffprobe says "unknown" for an untagged stream; that must not be

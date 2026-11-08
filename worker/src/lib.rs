@@ -4,6 +4,7 @@
 
 pub mod models;
 pub mod comment_metadata;
+pub mod crop_detect;
 pub mod cpu;
 pub mod dependency_locator;
 pub mod dvd_reader;

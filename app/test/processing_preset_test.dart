@@ -10,6 +10,7 @@
 // Run with: flutter test test/processing_preset_test.dart
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vapourbox/models/crop_resize_parameters.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
@@ -34,6 +35,7 @@ void main() {
           'builtin-balanced',
           'builtin-high-quality',
           'builtin-vhs-cleanup',
+          'builtin-sd-tape-to-hd',
           'builtin-dv-camcorder',
           'builtin-pal-dvd',
           'builtin-dvd-ivtc',
@@ -102,6 +104,7 @@ void main() {
           .toSet();
       expect(bySource, {
         'builtin-vhs-cleanup',
+        'builtin-sd-tape-to-hd',
         'builtin-dv-camcorder',
         'builtin-pal-dvd',
         'builtin-dvd-ivtc',
@@ -261,6 +264,54 @@ void main() {
       expect(low.pipeline.chromaDenoise.enabled, true);
       // Phone and camera footage is progressive; QTGMC defaults to on.
       expect(low.pipeline.deinterlace.enabled, false);
+    });
+
+    test('SD tape to HD delivers square-pixel 1080-line BT.709 a TV plays', () {
+      final hd = byId('builtin-sd-tape-to-hd');
+      expect(hd.category, PresetCategory.source);
+      final p = hd.pipeline;
+      // A tape capture is interlaced.
+      expect(p.deinterlace.enabled, true);
+      expect(p.deinterlace.method, DeinterlaceMethod.qtgmc);
+      // Light cleanup: lighter than VHS Cleanup's, both luma and chroma.
+      expect(p.noiseReduction.enabled, true);
+      expect(p.noiseReduction.smDegrainThSAD,
+          lessThan(byId('builtin-vhs-cleanup').pipeline.noiseReduction.smDegrainThSAD));
+      expect(p.chromaDenoise.enabled, true);
+      // HD: an edge-directed doubling, resized into a 1080-line box with
+      // square pixels, and BT.709 colour.
+      final cr = p.cropResize;
+      expect(cr.enabled, true);
+      expect(cr.useIntegerUpscale, true);
+      expect(cr.upscaleMethod, UpscaleMethod.nnedi3Rpow2);
+      expect(cr.resizeEnabled, true);
+      expect(cr.targetHeight, 1080);
+      expect(cr.maintainAspect, true);
+      expect(cr.pixelAspect, PixelAspectMode.square);
+      expect(cr.convertToBt709, isNot(Bt709Conversion.off));
+      // Light CAS, after the upscale.
+      expect(p.sharpen.enabled, true);
+      expect(p.sharpen.method, SharpenMethod.cas);
+      expect(p.sharpen.casSharpness, lessThanOrEqualTo(0.4));
+      // What every TV, browser and upload service plays: H.264, 8-bit 4:2:0,
+      // MP4 with AAC, at a quality that survives YouTube's re-encode.
+      final e = hd.encodingSettings;
+      expect(e.codec, VideoCodec.h264);
+      expect(e.container, ContainerFormat.mp4);
+      expect(e.chromaSubsampling, ChromaSubsampling.yuv420);
+      expect(e.audioMode, AudioMode.convert);
+      expect(e.audioCodec, AudioCodec.aac);
+      expect(e.quality, inInclusiveRange(17, 18));
+    });
+
+    test('no other preset upscales, so the BT.709 default changes none of them', () {
+      // "Auto" converts only an SD source taken to HD (app 1.7.0); a preset
+      // that never resizes is untouched by it.
+      for (final preset in presets.where((p) => p.id != 'builtin-sd-tape-to-hd')) {
+        final cr = preset.pipeline.cropResize;
+        expect(cr.enabled && (cr.resizeEnabled || cr.useIntegerUpscale), false,
+            reason: preset.id);
+      }
     });
 
     test('DV camcorder measures its chroma shift rather than guessing', () {

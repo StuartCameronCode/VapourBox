@@ -39,6 +39,9 @@ const addonPlatformIds = [
 /// `VAPOURBOX_ADDON_MIRROR=DIR`: take each file from `DIR/` + the last path
 /// segment of its url instead of downloading it, still checked against its
 /// size and hash — for testing an add-on whose files are not uploaded yet.
+/// A file the mirror doesn't hold is downloaded as usual, so a mirror of our
+/// own converted files still installs add-ons whose files come from upstream
+/// (the AI runtime's wheels).
 const addonMirrorEnv = 'VAPOURBOX_ADDON_MIRROR';
 
 /// One file a manifest add-on installs.
@@ -459,17 +462,15 @@ class ManifestAddonInstaller implements AddonInstaller {
     }
   }
 
-  /// Get [f] into [file], from the mirror if one is set, else the network;
-  /// either way it must match its size and hash.
+  /// Get [f] into [file], from the mirror if one is set and holds it, else
+  /// the network; either way it must match its size and hash.
   Future<void> _fetch(AddonManifestFile f, File file, AddonManager downloader) async {
     if (await file.exists() && await _matches(file, f)) return;
     final mirrorDir = mirror;
-    if (mirrorDir != null) {
-      final source = File(path.join(mirrorDir, Uri.parse(f.url).pathSegments.last));
-      if (!await source.exists()) {
-        throw StateError('${f.name} is not in the add-on mirror ($addonMirrorEnv=$mirrorDir): '
-            'expected ${source.path}');
-      }
+    final source = mirrorDir == null
+        ? null
+        : File(path.join(mirrorDir, Uri.parse(f.url).pathSegments.last));
+    if (source != null && await source.exists()) {
       await source.copy(file.path);
     } else {
       await downloader.downloadFile(f.url, file, expectedSize: f.size, expectedSha256: f.sha256);

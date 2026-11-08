@@ -260,7 +260,8 @@ impl ScriptGenerator {
             Some((root, _)) => py_str(&crate::addons::addon_dir(root, id).join(file)),
             None => "''".to_string(),
         };
-        let color = job.color_metadata();
+        // After Crop & Resize, so the samples are in the output's colour.
+        let color = job.output_color_metadata();
         script
             .replace("{{#FACE_RESTORE}}", "")
             .replace("{{/FACE_RESTORE}}", "")
@@ -2098,7 +2099,8 @@ impl ScriptGenerator {
                     script = script.replace("{{RIFE_PLUGIN}}", &plugin);
                     script = script.replace("{{RIFE_MODEL_DIR}}", &model);
                     script = script.replace("{{RIFE_PRELOAD}}", &preload);
-                    let color = job.color_metadata();
+                    // Frame Rate runs after Crop & Resize: the output's colour.
+                    let color = job.output_color_metadata();
                     script = script.replace("{{RIFE_MATRIX}}", color.zimg_matrix(job.input_height));
                     script = script.replace(
                         "{{RIFE_RANGE}}",
@@ -2506,6 +2508,25 @@ impl ScriptGenerator {
         }
 
         // ====================================================================
+        // BT.601 -> BT.709 (app 1.7.0)
+        // ====================================================================
+        // Decided once, by the job (`VideoJob::converts_to_bt709`), because the
+        // encoder's colour flags and the preview's display conversion have to
+        // follow the same answer.
+        if job.converts_to_bt709() {
+            let source = job.color_metadata();
+            script = script.replace("{{#COLOR_709}}", "");
+            script = script.replace("{{/COLOR_709}}", "");
+            script = script.replace("{{C709_MATRIX_IN}}", source.zimg_matrix(job.input_height));
+            script = script.replace(
+                "{{C709_RANGE}}",
+                if source.is_full_range() { "full" } else { "limited" },
+            );
+        } else {
+            script = remove_block("{{#COLOR_709}}", "{{/COLOR_709}}", script);
+        }
+
+        // ====================================================================
         // OUTPUT CHROMA SUBSAMPLING CONVERSION
         // ====================================================================
         // The target format is the enum's own business (ChromaSubsampling::
@@ -2535,7 +2556,8 @@ impl ScriptGenerator {
 
             let [r, g, b] = resize.border_rgb();
             script = script.replace("{{BORDER_RGB}}", &format!("({r}, {g}, {b})"));
-            let color = job.color_metadata();
+            // The bars go on last, in the colour the samples are delivered in.
+            let color = job.output_color_metadata();
             script = script.replace("{{BORDER_MATRIX}}", color.zimg_matrix(job.input_height));
             script = script.replace(
                 "{{BORDER_RANGE}}",

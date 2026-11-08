@@ -122,9 +122,11 @@ state; the app and the worker both treat a directory without a matching marker
 
 `VAPOURBOX_ADDON_MIRROR=<dir>` makes the installer take each file from
 `<dir>/<last path segment of its url>` instead of downloading it — still
-checked against the manifest's size and hash. Use it to test an add-on whose
-files are converted locally and not uploaded yet. It applies to the app and to
-`WorkerHarness.ensureAddon`.
+checked against the manifest's size and hash. A file the mirror doesn't hold
+is downloaded as usual, so it can be set for a whole test run: add-ons whose
+files come from upstream (the AI runtime's wheels) still install. Use it to
+test an add-on whose files are converted locally and not uploaded yet. It
+applies to the app and to `WorkerHarness.ensureAddon`.
 
 ## Hosting files we convert ourselves
 

@@ -4,7 +4,7 @@
   "version": "1.3.0",
   "name": "Crop & Resize",
   "description": "Crop borders, resize or upscale, and add bars to a target size",
-  "longDescription": "Trims unwanted borders, changes the output resolution, and adds bars out to a target frame size. Cropping happens first, then resizing, then the bars.\n\nUse crop to cut the head-switching noise along the bottom of VHS captures and the black overscan edges of broadcast material — otherwise the encoder spends bitrate on them. Use resize for a target resolution, or Upscale for a much better 2x/4x enlargement than a plain kernel: NNEDI3 or EEDI3 on any machine, or an AI upscaler on the graphics card: trained on anime (Real-ESRGAN, Real-CUGAN, AnimeJaNai) or on real-world footage (Real-ESRGAN General, Live Action SPAN, Real-ESRGAN x4plus, each a separate download). Keep crop values even so they stay aligned with chroma subsampling.\n\nUse Add Borders to bring a cropped picture back to an exact frame size for authoring (720x576 for PAL DVD, 720x480 for NTSC) without rescaling it: the picture is centred and the rest filled with bars.",
+  "longDescription": "Trims unwanted borders, changes the output resolution, and adds bars out to a target frame size. Cropping happens first, then resizing, then the bars.\n\nUse crop to cut the head-switching noise along the bottom of VHS captures and the black overscan edges of broadcast material — otherwise the encoder spends bitrate on them. Detect borders measures them on frames from your video and offers a crop to apply; a letterbox bar is offered separately, since it is part of the picture's framing. Use resize for a target resolution, or Upscale for a much better 2x/4x enlargement than a plain kernel: NNEDI3 or EEDI3 on any machine, or an AI upscaler on the graphics card: trained on anime (Real-ESRGAN, Real-CUGAN, AnimeJaNai) or on real-world footage (Real-ESRGAN General, Live Action SPAN, Real-ESRGAN x4plus, each a separate download). Keep crop values even so they stay aligned with chroma subsampling. An SD video taken to HD is converted from BT.601 to BT.709 colour, the HD standard, so players that assume 709 for an HD picture show its colours correctly.\n\nUse Add Borders to bring a cropped picture back to an exact frame size for authoring (720x576 for PAL DVD, 720x480 for NTSC) without rescaling it: the picture is centred and the rest filled with bars.",
   "category": "transform",
   "icon": "crop",
   "order": 9,
@@ -33,6 +33,7 @@
         "bicubicC",
         "lanczosTaps",
         "maintainAspect",
+        "convertToBt709",
         "pixelAspect",
         "customSar",
         "displayAspect",
@@ -78,7 +79,7 @@
       "type": "integer",
       "default": 8,
       "min": 0,
-      "max": 200,
+      "max": 480,
       "step": 2,
       "optional": true,
       "vapoursynth": {
@@ -97,7 +98,7 @@
       "type": "integer",
       "default": 8,
       "min": 0,
-      "max": 200,
+      "max": 480,
       "step": 2,
       "optional": true,
       "vapoursynth": {
@@ -116,7 +117,7 @@
       "type": "integer",
       "default": 4,
       "min": 0,
-      "max": 200,
+      "max": 480,
       "step": 2,
       "optional": true,
       "vapoursynth": {
@@ -135,7 +136,7 @@
       "type": "integer",
       "default": 4,
       "min": 0,
-      "max": 200,
+      "max": 480,
       "step": 2,
       "optional": true,
       "vapoursynth": {
@@ -230,6 +231,26 @@
         "visibleWhen": {
           "resizeEnabled": true
         }
+      }
+    },
+    "convertToBt709": {
+      "type": "enum",
+      "default": "auto",
+      "options": [
+        "auto",
+        "on",
+        "off"
+      ],
+      "sinceAppVersion": "1.7.0",
+      "ui": {
+        "label": "Convert Colour to BT.709 (HD standard)",
+        "widget": "dropdown",
+        "optionLabels": {
+          "auto": "Auto: when the output is HD",
+          "on": "Always",
+          "off": "Never"
+        },
+        "description": "An SD video's colour is BT.601. Upscaled to HD it is still tagged 601, which is correct, but many players and TVs ignore the tag on an HD picture and decode it as BT.709, which shifts greens and reds. Auto converts the colour to BT.709 when the output is at least 720 lines (or 1280 wide), so every player shows it the same; Always converts at any size. The source's primaries are kept and tagged. Never leaves the colour and its tags as they are."
       }
     },
     "useIntegerUpscale": {
@@ -940,7 +961,8 @@
           "bicubicB",
           "bicubicC",
           "lanczosTaps",
-          "maintainAspect"
+          "maintainAspect",
+          "convertToBt709"
         ],
         "expanded": true
       },
@@ -1088,6 +1110,16 @@
       "activeWhen": {
         "useIntegerUpscale": true,
         "upscaleMethod": "realEsrganPlus"
+      }
+    },
+    {
+      "function": "core.resize.Spline36",
+      "role": "BT.601 to BT.709 colour (the matrix only), after the resize, when the output is HD",
+      "activeWhen": {
+        "convertToBt709": [
+          "auto",
+          "on"
+        ]
       }
     },
     {

@@ -88,6 +88,25 @@ enum BorderColor {
   custom,
 }
 
+/// Whether an SD (BT.601) source's colour is converted to BT.709 (app 1.7.0).
+///
+/// The worker makes the decision (`VideoJob::converts_to_bt709`): it converts
+/// the samples in the script and declares BT.709 to the encoder to match.
+enum Bt709Conversion {
+  /// Convert a BT.601 source when the output is HD-sized (720 lines, or 1280
+  /// columns).
+  @JsonValue('auto')
+  auto,
+
+  /// Convert a BT.601 source whatever the output size.
+  @JsonValue('on')
+  on,
+
+  /// Never convert.
+  @JsonValue('off')
+  off,
+}
+
 /// Crop/resize preset options.
 enum CropResizePreset {
   @JsonValue('off')
@@ -251,6 +270,13 @@ class CropResizeParameters {
   /// Maximum search distance (EEDI3 `mdis`).
   final int? upscaleMdis;
 
+  // --- Colour ---
+
+  /// BT.601 -> BT.709 conversion. Missing from a preset saved before 1.7.0,
+  /// which therefore gets [Bt709Conversion.auto], as the worker does.
+  @JsonKey(defaultValue: Bt709Conversion.auto, unknownEnumValue: Bt709Conversion.auto)
+  final Bt709Conversion convertToBt709;
+
   const CropResizeParameters({
     this.enabled = false,
     this.preset = CropResizePreset.off,
@@ -299,6 +325,7 @@ class CropResizeParameters {
     this.upscaleGamma,
     this.upscaleNrad,
     this.upscaleMdis,
+    this.convertToBt709 = Bt709Conversion.auto,
   });
 
   /// Create parameters from a preset.
@@ -399,6 +426,7 @@ class CropResizeParameters {
     double? upscaleGamma,
     int? upscaleNrad,
     int? upscaleMdis,
+    Bt709Conversion? convertToBt709,
   }) {
     return CropResizeParameters(
       enabled: enabled ?? this.enabled,
@@ -443,6 +471,7 @@ class CropResizeParameters {
       upscaleGamma: upscaleGamma ?? this.upscaleGamma,
       upscaleNrad: upscaleNrad ?? this.upscaleNrad,
       upscaleMdis: upscaleMdis ?? this.upscaleMdis,
+      convertToBt709: convertToBt709 ?? this.convertToBt709,
     );
   }
 

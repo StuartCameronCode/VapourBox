@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BT.709 conversion and border detection</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --best: #e3f1e6; --bad: #f6e3e1; --warn: #9a6700;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --best: #1d3324; --bad: #3a2321; --warn: #d9a400;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+  main { max-width: 1120px; margin: 0 auto; padding: 32px 16px 80px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 44px 0 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+  h3 { font-size: 16px; margin: 26px 0 8px; }
+  .sub { color: var(--text-secondary); margin: 0 0 20px; }
+  code { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  pre { font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); padding: 12px 14px; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  .limit { border-left: 3px solid var(--warn); padding: 6px 12px; margin: 12px 0; color: var(--text-secondary); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; margin: 14px 0 22px; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+  caption { text-align: left; font-weight: 600; padding-bottom: 6px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 10px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  td.good { background: var(--best); }
+  td.bad { background: var(--bad); }
+  figure { margin: 18px 0 26px; }
+  figure img { max-width: 100%; image-rendering: pixelated; border: 1px solid var(--border); display: block; }
+  figcaption { color: var(--text-secondary); font-size: 13.5px; margin-top: 6px; }
+  .labels { display: grid; grid-template-columns: 1fr 1fr 1fr; font-size: 12.5px; color: var(--text-muted); margin-top: 4px; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Crop &amp; Resize: BT.601 → BT.709 on SD → HD, and Detect borders</h1>
+<p class="sub">Build report, 2026-11-08, app 1.7.0. Two Crop &amp; Resize improvements suggested by a survey of VapourSynth restoration tools (sd-video-restore, VCG Deinterlacer, vhs-vapourizer, Video-Enhancer all convert SD colour to BT.709 on upscale; VCG Deinterlacer 2.0 has auto-crop). Measured on an M1 Pro, macOS arm64, deps bundle 1.16.0 (unreleased).</p>
+
+<div class="card">
+  <strong>Outcome:</strong>
+  <ul>
+    <li><strong>BT.709 conversion, built.</strong> An SD (BT.601) source upscaled to HD is converted to the BT.709 matrix in the script when the output is at least 720 lines or 1280 wide (<em>Auto</em>, the default; also <em>Always</em> and <em>Never</em>), and both sides of the encoder say 709. Through the real worker, every colour patch comes back within <strong>0.67 levels</strong> of the source decoded as 601, whether the output is read through its tags or as 709 regardless. Without it, a player that ignores the tag on HD shows a 75% green <strong>30 levels</strong> dark and 100% green 40.</li>
+    <li><strong>Only the matrix is converted.</strong> Converting the primaries too (SMPTE C → BT.709) moved a 75% green by <strong>55 levels</strong> on a player without colour management — a colour shift as large as the one being fixed. The primaries tag keeps the source's, so colour-managed players stay exact. This departs from the brief, which asked for the primaries too; the reason is §1.3.</li>
+    <li><strong>Detect borders, built</strong> (<code>--detect-crop</code>). On fixtures of real VHS picture with known borders, every edge came back <strong>exact</strong>: noisy blanking, a 2-line top, an 8-line head-switching band (12 per field when interlaced), 72-line letterbox bars reported apart, subtitles and fades ignored. On a DVB-T broadcast it matches a by-eye measurement. About <strong>1 s</strong> per SD source, 2.9 s at 1080p.</li>
+    <li><strong>New preset:</strong> <em>SD Tape → HD (YouTube / TV)</em>.</li>
+  </ul>
+</div>
+
+<h2>1. BT.601 → BT.709</h2>
+
+<h3>1.1 The problem, measured</h3>
+<p>An SD picture's YCbCr samples are coded with the BT.601 matrix. VapourBox carried the source's <code>-colorspace</code> tag through to the output, so an SD video resized to 1080 lines was a correctly tagged BT.601 HD file. Players and TVs that pick a matrix by frame size and ignore the tag decode it as BT.709. Eight patches, made in RGB, encoded as 601 limited range, and decoded as 709 (<code>scripts/gamut.py</code>, 16-bit intermediates so rounding doesn't muddy it):</p>
+
+<div class="scroll">
+<table>
+  <caption>8-bit RGB of each patch: the source decoded as 601, and the same samples decoded as 709 ("misread")</caption>
+  <tr><th>Patch</th><th>Source (601)</th><th>Misread as 709</th><th>Worst channel error</th></tr>
+  <tr><td>75% red</td><td>191, 0, 0</td><td>208, 18, 0</td><td class="bad">18</td></tr>
+  <tr><td>75% green</td><td>0, 191, 0</td><td>0, 161, 0</td><td class="bad">30</td></tr>
+  <tr><td>75% blue</td><td>0, 0, 191</td><td>0, 11, 199</td><td class="bad">11</td></tr>
+  <tr><td>75% yellow</td><td>191, 191, 0</td><td>194, 180, 0</td><td class="bad">11</td></tr>
+  <tr><td>75% cyan</td><td>0, 191, 191</td><td>0, 173, 194</td><td class="bad">18</td></tr>
+  <tr><td>75% magenta</td><td>191, 0, 191</td><td>205, 30, 196</td><td class="bad">30</td></tr>
+  <tr><td>100% red</td><td>255, 0, 0</td><td>255, 25, 0</td><td class="bad">25</td></tr>
+  <tr><td>100% green</td><td>0, 255, 0</td><td>0, 215, 0</td><td class="bad">40</td></tr>
+  <tr><td>Skin tone</td><td>224, 172, 140</td><td>229, 175, 138</td><td>5</td></tr>
+  <tr><td>Grey</td><td>128, 128, 128</td><td>128, 128, 128</td><td>0</td></tr>
+</table>
+</div>
+
+<h3>1.2 What was built</h3>
+<ul>
+  <li><strong>Option:</strong> Crop &amp; Resize → Resize → <em>Convert Colour to BT.709 (HD standard)</em>: Auto (default), Always, Never. Auto converts a BT.601 source (tagged <code>bt470bg</code> or <code>smpte170m</code>, or untagged below 720 lines, which is how the app and players read an untagged SD file) when the output is ≥ 720 lines or ≥ 1280 wide. The output size is computed in Rust by <code>CropResizeParameters::output_size</code>, which mirrors the script's crop, upscale, fitting and bars; the decision has to be made before the script runs because the encoder's tags depend on it.</li>
+  <li><strong>One decision point:</strong> <code>VideoJob::converts_to_bt709</code>, and <code>VideoJob::output_color_metadata()</code> for everything that describes what the script delivers: the encoder's input and output flags (still identical, per the 2026-09-26 rule), the preview's swscale step, and the passes after Crop &amp; Resize (Face Restoration, RIFE, the border fill). The AI upscale runs inside the resize, before the conversion, and keeps the source's.</li>
+  <li><strong>Script:</strong> a <code>{{#COLOR_709}}</code> block in both templates right after the resize: <code>resize.Spline36</code> with <code>matrix_in_s</code> = the source's, <code>matrix_s="709"</code>, the source's range, error-diffusion dither, after removing <code>_Matrix</code>/<code>_Range</code> frame properties (§1.4).</li>
+  <li><strong>Tags:</strong> matrix <code>bt709</code>, transfer <code>bt709</code> (BT.601's transfer is the same curve), primaries the source's (tagged, or EBU for 576/288 lines, SMPTE C otherwise), range the source's (<code>tv</code> when untagged).</li>
+</ul>
+
+<h3>1.3 Why only the matrix (a departure from the brief)</h3>
+<p>The brief asked for primaries and transfer to be converted too where they differ. Both were tried. The table shows each patch decoded as 709 <em>without colour management</em>, which is how most players show video:</p>
+<div class="scroll">
+<table>
+  <caption>75%/100% patches after conversion, decoded as 709. "Matrix only" is what shipped.</caption>
+  <tr><th>Patch</th><th>Source (601)</th><th>Matrix only</th><th>Matrix + primaries, SMPTE C → 709</th><th>Matrix + primaries, EBU → 709</th></tr>
+  <tr><td>75% red</td><td>191, 0, 0</td><td class="good">191, 0, 0</td><td class="bad">186, 36, 0</td><td>194, 0, 0</td></tr>
+  <tr><td>75% green</td><td>0, 191, 0</td><td class="good">0, 191, 0</td><td class="bad">55, 188, 0</td><td class="bad">0, 191, 30</td></tr>
+  <tr><td>75% blue</td><td>0, 0, 191</td><td class="good">0, 0, 191</td><td class="bad">28, 34, 191</td><td>0, 0, 190</td></tr>
+  <tr><td>75% cyan</td><td>0, 191, 191</td><td class="good">0, 191, 191</td><td class="bad">59, 190, 191</td><td>0, 191, 191</td></tr>
+  <tr><td>75% magenta</td><td>191, 0, 191</td><td class="good">191, 0, 191</td><td class="bad">187, 47, 191</td><td>194, 0, 190</td></tr>
+  <tr><td>100% green</td><td>0, 255, 0</td><td class="good">0, 255, 0</td><td class="bad">73, 251, 0</td><td class="bad">0, 255, 40</td></tr>
+  <tr><td>Skin tone</td><td>224, 172, 140</td><td class="good">224, 172, 140</td><td>221, 173, 140</td><td>226, 172, 140</td></tr>
+</table>
+</div>
+<p>A gamut conversion is colorimetrically correct only for a viewer whose player also colour-manages the <em>source</em>; for everyone else it changes what the picture looks like by as much as the misread matrix does. Keeping the primaries and tagging them as the source's gives every kind of player the source's colour: one that ignores tags shows the same RGB the SD file showed, and one that colour-manages reads the primaries tag and converts on display, exactly as it did for the SD file. VCG Deinterlacer converts the matrix only too (it tags the primaries 709, which is a small mislabel this avoids).</p>
+<p class="limit">Limit: the comparison is of decoded RGB code values, not of perceived colour on a calibrated display. It says how far a non-colour-managed player's output moves; it says nothing about which result a colourist would prefer on a reference monitor.</p>
+
+<h3>1.4 A trap: R78 lets frame properties override <code>*_in_s</code></h3>
+<p>The first run of <code>gamut.py</code> printed "misread as 709" equal to the source. VapourSynth R78's resizers take a clip's <code>_Matrix</code> property in preference to <code>matrix_in_s</code> (the <code>prefer_props</code> argument is deprecated and ignored), and the test clip carried <code>_Matrix=6</code> from its own creation. The template block therefore removes <code>_Matrix</code>, <code>_Range</code> and <code>_ColorRange</code> before converting, so the worker's reading of the source's tags is what decides. The other colour conversions in the templates (AI upscale, RIFE, border fill) are unaffected today because nothing upstream sets those properties, but any new conversion that relies on <code>*_in_s</code> needs the same care.</p>
+
+<h3>1.5 The pixel test, through the real worker</h3>
+<p><code>app/test/integration_bt709_conversion_test.dart</code> (heavy) makes a 720×576 BT.601 FFV1 clip of eight patches, encodes it to a 1920×1080 box (1350×1080, square pixels) with the conversion on and off, and decodes each output to RGB with swscale's accurate path (<code>accurate_rnd+full_chroma_int</code>), averaging a 9×9 block at each patch centre:</p>
+<div class="scroll">
+<table>
+  <caption>Converted output against the source decoded as 601 (8-bit RGB, worst channel)</caption>
+  <tr><th>Patch</th><th>Source (601)</th><th>Output, through its tags</th><th>Δ</th></tr>
+  <tr><td>75% red</td><td>191, 0, 1</td><td>191, 0, 1</td><td class="good">0.26</td></tr>
+  <tr><td>75% green</td><td>0, 191, 0</td><td>0, 191, 0</td><td class="good">0.01</td></tr>
+  <tr><td>75% blue</td><td>0, 1, 192</td><td>0, 0, 191</td><td class="good">0.64</td></tr>
+  <tr><td>75% yellow</td><td>191, 190, 0</td><td>191, 191, 0</td><td class="good">0.67</td></tr>
+  <tr><td>75% cyan</td><td>0, 191, 190</td><td>0, 191, 190</td><td class="good">0.37</td></tr>
+  <tr><td>75% magenta</td><td>191, 0, 192</td><td>191, 0, 192</td><td class="good">0.06</td></tr>
+  <tr><td>Skin tone</td><td>224, 172, 140</td><td>224, 172, 140</td><td class="good">0.36</td></tr>
+  <tr><td>Grey</td><td>128, 128, 128</td><td>128, 128, 128</td><td class="good">0.00</td></tr>
+</table>
+</div>
+<ul>
+  <li>Tolerance asserted: 3 levels. The same holds decoding the output as 709 regardless of its tags (what the tag-ignoring player does).</li>
+  <li>Tags written: <code>color_space bt709</code>, <code>color_transfer bt709</code>, <code>color_primaries smpte170m</code>, <code>color_range tv</code>.</li>
+  <li><strong>Off:</strong> tags stay <code>smpte170m</code>; both files decoded as 601 agree within 1 level (asserted), and the Y/U/V samples at every patch centre are the source's exactly (<code>scripts/patch_yuv.py</code>: e.g. 75% green 112/72/58 in both; converted, 133/62/52). Read as 709, the worst patch (75% magenta) is off by 30 — the control that the test can see the problem.</li>
+  <li><strong>Auto at SD size</strong> (a 700-line box) does not convert; an <strong>untagged 480-line</strong> source is read as 601 and tagged with NTSC primaries.</li>
+  <li><strong>Preview = encode:</strong> the worker's preview of frame 2 against the encode decoded by ffmpeg's default path: mean absolute difference <strong>0.000/255</strong>. (A first version of the test compared the preview with the accurate decode path and measured 1.55/255: that was swscale's default yuv→rgb path, not the conversion, which is why the comparison is now like for like.)</li>
+</ul>
+<figure>
+  <a href="img/01-bt709-patches.png"><img src="img/01-bt709-patches.png" alt="Three panels of eight colour patches"></a>
+  <div class="labels"><span>source, decoded as 601</span><span>unconverted HD, read as 709</span><span>converted HD, read as 709</span></div>
+  <figcaption>Figure 1. The fixture's eight patches, three ways (frame 2, each decoded explicitly, scaled nearest-neighbour). Middle: today's HD output in a player that ignores its 601 tag — green, red and magenta visibly darker and shifted. Right: the converted output in the same player, indistinguishable from the left.</figcaption>
+</figure>
+
+<h3>1.6 Cost</h3>
+<p><code>scripts/convert_cost.py</code>, 20 frames of the VHS fixture resized to 1350×1080 4:2:0:</p>
+<ul>
+  <li>The conversion runs at <strong>97–140 fps</strong> (7–10 ms per frame, 8 threads) across runs — small beside QTGMC and an NNEDI3 upscale at that size.</li>
+  <li>A 601 → 709 → 601 round trip (two conversions, each through 4:4:4 and back with error-diffusion dither) changes luma by <strong>0.25/255</strong> on average and chroma by 0.06/255, so one conversion costs at most that.</li>
+</ul>
+<p class="limit">Limit: Apple Silicon only; one clip; the round-trip number bounds the loss from above rather than measuring a single conversion.</p>
+
+<h3>1.7 Default and presets</h3>
+<ul>
+  <li><strong>Default Auto, knowingly changing existing output.</strong> Any job that resizes an SD source to HD now writes 709-tagged, converted samples where it wrote 601-tagged ones, including presets saved before 1.7.0 (the field is absent, so it reads as Auto). The old output was correct and shown wrong by many players; the new one is shown right by all of them, at a cost of ≤ 0.25/255. A user who needs the old behaviour picks Never.</li>
+  <li><strong>No built-in preset resized before</strong> (asserted in <code>processing_preset_test.dart</code>), so none changes.</li>
+  <li><strong>New preset, <em>SD Tape → HD (YouTube / TV)</em>:</strong> QTGMC Slow, light SMDegrain, CCD, square pixels, NNEDI3 2x then Spline36 into a 1920×1080 box (4:3 lands at 1440×1080), BT.709 <em>Always</em>, CAS 0.3, H.264 CRF 17 <code>slow</code>, 8-bit 4:2:0, MP4, AAC. 4:2:0 8-bit because a 4:2:2 capture-card source would otherwise be encoded as H.264 High 4:2:2, which TVs and browsers refuse.</li>
+</ul>
+
+<h2>2. Detect borders (<code>--detect-crop</code>)</h2>
+
+<h3>2.1 Method</h3>
+<p>24 frames spread over the middle 90% of the source (or its trim) are decoded as 8-bit 4:4:4 by ffmpeg, four at a time, and measured line by line in plain Rust (<code>worker/src/crop_detect.rs</code>). VCG Deinterlacer 2.0's <code>analysis/edges.rs</code> (MIT) was read as a reference for which signals separate blanking, ramp and head switching; nothing was ported, and the thresholds were set on our own fixtures.</p>
+<ul>
+  <li><strong>Black and blanking:</strong> a line whose 98th-percentile brightness over every usable frame is within 30% of the way from black to the picture's typical line, and whose detail is under half the picture's or 6 levels. The percentile is over all frames, so a line that shows picture in any of them is picture. One line counts only if it is true black (≤ 4 above black) in every frame — a capture card's first line.</li>
+  <li><strong>Ramp:</strong> up to 6 more lines, each dimmer than 85% of the picture just inside and rising.</li>
+  <li><strong>Bars:</strong> a dark run wider than 5% of the dimension is framing (letterbox / pillarbox), reported in <code>cropWithBars</code> and never in the recommended crop.</li>
+  <li><strong>Head switching:</strong> a bottom line is torn in a frame when it differs from the line above <em>in the same field</em> by 2.2× the picture's typical line-to-line difference (and ≥ 4 levels luma or ≥ 2.5 chroma) across 6 of 8 width segments, or matches the line above best shifted sideways by ≥ 3 px. A line is band when torn in ≥ 50% of usable frames; the band must start within 2 lines of the bottom (above any black lines) and may contain one untorn line.</li>
+  <li><strong>Dark frames</strong> (central 90th percentile below 48) are left out of every statistic.</li>
+  <li><strong>Output:</strong> the recommended crop rounded outward to steps the Crop pass accepts (even; fours vertically for 4:2:0 still interlaced at the crop) and mapped through Rotate / Flip; the crop with bars; and, for a band of up to 16 lines, Edge Repair's widths to repair it instead. A per-edge confidence is the share of usable frames whose picture reaches that edge.</li>
+</ul>
+
+<h3>2.2 Accuracy</h3>
+<p>Fixtures (<code>app/test/integration_crop_detect_test.dart</code>, heavy): 30 frames of the VHS capture <code>interlaced_test.avi</code>, cut to its inner 664×536 (no borders of its own), resized into a 720×576 canvas, and given known edges; FFV1 4:2:2. The band shifts each bottom line sideways by 5–13 px from a line 10 above, with ±25 luma noise and ±40 chroma noise, different every frame. Measured = unrounded; release worker:</p>
+<div class="scroll">
+<table>
+  <caption>Detection on fixtures with known edges (drawn → measured, in lines/px; asserted within ±2)</caption>
+  <tr><th>Fixture</th><th>Left</th><th>Right</th><th>Top</th><th>Bottom</th><th>Time</th></tr>
+  <tr><td>VHS: noisy blanking, band 8</td><td class="good">14 → 14</td><td class="good">10 → 10</td><td class="good">2 → 2</td><td class="good">band 8 → 8</td><td>1.5 s*</td></tr>
+  <tr><td>Interlaced (TFF), band 12</td><td class="good">14 → 14</td><td class="good">10 → 10</td><td class="good">0 → 0</td><td class="good">band 12 → 12</td><td>1.0 s</td></tr>
+  <tr><td>Letterbox 72 + blanking 8</td><td class="good">8 → 8</td><td class="good">8 → 8</td><td class="good">bar 72 → 72</td><td class="good">bar 72 → 72</td><td>0.9 s</td></tr>
+  <tr><td>Subtitles 40 lines up, 2 frames in 3</td><td class="good">8 → 8</td><td class="good">8 → 8</td><td class="good">0 → 0</td><td class="good">0 → 0 (not band)</td><td>1.1 s</td></tr>
+  <tr><td>Fades: every 3rd frame near black</td><td class="good">12 → 12</td><td class="good">12 → 12</td><td class="good">4 → 4</td><td class="good">0 → 0</td><td>0.9 s</td></tr>
+  <tr><td>1080p, 240-px pillarbox</td><td class="good">bar 240 → 240</td><td class="good">bar 240 → 240</td><td class="good">0 → 0</td><td class="good">0 → 0</td><td>2.9 s</td></tr>
+</table>
+</div>
+<p>* The first run includes cold disk caches. Debug builds (what the heavy tests run) take 0.8–1.9 s per SD fixture. Fades: 16 of 24 sampled frames were usable. Letterbox: the bottom bar's confidence is 0.17, because the VHS picture's dashboard just above it is dark in most frames — the edge is right, the evidence thin, and the panel says so (it warns below 0.25).</p>
+
+<h3>2.3 Real files</h3>
+<div class="scroll">
+<table>
+  <caption>Real sources: by-eye ground truth from <code>edges_dump</code>-style line statistics (98th-percentile column / row brightness)</caption>
+  <tr><th>Source</th><th>By eye</th><th>Measured</th><th>Recommended crop</th><th>Time</th></tr>
+  <tr><td>DVB-T broadcast, 720×576 TFF 4:2:0</td><td>left 7 black, right 8 black, top 0, bottom 4 black + 1 dim</td><td class="good">7, 8, 0, 4 + 1 ramp</td><td>8, 8, 0, 8 (fours: still interlaced 4:2:0)</td><td>0.5 s</td></tr>
+  <tr><td>VHS capture <code>interlaced_test.avi</code>, 720×576 TFF 4:2:2</td><td>left: 10 dark columns (19–30 levels, grainy) then a 9-column rise; right: a 7-column rise from 44; top: one line at 0 in every frame</td><td>left 10 + 6 ramp, right 3 + 3, top 1, bottom 4 (confidence 0.12)</td><td>16, 6, 2, 4</td><td>1.0 s</td></tr>
+</table>
+</div>
+<ul>
+  <li>The VHS capture's left ramp runs about 9 columns; the detector follows 6 (its cap) and stops at 16, leaving a few columns of slightly dim picture. Whether those columns are ramp or picture is a judgement; the cap keeps the detector from eating into genuinely dark content.</li>
+  <li>Its bottom 4 lines are reported as blanking with confidence 0.12: the dashboard above them is dark in nearly every frame, so few frames show where the picture ends. No head-switching band is visible in this capture (Figure 6), and none was reported.</li>
+</ul>
+
+<figure>
+  <a href="img/02-vhs-fixture-detected.png"><img src="img/02-vhs-fixture-detected.png" alt="VHS fixture with the detected crop box"></a>
+  <figcaption>Figure 2. The VHS fixture, frame 15, with the recommended crop drawn as a red 1-px box: 14 px of noisy blanking at the left, 10 at the right, 2 lines at the top, and the 8-line band at the bottom outside the box.</figcaption>
+</figure>
+<figure>
+  <a href="img/03-vhs-fixture-bottom-left-x4.png"><img src="img/03-vhs-fixture-bottom-left-x4.png" alt="Bottom-left corner, 4x"></a>
+  <figcaption>Figure 3. Its bottom-left corner (128×40, 4× nearest-neighbour): the noisy blanking at the left edge and the torn, colour-wrecked band below the red crop line.</figcaption>
+</figure>
+<figure>
+  <a href="img/04-letterbox-detected.png"><img src="img/04-letterbox-detected.png" alt="Letterbox fixture"></a>
+  <figcaption>Figure 4. Letterbox fixture: red = the recommended crop (blanking only, bars kept), yellow = with the bars (offered separately as "Crop the bars too").</figcaption>
+</figure>
+<figure>
+  <a href="img/05-subtitles-detected.png"><img src="img/05-subtitles-detected.png" alt="Subtitle fixture"></a>
+  <figcaption>Figure 5. Subtitle fixture, a frame with the text block: bright, sharp-edged lines 40–62 lines above the bottom, in two frames of three. Not reported as head switching: the band test needs a tear across 6 of 8 width segments, in half the frames, starting at the bottom.</figcaption>
+</figure>
+<figure>
+  <a href="img/06-real-vhs-detected.png"><img src="img/06-real-vhs-detected.png" alt="Real VHS capture"></a>
+  <figcaption>Figure 6. The real VHS capture with its recommended crop: left 16 (blanking and ramp), right 6, top 2 (one black line, rounded to two), bottom 4.</figcaption>
+</figure>
+<figure>
+  <a href="img/07-real-vhs-left-x4.png"><img src="img/07-real-vhs-left-x4.png" alt="Left edge, 4x"></a>
+  <figcaption>Figure 7. Its left edge (48×96, 4×): grainy dark blanking, the soft ramp, and the crop line at column 16.</figcaption>
+</figure>
+<figure>
+  <a href="img/08-dvbt-detected.png"><img src="img/08-dvbt-detected.png" alt="DVB-T broadcast"></a>
+  <figcaption>Figure 8. The DVB-T broadcast with its recommended crop (8, 8, 0, 8).</figcaption>
+</figure>
+<figure>
+  <a href="img/09-dvbt-bottom-left-x4.png"><img src="img/09-dvbt-bottom-left-x4.png" alt="DVB-T bottom-left, 4x"></a>
+  <figcaption>Figure 9. Its bottom-left corner (64×24, 4×): the 7 black columns and the black bottom lines inside the crop line.</figcaption>
+</figure>
+
+<h3>2.4 Traps, and what holds each off</h3>
+<div class="scroll">
+<table>
+  <caption>Each trap has a unit test in <code>crop_detect.rs</code> (synthetic frames) and, where marked, a fixture in the heavy test</caption>
+  <tr><th>Trap</th><th>Defence</th><th>Heavy fixture</th></tr>
+  <tr><td>Dark scenes, fades</td><td>98th percentile over all frames; dark frames dropped; confidence says how many frames show the edge</td><td>fades</td></tr>
+  <tr><td>Letterbox inside 4:3</td><td>Runs over 5% are bars: reported, not cropped by default</td><td>letterbox</td></tr>
+  <tr><td>Noisy blanking</td><td>Absolute detail floor (6 levels) beside the relative one</td><td>VHS</td></tr>
+  <tr><td>Subtitles near the bottom</td><td>Band = torn across 6 of 8 segments, in half the frames, from the bottom</td><td>subtitles</td></tr>
+  <tr><td>Interlaced sources</td><td>Lines compared within the field; crop in fours for 4:2:0 still interlaced</td><td>interlaced, DVB-T</td></tr>
+  <tr><td>A band under a letterbox</td><td>Band cropped, bar above it kept apart</td><td>(unit test)</td></tr>
+  <tr><td>One dark line that is picture</td><td>A single line counts only if true black in every frame</td><td>(unit test)</td></tr>
+  <tr><td>Rotate / Flip before the crop</td><td>The crop is mapped into the turned orientation; Edge Repair's stays in the source's</td><td>(unit test)</td></tr>
+</table>
+</div>
+
+<h3>2.5 App</h3>
+<p>Crop &amp; Resize gains a <em>Detect borders</em> button (NEW badge, 1.7.0). The panel lists each edge ("Left: 10 px of black / blanking and a 2-px soft edge", "Bottom: 8 lines of head-switching noise", "Top: 72-line letterbox bar"), the crop, and up to three buttons: <em>Apply crop</em>, <em>Crop the bars too</em>, <em>Repair the band instead</em> (Edge Repair at the bottom, the rest cropped — keeps the frame height for DVD authoring). Nothing changes until one is pressed (<code>crop_detect_widget_test.dart</code>). The crop sliders' maximum rose from 200 to 480 so a 1080p pillarbox fits.</p>
+
+<h2>3. Decisions</h2>
+<ul>
+  <li><strong>Matrix-only conversion, primaries tag kept:</strong> §1.3.</li>
+  <li><strong>HD threshold 720 lines or 1280 columns:</strong> the same height the app already guesses 709 from for an untagged file, and the width catches a scope picture cropped short (1280×536).</li>
+  <li><strong>Default Auto:</strong> §1.7.</li>
+  <li><strong>Bars not in the recommended crop:</strong> a letterbox is the picture's framing; cropping it changes the aspect, which is the user's call.</li>
+  <li><strong>Analysis in Rust, not VapourSynth:</strong> per-line statistics need no plugin, run in about a second, and are unit-testable on synthetic frames.</li>
+  <li><strong>No NOTICES entry for VCG:</strong> its code was read, not ported.</li>
+</ul>
+
+<h2>4. Not tested</h2>
+<ul>
+  <li>A real capture with a clearly visible head-switching band: none is in <code>Tests/TestResources/</code>; the band in the fixtures is simulated (a sideways tear with noise), modelled on how it looks, not on a measured capture.</li>
+  <li>Windows and Linux, and macOS x64. The analysis is plain Rust; the decode uses the same ffmpeg arguments as the preview. The BT.709 block is plain zimg.</li>
+  <li>HDR sources are never converted (asserted), and were not run.</li>
+  <li>A colour-managed player's rendering of the converted file was not checked on screen.</li>
+</ul>
+
+<h2>5. Reproducing</h2>
+<pre>cd docs/reports/2026-11-crop-detect-709
+scripts/run_vs.sh scripts/gamut.py          # §1.1, §1.3
+scripts/run_vs.sh scripts/convert_cost.py   # §1.6
+python3 scripts/patch_yuv.py ../../../Tests/TestOutput/bt709_conversion/*.mkv   # §1.5, after the heavy test
+SCRATCH=/some/dir scripts/crop_detect.sh    # §2.2, §2.3 (runs the heavy test, then times the release worker)
+(cd ../../../app &amp;&amp; flutter test test/integration_bt709_conversion_test.dart)   # §1.5
+scripts/images.sh                           # the figures, from the two heavy tests' outputs</pre>
+<p>All scripts take the deps bundle from <code>DEPS</code> (default <code>deps/macos-arm64</code>) and find the repo from their own location.</p>
+
+</main>
+</body>
+</html>

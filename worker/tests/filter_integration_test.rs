@@ -7356,12 +7356,12 @@ fn colorize_job(name: &str, cz: ColorizeParameters) -> VideoJob {
 /// runtime set up first, the chosen model's path from its add-on, and each
 /// model's render size (DDColor's in pixels, DeOldify's render factor x 16).
 #[test]
-fn test_191_colorize_script_and_model() {
+fn test_207_colorize_script_and_model() {
     create_output_dir();
     let platform = "macos-arm64";
-    let root = fake_addons_with_requirements("191", &["colorize-ddcolor", "colorize-deoldify"], platform);
+    let root = fake_addons_with_requirements("207", &["colorize-ddcolor", "colorize-deoldify"], platform);
     let generator = ScriptGenerator::new().unwrap().with_addons(root.clone(), platform);
-    let job = colorize_job("test_191_colorize", ColorizeParameters {
+    let job = colorize_job("test_207_colorize", ColorizeParameters {
         model: ColorizeModel::DeOldify,
         deoldify_render_factor: 25,
         strength: 0.7,
@@ -7406,7 +7406,7 @@ fn test_191_colorize_script_and_model() {
     assert_eq!(pipeline.output_count(100), 100);
     assert_eq!(pipeline.frame_maps()[at(PassType::Colorize)].radius(), 3);
     // DDColor's defaults: 512 pixels, two frames either side.
-    let ddcolor = colorize_job("test_191_ddcolor", ColorizeParameters::default());
+    let ddcolor = colorize_job("test_207_ddcolor", ColorizeParameters::default());
     let script = script_text_with(&generator, &ddcolor);
     for want in [
         format!("model_path={}", py("colorize-ddcolor", "colorize-ddcolor-tiny.onnx")),
@@ -7424,12 +7424,12 @@ fn test_191_colorize_script_and_model() {
 /// and Settings → Add-ons; with the pass off nothing needs it and the script
 /// has neither the runtime nor the call.
 #[test]
-fn test_192_colorize_refused_without_addon() {
+fn test_208_colorize_refused_without_addon() {
     create_output_dir();
     let platform = "macos-arm64";
-    let root = fake_addons_with_requirements("192", &["colorize-ddcolor"], platform);
+    let root = fake_addons_with_requirements("208", &["colorize-ddcolor"], platform);
     let generator = ScriptGenerator::new().unwrap().with_addons(root.clone(), platform);
-    let deoldify = colorize_job("test_192_deoldify", ColorizeParameters {
+    let deoldify = colorize_job("test_208_deoldify", ColorizeParameters {
         model: ColorizeModel::DeOldify,
         ..Default::default()
     });
@@ -7437,9 +7437,9 @@ fn test_192_colorize_refused_without_addon() {
     assert!(err.contains("Colourisation"), "{err}");
     assert!(err.contains("Settings → Add-ons"), "{err}");
     assert!(err.to_lowercase().contains("deoldify"), "{err}");
-    let ddcolor = colorize_job("test_192_ddcolor", ColorizeParameters::default());
+    let ddcolor = colorize_job("test_208_ddcolor", ColorizeParameters::default());
     both_scripts_with(&generator, &ddcolor).expect("DDColor's add-on is installed");
-    let empty = std::env::temp_dir().join(format!("vb-addons-192-empty-{}", Uuid::new_v4()));
+    let empty = std::env::temp_dir().join(format!("vb-addons-208-empty-{}", Uuid::new_v4()));
     let bare = ScriptGenerator::new().unwrap().with_addons(empty, platform);
     assert!(both_scripts_with(&bare, &ddcolor).is_err());
     let mut off = ddcolor.clone();
@@ -7641,4 +7641,76 @@ fn test_185_audio_restoration_never_touches_the_scripts() {
             assert!(!script.contains(word), "{word} reached the script");
         }
     }
+}
+
+/// BT.601 -> BT.709 on SD -> HD (app 1.7.0). The conversion block appears in
+/// BOTH scripts exactly when the job decides to convert, converts from the
+/// source's own matrix and range, and everything after it (the border fill
+/// here) works in BT.709. Off, or an SD-sized output, leaves no block at all.
+#[test]
+fn test_206_bt601_to_bt709_on_sd_to_hd() {
+    create_output_dir();
+    let job_for = |mode: Bt709Conversion, target_h: i32, matrix: Option<&str>, range: &str| {
+        let mut job = create_base_job("test_206_bt709");
+        job.qtgmc_parameters.enabled = false;
+        job.input_width = Some(720);
+        job.input_height = Some(576);
+        job.input_pixel_format = Some("yuv420p".to_string());
+        job.input_color_matrix = matrix.map(str::to_string);
+        job.input_color_range = Some(range.to_string());
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            crop_resize: CropResizeParameters {
+                enabled: true,
+                resize_enabled: true,
+                target_width: Some(target_h * 4 / 3),
+                target_height: Some(target_h),
+                pad_enabled: true,
+                pad_width: Some(target_h * 16 / 9),
+                pad_height: Some(target_h),
+                convert_to_bt709: mode,
+                ..CropResizeParameters::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+
+    // PAL, tagged: converts from 470bg, limited range, in both scripts.
+    let job = job_for(Bt709Conversion::Auto, 1080, Some("bt470bg"), "tv");
+    assert!(job.converts_to_bt709());
+    let (encode, preview) = generate_both_scripts(&job);
+    for script in [&encode, &preview] {
+        assert!(script.contains(r#"matrix_in_s="470bg""#), "converts from the source's matrix");
+        assert!(script.contains(r#"matrix_s="709""#));
+        assert!(script.contains(r#"range_in_s="limited""#));
+        assert!(script.contains(r#"RemoveFrameProps(clip, props=["_Matrix", "_Range", "_ColorRange"])"#));
+        assert!(!script.contains("{{C709") && !script.contains("{{#COLOR_709"), "unsubstituted placeholder");
+        // The bars go on after the conversion, so their colour is 709's.
+        assert!(script.contains(r#"matrix_s="709", range_s="limited")"#), "border fill in 709");
+        // After the resize and before Face Restoration.
+        let at = script.find(r#"matrix_in_s="470bg""#).unwrap();
+        assert!(script.find("PASS: FACE RESTORATION").unwrap() > at);
+    }
+    run_job_and_verify(&job, "BT.709 conversion", &[r#"matrix_s="709""#]).unwrap();
+
+    // Untagged full-range SD: read as 601 (170m), range kept full.
+    let (encode, _) = generate_both_scripts(&job_for(Bt709Conversion::Auto, 1080, None, "pc"));
+    assert!(encode.contains(r#"matrix_in_s="170m""#));
+    assert!(encode.contains(r#"range_in_s="full""#));
+
+    // Off, an SD-sized output under Auto, or an HD source: no conversion.
+    for job in [
+        job_for(Bt709Conversion::Off, 1080, Some("bt470bg"), "tv"),
+        job_for(Bt709Conversion::Auto, 576, Some("bt470bg"), "tv"),
+        job_for(Bt709Conversion::Auto, 1080, Some("bt709"), "tv"),
+    ] {
+        assert!(!job.converts_to_bt709());
+        let (encode, preview) = generate_both_scripts(&job);
+        for script in [&encode, &preview] {
+            assert!(!script.contains(r#"RemoveFrameProps(clip, props=["_Matrix""#), "no conversion expected");
+        }
+    }
+    // On converts whatever the size.
+    assert!(job_for(Bt709Conversion::On, 576, Some("smpte170m"), "tv").converts_to_bt709());
 }

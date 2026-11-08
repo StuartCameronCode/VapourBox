@@ -127,7 +127,7 @@ Most sources need only a few of these, and the presets pick them for you. Filter
 | 16 | **Color Correction** | Brightness, contrast, saturation, levels, white balance, shadow detail and local contrast, set by hand or measured |
 | 17 | **Stabilize** | Shake and weave from telecine, film scans or a handheld camera |
 | 18 | **Rotate / Flip** | Sideways, upside-down or mirrored footage |
-| 19 | **Crop & Resize** | Overscan, scaling and upscaling (edge-directed or AI), and borders to reach an exact frame size |
+| 19 | **Crop & Resize** | Black borders, tape blanking and head-switching noise (measured for you by **Detect borders**), scaling and upscaling (edge-directed or AI) with SD colour converted to HD's BT.709, and borders to reach an exact frame size |
 | 20 | **Face Restoration** | Blurry, low-resolution faces, redrawn by AI at the output resolution (optional download) |
 | 21 | **Sharpen** | Soft pictures, sharpened after the resize so the result isn't softened again |
 | 22 | **Film Grain** | Grain added back after denoising, so the picture doesn't look plastic |
@@ -195,7 +195,7 @@ Every button with a shortcut shows it in its tooltip, and **?** lists them all. 
 <details>
 <summary><b>Presets</b></summary>
 
-**For Your Source:** VHS Cleanup, DV Camcorder Tape, PAL DVD / Broadcast, DVD IVTC, Anime DVD, 8mm / Super 8 Film Scan and Low-Light Phone / Camera Video. Pick the one that matches what you have.
+**For Your Source:** VHS Cleanup, SD Tape → HD (YouTube / TV), DV Camcorder Tape, PAL DVD / Broadcast, DVD IVTC, Anime DVD, 8mm / Super 8 Film Scan and Low-Light Phone / Camera Video. Pick the one that matches what you have.
 
 **Quality Only:** Fast, Balanced and High Quality just deinterlace, with increasing effort, for a picture that's already clean.
 
