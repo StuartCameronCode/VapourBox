@@ -84,10 +84,22 @@ source of truth for what an add-on is and what an install of it holds.
 | `kind` | `files` — a model pack: each file is saved as `addons/<id>/<name>`, or for an entry with `extract`, only the listed members are kept (each checked against its own hash; nothing else in the archive is written). `python` — every file is a wheel, unpacked into `addons/<id>/site-packages/` as pip lays it out (`*.data/purelib`/`platlib` at the top, other `.data` dropped). |
 | `python` | for a python add-on, the wheel tag it targets (`cp312`: the deps bundle's Python on every platform). |
 | `platforms` | `"all"`, or a table of the deps platform ids (`macos-arm64`, `macos-x64`, `windows-x64`, `linux-x64`, `linux-arm64`) it supports, each with optional `minOs` (macOS only, checked at run time against the running system). Anything else gets an `unavailableReason` and cannot be installed. |
-| `files[]` | `name` (a plain file name), `url` (https), `size` (bytes), `sha256`; optional `platforms` (default: every supported platform) and `extract` (members: `path` in the archive, `name` to install as, default its basename, and `sha256`). Every supported platform must have at least one file. |
+| `files[]` | `name` (a plain file name), `url` (https), `size` (bytes), `sha256`; optional `platforms` (default: every supported platform), `extract` (members: `path` in the archive, `name` to install as, default its basename, and `sha256`) and `executable` (see below). Every supported platform must have at least one file. |
 
 `AddonManifest.fromJson` validates all of this, so a malformed manifest fails
 `manifest_addon_test.dart` rather than half-working.
+
+### Programs: `executable`
+
+A plain file (not an archive entry, not in a `python` add-on) marked
+`"executable": true` is a program the worker runs — DeepFilterNet's
+`deep-filter` (`app/assets/addons/deepfilternet.json`) is the first. On install
+the app sets its executable bit (downloads have none) and, on macOS, signs it
+ad hoc when `codesign --verify` fails: Apple Silicon refuses to run an unsigned
+arm64 binary, and upstream builds are often unsigned (DeepFilterNet's Intel one
+is; its arm64 one is linker-signed and left alone). Quarantine is cleared with
+the rest of the install. Each platform's program can keep upstream's own file
+name: the worker finds it with `addons::Manifest::executable_for(platform)`.
 
 ### What an install looks like
 

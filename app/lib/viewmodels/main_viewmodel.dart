@@ -344,7 +344,8 @@ class MainViewModel extends ChangeNotifier {
       _regenerateOutputPath();
     }
     notifyListeners();
-    _requestPreviewUpdate();
+    // The preview is picture only: nothing in audio restoration changes it.
+    if (filterId != 'audio_restoration') _requestPreviewUpdate();
   }
 
   DynamicParameters _convertToParams(String filterId) {
@@ -391,6 +392,8 @@ class MainViewModel extends ChangeNotifier {
         return ParameterConverter.fromChromaFixes(_processingPipeline.chromaFixes);
       case 'crop_resize':
         return ParameterConverter.fromCropResize(_processingPipeline.cropResize);
+      case 'audio_restoration':
+        return ParameterConverter.fromAudioRestoration(_processingPipeline.audio);
       case 'subtitles':
         return ParameterConverter.fromSubtitles(_processingPipeline.subtitles);
       default:
@@ -515,6 +518,11 @@ class MainViewModel extends ChangeNotifier {
       case 'crop_resize':
         _processingPipeline = _processingPipeline.copyWith(
           cropResize: ParameterConverter.toCropResize(params),
+        );
+        break;
+      case 'audio_restoration':
+        _processingPipeline = _processingPipeline.copyWith(
+          audio: ParameterConverter.toAudioRestoration(params),
         );
         break;
       case 'subtitles':
@@ -1380,6 +1388,8 @@ class MainViewModel extends ChangeNotifier {
         return 'chroma_fixes';
       case PassType.cropResize:
         return 'crop_resize';
+      case PassType.audioRestoration:
+        return 'audio_restoration';
       case PassType.subtitles:
         return 'subtitles';
     }
@@ -1482,8 +1492,11 @@ class MainViewModel extends ChangeNotifier {
     }
 
     // Subtitle-only mode: no video processing passes enabled, only subtitles
+    // Audio restoration needs the full job (it renders the output's
+    // soundtrack), so it rules out subtitle-only mode.
     final isSubtitleOnly = _processingPipeline.subtitles.enabled &&
-        _processingPipeline.enabledPasses.isEmpty;
+        _processingPipeline.enabledPasses.isEmpty &&
+        !_processingPipeline.audio.hasEffect;
     _lastJobSubtitleOnly = isSubtitleOnly &&
         _processingPipeline.subtitles.output == SubtitleOutput.srtFile;
 
@@ -1855,7 +1868,8 @@ class MainViewModel extends ChangeNotifier {
 
     // Subtitle-only with SRT output: use .srt extension
     final isSubtitleOnly = _processingPipeline.subtitles.enabled &&
-        _processingPipeline.videoPassCount == 0;
+        _processingPipeline.videoPassCount == 0 &&
+        !_processingPipeline.audio.hasEffect;
     if (isSubtitleOnly && _processingPipeline.subtitles.output == SubtitleOutput.srtFile) {
       return path.join(outputDir, '$outputFilename.srt');
     }

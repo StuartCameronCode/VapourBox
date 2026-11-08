@@ -135,6 +135,8 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info) {
     case PassType.sharpen:
     case PassType.colorCorrection:
     case PassType.subtitles:
+    // A dead channel, hum or drift is not in the metadata either.
+    case PassType.audioRestoration:
     // Anti-aliasing and stabilisation are tempting to tie to detection —
     // jaggies follow deinterlacing, shake follows handheld capture — but
     // neither is actually visible in the metadata, only plausible from it.

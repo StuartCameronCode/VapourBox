@@ -162,11 +162,12 @@ fn preview_window(target: i32, radius: i32) -> (i32, i32, i32) {
     (first, local, num_frames)
 }
 
+use crate::audio_restoration::{self, RestoredTrack};
 use crate::comment_metadata::{self, CommentFile};
 use crate::gpu_plugin::GpuPlugin;
 use crate::hdr_metadata::HdrMetadata;
 use crate::dependency_locator::DependencyLocator;
-use crate::models::{AspectDeclaration, AudioMode, ContainerFormat, DeinterlaceMethod, EncoderFamily, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
+use crate::models::{AspectDeclaration, ContainerFormat, DeinterlaceMethod, EncoderFamily, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
 use crate::pixel_format;
 use crate::source_decode;
 use crate::progress_reporter::ProgressReporter;
@@ -184,6 +185,9 @@ pub struct PipelineExecutor {
     /// which the encode and preview decoders take their window. `None` for a
     /// constant-rate source.
     timeline: Option<SourceTimeline>,
+    /// The track audio restoration rendered for this job, mapped in place of
+    /// the source's stream (see `audio_restoration`). `None` otherwise.
+    restored_audio: Option<RestoredTrack>,
 }
 
 /// Watches for the pipeline making no progress at all.
@@ -247,12 +251,19 @@ impl PipelineExecutor {
             vspipe_process: None,
             ffmpeg_process: None,
             timeline: None,
+            restored_audio: None,
         })
     }
 
     /// Set the source's variable-frame-rate timeline (see `self.timeline`).
     pub fn with_timeline(mut self, timeline: Option<SourceTimeline>) -> Self {
         self.timeline = timeline;
+        self
+    }
+
+    /// Use a restored audio track (see `self.restored_audio`).
+    pub fn with_restored_audio(mut self, track: Option<RestoredTrack>) -> Self {
+        self.restored_audio = track;
         self
     }
 
@@ -872,14 +883,18 @@ impl PipelineExecutor {
         // Input 2: the output's comment, as an FFMETADATA file (issue #138)
         args.extend(comment_file.input_args());
 
+        // Input 3: the restored audio track, when audio restoration ran.
+        args.extend(audio_restoration::encode_input_args(self.restored_audio.as_ref()));
+
         // Progress output to a temp file (avoids Windows pipe buffering delay)
         args.extend(["-progress".to_string(), progress_file.to_string_lossy().to_string()]);
 
         // Map streams: video from input 0 (processed), audio and subtitles from input 1 (original)
         args.extend(["-map".to_string(), "0:v".to_string()]);  // Video from Y4M pipe
-        if settings.audio_mode != AudioMode::None {
-            args.extend(["-map".to_string(), "1:a?".to_string()]); // Audio from original (? = optional)
-        }
+        // Audio from the original (every stream, `1:a?`), or — when audio
+        // restoration rendered a track — that track (input 3) first, then the
+        // source's other audio streams. One decision site: audio_restoration.
+        args.extend(audio_restoration::encode_map_args(settings, self.restored_audio.as_ref(), 3));
 
         // Preserve existing subtitle streams from source (? = optional, no error if none)
         let subtitle_embed_pending = job.subtitle_settings.as_ref()
@@ -1012,22 +1027,9 @@ impl PipelineExecutor {
         // and is then a genuine conversion from the source's real matrix.
         args.extend(job.color_metadata().to_ffmpeg_output_args());
 
-        // Audio handling
-        match settings.audio_mode {
-            AudioMode::Passthrough => {
-                args.extend(["-c:a".to_string(), "copy".to_string()]);
-            }
-            AudioMode::Convert => {
-                args.extend(["-c:a".to_string(), settings.audio_codec.ffmpeg_name().to_string()]);
-                // Only add bitrate for lossy codecs
-                if !settings.audio_codec.is_lossless() {
-                    args.extend(["-b:a".to_string(), format!("{}k", settings.audio_quality.bitrate())]);
-                }
-            }
-            AudioMode::None => {
-                args.push("-an".to_string());
-            }
-        }
+        // Audio handling: copy / convert / none, and a restored track is
+        // always encoded (see audio_restoration::encode_codec_args).
+        args.extend(audio_restoration::encode_codec_args(settings, self.restored_audio.as_ref()));
 
         // Timestamp normalization for modes that change frame rate.
         // Fixes audio sync offset caused by mismatched initial PTS between the
@@ -1559,7 +1561,7 @@ impl Drop for PipelineExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{AudioCodec, AudioQuality, ChromaSubsampling, EncodingSettings, ProResQuantMat, QTGMCParameters, VideoCodec};
+    use crate::models::{AudioCodec, AudioMode, AudioQuality, ChromaSubsampling, EncodingSettings, ProResQuantMat, QTGMCParameters, VideoCodec};
     use uuid::Uuid;
 
     /// The two codes that have actually cost debugging time must be named in
@@ -1857,6 +1859,26 @@ mod tests {
         );
     }
 
+    /// The real builder takes every audio decision from audio_restoration,
+    /// with the restored track as input 3 (after the source and the metadata
+    /// file); the copy below cannot show that, having neither.
+    #[test]
+    fn test_real_ffmpeg_builder_delegates_audio_to_audio_restoration() {
+        let src = include_str!("pipeline_executor.rs").replace("\r\n", "\n");
+        let start = src.find("fn build_ffmpeg_args(\n").expect("real builder");
+        let body = &src[start..];
+        let body = &body[..body.find("\n    }\n").expect("end of builder")];
+        let file = body.find("comment_file.input_args()").expect("metadata file input");
+        let track = body
+            .find("audio_restoration::encode_input_args(self.restored_audio.as_ref())")
+            .expect("restored track input");
+        assert!(file < track, "the restored track must be input 3, after the metadata file");
+        assert!(body.contains("audio_restoration::encode_map_args(settings, self.restored_audio.as_ref(), 3)"));
+        assert!(body.contains("audio_restoration::encode_codec_args(settings, self.restored_audio.as_ref())"));
+        assert!(!body.contains("\"1:a?\""), "audio mapping belongs to audio_restoration");
+        assert_eq!(body.matches("\"-af\"").count(), 0, "the encode never filters audio itself");
+    }
+
     /// Helper to build FFmpeg args without requiring a full PipelineExecutor.
     /// This mirrors the logic in PipelineExecutor::build_ffmpeg_args for testing.
     fn build_ffmpeg_args_for_test(job: &VideoJob) -> Vec<String> {
@@ -1877,9 +1899,7 @@ mod tests {
 
         // Map streams: video from input 0 (processed), audio from input 1 (original) if not disabled
         args.extend(["-map".to_string(), "0:v".to_string()]);
-        if settings.audio_mode != AudioMode::None {
-            args.extend(["-map".to_string(), "1:a?".to_string()]);
-        }
+        args.extend(audio_restoration::encode_map_args(settings, None, 2));
 
         // Video codec
         args.extend(["-c:v".to_string(), settings.codec.ffmpeg_codec().to_string()]);
@@ -1913,22 +1933,8 @@ mod tests {
         // SAR block was missed that way and is still absent below.
         args.extend(job.color_metadata().to_ffmpeg_output_args());
 
-        // Audio handling
-        match settings.audio_mode {
-            AudioMode::Passthrough => {
-                args.extend(["-c:a".to_string(), "copy".to_string()]);
-            }
-            AudioMode::Convert => {
-                args.extend(["-c:a".to_string(), settings.audio_codec.ffmpeg_name().to_string()]);
-                // Only add bitrate for lossy codecs
-                if !settings.audio_codec.is_lossless() {
-                    args.extend(["-b:a".to_string(), format!("{}k", settings.audio_quality.bitrate())]);
-                }
-            }
-            AudioMode::None => {
-                args.push("-an".to_string());
-            }
-        }
+        // Audio handling (mirrors build_ffmpeg_args; no restored track here).
+        args.extend(audio_restoration::encode_codec_args(settings, None));
 
         // Custom arguments
         if !settings.custom_ffmpeg_args.is_empty() {

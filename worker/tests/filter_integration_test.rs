@@ -7153,3 +7153,45 @@ fn test_205_new_blocks_use_the_helpers() {
         }
     }
 }
+
+/// Audio restoration is rendered by ffmpeg before the encode, never by the
+/// VapourSynth script: every step switched on — DeepFilterNet included, which
+/// is not installed here — leaves both scripts byte-for-byte as they are with
+/// the pass off. (A preview must never be refused for an audio add-on.)
+#[test]
+fn test_185_audio_restoration_never_touches_the_scripts() {
+    create_output_dir();
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_addons(std::env::temp_dir().join("vb-no-addons-here"), "macos-arm64");
+    let mut job = create_base_job("test_185_audio_restoration");
+    job.processing_pipeline = Some(ProcessingPipeline::default());
+    let (encode_off, preview_off) = both_scripts_with(&generator, &job).unwrap();
+
+    job.processing_pipeline = Some(ProcessingPipeline {
+        audio: AudioRestorationParameters {
+            enabled: true,
+            channel_fix: ChannelFix::Auto,
+            offset_ms: -250,
+            drift_correction: true,
+            declip: true,
+            declick: true,
+            hum_removal: true,
+            rumble_filter: true,
+            denoise: true,
+            deep_filter: true,
+            loudness_normalize: true,
+            limiter: true,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let (encode_on, preview_on) = both_scripts_with(&generator, &job).unwrap();
+    assert_eq!(encode_on, encode_off, "the encode script must not change");
+    assert_eq!(preview_on, preview_off, "the preview script must not change");
+    for script in [&encode_on, &preview_on] {
+        for word in ["afftdn", "loudnorm", "deep-filter", "atempo"] {
+            assert!(!script.contains(word), "{word} reached the script");
+        }
+    }
+}

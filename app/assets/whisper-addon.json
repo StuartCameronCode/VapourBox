@@ -43,7 +43,7 @@
     "small": {
       "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
       "filename": "ggml-small.bin",
-      "size": 466616853
+      "size": 487601967
     },
     "medium": {
       "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
@@ -53,7 +53,7 @@
     "large-v3-turbo": {
       "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
       "filename": "ggml-large-v3-turbo.bin",
-      "size": 1623277662
+      "size": 1624555275
     }
   }
 }

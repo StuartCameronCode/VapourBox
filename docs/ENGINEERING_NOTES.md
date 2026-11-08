@@ -92,6 +92,13 @@ them, and neither can move.
 > original duration; audio is only ever `-ss` seeked and `-shortest` truncated.
 > If a pass is ever added that *does* retime audio (an `atempo` for a declared
 > frame-rate change, say), this breaks and the subtitles drift.
+>
+> **2026-11-08: one now does.** Audio Restoration's sync offset and drift
+> correction move audio in time. It renders the output's soundtrack before the
+> encode, and transcription reads that rendered track instead of the source
+> window, so cues follow the retiming by construction (see "Audio restoration"
+> below). The rule that survives: transcription hears exactly the output's
+> audio, and anything that moves audio lives in `audio_restoration`.
 
 `SubtitleOutput::{burns_in, muxes, keeps_srt_file}` answer the three independent
 questions rather than matching the enum in three places. A test asserts every
@@ -2914,6 +2921,54 @@ date (groundwork, not a quality comparison, so no report):
 - On an M-series Mac the self-test session reports `CoreMLExecutionProvider`
   first; whether Core ML or the CPU fallback executed the two-node model is
   not distinguishable from `get_providers()`.
+
+### Audio restoration: rendered before the encode; four filter traps measured (2026-11-08)
+
+Full report with scripts:
+[docs/reports/2026-11-audio-restoration/](reports/2026-11-audio-restoration/index.html).
+
+A new pass, Audio Restoration, renders one audio stream to a WAV before the
+video encode (channel fix, sync offset, drift, declip/declick/rumble/hum,
+afftdn, DeepFilterNet as an add-on, two-pass loudness, limiter); the encoder
+maps that track first and keeps the other streams. Rendering first, not an
+`-af` on the encode, is what DeepFilterNet, two-pass loudness, negative offsets
+and subtitle alignment all need. Measured with ffmpeg 9.0.2 and deep-filter
+0.5.6 on Apple Silicon, on lavfi-generated signals:
+
+- **afftdn delays by 25 ms at every rate and strength** (1200 samples at
+  48 kHz, 1102 at 44.1, 800 at 32; Video-Enhancer's 1200 confirmed) — trimmed
+  with `atrim=start_sample`. Its default `nf=-50` took 0.7 dB off −39 dB white
+  noise; with the measured floor (quietest tenth of 50 ms windows) 5.5/9.8/
+  13.5/15.2 dB at nr 6/12/20/30, a 440 Hz tone unchanged; `tn=1` (noise
+  tracking) undid the measured floor entirely (0.7 dB again), so it is off.
+- **atempo moved every click ~20 ms early** (≈ −19 to −21 ms after the first,
+  at 1.004, 0.996 and 1.02), on top of the stretch. Drift is now an exact
+  resample (`aresample` to 4–8× → integer `asetrate` → `aresample` back,
+  ratio within ~1e-11): click positions within 0.01 ms. Resampling is also
+  the physically right inverse of a sample-clock error (it restores pitch).
+- **`alimiter` delays by its attack unless `latency=1`, and normalises to
+  0 dBFS unless `level=0`**: measured 239 samples (5 ms) late at 48 kHz, and a
+  limit of −6 dB came out peaking at 0.00 dBFS; with both set, 0 lag and
+  −6.02 dBFS. loudnorm, adeclick, adeclip, highpass, the notches and the
+  drift resample measured zero lag; loudnorm outputs 192 kHz.
+- **A late-starting audio stream** (capture audio 0.5 s after the video) lost
+  its gap in a WAV: `aresample=first_pts=0` restores it with no seek; with an
+  input seek the window starts at the seek point as before.
+- **DeepFilterNet** delays 30 ms (1440 samples at 48 kHz); `-D` compensates
+  and shortens the output by as much, padded back. It takes 44.1 kHz input and
+  always writes 48 kHz. On a synthetic voiced signal in pink noise: pauses
+  25.3/22.5/13.7 dB quieter at `-a` 100/30/15, voiced level −1.1 dB, ~4 s per
+  minute (mono, M-series CPU). Its SNR *inside* the synthetic voice dropped
+  (20.9 → 13.8 dB): a harmonic test tone is not speech, which is the network's
+  domain — judge it by ear on real dialogue. Not tested on Windows/Linux, or
+  the macOS x64 build (unsigned; the installer signs it).
+- Hum notches (`bandreject` Q 8 at f/2f/3f): 47/61/71 dB down at 50/100/150 Hz,
+  1 kHz unchanged. Two-pass linear loudnorm hit −23 and −16 LUFS to 0.0 LU.
+- Found on the way, not fixed (another area): `whisper-addon.json` states
+  `ggml-small.bin` as 466,616,853 bytes; HuggingFace serves 487,601,967. The
+  app only uses the size for progress, but `WorkerHarness`'s downloader
+  enforces it, so `WorkerHarness.ensureWhisper(model: 'small')` fails until
+  the manifest is corrected.
 
 ### Testing a deps change before publishing
 
