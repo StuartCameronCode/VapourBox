@@ -172,8 +172,8 @@ pub struct EdgeFinding {
     pub blank: i32,
     /// The dim ramp beside them.
     pub ramp: i32,
-    /// Head-switching lines (bottom only), counted with any lines between
-    /// them and the edge.
+    /// Head-switching lines (bottom only), above the `blank` black lines at
+    /// the very bottom, counting the up to two untorn lines between them.
     pub band: i32,
     /// A bar beyond the band (bottom only: a letterbox above a torn band).
     pub bar: i32,
@@ -631,8 +631,11 @@ pub fn analyse(frames: &[Frame], interlaced: bool, full_range: bool) -> Analysis
             let dark_below = if bottom.kind == EdgeKind::Bar { 0 } else { bottom.blank };
             bottom = EdgeFinding {
                 kind: EdgeKind::HeadSwitching,
-                blank: dark_below + if above_is_bar { 0 } else { above as i32 },
-                ramp: ramp as i32,
+                // Black lines below the band, the band, then whatever dark
+                // lines sit above it: blanking (cropped with it, counted as
+                // ramp here) or a bar (kept apart).
+                blank: dark_below,
+                ramp: if above_is_bar { 0 } else { (above + ramp) as i32 },
                 band: (band_end - start) as i32,
                 bar: if above_is_bar { (above + ramp) as i32 } else { 0 },
                 crop: if above_is_bar {
@@ -751,11 +754,14 @@ pub fn report_from(analysis: &Analysis, job: &VideoJob, frames: Vec<i32>, interl
     // The band can be repaired instead: Edge Repair rebuilds the bottom lines
     // in the source's orientation (it runs before Rotate / Flip), and the crop
     // keeps everything else it found.
+    // Edge Repair works from the frame's edge, so it covers any black lines
+    // below the band as well as the band.
     let (edge_repair, crop_with_repair) = if e.bottom.kind == EdgeKind::HeadSwitching && e.bottom.band > 0 {
-        let repair = crate::models::EdgeRepairParameters::even(round_up(e.bottom.band, 2));
-        if repair >= e.bottom.band && repair <= EDGE_REPAIR_MAX {
+        let reach = e.bottom.blank + e.bottom.band;
+        let repair = crate::models::EdgeRepairParameters::even(round_up(reach, 2));
+        if repair >= reach && repair <= EDGE_REPAIR_MAX {
             let mut rest = *e;
-            rest.bottom.crop -= e.bottom.band;
+            rest.bottom.crop -= reach;
             let (l, r, t, b) = orient(&pipeline, rest.left.crop, rest.right.crop, rest.top.crop, rest.bottom.crop);
             (
                 Some(Sides { bottom: repair, ..Sides::default() }),
@@ -1255,6 +1261,30 @@ mod tests {
         let r = report_from(&a, &job(720, 576, "yuv420p", None, turned(Rotation::Cw90, false)), vec![1], false);
         assert_eq!(r.edge_repair, Some(Sides { bottom: 8, ..Sides::default() }));
         assert_eq!(r.crop_with_repair.unwrap().left, 0);
+    }
+
+    #[test]
+    fn repairing_the_band_covers_the_black_lines_below_it() {
+        // Two black lines at the very bottom, then a 7-line band.
+        let mut a = analysis(4, 4, 0, 0);
+        a.edges.bottom = EdgeFinding {
+            kind: EdgeKind::HeadSwitching,
+            blank: 2,
+            band: 7,
+            crop: 9,
+            crop_with_bars: 9,
+            confidence: 1.0,
+            ..Default::default()
+        };
+        let r = report_from(&a, &job(720, 576, "yuv422p", None, ProcessingPipeline::default()), vec![1], false);
+        assert_eq!(r.crop.bottom, 10);
+        assert_eq!(r.edge_repair, Some(Sides { bottom: 10, ..Sides::default() }));
+        assert_eq!(r.crop_with_repair.unwrap().bottom, 0);
+        // A band too tall for the Edge Repair panel is only ever cropped.
+        a.edges.bottom.band = 16;
+        a.edges.bottom.crop = 18;
+        let r = report_from(&a, &job(720, 576, "yuv422p", None, ProcessingPipeline::default()), vec![1], false);
+        assert!(r.edge_repair.is_none());
     }
 
     #[test]
