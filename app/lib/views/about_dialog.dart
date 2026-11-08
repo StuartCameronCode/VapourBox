@@ -308,6 +308,42 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/the-database/mpv-upscale-2x_animejanai',
                       ),
                       _ComponentTile(
+                        name: 'RestoreFormer++ model (optional download, face restoration add-on)',
+                        license: 'Apache-2.0',
+                        copyright: 'Zhouxia Wang, Jiawei Zhang, Tianshui Chen, Wenping Wang and Ping Luo',
+                        url: 'https://github.com/wzhouxiff/RestoreFormerPlusPlus',
+                      ),
+                      _ComponentTile(
+                        name: 'RetinaFace face detector (optional download, face restoration add-on)',
+                        license: 'MIT',
+                        copyright: 'biubug6 (Pytorch_Retinaface)',
+                        url: 'https://github.com/biubug6/Pytorch_Retinaface',
+                      ),
+                      _ComponentTile(
+                        name: 'BiSeNet face parser (optional download, face restoration add-on)',
+                        license: 'MIT',
+                        copyright: 'zll (face-parsing.PyTorch)',
+                        url: 'https://github.com/zllrunning/face-parsing.PyTorch',
+                      ),
+                      _ComponentTile(
+                        name: 'facexlib (optional download, face restoration add-on)',
+                        license: 'MIT',
+                        copyright: 'Xintao Wang',
+                        url: 'https://github.com/xinntao/facexlib',
+                      ),
+                      _ComponentTile(
+                        name: 'GFPGAN v1.4 model (optional download, non-commercial use only)',
+                        license: 'Apache-2.0 + NVIDIA Source Code License (NC)',
+                        copyright: 'THL A29 Limited, a Tencent company',
+                        url: 'https://github.com/TencentARC/GFPGAN',
+                      ),
+                      _ComponentTile(
+                        name: 'CodeFormer model (optional download, non-commercial use only)',
+                        license: 'S-Lab License 1.0 (NC)',
+                        copyright: 'S-Lab',
+                        url: 'https://github.com/sczhou/CodeFormer',
+                      ),
+                      _ComponentTile(
                         name: 'Real-CUGAN models',
                         license: 'MIT',
                         copyright: 'bilibili',

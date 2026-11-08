@@ -263,6 +263,8 @@ class PassListItem extends StatelessWidget {
         return Icons.tune;
       case PassType.cropResize:
         return Icons.crop;
+      case PassType.faceRestore:
+        return Icons.face_retouching_natural;
       case PassType.subtitles:
         return Icons.subtitles;
     }

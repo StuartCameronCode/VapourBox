@@ -294,6 +294,70 @@ AnimeJaNai models — CC BY-NC-SA 4.0 (non-commercial)
   upscaler). Free for non-commercial use only; anyone using them must keep to
   that.
 
+RestoreFormer++ model — Apache-2.0
+  By Zhouxia Wang, Jiawei Zhang, Tianshui Chen, Wenping Wang and Ping Luo (the
+  authors its README cites); its LICENSE names no copyright holder.
+  https://github.com/wzhouxiff/RestoreFormerPlusPlus
+  Licence text: Apache-2.0.txt
+  The trained RestoreFormer++ network (release v1.0.0), the Face Restoration
+  pass's default model. NOT distributed with VapourBox: part of the optional
+  face restoration add-on, which the app downloads only when the user asks
+  (Settings → Add-ons, or on switching the pass on), as an ONNX conversion of
+  the published weights (Scripts/models/make_face_restoration.py).
+
+RetinaFace face detector — MIT
+  By biubug6 (Pytorch_Retinaface). Its LICENSE reads "Copyright (c) 2019"
+  and names no holder.
+  https://github.com/biubug6/Pytorch_Retinaface
+  The RetinaFace ResNet-50 face detector (detection_Resnet50_Final.pth as
+  facexlib publishes it), which finds the faces and their landmarks for the
+  Face Restoration pass. NOT distributed with VapourBox: part of the optional
+  face restoration add-on, downloaded as an ONNX conversion only when the user
+  asks.
+
+BiSeNet face parser — MIT
+  Copyright (c) 2019 zll (face-parsing.PyTorch)
+  https://github.com/zllrunning/face-parsing.PyTorch
+  The BiSeNet face-parsing network (parsing_bisenet.pth as facexlib publishes
+  it), which limits the Face Restoration pass's blend to the face itself. NOT
+  distributed with VapourBox: part of the optional face restoration add-on,
+  downloaded as an ONNX conversion only when the user asks.
+
+facexlib — MIT
+  Copyright (c) 2020 Xintao Wang
+  https://github.com/xinntao/facexlib
+  The face-restoration reference code whose detector and parser weights the
+  face restoration add-on converts, and whose FFHQ alignment template and
+  paste-back the pass reproduces (worker/templates/face_restore.py). Its
+  weights reach users only through that optional add-on, downloaded when the
+  user asks.
+
+GFPGAN v1.4 model — Apache-2.0 + NVIDIA Source Code License (NC)
+  Copyright (C) 2021 THL A29 Limited, a Tencent company. All rights reserved.
+  https://github.com/TencentARC/GFPGAN
+  Licence: https://github.com/TencentARC/GFPGAN/blob/master/LICENSE
+  The trained GFPGAN v1.4 network (GFPGANv1.4.pth), an alternative model for
+  the Face Restoration pass. GFPGAN is Apache-2.0 except its third-party
+  components; its StyleGAN2-derived network code is under NVIDIA's Source Code
+  License, whose section 3.3 says the work "only may be used or intended for
+  use non-commercially", where "non-commercially" means "for research or
+  evaluation purposes only". NOT distributed with VapourBox: an optional
+  add-on (face-gfpgan), downloaded as an ONNX conversion only when the user
+  asks, after stating that restriction. Non-commercial use only; anyone using
+  it must keep to that.
+
+CodeFormer model — S-Lab License 1.0 (NC)
+  Copyright 2022 S-Lab
+  https://github.com/sczhou/CodeFormer
+  Licence: https://github.com/sczhou/CodeFormer/blob/master/LICENSE
+  The trained CodeFormer network (codeformer.pth, release v0.1.0), an
+  alternative model for the Face Restoration pass. The S-Lab License 1.0
+  permits redistribution and use for non-commercial purposes, with the
+  copyright notice and its disclaimer; commercial use requires contacting the
+  contributors. NOT distributed with VapourBox: an optional add-on
+  (face-codeformer), downloaded as an ONNX conversion only when the user asks,
+  after stating that restriction. Non-commercial use only.
+
 Real-CUGAN models — MIT
   Copyright (c) 2022 bilibili
   https://github.com/bilibili/ailab/tree/main/Real-CUGAN
@@ -564,7 +628,8 @@ MIT License
 (Applies to zsmooth, vszip and the zigimg library it includes, CAS,
 DCTFilter, BM3D, descale, the RIFE plugin, rife-ncnn-vulkan, the RIFE model and
 ECCV2022-RIFE, the Real-CUGAN models, whisper.cpp, the Whisper models, ONNX
-Runtime, pip and the Clense filter
+Runtime, the RetinaFace face detector, the BiSeNet face parser, facexlib, pip
+and the Clense filter
 in vs-removegrain, each
 under the copyright notice given in its entry above.)
 

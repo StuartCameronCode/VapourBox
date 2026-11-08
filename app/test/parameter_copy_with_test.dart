@@ -36,6 +36,7 @@ import 'package:vapourbox/models/deflicker_parameters.dart';
 import 'package:vapourbox/models/dehalo_parameters.dart';
 import 'package:vapourbox/models/descratch_parameters.dart';
 import 'package:vapourbox/models/edge_repair_parameters.dart';
+import 'package:vapourbox/models/face_restore_parameters.dart';
 import 'package:vapourbox/models/frame_rate_parameters.dart';
 import 'package:vapourbox/models/geometry_parameters.dart';
 import 'package:vapourbox/models/ghost_removal_parameters.dart';
@@ -94,6 +95,8 @@ void main() {
         (j) => DeScratchParameters.fromJson(j).copyWith().toJson()),
     _Model('EdgeRepairParameters', () => const EdgeRepairParameters().toJson(),
         (j) => EdgeRepairParameters.fromJson(j).copyWith().toJson()),
+    _Model('FaceRestoreParameters', () => const FaceRestoreParameters().toJson(),
+        (j) => FaceRestoreParameters.fromJson(j).copyWith().toJson()),
     _Model('FrameRateParameters', () => const FrameRateParameters().toJson(),
         (j) => FrameRateParameters.fromJson(j).copyWith().toJson()),
     _Model('GeometryParameters', () => const GeometryParameters().toJson(),
@@ -140,7 +143,7 @@ void main() {
     test('every parameter model is covered', () {
       // The count is the guard: a new model with a forgetful copyWith would
       // otherwise be caught by nothing at all.
-      expect(models.length, 21,
+      expect(models.length, 22,
           reason: 'a parameter model was added or removed — add it to this '
               'list and update the count');
     });
