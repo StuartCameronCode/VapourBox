@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 mod models;
 mod comment_metadata;
+mod crop_detect;
 mod cpu;
 mod dependency_locator;
 mod dvd_reader;
@@ -125,6 +126,12 @@ struct Args {
     #[arg(long)]
     detect_native: bool,
 
+    /// Measure the black borders, analog blanking and head-switching band at
+    /// the edges of the video in `--config` (for Crop & Resize's Detect);
+    /// prints a JSON report.
+    #[arg(long)]
+    detect_crop: bool,
+
     /// Probe whether the AI runtime add-on (ONNX Runtime) runs here: imports
     /// it the way a job does, runs a tiny test model, and prints JSON
     /// (`{"available", "reason", "detail", "message", "version", "providers",
@@ -201,6 +208,10 @@ fn main() -> ExitCode {
 
     if args.detect_native {
         return run_detect_native(&args);
+    }
+
+    if args.detect_crop {
+        return run_detect_crop(&args);
     }
 
     if args.probe_ai_runtime {
@@ -361,6 +372,31 @@ fn run_detect_native(args: &Args) -> ExitCode {
         let deps = dependency_locator::DependencyLocator::new()?;
         fill_frame_size(&mut job, Some(&deps), |_| {});
         native_res::detect(&deps, &job)
+    })();
+    match result {
+        Ok(report) => {
+            println!("{}", serde_json::to_string(&report).unwrap_or_default());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            println!("{}", serde_json::json!({ "error": e.to_string() }));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Measure a source's edges for the crop and print the report as one JSON
+/// line (`{"error": ...}` when it could not be analysed).
+fn run_detect_crop(args: &Args) -> ExitCode {
+    let result = (|| -> anyhow::Result<crop_detect::CropReport> {
+        let config = args
+            .config
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("--config is required with --detect-crop"))?;
+        let mut job: models::VideoJob = serde_json::from_str(&std::fs::read_to_string(config)?)?;
+        let deps = dependency_locator::DependencyLocator::new()?;
+        fill_frame_size(&mut job, Some(&deps), |_| {});
+        crop_detect::detect(&deps, &job)
     })();
     match result {
         Ok(report) => {
