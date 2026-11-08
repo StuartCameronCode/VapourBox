@@ -44,6 +44,9 @@ class ProgressInfo {
   /// True during subtitle embedding phase.
   bool get isEmbeddingPhase => phase == 'embedding';
 
+  /// True while audio restoration renders the soundtrack (before the encode).
+  bool get isAudioPhase => phase == 'audio';
+
   /// Formatted ETA string (e.g., "1h 23m 45s").
   String get etaFormatted {
     if (eta <= 0 || !eta.isFinite) return '--';

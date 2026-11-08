@@ -79,6 +79,18 @@ DirectML — Microsoft Software License Terms (DirectML redistributable)
   AI runtime add-on downloads from PyPI when the user asks. Proprietary;
   Microsoft permits its redistribution in applications for Windows.
 
+DeepFilterNet — MIT OR Apache-2.0 (at your option)
+  Copyright (c) 2021 Hendrik Schröter
+  https://github.com/Rikorose/DeepFilterNet
+  Speech enhancement for Audio Restoration: the deep-filter 0.5.6 program,
+  with the DeepFilterNet 3 model built in. The repository's code and model
+  are dual-licensed under the MIT licence (LICENSE-MIT) or the Apache License
+  2.0 (LICENSE-APACHE). NOT distributed with VapourBox: an optional add-on,
+  downloaded unmodified from the project's own v0.5.6 GitHub release only when
+  the user asks (Settings → Add-ons). The program statically includes the
+  Rust libraries it is built from (among them Sonos' tract), each under the
+  licence stated in its own crate.
+
 
 -------------------------------------------------------------------------------
 2. VapourSynth Python modules

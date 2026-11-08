@@ -57,6 +57,7 @@ void main() {
       PassType.sharpen,
       PassType.grain,
       PassType.frameRate,
+      PassType.audioRestoration,
       PassType.subtitles,
     ]);
   });

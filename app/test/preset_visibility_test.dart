@@ -66,6 +66,7 @@ const _filterIds = {
   PassType.cropResize: 'crop_resize',
   PassType.grain: 'grain',
   PassType.subtitles: 'subtitles',
+  PassType.audioRestoration: 'audio_restoration',
   PassType.edgeRepair: 'edge_repair',
   PassType.deflicker: 'deflicker',
   PassType.ghostRemoval: 'ghost_removal',

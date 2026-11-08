@@ -13,6 +13,8 @@ pub struct ProgressReporter {
 
 struct ProgressReporterInner {
     output_lock: Mutex<()>,
+    /// Write to stderr instead: for a mode whose stdout is one JSON answer.
+    to_stderr: bool,
 }
 
 impl ProgressReporter {
@@ -21,6 +23,18 @@ impl ProgressReporter {
         Self {
             inner: std::sync::Arc::new(ProgressReporterInner {
                 output_lock: Mutex::new(()),
+                to_stderr: false,
+            }),
+        }
+    }
+
+    /// A reporter that writes its messages to stderr, leaving stdout to a
+    /// mode that prints one JSON answer there (`--audio-plan`).
+    pub fn new_to_stderr() -> Self {
+        Self {
+            inner: std::sync::Arc::new(ProgressReporterInner {
+                output_lock: Mutex::new(()),
+                to_stderr: true,
             }),
         }
     }
@@ -60,6 +74,9 @@ impl ProgressReporter {
         let _lock = self.inner.output_lock.lock().unwrap();
 
         match serde_json::to_string(message) {
+            Ok(json) if self.inner.to_stderr => {
+                eprintln!("{}", json);
+            }
             Ok(json) => {
                 let stdout = io::stdout();
                 let mut handle = stdout.lock();
