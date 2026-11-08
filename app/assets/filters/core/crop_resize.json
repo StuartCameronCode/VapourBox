@@ -4,7 +4,7 @@
   "version": "1.3.0",
   "name": "Crop & Resize",
   "description": "Crop borders, resize or upscale, and add bars to a target size",
-  "longDescription": "Trims unwanted borders, changes the output resolution, and adds bars out to a target frame size. Cropping happens first, then resizing, then the bars.\n\nUse crop to cut the head-switching noise along the bottom of VHS captures and the black overscan edges of broadcast material — otherwise the encoder spends bitrate on them. Use resize for a target resolution, or Upscale for a much better 2x/4x enlargement than a plain kernel: NNEDI3 or EEDI3 on any machine, or an AI upscaler on the graphics card: trained on anime (Real-ESRGAN, Real-CUGAN, AnimeJaNai) or on real-world footage (Real-ESRGAN General, Live Action SPAN, Real-ESRGAN x4plus, each a separate download). Keep crop values even so they stay aligned with chroma subsampling.\n\nUse Add Borders to bring a cropped picture back to an exact frame size for authoring (720x576 for PAL DVD, 720x480 for NTSC) without rescaling it: the picture is centred and the rest filled with bars.",
+  "longDescription": "Trims unwanted borders, changes the output resolution, and adds bars out to a target frame size. Cropping happens first, then resizing, then the bars.\n\nUse crop to cut the head-switching noise along the bottom of VHS captures and the black overscan edges of broadcast material — otherwise the encoder spends bitrate on them. Detect borders measures them on frames from your video and offers a crop to apply; a letterbox bar is offered separately, since it is part of the picture's framing. Use resize for a target resolution, or Upscale for a much better 2x/4x enlargement than a plain kernel: NNEDI3 or EEDI3 on any machine, or an AI upscaler on the graphics card: trained on anime (Real-ESRGAN, Real-CUGAN, AnimeJaNai) or on real-world footage (Real-ESRGAN General, Live Action SPAN, Real-ESRGAN x4plus, each a separate download). Keep crop values even so they stay aligned with chroma subsampling. An SD video taken to HD is converted from BT.601 to BT.709 colour, the HD standard, so players that assume 709 for an HD picture show its colours correctly.\n\nUse Add Borders to bring a cropped picture back to an exact frame size for authoring (720x576 for PAL DVD, 720x480 for NTSC) without rescaling it: the picture is centred and the rest filled with bars.",
   "category": "transform",
   "icon": "crop",
   "order": 9,
@@ -79,7 +79,7 @@
       "type": "integer",
       "default": 8,
       "min": 0,
-      "max": 200,
+      "max": 480,
       "step": 2,
       "optional": true,
       "vapoursynth": {
@@ -98,7 +98,7 @@
       "type": "integer",
       "default": 8,
       "min": 0,
-      "max": 200,
+      "max": 480,
       "step": 2,
       "optional": true,
       "vapoursynth": {
@@ -117,7 +117,7 @@
       "type": "integer",
       "default": 4,
       "min": 0,
-      "max": 200,
+      "max": 480,
       "step": 2,
       "optional": true,
       "vapoursynth": {
@@ -136,7 +136,7 @@
       "type": "integer",
       "default": 4,
       "min": 0,
-      "max": 200,
+      "max": 480,
       "step": 2,
       "optional": true,
       "vapoursynth": {

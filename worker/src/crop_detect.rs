@@ -125,6 +125,10 @@ const BAND_FRAME_FRACTION: f64 = 0.5;
 const BAND_SKIP: usize = 2;
 const BAND_GAP: usize = 1;
 
+/// The widest band offered to Edge Repair instead of the crop: the Edge
+/// Repair panel's own maximum. A band wider than that is cropped.
+pub const EDGE_REPAIR_MAX: i32 = 16;
+
 /// A frame agrees with an edge when its own measurement is within this.
 const AGREEMENT: usize = 2;
 
@@ -177,7 +181,10 @@ pub struct EdgeFinding {
     pub crop: i32,
     /// The same with any bar included.
     pub crop_with_bars: i32,
-    /// Fraction of usable frames that agree with this edge (0-1).
+    /// Fraction of usable frames whose own measurement lands within 2 lines
+    /// of this edge (0-1): the frames whose picture reaches it. The rest do
+    /// not contradict it — their picture is dark there too — so a low value
+    /// means thin evidence (a dark film), not a wrong edge.
     pub confidence: f64,
 }
 
@@ -746,7 +753,7 @@ pub fn report_from(analysis: &Analysis, job: &VideoJob, frames: Vec<i32>, interl
     // keeps everything else it found.
     let (edge_repair, crop_with_repair) = if e.bottom.kind == EdgeKind::HeadSwitching && e.bottom.band > 0 {
         let repair = crate::models::EdgeRepairParameters::even(round_up(e.bottom.band, 2));
-        if repair >= e.bottom.band {
+        if repair >= e.bottom.band && repair <= EDGE_REPAIR_MAX {
             let mut rest = *e;
             rest.bottom.crop -= e.bottom.band;
             let (l, r, t, b) = orient(&pipeline, rest.left.crop, rest.right.crop, rest.top.crop, rest.bottom.crop);

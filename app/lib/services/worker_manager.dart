@@ -6,6 +6,7 @@ import 'dart:io';
 import '../models/ai_runtime_status.dart';
 import '../models/progress_info.dart';
 import '../models/gpu_plugin_status.dart';
+import '../models/crop_detect_report.dart';
 import '../models/native_res_report.dart';
 import '../models/video_job.dart';
 import 'job_runner.dart';
@@ -334,6 +335,43 @@ class WorkerManager implements JobRunner {
       return NativeResReport.failed('The analysis did not report a result: ${result.stderr}');
     } catch (e) {
       return NativeResReport.failed('$e');
+    } finally {
+      if (await config.exists()) await config.delete();
+    }
+  }
+
+  /// Measure the black borders, blanking and head-switching band at the
+  /// edges of [job]'s video (`--detect-crop`, app 1.7.0). Decodes a couple of
+  /// dozen frames, so it takes a second or two. Never throws: a failure comes
+  /// back as [CropDetectReport.failed].
+  static Future<CropDetectReport> detectCrop(VideoJob job) async {
+    final toolLocator = ToolLocator.instance;
+    final workerPath = toolLocator.workerPath;
+    if (workerPath == null) {
+      return const CropDetectReport.failed('The VapourBox worker could not be found.');
+    }
+    final config = File(await TempDirectoryService.instance
+        .filePath('detect_crop_${job.id}.json'));
+    try {
+      await config.writeAsString(jsonEncode(job.toJson()));
+      final result = await Process.run(
+        workerPath,
+        ['--detect-crop', '--config', config.path],
+        environment: toolLocator.workerEnvironment,
+        workingDirectory: File(workerPath).parent.path,
+      );
+      for (final line in const LineSplitter().convert(result.stdout.toString()).reversed) {
+        final trimmed = line.trim();
+        if (!trimmed.startsWith('{')) continue;
+        try {
+          return CropDetectReport.fromJson(jsonDecode(trimmed) as Map<String, dynamic>);
+        } catch (_) {
+          // Not the JSON line; keep scanning.
+        }
+      }
+      return CropDetectReport.failed('The analysis did not report a result: ${result.stderr}');
+    } catch (e) {
+      return CropDetectReport.failed('$e');
     } finally {
       if (await config.exists()) await config.delete();
     }

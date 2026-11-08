@@ -6,6 +6,8 @@ import 'package:path/path.dart' as path;
 import '../models/dvd_info.dart';
 import '../models/dynamic_parameters.dart';
 import '../models/gpu_plugin_status.dart';
+import '../models/crop_detect_report.dart';
+import '../models/filter_registry.dart';
 import '../models/native_res_report.dart';
 import '../models/encoding_settings.dart';
 import '../models/parameter_converter.dart';
@@ -100,6 +102,11 @@ class MainViewModel extends ChangeNotifier {
   final Future<NativeResReport> Function(VideoJob job) _detectNative;
   ({String itemId, NativeResReport report})? _nativeRes;
   String? _detectingNativeResFor;
+
+  // Crop & Resize's Detect (app 1.7.0), keyed the same way.
+  final Future<CropDetectReport> Function(VideoJob job) _detectCrop;
+  ({String itemId, CropDetectReport report})? _cropReport;
+  String? _detectingCropFor;
 
   // Set in dispose() so the async OpenCL probe doesn't notifyListeners() after
   // teardown (the top-level view model normally lives for the app's lifetime).
@@ -302,6 +309,113 @@ class MainViewModel extends ChangeNotifier {
         lastOptionalValues: current.lastOptionalValues,
       ),
     );
+  }
+
+  /// What Crop & Resize's Detect found for the selected video, or null.
+  CropDetectReport? get cropReport =>
+      _cropReport != null && _cropReport!.itemId == _selectedItemId ? _cropReport!.report : null;
+
+  /// Whether Detect is measuring the selected video's edges.
+  bool get detectingCrop => _detectingCropFor != null && _detectingCropFor == _selectedItemId;
+
+  /// Measure the black borders, blanking and head-switching band of the
+  /// selected video (its trimmed range if there is one). The job carries the
+  /// pipeline and field order, because where the crop lands depends on them:
+  /// after Rotate / Flip, and on a still-interlaced 4:2:0 picture in fours.
+  Future<void> detectCrop() async {
+    final item = selectedItem;
+    if (item == null || _detectingCropFor != null) return;
+    _detectingCropFor = item.id;
+    notifyListeners();
+    final info = item.videoInfo;
+    final frameCount = info?.frameCount ?? 0;
+    final fieldOrder = _getEffectiveFieldOrder(item);
+    final job = VideoJob(
+      inputPath: item.inputPath,
+      outputPath: item.outputPath,
+      processingPipeline: _processingPipeline.copyWith(
+        deinterlace: _processingPipeline.deinterlace.copyWith(
+          tff: fieldOrder == FieldOrder.topFieldFirst,
+        ),
+      ),
+      encodingSettings: _encodingSettings,
+      detectedFieldOrder: fieldOrder,
+      totalFrames: info?.frameCount,
+      inputFrameRate: info?.frameRate,
+      inputWidth: info?.width,
+      inputHeight: info?.height,
+      inputPixelFormat: info?.pixelFormat,
+      inputSar: info?.sar,
+      inputColorRange: info?.colorRange,
+      startFrame: item.inPoint == null ? null : (item.inPoint! * frameCount).round(),
+      endFrame: item.outPoint == null ? null : (item.outPoint! * frameCount).round(),
+    );
+    final report = await _detectCrop(job);
+    if (_disposed) return;
+    _cropReport = (itemId: item.id, report: report);
+    _detectingCropFor = null;
+    notifyListeners();
+  }
+
+  /// The Crop sliders' maximum, from the schema, so an applied value is one
+  /// the control can show.
+  int _cropMax() {
+    final def = FilterRegistry.instance.get('crop_resize')?.parameters['cropLeft'];
+    return def?.max?.toInt() ?? 480;
+  }
+
+  /// Put one of Detect's suggestions into Crop & Resize (and, for
+  /// [CropApply.repairBand], Edge Repair), switching the passes on. Only ever
+  /// called from the panel's buttons: nothing is applied on its own.
+  void applyCropDetection(CropApply mode) {
+    final report = cropReport;
+    if (report == null || report.error != null || !report.found) return;
+    final sides = switch (mode) {
+      CropApply.crop => report.crop,
+      CropApply.cropWithBars => report.cropWithBars,
+      CropApply.repairBand => report.cropWithRepair,
+    };
+    if (sides == null) return;
+    final max = _cropMax();
+    int clamp(int v) => v.clamp(0, max);
+    final current = getDynamicParams('crop_resize');
+    updateDynamicParams(
+      'crop_resize',
+      DynamicParameters(
+        filterId: 'crop_resize',
+        enabled: current.enabled || !sides.isZero,
+        values: {
+          ...current.values,
+          'cropEnabled': !sides.isZero,
+          'cropLeft': clamp(sides.left),
+          'cropRight': clamp(sides.right),
+          'cropTop': clamp(sides.top),
+          'cropBottom': clamp(sides.bottom),
+        },
+        enabledOptionalParams: current.enabledOptionalParams,
+        lastOptionalValues: current.lastOptionalValues,
+      ),
+    );
+    final repair = report.edgeRepair;
+    if (mode == CropApply.repairBand && repair != null) {
+      final er = getDynamicParams('edge_repair');
+      updateDynamicParams(
+        'edge_repair',
+        DynamicParameters(
+          filterId: 'edge_repair',
+          enabled: true,
+          values: {
+            ...er.values,
+            if (repair.left > 0) 'left': repair.left,
+            if (repair.right > 0) 'right': repair.right,
+            if (repair.top > 0) 'top': repair.top,
+            if (repair.bottom > 0) 'bottom': repair.bottom,
+          },
+          enabledOptionalParams: er.enabledOptionalParams,
+          lastOptionalValues: er.lastOptionalValues,
+        ),
+      );
+    }
   }
 
   bool get canShutDown => _systemShutdown.isSupported;
@@ -650,9 +764,11 @@ class MainViewModel extends ChangeNotifier {
     JobRunner? runner,
     SystemShutdown? systemShutdown,
     Future<NativeResReport> Function(VideoJob job)? nativeResDetector,
+    Future<CropDetectReport> Function(VideoJob job)? cropDetector,
   })  : _workerManager = runner ?? WorkerManager(),
         _systemShutdown = systemShutdown ?? PlatformSystemShutdown(),
-        _detectNative = nativeResDetector ?? WorkerManager.detectNativeResolution {
+        _detectNative = nativeResDetector ?? WorkerManager.detectNativeResolution,
+        _detectCrop = cropDetector ?? WorkerManager.detectCrop {
     _setupSubscriptions();
     _initializePreviewGenerator();
     _probeGpuCapabilities();
