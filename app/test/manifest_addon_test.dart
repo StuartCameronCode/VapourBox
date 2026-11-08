@@ -257,6 +257,57 @@ void main() {
     });
   });
 
+  group('executable files', () {
+    test('a program is installed runnable (and signed on macOS)', () async {
+      // A real program, so there is something to run and sign. On macOS a
+      // copy of a system binary with its signature stripped: an unsigned
+      // program, as upstream DeepFilterNet's Intel build is, which Apple
+      // Silicon refuses to run until it is signed. (A copy that keeps Apple's
+      // own signature is killed outside /bin, so it would prove nothing.)
+      final source = File(Platform.isWindows ? r'C:\Windows\System32\whoami.exe' : '/bin/echo');
+      final unsigned = File(p.join(tmp.path, 'unsigned'))..writeAsBytesSync(source.readAsBytesSync());
+      if (Platform.isMacOS) {
+        final strip = await Process.run('codesign', ['--remove-signature', unsigned.path]);
+        expect(strip.exitCode, 0, reason: '${strip.stderr}');
+      }
+      final bytes = unsigned.readAsBytesSync();
+      final m = AddonManifest.fromJson(_manifest(files: [
+        {..._entry('tool', bytes), 'executable': true},
+      ]));
+      expect(m.files.single.executable, isTrue);
+      final installer = ManifestAddonInstaller(m, 'linux-x64');
+      await installer.install(addons, _Serve({'https://example.invalid/dl/tool': bytes}));
+      final tool = File(p.join(addons.path, 'test-addon', 'tool'));
+      if (!Platform.isWindows) {
+        expect(tool.statSync().mode & 0x49, 0x49, reason: 'executable by user, group and other');
+      }
+      if (Platform.isMacOS) {
+        final verify = await Process.run('codesign', ['--verify', tool.path]);
+        expect(verify.exitCode, 0, reason: 'an installed program verifies: ${verify.stderr}');
+      }
+      final run = await Process.run(tool.path, Platform.isWindows ? [] : ['ok']);
+      expect(run.exitCode, 0, reason: 'the installed program runs: ${run.stderr}');
+    });
+
+    test('only a plain file of a files add-on may be executable', () {
+      expect(
+          () => AddonManifest.fromJson(_manifest(kind: 'python', files: [
+                {..._entry('pkg-1.0-cp312-cp312-any.whl', model), 'executable': true},
+              ])),
+          throwsFormatException);
+      expect(
+          () => AddonManifest.fromJson(_manifest(files: [
+                {
+                  ..._entry('pack.zip', model, extract: [
+                    {'path': 'a', 'sha256': _sha(model)},
+                  ]),
+                  'executable': true,
+                },
+              ])),
+          throwsFormatException);
+    });
+  });
+
   group('validation', () {
     Map<String, dynamic> good() => _manifest(files: [_entry('a.onnx', model)]);
     void bad(void Function(Map<String, dynamic>) edit, String why) {

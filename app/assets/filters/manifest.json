@@ -20,5 +20,6 @@
   "deflicker.json",
   "edge_repair.json",
   "ghost_removal.json",
-  "descale.json"
+  "descale.json",
+  "audio_restoration.json"
 ]

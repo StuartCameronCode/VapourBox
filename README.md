@@ -20,6 +20,7 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg for
 - **Restores anime.** **Descale** undoes the upscale most HD anime went through in production, **BM3D** cleans flat colour without smearing lines, and **AI upscaling** redraws line art at 2× or 4×: Real-ESRGAN (sharpest, fastest), Real-CUGAN (gentler, with denoising) or AnimeJaNai (trained on HD anime).
 - **Upscales live action** with AI models trained on real-world footage, each an optional download: Real-ESRGAN General (fast, with a noise-removing variant), Live Action SPAN (repairs compression, blur and halos on DVD and broadcast sources while keeping colour), or Real-ESRGAN x4plus (most detailed, slow). An **AI Strength** control blends any AI upscale back towards a plain one.
 - **Converts frame rates** — the broadcast standards or any rate you type in (24 → 48 or 60, say) — with motion interpolation or the **RIFE** AI interpolator.
+- **Restores the sound too.** Replaces a dead channel, removes hum, rumble, clicks, clipping and hiss, cleans up speech with the **DeepFilterNet** AI model, puts sound that is out of step or drifting back in sync, and evens out loudness.
 - **Writes subtitles** from speech with Whisper AI, as an `.srt` file, an embedded track, or burnt into the picture.
 
 ## How it works
@@ -83,7 +84,7 @@ Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract
 
 **GPU features.** RIFE frame interpolation and AI upscaling run on the graphics card through Vulkan: on any Apple Silicon Mac, and on Windows and Linux x64 PCs with a current graphics driver (RIFE on Windows also needs the Microsoft Visual C++ Redistributable). They aren't available on Intel Macs or Linux on ARM yet. GPU deinterlacing and KNLMeans denoising use OpenCL instead; without it, deinterlacing falls back to the CPU. Whenever you choose a GPU feature your machine can't run, VapourBox says what's missing and how to fix it.
 
-**Add-ons.** A few features use third-party downloads that aren't part of VapourBox: the Whisper engine and language models for subtitles, the AnimeJaNai and live-action models for AI upscaling, and the AI runtime (Microsoft's ONNX Runtime) that AI model add-ons run on. VapourBox offers to download one the first time you need it, stating its source, size and licence, and **Settings → Add-ons** installs or removes them at any time. AnimeJaNai is free for **non-commercial use only** (CC BY-NC-SA 4.0); for paid work, use Real-ESRGAN or Real-CUGAN instead.
+**Add-ons.** A few features use third-party downloads that aren't part of VapourBox: the Whisper engine and language models for subtitles, the AnimeJaNai and live-action models for AI upscaling, DeepFilterNet for speech enhancement in Audio Restoration, and the AI runtime (Microsoft's ONNX Runtime) that AI model add-ons run on. VapourBox offers to download one the first time you need it, stating its source, size and licence, and **Settings → Add-ons** installs or removes them at any time. AnimeJaNai is free for **non-commercial use only** (CC BY-NC-SA 4.0); for paid work, use Real-ESRGAN or Real-CUGAN instead.
 
 **Older processors.** Intel and AMD CPUs from before about 2013 (no AVX2) are supported on every platform. VapourBox checks the processor on first launch and installs a matching set of components, which runs some filters more slowly but never differently.
 
@@ -127,7 +128,8 @@ Most sources need only a few of these, and the presets pick them for you. Filter
 | 19 | **Sharpen** | Soft pictures, sharpened after the resize so the result isn't softened again |
 | 20 | **Film Grain** | Grain added back after denoising, so the picture doesn't look plastic |
 | 21 | **Frame Rate** | PAL ↔ NTSC and other rate changes, or any custom rate, by motion interpolation, RIFE, or frame repetition |
-| 22 | **Subtitles** | Speech-to-text with Whisper AI |
+| 22 | **Audio Restoration** | A dead channel, hum, rumble, clicks, clipping, hiss, sound out of sync or drifting, uneven loudness; speech enhancement with DeepFilterNet |
+| 23 | **Subtitles** | Speech-to-text with Whisper AI, from the restored sound |
 
 The order is designed so each step works on the right picture: damage and noise are removed first, the picture is framed and resized next, and only then sharpened and given grain. The frame rate is converted last, so every other filter works on real frames. Borders are added after everything else, so nothing touches them.
 
@@ -279,6 +281,7 @@ VapourBox is a front end to other people's work. Thanks in particular to:
 - **Real-ESRGAN** general and x4plus/x2plus models by Xintao Wang, and **2xLiveActionV1_SPAN** by jcj83429 — upscaling models for real-world footage, optional downloads (BSD-3-Clause; Apache-2.0)
 - **whisper.cpp** by the ggml authors and OpenAI's **Whisper** models — speech recognition for subtitles, an optional download
 - **ONNX Runtime** by Microsoft Corporation, with **NumPy** by the NumPy Developers and, on Windows, Microsoft's **DirectML** — the AI runtime add-on that runs the optional AI models, an optional download
+- **DeepFilterNet** by Hendrik Schröter — speech enhancement for Audio Restoration, an optional download (MIT or Apache-2.0)
 - **libdvdread** by VideoLAN — DVD reading
 - **FFmpeg** — encoding and decoding
 - **Hybrid** by Selur — the inspiration for this project

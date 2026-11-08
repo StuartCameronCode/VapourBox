@@ -530,6 +530,12 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/microsoft/DirectML',
                       ),
                       _ComponentTile(
+                        name: 'DeepFilterNet (optional download, speech enhancement add-on)',
+                        license: 'MIT OR Apache-2.0',
+                        copyright: 'Hendrik Schröter',
+                        url: 'https://github.com/Rikorose/DeepFilterNet',
+                      ),
+                      _ComponentTile(
                         name: 'libdvdread',
                         license: 'GPL 2.0+',
                         copyright: 'VideoLAN and contributors',

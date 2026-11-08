@@ -71,9 +71,12 @@ class PassListPanel extends StatelessWidget {
       title: 'Finishing',
       passes: [PassType.sharpen, PassType.grain, PassType.frameRate],
     ),
+    // Neither is a picture pass: the soundtrack is rendered, then (when
+    // subtitles are on) transcribed, both before the encode. Restoration
+    // comes first because the transcript is of the restored sound.
     (
-      title: 'Post-Processing',
-      passes: [PassType.subtitles],
+      title: 'Audio & Subtitles',
+      passes: [PassType.audioRestoration, PassType.subtitles],
     ),
   ];
 
@@ -176,6 +179,9 @@ class PassListPanel extends StatelessWidget {
             case PassType.cropResize:
               return item(passType, 'Crop / Resize', pipeline.cropResize.summary,
                   pipeline.cropResize.enabled);
+            case PassType.audioRestoration:
+              return item(passType, 'Audio Restoration', pipeline.audio.summary,
+                  pipeline.audio.enabled);
             case PassType.subtitles:
               return item(
                 passType,

@@ -29,6 +29,7 @@ mod source_decode;
 mod source_timing;
 mod progress_reporter;
 mod addons;
+mod audio_restoration;
 mod ai_runtime;
 mod animejanai;
 mod upscale_addons;
@@ -131,6 +132,12 @@ struct Args {
     #[arg(long)]
     probe_ai_runtime: bool,
 
+    /// Print the audio restoration plan for the job in `--config` (the probes
+    /// it makes, then every ffmpeg / DeepFilterNet argument list it would run)
+    /// as JSON, and exit without rendering anything.
+    #[arg(long)]
+    audio_plan: bool,
+
     /// Print the add-on manifests compiled into this worker, as JSON
     /// (`{"<id>": "<version>", …}`), and exit.
     #[arg(long)]
@@ -198,6 +205,10 @@ fn main() -> ExitCode {
 
     if args.probe_ai_runtime {
         return run_probe_ai_runtime();
+    }
+
+    if args.audio_plan {
+        return run_audio_plan(&args);
     }
 
     if args.list_addons {
@@ -294,6 +305,49 @@ fn run_probe_opencl() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+
+/// Print the audio restoration plan for the job in `--config` as JSON
+/// (`{"active": false}` when the pass does nothing for it). Log messages go to
+/// stderr, so stdout is the one JSON line.
+fn run_audio_plan(args: &Args) -> ExitCode {
+    let result = (|| -> anyhow::Result<serde_json::Value> {
+        let config = args
+            .config
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("--config is required with --audio-plan"))?;
+        let mut job: models::VideoJob = serde_json::from_str(&std::fs::read_to_string(config)?)?;
+        let deps = dependency_locator::DependencyLocator::new()?;
+        fill_total_frames(&mut job, Some(&deps), |_| {});
+        let reporter = ProgressReporter::new_to_stderr();
+        let Some((plan, source)) = audio_restoration::AudioRestorer::new(reporter, deps).plan(&job)? else {
+            return Ok(serde_json::json!({ "active": false }));
+        };
+        let p = |s: &str| std::path::PathBuf::from(s);
+        let first = if plan.single_pass() { "restored.wav" } else { "restore.wav" };
+        Ok(serde_json::json!({
+            "active": true,
+            "sourceStreams": source.streams,
+            "stream": plan.stream,
+            "outRate": plan.out_rate,
+            "outSamples": plan.out_samples,
+            "restore": plan.restore_args(&job.input_path, &p(first)),
+            "deepFilter": plan.deep_filter_args(&p(first), &p("dfn")),
+            "measure": plan.measure_args(&p(first)),
+            "finish": (!plan.single_pass()).then(|| plan.finish_args(&p(first), &p("restored.wav"), None)),
+            "notes": plan.notes,
+        }))
+    })();
+    match result {
+        Ok(v) => {
+            println!("{v}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            println!("{}", serde_json::json!({ "error": format!("{e:#}") }));
+            ExitCode::FAILURE
+        }
+    }
+}
 
 /// Detect a source's native resolution and kernel and print the report as one
 /// JSON line (`{"error": ...}` when it could not be analysed).
@@ -538,6 +592,33 @@ fn run_preview_mode(args: &Args) -> ExitCode {
     }
 }
 
+/// Resolve the frame count if the caller didn't supply one. The Flutter app
+/// probes and sets total_frames; direct callers (tests, CLI) may omit it, and
+/// the script's pipe_source needs an exact length (it builds a fixed-size
+/// clip). Without this the worker defaults to 1 frame and the whole output is
+/// a single frame. total_frames must be the *post-trim* count the decoder
+/// will actually pipe (trimming is decoder-side: -ss + -frames:v), matching
+/// the decoder's own range logic in pipeline_executor.
+fn fill_total_frames(
+    job: &mut VideoJob,
+    deps: Option<&dependency_locator::DependencyLocator>,
+    log: impl Fn(&str),
+) {
+    if job.total_frames.is_none() {
+        if let Some(full) = deps.and_then(|d| d.probe_frame_count(&job.input_path)) {
+            let effective = match (job.start_frame, job.end_frame) {
+                (Some(s), Some(e)) => (e - s + 1).max(0),
+                (None, Some(e)) => e + 1,
+                (Some(s), None) => (full - s).max(0),
+                (None, None) => full,
+            };
+            log(&format!("Probed input frame count: {} (effective after trim: {})", full, effective));
+            job.total_frames = Some(effective);
+        }
+    }
+
+}
+
 /// Fill a missing `input_width`/`input_height` from ffprobe. A job that carries
 /// both is never touched; if either is missing and the probe succeeds, both
 /// come from the probe; a failed probe leaves the old fallback in place.
@@ -620,80 +701,9 @@ fn run_worker(
     // Resolve deps once for the pre-generation probes below.
     let deps = dependency_locator::DependencyLocator::new().ok();
 
-    // ------------------------------------------------------------------
-    // Pre-encode transcription
-    // ------------------------------------------------------------------
-    // Whisper used to run only after the encode, which made burn-in
-    // impossible: the encoder needs the subtitle file while it is running, and
-    // a transcript that does not exist yet cannot be drawn into the picture.
-    //
-    // Transcribing the SOURCE instead means honouring the trim. The encoder
-    // seeks the audio input to the trim point, so the output's audio starts
-    // there — a transcript of the whole source would put every cue early by
-    // exactly the trimmed-off head. Nothing else retimes audio: IVTC and
-    // frame-rate conversion change the video timeline only.
-    let mut whisper_srt: Option<std::path::PathBuf> = None;
-    if let Some(ref sub_settings) = job.subtitle_settings {
-        if sub_settings.enabled && job.burn_in_subtitle_path.is_none() {
-            let fps = job.input_frame_rate.unwrap_or(29.97);
-            let window = match (job.start_frame, job.end_frame) {
-                (Some(start), Some(end)) if end >= start => Some((
-                    start as f64 / fps,
-                    Some((end - start + 1) as f64 / fps),
-                )),
-                (Some(start), None) => Some((start as f64 / fps, None)),
-                (None, Some(end)) => Some((0.0, Some((end + 1) as f64 / fps))),
-                _ => None,
-            };
-            let srt_target = std::path::Path::new(&job.output_path).with_extension("srt");
-            match dependency_locator::DependencyLocator::new().and_then(|d| {
-                SubtitleGenerator::new(reporter.clone(), d).transcribe(
-                    &job.input_path,
-                    sub_settings,
-                    window,
-                    &srt_target,
-                    || cancelled.load(Ordering::SeqCst),
-                )
-            }) {
-                Ok(Some(path)) => {
-                    // Burn-in reads this during the encode; the mux pass below
-                    // reads it afterwards.
-                    if sub_settings.output.burns_in() {
-                        job.burn_in_subtitle_path = Some(path.to_string_lossy().to_string());
-                    }
-                    whisper_srt = Some(path);
-                }
-                Ok(None) => {}
-                Err(e) => reporter.send_log(
-                    models::LogLevel::Warning,
-                    &format!("Subtitle generation failed: {e}"),
-                ),
-            }
-        }
-    }
-
-    // Resolve the frame count if the caller didn't supply one. The Flutter app
-    // probes and sets total_frames; direct callers (tests, CLI) may omit it, and
-    // the script's pipe_source needs an exact length (it builds a fixed-size
-    // clip). Without this the worker defaults to 1 frame and the whole output is
-    // a single frame. total_frames must be the *post-trim* count the decoder
-    // will actually pipe (trimming is decoder-side: -ss + -frames:v), matching
-    // the decoder's own range logic in pipeline_executor.
-    if job.total_frames.is_none() {
-        if let Some(full) = deps.as_ref().and_then(|d| d.probe_frame_count(&job.input_path)) {
-            let effective = match (job.start_frame, job.end_frame) {
-                (Some(s), Some(e)) => (e - s + 1).max(0),
-                (None, Some(e)) => e + 1,
-                (Some(s), None) => (full - s).max(0),
-                (None, None) => full,
-            };
-            reporter.send_log(
-                models::LogLevel::Debug,
-                &format!("Probed input frame count: {} (effective after trim: {})", full, effective),
-            );
-            job.total_frames = Some(effective);
-        }
-    }
+    fill_total_frames(&mut job, deps.as_ref(), |msg| {
+        reporter.send_log(models::LogLevel::Debug, msg)
+    });
 
     // Same for the frame size: the app always sends ffprobe's width/height, but
     // a direct caller may not, and the old 720x480 fallback is now a decode
@@ -773,6 +783,81 @@ fn run_worker(
         &format!("Script written to: {:?}", script_path),
     );
 
+    // ------------------------------------------------------------------
+    // Audio restoration
+    // ------------------------------------------------------------------
+    // Rendered before the transcription and the encode, both of which then
+    // use the rendered track (see audio_restoration.rs). After the script, so
+    // a job the script generator refuses fails before any audio work. Held
+    // to the end of the job: its scratch directory goes when it is dropped.
+    let restored_audio = if job.effective_pipeline().audio.has_effect() {
+        let d = dependency_locator::DependencyLocator::new()?;
+        audio_restoration::AudioRestorer::new(reporter.clone(), d)
+            .render(&job, || cancelled.load(Ordering::SeqCst))?
+    } else {
+        None
+    };
+
+    // ------------------------------------------------------------------
+    // Pre-encode transcription
+    // ------------------------------------------------------------------
+    // Whisper used to run only after the encode, which made burn-in
+    // impossible: the encoder needs the subtitle file while it is running, and
+    // a transcript that does not exist yet cannot be drawn into the picture.
+    //
+    // Transcribing before the encode means transcribing exactly the audio the
+    // output will carry. With audio restoration that is the rendered track:
+    // it is the output's soundtrack sample for sample — trimmed, offset,
+    // drift-corrected and cleaned — so cues line up whatever was done to it,
+    // and Whisper hears the cleaned sound. Without it, it is the source's
+    // audio over the trim window: the encoder seeks the audio input to the
+    // trim point, so a transcript of the whole source would put every cue
+    // early by exactly the trimmed-off head. Nothing else retimes audio: IVTC
+    // and frame-rate conversion change the video timeline only.
+    let mut whisper_srt: Option<std::path::PathBuf> = None;
+    if let Some(ref sub_settings) = job.subtitle_settings {
+        if sub_settings.enabled && job.burn_in_subtitle_path.is_none() {
+            let fps = job.input_frame_rate.unwrap_or(29.97);
+            let source_window = match (job.start_frame, job.end_frame) {
+                (Some(start), Some(end)) if end >= start => Some((
+                    start as f64 / fps,
+                    Some((end - start + 1) as f64 / fps),
+                )),
+                (Some(start), None) => Some((start as f64 / fps, None)),
+                (None, Some(end)) => Some((0.0, Some((end + 1) as f64 / fps))),
+                _ => None,
+            };
+            let (transcribe_from, window) = match &restored_audio {
+                Some(r) => (r.track.path.to_string_lossy().to_string(), None),
+                None => (job.input_path.clone(), source_window),
+            };
+            let srt_target = std::path::Path::new(&job.output_path).with_extension("srt");
+            match dependency_locator::DependencyLocator::new().and_then(|d| {
+                SubtitleGenerator::new(reporter.clone(), d).transcribe(
+                    &transcribe_from,
+                    sub_settings,
+                    window,
+                    &srt_target,
+                    || cancelled.load(Ordering::SeqCst),
+                )
+            }) {
+                Ok(Some(path)) => {
+                    // Burn-in reads this during the encode; the mux pass below
+                    // reads it afterwards.
+                    if sub_settings.output.burns_in() {
+                        job.burn_in_subtitle_path = Some(path.to_string_lossy().to_string());
+                    }
+                    whisper_srt = Some(path);
+                }
+                Ok(None) => {}
+                Err(e) => reporter.send_log(
+                    models::LogLevel::Warning,
+                    &format!("Subtitle generation failed: {e}"),
+                ),
+            }
+        }
+    }
+
     // Execute pipeline.
     //
     // Retry on the rare VapourSynth plugin-autoload skip (a needed plugin
@@ -785,7 +870,9 @@ fn run_worker(
     const MAX_PIPELINE_ATTEMPTS: u32 = 3;
     let mut attempt = 1;
     loop {
-        let mut executor = PipelineExecutor::new(reporter.clone())?.with_timeline(timeline.clone());
+        let mut executor = PipelineExecutor::new(reporter.clone())?
+            .with_timeline(timeline.clone())
+            .with_restored_audio(restored_audio.as_ref().map(|r| r.track.clone()));
         match executor.execute(&script_path, &job, || cancelled.load(Ordering::SeqCst)) {
             Ok(()) => break,
             Err(e)

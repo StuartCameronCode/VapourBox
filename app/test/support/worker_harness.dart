@@ -33,6 +33,7 @@ import 'package:path/path.dart' as p;
 import 'package:vapourbox/services/addon_manager.dart';
 import 'package:vapourbox/services/addon_service.dart';
 import 'package:vapourbox/services/manifest_addon.dart';
+import 'package:vapourbox/services/whisper_addon_manager.dart';
 import 'package:vapourbox/services/dependency_manager.dart'
     show DepsVersionInfo, DependencyManager;
 
@@ -193,6 +194,28 @@ class WorkerHarness {
       }
     }
     return Directory(p.join(addons.path, id));
+  }
+
+  /// Install the Whisper engine and one language model where the worker finds
+  /// them, with the app's own installers (from `assets/whisper-addon.json`).
+  /// For a local run of the subtitle tests (CI provisions the add-on itself);
+  /// the small model is 466 MB. No-op for what is already installed.
+  static Future<Directory> ensureWhisper({String model = 'small'}) async {
+    final addons = addonsDirectory;
+    final manager = WhisperAddonManager(
+        jsonDecode(File(p.join(repoRoot, 'app', 'assets', 'whisper-addon.json')).readAsStringSync())
+            as Map<String, dynamic>,
+        platform);
+    for (final installer in manager.installers()) {
+      final id = installer.info.id;
+      if (id != WhisperAddonManager.engineAddonId && id != WhisperAddonManager.modelAddonId(model)) {
+        continue;
+      }
+      if (installer.isInstalled(addons)) continue;
+      stderr.writeln('[harness] installing $id into ${addons.path}');
+      await installer.install(addons, _IoDownloader());
+    }
+    return Directory(p.join(addons.path, WhisperAddonManager.dirName));
   }
 
   /// Whether the whisper add-on (whisper-cli) is available. Subtitle tests that

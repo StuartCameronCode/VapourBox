@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/dynamic_parameters.dart';
+import '../../models/audio_restoration_parameters.dart';
 import '../../models/filter_registry.dart';
 import '../../models/filter_schema.dart';
 import '../../models/pass_advice.dart';
@@ -74,6 +75,8 @@ class PassSettingsInline extends StatelessWidget {
         return 'chroma_fixes';
       case PassType.cropResize:
         return 'crop_resize';
+      case PassType.audioRestoration:
+        return 'audio_restoration';
       case PassType.subtitles:
         return 'subtitles';
     }
@@ -377,6 +380,17 @@ class PassSettingsInline extends StatelessWidget {
         context,
         [addon],
         reason: upscaleAddonReason(addon),
+      );
+      if (!ready) return;
+    }
+    // DeepFilterNet is an add-on too: choosing speech enhancement offers it.
+    if (deepFilterChosen(filterId, oldParams.values, newParams.values) &&
+        newParams.enabled) {
+      if (!context.mounted) return;
+      final ready = await AddonPrompt.ensure(
+        context,
+        [deepFilterNetAddonId],
+        reason: 'Speech enhancement needs DeepFilterNet.',
       );
       if (!ready) return;
     }

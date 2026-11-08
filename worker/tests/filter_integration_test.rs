@@ -6908,10 +6908,10 @@ fn fake_addons(tag: &str, ids: &[&str]) -> PathBuf {
 /// result down; SPAN is 2x only, so 4x runs it twice; x4plus/x2plus by factor,
 /// in 384-pixel tiles at 4x — in both scripts.
 #[test]
-fn test_185_upscale_addon_models_and_factors() {
+fn test_186_upscale_addon_models_and_factors() {
     use vapourbox_worker::upscale_addons::*;
     create_output_dir();
-    let root = fake_addons("185", &[GENERAL_ADDON, ESRGAN_PLUS_ADDON]);
+    let root = fake_addons("186", &[GENERAL_ADDON, ESRGAN_PLUS_ADDON]);
     let generator = ScriptGenerator::new()
         .unwrap()
         .with_upscale(Ok(upscale_files()))
@@ -6930,7 +6930,7 @@ fn test_185_upscale_addon_models_and_factors() {
     ];
     for (method, factor, denoise, models, resample) in cases {
         let label = format!("{method:?} {factor}x denoise={denoise}");
-        let mut job = ai_upscale_job("test_185", method, factor, "");
+        let mut job = ai_upscale_job("test_186", method, factor, "");
         job.processing_pipeline.as_mut().unwrap().crop_resize.general_denoise = denoise;
         let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
         for (name, script) in [("encode", &encode), ("preview", &preview)] {
@@ -6960,10 +6960,10 @@ fn test_185_upscale_addon_models_and_factors() {
 /// Settings → Add-ons; with the other add-on installed it is still refused,
 /// and the bundled models need none.
 #[test]
-fn test_186_upscale_addons_are_refused_when_missing() {
+fn test_187_upscale_addons_are_refused_when_missing() {
     use vapourbox_worker::upscale_addons::*;
     create_output_dir();
-    let root = fake_addons("186", &[ESRGAN_PLUS_ADDON]);
+    let root = fake_addons("187", &[ESRGAN_PLUS_ADDON]);
     let generator = ScriptGenerator::new()
         .unwrap()
         .with_upscale(Ok(upscale_files()))
@@ -6972,31 +6972,31 @@ fn test_186_upscale_addons_are_refused_when_missing() {
         (UpscaleMethod::RealEsrganGeneral, "Real-ESRGAN General upscaling"),
         (UpscaleMethod::LiveAction, "Live-action upscaling"),
     ] {
-        let job = ai_upscale_job("test_186", method, 2, "");
+        let job = ai_upscale_job("test_187", method, 2, "");
         let err = both_scripts_with(&generator, &job).unwrap_err().to_string();
         assert!(err.starts_with(feature), "{err}");
         assert!(err.contains("General & live-action upscaling models"), "{err}");
         assert!(err.contains("Settings → Add-ons"), "{err}");
     }
-    both_scripts_with(&generator, &ai_upscale_job("test_186_plus", UpscaleMethod::RealEsrganPlus, 4, ""))
+    both_scripts_with(&generator, &ai_upscale_job("test_187_plus", UpscaleMethod::RealEsrganPlus, 4, ""))
         .expect("x4plus is installed");
-    let missing = fake_addons("186b", &[]);
+    let missing = fake_addons("187b", &[]);
     let bare = ScriptGenerator::new()
         .unwrap()
         .with_upscale(Ok(upscale_files()))
         .with_addons(missing.clone(), "macos-arm64");
-    let err = both_scripts_with(&bare, &ai_upscale_job("test_186_plus", UpscaleMethod::RealEsrganPlus, 2, ""))
+    let err = both_scripts_with(&bare, &ai_upscale_job("test_187_plus", UpscaleMethod::RealEsrganPlus, 2, ""))
         .unwrap_err()
         .to_string();
     assert!(err.contains("Real-ESRGAN x4plus / x2plus models"), "{err}");
-    both_scripts_with(&bare, &ai_upscale_job("test_186_esrgan", UpscaleMethod::RealEsrgan, 2, ""))
+    both_scripts_with(&bare, &ai_upscale_job("test_187_esrgan", UpscaleMethod::RealEsrgan, 2, ""))
         .expect("bundled Real-ESRGAN needs no add-on");
     // On a platform VSNCNN doesn't ship on, the add-on is unavailable too.
     let mac_x64 = ScriptGenerator::new()
         .unwrap()
         .with_upscale(Ok(upscale_files()))
         .with_addons(root.clone(), "macos-x64");
-    let err = both_scripts_with(&mac_x64, &ai_upscale_job("test_186_x64", UpscaleMethod::LiveAction, 2, ""))
+    let err = both_scripts_with(&mac_x64, &ai_upscale_job("test_187_x64", UpscaleMethod::LiveAction, 2, ""))
         .unwrap_err()
         .to_string();
     assert!(err.contains("isn't available on this platform"), "{err}");
@@ -7009,10 +7009,10 @@ fn test_186_upscale_addons_are_refused_when_missing() {
 /// scripts. At full strength (the default) nothing is emitted: the script is
 /// byte-for-byte the one a job without the setting gets.
 #[test]
-fn test_187_ai_strength_blends_with_spline36() {
+fn test_188_ai_strength_blends_with_spline36() {
     use vapourbox_worker::upscale_addons::*;
     create_output_dir();
-    let root = fake_addons("187", &[GENERAL_ADDON]);
+    let root = fake_addons("188", &[GENERAL_ADDON]);
     let generator = ScriptGenerator::new()
         .unwrap()
         .with_upscale(Ok(upscale_files()))
@@ -7021,7 +7021,7 @@ fn test_187_ai_strength_blends_with_spline36() {
                  height=clip.height), clip, weight=0.650)";
     for method in [UpscaleMethod::RealEsrgan, UpscaleMethod::RealCugan, UpscaleMethod::LiveAction,
                    UpscaleMethod::RealEsrganGeneral] {
-        let mut job = ai_upscale_job("test_187", method, 2, "conservative");
+        let mut job = ai_upscale_job("test_188", method, 2, "conservative");
         job.processing_pipeline.as_mut().unwrap().crop_resize.ai_strength = 0.65;
         let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
         for (name, script) in [("encode", &encode), ("preview", &preview)] {
@@ -7033,7 +7033,7 @@ fn test_187_ai_strength_blends_with_spline36() {
         }
     }
     // Full strength: byte-identical to a job without the field at all.
-    let full = ai_upscale_job("test_187_full", UpscaleMethod::RealEsrgan, 2, "");
+    let full = ai_upscale_job("test_188_full", UpscaleMethod::RealEsrgan, 2, "");
     assert_eq!(full.processing_pipeline.as_ref().unwrap().crop_resize.ai_strength, 1.0);
     let mut json = serde_json::to_value(&full).unwrap();
     json["processingPipeline"]["cropResize"].as_object_mut().unwrap().remove("aiStrength");
@@ -7045,8 +7045,48 @@ fn test_187_ai_strength_blends_with_spline36() {
     assert!(!a.contains("core.std.Merge(core.resize.Spline36(_ai_src"));
     assert!(!a.contains("AI_STRENGTH"));
     // Out-of-range values clamp; 0 is all Spline36.
-    let mut zero = ai_upscale_job("test_187_zero", UpscaleMethod::RealEsrgan, 2, "");
+    let mut zero = ai_upscale_job("test_188_zero", UpscaleMethod::RealEsrgan, 2, "");
     zero.processing_pipeline.as_mut().unwrap().crop_resize.ai_strength = -1.0;
     assert!(script_text_with(&generator, &zero).contains("clip, weight=0.000)"));
     let _ = std::fs::remove_dir_all(&root);
+/// Audio restoration is rendered by ffmpeg before the encode, never by the
+/// VapourSynth script: every step switched on — DeepFilterNet included, which
+/// is not installed here — leaves both scripts byte-for-byte as they are with
+/// the pass off. (A preview must never be refused for an audio add-on.)
+#[test]
+fn test_185_audio_restoration_never_touches_the_scripts() {
+    create_output_dir();
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_addons(std::env::temp_dir().join("vb-no-addons-here"), "macos-arm64");
+    let mut job = create_base_job("test_185_audio_restoration");
+    job.processing_pipeline = Some(ProcessingPipeline::default());
+    let (encode_off, preview_off) = both_scripts_with(&generator, &job).unwrap();
+
+    job.processing_pipeline = Some(ProcessingPipeline {
+        audio: AudioRestorationParameters {
+            enabled: true,
+            channel_fix: ChannelFix::Auto,
+            offset_ms: -250,
+            drift_correction: true,
+            declip: true,
+            declick: true,
+            hum_removal: true,
+            rumble_filter: true,
+            denoise: true,
+            deep_filter: true,
+            loudness_normalize: true,
+            limiter: true,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let (encode_on, preview_on) = both_scripts_with(&generator, &job).unwrap();
+    assert_eq!(encode_on, encode_off, "the encode script must not change");
+    assert_eq!(preview_on, preview_off, "the preview script must not change");
+    for script in [&encode_on, &preview_on] {
+        for word in ["afftdn", "loudnorm", "deep-filter", "atempo"] {
+            assert!(!script.contains(word), "{word} reached the script");
+        }
+    }
 }
