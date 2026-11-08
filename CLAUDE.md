@@ -121,7 +121,9 @@ VapourBox/
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
 | `worker/src/addons.rs` | Manifest add-ons (compiled in from `app/assets/addons/` by `worker/build.rs`): install state, `require`, `addon_dir` (see "Add-ons", docs/ADDONS.md) |
 | `worker/src/ai_runtime.rs` | The AI runtime add-on's `--probe-ai-runtime`: runs the self-test model through `templates/ai_runtime.py`, classifies failures |
-| `worker/templates/ai_runtime.py` | ONNX Runtime helpers for passes: `setup`, `session` (provider choice), `map_frames`, NCHW frame conversion |
+| `worker/templates/ai_runtime.py` | ONNX Runtime helpers for passes: `setup`, `session` (provider choice), `map_frames`, NCHW frame conversion, `to_rgbs`/`from_rgbs`, `shifted`, `FrameMemo`, `Runner` |
+| `worker/templates/face_restore.py` | The Face Restoration pass: RetinaFace decode, FFHQ alignment, restore, BiSeNet mask, temporal smoothing, bit-exact merge (see "Face Restoration") |
+| `worker/src/models/face_restore_parameters.rs` | Face Restoration's parameters, its add-ons per model, and its temporal reach |
 | `worker/src/comment_metadata.rs` | The source's comment tag, prefixed with the version and passed to ffmpeg as an FFMETADATA file (issue #138) |
 | `worker/src/hdr_metadata.rs` | HDR10 mastering display / MaxCLL read from the source for x265, and the Dolby Vision profile (see "HDR Sources and Dolby Vision") |
 | `worker/src/native_res.rs` | `--detect-native`: the resolution and kernel a source was upscaled from, for the Descale pass (see "Descale") |
@@ -143,6 +145,7 @@ VapourBox/
 | `app/lib/services/addon_service.dart` | Every optional third-party download (Whisper, AnimeJaNai): catalogue, install with requirements, remove with dependants (see "Add-ons") |
 | `app/lib/services/manifest_addon.dart` | `AddonManifest` + `ManifestAddonInstaller`: the generic installer for `app/assets/addons/*.json` (docs/ADDONS.md) |
 | `app/lib/models/ai_runtime_status.dart` | The worker's `--probe-ai-runtime` result |
+| `app/lib/models/face_restore_parameters.dart` | Face Restoration's parameters and the add-ons each model needs (`faceRestoreAddonIds`) |
 | `app/lib/models/hdr_display.dart` | The display tone-map for the app's own source decodes (twin of `ColorMetadata::display_tonemap_filter`) and Dolby Vision detection |
 | `app/lib/models/gpu_plugin_status.dart` | The worker's GPU-plugin probe results, and the panels' notice decision |
 | `app/assets/filters/core/*.json` | Built-in filter schema definitions |
@@ -1399,6 +1402,54 @@ by `AddonService.addonsDir`), only when the user asks. Rules:
   its requirements with the app's own installer; `integration_ai_runtime_test.dart`
   (heavy) installs `ai-runtime` and runs the probe. `manifest_addon_test.dart`
   asserts the worker (`--list-addons`) compiled in the same manifests.
+
+### Face Restoration
+
+The Face Restoration pass (`FaceRestoreParameters`, `PassType::FaceRestore`,
+app 1.7.0) finds faces with RetinaFace, aligns each to the FFHQ 512 template,
+restores it with RestoreFormer++ (default), GFPGAN v1.4 or CodeFormer, masks
+it to the face itself with BiSeNet and blends it back
+(`worker/templates/face_restore.py`, on `ai_runtime`). Rules:
+
+- **Models are add-ons, converted by committed scripts.** `face-restoration`
+  (RetinaFace R50 + BiSeNet + RestoreFormer++, the base), `face-gfpgan` and
+  `face-codeformer` (each `requires` the base; both non-commercial, with a
+  `usageNote`). `Scripts/models/make_face_*.py` reproduce the ONNX files from
+  upstream checkpoints pinned by hash; files are hosted on `addon-models-v1`.
+  Static shapes (detector 640x640 padded, 512x512 faces) so Core ML takes the
+  whole graph. GFPGAN is exported with its **fixed noise buffers**
+  (upstream draws new noise per call: flicker by construction); CodeFormer's
+  `w` is a graph **input** (exact at w = 0). Never ParseNet (CC BY-NC-SA, from
+  PSFRGAN) or InsightFace's detectors (non-commercial), whatever upstreams
+  default to.
+- **After Crop & Resize, before Sharpen** — restored at the delivered
+  resolution; first row of the Finishing stage.
+- **A pure function of neighbouring frames, never stateful.** Neighbours come
+  through `ai_runtime.shifted` clips into `std.ModifyFrame`; shared work
+  (detections, each frame's restored faces) through `ai_runtime.FrameMemo`.
+  Temporal smoothing (radius 1): landmarks averaged with hysteresis and
+  one-frame gap filling, and each restored face averaged in aligned space with
+  its neighbours', weighted down where the *input* moved. The preview's
+  `FrameMap` radius is **twice** that (`frames_read_either_side`): the blend
+  reads a neighbour, whose landmarks read one more.
+- **Bit-exact outside the faces**: the restored RGB frame is converted back
+  to the source format and composited with `std.MaskedMerge` (mask luma-sized,
+  `first_plane=True`), so a zero mask leaves every plane untouched. Never blend
+  in RGB and convert the whole frame back.
+- **Model runs are serialised per pass** (`ai_runtime.Runner` with one shared
+  lock), with a CPU retry if a GPU run fails: concurrent Core ML predictions
+  from VapourSynth's threads ran a 16 GB Mac out of GPU memory.
+- **NumPy only** — no OpenCV (it is in neither the deps bundle nor the
+  ai-runtime add-on); `pipeline_parity.py` in the report checks the NumPy
+  detection, alignment and paste-back against facexlib/OpenCV.
+- The panel prompts for the model's add-ons (`AddonPrompt.ensure`) when the
+  pass is turned on or the model changes, and shows the non-commercial note
+  for GFPGAN/CodeFormer; the worker refuses through `required_addons()`.
+
+`integration_face_restore_test.dart` (heavy) checks the face changes and every
+sample outside it is bit-exact (8- and 10-bit), each model runs, and preview =
+encode. See docs/ENGINEERING_NOTES.md (2026-11-08) and
+docs/reports/2026-11-face-restoration.
 
 ### BM3D and KNLMeans Noise Reduction
 
