@@ -1476,6 +1476,11 @@ Rules, from docs/reports/2026-11-audio-restoration:
   `AudioRestorer::plan` (`DEEP_FILTER_FEATURE`), **not** in
   `required_addons()`: that list gates the script generator, and a preview
   must never be refused for an audio add-on.
+- **No built-in preset turns it on** (audited when it shipped): every step
+  depends on the recording, and switching the pass on re-encodes audio that
+  the presets otherwise copy. A source preset may later enable only the
+  self-checking steps (automatic channel fix, automatic hum), which do nothing
+  when they find nothing.
 - `vapourbox-worker --audio-plan --config job.json` prints every argument list
   without rendering (`integration_audio_plan_test.dart`, push gate);
   `integration_audio_restoration_test.dart` (heavy) measures the encoded audio.
