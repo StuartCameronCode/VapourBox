@@ -1,0 +1,60 @@
+{
+  "checkpointTensors": 754,
+  "strictLoad": true,
+  "verification": {
+    "reference": "https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/deoldify.onnx",
+    "referenceSha256": "a00de09afacbed28b30ea63d174e1ade855b497c0fc61372217953c429696a9a",
+    "inputShape": [
+      1,
+      3,
+      256,
+      256
+    ],
+    "max": 1.8477439880371094e-06,
+    "mean": 9.928839972417336e-08,
+    "unit": "[0, 1] RGB"
+  },
+  "replicationPadsRewritten": 5,
+  "opset": 17,
+  "irVersion": 8,
+  "torch": "2.15.0",
+  "models": [
+    {
+      "file": "colorize-deoldify-video.onnx",
+      "size": 872841884,
+      "sha256": "aadb46c7d44af94ba0d01b1d3069f90ec83d08c14c60f0d203b3962094835e5a",
+      "checkpoint": "https://data.deepai.org/deoldify/ColorizeVideo_gen.pth",
+      "checkpointSha256": "e3d98bb6a222354c79f95485c2f078a89dc724e9183662506d9e0f5aafac83ad",
+      "source": "https://github.com/jantic/DeOldify/tree/5f86c28923799036ad4b1bf7af8c629ac65efd75",
+      "parity": {
+        "336": {
+          "max": 1.2367963790893555e-06,
+          "mean": 1.1977064370467008e-07,
+          "unit": "[0, 1] RGB",
+          "refRange": [
+            0.11664381623268127,
+            0.7518526315689087
+          ]
+        },
+        "256": {
+          "max": 1.430511474609375e-06,
+          "mean": 2.0082567668093057e-07,
+          "unit": "[0, 1] RGB",
+          "refRange": [
+            0.12117752432823181,
+            0.7370831966400146
+          ]
+        },
+        "512": {
+          "max": 9.5367431640625e-07,
+          "mean": 1.0259155184636863e-07,
+          "unit": "[0, 1] RGB",
+          "refRange": [
+            0.1116834282875061,
+            0.7427202463150024
+          ]
+        }
+      }
+    }
+  ]
+}
