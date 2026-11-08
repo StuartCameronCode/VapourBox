@@ -1,0 +1,70 @@
+vine kodim08_pan: haloed (no filter)           Y 21.93 dB  0.0 fps
+vine kodim08_pan: vine (16, 0.5, 1.0)          Y 22.80 dB  3.8 fps
+vine kodim08_pan: vine (24, 0.5, 1.0)          Y 23.06 dB  0.0 fps
+vine kodim08_pan: vine (8, 0.5, 1.0)           Y 22.45 dB  0.0 fps
+vine kodim08_pan: DeHalo_alpha (defaults)      Y 26.28 dB  419.7 fps
+vine kodim08_pan: FineDehalo (defaults)        Y 22.00 dB  386.9 fps
+vine kodim23_pan: haloed (no filter)           Y 31.99 dB  0.0 fps
+vine kodim23_pan: vine (16, 0.5, 1.0)          Y 33.12 dB  18.7 fps
+vine kodim23_pan: vine (24, 0.5, 1.0)          Y 33.26 dB  0.0 fps
+vine kodim23_pan: vine (8, 0.5, 1.0)           Y 32.83 dB  0.0 fps
+vine kodim23_pan: DeHalo_alpha (defaults)      Y 36.11 dB  687.5 fps
+vine kodim23_pan: FineDehalo (defaults)        Y 32.25 dB  450.6 fps
+mpeg2stinx kodim08 telecined @1000k: decoded (no filter)            Y 33.30  U 41.61
+mpeg2stinx kodim08 telecined @1000k: mpeg2stinx (TFF)               Y 31.54  U 41.68
+mpeg2stinx kodim08 telecined @1000k: mpeg2stinx (wrong order: BFF)  Y 31.53  U 41.68
+mpeg2stinx kodim08 telecined @1000k: Deblock_QED (defaults)         Y 33.24  U 41.77
+mpeg2stinx kodim08 telecined @1000k: Deblock (quant 25)             Y 33.27  U 41.88
+mpeg2stinx kodim08 progressive-as-interlaced @1000k: decoded (no filter)            Y 42.17  U 46.13
+mpeg2stinx kodim08 progressive-as-interlaced @1000k: mpeg2stinx (TFF)               Y 38.29  U 46.21
+mpeg2stinx kodim08 progressive-as-interlaced @1000k: mpeg2stinx (wrong order: BFF)  Y 38.26  U 46.21
+mpeg2stinx kodim08 progressive-as-interlaced @1000k: Deblock_QED (defaults)         Y 41.99  U 45.95
+mpeg2stinx kodim08 progressive-as-interlaced @1000k: Deblock (quant 25)             Y 42.07  U 46.06
+mpeg2stinx kodim08 telecined @2000k: decoded (no filter)            Y 39.32  U 44.60
+mpeg2stinx kodim08 telecined @2000k: mpeg2stinx (TFF)               Y 36.31  U 44.71
+mpeg2stinx kodim08 telecined @2000k: mpeg2stinx (wrong order: BFF)  Y 36.29  U 44.71
+mpeg2stinx kodim08 telecined @2000k: Deblock_QED (defaults)         Y 39.24  U 44.61
+mpeg2stinx kodim08 telecined @2000k: Deblock (quant 25)             Y 39.29  U 44.78
+mpeg2stinx kodim08 progressive-as-interlaced @2000k: decoded (no filter)            Y 42.39  U 46.20
+mpeg2stinx kodim08 progressive-as-interlaced @2000k: mpeg2stinx (TFF)               Y 38.38  U 46.28
+mpeg2stinx kodim08 progressive-as-interlaced @2000k: mpeg2stinx (wrong order: BFF)  Y 38.36  U 46.28
+mpeg2stinx kodim08 progressive-as-interlaced @2000k: Deblock_QED (defaults)         Y 42.18  U 46.01
+mpeg2stinx kodim08 progressive-as-interlaced @2000k: Deblock (quant 25)             Y 42.28  U 46.13
+mpeg2stinx kodim23 telecined @1000k: decoded (no filter)            Y 43.35  U 47.01
+mpeg2stinx kodim23 telecined @1000k: mpeg2stinx (TFF)               Y 43.08  U 47.07
+mpeg2stinx kodim23 telecined @1000k: mpeg2stinx (wrong order: BFF)  Y 43.06  U 47.07
+mpeg2stinx kodim23 telecined @1000k: Deblock_QED (defaults)         Y 43.22  U 47.12
+mpeg2stinx kodim23 telecined @1000k: Deblock (quant 25)             Y 43.25  U 47.27
+mpeg2stinx kodim23 progressive-as-interlaced @1000k: decoded (no filter)            Y 44.19  U 47.60
+mpeg2stinx kodim23 progressive-as-interlaced @1000k: mpeg2stinx (TFF)               Y 43.90  U 47.65
+mpeg2stinx kodim23 progressive-as-interlaced @1000k: mpeg2stinx (wrong order: BFF)  Y 43.88  U 47.65
+mpeg2stinx kodim23 progressive-as-interlaced @1000k: Deblock_QED (defaults)         Y 44.00  U 47.75
+mpeg2stinx kodim23 progressive-as-interlaced @1000k: Deblock (quant 25)             Y 44.01  U 47.89
+mpeg2stinx kodim23 telecined @2000k: decoded (no filter)            Y 44.33  U 47.66
+mpeg2stinx kodim23 telecined @2000k: mpeg2stinx (TFF)               Y 43.99  U 47.74
+mpeg2stinx kodim23 telecined @2000k: mpeg2stinx (wrong order: BFF)  Y 43.96  U 47.74
+mpeg2stinx kodim23 telecined @2000k: Deblock_QED (defaults)         Y 44.09  U 47.73
+mpeg2stinx kodim23 telecined @2000k: Deblock (quant 25)             Y 44.12  U 47.86
+mpeg2stinx kodim23 progressive-as-interlaced @2000k: decoded (no filter)            Y 44.19  U 47.60
+mpeg2stinx kodim23 progressive-as-interlaced @2000k: mpeg2stinx (TFF)               Y 43.90  U 47.65
+mpeg2stinx kodim23 progressive-as-interlaced @2000k: mpeg2stinx (wrong order: BFF)  Y 43.88  U 47.65
+mpeg2stinx kodim23 progressive-as-interlaced @2000k: Deblock_QED (defaults)         Y 44.00  U 47.75
+mpeg2stinx kodim23 progressive-as-interlaced @2000k: Deblock (quant 25)             Y 44.01  U 47.89
+fades: {
+ "field_gap_faded": 5.27347265625,
+ "field_gap_fixed": 0.2856132812500012,
+ "field_gap_fixed_match": 3.841145833617665e-05,
+ "field_gap_clean": 0.0010820312500012808,
+ "psnr_faded_vs_truth": 38.972162613525306,
+ "psnr_fixed_vs_truth": 52.9205588884955,
+ "unfaded_change_mad": 0.0,
+ "unfaded_change_mad_mpeg2": 0.0,
+ "fps": 323.20811275246393
+}
+AA daa                      22.4 fps, mean change 3.41
+AA santiag (nnedi3, 1/1)    12.9 fps, mean change 4.18
+AA SangNom AA (48)          19.2 fps, mean change 4.11
+parity vine                 10-bit 0.450  16-bit 0.455
+parity mpeg2stinx           10-bit 0.009  16-bit 0.010
+parity FixInterlacedFades   10-bit 0.251  16-bit 0.257
+parity SangNom AA           10-bit 0.436  16-bit 0.476

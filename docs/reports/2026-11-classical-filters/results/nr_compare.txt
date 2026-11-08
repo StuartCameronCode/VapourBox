@@ -1,0 +1,79 @@
+
+== kodim08_pan sigma 4.0 (measured 4.02); noisy Y 36.05 dB
+  BM3D (bm3d r12, r=1, Final) - shipped    best   8.0                 Y 40.44  U 45.77     1.2 fps
+  NLMeans vszip CPU (d=1 a=2 s=4)          best   3.5                 Y 39.93  U 44.78   162.5 fps
+  KNLMeansCL GPU (d=1 a=2 s=4)             best   3.5                 Y 39.93  U 44.78    36.1 fps
+  WNNM vszip (r=0)                         best   8.0                 Y 37.80  U 43.23    97.9 fps
+  WNNM vszip (r=1)                         best   8.0                 Y 41.01  U 43.17    67.2 fps
+  BM3D vszip (r=1)                         best   5.0                 Y 38.24  U 43.95    99.2 fps
+
+== kodim08_pan sigma 8.0 (measured 8.01); noisy Y 30.05 dB
+  BM3D (bm3d r12, r=1, Final) - shipped    best  16.0                 Y 35.89  U 42.67     1.4 fps
+  NLMeans vszip CPU (d=1 a=2 s=4)          best   7.0                 Y 34.84  U 41.68   144.8 fps
+  KNLMeansCL GPU (d=1 a=2 s=4)             best   7.0                 Y 34.84  U 41.68   100.5 fps
+  WNNM vszip (r=0)                         best  16.0                 Y 33.43  U 38.25   101.8 fps
+  WNNM vszip (r=1)                         best  16.0                 Y 35.85  U 37.31    71.7 fps
+  BM3D vszip (r=1)                         best  10.0                 Y 34.00  U 40.00    99.1 fps
+
+== kodim08_pan sigma 12.0 (measured 12.00); noisy Y 26.54 dB
+  BM3D (bm3d r12, r=1, Final) - shipped    best  24.0                 Y 33.34  U 40.88     0.9 fps
+  NLMeans vszip CPU (d=1 a=2 s=4)          best  10.5                 Y 32.17  U 39.85    79.1 fps
+  KNLMeansCL GPU (d=1 a=2 s=4)             best  10.5                 Y 32.17  U 39.85    58.1 fps
+  WNNM vszip (r=0)                         best  24.0                 Y 31.00  U 34.87    94.9 fps
+  WNNM vszip (r=1)                         best  24.0                 Y 32.92  U 33.65    37.6 fps
+  BM3D vszip (r=1)                         best  15.0                 Y 31.64  U 37.55    98.9 fps
+
+== kodim19_pan sigma 4.0 (measured 4.02); noisy Y 36.05 dB
+  BM3D (bm3d r12, r=1, Final) - shipped    best   8.0                 Y 40.61  U 46.68     1.0 fps
+  NLMeans vszip CPU (d=1 a=2 s=4)          best   4.5 (edge of sweep) Y 40.62  U 45.58   129.8 fps
+  KNLMeansCL GPU (d=1 a=2 s=4)             best   4.5 (edge of sweep) Y 40.62  U 45.58    53.8 fps
+  WNNM vszip (r=0)                         best   8.0                 Y 38.65  U 44.02    85.7 fps
+  WNNM vszip (r=1)                         best  10.0 (edge of sweep) Y 41.33  U 43.67    61.9 fps
+  BM3D vszip (r=1)                         best   5.0                 Y 39.15  U 44.79    75.3 fps
+
+== kodim19_pan sigma 8.0 (measured 8.02); noisy Y 30.05 dB
+  BM3D (bm3d r12, r=1, Final) - shipped    best  12.0                 Y 36.30  U 43.19     0.7 fps
+  NLMeans vszip CPU (d=1 a=2 s=4)          best   7.0                 Y 35.93  U 42.87    33.3 fps
+  KNLMeansCL GPU (d=1 a=2 s=4)             best   7.0                 Y 35.93  U 42.87    44.0 fps
+  WNNM vszip (r=0)                         best  16.0                 Y 34.47  U 38.98    69.5 fps
+  WNNM vszip (r=1)                         best  16.0                 Y 36.14  U 38.00    22.9 fps
+  BM3D vszip (r=1)                         best  10.0                 Y 35.21  U 40.93    22.9 fps
+
+== kodim19_pan sigma 12.0 (measured 12.02); noisy Y 26.53 dB
+  BM3D (bm3d r12, r=1, Final) - shipped    best  18.0                 Y 34.14  U 41.17     0.8 fps
+  NLMeans vszip CPU (d=1 a=2 s=4)          best  10.5                 Y 33.24  U 40.85   123.0 fps
+  KNLMeansCL GPU (d=1 a=2 s=4)             best  10.5                 Y 33.24  U 40.85    28.9 fps
+  WNNM vszip (r=0)                         best  24.0                 Y 32.16  U 35.62    81.6 fps
+  WNNM vszip (r=1)                         best  24.0                 Y 33.20  U 34.41    57.4 fps
+  BM3D vszip (r=1)                         best  18.0                 Y 32.96  U 40.19    61.6 fps
+
+== kodim23_pan sigma 4.0 (measured 4.02); noisy Y 36.05 dB
+  BM3D (bm3d r12, r=1, Final) - shipped    best   8.0                 Y 43.15  U 47.34     0.8 fps
+  NLMeans vszip CPU (d=1 a=2 s=4)          best   3.5                 Y 42.81  U 46.78   118.5 fps
+  KNLMeansCL GPU (d=1 a=2 s=4)             best   3.5                 Y 42.81  U 46.78    46.6 fps
+  WNNM vszip (r=0)                         best   8.0                 Y 41.41  U 44.23    94.6 fps
+  WNNM vszip (r=1)                         best  10.0 (edge of sweep) Y 42.62  U 44.13    65.7 fps
+  BM3D vszip (r=1)                         best   6.0                 Y 41.97  U 45.60   104.5 fps
+
+== kodim23_pan sigma 8.0 (measured 8.02); noisy Y 30.05 dB
+  BM3D (bm3d r12, r=1, Final) - shipped    best  16.0                 Y 40.12  U 44.00     0.9 fps
+  NLMeans vszip CPU (d=1 a=2 s=4)          best   7.0                 Y 39.30  U 43.26    85.2 fps
+  KNLMeansCL GPU (d=1 a=2 s=4)             best   7.0                 Y 39.30  U 43.26    64.6 fps
+  WNNM vszip (r=0)                         best  16.0                 Y 37.42  U 39.23    79.0 fps
+  WNNM vszip (r=1)                         best  20.0 (edge of sweep) Y 37.87  U 38.42    26.2 fps
+  BM3D vszip (r=1)                         best  12.0                 Y 38.56  U 41.79    35.9 fps
+
+== kodim23_pan sigma 12.0 (measured 12.02); noisy Y 26.53 dB
+  BM3D (bm3d r12, r=1, Final) - shipped    best  24.0                 Y 38.18  U 41.94     0.8 fps
+  NLMeans vszip CPU (d=1 a=2 s=4)          best  13.5 (edge of sweep) Y 37.24  U 41.14   106.4 fps
+  KNLMeansCL GPU (d=1 a=2 s=4)             best  13.5 (edge of sweep) Y 37.24  U 41.14    44.6 fps
+  WNNM vszip (r=0)                         best  24.0                 Y 34.82  U 35.89    96.1 fps
+  WNNM vszip (r=1)                         best  30.0 (edge of sweep) Y 34.79  U 34.81    45.1 fps
+  BM3D vszip (r=1)                         best  18.0                 Y 36.47  U 39.39    80.1 fps
+
+== depth parity: mean |8-bit run - N-bit run|, 8-bit levels (luma)
+Traceback (most recent call last):
+  File "<repo>/docs/reports/2026-11-classical-filters/scripts/nr_compare.py", line 157, in <module>
+    assert mad8(rt, up, 0) == 0, 'float round trip is not exact'
+           ^^^^^^^^^^^^^^^^^^^^
+AssertionError: float round trip is not exact

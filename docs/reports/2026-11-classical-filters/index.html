@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Classical filters for deps 1.16.0</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --best: #e3f1e6; --warn: #9a6700;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --best: #1d3324; --warn: #d9a400;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+  main { max-width: 1120px; margin: 0 auto; padding: 32px 16px 80px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 44px 0 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+  h3 { font-size: 16px; margin: 26px 0 8px; }
+  .sub { color: var(--text-secondary); margin: 0 0 20px; }
+  code { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  .limit { border-left: 3px solid var(--warn); padding: 6px 12px; margin: 12px 0; color: var(--text-secondary); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; margin: 14px 0 22px; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+  caption { text-align: left; font-weight: 600; padding-bottom: 6px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 10px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  td.b { background: var(--best); font-weight: 600; }
+  figure { margin: 18px 0 26px; }
+  figure img { max-width: 100%; image-rendering: pixelated; border: 1px solid var(--border); display: block; }
+  figcaption { color: var(--text-secondary); font-size: 13.5px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Classical filters for deps 1.16.0</h1>
+<p class="sub">Probe and build, 2026-11-08. SangNom, the vszip upgrade (CPU NLMeans, and whether WNNM earns a place), and three ports from vs-jetpack: FixInterlacedFades, vine_dehalo and mpeg2stinx. Apple M1 Pro (macOS arm64), private copy of the deps bundle with vszip 24.0.0 and SangNom r45.</p>
+
+<div class="card">
+  <strong>Outcome</strong>
+  <ul>
+    <li><strong>SangNom: built, as its own Anti-aliasing method.</strong> havsfunc's <code>santiag(type="sangnom")</code> cannot be used: at strength 0 it calls <code>SangNom(order=0)</code>, which SangNom r45 treats as double-rate and refuses without <code>_FieldBased</code> (measured: <em>"clip's frames must have the _FieldBased property when order is 0"</em> at every depth). The method supersamples 2x, runs SangNom (<code>order=1</code>) along each axis and comes back down. It runs at 8/10/12/16-bit and float; <code>aa</code> is scaled by the plugin (raw SangNom, 8 vs 10-bit: 0.047 levels).</li>
+    <li><strong>vszip 22.1.0 → 24.0.0: built.</strong> 24.0.0 is the first release with CPU <code>NLMeans</code>; <code>WNNM</code> arrived in 22.0.0. <strong>NLMeans (CPU)</strong> is an advanced Noise Reduction method sharing KNLMeansCL's settings: on the same input and arguments it gives KNLMeansCL's picture (see the parity line below), with no OpenCL device. The KNLMeans "no device" message now points at it. CLAHE still passes its depth-parity test (1.34 levels against a 3.0 tolerance).</li>
+    <li><strong>WNNM: not added.</strong> Each at its best sigma, its luma runs from +0.7 to −2.3 dB against the shipped BM3D (ahead only at sigma 4, with a temporal radius), and its chroma is 2.6–7.2 dB worse. A wider sweep (to 4× the noise, <code>scripts/wnnm_wide.py</code>) found nothing better than 2–2.5×. It would be a weaker second BM3D.</li>
+    <li><strong>FixInterlacedFades: built, as an IVTC option.</strong> Matches vs-jetpack exactly (0.0000 levels, both modes). On a fade applied after the field split it closes the field-brightness gap from 5.27 to 0.29 levels (average) / 0.00004 (match); on ordinary frames it changes nothing measurable.</li>
+    <li><strong>vine_dehalo: built, advanced-only.</strong> A faithful port (vs-jetpack's own function could not run against the bundle; see §5). On the oversharpened fixtures it recovers +0.9 to +1.1 dB, where DeHalo_alpha recovers +4.1 to +4.4 dB by blurring, at a fraction of vine's cost.</li>
+    <li><strong>mpeg2stinx: built, advanced-only, with a warning in its description.</strong> Matches vs-jetpack to 0.04 levels, but it <em>lost</em> PSNR on every fixture tried, up to −3.0 dB on detailed content: it clamps each field to a bob of the other, which costs vertical detail. None of these fixtures carries the specific artefact it is written for, so it ships for the user who has that artefact, and says what it costs.</li>
+  </ul>
+</div>
+
+<h2>1. Fixtures and method</h2>
+<p>Three Kodak PhotoCD images (kodim08 buildings, kodim19 fence, kodim23 parrots) panned by a 640×480 window, 2 px per frame, 30 frames, lossless (<code>scripts/make_fixtures.sh</code>). A whole-pixel pan keeps every frame an exact crop, so there is exact ground truth and real motion for the temporal methods. Noise is AddGrain at a known sigma (8-bit levels; measured 4.02 / 8.01 / 12.0). Each method is swept over strengths that scale with the noise and reported at its best luma PSNR. The MPEG-2 fixtures are the pans 3:2-telecined and encoded as interlaced MPEG-2 at 1000 and 2000 kbps (<code>scripts/make_tc_fixtures.sh</code>), then inverse-telecined with VIVTC as the IVTC method does; every kept frame was checked to match its own clean frame far better than its neighbours.</p>
+<p>The template code is measured as shipped: <code>scripts/ports_compare.py</code> lifts each block out of <code>worker/templates/pipeline_template.vpy</code> and runs it. Speeds come from <code>scripts/bench.py</code>, one fresh <code>vspipe</code> per measurement, median of three; the fps column printed by <code>nr_compare.py</code> (in <code>results/nr_compare.txt</code>) was taken while other probes ran and through cached frames, and is not used. That run also crashed in its last step (a float compared with <code>== 0</code>) before writing its JSON, so the tables are parsed from its printed log (<code>scripts/parse_nr_log.py</code>) and the depth check was re-run alone.</p>
+<div class="limit"><strong>What the numbers cannot tell you.</strong> PSNR rewards softness, and it is the only metric here; the crops are there to be looked at. Three still images panned are not a population of real footage, and synthetic Gaussian noise is not film grain or tape noise. Speeds are from one Apple Silicon machine with other jobs running on it at times, so treat them as ratios, not throughput. Nothing here ran on x86, Windows or Linux.</div>
+
+<h2>2. Noise reduction: BM3D, NLMeans (CPU and GPU), WNNM</h2>
+<!--NR_TABLES-->
+<div class="scroll"><table><caption>kodim08_pan: luma / chroma (U) PSNR in dB, each method at its best strength</caption>
+<tr><th>method</th><th>σ 4: Y</th><th>U</th><th>strength</th><th>σ 8: Y</th><th>U</th><th>strength</th><th>σ 12: Y</th><th>U</th><th>strength</th></tr>
+<tr><td>noisy input</td><td>36.05</td><td></td><td></td><td>30.05</td><td></td><td></td><td>26.54</td><td></td><td></td></tr>
+<tr><td>BM3D (bm3d r12, r=1, Final) - shipped</td><td>40.44</td><td>45.77</td><td>8</td><td class="b">35.89</td><td>42.67</td><td>16</td><td class="b">33.34</td><td>40.88</td><td>24</td></tr>
+<tr><td>NLMeans vszip CPU (d=1 a=2 s=4)</td><td>39.93</td><td>44.78</td><td>3.5</td><td>34.84</td><td>41.68</td><td>7</td><td>32.17</td><td>39.85</td><td>10.5</td></tr>
+<tr><td>KNLMeansCL GPU (d=1 a=2 s=4)</td><td>39.93</td><td>44.78</td><td>3.5</td><td>34.84</td><td>41.68</td><td>7</td><td>32.17</td><td>39.85</td><td>10.5</td></tr>
+<tr><td>WNNM vszip (r=0)</td><td>37.80</td><td>43.23</td><td>8</td><td>33.43</td><td>38.25</td><td>16</td><td>31.00</td><td>34.87</td><td>24</td></tr>
+<tr><td>WNNM vszip (r=1)</td><td class="b">41.01</td><td>43.17</td><td>8</td><td>35.85</td><td>37.31</td><td>16</td><td>32.92</td><td>33.65</td><td>24</td></tr>
+<tr><td>BM3D vszip (r=1)</td><td>38.24</td><td>43.95</td><td>5</td><td>34.00</td><td>40.00</td><td>10</td><td>31.64</td><td>37.55</td><td>15</td></tr>
+</table></div>
+<div class="scroll"><table><caption>kodim19_pan: luma / chroma (U) PSNR in dB, each method at its best strength</caption>
+<tr><th>method</th><th>σ 4: Y</th><th>U</th><th>strength</th><th>σ 8: Y</th><th>U</th><th>strength</th><th>σ 12: Y</th><th>U</th><th>strength</th></tr>
+<tr><td>noisy input</td><td>36.05</td><td></td><td></td><td>30.05</td><td></td><td></td><td>26.53</td><td></td><td></td></tr>
+<tr><td>BM3D (bm3d r12, r=1, Final) - shipped</td><td>40.61</td><td>46.68</td><td>8</td><td class="b">36.30</td><td>43.19</td><td>12</td><td class="b">34.14</td><td>41.17</td><td>18</td></tr>
+<tr><td>NLMeans vszip CPU (d=1 a=2 s=4)</td><td>40.62</td><td>45.58</td><td>4.5</td><td>35.93</td><td>42.87</td><td>7</td><td>33.24</td><td>40.85</td><td>10.5</td></tr>
+<tr><td>KNLMeansCL GPU (d=1 a=2 s=4)</td><td>40.62</td><td>45.58</td><td>4.5</td><td>35.93</td><td>42.87</td><td>7</td><td>33.24</td><td>40.85</td><td>10.5</td></tr>
+<tr><td>WNNM vszip (r=0)</td><td>38.65</td><td>44.02</td><td>8</td><td>34.47</td><td>38.98</td><td>16</td><td>32.16</td><td>35.62</td><td>24</td></tr>
+<tr><td>WNNM vszip (r=1)</td><td class="b">41.33</td><td>43.67</td><td>10</td><td>36.14</td><td>38.00</td><td>16</td><td>33.20</td><td>34.41</td><td>24</td></tr>
+<tr><td>BM3D vszip (r=1)</td><td>39.15</td><td>44.79</td><td>5</td><td>35.21</td><td>40.93</td><td>10</td><td>32.96</td><td>40.19</td><td>18</td></tr>
+</table></div>
+<div class="scroll"><table><caption>kodim23_pan: luma / chroma (U) PSNR in dB, each method at its best strength</caption>
+<tr><th>method</th><th>σ 4: Y</th><th>U</th><th>strength</th><th>σ 8: Y</th><th>U</th><th>strength</th><th>σ 12: Y</th><th>U</th><th>strength</th></tr>
+<tr><td>noisy input</td><td>36.05</td><td></td><td></td><td>30.05</td><td></td><td></td><td>26.53</td><td></td><td></td></tr>
+<tr><td>BM3D (bm3d r12, r=1, Final) - shipped</td><td class="b">43.15</td><td>47.34</td><td>8</td><td class="b">40.12</td><td>44.00</td><td>16</td><td class="b">38.18</td><td>41.94</td><td>24</td></tr>
+<tr><td>NLMeans vszip CPU (d=1 a=2 s=4)</td><td>42.81</td><td>46.78</td><td>3.5</td><td>39.30</td><td>43.26</td><td>7</td><td>37.24</td><td>41.14</td><td>13.5</td></tr>
+<tr><td>KNLMeansCL GPU (d=1 a=2 s=4)</td><td>42.81</td><td>46.78</td><td>3.5</td><td>39.30</td><td>43.26</td><td>7</td><td>37.24</td><td>41.14</td><td>13.5</td></tr>
+<tr><td>WNNM vszip (r=0)</td><td>41.41</td><td>44.23</td><td>8</td><td>37.42</td><td>39.23</td><td>16</td><td>34.82</td><td>35.89</td><td>24</td></tr>
+<tr><td>WNNM vszip (r=1)</td><td>42.62</td><td>44.13</td><td>10</td><td>37.87</td><td>38.42</td><td>20</td><td>34.79</td><td>34.81</td><td>30</td></tr>
+<tr><td>BM3D vszip (r=1)</td><td>41.97</td><td>45.60</td><td>6</td><td>38.56</td><td>41.79</td><td>12</td><td>36.47</td><td>39.39</td><td>18</td></tr>
+</table></div>
+<div class="scroll"><table><caption>Depth parity: mean |8-bit run − N-bit run|, 8-bit levels (luma), kodim08 sigma 8</caption><tr><th>method</th><th>10-bit</th><th>16-bit</th></tr>
+<tr><td>NLMeans vszip h=2</td><td>0.005</td><td>0.006</td></tr>
+<tr><td>WNNM sigma=8</td><td>0.268</td><td>0.272</td></tr>
+<tr><td>BM3D template sigma=8</td><td>0.273</td><td>0.277</td></tr>
+</table></div>
+<p>vszip NLMeans vs KNLMeansCL, same args: mean |diff| Y 0.0000 U 0.0000 levels</p>
+<!--/NR_TABLES-->
+<figure>
+  <a href="img/01-nr-kodim08-sigma8.png"><img src="img/01-nr-kodim08-sigma8.png" alt="Five crops of the kodim08 pan at sigma 8"></a>
+  <figcaption>kodim08, sigma 8, frame 3, 2× nearest. Left to right: clean, noisy, BM3D (sigma 16, r=1, Final — what ships), NLMeans CPU (h 7), WNNM (sigma 16, r=1). WNNM keeps the wall texture as well as BM3D on luma; look at the colour noise it leaves in the shutters, which is its chroma deficit in the table.</figcaption>
+</figure>
+<h3>Speed</h3>
+<!--BENCH-->
+
+<!--/BENCH-->
+<p>NLMeans (CPU and GPU, identical) sits 0.3–1.2 dB below BM3D on luma. The vszip BM3D (new in 24.0.0) was measured for the record only: 1.1–2.2 dB below the shipped bm3d r12 path on every fixture and sigma, so it is not used.</p>
+
+<h2>3. SangNom anti-aliasing</h2>
+<p>Every depth runs: raw SangNom changes the picture by 4.97 levels at 8, 10, 12 and 16-bit alike, and the method by 4.37–4.39. The method's 8 vs 10/16-bit difference is 0.44–0.48 levels (santiag's own is 0.37), most of it the 2× Spline36 round trip. A still frame repeated gives bit-identical output, so it does not shimmer.</p>
+<!--AA_TABLES-->
+<div class="scroll"><table><caption>Anti-aliasing (kodim08 pan)</caption><tr><th>method</th><th>mean change, levels</th></tr>
+<tr><td>daa</td><td>3.41</td></tr>
+<tr><td>santiag (nnedi3, 1/1)</td><td>4.18</td></tr>
+<tr><td>SangNom AA (48)</td><td>4.11</td></tr>
+</table></div>
+<!--/AA_TABLES-->
+<p>The speeds are in §2's speed table (run on the clean pan).</p>
+<figure>
+  <a href="img/05-aa-kodim23.png"><img src="img/05-aa-kodim23.png" alt="Aliased crop and three anti-aliased versions"></a>
+  <figcaption>kodim23 point-resampled to half size and back (jagged edges), 2× nearest. Left to right: aliased, daa, santiag (nnedi3, 1/1), SangNom (aa 48). SangNom rebuilds the diagonal edges of the leaves most firmly; daa is softest.</figcaption>
+</figure>
+
+<h2>4. FixInterlacedFades (the IVTC fade fix)</h2>
+<p>A fade applied to telecined video changes brightness between a frame's two fields, so no field match is clean. The fixture fades the kodim23 pan to black per field (the top field at its time, the bottom half a frame later). The heavy test does the same to a real clip through the whole worker: the gap between field brightnesses goes from 4.12 to 0.06 levels.</p>
+<!--FADE_TABLES-->
+<div class="scroll"><table><caption>IVTC fade fix (kodim23 pan, faded after the field split)</caption><tr><th>measure</th><th>value</th></tr>
+<tr><td>field_gap_faded</td><td>5.2735</td></tr>
+<tr><td>field_gap_fixed</td><td>0.2856</td></tr>
+<tr><td>field_gap_fixed_match</td><td>0.0000</td></tr>
+<tr><td>field_gap_clean</td><td>0.0011</td></tr>
+<tr><td>psnr_faded_vs_truth</td><td>38.9722</td></tr>
+<tr><td>psnr_fixed_vs_truth</td><td>52.9206</td></tr>
+<tr><td>unfaded_change_mad</td><td>0.0000</td></tr>
+<tr><td>unfaded_change_mad_mpeg2</td><td>0.0000</td></tr>
+<tr><td>fps</td><td>323.2081</td></tr>
+</table></div>
+<!--/FADE_TABLES-->
+<p><code>field_gap_*</code>: mean |top-field mean − bottom-field mean| in levels; <code>psnr_*_vs_truth</code>: luma PSNR against each frame faded uniformly to its two fields' mean level; <code>unfaded_change_mad</code>: mean change the fix makes to the clean (not fading) pan, and to the decoded MPEG-2 pan.</p>
+<figure>
+  <a href="img/06-fades-kodim23.png"><img src="img/06-fades-kodim23.png" alt="A combing fade frame and two fixed versions"></a>
+  <figcaption>A frame whose top field sits at 70% of the fade and the bottom at 45%, 2× nearest. Left to right: input (the fade combs), fixed with <em>average</em> (both fields at their mean), fixed with <em>match</em> (the brighter to the darker). Both are comb-free; match is darker.</figcaption>
+</figure>
+<p><strong>A correction found during the work:</strong> the first run reported a residual gap of 3.3 levels for <em>average</em>. It was real but specific: on the last frame of a fade that reaches full black one field is already black, upstream's expression leaves a zero-distance field alone, and <em>average</em> then sets the other to half. <em>Match</em> handles it. That is why both modes are offered. A second trap: <code>std.DoubleWeave</code> flags its output interlaced, so without resetting <code>_FieldBased</code> a later resize treated the fixed (progressive) frames as fields; the block resets it.</p>
+
+<h2>5. vine_dehalo</h2>
+<p>vs-jetpack's own <code>vine_dehalo</code> could not be run against the bundle as a reference: its Catrom downscale is a custom kernel on the resize2 plugin, which the bundle does not ship (loading a downloaded resize2 binary just for the comparison was not done). The port was checked line by line instead; its NLMeans calls are vs-jetpack 3.0.0's CPU backend verbatim (<code>vszip.NLMeans</code>), and mpeg2stinx, ported the same way, matched vs-jetpack to 0.04 levels.</p>
+<p>The fixture is the clean pan with an unsharp mask (Gaussian sigma 1.5, amount 1.5), which brightens edges and fine texture alike, so PSNR against the clean pan rewards undoing sharpening of any kind. DeHalo_alpha wins on that measure by blurring; vine keeps texture, which is its purpose.</p>
+<!--VINE_TABLES-->
+<div class="scroll"><table><caption>Dehalo, kodim08_pan (oversharpened): luma PSNR vs the clean pan</caption><tr><th>method</th><th>Y dB</th></tr>
+<tr><td>haloed (no filter)</td><td>21.93</td></tr>
+<tr><td>vine (16, 0.5, 1.0)</td><td>22.80</td></tr>
+<tr><td>vine (24, 0.5, 1.0)</td><td>23.06</td></tr>
+<tr><td>vine (8, 0.5, 1.0)</td><td>22.45</td></tr>
+<tr><td>DeHalo_alpha (defaults)</td><td>26.28</td></tr>
+<tr><td>FineDehalo (defaults)</td><td>22.00</td></tr>
+</table></div>
+<div class="scroll"><table><caption>Dehalo, kodim23_pan (oversharpened): luma PSNR vs the clean pan</caption><tr><th>method</th><th>Y dB</th></tr>
+<tr><td>haloed (no filter)</td><td>31.99</td></tr>
+<tr><td>vine (16, 0.5, 1.0)</td><td>33.12</td></tr>
+<tr><td>vine (24, 0.5, 1.0)</td><td>33.26</td></tr>
+<tr><td>vine (8, 0.5, 1.0)</td><td>32.83</td></tr>
+<tr><td>DeHalo_alpha (defaults)</td><td>36.11</td></tr>
+<tr><td>FineDehalo (defaults)</td><td>32.25</td></tr>
+</table></div>
+<!--/VINE_TABLES-->
+<figure>
+  <a href="img/03-dehalo-kodim08.png"><img src="img/03-dehalo-kodim08.png" alt="Dehalo comparison on kodim08"></a>
+  <figcaption>kodim08, 2× nearest. Left to right: clean, oversharpened, vine (16, 0.5, 1.0), DeHalo_alpha (defaults), FineDehalo (defaults). vine softens the amplified wall texture and the rails' halo while keeping the shutter slats crisp; DeHalo_alpha is closer to the clean picture here because the "halo" is mostly amplified texture.</figcaption>
+</figure>
+<figure>
+  <a href="img/02-dehalo-kodim23.png"><img src="img/02-dehalo-kodim23.png" alt="Dehalo comparison on kodim23"></a>
+  <figcaption>kodim23 (soft background), same panel order. Here the oversharpening is mostly grain-like texture; vine smooths it, DeHalo_alpha and FineDehalo barely touch it away from edges.</figcaption>
+</figure>
+
+<h2>6. mpeg2stinx</h2>
+<!--STINX_TABLES-->
+<div class="scroll"><table><caption>mpeg2stinx: PSNR vs the clean pan (Y / U dB)</caption><tr><th>fixture</th><th>decoded (no filter)</th><th>mpeg2stinx (TFF)</th><th>mpeg2stinx (wrong order: BFF)</th><th>Deblock_QED (defaults)</th><th>Deblock (quant 25)</th></tr>
+<tr><td>kodim08 telecined @1000k</td><td>33.30 / 41.61</td><td>31.54 / 41.68</td><td>31.53 / 41.68</td><td>33.24 / 41.77</td><td>33.27 / 41.88</td></tr>
+<tr><td>kodim08 progressive-as-interlaced @1000k</td><td>42.17 / 46.13</td><td>38.29 / 46.21</td><td>38.26 / 46.21</td><td>41.99 / 45.95</td><td>42.07 / 46.06</td></tr>
+<tr><td>kodim08 telecined @2000k</td><td>39.32 / 44.60</td><td>36.31 / 44.71</td><td>36.29 / 44.71</td><td>39.24 / 44.61</td><td>39.29 / 44.78</td></tr>
+<tr><td>kodim08 progressive-as-interlaced @2000k</td><td>42.39 / 46.20</td><td>38.38 / 46.28</td><td>38.36 / 46.28</td><td>42.18 / 46.01</td><td>42.28 / 46.13</td></tr>
+<tr><td>kodim23 telecined @1000k</td><td>43.35 / 47.01</td><td>43.08 / 47.07</td><td>43.06 / 47.07</td><td>43.22 / 47.12</td><td>43.25 / 47.27</td></tr>
+<tr><td>kodim23 progressive-as-interlaced @1000k</td><td>44.19 / 47.60</td><td>43.90 / 47.65</td><td>43.88 / 47.65</td><td>44.00 / 47.75</td><td>44.01 / 47.89</td></tr>
+<tr><td>kodim23 telecined @2000k</td><td>44.33 / 47.66</td><td>43.99 / 47.74</td><td>43.96 / 47.74</td><td>44.09 / 47.73</td><td>44.12 / 47.86</td></tr>
+<tr><td>kodim23 progressive-as-interlaced @2000k</td><td>44.19 / 47.60</td><td>43.90 / 47.65</td><td>43.88 / 47.65</td><td>44.00 / 47.75</td><td>44.01 / 47.89</td></tr>
+</table></div>
+<!--/STINX_TABLES-->
+<p>Per frame (kodim08, telecined, 1000 kbps), mpeg2stinx costs about 4.5 dB on the cleanly coded frames (42.4 → 38.1) and gains 0.1 dB on the starved ones (26.4 → 26.5); the first and last frames are untouched because the temporal limit compares a frame with itself there. The wrong field order changes the result by 0.01–0.03 dB: on progressive film frames both fields come from the same instant.</p>
+<figure>
+  <a href="img/04-mpeg2stinx-kodim08-1000k.png"><img src="img/04-mpeg2stinx-kodim08-1000k.png" alt="mpeg2stinx comparison"></a>
+  <figcaption>kodim08 telecined, MPEG-2 1000 kbps, IVTC'd, frame 10, 2× nearest. Left to right: clean, decoded, mpeg2stinx, Deblock_QED. mpeg2stinx softens the roof tiles and window bars vertically; the compression smear it is not designed for remains.</figcaption>
+</figure>
+
+<h2>7. Depth parity of the ports</h2>
+<!--PARITY_TABLES-->
+<div class="scroll"><table><caption>Ports, depth parity: mean |8-bit − N-bit|, levels</caption><tr><th>block</th><th>10-bit</th><th>16-bit</th></tr>
+<tr><td>vine</td><td>0.450</td><td>0.455</td></tr>
+<tr><td>mpeg2stinx</td><td>0.009</td><td>0.010</td></tr>
+<tr><td>FixInterlacedFades</td><td>0.251</td><td>0.257</td></tr>
+<tr><td>SangNom AA</td><td>0.436</td><td>0.476</td></tr>
+</table></div>
+<!--/PARITY_TABLES-->
+<p>The heavy high-bit-depth suite (<code>app/test/integration_high_bit_depth_filters_test.dart</code>) agrees, through the whole worker at 8 vs 10-bit (4:2:2): NLMeans (CPU) 0.301, KNLMeansCL 0.301, SangNom 0.491, the fade fix 0.277, vine 0.406, mpeg2stinx 0.287, CLAHE 1.336 levels (tolerance 2.0, CLAHE 3.0).</p>
+
+<h2>8. Deps and platforms</h2>
+<ul>
+  <li><strong>SangNom r45</strong> from its PyPI wheels on every platform, pinned by hash. The x64 builds (macOS, Linux, Windows) contain SSE2 code only — no <code>ymm</code>/<code>zmm</code> register anywhere (objdump) and no static initializers (<code>Scripts/check-load-time-simd.py</code>), so one file serves both CPU tiers. Minimum macOS 11.0 (arm64) / 10.15 (x64); manylinux_2_28; the Windows DLL imports only the UCRT.</li>
+  <li><strong>Licence:</strong> the source header and LICENSE grant MIT (© 2016 james1201, © 2013 Victor Efimov); the same header says "Binaries are GPL v2", and the wheels' metadata says GPL-2.0. Credited as both.</li>
+  <li><strong>vszip 24.0.0</strong>: the baseline x64 builds contain no AVX (and no longer call <code>fmaf</code>). The arm64 wheel is minos 15.0 — exactly the arm64 floor — with 4 KB of header room. macOS x64 builds the sdist: it now needs Zig 0.17.0 and <code>-Doptimize=fast</code>, and the headerpad patch had to follow <code>lib.use_llvm</code> into <code>if (build_vs)</code>. Cross-built here with that exact recipe: minos 12.0, 4104 bytes of header room, signs cleanly; loaded under Rosetta into the deps 1.10.0 x64 VapourSynth R78, NLMeans, WNNM, CLAHE and the x64 SangNom all ran.</li>
+  <li><strong>Not verified:</strong> anything on Windows or Linux, and the x64 builds on a real Intel CPU (Rosetta executes AVX, so it proves nothing about CPU features; the objdump scan is the evidence there). The deps CI run is the test.</li>
+</ul>
+
+<h2>9. Decisions</h2>
+<ul>
+  <li>SangNom as a separate method, santiag's interpolator stays pinned to nnedi3 — because havsfunc's sangnom path is incompatible with SangNom r45.</li>
+  <li>NLMeans (CPU) reuses the KNLMeans parameters rather than its own — same algorithm, same arguments, same picture; switching between them keeps the settings.</li>
+  <li>WNNM not added — no quality or speed niche BM3D does not already fill.</li>
+  <li>vine and mpeg2stinx advanced-only — both are specialist tools, and the simple Dehalo slots are full.</li>
+  <li>mpeg2stinx never takes the Deblock pass's per-field path — it is a cross-field filter by design.</li>
+  <li>The fade fix after VFM and before VDecimate, off by default — it only helps a fade that combs.</li>
+</ul>
+
+<h2>10. Not tested</h2>
+<ul>
+  <li>Real footage with a combing fade or with the comb-like MPEG-2 noise mpeg2stinx targets: no such clip was available.</li>
+  <li>vine against vs-jetpack's own output (needs resize2).</li>
+  <li>Any platform but macOS arm64 (and macOS x64 load under Rosetta).</li>
+</ul>
+
+<h2>Scripts</h2>
+<p><code>scripts/make_fixtures.sh</code>, <code>scripts/make_tc_fixtures.sh</code> build the fixtures into <code>$SCRATCH/fx</code> (the Kodak images are fetched from r0k.us). <code>scripts/run.sh &lt;probe&gt;</code> runs a probe under a deps bundle's Python: <code>nr_compare.py</code> (§2), <code>ports_compare.py</code> (§3–7), <code>ports_vs_reference.py</code> (the vs-jetpack comparison; needs vsjetpack 2.2.7, whose three functions are identical to 3.0.0's), <code>bench.py</code> (speeds), <code>images.py</code> (the figures), and <code>tables.py</code> prints the tables above from the probes' JSON.</p>
+
+</main>
+</body>
+</html>
