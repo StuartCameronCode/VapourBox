@@ -35,7 +35,7 @@ is byte-for-byte reproducible: two runs give the hashes pinned in
 After export the script checks PyTorch against ONNX Runtime on a seeded random
 image and a smooth synthetic one, and prints the maximum and mean absolute
 difference (in 0..1 units) — the parity numbers in
-docs/reports/issue-ai-upscale-addons/.
+docs/reports/2026-11-ai-upscale-addons/.
 
 Usage (in the conversion venv, see docs/ADDONS.md):
 

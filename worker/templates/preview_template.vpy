@@ -1997,7 +1997,7 @@ clip = core.resize.Spline36(clip, width=clip.width * {{UPSCALE_FACTOR}}, height=
 # the result is dithered to the source format. Above a size the frame runs in
 # overlapping tiles: whole-frame Real-CUGAN at 1080p ran out of GPU memory on a
 # 16 GB Mac (512-pixel tiles above SD), and the large Real-ESRGAN x4plus lost
-# the device at SD (256-pixel tiles always). An odd size is padded to even by
+# the device at SD (384-pixel tiles at 4x, any size). An odd size is padded to even by
 # repeating the edge (CUGAN works in 2-pixel steps) and cropped after. fp16
 # differs from fp32 by at most 0.3/255 and is ~3x faster.
 import ctypes as _ai_ctypes

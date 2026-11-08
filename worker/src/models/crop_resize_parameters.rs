@@ -574,7 +574,7 @@ impl CropResizeParameters {
     /// conversion back). `None` when the networks land on the factor exactly,
     /// which leaves the script as it was. Upstream does the same for its own
     /// `--outscale` (4x, then a Lanczos resize); see the report in
-    /// docs/reports/issue-ai-upscale-addons/ for the kernel comparison.
+    /// docs/reports/2026-11-ai-upscale-addons/ for the kernel comparison.
     pub fn ai_resample_to(&self) -> Option<u32> {
         let models = self.ai_upscale_models();
         if models.is_empty() {

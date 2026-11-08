@@ -2915,6 +2915,53 @@ date (groundwork, not a quality comparison, so no report):
   first; whether Core ML or the CPU fallback executed the two-node model is
   not distinguishable from `get_providers()`.
 
+### Live-action AI upscalers as add-ons, and AI strength (2026-11-08)
+
+Full report with crops, every number and the scripts:
+[docs/reports/2026-11-ai-upscale-addons/](reports/2026-11-ai-upscale-addons/index.html).
+Crop & Resize's AI upscalers were all trained on anime; three more methods
+now cover real-world footage, run by the same VSNCNN block, with their
+models in two manifest add-ons (`upscale-general`, `upscale-esrgan-plus`).
+Measured on an M1 Pro (16 GB):
+
+- **Converting Real-ESRGAN's `.pth`** (`Scripts/models/convert_realesrgan.py`):
+  SRVGGNetCompact and RRDBNet transcribed, opset 13 / IR 7 like vs-mlrt's own
+  conversions. PyTorch vs ONNX Runtime: at most 0.017 of an 8-bit level. The
+  TorchScript export of x2plus's `pixel_unshuffle` is a 6-D Reshape/Transpose
+  ncnn can't import; a one-hot stride-2 convolution is exactly equal and
+  imports. Two runs are byte-identical.
+- **VSNCNN fp32 reproduces ONNX Runtime exactly** (≤0.005 levels) for all
+  five models; fp16 (what the template uses) differs by a mean 0.05–0.12
+  levels, the same order as the bundled anime model's 0.03.
+- **2xVHS2HD (RealPLKSR) can't run on VSNCNN.** Its official ONNX (dynamic
+  shapes, in-place slice assignment) has 225 Shape, 56 Range/Where/Equal/
+  ConstantOfShape/Cast and 28 ScatterND nodes, none of which ncnn's ONNX
+  importer supports ("load param failed"). Re-exporting from the `.pth` with
+  concatenation instead of slice assignment might work; not attempted (the
+  brief was to stop there).
+- **Real-ESRGAN x4plus needs tiles at any size.** Whole-frame at 720x576 lost
+  the Vulkan device (`vkWaitForFences failed -4`, then a segfault); 512-px
+  tiles thrashed at 29 s a frame; 384 is the fastest (6.8 s a frame), 256
+  gave 10 s. x2plus runs a DVD frame whole at 0.8 fps.
+- **A tile larger than the frame segfaults VSNCNN** (found converting the
+  PSNR run: 384 tiles on a 360x288 frame). The template tiled whenever the
+  area passed the threshold, so an 800x200 picture (x4plus) — or, for every
+  AI method, a frame above 720x576 in area but under 512 lines — would have
+  crashed. Tiles are now `min(tile, width/height)`; the heavy suite runs
+  x4plus 4x on an 800x200 source.
+- **General at 2x = 4x, then resample down**, as upstream's own `--outscale`.
+  The kernel moves PSNR by under 0.7 dB, and softer kernels score higher
+  (bilinear 28.40, Spline36 27.75, Lanczos 27.70) because PSNR rewards blur;
+  Spline36 is the pipeline's kernel and was kept.
+- **Flat colour vs Spline36** on the synthetic pattern (worst channel): General
+  2.9 levels, Live Action SPAN 0.6 at 2x / 1.3 at 4x, x2plus 4.2, x4plus 12.2.
+  Bar centre within 0.3 px for all. **AI strength** 0.5 lands within 0.38
+  levels of the mid-point of network and Spline36 and halves Real-ESRGAN 4x's
+  tint (11.2 → 5.8).
+- Speed at 720x576 (fp16, two streams, quiet machine): SPAN 2x 8.9 fps, General 2x 4.0,
+  x2plus 0.9, SPAN 4x 1.5, General 4x 3.9, x4plus 4x 0.15; bundled anime
+  Real-ESRGAN 2x 8.3 and CUGAN 4.8 for scale.
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and

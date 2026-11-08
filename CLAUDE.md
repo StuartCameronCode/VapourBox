@@ -119,6 +119,7 @@ VapourBox/
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, the `--probe-rife` / `--probe-upscale` probe, and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
+| `worker/src/upscale_addons.rs` | The manifest add-on upscalers (Real-ESRGAN General, Live Action SPAN, Real-ESRGAN x4plus/x2plus): which add-on holds which model, each network's own factor (see "GPU Plugins") |
 | `worker/src/addons.rs` | Manifest add-ons (compiled in from `app/assets/addons/` by `worker/build.rs`): install state, `require`, `addon_dir` (see "Add-ons", docs/ADDONS.md) |
 | `worker/src/ai_runtime.rs` | The AI runtime add-on's `--probe-ai-runtime`: runs the self-test model through `templates/ai_runtime.py`, classifies failures |
 | `worker/templates/ai_runtime.py` | ONNX Runtime helpers for passes: `setup`, `session` (provider choice), `map_frames`, NCHW frame conversion |
@@ -1273,6 +1274,34 @@ than fail cleanly.
   `ensure_methods_ready` also refuses it when `animejanai::runtime` finds the
   models missing (`MISSING_MESSAGE`). It keeps flat colour within 0.5 levels
   (Real-ESRGAN: up to 11).
+- **Live-action models are manifest add-ons on the same block** (app 1.7.0,
+  `upscale_addons.rs`): `upscale-general` — Real-ESRGAN General
+  (`realesr-general-x4v3`, optional denoise variant `-wdn-`) and jcj83429's
+  2xLiveActionV1 SPAN (Apache-2.0, upstream's ONNX pinned at a commit) — and
+  `upscale-esrgan-plus` — Real-ESRGAN x4plus/x2plus. Real-ESRGAN publishes
+  `.pth` only: `Scripts/models/convert_realesrgan.py` converts (opset 13,
+  x2plus's `pixel_unshuffle` as a one-hot stride-2 conv, which ncnn imports)
+  and we host the ONNX on `addon-models-v1`. They run on VSNCNN, so they need
+  no `ai-runtime` and exist exactly where VSNCNN ships (asserted). Declared in
+  `required_addons()` via `UpscaleMethod::addon`; the panel prompts with
+  `upscaleAddonSelectedBy`. **Factor rules:** General is 4x only, so 2x runs
+  4x and resamples down (`{{#AI_RESAMPLE}}`, Spline36 in float RGB — as
+  upstream's `--outscale`); SPAN is 2x only, 4x runs it twice; x2plus/x4plus
+  by factor. **x4plus runs in 384-px tiles above 384x384** (`ai_tiling`):
+  whole-frame at 720x576 lost the Vulkan device on a 16 GB Mac and 512 tiles
+  thrashed (29 s a frame); ~7 s a DVD frame at 4x. **A tile never exceeds
+  the frame** (`min(tile, width/height)`, every method): a tile larger than
+  the frame in either direction segfaults VSNCNN, and a wide, short picture
+  passes the area test. Flat-colour drift vs
+  Spline36: General 2.9, SPAN 0.6 (2x) / 1.3 (4x), x2plus 4.2, x4plus 12.2.
+  2xVHS2HD (RealPLKSR) was probed and **rejected**: ncnn's importer has no
+  ScatterND/Shape/Range/Where in its ONNX (see
+  docs/reports/2026-11-ai-upscale-addons).
+- **AI strength** (`aiStrength`, 0-1, default 1) applies to every AI method:
+  one `std.Merge` of a Spline36 upscale of the same frame with the network's
+  result, at the clip's format, before the props copy (`{{#AI_STRENGTH}}`).
+  At 1.0 the block is removed and the script is byte-identical to one without
+  the field (`test_187`); 0.5 halves a model's tint (11.2 → 5.8 levels).
 - **VSNCNN is built from source on macOS and Linux** (only Windows has a
   published build): static protobuf v3.21.12 and onnx at vs-mlrt's pinned
   commit, Tencent's prebuilt ncnn 20260526, VapourSynth's API 3 headers from
