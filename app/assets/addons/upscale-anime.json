@@ -28,31 +28,31 @@
   "files": [
     {
       "name": "upscale-RealESRGANv2-animevideo-xsx2.onnx",
-      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/deps-v1.16.0-rc1/upscale-RealESRGANv2-animevideo-xsx2.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/upscale-RealESRGANv2-animevideo-xsx2.onnx",
       "size": 2407691,
       "sha256": "6fad590f96df553a5cc348a9c5129e7874504a7dcd414e4a15fb0b281fca7e0c"
     },
     {
       "name": "upscale-RealESRGANv2-animevideo-xsx4.onnx",
-      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/deps-v1.16.0-rc1/upscale-RealESRGANv2-animevideo-xsx4.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/upscale-RealESRGANv2-animevideo-xsx4.onnx",
       "size": 2490781,
       "sha256": "414de3a5da4c56652c99f3bc0b960910e3561835a6c7a9cca546475bc4792158"
     },
     {
       "name": "upscale-cugan-up2x-latest-no-denoise.onnx",
-      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/deps-v1.16.0-rc1/upscale-cugan-up2x-latest-no-denoise.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/upscale-cugan-up2x-latest-no-denoise.onnx",
       "size": 5148559,
       "sha256": "3587278c3a7e62bbcb00a23b4de291ff906f62a88856ee457cbe4211cc593574"
     },
     {
       "name": "upscale-cugan-up2x-latest-conservative.onnx",
-      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/deps-v1.16.0-rc1/upscale-cugan-up2x-latest-conservative.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/upscale-cugan-up2x-latest-conservative.onnx",
       "size": 5148559,
       "sha256": "555bca3eb90caa37c7e1a02aec9cda3ca8479f252746c1885d382f87312f651c"
     },
     {
       "name": "upscale-cugan-up2x-latest-denoise3x.onnx",
-      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/deps-v1.16.0-rc1/upscale-cugan-up2x-latest-denoise3x.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/upscale-cugan-up2x-latest-denoise3x.onnx",
       "size": 5148559,
       "sha256": "7bcb0510f9f989e681a51d39b7170883d3d5e75f1ec23ef5146e8ea50c3cc845"
     }

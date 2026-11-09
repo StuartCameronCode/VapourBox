@@ -1571,10 +1571,11 @@ by `AddonService.addonsDir`), only when the user asks. Rules:
   and hash-checked — how an add-on is tested before its files are uploaded.
   Files we convert ourselves are staged in `addon-staging/` (gitignored, with
   the conversion venv in `addon-staging/convert-venv`) and hosted on the
-  `addon-models-v1` release, which only the owner uploads to. **During 1.7.0
-  development they are hosted on the `deps-v1.16.0-rc1` prerelease** and the
-  manifests point there; `release.sh` refuses to cut an app release while any
-  manifest names an `-rc` tag (docs/ADDONS.md, "Hosting").
+  `addon-models-v1` release (not Latest), which only the owner uploads to,
+  each beside its upstream licence text (`LICENSE-<project>.txt`). While a
+  release is in development they may sit on a deps release candidate instead;
+  `release.sh` refuses to cut an app release while any manifest names an
+  `-rc` tag (docs/ADDONS.md, "Hosting").
 - **Tested for real**: `WorkerHarness.ensureAddon(id)` installs an add-on and
   its requirements with the app's own installer; `integration_ai_runtime_test.dart`
   (heavy) installs `ai-runtime` and runs the probe. `manifest_addon_test.dart`
@@ -2642,6 +2643,7 @@ Notes:
 | `Scripts/package-deps-macos.sh` | Package macOS deps |
 | `Scripts/package-deps-windows.ps1` | Package Windows deps |
 | `Scripts/package-deps-linux.sh` | Package Linux deps |
+| `Scripts/promote-deps-rc.py` | Re-stamp a tested deps release candidate's assets as the final version: names, `version.json`, delta `baseSha256`, sidecars; verifies every other entry unchanged |
 | `Scripts/make-deps-delta.py` | Cut an x64 platform's v2 delta from a full v2 build and the v3 bundle (run by the `delta-x64` job of each `build-deps-*` workflow) |
 | `Scripts/download-deps-linux.sh` | Build Linux deps from source |
 | `Scripts/run-debug-linux.sh` | Dev build + run for Linux |
@@ -2756,5 +2758,5 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.12.0 | 2026-10-04 | **Issue #101**: akarin 1.4.1 → **1.5.0** on every platform. The 1.4.1 Linux wheel put JIT code on the `brk` heap, where SELinux denies `PROT_EXEC`, so every job segfaulted on Fedora/RHEL from deps 1.8.0 on. `download-deps-linux.sh` now fails if `libakarin.so` lacks the mmap allocator |
 | 1.13.0 | 2026-10 | One new plugin; every other binary is built from the same sources as 1.12.0. Adds **vszip** 22.1.0 (MIT) for `vszip.CLAHE`, Color Correction's local contrast (issue #90). Baseline build only, flat in the plugin directory on every platform (the wheels' AVX2/AVX-512 variants are left out); macOS x64 builds the sdist with Zig 0.16.0 for the 12.0 floor, with header padding so it can be signed. The v2 CPU tier is no longer a second full bundle: each x64 platform publishes its v3 bundle plus `…-x64-v2-delta.zip`, the files in `_tierFiles` (zsmooth; on macOS also MVTools), extracted over it (`"tierFormat": "delta"`). Every x64 machine downloads the same bundle; only an older CPU fetches the few MB more. This is also what lets the Linux AppImage carry its deps for both tiers without doubling in size |
 | 1.14.0 | 2026-10-25 | Adds **RIFE** 4.26 (`r9_mod_v33`, MIT) + its model in `vapoursynth/rife/`, and **VSNCNN** (vs-mlrt v15.16, GPL-3.0) + Real-ESRGAN / Real-CUGAN models in `vapoursynth/ncnn/`, on macos-arm64, windows-x64 and linux-x64, with **MoltenVK** 1.4.2 (Apache-2.0) in `vapoursynth/moltenvk/` on macOS. Not autoloaded; see "GPU Plugins". **BM3D** r12 (MIT) on every platform; it had been macOS arm64 only (see "BM3D and KNLMeans Noise Reduction"). **descale** r12 (MIT) on every platform, for the Descale pass. (AnimeJaNai's models, used by the same VSNCNN, are an app add-on, not in the bundle). Published as the tested `deps-v1.14.0-rc1` bundles with only the version changed; every other file is byte-identical |
-| 1.16.0 (rc2) | 2026-11-08 (rc1), 2026-11-09 (rc2) | **vszip 22.1.0 → 24.0.0** on every platform (CPU `NLMeans` for Noise Reduction's NLMeans (CPU) and the vine dehalo; macOS x64 sdist now built with Zig 0.17.0). Adds **SangNom** r45 (PyPI wheels; MIT source, GPL-2.0 binaries) on every platform for Anti-aliasing's SangNom method. Both single-file on x64 (no AVX), so `_tierFiles` is unchanged. **rc2: the AI models leave the bundle** — RIFE 4.26's (now the `frame-rate-rife` add-on) and the Real-ESRGAN anime / Real-CUGAN ones (now `upscale-anime`); the plugins stay, and their probes run stand-in models. Needs a deps release before app 1.7.0 ships these methods |
+| 1.16.0 | 2026-11-09 | **vszip 22.1.0 → 24.0.0** on every platform (CPU `NLMeans` for Noise Reduction's NLMeans (CPU) and the vine dehalo; macOS x64 sdist now built with Zig 0.17.0). Adds **SangNom** r45 (PyPI wheels; MIT source, GPL-2.0 binaries) on every platform for Anti-aliasing's SangNom method. Both single-file on x64 (no AVX), so `_tierFiles` is unchanged. **rc2: the AI models leave the bundle** — RIFE 4.26's (now the `frame-rate-rife` add-on) and the Real-ESRGAN anime / Real-CUGAN ones (now `upscale-anime`); the plugins stay, and their probes run stand-in models. Published as the tested `deps-v1.16.0-rc2` bundles with only the version changed (`Scripts/promote-deps-rc.py`) |
 | 1.15.0 | 2026-11-03 | **Issue #144**: KNLMeansCL moves to Jaded Encoding Thaumaturgy's fork **v1.3** on every platform (Windows: PyPI wheel, replacing Khanattila's 2018 v1.1.1 zip, which refused 10-bit 4:2:0; macOS/Linux: the `v1.3` tag, replacing unpinned master, which gave unrepeatable results on Apple's OpenCL). Both meson patchers learn v1.3's assigned `run_command` include probe. Published as the tested `deps-v1.15.0-rc1` bundles with only the version changed |

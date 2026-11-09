@@ -3430,3 +3430,33 @@ photo (0.149) above a sharpened one (0.066).
   fall either way between float32 and f64); no verdict differs. 0.5-0.9 s on
   SD, 2.7-3.4 s at 1080p, 2.9 s at 2160p (release, M1 Pro). Untested: non-rigid motion (water, foliage), real footage
   with known halos, sources with many shots.
+
+### deps 1.16.0 and `addon-models-v1` published (2026-11-09)
+
+**deps 1.16.0** is the `deps-v1.16.0-rc2` bundles with only the version
+changed, as 1.15.0 was from its rc1. The re-stamp is now committed as
+`Scripts/promote-deps-rc.py`, which verifies every entry but `version.json`
+against the candidate (CRC, size, permissions, timestamp, compression). One
+trap it hit: Python's `zipfile` (3.15, in both `writestr` and `open(..., 'w')`)
+gives an entry whose attributes are 0 a mode of `0600`, and every entry of the
+Windows bundle (written by PowerShell) has 0, so a naive copy changed every
+Windows file's attributes. The script puts each original value back before the
+central directory is written. rc2 had passed CI on all four platforms; the
+nightly's one failure was the known KNLMeans `std::out_of_range` flake on
+linux-x64-v2 (QTGMC's KNLMeansCL path on the runner's CPU OpenCL).
+
+**`addon-models-v1`** now hosts the sixteen model files we convert or
+re-host (face restoration, colourisation, the Real-ESRGAN / Real-CUGAN
+upscalers), moved from `deps-v1.16.0-rc1` byte for byte (hashes checked against
+the manifests before upload, two re-downloaded and checked after), each family
+beside its upstream LICENSE as `LICENSE-<project>.txt` — GFPGAN's includes
+NVIDIA's Source Code License terms, which with CodeFormer's S-Lab licence
+require the text to accompany a redistributed copy. The release notes list
+every file's add-on, upstream, licence and the script that made it. The
+manifests point there; the rc1 copies were left in place.
+
+While uploading the anime models to rc1 on the same day, github.com's
+anonymous download link for one asset returned 504 for a while (a
+GitHub incident; the API served the file) — re-uploading did not help, waiting
+did. A manifest's `url` is independent of its installed `name`, so a stuck
+asset could have been re-hosted under another name without touching code.

@@ -28,13 +28,13 @@
   "files": [
     {
       "name": "upscale-realesr-general-x4v3.onnx",
-      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/deps-v1.16.0-rc1/upscale-realesr-general-x4v3.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/upscale-realesr-general-x4v3.onnx",
       "size": 4866424,
       "sha256": "f3fe05b8a48076ec0fe58143cf39f34fbc93b42197f897e329613cf8521d79d8"
     },
     {
       "name": "upscale-realesr-general-wdn-x4v3.onnx",
-      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/deps-v1.16.0-rc1/upscale-realesr-general-wdn-x4v3.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/upscale-realesr-general-wdn-x4v3.onnx",
       "size": 4866424,
       "sha256": "d0b7c5d84193670b94db88585fe2120cd48816c12f3cedfd8c803167db6b451a"
     },

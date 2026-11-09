@@ -150,13 +150,19 @@ https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1
 
 That release is created by the project owner, not by a change.
 
-**While a release is in development** (currently app 1.7.0), converted files
-are hosted on the deps release candidate instead (`deps-v1.16.0-rc1`, a
-prerelease), and the manifests point there, so CI and nightly can install
-them. Before the app release they move to `addon-models-v1` and the manifests
+Each model sits beside its upstream licence text, `LICENSE-<project>.txt`
+(the licences require it to accompany a copy), and the release notes have one
+row per file: add-on, upstream, licence, licence file, and the script that
+made it.
+
+**While a release is in development**, converted files may be hosted on the
+deps release candidate instead (a prerelease), with the manifests pointing
+there, so CI and nightly can install them before the owner uploads them for
+good. Before the app release they move to `addon-models-v1` and the manifests
 are repointed: `Scripts/release.sh` refuses to cut a release while any
 manifest downloads from an `-rc` tag, exactly as it does for
-`deps-version.json`.
+`deps-version.json`. (App 1.7.0's files moved from `deps-v1.16.0-rc1` on
+2026-11-09.)
 
 Before a file is uploaded anywhere, put it in `addon-staging/` at the repo
 root (gitignored) and test through the mirror:
@@ -321,6 +327,8 @@ it with `WorkerManager.probeAiRuntime()` → `AiRuntimeStatus`.
 7. **Upload** (the owner): attach the files in `addon-staging/` to the
    `addon-models-v1` release (`gh release upload addon-models-v1 <files>`;
    the release is created once with `--latest=false`, like every deps and
-   whisper release, so it never takes Latest from the app). Never replace a
+   whisper release, so it never takes Latest from the app). Attach the
+   upstream licence as `LICENSE-<project>.txt` if it is not there yet, and add
+   the file's row to the release notes. Never replace a
    file a released manifest already pins — a changed file gets a new name and
    the manifest a new `version`. Then run the test again without the mirror.

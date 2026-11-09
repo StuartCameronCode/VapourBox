@@ -17,7 +17,7 @@
   "files": [
     {
       "name": "colorize-deoldify-video.onnx",
-      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/deps-v1.16.0-rc1/colorize-deoldify-video.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/colorize-deoldify-video.onnx",
       "size": 872841884,
       "sha256": "aadb46c7d44af94ba0d01b1d3069f90ec83d08c14c60f0d203b3962094835e5a"
     }
