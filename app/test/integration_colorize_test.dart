@@ -198,7 +198,10 @@ void main() {
     // neighbours (two either side) are the preview's.
     for (final frame in [_start + 2, _start + 10]) {
       final pv = await WorkerHarness.runPreview(_job('preview', cz, trimmed: false), frame: frame,
-          timeout: const Duration(minutes: 5));
+          // Same budget as _encode: on the Intel-Mac VMs Core ML falls back to
+          // the CPU, and the v2 runner's first frame alone can take ~10 min.
+          timeout: const Duration(minutes: 20),
+          extraEnv: const {'VAPOURBOX_STALL_TIMEOUT_SECS': '1200'});
       expect(pv.success, isTrue, reason: '${pv.error}\n${pv.logs}');
       final preview = await WorkerHarness.imageToRgb24(pv.png!, label: 'cz_pv');
       final encoded = await WorkerHarness.frameRgb24(out, frame - _start, label: 'cz_enc');
@@ -210,5 +213,5 @@ void main() {
       expect(diff, lessThan(0.5), reason: 'the preview shows a different picture');
       expect(coloured, greaterThan(diff * 4), reason: 'the comparison cannot tell coloured from not');
     }
-  });
+  }, timeout: const Timeout(Duration(minutes: 75)));
 }

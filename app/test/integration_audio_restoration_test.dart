@@ -27,8 +27,8 @@ const _rate = 48000;
 const _clickExpr = "aevalsrc='0.8*sin(2*PI*3000*t)*(lt(mod(t\\,0.7)\\,0.003)+lt(mod(t+0.23\\,1.1)\\,0.003))'";
 
 /// Encode [job] and return the output path, failing with the worker's log.
-Future<String> _encode(Map<String, dynamic> job) async {
-  final result = await WorkerHarness.runJob(job, label: job['outputPath'] as String);
+Future<String> _encode(Map<String, dynamic> job, {Duration timeout = const Duration(minutes: 5)}) async {
+  final result = await WorkerHarness.runJob(job, label: job['outputPath'] as String, timeout: timeout);
   expect(result.success, isTrue,
       reason: '${result.error}\n${result.logs.where((l) => !l.contains('"debug"')).join('\n')}');
   return result.outputPath!;
@@ -281,7 +281,9 @@ void main() {
             'inputPixelFormat': video['pix_fmt'],
             'subtitleSettings': {'enabled': true, 'model': 'small', 'output': 'srt_file', 'language': 'en'},
           });
-      final out = await _encode(job);
+      // Whisper's small model on 30 s of sound reached 82% in the harness's
+      // default 5 min on the linux-x64-v2 runner.
+      final out = await _encode(job, timeout: const Duration(minutes: 15));
       final srt = File(p.setExtension(out, '.srt')).readAsStringSync().replaceAll('\r\n', '\n');
       final byText = <String, List<double>>{};
       for (final block in srt.split(RegExp(r'\n\s*\n'))) {
@@ -308,7 +310,7 @@ void main() {
         reason: 'too few cues transcribed alike to compare: $plain / $delayed');
     expect(shifts[shifts.length ~/ 2], closeTo(2.0, 0.6),
         reason: 'cue shifts $shifts (cues $plain, then $delayed)');
-  }, timeout: const Timeout(Duration(minutes: 15)));
+  }, timeout: const Timeout(Duration(minutes: 35)));
 
   test('DeepFilterNet lowers stationary noise and keeps the timing', () async {
     await WorkerHarness.ensureAddon('deepfilternet');
