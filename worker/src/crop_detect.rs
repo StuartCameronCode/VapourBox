@@ -814,6 +814,11 @@ pub fn report_from(analysis: &Analysis, job: &VideoJob, frames: Vec<i32>, interl
 /// Which frames to sample: `SAMPLE_FRAMES` spread through the clip or its
 /// trim, leaving the first and last 5 % (titles, fades).
 pub fn sample_frames(total: Option<u64>, start: Option<u64>, end: Option<u64>) -> Vec<i32> {
+    sample_frames_n(SAMPLE_FRAMES, total, start, end)
+}
+
+/// [`sample_frames`] with `count` samples instead of `SAMPLE_FRAMES`.
+pub fn sample_frames_n(count: usize, total: Option<u64>, start: Option<u64>, end: Option<u64>) -> Vec<i32> {
     let first = start.unwrap_or(0);
     let last = match (end, total) {
         (Some(e), _) => e,
@@ -824,8 +829,8 @@ pub fn sample_frames(total: Option<u64>, start: Option<u64>, end: Option<u64>) -
         return vec![first as i32];
     }
     let span = (last - first) as f64;
-    let mut frames: Vec<i32> = (0..SAMPLE_FRAMES)
-        .map(|i| (first as f64 + span * (0.05 + 0.9 * (i as f64 + 0.5) / SAMPLE_FRAMES as f64)).round() as i32)
+    let mut frames: Vec<i32> = (0..count)
+        .map(|i| (first as f64 + span * (0.05 + 0.9 * (i as f64 + 0.5) / count as f64)).round() as i32)
         .collect();
     frames.dedup();
     frames
@@ -839,28 +844,39 @@ pub fn is_interlaced(job: &VideoJob) -> bool {
     )
 }
 
-/// Decode the sample frames and measure them.
-pub fn detect(deps: &DependencyLocator, job: &VideoJob) -> Result<CropReport> {
+/// The job's probed frame size, or the error every detector reports.
+pub fn frame_size(job: &VideoJob) -> Result<(i32, i32)> {
+    match (job.input_width, job.input_height) {
+        (Some(w), Some(h)) if w > 0 && h > 0 => Ok((w, h)),
+        _ => bail!("The video's size is unknown; re-add it to the queue."),
+    }
+}
+
+/// Decode `count` consecutive frames from each of `frames` (source frame
+/// numbers) as raw `pix_fmt`, a few decoders at a time (each seeks on its
+/// own), and turn each decoder's output into a `T` with `parse` (`None` for a
+/// short decode). A sample that fails is skipped as long as enough others
+/// decode; the samples that did come back are returned in order. Shared by
+/// the detectors (`--detect-crop`, `--detect-noise-halo`), so they sample and
+/// decode the same way: the stored frame at its probed size, never resampled.
+pub fn decode_samples<T: Send>(
+    deps: &DependencyLocator,
+    job: &VideoJob,
+    frames: &[i32],
+    count: i32,
+    pix_fmt: &str,
+    parse: impl Fn(&[u8]) -> Option<T> + Sync,
+) -> Result<Vec<T>> {
     let ffmpeg = deps.ffmpeg_path()?;
     let env = deps.build_environment();
-    let (width, height) = match (job.input_width, job.input_height) {
-        (Some(w), Some(h)) if w > 0 && h > 0 => (w, h),
-        _ => bail!("The video's size is unknown; re-add it to the queue."),
-    };
+    let (width, height) = frame_size(job)?;
     let fps = job.input_frame_rate.filter(|f| *f > 0.0).unwrap_or(29.97);
-    let frames = sample_frames(
-        job.total_frames.map(|f| f.max(0) as u64),
-        job.start_frame.map(|f| f.max(0) as u64),
-        job.end_frame.map(|f| f.max(0) as u64),
-    );
-    let frame_bytes = (width * height * 3) as usize;
 
-    // A few decoders at a time: each seeks on its own.
-    let decode = |frame: i32| -> Result<Frame> {
+    let decode = |frame: i32| -> Result<T> {
         let seek = ((frame as f64 - 0.5) / fps).max(0.0);
         let out = Command::new(&ffmpeg)
             .args(source_decode::preview_decoder_args(
-                &job.input_path, seek, 1, width, height, "yuv444p", "pipe:1",
+                &job.input_path, seek, count, width, height, pix_fmt, "pipe:1",
             ))
             .envs(&env)
             .stdin(Stdio::null())
@@ -868,19 +884,19 @@ pub fn detect(deps: &DependencyLocator, job: &VideoJob) -> Result<CropReport> {
             .stderr(Stdio::piped())
             .output()
             .context("running ffmpeg")?;
-        if !out.status.success() || out.stdout.len() < frame_bytes {
+        if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr);
             if let Some(msg) = source_decode::explain_decoder_failure(&stderr, width, height) {
                 bail!("{msg}");
             }
             bail!("Could not decode frame {frame}: {stderr}");
         }
-        Frame::from_yuv444p(&out.stdout, width as usize, height as usize)
-            .context("short decode")
+        parse(&out.stdout).with_context(|| format!("short decode at frame {frame}"))
     };
+    let decode = &decode;
     let mut decoded = Vec::new();
     for chunk in frames.chunks(4) {
-        let results: Vec<Result<Frame>> = std::thread::scope(|scope| {
+        let results: Vec<Result<T>> = std::thread::scope(|scope| {
             let handles: Vec<_> = chunk.iter().map(|&f| scope.spawn(move || decode(f))).collect();
             handles.into_iter().map(|h| h.join().unwrap_or_else(|_| bail!("decoder thread panicked"))).collect()
         });
@@ -889,7 +905,7 @@ pub fn detect(deps: &DependencyLocator, job: &VideoJob) -> Result<CropReport> {
                 Ok(f) => decoded.push(f),
                 // A frame past a damaged stretch is not worth failing for, as
                 // long as enough others decode.
-                Err(e) if decoded.len() + frames.len() > 6 => eprintln!("crop detect: {e:#}"),
+                Err(e) if decoded.len() + frames.len() > 6 => eprintln!("detect: {e:#}"),
                 Err(e) => return Err(e),
             }
         }
@@ -897,6 +913,20 @@ pub fn detect(deps: &DependencyLocator, job: &VideoJob) -> Result<CropReport> {
     if decoded.is_empty() {
         bail!("No frames could be decoded.");
     }
+    Ok(decoded)
+}
+
+/// Decode the sample frames and measure them.
+pub fn detect(deps: &DependencyLocator, job: &VideoJob) -> Result<CropReport> {
+    let (width, height) = frame_size(job)?;
+    let frames = sample_frames(
+        job.total_frames.map(|f| f.max(0) as u64),
+        job.start_frame.map(|f| f.max(0) as u64),
+        job.end_frame.map(|f| f.max(0) as u64),
+    );
+    let decoded = decode_samples(deps, job, &frames, 1, "yuv444p", |bytes| {
+        Frame::from_yuv444p(bytes, width as usize, height as usize)
+    })?;
     let interlaced = is_interlaced(job);
     let analysis = analyse(&decoded, interlaced, job.color_metadata().is_full_range());
     Ok(report_from(&analysis, job, frames, interlaced))
