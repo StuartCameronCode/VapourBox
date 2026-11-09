@@ -1,0 +1,33 @@
+{
+  "id": "frame-rate-rife",
+  "version": "1.0.0",
+  "name": "RIFE 4.26 interpolation model",
+  "feature": "Frame rate conversion",
+  "description": "The neural network behind the Frame Rate pass's AI interpolation (RIFE): it invents the in-between frames of a frame rate conversion on the graphics card, with fewer warping artefacts than motion interpolation.",
+  "licence": "MIT",
+  "licenceUrl": "https://github.com/hzwer/Practical-RIFE/blob/main/LICENSE",
+  "credit": "hzwer",
+  "noticeName": "RIFE 4.26 model",
+  "homepage": "https://github.com/hzwer/Practical-RIFE",
+  "requires": [],
+  "kind": "files",
+  "platforms": {
+    "macos-arm64": {},
+    "windows-x64": {},
+    "linux-x64": {}
+  },
+  "files": [
+    {
+      "name": "rife-v4.26_ensembleFalse/flownet.param",
+      "url": "https://raw.githubusercontent.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/96fdcecdf982ef3237e16e2b105eea849fa022ab/models/rife-v4.26_ensembleFalse/flownet.param",
+      "size": 67885,
+      "sha256": "79f16c28903f93f8308f0c4c947f8c7e0c17d99a57b85473e5f298dd578d137b"
+    },
+    {
+      "name": "rife-v4.26_ensembleFalse/flownet.bin",
+      "url": "https://raw.githubusercontent.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/96fdcecdf982ef3237e16e2b105eea849fa022ab/models/rife-v4.26_ensembleFalse/flownet.bin",
+      "size": 11360684,
+      "sha256": "94d58e30b75d7c7609cfa6f3bdad524deddd14f5f75e85c36d2f827ef5c64731"
+    }
+  ]
+}

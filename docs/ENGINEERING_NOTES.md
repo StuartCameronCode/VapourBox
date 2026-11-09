@@ -3340,3 +3340,55 @@ the Windows and Linux bundles. That now has to be checked by hand on a machine
 with a GPU (`VAPOURBOX_EXPECT_VULKAN=1 flutter test --tags gpu`), as MoltenVK
 always was.
 
+### RIFE's and the anime upscalers' models leave the deps bundle; probes on stand-in models (2026-11-09, deps 1.16.0 rc2)
+
+The 2026-11-08 policy (every AI model an add-on) had two exceptions left from
+deps 1.14.0: RIFE 4.26's model in `vapoursynth/rife/models/` (11 MB) and
+vs-mlrt's Real-ESRGAN anime / Real-CUGAN ONNX files in
+`vapoursynth/ncnn/models/` (20 MB). They are now the `frame-rate-rife` and
+`upscale-anime` manifest add-ons; the plugins (librife, VSNCNN, MoltenVK)
+stay in the bundle. Mechanism findings, read from the pinned sources and
+checked on an M1 Pro against the deps 1.16.0-rc1 bundle with its model
+directories deleted (groundwork, not a comparison, so no report):
+
+- **RIFE's model directory name is load-bearing.** The plugin
+  (`styler00dollar/VapourSynth-RIFE-ncnn-Vulkan` r9_mod_v33, `plugin.cpp`)
+  decides the model family from substrings of `model_path` (`rife-v2`,
+  `rife-v3.9`, `rife-v3`, `rife-v4`, `rife4`) and the padding from more
+  (`rife-v4.25` 64, `rife-v4.25-lite` 128, `rife-v4.26` 64, else 32). An
+  add-on id cannot hold a dot, so the manifest format now allows a file
+  `name` to be a relative path of plain names, and the add-on installs as
+  `addons/frame-rate-rife/rife-v4.26_ensembleFalse/flownet.{param,bin}`.
+- **VSNCNN takes a model as bytes**: `network_path` with
+  `path_is_serialization=True` (vs-mlrt v15.16 `vs_ncnn.cpp`). `loadONNX`
+  needs one 4-D input and output; it fixes N/H/W itself, so dynamic dims
+  (`n`, `h`, `w`) are fine. A 264-byte ONNX (`Tests/TestResources/
+  ncnn_selftest.onnx`, one 1x1 Conv swapping channels 0 and 2, bias 0.125)
+  ran on Metal through MoltenVK: input (0.2, 0.4, 0.6) gave
+  (0.72510, 0.52490, 0.32495) with `fp16=True` (exact: 0.725, 0.525, 0.325).
+- **RIFE runs a weightless stand-in.** Its v4 path feeds `in0`, `in1` (the
+  two padded frames, 0-255), `in2` (the timestep plane) and extracts `out0`,
+  through its own preproc / timestep / postproc shaders. A two-layer ncnn
+  param file (`BinaryOp` add of `in0`+`in1`, then multiply by 0.5) with an
+  empty `flownet.bin`, in a directory named `rife-v4.26_selftest`, turned
+  frames (0.2, 0.4, 0.6) and (0.6, 0.4, 0.2) into exactly 0.4 in every
+  channel at frame 1 of a 25 → 50 retime.
+- So both probes now run a stand-in network and check the answer
+  (`WrongResult` if the GPU computes garbage, tolerance 0.01), and report
+  available on a bundle with no model in it and no model add-on installed.
+  "Can't run here" (no Vulkan, missing VC++/libgomp, old CPU) is therefore
+  known before the user downloads anything; a missing add-on is a separate
+  refusal, through `required_addons()`, naming the add-on and Settings →
+  Add-ons. A stand-in that fails to load (`failed to load model`, `load param
+  failed`) is now `LoadFailed`, not `NotInstalled`: nothing the user installs
+  would fix it.
+- The anime models are hosted by us, byte for byte as vs-mlrt ships them
+  (same SHA-256 as the deps scripts pinned), because vs-mlrt publishes them
+  only inside `models.v15.16.7z` (~810 MB). RIFE's come from upstream's
+  repository at the commit the deps scripts pinned.
+- Upgrade path: deps 1.14/1.15 users are moved to 1.16.0 by the app anyway,
+  which removes the bundled copies. A saved pipeline with RIFE or an anime
+  upscaler selected shows the add-on notice with a Download button in its
+  panel, prompts when the pass is switched on, and a job is refused with the
+  add-on's name rather than failing in the plugin. No built-in preset selects
+  either.

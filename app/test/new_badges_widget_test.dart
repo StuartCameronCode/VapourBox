@@ -78,7 +78,7 @@ void main() {
 
     await tester.tap(find.text('NNEDI3').last);
     await tester.pumpAndSettle();
-    for (final o in ['Real-ESRGAN', 'Real-CUGAN', 'AnimeJaNai (download, non-commercial)']) {
+    for (final o in ['Real-ESRGAN (download)', 'Real-CUGAN (download)', 'AnimeJaNai (download, non-commercial)']) {
       expect(badged(tester, o), isTrue, reason: o);
     }
     expect(badged(tester, 'EEDI3'), isFalse, reason: 'shipped in 1.4.0');

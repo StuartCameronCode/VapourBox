@@ -289,7 +289,7 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan',
                       ),
                       _ComponentTile(
-                        name: 'RIFE 4.26 model',
+                        name: 'RIFE 4.26 model (optional download, frame rate add-on)',
                         license: 'MIT',
                         copyright: 'hzwer; architecture by Megvii Inc.',
                         url: 'https://github.com/hzwer/Practical-RIFE',
@@ -310,8 +310,8 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/AmusementClub/vs-mlrt',
                       ),
                       _ComponentTile(
-                        name: 'Real-ESRGAN anime video model',
-                        license: 'BSD 3-Clause',
+                        name: 'Real-ESRGAN anime video model (optional download, upscaling add-on)',
+                        license: 'BSD-3-Clause',
                         copyright: 'Xintao Wang',
                         url: 'https://github.com/xinntao/Real-ESRGAN',
                       ),
@@ -388,7 +388,7 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/xinntao/Real-ESRGAN',
                       ),
                       _ComponentTile(
-                        name: 'Real-CUGAN models',
+                        name: 'Real-CUGAN models (optional download, upscaling add-on)',
                         license: 'MIT',
                         copyright: 'bilibili',
                         url: 'https://github.com/bilibili/ailab/tree/main/Real-CUGAN',

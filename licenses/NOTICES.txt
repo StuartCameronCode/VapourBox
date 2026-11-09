@@ -252,7 +252,7 @@ RIFE (VapourSynth-RIFE-ncnn-Vulkan) — MIT
   https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan
   Provides core.rife.RIFE, the Frame Rate pass's "AI interpolation" method.
   Shipped on macOS arm64, Windows x64 and Linux x64 only, in
-  vapoursynth/rife/. Based on rife-ncnn-vulkan:
+  vapoursynth/rife/ (the plugin only; its model is an add-on, below). Based on rife-ncnn-vulkan:
     rife-ncnn-vulkan — MIT, Copyright (c) 2020 nihui
       https://github.com/nihui/rife-ncnn-vulkan
   The binary statically includes:
@@ -275,8 +275,11 @@ RIFE 4.26 model — MIT
   ECCV 2022 paper's code:
     ECCV2022-RIFE — MIT, Copyright (c) Megvii Inc.
       https://github.com/hzwer/ECCV2022-RIFE
-  Shipped as the ncnn conversion (flownet.param / flownet.bin) published in
-  the VapourSynth-RIFE-ncnn-Vulkan repository, under its licence above.
+  NOT distributed with VapourBox: the optional "RIFE 4.26 interpolation model"
+  add-on, which the app downloads only when the user asks (Settings → Add-ons,
+  or on choosing AI interpolation). It is the ncnn conversion (flownet.param /
+  flownet.bin) published in the VapourSynth-RIFE-ncnn-Vulkan repository, under
+  its licence above, fetched from there at a pinned commit, unmodified.
 
 MoltenVK — Apache-2.0
   Copyright (c) 2015-2026 The Brenwill Workshop Ltd.
@@ -289,8 +292,8 @@ VSNCNN (vs-mlrt) — GPL-3.0
   No copyright notice is given upstream; published by AmusementClub
   https://github.com/AmusementClub/vs-mlrt
   Licence text: GPL-3.0.txt
-  Provides core.ncnn.Model, which runs Crop & Resize's AI upscaling
-  (Real-ESRGAN / Real-CUGAN). Shipped on macOS arm64, Windows x64 and Linux
+  Provides core.ncnn.Model, which runs Crop & Resize's AI upscaling (every
+  model it runs is an add-on). Shipped on macOS arm64, Windows x64 and Linux
   x64 only, in vapoursynth/ncnn/: built from the v15.16 source on macOS and
   Linux, vs-mlrt's own build on Windows. The binary statically includes:
     ncnn — BSD 3-Clause, Copyright (C) 2017 Tencent. All rights reserved.
@@ -311,11 +314,17 @@ VSNCNN (vs-mlrt) — GPL-3.0
       https://github.com/llvm/llvm-project/tree/main/openmp
       Licence text: Apache-2.0-LLVM-Exception.txt
 
-Real-ESRGAN anime video model — BSD 3-Clause
+Real-ESRGAN anime video model — BSD-3-Clause
   Copyright (c) 2021, Xintao Wang
   https://github.com/xinntao/Real-ESRGAN
-  The trained network weights of realesr-animevideov3, at 2x and 4x. Shipped as
-  vs-mlrt's ONNX conversions (RealESRGANv2-animevideo-xsx2/xsx4.onnx).
+  The trained network weights of realesr-animevideov3, at 2x and 4x, used by
+  the Real-ESRGAN upscaler. NOT distributed with VapourBox: part of the
+  optional "Real-ESRGAN anime & Real-CUGAN models" add-on, which the app
+  downloads only when the user asks (Settings → Add-ons, or on choosing the
+  upscaler). The files are vs-mlrt's ONNX conversions
+  (RealESRGANv2-animevideo-xsx2/xsx4.onnx), unmodified, hosted individually by
+  this project because vs-mlrt publishes them only inside one ~810 MB archive;
+  redistributed under the BSD 3-Clause licence whose text is given below.
 
 AnimeJaNai models — CC BY-NC-SA 4.0 (non-commercial)
   By the-database (GitHub); upstream names no other copyright holder.
@@ -462,7 +471,11 @@ Real-CUGAN models — MIT
   Copyright (c) 2022 bilibili
   https://github.com/bilibili/ailab/tree/main/Real-CUGAN
   The trained network weights of the 2x models (no-denoise, conservative,
-  denoise3x). Shipped as vs-mlrt's ONNX conversions (up2x-latest-*.onnx).
+  denoise3x), used by the Real-CUGAN upscaler. NOT distributed with VapourBox:
+  part of the optional "Real-ESRGAN anime & Real-CUGAN models" add-on, which
+  the app downloads only when the user asks. The files are vs-mlrt's ONNX
+  conversions (up2x-latest-*.onnx), unmodified, hosted individually by this
+  project.
 
 DFTTest — GPL-3.0
   Copyright (C) 2007-2010 Kevin Stone (tritical); VapourSynth port by HolyWu

@@ -121,6 +121,31 @@ void main() {
       expect(dir.existsSync(), isFalse);
     });
 
+    test('a file can install into a subdirectory, as RIFE\'s model must', () async {
+      // RIFE reads the model's version (and with it the padding) from its
+      // directory name, so frame-rate-rife.json installs into one.
+      final m = AddonManifest.fromJson(_manifest(files: [
+        _entry('rife-v4.26_x/flownet.param', model),
+        _entry('rife-v4.26_x/flownet.bin', other),
+      ]));
+      final server = _Serve({
+        'https://example.invalid/dl/rife-v4.26_x/flownet.param': model,
+        'https://example.invalid/dl/rife-v4.26_x/flownet.bin': other,
+      });
+      final service = AddonService.forTest(
+          addonsDir: addons, installers: [newInstaller(m, 'linux-x64')], downloader: server);
+      await service.load();
+      expect(await service.install('test-addon'), isTrue);
+      final dir = p.join(addons.path, 'test-addon', 'rife-v4.26_x');
+      expect(File(p.join(dir, 'flownet.param')).readAsBytesSync(), model);
+      expect(File(p.join(dir, 'flownet.bin')).readAsBytesSync(), other);
+      expect(service.isInstalled('test-addon'), isTrue);
+      // A missing file in the subdirectory is a damaged install.
+      File(p.join(dir, 'flownet.bin')).deleteSync();
+      await service.refresh();
+      expect(service.isInstalled('test-addon'), isFalse);
+    });
+
     test('only this platform\'s files are fetched', () async {
       final m = AddonManifest.fromJson(_manifest(
           platforms: {'linux-x64': {}, 'windows-x64': {}},
@@ -338,6 +363,14 @@ void main() {
       bad((j) => (j['files'] as List).first['sha256'] = 'abc', 'short hash');
       bad((j) => (j['files'] as List).first['url'] = 'http://example.invalid/a', 'plain http');
       bad((j) => (j['files'] as List).first['name'] = '../a.onnx', 'path in a name');
+      bad((j) => (j['files'] as List).first['name'] = 'd/../../a.onnx', 'escaping subdirectory');
+      bad((j) => (j['files'] as List).first['name'] = '/a.onnx', 'absolute path');
+      bad((j) => (j['files'] as List).first['name'] = 'd//a.onnx', 'empty segment');
+      bad((j) => (j['files'] as List).first['name'] = r'd\a.onnx', 'backslash');
+      expect(
+          AddonManifest.fromJson(_manifest(files: [_entry('d/a.onnx', model)])).files.single.name,
+          'd/a.onnx',
+          reason: 'a relative path of plain names is allowed');
       bad((j) => j['platforms'] = {'windows-arm64': {}}, 'unknown platform');
       bad((j) {
         j['platforms'] = {'linux-x64': {}, 'macos-arm64': {}};

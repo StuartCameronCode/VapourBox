@@ -282,14 +282,14 @@
           "nnedi3Rpow2": "NNEDI3",
           "eedi3Rpow2": "EEDI3",
           "spline36": "Spline36",
-          "realEsrgan": "Real-ESRGAN",
-          "realCugan": "Real-CUGAN",
+          "realEsrgan": "Real-ESRGAN (download)",
+          "realCugan": "Real-CUGAN (download)",
           "animeJanai": "AnimeJaNai (download, non-commercial)",
           "realEsrganGeneral": "Real-ESRGAN General (download)",
           "liveAction": "Live Action SPAN (download)",
           "realEsrganPlus": "Real-ESRGAN x4plus (download, slow)"
         },
-        "description": "How the picture is enlarged. NNEDI3 is the usual choice, an edge-directed doubler that runs anywhere; EEDI3 is slower and follows near-horizontal edges better (it uses NNEDI3 to guide its search); Spline36 is plain resampling with no edge direction. Real-ESRGAN and Real-CUGAN are neural upscalers trained on anime: they redraw clean line art rather than interpolating it, and run on the graphics card (Vulkan). Real-ESRGAN is sharper and faster; Real-CUGAN is gentler and can remove noise as it goes. AnimeJaNai, trained on HD anime, keeps colour almost exactly and comes in three speeds; it is a separate download, free for non-commercial use only. For live action and other real-world footage there are three more, each a separate download: Real-ESRGAN General, fast and sharp, which redraws texture and can remove noise too; Live Action SPAN, trained on film and video to repair compression, blur and halos while keeping detail and colour (it cannot handle VHS damage — use it on DVD, broadcast or digital sources); and Real-ESRGAN x4plus, the most detailed and very slow. Use them after deinterlacing: on a combed picture they sharpen the combing too",
+        "description": "How the picture is enlarged. NNEDI3 is the usual choice, an edge-directed doubler that runs anywhere; EEDI3 is slower and follows near-horizontal edges better (it uses NNEDI3 to guide its search); Spline36 is plain resampling with no edge direction. Real-ESRGAN and Real-CUGAN are neural upscalers trained on anime: they redraw clean line art rather than interpolating it, and run on the graphics card (Vulkan). Real-ESRGAN is sharper and faster; Real-CUGAN is gentler and can remove noise as it goes. Their models are one small separate download (20 MB), offered when you choose either. AnimeJaNai, trained on HD anime, keeps colour almost exactly and comes in three speeds; it is a separate download, free for non-commercial use only. For live action and other real-world footage there are three more, each a separate download: Real-ESRGAN General, fast and sharp, which redraws texture and can remove noise too; Live Action SPAN, trained on film and video to repair compression, blur and halos while keeping detail and colour (it cannot handle VHS damage — use it on DVD, broadcast or digital sources); and Real-ESRGAN x4plus, the most detailed and very slow. Use them after deinterlacing: on a combed picture they sharpen the combing too",
         "widget": "dropdown",
         "visibleWhen": {
           "useIntegerUpscale": true

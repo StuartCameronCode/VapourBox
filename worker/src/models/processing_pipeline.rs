@@ -602,6 +602,13 @@ impl ProcessingPipeline {
         if let Some((id, feature)) = self.crop_resize.upscale_addon() {
             needs.push(crate::addons::AddonNeed { feature, ids: vec![id] });
         }
+        // RIFE's model (the plugin is in the deps bundle; see `gpu_plugin.rs`).
+        if self.uses_rife() {
+            needs.push(crate::addons::AddonNeed {
+                feature: "AI interpolation (RIFE)",
+                ids: vec![crate::gpu_plugin::RIFE_ADDON],
+            });
+        }
         needs
     }
 

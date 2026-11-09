@@ -117,9 +117,9 @@ VapourBox/
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded (see "Source Frame Size") |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
-| `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, the `--probe-rife` / `--probe-upscale` probe, and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
+| `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, RIFE's model add-on, the `--probe-rife` / `--probe-upscale` probe (on stand-in models, no add-on needed), and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
-| `worker/src/upscale_addons.rs` | The manifest add-on upscalers (Real-ESRGAN General, Live Action SPAN, Real-ESRGAN x4plus/x2plus): which add-on holds which model, each network's own factor (see "GPU Plugins") |
+| `worker/src/upscale_addons.rs` | The manifest add-on upscalers (Real-ESRGAN anime, Real-CUGAN, Real-ESRGAN General, Live Action SPAN, Real-ESRGAN x4plus/x2plus): which add-on holds which model, each network's own factor (see "GPU Plugins") |
 | `worker/src/addons.rs` | Manifest add-ons (compiled in from `app/assets/addons/` by `worker/build.rs`): install state, `require`, `addon_dir` (see "Add-ons", docs/ADDONS.md) |
 | `worker/src/ai_runtime.rs` | The AI runtime add-on's `--probe-ai-runtime`: runs the self-test model through `templates/ai_runtime.py`, classifies failures |
 | `worker/templates/ai_runtime.py` | ONNX Runtime helpers for passes: `setup`, `session` (provider choice), `map_frames`, NCHW frame conversion, `to_rgbs`/`from_rgbs`, `shifted`, `FrameMemo`, `Runner` |
@@ -1257,8 +1257,20 @@ usable Vulkan implementation ncnn can segfault** (RIFE does, in
 `ncnn::create_gpu_instance`; VSNCNN raises "get_gpu_device failed") rather
 than fail cleanly.
 
-- **Never autoloaded.** RIFE and its model live in `vapoursynth/rife/`, VSNCNN
-  and its models in `vapoursynth/ncnn/`, and on macOS the MoltenVK both use in
+- **Plugins in the bundle, models in add-ons (deps 1.16.0).** RIFE's model
+  is the `frame-rate-rife` add-on (upstream's ncnn conversion, fetched from
+  the plugin's repo at a pinned commit, installed under
+  `rife-v4.26_ensembleFalse/` because the plugin reads the model version — and
+  its padding — from substrings of that path); Real-ESRGAN anime and
+  Real-CUGAN are `upscale-anime` (vs-mlrt's ONNX files, byte for byte, which
+  we host because vs-mlrt publishes them only in an ~810 MB archive). Both are
+  declared in `ProcessingPipeline::required_addons()` and refused through
+  `addons::require` like every add-on; the panels prompt via
+  `modelAddonSelectedBy`, on choosing the method and on switching the pass
+  on. `attribution_test.dart` fails if the bundle lists a model or a
+  `download-deps-*` script fetches one.
+- **Never autoloaded.** RIFE lives in `vapoursynth/rife/`, VSNCNN in
+  `vapoursynth/ncnn/`, and on macOS the MoltenVK both use in
   `vapoursynth/moltenvk/` — all outside the plugin directory. The templates
   `LoadPlugin` them inside `{{#FRAME_RATE_RIFE}}` / `{{#UPSCALE_AI}}` only, so
   a missing runtime DLL, a broken driver or AVX in a static initializer can
@@ -1268,7 +1280,13 @@ than fail cleanly.
   first call: both dylibs leave `vkGetInstanceProcAddr` to whatever is already
   in the process.
 - **One probe, one wording.** `gpu_plugin.rs` prechecks the platform and files,
-  then runs the plugin once in a throwaway vspipe, printing stage markers so a
+  then runs the plugin once in a throwaway vspipe on a **stand-in network of
+  its own** — never an add-on, so "can't run here" is known before anything
+  is downloaded: VSNCNN gets `NCNN_SELFTEST_MODEL` (264 bytes, a 1x1 conv,
+  `Scripts/models/make_ncnn_selftest.py`) as bytes
+  (`path_is_serialization=True`), RIFE a two-layer weightless `flownet` with
+  its v4 blobs written beside the script — and checks the answer (a wrong one
+  is `WrongResult`). It prints stage markers so a
   silent crash still says where it died, and classifies the result into a
   `GpuPluginReason` with a user-facing remedy (`GpuPluginStatus::message`,
   naming the feature). The app shows that text the moment the feature is
@@ -1303,8 +1321,9 @@ than fail cleanly.
   mistakes on one clip but missed cuts between dark shots; switching needs
   more footage first. See docs/ENGINEERING_NOTES.md (2026-11-03).
 - **Upscaling: models, factors, tiles.** Five of vs-mlrt's ONNX conversions
-  ship (`gpu_plugin::UPSCALE_MODELS`): Real-ESRGAN animevideo 2x/4x and
-  Real-CUGAN 2x at three strengths. Factors follow the edge-directed path's
+  are the `upscale-anime` add-on (`upscale_addons::MODELS`, files prefixed
+  `upscale-`): Real-ESRGAN animevideo 2x/4x and Real-CUGAN 2x at three
+  strengths. Factors follow the edge-directed path's
   rule (3x behaves as 2x); CUGAN 4x is its 2x model twice, denoising on the
   first pass only (`CropResizeParameters::ai_upscale_models`). Above SD the
   frame runs in 512-px tiles with 16 px overlap — whole-frame CUGAN at 1080p
@@ -1352,9 +1371,8 @@ than fail cleanly.
 - **VSNCNN is built from source on macOS and Linux** (only Windows has a
   published build): static protobuf v3.21.12 and onnx at vs-mlrt's pinned
   commit, Tencent's prebuilt ncnn 20260526, VapourSynth's API 3 headers from
-  the R78 tag. Models come from vs-mlrt's ~810 MB `models.vX.7z` (the only
-  place they are published), extracted in one pass and each checked by hash.
-  Every pin and hash is in all three `download-deps-*` scripts.
+  the R78 tag. Every pin is in all three `download-deps-*` scripts, which
+  install no model.
 - **Tests that need a Vulkan device are tagged `gpu`, and CI leaves them
   out.** The hosted runners have no GPU, so the push gate runs
   `--exclude-tags heavy,gpu` and nightly `--tags heavy --exclude-tags
@@ -1379,7 +1397,7 @@ than fail cleanly.
   Restoration, Colourisation) are not `gpu`: they run on the CPU provider
   where there is no GPU, which is a path users take.
 
-See docs/ENGINEERING_NOTES.md (2026-10-24, 2026-10-25) for the measurements.
+See docs/ENGINEERING_NOTES.md (2026-10-24, 2026-10-25, 2026-11-09) for the measurements.
 
 ### Descale
 
@@ -1478,7 +1496,9 @@ by `AddonService.addonsDir`), only when the user asks. Rules:
 - **Tested against the real download**: `WorkerHarness.ensureAnimeJanai()`
   installs from the pinned URL with the app's own extraction, so CI fails if
   the link or hashes stop holding.
-- **Every AI model is an add-on, never in the deps bundle**, and every new
+- **Every AI model is an add-on, never in the deps bundle** — no exceptions
+  since deps 1.16.0, when RIFE's and the anime upscalers' models moved out
+  (`attribution_test.dart` guards it) — and every new
   add-on is a **manifest add-on**: one `app/assets/addons/<id>.json`
   (format, checklist and hosting: **[docs/ADDONS.md](docs/ADDONS.md)**),
   installed by the generic `ManifestAddonInstaller`
@@ -2697,5 +2717,5 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.12.0 | 2026-10-04 | **Issue #101**: akarin 1.4.1 → **1.5.0** on every platform. The 1.4.1 Linux wheel put JIT code on the `brk` heap, where SELinux denies `PROT_EXEC`, so every job segfaulted on Fedora/RHEL from deps 1.8.0 on. `download-deps-linux.sh` now fails if `libakarin.so` lacks the mmap allocator |
 | 1.13.0 | 2026-10 | One new plugin; every other binary is built from the same sources as 1.12.0. Adds **vszip** 22.1.0 (MIT) for `vszip.CLAHE`, Color Correction's local contrast (issue #90). Baseline build only, flat in the plugin directory on every platform (the wheels' AVX2/AVX-512 variants are left out); macOS x64 builds the sdist with Zig 0.16.0 for the 12.0 floor, with header padding so it can be signed. The v2 CPU tier is no longer a second full bundle: each x64 platform publishes its v3 bundle plus `…-x64-v2-delta.zip`, the files in `_tierFiles` (zsmooth; on macOS also MVTools), extracted over it (`"tierFormat": "delta"`). Every x64 machine downloads the same bundle; only an older CPU fetches the few MB more. This is also what lets the Linux AppImage carry its deps for both tiers without doubling in size |
 | 1.14.0 | 2026-10-25 | Adds **RIFE** 4.26 (`r9_mod_v33`, MIT) + its model in `vapoursynth/rife/`, and **VSNCNN** (vs-mlrt v15.16, GPL-3.0) + Real-ESRGAN / Real-CUGAN models in `vapoursynth/ncnn/`, on macos-arm64, windows-x64 and linux-x64, with **MoltenVK** 1.4.2 (Apache-2.0) in `vapoursynth/moltenvk/` on macOS. Not autoloaded; see "GPU Plugins". **BM3D** r12 (MIT) on every platform; it had been macOS arm64 only (see "BM3D and KNLMeans Noise Reduction"). **descale** r12 (MIT) on every platform, for the Descale pass. (AnimeJaNai's models, used by the same VSNCNN, are an app add-on, not in the bundle). Published as the tested `deps-v1.14.0-rc1` bundles with only the version changed; every other file is byte-identical |
-| 1.16.0 (rc1) | 2026-11-08 (rc1) | **vszip 22.1.0 → 24.0.0** on every platform (CPU `NLMeans` for Noise Reduction's NLMeans (CPU) and the vine dehalo; macOS x64 sdist now built with Zig 0.17.0). Adds **SangNom** r45 (PyPI wheels; MIT source, GPL-2.0 binaries) on every platform for Anti-aliasing's SangNom method. Both single-file on x64 (no AVX), so `_tierFiles` is unchanged. Needs a deps release before app 1.7.0 ships these methods |
+| 1.16.0 (rc2) | 2026-11-08 (rc1), 2026-11-09 (rc2) | **vszip 22.1.0 → 24.0.0** on every platform (CPU `NLMeans` for Noise Reduction's NLMeans (CPU) and the vine dehalo; macOS x64 sdist now built with Zig 0.17.0). Adds **SangNom** r45 (PyPI wheels; MIT source, GPL-2.0 binaries) on every platform for Anti-aliasing's SangNom method. Both single-file on x64 (no AVX), so `_tierFiles` is unchanged. **rc2: the AI models leave the bundle** — RIFE 4.26's (now the `frame-rate-rife` add-on) and the Real-ESRGAN anime / Real-CUGAN ones (now `upscale-anime`); the plugins stay, and their probes run stand-in models. Needs a deps release before app 1.7.0 ships these methods |
 | 1.15.0 | 2026-11-03 | **Issue #144**: KNLMeansCL moves to Jaded Encoding Thaumaturgy's fork **v1.3** on every platform (Windows: PyPI wheel, replacing Khanattila's 2018 v1.1.1 zip, which refused 10-bit 4:2:0; macOS/Linux: the `v1.3` tag, replacing unpinned master, which gave unrepeatable results on Apple's OpenCL). Both meson patchers learn v1.3's assigned `run_command` include probe. Published as the tested `deps-v1.15.0-rc1` bundles with only the version changed |
