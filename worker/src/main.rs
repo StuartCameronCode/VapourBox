@@ -37,6 +37,7 @@ mod upscale_addons;
 mod gpu_plugin;
 mod hdr_metadata;
 mod native_res;
+mod noise_halo;
 mod script_generator;
 mod subtitle_generator;
 mod platform;
@@ -132,6 +133,11 @@ struct Args {
     #[arg(long)]
     detect_crop: bool,
 
+    /// Measure how noisy the video in `--config` is and how strongly its
+    /// edges ring (for the pass list's suggestions); prints a JSON report.
+    #[arg(long)]
+    detect_noise_halo: bool,
+
     /// Probe whether the AI runtime add-on (ONNX Runtime) runs here: imports
     /// it the way a job does, runs a tiny test model, and prints JSON
     /// (`{"available", "reason", "detail", "message", "version", "providers",
@@ -212,6 +218,10 @@ fn main() -> ExitCode {
 
     if args.detect_crop {
         return run_detect_crop(&args);
+    }
+
+    if args.detect_noise_halo {
+        return run_detect_noise_halo(&args);
     }
 
     if args.probe_ai_runtime {
@@ -397,6 +407,31 @@ fn run_detect_crop(args: &Args) -> ExitCode {
         let deps = dependency_locator::DependencyLocator::new()?;
         fill_frame_size(&mut job, Some(&deps), |_| {});
         crop_detect::detect(&deps, &job)
+    })();
+    match result {
+        Ok(report) => {
+            println!("{}", serde_json::to_string(&report).unwrap_or_default());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            println!("{}", serde_json::json!({ "error": e.to_string() }));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Measure a source's noise and halos and print the report as one JSON line
+/// (`{"error": ...}` when it could not be analysed).
+fn run_detect_noise_halo(args: &Args) -> ExitCode {
+    let result = (|| -> anyhow::Result<noise_halo::NoiseHaloReport> {
+        let config = args
+            .config
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("--config is required with --detect-noise-halo"))?;
+        let mut job: models::VideoJob = serde_json::from_str(&std::fs::read_to_string(config)?)?;
+        let deps = dependency_locator::DependencyLocator::new()?;
+        fill_frame_size(&mut job, Some(&deps), |_| {});
+        noise_halo::detect(&deps, &job)
     })();
     match result {
         Ok(report) => {

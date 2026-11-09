@@ -3392,3 +3392,41 @@ directories deleted (groundwork, not a comparison, so no report):
   panel, prompts when the pass is switched on, and a job is refused with the
   add-on's name rather than failing in the plugin. No built-in preset selects
   either.
+
+### Noise and halo scores for the pass list (2026-11-09)
+
+Full report with images and scripts:
+[docs/reports/2026-11-noise-halo-scores/](reports/2026-11-noise-halo-scores/index.html).
+
+Noise Reduction and Dehalo were always neutral in `pass_relevance.dart`. A
+survey of VCG Deinterlacer (MIT) suggested measuring both; its measures were
+tried first and rejected: ffmpeg `signalstats` TOUT stays at 0.000-0.012
+whatever noise is added (it counts vertical outliers, not noise), YDIF follows
+motion and isn't scaled for 10-bit, and its halo ratio read a clean, dense
+photo (0.149) above a sharpened one (0.066).
+
+- **Noise is measured in time, not space.** Immerkaer's spatial estimator
+  (block 10th percentile) is exact for white noise but read tape-like noise
+  (blurred along the line) and grain-like noise of sigma 6 at 1.2-2.5, and
+  dense texture at 3.6 — spatially they are the same thing. A
+  motion-compensated frame difference (16x16 blocks, +-10 px search, match
+  chosen on 3x3-smoothed pictures) sees noise at every frequency and cancels
+  texture that moved: white sigma 4 reads 3.66-3.79, tape sigma 6 5.0-5.4,
+  texture panned by 1.37 px a frame at most 2.06. +-6 px was too small for
+  interlaced fields 8 px apart (clean read 5.5-8.3).
+- **Halos: per edge, two-sided, over 7 lines.** Overshoot and undershoot
+  against plateaus 6-10 px out, with equal near/far sample counts so noise
+  cancels; min of the two, so outlines score 0; plateau flatness also allows
+  3% of the step, or strongly sharpened pictures lose their edges. Clean max
+  1.48 (3.30 on real 1080p footage), unsharp amount 1 on sharp SD pictures
+  11-71. Sharpening of soft edges (Kodak 23, NASA 1080p, the VHS capture)
+  rings past the plateau zone and is missed.
+- **Thresholds 3.5 and 6.0**, decided in the worker; no clean fixture of 154
+  crossed either. Both under-report (compressed sources' skipped blocks read
+  as noiseless), so only a high score says anything. On the repo's real
+  footage neither fires (VHS noise 1.40, 1968 film grain 1.57).
+- The Rust matches the NumPy reference on the same frame pairs to 0.002
+  (noise) and 0.49 (halo; median under 1e-6 — edges on the flatness limit
+  fall either way between float32 and f64); no verdict differs. 0.5-0.9 s on
+  SD, 2.7-3.4 s at 1080p, 2.9 s at 2160p (release, M1 Pro). Untested: non-rigid motion (water, foliage), real footage
+  with known halos, sources with many shots.

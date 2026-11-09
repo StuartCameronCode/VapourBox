@@ -23,6 +23,7 @@ pub mod upscale_addons;
 pub mod gpu_plugin;
 pub mod hdr_metadata;
 pub mod native_res;
+pub mod noise_halo;
 pub mod schema_script_generator;
 pub mod script_generator;
 pub mod subtitle_generator;

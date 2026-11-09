@@ -1,4 +1,5 @@
 import '../services/field_order_detector.dart';
+import 'noise_halo_report.dart';
 import 'processing_pipeline.dart';
 
 /// How much a pass has to do with the file that is actually loaded.
@@ -26,8 +27,12 @@ enum PassRelevance {
 /// - **Recommend sparingly.** A badge on nine rows out of thirteen is not a
 ///   recommendation, it is decoration. Only claims backed by strong evidence
 ///   from detection are made, which is why most passes come back [neutral] —
-///   film dirt, scratches, grain and over-sharpening are all invisible to
+///   film dirt, scratches, banding and colour casts are all invisible to
 ///   ffprobe, so the app has nothing to say about them and says nothing.
+///   Noise and over-sharpening are the exception: the worker measures them in
+///   the picture itself (`--detect-noise-halo`, [NoiseHaloReport]), and only a
+///   clearly high measurement badges its pass — a low or missing one says
+///   nothing, never "not needed".
 /// - **Never reorder, never disable.** The pass list's order is the order the
 ///   passes run in, and a [notApplicable] pass stays enabled and editable —
 ///   detection is a hint, not an authority, and it is wrong often enough
@@ -53,11 +58,13 @@ class PassRelevanceResult {
 /// only appear at or below SD.
 const int _sdMaxHeight = 576;
 
-/// Decide how relevant [pass] is to [info].
+/// Decide how relevant [pass] is to [info], and, for Noise Reduction and
+/// Dehalo, to what was [measured] in the picture.
 ///
 /// Returns [PassRelevanceResult.neutral] for a null [info] (nothing loaded yet)
 /// and for anything detection can't speak to.
-PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info) {
+PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info,
+    {NoiseHaloReport? measured}) {
   if (info == null) return PassRelevanceResult.neutral;
 
   final isProgressive = info.scanType == ScanType.progressive;
@@ -123,14 +130,35 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info) {
       }
       return PassRelevanceResult.neutral;
 
-    // Everything below is invisible to detection. Film dirt, scratches, grain,
-    // halos, banding and colour casts need eyes on the picture, so the app has
-    // no opinion and offers none.
+    // Measured in the picture, so only the worker's verdict counts: it decides
+    // the threshold (calibrated in docs/reports/2026-11-noise-halo-scores), and
+    // it under-reports rather than over-reports, so a low score is not
+    // evidence the pass isn't needed and says nothing.
+    case PassType.noiseReduction:
+      if (measured != null && measured.error == null && measured.noiseHigh) {
+        return const PassRelevanceResult(
+          PassRelevance.recommended,
+          'noise measured high',
+        );
+      }
+      return PassRelevanceResult.neutral;
+
+    case PassType.dehalo:
+      if (measured != null && measured.error == null && measured.haloHigh) {
+        return const PassRelevanceResult(
+          PassRelevance.recommended,
+          'halos measured around edges',
+        );
+      }
+      return PassRelevanceResult.neutral;
+
+    // Everything below is invisible to detection. Film dirt, scratches,
+    // banding and colour casts need eyes on the picture, so the app has no
+    // opinion and offers none. (Chroma noise is not measured: the noise score
+    // is luma only.)
     case PassType.descratch:
     case PassType.spotless:
-    case PassType.noiseReduction:
     case PassType.chromaDenoise:
-    case PassType.dehalo:
     case PassType.deband:
     case PassType.sharpen:
     case PassType.colorCorrection:

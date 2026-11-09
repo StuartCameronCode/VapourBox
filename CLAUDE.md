@@ -130,7 +130,8 @@ VapourBox/
 | `worker/src/comment_metadata.rs` | The source's comment tag, prefixed with the version and passed to ffmpeg as an FFMETADATA file (issue #138) |
 | `worker/src/hdr_metadata.rs` | HDR10 mastering display / MaxCLL read from the source for x265, and the Dolby Vision profile (see "HDR Sources and Dolby Vision") |
 | `worker/src/native_res.rs` | `--detect-native`: the resolution and kernel a source was upscaled from, for the Descale pass (see "Descale") |
-| `worker/src/crop_detect.rs` | `--detect-crop`: black borders, blanking, letterbox bars and the head-switching band, for Crop & Resize's Detect (see "Crop Detection") |
+| `worker/src/crop_detect.rs` | `--detect-crop`: black borders, blanking, letterbox bars and the head-switching band, for Crop & Resize's Detect (see "Crop Detection"); also the detectors' shared sampling and decode (`decode_samples`) |
+| `worker/src/noise_halo.rs` | `--detect-noise-halo`: a source's noise sigma and halo score, for the pass list's suggestions (see "Noise and Halo Scores") |
 | `worker/src/audio_restoration.rs` | Audio restoration: probes, the one `AudioPlan` (every `-af` filter, in order), the render before the encode, and the encoder's audio map/codec args (see "Audio Restoration") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
@@ -148,6 +149,7 @@ VapourBox/
 | `app/lib/services/overwrite_behavior_service.dart` | Default action for existing output files (see "Existing Output Files") |
 | `app/lib/models/native_res_report.dart` | What `--detect-native` found, as the Descale panel's Detect shows and applies it |
 | `app/lib/models/crop_detect_report.dart` | What `--detect-crop` found, and which suggestion (`CropApply`) the panel applies |
+| `app/lib/models/noise_halo_report.dart` | What `--detect-noise-halo` measured; stored on `QueueItem.noiseHalo`, read by `relevanceFor` |
 | `app/lib/views/pass_settings/crop_detect_panel.dart` | Crop & Resize's Detect borders panel: findings, Apply crop / Crop the bars too / Repair the band instead |
 | `app/lib/services/addon_service.dart` | Every optional third-party download (Whisper, AnimeJaNai): catalogue, install with requirements, remove with dependants (see "Add-ons") |
 | `app/lib/services/manifest_addon.dart` | `AddonManifest` + `ManifestAddonInstaller`: the generic installer for `app/assets/addons/*.json` (docs/ADDONS.md) |
@@ -1465,6 +1467,43 @@ Apply crop, Crop the bars too, or Repair the band instead. Rules:
   picture with known borders, a band, a letterbox, subtitles and fades, and
   asserts every edge within 2 lines; the unit tests in `crop_detect.rs` cover
   the same traps on synthetic frames.
+
+### Noise and Halo Scores (`--detect-noise-halo`, app 1.7.0)
+
+The pass list badges Noise Reduction and Dehalo as Suggested only from a
+measurement of the picture (`noise_halo::detect`), run by
+`MainViewModel._measureNoiseHalo` in the background once a source is
+analysed, one source at a time, and stored on `QueueItem.noiseHalo`. Rules,
+from docs/reports/2026-11-noise-halo-scores:
+
+- **The worker decides.** `NOISE_HIGH` (3.5, sigma in 8-bit levels) and
+  `HALO_HIGH` (6.0, % of the step) live in `noise_halo.rs`; the report's
+  `noiseHigh` / `haloHigh` are the verdicts, and `relevanceFor` reads only
+  those, never the numbers. Change a threshold only with the report's scripts
+  re-run (`probelib.final_*` mirrors the Rust; `worker_parity.py` checks them
+  against each other; no verdict may differ).
+- **Suggest only; a low or missing score is silent.** Both measures
+  under-report (codec-skipped blocks read noiseless, sharpening of soft edges
+  rings past the plateau zone), so a low score is not evidence and nothing is
+  ever `notApplicable` from it. A failed measurement suggests nothing and
+  logs nothing.
+- **Noise is temporal, not spatial.** Motion-compensated frame difference
+  (16x16 blocks, +-10 px, match chosen on smoothed pictures), 10th percentile
+  of blocks, 25th percentile of 24 sampled pairs (12 above 1080p). A spatial
+  high-pass (Immerkaer, signalstats) is blind to tape-like and grain noise and
+  reads dense texture as noise; VCG's TOUT does not respond to noise at all.
+- **Halo is per edge and two-sided.** Step edges followed over 7 lines of one
+  field, plateaus 6-10 px out; each edge scores min(overshoot, undershoot), so
+  a cartoon outline scores 0. Fewer than 200 edges is no score.
+- **Per field unless known progressive** (`ScanType.progressive` /
+  `softTelecine`), so combing never reads as noise; **luma in the source's own
+  format and depth** (a yuv -> gray decode expands the range), in 8-bit units.
+- **The whole source is sampled, not the trim**, so the badge doesn't change
+  as in / out points move. Uses `crop_detect::decode_samples`, so all
+  detectors sample and decode alike.
+
+`integration_noise_halo_test.dart` (heavy) checks real clips: the VHS capture
+clean / with sigma 6 noise (8- and 10-bit agree), DVB-T clean / sharpened.
 
 ### Add-ons: optional third-party downloads
 

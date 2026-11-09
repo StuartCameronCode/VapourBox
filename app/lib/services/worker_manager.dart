@@ -8,6 +8,7 @@ import '../models/progress_info.dart';
 import '../models/gpu_plugin_status.dart';
 import '../models/crop_detect_report.dart';
 import '../models/native_res_report.dart';
+import '../models/noise_halo_report.dart';
 import '../models/video_job.dart';
 import 'job_runner.dart';
 import 'process_tree.dart';
@@ -372,6 +373,44 @@ class WorkerManager implements JobRunner {
       return CropDetectReport.failed('The analysis did not report a result: ${result.stderr}');
     } catch (e) {
       return CropDetectReport.failed('$e');
+    } finally {
+      if (await config.exists()) await config.delete();
+    }
+  }
+
+  /// Measure how noisy [job]'s video is and how strongly its edges ring
+  /// (`--detect-noise-halo`, app 1.7.0), for the pass list's suggestions.
+  /// Decodes a couple of dozen frame pairs, so it takes a few seconds; run in
+  /// the background. Never throws: a failure comes back as
+  /// [NoiseHaloReport.failed], which suggests nothing.
+  static Future<NoiseHaloReport> detectNoiseHalo(VideoJob job) async {
+    final toolLocator = ToolLocator.instance;
+    final workerPath = toolLocator.workerPath;
+    if (workerPath == null) {
+      return const NoiseHaloReport.failed('The VapourBox worker could not be found.');
+    }
+    final config = File(await TempDirectoryService.instance
+        .filePath('detect_noise_halo_${job.id}.json'));
+    try {
+      await config.writeAsString(jsonEncode(job.toJson()));
+      final result = await Process.run(
+        workerPath,
+        ['--detect-noise-halo', '--config', config.path],
+        environment: toolLocator.workerEnvironment,
+        workingDirectory: File(workerPath).parent.path,
+      );
+      for (final line in const LineSplitter().convert(result.stdout.toString()).reversed) {
+        final trimmed = line.trim();
+        if (!trimmed.startsWith('{')) continue;
+        try {
+          return NoiseHaloReport.fromJson(jsonDecode(trimmed) as Map<String, dynamic>);
+        } catch (_) {
+          // Not the JSON line; keep scanning.
+        }
+      }
+      return NoiseHaloReport.failed('The analysis did not report a result: ${result.stderr}');
+    } catch (e) {
+      return NoiseHaloReport.failed('$e');
     } finally {
       if (await config.exists()) await config.delete();
     }
