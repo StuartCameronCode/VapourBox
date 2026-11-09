@@ -200,7 +200,7 @@ class AddonManifest {
       if (!hash.hasMatch(f.sha256)) fail('${f.name} needs a lower-case hex sha256');
       if (f.size <= 0) fail('${f.name} needs its size');
       if (!f.url.startsWith('https://')) fail('${f.name} must download over https');
-      if (!_safeName(f.name)) fail('${f.name} is not a plain file name');
+      if (!_safePath(f.name)) fail('${f.name} is not a plain file name or relative path');
       if (!names.add(f.name)) fail('${f.name} is listed twice');
       for (final p in f.platforms ?? const <String>[]) {
         if (!platforms.containsKey(p)) fail('${f.name} names $p, which the add-on does not support');
@@ -213,7 +213,7 @@ class AddonManifest {
       }
       for (final member in f.extract ?? const <AddonArchiveMember>[]) {
         if (!hash.hasMatch(member.sha256)) fail('${member.path} needs a sha256');
-        if (!_safeName(member.name)) fail('${member.name} is not a plain file name');
+        if (!_safePath(member.name)) fail('${member.name} is not a plain file name or relative path');
       }
     }
     for (final p in platforms.keys) {
@@ -223,6 +223,11 @@ class AddonManifest {
 
   static bool _safeName(String name) =>
       name.isNotEmpty && !name.contains('/') && !name.contains('\\') && name != '.' && name != '..';
+
+  /// A plain file name, or a relative path of plain names joined by `/` —
+  /// for a plugin that reads meaning from its model's directory name (RIFE
+  /// takes the model version, and with it the padding, from the path).
+  static bool _safePath(String name) => name.split('/').every(_safeName);
 
   /// The files this platform installs.
   List<AddonManifestFile> filesFor(String platformId) =>
@@ -402,6 +407,7 @@ class ManifestAddonInstaller implements AddonInstaller {
       final fetched = <AddonManifestFile, File>{};
       for (final f in _files) {
         final file = File(path.join(downloads.path, f.name));
+        await file.parent.create(recursive: true);
         await _fetch(f, file, downloader);
         if (downloader.isCancelled) return;
         fetched[f] = file;
@@ -415,7 +421,9 @@ class ManifestAddonInstaller implements AddonInstaller {
         } else if (f.extract != null) {
           await extractMembers(file, f.extract!, staging);
         } else {
-          await file.copy(path.join(staging.path, f.name));
+          final out = File(path.join(staging.path, f.name));
+          await out.parent.create(recursive: true);
+          await file.copy(out.path);
         }
       }
       if (Platform.isMacOS) {
@@ -538,7 +546,9 @@ class ManifestAddonInstaller implements AddonInstaller {
       }
       await into.create(recursive: true);
       for (final MapEntry(key: m, value: bytes) in found.entries) {
-        await File(path.join(into.path, m.name)).writeAsBytes(bytes);
+        final out = File(path.join(into.path, m.name));
+        await out.parent.create(recursive: true);
+        await out.writeAsBytes(bytes);
       }
     } finally {
       await input.close();
