@@ -28,7 +28,7 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg for
 ## How it works
 
 1. **Add a source.** Drop in a file, a folder, or a `VIDEO_TS` folder, or open a DVD. VapourBox reports what it found (interlaced, telecined or progressive), so you don't have to guess.
-2. **Choose the output and any processing.** Pick a format, then start from a preset named after your source (VHS Cleanup, DV Camcorder Tape, Anime DVD, …) or switch filters on yourself. Filters that suit the source are marked **Suggested**.
+2. **Choose the output and any processing.** Pick a format, then start from a preset named after your source (VHS Cleanup, DV Camcorder Tape, Anime DVD, …) or switch filters on yourself. Filters that suit the source are marked **Suggested** — Noise Reduction and Dehalo too, when a quick measurement of the picture (run in the background as the video loads) finds it clearly noisy or ringing around its edges.
 3. **Check the preview, then run.** A before/after preview updates as you change settings. Queue as many files as you like and leave them to run.
 
 ## Download

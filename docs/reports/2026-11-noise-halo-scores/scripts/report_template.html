@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noise and halo scores</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --best: #e3f1e6; --bad: #f6e3e1; --warn: #9a6700;
+    --c-clean: #2a7a4b; --c-grey: #8a8780; --c-high: #c0392b; --thr: #0b0b0b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --best: #1d3324; --bad: #3a2321; --warn: #d9a400;
+      --c-clean: #5fcf8a; --c-grey: #a8a59c; --c-high: #ff7a6b; --thr: #f0efec;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+  main { max-width: 1120px; margin: 0 auto; padding: 32px 16px 80px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 44px 0 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+  h3 { font-size: 16px; margin: 26px 0 8px; }
+  .sub { color: var(--text-secondary); margin: 0 0 20px; }
+  code { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  .limit { border-left: 3px solid var(--warn); padding: 6px 12px; margin: 12px 0; color: var(--text-secondary); }
+  .correction { border-left: 3px solid var(--c-high); padding: 6px 12px; margin: 12px 0; color: var(--text-secondary); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; margin: 14px 0 22px; font-size: 13px; font-variant-numeric: tabular-nums; }
+  caption { text-align: left; font-weight: 600; padding-bottom: 6px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 9px; text-align: right; vertical-align: top; }
+  th:first-child, td:first-child { text-align: left; }
+  td.good { background: var(--best); }
+  td.bad { background: var(--bad); }
+  tr.chosen td { background: var(--best); }
+  small { color: var(--text-muted); }
+  figure { margin: 18px 0 26px; }
+  figure img { max-width: 100%; image-rendering: pixelated; border: 1px solid var(--border); display: block; }
+  figcaption { color: var(--text-secondary); font-size: 13.5px; margin-top: 6px; }
+  svg { width: 100%; height: auto; display: block; }
+  svg .ax { font-size: 12px; fill: var(--text-secondary); }
+  svg .grid { stroke: var(--border); }
+  svg .thr { stroke: var(--thr); stroke-dasharray: 4 3; stroke-width: 1.5; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Noise and halo scores for the pass list</h1>
+<p class="sub">Probe-before-building report, 2026-11-09, app 1.7.0. Can the app measure how noisy a loaded source is, and how strongly its edges ring, well enough to badge Noise Reduction or Dehalo as <em>Suggested</em>? Both passes were hard-coded neutral because "the app has no opinion". The idea came from a survey of VCG Deinterlacer (MIT, © 2026 Video-Capture-Guide), whose v1 scores noise from ffmpeg <code>signalstats</code> (TOUT / YDIF) and halos from luma overshoot beside strong edges; its code was read, none of it is used.</p>
+
+<div class="card">
+  <strong>Outcome: built</strong> (<code>vapourbox-worker --detect-noise-halo</code>, <code>worker/src/noise_halo.rs</code>), run in the background when a source loads.
+  <ul>
+    <li><strong>Noise</strong> = motion-compensated frame difference: each 16×16 block matched in the next frame (±10 px), σ = std(difference)/√2, the 10th percentile of blocks, the 25th percentile of 24 sampled pairs; per field unless the source is known to be progressive. <strong>Suggested at σ ≥ {{NOISE_THR}}</strong> (8-bit levels). On {{N_FIXTURES}} fixtures: the noisiest clean one measured <strong>{{NOISE_CLEAN_MAX}}</strong>; <strong>{{NOISE_FP}}</strong> clean fixtures crossed the threshold; {{NOISE_MISS}} "clearly noisy" fixtures were missed — every one of them σ 3 (white or grain-like, reading 2.0–2.9) except tape-like σ 4 on the flat cartoon (3.34). From σ 4 white and σ 6 tape-like or grain-like up, every fixture was caught.</li>
+    <li><strong>Halo</strong> = per-edge two-sided overshoot beside isolated step edges followed over 7 lines, % of the step, averaged over every edge. <strong>Suggested at ≥ {{HALO_THR}}</strong>. The worst clean fixture measured <strong>{{HALO_CLEAN_MAX}}</strong> (the highest real footage, a 1080p camera file labelled grey, 3.30); <strong>{{HALO_FP}}</strong> clean fixtures crossed; {{HALO_MISS}} sharpened ones were missed — all sharpening of already-soft edges.</li>
+    <li><strong>VCG's measures do not separate these fixtures</strong>: TOUT does not respond to added noise at all, YDIF follows motion, and its halo ratio reads a dense photo higher than a sharpened one (see Candidates).</li>
+    <li>Both scores <strong>under-report rather than over-report</strong>, so a low score means nothing: the badge appears only when a score is clearly high, and nothing is ever marked "not needed" from a measurement. On the repo's real footage (VHS capture, DVB-T, a 1968 film scan, NASA 1080p) neither fires.</li>
+  </ul>
+</div>
+
+<h2>What was measured, and against what</h2>
+<p>{{N_FIXTURES}} fixtures, 8 frames each, stored losslessly (FFV1) and measured as 4 pairs of consecutive frames. Degradations were added to luma in float with known parameters, so each fixture carries its ground truth and a class: <strong>high</strong> (clearly needs the pass), <strong>clean</strong>, or <strong>grey</strong> (either answer is acceptable).</p>
+<ul>
+  <li><strong>Clean pictures</strong>: seven Kodak PhotoCD images panned 2 px a frame; synthetic flat animation (flat fills, 3 px dark outlines, antialiased; also through x264); Lanczos-3 2× upscales; NASA 1080p downlink footage.</li>
+  <li><strong>Noise</strong>: white Gaussian σ 1–8; <em>tape-like</em> (blurred along the line, σ 1.2 px, rescaled) σ 2/4/6; <em>grain-like</em> (blurred both ways 0.7 px, strongest in mid-tones) σ 3/6; σ 4 through x264 CRF 23. High = σ ≥ 3, grey = σ 2.</li>
+  <li><strong>Halos</strong>: unsharp mask radius 1 and 2 at amount 0.5/1/2; horizontal-only "peaking" radius 2 (the tape / camcorder kind). High = amount ≥ 1, grey = 0.5.</li>
+  <li><strong>Traps</strong>: dark scenes (luma at 20%), letterbox bars, interlaced frames whose fields are 4 px apart (combing on every edge), 10-bit, sharpening on top of noise and noise on top of sharpening, and dense texture panned by a fraction of a pixel (1.37 px a frame) so motion compensation can't cancel it.</li>
+  <li><strong>Real footage</strong> (truth by eye, mostly grey): the VHS capture and DVB-T broadcast from <code>Tests/TestResources</code>, the other test clips there, NASA 1080p, and <em>Night of the Living Dead</em> (1968, 35 mm, 1440×1080 10-bit AV1) for real film grain.</li>
+</ul>
+
+<figure><a href="img/01-noise-kinds.png"><img src="img/01-noise-kinds.png" alt="Four crops of the parrot picture: clean, white noise, tape-like noise, grain-like noise"></a>
+<figcaption>Kinds of noise, Kodak 23 at 3× (nearest), left to right: clean; white σ 4; tape-like σ 6; grain-like σ 6. A spatial high-pass sees the second clearly and barely sees the last two — which is why the chosen measure is temporal.</figcaption></figure>
+<figure><a href="img/02-halo-kinds.png"><img src="img/02-halo-kinds.png" alt="Four crops of the house picture: clean and three sharpened versions"></a>
+<figcaption>Halos, Kodak 08 at 3×: clean; unsharp radius 1 amount 1; radius 2 amount 1; horizontal peaking radius 2 amount 1. Look at the window frames and roof edge: bright and dark bands on both sides.</figcaption></figure>
+<figure><a href="img/03-cel-outline.png"><img src="img/03-cel-outline.png" alt="Synthetic cartoon outline, clean and sharpened"></a>
+<figcaption>The animation trap, 3×: a dark outline (left) dips below the fill on one side only and must not read as a halo; sharpened (right), the fills ring on both sides of it.</figcaption></figure>
+<figure><a href="img/04-real.png"><img src="img/04-real.png" alt="Crops of the VHS capture, the 1968 film and the NASA footage"></a>
+<figcaption>Real footage at 3×: the VHS capture (soft, streaky noise, no visible halos); <em>Night of the Living Dead</em> (grain, softened by AV1); NASA 1080p (clean, compressed).</figcaption></figure>
+
+<h2>Result: separation</h2>
+<p>Each dot is a fixture, at its score, in the row of its ground-truth class (hover for its name); the dashed line is the threshold.</p>
+<h3>Noise (σ, 8-bit levels)</h3>
+{{NOISE_STRIP}}
+<p>Missed "high" fixtures: {{NOISE_MISSED}}.</p>
+<h3>Halo (% of the step)</h3>
+{{HALO_STRIP}}
+<p>Missed "high" fixtures: {{HALO_MISSED}}.</p>
+
+<div class="limit"><strong>What these numbers can't tell you.</strong> Every fixture is 8 frames of one shot; the app samples 24 pairs across the whole source and takes the 25th percentile, which should make a single hard shot matter less — that was not tested. No fixture has non-rigid motion (water, leaves in wind), the likeliest way texture could survive motion compensation and read as noise. The Kodak pans are stills moved across the frame, so their own film grain moves with the picture and reads as zero temporal noise; real grain changes every frame. There is no real footage with known halos: the halo ground truth is synthetic sharpening. All runs are Apple Silicon.</div>
+
+<h2>How the measures were chosen</h2>
+<h3>Noise</h3>
+<div class="scroll"><table>
+<caption>Candidates (8-bit levels; TOUT is a fraction): the noisiest clean fixture against white σ 4 and tape-like σ 6 on the five bases</caption>
+<tr><th>measure</th><th>clean max</th><th>white σ 4</th><th>tape σ 6</th></tr>
+{{CAND_NOISE_ROWS}}
+</table></div>
+<ul>
+  <li><strong>signalstats TOUT</strong> counts pixels unlike the lines above and below; it stays at 0.000–0.012 whatever noise is added (VCG's cut-offs are 0.012 / 0.03 / 0.08). <strong>YDIF</strong> is the mean frame difference: it follows motion (clean pans 5–35) and is not scaled for 10-bit (the 10-bit copy of a fixture reads 4× higher).</li>
+  <li><strong>Immerkær's estimator</strong> (a 3×3 Laplacian-difference high-pass) per 16×16 block, 10th percentile, is accurate for white noise and robust to texture — but blind to noise that is band-limited along the line or clumped: tape-like σ 6 read 1.2–2.4, grain σ 6 1.2–2.5. Dense texture (Kodak 13, foliage and water) read 3.6, above white σ 3. <code>explore.py noise-spatial</code>: a plane-fit standard deviation sees every frequency but read Kodak 05's texture as 10.2; Immerkær at 2× coarser scales caught tape noise and read the same texture as 7.4. Spatially, correlated noise and texture are the same thing; only time separates them.</li>
+  <li><strong>Motion-compensated temporal</strong> (<code>explore.py noise-mc</code>): texture that moved cancels, noise at every frequency stays. The match is chosen on 3×3-smoothed pictures so the choice barely depends on the noise measured; white noise reads about 6% low (σ 4 → 3.75). At ±6 px the interlaced fixtures (fields 8 px apart between frames) read 5.5 and 8.3 clean; ±10 px (coarse search at half resolution, ±1 px refine) reads them 0.00.</li>
+</ul>
+<div class="correction"><strong>Corrected during the work.</strong> The first choice was the spatial Immerkær score at σ ≥ 4.5; it was dropped when the tape and grain fixtures showed it misses exactly the noise analogue sources have. The threshold for the temporal score was first 4.0 and lowered to 3.5 once the sub-pixel texture fixtures (worst clean 2.06) showed the margin allowed it. The VHS capture was first labelled "clearly noisy" by assumption; looking at it (figure 4) it is lightly noisy, and it is labelled grey.</div>
+
+<h3>Halo</h3>
+<div class="scroll"><table>
+<caption>Candidates: the highest clean fixture against unsharp radius 1 amount 1 on each base</caption>
+<tr><th>measure</th><th>clean max</th>{{CAND_HALO_HEAD}}</tr>
+{{CAND_HALO_ROWS}}
+</table></div>
+<ul>
+  <li><strong>VCG's ratio</strong> (share of strong edges with a two-sided overshoot ≥ 14 levels 4–7 px out, against plateaus 11–14 px out) read the clean, dense Kodak 13 at 0.149 and its sharpened Kodak 08 at 0.066: its zones sit past where radius-1 sharpening rings, and its fixed level threshold counts texture.</li>
+  <li><strong>A mean edge profile</strong> over every isolated edge (no line coherence) mixes edges with thin features beside them; clean Kodak 08 already has a 10% bump on the dark side.</li>
+  <li><strong>Per edge, followed over 7 lines</strong>: an edge must continue within a pixel on the 3 lines above and below in the same field (texture rarely does), and the averaged profile cuts noise by √7. Overshoot = max(near zone) − max(far plateau), with equal sample counts so noise lifts both alike; each edge scores min(overshoot, undershoot), so a cartoon outline (one-sided) scores 0. Over 1 line each way instead of 3, σ 8 noise biased clean Kodak 08 to −9.8 and hid noise-then-sharpen (4.5); over 3, −6.7 and 11.3 (<code>explore.py halo-reach</code>). Averaging near-zone means instead of maxima (<code>halo-zone</code>) failed outright: soft edges' ramps dominate.</li>
+  <li>Plateau flatness is ≤ max(2 levels, 2σ/√7, <strong>3% of the step</strong>): without the relative term a strongly sharpened picture's plateaus (sharpened texture) rejected most edges — Kodak 08 USM 2/2 kept 72 — and soft pictures' sharpening read low; with it, 256 edges and Kodak 23 USM 2/2 rose from 4.0 to 8.5, while the worst clean rose 3.19 → 3.30 (<code>halo-flat</code>).</li>
+</ul>
+<div class="correction"><strong>Corrected during the work.</strong> Halos were first measured on only the first frame of each pair, which left the strongest-sharpened fixtures under the 200-edge minimum (no score at all); both frames are measured now. Unsharp radius 1 amount 0.5 was first labelled clean; it is mild rather than absent (4.8 on Kodak 08, under the threshold; radius 2 at the same amount reads 12.6), so both amount-0.5 rows are grey.</div>
+
+<h2>The worker against the reference</h2>
+<p><code>worker_parity.py</code> runs <code>--detect-noise-halo</code> on every fixture and measures the frame pairs the worker reports with the NumPy reference: largest difference <strong>{{PARITY_NOISE}}</strong> levels in noise and <strong>{{PARITY_HALO}}</strong> in halo (the median is under 1e-6: an edge sitting exactly on the flatness limit can fall either way between NumPy's float32 and the worker's f64, so a few fixtures count a handful of edges differently — Kodak 08 peaking 2198 against 2184); verdicts that differ: <strong>{{PARITY_DIFFER}}</strong>. On whole real clips:</p>
+<div class="scroll"><table>
+<tr><th>clip</th><th>noise</th><th>halo</th><th>edges</th><th>pairs</th><th>suggests NR / Dehalo</th></tr>
+{{PARITY_ROWS}}
+</table></div>
+<div class="scroll"><table>
+<caption>Time per source, release worker, M1 Pro (median of 3)</caption>
+<tr><th>source</th><th>time</th><th>pairs sampled</th></tr>
+{{TIMING_ROWS}}
+</table></div>
+
+<h2>Every fixture</h2>
+<p>Green: the verdict agrees with the ground truth (or the truth is grey); red: it doesn't. ● = above the threshold.</p>
+<div class="scroll"><table>
+<tr><th>fixture</th><th>group</th><th>σ added</th><th>sharpening</th><th>noise truth</th><th>noise</th><th>halo truth</th><th>halo</th><th>edges</th></tr>
+{{FIXTURE_ROWS}}
+</table></div>
+
+<h2>Decisions</h2>
+<ul>
+  <li><strong>Suggest only, and only when clearly high.</strong> A low score never makes a pass "not applicable": both measures under-report (compressed sources' skipped blocks read as noiseless; sharpening of soft edges sits past the plateau), so a low score is not evidence.</li>
+  <li><strong>The worker decides the thresholds</strong> and reports <code>noiseHigh</code> / <code>haloHigh</code>; the app never re-derives them.</li>
+  <li><strong>Measured on the whole source, not the trim</strong>, once, in the background after the source loads, one source at a time; a failure suggests nothing.</li>
+  <li><strong>Per field unless known progressive</strong> (progressive or soft telecine), so combing can't read as noise.</li>
+  <li><strong>Luma only, at the source's own depth</strong>, decoded in its own format and the Y plane taken: a yuv → gray conversion in swscale expands the range.</li>
+  <li><strong>Grain counts as noise.</strong> Noise Reduction is the pass that removes it; whether to keep it is the user's choice, and the badge only says it was measured.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+  <li>Long real sources with many shots; non-rigid motion; scene cuts inside a sampled pair (each pair is two frames; the 25th percentile should absorb a few).</li>
+  <li>Real footage with known halos (no such clip in the repo); edge enhancement that rings wider than 6 px.</li>
+  <li>Chroma noise (not measured). HDR (scores are in code values, not light).</li>
+  <li>Windows, Linux, x86.</li>
+</ul>
+
+<h2>Reproducing</h2>
+<p><code>scripts/run.sh</code> runs everything in order (<code>SCRATCH</code> for downloads and fixtures, Python 3 with NumPy, the repo's deps bundle and worker builds). <code>probelib.py</code> holds the decoding, fixture building, every candidate and the chosen measure (<code>final_*</code>, mirroring <code>noise_halo.rs</code>); <code>explore.py</code> prints the exploration tables quoted above.</p>
+
+</main>
+</body>
+</html>
