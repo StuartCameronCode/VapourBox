@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:uuid/uuid.dart';
 
 import '../services/field_order_detector.dart';
+import 'noise_halo_report.dart';
 
 /// Status of a queue item.
 enum QueueItemStatus {
@@ -47,6 +48,11 @@ class QueueItem {
   final String inputPath;
   String outputPath;
   VideoInfo? videoInfo;
+
+  /// How noisy the source is and how strongly its edges ring, measured in the
+  /// background after [videoInfo] (app 1.7.0); null until it comes back.
+  /// Transient: only the pass list's suggestions read it.
+  NoiseHaloReport? noiseHalo;
 
   /// Optional DVD source info (for display and temp file cleanup).
   DvdSourceInfo? dvdSourceInfo;

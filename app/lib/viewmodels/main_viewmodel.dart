@@ -9,6 +9,7 @@ import '../models/gpu_plugin_status.dart';
 import '../models/crop_detect_report.dart';
 import '../models/filter_registry.dart';
 import '../models/native_res_report.dart';
+import '../models/noise_halo_report.dart';
 import '../models/encoding_settings.dart';
 import '../models/parameter_converter.dart';
 import '../models/preview_frame_info.dart';
@@ -107,6 +108,12 @@ class MainViewModel extends ChangeNotifier {
   final Future<CropDetectReport> Function(VideoJob job) _detectCrop;
   ({String itemId, CropDetectReport report})? _cropReport;
   String? _detectingCropFor;
+
+  // How noisy each source is and how strongly its edges ring (app 1.7.0),
+  // measured in the background after a source is analysed, one source at a
+  // time in the order they were added; the result lives on its QueueItem.
+  final Future<NoiseHaloReport> Function(VideoJob job) _detectNoiseHalo;
+  Future<void> _noiseHaloQueue = Future.value();
 
   // Set in dispose() so the async OpenCL probe doesn't notifyListeners() after
   // teardown (the top-level view model normally lives for the app's lifetime).
@@ -772,10 +779,12 @@ class MainViewModel extends ChangeNotifier {
     SystemShutdown? systemShutdown,
     Future<NativeResReport> Function(VideoJob job)? nativeResDetector,
     Future<CropDetectReport> Function(VideoJob job)? cropDetector,
+    Future<NoiseHaloReport> Function(VideoJob job)? noiseHaloDetector,
   })  : _workerManager = runner ?? WorkerManager(),
         _systemShutdown = systemShutdown ?? PlatformSystemShutdown(),
         _detectNative = nativeResDetector ?? WorkerManager.detectNativeResolution,
-        _detectCrop = cropDetector ?? WorkerManager.detectCrop {
+        _detectCrop = cropDetector ?? WorkerManager.detectCrop,
+        _detectNoiseHalo = noiseHaloDetector ?? WorkerManager.detectNoiseHalo {
     _setupSubscriptions();
     _initializePreviewGenerator();
     _probeGpuCapabilities();
@@ -986,6 +995,52 @@ class MainViewModel extends ChangeNotifier {
     if (_selectedItemId == item.id) {
       _requestPreviewUpdate();
     }
+
+    _measureNoiseHalo(_queue[index]);
+  }
+
+  /// The selected source's noise / halo measurement, or null until it is in
+  /// (or when nothing is selected). Only the pass list's suggestions read it.
+  NoiseHaloReport? get noiseHaloReport => selectedItem?.noiseHalo;
+
+  /// Measure [item]'s noise and halos in the background (app 1.7.0). Queued
+  /// behind any earlier measurement so a dropped folder doesn't start one
+  /// worker per file at once. Never blocks anything and never fails loudly: a
+  /// failed measurement is stored as such, and suggests nothing.
+  ///
+  /// The whole source is sampled, not its trim, so the result stays valid as
+  /// the in / out points move. Anything not known to be progressive is
+  /// measured field by field, so combing can't be read as noise.
+  void _measureNoiseHalo(QueueItem item) {
+    final info = item.videoInfo;
+    if (info == null || item.noiseHalo != null) return;
+    _noiseHaloQueue = _noiseHaloQueue.then((_) async {
+      if (_disposed || !_queue.any((q) => q.id == item.id)) return;
+      final progressive = info.scanType == ScanType.progressive ||
+          info.scanType == ScanType.softTelecine;
+      final job = VideoJob(
+        inputPath: item.inputPath,
+        outputPath: item.outputPath,
+        encodingSettings: _encodingSettings,
+        detectedFieldOrder:
+            progressive ? FieldOrder.progressive : FieldOrder.topFieldFirst,
+        totalFrames: info.frameCount,
+        inputFrameRate: info.frameRate,
+        inputWidth: info.width,
+        inputHeight: info.height,
+        inputPixelFormat: info.pixelFormat,
+        inputColorRange: info.colorRange,
+      );
+      NoiseHaloReport report;
+      try {
+        report = await _detectNoiseHalo(job);
+      } catch (e) {
+        report = NoiseHaloReport.failed('$e');
+      }
+      if (_disposed) return;
+      item.noiseHalo = report;
+      notifyListeners();
+    });
   }
 
   /// Removes a video from the queue.
