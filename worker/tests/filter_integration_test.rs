@@ -6169,6 +6169,16 @@ fn rife_job(name: &str) -> VideoJob {
     job
 }
 
+/// A throwaway add-ons directory with the GPU plugins' model add-ons (RIFE's
+/// and the anime upscalers') installed as far as the worker can tell.
+fn model_addons() -> PathBuf {
+    fake_addons_with_requirements(
+        "gpu-models",
+        &[vapourbox_worker::gpu_plugin::RIFE_ADDON, vapourbox_worker::upscale_addons::ANIME_ADDON],
+        "macos-arm64",
+    )
+}
+
 fn rife_files() -> vapourbox_worker::gpu_plugin::GpuPluginFiles {
     vapourbox_worker::gpu_plugin::GpuPluginFiles::in_vapoursynth_dir(
         vapourbox_worker::gpu_plugin::GpuPlugin::Rife,
@@ -6196,9 +6206,18 @@ fn test_166_rife_frame_rate_emits_explicit_load_and_real_frame_passthrough() {
     let files = rife_files();
     // Paths as the generator writes them: Path::join uses `\` on Windows.
     let py = |p: &std::path::Path| vapourbox_worker::gpu_plugin::py_str(p);
-    let (preload, plugin, model) =
-        (py(files.preload.as_deref().unwrap()), py(&files.plugin), py(&files.model_dir));
-    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(files));
+    // The model is the add-on's, never the deps bundle's.
+    let root = model_addons();
+    let (preload, plugin, model) = (
+        py(files.preload.as_deref().unwrap()),
+        py(&files.plugin),
+        py(&vapourbox_worker::gpu_plugin::rife_model_dir(&root)),
+    );
+    assert!(model.contains("frame-rate-rife") && model.contains("rife-v4.26_ensembleFalse"), "{model}");
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_rife(Ok(files))
+        .with_addons(root.clone(), "macos-arm64");
     let (encode, preview) = both_scripts_with(&generator, &rife_job("test_166_rife")).unwrap();
     for (name, script) in [("encode", &encode), ("preview", &preview)] {
         assert!(script.contains(&format!("_rife_preload = {preload}")),
@@ -6410,10 +6429,16 @@ fn test_172_ai_upscale_emits_explicit_load_and_the_right_model() {
     create_output_dir();
     let files = upscale_files();
     let py = |p: &std::path::Path| vapourbox_worker::gpu_plugin::py_str(p);
-    let generator = ScriptGenerator::new().unwrap().with_upscale(Ok(files.clone()));
+    use vapourbox_worker::upscale_addons::{ANIME_ADDON, ANIME_ESRGAN_X2, CUGAN_DENOISE3X};
+    let root = model_addons();
+    let dir = vapourbox_worker::addons::addon_dir(&root, ANIME_ADDON);
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(files.clone()))
+        .with_addons(root.clone(), "macos-arm64");
     for (method, model) in [
-        (UpscaleMethod::RealEsrgan, "RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx"),
-        (UpscaleMethod::RealCugan, "cugan/up2x-latest-denoise3x.onnx"),
+        (UpscaleMethod::RealEsrgan, ANIME_ESRGAN_X2),
+        (UpscaleMethod::RealCugan, CUGAN_DENOISE3X),
     ] {
         let job = ai_upscale_job("test_172_ai_upscale", method, 2, "denoise3x");
         let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
@@ -6423,7 +6448,7 @@ fn test_172_ai_upscale_emits_explicit_load_and_the_right_model() {
                 "{ctx}: MoltenVK not preloaded");
             assert!(script.contains(&format!("core.std.LoadPlugin({})", py(&files.plugin))),
                 "{ctx}: VSNCNN not loaded explicitly");
-            assert!(script.contains(&format!("for _ai_model in [{}]:", py(&files.model_dir.join(model)))),
+            assert!(script.contains(&format!("for _ai_model in [{}]:", py(&dir.join(model)))),
                 "{ctx}: wrong model");
             assert!(script.contains("core.ncnn.Model(_ai_rgb, network_path=_ai_model, fp16=True"),
                 "{ctx}: no ncnn.Model call");
@@ -6446,14 +6471,19 @@ fn test_172_ai_upscale_emits_explicit_load_and_the_right_model() {
 fn test_173_ai_upscale_4x_models() {
     create_output_dir();
     let files = upscale_files();
-    let py = |m: &str| vapourbox_worker::gpu_plugin::py_str(&files.model_dir.join(m));
-    let generator = ScriptGenerator::new().unwrap().with_upscale(Ok(files.clone()));
+    use vapourbox_worker::upscale_addons::*;
+    let root = model_addons();
+    let dir = vapourbox_worker::addons::addon_dir(&root, ANIME_ADDON);
+    let py = |m: &str| vapourbox_worker::gpu_plugin::py_str(&dir.join(m));
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(files.clone()))
+        .with_addons(root.clone(), "macos-arm64");
     let esrgan = script_text_with(&generator, &ai_upscale_job("test_173_esrgan", UpscaleMethod::RealEsrgan, 4, ""));
-    assert!(esrgan.contains(&format!("for _ai_model in [{}]:",
-        py("RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx"))));
+    assert!(esrgan.contains(&format!("for _ai_model in [{}]:", py(ANIME_ESRGAN_X4))));
     let cugan = script_text_with(&generator, &ai_upscale_job("test_173_cugan", UpscaleMethod::RealCugan, 4, "conservative"));
     assert!(cugan.contains(&format!("for _ai_model in [{}, {}]:",
-        py("cugan/up2x-latest-conservative.onnx"), py("cugan/up2x-latest-no-denoise.onnx"))));
+        py(CUGAN_CONSERVATIVE), py(CUGAN_NO_DENOISE))));
 }
 
 /// Without a working Vulkan device an AI upscale job is refused, before any
@@ -6606,13 +6636,14 @@ fn test_179_animejanai_is_refused_without_its_models() {
     let generator = ScriptGenerator::new()
         .unwrap()
         .with_upscale(Ok(upscale_files()))
-        .with_animejanai(Err(vapourbox_worker::animejanai::MISSING_MESSAGE.into()));
+        .with_animejanai(Err(vapourbox_worker::animejanai::MISSING_MESSAGE.into()))
+        .with_addons(model_addons(), "macos-arm64");
     let job = ai_upscale_job("test_179_refused", UpscaleMethod::AnimeJanai, 2, "");
     let err = both_scripts_with(&generator, &job).unwrap_err().to_string();
     assert!(err.contains("AnimeJaNai's models are not installed"), "{err}");
     assert!(err.contains("non-commercial"), "{err}");
     let esrgan = ai_upscale_job("test_179_esrgan", UpscaleMethod::RealEsrgan, 2, "");
-    both_scripts_with(&generator, &esrgan).expect("Real-ESRGAN needs no add-on");
+    both_scripts_with(&generator, &esrgan).expect("Real-ESRGAN needs only its own add-on");
 }
 
 /// A phone-style VFR source: 30 fps for 30 frames, then every third frame
@@ -6651,6 +6682,7 @@ fn test_180_vfr_source_timeline_fills_gaps() {
     let generator = ScriptGenerator::new()
         .unwrap()
         .with_rife(Ok(rife_files()))
+        .with_addons(model_addons(), "macos-arm64")
         .with_timeline(Some(window.clone()));
 
     for method in [FrameRateMethod::FlowFps, FrameRateMethod::Rife] {
@@ -6722,7 +6754,8 @@ fn test_180_vfr_source_timeline_fills_gaps() {
 #[test]
 fn test_181_custom_frame_rate_target() {
     create_output_dir();
-    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()));
+    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()))
+        .with_addons(model_addons(), "macos-arm64");
     let custom = |name: &str, method: FrameRateMethod, fps: f64, src: (u32, u32)| {
         let mut job = rife_job(name);
         let fr = &mut job.processing_pipeline.as_mut().unwrap().frame_rate;
@@ -6769,7 +6802,8 @@ fn test_181_custom_frame_rate_target() {
 #[test]
 fn test_182_preview_retime_padding() {
     create_output_dir();
-    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()));
+    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()))
+        .with_addons(model_addons(), "macos-arm64");
     for method in [FrameRateMethod::FlowFps, FrameRateMethod::Rife, FrameRateMethod::Duplicate] {
         let mut job = rife_job("test_182_pad");
         let fr = &mut job.processing_pipeline.as_mut().unwrap().frame_rate;
@@ -6868,7 +6902,8 @@ fn test_183_deblock_per_field_when_still_interlaced() {
 #[test]
 fn test_184_flowfps_length_is_set_by_the_script() {
     create_output_dir();
-    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()));
+    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()))
+        .with_addons(model_addons(), "macos-arm64");
     let mut job = rife_job("test_184_flowfps_length");
     let fr = &mut job.processing_pipeline.as_mut().unwrap().frame_rate;
     fr.method = FrameRateMethod::FlowFps;
@@ -7171,7 +7206,9 @@ fn fake_addons(tag: &str, ids: &[&str]) -> PathBuf {
         let dir = vapourbox_worker::addons::addon_dir(&root, id);
         std::fs::create_dir_all(&dir).unwrap();
         for p in m.expected_paths("macos-arm64") {
-            std::fs::write(dir.join(p), b"x").unwrap();
+            let path = dir.join(p);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"x").unwrap();
         }
         std::fs::write(
             dir.join(vapourbox_worker::addons::MARKER),
@@ -7539,8 +7576,11 @@ fn test_187_upscale_addons_are_refused_when_missing() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("Real-ESRGAN x4plus / x2plus models"), "{err}");
-    both_scripts_with(&bare, &ai_upscale_job("test_187_esrgan", UpscaleMethod::RealEsrgan, 2, ""))
-        .expect("bundled Real-ESRGAN needs no add-on");
+    // Real-ESRGAN's anime model is an add-on too (deps 1.16.0 on).
+    let err = both_scripts_with(&bare, &ai_upscale_job("test_187_esrgan", UpscaleMethod::RealEsrgan, 2, ""))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("Real-ESRGAN anime & Real-CUGAN models"), "{err}");
     // On a platform VSNCNN doesn't ship on, the add-on is unavailable too.
     let mac_x64 = ScriptGenerator::new()
         .unwrap()
@@ -7562,7 +7602,7 @@ fn test_187_upscale_addons_are_refused_when_missing() {
 fn test_188_ai_strength_blends_with_spline36() {
     use vapourbox_worker::upscale_addons::*;
     create_output_dir();
-    let root = fake_addons("188", &[GENERAL_ADDON]);
+    let root = fake_addons("188", &[GENERAL_ADDON, ANIME_ADDON]);
     let generator = ScriptGenerator::new()
         .unwrap()
         .with_upscale(Ok(upscale_files()))
@@ -7713,4 +7753,68 @@ fn test_206_bt601_to_bt709_on_sd_to_hd() {
     }
     // On converts whatever the size.
     assert!(job_for(Bt709Conversion::On, 576, Some("smpte170m"), "tv").converts_to_bt709());
+}
+
+/// The GPU plugins' models are add-ons (deps 1.16.0 on): a RIFE, Real-ESRGAN
+/// or Real-CUGAN job on a machine where the plugin runs is still refused
+/// without its add-on, naming it and Settings → Add-ons, in both scripts — and
+/// with it installed the script reads the model from the add-on's directory,
+/// never from the deps bundle's `vapoursynth/rife/models` or `ncnn/models`.
+#[test]
+fn test_209_gpu_plugin_models_are_addons() {
+    use vapourbox_worker::gpu_plugin::{rife_model_dir, RIFE_ADDON};
+    use vapourbox_worker::upscale_addons::ANIME_ADDON;
+    create_output_dir();
+    let empty = std::env::temp_dir().join(format!("vb-addons-209-empty-{}", Uuid::new_v4()));
+    let bare = ScriptGenerator::new()
+        .unwrap()
+        .with_rife(Ok(rife_files()))
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(empty, "macos-arm64");
+    let cases = [
+        (rife_job("test_209_rife"), "AI interpolation (RIFE)", "RIFE 4.26 interpolation model"),
+        (ai_upscale_job("test_209_esrgan", UpscaleMethod::RealEsrgan, 2, ""), "Real-ESRGAN upscaling",
+            "Real-ESRGAN anime & Real-CUGAN models"),
+        (ai_upscale_job("test_209_cugan", UpscaleMethod::RealCugan, 4, "none"), "Real-CUGAN upscaling",
+            "Real-ESRGAN anime & Real-CUGAN models"),
+    ];
+    let params = PreviewParams {
+        rate_pad: 0,
+        width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 11,
+        fps_num: 25, fps_den: 1, output_index: 5,
+    };
+    for (job, feature, addon) in &cases {
+        for err in [
+            bare.generate(job).unwrap_err().to_string(),
+            bare.generate_preview(job, &params).unwrap_err().to_string(),
+        ] {
+            assert!(err.starts_with(feature), "{err}");
+            assert!(err.contains(addon) && err.contains("Settings → Add-ons"), "{err}");
+        }
+    }
+    let root = model_addons();
+    let installed = ScriptGenerator::new()
+        .unwrap()
+        .with_rife(Ok(rife_files()))
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(root.clone(), "macos-arm64");
+    for (job, _, _) in &cases {
+        let (encode, preview) = both_scripts_with(&installed, job).unwrap();
+        for script in [&encode, &preview] {
+            assert!(!script.contains("/rife/models") && !script.contains("/ncnn/models"),
+                "a bundled model path: {script}");
+        }
+    }
+    let (rife, _) = both_scripts_with(&installed, &cases[0].0).unwrap();
+    assert!(rife.contains(&vapourbox_worker::gpu_plugin::py_str(&rife_model_dir(&root))));
+    let (esrgan, _) = both_scripts_with(&installed, &cases[1].0).unwrap();
+    assert!(esrgan.contains(&vapourbox_worker::gpu_plugin::py_str(
+        &vapourbox_worker::addons::addon_dir(&root, ANIME_ADDON)
+            .join(vapourbox_worker::upscale_addons::ANIME_ESRGAN_X2))));
+    // RIFE's add-on is required exactly when RIFE is what the pass runs.
+    let mut flow = rife_job("test_209_flow");
+    flow.processing_pipeline.as_mut().unwrap().frame_rate.method = FrameRateMethod::FlowFps;
+    assert!(flow.effective_pipeline().required_addons().is_empty());
+    assert!(cases[0].0.effective_pipeline().required_addons().iter().any(|n| n.ids == [RIFE_ADDON]));
+    let _ = std::fs::remove_dir_all(&root);
 }

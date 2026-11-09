@@ -134,7 +134,10 @@ void main() {
     expect(upscaleAddonSelectedBy('crop_resize', v('liveAction')), 'upscale-general');
     expect(upscaleAddonSelectedBy('crop_resize', v('realEsrganPlus')), 'upscale-esrgan-plus');
     expect(upscaleAddonSelectedBy('crop_resize', v('animeJanai')), animeJanaiAddonId);
-    for (final m in ['realEsrgan', 'realCugan', 'nnedi3Rpow2', 'spline36']) {
+    // The anime models left the deps bundle in deps 1.16.0.
+    expect(upscaleAddonSelectedBy('crop_resize', v('realEsrgan')), 'upscale-anime');
+    expect(upscaleAddonSelectedBy('crop_resize', v('realCugan')), 'upscale-anime');
+    for (final m in ['nnedi3Rpow2', 'eedi3Rpow2', 'spline36']) {
       expect(upscaleAddonSelectedBy('crop_resize', v(m)), isNull, reason: m);
     }
     expect(upscaleAddonSelectedBy('crop_resize', v('liveAction', on: false)), isNull);
@@ -152,7 +155,27 @@ void main() {
       expect(aiUpscaleMethods.contains(m.name),
           !{'nnedi3Rpow2', 'eedi3Rpow2', 'spline36'}.contains(m.name), reason: m.name);
     }
-    expect(aiUpscaleMethods.containsAll(upscaleMethodAddons.keys), isTrue);
+    // Every AI method's models are an add-on: none is in the deps bundle.
+    expect(upscaleMethodAddons.keys.toSet(), aiUpscaleMethods);
+  });
+
+  test('RIFE names its model add-on, only when chosen', () {
+    expect(frameRateAddonSelectedBy('frame_rate', {'method': 'rife'}), rifeAddonId);
+    for (final m in ['flowFps', 'duplicate', null]) {
+      expect(frameRateAddonSelectedBy('frame_rate', {'method': m}), isNull, reason: '$m');
+    }
+    expect(frameRateAddonSelectedBy('crop_resize', {'method': 'rife'}), isNull);
+    // The panels ask one question for both GPU features.
+    expect(modelAddonSelectedBy('frame_rate', {'method': 'rife'}), rifeAddonId);
+    expect(modelAddonSelectedBy('crop_resize', {'useIntegerUpscale': true, 'upscaleMethod': 'realCugan'}),
+        'upscale-anime');
+    expect(modelAddonSelectedBy('sharpen', {'method': 'rife'}), isNull);
+    // Every GPU feature that can be selected needs a model add-on.
+    expect(gpuPluginSelectedBy('frame_rate', {'method': 'rife'}), isNotNull);
+    final root = Directory.current.path.endsWith('app')
+        ? Directory.current.path
+        : p.join(Directory.current.path, 'app');
+    expect(File(p.join(root, 'assets', 'addons', '$rifeAddonId.json')).existsSync(), isTrue);
   });
 
   test('the converter round-trips the General denoise switch and AI strength', () {

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../models/colorize_parameters.dart';
 import '../../models/face_restore_parameters.dart';
 import '../../models/filter_registry.dart';
+import '../../models/gpu_plugin_status.dart';
 import '../../models/pass_relevance.dart';
 import '../../models/processing_pipeline.dart';
 import '../../services/whats_new_service.dart';
@@ -164,7 +165,9 @@ class PassListPanel extends StatelessWidget {
                   pipeline.grain.enabled);
             case PassType.frameRate:
               return item(passType, 'Frame Rate', pipeline.frameRate.summary,
-                  pipeline.frameRate.enabled);
+                  pipeline.frameRate.enabled,
+                  onToggle: (enabled) =>
+                      _handleModelAddonToggle(context, viewModel, passType, enabled));
             case PassType.deflicker:
               return item(passType, 'Deflicker', pipeline.deflicker.summary,
                   pipeline.deflicker.enabled);
@@ -186,7 +189,9 @@ class PassListPanel extends StatelessWidget {
                   pipeline.colorCorrection.enabled);
             case PassType.cropResize:
               return item(passType, 'Crop / Resize', pipeline.cropResize.summary,
-                  pipeline.cropResize.enabled);
+                  pipeline.cropResize.enabled,
+                  onToggle: (enabled) =>
+                      _handleModelAddonToggle(context, viewModel, passType, enabled));
             case PassType.faceRestore:
               return item(
                 passType,
@@ -314,6 +319,32 @@ class PassListPanel extends StatelessWidget {
       if (!ready) return;
     }
     viewModel.togglePass(PassType.subtitles, enabled);
+  }
+
+  /// Frame Rate with RIFE, and Crop & Resize with an AI upscaler, run models
+  /// that are add-ons: switching the pass on with such a method chosen offers
+  /// the download, as choosing the method does. That is also how a pipeline
+  /// saved before the models became add-ons (deps 1.16.0) gets them. Declining
+  /// leaves the pass off.
+  Future<void> _handleModelAddonToggle(
+    BuildContext context,
+    MainViewModel viewModel,
+    PassType passType,
+    bool enabled,
+  ) async {
+    if (enabled) {
+      final filterId = PassSettingsInline.filterIdFor(passType);
+      final addon = modelAddonSelectedBy(filterId, viewModel.getDynamicParams(filterId).values);
+      if (addon != null) {
+        final ready = await AddonPrompt.ensure(
+          context,
+          [addon],
+          reason: upscaleAddonReason(addon),
+        );
+        if (!ready) return;
+      }
+    }
+    viewModel.togglePass(passType, enabled);
   }
 
   /// Face Restoration's models are add-ons: switching the pass on offers to

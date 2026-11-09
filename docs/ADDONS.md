@@ -80,11 +80,11 @@ source of truth for what an add-on is and what an install of it holds.
 | `licence`, `licenceUrl`, `credit`, `noticeName`, `homepage` | the main component's credit (see "Credits" below). |
 | `usageNote` | required exactly when the licence is non-commercial (`NC`), and shown bold wherever the add-on is offered. |
 | `components` | further components credited separately, each optionally limited to `platforms`. |
-| `requires` | add-on ids installed first, and removed with this one's dependants. A model run through ONNX Runtime requires `ai-runtime`; one run by the bundled VSNCNN plugin (the Crop & Resize upscalers, `upscale-*.json`) requires nothing, and lists only the platforms VSNCNN ships on. |
+| `requires` | add-on ids installed first, and removed with this one's dependants. A model run through ONNX Runtime requires `ai-runtime`; one run by a bundled ncnn plugin (VSNCNN for the Crop & Resize upscalers, `upscale-*.json`; RIFE for `frame-rate-rife.json`) requires nothing, and lists only the platforms that plugin ships on. |
 | `kind` | `files` — a model pack: each file is saved as `addons/<id>/<name>`, or for an entry with `extract`, only the listed members are kept (each checked against its own hash; nothing else in the archive is written). `python` — every file is a wheel, unpacked into `addons/<id>/site-packages/` as pip lays it out (`*.data/purelib`/`platlib` at the top, other `.data` dropped). |
 | `python` | for a python add-on, the wheel tag it targets (`cp312`: the deps bundle's Python on every platform). |
 | `platforms` | `"all"`, or a table of the deps platform ids (`macos-arm64`, `macos-x64`, `windows-x64`, `linux-x64`, `linux-arm64`) it supports, each with optional `minOs` (macOS only, checked at run time against the running system). Anything else gets an `unavailableReason` and cannot be installed. |
-| `files[]` | `name` (a plain file name), `url` (https), `size` (bytes), `sha256`; optional `platforms` (default: every supported platform), `extract` (members: `path` in the archive, `name` to install as, default its basename, and `sha256`) and `executable` (see below). Every supported platform must have at least one file. |
+| `files[]` | `name` (a plain file name, or a relative path of plain names joined by `/` — see below), `url` (https), `size` (bytes), `sha256`; optional `platforms` (default: every supported platform), `extract` (members: `path` in the archive, `name` to install as, default its basename, and `sha256`) and `executable` (see below). Every supported platform must have at least one file. |
 
 `AddonManifest.fromJson` validates all of this, so a malformed manifest fails
 `manifest_addon_test.dart` rather than half-working.
@@ -100,6 +100,17 @@ arm64 binary, and upstream builds are often unsigned (DeepFilterNet's Intel one
 is; its arm64 one is linker-signed and left alone). Quarantine is cleared with
 the rest of the install. Each platform's program can keep upstream's own file
 name: the worker finds it with `addons::Manifest::executable_for(platform)`.
+
+### Subdirectories: a path in `name`
+
+A file's `name` (or an archive member's) may be a relative path such as
+`rife-v4.26_ensembleFalse/flownet.param`: every `/`-separated part must be a
+plain name, so nothing can land outside the add-on's directory. It exists for
+a plugin that reads meaning from its model's directory name — the RIFE plugin
+takes the model's version, and with it the padding it runs at, from
+substrings of the path it is given, so `frame-rate-rife` installs into
+`addons/frame-rate-rife/rife-v4.26_ensembleFalse/`. The mirror still looks a
+file up by the last segment of its URL. Prefer plain names otherwise.
 
 ### What an install looks like
 
@@ -173,6 +184,31 @@ shape): it must reproduce the hosted file from the upstream checkpoint, pin the
 checkpoint by URL and hash, and state the opset and IR version (keep them
 loadable by the oldest ONNX Runtime the `ai-runtime` add-on pins — 1.23.2 on
 Intel Macs).
+
+## Models for the bundled ncnn plugins (RIFE, VSNCNN)
+
+The RIFE and VSNCNN plugins are in the deps bundle; every model they run is
+an add-on — RIFE's (`frame-rate-rife`, upstream's ncnn conversion fetched at
+a pinned commit) and all of Crop & Resize's upscalers' (`upscale-anime`,
+`upscale-general`, `upscale-esrgan-plus`, and the hand-written `animejanai`).
+Until deps 1.16.0 RIFE's model and the Real-ESRGAN anime / Real-CUGAN models
+were bundled; the rule now has no exceptions, and `attribution_test.dart`
+fails if `Scripts/deps-expected-plugins.json` lists a model or a
+`download-deps-*` script fetches one.
+
+Their probes (`--probe-rife`, `--probe-upscale`, `worker/src/gpu_plugin.rs`)
+need no add-on: each runs its plugin on a stand-in network of its own and
+checks the answer, so "this computer can't run it" is told before the user
+downloads anything, and a missing add-on is a separate refusal through
+`required_addons()`:
+
+- **VSNCNN**: `Tests/TestResources/ncnn_selftest.onnx` (264 bytes, one 1x1
+  convolution that swaps the first and third channels and adds 0.125; built by
+  `Scripts/models/make_ncnn_selftest.py`), compiled into the worker and handed
+  to `ncnn.Model` as bytes (`path_is_serialization=True`).
+- **RIFE**: a two-layer ncnn network with RIFE's v4 inputs and output
+  (`in0`, `in1`, `in2` → `out0`, the average of the two frames, no weights),
+  written beside the probe script in a directory named `rife-v4.26_selftest`.
 
 ## The worker side
 

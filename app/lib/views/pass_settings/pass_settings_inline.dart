@@ -114,7 +114,7 @@ class PassSettingsInline extends StatelessWidget {
             _buildKnlmNotice(viewModel, filterId, params),
             if (animeJanaiSelectedBy(filterId, params.values))
               const AnimeJanaiNotice()
-            else if (upscaleAddonSelectedBy(filterId, params.values) case final id?)
+            else if (modelAddonSelectedBy(filterId, params.values) case final id?)
               UpscaleAddonNotice(addonId: id, reason: upscaleAddonReason(id)),
             if (filterId == 'face_restore')
               FaceRestoreNotice(
@@ -386,12 +386,12 @@ class PassSettingsInline extends StatelessWidget {
       if (!ready) return;
     }
 
-    // AnimeJaNai's and the other add-on upscalers' models are add-ons:
-    // choosing one downloads its models, after saying what they are, their
-    // licence and size (AnimeJaNai's: non-commercial use only). Moving
-    // between two methods of one add-on asks once.
-    final addon = upscaleAddonSelectedBy(filterId, newParams.values);
-    if (addon != null && addon != upscaleAddonSelectedBy(filterId, oldParams.values)) {
+    // Every AI upscaler's and RIFE's models are add-ons: choosing one
+    // downloads its models, after saying what they are, their licence and
+    // size (AnimeJaNai's: non-commercial use only). Moving between two
+    // methods of one add-on asks once.
+    final addon = modelAddonSelectedBy(filterId, newParams.values);
+    if (addon != null && addon != modelAddonSelectedBy(filterId, oldParams.values)) {
       if (!context.mounted) return;
       final ready = await AddonPrompt.ensure(
         context,
@@ -599,9 +599,12 @@ class _FilterDescriptionState extends State<_FilterDescription> {
   }
 }
 
-/// Why an AI upscale method asks for its add-on, in [AddonPrompt.ensure].
+/// Why an AI upscale method (or RIFE) asks for its add-on, in
+/// [AddonPrompt.ensure].
 String upscaleAddonReason(String addonId) => switch (addonId) {
       animeJanaiAddonId => 'AnimeJaNai upscaling needs its models.',
+      rifeAddonId => 'AI interpolation (RIFE) needs its model.',
+      'upscale-anime' => 'Real-ESRGAN and Real-CUGAN upscaling need their models.',
       'upscale-esrgan-plus' => 'Real-ESRGAN x4plus upscaling needs its models.',
       _ => 'Real-ESRGAN General and Live Action SPAN upscaling need their models.',
     };

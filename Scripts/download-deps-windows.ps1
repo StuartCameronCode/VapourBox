@@ -878,40 +878,27 @@ foreach ($W in $WheelPlugins) {
 # RIFE job (see worker\src\gpu_plugin.rs), so a machine without a Vulkan driver, or
 # without the MSVC OpenMP runtime (VCOMP140.DLL) the DLL imports, fails that
 # method alone - and the app's probe names which one is missing. vulkan-1.dll
-# comes with the GPU driver and is not ours to ship. Keep $RifeTag, the model
-# commit and the model hashes in step with download-deps-{macos,linux}.sh.
+# comes with the GPU driver and is not ours to ship. Keep $RifeTag in step
+# with download-deps-{macos,linux}.sh.
 #
-# The model is the ncnn conversion committed to the plugin's repo (there is no
-# release asset for it), fetched at a pinned commit and checked by hash.
+# The plugin only. Its model is the `frame-rate-rife` add-on (deps 1.16.0 on;
+# app\assets\addons\frame-rate-rife.json): every AI model is an add-on, never
+# in this bundle (docs\ADDONS.md).
 $RifeTag = "r9_mod_v33"
 $RifeDllSha256 = "36a25b471be88e6f915320c818022dc8657dd9beac22a8c3158bd7f4260cc410"
-$RifeModelCommit = "96fdcecdf982ef3237e16e2b105eea849fa022ab"
-$RifeModelName = "rife-v4.26_ensembleFalse"
-$RifeModelHashes = @{
-    "flownet.bin"   = "94d58e30b75d7c7609cfa6f3bdad524deddd14f5f75e85c36d2f827ef5c64731"
-    "flownet.param" = "79f16c28903f93f8308f0c4c947f8c7e0c17d99a57b85473e5f298dd578d137b"
-}
 $RifeDir = "$FullTargetDir\vapoursynth\rife"
-$RifeModelDir = "$RifeDir\models\$RifeModelName"
 
 Write-Host ""
-Write-Host "Downloading RIFE $RifeTag (model $RifeModelName)..." -ForegroundColor Yellow
-if (-not ((Test-Path "$RifeDir\librife.dll") -and (Test-Path "$RifeModelDir\flownet.bin"))) {
+Write-Host "Downloading RIFE $RifeTag..." -ForegroundColor Yellow
+if (-not ((Test-Path "$RifeDir\librife.dll") -and -not (Test-Path "$RifeDir\models"))) {
     try {
         Remove-Item $RifeDir -Recurse -Force -ErrorAction SilentlyContinue
-        New-Item -ItemType Directory -Force -Path $RifeModelDir | Out-Null
+        New-Item -ItemType Directory -Force -Path $RifeDir | Out-Null
         $RifeDll = Join-Path $TempDir "librife.dll"
         Download-File -Url "https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/releases/download/$RifeTag/librife_windows_x86-64.dll" -OutFile $RifeDll
         $Got = (Get-FileHash -Path $RifeDll -Algorithm SHA256).Hash.ToLower()
         if ($Got -ne $RifeDllSha256) { throw "librife.dll sha256 $Got, expected $RifeDllSha256" }
         Move-Item $RifeDll "$RifeDir\librife.dll" -Force
-        foreach ($F in $RifeModelHashes.Keys) {
-            $Out = Join-Path $TempDir $F
-            Download-File -Url "https://raw.githubusercontent.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/$RifeModelCommit/models/$RifeModelName/$F" -OutFile $Out
-            $Got = (Get-FileHash -Path $Out -Algorithm SHA256).Hash.ToLower()
-            if ($Got -ne $RifeModelHashes[$F]) { throw "$F sha256 $Got, expected $($RifeModelHashes[$F])" }
-            Move-Item $Out "$RifeModelDir\$F" -Force
-        }
         Write-Host "  RIFE installed -> vapoursynth\rife\" -ForegroundColor Green
     } catch {
         Remove-Item $RifeDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -922,7 +909,7 @@ if (-not ((Test-Path "$RifeDir\librife.dll") -and (Test-Path "$RifeModelDir\flow
 }
 
 # =============================================================================
-# VSNCNN (vs-mlrt) + Real-ESRGAN / Real-CUGAN - Crop & Resize's AI upscaling
+# VSNCNN (vs-mlrt) - runs Crop & Resize's AI upscalers
 # =============================================================================
 # vs-mlrt's own Windows build, pinned and hash-checked. Lives in
 # vapoursynth\ncnn\, never in vs-plugins (see worker\src\gpu_plugin.rs). It links
@@ -930,31 +917,23 @@ if (-not ((Test-Path "$RifeDir\librife.dll") -and (Test-Path "$RifeModelDir\flow
 # GPU driver's, at run time. One file serves both CPU tiers: ncnn dispatches
 # its SIMD at run time.
 #
-# The models are vs-mlrt's ONNX conversions (2.4-5.2 MB each), shipped only
-# inside one ~810 MB archive per release: fetched pinned and hash-checked, the
-# five VapourBox uses extracted and each checked by its own hash. Keep every pin
-# and hash in step with download-deps-{macos,linux}.sh and
-# gpu_plugin::UPSCALE_MODELS. Needs 7-Zip, like the other .7z downloads.
+# The plugin only. Every model it runs is an add-on (deps 1.16.0 on;
+# app\assets\addons\upscale-*.json, docs\ADDONS.md) - the Real-ESRGAN anime and
+# Real-CUGAN models included, which were bundled here until then. Keep every
+# pin in step with download-deps-{macos,linux}.sh. Needs 7-Zip, like the other
+# .7z downloads.
 $VsmlrtTag = "v15.16"
 $VsncnnArchiveSha256 = "2ccf0ec1f84cd60f4a744c04d2a40d988da32f6970542f4f81669d44e9ea2ff1"
-$VsmlrtModelsSha256 = "d4eaa8c1c4459082185a9e1a2c54d7e2c776abeea6aef6aee0cb8f6c151dfb02"
-$UpscaleModelHashes = [ordered]@{
-    "RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx" = "6fad590f96df553a5cc348a9c5129e7874504a7dcd414e4a15fb0b281fca7e0c"
-    "RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx" = "414de3a5da4c56652c99f3bc0b960910e3561835a6c7a9cca546475bc4792158"
-    "cugan/up2x-latest-no-denoise.onnx"              = "3587278c3a7e62bbcb00a23b4de291ff906f62a88856ee457cbe4211cc593574"
-    "cugan/up2x-latest-conservative.onnx"            = "555bca3eb90caa37c7e1a02aec9cda3ca8479f252746c1885d382f87312f651c"
-    "cugan/up2x-latest-denoise3x.onnx"               = "7bcb0510f9f989e681a51d39b7170883d3d5e75f1ec23ef5146e8ea50c3cc845"
-}
 $NcnnDir = "$FullTargetDir\vapoursynth\ncnn"
 
 Write-Host ""
-Write-Host "Downloading VSNCNN $VsmlrtTag + upscaling models..." -ForegroundColor Yellow
+Write-Host "Downloading VSNCNN $VsmlrtTag..." -ForegroundColor Yellow
 if (-not $Has7z) {
     Write-Host "    Skipping (7-Zip not installed)" -ForegroundColor Yellow
-} elseif (-not ((Test-Path "$NcnnDir\vsncnn.dll") -and (Test-Path "$NcnnDir\models\cugan\up2x-latest-denoise3x.onnx"))) {
+} elseif (-not ((Test-Path "$NcnnDir\vsncnn.dll") -and -not (Test-Path "$NcnnDir\models"))) {
     try {
         Remove-Item $NcnnDir -Recurse -Force -ErrorAction SilentlyContinue
-        New-Item -ItemType Directory -Force -Path "$NcnnDir\models" | Out-Null
+        New-Item -ItemType Directory -Force -Path $NcnnDir | Out-Null
         $Work = Join-Path $TempDir "vsncnn"
         Remove-Item $Work -Recurse -Force -ErrorAction SilentlyContinue
         New-Item -ItemType Directory -Force -Path $Work | Out-Null
@@ -968,24 +947,6 @@ if (-not $Has7z) {
         $Dll = Get-ChildItem -Path $Work -Recurse -Filter "vsncnn.dll" | Select-Object -First 1
         if (-not $Dll) { throw "vsncnn.dll missing from the VSNCNN archive" }
         Copy-Item $Dll.FullName "$NcnnDir\vsncnn.dll" -Force
-
-        $Models = Join-Path $Work "models.7z"
-        Download-File -Url "https://github.com/AmusementClub/vs-mlrt/releases/download/$VsmlrtTag/models.$VsmlrtTag.7z" -OutFile $Models
-        $Got = (Get-FileHash -Path $Models -Algorithm SHA256).Hash.ToLower()
-        if ($Got -ne $VsmlrtModelsSha256) { throw "models archive sha256 $Got, expected $VsmlrtModelsSha256" }
-        # One pass: the archive is solid, so separate extractions would each
-        # decompress it from the start again.
-        $Wanted = $UpscaleModelHashes.Keys | ForEach-Object { "models/$_" }
-        & $7zPath x $Models -o"$Work" -y @Wanted | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "7-Zip failed on the models archive (exit $LASTEXITCODE)" }
-        foreach ($Rel in $UpscaleModelHashes.Keys) {
-            $Src = Join-Path $Work ("models\" + $Rel.Replace('/', '\'))
-            $Got = (Get-FileHash -Path $Src -Algorithm SHA256).Hash.ToLower()
-            if ($Got -ne $UpscaleModelHashes[$Rel]) { throw "$Rel sha256 $Got, expected $($UpscaleModelHashes[$Rel])" }
-            $Dest = Join-Path "$NcnnDir\models" $Rel.Replace('/', '\')
-            New-Item -ItemType Directory -Force -Path (Split-Path $Dest) | Out-Null
-            Move-Item $Src $Dest -Force
-        }
         Remove-Item $Work -Recurse -Force -ErrorAction SilentlyContinue
         Write-Host "  VSNCNN installed -> vapoursynth\ncnn\" -ForegroundColor Green
     } catch {

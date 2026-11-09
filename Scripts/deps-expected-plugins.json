@@ -13,63 +13,28 @@
       "vapoursynth/plugins/libzsmooth.so"
     ]
   },
-  "_extraFilesComment": "Files a COMPLETE bundle must hold outside the plugin directory, as paths from the bundle root. Today those are the ncnn-on-Vulkan plugins (worker/src/gpu_plugin.rs): RIFE in vapoursynth/rife/, VSNCNN and its upscaling models in vapoursynth/ncnn/, and on macOS the MoltenVK both preload from vapoursynth/moltenvk/ — deliberately outside the autoload directory, so the plugin-directory lists above cannot cover them. The package-deps-* scripts assert these too. A platform with no entry ships neither (macos-x64, linux-arm64), and the worker's gpu_plugin::platform_ships_rife / platform_ships_upscale must agree — app/test/attribution_test.dart checks both directions.",
+  "_extraFilesComment": "Files a COMPLETE bundle must hold outside the plugin directory, as paths from the bundle root. Today those are the ncnn-on-Vulkan plugins (worker/src/gpu_plugin.rs): RIFE in vapoursynth/rife/, VSNCNN in vapoursynth/ncnn/, and on macOS the MoltenVK both preload from vapoursynth/moltenvk/. Their models are NOT here: every AI model is an add-on (docs/ADDONS.md), and app/test/attribution_test.dart fails if one is listed — deliberately outside the autoload directory, so the plugin-directory lists above cannot cover them. The package-deps-* scripts assert these too. A platform with no entry ships neither (macos-x64, linux-arm64), and the worker's gpu_plugin::platform_ships_rife / platform_ships_upscale must agree — app/test/attribution_test.dart checks both directions.",
   "_extraFiles": {
     "macos-arm64": [
       "vapoursynth/moltenvk/libMoltenVK.dylib",
       "vapoursynth/rife/librife.dylib",
-      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.bin",
-      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.param",
-      "vapoursynth/ncnn/libvsncnn.dylib",
-      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx",
-      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx",
-      "vapoursynth/ncnn/models/cugan/up2x-latest-no-denoise.onnx",
-      "vapoursynth/ncnn/models/cugan/up2x-latest-conservative.onnx",
-      "vapoursynth/ncnn/models/cugan/up2x-latest-denoise3x.onnx"
+      "vapoursynth/ncnn/libvsncnn.dylib"
     ],
     "windows-x64": [
       "vapoursynth/rife/librife.dll",
-      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.bin",
-      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.param",
-      "vapoursynth/ncnn/vsncnn.dll",
-      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx",
-      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx",
-      "vapoursynth/ncnn/models/cugan/up2x-latest-no-denoise.onnx",
-      "vapoursynth/ncnn/models/cugan/up2x-latest-conservative.onnx",
-      "vapoursynth/ncnn/models/cugan/up2x-latest-denoise3x.onnx"
+      "vapoursynth/ncnn/vsncnn.dll"
     ],
     "windows-x64-v2": [
       "vapoursynth/rife/librife.dll",
-      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.bin",
-      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.param",
-      "vapoursynth/ncnn/vsncnn.dll",
-      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx",
-      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx",
-      "vapoursynth/ncnn/models/cugan/up2x-latest-no-denoise.onnx",
-      "vapoursynth/ncnn/models/cugan/up2x-latest-conservative.onnx",
-      "vapoursynth/ncnn/models/cugan/up2x-latest-denoise3x.onnx"
+      "vapoursynth/ncnn/vsncnn.dll"
     ],
     "linux-x64": [
       "vapoursynth/rife/librife.so",
-      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.bin",
-      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.param",
-      "vapoursynth/ncnn/libvsncnn.so",
-      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx",
-      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx",
-      "vapoursynth/ncnn/models/cugan/up2x-latest-no-denoise.onnx",
-      "vapoursynth/ncnn/models/cugan/up2x-latest-conservative.onnx",
-      "vapoursynth/ncnn/models/cugan/up2x-latest-denoise3x.onnx"
+      "vapoursynth/ncnn/libvsncnn.so"
     ],
     "linux-x64-v2": [
       "vapoursynth/rife/librife.so",
-      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.bin",
-      "vapoursynth/rife/models/rife-v4.26_ensembleFalse/flownet.param",
-      "vapoursynth/ncnn/libvsncnn.so",
-      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx",
-      "vapoursynth/ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx",
-      "vapoursynth/ncnn/models/cugan/up2x-latest-no-denoise.onnx",
-      "vapoursynth/ncnn/models/cugan/up2x-latest-conservative.onnx",
-      "vapoursynth/ncnn/models/cugan/up2x-latest-denoise3x.onnx"
+      "vapoursynth/ncnn/libvsncnn.so"
     ]
   },
   "windows-x64": [

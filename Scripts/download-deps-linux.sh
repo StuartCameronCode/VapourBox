@@ -1749,8 +1749,8 @@ fi
 # ============================================================================
 # Lives in vapoursynth/rife/, NOT the autoload directory: the template loads it
 # only for a RIFE job (see worker/src/gpu_plugin.rs), so a machine whose GPU stack or
-# CPU cannot run it fails that method alone. Keep RIFE_TAG, the model commit and
-# the model hashes in step with download-deps-{macos.sh,windows.ps1}.
+# CPU cannot run it fails that method alone. Keep RIFE_TAG in step with
+# download-deps-{macos.sh,windows.ps1}.
 #
 # x86_64 only: upstream publishes no aarch64 build, and the app reports RIFE as
 # unavailable on linux-arm64. The prebuilt needs glibc 2.35 (under our 2.39
@@ -1759,21 +1759,18 @@ fi
 # The same file serves both CPU tiers; if it ever proves to need AVX at load,
 # the app's probe reports that as an unsupported CPU rather than crashing jobs.
 #
-# The model is the ncnn conversion committed to the plugin's repo (there is no
-# release asset for it), fetched at a pinned commit and checked by hash.
+# The plugin only. Its model is the `frame-rate-rife` add-on (deps 1.16.0 on;
+# app/assets/addons/frame-rate-rife.json): every AI model is an add-on, never
+# in this bundle (docs/ADDONS.md).
 RIFE_TAG="r9_mod_v33"
 RIFE_LINUX_X64_SHA256="18a00a5e3ac90a5dfcfdf85fdb81d977381a5a2560a4c45dbe9a469d007b1886"
-RIFE_MODEL_COMMIT="96fdcecdf982ef3237e16e2b105eea849fa022ab"
-RIFE_MODEL_NAME="rife-v4.26_ensembleFalse"
-RIFE_MODEL_BIN_SHA256="94d58e30b75d7c7609cfa6f3bdad524deddd14f5f75e85c36d2f827ef5c64731"
-RIFE_MODEL_PARAM_SHA256="79f16c28903f93f8308f0c4c947f8c7e0c17d99a57b85473e5f298dd578d137b"
 RIFE_DIR="$DEPS_DIR/vapoursynth/rife"
 echo ""
-echo "=== Installing RIFE ($RIFE_TAG, model $RIFE_MODEL_NAME) ==="
+echo "=== Installing RIFE ($RIFE_TAG) ==="
 if [ "$ARCH" != "x86_64" ]; then
     echo "  Skipped on $ARCH: upstream publishes no build"
 elif [ "$FORCE" = false ] && [ -f "$RIFE_DIR/librife.so" ] \
-     && [ -f "$RIFE_DIR/models/$RIFE_MODEL_NAME/flownet.bin" ]; then
+     && [ ! -d "$RIFE_DIR/models" ]; then
     echo "  RIFE already exists, skipping"
 else
     rm -rf "$RIFE_DIR"
@@ -1784,20 +1781,13 @@ else
     set +e
     (
         set -e
-        mkdir -p "$RIFE_DIR/models/$RIFE_MODEL_NAME"
+        mkdir -p "$RIFE_DIR"
         cd "$BUILD_DIR"
         curl -fsSL -o librife.so \
             "https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/releases/download/$RIFE_TAG/librife_linux_x86-64.so"
         echo "$RIFE_LINUX_X64_SHA256  librife.so" | sha256sum -c -
         mv librife.so "$RIFE_DIR/librife.so"
         chmod 755 "$RIFE_DIR/librife.so"
-        for f in flownet.bin flownet.param; do
-            curl -fsSL -o "$f" \
-                "https://raw.githubusercontent.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/$RIFE_MODEL_COMMIT/models/$RIFE_MODEL_NAME/$f"
-        done
-        echo "$RIFE_MODEL_BIN_SHA256  flownet.bin" | sha256sum -c -
-        echo "$RIFE_MODEL_PARAM_SHA256  flownet.param" | sha256sum -c -
-        mv flownet.bin flownet.param "$RIFE_DIR/models/$RIFE_MODEL_NAME/"
     )
     _block_status=$?
     set -e
@@ -1812,7 +1802,7 @@ else
 fi
 
 # ============================================================================
-# VSNCNN (vs-mlrt) + Real-ESRGAN / Real-CUGAN — Crop & Resize's AI upscaling
+# VSNCNN (vs-mlrt) — runs Crop & Resize's AI upscalers
 # ============================================================================
 # vs-mlrt publishes VSNCNN for Windows only; this is upstream's own
 # linux-ncnn.yml recipe at the pinned tag: static protobuf and onnx from
@@ -1823,24 +1813,15 @@ fi
 # dlopens the system's libvulkan.so.1; one build serves both CPU tiers (ncnn
 # dispatches its SIMD at run time).
 #
-# The models are vs-mlrt's ONNX conversions (2.4-5.2 MB each), shipped only
-# inside one ~810 MB archive per release: fetched pinned and hash-checked, the
-# five VapourBox uses extracted and each checked by its own hash. Keep every pin
-# and hash in step with download-deps-{macos.sh,windows.ps1} and
-# gpu_plugin::UPSCALE_MODELS.
+# The plugin only. Every model it runs is an add-on (deps 1.16.0 on;
+# app/assets/addons/upscale-*.json, docs/ADDONS.md) — the Real-ESRGAN anime and
+# Real-CUGAN models included, which were bundled here until then. Keep every
+# pin in step with download-deps-{macos.sh,windows.ps1}.
 VSMLRT_TAG="v15.16"
-VSMLRT_MODELS_SHA256="d4eaa8c1c4459082185a9e1a2c54d7e2c776abeea6aef6aee0cb8f6c151dfb02"
 PROTOBUF_TAG="v3.21.12"
 ONNX_COMMIT="b86cc54efce19530fb953e4b21f57e6b3888534c"
 NCNN_TAG="20260526"
 NCNN_UBUNTU_SHA256="c6daf0c8fb2546de420c7b320e2ce62ba764163ace0ba63a2ea0cdfca70d684d"
-UPSCALE_MODEL_HASHES=(
-    "RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx 6fad590f96df553a5cc348a9c5129e7874504a7dcd414e4a15fb0b281fca7e0c"
-    "RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx 414de3a5da4c56652c99f3bc0b960910e3561835a6c7a9cca546475bc4792158"
-    "cugan/up2x-latest-no-denoise.onnx 3587278c3a7e62bbcb00a23b4de291ff906f62a88856ee457cbe4211cc593574"
-    "cugan/up2x-latest-conservative.onnx 555bca3eb90caa37c7e1a02aec9cda3ca8479f252746c1885d382f87312f651c"
-    "cugan/up2x-latest-denoise3x.onnx 7bcb0510f9f989e681a51d39b7170883d3d5e75f1ec23ef5146e8ea50c3cc845"
-)
 # VSNCNN is an API 3 plugin (VapourSynth.h / VSHelper.h). R78 still loads
 # those, but the build's own include dir need not carry the old headers, so
 # they are fetched from the same VapourSynth tag, by hash.
@@ -1851,11 +1832,11 @@ VSAPI3_HEADER_HASHES=(
 )
 NCNN_DIR="$DEPS_DIR/vapoursynth/ncnn"
 echo ""
-echo "=== Installing VSNCNN ($VSMLRT_TAG) + upscaling models ==="
+echo "=== Installing VSNCNN ($VSMLRT_TAG) ==="
 if [ "$ARCH" != "x86_64" ]; then
     echo "  Skipped on $ARCH: Tencent publishes no aarch64 Linux ncnn"
 elif [ "$FORCE" = false ] && [ -f "$NCNN_DIR/libvsncnn.so" ] \
-     && [ -f "$NCNN_DIR/models/cugan/up2x-latest-denoise3x.onnx" ]; then
+     && [ ! -d "$NCNN_DIR/models" ]; then
     echo "  VSNCNN already exists, skipping"
 else
     rm -rf "$NCNN_DIR"
@@ -1867,7 +1848,7 @@ else
     (
         set -e
         W="$BUILD_DIR/vsncnn"
-        rm -rf "$W" && mkdir -p "$W" "$NCNN_DIR/models"
+        rm -rf "$W" && mkdir -p "$W" "$NCNN_DIR"
         cd "$W"
         curl -fsSL "https://github.com/protocolbuffers/protobuf/archive/refs/tags/$PROTOBUF_TAG.tar.gz" | tar xz
         cmake -S "protobuf-${PROTOBUF_TAG#v}/cmake" -B pb-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -1902,24 +1883,6 @@ else
         cmake --build vsncnn-build >/dev/null
         cp vsncnn-build/libvsncnn.so "$NCNN_DIR/libvsncnn.so"
         chmod 755 "$NCNN_DIR/libvsncnn.so"
-        curl -fsSL -o models.7z \
-            "https://github.com/AmusementClub/vs-mlrt/releases/download/$VSMLRT_TAG/models.$VSMLRT_TAG.7z"
-        echo "$VSMLRT_MODELS_SHA256  models.7z" | sha256sum -c -
-        wanted=()
-        for entry in "${UPSCALE_MODEL_HASHES[@]}"; do wanted+=("models/${entry%% *}"); done
-        # One pass: the archive is solid, so each separate extraction would
-        # decompress it from the start again.
-        if command -v 7z >/dev/null; then
-            7z x -y -bd models.7z "${wanted[@]}" >/dev/null
-        else
-            bsdtar -xf models.7z "${wanted[@]}"
-        fi
-        for entry in "${UPSCALE_MODEL_HASHES[@]}"; do
-            rel="${entry%% *}"; sum="${entry##* }"
-            echo "$sum  models/$rel" | sha256sum -c -
-            mkdir -p "$NCNN_DIR/models/$(dirname "$rel")"
-            mv "models/$rel" "$NCNN_DIR/models/$rel"
-        done
         cd "$BUILD_DIR" && rm -rf "$W"
     )
     _block_status=$?

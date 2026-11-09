@@ -610,6 +610,9 @@ void main() {
       available = probe.stdout.toString().contains('"available":true');
       print('  RIFE probe: ${probe.stdout.toString().trim()}');
       if (!available) return;
+      // RIFE's model is an add-on (frame-rate-rife), installed with the app's
+      // own installer from the URL its manifest pins.
+      await WorkerHarness.ensureAddon('frame-rate-rife');
       // On a CPU Vulkan driver (lavapipe) RIFE is slow, alongside
       // the other heavy files. This 75-frame encode passed in under two
       // minutes on one Linux job and hit the default 5 in another, so it gets

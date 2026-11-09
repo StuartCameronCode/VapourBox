@@ -68,8 +68,9 @@ pub enum UpscaleMethod {
     Eedi3Rpow2,
     Spline36,
     /// Real-ESRGAN's anime video model (BSD-3), on the GPU through VSNCNN.
+    /// Its models are an add-on (`upscale-anime`) — see `upscale_addons.rs`.
     RealEsrgan,
-    /// Real-CUGAN (MIT, bilibili), on the GPU through VSNCNN.
+    /// Real-CUGAN (MIT, bilibili), on the GPU through VSNCNN. Add-on, as above.
     RealCugan,
     /// AnimeJaNai (the-database, CC BY-NC-SA 4.0), on the GPU through VSNCNN.
     /// Its models are an optional download, not in the deps bundle — see
@@ -104,11 +105,13 @@ impl UpscaleMethod {
 
     /// The manifest add-on holding this method's models, and the feature name
     /// the worker's refusal starts with when it is missing. `None` for the
-    /// methods whose models are in the deps bundle (and for AnimeJaNai, whose
-    /// hand-written add-on is checked separately — see `animejanai.rs`).
+    /// methods that run no model (and for AnimeJaNai, whose hand-written
+    /// add-on is checked separately — see `animejanai.rs`).
     pub fn addon(self) -> Option<(&'static str, &'static str)> {
-        use crate::upscale_addons::{ESRGAN_PLUS_ADDON, GENERAL_ADDON};
+        use crate::upscale_addons::{ANIME_ADDON, ESRGAN_PLUS_ADDON, GENERAL_ADDON};
         match self {
+            UpscaleMethod::RealEsrgan => Some((ANIME_ADDON, "Real-ESRGAN upscaling")),
+            UpscaleMethod::RealCugan => Some((ANIME_ADDON, "Real-CUGAN upscaling")),
             UpscaleMethod::RealEsrganGeneral => Some((GENERAL_ADDON, "Real-ESRGAN General upscaling")),
             UpscaleMethod::LiveAction => Some((GENERAL_ADDON, "Live-action upscaling")),
             UpscaleMethod::RealEsrganPlus => Some((ESRGAN_PLUS_ADDON, "Real-ESRGAN x4plus upscaling")),
@@ -117,11 +120,10 @@ impl UpscaleMethod {
     }
 }
 
-/// One network an AI upscale runs.
+/// One network an AI upscale runs. None is in the deps bundle: every model
+/// is an add-on (docs/ADDONS.md).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AiModel {
-    /// A model the deps bundle ships, as a path under `vapoursynth/ncnn/models/`.
-    Bundled(&'static str),
     /// An AnimeJaNai model pair under the add-on directory: the script runs
     /// `sd` on a picture at most `animejanai::SD_MAX_HEIGHT` tall, else `hd`.
     /// Decided in the script, per doubling, because only it knows the height
@@ -133,12 +135,11 @@ pub enum AiModel {
 }
 
 impl AiModel {
-    /// The network's own scale factor. Every bundled model and AnimeJaNai's
-    /// double; add-on models say (`upscale_addons::MODELS`).
+    /// The network's own scale factor. AnimeJaNai's double; manifest
+    /// add-on models say (`upscale_addons::MODELS`).
     pub fn scale(&self) -> u32 {
         match self {
-            AiModel::Bundled(name) if name.ends_with("xsx4.onnx") => 4,
-            AiModel::Bundled(_) | AiModel::AnimeJanai { .. } => 2,
+            AiModel::AnimeJanai { .. } => 2,
             AiModel::Addon { file, .. } => crate::upscale_addons::scale_of(file),
         }
     }
@@ -540,17 +541,21 @@ impl CropResizeParameters {
         if self.uses_ai_upscale() { self.upscale_method.addon() } else { None }
     }
 
-    /// The models an AI upscale runs, in order, as paths under
-    /// `vapoursynth/ncnn/models/` (or an add-on's directory for
-    /// `AiModel::Addon`). Factors follow the edge-directed path's
+    /// The models an AI upscale runs, in order, each a file in an add-on's
+    /// directory. Factors follow the edge-directed path's
     /// rule (3x behaves as 2x). Real-ESRGAN has a 4x model; Real-CUGAN's
-    /// bundled models are 2x only, so 4x runs it twice, denoising on the first
+    /// models are 2x only, so 4x runs it twice, denoising on the first
     /// pass only — a second denoise pass would smooth the result twice.
     /// AnimeJaNai is 2x only, so 4x is two doublings; the script picks SD or
     /// HD for each, so a DVD runs the SD model and then an HD one.
     pub fn ai_upscale_models(&self) -> Vec<AiModel> {
         let four = self.upscale_factor >= 4;
-        let bundled = |names: Vec<&'static str>| names.into_iter().map(AiModel::Bundled).collect();
+        let anime = |names: Vec<&'static str>| {
+            names
+                .into_iter()
+                .map(|file| AiModel::Addon { addon: crate::upscale_addons::ANIME_ADDON, file })
+                .collect()
+        };
         match self.upscale_method {
             UpscaleMethod::AnimeJanai => {
                 let pair = AiModel::AnimeJanai {
@@ -559,22 +564,18 @@ impl CropResizeParameters {
                 };
                 vec![pair; if four { 2 } else { 1 }]
             }
-            UpscaleMethod::RealEsrgan => bundled(vec![if four {
-                "RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx"
-            } else {
-                "RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx"
-            }]),
+            UpscaleMethod::RealEsrgan => {
+                use crate::upscale_addons::{ANIME_ESRGAN_X2, ANIME_ESRGAN_X4};
+                anime(vec![if four { ANIME_ESRGAN_X4 } else { ANIME_ESRGAN_X2 }])
+            }
             UpscaleMethod::RealCugan => {
+                use crate::upscale_addons::{CUGAN_CONSERVATIVE, CUGAN_DENOISE3X, CUGAN_NO_DENOISE};
                 let first = match self.cugan_noise.as_str() {
-                    "none" => "cugan/up2x-latest-no-denoise.onnx",
-                    "denoise3x" => "cugan/up2x-latest-denoise3x.onnx",
-                    _ => "cugan/up2x-latest-conservative.onnx",
+                    "none" => CUGAN_NO_DENOISE,
+                    "denoise3x" => CUGAN_DENOISE3X,
+                    _ => CUGAN_CONSERVATIVE,
                 };
-                bundled(if four {
-                    vec![first, "cugan/up2x-latest-no-denoise.onnx"]
-                } else {
-                    vec![first]
-                })
+                anime(if four { vec![first, CUGAN_NO_DENOISE] } else { vec![first] })
             }
             UpscaleMethod::RealEsrganGeneral => {
                 use crate::upscale_addons::{GENERAL_ADDON, GENERAL_WDN_X4, GENERAL_X4};
@@ -1035,27 +1036,28 @@ mod tests {
             cugan_noise: noise.into(),
             ..Default::default()
         };
-        let b = |names: &[&'static str]| names.iter().map(|n| AiModel::Bundled(n)).collect::<Vec<_>>();
-        assert_eq!(p(UpscaleMethod::RealEsrgan, 2, "").ai_upscale_models(),
-            b(&["RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx"]));
-        assert_eq!(p(UpscaleMethod::RealEsrgan, 3, "").ai_upscale_models(),
-            b(&["RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx"]));
-        assert_eq!(p(UpscaleMethod::RealEsrgan, 4, "").ai_upscale_models(),
-            b(&["RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx"]));
-        assert_eq!(p(UpscaleMethod::RealCugan, 2, "denoise3x").ai_upscale_models(),
-            b(&["cugan/up2x-latest-denoise3x.onnx"]));
+        use crate::upscale_addons::*;
+        let b = |names: &[&'static str]| {
+            names.iter().map(|&file| AiModel::Addon { addon: ANIME_ADDON, file }).collect::<Vec<_>>()
+        };
+        assert_eq!(p(UpscaleMethod::RealEsrgan, 2, "").ai_upscale_models(), b(&[ANIME_ESRGAN_X2]));
+        assert_eq!(p(UpscaleMethod::RealEsrgan, 3, "").ai_upscale_models(), b(&[ANIME_ESRGAN_X2]));
+        assert_eq!(p(UpscaleMethod::RealEsrgan, 4, "").ai_upscale_models(), b(&[ANIME_ESRGAN_X4]));
+        assert_eq!(p(UpscaleMethod::RealCugan, 2, "denoise3x").ai_upscale_models(), b(&[CUGAN_DENOISE3X]));
         assert_eq!(p(UpscaleMethod::RealCugan, 4, "none").ai_upscale_models(),
-            b(&["cugan/up2x-latest-no-denoise.onnx", "cugan/up2x-latest-no-denoise.onnx"]));
+            b(&[CUGAN_NO_DENOISE, CUGAN_NO_DENOISE]));
         // An unknown strength from a hand-edited preset is the default.
-        assert_eq!(p(UpscaleMethod::RealCugan, 2, "max").ai_upscale_models(),
-            b(&["cugan/up2x-latest-conservative.onnx"]));
-        // Every model named here is one the deps bundle ships.
+        assert_eq!(p(UpscaleMethod::RealCugan, 2, "max").ai_upscale_models(), b(&[CUGAN_CONSERVATIVE]));
+        // Every model named here is one the add-on installs, and the add-on
+        // is what the pass declares it needs.
         for m in [UpscaleMethod::RealEsrgan, UpscaleMethod::RealCugan] {
             for f in [2, 4] {
                 for n in ["none", "conservative", "denoise3x"] {
-                    for model in p(m, f, n).ai_upscale_models() {
-                        let AiModel::Bundled(model) = model else { panic!("{model:?}") };
-                        assert!(crate::gpu_plugin::UPSCALE_MODELS.contains(&model), "{model}");
+                    let params = p(m, f, n);
+                    assert_eq!(params.upscale_addon().map(|a| a.0), Some(ANIME_ADDON));
+                    for model in params.ai_upscale_models() {
+                        let AiModel::Addon { addon, file } = model else { panic!("{model:?}") };
+                        assert!(MODELS.contains(&(addon, file, model.scale())), "{file}");
                     }
                 }
             }
@@ -1133,7 +1135,8 @@ mod tests {
         // The add-on each needs, only when it is what the pass runs.
         assert_eq!(plus4.upscale_addon().map(|a| a.0), Some(ESRGAN_PLUS_ADDON));
         assert_eq!(p(UpscaleMethod::LiveAction, 2, false).upscale_addon().map(|a| a.0), Some(GENERAL_ADDON));
-        assert_eq!(p(UpscaleMethod::RealEsrgan, 2, false).upscale_addon(), None);
+        assert_eq!(p(UpscaleMethod::RealEsrgan, 2, false).upscale_addon().map(|a| a.0), Some(ANIME_ADDON));
+        assert_eq!(p(UpscaleMethod::RealCugan, 4, false).upscale_addon().map(|a| a.0), Some(ANIME_ADDON));
         assert_eq!(p(UpscaleMethod::AnimeJanai, 2, false).upscale_addon(), None);
         let off = CropResizeParameters { use_integer_upscale: false, ..plus4.clone() };
         assert_eq!(off.upscale_addon(), None);

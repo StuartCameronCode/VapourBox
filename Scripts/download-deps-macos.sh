@@ -2383,8 +2383,8 @@ fi
 # RIFE 4.26 — the Frame Rate pass's neural interpolator (ncnn on Vulkan)
 # ============================================================================
 # Lives in vapoursynth/rife/, NOT the autoload directory: the template loads it
-# only for a RIFE job (see worker/src/gpu_plugin.rs). Keep RIFE_TAG, the model
-# commit and the model hashes in step with download-deps-{linux.sh,windows.ps1}.
+# only for a RIFE job (see worker/src/gpu_plugin.rs). Keep RIFE_TAG in step with
+# download-deps-{linux.sh,windows.ps1}.
 #
 # arm64 only. The upstream x86_64 dylib targets macOS 13 against this arch's
 # 12.0 floor (issue #39) and runs AVX in a static initializer
@@ -2392,21 +2392,18 @@ fi
 # the app reports RIFE as unavailable there. It resolves Vulkan from the
 # MoltenVK installed above.
 #
-# The model is the ncnn conversion committed to the plugin's repo (there is no
-# release asset for it), fetched at a pinned commit and checked by hash.
+# The plugin only. Its model is the `frame-rate-rife` add-on (deps 1.16.0 on;
+# app/assets/addons/frame-rate-rife.json): every AI model is an add-on, never
+# in this bundle (docs/ADDONS.md).
 RIFE_TAG="r9_mod_v33"
 RIFE_MACOS_ARM64_SHA256="3041811d2b71afd2fa12d64484f64396c6fa5259ab63715316694f4110fc0e67"
-RIFE_MODEL_COMMIT="96fdcecdf982ef3237e16e2b105eea849fa022ab"
-RIFE_MODEL_NAME="rife-v4.26_ensembleFalse"
-RIFE_MODEL_BIN_SHA256="94d58e30b75d7c7609cfa6f3bdad524deddd14f5f75e85c36d2f827ef5c64731"
-RIFE_MODEL_PARAM_SHA256="79f16c28903f93f8308f0c4c947f8c7e0c17d99a57b85473e5f298dd578d137b"
 RIFE_DIR="$DEPS_DIR/vapoursynth/rife"
 echo ""
-echo "=== Installing RIFE ($RIFE_TAG, model $RIFE_MODEL_NAME) ==="
+echo "=== Installing RIFE ($RIFE_TAG) ==="
 if [ "$ARCH" != "arm64" ]; then
     echo "  Skipped on $ARCH: no compatible prebuilt (see above)"
 elif [ "$FORCE" = false ] && [ -f "$RIFE_DIR/librife.dylib" ] \
-     && [ -f "$RIFE_DIR/models/$RIFE_MODEL_NAME/flownet.bin" ]; then
+     && [ ! -d "$RIFE_DIR/models" ]; then
     echo "  RIFE already exists, skipping"
 else
     rm -rf "$RIFE_DIR"
@@ -2417,19 +2414,12 @@ else
     set +e
     (
         set -e
-        mkdir -p "$RIFE_DIR/models/$RIFE_MODEL_NAME"
+        mkdir -p "$RIFE_DIR"
         cd "$BUILD_DIR"
         curl -fsSL -o librife.dylib \
             "https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/releases/download/$RIFE_TAG/librife_macos_arm64.dylib"
         echo "$RIFE_MACOS_ARM64_SHA256  librife.dylib" | shasum -a 256 -c -
         mv librife.dylib "$RIFE_DIR/librife.dylib"
-        for f in flownet.bin flownet.param; do
-            curl -fsSL -o "$f" \
-                "https://raw.githubusercontent.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/$RIFE_MODEL_COMMIT/models/$RIFE_MODEL_NAME/$f"
-        done
-        echo "$RIFE_MODEL_BIN_SHA256  flownet.bin" | shasum -a 256 -c -
-        echo "$RIFE_MODEL_PARAM_SHA256  flownet.param" | shasum -a 256 -c -
-        mv flownet.bin flownet.param "$RIFE_DIR/models/$RIFE_MODEL_NAME/"
         chmod u+w "$RIFE_DIR/librife.dylib"
         codesign -s - -f "$RIFE_DIR/librife.dylib"
     )
@@ -2446,7 +2436,7 @@ else
 fi
 
 # ============================================================================
-# VSNCNN (vs-mlrt) + Real-ESRGAN / Real-CUGAN — Crop & Resize's AI upscaling
+# VSNCNN (vs-mlrt) — runs Crop & Resize's AI upscalers
 # ============================================================================
 # vs-mlrt publishes VSNCNN for Windows only, so it is built here from the
 # pinned tag the way upstream's linux-ncnn.yml builds it: static protobuf and
@@ -2456,24 +2446,15 @@ fi
 # (-undefined dynamic_lookup), exactly as for RIFE. Lives in vapoursynth/ncnn/,
 # never autoloaded (see worker/src/gpu_plugin.rs). arm64 only, as for RIFE.
 #
-# The models are vs-mlrt's ONNX conversions, 2.4-5.2 MB each. vs-mlrt ships
-# them only inside one ~810 MB archive per release, so that is fetched (pinned
-# and hash-checked), the five files VapourBox uses are extracted, and each is
-# checked by its own hash. Keep every pin and hash in step with
-# download-deps-{linux.sh,windows.ps1} and gpu_plugin::UPSCALE_MODELS.
+# The plugin only. Every model it runs is an add-on (deps 1.16.0 on;
+# app/assets/addons/upscale-*.json, docs/ADDONS.md) — the Real-ESRGAN anime and
+# Real-CUGAN models included, which were bundled here until then. Keep every
+# pin in step with download-deps-{linux.sh,windows.ps1}.
 VSMLRT_TAG="v15.16"
-VSMLRT_MODELS_SHA256="d4eaa8c1c4459082185a9e1a2c54d7e2c776abeea6aef6aee0cb8f6c151dfb02"
 PROTOBUF_TAG="v3.21.12"
 ONNX_COMMIT="b86cc54efce19530fb953e4b21f57e6b3888534c"
 NCNN_TAG="20260526"
 NCNN_MACOS_VULKAN_SHA256="e3ec1d473390a52c288968ecf1321fd2fdd25d8eaa2031a6b7d5c97f3e6961b4"
-UPSCALE_MODEL_HASHES=(
-    "RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx 6fad590f96df553a5cc348a9c5129e7874504a7dcd414e4a15fb0b281fca7e0c"
-    "RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx 414de3a5da4c56652c99f3bc0b960910e3561835a6c7a9cca546475bc4792158"
-    "cugan/up2x-latest-no-denoise.onnx 3587278c3a7e62bbcb00a23b4de291ff906f62a88856ee457cbe4211cc593574"
-    "cugan/up2x-latest-conservative.onnx 555bca3eb90caa37c7e1a02aec9cda3ca8479f252746c1885d382f87312f651c"
-    "cugan/up2x-latest-denoise3x.onnx 7bcb0510f9f989e681a51d39b7170883d3d5e75f1ec23ef5146e8ea50c3cc845"
-)
 # VSNCNN is an API 3 plugin (VapourSynth.h / VSHelper.h). R78 still loads
 # those, but the build's own include dir need not carry the old headers, so
 # they are fetched from the same VapourSynth tag, by hash.
@@ -2484,11 +2465,11 @@ VSAPI3_HEADER_HASHES=(
 )
 NCNN_DIR="$DEPS_DIR/vapoursynth/ncnn"
 echo ""
-echo "=== Installing VSNCNN ($VSMLRT_TAG) + upscaling models ==="
+echo "=== Installing VSNCNN ($VSMLRT_TAG) ==="
 if [ "$ARCH" != "arm64" ]; then
     echo "  Skipped on $ARCH: no MoltenVK here (see above)"
 elif [ "$FORCE" = false ] && [ -f "$NCNN_DIR/libvsncnn.dylib" ] \
-     && [ -f "$NCNN_DIR/models/cugan/up2x-latest-denoise3x.onnx" ]; then
+     && [ ! -d "$NCNN_DIR/models" ]; then
     echo "  VSNCNN already exists, skipping"
 else
     rm -rf "$NCNN_DIR"
@@ -2500,7 +2481,7 @@ else
     (
         set -e
         W="$BUILD_DIR/vsncnn"
-        rm -rf "$W" && mkdir -p "$W" "$NCNN_DIR/models"
+        rm -rf "$W" && mkdir -p "$W" "$NCNN_DIR"
         cd "$W"
         # arm64 pins no target for the rest of the script; this one compiles
         # directly with clang, so it needs one: the arm64 bundle's 15.0.
@@ -2552,22 +2533,6 @@ else
             -Wl,-undefined,dynamic_lookup -Wl,-install_name,@loader_path/libvsncnn.dylib \
             -o "$NCNN_DIR/libvsncnn.dylib"
         codesign -s - -f "$NCNN_DIR/libvsncnn.dylib"
-        # Models.
-        curl -fsSL -o models.7z \
-            "https://github.com/AmusementClub/vs-mlrt/releases/download/$VSMLRT_TAG/models.$VSMLRT_TAG.7z"
-        echo "$VSMLRT_MODELS_SHA256  models.7z" | shasum -a 256 -c -
-        # One pass: the archive is solid, so each separate extraction would
-        # decompress it from the start again.
-        wanted=()
-        for entry in "${UPSCALE_MODEL_HASHES[@]}"; do wanted+=("models/${entry%% *}"); done
-        tar -xf models.7z "${wanted[@]}"
-        for entry in "${UPSCALE_MODEL_HASHES[@]}"; do
-            rel="${entry%% *}"; sum="${entry##* }"
-            echo "$sum  models/$rel" | shasum -a 256 -c -
-            mkdir -p "$NCNN_DIR/models/$(dirname "$rel")"
-            mv "models/$rel" "$NCNN_DIR/models/$rel"
-        done
-        rm -f models.7z
         cd "$BUILD_DIR" && rm -rf "$W"
     )
     _block_status=$?

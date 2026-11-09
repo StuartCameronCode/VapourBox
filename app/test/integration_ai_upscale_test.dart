@@ -186,14 +186,16 @@ void main() {
     (UpscaleMethod.realEsrganPlus, 4, ''),
   ];
 
-  /// The rule, plus the add-on where the method needs one: AnimeJaNai's from
-  /// upstream, the others through the app's manifest installer (which honours
-  /// VAPOURBOX_ADDON_MIRROR before the files are uploaded).
+  /// The rule, plus the add-on every method's models are in: AnimeJaNai's
+  /// from upstream, the others through the app's manifest installer (which
+  /// honours VAPOURBOX_ADDON_MIRROR before the files are uploaded).
   Future<bool> ready(UpscaleMethod method) async {
     if (!await requireGpuPlugin('--probe-upscale')) return false;
     switch (method) {
       case UpscaleMethod.animeJanai:
         await WorkerHarness.ensureAnimeJanai();
+      case UpscaleMethod.realEsrgan || UpscaleMethod.realCugan:
+        await WorkerHarness.ensureAddon('upscale-anime');
       case UpscaleMethod.realEsrganGeneral || UpscaleMethod.liveAction:
         await WorkerHarness.ensureAddon('upscale-general');
       case UpscaleMethod.realEsrganPlus:
@@ -442,7 +444,7 @@ void main() {
   }, timeout: const Timeout(Duration(minutes: 60)));
 
   test('a 10-bit source stays 10-bit and matches the 8-bit result', () async {
-    if (!await requireGpuPlugin('--probe-upscale')) return;
+    if (!await ready(UpscaleMethod.realEsrgan)) return;
     // Both fixtures from the same conversion, so frame N is the same picture
     // in each (the AVI's own frame count differs between decoders).
     final sources = <String, String>{};

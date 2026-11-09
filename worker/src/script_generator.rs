@@ -2087,14 +2087,18 @@ impl ScriptGenerator {
                     script = script.replace("{{#FRAME_RATE_RIFE}}", "");
                     script = script.replace("{{/FRAME_RATE_RIFE}}", "");
                     // generate()/generate_preview() refuse a RIFE job without
-                    // files, so the fallbacks here are never reached by a job.
-                    let (plugin, model, preload) = match &self.rife {
+                    // the plugin or the model add-on, so the fallbacks here
+                    // are never reached by a job.
+                    let (plugin, preload) = match &self.rife {
                         Ok(f) => (
                             py_str(&f.plugin),
-                            py_str(&f.model_dir),
                             f.preload.as_deref().map(py_str).unwrap_or_else(|| "None".into()),
                         ),
-                        Err(_) => ("''".into(), "''".into(), "None".into()),
+                        Err(_) => ("''".into(), "None".into()),
+                    };
+                    let model = match &self.addons {
+                        Some((root, _)) => py_str(&crate::gpu_plugin::rife_model_dir(root)),
+                        None => "''".into(),
                     };
                     script = script.replace("{{RIFE_PLUGIN}}", &plugin);
                     script = script.replace("{{RIFE_MODEL_DIR}}", &model);
@@ -2301,7 +2305,6 @@ impl ScriptGenerator {
                                 .ai_upscale_models()
                                 .iter()
                                 .map(|m| match *m {
-                                    AiModel::Bundled(name) => py_str(&f.model_dir.join(name)),
                                     // A pair the script chooses from by height.
                                     AiModel::AnimeJanai { sd, hd } => {
                                         let dir = self.animejanai.as_deref().unwrap_or(Path::new(""));

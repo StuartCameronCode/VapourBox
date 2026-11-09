@@ -19,6 +19,17 @@
 //! (a missing runtime DLL, a driver that faults on load, AVX in a static
 //! initializer) can reach a job that did not ask for it. On macOS both resolve
 //! Vulkan from MoltenVK, which is preloaded from `vapoursynth/moltenvk/`.
+//!
+//! The plugins are in the deps bundle; their models are not. Every AI model is
+//! an add-on (docs/ADDONS.md): RIFE's is `frame-rate-rife` ([`RIFE_ADDON`]),
+//! the upscalers' are listed in `upscale_addons.rs`, and a job that needs one
+//! is refused through `ProcessingPipeline::required_addons` like any other
+//! add-on. So the probe must not need a model either: it runs each plugin on a
+//! stand-in network of its own — for VSNCNN a 264-byte ONNX convolution
+//! compiled into the worker ([`NCNN_SELFTEST_MODEL`]), for RIFE a two-layer
+//! ncnn network written beside the probe script ([`RIFE_SELFTEST_PARAM`]) —
+//! and checks the answer. That tells "this computer can't run it" apart from
+//! "the add-on isn't installed" before the user has downloaded anything.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -27,18 +38,47 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// RIFE's bundled model: 4.26, ncnn conversion, ensemble off.
+/// The add-on holding RIFE's model (`app/assets/addons/frame-rate-rife.json`).
+pub const RIFE_ADDON: &str = "frame-rate-rife";
+
+/// RIFE's model directory inside the add-on: 4.26, ncnn conversion, ensemble
+/// off. The name is load-bearing: the plugin takes the model's version — and
+/// with it the padding, 64 for 4.26 against 32 for most — from substrings of
+/// this path, so the add-on installs its files under exactly this name.
 pub const RIFE_MODEL_DIR_NAME: &str = "rife-v4.26_ensembleFalse";
 
-/// The upscaling models, as paths under `vapoursynth/ncnn/models/` — vs-mlrt's
-/// ONNX conversions, kept under the names vs-mlrt publishes them by.
-pub const UPSCALE_MODELS: &[&str] = &[
-    "RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx",
-    "RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx",
-    "cugan/up2x-latest-no-denoise.onnx",
-    "cugan/up2x-latest-conservative.onnx",
-    "cugan/up2x-latest-denoise3x.onnx",
-];
+/// Where a job's RIFE model is, under the add-ons directory.
+pub fn rife_model_dir(addons_root: &Path) -> PathBuf {
+    crate::addons::addon_dir(addons_root, RIFE_ADDON).join(RIFE_MODEL_DIR_NAME)
+}
+
+/// The upscaling probe's model: one 1x1 convolution that swaps the first and
+/// third channels and adds 0.125 (`Scripts/models/make_ncnn_selftest.py`,
+/// committed as `Tests/TestResources/ncnn_selftest.onnx`). Handed to VSNCNN as
+/// bytes, so the probe needs no add-on and writes no model file.
+pub const NCNN_SELFTEST_MODEL: &[u8] = include_bytes!("../../Tests/TestResources/ncnn_selftest.onnx");
+
+/// The RIFE probe's stand-in for `flownet`: what RIFE's v4 path feeds the
+/// network (`in0`, `in1`: the two frames; `in2`: the timestep) and extracts
+/// (`out0`), with the average of the two frames in between. No weights, so
+/// `flownet.bin` is empty. Run through the plugin's real pre- and
+/// post-processing shaders, frame 1 of a doubled two-frame clip is exactly the
+/// average of its two frames.
+pub const RIFE_SELFTEST_PARAM: &str = "7767517\n\
+    5 6\n\
+    Input in0 0 1 in0\n\
+    Input in1 0 1 in1\n\
+    Input in2 0 1 in2\n\
+    BinaryOp sum 2 1 in0 in1 sum 0=0\n\
+    BinaryOp out0 1 1 sum out0 0=2 1=1 2=5.000000e-01\n";
+
+/// The stand-in's directory name: RIFE reads the model version from the path,
+/// so it must say v4 (and 4.26, for the real model's padding).
+const RIFE_SELFTEST_DIR_NAME: &str = "rife-v4.26_selftest";
+
+/// How far the probe's answer may be from the exact one: the networks run in
+/// fp16, whose step near 0.7 is about 0.0005.
+const SELFTEST_TOLERANCE: f64 = 0.01;
 
 /// How long the probe may take. GPU initialisation and the first shader
 /// compile take a second or two; a driver that hangs must not hang the app.
@@ -119,17 +159,14 @@ fn platform_ships(plugin: GpuPlugin, platform_suffix: &str) -> bool {
     }
 }
 
-/// The files a plugin needs, as laid out under `deps/<platform>/vapoursynth/`.
+/// The files a plugin needs from the deps bundle, as laid out under
+/// `deps/<platform>/vapoursynth/`. Its models are add-ons, not listed here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GpuPluginFiles {
     pub plugin: PathBuf,
-    /// RIFE's model directory, or the upscaling models' root.
-    pub model_dir: PathBuf,
     /// A library to load into the process before the plugin: MoltenVK on
     /// macOS, where ncnn resolves Vulkan from whatever is already loaded.
     pub preload: Option<PathBuf>,
-    /// The model files inside `model_dir` that must exist.
-    pub models: Vec<PathBuf>,
 }
 
 impl GpuPluginFiles {
@@ -148,19 +185,7 @@ impl GpuPluginFiles {
         let preload = platform_suffix
             .starts_with("macos")
             .then(|| vs_dir.join("moltenvk").join("libMoltenVK.dylib"));
-        let (model_dir, models) = match plugin {
-            GpuPlugin::Rife => {
-                let d = dir.join("models").join(RIFE_MODEL_DIR_NAME);
-                let m = vec![d.join("flownet.param"), d.join("flownet.bin")];
-                (d, m)
-            }
-            GpuPlugin::Upscale => {
-                let d = dir.join("models");
-                let m = UPSCALE_MODELS.iter().map(|m| d.join(m)).collect();
-                (d, m)
-            }
-        };
-        Self { plugin: dir.join(file), model_dir, preload, models }
+        Self { plugin: dir.join(file), preload }
     }
 
     /// Every file that must exist, in the order a user would want to hear
@@ -168,7 +193,6 @@ impl GpuPluginFiles {
     pub fn required(&self) -> Vec<PathBuf> {
         let mut files = vec![self.plugin.clone()];
         files.extend(self.preload.iter().cloned());
-        files.extend(self.models.iter().cloned());
         files
     }
 
@@ -193,6 +217,9 @@ pub enum GpuPluginReason {
     LoadFailed,
     /// The probe process crashed after the GPU was initialised.
     Crashed,
+    /// The plugin ran its self-test network on the GPU and got the wrong
+    /// answer: a driver that computes garbage, whose output can't be trusted.
+    WrongResult,
     /// The plugin used an instruction this CPU does not have (SIGILL, or
     /// Windows' 0xC000001D) — an x86 machine older than its build target.
     UnsupportedCpu,
@@ -294,6 +321,11 @@ impl GpuPluginStatus {
                 "{name} crashed while testing the GPU. Updating your graphics driver \
                  usually fixes this; restart VapourBox afterwards."
             ),
+            R::WrongResult => format!(
+                "{name} ran on the GPU but got a test calculation wrong, so its output \
+                 can't be trusted. Updating your graphics driver usually fixes this; \
+                 restart VapourBox afterwards."
+            ),
             R::UnsupportedCpu => format!(
                 "{name}'s plugin needs a newer processor than this computer has (it uses \
                  instructions this CPU lacks). {}",
@@ -362,9 +394,22 @@ pub fn py_str(path: &Path) -> String {
     out
 }
 
-/// The probe: load the plugin, create the GPU instance, and render one frame —
-/// the three places it has been seen to fail.
-pub fn probe_script(plugin: GpuPlugin, files: &GpuPluginFiles, platform_suffix: &str) -> String {
+/// Bytes as a Python `bytes.fromhex(...)` expression.
+fn py_bytes(data: &[u8]) -> String {
+    let hex: String = data.iter().map(|b| format!("{b:02x}")).collect();
+    format!("bytes.fromhex('{hex}')")
+}
+
+/// The probe: load the plugin, create the GPU instance, and run its stand-in
+/// network on one frame — the three places it has been seen to fail — then
+/// check the answer. `selftest_dir` is where [`write_rife_selftest`] put RIFE's
+/// stand-in model (unused for the upscaler, whose model is in the script).
+pub fn probe_script(
+    plugin: GpuPlugin,
+    files: &GpuPluginFiles,
+    platform_suffix: &str,
+    selftest_dir: &Path,
+) -> String {
     // Shared libraries whose absence makes the plugin fail to load with only a
     // generic "module not found". Checked first so the user is told which one.
     // VSNCNN's Windows build links its runtime statically.
@@ -381,16 +426,27 @@ pub fn probe_script(plugin: GpuPlugin, files: &GpuPluginFiles, platform_suffix: 
     };
     let libs = runtime_libs.iter().map(|l| format!("'{l}'")).collect::<Vec<_>>().join(", ");
     let preload = files.preload.as_deref().map(py_str).unwrap_or_else(|| "None".into());
-    // The call that makes ncnn create its GPU instance and run a network.
-    let call = match plugin {
-        GpuPlugin::Rife => format!(
-            "clip = core.rife.RIFE(clip, model_path={}, fps_num=50, fps_den=1)",
-            py_str(&files.model_dir)
+    // The clip, the call that makes ncnn create its GPU instance and run the
+    // stand-in network, and the answer frame 1 must hold.
+    let (clip, call, expected) = match plugin {
+        // Two different frames, doubled: frame 1 is the network's average.
+        GpuPlugin::Rife => (
+            "clip = core.std.BlankClip(width=64, height=64, format=vs.RGBS, length=1, fpsnum=25, fpsden=1, color=[0.2, 0.4, 0.6])\n\
+             clip = clip + core.std.BlankClip(clip, color=[0.6, 0.4, 0.2])",
+            format!(
+                "clip = core.rife.RIFE(clip, model_path={}, fps_num=50, fps_den=1)",
+                py_str(selftest_dir)
+            ),
+            "[0.4, 0.4, 0.4]",
         ),
-        // The smallest bundled network.
-        GpuPlugin::Upscale => format!(
-            "clip = core.ncnn.Model(clip, network_path={}, fp16=True)",
-            py_str(&files.model_dir.join(UPSCALE_MODELS[0]))
+        // Swap the first and third channels, add 0.125.
+        GpuPlugin::Upscale => (
+            "clip = core.std.BlankClip(width=64, height=64, format=vs.RGBS, length=2, fpsnum=25, fpsden=1, color=[0.2, 0.4, 0.6])",
+            format!(
+                "clip = core.ncnn.Model(clip, network_path={}, path_is_serialization=True, fp16=True)",
+                py_bytes(NCNN_SELFTEST_MODEL)
+            ),
+            "[0.725, 0.525, 0.325]",
         ),
     };
     format!(
@@ -404,14 +460,32 @@ pub fn probe_script(plugin: GpuPlugin, files: &GpuPluginFiles, platform_suffix: 
          stage('load')\n\
          if not hasattr(core, '{namespace}'):\n    core.std.LoadPlugin({plugin_path})\n\
          stage('init')\n\
-         clip = core.std.BlankClip(width=64, height=64, format=vs.RGBS, length=2, fpsnum=25, fpsden=1)\n\
+         {clip}\n\
          {call}\n\
          stage('render')\n\
+         f = clip.get_frame(1)\n\
+         got = [float(f[p][8, 8]) for p in range(3)]\n\
+         del f\n\
+         if any(abs(g - e) > {tol} for g, e in zip(got, {expected})):\n    \
+         stage('wrong')\n    \
+         raise vs.Error('self-test result ' + repr(got) + ', expected ' + repr({expected}))\n\
+         stage('verified')\n\
          clip.set_output()\n",
         marker = plugin.stage_marker(),
         namespace = plugin.namespace(),
         plugin_path = py_str(&files.plugin),
+        tol = SELFTEST_TOLERANCE,
     )
+}
+
+/// Write RIFE's stand-in model ([`RIFE_SELFTEST_PARAM`], an empty
+/// `flownet.bin`) into a directory under `parent`, returning that directory.
+pub fn write_rife_selftest(parent: &Path) -> std::io::Result<PathBuf> {
+    let dir = parent.join(RIFE_SELFTEST_DIR_NAME);
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join("flownet.param"), RIFE_SELFTEST_PARAM)?;
+    std::fs::write(dir.join("flownet.bin"), b"")?;
+    Ok(dir)
 }
 
 /// How the probe process ended.
@@ -457,10 +531,13 @@ pub fn classify(plugin: GpuPlugin, exit: &ProbeExit, stderr: &str) -> GpuPluginS
     {
         return GpuPluginStatus::unavailable(R::NoVulkan, error);
     }
+    // The stand-in network did not load. Nothing the user installs fixes that
+    // (it is part of the probe, not an add-on), so it is a plugin fault.
     if stderr.contains("failed to load model") || stderr.contains("load param failed") {
-        return GpuPluginStatus::unavailable(R::NotInstalled, error);
+        return GpuPluginStatus::unavailable(R::LoadFailed, error);
     }
     match last {
+        Some("wrong") => GpuPluginStatus::unavailable(R::WrongResult, error),
         // The plugin would not load. A runtime library the pre-check could not
         // open is the likeliest cause, and the one the user can fix.
         Some("load") if !missing.is_empty() => GpuPluginStatus::unavailable(
@@ -507,20 +584,28 @@ pub fn run_probe(
     files: &GpuPluginFiles,
     platform_suffix: &str,
 ) -> GpuPluginStatus {
-    let script = probe_script(plugin, files, platform_suffix);
-    let tmp = std::env::temp_dir().join(format!(
-        "vapourbox_{}_probe_{}.vpy",
+    let work = std::env::temp_dir().join(format!(
+        "vapourbox_{}_probe_{}",
         plugin.namespace(),
         std::process::id()
     ));
-    if let Err(e) = std::fs::write(&tmp, script) {
+    let tmp = work.join("probe.vpy");
+    let written = std::fs::create_dir_all(&work).and_then(|_| {
+        let selftest = match plugin {
+            GpuPlugin::Rife => write_rife_selftest(&work)?,
+            GpuPlugin::Upscale => work.clone(),
+        };
+        std::fs::write(&tmp, probe_script(plugin, files, platform_suffix, &selftest))
+    });
+    if let Err(e) = written {
+        let _ = std::fs::remove_dir_all(&work);
         return GpuPluginStatus::unavailable(
             GpuPluginReason::ProbeFailed,
             format!("could not write the probe script: {e}"),
         );
     }
     let exit_and_stderr = run_with_timeout(vspipe, &tmp, env);
-    let _ = std::fs::remove_file(&tmp);
+    let _ = std::fs::remove_dir_all(&work);
     match exit_and_stderr {
         Ok((exit, stderr)) => classify(plugin, &exit, &stderr),
         Err(e) => GpuPluginStatus::unavailable(
@@ -606,15 +691,15 @@ mod tests {
         let mac = GpuPluginFiles::in_vapoursynth_dir(Rife, Path::new("/d/vapoursynth"), "macos-arm64");
         assert_eq!(mac.plugin, Path::new("/d/vapoursynth/rife/librife.dylib"));
         assert_eq!(mac.preload.as_deref(), Some(Path::new("/d/vapoursynth/moltenvk/libMoltenVK.dylib")));
-        assert!(mac.model_dir.ends_with("rife/models/rife-v4.26_ensembleFalse"));
         let win = GpuPluginFiles::in_vapoursynth_dir(Rife, Path::new("D:/v"), "windows-x64");
         assert!(win.plugin.ends_with("rife/librife.dll"));
         assert_eq!(win.preload, None);
         let linux = GpuPluginFiles::in_vapoursynth_dir(Rife, Path::new("/v"), "linux-x64");
         assert!(linux.plugin.ends_with("rife/librife.so"));
-        // MoltenVK is required on macOS, and only there.
-        assert_eq!(mac.required().len(), 4);
-        assert_eq!(linux.required().len(), 3);
+        // MoltenVK is required on macOS, and only there. No model is: they
+        // are add-ons.
+        assert_eq!(mac.required(), [mac.plugin.clone(), mac.preload.clone().unwrap()]);
+        assert_eq!(linux.required(), [linux.plugin.clone()]);
 
         let mac = GpuPluginFiles::in_vapoursynth_dir(Upscale, Path::new("/d/vapoursynth"), "macos-arm64");
         assert_eq!(mac.plugin, Path::new("/d/vapoursynth/ncnn/libvsncnn.dylib"));
@@ -623,8 +708,13 @@ mod tests {
         assert!(win.plugin.ends_with("ncnn/vsncnn.dll"));
         let linux = GpuPluginFiles::in_vapoursynth_dir(Upscale, Path::new("/v"), "linux-x64");
         assert!(linux.plugin.ends_with("ncnn/libvsncnn.so"));
-        assert_eq!(linux.required().len(), 1 + UPSCALE_MODELS.len());
-        assert!(linux.models[0].ends_with("ncnn/models/RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx"));
+        assert_eq!(linux.required(), [linux.plugin.clone()]);
+        // A job's RIFE model is the add-on's, in the directory whose name
+        // tells the plugin which version (and padding) it is.
+        assert_eq!(
+            rife_model_dir(Path::new("/a")),
+            Path::new("/a/frame-rate-rife/rife-v4.26_ensembleFalse")
+        );
     }
 
     #[test]
@@ -653,6 +743,7 @@ mod tests {
             R::MissingLibrary,
             R::LoadFailed,
             R::Crashed,
+            R::WrongResult,
             R::UnsupportedCpu,
             R::Disabled,
             R::ProbeFailed,
@@ -705,13 +796,21 @@ mod tests {
         assert_eq!(classify(Rife, &failed("exit code 1"), gpu).reason, Some(R::NoVulkan));
         let dev = "RIFE_PROBE:init\nvapoursynth.Error: RIFE: invalid GPU device\n";
         assert_eq!(classify(Rife, &failed("exit code 1"), dev).reason, Some(R::NoVulkan));
+        // The stand-in model is part of the probe: failing to load it is the
+        // plugin's fault, never a missing add-on.
         let model = "RIFE_PROBE:init\nvapoursynth.Error: RIFE: failed to load model\n";
-        assert_eq!(classify(Rife, &failed("exit code 1"), model).reason, Some(R::NotInstalled));
+        assert_eq!(classify(Rife, &failed("exit code 1"), model).reason, Some(R::LoadFailed));
         // VSNCNN's words.
         let dev = "UPSCALE_PROBE:init\nvapoursynth.Error: ncnn.Model: get_gpu_device failed\n";
         assert_eq!(classify(Upscale, &failed("exit code 1"), dev).reason, Some(R::NoVulkan));
         let param = "UPSCALE_PROBE:init\nvapoursynth.Error: ncnn.Model: load param failed\n";
-        assert_eq!(classify(Upscale, &failed("exit code 1"), param).reason, Some(R::NotInstalled));
+        assert_eq!(classify(Upscale, &failed("exit code 1"), param).reason, Some(R::LoadFailed));
+        // A self-test that ran but computed the wrong answer.
+        let wrong = "UPSCALE_PROBE:render\nUPSCALE_PROBE:wrong\n\
+                     vapoursynth.Error: self-test result [0.0, 0.0, 0.0], expected [0.725, 0.525, 0.325]\n";
+        let s = classify(Upscale, &failed("exit code 1"), wrong);
+        assert_eq!(s.reason, Some(R::WrongResult));
+        assert!(s.detail.unwrap().contains("expected"));
     }
 
     #[test]
@@ -761,18 +860,90 @@ mod tests {
 
     #[test]
     fn probe_script_preloads_only_where_a_preload_exists() {
+        let selftest = Path::new("/t/rife-v4.26_selftest");
         let mac = GpuPluginFiles::in_vapoursynth_dir(Rife, Path::new("/v"), "macos-arm64");
-        let s = probe_script(Rife, &mac, "macos-arm64");
+        let s = probe_script(Rife, &mac, "macos-arm64", selftest);
         let preload = py_str(mac.preload.as_deref().unwrap());
         assert!(s.contains(&format!("ctypes.CDLL({preload}, mode=ctypes.RTLD_GLOBAL)")));
         let win = GpuPluginFiles::in_vapoursynth_dir(Rife, Path::new("C:/v"), "windows-x64");
-        let s = probe_script(Rife, &win, "windows-x64");
+        let s = probe_script(Rife, &win, "windows-x64", selftest);
         assert!(s.contains("if None:"));
         assert!(s.contains("'vcomp140.dll'"));
         // VSNCNN's Windows DLL needs no VC++ runtime, and loads by its own namespace.
         let win = GpuPluginFiles::in_vapoursynth_dir(Upscale, Path::new("C:/v"), "windows-x64");
-        let s = probe_script(Upscale, &win, "windows-x64");
+        let s = probe_script(Upscale, &win, "windows-x64", selftest);
         assert!(!s.contains("vcomp140"));
         assert!(s.contains("hasattr(core, 'ncnn')") && s.contains("core.ncnn.Model("));
+    }
+
+    #[test]
+    fn probes_run_a_stand_in_model_never_an_addon() {
+        // The probes must work before any model add-on is installed: RIFE's
+        // runs the stand-in written beside the script, VSNCNN's the model
+        // embedded in it, and both check the answer.
+        let selftest = Path::new("/t/rife-v4.26_selftest");
+        for platform in ["macos-arm64", "windows-x64", "linux-x64"] {
+            let files = GpuPluginFiles::in_vapoursynth_dir(Rife, Path::new("/v"), platform);
+            let s = probe_script(Rife, &files, platform, selftest);
+            assert!(s.contains(&format!("model_path={}", py_str(selftest))), "{s}");
+            assert!(!s.contains(RIFE_MODEL_DIR_NAME) && !s.contains(RIFE_ADDON));
+            assert!(s.contains("stage('wrong')") && s.contains("[0.4, 0.4, 0.4]"));
+
+            let files = GpuPluginFiles::in_vapoursynth_dir(Upscale, Path::new("/v"), platform);
+            let s = probe_script(Upscale, &files, platform, selftest);
+            assert!(s.contains("path_is_serialization=True"), "{s}");
+            assert!(s.contains(&py_bytes(NCNN_SELFTEST_MODEL)));
+            assert!(!s.contains(".onnx"), "no model file: {s}");
+            assert!(s.contains("[0.725, 0.525, 0.325]"));
+        }
+    }
+
+    #[test]
+    fn rife_stand_in_is_written_where_the_plugin_reads_v4() {
+        let tmp = std::env::temp_dir().join(format!("vb-rife-selftest-{}", std::process::id()));
+        let dir = write_rife_selftest(&tmp).unwrap();
+        // The plugin decides "v4, padding 64" from the path.
+        assert!(dir.to_string_lossy().contains("rife-v4.26"));
+        assert_eq!(std::fs::read_to_string(dir.join("flownet.param")).unwrap(), RIFE_SELFTEST_PARAM);
+        assert_eq!(std::fs::read(dir.join("flownet.bin")).unwrap().len(), 0);
+        // An ncnn param file: magic, then the layer and blob counts it declares.
+        let lines: Vec<&str> = RIFE_SELFTEST_PARAM.lines().collect();
+        assert_eq!(lines[0], "7767517");
+        assert_eq!(lines[1], format!("{} 6", lines.len() - 2));
+        for blob in ["in0", "in1", "in2", "out0"] {
+            assert!(RIFE_SELFTEST_PARAM.split_whitespace().any(|t| t == blob), "{blob}");
+        }
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[test]
+    fn rife_addon_matches_the_plugin() {
+        let m = crate::addons::manifest(RIFE_ADDON).expect("frame-rate-rife.json");
+        // Offered exactly where the plugin ships.
+        for p in crate::addons::PLATFORMS {
+            assert_eq!(m.supports(p), platform_ships_rife(p), "{p}");
+        }
+        // Installed under the directory name the plugin reads its version from.
+        let mut paths = m.expected_paths("macos-arm64");
+        paths.sort();
+        assert_eq!(
+            paths,
+            [format!("{RIFE_MODEL_DIR_NAME}/flownet.bin"), format!("{RIFE_MODEL_DIR_NAME}/flownet.param")]
+        );
+        // Run by the bundled plugin, not ONNX Runtime.
+        assert!(!crate::addons::needs_ai_runtime(&[RIFE_ADDON]));
+    }
+
+    #[test]
+    fn ncnn_selftest_is_the_committed_model() {
+        // Scripts/models/make_ncnn_selftest.py writes this file; the worker
+        // embeds it. A 1x1 convolution: tiny, so the probe script stays small.
+        assert!(NCNN_SELFTEST_MODEL.len() < 1024, "{}", NCNN_SELFTEST_MODEL.len());
+        let committed = std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../Tests/TestResources/ncnn_selftest.onnx"),
+        )
+        .unwrap();
+        assert_eq!(committed, NCNN_SELFTEST_MODEL);
+        assert!(NCNN_SELFTEST_MODEL.windows(4).any(|w| w == b"Conv"));
     }
 }

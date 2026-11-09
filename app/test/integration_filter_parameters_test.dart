@@ -1991,6 +1991,8 @@ void main() {
     // without Vulkan unless VAPOURBOX_EXPECT_VULKAN=1.
     test('crop_resize: AI strength blends a Spline36 upscale into the AI result', () async {
       if (!await requireGpuPlugin('--probe-upscale')) return;
+      // Real-ESRGAN's anime model is an add-on (deps 1.16.0 on).
+      await WorkerHarness.ensureAddon('upscale-anime');
       CropResizeParameters crop(double strength) => ParameterConverter.toCropResize(
           ParameterConverter.fromCropResize(CropResizeParameters(
               enabled: true,
