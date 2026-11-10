@@ -243,6 +243,10 @@ The shutdown is never forced, so an app with unsaved work can stop it. VapourBox
 
 </details>
 
+## Compared with other tools
+
+[docs/FEATURE_MAP.md](docs/FEATURE_MAP.md) compares VapourBox, feature by feature, with HandBrake, FastFlix, StaxRip, Hybrid, Shutter Encoder, Topaz Video, Video2X and other AI enhancers, the community VHS restoration tools, and the archival tools (vrecord, DVRescue, QCTools) that work alongside it, including where VapourBox is behind.
+
 ## Feedback and bug reports
 
 **Settings → General → "Report a bug or give feedback"** opens the issue tracker. Reports about specific problem sources are especially useful; several fixes came from them.

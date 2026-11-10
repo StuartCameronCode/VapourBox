@@ -26,6 +26,13 @@ ENGINEERING_NOTES that links to it, and a row to the index in
 (no personal or scratch paths, no network dependencies, the metric's limits
 stated beside the result, corrections left visible).
 
+**[docs/FEATURE_MAP.md](docs/FEATURE_MAP.md) compares VapourBox with other
+tools.** When a shipped change alters one of its rows (a new codec, pass,
+platform or input), update the VapourBox column in the same change. Change a
+competitor's cell only from that tool's own docs, release notes or source, with
+the source listed and the "as of" date moved; mark anything unconfirmed ❓,
+never a guess. The same rule as "Attribution" below applies.
+
 ## Project Overview
 
 VapourBox is a **cross-platform** (macOS + Windows + Linux) video processing application using VapourSynth. It provides a simple drag-and-drop interface for deinterlacing, denoising, sharpening, and other video processing tasks as an alternative to more complex tools like Hybrid.
@@ -96,7 +103,7 @@ VapourBox/
 │   └── linux-arm64/
 │
 ├── licenses/                   # GPL, LGPL, NOTICES
-├── docs/                       # BUILDING, FILTER_SCHEMA, ADDONS, ENGINEERING_NOTES, …
+├── docs/                       # BUILDING, FILTER_SCHEMA, ADDONS, ENGINEERING_NOTES, FEATURE_MAP, …
 │   └── reports/                # Investigation reports (evidence behind decisions)
 ├── Scripts/                    # Build, package, and release scripts
 │   └── models/                 # Model conversion scripts for self-hosted add-on files
