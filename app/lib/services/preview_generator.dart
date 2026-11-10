@@ -79,6 +79,12 @@ class PreviewGenerator {
   String? _colorTransfer;
   String? _colorRange;
 
+  /// Source sample aspect ratio ("16:15"), null for square pixels. Sent with
+  /// the preview job so the script fits the frame by the same display aspect
+  /// as the encode — without it `{{SOURCE_SAR}}` fell back to 1, and Square
+  /// pixel aspect previewed a different frame from the one encoded (#149).
+  String? _sar;
+
   /// The display tone-map for the loaded source, or null for SDR. Applied to
   /// every picture of the source the app draws itself.
   String? get _toneMap => HdrDisplay.toneMapFilter(
@@ -317,6 +323,7 @@ class PreviewGenerator {
         inputColorPrimaries: _colorPrimaries,
         inputColorTransfer: _colorTransfer,
         inputColorRange: _colorRange,
+        inputSar: _sar,
         // Not a trim: the worker's preview only uses it as the point the
         // encode's retime starts from, so a generated frame is previewed at
         // the moment the encode makes it.
@@ -565,6 +572,8 @@ class PreviewGenerator {
     _colorPrimaries = colorTag(videoStream, 'color_primaries');
     _colorTransfer = colorTag(videoStream, 'color_transfer');
     _colorRange = colorTag(videoStream, 'color_range');
+    _sar = FieldOrderDetector.normalizeSar(
+        videoStream['sample_aspect_ratio'] as String?);
   }
 
   /// Parses an ffprobe rational frame-rate string (e.g. "25/1") to a double.

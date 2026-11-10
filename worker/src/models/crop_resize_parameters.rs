@@ -521,6 +521,21 @@ pub enum AspectDeclaration {
     None,
 }
 
+impl AspectDeclaration {
+    /// The `key=value` token the preview reports on its `PREVIEW_INFO:` line,
+    /// or `None` for square pixels: `sar=16/15` or `dar=16/9`. The app draws
+    /// the processed frame at this shape; without it the frame was drawn at
+    /// the *source's* display aspect, squashing anything a pass reshaped
+    /// (issue #149). '/' as the separator, matching what ffmpeg is given.
+    pub fn preview_token(&self) -> Option<String> {
+        match self {
+            AspectDeclaration::Sar(sar) => Some(format!("sar={}", sar.trim().replace(':', "/"))),
+            AspectDeclaration::Dar(dar) => Some(format!("dar={}", dar.trim().replace(':', "/"))),
+            AspectDeclaration::None => None,
+        }
+    }
+}
+
 #[allow(dead_code)]
 impl CropResizeParameters {
     /// Whether this pass upscales with a neural model, which needs the VSNCNN
@@ -956,6 +971,19 @@ mod tests {
             ..CropResizeParameters::default()
         };
         assert_eq!(params.aspect_declaration(Some("10:11")), AspectDeclaration::None);
+    }
+
+    #[test]
+    fn test_preview_token() {
+        assert_eq!(
+            AspectDeclaration::Sar("16:15".into()).preview_token().as_deref(),
+            Some("sar=16/15")
+        );
+        assert_eq!(
+            AspectDeclaration::Dar("16/9".into()).preview_token().as_deref(),
+            Some("dar=16/9")
+        );
+        assert_eq!(AspectDeclaration::None.preview_token(), None);
     }
 
     #[test]

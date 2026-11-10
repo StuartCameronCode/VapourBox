@@ -35,9 +35,18 @@ class BeforeAfterComparisonWidget extends StatefulWidget {
   /// Whether the after image is loading.
   final bool isAfterLoading;
 
-  /// Display aspect ratio for SAR correction (e.g. 16/9 for anamorphic DVD).
-  /// When null, the image's native pixel aspect ratio is used (square pixels).
-  final double? displayAspectRatio;
+  /// Display aspect ratio of the "before" image, for SAR correction (e.g.
+  /// 4/3 for a 720x576 PAL source). When null, the image's native pixel
+  /// aspect ratio is used (square pixels).
+  final double? beforeAspectRatio;
+
+  /// Display aspect ratio of the "after" image — the shape the processed
+  /// frame will have once encoded. Each side has its own: a pass that
+  /// resizes, pads, crops, rotates or squares the pixels gives the processed
+  /// frame a different shape from the source, and drawing it at the source's
+  /// squashed it (issue #149). When null, the image's native pixel aspect
+  /// ratio is used.
+  final double? afterAspectRatio;
 
   /// Lets keyboard shortcuts drive Fit / 1:1 from outside the widget.
   final ComparisonZoomController? zoomController;
@@ -49,7 +58,8 @@ class BeforeAfterComparisonWidget extends StatefulWidget {
     this.initialDividerPosition = 0.5,
     this.isBeforeLoading = false,
     this.isAfterLoading = false,
-    this.displayAspectRatio,
+    this.beforeAspectRatio,
+    this.afterAspectRatio,
     this.zoomController,
   });
 
@@ -166,6 +176,12 @@ class _BeforeAfterComparisonWidgetState
     );
   }
 
+  /// Display aspect of the frame [_imagePixels] measures: the processed
+  /// frame's when there is one, else the source's.
+  double? get _measuredAspect => widget.afterImage != null
+      ? widget.afterAspectRatio
+      : widget.beforeAspectRatio;
+
   /// Pixel size of the frame the 1:1 scale is measured against: the
   /// processed frame, which is what is being inspected, else the source.
   Size? get _imagePixels {
@@ -182,7 +198,7 @@ class _BeforeAfterComparisonWidgetState
   Size? _fittedSize(Size box) {
     final pixels = _imagePixels;
     if (pixels == null || box.isEmpty) return null;
-    final aspect = widget.displayAspectRatio ?? pixels.width / pixels.height;
+    final aspect = _measuredAspect ?? pixels.width / pixels.height;
     final width = math.min(box.width, box.height * aspect);
     return Size(width, width / aspect);
   }
@@ -398,6 +414,7 @@ class _BeforeAfterComparisonWidgetState
                       ..scale(_scale, _scale),
                     child: _buildImageLayer(
                       imageData: widget.afterImage,
+                      displayAspectRatio: widget.afterAspectRatio,
                       isLoading: widget.isAfterLoading,
                       colorScheme: colorScheme,
                       label: 'Processed',
@@ -415,6 +432,7 @@ class _BeforeAfterComparisonWidgetState
                         ..scale(_scale, _scale),
                       child: _buildImageLayer(
                         imageData: widget.beforeImage,
+                        displayAspectRatio: widget.beforeAspectRatio,
                         isLoading: widget.isBeforeLoading,
                         colorScheme: colorScheme,
                         label: 'Original',
@@ -554,6 +572,7 @@ class _BeforeAfterComparisonWidgetState
 
   Widget _buildImageLayer({
     required Uint8List? imageData,
+    required double? displayAspectRatio,
     required bool isLoading,
     required ColorScheme colorScheme,
     required String label,
@@ -564,11 +583,11 @@ class _BeforeAfterComparisonWidgetState
       // FittedBox scales its child uniformly to fit the parent while
       // preserving the SizedBox's aspect ratio — works even under the
       // tight constraints from StackFit.expand.
-      if (widget.displayAspectRatio != null) {
+      if (displayAspectRatio != null) {
         return FittedBox(
           fit: BoxFit.contain,
           child: SizedBox(
-            width: widget.displayAspectRatio! * 1000,
+            width: displayAspectRatio * 1000,
             height: 1000,
             child: Image.memory(
               imageData,

@@ -69,6 +69,12 @@ class QueueItem {
   double scrubberPosition;
   Uint8List? currentFrame;
   Uint8List? processedPreview;
+
+  /// The display aspect [processedPreview] is drawn at: the shape the encode
+  /// will have, from the aspect the worker reported for it. Kept with the
+  /// image rather than read from the frame info, which is dropped as soon as
+  /// the scrubber moves while this image is still on screen (issue #149).
+  double? processedPreviewAspect;
   double timelineZoom;
   double timelineViewStart;
 
@@ -96,6 +102,7 @@ class QueueItem {
     this.scrubberPosition = 0.0,
     this.currentFrame,
     this.processedPreview,
+    this.processedPreviewAspect,
     this.timelineZoom = 1.0,
     this.timelineViewStart = 0.0,
     this.thumbnailRangeStart = 0.0,
@@ -182,6 +189,7 @@ class QueueItem {
     double? scrubberPosition,
     Uint8List? currentFrame,
     Uint8List? processedPreview,
+    double? processedPreviewAspect,
     double? timelineZoom,
     double? timelineViewStart,
     double? thumbnailRangeStart,
@@ -200,6 +208,8 @@ class QueueItem {
       scrubberPosition: scrubberPosition ?? this.scrubberPosition,
       currentFrame: currentFrame ?? this.currentFrame,
       processedPreview: processedPreview ?? this.processedPreview,
+      processedPreviewAspect:
+          processedPreviewAspect ?? this.processedPreviewAspect,
       timelineZoom: timelineZoom ?? this.timelineZoom,
       timelineViewStart: timelineViewStart ?? this.timelineViewStart,
       thumbnailRangeStart: thumbnailRangeStart ?? this.thumbnailRangeStart,

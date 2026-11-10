@@ -24,6 +24,7 @@ import '../services/disc_detector.dart';
 import '../services/dvd_service.dart';
 import '../services/field_order_detector.dart';
 import '../services/frame_math.dart';
+import '../services/image_dimensions.dart';
 import '../services/timeline_math.dart';
 import '../services/preset_service.dart';
 import '../services/preview_generator.dart';
@@ -33,6 +34,18 @@ import '../services/job_runner.dart';
 import '../services/system_shutdown.dart';
 import '../services/worker_manager.dart';
 import '../widgets/comparison_zoom_controller.dart';
+
+/// The display aspect a processed preview is drawn at: its stored size with
+/// the aspect the worker reported for it applied, i.e. the shape the encode
+/// will have. Null — draw it at its own pixel shape — when there is no image,
+/// its size can't be read, or the worker reported nothing (issue #149).
+@visibleForTesting
+double? processedDisplayAspect(Uint8List? image, PreviewFrameInfo? info) {
+  if (image == null || info == null) return null;
+  final pixels = encodedImageSize(image);
+  if (pixels == null || pixels.isEmpty) return null;
+  return info.displayAspectFor(pixels);
+}
 
 /// Main view model managing application state.
 class MainViewModel extends ChangeNotifier {
@@ -672,6 +685,10 @@ class MainViewModel extends ChangeNotifier {
   List<Uint8List> get thumbnails => selectedItem?.thumbnails ?? [];
   Uint8List? get currentFrame => selectedItem?.currentFrame;
   Uint8List? get processedPreview => selectedItem?.processedPreview;
+
+  /// The display aspect of [processedPreview] — the shape the encode will
+  /// have — or null when it is drawn at its own pixel shape.
+  double? get processedPreviewAspect => selectedItem?.processedPreviewAspect;
   double get scrubberPosition => selectedItem?.scrubberPosition ?? 0.0;
   bool get isGeneratingPreview => _isGeneratingPreview;
   double get videoDuration => _previewGenerator.duration;
@@ -1419,6 +1436,8 @@ class MainViewModel extends ChangeNotifier {
       if (generation == _previewGeneration && !cancelToken.isCancelled) {
         item.processedPreview = preview;
         _previewFrameInfo = preview == null ? null : _previewGenerator.lastFrameInfo;
+        item.processedPreviewAspect =
+            processedDisplayAspect(preview, _previewFrameInfo);
         // The worker clamps to the frames there are, e.g. after the frame
         // rate pass is switched off; step on from what it showed.
         if (_previewFrameInfo != null) _previewSubFrame = _previewFrameInfo!.subFrame;

@@ -91,8 +91,7 @@ class FieldOrderDetector {
       final pixelFormat = videoStream['pix_fmt'] as String?;
 
       // Extract sample aspect ratio (SAR) — null if square pixels or unavailable
-      final rawSar = videoStream['sample_aspect_ratio'] as String?;
-      final sar = (rawSar != null && rawSar != 'N/A' && rawSar != '1:1') ? rawSar : null;
+      final sar = normalizeSar(videoStream['sample_aspect_ratio'] as String?);
 
       // Get metadata field order for context
       final metadataFieldOrder = videoStream['field_order'] as String?;
@@ -446,6 +445,19 @@ class FieldOrderDetector {
   // ============================================================================
   // UTILITIES
   // ============================================================================
+
+  /// ffprobe's `sample_aspect_ratio` as the job carries it: null for square
+  /// pixels or when there is none to read (`N/A`, `1:1`, and `0:1`, which is
+  /// ffprobe's "unknown"). The encode and the preview jobs both go through
+  /// this, so the preview fits the frame with the same SAR as the encode
+  /// (issue #149).
+  static String? normalizeSar(String? raw) {
+    final sar = raw?.trim();
+    if (sar == null || sar.isEmpty || sar == 'N/A' || sar == '1:1') return null;
+    final parts = sar.split(':');
+    if (parts.length == 2 && (double.tryParse(parts[0]) ?? 0) <= 0) return null;
+    return sar;
+  }
 
   /// Picks the true picture frame rate from the container's `r_frame_rate`
   /// (the stream's base/tick rate) and `avg_frame_rate` (the average displayed

@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../models/app_shortcut.dart';
 import '../models/preview_frame_info.dart';
+import '../services/field_order_detector.dart' show VideoInfo;
 import '../services/timeline_math.dart';
 import '../viewmodels/main_viewmodel.dart';
 import '../widgets/before_after_comparison.dart';
@@ -46,23 +47,19 @@ class _PreviewPanelState extends State<PreviewPanel> {
     );
   }
 
+  /// The display aspect of the source frame, `width / height * SAR`, or null
+  /// for square pixels or an unreadable SAR.
+  static double? _sourceDisplayAspect(VideoInfo? videoInfo) {
+    if (videoInfo == null || videoInfo.height <= 0) return null;
+    final sar = PreviewFrameInfo.parseRatio(videoInfo.sar);
+    if (sar == null) return null;
+    return videoInfo.width / videoInfo.height * sar;
+  }
+
   Widget _buildPreviewComparison(BuildContext context, MainViewModel viewModel) {
-    // Compute display aspect ratio for SAR correction.
-    // DAR = (width / height) * (sarNum / sarDen)
-    // Only needed when SAR is non-square (e.g. anamorphic DVD 32:27).
-    double? displayAspectRatio;
-    final videoInfo = viewModel.videoInfo;
-    if (videoInfo != null && videoInfo.sar != null) {
-      final parts = videoInfo.sar!.split(':');
-      if (parts.length == 2) {
-        final sarNum = double.tryParse(parts[0]);
-        final sarDen = double.tryParse(parts[1]);
-        if (sarNum != null && sarDen != null && sarDen > 0) {
-          displayAspectRatio =
-              (videoInfo.width / videoInfo.height) * (sarNum / sarDen);
-        }
-      }
-    }
+    // The source's display aspect, for SAR correction of the "before"
+    // frame: DAR = (width / height) * SAR. Null for square pixels.
+    final sourceAspect = _sourceDisplayAspect(viewModel.videoInfo);
 
     // The scope reads the processed preview, falling back to the source frame
     // before any pass has rendered — that is what the user is looking at.
@@ -78,7 +75,15 @@ class _PreviewPanelState extends State<PreviewPanel> {
               afterImage: scopeImage,
               isBeforeLoading: viewModel.isAnalyzing,
               isAfterLoading: viewModel.isGeneratingPreview,
-              displayAspectRatio: displayAspectRatio,
+              beforeAspectRatio: sourceAspect,
+              // The processed frame is drawn at the shape the encode will
+              // have, which a resize, pad, crop, rotation or squaring makes
+              // different from the source's (issue #149). Until a processed
+              // frame exists the source frame stands in for it, at its own
+              // aspect.
+              afterAspectRatio: viewModel.processedPreview != null
+                  ? viewModel.processedPreviewAspect
+                  : sourceAspect,
               zoomController: viewModel.previewZoom,
             ),
           ),
