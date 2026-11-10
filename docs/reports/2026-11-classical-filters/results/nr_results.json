@@ -1,0 +1,390 @@
+{
+ "nfr": 10,
+ "fixtures": {
+  "kodim08_pan": {
+   "4.0": {
+    "measured_sigma": 4.02,
+    "noisy_psnr_y": 36.05,
+    "methods": {
+     "BM3D (bm3d r12, r=1, Final) - shipped": {
+      "best_strength": 8.0,
+      "psnr_y": 40.44,
+      "psnr_u": 45.77,
+      "edge_of_sweep": false
+     },
+     "NLMeans vszip CPU (d=1 a=2 s=4)": {
+      "best_strength": 3.5,
+      "psnr_y": 39.93,
+      "psnr_u": 44.78,
+      "edge_of_sweep": false
+     },
+     "KNLMeansCL GPU (d=1 a=2 s=4)": {
+      "best_strength": 3.5,
+      "psnr_y": 39.93,
+      "psnr_u": 44.78,
+      "edge_of_sweep": false
+     },
+     "WNNM vszip (r=0)": {
+      "best_strength": 8.0,
+      "psnr_y": 37.8,
+      "psnr_u": 43.23,
+      "edge_of_sweep": false
+     },
+     "WNNM vszip (r=1)": {
+      "best_strength": 8.0,
+      "psnr_y": 41.01,
+      "psnr_u": 43.17,
+      "edge_of_sweep": false
+     },
+     "BM3D vszip (r=1)": {
+      "best_strength": 5.0,
+      "psnr_y": 38.24,
+      "psnr_u": 43.95,
+      "edge_of_sweep": false
+     }
+    }
+   },
+   "8.0": {
+    "measured_sigma": 8.01,
+    "noisy_psnr_y": 30.05,
+    "methods": {
+     "BM3D (bm3d r12, r=1, Final) - shipped": {
+      "best_strength": 16.0,
+      "psnr_y": 35.89,
+      "psnr_u": 42.67,
+      "edge_of_sweep": false
+     },
+     "NLMeans vszip CPU (d=1 a=2 s=4)": {
+      "best_strength": 7.0,
+      "psnr_y": 34.84,
+      "psnr_u": 41.68,
+      "edge_of_sweep": false
+     },
+     "KNLMeansCL GPU (d=1 a=2 s=4)": {
+      "best_strength": 7.0,
+      "psnr_y": 34.84,
+      "psnr_u": 41.68,
+      "edge_of_sweep": false
+     },
+     "WNNM vszip (r=0)": {
+      "best_strength": 16.0,
+      "psnr_y": 33.43,
+      "psnr_u": 38.25,
+      "edge_of_sweep": false
+     },
+     "WNNM vszip (r=1)": {
+      "best_strength": 16.0,
+      "psnr_y": 35.85,
+      "psnr_u": 37.31,
+      "edge_of_sweep": false
+     },
+     "BM3D vszip (r=1)": {
+      "best_strength": 10.0,
+      "psnr_y": 34.0,
+      "psnr_u": 40.0,
+      "edge_of_sweep": false
+     }
+    }
+   },
+   "12.0": {
+    "measured_sigma": 12.0,
+    "noisy_psnr_y": 26.54,
+    "methods": {
+     "BM3D (bm3d r12, r=1, Final) - shipped": {
+      "best_strength": 24.0,
+      "psnr_y": 33.34,
+      "psnr_u": 40.88,
+      "edge_of_sweep": false
+     },
+     "NLMeans vszip CPU (d=1 a=2 s=4)": {
+      "best_strength": 10.5,
+      "psnr_y": 32.17,
+      "psnr_u": 39.85,
+      "edge_of_sweep": false
+     },
+     "KNLMeansCL GPU (d=1 a=2 s=4)": {
+      "best_strength": 10.5,
+      "psnr_y": 32.17,
+      "psnr_u": 39.85,
+      "edge_of_sweep": false
+     },
+     "WNNM vszip (r=0)": {
+      "best_strength": 24.0,
+      "psnr_y": 31.0,
+      "psnr_u": 34.87,
+      "edge_of_sweep": false
+     },
+     "WNNM vszip (r=1)": {
+      "best_strength": 24.0,
+      "psnr_y": 32.92,
+      "psnr_u": 33.65,
+      "edge_of_sweep": false
+     },
+     "BM3D vszip (r=1)": {
+      "best_strength": 15.0,
+      "psnr_y": 31.64,
+      "psnr_u": 37.55,
+      "edge_of_sweep": false
+     }
+    }
+   }
+  },
+  "kodim19_pan": {
+   "4.0": {
+    "measured_sigma": 4.02,
+    "noisy_psnr_y": 36.05,
+    "methods": {
+     "BM3D (bm3d r12, r=1, Final) - shipped": {
+      "best_strength": 8.0,
+      "psnr_y": 40.61,
+      "psnr_u": 46.68,
+      "edge_of_sweep": false
+     },
+     "NLMeans vszip CPU (d=1 a=2 s=4)": {
+      "best_strength": 4.5,
+      "psnr_y": 40.62,
+      "psnr_u": 45.58,
+      "edge_of_sweep": true
+     },
+     "KNLMeansCL GPU (d=1 a=2 s=4)": {
+      "best_strength": 4.5,
+      "psnr_y": 40.62,
+      "psnr_u": 45.58,
+      "edge_of_sweep": true
+     },
+     "WNNM vszip (r=0)": {
+      "best_strength": 8.0,
+      "psnr_y": 38.65,
+      "psnr_u": 44.02,
+      "edge_of_sweep": false
+     },
+     "WNNM vszip (r=1)": {
+      "best_strength": 10.0,
+      "psnr_y": 41.33,
+      "psnr_u": 43.67,
+      "edge_of_sweep": true
+     },
+     "BM3D vszip (r=1)": {
+      "best_strength": 5.0,
+      "psnr_y": 39.15,
+      "psnr_u": 44.79,
+      "edge_of_sweep": false
+     }
+    }
+   },
+   "8.0": {
+    "measured_sigma": 8.02,
+    "noisy_psnr_y": 30.05,
+    "methods": {
+     "BM3D (bm3d r12, r=1, Final) - shipped": {
+      "best_strength": 12.0,
+      "psnr_y": 36.3,
+      "psnr_u": 43.19,
+      "edge_of_sweep": false
+     },
+     "NLMeans vszip CPU (d=1 a=2 s=4)": {
+      "best_strength": 7.0,
+      "psnr_y": 35.93,
+      "psnr_u": 42.87,
+      "edge_of_sweep": false
+     },
+     "KNLMeansCL GPU (d=1 a=2 s=4)": {
+      "best_strength": 7.0,
+      "psnr_y": 35.93,
+      "psnr_u": 42.87,
+      "edge_of_sweep": false
+     },
+     "WNNM vszip (r=0)": {
+      "best_strength": 16.0,
+      "psnr_y": 34.47,
+      "psnr_u": 38.98,
+      "edge_of_sweep": false
+     },
+     "WNNM vszip (r=1)": {
+      "best_strength": 16.0,
+      "psnr_y": 36.14,
+      "psnr_u": 38.0,
+      "edge_of_sweep": false
+     },
+     "BM3D vszip (r=1)": {
+      "best_strength": 10.0,
+      "psnr_y": 35.21,
+      "psnr_u": 40.93,
+      "edge_of_sweep": false
+     }
+    }
+   },
+   "12.0": {
+    "measured_sigma": 12.02,
+    "noisy_psnr_y": 26.53,
+    "methods": {
+     "BM3D (bm3d r12, r=1, Final) - shipped": {
+      "best_strength": 18.0,
+      "psnr_y": 34.14,
+      "psnr_u": 41.17,
+      "edge_of_sweep": false
+     },
+     "NLMeans vszip CPU (d=1 a=2 s=4)": {
+      "best_strength": 10.5,
+      "psnr_y": 33.24,
+      "psnr_u": 40.85,
+      "edge_of_sweep": false
+     },
+     "KNLMeansCL GPU (d=1 a=2 s=4)": {
+      "best_strength": 10.5,
+      "psnr_y": 33.24,
+      "psnr_u": 40.85,
+      "edge_of_sweep": false
+     },
+     "WNNM vszip (r=0)": {
+      "best_strength": 24.0,
+      "psnr_y": 32.16,
+      "psnr_u": 35.62,
+      "edge_of_sweep": false
+     },
+     "WNNM vszip (r=1)": {
+      "best_strength": 24.0,
+      "psnr_y": 33.2,
+      "psnr_u": 34.41,
+      "edge_of_sweep": false
+     },
+     "BM3D vszip (r=1)": {
+      "best_strength": 18.0,
+      "psnr_y": 32.96,
+      "psnr_u": 40.19,
+      "edge_of_sweep": false
+     }
+    }
+   }
+  },
+  "kodim23_pan": {
+   "4.0": {
+    "measured_sigma": 4.02,
+    "noisy_psnr_y": 36.05,
+    "methods": {
+     "BM3D (bm3d r12, r=1, Final) - shipped": {
+      "best_strength": 8.0,
+      "psnr_y": 43.15,
+      "psnr_u": 47.34,
+      "edge_of_sweep": false
+     },
+     "NLMeans vszip CPU (d=1 a=2 s=4)": {
+      "best_strength": 3.5,
+      "psnr_y": 42.81,
+      "psnr_u": 46.78,
+      "edge_of_sweep": false
+     },
+     "KNLMeansCL GPU (d=1 a=2 s=4)": {
+      "best_strength": 3.5,
+      "psnr_y": 42.81,
+      "psnr_u": 46.78,
+      "edge_of_sweep": false
+     },
+     "WNNM vszip (r=0)": {
+      "best_strength": 8.0,
+      "psnr_y": 41.41,
+      "psnr_u": 44.23,
+      "edge_of_sweep": false
+     },
+     "WNNM vszip (r=1)": {
+      "best_strength": 10.0,
+      "psnr_y": 42.62,
+      "psnr_u": 44.13,
+      "edge_of_sweep": true
+     },
+     "BM3D vszip (r=1)": {
+      "best_strength": 6.0,
+      "psnr_y": 41.97,
+      "psnr_u": 45.6,
+      "edge_of_sweep": false
+     }
+    }
+   },
+   "8.0": {
+    "measured_sigma": 8.02,
+    "noisy_psnr_y": 30.05,
+    "methods": {
+     "BM3D (bm3d r12, r=1, Final) - shipped": {
+      "best_strength": 16.0,
+      "psnr_y": 40.12,
+      "psnr_u": 44.0,
+      "edge_of_sweep": false
+     },
+     "NLMeans vszip CPU (d=1 a=2 s=4)": {
+      "best_strength": 7.0,
+      "psnr_y": 39.3,
+      "psnr_u": 43.26,
+      "edge_of_sweep": false
+     },
+     "KNLMeansCL GPU (d=1 a=2 s=4)": {
+      "best_strength": 7.0,
+      "psnr_y": 39.3,
+      "psnr_u": 43.26,
+      "edge_of_sweep": false
+     },
+     "WNNM vszip (r=0)": {
+      "best_strength": 16.0,
+      "psnr_y": 37.42,
+      "psnr_u": 39.23,
+      "edge_of_sweep": false
+     },
+     "WNNM vszip (r=1)": {
+      "best_strength": 20.0,
+      "psnr_y": 37.87,
+      "psnr_u": 38.42,
+      "edge_of_sweep": true
+     },
+     "BM3D vszip (r=1)": {
+      "best_strength": 12.0,
+      "psnr_y": 38.56,
+      "psnr_u": 41.79,
+      "edge_of_sweep": false
+     }
+    }
+   },
+   "12.0": {
+    "measured_sigma": 12.02,
+    "noisy_psnr_y": 26.53,
+    "methods": {
+     "BM3D (bm3d r12, r=1, Final) - shipped": {
+      "best_strength": 24.0,
+      "psnr_y": 38.18,
+      "psnr_u": 41.94,
+      "edge_of_sweep": false
+     },
+     "NLMeans vszip CPU (d=1 a=2 s=4)": {
+      "best_strength": 13.5,
+      "psnr_y": 37.24,
+      "psnr_u": 41.14,
+      "edge_of_sweep": true
+     },
+     "KNLMeansCL GPU (d=1 a=2 s=4)": {
+      "best_strength": 13.5,
+      "psnr_y": 37.24,
+      "psnr_u": 41.14,
+      "edge_of_sweep": true
+     },
+     "WNNM vszip (r=0)": {
+      "best_strength": 24.0,
+      "psnr_y": 34.82,
+      "psnr_u": 35.89,
+      "edge_of_sweep": false
+     },
+     "WNNM vszip (r=1)": {
+      "best_strength": 30.0,
+      "psnr_y": 34.79,
+      "psnr_u": 34.81,
+      "edge_of_sweep": true
+     },
+     "BM3D vszip (r=1)": {
+      "best_strength": 18.0,
+      "psnr_y": 36.47,
+      "psnr_u": 39.39,
+      "edge_of_sweep": false
+     }
+    }
+   }
+  }
+ },
+ "source": "parsed from nr_compare.txt"
+}

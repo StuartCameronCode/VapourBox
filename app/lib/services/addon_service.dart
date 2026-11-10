@@ -10,7 +10,28 @@ import 'package:path/path.dart' as path;
 
 import 'addon_manager.dart';
 import 'dependency_manager.dart';
+import 'manifest_addon.dart';
 import 'whisper_addon_manager.dart';
+
+/// A further third-party component inside an add-on, credited on its own:
+/// its own NOTICES entry, About tile and README credit, like the add-on's
+/// main one. The AI runtime is ONNX Runtime plus NumPy (and on Windows
+/// Microsoft's DirectML), each under its own licence.
+class AddonCredit {
+  final String noticeName;
+  final String licence;
+  final String? licenceUrl;
+  final String credit;
+  final String sourceUrl;
+
+  const AddonCredit({
+    required this.noticeName,
+    required this.licence,
+    this.licenceUrl,
+    required this.credit,
+    required this.sourceUrl,
+  });
+}
 
 /// One optional third-party download: something VapourBox can use but does not
 /// ship, because of its size or its licence. Shown on Settings → Add-ons and
@@ -55,6 +76,10 @@ class AddonInfo {
   /// Why it cannot be used on this platform, or null if it can.
   final String? unavailableReason;
 
+  /// Further components it includes on this platform, each credited
+  /// separately (see [AddonCredit]); the main one is the fields above.
+  final List<AddonCredit> additionalCredits;
+
   const AddonInfo({
     required this.id,
     required this.name,
@@ -69,7 +94,20 @@ class AddonInfo {
     required this.downloadBytes,
     this.requires = const [],
     this.unavailableReason,
+    this.additionalCredits = const [],
   });
+
+  /// Every component to credit: the main one, then [additionalCredits].
+  List<AddonCredit> get credits => [
+        AddonCredit(
+          noticeName: noticeName,
+          licence: licence,
+          licenceUrl: licenceUrl,
+          credit: credit,
+          sourceUrl: sourceUrl,
+        ),
+        ...additionalCredits,
+      ];
 }
 
 /// How one add-on is installed, recognised and removed under the add-ons
@@ -139,6 +177,9 @@ class AddonService extends ChangeNotifier {
               as Map<String, dynamic>,
           platform,
         ),
+        // Every add-on described by a manifest in assets/addons/.
+        for (final manifest in await AddonManifest.loadBundled())
+          ManifestAddonInstaller(manifest, platform),
       ]);
     }
     await refresh();

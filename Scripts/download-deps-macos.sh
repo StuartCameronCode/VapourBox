@@ -17,6 +17,14 @@
 
 set -e
 
+# Every download goes through this. Upstream hosts (GitHub's release CDN above
+# all) sometimes answer with a 5xx error page or cut a transfer short: plain
+# `curl -L` saves that page as the archive and the build dies later on a
+# baffling "not in gzip format". --fail turns an HTTP error into a failed
+# command, and the retries (any error, transfer cut short included) ride out a
+# transient outage. Output is rewritten from the start on each attempt.
+curl() { command curl --fail --retry 6 --retry-delay 15 --retry-all-errors "$@"; }
+
 FORCE=false
 TIER=v3
 while [[ $# -gt 0 ]]; do
@@ -2074,19 +2082,20 @@ else
 fi
 
 # ============================================================================
-# vszip — CLAHE (Colour Correction's local contrast, issue #90)
+# vszip — CLAHE, NLMeans (CPU) and the vine dehalo method
 # ============================================================================
-# Only core.vszip.CLAHE is used. Keep VSZIP_VERSION in step across
-# download-deps-{macos,linux}.sh and download-deps-windows.ps1.
+# core.vszip.CLAHE (Colour Correction's local contrast, issue #90) and, from
+# 24.0.0 (the first release with it), core.vszip.NLMeans: Noise Reduction's
+# CPU non-local means and the Dehalo pass's vine method. Keep VSZIP_VERSION in
+# step across download-deps-{macos,linux}.sh and download-deps-windows.ps1.
 #
-# arm64 takes the PyPI wheel's dylib: minos 13, under this arch's 15.0 target.
-# It has zero bytes between its load commands and __text, so install_name_tool
-# cannot fit a longer id (the repoint loop below fails quietly and leaves
-# @rpath, which is harmless for a dlopen'd plugin). Re-signing is safe: it is
-# already linker-signed, and codesign replaces an existing signature in place
-# rather than adding a load command.
+# arm64 takes the PyPI wheel's dylib: minos 15.0 from 24.0.0 (13 before), which
+# is exactly this arch's 15.0 target. 24.0.0's has 4 KB free after its load
+# commands (22.1.0's had none); re-signing is safe either way: it is already
+# linker-signed, and codesign replaces an existing signature in place rather
+# than adding a load command.
 #
-# x64 builds the same release's sdist, for two reasons. The wheel is minos 13.0
+# x64 builds the same release's sdist, for two reasons. The wheel is minos 15.0
 # against this bundle's 12.0 floor (issue #39). And Zig's x86_64 macOS output
 # carries NO code signature and leaves 8 bytes after its load commands, so
 # `codesign` — which must add a 16-byte LC_CODE_SIGNATURE — silently writes the
@@ -2095,15 +2104,18 @@ fi
 # gives the header room; the guard below fails the build if it ever doesn't.
 # Built with upstream's default x86_64-macos CPU (same as its wheel), which has
 # no AVX — so one build serves both CPU tiers and needs no _tierFiles entry.
-VSZIP_VERSION="22.1.0"
-VSZIP_SDIST_SHA256="93c1aaf5867ad43e1f21b77418fa89b0b1ed2191d0c4bfb03a65c958826ed8c9"
-# The sdist's pyproject pins ziglang==0.16.0; its build.zig does not compile
-# under 0.17 (Optimize enum rename).
-VSZIP_ZIG_VERSION="0.16.0"
-VSZIP_ZIG_SHA256="0387557ed1877bc6a2e1802c8391953baddba76081876301c522f52977b52ba7"
+VSZIP_VERSION="24.0.0"
+VSZIP_SDIST_SHA256="b2d6157228d0e786a19ac9055814e6141841ffc2c7b42ac1858b0600fc4a69cb"
+# The sdist's pyproject pins ziglang==0.17.0 (from vszip 23.0.0; its
+# build.zig.zon refuses anything older). 0.17 renamed the optimize modes, hence
+# -Doptimize=fast below rather than ReleaseFast. Cross-built from arm64 with
+# the same recipe on 2026-11-08: minos 12.0, 4 KB header room, no AVX, no
+# static initializers (check-load-time-simd.py).
+VSZIP_ZIG_VERSION="0.17.0"
+VSZIP_ZIG_SHA256="4f9a1c5269aa17ebda5e6d3c2b89d6cbf36f7d2b22a0306e9ab98f25f95529c6"
 VSZIP_OUT="$PLUGINS_DIR/libvszip.dylib"
 echo ""
-echo "=== Installing vszip $VSZIP_VERSION (CLAHE) ==="
+echo "=== Installing vszip $VSZIP_VERSION (CLAHE, NLMeans) ==="
 if [ "$FORCE" = false ] && [ -f "$VSZIP_OUT" ]; then
     echo "  vszip already exists, skipping"
 else
@@ -2145,10 +2157,12 @@ else
         mkdir -p vszip-src
         tar -xzf vszip.tar.gz -C vszip-src --strip-components=1
         cd vszip-src
-        grep -q '^    lib.use_llvm = true;$' build.zig || {
+        # The VapourSynth library's `lib.use_llvm` sits inside `if (build_vs)`
+        # from 23.0.0 (8 spaces); the AviSynth+ one (12 spaces) is never built.
+        grep -q '^        lib.use_llvm = true;$' build.zig || {
             echo "  ERROR: vszip build.zig changed; re-check the headerpad patch" >&2; exit 1; }
-        sed -i.bak 's/^    lib.use_llvm = true;$/    lib.use_llvm = true;\
-    lib.headerpad_max_install_names = true;/' build.zig
+        sed -i.bak 's/^        lib.use_llvm = true;$/        lib.use_llvm = true;\
+        lib.headerpad_max_install_names = true;/' build.zig
         grep -q 'lib.headerpad_max_install_names = true;' build.zig
         # Also fetches vszip's own Zig dependencies (pinned by hash in
         # build.zig.zon), so this step needs network access.
@@ -2157,7 +2171,7 @@ else
             *.*) vszip_min="$MACOS_MIN_VERSION" ;;
             *)   vszip_min="${MACOS_MIN_VERSION}.0" ;;
         esac
-        ../vszip-zig/zig build -Doptimize=ReleaseFast -Dtarget="x86_64-macos.${vszip_min}"
+        ../vszip-zig/zig build -Doptimize=fast -Dtarget="x86_64-macos.${vszip_min}"
         cp zig-out/lib/libvszip.dylib "$VSZIP_OUT"
     ) || true
     rm -rf "$BUILD_DIR/vszip-zig" "$BUILD_DIR/vszip-zig.tar.xz" \
@@ -2195,6 +2209,64 @@ else
     FAILED_PLUGINS+=("vszip")
 fi
 fi  # end vszip install
+
+# ============================================================================
+# SangNom — Anti-aliasing's SangNom method (core.sangnom.SangNom)
+# ============================================================================
+# The PyPI wheels (r45), pinned by hash: arm64 is minos 11.0 and x86_64 10.15,
+# both under their bundle's floor. Source is MIT; upstream states its binaries
+# are GPL v2 (see licenses/NOTICES.txt). The x86_64 dylib has SSE2 code only
+# (no AVX anywhere, checked with objdump; no static initializers), so one file
+# serves both CPU tiers. It links only libc++ and libSystem. Keep
+# SANGNOM_VERSION in step with download-deps-{linux.sh,windows.ps1}.
+SANGNOM_VERSION="45.0"
+if [ "$ARCH" = "arm64" ]; then
+    SANGNOM_TAG="macosx_11_0_arm64"
+    SANGNOM_SHA256="e558c2ffd7d5f6657878e97504c536cdb5e199c558537767b229bd37f8764810"
+else
+    SANGNOM_TAG="macosx_10_15_x86_64"
+    SANGNOM_SHA256="cbcb274aa86732d01d4f39ab4058c32d580901163ac372c0219cdb3fa468840d"
+fi
+SANGNOM_OUT="$PLUGINS_DIR/libsangnom.dylib"
+echo ""
+echo "=== Installing SangNom $SANGNOM_VERSION ==="
+if [ "$FORCE" = false ] && [ -f "$SANGNOM_OUT" ]; then
+    echo "  SangNom already exists, skipping"
+else
+    rm -f "$SANGNOM_OUT"
+    # Run on its own, not as `if ( set -e ... ); then` (see descale below).
+    set +e
+    (
+        set -e
+        cd "$BUILD_DIR"
+        rm -rf sangnom-whl sangnom.whl
+        url=$("$PYTHON_BIN" - "$SANGNOM_VERSION" "$SANGNOM_TAG" <<'PYEOF2'
+import json, sys, urllib.request
+ver, tag = sys.argv[1], sys.argv[2]
+d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/vapoursynth-sangnom/{ver}/json"))
+print(next(f["url"] for f in d["urls"] if f["filename"].endswith(tag + ".whl")))
+PYEOF2
+)
+        curl -fsSL -o sangnom.whl "$url"
+        echo "$SANGNOM_SHA256  sangnom.whl" | shasum -a 256 -c -
+        mkdir sangnom-whl && unzip -q sangnom.whl -d sangnom-whl
+        cp sangnom-whl/vapoursynth/plugins/sangnom.dylib "$SANGNOM_OUT"
+        chmod u+w "$SANGNOM_OUT"
+        install_name_tool -id "@loader_path/libsangnom.dylib" "$SANGNOM_OUT"
+        codesign -s - -f "$SANGNOM_OUT"
+        rm -rf sangnom-whl sangnom.whl
+    )
+    _block_status=$?
+    set -e
+    if [ "$_block_status" -eq 0 ]; then
+        echo "  Installed SangNom -> libsangnom.dylib"
+        BUILT_PLUGINS+=("sangnom")
+    else
+        rm -f "$SANGNOM_OUT"
+        echo "  Failed to install SangNom"
+        FAILED_PLUGINS+=("sangnom")
+    fi
+fi
 
 # ============================================================================
 # descale — the Descale pass (core.descale.De*)
@@ -2311,8 +2383,8 @@ fi
 # RIFE 4.26 — the Frame Rate pass's neural interpolator (ncnn on Vulkan)
 # ============================================================================
 # Lives in vapoursynth/rife/, NOT the autoload directory: the template loads it
-# only for a RIFE job (see worker/src/gpu_plugin.rs). Keep RIFE_TAG, the model
-# commit and the model hashes in step with download-deps-{linux.sh,windows.ps1}.
+# only for a RIFE job (see worker/src/gpu_plugin.rs). Keep RIFE_TAG in step with
+# download-deps-{linux.sh,windows.ps1}.
 #
 # arm64 only. The upstream x86_64 dylib targets macOS 13 against this arch's
 # 12.0 floor (issue #39) and runs AVX in a static initializer
@@ -2320,21 +2392,18 @@ fi
 # the app reports RIFE as unavailable there. It resolves Vulkan from the
 # MoltenVK installed above.
 #
-# The model is the ncnn conversion committed to the plugin's repo (there is no
-# release asset for it), fetched at a pinned commit and checked by hash.
+# The plugin only. Its model is the `frame-rate-rife` add-on (deps 1.16.0 on;
+# app/assets/addons/frame-rate-rife.json): every AI model is an add-on, never
+# in this bundle (docs/ADDONS.md).
 RIFE_TAG="r9_mod_v33"
 RIFE_MACOS_ARM64_SHA256="3041811d2b71afd2fa12d64484f64396c6fa5259ab63715316694f4110fc0e67"
-RIFE_MODEL_COMMIT="96fdcecdf982ef3237e16e2b105eea849fa022ab"
-RIFE_MODEL_NAME="rife-v4.26_ensembleFalse"
-RIFE_MODEL_BIN_SHA256="94d58e30b75d7c7609cfa6f3bdad524deddd14f5f75e85c36d2f827ef5c64731"
-RIFE_MODEL_PARAM_SHA256="79f16c28903f93f8308f0c4c947f8c7e0c17d99a57b85473e5f298dd578d137b"
 RIFE_DIR="$DEPS_DIR/vapoursynth/rife"
 echo ""
-echo "=== Installing RIFE ($RIFE_TAG, model $RIFE_MODEL_NAME) ==="
+echo "=== Installing RIFE ($RIFE_TAG) ==="
 if [ "$ARCH" != "arm64" ]; then
     echo "  Skipped on $ARCH: no compatible prebuilt (see above)"
 elif [ "$FORCE" = false ] && [ -f "$RIFE_DIR/librife.dylib" ] \
-     && [ -f "$RIFE_DIR/models/$RIFE_MODEL_NAME/flownet.bin" ]; then
+     && [ ! -d "$RIFE_DIR/models" ]; then
     echo "  RIFE already exists, skipping"
 else
     rm -rf "$RIFE_DIR"
@@ -2345,19 +2414,12 @@ else
     set +e
     (
         set -e
-        mkdir -p "$RIFE_DIR/models/$RIFE_MODEL_NAME"
+        mkdir -p "$RIFE_DIR"
         cd "$BUILD_DIR"
         curl -fsSL -o librife.dylib \
             "https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/releases/download/$RIFE_TAG/librife_macos_arm64.dylib"
         echo "$RIFE_MACOS_ARM64_SHA256  librife.dylib" | shasum -a 256 -c -
         mv librife.dylib "$RIFE_DIR/librife.dylib"
-        for f in flownet.bin flownet.param; do
-            curl -fsSL -o "$f" \
-                "https://raw.githubusercontent.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/$RIFE_MODEL_COMMIT/models/$RIFE_MODEL_NAME/$f"
-        done
-        echo "$RIFE_MODEL_BIN_SHA256  flownet.bin" | shasum -a 256 -c -
-        echo "$RIFE_MODEL_PARAM_SHA256  flownet.param" | shasum -a 256 -c -
-        mv flownet.bin flownet.param "$RIFE_DIR/models/$RIFE_MODEL_NAME/"
         chmod u+w "$RIFE_DIR/librife.dylib"
         codesign -s - -f "$RIFE_DIR/librife.dylib"
     )
@@ -2374,7 +2436,7 @@ else
 fi
 
 # ============================================================================
-# VSNCNN (vs-mlrt) + Real-ESRGAN / Real-CUGAN — Crop & Resize's AI upscaling
+# VSNCNN (vs-mlrt) — runs Crop & Resize's AI upscalers
 # ============================================================================
 # vs-mlrt publishes VSNCNN for Windows only, so it is built here from the
 # pinned tag the way upstream's linux-ncnn.yml builds it: static protobuf and
@@ -2384,24 +2446,15 @@ fi
 # (-undefined dynamic_lookup), exactly as for RIFE. Lives in vapoursynth/ncnn/,
 # never autoloaded (see worker/src/gpu_plugin.rs). arm64 only, as for RIFE.
 #
-# The models are vs-mlrt's ONNX conversions, 2.4-5.2 MB each. vs-mlrt ships
-# them only inside one ~810 MB archive per release, so that is fetched (pinned
-# and hash-checked), the five files VapourBox uses are extracted, and each is
-# checked by its own hash. Keep every pin and hash in step with
-# download-deps-{linux.sh,windows.ps1} and gpu_plugin::UPSCALE_MODELS.
+# The plugin only. Every model it runs is an add-on (deps 1.16.0 on;
+# app/assets/addons/upscale-*.json, docs/ADDONS.md) — the Real-ESRGAN anime and
+# Real-CUGAN models included, which were bundled here until then. Keep every
+# pin in step with download-deps-{linux.sh,windows.ps1}.
 VSMLRT_TAG="v15.16"
-VSMLRT_MODELS_SHA256="d4eaa8c1c4459082185a9e1a2c54d7e2c776abeea6aef6aee0cb8f6c151dfb02"
 PROTOBUF_TAG="v3.21.12"
 ONNX_COMMIT="b86cc54efce19530fb953e4b21f57e6b3888534c"
 NCNN_TAG="20260526"
 NCNN_MACOS_VULKAN_SHA256="e3ec1d473390a52c288968ecf1321fd2fdd25d8eaa2031a6b7d5c97f3e6961b4"
-UPSCALE_MODEL_HASHES=(
-    "RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx 6fad590f96df553a5cc348a9c5129e7874504a7dcd414e4a15fb0b281fca7e0c"
-    "RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx 414de3a5da4c56652c99f3bc0b960910e3561835a6c7a9cca546475bc4792158"
-    "cugan/up2x-latest-no-denoise.onnx 3587278c3a7e62bbcb00a23b4de291ff906f62a88856ee457cbe4211cc593574"
-    "cugan/up2x-latest-conservative.onnx 555bca3eb90caa37c7e1a02aec9cda3ca8479f252746c1885d382f87312f651c"
-    "cugan/up2x-latest-denoise3x.onnx 7bcb0510f9f989e681a51d39b7170883d3d5e75f1ec23ef5146e8ea50c3cc845"
-)
 # VSNCNN is an API 3 plugin (VapourSynth.h / VSHelper.h). R78 still loads
 # those, but the build's own include dir need not carry the old headers, so
 # they are fetched from the same VapourSynth tag, by hash.
@@ -2412,11 +2465,11 @@ VSAPI3_HEADER_HASHES=(
 )
 NCNN_DIR="$DEPS_DIR/vapoursynth/ncnn"
 echo ""
-echo "=== Installing VSNCNN ($VSMLRT_TAG) + upscaling models ==="
+echo "=== Installing VSNCNN ($VSMLRT_TAG) ==="
 if [ "$ARCH" != "arm64" ]; then
     echo "  Skipped on $ARCH: no MoltenVK here (see above)"
 elif [ "$FORCE" = false ] && [ -f "$NCNN_DIR/libvsncnn.dylib" ] \
-     && [ -f "$NCNN_DIR/models/cugan/up2x-latest-denoise3x.onnx" ]; then
+     && [ ! -d "$NCNN_DIR/models" ]; then
     echo "  VSNCNN already exists, skipping"
 else
     rm -rf "$NCNN_DIR"
@@ -2428,7 +2481,7 @@ else
     (
         set -e
         W="$BUILD_DIR/vsncnn"
-        rm -rf "$W" && mkdir -p "$W" "$NCNN_DIR/models"
+        rm -rf "$W" && mkdir -p "$W" "$NCNN_DIR"
         cd "$W"
         # arm64 pins no target for the rest of the script; this one compiles
         # directly with clang, so it needs one: the arm64 bundle's 15.0.
@@ -2480,22 +2533,6 @@ else
             -Wl,-undefined,dynamic_lookup -Wl,-install_name,@loader_path/libvsncnn.dylib \
             -o "$NCNN_DIR/libvsncnn.dylib"
         codesign -s - -f "$NCNN_DIR/libvsncnn.dylib"
-        # Models.
-        curl -fsSL -o models.7z \
-            "https://github.com/AmusementClub/vs-mlrt/releases/download/$VSMLRT_TAG/models.$VSMLRT_TAG.7z"
-        echo "$VSMLRT_MODELS_SHA256  models.7z" | shasum -a 256 -c -
-        # One pass: the archive is solid, so each separate extraction would
-        # decompress it from the start again.
-        wanted=()
-        for entry in "${UPSCALE_MODEL_HASHES[@]}"; do wanted+=("models/${entry%% *}"); done
-        tar -xf models.7z "${wanted[@]}"
-        for entry in "${UPSCALE_MODEL_HASHES[@]}"; do
-            rel="${entry%% *}"; sum="${entry##* }"
-            echo "$sum  models/$rel" | shasum -a 256 -c -
-            mkdir -p "$NCNN_DIR/models/$(dirname "$rel")"
-            mv "models/$rel" "$NCNN_DIR/models/$rel"
-        done
-        rm -f models.7z
         cd "$BUILD_DIR" && rm -rf "$W"
     )
     _block_status=$?

@@ -1,0 +1,279 @@
+{
+ "vine": {
+  "kodim08_pan": {
+   "haloed (no filter)": {
+    "psnr_y": 21.933134712608727
+   },
+   "vine (16, 0.5, 1.0)": {
+    "psnr_y": 22.797082828237052,
+    "fps": 14.21292564101782
+   },
+   "vine (24, 0.5, 1.0)": {
+    "psnr_y": 23.0619950719995
+   },
+   "vine (8, 0.5, 1.0)": {
+    "psnr_y": 22.453524109191623
+   },
+   "DeHalo_alpha (defaults)": {
+    "psnr_y": 26.277493614694684,
+    "fps": 1201.2211816593635
+   },
+   "FineDehalo (defaults)": {
+    "psnr_y": 22.0037554682307,
+    "fps": 884.4824023112124
+   }
+  },
+  "kodim23_pan": {
+   "haloed (no filter)": {
+    "psnr_y": 31.98589798603438
+   },
+   "vine (16, 0.5, 1.0)": {
+    "psnr_y": 33.11719114650669,
+    "fps": 55.43943871967178
+   },
+   "vine (24, 0.5, 1.0)": {
+    "psnr_y": 33.25691627829084
+   },
+   "vine (8, 0.5, 1.0)": {
+    "psnr_y": 32.82610218076776
+   },
+   "DeHalo_alpha (defaults)": {
+    "psnr_y": 36.10776928033571,
+    "fps": 1221.4403447974605
+   },
+   "FineDehalo (defaults)": {
+    "psnr_y": 32.24800621416794,
+    "fps": 853.2465366071973
+   }
+  }
+ },
+ "mpeg2stinx": {
+  "kodim08 telecined @1000k": {
+   "decoded (no filter)": {
+    "psnr_y": 33.29538368376405,
+    "psnr_u": 41.61371834325565
+   },
+   "mpeg2stinx (TFF)": {
+    "psnr_y": 31.5384839201852,
+    "psnr_u": 41.67942121155347,
+    "fps": 32.77849936307724
+   },
+   "mpeg2stinx (wrong order: BFF)": {
+    "psnr_y": 31.529313223774377,
+    "psnr_u": 41.67841814310286
+   },
+   "Deblock_QED (defaults)": {
+    "psnr_y": 33.23652487333629,
+    "psnr_u": 41.7661195749458
+   },
+   "Deblock (quant 25)": {
+    "psnr_y": 33.273421092982424,
+    "psnr_u": 41.87678402726829
+   }
+  },
+  "kodim08 progressive-as-interlaced @1000k": {
+   "decoded (no filter)": {
+    "psnr_y": 42.17042351197701,
+    "psnr_u": 46.12772009077852
+   },
+   "mpeg2stinx (TFF)": {
+    "psnr_y": 38.28563393500911,
+    "psnr_u": 46.20638031515618,
+    "fps": 33.83420023490236
+   },
+   "mpeg2stinx (wrong order: BFF)": {
+    "psnr_y": 38.25890561044511,
+    "psnr_u": 46.20539825836086
+   },
+   "Deblock_QED (defaults)": {
+    "psnr_y": 41.985965749803604,
+    "psnr_u": 45.952495619483884
+   },
+   "Deblock (quant 25)": {
+    "psnr_y": 42.07005602997155,
+    "psnr_u": 46.06458855197737
+   }
+  },
+  "kodim08 telecined @2000k": {
+   "decoded (no filter)": {
+    "psnr_y": 39.316846574844575,
+    "psnr_u": 44.5996358673874
+   },
+   "mpeg2stinx (TFF)": {
+    "psnr_y": 36.310117129411786,
+    "psnr_u": 44.71130472527608,
+    "fps": 32.142649683539695
+   },
+   "mpeg2stinx (wrong order: BFF)": {
+    "psnr_y": 36.294308619850526,
+    "psnr_u": 44.70883283607603
+   },
+   "Deblock_QED (defaults)": {
+    "psnr_y": 39.24210307098453,
+    "psnr_u": 44.60998398058343
+   },
+   "Deblock (quant 25)": {
+    "psnr_y": 39.289751955392695,
+    "psnr_u": 44.77698864169139
+   }
+  },
+  "kodim08 progressive-as-interlaced @2000k": {
+   "decoded (no filter)": {
+    "psnr_y": 42.38708793130139,
+    "psnr_u": 46.19888749957376
+   },
+   "mpeg2stinx (TFF)": {
+    "psnr_y": 38.38442160526226,
+    "psnr_u": 46.278817013176415,
+    "fps": 35.60378591740588
+   },
+   "mpeg2stinx (wrong order: BFF)": {
+    "psnr_y": 38.35863219416915,
+    "psnr_u": 46.27792290870529
+   },
+   "Deblock_QED (defaults)": {
+    "psnr_y": 42.184874187058085,
+    "psnr_u": 46.01040531606005
+   },
+   "Deblock (quant 25)": {
+    "psnr_y": 42.27585808977774,
+    "psnr_u": 46.12996339886284
+   }
+  },
+  "kodim23 telecined @1000k": {
+   "decoded (no filter)": {
+    "psnr_y": 43.351684182023,
+    "psnr_u": 47.00520084461393
+   },
+   "mpeg2stinx (TFF)": {
+    "psnr_y": 43.075304671267595,
+    "psnr_u": 47.07324243122878,
+    "fps": 139.27346624340873
+   },
+   "mpeg2stinx (wrong order: BFF)": {
+    "psnr_y": 43.05620409633267,
+    "psnr_u": 47.073004520420376
+   },
+   "Deblock_QED (defaults)": {
+    "psnr_y": 43.21752044052841,
+    "psnr_u": 47.124156664486456
+   },
+   "Deblock (quant 25)": {
+    "psnr_y": 43.24926678121209,
+    "psnr_u": 47.26724623836998
+   }
+  },
+  "kodim23 progressive-as-interlaced @1000k": {
+   "decoded (no filter)": {
+    "psnr_y": 44.19061404946899,
+    "psnr_u": 47.601377887411346
+   },
+   "mpeg2stinx (TFF)": {
+    "psnr_y": 43.89827824541628,
+    "psnr_u": 47.65378552415274,
+    "fps": 137.27961247667986
+   },
+   "mpeg2stinx (wrong order: BFF)": {
+    "psnr_y": 43.882195202328795,
+    "psnr_u": 47.652395446575476
+   },
+   "Deblock_QED (defaults)": {
+    "psnr_y": 43.997027638305916,
+    "psnr_u": 47.74729014411055
+   },
+   "Deblock (quant 25)": {
+    "psnr_y": 44.0123657215253,
+    "psnr_u": 47.890436524807704
+   }
+  },
+  "kodim23 telecined @2000k": {
+   "decoded (no filter)": {
+    "psnr_y": 44.325646142417064,
+    "psnr_u": 47.6599805275344
+   },
+   "mpeg2stinx (TFF)": {
+    "psnr_y": 43.98534339248991,
+    "psnr_u": 47.73734149836887,
+    "fps": 137.4248952350372
+   },
+   "mpeg2stinx (wrong order: BFF)": {
+    "psnr_y": 43.95996432355227,
+    "psnr_u": 47.73705551346618
+   },
+   "Deblock_QED (defaults)": {
+    "psnr_y": 44.08857576993642,
+    "psnr_u": 47.732755056861045
+   },
+   "Deblock (quant 25)": {
+    "psnr_y": 44.11728596679578,
+    "psnr_u": 47.85766363275266
+   }
+  },
+  "kodim23 progressive-as-interlaced @2000k": {
+   "decoded (no filter)": {
+    "psnr_y": 44.19061404946899,
+    "psnr_u": 47.601377887411346
+   },
+   "mpeg2stinx (TFF)": {
+    "psnr_y": 43.89827824541628,
+    "psnr_u": 47.65378552415274,
+    "fps": 142.50296434966074
+   },
+   "mpeg2stinx (wrong order: BFF)": {
+    "psnr_y": 43.882195202328795,
+    "psnr_u": 47.652395446575476
+   },
+   "Deblock_QED (defaults)": {
+    "psnr_y": 43.997027638305916,
+    "psnr_u": 47.74729014411055
+   },
+   "Deblock (quant 25)": {
+    "psnr_y": 44.0123657215253,
+    "psnr_u": 47.890436524807704
+   }
+  }
+ },
+ "fades": {
+  "field_gap_faded": 5.27347265625,
+  "field_gap_fixed": 0.2856132812500012,
+  "field_gap_fixed_match": 3.841145833617665e-05,
+  "field_gap_clean": 0.0010820312500012808,
+  "psnr_faded_vs_truth": 38.972162613525306,
+  "psnr_fixed_vs_truth": 52.9205588884955,
+  "unfaded_change_mad": 0.0,
+  "unfaded_change_mad_mpeg2": 0.0,
+  "fps": 478.61060078735665
+ },
+ "sangnom": {
+  "daa": {
+   "fps": 53.89259011321249,
+   "change_vs_src": 3.4142727864583335
+  },
+  "santiag (nnedi3, 1/1)": {
+   "fps": 20.92812553171,
+   "change_vs_src": 4.182309895833333
+  },
+  "SangNom AA (48)": {
+   "fps": 60.099355920303196,
+   "change_vs_src": 4.105525065104167
+  }
+ },
+ "parity": {
+  "vine": {
+   "10": 0.4503635660807292,
+   "16": 0.4546001211802165
+  },
+  "mpeg2stinx": {
+   "10": 0.009453328450520833,
+   "16": 0.010067272186279296
+  },
+  "FixInterlacedFades": {
+   "10": 0.2506402587890625,
+   "16": 0.2568229039510091
+  },
+  "SangNom AA": {
+   "10": 0.43591512044270836,
+   "16": 0.4755617618560791
+  }
+ }
+}

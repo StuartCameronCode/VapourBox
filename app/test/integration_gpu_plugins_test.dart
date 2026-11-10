@@ -1,7 +1,9 @@
 // RIFE and AI upscaling (Real-ESRGAN / Real-CUGAN / AnimeJaNai), through the
-// real worker. AnimeJaNai's models are an add-on: the harness installs them
-// from the upstream download the app's manifest pins, so this also checks that
-// the pinned URL and hashes still hold.
+// real worker. Every model is an add-on (the plugins are in the deps bundle,
+// their models not): the harness installs each with the app's own installer
+// from the URL its manifest pins, so this also checks that the pinned URLs and
+// hashes still hold — and the probes must answer before any is installed,
+// since they run a stand-in network of their own.
 //
 // Both run a network through ncnn on Vulkan, and ncnn segfaults without a
 // Vulkan device rather than raising. So what must hold on EVERY platform is
@@ -70,17 +72,18 @@ VideoJob _upscaleJob(UpscaleMethod method, {String noise = 'conservative'}) => _
       'upscale_${method.name}',
       ProcessingPipeline(
         deinterlace: const QTGMCParameters(enabled: false),
-        // Cropped to 240x192 first: on a CPU Vulkan driver (lavapipe, on the
-        // GPU-less CI runners) one whole 720x576 Real-CUGAN frame took over
-        // five minutes on Windows. This test only needs a real frame out of
-        // the GPU at the right size; full-size encodes are the heavy suite's.
+        // Cropped to 120x96 first: on a CPU Vulkan driver (Windows lavapipe,
+        // which CI once used) one whole 720x576 Real-CUGAN frame took over
+        // five minutes on Windows, and even 240x192 took 2.5 to over 5. This
+        // test only needs a real frame out of the GPU at the right size;
+        // full-size encodes are the heavy suite's.
         cropResize: CropResizeParameters(
           enabled: true,
           cropEnabled: true,
-          cropLeft: 240,
-          cropRight: 240,
-          cropTop: 192,
-          cropBottom: 192,
+          cropLeft: 300,
+          cropRight: 300,
+          cropTop: 240,
+          cropBottom: 240,
           useIntegerUpscale: true,
           upscaleMethod: method,
           upscaleFactor: 2,
@@ -98,34 +101,45 @@ VideoJob _upscaleJob(UpscaleMethod method, {String noise = 'conservative'}) => _
 class _Feature {
   final GpuPlugin plugin;
   final VideoJob Function() job;
+
+  /// The plugin's directory in the deps bundle.
   final String dir;
+
+  /// The add-on holding its models, which the script must read them from.
+  final String addon;
   final List<String> scriptMust;
   final (int, int) previewSize;
-  final bool needsAnimeJanai;
-  const _Feature(this.plugin, this.job, this.dir, this.scriptMust, this.previewSize,
-      {this.needsAnimeJanai = false});
+  const _Feature(this.plugin, this.job, this.dir, this.addon, this.scriptMust, this.previewSize);
+
+  Future<void> install() => addon == 'animejanai'
+      ? WorkerHarness.ensureAnimeJanai()
+      : WorkerHarness.ensureAddon(addon);
 }
 
 final _features = <String, _Feature>{
-  'RIFE': _Feature(GpuPlugin.rife, _rifeJob, 'rife', [
+  'RIFE': _Feature(GpuPlugin.rife, _rifeJob, 'rife', rifeAddonId, [
     'core.rife.RIFE(_rife_rgb, model_path=',
+    'rife-v4.26_ensembleFalse',
     'fps_num=50, fps_den=1, sc=True)',
     'core.misc.SCDetect(clip, threshold=0.1)',
   ], (720, 576)),
-  'Real-ESRGAN': _Feature(GpuPlugin.upscale, () => _upscaleJob(UpscaleMethod.realEsrgan), 'ncnn', [
-    'RealESRGANv2-animevideo-xsx2.onnx',
+  'Real-ESRGAN': _Feature(GpuPlugin.upscale, () => _upscaleJob(UpscaleMethod.realEsrgan), 'ncnn',
+      'upscale-anime', [
+    'upscale-RealESRGANv2-animevideo-xsx2.onnx',
     'core.ncnn.Model(_ai_rgb, network_path=_ai_model, fp16=True',
-  ], (480, 384)),
-  'Real-CUGAN': _Feature(GpuPlugin.upscale, () => _upscaleJob(UpscaleMethod.realCugan, noise: 'denoise3x'), 'ncnn', [
-    'up2x-latest-denoise3x.onnx',
+  ], (240, 192)),
+  'Real-CUGAN': _Feature(GpuPlugin.upscale, () => _upscaleJob(UpscaleMethod.realCugan, noise: 'denoise3x'),
+      'ncnn', 'upscale-anime', [
+    'upscale-cugan-up2x-latest-denoise3x.onnx',
     'core.ncnn.Model(_ai_rgb, network_path=_ai_model, fp16=True',
-  ], (480, 384)),
-  'AnimeJaNai': _Feature(GpuPlugin.upscale, () => _upscaleJob(UpscaleMethod.animeJanai), 'animejanai', [
+  ], (240, 192)),
+  'AnimeJaNai': _Feature(GpuPlugin.upscale, () => _upscaleJob(UpscaleMethod.animeJanai), 'ncnn',
+      'animejanai', [
     '2x_AnimeJaNai_SD_V1beta34_Compact.onnx',
     '2x_AnimeJaNai_HD_V3_Compact.onnx',
     '_ai_model = _ai_model[0] if _ai_rgb.height <= 576 else _ai_model[1]',
     'core.ncnn.Model(_ai_rgb, network_path=_ai_model, fp16=True',
-  ], (480, 384), needsAnimeJanai: true),
+  ], (240, 192)),
 };
 
 void main() {
@@ -147,7 +161,7 @@ void main() {
               reason: '$platformId ships no ${plugin.label}, and must say so');
         } else if (expectVulkan) {
           expect(probe['available'], isTrue,
-              reason: 'CI provisions Vulkan here: ${probe['message']}');
+              reason: 'VAPOURBOX_EXPECT_VULKAN=1: ${probe['message']}');
         }
         if (probe['available'] != true) {
           final status = GpuPluginStatus.fromJson(plugin, probe);
@@ -159,7 +173,7 @@ void main() {
                   'reason from the user: ${status.message}');
         }
         // The first probe initialises the device and compiles shaders; on a
-        // CPU Vulkan driver (lavapipe on CI) that took 30.4 s on Windows.
+        // CPU Vulkan driver (Mesa's lavapipe) that took 30.4 s on Windows.
       }, timeout: const Timeout(Duration(minutes: 3)));
     });
   }
@@ -206,25 +220,31 @@ void main() {
 
       test('where it runs, the script loads it explicitly and calls it', () async {
         if (!await requireGpuPlugin(f.plugin.probeFlag)) return;
-        if (f.needsAnimeJanai) await WorkerHarness.ensureAnimeJanai();
+        await f.install();
         final script = await WorkerHarness.generateScript(f.job().toJson());
         expect(script, contains('core.std.LoadPlugin('));
-        expect(script, contains('${p.separator}${f.dir}${p.separator}'.replaceAll(r'\', r'\\')));
+        String inPath(String s) => s.replaceAll(r'\', r'\\');
+        expect(script, contains(inPath('${p.separator}${f.dir}${p.separator}')));
         for (final must in f.scriptMust) {
           expect(script, contains(must));
         }
+        // The model comes from its add-on, never from the deps bundle (which
+        // carried RIFE's and the anime upscalers' until deps 1.16.0).
+        expect(script, contains(inPath('${p.separator}addons${p.separator}${f.addon}${p.separator}')));
+        expect(script, isNot(contains(inPath('${p.separator}models${p.separator}'))),
+            reason: 'a model path inside the deps bundle');
         if (platformId.startsWith('macos')) {
           expect(script, contains('moltenvk'), reason: 'MoltenVK must be preloaded on macOS');
         }
-      }, timeout: const Timeout(Duration(minutes: 5)));
+      }, timeout: const Timeout(Duration(minutes: 5)), tags: ['gpu']);
 
       test('where it runs, a real frame comes out of the GPU at the right size', () async {
         if (!await requireGpuPlugin(f.plugin.probeFlag)) return;
-        if (f.needsAnimeJanai) await WorkerHarness.ensureAnimeJanai();
+        await f.install();
         final pv = await WorkerHarness.runPreview(f.job().toJson(), frame: 21, label: 'gpu_$name');
         expect(pv.success, isTrue, reason: pv.errorTail);
         expect(_pngSize(pv.png!), f.previewSize);
-      }, timeout: const Timeout(Duration(minutes: 5)));
+      }, timeout: const Timeout(Duration(minutes: 5)), tags: ['gpu']);
     });
   }
 }

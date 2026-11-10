@@ -69,6 +69,19 @@ class AddonTerms extends StatelessWidget {
             _Link(text: 'Source', url: info.sourceUrl, style: small),
           ],
         ),
+        // Components under their own licence (the AI runtime's NumPy, and
+        // on Windows DirectML), each with its own credit and links.
+        for (final c in info.additionalCredits)
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 4,
+            children: [
+              Text('Includes ${c.noticeName}: ${c.credit} · ', style: small),
+              _Link(text: c.licence, url: c.licenceUrl, style: small),
+              Text('·', style: small),
+              _Link(text: 'Source', url: c.sourceUrl, style: small),
+            ],
+          ),
       ],
     );
   }

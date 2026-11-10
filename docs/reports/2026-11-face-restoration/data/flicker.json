@@ -1,0 +1,69 @@
+{
+  "rect": [
+    277,
+    176,
+    342,
+    258
+  ],
+  "rows": {
+    "clean reference": {
+      "tdiff": 2.448,
+      "flick": 1.273
+    },
+    "codeformer_r0": {
+      "tdiff": 3.537,
+      "flick": 2.421,
+      "errVsClean": 6.973
+    },
+    "codeformer_r1": {
+      "tdiff": 3.158,
+      "flick": 1.789,
+      "errVsClean": 6.867
+    },
+    "gfpgan_r0": {
+      "tdiff": 2.938,
+      "flick": 1.914,
+      "errVsClean": 5.957
+    },
+    "gfpgan_r1": {
+      "tdiff": 2.642,
+      "flick": 1.359,
+      "errVsClean": 5.885
+    },
+    "input": {
+      "tdiff": 1.998,
+      "flick": 1.14,
+      "errVsClean": 5.473
+    },
+    "rf_r0": {
+      "tdiff": 3.453,
+      "flick": 2.287,
+      "errVsClean": 7.893
+    },
+    "rf_r1_landmarks": {
+      "tdiff": 3.514,
+      "flick": 2.284,
+      "errVsClean": 7.923
+    },
+    "rf_r1_mnet": {
+      "tdiff": 3.371,
+      "flick": 1.951,
+      "errVsClean": 7.978
+    },
+    "rf_r1_s08": {
+      "tdiff": 2.878,
+      "flick": 1.571,
+      "errVsClean": 7.13
+    },
+    "rf_r1": {
+      "tdiff": 3.228,
+      "flick": 1.799,
+      "errVsClean": 7.864
+    },
+    "rf_r2": {
+      "tdiff": 3.125,
+      "flick": 1.657,
+      "errVsClean": 7.833
+    }
+  }
+}

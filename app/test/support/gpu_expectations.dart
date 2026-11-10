@@ -1,14 +1,16 @@
 // Where the ncnn-on-Vulkan features (RIFE, AI upscaling) must work, and the
 // one rule every GPU test applies.
 //
-// The hosted CI runners have no GPU. The workflows give the Linux and Windows
-// runners Mesa's software Vulkan driver (lavapipe) and set
-// VAPOURBOX_EXPECT_VULKAN=1 wherever a Vulkan device is provisioned. Under that
-// variable, on a platform that ships the feature, "not available" is a test
-// failure — so a broken bundle, plugin or probe cannot hide behind a skip, which
-// is how it would read on a runner that simply has no GPU. Without it (a local
-// run, a machine with no driver) the GPU tests skip and say why. On a platform
-// that does not ship the feature, the probe must say exactly that.
+// The hosted CI runners have no GPU, so every test that needs a Vulkan device
+// is tagged `gpu` and the workflows exclude that tag (dart_test.yaml). What CI
+// still runs without a device: each probe must answer with a real reason, and
+// a job that cannot run must be refused with the probe's wording.
+//
+// On a machine with a GPU, set VAPOURBOX_EXPECT_VULKAN=1: then, on a platform
+// that ships the feature, "not available" is a test failure, so a broken
+// bundle, plugin or probe cannot hide behind a skip. Without it (a machine with
+// no driver) the GPU tests skip and say why. On a platform that does not ship
+// the feature, the probe must say exactly that.
 library;
 
 import 'dart:convert';
@@ -36,8 +38,8 @@ String get platformId {
   return abi.toString();
 }
 
-/// Whether this run has a Vulkan device provisioned and so must exercise the
-/// GPU features rather than skip them.
+/// Whether this run has a Vulkan device (VAPOURBOX_EXPECT_VULKAN=1) and so
+/// must exercise the GPU features rather than skip them.
 bool get expectVulkan => Platform.environment['VAPOURBOX_EXPECT_VULKAN'] == '1';
 
 /// Whether this platform's bundle ships the GPU features at all.
@@ -69,8 +71,8 @@ Future<bool> requireGpuPlugin(String flag) async {
   final probe = await probeGpuPlugin(flag);
   if (probe['available'] == true) return true;
   if (platformShipsGpuPlugins && expectVulkan) {
-    fail('$flag says unavailable on $platformId, where CI provisions Vulkan '
-        '(VAPOURBOX_EXPECT_VULKAN=1): ${probe['reason']}: ${probe['message']}');
+    fail('$flag says unavailable on $platformId, where a Vulkan device is '
+        'expected (VAPOURBOX_EXPECT_VULKAN=1): ${probe['reason']}: ${probe['message']}');
   }
   markTestSkipped('$flag: not available on $platformId (${probe['reason']})');
   return false;

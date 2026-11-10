@@ -12,6 +12,11 @@ pub enum DeblockMethod {
     /// ringing and mosquito noise rather than block edges.
     #[serde(rename = "DCTFilter")]
     DctFilter,
+    /// mpeg2stinx: the comb-like noise of a film DVD whose progressive frames
+    /// were encoded as interlaced MPEG-2 (vs-jetpack's mpeg2stinx, ported into
+    /// the templates). Temporal (one frame each side); never per field.
+    #[serde(rename = "mpeg2stinx")]
+    Mpeg2Stinx,
 }
 
 #[allow(dead_code)]
@@ -21,6 +26,7 @@ impl DeblockMethod {
             DeblockMethod::DeblockQed => "Deblock_QED",
             DeblockMethod::Deblock => "Deblock",
             DeblockMethod::DctFilter => "DCTFilter",
+            DeblockMethod::Mpeg2Stinx => "mpeg2stinx",
         }
     }
 }

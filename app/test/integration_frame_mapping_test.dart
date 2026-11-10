@@ -569,9 +569,12 @@ void main() {
     }, timeout: const Timeout(Duration(minutes: 10)));
   });
 
-  // RIFE needs a Vulkan device. CI provisions one wherever RIFE ships (see
-  // support/gpu_expectations.dart), so there this group must run; elsewhere it
-  // skips, and integration_gpu_plugins_test.dart covers the refusal. Its count must match FrameMap's
+  // RIFE needs a Vulkan device, so each test here is tagged `gpu` and the GPU-less
+  // CI runners leave the group out, encode included (dart_test.yaml; a group
+  // with no selected tests never runs its setUpAll). Elsewhere it skips without a
+  // device, or fails under VAPOURBOX_EXPECT_VULKAN=1 (see
+  // support/gpu_expectations.dart); integration_gpu_plugins_test.dart covers
+  // the refusal. Its count must match FrameMap's
   // Retime exactly — floor(n * 2) here — and since every other output frame is
   // a real one passed through untouched, the preview of source frame S must be
   // output frame 2S, picture for picture.
@@ -607,7 +610,10 @@ void main() {
       available = probe.stdout.toString().contains('"available":true');
       print('  RIFE probe: ${probe.stdout.toString().trim()}');
       if (!available) return;
-      // On the GPU-less runners RIFE runs on lavapipe (CPU Vulkan), alongside
+      // RIFE's model is an add-on (frame-rate-rife), installed with the app's
+      // own installer from the URL its manifest pins.
+      await WorkerHarness.ensureAddon('frame-rate-rife');
+      // On a CPU Vulkan driver (lavapipe) RIFE is slow, alongside
       // the other heavy files. This 75-frame encode passed in under two
       // minutes on one Linux job and hit the default 5 in another, so it gets
       // the AI-upscale encodes' budget.
@@ -620,10 +626,10 @@ void main() {
     });
 
     test('25 -> 50 emits exactly twice the frames', () async {
-      // Skips only where no Vulkan is expected; fails where CI provisions it.
+      // Skips without a device, unless VAPOURBOX_EXPECT_VULKAN=1.
       if (!available && !await requireGpuPlugin('--probe-rife')) return;
       expect(await _countFrames(encoded), _interlacedFrames * 2);
-    });
+    }, tags: ['gpu']);
 
     for (final sourceFrame in [12, 36]) {
       test('source frame $sourceFrame previews as output frame ${sourceFrame * 2}',
@@ -650,7 +656,7 @@ void main() {
         expect(candidates[expectedIndex]!, lessThan(2.0),
             reason: 'output frame $expectedIndex is a real frame passed '
                 'through, so the preview should be the same picture');
-      }, timeout: const Timeout(Duration(minutes: 6)));
+      }, timeout: const Timeout(Duration(minutes: 6)), tags: ['gpu']);
     }
 
     // Issue #129: the frame RIFE makes between two source frames can be
@@ -675,6 +681,6 @@ void main() {
       expect(best.key, 25);
       // RIFE runs on the GPU in fp16; allow its run-to-run noise, no more.
       expect(candidates[25]!, lessThan(2.0));
-    }, timeout: const Timeout(Duration(minutes: 6)));
+    }, timeout: const Timeout(Duration(minutes: 6)), tags: ['gpu']);
   });
 }

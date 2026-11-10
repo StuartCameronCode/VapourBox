@@ -1,8 +1,11 @@
 import 'chroma_denoise_parameters.dart';
 import 'anti_alias_parameters.dart';
 import 'geometry_parameters.dart';
+import 'audio_restoration_parameters.dart';
 import 'deflicker_parameters.dart';
 import 'descale_parameters.dart';
+import 'colorize_parameters.dart';
+import 'face_restore_parameters.dart';
 import 'edge_repair_parameters.dart';
 import 'frame_rate_parameters.dart';
 import 'ghost_removal_parameters.dart';
@@ -139,6 +142,8 @@ class ParameterConverter {
         'ivtcCycle': params.ivtcCycle,
         'ivtcDupthresh': params.ivtcDupthresh,
         'ivtcScthresh': params.ivtcScthresh,
+        'ivtcFixFades': params.ivtcFixFades,
+        'ivtcFadeMode': params.ivtcFadeMode,
       },
     );
   }
@@ -191,6 +196,9 @@ class ParameterConverter {
         break;
       case NoiseReductionMethod.knlMeans:
         method = 'knlmeans';
+        break;
+      case NoiseReductionMethod.nlMeans:
+        method = 'nlmeans';
         break;
     }
 
@@ -281,6 +289,7 @@ class ParameterConverter {
         DehaloMethod.vinverse => 'vinverse',
         DehaloMethod.vinverse2 => 'vinverse2',
         DehaloMethod.hqDeringmod => 'hq_deringmod',
+        DehaloMethod.vine => 'vine',
       };
 
   /// Convert chroma denoise (CCD) parameters to dynamic format.
@@ -326,6 +335,9 @@ class ParameterConverter {
       'highThreshold': params.highThreshold,
       'yahrBlur': params.yahrBlur,
       'yahrDepth': params.yahrDepth,
+      'vineStrength': params.vineStrength,
+      'vineSharp': params.vineSharp,
+      'vineSigma': params.vineSigma,
     };
     final lastOptional = <String, dynamic>{};
 
@@ -377,9 +389,10 @@ class ParameterConverter {
       filterId: 'anti_alias',
       enabled: params.enabled,
       values: {
-        'method': params.method == AntiAliasMethod.santiag ? 'santiag' : 'daa',
+        'method': params.method.value,
         'santiagStrh': params.santiagStrh,
         'santiagStrv': params.santiagStrv,
+        'sangnomAa': params.sangnomAa,
       },
     );
   }
@@ -389,12 +402,14 @@ class ParameterConverter {
     final v = params.values;
     return AntiAliasParameters(
       enabled: params.enabled,
-      method: v['method'] == 'santiag'
-          ? AntiAliasMethod.santiag
-          : AntiAliasMethod.daa,
+      method: AntiAliasMethod.values.firstWhere(
+        (m) => m.value == v['method'],
+        orElse: () => AntiAliasMethod.daa,
+      ),
       santiagStrh: _asInt(v['santiagStrh']) ?? 1,
       santiagStrv: _asInt(v['santiagStrv']) ?? 1,
-      // Not exposed: only nnedi3 is bundled, and the worker pins it there.
+      sangnomAa: _asInt(v['sangnomAa']) ?? 48,
+      // santiagType is not exposed: the worker pins it to nnedi3.
     );
   }
 
@@ -489,6 +504,67 @@ class ParameterConverter {
           orElse: () => DescaleBorder.mirror),
       protectDetail: v['protectDetail'] as bool? ?? true,
       detailThreshold: (v['detailThreshold'] as num?)?.toDouble() ?? 4.0,
+    );
+  }
+
+  /// Convert colourisation parameters to dynamic format. The model is the
+  /// schema's method.
+  static DynamicParameters fromColorize(ColorizeParameters params) {
+    return DynamicParameters(
+      filterId: 'colorize',
+      enabled: params.enabled,
+      values: {
+        'method': params.model.value,
+        'ddcolorRenderSize': params.ddcolorRenderSize,
+        'deoldifyRenderFactor': params.deoldifyRenderFactor,
+        'strength': params.strength,
+        'temporalRadius': params.temporalRadius,
+      },
+    );
+  }
+
+  /// Convert dynamic parameters to colourisation parameters.
+  static ColorizeParameters toColorize(DynamicParameters params) {
+    final v = params.values;
+    return ColorizeParameters(
+      enabled: params.enabled,
+      model: ColorizeModel.fromValue(v['method'] as String?),
+      ddcolorRenderSize: _asInt(v['ddcolorRenderSize']) ?? 512,
+      deoldifyRenderFactor: _asInt(v['deoldifyRenderFactor']) ?? 21,
+      strength: (v['strength'] as num?)?.toDouble() ?? 1.0,
+      temporalRadius: _asInt(v['temporalRadius']) ?? 2,
+    );
+  }
+
+  /// Convert face restoration parameters to dynamic format.
+  static DynamicParameters fromFaceRestore(FaceRestoreParameters params) {
+    return DynamicParameters(
+      filterId: 'face_restore',
+      enabled: params.enabled,
+      values: {
+        'model': params.model.value,
+        'strength': params.strength,
+        'codeFormerFidelity': params.codeFormerFidelity,
+        'detectionThreshold': params.detectionThreshold,
+        'minFaceSize': params.minFaceSize,
+        'maxFaces': params.maxFaces,
+        'temporalSmoothing': params.temporalSmoothing,
+      },
+    );
+  }
+
+  /// Convert dynamic parameters to face restoration parameters.
+  static FaceRestoreParameters toFaceRestore(DynamicParameters params) {
+    final v = params.values;
+    return FaceRestoreParameters(
+      enabled: params.enabled,
+      model: FaceRestoreModel.fromValue(v['model'] as String?),
+      strength: (v['strength'] as num?)?.toDouble() ?? 0.8,
+      codeFormerFidelity: (v['codeFormerFidelity'] as num?)?.toDouble() ?? 0.7,
+      detectionThreshold: (v['detectionThreshold'] as num?)?.toDouble() ?? 0.8,
+      minFaceSize: _asInt(v['minFaceSize']) ?? 32,
+      maxFaces: _asInt(v['maxFaces']) ?? 8,
+      temporalSmoothing: v['temporalSmoothing'] as bool? ?? true,
     );
   }
 
@@ -692,6 +768,9 @@ class ParameterConverter {
         break;
       case DeblockMethod.dctFilter:
         method = 'dctfilter';
+        break;
+      case DeblockMethod.mpeg2stinx:
+        method = 'mpeg2stinx';
         break;
     }
 
@@ -920,6 +999,9 @@ class ParameterConverter {
       'cuganNoise': params.cuganNoise,
       'animejanaiModel': params.animejanaiModel,
       'animejanaiSharp': params.animejanaiSharp,
+      'generalDenoise': params.generalDenoise,
+      'aiStrength': params.aiStrength,
+      'convertToBt709': params.convertToBt709.name,
     };
     // Kernel tuning and the nnedi3/EEDI3 controls start unticked, so the
     // plugin's own default applies until the user opts in. Fallbacks are those
@@ -972,6 +1054,83 @@ class ParameterConverter {
     );
   }
 
+  /// The schema's option values for the audio restoration enums (the same
+  /// strings the worker reads).
+  static const channelFixValues = {
+    ChannelFix.off: 'off',
+    ChannelFix.auto: 'auto',
+    ChannelFix.leftOnly: 'leftOnly',
+    ChannelFix.rightOnly: 'rightOnly',
+    ChannelFix.mix: 'mix',
+  };
+  static const humFrequencyValues = {
+    HumFrequency.auto: 'auto',
+    HumFrequency.hz50: '50',
+    HumFrequency.hz60: '60',
+  };
+
+  /// Convert audio restoration parameters to dynamic format.
+  static DynamicParameters fromAudioRestoration(AudioRestorationParameters params) {
+    return DynamicParameters(
+      filterId: 'audio_restoration',
+      enabled: params.enabled,
+      values: {
+        'streamIndex': params.streamIndex,
+        'channelFix': channelFixValues[params.channelFix],
+        'offsetMs': params.offsetMs,
+        'driftCorrection': params.driftCorrection,
+        'driftMaxPercent': params.driftMaxPercent,
+        'declip': params.declip,
+        'declick': params.declick,
+        'declickThreshold': params.declickThreshold,
+        'humRemoval': params.humRemoval,
+        'humFrequency': humFrequencyValues[params.humFrequency],
+        'rumbleFilter': params.rumbleFilter,
+        'rumbleCutoffHz': params.rumbleCutoffHz,
+        'denoise': params.denoise,
+        'denoiseStrength': params.denoiseStrength,
+        'deepFilter': params.deepFilter,
+        'deepFilterAttenuation': params.deepFilterAttenuation,
+        'loudnessNormalize': params.loudnessNormalize,
+        'loudnessTarget': params.loudnessTarget,
+        'limiter': params.limiter,
+        'limiterCeilingDb': params.limiterCeilingDb,
+      },
+    );
+  }
+
+  /// Convert dynamic parameters to audio restoration parameters.
+  static AudioRestorationParameters toAudioRestoration(DynamicParameters params) {
+    final v = params.values;
+    const d = AudioRestorationParameters();
+    T pick<T>(Map<T, String> table, Object? value, T fallback) => table.entries
+        .firstWhere((e) => e.value == value, orElse: () => MapEntry(fallback, ''))
+        .key;
+    return AudioRestorationParameters(
+      enabled: params.enabled,
+      streamIndex: _asInt(v['streamIndex']) ?? d.streamIndex,
+      channelFix: pick(channelFixValues, v['channelFix'], d.channelFix),
+      offsetMs: _asInt(v['offsetMs']) ?? d.offsetMs,
+      driftCorrection: v['driftCorrection'] as bool? ?? d.driftCorrection,
+      driftMaxPercent: (v['driftMaxPercent'] as num?)?.toDouble() ?? d.driftMaxPercent,
+      declip: v['declip'] as bool? ?? d.declip,
+      declick: v['declick'] as bool? ?? d.declick,
+      declickThreshold: (v['declickThreshold'] as num?)?.toDouble() ?? d.declickThreshold,
+      humRemoval: v['humRemoval'] as bool? ?? d.humRemoval,
+      humFrequency: pick(humFrequencyValues, v['humFrequency'], d.humFrequency),
+      rumbleFilter: v['rumbleFilter'] as bool? ?? d.rumbleFilter,
+      rumbleCutoffHz: _asInt(v['rumbleCutoffHz']) ?? d.rumbleCutoffHz,
+      denoise: v['denoise'] as bool? ?? d.denoise,
+      denoiseStrength: (v['denoiseStrength'] as num?)?.toDouble() ?? d.denoiseStrength,
+      deepFilter: v['deepFilter'] as bool? ?? d.deepFilter,
+      deepFilterAttenuation: _asInt(v['deepFilterAttenuation']) ?? d.deepFilterAttenuation,
+      loudnessNormalize: v['loudnessNormalize'] as bool? ?? d.loudnessNormalize,
+      loudnessTarget: (v['loudnessTarget'] as num?)?.toDouble() ?? d.loudnessTarget,
+      limiter: v['limiter'] as bool? ?? d.limiter,
+      limiterCeilingDb: (v['limiterCeilingDb'] as num?)?.toDouble() ?? d.limiterCeilingDb,
+    );
+  }
+
   /// Convert a full processing pipeline to a dynamic pipeline.
   static DynamicPipeline fromPipeline(ProcessingPipeline pipeline) {
     return DynamicPipeline(
@@ -997,6 +1156,9 @@ class ParameterConverter {
         'color_correction': fromColorCorrection(pipeline.colorCorrection),
         'chroma_fixes': fromChromaFixes(pipeline.chromaFixes),
         'crop_resize': fromCropResize(pipeline.cropResize),
+        'face_restore': fromFaceRestore(pipeline.faceRestore),
+        'colorize': fromColorize(pipeline.colorize),
+        'audio_restoration': fromAudioRestoration(pipeline.audio),
         'subtitles': fromSubtitles(pipeline.subtitles),
       },
     );
@@ -1121,6 +1283,8 @@ class ParameterConverter {
       ivtcCycle: v['ivtcCycle'] as int?,
       ivtcDupthresh: (v['ivtcDupthresh'] as num?)?.toDouble(),
       ivtcScthresh: (v['ivtcScthresh'] as num?)?.toDouble(),
+      ivtcFixFades: v['ivtcFixFades'] as bool? ?? false,
+      ivtcFadeMode: v['ivtcFadeMode'] as String? ?? 'average',
     );
   }
 
@@ -1171,6 +1335,9 @@ class ParameterConverter {
         break;
       case 'knlmeans':
         method = NoiseReductionMethod.knlMeans;
+        break;
+      case 'nlmeans':
+        method = NoiseReductionMethod.nlMeans;
         break;
       default:
         method = NoiseReductionMethod.smDegrain;
@@ -1274,6 +1441,7 @@ class ParameterConverter {
       'vinverse' => DehaloMethod.vinverse,
       'vinverse2' => DehaloMethod.vinverse2,
       'hq_deringmod' => DehaloMethod.hqDeringmod,
+      'vine' => DehaloMethod.vine,
       _ => DehaloMethod.dehaloAlpha,
     };
 
@@ -1310,6 +1478,9 @@ class ParameterConverter {
       deringMthr: _asInt(v['deringMthr']),
       deringThr: (v['deringThr'] as num?)?.toDouble(),
       deringDarkthr: (v['deringDarkthr'] as num?)?.toDouble(),
+      vineStrength: (v['vineStrength'] as num?)?.toDouble() ?? 16.0,
+      vineSharp: (v['vineSharp'] as num?)?.toDouble() ?? 0.5,
+      vineSigma: (v['vineSigma'] as num?)?.toDouble() ?? 1.0,
     );
   }
 
@@ -1324,6 +1495,9 @@ class ParameterConverter {
         break;
       case 'dctfilter':
         method = DeblockMethod.dctFilter;
+        break;
+      case 'mpeg2stinx':
+        method = DeblockMethod.mpeg2stinx;
         break;
       default:
         method = DeblockMethod.deblockQed;
@@ -1551,6 +1725,12 @@ class ParameterConverter {
       cuganNoise: v['cuganNoise'] as String? ?? 'conservative',
       animejanaiModel: v['animejanaiModel'] as String? ?? 'compact',
       animejanaiSharp: v['animejanaiSharp'] as bool? ?? false,
+      generalDenoise: v['generalDenoise'] as bool? ?? false,
+      aiStrength: (v['aiStrength'] as num?)?.toDouble() ?? 1.0,
+      convertToBt709: Bt709Conversion.values.firstWhere(
+        (m) => m.name == (v['convertToBt709'] as String? ?? 'auto'),
+        orElse: () => Bt709Conversion.auto,
+      ),
       // Absent (checkbox off) stays null so the script omits it entirely.
       bicubicB: (v['bicubicB'] as num?)?.toDouble(),
       bicubicC: (v['bicubicC'] as num?)?.toDouble(),
@@ -1614,6 +1794,12 @@ class ParameterConverter {
       descale: dynamic.get('descale') != null
           ? toDescale(dynamic.get('descale')!)
           : const DescaleParameters(),
+      faceRestore: dynamic.get('face_restore') != null
+          ? toFaceRestore(dynamic.get('face_restore')!)
+          : const FaceRestoreParameters(),
+      colorize: dynamic.get('colorize') != null
+          ? toColorize(dynamic.get('colorize')!)
+          : const ColorizeParameters(),
       edgeRepair: dynamic.get('edge_repair') != null
           ? toEdgeRepair(dynamic.get('edge_repair')!)
           : const EdgeRepairParameters(),
@@ -1656,6 +1842,9 @@ class ParameterConverter {
       cropResize: dynamic.get('crop_resize') != null
           ? toCropResize(dynamic.get('crop_resize')!)
           : const CropResizeParameters(),
+      audio: dynamic.get('audio_restoration') != null
+          ? toAudioRestoration(dynamic.get('audio_restoration')!)
+          : const AudioRestorationParameters(),
       subtitles: dynamic.get('subtitles') != null
           ? toSubtitles(dynamic.get('subtitles')!)
           : const SubtitleParameters(),

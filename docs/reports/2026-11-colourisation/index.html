@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colourisation</title>
+<style>
+:root { --bg:#fff; --fg:#1d1d1f; --muted:#5f6368; --line:#d9dce1; --accent:#1a5fb4; --good:#1e7b34; --warn:#9a6700; --card:#f6f7f9; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#161718; --fg:#e8eaed; --muted:#a0a4a9; --line:#3a3d41; --accent:#78aeed; --good:#6cc586; --warn:#e2b340; --card:#202124; } }
+:root[data-theme="dark"] { --bg:#161718; --fg:#e8eaed; --muted:#a0a4a9; --line:#3a3d41; --accent:#78aeed; --good:#6cc586; --warn:#e2b340; --card:#202124; }
+body { background:var(--bg); color:var(--fg); font:16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin:0; padding:0 16px; }
+main { max-width: 960px; margin: 0 auto; padding: 24px 0 64px; }
+h1 { font-size: 1.8rem; margin: 0 0 4px; } h2 { margin-top: 2.2rem; border-bottom: 1px solid var(--line); padding-bottom: 4px; } h3 { margin-top: 1.5rem; }
+.sub { color: var(--muted); margin: 0 0 1.5rem; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.92rem; display: block; overflow-x: auto; }
+th, td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; white-space: nowrap; }
+td.wrap, th.wrap { white-space: normal; }
+th { background: var(--card); } td.num { text-align: right; font-variant-numeric: tabular-nums; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em; }
+.box { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 16px 0; }
+.good { color: var(--good); } .warn { color: var(--warn); }
+figure { margin: 16px 0; } figure img { max-width: 100%; border: 1px solid var(--line); }
+figcaption { color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<main>
+<h1>Colourisation</h1>
+<p class="sub">DDColor-T and DeOldify Video on ONNX Runtime, as a VapourSynth pass that keeps the source's luma bit-exact. 2026-11-08, macOS 27 on an M1 Pro (16 GB). Scripts: <a href="scripts/">scripts/</a>; raw results: <a href="data/">data/</a>. To reproduce: <code>Scripts/models/make_colorize_ddcolor.py</code> and <code>make_colorize_deoldify.py</code> (conversion venv), <code>scripts/make_refs.sh</code>, <code>scripts/bench.sh</code>, <code>scripts/flicker.py</code>, <code>scripts/lab_reference.py</code> + <code>lab_parity.py</code>, <code>Scripts/models/colorize_provider_bench.py</code>, <code>scripts/export_unrewritten_ddcolor.py</code> + <code>coreml_variants.py</code> (<a href="data/coreml_notes.md">notes</a>) and <code>scripts/make_figures.sh</code>.</p>
+
+<div class="box">
+<strong>Outcome: built.</strong> A Colourisation pass between Chroma Fixes and Color Correction, on the <code>ai-runtime</code> add-on, with one add-on per model: <code>colorize-ddcolor</code> (DDColor-T, Apache-2.0, 220.7 MB, the default) and <code>colorize-deoldify</code> (DeOldify's Video generator, MIT, 872.8 MB). The source's luma is kept bit-exact (8, 10 and 16 bits); only U and V are replaced. Both conversions match PyTorch (DDColor ≤1.8e-3 CIELAB units, DeOldify ≤1.4e-6) and reproduce byte for byte; DeOldify, rebuilt without fastai, matches an independent export to 1.8e-6. Averaging each frame's colour with two neighbours either side, weighted to zero where the picture moved, cuts colour flicker by 84% for both models. On Core ML: DDColor 9.1 fps SD / 8.4 fps 1080p after a 77 s compile per process (so previews run it on the CPU), DeOldify 6.0 fps after 3 s; 7–9× the CPU.
+</div>
+
+<h2>1. Licences, read upstream</h2>
+<table>
+<tr><th>Component</th><th>Licence (as upstream states it)</th><th>Holder named</th><th>Decision</th></tr>
+<tr><td>DDColor code (piddnad/DDColor @2adb63f)</td><td>Apache-2.0 (LICENSE)</td><td class="wrap">none: the LICENSE's copyright line is the unfilled template; authors per the README's citation (Kang, Yang, Ouyang, Ren, Li, Xie)</td><td>converted</td></tr>
+<tr><td>DDColor-T weights (huggingface.co/piddnad/ddcolor_paper_tiny @cf9fd99c)</td><td>Apache-2.0 (model card's <code>license</code> field)</td><td>as above</td><td><code>colorize-ddcolor</code> add-on, 220.7 MB</td></tr>
+<tr><td>DeOldify code (jantic/DeOldify @5f86c28)</td><td>MIT (LICENSE)</td><td>Copyright (c) 2018 Jason Antic</td><td>network rebuilt from it</td></tr>
+<tr><td>DeOldify Video generator (<code>ColorizeVideo_gen.pth</code>)</td><td class="wrap">MIT: the README's "Pretrained Weights" are "trained by ourselves and are released under the MIT license"</td><td>Jason Antic</td><td><code>colorize-deoldify</code> add-on, 872.8 MB</td></tr>
+</table>
+<p>Neither is non-commercial, so neither add-on carries a <code>usageNote</code>. DDColor's network code adapts ConvNeXt (MIT), DETR and Mask2Former; DeOldify's builds on fastai (Apache-2.0) and torchvision's ResNet-101 (BSD-3-Clause); NOTICES says so in each entry. The DeOldify weights' host (data.deepai.org) has been unreliable in the past; the file found there (874,066,230 bytes) has the same SHA-256 (<code>e3d98bb6…</code>) as an independent mirror at huggingface.co/spensercai/DeOldify, so the pin is cross-checked, and since MIT permits it the converted ONNX is hosted with the other add-on files rather than fetched from upstream.</p>
+
+<h2>2. Conversion to ONNX</h2>
+<p>Both exports take one grey channel in [0, 1] (<code>luma</code>, (1, 1, H, W)) with H and W dynamic, named <code>height</code>/<code>width</code>; DDColor returns CIELAB a/b (<code>ab</code>), DeOldify an RGB picture in [0, 1] (<code>rgb</code>). TorchScript exporter, opset 17 / IR 8 (loadable by ONNX Runtime 1.23.2, the Intel-Mac floor). Re-running each script reproduces its file byte for byte (checked twice for each final file).</p>
+<table>
+<tr><th>File</th><th class="num">Size</th><th>Parity, ONNX Runtime (CPU) vs PyTorch, at render sizes</th><th class="wrap">Notes</th></tr>
+<tr><td>colorize-ddcolor-tiny.onnx</td><td class="num">220.7 MB</td><td class="wrap">max |Δ| 1.6e-3 / 1.3e-3 / 1.8e-3 / 9.8e-4 at 512 / 256 / 384 / 640 (CIELAB units; outputs span ±150); mean ≤7.8e-5</td><td class="wrap">loaded strict (upstream loads <code>strict=False</code>; nothing was missing)</td></tr>
+<tr><td>colorize-deoldify-video.onnx</td><td class="num">872.8 MB</td><td class="wrap">max |Δ| 1.2e-6 / 1.4e-6 / 1.0e-6 at 336 / 256 / 512 ([0, 1] RGB)</td><td class="wrap">verified against FaceFusion's independent export: max 1.8e-6</td></tr>
+</table>
+<h3>DeOldify without fastai</h3>
+<p>DeOldify is written against fastai 1.0.60, which does not install with a current PyTorch. The generator is rebuilt module for module in plain PyTorch (DynamicUnetWide on a ResNet-101, nf_factor 2, spectral norm, self-attention in the second decoder block, SigmoidRange(-3, 3)); the checkpoint's 754 tensors load with <code>strict=True</code>. To catch what a key-for-key load cannot, the result is compared with FaceFusion's <code>deoldify.onnx</code> (models-3.0.0), a conversion of the same weights made with fastai itself, used only for this check. The first comparison failed: mean 0.016, max 0.12 on [0, 1] RGB. The cause was fastai's <code>PixelShuffle_ICNR</code>: it takes <code>blur=False</code> but always builds the blur layer and tests the module (always true) rather than the flag, so the final upsample is always blurred. With the blur, the two agree to 1.8e-6.</p>
+<h3>Rewrites for Core ML</h3>
+<p>Core ML's ML Program format has no edge-mode <code>Pad</code> (<code>ReplicationPad2d</code>, in every blur), no <code>Expand</code> (<code>Tensor.repeat</code>) and no <code>Einsum</code> (DDColor's colour decoder). Each splits the graph: DDColor's first export ran as six Core ML partitions, at 261 ms per frame at 512. The exports write each as an exact equivalent (pads as slices and concatenations, the repeat as a concatenation, the einsum <code>bqc,bchw→bqhw</code> as a matrix product over the flattened image), parity unchanged; both graphs are now one partition (DDColor 936 of 936 nodes, DeOldify 341 of 341), and DDColor runs at 101 ms per frame, 2.6× faster (<a href="data/provider_bench_unrewritten_ddcolor.jsonl">data</a>; the compile time did not change). Spectral and weight norms are baked into the weights (<code>remove_spectral_norm</code>, which computes the same quotient), which also removed 50 MB of duplicated weights from DDColor's file.</p>
+<h3>Fixed shapes from one file</h3>
+<p>Core ML refuses DDColor with free height and width (<code>Failed to build the model execution plan</code>), and Face Restoration found Core ML needs static shapes. Rather than ship a file per render size, each session fixes the named dimensions with ONNX Runtime's free-dimension overrides (<code>ai_runtime.session(..., dims={"height": n, "width": n})</code>, new), so one 870 MB file serves every DeOldify render factor.</p>
+
+<h2>3. The pass</h2>
+<ul>
+<li><strong>Input to the model</strong>: the luma plane as a grey picture in [0, 1] (range-expanded), stretched with a bilinear resize to a square, as both upstreams do (DeOldify: "a simple stretch to fit a square really makes a big difference"). DDColor at 512 (upstream's <code>input_size</code>; 256–768 in steps of 32), DeOldify at render factor 21 × 16 = 336 (upstream's default for video; 10–40).</li>
+<li><strong>DDColor's colour</strong>: a and b are scaled to the frame (bilinear: upstream's <code>F.interpolate</code> default is nearest-neighbour, which leaves 2-pixel colour blocks at SD and 4-pixel ones at 1080p) and recombined with each pixel's own lightness, as upstream's pipeline does with the original L. The CIELAB → sRGB conversion is a chain of six <code>std.Expr</code> stages (akarin's JIT where present) at the luma's resolution, with OpenCV's constants.</li>
+<li><strong>DeOldify's colour</strong>: the RGB picture is scaled to the frame (bilinear, as upstream's <code>_unsquare</code>). Upstream then keeps its chroma via OpenCV's BT.601 YUV with the source's Y. The pass does the same in the source's own matrix.</li>
+<li><strong>Luma kept bit-exact</strong>: the colour picture becomes float YUV with the source's matrix; U and V are scaled by Colour Strength; the result is converted to the source's own format (depth, subsampling, chroma siting, dithered) and only U and V are taken (<code>ShufflePlanes([clip, colour, colour], [0, 1, 2])</code>). Verified bit-exact on every frame at 8, 10 and 16 bits and on a field-based clip (<code>lumaBitExact</code> in <a href="data/results.jsonl">results.jsonl</a>, and the heavy test).</li>
+</ul>
+<figure id="fig1"><img src="img/01-models.png" alt="Source, DDColor and DeOldify Video at frames 20 and 110"><figcaption>Figure 1. Frames 20 (the close-up) and 110 (mid-dissolve) of the fixture: the source, DDColor, DeOldify Video, each at its defaults. DDColor is far more colourful (31.8 levels of chroma from neutral on average, against DeOldify's 7.1) and warms everything, white bedding included; DeOldify is muted, with the same skin and hair choices. Neither colour is a record of the 1945 set.</figcaption></figure>
+<figure id="fig3"><img src="img/03-strength.png" alt="DDColor at colour strength 0.5, 1 and 1.5"><figcaption>Figure 3. Colour Strength 0.5, 1 (the default) and 1.5 on DDColor, frame 110. Strength scales U and V about neutral, so 0 returns the input exactly and the luma never changes.</figcaption></figure>
+
+<h3>Checking the CIELAB chain</h3>
+<p>On 65,536 synthetic (grey value, a, b) triples (<code>lab_reference.py</code> → <code>lab_parity.py</code>, <a href="data/lab_parity.json">data</a>): the Expr chain matches the same conversion in float64 with the exact sRGB curve to 0.0014 of an 8-bit level. Against OpenCV's float <code>COLOR_LAB2RGB</code> (what DDColor's pipeline calls) the mean difference is 0.12–0.19 levels per channel, max 3.8 — all of it OpenCV's: its float path tabulates the sRGB curve, which is coarse near black (the worst pixel: linear 0.0026, exact sRGB 0.0338, OpenCV 0.0187). The exact formula is kept.</p>
+
+<h2>4. Temporal stability</h2>
+<p>Both models colour each frame afresh, and nothing ties one frame's guess to the next. The pass averages each frame's prediction (at the render size, before it is scaled up) with the predictions of the <em>r</em> frames either side, weighted by distance (<em>r</em>+1−|<em>k</em>|) and by a motion weight: the grey pictures are compared over 8×8-pixel blocks (of the render-size picture) and a neighbour counts for nothing where its block differs from this frame's by 10 levels or more (3×3-block average, falling linearly from 1 at no difference). A neighbour past a cut is excluded the same way. Everything is a pure function of frames <em>n</em>−<em>r</em>..<em>n</em>+<em>r</em> (<code>ai_runtime.shifted</code> clips into <code>std.ModifyFrame</code>, each frame's prediction shared through a <code>FrameMemo</code>), so the preview, which decodes <em>r</em> frames either side (the pass's <code>FrameMap</code> radius), shows the encode's frame.</p>
+<p>Measured on the committed fixture (120 frames: a close-up with small head movements, a dissolve, a two-shot) with <a href="scripts/flicker.py">flicker.py</a>, the face report's metric adapted to colour, in 8-bit chroma levels over 8×8 blocks of the chroma planes. <em>Still flicker</em> is the second difference |C[t] − (C[t−1] + C[t+1])/2| where the grey picture did not move (mean luma change under 1 level either side; 50% of blocks): there any change of colour is the model's. <em>Motion lag</em> is how far the smoothed colour sits from the per-frame colour where the picture moved by 4 levels or more (5.6% of blocks): ghosting, or colour trailing a moving edge, raises it. <em>Colour</em> is the mean distance of U and V from neutral, to show smoothing does not just fade the picture. <a href="data/flicker.json">data/flicker.json</a>.</p>
+<table>
+<tr><th>Variant</th><th class="num">Still flicker</th><th class="num">Still frame-to-frame change</th><th class="num">Motion lag</th><th class="num">Colour</th></tr>
+<tr><td>DDColor, per frame (r = 0)</td><td class="num">1.446</td><td class="num">1.828</td><td class="num">0</td><td class="num">31.8</td></tr>
+<tr><td>DDColor, r = 1</td><td class="num">0.499</td><td class="num">0.900</td><td class="num">0.97</td><td class="num">31.8</td></tr>
+<tr><td><strong>DDColor, r = 2 (default)</strong></td><td class="num"><strong>0.233</strong></td><td class="num">0.578</td><td class="num">1.33</td><td class="num">31.8</td></tr>
+<tr><td>DDColor, r = 3</td><td class="num">0.153</td><td class="num">0.439</td><td class="num">1.47</td><td class="num">31.9</td></tr>
+<tr><td>DDColor, r = 2, no motion weighting</td><td class="num">0.227</td><td class="num">0.575</td><td class="num warn">2.00</td><td class="num">31.8</td></tr>
+<tr><td>DeOldify Video, per frame (r = 0)</td><td class="num">0.325</td><td class="num">0.399</td><td class="num">0</td><td class="num">7.1</td></tr>
+<tr><td>DeOldify Video, r = 1</td><td class="num">0.101</td><td class="num">0.186</td><td class="num">0.20</td><td class="num">7.1</td></tr>
+<tr><td><strong>DeOldify Video, r = 2 (default)</strong></td><td class="num"><strong>0.053</strong></td><td class="num">0.123</td><td class="num">0.28</td><td class="num">7.1</td></tr>
+<tr><td>DeOldify Video, r = 3</td><td class="num">0.033</td><td class="num">0.092</td><td class="num">0.32</td><td class="num">7.1</td></tr>
+<tr><td>DeOldify Video, r = 2, no motion weighting</td><td class="num">0.049</td><td class="num">0.121</td><td class="num warn">0.48</td><td class="num">7.1</td></tr>
+</table>
+<ul>
+<li><strong>Smoothing works</strong>: at the default radius 2, DDColor's still-picture flicker falls 84% (1.446 → 0.233) and DeOldify's 84% (0.325 → 0.053), with no loss of colour.</li>
+<li><strong>DeOldify is steadier in absolute terms, not relative ones.</strong> Per frame it flickers 4.5× less than DDColor, but it also has 4.5× less colour (7.1 vs 31.8 levels from neutral): relative to how much colour each puts down, they flicker alike. DeOldify's "Video" training buys muted colour more than steadiness.</li>
+<li><strong>The motion weighting earns its place in motion, not in still areas</strong>: switching it off changes still flicker by under 0.01 but raises motion lag by half (DDColor 1.33 → 2.00, DeOldify 0.28 → 0.48) — that is colour from where an object was, painted where it is.</li>
+<li><strong>Radius 2 is the default</strong>: radius 3 removes another third of what flicker is left at the cost of more lag and a slower preview (each preview frame colours 2<em>r</em>+1 frames).</li>
+</ul>
+<figure id="fig2"><img src="img/02-smoothing.png" alt="DDColor frame 110 per frame and smoothed"><figcaption>Figure 2. DDColor at frame 110 of the fixture (the two-shot): per frame (left) and with steady colour 2 (right). Single frames look alike; the difference is in motion, which a still cannot show.</figcaption></figure>
+
+<h2>5. Speed and providers</h2>
+<p>The whole pass (decode excluded), steady colour 2, default render sizes, on the fixture (SD, 640×480) and on the same seconds of the source at its own 1920×1080 (<a href="scripts/make_refs.sh">make_refs.sh</a>). <em>Setup</em> is session creation, which on Core ML includes compiling the graph for this machine; it happens once per vspipe process. <a href="data/results.jsonl">data/results.jsonl</a>.</p>
+<table>
+<tr><th>Model</th><th>Provider</th><th class="num">Setup</th><th class="num">SD fps</th><th class="num">1080p fps</th></tr>
+<tr><td>DDColor (512)</td><td>Core ML</td><td class="num">77–79 s</td><td class="num">9.1</td><td class="num">8.4</td></tr>
+<tr><td>DDColor (512)</td><td>CPU</td><td class="num">0.4 s</td><td class="num">1.33</td><td class="num">1.32</td></tr>
+<tr><td>DeOldify Video (336)</td><td>Core ML</td><td class="num">3–4 s</td><td class="num">6.0</td><td class="num">6.0</td></tr>
+<tr><td>DeOldify Video (336)</td><td>CPU</td><td class="num">0.3 s</td><td class="num">0.65</td><td class="num">0.64</td></tr>
+</table>
+<ul>
+<li>The cost is the model, at a fixed size, so 1080p runs nearly as fast as SD: the CIELAB chain and the conversions at full resolution are a few percent.</li>
+<li>Core ML is 7× (DDColor) and 9× (DeOldify) faster than the CPU here. DirectML (Windows) and CUDA are untested; Linux has only the CPU.</li>
+<li><strong>Core ML's compile of DDColor takes 77 s in every process.</strong> For an encode that is a one-off pause before the first frame (the script says so in the worker's debug log). For a preview, which is a process of its own that colours 2<em>r</em>+1 = 5 frames, it would be 77 s per click, so the preview runs DDColor on the CPU instead: 5 frames in 3.8 s. DeOldify compiles in 3 s and previews on Core ML (5 frames in 1.1 s after setup). For DDColor, Core ML and the CPU agree to under 0.001 CIELAB units (table below), far inside the preview = encode test's 0.5-level tolerance. Core ML's model cache (<code>ModelCacheDirectory</code>) brought a second DDColor session down to 14.5 s, but wrote 898 MB per render size, and its cache key is the model's path, which free-dimension overrides do not change; it is not used (<a href="data/coreml_notes.md">notes</a>). Face Restoration found the same option broke a second session outright.</li>
+</ul>
+<h3>The models alone, per provider and size</h3>
+<p><a href="../../../Scripts/models/colorize_provider_bench.py">colorize_provider_bench.py</a>, five runs each after a warm-up, sessions made as <code>ai_runtime</code> makes them (Core ML as an ML Program on all compute units, the size fixed by free-dimension overrides). <a href="data/provider_bench.jsonl">data/provider_bench.jsonl</a>.</p>
+<table>
+<tr><th>Model</th><th class="num">Size</th><th class="num">CPU ms</th><th class="num">Core ML ms</th><th class="num">Core ML session</th><th class="num">Core ML vs CPU, max / mean |Δ|</th></tr>
+<tr><td>DDColor</td><td class="num">256</td><td class="num">205</td><td class="num">31</td><td class="num">76 s</td><td class="num">6.6e-4 / 3.1e-5 (CIELAB)</td></tr>
+<tr><td>DDColor</td><td class="num">384</td><td class="num">443</td><td class="num">62</td><td class="num">76 s</td><td class="num">3.5e-4 / 1.1e-5</td></tr>
+<tr><td>DDColor</td><td class="num">512</td><td class="num">747</td><td class="num">101</td><td class="num">76 s</td><td class="num">2.9e-4 / 1.3e-5</td></tr>
+<tr><td>DeOldify Video</td><td class="num">256</td><td class="num">896</td><td class="num">88</td><td class="num">4.3 s</td><td class="num">9.8e-7 / 1.5e-7 (RGB, [0, 1])</td></tr>
+<tr><td>DeOldify Video</td><td class="num">336</td><td class="num">1538</td><td class="num">154</td><td class="num">3.6 s</td><td class="num">5.7e-3 / 1.3e-3</td></tr>
+<tr><td>DeOldify Video</td><td class="num">448</td><td class="num">2798</td><td class="num">256</td><td class="num">3.7 s</td><td class="num">9.2e-7 / 8.0e-8</td></tr>
+</table>
+<p>Core ML is 7× (DDColor) to 10–11× (DeOldify) faster than the CPU. Its output matches the CPU's to float precision except DeOldify at 336, where it differs by up to 1.5 8-bit levels (mean 0.33) — probably because Core ML places that size on different hardware (the Neural Engine computes in 16-bit floats); still far below what a viewer or the preview = encode check (0.5-level mean) would notice. The pipeline runs below these model rates (DDColor at 512 is 101 ms, the pass 9 fps) because model runs are serialised (<code>ai_runtime.Runner</code>) and the rest of the frame's work overlaps them. <strong>Untested here: DirectML (Windows) and CUDA</strong>; Linux has only the CPU.</p>
+
+<h2>6. Decisions</h2>
+<ul>
+<li><strong>Pipeline position: after Chroma Fixes, before Color Correction</strong> (Detail &amp; Color stage). After the cleanup, because noise, blocks and dirt in the grey picture are what the model judges colour from, and colour added before a denoise or deblock would be smeared by it. After Chroma Fixes and Chroma Denoise because both work on the chroma the pass replaces (the app now says so when Chroma Denoise and Colourisation are both on). Before Color Correction, so the result can be graded — the obvious fix for a model that is too warm or too pale. Before Crop &amp; Resize: the model sees a fixed-size square either way, and the colour is rebuilt at the source's size and then resized with the rest of the picture; it also means the pass reads the source's own colour tags, not the BT.709 conversion's.</li>
+<li><strong>A source that already has colour is coloured from its luma all the same</strong>: its chroma is replaced (<a href="#fig4">figure 4</a>; the heavy test checks the luma stays bit-exact). The alternatives were worse: blocking or skipping would be a non-advisory refusal; blending the model's colour into the existing colour would produce neither. Re-colouring a faded or badly tinted colour film from its luma is also a legitimate use. The panel's description says so; nothing is blocked.</li>
+<li><strong>Presets: none turns it on</strong>, including <em>8mm / Super 8 Film Scan</em>. Most 8 mm home movies of the era are colour; switching on Colourisation would replace their real colour, and require a 220–870 MB download on first use. It stays a deliberate choice.</li>
+<li><strong>Defaults</strong>: DDColor (smaller download, more natural colour, runs faster on Core ML once compiled), strength 1, steady colour 2 frames either side.</li>
+</ul>
+
+<figure id="fig4"><img src="img/04-colour-source.png" alt="A colour source, recoloured by DDColor and DeOldify Video"><figcaption>Figure 4. A source that is already in colour (the face-restoration fixture, NASA public-domain footage): the source, DDColor, DeOldify Video. The flags lose their real colours and the grey shirt turns blue — the models know only the brightness.</figcaption></figure>
+
+<h2>7. Not tested here</h2>
+<ul>
+<li>Windows (DirectML), Linux (CPU only, where DDColor at 512 is about 0.8 s per frame), macOS x64 (Core ML on Intel, ONNX Runtime 1.23.2).</li>
+<li>Whether the colour is <em>right</em>: there is no ground truth for a 1945 black-and-white film, and the flicker metric only measures steadiness.</li>
+<li>One clip: a close-up, a dissolve and a two-shot, with little camera motion. Fast pans, where the motion weighting excludes most neighbours, are untested.</li>
+</ul>
+</main>
+</body>
+</html>

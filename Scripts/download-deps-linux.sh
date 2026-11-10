@@ -13,6 +13,14 @@
 
 set -e
 
+# Every download goes through this. Upstream hosts (GitHub's release CDN above
+# all) sometimes answer with a 5xx error page or cut a transfer short: plain
+# `curl -L` saves that page as the archive and the build dies later on a
+# baffling "not in gzip format". --fail turns an HTTP error into a failed
+# command, and the retries (any error, transfer cut short included) ride out a
+# transient outage. Output is rewritten from the start on each attempt.
+curl() { command curl --fail --retry 6 --retry-delay 15 --retry-all-errors "$@"; }
+
 FORCE=false
 TIER=v3
 while [[ $# -gt 0 ]]; do
@@ -1567,10 +1575,12 @@ else
 fi
 
 # ============================================================================
-# vszip — CLAHE (Colour Correction's local contrast, issue #90)
+# vszip — CLAHE, NLMeans (CPU) and the vine dehalo method
 # ============================================================================
-# Only core.vszip.CLAHE is used. Keep VSZIP_VERSION in step across
-# download-deps-{macos,linux}.sh and download-deps-windows.ps1.
+# core.vszip.CLAHE (Colour Correction's local contrast, issue #90) and, from
+# 24.0.0 (the first release with it), core.vszip.NLMeans: Noise Reduction's
+# CPU non-local means and the Dehalo pass's vine method. Keep VSZIP_VERSION in
+# step across download-deps-{macos,linux}.sh and download-deps-windows.ps1.
 #
 # The x86_64 wheel carries three builds — libvszip.so (baseline x86-64),
 # libvszip.avx2.so and libvszip.zn4.so (AVX-512) — that VapourSynth picks
@@ -1581,14 +1591,18 @@ fi
 # by path and fault); and the AVX-512 build is never chosen on a machine no
 # runner can test (the CTMF lesson). CLAHE is cheap next to anything else in a
 # job, so the AVX2 speedup is not worth that machinery.
-# manylinux_2_17 is far under our glibc 2.39 floor.
-VSZIP_VERSION="22.1.0"
+# manylinux_2_17 is far under our glibc 2.39 floor. 24.0.0's baseline build no
+# longer calls libm's fmaf per lane, and contains no AVX at all (checked with
+# objdump), so it still needs no _tierFiles entry. Pinned by hash.
+VSZIP_VERSION="24.0.0"
 echo ""
-echo "=== Downloading vszip $VSZIP_VERSION (CLAHE) ==="
+echo "=== Downloading vszip $VSZIP_VERSION (CLAHE, NLMeans) ==="
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libvszip.so" ]; then
     case "$ARCH" in
-        x86_64)  VSZIP_TAG="manylinux_2_17_x86_64" ;;
-        aarch64) VSZIP_TAG="manylinux_2_17_aarch64" ;;
+        x86_64)  VSZIP_TAG="manylinux_2_17_x86_64"
+                 VSZIP_SHA256="abf1be51f3b4733500eca04f7179236f8383e09b298ac4ca2c8e8959a93a92da" ;;
+        aarch64) VSZIP_TAG="manylinux_2_17_aarch64"
+                 VSZIP_SHA256="8f2a87cd1cbb0a6b5392b6f43c9dd22bb531c7d2021c4c2b66fe6856c8dc7f92" ;;
         *)       VSZIP_TAG="" ;;
     esac
     VSZIP_URL=""
@@ -1605,6 +1619,7 @@ PYEOF
     mkdir -p "$BUILD_DIR/vszip"
     if [ -n "$VSZIP_URL" ] \
        && curl -fL -o "$BUILD_DIR/vszip.whl" "$VSZIP_URL" \
+       && echo "$VSZIP_SHA256  $BUILD_DIR/vszip.whl" | sha256sum -c - \
        && unzip -q "$BUILD_DIR/vszip.whl" -d "$BUILD_DIR/vszip"; then
         # The baseline build only, by exact name — see above.
         cp "$BUILD_DIR/vszip/vapoursynth/plugins/vszip/libvszip.so" "$PLUGINS_DIR/" 2>/dev/null || true
@@ -1620,6 +1635,64 @@ PYEOF
     fi
 else
     echo "  vszip already exists, skipping"
+fi
+
+# ============================================================================
+# SangNom — Anti-aliasing's SangNom method (core.sangnom.SangNom)
+# ============================================================================
+# The PyPI wheels (r45), pinned by hash. Source is MIT; upstream states its
+# binaries are GPL v2 (see licenses/NOTICES.txt). x86_64 has SSE2 code only
+# (no AVX anywhere, checked with objdump), so one file serves both CPU tiers.
+# manylinux_2_28 (glibc 2.28) is under our 2.39 floor; it needs the system
+# libstdc++, as every C++ plugin here does. Keep SANGNOM_VERSION in step with
+# download-deps-{macos.sh,windows.ps1}.
+SANGNOM_VERSION="45.0"
+case "$ARCH" in
+    x86_64)  SANGNOM_TAG="manylinux_2_28_x86_64"
+             SANGNOM_SHA256="dd71e28fa7d0383101b6ab5e84307be80984f69a43838238686de1480793525d" ;;
+    aarch64) SANGNOM_TAG="manylinux_2_28_aarch64"
+             SANGNOM_SHA256="4fd6e39bc32aec755853f974936324081223d6b7e082cc38e717c9b8dad0cf6a" ;;
+    *)       SANGNOM_TAG="" ;;
+esac
+SANGNOM_OUT="$PLUGINS_DIR/libsangnom.so"
+echo ""
+echo "=== Installing SangNom $SANGNOM_VERSION ==="
+if [ "$FORCE" = false ] && [ -f "$SANGNOM_OUT" ]; then
+    echo "  SangNom already exists, skipping"
+else
+    rm -f "$SANGNOM_OUT"
+    # Run on its own, not as `if ( set -e ... ); then`: bash ignores set -e in
+    # anything that is an if/&&/|| condition, subshells included.
+    set +e
+    (
+        set -e
+        [ -n "$SANGNOM_TAG" ]
+        cd "$BUILD_DIR"
+        rm -rf sangnom-whl sangnom.whl
+        url=$("$PYTHON_BIN" - "$SANGNOM_VERSION" "$SANGNOM_TAG" <<'PYEOF2'
+import json, sys, urllib.request
+ver, tag = sys.argv[1], sys.argv[2]
+d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/vapoursynth-sangnom/{ver}/json"))
+print(next(f["url"] for f in d["urls"] if f["filename"].endswith(tag + ".whl")))
+PYEOF2
+)
+        curl -fsSL -o sangnom.whl "$url"
+        echo "$SANGNOM_SHA256  sangnom.whl" | sha256sum -c -
+        mkdir sangnom-whl && unzip -q sangnom.whl -d sangnom-whl
+        cp sangnom-whl/vapoursynth/plugins/sangnom.so "$SANGNOM_OUT"
+        chmod 755 "$SANGNOM_OUT"
+        rm -rf sangnom-whl sangnom.whl
+    )
+    _block_status=$?
+    set -e
+    if [ "$_block_status" -eq 0 ]; then
+        echo "  Installed SangNom -> libsangnom.so"
+        BUILT_PLUGINS+=("sangnom")
+    else
+        rm -f "$SANGNOM_OUT"
+        echo "  Failed to install SangNom"
+        FAILED_PLUGINS+=("sangnom")
+    fi
 fi
 
 # ============================================================================
@@ -1676,8 +1749,8 @@ fi
 # ============================================================================
 # Lives in vapoursynth/rife/, NOT the autoload directory: the template loads it
 # only for a RIFE job (see worker/src/gpu_plugin.rs), so a machine whose GPU stack or
-# CPU cannot run it fails that method alone. Keep RIFE_TAG, the model commit and
-# the model hashes in step with download-deps-{macos.sh,windows.ps1}.
+# CPU cannot run it fails that method alone. Keep RIFE_TAG in step with
+# download-deps-{macos.sh,windows.ps1}.
 #
 # x86_64 only: upstream publishes no aarch64 build, and the app reports RIFE as
 # unavailable on linux-arm64. The prebuilt needs glibc 2.35 (under our 2.39
@@ -1686,21 +1759,18 @@ fi
 # The same file serves both CPU tiers; if it ever proves to need AVX at load,
 # the app's probe reports that as an unsupported CPU rather than crashing jobs.
 #
-# The model is the ncnn conversion committed to the plugin's repo (there is no
-# release asset for it), fetched at a pinned commit and checked by hash.
+# The plugin only. Its model is the `frame-rate-rife` add-on (deps 1.16.0 on;
+# app/assets/addons/frame-rate-rife.json): every AI model is an add-on, never
+# in this bundle (docs/ADDONS.md).
 RIFE_TAG="r9_mod_v33"
 RIFE_LINUX_X64_SHA256="18a00a5e3ac90a5dfcfdf85fdb81d977381a5a2560a4c45dbe9a469d007b1886"
-RIFE_MODEL_COMMIT="96fdcecdf982ef3237e16e2b105eea849fa022ab"
-RIFE_MODEL_NAME="rife-v4.26_ensembleFalse"
-RIFE_MODEL_BIN_SHA256="94d58e30b75d7c7609cfa6f3bdad524deddd14f5f75e85c36d2f827ef5c64731"
-RIFE_MODEL_PARAM_SHA256="79f16c28903f93f8308f0c4c947f8c7e0c17d99a57b85473e5f298dd578d137b"
 RIFE_DIR="$DEPS_DIR/vapoursynth/rife"
 echo ""
-echo "=== Installing RIFE ($RIFE_TAG, model $RIFE_MODEL_NAME) ==="
+echo "=== Installing RIFE ($RIFE_TAG) ==="
 if [ "$ARCH" != "x86_64" ]; then
     echo "  Skipped on $ARCH: upstream publishes no build"
 elif [ "$FORCE" = false ] && [ -f "$RIFE_DIR/librife.so" ] \
-     && [ -f "$RIFE_DIR/models/$RIFE_MODEL_NAME/flownet.bin" ]; then
+     && [ ! -d "$RIFE_DIR/models" ]; then
     echo "  RIFE already exists, skipping"
 else
     rm -rf "$RIFE_DIR"
@@ -1711,20 +1781,13 @@ else
     set +e
     (
         set -e
-        mkdir -p "$RIFE_DIR/models/$RIFE_MODEL_NAME"
+        mkdir -p "$RIFE_DIR"
         cd "$BUILD_DIR"
         curl -fsSL -o librife.so \
             "https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/releases/download/$RIFE_TAG/librife_linux_x86-64.so"
         echo "$RIFE_LINUX_X64_SHA256  librife.so" | sha256sum -c -
         mv librife.so "$RIFE_DIR/librife.so"
         chmod 755 "$RIFE_DIR/librife.so"
-        for f in flownet.bin flownet.param; do
-            curl -fsSL -o "$f" \
-                "https://raw.githubusercontent.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/$RIFE_MODEL_COMMIT/models/$RIFE_MODEL_NAME/$f"
-        done
-        echo "$RIFE_MODEL_BIN_SHA256  flownet.bin" | sha256sum -c -
-        echo "$RIFE_MODEL_PARAM_SHA256  flownet.param" | sha256sum -c -
-        mv flownet.bin flownet.param "$RIFE_DIR/models/$RIFE_MODEL_NAME/"
     )
     _block_status=$?
     set -e
@@ -1739,7 +1802,7 @@ else
 fi
 
 # ============================================================================
-# VSNCNN (vs-mlrt) + Real-ESRGAN / Real-CUGAN — Crop & Resize's AI upscaling
+# VSNCNN (vs-mlrt) — runs Crop & Resize's AI upscalers
 # ============================================================================
 # vs-mlrt publishes VSNCNN for Windows only; this is upstream's own
 # linux-ncnn.yml recipe at the pinned tag: static protobuf and onnx from
@@ -1750,24 +1813,15 @@ fi
 # dlopens the system's libvulkan.so.1; one build serves both CPU tiers (ncnn
 # dispatches its SIMD at run time).
 #
-# The models are vs-mlrt's ONNX conversions (2.4-5.2 MB each), shipped only
-# inside one ~810 MB archive per release: fetched pinned and hash-checked, the
-# five VapourBox uses extracted and each checked by its own hash. Keep every pin
-# and hash in step with download-deps-{macos.sh,windows.ps1} and
-# gpu_plugin::UPSCALE_MODELS.
+# The plugin only. Every model it runs is an add-on (deps 1.16.0 on;
+# app/assets/addons/upscale-*.json, docs/ADDONS.md) — the Real-ESRGAN anime and
+# Real-CUGAN models included, which were bundled here until then. Keep every
+# pin in step with download-deps-{macos.sh,windows.ps1}.
 VSMLRT_TAG="v15.16"
-VSMLRT_MODELS_SHA256="d4eaa8c1c4459082185a9e1a2c54d7e2c776abeea6aef6aee0cb8f6c151dfb02"
 PROTOBUF_TAG="v3.21.12"
 ONNX_COMMIT="b86cc54efce19530fb953e4b21f57e6b3888534c"
 NCNN_TAG="20260526"
 NCNN_UBUNTU_SHA256="c6daf0c8fb2546de420c7b320e2ce62ba764163ace0ba63a2ea0cdfca70d684d"
-UPSCALE_MODEL_HASHES=(
-    "RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx 6fad590f96df553a5cc348a9c5129e7874504a7dcd414e4a15fb0b281fca7e0c"
-    "RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx 414de3a5da4c56652c99f3bc0b960910e3561835a6c7a9cca546475bc4792158"
-    "cugan/up2x-latest-no-denoise.onnx 3587278c3a7e62bbcb00a23b4de291ff906f62a88856ee457cbe4211cc593574"
-    "cugan/up2x-latest-conservative.onnx 555bca3eb90caa37c7e1a02aec9cda3ca8479f252746c1885d382f87312f651c"
-    "cugan/up2x-latest-denoise3x.onnx 7bcb0510f9f989e681a51d39b7170883d3d5e75f1ec23ef5146e8ea50c3cc845"
-)
 # VSNCNN is an API 3 plugin (VapourSynth.h / VSHelper.h). R78 still loads
 # those, but the build's own include dir need not carry the old headers, so
 # they are fetched from the same VapourSynth tag, by hash.
@@ -1778,11 +1832,11 @@ VSAPI3_HEADER_HASHES=(
 )
 NCNN_DIR="$DEPS_DIR/vapoursynth/ncnn"
 echo ""
-echo "=== Installing VSNCNN ($VSMLRT_TAG) + upscaling models ==="
+echo "=== Installing VSNCNN ($VSMLRT_TAG) ==="
 if [ "$ARCH" != "x86_64" ]; then
     echo "  Skipped on $ARCH: Tencent publishes no aarch64 Linux ncnn"
 elif [ "$FORCE" = false ] && [ -f "$NCNN_DIR/libvsncnn.so" ] \
-     && [ -f "$NCNN_DIR/models/cugan/up2x-latest-denoise3x.onnx" ]; then
+     && [ ! -d "$NCNN_DIR/models" ]; then
     echo "  VSNCNN already exists, skipping"
 else
     rm -rf "$NCNN_DIR"
@@ -1794,7 +1848,7 @@ else
     (
         set -e
         W="$BUILD_DIR/vsncnn"
-        rm -rf "$W" && mkdir -p "$W" "$NCNN_DIR/models"
+        rm -rf "$W" && mkdir -p "$W" "$NCNN_DIR"
         cd "$W"
         curl -fsSL "https://github.com/protocolbuffers/protobuf/archive/refs/tags/$PROTOBUF_TAG.tar.gz" | tar xz
         cmake -S "protobuf-${PROTOBUF_TAG#v}/cmake" -B pb-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -1829,24 +1883,6 @@ else
         cmake --build vsncnn-build >/dev/null
         cp vsncnn-build/libvsncnn.so "$NCNN_DIR/libvsncnn.so"
         chmod 755 "$NCNN_DIR/libvsncnn.so"
-        curl -fsSL -o models.7z \
-            "https://github.com/AmusementClub/vs-mlrt/releases/download/$VSMLRT_TAG/models.$VSMLRT_TAG.7z"
-        echo "$VSMLRT_MODELS_SHA256  models.7z" | sha256sum -c -
-        wanted=()
-        for entry in "${UPSCALE_MODEL_HASHES[@]}"; do wanted+=("models/${entry%% *}"); done
-        # One pass: the archive is solid, so each separate extraction would
-        # decompress it from the start again.
-        if command -v 7z >/dev/null; then
-            7z x -y -bd models.7z "${wanted[@]}" >/dev/null
-        else
-            bsdtar -xf models.7z "${wanted[@]}"
-        fi
-        for entry in "${UPSCALE_MODEL_HASHES[@]}"; do
-            rel="${entry%% *}"; sum="${entry##* }"
-            echo "$sum  models/$rel" | sha256sum -c -
-            mkdir -p "$NCNN_DIR/models/$(dirname "$rel")"
-            mv "models/$rel" "$NCNN_DIR/models/$rel"
-        done
         cd "$BUILD_DIR" && rm -rf "$W"
     )
     _block_status=$?

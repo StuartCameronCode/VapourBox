@@ -83,6 +83,10 @@ pub struct ScriptGenerator {
     /// addition to `upscale`. Defaults to "not checked"; callers set it from
     /// `DependencyLocator::animejanai_runtime()`.
     animejanai: std::result::Result<PathBuf, String>,
+    /// The add-ons directory and this platform's id, for the manifest add-ons
+    /// a job's passes need (`ProcessingPipeline::required_addons`, see
+    /// `addons.rs`). `None` ("not checked") refuses any job that needs one.
+    addons: Option<(PathBuf, String)>,
     /// For a variable-frame-rate source, where the decoded window's stored
     /// frames fall on the grid (see `source_timing`). `None` for a
     /// constant-rate source, whose script is unchanged.
@@ -125,8 +129,17 @@ impl ScriptGenerator {
             upscale: Err("AI upscaling was not checked for this job.".to_string()),
             knlm: Err("KNLMeansCL was not checked for this job.".to_string()),
             animejanai: Err("AnimeJaNai was not checked for this job.".to_string()),
+            addons: None,
             timeline: None,
         })
+    }
+
+    /// Set the add-ons directory and platform id the job's add-ons are
+    /// checked against and loaded from (`DependencyLocator::addons_dir`,
+    /// `platform_suffix`).
+    pub fn with_addons(mut self, addons_dir: PathBuf, platform: &str) -> Self {
+        self.addons = Some((addons_dir, platform.to_string()));
+        self
     }
 
     /// Set whether OpenCL is available (probe result from `DependencyLocator`).
@@ -212,7 +225,84 @@ impl ScriptGenerator {
                 anyhow::bail!("{message}");
             }
         }
+        for need in pipeline.required_addons() {
+            match &self.addons {
+                Some((dir, platform)) => crate::addons::require(dir, &need.ids, need.feature, platform)?,
+                None => anyhow::bail!("{} needs add-ons, which were not checked for this job.", need.feature),
+            }
+        }
         Ok(())
+    }
+
+    /// Emit or drop the `{{#AI_RUNTIME}}` block: emitted, with the add-on's
+    /// directory, when a pass needs an add-on that requires the AI runtime.
+    fn substitute_addons(&self, script: String, pipeline: &ProcessingPipeline) -> String {
+        let ids: Vec<&str> = pipeline.required_addons().iter().flat_map(|n| n.ids.clone()).collect();
+        let dir = match &self.addons {
+            Some((root, _)) if crate::addons::needs_ai_runtime(&ids) => {
+                Some(crate::addons::addon_dir(root, crate::addons::AI_RUNTIME))
+            }
+            _ => None,
+        };
+        ai_runtime_block(script, dir.as_deref())
+    }
+
+    /// Emit or drop the `{{#FACE_RESTORE}}` block (both templates), with the
+    /// model paths from the add-ons directory. A job that gets here with the
+    /// pass on has passed `ensure_methods_ready`, so its add-ons are installed.
+    fn substitute_face_restore(&self, script: String, job: &VideoJob, pipeline: &ProcessingPipeline) -> String {
+        use crate::models::{FACE_DETECTOR_FILE, FACE_PARSER_FILE, FACE_RESTORATION_ADDON};
+        let fr = &pipeline.face_restore;
+        if !fr.enabled {
+            return remove_block("{{#FACE_RESTORE}}", "{{/FACE_RESTORE}}", script);
+        }
+        let path = |id: &str, file: &str| match &self.addons {
+            Some((root, _)) => py_str(&crate::addons::addon_dir(root, id).join(file)),
+            None => "''".to_string(),
+        };
+        // After Crop & Resize, so the samples are in the output's colour.
+        let color = job.output_color_metadata();
+        script
+            .replace("{{#FACE_RESTORE}}", "")
+            .replace("{{/FACE_RESTORE}}", "")
+            .replace("{{FR_DETECTOR}}", &path(FACE_RESTORATION_ADDON, FACE_DETECTOR_FILE))
+            .replace("{{FR_PARSER}}", &path(FACE_RESTORATION_ADDON, FACE_PARSER_FILE))
+            .replace("{{FR_RESTORER}}", &path(fr.model.addon(), fr.model.file()))
+            .replace("{{FR_MODEL}}", fr.model.script_name())
+            .replace("{{FR_STRENGTH}}", &format!("{:.3}", fr.clamped_strength()))
+            .replace("{{FR_FIDELITY}}", &format!("{:.3}", fr.clamped_fidelity()))
+            .replace("{{FR_THRESHOLD}}", &format!("{:.3}", fr.clamped_threshold()))
+            .replace("{{FR_MIN_FACE}}", &fr.clamped_min_face().to_string())
+            .replace("{{FR_MAX_FACES}}", &fr.clamped_max_faces().to_string())
+            .replace("{{FR_RADIUS}}", &fr.temporal_radius().to_string())
+            .replace("{{FR_MATRIX}}", color.zimg_matrix(job.input_height))
+            .replace("{{FR_RANGE}}", if color.is_full_range() { "full" } else { "limited" })
+    }
+
+    /// Emit or drop the `{{#COLORIZE}}` block (both templates), with the
+    /// chosen model's path from the add-ons directory. A job that gets here
+    /// with the pass on has passed `ensure_methods_ready`, so its add-on is
+    /// installed.
+    fn substitute_colorize(&self, script: String, job: &VideoJob, pipeline: &ProcessingPipeline) -> String {
+        let cz = &pipeline.colorize;
+        if !cz.enabled {
+            return remove_block("{{#COLORIZE}}", "{{/COLORIZE}}", script);
+        }
+        let model_path = match &self.addons {
+            Some((root, _)) => py_str(&crate::addons::addon_dir(root, cz.model.addon()).join(cz.model.file())),
+            None => "''".to_string(),
+        };
+        let color = job.color_metadata();
+        script
+            .replace("{{#COLORIZE}}", "")
+            .replace("{{/COLORIZE}}", "")
+            .replace("{{CZ_MODEL_PATH}}", &model_path)
+            .replace("{{CZ_MODEL}}", cz.model.script_name())
+            .replace("{{CZ_RENDER_SIZE}}", &cz.render_size().to_string())
+            .replace("{{CZ_STRENGTH}}", &format!("{:.3}", cz.clamped_strength()))
+            .replace("{{CZ_RADIUS}}", &cz.temporal_radius().to_string())
+            .replace("{{CZ_MATRIX}}", color.zimg_matrix(job.input_height))
+            .replace("{{CZ_RANGE}}", if color.is_full_range() { "full" } else { "limited" })
     }
 
     /// Generate a .vpy script file for the given job.
@@ -466,7 +556,7 @@ impl ScriptGenerator {
 
     /// Substitute pipeline parameters on an already-prepared script.
     fn substitute_parameters_on(&self, script: &str, job: &VideoJob, pipeline: &ProcessingPipeline) -> String {
-        let mut script = script.to_string();
+        let mut script = self.substitute_addons(script.to_string(), pipeline);
         let params = &pipeline.deinterlace;
 
         // ====================================================================
@@ -770,6 +860,15 @@ impl ScriptGenerator {
                     };
                     script = script.replace("{{IVTC_ORDER}}", &order.to_string());
 
+                    // Fades added after telecine (vs-jetpack's FixInterlacedFades).
+                    if params.ivtc_fix_fades {
+                        script = script.replace("{{#DEINT_IVTC_FIX_FADES}}", "");
+                        script = script.replace("{{/DEINT_IVTC_FIX_FADES}}", "");
+                        script = script.replace("{{IVTC_FADE_MODE}}", params.effective_ivtc_fade_mode());
+                    } else {
+                        script = remove_block("{{#DEINT_IVTC_FIX_FADES}}", "{{/DEINT_IVTC_FIX_FADES}}", script);
+                    }
+
                     // VFM parameters
                     script = process_optional_int("IVTC_MODE", params.ivtc_mode, script);
                     script = process_optional_int("IVTC_CTHRESH", params.ivtc_cthresh, script);
@@ -897,17 +996,20 @@ impl ScriptGenerator {
             script = script.replace("{{#NOISE_REDUCTION}}", "");
             script = script.replace("{{/NOISE_REDUCTION}}", "");
 
-            // BM3D and KNLMeans are removed here rather than in every other
-            // method's arm below.
+            // BM3D, KNLMeans and NLMeans are removed here rather than in every
+            // other method's arm below.
             if nr.method != NoiseReductionMethod::Bm3d {
                 script = remove_block("{{#NR_BM3D}}", "{{/NR_BM3D}}", script);
             }
             if nr.method != NoiseReductionMethod::KnlMeans {
                 script = remove_block("{{#NR_KNLM}}", "{{/NR_KNLM}}", script);
             }
+            if nr.method != NoiseReductionMethod::NlMeans {
+                script = remove_block("{{#NR_NLM}}", "{{/NR_NLM}}", script);
+            }
 
             match nr.method {
-                NoiseReductionMethod::Bm3d | NoiseReductionMethod::KnlMeans => {
+                NoiseReductionMethod::Bm3d | NoiseReductionMethod::KnlMeans | NoiseReductionMethod::NlMeans => {
                     for other in [
                         "NR_SMDEGRAIN", "NR_MCTD", "NR_MCDEGRAINSHARP", "NR_CTMF",
                         "NR_FLUXSMOOTH_T", "NR_FLUXSMOOTH_ST", "NR_STPRESSO", "NR_MCLEAN",
@@ -924,6 +1026,17 @@ impl ScriptGenerator {
                         script = script.replace("{{NR_BM3D_RADIUS}}", &nr.bm3d_effective_radius().to_string());
                         script = script.replace("{{NR_BM3D_FINAL}}", if nr.bm3d_final { "True" } else { "False" });
                         script = script.replace("{{NR_BM3D_PROFILE}}", nr.bm3d_effective_profile());
+                    } else if nr.method == NoiseReductionMethod::NlMeans {
+                        // The same arguments as KNLMeansCL (vszip's port takes
+                        // its argument names and defaults), on the CPU.
+                        let (h, d, a, s) = nr.knlm_effective();
+                        script = script.replace("{{#NR_NLM}}", "");
+                        script = script.replace("{{/NR_NLM}}", "");
+                        script = script.replace("{{NR_NLM_H}}", &format!("{h:.2}"));
+                        script = script.replace("{{NR_NLM_D}}", &d.to_string());
+                        script = script.replace("{{NR_NLM_A}}", &a.to_string());
+                        script = script.replace("{{NR_NLM_S}}", &s.to_string());
+                        script = script.replace("{{NR_NLM_CHROMA}}", if nr.knlm_chroma { "True" } else { "False" });
                     } else {
                         let (h, d, a, s) = nr.knlm_effective();
                         // ensure_methods_ready has already refused a job without one.
@@ -1396,7 +1509,7 @@ impl ScriptGenerator {
             // every block per arm is what the other passes do, but with seven
             // methods it stops being readable — so keep the block the method
             // selects and drop the others by difference.
-            const DEHALO_BLOCKS: [&str; 7] = [
+            const DEHALO_BLOCKS: [&str; 8] = [
                 "DEHALO_DEHALO_ALPHA",
                 "DEHALO_FINE_DEHALO",
                 "DEHALO_FINE_DEHALO2",
@@ -1404,6 +1517,7 @@ impl ScriptGenerator {
                 "DEHALO_EDGE_CLEANER",
                 "DEHALO_VINVERSE",
                 "DEHALO_HQDERING",
+                "DEHALO_VINE",
             ];
 
             let selected = match dehalo.method {
@@ -1416,6 +1530,7 @@ impl ScriptGenerator {
                 // name differs.
                 DehaloMethod::Vinverse | DehaloMethod::Vinverse2 => "DEHALO_VINVERSE",
                 DehaloMethod::HqDeringmod => "DEHALO_HQDERING",
+                DehaloMethod::Vine => "DEHALO_VINE",
             };
 
             for block in DEHALO_BLOCKS {
@@ -1469,6 +1584,12 @@ impl ScriptGenerator {
                     script = process_optional_double("DEHALO_DERING_THR", dehalo.dering_thr, script);
                     script = process_optional_double("DEHALO_DERING_DARKTHR", dehalo.dering_darkthr, script);
                 }
+                DehaloMethod::Vine => {
+                    let (strength, sharp, sigma) = dehalo.vine_effective();
+                    script = script.replace("{{DEHALO_VINE_STRENGTH}}", &format!("{strength:.3}"));
+                    script = script.replace("{{DEHALO_VINE_SHARP}}", &format!("{sharp:.3}"));
+                    script = script.replace("{{DEHALO_VINE_SIGMA}}", &format!("{sigma:.3}"));
+                }
             }
 
             // Radius and strength are shared by DeHalo_alpha and FineDehalo only.
@@ -1492,8 +1613,14 @@ impl ScriptGenerator {
 
             // Still interlaced: deblock each field on its own, never the woven
             // frame (docs/reports/2026-11-deblock-order). Deinterlaced output
-            // is progressive and keeps the whole-frame path.
-            match Self::still_interlaced_tff(job, pipeline) {
+            // is progressive and keeps the whole-frame path. mpeg2stinx is a
+            // cross-field filter by design and always takes the whole frame.
+            let per_field = if deblock.method == DeblockMethod::Mpeg2Stinx {
+                None
+            } else {
+                Self::still_interlaced_tff(job, pipeline)
+            };
+            match per_field {
                 Some(tff) => {
                     script = script.replace("{{#DEBLOCK_PER_FIELD}}", "");
                     script = script.replace("{{/DEBLOCK_PER_FIELD}}", "");
@@ -1505,7 +1632,20 @@ impl ScriptGenerator {
             }
 
             match deblock.method {
+                DeblockMethod::Mpeg2Stinx => {
+                    for other in ["DEBLOCK_QED", "DEBLOCK_SIMPLE", "DEBLOCK_DCTFILTER"] {
+                        script = remove_block(&format!("{{{{#{other}}}}}"), &format!("{{{{/{other}}}}}"), script);
+                    }
+                    script = script.replace("{{#DEBLOCK_MPEG2STINX}}", "");
+                    script = script.replace("{{/DEBLOCK_MPEG2STINX}}", "");
+                    // The field order the frames were ENCODED with: the
+                    // deinterlace pass's (IVTC) when it runs, else what was
+                    // detected, else top field first (DVD's usual order).
+                    let tff = Self::field_based_for(job, pipeline).map_or(true, |fb| fb == 2);
+                    script = script.replace("{{DEBLOCK_STINX_TFF}}", if tff { "True" } else { "False" });
+                }
                 DeblockMethod::DeblockQed => {
+                    script = remove_block("{{#DEBLOCK_MPEG2STINX}}", "{{/DEBLOCK_MPEG2STINX}}", script);
                     script = script.replace("{{#DEBLOCK_QED}}", "");
                     script = script.replace("{{/DEBLOCK_QED}}", "");
                     script = remove_block("{{#DEBLOCK_SIMPLE}}", "{{/DEBLOCK_SIMPLE}}", script);
@@ -1517,6 +1657,7 @@ impl ScriptGenerator {
                     script = process_optional_int("DEBLOCK_AOFFSET2", Some(deblock.a_offset2), script);
                 }
                 DeblockMethod::Deblock => {
+                    script = remove_block("{{#DEBLOCK_MPEG2STINX}}", "{{/DEBLOCK_MPEG2STINX}}", script);
                     script = remove_block("{{#DEBLOCK_QED}}", "{{/DEBLOCK_QED}}", script);
                     script = script.replace("{{#DEBLOCK_SIMPLE}}", "");
                     script = script.replace("{{/DEBLOCK_SIMPLE}}", "");
@@ -1525,6 +1666,7 @@ impl ScriptGenerator {
                     script = process_optional_int("DEBLOCK_QUANT1", Some(deblock.quant1), script);
                 }
                 DeblockMethod::DctFilter => {
+                    script = remove_block("{{#DEBLOCK_MPEG2STINX}}", "{{/DEBLOCK_MPEG2STINX}}", script);
                     script = remove_block("{{#DEBLOCK_QED}}", "{{/DEBLOCK_QED}}", script);
                     script = remove_block("{{#DEBLOCK_SIMPLE}}", "{{/DEBLOCK_SIMPLE}}", script);
                     script = script.replace("{{#DEBLOCK_DCTFILTER}}", "");
@@ -1596,9 +1738,18 @@ impl ScriptGenerator {
                     script = script.replace("{{#AA_DAA}}", "");
                     script = script.replace("{{/AA_DAA}}", "");
                     script = remove_block("{{#AA_SANTIAG}}", "{{/AA_SANTIAG}}", script);
+                    script = remove_block("{{#AA_SANGNOM}}", "{{/AA_SANGNOM}}", script);
+                }
+                AntiAliasMethod::SangNom => {
+                    script = remove_block("{{#AA_DAA}}", "{{/AA_DAA}}", script);
+                    script = remove_block("{{#AA_SANTIAG}}", "{{/AA_SANTIAG}}", script);
+                    script = script.replace("{{#AA_SANGNOM}}", "");
+                    script = script.replace("{{/AA_SANGNOM}}", "");
+                    script = script.replace("{{AA_SANGNOM_AA}}", &anti_alias.effective_sangnom_aa().to_string());
                 }
                 AntiAliasMethod::Santiag => {
                     script = remove_block("{{#AA_DAA}}", "{{/AA_DAA}}", script);
+                    script = remove_block("{{#AA_SANGNOM}}", "{{/AA_SANGNOM}}", script);
                     script = script.replace("{{#AA_SANTIAG}}", "");
                     script = script.replace("{{/AA_SANTIAG}}", "");
 
@@ -1714,6 +1865,11 @@ impl ScriptGenerator {
             // actually runs.
             script = remove_block("{{#GEOMETRY}}", "{{/GEOMETRY}}", script);
         }
+
+        // ====================================================================
+        // FACE RESTORATION PASS
+        // ====================================================================
+        script = self.substitute_face_restore(script, job, pipeline);
 
         // ====================================================================
         // SHARPEN PASS
@@ -1931,19 +2087,24 @@ impl ScriptGenerator {
                     script = script.replace("{{#FRAME_RATE_RIFE}}", "");
                     script = script.replace("{{/FRAME_RATE_RIFE}}", "");
                     // generate()/generate_preview() refuse a RIFE job without
-                    // files, so the fallbacks here are never reached by a job.
-                    let (plugin, model, preload) = match &self.rife {
+                    // the plugin or the model add-on, so the fallbacks here
+                    // are never reached by a job.
+                    let (plugin, preload) = match &self.rife {
                         Ok(f) => (
                             py_str(&f.plugin),
-                            py_str(&f.model_dir),
                             f.preload.as_deref().map(py_str).unwrap_or_else(|| "None".into()),
                         ),
-                        Err(_) => ("''".into(), "''".into(), "None".into()),
+                        Err(_) => ("''".into(), "None".into()),
+                    };
+                    let model = match &self.addons {
+                        Some((root, _)) => py_str(&crate::gpu_plugin::rife_model_dir(root)),
+                        None => "''".into(),
                     };
                     script = script.replace("{{RIFE_PLUGIN}}", &plugin);
                     script = script.replace("{{RIFE_MODEL_DIR}}", &model);
                     script = script.replace("{{RIFE_PRELOAD}}", &preload);
-                    let color = job.color_metadata();
+                    // Frame Rate runs after Crop & Resize: the output's colour.
+                    let color = job.output_color_metadata();
                     script = script.replace("{{RIFE_MATRIX}}", color.zimg_matrix(job.input_height));
                     script = script.replace(
                         "{{RIFE_RANGE}}",
@@ -1957,6 +2118,11 @@ impl ScriptGenerator {
         } else {
             script = remove_block("{{#FRAME_RATE}}", "{{/FRAME_RATE}}", script);
         }
+
+        // ====================================================================
+        // COLOURISATION PASS
+        // ====================================================================
+        script = self.substitute_colorize(script, job, pipeline);
 
         // ====================================================================
         // COLOR CORRECTION PASS
@@ -2139,11 +2305,17 @@ impl ScriptGenerator {
                                 .ai_upscale_models()
                                 .iter()
                                 .map(|m| match *m {
-                                    AiModel::Bundled(name) => py_str(&f.model_dir.join(name)),
                                     // A pair the script chooses from by height.
                                     AiModel::AnimeJanai { sd, hd } => {
                                         let dir = self.animejanai.as_deref().unwrap_or(Path::new(""));
                                         format!("({}, {})", py_str(&dir.join(sd)), py_str(&dir.join(hd)))
+                                    }
+                                    // ensure_methods_ready has refused the job
+                                    // unless the add-on is installed here.
+                                    AiModel::Addon { addon, file } => {
+                                        let root = self.addons.as_ref().map(|(r, _)| r.as_path());
+                                        let dir = crate::addons::addon_dir(root.unwrap_or(Path::new("")), addon);
+                                        py_str(&dir.join(file))
                                     }
                                 })
                                 .collect::<Vec<_>>()
@@ -2158,6 +2330,27 @@ impl ScriptGenerator {
                         "{{AI_SD_MAX_HEIGHT}}",
                         &crate::animejanai::SD_MAX_HEIGHT.to_string(),
                     );
+                    let (tile_above, tile) = resize.ai_tiling();
+                    script = script.replace("{{AI_TILE_ABOVE}}", tile_above);
+                    script = script.replace("{{AI_TILE}}", &tile.to_string());
+                    match resize.ai_resample_to() {
+                        Some(factor) => {
+                            script = script.replace("{{#AI_RESAMPLE}}", "");
+                            script = script.replace("{{/AI_RESAMPLE}}", "");
+                            script = script.replace("{{AI_FACTOR}}", &factor.to_string());
+                        }
+                        None => script = remove_block("{{#AI_RESAMPLE}}", "{{/AI_RESAMPLE}}", script),
+                    }
+                    // Full strength emits nothing: the script is exactly the
+                    // one from before the setting existed.
+                    match resize.ai_blend_weight() {
+                        Some(weight) => {
+                            script = script.replace("{{#AI_STRENGTH}}", "");
+                            script = script.replace("{{/AI_STRENGTH}}", "");
+                            script = script.replace("{{AI_STRENGTH}}", &format!("{weight:.3}"));
+                        }
+                        None => script = remove_block("{{#AI_STRENGTH}}", "{{/AI_STRENGTH}}", script),
+                    }
                     let color = job.color_metadata();
                     script = script.replace("{{AI_MATRIX}}", color.zimg_matrix(job.input_height));
                     script = script.replace(
@@ -2197,7 +2390,10 @@ impl ScriptGenerator {
                     UpscaleMethod::Spline36
                     | UpscaleMethod::RealEsrgan
                     | UpscaleMethod::RealCugan
-                    | UpscaleMethod::AnimeJanai => {
+                    | UpscaleMethod::AnimeJanai
+                    | UpscaleMethod::RealEsrganGeneral
+                    | UpscaleMethod::LiveAction
+                    | UpscaleMethod::RealEsrganPlus => {
                         script = remove_block("{{#UPSCALE_NNEDI3}}", "{{/UPSCALE_NNEDI3}}", script);
                         script = remove_block("{{#UPSCALE_EEDI3}}", "{{/UPSCALE_EEDI3}}", script);
                     }
@@ -2315,6 +2511,25 @@ impl ScriptGenerator {
         }
 
         // ====================================================================
+        // BT.601 -> BT.709 (app 1.7.0)
+        // ====================================================================
+        // Decided once, by the job (`VideoJob::converts_to_bt709`), because the
+        // encoder's colour flags and the preview's display conversion have to
+        // follow the same answer.
+        if job.converts_to_bt709() {
+            let source = job.color_metadata();
+            script = script.replace("{{#COLOR_709}}", "");
+            script = script.replace("{{/COLOR_709}}", "");
+            script = script.replace("{{C709_MATRIX_IN}}", source.zimg_matrix(job.input_height));
+            script = script.replace(
+                "{{C709_RANGE}}",
+                if source.is_full_range() { "full" } else { "limited" },
+            );
+        } else {
+            script = remove_block("{{#COLOR_709}}", "{{/COLOR_709}}", script);
+        }
+
+        // ====================================================================
         // OUTPUT CHROMA SUBSAMPLING CONVERSION
         // ====================================================================
         // The target format is the enum's own business (ChromaSubsampling::
@@ -2344,7 +2559,8 @@ impl ScriptGenerator {
 
             let [r, g, b] = resize.border_rgb();
             script = script.replace("{{BORDER_RGB}}", &format!("({r}, {g}, {b})"));
-            let color = job.color_metadata();
+            // The bars go on last, in the colour the samples are delivered in.
+            let color = job.output_color_metadata();
             script = script.replace("{{BORDER_MATRIX}}", color.zimg_matrix(job.input_height));
             script = script.replace(
                 "{{BORDER_RANGE}}",
@@ -2500,6 +2716,20 @@ const DEINT_METHOD_BLOCKS: [(DeinterlaceMethod, &str); 4] = [
     (DeinterlaceMethod::Bwdif, "DEINT_BWDIF"),
 ];
 
+/// The `{{#AI_RUNTIME}}` block with `{{AI_RUNTIME_DIR}}` set to the AI runtime
+/// add-on's directory, or removed when `dir` is `None`. The block imports
+/// `ai_runtime.py` (beside `pipe_source.py`) and calls its `setup()`, after
+/// which any later block can use `ai_runtime.session(...)` and friends.
+pub(crate) fn ai_runtime_block(script: String, dir: Option<&Path>) -> String {
+    match dir {
+        Some(dir) => script
+            .replace("{{#AI_RUNTIME}}", "")
+            .replace("{{/AI_RUNTIME}}", "")
+            .replace("{{AI_RUNTIME_DIR}}", &py_str(dir)),
+        None => remove_block("{{#AI_RUNTIME}}", "{{/AI_RUNTIME}}", script),
+    }
+}
+
 /// Remove a block from start tag to end tag (including the line).
 fn remove_block(start_tag: &str, end_tag: &str, mut script: String) -> String {
     while let Some(start_pos) = script.find(start_tag) {
@@ -2522,6 +2752,40 @@ fn remove_block(start_tag: &str, end_tag: &str, mut script: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Both templates carry the AI runtime block once, before any pass, and
+    /// it imports the helper and sets it up from the substituted directory.
+    #[test]
+    fn ai_runtime_block_in_both_templates() {
+        for name in ["pipeline_template.vpy", "preview_template.vpy"] {
+            let t = ScriptGenerator::load_template_by_name(name).unwrap();
+            assert_eq!(t.matches("{{#AI_RUNTIME}}").count(), 1, "{name}");
+            let block_at = t.find("{{#AI_RUNTIME}}").unwrap();
+            assert!(block_at > t.find("from pipe_source import").unwrap(), "{name}: after the pipe source");
+            assert!(block_at < t.find("{{#DEINTERLACE}}").unwrap(), "{name}: before the passes");
+
+            let on = ai_runtime_block(t.clone(), Some(Path::new("/x/addons/ai-runtime")));
+            assert!(on.contains("import ai_runtime\n"), "{name}");
+            assert!(on.contains("ai_runtime.setup('/x/addons/ai-runtime')"), "{name}");
+            assert!(!on.contains("AI_RUNTIME}}"), "{name}");
+
+            let off = ai_runtime_block(t, None);
+            assert!(!off.contains("import ai_runtime"), "{name}");
+            assert!(!off.contains("AI_RUNTIME"), "{name}");
+        }
+    }
+
+    /// A job whose passes need no add-on (the default pipeline) never has the
+    /// block, whatever the generator was told about add-ons.
+    #[test]
+    fn a_job_without_addon_passes_has_no_ai_runtime_block() {
+        let gen = ScriptGenerator::new().unwrap().with_addons(PathBuf::from("/nonexistent"), "macos-arm64");
+        let pipeline = ProcessingPipeline::default();
+        assert!(pipeline.required_addons().is_empty());
+        gen.ensure_methods_ready(&pipeline).unwrap();
+        let script = gen.substitute_addons(gen.template.clone(), &pipeline);
+        assert!(!script.contains("ai_runtime"));
+    }
 
     /// A method missing from DEINT_METHOD_BLOCKS keeps every other method's
     /// block in its script (issue #108). The match has no catch-all, so a new

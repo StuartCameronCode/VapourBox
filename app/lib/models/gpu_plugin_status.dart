@@ -2,11 +2,15 @@
 /// worker's `--probe-rife` / `--probe-upscale`.
 ///
 /// The worker owns the decision and the wording (`worker/src/gpu_plugin.rs`):
-/// it checks the platform and the bundled files, then runs the plugin once and
-/// classifies how it failed — no Vulkan device, a missing system library, an
-/// older deps bundle. [GpuPluginStatus.message] is that explanation with its
-/// remedy, shown to the user verbatim; the worker fails such a job with the
-/// same text.
+/// it checks the platform and the bundled plugin files, then runs the plugin
+/// once on a stand-in network of its own and classifies how it failed — no
+/// Vulkan device, a missing system library, an older deps bundle, a wrong
+/// answer. [GpuPluginStatus.message] is that explanation with its remedy,
+/// shown to the user verbatim; the worker fails such a job with the same text.
+///
+/// The models the plugins run are add-ons, checked separately
+/// ([modelAddonSelectedBy]): the probe needs none, so "this computer can't run
+/// it" is known before anything is downloaded.
 library;
 
 /// The two features that run a network through ncnn on the GPU.
@@ -88,6 +92,47 @@ bool animeJanaiSelectedBy(String filterId, Map<String, dynamic> values) =>
     values['useIntegerUpscale'] == true &&
     values['upscaleMethod'] == 'animeJanai';
 
+/// Crop & Resize's AI upscale methods, all run by VSNCNN on the GPU.
+const aiUpscaleMethods = {
+  'realEsrgan',
+  'realCugan',
+  'animeJanai',
+  'realEsrganGeneral',
+  'liveAction',
+  'realEsrganPlus',
+};
+
+/// The add-on holding each AI upscale method's models — every one of them:
+/// no model is in the deps bundle. The worker's `UpscaleMethod::addon` (plus
+/// AnimeJaNai's hand-written add-on).
+const upscaleMethodAddons = <String, String>{
+  'realEsrgan': 'upscale-anime',
+  'realCugan': 'upscale-anime',
+  'animeJanai': 'animejanai',
+  'realEsrganGeneral': 'upscale-general',
+  'liveAction': 'upscale-general',
+  'realEsrganPlus': 'upscale-esrgan-plus',
+};
+
+/// The add-on a panel's current values need for their AI upscale, if any.
+String? upscaleAddonSelectedBy(String filterId, Map<String, dynamic> values) =>
+    filterId == 'crop_resize' && values['useIntegerUpscale'] == true
+        ? upscaleMethodAddons[values['upscaleMethod']]
+        : null;
+
+/// The add-on holding RIFE's model (the worker's `gpu_plugin::RIFE_ADDON`).
+const rifeAddonId = 'frame-rate-rife';
+
+/// The add-on a Frame Rate panel's values need: RIFE's model, when RIFE is
+/// the method.
+String? frameRateAddonSelectedBy(String filterId, Map<String, dynamic> values) =>
+    filterId == 'frame_rate' && values['method'] == 'rife' ? rifeAddonId : null;
+
+/// The model add-on a panel's current values need for a GPU feature (an AI
+/// upscaler or RIFE), if any.
+String? modelAddonSelectedBy(String filterId, Map<String, dynamic> values) =>
+    upscaleAddonSelectedBy(filterId, values) ?? frameRateAddonSelectedBy(filterId, values);
+
 /// Which GPU feature, if any, a panel's current values select.
 GpuPlugin? gpuPluginSelectedBy(String filterId, Map<String, dynamic> values) {
   switch (filterId) {
@@ -95,8 +140,7 @@ GpuPlugin? gpuPluginSelectedBy(String filterId, Map<String, dynamic> values) {
       return values['method'] == 'rife' ? GpuPlugin.rife : null;
     case 'crop_resize':
       final method = values['upscaleMethod'];
-      return values['useIntegerUpscale'] == true &&
-              (method == 'realEsrgan' || method == 'realCugan' || method == 'animeJanai')
+      return values['useIntegerUpscale'] == true && aiUpscaleMethods.contains(method)
           ? GpuPlugin.upscale
           : null;
   }

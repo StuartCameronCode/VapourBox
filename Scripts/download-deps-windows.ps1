@@ -95,10 +95,26 @@ $VSRelease = "R78"
 $PythonVersion = "3.12.10"
 $PythonTag = "312"
 
+# Every download goes through Invoke-WithRetry. Upstream hosts (GitHub's release
+# CDN above all) sometimes time out with a 5xx or cut a transfer short; a few
+# spaced retries ride that out instead of failing the whole build. Written as
+# a loop rather than -MaximumRetryCount, which Windows PowerShell 5.1 lacks.
+function Invoke-WithRetry {
+    param([scriptblock]$Action, [string]$What, [int]$Attempts = 6, [int]$DelaySec = 15)
+    for ($i = 1; ; $i++) {
+        try { return & $Action }
+        catch {
+            if ($i -ge $Attempts) { throw }
+            Write-Host "    $What failed (attempt $i of $Attempts): $($_.Exception.Message); retrying in $DelaySec s" -ForegroundColor Yellow
+            Start-Sleep -Seconds $DelaySec
+        }
+    }
+}
+
 function Download-File {
     param([string]$Url, [string]$OutFile)
     Write-Host "  Downloading: $Url" -ForegroundColor Gray
-    Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing
+    Invoke-WithRetry -What $Url { Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing }
 }
 
 # =============================================================================
@@ -729,7 +745,7 @@ Write-Host ""
 Write-Host "Downloading akarin $AkarinVersion (LLVM JIT for std.Expr)..." -ForegroundColor Yellow
 if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
     try {
-        $AkMeta = Invoke-RestMethod -Uri "https://pypi.org/pypi/vapoursynth-akarin/$AkarinVersion/json"
+        $AkMeta = Invoke-WithRetry -What "PyPI vapoursynth-akarin" { Invoke-RestMethod -Uri "https://pypi.org/pypi/vapoursynth-akarin/$AkarinVersion/json" }
         $AkUrl = ($AkMeta.urls | Where-Object { $_.filename -like "*win_amd64.whl" } |
                   Select-Object -First 1).url
         if (-not $AkUrl) { throw "no win_amd64 wheel for akarin $AkarinVersion" }
@@ -737,7 +753,7 @@ if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
         $AkWhl = Join-Path $TempDir "akarin.whl"
         $AkZip = Join-Path $TempDir "akarin-wheel.zip"
         $AkOut = Join-Path $TempDir "akarin-extract"
-        Invoke-WebRequest -Uri $AkUrl -OutFile $AkWhl -UseBasicParsing
+        Download-File -Url $AkUrl -OutFile $AkWhl
         # A wheel is a zip, but Expand-Archive validates the *extension* and
         # refuses .whl outright -- same trap as the VapourSynth wheel above.
         Copy-Item $AkWhl $AkZip -Force
@@ -766,7 +782,7 @@ if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
 }
 
 # =============================================================================
-# Bwdif + DeDot + vszip + BM3D + descale + KNLMeansCL - PyPI wheels
+# Bwdif + DeDot + vszip + BM3D + descale + KNLMeansCL + SangNom - PyPI wheels
 # =============================================================================
 # None of these upstreams publishes a Windows release asset, so each comes from
 # its PyPI wheel, resolved through the JSON API the same way akarin is (never
@@ -777,7 +793,9 @@ if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
 # only the system runtime, so there is nothing to place beside it. Bwdif and
 # DeDot hold exactly vapoursynth\plugins\<name>.dll.
 #
-# vszip (core.vszip.CLAHE, Colour Correction's local contrast, issue #90) holds
+# vszip (core.vszip.CLAHE, Colour Correction's local contrast, issue #90; and
+# from 24.0.0, the first release with it, core.vszip.NLMeans for Noise
+# Reduction's CPU non-local means and the Dehalo pass's vine method) holds
 # three builds under vapoursynth\plugins\vszip\ - vszip.dll (baseline x86-64),
 # vszip.avx2.dll and vszip.zn4.dll (AVX-512) - that VapourSynth picks between
 # through the wheel's manifest.vs. Only the baseline is taken, flat in
@@ -793,7 +811,7 @@ if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
 $WheelPlugins = @(
     @{ Name = "bwdif"; Package = "vapoursynth-bwdif"; Version = "5.1"; Dll = "bwdif.dll" },
     @{ Name = "dedot"; Package = "vapoursynth-dedot"; Version = "3.0"; Dll = "dedot.dll" },
-    @{ Name = "vszip"; Package = "vapoursynth-vszip"; Version = "22.1.0"; Dll = "vszip.dll"; Src = "vszip\vszip.dll" },
+    @{ Name = "vszip"; Package = "vapoursynth-vszip"; Version = "24.0.0"; Dll = "vszip.dll"; Src = "vszip\vszip.dll" },
     # core.bm3d (Noise Reduction's BM3D method). Wheel 12.0 is git tag r12, as
     # built from source by download-deps-{macos,linux}.sh. fftw is linked in
     # statically: the DLL imports only the UCRT.
@@ -808,7 +826,12 @@ $WheelPlugins = @(
     # zip (2018), which refuses every 9-15-bit clip except packed YUV444P10 /
     # RGB30 - so any 10-bit 4:2:0 source failed (issue #144). OpenCL is linked
     # statically; the DLL imports only Windows system libraries.
-    @{ Name = "knlmeanscl"; Package = "vapoursynth-knlmeanscl"; Version = "1.3"; Dll = "KNLMeansCL.dll" }
+    @{ Name = "knlmeanscl"; Package = "vapoursynth-knlmeanscl"; Version = "1.3"; Dll = "KNLMeansCL.dll" },
+    # core.sangnom.SangNom (Anti-aliasing's SangNom method). Wheel 45.0 is git
+    # tag r45, the same release the macOS/Linux wheels give. SSE2 only (no AVX
+    # in the DLL), so one file serves both tiers; imports only the UCRT. Source
+    # is MIT, upstream states its binaries are GPL v2 (licenses\NOTICES.txt).
+    @{ Name = "sangnom"; Package = "vapoursynth-sangnom"; Version = "45.0"; Dll = "sangnom.dll" }
 )
 
 foreach ($W in $WheelPlugins) {
@@ -816,7 +839,7 @@ foreach ($W in $WheelPlugins) {
     Write-Host "Downloading $($W.Name) $($W.Version) (PyPI wheel)..." -ForegroundColor Yellow
     if (-not (Test-Path "$PluginsDir\$($W.Dll)")) {
         try {
-            $Meta = Invoke-RestMethod -Uri "https://pypi.org/pypi/$($W.Package)/$($W.Version)/json"
+            $Meta = Invoke-WithRetry -What "PyPI $($W.Package)" { Invoke-RestMethod -Uri "https://pypi.org/pypi/$($W.Package)/$($W.Version)/json" }
             $Url = ($Meta.urls | Where-Object { $_.filename -like "*win_amd64.whl" } |
                     Select-Object -First 1).url
             if (-not $Url) { throw "no win_amd64 wheel for $($W.Package) $($W.Version)" }
@@ -824,7 +847,7 @@ foreach ($W in $WheelPlugins) {
             $Whl = Join-Path $TempDir "$($W.Name).whl"
             $Zip = Join-Path $TempDir "$($W.Name)-wheel.zip"
             $Out = Join-Path $TempDir "$($W.Name)-extract"
-            Invoke-WebRequest -Uri $Url -OutFile $Whl -UseBasicParsing
+            Download-File -Url $Url -OutFile $Whl
             # Expand-Archive validates the *extension* and refuses .whl outright.
             Copy-Item $Whl $Zip -Force
             Remove-Item $Out -Recurse -Force -ErrorAction SilentlyContinue
@@ -855,40 +878,27 @@ foreach ($W in $WheelPlugins) {
 # RIFE job (see worker\src\gpu_plugin.rs), so a machine without a Vulkan driver, or
 # without the MSVC OpenMP runtime (VCOMP140.DLL) the DLL imports, fails that
 # method alone - and the app's probe names which one is missing. vulkan-1.dll
-# comes with the GPU driver and is not ours to ship. Keep $RifeTag, the model
-# commit and the model hashes in step with download-deps-{macos,linux}.sh.
+# comes with the GPU driver and is not ours to ship. Keep $RifeTag in step
+# with download-deps-{macos,linux}.sh.
 #
-# The model is the ncnn conversion committed to the plugin's repo (there is no
-# release asset for it), fetched at a pinned commit and checked by hash.
+# The plugin only. Its model is the `frame-rate-rife` add-on (deps 1.16.0 on;
+# app\assets\addons\frame-rate-rife.json): every AI model is an add-on, never
+# in this bundle (docs\ADDONS.md).
 $RifeTag = "r9_mod_v33"
 $RifeDllSha256 = "36a25b471be88e6f915320c818022dc8657dd9beac22a8c3158bd7f4260cc410"
-$RifeModelCommit = "96fdcecdf982ef3237e16e2b105eea849fa022ab"
-$RifeModelName = "rife-v4.26_ensembleFalse"
-$RifeModelHashes = @{
-    "flownet.bin"   = "94d58e30b75d7c7609cfa6f3bdad524deddd14f5f75e85c36d2f827ef5c64731"
-    "flownet.param" = "79f16c28903f93f8308f0c4c947f8c7e0c17d99a57b85473e5f298dd578d137b"
-}
 $RifeDir = "$FullTargetDir\vapoursynth\rife"
-$RifeModelDir = "$RifeDir\models\$RifeModelName"
 
 Write-Host ""
-Write-Host "Downloading RIFE $RifeTag (model $RifeModelName)..." -ForegroundColor Yellow
-if (-not ((Test-Path "$RifeDir\librife.dll") -and (Test-Path "$RifeModelDir\flownet.bin"))) {
+Write-Host "Downloading RIFE $RifeTag..." -ForegroundColor Yellow
+if (-not ((Test-Path "$RifeDir\librife.dll") -and -not (Test-Path "$RifeDir\models"))) {
     try {
         Remove-Item $RifeDir -Recurse -Force -ErrorAction SilentlyContinue
-        New-Item -ItemType Directory -Force -Path $RifeModelDir | Out-Null
+        New-Item -ItemType Directory -Force -Path $RifeDir | Out-Null
         $RifeDll = Join-Path $TempDir "librife.dll"
         Download-File -Url "https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/releases/download/$RifeTag/librife_windows_x86-64.dll" -OutFile $RifeDll
         $Got = (Get-FileHash -Path $RifeDll -Algorithm SHA256).Hash.ToLower()
         if ($Got -ne $RifeDllSha256) { throw "librife.dll sha256 $Got, expected $RifeDllSha256" }
         Move-Item $RifeDll "$RifeDir\librife.dll" -Force
-        foreach ($F in $RifeModelHashes.Keys) {
-            $Out = Join-Path $TempDir $F
-            Download-File -Url "https://raw.githubusercontent.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan/$RifeModelCommit/models/$RifeModelName/$F" -OutFile $Out
-            $Got = (Get-FileHash -Path $Out -Algorithm SHA256).Hash.ToLower()
-            if ($Got -ne $RifeModelHashes[$F]) { throw "$F sha256 $Got, expected $($RifeModelHashes[$F])" }
-            Move-Item $Out "$RifeModelDir\$F" -Force
-        }
         Write-Host "  RIFE installed -> vapoursynth\rife\" -ForegroundColor Green
     } catch {
         Remove-Item $RifeDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -899,7 +909,7 @@ if (-not ((Test-Path "$RifeDir\librife.dll") -and (Test-Path "$RifeModelDir\flow
 }
 
 # =============================================================================
-# VSNCNN (vs-mlrt) + Real-ESRGAN / Real-CUGAN - Crop & Resize's AI upscaling
+# VSNCNN (vs-mlrt) - runs Crop & Resize's AI upscalers
 # =============================================================================
 # vs-mlrt's own Windows build, pinned and hash-checked. Lives in
 # vapoursynth\ncnn\, never in vs-plugins (see worker\src\gpu_plugin.rs). It links
@@ -907,31 +917,23 @@ if (-not ((Test-Path "$RifeDir\librife.dll") -and (Test-Path "$RifeModelDir\flow
 # GPU driver's, at run time. One file serves both CPU tiers: ncnn dispatches
 # its SIMD at run time.
 #
-# The models are vs-mlrt's ONNX conversions (2.4-5.2 MB each), shipped only
-# inside one ~810 MB archive per release: fetched pinned and hash-checked, the
-# five VapourBox uses extracted and each checked by its own hash. Keep every pin
-# and hash in step with download-deps-{macos,linux}.sh and
-# gpu_plugin::UPSCALE_MODELS. Needs 7-Zip, like the other .7z downloads.
+# The plugin only. Every model it runs is an add-on (deps 1.16.0 on;
+# app\assets\addons\upscale-*.json, docs\ADDONS.md) - the Real-ESRGAN anime and
+# Real-CUGAN models included, which were bundled here until then. Keep every
+# pin in step with download-deps-{macos,linux}.sh. Needs 7-Zip, like the other
+# .7z downloads.
 $VsmlrtTag = "v15.16"
 $VsncnnArchiveSha256 = "2ccf0ec1f84cd60f4a744c04d2a40d988da32f6970542f4f81669d44e9ea2ff1"
-$VsmlrtModelsSha256 = "d4eaa8c1c4459082185a9e1a2c54d7e2c776abeea6aef6aee0cb8f6c151dfb02"
-$UpscaleModelHashes = [ordered]@{
-    "RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx" = "6fad590f96df553a5cc348a9c5129e7874504a7dcd414e4a15fb0b281fca7e0c"
-    "RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx" = "414de3a5da4c56652c99f3bc0b960910e3561835a6c7a9cca546475bc4792158"
-    "cugan/up2x-latest-no-denoise.onnx"              = "3587278c3a7e62bbcb00a23b4de291ff906f62a88856ee457cbe4211cc593574"
-    "cugan/up2x-latest-conservative.onnx"            = "555bca3eb90caa37c7e1a02aec9cda3ca8479f252746c1885d382f87312f651c"
-    "cugan/up2x-latest-denoise3x.onnx"               = "7bcb0510f9f989e681a51d39b7170883d3d5e75f1ec23ef5146e8ea50c3cc845"
-}
 $NcnnDir = "$FullTargetDir\vapoursynth\ncnn"
 
 Write-Host ""
-Write-Host "Downloading VSNCNN $VsmlrtTag + upscaling models..." -ForegroundColor Yellow
+Write-Host "Downloading VSNCNN $VsmlrtTag..." -ForegroundColor Yellow
 if (-not $Has7z) {
     Write-Host "    Skipping (7-Zip not installed)" -ForegroundColor Yellow
-} elseif (-not ((Test-Path "$NcnnDir\vsncnn.dll") -and (Test-Path "$NcnnDir\models\cugan\up2x-latest-denoise3x.onnx"))) {
+} elseif (-not ((Test-Path "$NcnnDir\vsncnn.dll") -and -not (Test-Path "$NcnnDir\models"))) {
     try {
         Remove-Item $NcnnDir -Recurse -Force -ErrorAction SilentlyContinue
-        New-Item -ItemType Directory -Force -Path "$NcnnDir\models" | Out-Null
+        New-Item -ItemType Directory -Force -Path $NcnnDir | Out-Null
         $Work = Join-Path $TempDir "vsncnn"
         Remove-Item $Work -Recurse -Force -ErrorAction SilentlyContinue
         New-Item -ItemType Directory -Force -Path $Work | Out-Null
@@ -945,24 +947,6 @@ if (-not $Has7z) {
         $Dll = Get-ChildItem -Path $Work -Recurse -Filter "vsncnn.dll" | Select-Object -First 1
         if (-not $Dll) { throw "vsncnn.dll missing from the VSNCNN archive" }
         Copy-Item $Dll.FullName "$NcnnDir\vsncnn.dll" -Force
-
-        $Models = Join-Path $Work "models.7z"
-        Download-File -Url "https://github.com/AmusementClub/vs-mlrt/releases/download/$VsmlrtTag/models.$VsmlrtTag.7z" -OutFile $Models
-        $Got = (Get-FileHash -Path $Models -Algorithm SHA256).Hash.ToLower()
-        if ($Got -ne $VsmlrtModelsSha256) { throw "models archive sha256 $Got, expected $VsmlrtModelsSha256" }
-        # One pass: the archive is solid, so separate extractions would each
-        # decompress it from the start again.
-        $Wanted = $UpscaleModelHashes.Keys | ForEach-Object { "models/$_" }
-        & $7zPath x $Models -o"$Work" -y @Wanted | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "7-Zip failed on the models archive (exit $LASTEXITCODE)" }
-        foreach ($Rel in $UpscaleModelHashes.Keys) {
-            $Src = Join-Path $Work ("models\" + $Rel.Replace('/', '\'))
-            $Got = (Get-FileHash -Path $Src -Algorithm SHA256).Hash.ToLower()
-            if ($Got -ne $UpscaleModelHashes[$Rel]) { throw "$Rel sha256 $Got, expected $($UpscaleModelHashes[$Rel])" }
-            $Dest = Join-Path "$NcnnDir\models" $Rel.Replace('/', '\')
-            New-Item -ItemType Directory -Force -Path (Split-Path $Dest) | Out-Null
-            Move-Item $Src $Dest -Force
-        }
         Remove-Item $Work -Recurse -Force -ErrorAction SilentlyContinue
         Write-Host "  VSNCNN installed -> vapoursynth\ncnn\" -ForegroundColor Green
     } catch {

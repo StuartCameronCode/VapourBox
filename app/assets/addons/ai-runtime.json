@@ -1,0 +1,111 @@
+{
+  "id": "ai-runtime",
+  "version": "1.0.0",
+  "name": "AI runtime (ONNX Runtime)",
+  "feature": "AI models",
+  "description": "Runs AI models for the features that need it, on the graphics card where it can (DirectML on Windows, Core ML on macOS) and otherwise on the CPU: Microsoft's ONNX Runtime and NumPy, installed for VapourBox's own Python. The AI model add-ons need it.",
+  "licence": "MIT",
+  "licenceUrl": "https://github.com/microsoft/onnxruntime/blob/main/LICENSE",
+  "credit": "Microsoft Corporation",
+  "noticeName": "ONNX Runtime",
+  "homepage": "https://onnxruntime.ai",
+  "components": [
+    {
+      "noticeName": "NumPy",
+      "licence": "BSD-3-Clause",
+      "licenceUrl": "https://github.com/numpy/numpy/blob/main/LICENSE.txt",
+      "credit": "NumPy Developers",
+      "homepage": "https://numpy.org"
+    },
+    {
+      "noticeName": "DirectML",
+      "licence": "Microsoft Software License Terms",
+      "licenceUrl": "https://www.nuget.org/packages/Microsoft.AI.DirectML/1.15.4/License",
+      "credit": "Microsoft Corporation",
+      "homepage": "https://github.com/microsoft/DirectML",
+      "platforms": ["windows-x64"]
+    }
+  ],
+  "requires": [],
+  "kind": "python",
+  "python": "cp312",
+  "platforms": {
+    "macos-arm64": { "minOs": "14.0" },
+    "macos-x64": { "minOs": "13.0" },
+    "windows-x64": {},
+    "linux-x64": {},
+    "linux-arm64": {}
+  },
+  "files": [
+    {
+      "name": "onnxruntime-1.31.1-cp312-cp312-macosx_14_0_arm64.whl",
+      "url": "https://files.pythonhosted.org/packages/0e/f7/cecc0efeeea83bff2f7789ae1b80f27fa0f0210d6d9d66d1f0031a6b5e47/onnxruntime-1.31.1-cp312-cp312-macosx_14_0_arm64.whl",
+      "size": 20882125,
+      "sha256": "96dd2564b10ea7153ad9c207e7cd8e5917cb3ba521e0e0a62ac03486fdc8d56c",
+      "platforms": ["macos-arm64"]
+    },
+    {
+      "name": "numpy-2.5.4-cp312-cp312-macosx_14_0_arm64.whl",
+      "url": "https://files.pythonhosted.org/packages/31/2f/5ea3570fcb8ccd0882bea99436a513b2c85dad8f774a2057849130a8fb99/numpy-2.5.4-cp312-cp312-macosx_14_0_arm64.whl",
+      "size": 5451717,
+      "sha256": "9cb18a327b49c5c337f972b03682f6a49855525faaf3c0d3e9c96cd0fd8880a8",
+      "platforms": ["macos-arm64"]
+    },
+    {
+      "name": "onnxruntime-1.23.2-cp312-cp312-macosx_13_0_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/91/9d/a81aafd899b900101988ead7fb14974c8a58695338ab6a0f3d6b0100f30b/onnxruntime-1.23.2-cp312-cp312-macosx_13_0_x86_64.whl",
+      "size": 19157705,
+      "sha256": "218295a8acae83905f6f1aed8cacb8e3eb3bd7513a13fe4ba3b2664a19fc4a6b",
+      "platforms": ["macos-x64"]
+    },
+    {
+      "name": "numpy-2.5.4-cp312-cp312-macosx_10_13_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/d0/97/ba2074e92b7befea137e77ea8471e768bbd87c339b7e8c9f5a931949f977/numpy-2.5.4-cp312-cp312-macosx_10_13_x86_64.whl",
+      "size": 17001609,
+      "sha256": "c6342f54c67093cae5c0227eb0eb772fdb79f2a2c37a6eb278b9909ee06aa356",
+      "platforms": ["macos-x64"]
+    },
+    {
+      "name": "onnxruntime_directml-1.24.4-cp312-cp312-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/88/ea/33814eb0ec96775eda4c1d30b0d86e91d7d2cd0d84c66d3915aef0e06fa3/onnxruntime_directml-1.24.4-cp312-cp312-win_amd64.whl",
+      "size": 25111930,
+      "sha256": "f2ecb68b7b7b259d2ef3112ae760149f9b5a1e7c0fbb73d539da6250a648a614",
+      "platforms": ["windows-x64"]
+    },
+    {
+      "name": "numpy-2.5.4-cp312-cp312-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/12/33/fefe62073dc8acfd0f2b9ed7c003af2f50aa61555e113e6db02b8f79f145/numpy-2.5.4-cp312-cp312-win_amd64.whl",
+      "size": 12573091,
+      "sha256": "a7b1b6353e36a7e50de2973a38d705c88ee93adcf120673cee7f45a4a3fa223a",
+      "platforms": ["windows-x64"]
+    },
+    {
+      "name": "onnxruntime-1.31.1-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/eb/27/c6a823bac55b2977bea2027c3ec9393a2c1002cb9a09eb40354563e02730/onnxruntime-1.31.1-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "size": 23760988,
+      "sha256": "1f3dea47f2f0e5117c2404cea7d21fd253ae7836a3bf167a501cdfbb2600d536",
+      "platforms": ["linux-x64"]
+    },
+    {
+      "name": "numpy-2.5.4-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "url": "https://files.pythonhosted.org/packages/43/a3/c799c62e19c337e6d3770b08e475887fb30ce8477d3c09efca6b2f0228a6/numpy-2.5.4-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "size": 16727283,
+      "sha256": "fbde6962867ee75b48b0ee29b2b9372ec5d617799dbaf38e82dc0596f2f7738a",
+      "platforms": ["linux-x64"]
+    },
+    {
+      "name": "onnxruntime-1.31.1-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "url": "https://files.pythonhosted.org/packages/ba/e4/1ed1a7a5f4702d899091fa2b976d377995250c307326ec8dc9ae6378aa13/onnxruntime-1.31.1-cp312-cp312-manylinux_2_28_aarch64.whl",
+      "size": 21420803,
+      "sha256": "0b9a492176886992e0e875f06bc0367e333f5fff11711a2d642e18b02f3009cc",
+      "platforms": ["linux-arm64"]
+    },
+    {
+      "name": "numpy-2.5.4-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl",
+      "url": "https://files.pythonhosted.org/packages/dc/96/8319e2457ae4333c62c815c7006b869a4f60985c1e01024c2f8c6c040fe5/numpy-2.5.4-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl",
+      "size": 15695312,
+      "sha256": "fe4d21ab149f15e4e6043dfb0de87e6e5f34ac176cde83060e9802981fca2ac2",
+      "platforms": ["linux-arm64"]
+    }
+  ]
+}

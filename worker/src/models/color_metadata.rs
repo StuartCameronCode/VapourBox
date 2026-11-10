@@ -24,9 +24,12 @@
 //! input they ride on the frames and are written.
 //!
 //! So this is a *metadata* fix, and the input-side declaration is what keeps it
-//! one. Nothing here should convert anything: the samples coming off the pipe
-//! already carry whatever matrix the source used, and none of the passes
-//! re-matrix them. See docs/ENGINEERING_NOTES.md (2026-09-26).
+//! one. Nothing in ffmpeg should convert anything: the samples coming off the
+//! pipe carry the source's matrix, except in one case the script itself
+//! converts — a BT.601 source taken to BT.709 by Crop & Resize (app 1.7.0),
+//! when the tags declared are `bt709_converted`'s and `VideoJob::
+//! output_color_metadata` is the one place that decides which. See
+//! docs/ENGINEERING_NOTES.md (2026-09-26).
 //!
 //! Values are validated against what FFmpeg actually accepts rather than passed
 //! through, on the same principle as `parse_ratio`: a value we do not recognise
@@ -170,6 +173,64 @@ impl ColorMetadata {
             Some("ictcp") => "ictcp",
             _ if source_height.is_some_and(|h| h >= 720) => "709",
             _ => "170m",
+        }
+    }
+
+    /// Whether the picture's colour is BT.601: tagged `bt470bg` (PAL) or
+    /// `smpte170m` (NTSC), or untagged below HD height, which is how the rest
+    /// of the app (`zimg_matrix`) and every player read an untagged SD file.
+    /// Never an HDR picture.
+    pub fn is_bt601_family(&self, source_height: Option<i32>) -> bool {
+        if self.is_hdr() {
+            return false;
+        }
+        match self.matrix.as_deref() {
+            Some("bt470bg") | Some("smpte170m") => true,
+            Some(_) => false,
+            None => self.zimg_matrix(source_height) == "170m",
+        }
+    }
+
+    /// The primaries a BT.601 picture was made for: its tag, else PAL's
+    /// (EBU, `bt470bg`) for a 576- or 288-line picture or a `bt470bg` matrix,
+    /// else NTSC's (SMPTE C, `smpte170m`).
+    fn bt601_primaries(&self, source_height: Option<i32>) -> String {
+        if let Some(p) = &self.primaries {
+            return p.clone();
+        }
+        let pal = self.matrix.as_deref() == Some("bt470bg")
+            || matches!(source_height, Some(576) | Some(288));
+        if pal { "bt470bg" } else { "smpte170m" }.to_string()
+    }
+
+    /// The tags of a BT.601 picture after its samples are converted to the
+    /// BT.709 matrix (the script's `COLOR_709` block, app 1.7.0).
+    ///
+    /// The matrix and transfer say 709. BT.601's transfer is the same curve as
+    /// BT.709's, and PAL's nominal gamma-2.8 tag has never described a real
+    /// camera, so relabelling it changes nothing about the samples.
+    ///
+    /// The **primaries keep the source's** (tagged, or PAL/NTSC by height),
+    /// because only the matrix is converted: the samples still describe the
+    /// source's primaries. Converting the gamut as well was measured and
+    /// rejected (docs/reports/2026-11-crop-detect-709/): SMPTE C to BT.709
+    /// moves a 75% green from RGB (0,191,0) to (55,188,0) and a 75% magenta's
+    /// green from 0 to 47, which every player that does not colour-manage
+    /// (most of them) would show as a hue shift of its own, while a player
+    /// that does colour-manage reads the source's primaries from the tag. The
+    /// range is the source's (limited when untagged), declared explicitly.
+    pub fn bt709_converted(&self, source_height: Option<i32>) -> ColorMetadata {
+        let transfer = match self.transfer.as_deref() {
+            None | Some("bt709") | Some("smpte170m") | Some("gamma22") | Some("gamma28") => {
+                "bt709".to_string()
+            }
+            Some(other) => other.to_string(),
+        };
+        ColorMetadata {
+            matrix: Some("bt709".to_string()),
+            primaries: Some(self.bt601_primaries(source_height)),
+            transfer: Some(transfer),
+            range: Some(self.range.clone().unwrap_or_else(|| "tv".to_string())),
         }
     }
 
@@ -427,5 +488,48 @@ mod tests {
             ]
         );
         assert!(ColorMetadata::default().to_ffmpeg_input_args().is_empty());
+    }
+
+    #[test]
+    fn bt601_family_is_tagged_or_untagged_sd() {
+        let tagged = |m: &str| ColorMetadata::from_raw(Some(m), None, None, None);
+        assert!(tagged("bt470bg").is_bt601_family(Some(1080)));
+        assert!(tagged("smpte170m").is_bt601_family(Some(480)));
+        assert!(!tagged("bt709").is_bt601_family(Some(576)));
+        assert!(!tagged("bt2020nc").is_bt601_family(Some(576)));
+        let untagged = ColorMetadata::default();
+        assert!(untagged.is_bt601_family(Some(576)));
+        assert!(!untagged.is_bt601_family(Some(720)));
+        // HDR is never 601, whatever its matrix says.
+        let hdr = ColorMetadata::from_raw(Some("bt470bg"), None, Some("smpte2084"), None);
+        assert!(!hdr.is_bt601_family(Some(576)));
+    }
+
+    #[test]
+    fn bt709_converted_keeps_primaries_and_range() {
+        // PAL, fully tagged: matrix and transfer become 709, primaries stay.
+        let pal = ColorMetadata::from_raw(Some("bt470bg"), Some("bt470bg"), None, Some("tv"));
+        assert_eq!(
+            pal.bt709_converted(Some(576)).to_ffmpeg_output_args(),
+            vec![
+                "-colorspace", "bt709",
+                "-color_primaries", "bt470bg",
+                "-color_trc", "bt709",
+                "-color_range", "tv",
+            ]
+        );
+        // Untagged: primaries by height (576 is PAL, 480 NTSC), range limited.
+        let untagged = ColorMetadata::default();
+        let pal = untagged.bt709_converted(Some(576));
+        assert_eq!(pal.primaries.as_deref(), Some("bt470bg"));
+        assert_eq!(pal.range.as_deref(), Some("tv"));
+        let ntsc = untagged.bt709_converted(Some(480));
+        assert_eq!(ntsc.primaries.as_deref(), Some("smpte170m"));
+        // A full-range source stays full range.
+        let full = ColorMetadata::from_raw(Some("smpte170m"), None, Some("smpte170m"), Some("pc"));
+        let out = full.bt709_converted(Some(480));
+        assert_eq!(out.range.as_deref(), Some("pc"));
+        assert_eq!(out.transfer.as_deref(), Some("bt709"));
+        assert_eq!(out.zimg_matrix(Some(480)), "709");
     }
 }

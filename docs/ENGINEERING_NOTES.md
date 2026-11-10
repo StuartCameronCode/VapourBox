@@ -92,6 +92,13 @@ them, and neither can move.
 > original duration; audio is only ever `-ss` seeked and `-shortest` truncated.
 > If a pass is ever added that *does* retime audio (an `atempo` for a declared
 > frame-rate change, say), this breaks and the subtitles drift.
+>
+> **2026-11-08: one now does.** Audio Restoration's sync offset and drift
+> correction move audio in time. It renders the output's soundtrack before the
+> encode, and transcription reads that rendered track instead of the source
+> window, so cues follow the retiming by construction (see "Audio restoration"
+> below). The rule that survives: transcription hears exactly the output's
+> audio, and anything that moves audio lives in `audio_restoration`.
 
 `SubtitleOutput::{burns_in, muxes, keeps_srt_file}` answer the three independent
 questions rather than matching the enum in three places. A test asserts every
@@ -2474,9 +2481,10 @@ Pixel checks (heavy test), against a plain Spline36 upscale of the same frames:
   centre on both axes (0.75 px), and that Spline36 itself lands on factor x
   source (within 0.25 px), so the reference is known-good.
 
-CI runs it for real on Linux and Windows: Mesa lavapipe (ncnn tags a CPU
-device as type 3 but does not skip it) and `VAPOURBOX_EXPECT_VULKAN=1`, so an
-unavailable feature is a failure there, not a skip. The first lavapipe probe
+CI ran it for real on Linux and Windows until 2026-11-09 (see "GPU tests
+leave CI" below): Mesa lavapipe (ncnn tags a CPU device as type 3 but does not
+skip it) and `VAPOURBOX_EXPECT_VULKAN=1`, so an unavailable feature was a
+failure there, not a skip. The first lavapipe probe
 takes ~30 s (Windows: 30.4 s), past flutter_test's default timeout, and one
 whole 720x576 Real-CUGAN frame took over five minutes, so the push gate crops
 to 240x192 first.
@@ -2882,6 +2890,346 @@ MPEG-2 at 1000/1500/3000 kbps with `+ildct+ilme`:
 - The film fixture's reference carries `small_clip.mp4`'s own (upscaled)
   H.264 blocks; PSNR rewards deblocking's smoothing, and VMAF dips slightly.
 
+### AI models become add-ons; the AI runtime is ONNX Runtime wheels (2026-11-08)
+
+Policy (owner's decision): every AI model ships as an optional add-on, never
+in the deps bundle, through one generic manifest format (docs/ADDONS.md). The
+first manifest add-on is `ai-runtime`, ONNX Runtime + NumPy for passes that
+need per-crop inference or NumPy around a network, which VSNCNN can't do.
+The facts the manifest rests on, checked against PyPI and the wheels on this
+date (groundwork, not a quality comparison, so no report):
+
+- **What `import onnxruntime` needs is NumPy, nothing else.** The wheels
+  declare flatbuffers, packaging, protobuf (and on 1.23.2 / DirectML
+  coloredlogs and sympy), but importing the package and running an
+  `InferenceSession` in the deps Python with only onnxruntime + numpy on
+  `sys.path` loaded no other third-party module; a scan of the 1.23.2 and
+  DirectML wheels' runtime modules found no top-level import of them
+  either (they are used by `tools/`, `transformers/`, `quantization/`).
+- **Intel Macs stop at onnxruntime 1.23.2**, whose wheel is
+  `macosx_13_0_x86_64` — above the x64 app floor (12.0), so the add-on carries
+  `minOs: 13.0` there and an older Mac is told so. NumPy 2.5.4's Intel wheel
+  is `macosx_10_13`, and its arm64 one `macosx_14_0` (Accelerate), both
+  within their app floors.
+- **Windows uses onnxruntime-directml 1.24.4**, so any DirectX 12 GPU works.
+  Its `DirectML.dll` (1.15.4) is under Microsoft's proprietary DirectML
+  licence (read from the Microsoft.AI.DirectML 1.15.4 NuGet package — the
+  wheel ships no licence text for it), credited as its own component.
+- **Windows' embeddable Python ignores PYTHONPATH** (its `._pth` fixes
+  `sys.path`), so `ai_runtime.setup()` inserts the add-on's `site-packages`
+  itself, and registers `onnxruntime/capi` with `os.add_dll_directory`.
+  Untested on Windows from macOS: the nightly heavy run is the first check.
+- On an M-series Mac the self-test session reports `CoreMLExecutionProvider`
+  first; whether Core ML or the CPU fallback executed the two-node model is
+  not distinguishable from `get_providers()`.
+
+### Live-action AI upscalers as add-ons, and AI strength (2026-11-08)
+
+Full report with crops, every number and the scripts:
+[docs/reports/2026-11-ai-upscale-addons/](reports/2026-11-ai-upscale-addons/index.html).
+Crop & Resize's AI upscalers were all trained on anime; three more methods
+now cover real-world footage, run by the same VSNCNN block, with their
+models in two manifest add-ons (`upscale-general`, `upscale-esrgan-plus`).
+Measured on an M1 Pro (16 GB):
+
+- **Converting Real-ESRGAN's `.pth`** (`Scripts/models/convert_realesrgan.py`):
+  SRVGGNetCompact and RRDBNet transcribed, opset 13 / IR 7 like vs-mlrt's own
+  conversions. PyTorch vs ONNX Runtime: at most 0.017 of an 8-bit level. The
+  TorchScript export of x2plus's `pixel_unshuffle` is a 6-D Reshape/Transpose
+  ncnn can't import; a one-hot stride-2 convolution is exactly equal and
+  imports. Two runs are byte-identical.
+- **VSNCNN fp32 reproduces ONNX Runtime exactly** (≤0.005 levels) for all
+  five models; fp16 (what the template uses) differs by a mean 0.05–0.12
+  levels, the same order as the bundled anime model's 0.03.
+- **2xVHS2HD (RealPLKSR) can't run on VSNCNN.** Its official ONNX (dynamic
+  shapes, in-place slice assignment) has 225 Shape, 56 Range/Where/Equal/
+  ConstantOfShape/Cast and 28 ScatterND nodes, none of which ncnn's ONNX
+  importer supports ("load param failed"). Re-exporting from the `.pth` with
+  concatenation instead of slice assignment might work; not attempted (the
+  brief was to stop there).
+- **Real-ESRGAN x4plus needs tiles at any size.** Whole-frame at 720x576 lost
+  the Vulkan device (`vkWaitForFences failed -4`, then a segfault); 512-px
+  tiles thrashed at 29 s a frame; 384 is the fastest (6.8 s a frame), 256
+  gave 10 s. x2plus runs a DVD frame whole at 0.8 fps.
+- **A tile larger than the frame segfaults VSNCNN** (found converting the
+  PSNR run: 384 tiles on a 360x288 frame). The template tiled whenever the
+  area passed the threshold, so an 800x200 picture (x4plus) — or, for every
+  AI method, a frame above 720x576 in area but under 512 lines — would have
+  crashed. Tiles are now `min(tile, width/height)`; the heavy suite runs
+  x4plus 4x on an 800x200 source.
+- **General at 2x = 4x, then resample down**, as upstream's own `--outscale`.
+  The kernel moves PSNR by under 0.7 dB, and softer kernels score higher
+  (bilinear 28.40, Spline36 27.75, Lanczos 27.70) because PSNR rewards blur;
+  Spline36 is the pipeline's kernel and was kept.
+- **Flat colour vs Spline36** on the synthetic pattern (worst channel): General
+  2.9 levels, Live Action SPAN 0.6 at 2x / 1.3 at 4x, x2plus 4.2, x4plus 12.2.
+  Bar centre within 0.3 px for all. **AI strength** 0.5 lands within 0.38
+  levels of the mid-point of network and Spline36 and halves Real-ESRGAN 4x's
+  tint (11.2 → 5.8).
+- Speed at 720x576 (fp16, two streams, quiet machine): SPAN 2x 8.9 fps, General 2x 4.0,
+  x2plus 0.9, SPAN 4x 1.5, General 4x 3.9, x4plus 4x 0.15; bundled anime
+  Real-ESRGAN 2x 8.3 and CUGAN 4.8 for scale.
+
+### Audio restoration: rendered before the encode; four filter traps measured (2026-11-08)
+
+Full report with scripts:
+[docs/reports/2026-11-audio-restoration/](reports/2026-11-audio-restoration/index.html).
+
+A new pass, Audio Restoration, renders one audio stream to a WAV before the
+video encode (channel fix, sync offset, drift, declip/declick/rumble/hum,
+afftdn, DeepFilterNet as an add-on, two-pass loudness, limiter); the encoder
+maps that track first and keeps the other streams. Rendering first, not an
+`-af` on the encode, is what DeepFilterNet, two-pass loudness, negative offsets
+and subtitle alignment all need. Measured with ffmpeg 9.0.2 and deep-filter
+0.5.6 on Apple Silicon, on lavfi-generated signals:
+
+- **afftdn delays by 25 ms at every rate and strength** (1200 samples at
+  48 kHz, 1102 at 44.1, 800 at 32; Video-Enhancer's 1200 confirmed) — trimmed
+  with `atrim=start_sample`. Its default `nf=-50` took 0.7 dB off −39 dB white
+  noise; with the measured floor (quietest tenth of 50 ms windows) 5.5/9.8/
+  13.5/15.2 dB at nr 6/12/20/30, a 440 Hz tone unchanged; `tn=1` (noise
+  tracking) undid the measured floor entirely (0.7 dB again), so it is off.
+- **atempo moved every click ~20 ms early** (≈ −19 to −21 ms after the first,
+  at 1.004, 0.996 and 1.02), on top of the stretch. Drift is now an exact
+  resample (`aresample` to 4–8× → integer `asetrate` → `aresample` back,
+  ratio within ~1e-11): click positions within 0.01 ms. Resampling is also
+  the physically right inverse of a sample-clock error (it restores pitch).
+- **`alimiter` delays by its attack unless `latency=1`, and normalises to
+  0 dBFS unless `level=0`**: measured 239 samples (5 ms) late at 48 kHz, and a
+  limit of −6 dB came out peaking at 0.00 dBFS; with both set, 0 lag and
+  −6.02 dBFS. loudnorm, adeclick, adeclip, highpass, the notches and the
+  drift resample measured zero lag; loudnorm outputs 192 kHz.
+- **A late-starting audio stream** (capture audio 0.5 s after the video) lost
+  its gap in a WAV: `aresample=first_pts=0` restores it with no seek; with an
+  input seek the window starts at the seek point as before.
+- **DeepFilterNet** delays 30 ms (1440 samples at 48 kHz); `-D` compensates
+  and shortens the output by as much, padded back. It takes 44.1 kHz input and
+  always writes 48 kHz. On a synthetic voiced signal in pink noise: pauses
+  25.3/22.5/13.7 dB quieter at `-a` 100/30/15, voiced level −1.1 dB, ~4 s per
+  minute (mono, M-series CPU). Its SNR *inside* the synthetic voice dropped
+  (20.9 → 13.8 dB): a harmonic test tone is not speech, which is the network's
+  domain — judge it by ear on real dialogue. Not tested on Windows/Linux, or
+  the macOS x64 build (unsigned; the installer signs it).
+- Hum notches (`bandreject` Q 8 at f/2f/3f): 47/61/71 dB down at 50/100/150 Hz,
+  1 kHz unchanged. Two-pass linear loudnorm hit −23 and −16 LUFS to 0.0 LU.
+- Found on the way, not fixed (another area): `whisper-addon.json` states
+  `ggml-small.bin` as 466,616,853 bytes; HuggingFace serves 487,601,967. The
+  app only uses the size for progress, but `WorkerHarness`'s downloader
+  enforces it, so `WorkerHarness.ensureWhisper(model: 'small')` fails until
+  the manifest is corrected.
+
+### SangNom, vszip 24 (NLMeans, WNNM) and three vs-jetpack ports (2026-11-08, deps 1.16.0 unreleased)
+
+Report: [docs/reports/2026-11-classical-filters](reports/2026-11-classical-filters/index.html).
+Probed on macOS arm64 against a private deps copy with vszip 24.0.0 and
+SangNom r45; fixtures are three Kodak images panned 2 px/frame (exact ground
+truth, real motion).
+
+- **havsfunc's `santiag(type="sangnom")` is broken against SangNom r45.** Its
+  strength-0 step calls `SangNom(order=0)`; r45 documents order 0 as
+  double-rate and refuses a clip without `_FieldBased`. So SangNom became its
+  own Anti-aliasing method (2x Spline36, `SangNom(order=1)` per axis, back
+  down). Every depth runs; 8 vs 10-bit 0.44 levels (santiag's own: 0.37).
+- **SangNom's licence is split.** Source header + LICENSE: MIT (james1201,
+  Victor Efimov); the same header: "Binaries are GPL v2"; PyPI metadata:
+  GPL-2.0. GitHub's SPDX detection only sees the MIT file. Credited as both.
+- **vszip: NLMeans arrived in 24.0.0, WNNM in 22.0.0.** 23.0.0 moved to Zig
+  0.17 (the macOS x64 sdist build needs `-Doptimize=fast` and the headerpad
+  patch on the 8-space `use_llvm` inside `if (build_vs)`; cross-built and
+  loaded under Rosetta with the 1.10.0 x64 VapourSynth) and made CLAHE accept
+  every depth. The arm64 wheel is now minos 15.0, exactly the floor.
+- **vszip's NLMeans is KNLMeansCL on the CPU.** Same arguments, identical
+  output (0.0000 levels on the probe, 0.0003 through the worker), h
+  depth-independent (8 vs 10-bit 0.005). Hence one set of `knlm_*` parameters
+  for both methods.
+- **WNNM was measured and not added.** At each method's best sigma, against
+  the shipped BM3D path: luma +0.7 to −2.3 dB (ahead only at sigma 4 with
+  `radius=1`), chroma 2.6–7.2 dB worse. Widening its sweep to 4x the noise
+  found nothing past 2–2.5x. It is fast (10.3 fps at 1080p with `radius=1`;
+  the shipped BM3D path ran 0.2 fps there on arm64, all three planes at
+  sigma 16), but NLMeans (CPU) is faster (23.0 fps) with better chroma.
+  SangNom AA turned out the slowest AA method at 1080p (8.6 fps; daa 15.9,
+  santiag 19.6) — an early clip.frames() probe under load had it fastest,
+  and the first draft said so. WNNM needs 32-bit float and divides sigma by 255,
+  so its float conversion must keep sigma in 8-bit units: with the default
+  (limited) range, luma spans 219 levels per 1.0 and chroma 224. Passing
+  `range_in_s="full"` instead broke at 10-bit (a 7-level offset) because the
+  clip carried `_ColorRange=limited`.
+- **vszip's own CPU BM3D** (also new in 24.0.0) scored 1.1–2.2 dB below the
+  bm3d r12 path on every fixture; not used.
+- **The ports were checked against vs-jetpack itself** (vsjetpack 2.2.7 on the
+  bundle's Python 3.12; its three functions are byte-identical to 3.0.0's):
+  mpeg2stinx 0.04 levels, FixInterlacedFades exact in both modes. vine could
+  not run there — vs-jetpack's Catrom is a custom resize2 kernel.
+- **mpeg2stinx lost PSNR on every fixture** (progressive pans as interlaced
+  MPEG-2, and 3:2-telecined MPEG-2 after VIVTC): −0.1 to −3.0 dB, about −4.5 dB
+  on cleanly coded frames and +0.1 on starved ones. It clamps each field to a
+  bob of the other, which costs vertical detail; the fixtures lack the
+  comb-like noise it targets. Shipped advanced-only with that in its
+  description. VFM flagged every frame of the detailed pan `_Combed`.
+- **FixInterlacedFades closes the comb of a fade applied after the field
+  split**: field gap 5.27 → 0.29 levels (average), 0.00004 (match); through the
+  worker on a real clip 4.12 → 0.06. Two traps: `average` leaves the last
+  frame of a fade to full black half-lit (one field's distance is 0, so it is
+  left alone and the other set to half); and `std.DoubleWeave` sets
+  `_FieldBased=2`, which made a later 4:2:0 resize treat the progressive
+  frames as fields ("dimensions must be divisible by subsampling factor" at
+  an odd field-chroma height) until the block reset it.
+- **The first fade fix crashed or hung real jobs.** It made an akarin
+  `Expr` per frame inside two concurrent FrameEvals. Under vspipe that
+  aborted (SIGABRT, 10 frames), segfaulted (SIGSEGV, a 720x576 IVTC job
+  through the worker) or spun one core indefinitely (97 minutes on 30
+  frames, found when the benchmark hung); single-threaded, or with
+  `std.Expr`, it was fine, and the 320x240 heavy test and the Python-side
+  probes never tripped it. Fixed by stamping the gains as frame properties
+  (`ModifyFrame`, no node creation) and applying them with one akarin
+  expression; the std.Expr FrameEval remains only where akarin is absent.
+  Colour Correction's auto white balance makes an akarin node per frame in a
+  single FrameEval the same way; it did not reproduce (30 frames, vspipe), but
+  it is the same pattern. A heavy test now times a full-size IVTC + fade-fix
+  job (2.5 s), and fails on the old block with the SIGSEGV.
+- **vine** on an oversharpened pan: +0.9 to +1.1 dB, against DeHalo_alpha's
+  +4.1 to +4.4 (which blurs the amplified texture away). Advanced-only.
+### Face restoration: RestoreFormer++ on ONNX Runtime, steadied in aligned space (2026-11-08)
+
+Full report with images and scripts:
+[docs/reports/2026-11-face-restoration/](reports/2026-11-face-restoration/index.html).
+
+A Face Restoration pass (after Crop & Resize) on the `ai-runtime` add-on, its
+models as add-ons: `face-restoration` (RetinaFace R50, BiSeNet,
+RestoreFormer++; Apache-2.0/MIT), `face-gfpgan` and `face-codeformer` (both
+non-commercial: NVIDIA's licence on GFPGAN's StyleGAN2 code, S-Lab License
+1.0). Measured on an M1 Pro with a VHS-degraded clip of NASA public-domain
+footage (`Tests/TestResources/face_restore_test.mp4`):
+
+- **Conversions are exact**: ONNX vs PyTorch ≤2.5e-4 on [-1, 1] (0.03 of an
+  8-bit level), reproducible byte for byte. Two departures from upstream:
+  GFPGAN exported with its fixed noise buffers (upstream draws fresh noise
+  per call — new texture every frame), and CodeFormer's `w` as a graph input
+  (the traced `w > 0` branch adds exactly zero at `w = 0`).
+- **The NumPy pipeline matches facexlib + OpenCV**: landmarks 6e-5 px,
+  alignment 7e-5, final frame ≤0.16 levels for the same restored face.
+- **Detector: ResNet-50 over mobilenet0.25.** Both found the face in every
+  frame, but mobilenet's landmarks jittered 1.5x (SD) to 2.2x (1080p wide
+  shot) as much; ResNet-50 costs 87 ms vs 7 ms per frame on Core ML.
+- **Temporal stability**: smoothing landmarks over n±1 (the obvious fix)
+  changed nothing measurable here (flick 2.287 → 2.284; this detector was
+  already steady). What works is blending each restored face with its
+  neighbours' in the aligned 512 space, weighted to zero where the input
+  crops moved: RestoreFormer++'s excess flicker over the clean source halved
+  (2.287 → 1.799; 1.571 at the default strength 0.8), GFPGAN's fell 86%,
+  with no rise in distance from the clean source (no ghosting the metric
+  sees). One mostly still clip; fast motion untested.
+- **Bit-exact outside the faces** (MaskedMerge in the source format): 0
+  samples changed outside the face box over 16 frames at 8 and 10 bits;
+  preview = encode exactly.
+- **Speed** (one face per frame, RestoreFormer++): 2.2 fps SD and
+  1.8 fps 1080p on Core ML; 0.085 / 0.072 fps on the CPU,
+  ~25x slower (Linux has only the CPU).
+- **Core ML traps**: concurrent predictions from VapourSynth's threads ran
+  the GPU out of memory (`kIOGPUCommandBufferCallbackErrorOutOfMemory`), so a
+  pass's model runs are serialised (`ai_runtime.Runner`, one lock) with a CPU
+  retry; `ModelCacheDirectory` made the second session fail
+  (`output_features has no value`), so every job compiles — CodeFormer takes
+  30–50 s, the others 2–8 s.
+- Untested: Windows (DirectML), Linux (CPU), macOS x64; crowds, profiles and
+  scene cuts across a face.
+
+### Colourisation: DDColor and DeOldify Video, luma kept bit-exact (2026-11-08)
+
+Full report with images and scripts:
+[docs/reports/2026-11-colourisation/](reports/2026-11-colourisation/index.html).
+
+A Colourisation pass (between Chroma Fixes and Color Correction) on the
+`ai-runtime` add-on, one add-on per model: `colorize-ddcolor` (DDColor-T,
+Apache-2.0, 220.7 MB) and `colorize-deoldify` (DeOldify's Video generator,
+MIT, 872.8 MB; DeepAI's copy cross-checked by SHA-256 against a Hugging Face
+mirror). Measured on an M1 Pro with 5 s of "Diary of a Sergeant" (1945, US
+War Department, public domain; `Tests/TestResources/colorize_test.mp4`):
+
+- **Conversions are exact and reproducible byte for byte.** DDColor ≤1.8e-3
+  CIELAB units from PyTorch at 256-640; DeOldify ≤1.4e-6. DeOldify had to be
+  rebuilt without fastai (v1 doesn't install with a current torch); checked
+  against FaceFusion's independent export it first differed by 0.016 mean —
+  fastai's `PixelShuffle_ICNR(blur=False)` blurs anyway (it tests the module,
+  not the flag) — then agreed to 1.8e-6.
+- **Core ML needs the graph rewritten, and still compiles DDColor slowly.**
+  Edge-mode `Pad`, `Expand` (`Tensor.repeat`) and `Einsum` aren't in ML
+  Program: DDColor split into six partitions. Rewritten exactly, each model is
+  one partition and DDColor runs at 101 ms per frame at 512 (261 ms before), but compiling it
+  takes 77 s in every process (DeOldify: 3 s). Previews (a process each) run
+  DDColor on the CPU (5 frames in 3.8 s); `ModelCacheDirectory` cut a second
+  session to 14.5 s but cached 898 MB per render size, keyed by model path.
+  Core ML refused DDColor with free dimensions outright, so one dynamic-shape
+  file serves every size through ONNX Runtime's free-dimension overrides
+  (`ai_runtime.session(dims=)`).
+- **Luma bit-exact** at 8, 10 and 16 bits, field-based, and on a colour source:
+  the colour becomes YUV in the source's matrix and only U/V are taken.
+  DDColor's CIELAB recombination (std.Expr) matches the exact formulas to
+  0.0014 levels; OpenCV's float path (what upstream calls) differs by up to
+  3.8 levels near black because it tabulates the sRGB curve. Upstream scales
+  DDColor's a/b nearest-neighbour; the pass uses bilinear.
+- **Flicker**: per frame, colour flickers by 1.45 levels where the picture is
+  still (DDColor; DeOldify 0.33, but with 4.5x less colour). Averaging each
+  prediction with 2 neighbours either side, weighted to zero where the grey
+  picture moved, cuts both by 84%; the motion weighting changes still flicker
+  by <0.01 but cuts the colour lag in moving areas by a third (2.00 → 1.33).
+- **Speed** (whole pass, steady colour 2): DDColor 9.1 fps SD / 8.4 fps 1080p
+  on Core ML (1.3 on the CPU); DeOldify 6.0 / 6.0 (0.65 on the CPU).
+- No preset turns it on (8 mm home movies are mostly colour). Untested:
+  Windows (DirectML), Linux, macOS x64; fast pans.
+### Crop & Resize: BT.601 → BT.709 on SD → HD, and Detect borders (2026-11-08)
+
+Full report with images and scripts:
+[docs/reports/2026-11-crop-detect-709/](reports/2026-11-crop-detect-709/index.html).
+
+**BT.709 conversion.** An SD source resized to HD kept its BT.601 matrix and
+tag; a player that ignores the tag on an HD picture (many do) decodes it as
+709. Measured: a 75% green comes back 30 levels dark (191 → 161), 100% green
+40, magenta and red 25–30. Crop & Resize now converts the matrix in the
+script when the output is HD (`convertToBt709`, default `auto`), and
+`VideoJob::output_color_metadata` is the one decision every site after the
+conversion follows. Measured through the real worker: every patch within
+0.67 levels of the source decoded as 601, whether the output is read through
+its tags or as 709 regardless; preview = encode exactly. The conversion costs
+~7–10 ms per 1350x1080 frame (8 threads, M1 Pro); a 601 → 709 → 601 round
+trip changes luma by 0.25/255 on average.
+
+- **Matrix only, primaries kept and tagged as the source's.** Also converting
+  SMPTE C → BT.709 primaries moved a 75% green to (55,188,0) and a 75% magenta
+  to (187,47,191) when decoded without colour management (most players): a
+  hue shift of its own, as large as the one being fixed. EBU (PAL) primaries
+  differ only in green, and still moved 75% green to (0,191,30). A
+  colour-managed player reads the kept primaries tag and shows the source's
+  colour either way.
+- **Default `auto`, deliberately changing existing output**: an SD job that
+  resizes to HD now writes 709-tagged, converted samples where it wrote
+  601-tagged ones. The 601-tagged HD file was correct but shown wrong by the
+  players people use; the converted one is shown right by all of them. No
+  built-in preset resized before, so none changes; the new `SD Tape → HD
+  (YouTube / TV)` preset sets `on`.
+- **VapourSynth R78 trap**: a frame's `_Matrix` property overrides
+  `matrix_in_s`. The first measurement script read "601 decoded as 709" equal
+  to the source because of it; the template's block removes `_Matrix`/`_Range`
+  before converting.
+
+**Detect borders (`--detect-crop`).** VCG Deinterlacer 2.0's `edges.rs` (MIT)
+was read for the signals; the code is our own (nothing ported, so no NOTICES
+entry). On fixtures built from real VHS picture with known borders every edge
+came back exact (noisy blanking 14/10 px, a 2-line top, an 8-line band; 12
+lines per field interlaced; 72-line letterbox bars reported apart; subtitles
+40 lines up and fades to black ignored); on a real DVB-T broadcast 7/8 black
+columns and 4 black + 1 dim bottom line, as measured by eye; ~0.5–1.5 s per SD
+source and ~2.9 s at 1080p (release worker, 24 frames). Traps designed
+against, each with a unit test: dark scenes (98th percentile over all frames,
+dark frames dropped), noisy blanking (absolute detail floor), letterbox
+(bars over 5% are framing), subtitles (band must span 6 of 8 width segments in
+half the frames, from the bottom), interlaced (compare within the field).
+Untested: a real capture with a visible head-switching band (none in
+`Tests/TestResources/`; the real VHS fixture's bottom is too dark to show
+one), and Windows/Linux (the analysis is plain Rust; only the decode is
+platform-specific).
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and
@@ -2966,3 +3314,149 @@ names an `-rc` tag. That is the one way this bites: an rc escaping into a shippe
 build, where later deleting the prerelease breaks the download for everyone who
 installed it.
 
+### GPU tests leave CI: the `gpu` tag (2026-11-09)
+
+From 2026-10-25 the Linux and Windows CI jobs ran the RIFE and AI upscaling
+tests on Mesa's lavapipe, a CPU Vulkan driver, with `VAPOURBOX_EXPECT_VULKAN=1`.
+On the 1.7.0 branch that stopped being workable, almost all of it on Windows:
+
+- One 240x192 Real-CUGAN preview frame took 2m21s on `main` and from 3 to over
+  5 minutes on the branch, with nothing in our code to account for it (CI runs
+  42484522476, 42499908163). Real-ESRGAN x4plus at 4x took ~18 minutes for five
+  frames on Linux and ran past 20 on Windows (nightly 42484525297).
+- When a timed-out test's harness killed only the worker, Windows left vspipe
+  running the network on every core and the next test timed out too. The
+  harness now kills the whole tree (`ProcessTree.killTree`). Even so, run
+  42516550724 timed out both AnimeJaNai tests at 5 minutes; that test had
+  taken about 15 s before.
+
+These timings measure the runner's CPU, not the GPU path a user has, and every
+budget raise was followed by another timeout. So tests that need a Vulkan device
+are tagged `gpu` and both workflows exclude the tag, and
+`.github/scripts/provision-vulkan.sh` is deleted (it is in git history if a GPU
+runner ever appears). Without a device CI keeps the probe-answer and refusal
+tests. What is lost: CI no longer proves that RIFE and VSNCNN load and run on
+the Windows and Linux bundles. That now has to be checked by hand on a machine
+with a GPU (`VAPOURBOX_EXPECT_VULKAN=1 flutter test --tags gpu`), as MoltenVK
+always was.
+
+### RIFE's and the anime upscalers' models leave the deps bundle; probes on stand-in models (2026-11-09, deps 1.16.0 rc2)
+
+The 2026-11-08 policy (every AI model an add-on) had two exceptions left from
+deps 1.14.0: RIFE 4.26's model in `vapoursynth/rife/models/` (11 MB) and
+vs-mlrt's Real-ESRGAN anime / Real-CUGAN ONNX files in
+`vapoursynth/ncnn/models/` (20 MB). They are now the `frame-rate-rife` and
+`upscale-anime` manifest add-ons; the plugins (librife, VSNCNN, MoltenVK)
+stay in the bundle. Mechanism findings, read from the pinned sources and
+checked on an M1 Pro against the deps 1.16.0-rc1 bundle with its model
+directories deleted (groundwork, not a comparison, so no report):
+
+- **RIFE's model directory name is load-bearing.** The plugin
+  (`styler00dollar/VapourSynth-RIFE-ncnn-Vulkan` r9_mod_v33, `plugin.cpp`)
+  decides the model family from substrings of `model_path` (`rife-v2`,
+  `rife-v3.9`, `rife-v3`, `rife-v4`, `rife4`) and the padding from more
+  (`rife-v4.25` 64, `rife-v4.25-lite` 128, `rife-v4.26` 64, else 32). An
+  add-on id cannot hold a dot, so the manifest format now allows a file
+  `name` to be a relative path of plain names, and the add-on installs as
+  `addons/frame-rate-rife/rife-v4.26_ensembleFalse/flownet.{param,bin}`.
+- **VSNCNN takes a model as bytes**: `network_path` with
+  `path_is_serialization=True` (vs-mlrt v15.16 `vs_ncnn.cpp`). `loadONNX`
+  needs one 4-D input and output; it fixes N/H/W itself, so dynamic dims
+  (`n`, `h`, `w`) are fine. A 264-byte ONNX (`Tests/TestResources/
+  ncnn_selftest.onnx`, one 1x1 Conv swapping channels 0 and 2, bias 0.125)
+  ran on Metal through MoltenVK: input (0.2, 0.4, 0.6) gave
+  (0.72510, 0.52490, 0.32495) with `fp16=True` (exact: 0.725, 0.525, 0.325).
+- **RIFE runs a weightless stand-in.** Its v4 path feeds `in0`, `in1` (the
+  two padded frames, 0-255), `in2` (the timestep plane) and extracts `out0`,
+  through its own preproc / timestep / postproc shaders. A two-layer ncnn
+  param file (`BinaryOp` add of `in0`+`in1`, then multiply by 0.5) with an
+  empty `flownet.bin`, in a directory named `rife-v4.26_selftest`, turned
+  frames (0.2, 0.4, 0.6) and (0.6, 0.4, 0.2) into exactly 0.4 in every
+  channel at frame 1 of a 25 → 50 retime.
+- So both probes now run a stand-in network and check the answer
+  (`WrongResult` if the GPU computes garbage, tolerance 0.01), and report
+  available on a bundle with no model in it and no model add-on installed.
+  "Can't run here" (no Vulkan, missing VC++/libgomp, old CPU) is therefore
+  known before the user downloads anything; a missing add-on is a separate
+  refusal, through `required_addons()`, naming the add-on and Settings →
+  Add-ons. A stand-in that fails to load (`failed to load model`, `load param
+  failed`) is now `LoadFailed`, not `NotInstalled`: nothing the user installs
+  would fix it.
+- The anime models are hosted by us, byte for byte as vs-mlrt ships them
+  (same SHA-256 as the deps scripts pinned), because vs-mlrt publishes them
+  only inside `models.v15.16.7z` (~810 MB). RIFE's come from upstream's
+  repository at the commit the deps scripts pinned.
+- Upgrade path: deps 1.14/1.15 users are moved to 1.16.0 by the app anyway,
+  which removes the bundled copies. A saved pipeline with RIFE or an anime
+  upscaler selected shows the add-on notice with a Download button in its
+  panel, prompts when the pass is switched on, and a job is refused with the
+  add-on's name rather than failing in the plugin. No built-in preset selects
+  either.
+
+### Noise and halo scores for the pass list (2026-11-09)
+
+Full report with images and scripts:
+[docs/reports/2026-11-noise-halo-scores/](reports/2026-11-noise-halo-scores/index.html).
+
+Noise Reduction and Dehalo were always neutral in `pass_relevance.dart`. A
+survey of VCG Deinterlacer (MIT) suggested measuring both; its measures were
+tried first and rejected: ffmpeg `signalstats` TOUT stays at 0.000-0.012
+whatever noise is added (it counts vertical outliers, not noise), YDIF follows
+motion and isn't scaled for 10-bit, and its halo ratio read a clean, dense
+photo (0.149) above a sharpened one (0.066).
+
+- **Noise is measured in time, not space.** Immerkaer's spatial estimator
+  (block 10th percentile) is exact for white noise but read tape-like noise
+  (blurred along the line) and grain-like noise of sigma 6 at 1.2-2.5, and
+  dense texture at 3.6 — spatially they are the same thing. A
+  motion-compensated frame difference (16x16 blocks, +-10 px search, match
+  chosen on 3x3-smoothed pictures) sees noise at every frequency and cancels
+  texture that moved: white sigma 4 reads 3.66-3.79, tape sigma 6 5.0-5.4,
+  texture panned by 1.37 px a frame at most 2.06. +-6 px was too small for
+  interlaced fields 8 px apart (clean read 5.5-8.3).
+- **Halos: per edge, two-sided, over 7 lines.** Overshoot and undershoot
+  against plateaus 6-10 px out, with equal near/far sample counts so noise
+  cancels; min of the two, so outlines score 0; plateau flatness also allows
+  3% of the step, or strongly sharpened pictures lose their edges. Clean max
+  1.48 (3.30 on real 1080p footage), unsharp amount 1 on sharp SD pictures
+  11-71. Sharpening of soft edges (Kodak 23, NASA 1080p, the VHS capture)
+  rings past the plateau zone and is missed.
+- **Thresholds 3.5 and 6.0**, decided in the worker; no clean fixture of 154
+  crossed either. Both under-report (compressed sources' skipped blocks read
+  as noiseless), so only a high score says anything. On the repo's real
+  footage neither fires (VHS noise 1.40, 1968 film grain 1.57).
+- The Rust matches the NumPy reference on the same frame pairs to 0.002
+  (noise) and 0.49 (halo; median under 1e-6 — edges on the flatness limit
+  fall either way between float32 and f64); no verdict differs. 0.5-0.9 s on
+  SD, 2.7-3.4 s at 1080p, 2.9 s at 2160p (release, M1 Pro). Untested: non-rigid motion (water, foliage), real footage
+  with known halos, sources with many shots.
+
+### deps 1.16.0 and `addon-models-v1` published (2026-11-09)
+
+**deps 1.16.0** is the `deps-v1.16.0-rc2` bundles with only the version
+changed, as 1.15.0 was from its rc1. The re-stamp is now committed as
+`Scripts/promote-deps-rc.py`, which verifies every entry but `version.json`
+against the candidate (CRC, size, permissions, timestamp, compression). One
+trap it hit: Python's `zipfile` (3.15, in both `writestr` and `open(..., 'w')`)
+gives an entry whose attributes are 0 a mode of `0600`, and every entry of the
+Windows bundle (written by PowerShell) has 0, so a naive copy changed every
+Windows file's attributes. The script puts each original value back before the
+central directory is written. rc2 had passed CI on all four platforms; the
+nightly's one failure was the known KNLMeans `std::out_of_range` flake on
+linux-x64-v2 (QTGMC's KNLMeansCL path on the runner's CPU OpenCL).
+
+**`addon-models-v1`** now hosts the sixteen model files we convert or
+re-host (face restoration, colourisation, the Real-ESRGAN / Real-CUGAN
+upscalers), moved from `deps-v1.16.0-rc1` byte for byte (hashes checked against
+the manifests before upload, two re-downloaded and checked after), each family
+beside its upstream LICENSE as `LICENSE-<project>.txt` — GFPGAN's includes
+NVIDIA's Source Code License terms, which with CodeFormer's S-Lab licence
+require the text to accompany a redistributed copy. The release notes list
+every file's add-on, upstream, licence and the script that made it. The
+manifests point there; the rc1 copies were left in place.
+
+While uploading the anime models to rc1 on the same day, github.com's
+anonymous download link for one asset returned 504 for a while (a
+GitHub incident; the API served the file) — re-uploading did not help, waiting
+did. A manifest's `url` is independent of its installed `name`, so a stuck
+asset could have been re-hosted under another name without touching code.

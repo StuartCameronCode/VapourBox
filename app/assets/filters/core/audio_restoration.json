@@ -1,0 +1,343 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "audio_restoration",
+  "version": "1.0.0",
+  "sinceAppVersion": "1.7.0",
+  "name": "Audio Restoration",
+  "description": "Repair, clean and re-sync the soundtrack. Applied during the encode — the preview shows the picture only.",
+  "longDescription": "Fixes the faults old recordings bring with their sound: a capture with one dead channel, mains hum, rumble, clicks, clipped peaks, tape hiss, speech buried in noise, sound that is out of step with the picture or drifts out of step over a long tape, and loudness that is far too quiet or uneven. Switch on only the steps the recording needs; with none ticked the sound is left exactly as it was.\n\nThe sound is processed once, before the video is encoded, to exactly the length of the picture (after any trim, deinterlacing or frame-rate change). Subtitles are transcribed from the restored sound, so they follow any sync offset or drift correction. The preview is picture only — listen to a short trimmed export to judge the result.\n\nOnly one audio stream is restored (the first, unless chosen otherwise); any others are kept as they are. When Output → Audio is set to copy, the restored stream is encoded anyway, because it is new audio: FLAC in MKV, AAC in MP4 and MOV, PCM in AVI.",
+  "category": "enhancement",
+  "icon": "graphic_eq",
+  "order": 95,
+  "methods": [
+    {
+      "id": "restore",
+      "name": "Restore",
+      "description": "FFmpeg's audio filters, and DeepFilterNet for speech",
+      "function": "custom",
+      "parameters": [
+        "channelFix",
+        "offsetMs",
+        "driftCorrection",
+        "driftMaxPercent",
+        "declip",
+        "declick",
+        "declickThreshold",
+        "rumbleFilter",
+        "rumbleCutoffHz",
+        "humRemoval",
+        "humFrequency",
+        "denoise",
+        "denoiseStrength",
+        "deepFilter",
+        "deepFilterAttenuation",
+        "loudnessNormalize",
+        "loudnessTarget",
+        "limiter",
+        "limiterCeilingDb",
+        "streamIndex"
+      ]
+    }
+  ],
+  "implementation": [
+    {
+      "function": "pan",
+      "role": "channel fix: copy the live channel over a dead one, or mix the two",
+      "activeWhen": { "channelFix": ["auto", "leftOnly", "rightOnly", "mix"] }
+    },
+    { "function": "adeclip", "role": "rebuild clipped peaks", "activeWhen": { "declip": true } },
+    { "function": "adeclick", "role": "remove clicks and crackle", "activeWhen": { "declick": true } },
+    { "function": "highpass", "role": "remove rumble", "activeWhen": { "rumbleFilter": true } },
+    {
+      "function": "bandreject",
+      "role": "notch out mains hum and its first two harmonics",
+      "activeWhen": { "humRemoval": true }
+    },
+    { "function": "afftdn", "role": "broadband noise reduction", "activeWhen": { "denoise": true } },
+    { "function": "atempo", "role": "drift correction", "activeWhen": { "driftCorrection": true } },
+    { "function": "-ss / adelay", "role": "where the sound starts: the trim and the sync offset" },
+    {
+      "function": "deep-filter (DeepFilterNet)",
+      "role": "speech enhancement",
+      "activeWhen": { "deepFilter": true }
+    },
+    {
+      "function": "loudnorm",
+      "role": "loudness normalisation, measured first, then applied as one gain",
+      "activeWhen": { "loudnessNormalize": true }
+    },
+    { "function": "alimiter", "role": "peak limiter", "activeWhen": { "limiter": true } },
+    { "function": "apad / atrim", "role": "the sound cut or padded to the picture's length" }
+  ],
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": { "hidden": true }
+    },
+    "method": {
+      "type": "enum",
+      "default": "restore",
+      "options": ["restore"],
+      "ui": { "hidden": true }
+    },
+    "channelFix": {
+      "type": "enum",
+      "default": "off",
+      "options": ["off", "auto", "leftOnly", "rightOnly", "mix"],
+      "ui": {
+        "label": "Channels",
+        "description": "For a stereo capture where one channel is silent or broken. Automatic measures both and copies the live one over a silent one; otherwise it leaves them alone.",
+        "widget": "dropdown",
+        "optionLabels": {
+          "off": "Leave as is",
+          "auto": "Automatic (fix a silent channel)",
+          "leftOnly": "Left channel only",
+          "rightOnly": "Right channel only",
+          "mix": "Mix both channels"
+        }
+      }
+    },
+    "offsetMs": {
+      "type": "integer",
+      "default": 0,
+      "min": -10000,
+      "max": 10000,
+      "step": 10,
+      "ui": {
+        "label": "Sync offset (ms)",
+        "description": "Moves the sound against the picture. Positive delays the sound (use it when lips move before you hear them); negative plays it earlier.",
+        "widget": "number"
+      }
+    },
+    "driftCorrection": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Correct drift",
+        "description": "For sound that starts in sync and slowly drifts out over a long recording: stretches or squeezes it to the picture's length. Only applied when the two differ by more than 0.05 s and by no more than the limit below.",
+        "widget": "checkbox"
+      }
+    },
+    "driftMaxPercent": {
+      "type": "number",
+      "default": 0.5,
+      "min": 0.05,
+      "max": 2.0,
+      "step": 0.05,
+      "ui": {
+        "label": "Largest drift corrected (%)",
+        "description": "A bigger difference is not clock drift — usually a missing stretch of audio or the wrong track — and is left alone rather than disguised.",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": { "driftCorrection": true }
+      }
+    },
+    "declip": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Repair clipping",
+        "description": "Rebuilds peaks that were flattened by recording too loud.",
+        "widget": "checkbox"
+      }
+    },
+    "declick": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Remove clicks",
+        "description": "Clicks, crackle and dropouts, as from vinyl or a damaged tape.",
+        "widget": "checkbox"
+      }
+    },
+    "declickThreshold": {
+      "type": "number",
+      "default": 2.0,
+      "min": 1.0,
+      "max": 10.0,
+      "step": 0.5,
+      "ui": {
+        "label": "Click threshold",
+        "description": "Lower removes more, but can soften sharp sounds like drum hits.",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": { "declick": true }
+      }
+    },
+    "rumbleFilter": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Remove rumble",
+        "description": "Low-frequency rumble from handling, wind or a turntable motor.",
+        "widget": "checkbox"
+      }
+    },
+    "rumbleCutoffHz": {
+      "type": "integer",
+      "default": 40,
+      "min": 20,
+      "max": 120,
+      "step": 5,
+      "ui": {
+        "label": "Rumble cutoff (Hz)",
+        "description": "Everything below this is turned down.",
+        "widget": "slider",
+        "visibleWhen": { "rumbleFilter": true }
+      }
+    },
+    "humRemoval": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Remove mains hum",
+        "description": "The steady 50 or 60 Hz hum of a ground loop, with its first two harmonics.",
+        "widget": "checkbox"
+      }
+    },
+    "humFrequency": {
+      "type": "enum",
+      "default": "auto",
+      "options": ["auto", "50", "60"],
+      "ui": {
+        "label": "Hum frequency",
+        "description": "Automatic measures the sound and removes whichever hum is there — nothing, if neither is. 50 Hz is the mains in Europe, Africa, most of Asia and Australia; 60 Hz in the Americas.",
+        "widget": "dropdown",
+        "optionLabels": { "auto": "Automatic", "50": "50 Hz", "60": "60 Hz" },
+        "visibleWhen": { "humRemoval": true }
+      }
+    },
+    "denoise": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Reduce hiss and noise",
+        "description": "Broadband noise such as tape hiss or fan noise.",
+        "widget": "checkbox"
+      }
+    },
+    "denoiseStrength": {
+      "type": "number",
+      "default": 12.0,
+      "min": 3.0,
+      "max": 40.0,
+      "step": 1.0,
+      "ui": {
+        "label": "Noise reduction (dB)",
+        "description": "How far the noise is turned down. High values make speech sound watery.",
+        "widget": "slider",
+        "precision": 0,
+        "visibleWhen": { "denoise": true }
+      }
+    },
+    "deepFilter": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Speech enhancement (DeepFilterNet)",
+        "description": "A neural network that separates speech from the noise behind it — very effective on dialogue, not meant for music. A separate download (about 30 MB).",
+        "widget": "checkbox"
+      }
+    },
+    "deepFilterAttenuation": {
+      "type": "integer",
+      "default": 100,
+      "min": 6,
+      "max": 100,
+      "step": 1,
+      "ui": {
+        "label": "Noise removed (dB)",
+        "description": "How far DeepFilterNet may turn the noise down. 100 removes all it can; 15–30 keeps a little of the room, which often sounds more natural.",
+        "widget": "slider",
+        "visibleWhen": { "deepFilter": true }
+      }
+    },
+    "loudnessNormalize": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Normalise loudness",
+        "description": "Measures the whole soundtrack and sets one gain so it plays at a standard loudness (EBU R128), peaks kept under −1.5 dBTP.",
+        "widget": "checkbox"
+      }
+    },
+    "loudnessTarget": {
+      "type": "number",
+      "default": -16.0,
+      "min": -31.0,
+      "max": -10.0,
+      "step": 1.0,
+      "ui": {
+        "label": "Loudness target (LUFS)",
+        "description": "−16 suits online video and phones; −23 is the broadcast standard (EBU R128); −24 for US broadcast (ATSC A/85).",
+        "widget": "slider",
+        "precision": 0,
+        "visibleWhen": { "loudnessNormalize": true }
+      }
+    },
+    "limiter": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Limit peaks",
+        "description": "Catches any peak above the ceiling, after everything else.",
+        "widget": "checkbox"
+      }
+    },
+    "limiterCeilingDb": {
+      "type": "number",
+      "default": -1.0,
+      "min": -12.0,
+      "max": 0.0,
+      "step": 0.5,
+      "ui": {
+        "label": "Ceiling (dBFS)",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": { "limiter": true }
+      }
+    },
+    "streamIndex": {
+      "type": "integer",
+      "default": 0,
+      "min": 0,
+      "max": 15,
+      "step": 1,
+      "ui": {
+        "label": "Audio stream to restore",
+        "description": "0 is the first audio stream. The others are kept as they are, after the restored one.",
+        "widget": "number"
+      }
+    }
+  },
+  "ui": {
+    "sections": [
+      {
+        "title": "Channels and Sync",
+        "parameters": ["channelFix", "offsetMs", "driftCorrection", "driftMaxPercent"],
+        "expanded": true
+      },
+      {
+        "title": "Repair",
+        "parameters": ["declip", "declick", "declickThreshold", "rumbleFilter", "rumbleCutoffHz", "humRemoval", "humFrequency"],
+        "expanded": true
+      },
+      {
+        "title": "Noise",
+        "parameters": ["denoise", "denoiseStrength", "deepFilter", "deepFilterAttenuation"],
+        "expanded": true
+      },
+      {
+        "title": "Loudness",
+        "parameters": ["loudnessNormalize", "loudnessTarget", "limiter", "limiterCeilingDb"],
+        "expanded": true
+      },
+      {
+        "title": "Source Stream",
+        "parameters": ["streamIndex"],
+        "advancedOnly": true
+      }
+    ]
+  }
+}

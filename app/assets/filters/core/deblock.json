@@ -49,6 +49,15 @@
         "dctStrength",
         "dctPlanes"
       ]
+    },
+    {
+      "id": "mpeg2stinx",
+      "sinceAppVersion": "1.7.0",
+      "name": "mpeg2stinx",
+      "description": "For film DVDs after inverse telecine: removes the comb-like noise left where progressive frames were encoded as interlaced MPEG-2. Not a general deblocker; on clean or detailed sources it softens vertical detail",
+      "function": "mpeg2stinx (vs-jetpack, ported): core.bwdif.Bwdif + _nnedi3",
+      "parameters": [],
+      "advancedOnly": true
     }
   ],
   "parameters": {
@@ -65,7 +74,8 @@
       "options": [
         "deblock_qed",
         "deblock",
-        "dctfilter"
+        "dctfilter",
+        "mpeg2stinx"
       ],
       "ui": {
         "hidden": true

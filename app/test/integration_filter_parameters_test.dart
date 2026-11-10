@@ -24,6 +24,8 @@ import 'package:vapourbox/models/descale_parameters.dart';
 import 'package:vapourbox/models/descratch_parameters.dart';
 import 'package:vapourbox/models/dynamic_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
+import 'package:vapourbox/models/colorize_parameters.dart';
+import 'package:vapourbox/models/face_restore_parameters.dart';
 import 'package:vapourbox/models/frame_rate_parameters.dart';
 import 'package:vapourbox/models/filter_schema.dart';
 import 'package:vapourbox/models/noise_reduction_parameters.dart';
@@ -35,6 +37,9 @@ import 'package:vapourbox/models/spotless_parameters.dart';
 import 'package:vapourbox/models/stabilize_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 
+import 'package:vapourbox/services/manifest_addon.dart';
+
+import 'support/gpu_expectations.dart';
 import 'support/vfr_fixture.dart';
 import 'support/worker_harness.dart';
 
@@ -177,6 +182,8 @@ VideoJob buildJob({
   GeometryParameters? geometry,
   GrainParameters? grain,
   DescaleParameters? descale,
+  FaceRestoreParameters? faceRestore,
+  ColorizeParameters? colorize,
 }) => VideoJob(
   id: const Uuid().v4(),
   inputPath: TestConfig.inputFile,
@@ -199,6 +206,8 @@ VideoJob buildJob({
     geometry: geometry ?? const GeometryParameters(),
     grain: grain ?? const GrainParameters(),
     descale: descale ?? const DescaleParameters(),
+    faceRestore: faceRestore ?? const FaceRestoreParameters(),
+    colorize: colorize ?? const ColorizeParameters(),
   ),
   encodingSettings: const EncodingSettings(
     codec: VideoCodec.h264, container: ContainerFormat.mkv, audioMode: AudioMode.none,
@@ -450,6 +459,43 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+
+    // App 1.7.0: BT.601 -> BT.709 when an SD source is resized to HD. From the
+    // panel's own values, so the schema key, the converter and the Rust field
+    // are all on the trip. The fixture is an untagged 720x576 capture, which
+    // the worker reads as BT.601 (170m).
+    test('crop_resize: Convert Colour to BT.709 converts SD resized to HD', () async {
+      final schema = loadSchema('crop_resize');
+      expect(schema.parameters['convertToBt709']?.options, ['auto', 'on', 'off']);
+      Future<String> scriptFor(String mode, {int targetHeight = 1080}) async {
+        final dyn = ParameterConverter.fromCropResize(const CropResizeParameters(enabled: true))
+            .withValues({
+          'resizeEnabled': true,
+          'targetWidth': targetHeight * 16 ~/ 9,
+          'targetHeight': targetHeight,
+          'convertToBt709': mode,
+        });
+        final job = buildJob(
+          testName: 'bt709_$mode$targetHeight',
+          cropResize: ParameterConverter.toCropResize(dyn),
+        );
+        return generateScriptViaWorker(job);
+      }
+
+      const block = 'RemoveFrameProps(clip, props=["_Matrix", "_Range", "_ColorRange"])';
+      final auto = await scriptFor('auto');
+      expect(auto, contains(block));
+      expect(auto, contains('matrix_in_s="170m"'));
+      expect(auto, contains('matrix_s="709"'));
+      expect(auto, contains('range_in_s="limited"'));
+      // After the resize, so the conversion sees the HD picture.
+      expect(auto.indexOf(block), greaterThan(auto.indexOf('core.resize.Spline36(\n    clip,\n    width=target_w')));
+      expect(await scriptFor('off'), isNot(contains(block)));
+      expect(await scriptFor('auto', targetHeight: 576), isNot(contains(block)),
+          reason: 'an SD-sized output keeps BT.601 under Auto');
+      expect(await scriptFor('on', targetHeight: 576), contains(block));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
 
     // Issue #50: temperature/tint white balance. U carries blue-yellow and V
     // carries red-cyan, so warm is -U/+V; a sign error here is invisible until
@@ -1189,6 +1235,124 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    test('face restoration: every setting reaches the script, or the job is refused',
+        () async {
+      // The models are add-ons of ~700 MB (base + CodeFormer), far too much
+      // for a push-gate test to download. So: with
+      // VAPOURBOX_ADDON_MIRROR set (the converted files in addon-staging),
+      // install them the app's way and check the script; if they are already
+      // installed, check the script; otherwise check the refusal, which is
+      // what CI sees, and which names the add-ons and Settings → Add-ons.
+      loadSchema('face_restore');
+      const typed = FaceRestoreParameters(
+        enabled: true,
+        model: FaceRestoreModel.codeFormer,
+        strength: 0.6,
+        codeFormerFidelity: 0.5,
+        detectionThreshold: 0.7,
+        minFaceSize: 40,
+        maxFaces: 3,
+        temporalSmoothing: false,
+      );
+      // Through the converter, as the panel would hand it to the worker.
+      final roundTripped =
+          ParameterConverter.toFaceRestore(ParameterConverter.fromFaceRestore(typed));
+      final job = buildJob(testName: 'face_restore', faceRestore: roundTripped);
+
+      if (Platform.environment['VAPOURBOX_ADDON_MIRROR']?.isNotEmpty ?? false) {
+        await WorkerHarness.ensureAddon('face-codeformer');
+      }
+      final manifests = {
+        for (final m in AddonManifest.loadDirectory(
+            Directory('${TestConfig.projectRoot}/app/assets/addons')))
+          m.id: m,
+      };
+      final installed = ['ai-runtime', ...roundTripped.addonIds].every((id) =>
+          ManifestAddonInstaller(manifests[id]!, WorkerHarness.platform)
+              .isInstalled(WorkerHarness.addonsDirectory));
+
+      if (installed) {
+        print('  Generating Face Restoration script...');
+        final script = await generateScriptViaWorker(job);
+        expect(script, contains('import ai_runtime\n'));
+        expect(script, contains('_face_restore.restore_faces('));
+        expect(script, contains('face-codeformer-v0.1.0.onnx'));
+        expect(script, contains('face-restoration-retinaface-r50.onnx'));
+        expect(script, contains('face-restoration-bisenet.onnx'));
+        expect(script, contains('model="codeformer"'));
+        expect(script, contains('strength=0.600'));
+        expect(script, contains('fidelity=0.500'));
+        expect(script, contains('threshold=0.700'));
+        expect(script, contains('min_face=40'));
+        expect(script, contains('max_faces=3'));
+        expect(script, contains('temporal_radius=0'));
+      } else {
+        print('  Face restoration add-ons not installed: checking the refusal');
+        final result = await WorkerHarness.runJob(job.toJson(), label: 'face_restore');
+        expect(result.success, isFalse);
+        final text = '${result.error}\n${result.logs.join('\n')}';
+        expect(text, contains('Face restoration needs'));
+        expect(text, contains('Settings → Add-ons'));
+      }
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('colourisation: every setting reaches the script, or the job is refused',
+        () async {
+      // The models are add-ons of 220 MB (DDColor) and 870 MB (DeOldify),
+      // too much for a push-gate test to download. So, as for Face
+      // Restoration: with VAPOURBOX_ADDON_MIRROR set, install the add-on the
+      // app's way and check the script; if it is already installed, check the
+      // script; otherwise check the refusal (what CI sees), which names the
+      // add-on and Settings → Add-ons.
+      loadSchema('colorize');
+      const typed = ColorizeParameters(
+        enabled: true,
+        model: ColorizeModel.deoldify,
+        ddcolorRenderSize: 384,
+        deoldifyRenderFactor: 25,
+        strength: 0.75,
+        temporalRadius: 3,
+      );
+      // Through the converter, as the panel would hand it to the worker.
+      final roundTripped =
+          ParameterConverter.toColorize(ParameterConverter.fromColorize(typed));
+      expect(roundTripped.toJson(), typed.toJson());
+      final job = buildJob(testName: 'colorize', colorize: roundTripped);
+
+      if (Platform.environment['VAPOURBOX_ADDON_MIRROR']?.isNotEmpty ?? false) {
+        await WorkerHarness.ensureAddon('colorize-deoldify');
+      }
+      final manifests = {
+        for (final m in AddonManifest.loadDirectory(
+            Directory('${TestConfig.projectRoot}/app/assets/addons')))
+          m.id: m,
+      };
+      final installed = ['ai-runtime', roundTripped.addonId].every((id) =>
+          ManifestAddonInstaller(manifests[id]!, WorkerHarness.platform)
+              .isInstalled(WorkerHarness.addonsDirectory));
+
+      if (installed) {
+        print('  Generating Colourisation script...');
+        final script = await generateScriptViaWorker(job);
+        expect(script, contains('import ai_runtime\n'));
+        expect(script, contains('_colorize.colorize('));
+        expect(script, contains('colorize-deoldify-video.onnx'));
+        expect(script, contains('model="deoldify"'));
+        expect(script, contains('render_size=400'));
+        expect(script, contains('strength=0.750'));
+        expect(script, contains('temporal_radius=3'));
+      } else {
+        print('  Colourisation add-on not installed: checking the refusal');
+        final result = await WorkerHarness.runJob(job.toJson(), label: 'colorize');
+        expect(result.success, isFalse);
+        final text = '${result.error}\n${result.logs.join('\n')}';
+        expect(text, contains('Colourisation needs'));
+        expect(text, contains('Settings → Add-ons'));
+      }
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 10)));
+
     test('sharpen: aWarpSharp2 params', () async {
       loadSchema('sharpen');
       final typed = const SharpenParameters(
@@ -1487,7 +1651,10 @@ void main() {
       // Deinterlacing off + a detected field order: every method runs between
       // SeparateFields and DoubleWeave (docs/reports/2026-11-deblock-order).
       loadSchema('deblock');
-      for (final method in DeblockMethod.values) {
+      // mpeg2stinx is a cross-field filter and always takes the whole frame
+      // (asserted in its own test below).
+      for (final method
+          in DeblockMethod.values.where((m) => m != DeblockMethod.mpeg2stinx)) {
         final job = buildJob(
           testName: 'deblock_per_field_${method.name}',
           deblock: DeblockParameters(enabled: true, method: method),
@@ -1501,6 +1668,7 @@ void main() {
           DeblockMethod.deblockQed => 'haf.Deblock_QED(',
           DeblockMethod.deblock => 'core.deblock.Deblock(',
           DeblockMethod.dctFilter => 'core.dctf.DCTFilter(',
+          DeblockMethod.mpeg2stinx => throw StateError('excluded above'),
         };
         final at = script.indexOf(call);
         expect(at > split && at < weave, isTrue,
@@ -1513,6 +1681,115 @@ void main() {
       ));
       expect(progressive, contains('haf.Deblock_QED('));
       expect(progressive, isNot(contains('_deblock_per_field')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // --- deps 1.16.0: SangNom, vszip NLMeans, vs-jetpack ports (app 1.7.0) ---
+
+    test('anti-alias: SangNom AA, strength reaching both axes', () async {
+      loadSchema('anti_alias');
+      final job = buildJob(
+        testName: 'aa_sangnom',
+        antiAlias: const AntiAliasParameters(
+          enabled: true,
+          method: AntiAliasMethod.sangnom,
+          sangnomAa: 72,
+        ),
+      );
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.sangnom.SangNom(_aa, order=1, aa=72)'));
+      expect(script,
+          contains('core.sangnom.SangNom(core.std.Transpose(_aa), order=1, aa=72)'));
+      expect(script, isNot(contains('haf.santiag(')));
+      expect(script, isNot(contains('haf.daa(')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('noise reduction: NLMeans (CPU) uses the KNLMeans settings, no OpenCL',
+        () async {
+      loadSchema('noise_reduction');
+      final job = buildJob(
+        testName: 'nr_nlm_cpu',
+        noiseReduction: const NoiseReductionParameters(
+          enabled: true,
+          method: NoiseReductionMethod.nlMeans,
+          knlmH: 2.5,
+          knlmD: 2,
+          knlmChroma: false,
+        ),
+      );
+      // No OpenCL involved (test_201 checks it runs where KNLMeans is refused).
+      final script = await generateScriptViaWorker(job);
+      expect(script,
+          contains('core.vszip.NLMeans(clip, d=2, a=2, s=4, h=2.50, channels="Y")'));
+      expect(script, contains('    if False:'));
+      expect(script, isNot(contains('core.knlm.KNLMeansCL(')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('dehalo: vine params reach the ported block', () async {
+      loadSchema('dehalo');
+      final job = buildJob(
+        testName: 'dehalo_vine',
+        dehalo: const DehaloParameters(
+          enabled: true,
+          method: DehaloMethod.vine,
+          vineStrength: 20.0,
+          vineSharp: 0.75,
+          vineSigma: 1.5,
+        ),
+      );
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('_vine_strength = 20.000'));
+      expect(script, contains('_vine_sharp = 0.750'));
+      expect(script, contains('_vine_sigma = 1.500'));
+      expect(script, contains('core.vszip.NLMeans(_vine_y, d=0, a=2, s=0, h=_vine_strength)'));
+      expect(script, isNot(contains('haf.DeHalo_alpha(')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('deblock: mpeg2stinx takes the whole frame with the detected order',
+        () async {
+      loadSchema('deblock');
+      final job = buildJob(
+        testName: 'deblock_mpeg2stinx',
+        deblock: const DeblockParameters(
+            enabled: true, method: DeblockMethod.mpeg2stinx),
+      ).copyWith(detectedFieldOrder: FieldOrder.bottomFieldFirst);
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('_stx_tff = False'));
+      expect(script,
+          contains('clip = core.std.SetFieldBased(core.std.Merge(_stx_1, _stx_2), 0)'));
+      expect(script, isNot(contains('_deblock_per_field')),
+          reason: 'mpeg2stinx is a cross-field filter: never per field');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('ivtc: fade fix follows field matching, in the chosen mode', () async {
+      loadSchema('deinterlace');
+      for (final (fix, mode) in [(true, 'match'), (false, 'average')]) {
+        final job = buildJob(
+          testName: 'ivtc_fades_$fix',
+          deinterlace: QTGMCParameters(
+            enabled: true,
+            method: DeinterlaceMethod.ivtc,
+            tff: true,
+            ivtcFixFades: fix,
+            ivtcFadeMode: mode,
+          ),
+        );
+        final script = await generateScriptViaWorker(job);
+        if (fix) {
+          final vfm = script.indexOf('core.vivtc.VFM(');
+          final at = script.indexOf('_fade_fields = core.std.SeparateFields(');
+          final decimate = script.indexOf('core.vivtc.VDecimate(');
+          expect(at, greaterThan(vfm));
+          expect(at, lessThan(decimate));
+          expect(script, contains("if 'match' == 'average' else min(a, b)"));
+        } else {
+          expect(script, isNot(contains('_fade_fields')));
+        }
+      }
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
@@ -1705,5 +1982,74 @@ void main() {
       expect(script, isNot(contains('{{#DEINT')));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // --- AI upscale strength (1.7.0) ---
+    // Below 1 the network's result is blended with a Spline36 upscale of the
+    // same frame in one std.Merge; at 1 nothing is added. Needs VSNCNN to run
+    // here (the worker refuses an AI job it cannot run), so it follows the
+    // GPU rule: tagged `gpu` (left out on the GPU-less CI runners), skipped
+    // without Vulkan unless VAPOURBOX_EXPECT_VULKAN=1.
+    test('crop_resize: AI strength blends a Spline36 upscale into the AI result', () async {
+      if (!await requireGpuPlugin('--probe-upscale')) return;
+      // Real-ESRGAN's anime model is an add-on (deps 1.16.0 on).
+      await WorkerHarness.ensureAddon('upscale-anime');
+      CropResizeParameters crop(double strength) => ParameterConverter.toCropResize(
+          ParameterConverter.fromCropResize(CropResizeParameters(
+              enabled: true,
+              useIntegerUpscale: true,
+              upscaleMethod: UpscaleMethod.realEsrgan,
+              aiStrength: strength)));
+      final blended = await generateScriptViaWorker(
+          buildJob(testName: 'ai_strength', cropResize: crop(0.7)));
+      expect(blended, contains('core.ncnn.Model(_ai_rgb, network_path=_ai_model'));
+      expect(blended, contains('clip = core.std.Merge(core.resize.Spline36(_ai_src, '
+          'width=clip.width, height=clip.height), clip, weight=0.700)'));
+      final full = await generateScriptViaWorker(
+          buildJob(testName: 'ai_strength_full', cropResize: crop(1.0)));
+      expect(full, isNot(contains('core.std.Merge(core.resize.Spline36(_ai_src')));
+      expect(full, isNot(contains('AI_STRENGTH')));
+    }, timeout: const Timeout(Duration(minutes: 2)), tags: ['gpu']);
+
+    // --- Add-on AI upscalers (1.7.0) ---
+    // Real-ESRGAN General (4x only: resampled to 2x after the network, the
+    // denoise variant on request) and Live Action SPAN (2x only: twice for
+    // 4x), each from the upscale-general add-on's directory. Installs the
+    // add-on (11 MB) with the app's own installer, so a dead link or changed
+    // hash fails here.
+    test('crop_resize: add-on upscalers load their models with their factor rules', () async {
+      if (!await requireGpuPlugin('--probe-upscale')) return;
+      await WorkerHarness.ensureAddon('upscale-general');
+      // The models the script runs, by file name, each checked to come from
+      // the add-on's own directory.
+      List<String> models(String script) {
+        final line = RegExp(r'for _ai_model in \[(.*)\]:').firstMatch(script)!.group(1)!;
+        final names = <String>[];
+        for (final m in RegExp(r"'([^']*)'").allMatches(line)) {
+          final path = m.group(1)!.replaceAll(r'\\', '/');
+          expect(path, contains('upscale-general/'), reason: path);
+          names.add(path.split('/').last);
+        }
+        return names;
+      }
+
+      Future<String> script(UpscaleMethod m, int factor, {bool denoise = false}) =>
+          generateScriptViaWorker(buildJob(
+              testName: 'addon_upscale_${m.name}_$factor',
+              cropResize: CropResizeParameters(
+                  enabled: true,
+                  useIntegerUpscale: true,
+                  upscaleMethod: m,
+                  upscaleFactor: factor,
+                  generalDenoise: denoise)));
+      final general2 = await script(UpscaleMethod.realEsrganGeneral, 2);
+      expect(models(general2), ['upscale-realesr-general-x4v3.onnx']);
+      expect(general2, contains('_ai_rgb = core.resize.Spline36(_ai_rgb, width=_ai_rgb.width * 2 // _ai_scale'));
+      final general4 = await script(UpscaleMethod.realEsrganGeneral, 4, denoise: true);
+      expect(models(general4), ['upscale-realesr-general-wdn-x4v3.onnx']);
+      expect(general4, isNot(contains('// _ai_scale')));
+      final span4 = await script(UpscaleMethod.liveAction, 4);
+      expect(models(span4), List.filled(2, '2xLiveActionV1_SPAN_490000.onnx'));
+      expect(span4, isNot(contains('// _ai_scale')));
+    }, timeout: const Timeout(Duration(minutes: 5)), tags: ['gpu']);
   });
 }

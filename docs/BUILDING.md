@@ -46,6 +46,7 @@ VapourBox/
 │   │   ├── services/           # WorkerManager, PresetService, FilterLoader
 │   │   └── widgets/            # Reusable UI widgets
 │   ├── assets/filters/         # Built-in filter schemas (JSON) + manifest.json
+│   ├── assets/addons/          # Add-on manifests, one JSON per add-on (docs/ADDONS.md)
 │   ├── assets/deps-version.json# Which deps release the app expects
 │   ├── test/                   # Unit, shell-out and integration tests
 │   ├── macos/                  # macOS platform config
@@ -74,6 +75,7 @@ VapourBox/
 ├── packaging/                  # macOS + Windows packaging assets (entitlements etc.)
 ├── licenses/                   # License files (GPL, LGPL, NOTICES)
 ├── Scripts/                    # Build, packaging, and release scripts
+│   └── models/                 # Model conversion scripts for self-hosted add-on files
 ├── Tests/TestResources/        # Committed test fixtures (small_clip.mp4, etc.)
 ├── docs/                       # Additional documentation
 │   └── reports/                # Investigation reports: screenshots, measurements, decisions
@@ -337,7 +339,7 @@ Do **not** run `app/build/macos/Build/Products/Release/vapourbox.app` directly �
 
 ## Running Tests
 
-There are three suites. Both `cargo test` and `flutter test --exclude-tags heavy`
+There are three suites. Both `cargo test` and `flutter test --exclude-tags heavy,gpu`
 run in the CI gate (`ci-test.yml`) on macOS arm64, macOS x64, Windows x64 and
 Linux x64.
 
@@ -345,11 +347,15 @@ Linux x64.
 # 1. Rust worker tests — script generation, preview, subtitles
 cd worker && cargo test
 
-# 2. Flutter suite, minus the encode-heavy tests — what the push gate runs
-cd app && flutter test --exclude-tags heavy
+# 2. Flutter suite, minus the encode-heavy and GPU tests — what the push gate runs
+cd app && flutter test --exclude-tags heavy,gpu
 
 # 3. Everything, including the full-encode integration tests (slow)
 cd app && flutter test
+
+# The GPU tests (RIFE, AI upscaling) on a machine with a GPU; the variable
+# turns "no Vulkan device" from a skip into a failure
+cd app && VAPOURBOX_EXPECT_VULKAN=1 flutter test --tags gpu
 ```
 
 - `worker/tests/filter_integration_test.rs` **only generates and inspects the
@@ -357,8 +363,12 @@ cd app && flutter test
   or plugin-behaviour bugs. Those need the Dart integration tests.
 - `app/test/integration_*_test.dart` spawn the worker end-to-end via
   `app/test/support/worker_harness.dart`. The encode-heavy ones are
-  `@Tags(['heavy'])` and run in `nightly.yml` (`flutter test --tags heavy`), not
-  the push gate.
+  `@Tags(['heavy'])` and run in `nightly.yml` (`flutter test --tags heavy
+  --exclude-tags gpu`), not the push gate.
+- Tests that need a Vulkan device are tagged `gpu`. The hosted CI runners have
+  no GPU, so neither workflow runs them: run them yourself on a machine with a
+  GPU after changing RIFE, AI upscaling or their models, and on Windows and
+  Linux before a release.
 - The harness honours `$VAPOURBOX_DEPS_DIR`, else repo-root `deps/<platform>`,
   else **downloads the deps release pinned in `app/assets/deps-version.json`**
   (opt out with `$VAPOURBOX_SKIP_DEPS_DOWNLOAD=1`). Call

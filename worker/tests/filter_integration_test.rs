@@ -4022,8 +4022,9 @@ fn test_105_anti_alias_santiag() {
 
 #[test]
 fn test_106_santiag_type_cannot_name_an_unbundled_interpolator() {
-    // havsfunc accepts eedi2 and sangnom; neither is in the deps bundle, and
-    // naming one fails at script evaluation rather than degrading.
+    // havsfunc accepts eedi2 and sangnom. eedi2 is not in the deps bundle, and
+    // havsfunc's sangnom type calls SangNom(order=0), which SangNom r45 refuses
+    // without _FieldBased; either fails at script evaluation.
     create_output_dir();
     let mut job = create_base_job("test_106_aa_santiag_type");
     job.qtgmc_parameters.enabled = false;
@@ -4325,6 +4326,7 @@ fn test_115_every_noise_method_still_emits_only_its_own_filter() {
         ("stpresso", "haf.STPresso"),
         ("bm3d", "core.bm3d."),
         ("knlm", "core.knlm.KNLMeansCL("),
+        ("nlm", "core.vszip.NLMeans("),
     ];
 
     let methods = [
@@ -4338,6 +4340,7 @@ fn test_115_every_noise_method_still_emits_only_its_own_filter() {
         (NoiseReductionMethod::StPresso, "stpresso"),
         (NoiseReductionMethod::Bm3d, "bm3d"),
         (NoiseReductionMethod::KnlMeans, "knlm"),
+        (NoiseReductionMethod::NlMeans, "nlm"),
     ];
 
     for (method, key) in methods {
@@ -5467,6 +5470,7 @@ fn test_149_every_noise_reduction_method_emits_its_filter() {
         (NoiseReductionMethod::TemporalDegrain2, "_TemporalDegrain2("),
         (NoiseReductionMethod::Bm3d, "core.bm3d.VBasic("),
         (NoiseReductionMethod::KnlMeans, "core.knlm.KNLMeansCL("),
+        (NoiseReductionMethod::NlMeans, "core.vszip.NLMeans("),
     ];
     // The list above is hand-written; this match is not. A new method fails to
     // compile here until it is added both here and to the list.
@@ -5475,11 +5479,11 @@ fn test_149_every_noise_reduction_method_emits_its_filter() {
         match m {
             SmDegrain | McTemporalDenoise | McDegrainSharp | DfTtest | Fft3dFilter
             | TTempSmooth | FluxSmoothT | FluxSmoothSt | StPresso | Ctmf | MClean
-            | TemporalDegrain2 | Bm3d | KnlMeans => true,
+            | TemporalDegrain2 | Bm3d | KnlMeans | NlMeans => true,
             QtgmcBuiltin => false, // denoises inside the QTGMC pass
         }
     }
-    assert_eq!(expected.len(), 14);
+    assert_eq!(expected.len(), 15);
     assert!(expected.iter().all(|(m, _)| listed(*m)));
 
     for (method, call) in expected {
@@ -6165,6 +6169,16 @@ fn rife_job(name: &str) -> VideoJob {
     job
 }
 
+/// A throwaway add-ons directory with the GPU plugins' model add-ons (RIFE's
+/// and the anime upscalers') installed as far as the worker can tell.
+fn model_addons() -> PathBuf {
+    fake_addons_with_requirements(
+        "gpu-models",
+        &[vapourbox_worker::gpu_plugin::RIFE_ADDON, vapourbox_worker::upscale_addons::ANIME_ADDON],
+        "macos-arm64",
+    )
+}
+
 fn rife_files() -> vapourbox_worker::gpu_plugin::GpuPluginFiles {
     vapourbox_worker::gpu_plugin::GpuPluginFiles::in_vapoursynth_dir(
         vapourbox_worker::gpu_plugin::GpuPlugin::Rife,
@@ -6192,9 +6206,18 @@ fn test_166_rife_frame_rate_emits_explicit_load_and_real_frame_passthrough() {
     let files = rife_files();
     // Paths as the generator writes them: Path::join uses `\` on Windows.
     let py = |p: &std::path::Path| vapourbox_worker::gpu_plugin::py_str(p);
-    let (preload, plugin, model) =
-        (py(files.preload.as_deref().unwrap()), py(&files.plugin), py(&files.model_dir));
-    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(files));
+    // The model is the add-on's, never the deps bundle's.
+    let root = model_addons();
+    let (preload, plugin, model) = (
+        py(files.preload.as_deref().unwrap()),
+        py(&files.plugin),
+        py(&vapourbox_worker::gpu_plugin::rife_model_dir(&root)),
+    );
+    assert!(model.contains("frame-rate-rife") && model.contains("rife-v4.26_ensembleFalse"), "{model}");
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_rife(Ok(files))
+        .with_addons(root.clone(), "macos-arm64");
     let (encode, preview) = both_scripts_with(&generator, &rife_job("test_166_rife")).unwrap();
     for (name, script) in [("encode", &encode), ("preview", &preview)] {
         assert!(script.contains(&format!("_rife_preload = {preload}")),
@@ -6406,10 +6429,16 @@ fn test_172_ai_upscale_emits_explicit_load_and_the_right_model() {
     create_output_dir();
     let files = upscale_files();
     let py = |p: &std::path::Path| vapourbox_worker::gpu_plugin::py_str(p);
-    let generator = ScriptGenerator::new().unwrap().with_upscale(Ok(files.clone()));
+    use vapourbox_worker::upscale_addons::{ANIME_ADDON, ANIME_ESRGAN_X2, CUGAN_DENOISE3X};
+    let root = model_addons();
+    let dir = vapourbox_worker::addons::addon_dir(&root, ANIME_ADDON);
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(files.clone()))
+        .with_addons(root.clone(), "macos-arm64");
     for (method, model) in [
-        (UpscaleMethod::RealEsrgan, "RealESRGANv2/RealESRGANv2-animevideo-xsx2.onnx"),
-        (UpscaleMethod::RealCugan, "cugan/up2x-latest-denoise3x.onnx"),
+        (UpscaleMethod::RealEsrgan, ANIME_ESRGAN_X2),
+        (UpscaleMethod::RealCugan, CUGAN_DENOISE3X),
     ] {
         let job = ai_upscale_job("test_172_ai_upscale", method, 2, "denoise3x");
         let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
@@ -6419,7 +6448,7 @@ fn test_172_ai_upscale_emits_explicit_load_and_the_right_model() {
                 "{ctx}: MoltenVK not preloaded");
             assert!(script.contains(&format!("core.std.LoadPlugin({})", py(&files.plugin))),
                 "{ctx}: VSNCNN not loaded explicitly");
-            assert!(script.contains(&format!("for _ai_model in [{}]:", py(&files.model_dir.join(model)))),
+            assert!(script.contains(&format!("for _ai_model in [{}]:", py(&dir.join(model)))),
                 "{ctx}: wrong model");
             assert!(script.contains("core.ncnn.Model(_ai_rgb, network_path=_ai_model, fp16=True"),
                 "{ctx}: no ncnn.Model call");
@@ -6442,14 +6471,19 @@ fn test_172_ai_upscale_emits_explicit_load_and_the_right_model() {
 fn test_173_ai_upscale_4x_models() {
     create_output_dir();
     let files = upscale_files();
-    let py = |m: &str| vapourbox_worker::gpu_plugin::py_str(&files.model_dir.join(m));
-    let generator = ScriptGenerator::new().unwrap().with_upscale(Ok(files.clone()));
+    use vapourbox_worker::upscale_addons::*;
+    let root = model_addons();
+    let dir = vapourbox_worker::addons::addon_dir(&root, ANIME_ADDON);
+    let py = |m: &str| vapourbox_worker::gpu_plugin::py_str(&dir.join(m));
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(files.clone()))
+        .with_addons(root.clone(), "macos-arm64");
     let esrgan = script_text_with(&generator, &ai_upscale_job("test_173_esrgan", UpscaleMethod::RealEsrgan, 4, ""));
-    assert!(esrgan.contains(&format!("for _ai_model in [{}]:",
-        py("RealESRGANv2/RealESRGANv2-animevideo-xsx4.onnx"))));
+    assert!(esrgan.contains(&format!("for _ai_model in [{}]:", py(ANIME_ESRGAN_X4))));
     let cugan = script_text_with(&generator, &ai_upscale_job("test_173_cugan", UpscaleMethod::RealCugan, 4, "conservative"));
     assert!(cugan.contains(&format!("for _ai_model in [{}, {}]:",
-        py("cugan/up2x-latest-conservative.onnx"), py("cugan/up2x-latest-no-denoise.onnx"))));
+        py(CUGAN_CONSERVATIVE), py(CUGAN_NO_DENOISE))));
 }
 
 /// Without a working Vulkan device an AI upscale job is refused, before any
@@ -6602,13 +6636,14 @@ fn test_179_animejanai_is_refused_without_its_models() {
     let generator = ScriptGenerator::new()
         .unwrap()
         .with_upscale(Ok(upscale_files()))
-        .with_animejanai(Err(vapourbox_worker::animejanai::MISSING_MESSAGE.into()));
+        .with_animejanai(Err(vapourbox_worker::animejanai::MISSING_MESSAGE.into()))
+        .with_addons(model_addons(), "macos-arm64");
     let job = ai_upscale_job("test_179_refused", UpscaleMethod::AnimeJanai, 2, "");
     let err = both_scripts_with(&generator, &job).unwrap_err().to_string();
     assert!(err.contains("AnimeJaNai's models are not installed"), "{err}");
     assert!(err.contains("non-commercial"), "{err}");
     let esrgan = ai_upscale_job("test_179_esrgan", UpscaleMethod::RealEsrgan, 2, "");
-    both_scripts_with(&generator, &esrgan).expect("Real-ESRGAN needs no add-on");
+    both_scripts_with(&generator, &esrgan).expect("Real-ESRGAN needs only its own add-on");
 }
 
 /// A phone-style VFR source: 30 fps for 30 frames, then every third frame
@@ -6647,6 +6682,7 @@ fn test_180_vfr_source_timeline_fills_gaps() {
     let generator = ScriptGenerator::new()
         .unwrap()
         .with_rife(Ok(rife_files()))
+        .with_addons(model_addons(), "macos-arm64")
         .with_timeline(Some(window.clone()));
 
     for method in [FrameRateMethod::FlowFps, FrameRateMethod::Rife] {
@@ -6718,7 +6754,8 @@ fn test_180_vfr_source_timeline_fills_gaps() {
 #[test]
 fn test_181_custom_frame_rate_target() {
     create_output_dir();
-    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()));
+    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()))
+        .with_addons(model_addons(), "macos-arm64");
     let custom = |name: &str, method: FrameRateMethod, fps: f64, src: (u32, u32)| {
         let mut job = rife_job(name);
         let fr = &mut job.processing_pipeline.as_mut().unwrap().frame_rate;
@@ -6765,7 +6802,8 @@ fn test_181_custom_frame_rate_target() {
 #[test]
 fn test_182_preview_retime_padding() {
     create_output_dir();
-    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()));
+    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()))
+        .with_addons(model_addons(), "macos-arm64");
     for method in [FrameRateMethod::FlowFps, FrameRateMethod::Rife, FrameRateMethod::Duplicate] {
         let mut job = rife_job("test_182_pad");
         let fr = &mut job.processing_pipeline.as_mut().unwrap().frame_rate;
@@ -6818,6 +6856,8 @@ fn test_183_deblock_per_field_when_still_interlaced() {
         DeblockMethod::DeblockQed => "haf.Deblock_QED(",
         DeblockMethod::Deblock => "core.deblock.Deblock(",
         DeblockMethod::DctFilter => "core.dctf.DCTFilter(",
+        // Never per field; test_203's.
+        DeblockMethod::Mpeg2Stinx => unreachable!("mpeg2stinx takes the whole frame"),
     };
 
     for method in &[DeblockMethod::DeblockQed, DeblockMethod::Deblock, DeblockMethod::DctFilter] {
@@ -6862,7 +6902,8 @@ fn test_183_deblock_per_field_when_still_interlaced() {
 #[test]
 fn test_184_flowfps_length_is_set_by_the_script() {
     create_output_dir();
-    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()));
+    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()))
+        .with_addons(model_addons(), "macos-arm64");
     let mut job = rife_job("test_184_flowfps_length");
     let fr = &mut job.processing_pipeline.as_mut().unwrap().frame_rate;
     fr.method = FrameRateMethod::FlowFps;
@@ -6878,4 +6919,902 @@ fn test_184_flowfps_length_is_set_by_the_script() {
         assert!(len < call, "{name}: length must be taken from FlowFPS's input");
         assert!(call < trim && call < pad, "{name}: length set before FlowFPS");
     }
+}
+
+
+// ===========================================================================
+// deps 1.16.0: SangNom, vszip NLMeans, and the vs-jetpack ports (app 1.7.0)
+// ===========================================================================
+
+/// SangNom AA: its own block, `aa` clamped to the plugin's 0-128, the field
+/// order put back afterwards, and neither of the other methods emitted.
+#[test]
+fn test_200_anti_alias_sangnom() {
+    create_output_dir();
+    let job_with = |aa: i32| {
+        let mut job = create_base_job("test_200_aa_sangnom");
+        job.qtgmc_parameters.enabled = false;
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            anti_alias: AntiAliasParameters {
+                enabled: true,
+                method: AntiAliasMethod::SangNom,
+                sangnom_aa: aa,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+    let (encode, preview) = generate_both_scripts(&job_with(64));
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("_aa = core.sangnom.SangNom(_aa, order=1, aa=64)"), "{name}: first axis");
+        assert!(
+            script.contains("_aa = core.sangnom.SangNom(core.std.Transpose(_aa), order=1, aa=64)"),
+            "{name}: second axis"
+        );
+        assert!(script.contains("core.resize.Spline36(clip, _aa_w * 2, _aa_h * 2)"), "{name}: supersample");
+        let sangnom = script.find("core.sangnom.SangNom(").unwrap();
+        let restore = script.rfind("clip = core.std.SetFieldBased(clip, ").unwrap();
+        assert!(restore > sangnom, "{name}: field order not put back after SangNom");
+        assert!(!script.contains("haf.daa("), "{name}: daa emitted too");
+        assert!(!script.contains("haf.santiag("), "{name}: santiag emitted too");
+        assert!(!script.contains("{{AA_"), "{name}: placeholder left");
+    }
+    assert!(script_text(&job_with(500)).contains("order=1, aa=128)"));
+    assert!(script_text(&job_with(-3)).contains("order=1, aa=0)"));
+}
+
+/// NLMeans (CPU): vszip's NLMeans with the knlm_* values, chroma in its own
+/// pass, and it runs where KNLMeansCL is refused for want of a device.
+#[test]
+fn test_201_noise_reduction_nlmeans_cpu() {
+    create_output_dir();
+    let job = nr_job("test_201_nlm", NoiseReductionParameters {
+        method: NoiseReductionMethod::NlMeans,
+        knlm_h: 2.5,
+        knlm_d: 2,
+        knlm_a: 3,
+        knlm_s: 1,
+        knlm_chroma: true,
+        ..Default::default()
+    });
+    // No OpenCL device at all: NLMeans must not care.
+    let message = vapourbox_worker::dependency_locator::KNLM_NO_DEVICE_MESSAGE;
+    let generator = ScriptGenerator::new().unwrap().with_knlm(Err(message.into()));
+    let (encode, preview) = both_scripts_with(&generator, &job).expect("NLMeans needs no OpenCL");
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains(
+            "clip = core.vszip.NLMeans(clip, d=2, a=3, s=1, h=2.50, channels=\"Y\")"), "{name}: luma");
+        assert!(script.contains(
+            "clip = core.vszip.NLMeans(clip, d=2, a=3, s=1, h=2.50, channels=\"UV\")"), "{name}: chroma");
+        assert!(script.contains("    if True:"), "{name}: chroma switch");
+        assert!(!script.contains("core.knlm.KNLMeansCL("), "{name}: KNLMeansCL emitted");
+        assert!(!script.contains("core.bm3d."), "{name}: BM3D emitted");
+        assert!(!script.contains("{{NR_NLM"), "{name}: placeholder left");
+    }
+    // The refusal names the CPU method as the way out.
+    assert!(message.contains("NLMeans (CPU)"), "{message}");
+    // Same preview radius as KNLMeans: d frames each side, at least 3.
+    let mut nr = NoiseReductionParameters { method: NoiseReductionMethod::NlMeans, knlm_d: 4, ..Default::default() };
+    assert_eq!(nr.temporal_radius(), 4);
+    nr.knlm_d = 1;
+    assert_eq!(nr.temporal_radius(), 3);
+}
+
+/// vine: the ported block with the clamped values, through the helpers.
+#[test]
+fn test_202_dehalo_vine() {
+    create_output_dir();
+    let job_with = |strength: f64, sharp: f64, sigma: f64| {
+        let mut job = create_base_job("test_202_vine");
+        job.qtgmc_parameters.enabled = false;
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            dehalo: DehaloParameters {
+                enabled: true,
+                method: DehaloMethod::Vine,
+                vine_strength: strength,
+                vine_sharp: sharp,
+                vine_sigma: sigma,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+    let (encode, preview) = generate_both_scripts(&job_with(24.0, 0.25, 1.5));
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("_vine_strength = 24.000"), "{name}");
+        assert!(script.contains("_vine_sharp = 0.250"), "{name}");
+        assert!(script.contains("_vine_sigma = 1.500"), "{name}");
+        assert!(script.contains("_nnedi3(_vine_y, field=1, dh=True)"), "{name}: supersample");
+        assert!(script.contains("core.vszip.NLMeans(_vine_ss, d=0, a=2, s=0, h=_vine_strength)"), "{name}");
+        assert!(script.contains("rclip=_vine_high"), "{name}: refine pass");
+        assert!(!script.contains("haf.DeHalo_alpha("), "{name}: other method emitted");
+        assert!(!script.contains("{{DEHALO_VINE"), "{name}: placeholder left");
+    }
+    // NLMeans refuses h <= 0; vs-jetpack refuses sharp <= 0; 25 taps max.
+    let clamped = script_text(&job_with(0.0, -1.0, 99.0));
+    assert!(clamped.contains("_vine_strength = 1.000"));
+    assert!(clamped.contains("_vine_sharp = 0.050"));
+    assert!(clamped.contains("_vine_sigma = 4.000"));
+    let nan = script_text(&job_with(f64::NAN, f64::INFINITY, f64::NAN));
+    assert!(nan.contains("_vine_strength = 16.000") && nan.contains("_vine_sharp = 0.500"));
+}
+
+/// mpeg2stinx: always the whole frame (it is a cross-field filter), with the
+/// encode's field order, and a preview window of one frame each side.
+#[test]
+fn test_203_deblock_mpeg2stinx() {
+    create_output_dir();
+    let job_for = |deinterlace: bool, detected: Option<FieldOrder>| {
+        let mut job = create_base_job("test_203_mpeg2stinx");
+        job.detected_field_order = detected;
+        job.qtgmc_parameters.enabled = deinterlace;
+        job.qtgmc_parameters.tff = Some(false);
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: job.qtgmc_parameters.clone(),
+            deblock: DeblockParameters { enabled: true, method: DeblockMethod::Mpeg2Stinx, ..Default::default() },
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+    for (job, tff) in [
+        (job_for(false, Some(FieldOrder::BottomFieldFirst)), "False"),
+        (job_for(false, Some(FieldOrder::TopFieldFirst)), "True"),
+        (job_for(false, None), "True"),
+        (job_for(true, Some(FieldOrder::TopFieldFirst)), "False"), // the deinterlace pass's order wins
+    ] {
+        let (encode, preview) = generate_both_scripts(&job);
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(script.contains(&format!("_stx_tff = {tff}")), "{name}: field order {tff}");
+            assert!(script.contains("core.bwdif.Bwdif(c, field=_stx_field, edeint=_nnedi3(c, field=_stx_field))"));
+            assert!(script.contains("clip = core.std.SetFieldBased(core.std.Merge(_stx_1, _stx_2), 0)"));
+            assert!(!script.contains("_deblock_per_field"), "{name}: mpeg2stinx must not run per field");
+            assert!(!script.contains("haf.Deblock_QED(") && !script.contains("core.dctf.DCTFilter("));
+            assert!(!script.contains("{{DEBLOCK"), "{name}: placeholder left");
+        }
+    }
+    let p = job_for(false, None).processing_pipeline.unwrap();
+    let deblock_map = p
+        .enabled_passes()
+        .into_iter()
+        .zip(p.frame_maps())
+        .find(|(pass, _)| *pass == PassType::Deblock)
+        .map(|(_, m)| m)
+        .unwrap();
+    assert_eq!(deblock_map, FrameMap::Identity { radius: 1 });
+}
+
+/// The IVTC fade fix: right after VFM in both scripts when ticked, absent
+/// otherwise and for every other deinterlace method.
+#[test]
+fn test_204_ivtc_fix_fades() {
+    create_output_dir();
+    let job_for = |method: DeinterlaceMethod, fix: bool, mode: &str| {
+        let mut job = create_base_job("test_204_ivtc_fades");
+        job.qtgmc_parameters = QTGMCParameters {
+            enabled: true,
+            method,
+            tff: Some(true),
+            ivtc_fix_fades: fix,
+            ivtc_fade_mode: mode.to_string(),
+            ..Default::default()
+        };
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: job.qtgmc_parameters.clone(),
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+    for (mode, expect) in [("average", "average"), ("match", "match"), ("MATCH", "match"), ("bogus", "average")] {
+        let (encode, preview) = generate_both_scripts(&job_for(DeinterlaceMethod::Ivtc, true, mode));
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            let vfm = script.find("core.vivtc.VFM(").expect("VFM");
+            let fix = script.find("_fade_fields = core.std.SeparateFields(").unwrap_or_else(|| panic!("{name}: no fix"));
+            assert!(fix > vfm, "{name}: the fix must follow field matching");
+            assert!(script.contains(&format!("if '{expect}' == 'average' else min(a, b)")), "{name}: mode {mode}");
+            // Where akarin exists the gains are frame properties read by ONE
+            // expression: an akarin node made per frame inside FrameEval
+            // crashed or hung vspipe under concurrency.
+            assert!(script.contains("core.std.ModifyFrame(_fade_top, [_fade_top] + _fade_props,"), "{name}");
+            assert!(script.contains("_fade_apply = [f'x x.FadeGain{i} *' for i in range(_fade_fmt.num_planes)]"),
+                    "{name}");
+            if let Some(decimate) = script.find("core.vivtc.VDecimate(") {
+                assert!(fix < decimate, "{name}: before decimation");
+            }
+            assert!(!script.contains("{{IVTC_FADE_MODE}}") && !script.contains("DEINT_IVTC_FIX_FADES"));
+        }
+    }
+    for job in [
+        job_for(DeinterlaceMethod::Ivtc, false, "average"),
+        job_for(DeinterlaceMethod::Qtgmc, true, "average"),
+    ] {
+        let (encode, preview) = generate_both_scripts(&job);
+        for script in [&encode, &preview] {
+            assert!(!script.contains("_fade_fields"), "fade fix emitted when not asked for");
+            assert!(!script.contains("DEINT_IVTC_FIX_FADES"), "marker left");
+        }
+    }
+    let p: QTGMCParameters = serde_json::from_str("{}").unwrap();
+    assert!(!p.ivtc_fix_fades);
+    assert_eq!(p.effective_ivtc_fade_mode(), "average");
+}
+
+/// Every block added for deps 1.16.0 goes through the templates' helpers
+/// (test_92 / test_93 enforce the rule template-wide; this pins it to the new
+/// code paths by generating each one) and leaves no placeholder behind.
+#[test]
+fn test_205_new_blocks_use_the_helpers() {
+    create_output_dir();
+    let base = || {
+        let mut job = create_base_job("test_205_helpers");
+        job.qtgmc_parameters.enabled = false;
+        job
+    };
+    let pipelines = [
+        ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            anti_alias: AntiAliasParameters { enabled: true, method: AntiAliasMethod::SangNom, ..Default::default() },
+            dehalo: DehaloParameters { enabled: true, method: DehaloMethod::Vine, ..Default::default() },
+            deblock: DeblockParameters { enabled: true, method: DeblockMethod::Mpeg2Stinx, ..Default::default() },
+            noise_reduction: NoiseReductionParameters {
+                enabled: true,
+                method: NoiseReductionMethod::NlMeans,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        },
+        ProcessingPipeline {
+            deinterlace: QTGMCParameters {
+                enabled: true,
+                method: DeinterlaceMethod::Ivtc,
+                ivtc_fix_fades: true,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        },
+    ];
+    for pipeline in pipelines {
+        let mut job = base();
+        job.qtgmc_parameters = pipeline.deinterlace.clone();
+        job.processing_pipeline = Some(pipeline);
+        let (encode, preview) = generate_both_scripts(&job);
+        for script in [&encode, &preview] {
+            for banned in ["core.std.Expr(", "core.znedi3.nnedi3(", "core.nnedi3.nnedi3("] {
+                // The helper's own body is the only call site.
+                let uses = script.matches(banned).count();
+                assert!(uses <= 1, "{banned} called outside its helper ({uses} uses)");
+            }
+            for marker in ["{{AA_", "NR_NLM", "DEHALO_VINE", "DEBLOCK_STINX", "DEBLOCK_MPEG2STINX", "IVTC_FADE",
+                           "DEINT_IVTC_FIX_FADES"] {
+                assert!(!script.contains(marker), "{marker} left in a generated script");
+            }
+        }
+    }
+}
+
+/// An add-ons directory with `ids` installed for macOS arm64, as the app's
+/// installer leaves it: every expected file plus the marker, written last.
+fn fake_addons(tag: &str, ids: &[&str]) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("vb-upscale-addons-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    for id in ids {
+        let m = vapourbox_worker::addons::manifest(id).expect("manifest");
+        let dir = vapourbox_worker::addons::addon_dir(&root, id);
+        std::fs::create_dir_all(&dir).unwrap();
+        for p in m.expected_paths("macos-arm64") {
+            let path = dir.join(p);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"x").unwrap();
+        }
+        std::fs::write(
+            dir.join(vapourbox_worker::addons::MARKER),
+            format!(r#"{{"id":"{id}","version":"{}","platform":"macos-arm64"}}"#, m.version),
+        )
+        .unwrap();
+    }
+    root
+}
+
+/// A throwaway add-ons directory with `ids` (and what they require) installed
+/// as far as the worker can tell: each manifest's expected paths present
+/// (empty files will do for script generation) and its marker written.
+fn fake_addons_with_requirements(name: &str, ids: &[&str], platform: &str) -> PathBuf {
+    use vapourbox_worker::addons;
+    let root = std::env::temp_dir().join(format!("vb-addons-{name}-{}", Uuid::new_v4()));
+    for id in addons::with_requirements(ids) {
+        let m = addons::manifest(&id).expect("manifest");
+        let dir = addons::addon_dir(&root, &id);
+        for p in m.expected_paths(platform) {
+            let path = dir.join(&p);
+            if p.ends_with("site-packages") {
+                std::fs::create_dir_all(&path).unwrap();
+            } else {
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(&path, b"").unwrap();
+            }
+        }
+        std::fs::write(
+            dir.join(addons::MARKER),
+            serde_json::json!({"id": id, "version": m.version, "platform": platform}).to_string(),
+        )
+        .unwrap();
+    }
+    root
+}
+
+fn face_restore_job(name: &str, fr: FaceRestoreParameters) -> VideoJob {
+    let mut job = create_base_job(name);
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        crop_resize: CropResizeParameters {
+            enabled: true,
+            resize_enabled: true,
+            target_width: Some(1280),
+            target_height: Some(960),
+            ..Default::default()
+        },
+        sharpen: SharpenParameters { enabled: true, ..Default::default() },
+        face_restore: FaceRestoreParameters { enabled: true, ..fr },
+        ..ProcessingPipeline::default()
+    });
+    job
+}
+
+/// Face Restoration runs face_restore.restore_faces on ONNX Runtime from the
+/// add-ons, in both scripts: after the resize and before sharpening, with the
+/// AI runtime set up first and every model path taken from its add-on.
+#[test]
+fn test_189_face_restore_script_and_models() {
+    create_output_dir();
+    let platform = "macos-arm64";
+    let root = fake_addons_with_requirements("189", &["face-restoration", "face-codeformer"], platform);
+    let generator = ScriptGenerator::new().unwrap().with_addons(root.clone(), platform);
+    let job = face_restore_job("test_189_face_restore", FaceRestoreParameters {
+        model: FaceRestoreModel::CodeFormer,
+        strength: 0.6,
+        code_former_fidelity: 0.5,
+        detection_threshold: 0.7,
+        min_face_size: 40,
+        max_faces: 3,
+        temporal_smoothing: true,
+        ..Default::default()
+    });
+    let py = |id: &str, f: &str| vapourbox_worker::gpu_plugin::py_str(&root.join(id).join(f));
+    let runtime = vapourbox_worker::gpu_plugin::py_str(&root.join("ai-runtime"));
+    let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        let setup = script
+            .find(&format!("ai_runtime.setup({runtime})"))
+            .unwrap_or_else(|| panic!("{name}: no AI runtime"));
+        let call = script.find("_face_restore.restore_faces(").unwrap_or_else(|| panic!("{name}: no call"));
+        for want in [
+            format!("detector={}", py("face-restoration", "face-restoration-retinaface-r50.onnx")),
+            format!("parser={}", py("face-restoration", "face-restoration-bisenet.onnx")),
+            format!("restorer={}", py("face-codeformer", "face-codeformer-v0.1.0.onnx")),
+            "model=\"codeformer\"".into(),
+            "strength=0.600".into(),
+            "fidelity=0.500".into(),
+            "threshold=0.700".into(),
+            "min_face=40".into(),
+            "max_faces=3".into(),
+            "temporal_radius=1".into(),
+            "color_range=\"limited\"".into(),
+        ] {
+            assert!(script.contains(&want), "{name}: missing {want}");
+        }
+        assert!(setup < call, "{name}: runtime set up after the pass");
+        let resize = script.find("target_w = 1280").expect("resize");
+        let sharpen = script.find("haf.LSFmod(").expect("sharpen");
+        assert!(resize < call && call < sharpen, "{name}: after the resize, before sharpening");
+        assert!(!script.contains("{{FR_") && !script.contains("FACE_RESTORE}}"), "{name}: unsubstituted");
+    }
+    // Pass order and the preview's temporal context agree with the script.
+    let pipeline = job.effective_pipeline();
+    let passes = pipeline.enabled_passes();
+    let at = |p| passes.iter().position(|x| *x == p).unwrap();
+    assert!(at(PassType::CropResize) < at(PassType::FaceRestore));
+    assert!(at(PassType::FaceRestore) < at(PassType::Sharpen));
+    assert_eq!(pipeline.output_count(100), 100);
+    // The blend reads one neighbour each side, whose landmarks read one more.
+    let face_map = pipeline.frame_maps()[at(PassType::FaceRestore)].clone();
+    assert_eq!(face_map.radius(), 2);
+    let mut off = job.clone();
+    off.processing_pipeline.as_mut().unwrap().face_restore.temporal_smoothing = false;
+    assert!(script_text_with(&generator, &off).contains("temporal_radius=0"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Without its add-ons a Face Restoration job is refused, naming them and
+/// Settings → Add-ons; with the pass off nothing needs them and the script
+/// has neither the runtime nor the call.
+#[test]
+fn test_190_face_restore_refused_without_addons() {
+    create_output_dir();
+    let platform = "macos-arm64";
+    // The base installed but not GFPGAN's add-on.
+    let root = fake_addons_with_requirements("190", &["face-restoration"], platform);
+    let generator = ScriptGenerator::new().unwrap().with_addons(root.clone(), platform);
+    let gfpgan = face_restore_job("test_190_gfpgan", FaceRestoreParameters {
+        model: FaceRestoreModel::Gfpgan,
+        ..Default::default()
+    });
+    let err = both_scripts_with(&generator, &gfpgan).unwrap_err().to_string();
+    assert!(err.contains("Face restoration"), "{err}");
+    assert!(err.contains("Settings → Add-ons"), "{err}");
+    assert!(err.to_lowercase().contains("gfpgan"), "{err}");
+    // RestoreFormer++ needs only the base.
+    let rf = face_restore_job("test_190_rf", FaceRestoreParameters::default());
+    let (encode, _) = both_scripts_with(&generator, &rf).expect("the base add-on is enough");
+    assert!(encode.contains("model=\"restoreformer\""));
+    assert!(encode.contains("strength=0.800"));
+    // Nothing installed at all.
+    let empty = std::env::temp_dir().join(format!("vb-addons-190-empty-{}", Uuid::new_v4()));
+    let bare = ScriptGenerator::new().unwrap().with_addons(empty, platform);
+    assert!(both_scripts_with(&bare, &rf).is_err());
+    // Pass off: no add-on needed, no runtime, no call.
+    let mut off = rf.clone();
+    off.processing_pipeline.as_mut().unwrap().face_restore.enabled = false;
+    let (encode, preview) = both_scripts_with(&bare, &off).unwrap();
+    for script in [&encode, &preview] {
+        assert!(!script.contains("import ai_runtime"));
+        assert!(!script.contains("restore_faces("));
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+fn colorize_job(name: &str, cz: ColorizeParameters) -> VideoJob {
+    let mut job = create_base_job(name);
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        chroma_fixes: ChromaFixParameters {
+            enabled: true,
+            apply_chroma_bleeding_fix: true,
+            ..ChromaFixParameters::default()
+        },
+        color_correction: ColorCorrectionParameters {
+            enabled: true,
+            saturation: 1.2,
+            ..ColorCorrectionParameters::default()
+        },
+        colorize: ColorizeParameters { enabled: true, ..cz },
+        ..ProcessingPipeline::default()
+    });
+    job
+}
+
+/// Colourisation runs colorize.colorize on ONNX Runtime from the add-ons, in
+/// both scripts: after Chroma Fixes and before Colour Correction, with the AI
+/// runtime set up first, the chosen model's path from its add-on, and each
+/// model's render size (DDColor's in pixels, DeOldify's render factor x 16).
+#[test]
+fn test_207_colorize_script_and_model() {
+    create_output_dir();
+    let platform = "macos-arm64";
+    let root = fake_addons_with_requirements("207", &["colorize-ddcolor", "colorize-deoldify"], platform);
+    let generator = ScriptGenerator::new().unwrap().with_addons(root.clone(), platform);
+    let job = colorize_job("test_207_colorize", ColorizeParameters {
+        model: ColorizeModel::DeOldify,
+        deoldify_render_factor: 25,
+        strength: 0.7,
+        temporal_radius: 3,
+        ..Default::default()
+    });
+    let py = |id: &str, f: &str| vapourbox_worker::gpu_plugin::py_str(&root.join(id).join(f));
+    let runtime = vapourbox_worker::gpu_plugin::py_str(&root.join("ai-runtime"));
+    let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        let setup = script
+            .find(&format!("ai_runtime.setup({runtime})"))
+            .unwrap_or_else(|| panic!("{name}: no AI runtime"));
+        let call = script.find("_colorize.colorize(").unwrap_or_else(|| panic!("{name}: no call"));
+        for want in [
+            format!("model_path={}", py("colorize-deoldify", "colorize-deoldify-video.onnx")),
+            "model=\"deoldify\"".into(),
+            "render_size=400".into(),
+            "strength=0.700".into(),
+            "temporal_radius=3".into(),
+            "matrix=\"".into(),
+            "color_range=\"limited\"".into(),
+        ] {
+            assert!(script.contains(&want), "{name}: missing {want}");
+        }
+        assert!(setup < call, "{name}: runtime set up after the pass");
+        let chroma = script.find("# PASS 8: CHROMA FIXES").expect("chroma fixes");
+        let color = script.find("clip = adjust.Tweak(").expect("colour correction");
+        assert!(chroma < call && call < color, "{name}: after Chroma Fixes, before Colour Correction");
+        assert!(!script.contains("{{CZ_") && !script.contains("COLORIZE}}"), "{name}: unsubstituted");
+    }
+    // Only the preview says it is one (DDColor previews on the CPU, see
+    // colorize.PREVIEW_ON_CPU).
+    assert!(preview.contains("    preview=True,"));
+    assert!(!encode.contains("preview=True"));
+    // Pass order and the preview's temporal context agree with the script.
+    let pipeline = job.effective_pipeline();
+    let passes = pipeline.enabled_passes();
+    let at = |p| passes.iter().position(|x| *x == p).unwrap();
+    assert!(at(PassType::ChromaFixes) < at(PassType::Colorize));
+    assert!(at(PassType::Colorize) < at(PassType::ColorCorrection));
+    assert_eq!(pipeline.output_count(100), 100);
+    assert_eq!(pipeline.frame_maps()[at(PassType::Colorize)].radius(), 3);
+    // DDColor's defaults: 512 pixels, two frames either side.
+    let ddcolor = colorize_job("test_207_ddcolor", ColorizeParameters::default());
+    let script = script_text_with(&generator, &ddcolor);
+    for want in [
+        format!("model_path={}", py("colorize-ddcolor", "colorize-ddcolor-tiny.onnx")),
+        "model=\"ddcolor\"".into(),
+        "render_size=512".into(),
+        "strength=1.000".into(),
+        "temporal_radius=2".into(),
+    ] {
+        assert!(script.contains(&want), "ddcolor: missing {want}");
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Without the chosen model's add-on a Colourisation job is refused, naming it
+/// and Settings → Add-ons; with the pass off nothing needs it and the script
+/// has neither the runtime nor the call.
+#[test]
+fn test_208_colorize_refused_without_addon() {
+    create_output_dir();
+    let platform = "macos-arm64";
+    let root = fake_addons_with_requirements("208", &["colorize-ddcolor"], platform);
+    let generator = ScriptGenerator::new().unwrap().with_addons(root.clone(), platform);
+    let deoldify = colorize_job("test_208_deoldify", ColorizeParameters {
+        model: ColorizeModel::DeOldify,
+        ..Default::default()
+    });
+    let err = both_scripts_with(&generator, &deoldify).unwrap_err().to_string();
+    assert!(err.contains("Colourisation"), "{err}");
+    assert!(err.contains("Settings → Add-ons"), "{err}");
+    assert!(err.to_lowercase().contains("deoldify"), "{err}");
+    let ddcolor = colorize_job("test_208_ddcolor", ColorizeParameters::default());
+    both_scripts_with(&generator, &ddcolor).expect("DDColor's add-on is installed");
+    let empty = std::env::temp_dir().join(format!("vb-addons-208-empty-{}", Uuid::new_v4()));
+    let bare = ScriptGenerator::new().unwrap().with_addons(empty, platform);
+    assert!(both_scripts_with(&bare, &ddcolor).is_err());
+    let mut off = ddcolor.clone();
+    off.processing_pipeline.as_mut().unwrap().colorize.enabled = false;
+    let (encode, preview) = both_scripts_with(&bare, &off).unwrap();
+    for script in [&encode, &preview] {
+        assert!(!script.contains("import ai_runtime"));
+        assert!(!script.contains("_colorize.colorize("));
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The add-on upscalers (Real-ESRGAN General, live-action SPAN, Real-ESRGAN
+/// x4plus/x2plus): the same VSNCNN block, each model from its add-on's
+/// directory, with the factor rules — General is 4x only, so 2x resamples its
+/// result down; SPAN is 2x only, so 4x runs it twice; x4plus/x2plus by factor,
+/// in 384-pixel tiles at 4x — in both scripts.
+#[test]
+fn test_186_upscale_addon_models_and_factors() {
+    use vapourbox_worker::upscale_addons::*;
+    create_output_dir();
+    let root = fake_addons("186", &[GENERAL_ADDON, ESRGAN_PLUS_ADDON]);
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(root.clone(), "macos-arm64");
+    let py = |addon: &str, f: &str| {
+        vapourbox_worker::gpu_plugin::py_str(&vapourbox_worker::addons::addon_dir(&root, addon).join(f))
+    };
+    let cases: Vec<(UpscaleMethod, i32, bool, Vec<String>, Option<u32>)> = vec![
+        (UpscaleMethod::RealEsrganGeneral, 2, false, vec![py(GENERAL_ADDON, GENERAL_X4)], Some(2)),
+        (UpscaleMethod::RealEsrganGeneral, 4, false, vec![py(GENERAL_ADDON, GENERAL_X4)], None),
+        (UpscaleMethod::RealEsrganGeneral, 2, true, vec![py(GENERAL_ADDON, GENERAL_WDN_X4)], Some(2)),
+        (UpscaleMethod::LiveAction, 2, false, vec![py(GENERAL_ADDON, LIVE_ACTION_X2)], None),
+        (UpscaleMethod::LiveAction, 4, false, vec![py(GENERAL_ADDON, LIVE_ACTION_X2); 2], None),
+        (UpscaleMethod::RealEsrganPlus, 2, false, vec![py(ESRGAN_PLUS_ADDON, PLUS_X2)], None),
+        (UpscaleMethod::RealEsrganPlus, 4, false, vec![py(ESRGAN_PLUS_ADDON, PLUS_X4)], None),
+    ];
+    for (method, factor, denoise, models, resample) in cases {
+        let label = format!("{method:?} {factor}x denoise={denoise}");
+        let mut job = ai_upscale_job("test_186", method, factor, "");
+        job.processing_pipeline.as_mut().unwrap().crop_resize.general_denoise = denoise;
+        let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(script.contains(&format!("for _ai_model in [{}]:", models.join(", "))),
+                "{label} {name}: wrong models");
+            assert!(script.contains("core.ncnn.Model(_ai_rgb, network_path=_ai_model"), "{label} {name}");
+            match resample {
+                Some(f) => assert!(script.contains(&format!(
+                    "_ai_rgb = core.resize.Spline36(_ai_rgb, width=_ai_rgb.width * {f} // _ai_scale, \
+                     height=_ai_rgb.height * {f} // _ai_scale)")), "{label} {name}: no resample"),
+                None => assert!(!script.contains("// _ai_scale"), "{label} {name}: stray resample"),
+            }
+            let tiles = if method == UpscaleMethod::RealEsrganPlus && factor == 4 {
+                "<= 384 * 384 else dict(\n        tilesize=[min(384, _ai_rgb.width), min(384, _ai_rgb.height)]"
+            } else {
+                "<= 720 * 576 else dict(\n        tilesize=[min(512, _ai_rgb.width), min(512, _ai_rgb.height)]"
+            };
+            assert!(script.contains(tiles), "{label} {name}: tiles");
+            assert!(!script.contains("AI_RESAMPLE") && !script.contains("AI_STRENGTH") && !script.contains("{{AI_"), "{label} {name}: unsubstituted placeholder");
+            assert!(!script.contains("core.std.Merge(core.resize.Spline36(_ai_src"), "{label} {name}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Without its add-on each add-on upscaler is refused, naming the add-on and
+/// Settings → Add-ons; with the other add-on installed it is still refused,
+/// and the bundled models need none.
+#[test]
+fn test_187_upscale_addons_are_refused_when_missing() {
+    use vapourbox_worker::upscale_addons::*;
+    create_output_dir();
+    let root = fake_addons("187", &[ESRGAN_PLUS_ADDON]);
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(root.clone(), "macos-arm64");
+    for (method, feature) in [
+        (UpscaleMethod::RealEsrganGeneral, "Real-ESRGAN General upscaling"),
+        (UpscaleMethod::LiveAction, "Live-action upscaling"),
+    ] {
+        let job = ai_upscale_job("test_187", method, 2, "");
+        let err = both_scripts_with(&generator, &job).unwrap_err().to_string();
+        assert!(err.starts_with(feature), "{err}");
+        assert!(err.contains("General & live-action upscaling models"), "{err}");
+        assert!(err.contains("Settings → Add-ons"), "{err}");
+    }
+    both_scripts_with(&generator, &ai_upscale_job("test_187_plus", UpscaleMethod::RealEsrganPlus, 4, ""))
+        .expect("x4plus is installed");
+    let missing = fake_addons("187b", &[]);
+    let bare = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(missing.clone(), "macos-arm64");
+    let err = both_scripts_with(&bare, &ai_upscale_job("test_187_plus", UpscaleMethod::RealEsrganPlus, 2, ""))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("Real-ESRGAN x4plus / x2plus models"), "{err}");
+    // Real-ESRGAN's anime model is an add-on too (deps 1.16.0 on).
+    let err = both_scripts_with(&bare, &ai_upscale_job("test_187_esrgan", UpscaleMethod::RealEsrgan, 2, ""))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("Real-ESRGAN anime & Real-CUGAN models"), "{err}");
+    // On a platform VSNCNN doesn't ship on, the add-on is unavailable too.
+    let mac_x64 = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(root.clone(), "macos-x64");
+    let err = both_scripts_with(&mac_x64, &ai_upscale_job("test_187_x64", UpscaleMethod::LiveAction, 2, ""))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("isn't available on this platform"), "{err}");
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&missing);
+}
+
+/// AI strength blends the network's result with a Spline36 upscale of the same
+/// frame in one std.Merge at the clip's format, for every AI method, in both
+/// scripts. At full strength (the default) nothing is emitted: the script is
+/// byte-for-byte the one a job without the setting gets.
+#[test]
+fn test_188_ai_strength_blends_with_spline36() {
+    use vapourbox_worker::upscale_addons::*;
+    create_output_dir();
+    let root = fake_addons("188", &[GENERAL_ADDON, ANIME_ADDON]);
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(root.clone(), "macos-arm64");
+    let merge = "clip = core.std.Merge(core.resize.Spline36(_ai_src, width=clip.width, \
+                 height=clip.height), clip, weight=0.650)";
+    for method in [UpscaleMethod::RealEsrgan, UpscaleMethod::RealCugan, UpscaleMethod::LiveAction,
+                   UpscaleMethod::RealEsrganGeneral] {
+        let mut job = ai_upscale_job("test_188", method, 2, "conservative");
+        job.processing_pipeline.as_mut().unwrap().crop_resize.ai_strength = 0.65;
+        let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(script.contains(merge), "{method:?} {name}: no blend");
+            let at = script.find(merge).unwrap();
+            assert!(at > script.find("for _ai_model in").unwrap(), "{method:?} {name}: blend before the network");
+            assert!(at < script.find("clip = core.std.CopyFrameProps(clip, _ai_src)").unwrap(),
+                "{method:?} {name}: blend after the props copy");
+        }
+    }
+    // Full strength: byte-identical to a job without the field at all.
+    let full = ai_upscale_job("test_188_full", UpscaleMethod::RealEsrgan, 2, "");
+    assert_eq!(full.processing_pipeline.as_ref().unwrap().crop_resize.ai_strength, 1.0);
+    let mut json = serde_json::to_value(&full).unwrap();
+    json["processingPipeline"]["cropResize"].as_object_mut().unwrap().remove("aiStrength");
+    json["id"] = serde_json::Value::String(Uuid::new_v4().to_string());
+    let legacy: VideoJob = serde_json::from_value(json).unwrap();
+    let a = script_text_with(&generator, &full);
+    let b = script_text_with(&generator, &legacy);
+    assert_eq!(a.replace(&full.id.to_string(), "ID"), b.replace(&legacy.id.to_string(), "ID"));
+    assert!(!a.contains("core.std.Merge(core.resize.Spline36(_ai_src"));
+    assert!(!a.contains("AI_STRENGTH"));
+    // Out-of-range values clamp; 0 is all Spline36.
+    let mut zero = ai_upscale_job("test_188_zero", UpscaleMethod::RealEsrgan, 2, "");
+    zero.processing_pipeline.as_mut().unwrap().crop_resize.ai_strength = -1.0;
+    assert!(script_text_with(&generator, &zero).contains("clip, weight=0.000)"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Audio restoration is rendered by ffmpeg before the encode, never by the
+/// VapourSynth script: every step switched on — DeepFilterNet included, which
+/// is not installed here — leaves both scripts byte-for-byte as they are with
+/// the pass off. (A preview must never be refused for an audio add-on.)
+#[test]
+fn test_185_audio_restoration_never_touches_the_scripts() {
+    create_output_dir();
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_addons(std::env::temp_dir().join("vb-no-addons-here"), "macos-arm64");
+    let mut job = create_base_job("test_185_audio_restoration");
+    job.processing_pipeline = Some(ProcessingPipeline::default());
+    let (encode_off, preview_off) = both_scripts_with(&generator, &job).unwrap();
+
+    job.processing_pipeline = Some(ProcessingPipeline {
+        audio: AudioRestorationParameters {
+            enabled: true,
+            channel_fix: ChannelFix::Auto,
+            offset_ms: -250,
+            drift_correction: true,
+            declip: true,
+            declick: true,
+            hum_removal: true,
+            rumble_filter: true,
+            denoise: true,
+            deep_filter: true,
+            loudness_normalize: true,
+            limiter: true,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let (encode_on, preview_on) = both_scripts_with(&generator, &job).unwrap();
+    assert_eq!(encode_on, encode_off, "the encode script must not change");
+    assert_eq!(preview_on, preview_off, "the preview script must not change");
+    for script in [&encode_on, &preview_on] {
+        for word in ["afftdn", "loudnorm", "deep-filter", "atempo"] {
+            assert!(!script.contains(word), "{word} reached the script");
+        }
+    }
+}
+
+/// BT.601 -> BT.709 on SD -> HD (app 1.7.0). The conversion block appears in
+/// BOTH scripts exactly when the job decides to convert, converts from the
+/// source's own matrix and range, and everything after it (the border fill
+/// here) works in BT.709. Off, or an SD-sized output, leaves no block at all.
+#[test]
+fn test_206_bt601_to_bt709_on_sd_to_hd() {
+    create_output_dir();
+    let job_for = |mode: Bt709Conversion, target_h: i32, matrix: Option<&str>, range: &str| {
+        let mut job = create_base_job("test_206_bt709");
+        job.qtgmc_parameters.enabled = false;
+        job.input_width = Some(720);
+        job.input_height = Some(576);
+        job.input_pixel_format = Some("yuv420p".to_string());
+        job.input_color_matrix = matrix.map(str::to_string);
+        job.input_color_range = Some(range.to_string());
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            crop_resize: CropResizeParameters {
+                enabled: true,
+                resize_enabled: true,
+                target_width: Some(target_h * 4 / 3),
+                target_height: Some(target_h),
+                pad_enabled: true,
+                pad_width: Some(target_h * 16 / 9),
+                pad_height: Some(target_h),
+                convert_to_bt709: mode,
+                ..CropResizeParameters::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+
+    // PAL, tagged: converts from 470bg, limited range, in both scripts.
+    let job = job_for(Bt709Conversion::Auto, 1080, Some("bt470bg"), "tv");
+    assert!(job.converts_to_bt709());
+    let (encode, preview) = generate_both_scripts(&job);
+    for script in [&encode, &preview] {
+        assert!(script.contains(r#"matrix_in_s="470bg""#), "converts from the source's matrix");
+        assert!(script.contains(r#"matrix_s="709""#));
+        assert!(script.contains(r#"range_in_s="limited""#));
+        assert!(script.contains(r#"RemoveFrameProps(clip, props=["_Matrix", "_Range", "_ColorRange"])"#));
+        assert!(!script.contains("{{C709") && !script.contains("{{#COLOR_709"), "unsubstituted placeholder");
+        // The bars go on after the conversion, so their colour is 709's.
+        assert!(script.contains(r#"matrix_s="709", range_s="limited")"#), "border fill in 709");
+        // After the resize and before Face Restoration.
+        let at = script.find(r#"matrix_in_s="470bg""#).unwrap();
+        assert!(script.find("PASS: FACE RESTORATION").unwrap() > at);
+    }
+    run_job_and_verify(&job, "BT.709 conversion", &[r#"matrix_s="709""#]).unwrap();
+
+    // Untagged full-range SD: read as 601 (170m), range kept full.
+    let (encode, _) = generate_both_scripts(&job_for(Bt709Conversion::Auto, 1080, None, "pc"));
+    assert!(encode.contains(r#"matrix_in_s="170m""#));
+    assert!(encode.contains(r#"range_in_s="full""#));
+
+    // Off, an SD-sized output under Auto, or an HD source: no conversion.
+    for job in [
+        job_for(Bt709Conversion::Off, 1080, Some("bt470bg"), "tv"),
+        job_for(Bt709Conversion::Auto, 576, Some("bt470bg"), "tv"),
+        job_for(Bt709Conversion::Auto, 1080, Some("bt709"), "tv"),
+    ] {
+        assert!(!job.converts_to_bt709());
+        let (encode, preview) = generate_both_scripts(&job);
+        for script in [&encode, &preview] {
+            assert!(!script.contains(r#"RemoveFrameProps(clip, props=["_Matrix""#), "no conversion expected");
+        }
+    }
+    // On converts whatever the size.
+    assert!(job_for(Bt709Conversion::On, 576, Some("smpte170m"), "tv").converts_to_bt709());
+}
+
+/// The GPU plugins' models are add-ons (deps 1.16.0 on): a RIFE, Real-ESRGAN
+/// or Real-CUGAN job on a machine where the plugin runs is still refused
+/// without its add-on, naming it and Settings → Add-ons, in both scripts — and
+/// with it installed the script reads the model from the add-on's directory,
+/// never from the deps bundle's `vapoursynth/rife/models` or `ncnn/models`.
+#[test]
+fn test_209_gpu_plugin_models_are_addons() {
+    use vapourbox_worker::gpu_plugin::{rife_model_dir, RIFE_ADDON};
+    use vapourbox_worker::upscale_addons::ANIME_ADDON;
+    create_output_dir();
+    let empty = std::env::temp_dir().join(format!("vb-addons-209-empty-{}", Uuid::new_v4()));
+    let bare = ScriptGenerator::new()
+        .unwrap()
+        .with_rife(Ok(rife_files()))
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(empty, "macos-arm64");
+    let cases = [
+        (rife_job("test_209_rife"), "AI interpolation (RIFE)", "RIFE 4.26 interpolation model"),
+        (ai_upscale_job("test_209_esrgan", UpscaleMethod::RealEsrgan, 2, ""), "Real-ESRGAN upscaling",
+            "Real-ESRGAN anime & Real-CUGAN models"),
+        (ai_upscale_job("test_209_cugan", UpscaleMethod::RealCugan, 4, "none"), "Real-CUGAN upscaling",
+            "Real-ESRGAN anime & Real-CUGAN models"),
+    ];
+    let params = PreviewParams {
+        rate_pad: 0,
+        width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 11,
+        fps_num: 25, fps_den: 1, output_index: 5,
+    };
+    for (job, feature, addon) in &cases {
+        for err in [
+            bare.generate(job).unwrap_err().to_string(),
+            bare.generate_preview(job, &params).unwrap_err().to_string(),
+        ] {
+            assert!(err.starts_with(feature), "{err}");
+            assert!(err.contains(addon) && err.contains("Settings → Add-ons"), "{err}");
+        }
+    }
+    let root = model_addons();
+    let installed = ScriptGenerator::new()
+        .unwrap()
+        .with_rife(Ok(rife_files()))
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(root.clone(), "macos-arm64");
+    for (job, _, _) in &cases {
+        let (encode, preview) = both_scripts_with(&installed, job).unwrap();
+        for script in [&encode, &preview] {
+            assert!(!script.contains("/rife/models") && !script.contains("/ncnn/models"),
+                "a bundled model path: {script}");
+        }
+    }
+    let (rife, _) = both_scripts_with(&installed, &cases[0].0).unwrap();
+    assert!(rife.contains(&vapourbox_worker::gpu_plugin::py_str(&rife_model_dir(&root))));
+    let (esrgan, _) = both_scripts_with(&installed, &cases[1].0).unwrap();
+    assert!(esrgan.contains(&vapourbox_worker::gpu_plugin::py_str(
+        &vapourbox_worker::addons::addon_dir(&root, ANIME_ADDON)
+            .join(vapourbox_worker::upscale_addons::ANIME_ESRGAN_X2))));
+    // RIFE's add-on is required exactly when RIFE is what the pass runs.
+    let mut flow = rife_job("test_209_flow");
+    flow.processing_pipeline.as_mut().unwrap().frame_rate.method = FrameRateMethod::FlowFps;
+    assert!(flow.effective_pipeline().required_addons().is_empty());
+    assert!(cases[0].0.effective_pipeline().required_addons().iter().any(|n| n.ids == [RIFE_ADDON]));
+    let _ = std::fs::remove_dir_all(&root);
 }

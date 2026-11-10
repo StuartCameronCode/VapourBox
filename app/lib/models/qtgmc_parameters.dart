@@ -271,6 +271,14 @@ class QTGMCParameters {
   /// VDecimate scene change threshold
   final double? ivtcScthresh;
 
+  /// Fix fades added after telecine (vs-jetpack's FixInterlacedFades), right
+  /// after field matching.
+  final bool ivtcFixFades;
+
+  /// `average` (both fields to their mean) or `match` (the brighter field to
+  /// the darker).
+  final String ivtcFadeMode;
+
   const QTGMCParameters({
     this.enabled = true,
     this.method = DeinterlaceMethod.qtgmc,
@@ -363,6 +371,8 @@ class QTGMCParameters {
     this.ivtcCycle,
     this.ivtcDupthresh,
     this.ivtcScthresh,
+    this.ivtcFixFades = false,
+    this.ivtcFadeMode = 'average',
   });
 
   factory QTGMCParameters.fromJson(Map<String, dynamic> json) =>
@@ -461,6 +471,8 @@ class QTGMCParameters {
     double? ivtcDupthresh,
     double? ivtcScthresh,
     bool? bwdifEdeint,
+    bool? ivtcFixFades,
+    String? ivtcFadeMode,
   }) {
     return QTGMCParameters(
       enabled: enabled ?? this.enabled,
@@ -554,6 +566,8 @@ class QTGMCParameters {
       ivtcDupthresh: ivtcDupthresh ?? this.ivtcDupthresh,
       ivtcScthresh: ivtcScthresh ?? this.ivtcScthresh,
       bwdifEdeint: bwdifEdeint ?? this.bwdifEdeint,
+      ivtcFixFades: ivtcFixFades ?? this.ivtcFixFades,
+      ivtcFadeMode: ivtcFadeMode ?? this.ivtcFadeMode,
     );
   }
 }

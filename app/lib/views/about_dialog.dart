@@ -183,6 +183,14 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/HomeOfVapourSynthEvolution/mvsfunc',
                       ),
                       _ComponentTile(
+                        name: 'vs-jetpack (ported code)',
+                        license: 'MIT',
+                        copyright: 'Jaded-Encoding-Thaumaturgy; '
+                            'FixInterlacedFades, vine_dehalo and mpeg2stinx '
+                            'ported into VapourBox\'s templates',
+                        url: 'https://github.com/Jaded-Encoding-Thaumaturgy/vs-jetpack',
+                      ),
+                      _ComponentTile(
                         name: 'adjust',
                         license: 'WTFPL',
                         copyright: 'dubhater',
@@ -267,6 +275,12 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/dnjulek/vapoursynth-zip',
                       ),
                       _ComponentTile(
+                        name: 'SangNom',
+                        license: 'MIT source; binaries GPL 2.0',
+                        copyright: 'james1201; Victor Efimov',
+                        url: 'https://github.com/dubhatervapoursynth/vapoursynth-sangnom',
+                      ),
+                      _ComponentTile(
                         name: 'RIFE (VapourSynth-RIFE-ncnn-Vulkan)',
                         license: 'MIT',
                         copyright: 'HolyWu; based on rife-ncnn-vulkan by '
@@ -275,7 +289,7 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan',
                       ),
                       _ComponentTile(
-                        name: 'RIFE 4.26 model',
+                        name: 'RIFE 4.26 model (optional download, frame rate add-on)',
                         license: 'MIT',
                         copyright: 'hzwer; architecture by Megvii Inc.',
                         url: 'https://github.com/hzwer/Practical-RIFE',
@@ -296,8 +310,8 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/AmusementClub/vs-mlrt',
                       ),
                       _ComponentTile(
-                        name: 'Real-ESRGAN anime video model',
-                        license: 'BSD 3-Clause',
+                        name: 'Real-ESRGAN anime video model (optional download, upscaling add-on)',
+                        license: 'BSD-3-Clause',
                         copyright: 'Xintao Wang',
                         url: 'https://github.com/xinntao/Real-ESRGAN',
                       ),
@@ -308,7 +322,73 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/the-database/mpv-upscale-2x_animejanai',
                       ),
                       _ComponentTile(
-                        name: 'Real-CUGAN models',
+                        name: 'RestoreFormer++ model (optional download, face restoration add-on)',
+                        license: 'Apache-2.0',
+                        copyright: 'Zhouxia Wang, Jiawei Zhang, Tianshui Chen, Wenping Wang and Ping Luo',
+                        url: 'https://github.com/wzhouxiff/RestoreFormerPlusPlus',
+                      ),
+                      _ComponentTile(
+                        name: 'RetinaFace face detector (optional download, face restoration add-on)',
+                        license: 'MIT',
+                        copyright: 'biubug6 (Pytorch_Retinaface)',
+                        url: 'https://github.com/biubug6/Pytorch_Retinaface',
+                      ),
+                      _ComponentTile(
+                        name: 'BiSeNet face parser (optional download, face restoration add-on)',
+                        license: 'MIT',
+                        copyright: 'zll (face-parsing.PyTorch)',
+                        url: 'https://github.com/zllrunning/face-parsing.PyTorch',
+                      ),
+                      _ComponentTile(
+                        name: 'facexlib (optional download, face restoration add-on)',
+                        license: 'MIT',
+                        copyright: 'Xintao Wang',
+                        url: 'https://github.com/xinntao/facexlib',
+                      ),
+                      _ComponentTile(
+                        name: 'GFPGAN v1.4 model (optional download, non-commercial use only)',
+                        license: 'Apache-2.0 + NVIDIA Source Code License (NC)',
+                        copyright: 'THL A29 Limited, a Tencent company',
+                        url: 'https://github.com/TencentARC/GFPGAN',
+                      ),
+                      _ComponentTile(
+                        name: 'CodeFormer model (optional download, non-commercial use only)',
+                        license: 'S-Lab License 1.0 (NC)',
+                        copyright: 'S-Lab',
+                        url: 'https://github.com/sczhou/CodeFormer',
+                      ),
+                      _ComponentTile(
+                        name: 'DDColor model (optional download, colourisation add-on)',
+                        license: 'Apache-2.0',
+                        copyright: 'Xiaoyang Kang, Tao Yang, Wenqi Ouyang, Peiran Ren, Lingzhi Li and Xuansong Xie',
+                        url: 'https://github.com/piddnad/DDColor',
+                      ),
+                      _ComponentTile(
+                        name: 'DeOldify Video model (optional download, colourisation add-on)',
+                        license: 'MIT',
+                        copyright: 'Jason Antic',
+                        url: 'https://github.com/jantic/DeOldify',
+                      ),
+                      _ComponentTile(
+                        name: 'Real-ESRGAN general model (optional download, upscaling add-on)',
+                        license: 'BSD-3-Clause',
+                        copyright: 'Xintao Wang',
+                        url: 'https://github.com/xinntao/Real-ESRGAN',
+                      ),
+                      _ComponentTile(
+                        name: '2xLiveActionV1_SPAN model (optional download, upscaling add-on)',
+                        license: 'Apache-2.0',
+                        copyright: 'Copyright 2025 jcj83429',
+                        url: 'https://github.com/jcj83429/upscaling/tree/main/2xLiveActionV1_SPAN',
+                      ),
+                      _ComponentTile(
+                        name: 'Real-ESRGAN x4plus / x2plus models (optional download, upscaling add-on)',
+                        license: 'BSD-3-Clause',
+                        copyright: 'Xintao Wang',
+                        url: 'https://github.com/xinntao/Real-ESRGAN',
+                      ),
+                      _ComponentTile(
+                        name: 'Real-CUGAN models (optional download, upscaling add-on)',
                         license: 'MIT',
                         copyright: 'bilibili',
                         url: 'https://github.com/bilibili/ailab/tree/main/Real-CUGAN',
@@ -492,6 +572,30 @@ class _AboutDialogState extends State<AboutDialog> {
                         license: 'MIT',
                         copyright: 'OpenAI',
                         url: 'https://github.com/openai/whisper',
+                      ),
+                      _ComponentTile(
+                        name: 'ONNX Runtime (optional download, AI runtime add-on)',
+                        license: 'MIT',
+                        copyright: 'Microsoft Corporation',
+                        url: 'https://github.com/microsoft/onnxruntime',
+                      ),
+                      _ComponentTile(
+                        name: 'NumPy (optional download, AI runtime add-on)',
+                        license: 'BSD-3-Clause',
+                        copyright: 'NumPy Developers',
+                        url: 'https://github.com/numpy/numpy',
+                      ),
+                      _ComponentTile(
+                        name: 'DirectML (optional download, AI runtime add-on, Windows)',
+                        license: 'Microsoft Software License Terms',
+                        copyright: 'Microsoft Corporation',
+                        url: 'https://github.com/microsoft/DirectML',
+                      ),
+                      _ComponentTile(
+                        name: 'DeepFilterNet (optional download, speech enhancement add-on)',
+                        license: 'MIT OR Apache-2.0',
+                        copyright: 'Hendrik Schröter',
+                        url: 'https://github.com/Rikorose/DeepFilterNet',
                       ),
                       _ComponentTile(
                         name: 'libdvdread',

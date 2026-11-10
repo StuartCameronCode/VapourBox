@@ -162,11 +162,12 @@ fn preview_window(target: i32, radius: i32) -> (i32, i32, i32) {
     (first, local, num_frames)
 }
 
+use crate::audio_restoration::{self, RestoredTrack};
 use crate::comment_metadata::{self, CommentFile};
 use crate::gpu_plugin::GpuPlugin;
 use crate::hdr_metadata::HdrMetadata;
 use crate::dependency_locator::DependencyLocator;
-use crate::models::{AspectDeclaration, AudioMode, ContainerFormat, DeinterlaceMethod, EncoderFamily, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
+use crate::models::{AspectDeclaration, ContainerFormat, DeinterlaceMethod, EncoderFamily, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
 use crate::pixel_format;
 use crate::source_decode;
 use crate::progress_reporter::ProgressReporter;
@@ -184,6 +185,9 @@ pub struct PipelineExecutor {
     /// which the encode and preview decoders take their window. `None` for a
     /// constant-rate source.
     timeline: Option<SourceTimeline>,
+    /// The track audio restoration rendered for this job, mapped in place of
+    /// the source's stream (see `audio_restoration`). `None` otherwise.
+    restored_audio: Option<RestoredTrack>,
 }
 
 /// Watches for the pipeline making no progress at all.
@@ -247,12 +251,19 @@ impl PipelineExecutor {
             vspipe_process: None,
             ffmpeg_process: None,
             timeline: None,
+            restored_audio: None,
         })
     }
 
     /// Set the source's variable-frame-rate timeline (see `self.timeline`).
     pub fn with_timeline(mut self, timeline: Option<SourceTimeline>) -> Self {
         self.timeline = timeline;
+        self
+    }
+
+    /// Use a restored audio track (see `self.restored_audio`).
+    pub fn with_restored_audio(mut self, track: Option<RestoredTrack>) -> Self {
+        self.restored_audio = track;
         self
     }
 
@@ -852,7 +863,7 @@ impl PipelineExecutor {
         // "unknown" as BT.601 and re-matrixes every pixel to the output's tag.
         // Declaring the same tags here leaves it nothing to convert. Must match
         // the output flags exactly — see ColorMetadata.
-        args.extend(job.color_metadata().to_ffmpeg_input_args());
+        args.extend(job.output_color_metadata().to_ffmpeg_input_args());
         args.extend(["-i".to_string(), "-".to_string()]);
 
         // Input 1: Original file for audio stream
@@ -872,14 +883,18 @@ impl PipelineExecutor {
         // Input 2: the output's comment, as an FFMETADATA file (issue #138)
         args.extend(comment_file.input_args());
 
+        // Input 3: the restored audio track, when audio restoration ran.
+        args.extend(audio_restoration::encode_input_args(self.restored_audio.as_ref()));
+
         // Progress output to a temp file (avoids Windows pipe buffering delay)
         args.extend(["-progress".to_string(), progress_file.to_string_lossy().to_string()]);
 
         // Map streams: video from input 0 (processed), audio and subtitles from input 1 (original)
         args.extend(["-map".to_string(), "0:v".to_string()]);  // Video from Y4M pipe
-        if settings.audio_mode != AudioMode::None {
-            args.extend(["-map".to_string(), "1:a?".to_string()]); // Audio from original (? = optional)
-        }
+        // Audio from the original (every stream, `1:a?`), or — when audio
+        // restoration rendered a track — that track (input 3) first, then the
+        // source's other audio streams. One decision site: audio_restoration.
+        args.extend(audio_restoration::encode_map_args(settings, self.restored_audio.as_ref(), 3));
 
         // Preserve existing subtitle streams from source (? = optional, no error if none)
         let subtitle_embed_pending = job.subtitle_settings.as_ref()
@@ -1010,24 +1025,11 @@ impl PipelineExecutor {
         // stops ffmpeg treating them as a conversion target. A Custom FFmpeg
         // Argument such as `-colorspace smpte170m` still wins (it comes later)
         // and is then a genuine conversion from the source's real matrix.
-        args.extend(job.color_metadata().to_ffmpeg_output_args());
+        args.extend(job.output_color_metadata().to_ffmpeg_output_args());
 
-        // Audio handling
-        match settings.audio_mode {
-            AudioMode::Passthrough => {
-                args.extend(["-c:a".to_string(), "copy".to_string()]);
-            }
-            AudioMode::Convert => {
-                args.extend(["-c:a".to_string(), settings.audio_codec.ffmpeg_name().to_string()]);
-                // Only add bitrate for lossy codecs
-                if !settings.audio_codec.is_lossless() {
-                    args.extend(["-b:a".to_string(), format!("{}k", settings.audio_quality.bitrate())]);
-                }
-            }
-            AudioMode::None => {
-                args.push("-an".to_string());
-            }
-        }
+        // Audio handling: copy / convert / none, and a restored track is
+        // always encoded (see audio_restoration::encode_codec_args).
+        args.extend(audio_restoration::encode_codec_args(settings, self.restored_audio.as_ref()));
 
         // Timestamp normalization for modes that change frame rate.
         // Fixes audio sync offset caused by mismatched initial PTS between the
@@ -1339,6 +1341,7 @@ impl PipelineExecutor {
                 Err("KNLMeans is not used by this job.".into())
             })
             .with_animejanai(self.deps.animejanai_runtime())
+            .with_addons(self.deps.addons_dir(), self.deps.platform_suffix())
             .with_timeline(window.clone());
         let (fps_num, fps_den) = script_generator.frame_rate_to_rational(frame_rate);
 
@@ -1438,7 +1441,11 @@ impl PipelineExecutor {
         //
         // An HDR source is tone-mapped for display instead (issue #133), with
         // the same chain the app uses for its "before" frame.
-        let color = job.color_metadata();
+        //
+        // The OUTPUT's tags, not the source's: when Crop & Resize converts a
+        // BT.601 source to BT.709, the pipe carries 709 samples, and reading
+        // them as 601 would show a colour shift the encode does not have.
+        let color = job.output_color_metadata();
         let scale_filter = color.display_tonemap_filter().unwrap_or_else(|| {
             let mut scale_opts = color.swscale_input_opts();
             scale_opts.push("out_range=pc".to_string());
@@ -1558,7 +1565,7 @@ impl Drop for PipelineExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{AudioCodec, AudioQuality, ChromaSubsampling, EncodingSettings, ProResQuantMat, QTGMCParameters, VideoCodec};
+    use crate::models::{AudioCodec, AudioMode, AudioQuality, ChromaSubsampling, EncodingSettings, ProResQuantMat, QTGMCParameters, VideoCodec};
     use uuid::Uuid;
 
     /// The two codes that have actually cost debugging time must be named in
@@ -1856,6 +1863,26 @@ mod tests {
         );
     }
 
+    /// The real builder takes every audio decision from audio_restoration,
+    /// with the restored track as input 3 (after the source and the metadata
+    /// file); the copy below cannot show that, having neither.
+    #[test]
+    fn test_real_ffmpeg_builder_delegates_audio_to_audio_restoration() {
+        let src = include_str!("pipeline_executor.rs").replace("\r\n", "\n");
+        let start = src.find("fn build_ffmpeg_args(\n").expect("real builder");
+        let body = &src[start..];
+        let body = &body[..body.find("\n    }\n").expect("end of builder")];
+        let file = body.find("comment_file.input_args()").expect("metadata file input");
+        let track = body
+            .find("audio_restoration::encode_input_args(self.restored_audio.as_ref())")
+            .expect("restored track input");
+        assert!(file < track, "the restored track must be input 3, after the metadata file");
+        assert!(body.contains("audio_restoration::encode_map_args(settings, self.restored_audio.as_ref(), 3)"));
+        assert!(body.contains("audio_restoration::encode_codec_args(settings, self.restored_audio.as_ref())"));
+        assert!(!body.contains("\"1:a?\""), "audio mapping belongs to audio_restoration");
+        assert_eq!(body.matches("\"-af\"").count(), 0, "the encode never filters audio itself");
+    }
+
     /// Helper to build FFmpeg args without requiring a full PipelineExecutor.
     /// This mirrors the logic in PipelineExecutor::build_ffmpeg_args for testing.
     fn build_ffmpeg_args_for_test(job: &VideoJob) -> Vec<String> {
@@ -1865,7 +1892,7 @@ mod tests {
         // Input 0: Processed video from vspipe (Y4M pipe), with the source's
         // colour tags declared on it (mirrors build_ffmpeg_args).
         args.extend(["-f".to_string(), "yuv4mpegpipe".to_string()]);
-        args.extend(job.color_metadata().to_ffmpeg_input_args());
+        args.extend(job.output_color_metadata().to_ffmpeg_input_args());
         args.extend(["-i".to_string(), "-".to_string()]);
 
         // Input 1: Original file for audio stream
@@ -1876,9 +1903,7 @@ mod tests {
 
         // Map streams: video from input 0 (processed), audio from input 1 (original) if not disabled
         args.extend(["-map".to_string(), "0:v".to_string()]);
-        if settings.audio_mode != AudioMode::None {
-            args.extend(["-map".to_string(), "1:a?".to_string()]);
-        }
+        args.extend(audio_restoration::encode_map_args(settings, None, 2));
 
         // Video codec
         args.extend(["-c:v".to_string(), settings.codec.ffmpeg_codec().to_string()]);
@@ -1910,24 +1935,10 @@ mod tests {
         // Colour tags. This helper duplicates build_ffmpeg_args rather than
         // calling it, so anything added there has to be added here too — the
         // SAR block was missed that way and is still absent below.
-        args.extend(job.color_metadata().to_ffmpeg_output_args());
+        args.extend(job.output_color_metadata().to_ffmpeg_output_args());
 
-        // Audio handling
-        match settings.audio_mode {
-            AudioMode::Passthrough => {
-                args.extend(["-c:a".to_string(), "copy".to_string()]);
-            }
-            AudioMode::Convert => {
-                args.extend(["-c:a".to_string(), settings.audio_codec.ffmpeg_name().to_string()]);
-                // Only add bitrate for lossy codecs
-                if !settings.audio_codec.is_lossless() {
-                    args.extend(["-b:a".to_string(), format!("{}k", settings.audio_quality.bitrate())]);
-                }
-            }
-            AudioMode::None => {
-                args.push("-an".to_string());
-            }
-        }
+        // Audio handling (mirrors build_ffmpeg_args; no restored track here).
+        args.extend(audio_restoration::encode_codec_args(settings, None));
 
         // Custom arguments
         if !settings.custom_ffmpeg_args.is_empty() {
@@ -2032,7 +2043,7 @@ mod tests {
                 .flat_map(|w| [w[0].clone(), w[1].clone()])
                 .collect()
         };
-        let expected = job.color_metadata().to_ffmpeg_output_args();
+        let expected = job.output_color_metadata().to_ffmpeg_output_args();
         assert_eq!(input_side, expected.as_slice(), "input declaration");
         assert_eq!(output_side, expected, "output tags");
     }
@@ -2064,6 +2075,12 @@ mod tests {
             body.contains("to_ffmpeg_output_args()"),
             "build_ffmpeg_args must still tag the output"
         );
+        // Both sides describe what the SCRIPT delivers, which is not the
+        // source's colour when it converts to BT.709.
+        assert!(
+            !body.contains("job.color_metadata().to_ffmpeg"),
+            "the encoder must be told the output's colour, not the source's"
+        );
     }
 
     /// An untagged source must stay untagged rather than being guessed at.
@@ -2074,6 +2091,51 @@ mod tests {
         for flag in ["-colorspace", "-color_primaries", "-color_trc", "-color_range"] {
             assert!(!args.iter().any(|a| a == flag), "{flag} should be absent");
         }
+    }
+
+    /// An SD BT.601 source resized to 1080 lines is converted to BT.709 by the
+    /// script (app 1.7.0), so both sides of the encoder must say 709 — the
+    /// source's 601 tags there would relabel the converted samples back.
+    #[test]
+    fn test_sd_to_hd_declares_the_converted_bt709_on_both_sides() {
+        let mut job = create_test_job("out.mkv");
+        job.input_width = Some(720);
+        job.input_height = Some(576);
+        job.input_color_matrix = Some("bt470bg".to_string());
+        job.input_color_primaries = Some("bt470bg".to_string());
+        job.input_color_range = Some("tv".to_string());
+        let mut pipeline = crate::models::ProcessingPipeline::default();
+        pipeline.deinterlace.enabled = false;
+        pipeline.crop_resize.enabled = true;
+        pipeline.crop_resize.resize_enabled = true;
+        pipeline.crop_resize.target_width = Some(1920);
+        pipeline.crop_resize.target_height = Some(1080);
+        job.processing_pipeline = Some(pipeline.clone());
+        let args = build_ffmpeg_args_for_test(&job);
+        let pairs: Vec<(String, String)> = args
+            .windows(2)
+            .filter(|w| w[0] == "-colorspace" || w[0] == "-color_primaries" || w[0] == "-color_trc")
+            .map(|w| (w[0].clone(), w[1].clone()))
+            .collect();
+        let expected = |flag: &str, v: &str| (flag.to_string(), v.to_string());
+        assert_eq!(
+            pairs,
+            vec![
+                expected("-colorspace", "bt709"),
+                expected("-color_primaries", "bt470bg"),
+                expected("-color_trc", "bt709"),
+                expected("-colorspace", "bt709"),
+                expected("-color_primaries", "bt470bg"),
+                expected("-color_trc", "bt709"),
+            ]
+        );
+
+        // Off: the source's tags, exactly as before the option existed.
+        pipeline.crop_resize.convert_to_bt709 = crate::models::Bt709Conversion::Off;
+        job.processing_pipeline = Some(pipeline);
+        let args = build_ffmpeg_args_for_test(&job);
+        assert_eq!(args.iter().filter(|a| *a == "bt470bg").count(), 4);
+        assert!(!args.iter().any(|a| a == "bt709"));
     }
 
     /// ffprobe says "unknown" for an untagged stream; that must not be

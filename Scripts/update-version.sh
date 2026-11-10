@@ -80,28 +80,22 @@ if [ -n "$APP_VERSION" ]; then
 
     # Update macOS Info.plist.
     #
-    # PlistBuddy exists only on macOS, and this used to be the ONLY path — so
-    # running this script from Windows or Linux skipped the plist without a word,
-    # and the macOS DMG built by CI came out labelled with the previous version
-    # while every other file said the new one. The plist is XML, so sed can do it
-    # anywhere; PlistBuddy stays the preferred tool where it exists.
+    # Always with sed, never PlistBuddy. PlistBuddy existed only on macOS, so
+    # running this from Windows or Linux once skipped the plist without a word
+    # (the DMG came out labelled with the previous version); and PlistBuddy
+    # rewrites the whole file, dropping its XML comments — including the one
+    # explaining why Impeller is forced off (issue #91). sed changes only the
+    # <string> on the line after each version key.
     MAC_PLIST="$PROJECT_ROOT/app/macos/Runner/Info.plist"
     if [ -f "$MAC_PLIST" ]; then
-        if command -v /usr/libexec/PlistBuddy &> /dev/null; then
-            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" "$MAC_PLIST"
-            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_VERSION" "$MAC_PLIST"
-            echo "  Updated macOS Info.plist (PlistBuddy)"
-        else
-            # Replace the <string> on the line following each version key.
-            for KEY in CFBundleShortVersionString CFBundleVersion; do
-                if [[ "$OSTYPE" == "darwin"* ]]; then
-                    sed -i '' "/<key>${KEY}<\/key>/{n;s|<string>.*</string>|<string>${APP_VERSION}</string>|;}" "$MAC_PLIST"
-                else
-                    sed -i "/<key>${KEY}<\/key>/{n;s|<string>.*</string>|<string>${APP_VERSION}</string>|;}" "$MAC_PLIST"
-                fi
-            done
-            echo "  Updated macOS Info.plist (sed)"
-        fi
+        for KEY in CFBundleShortVersionString CFBundleVersion; do
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                sed -i '' "/<key>${KEY}<\/key>/{n;s|<string>.*</string>|<string>${APP_VERSION}</string>|;}" "$MAC_PLIST"
+            else
+                sed -i "/<key>${KEY}<\/key>/{n;s|<string>.*</string>|<string>${APP_VERSION}</string>|;}" "$MAC_PLIST"
+            fi
+        done
+        echo "  Updated macOS Info.plist"
 
         # Never leave the plist behind again: fail loudly instead.
         if ! grep -q "<string>${APP_VERSION}</string>" "$MAC_PLIST"; then

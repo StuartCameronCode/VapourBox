@@ -1,0 +1,57 @@
+{
+  "opset": 17,
+  "irVersion": 8,
+  "torch": "2.15.0",
+  "models": [
+    {
+      "file": "colorize-ddcolor-tiny.onnx",
+      "size": 220687346,
+      "sha256": "9300e48e7612fec4a0fffc38eb005fdd65bcc7a859390d6de0db3abf44e46d1c",
+      "checkpoint": "https://huggingface.co/piddnad/ddcolor_paper_tiny/resolve/cf9fd99c1d7472689ec7413441c1b799a51866a3/pytorch_model.bin",
+      "checkpointSha256": "8a1277bc90a1bfbb6d2d83933a9a6bc821931879ca93e26e4fcec12165d41fce",
+      "source": "https://github.com/piddnad/DDColor/tree/2adb63f2656ac41cbdf7b894cddd94121a3faf13",
+      "rewrites": {
+        "replicationPadsRewritten": 4,
+        "einsumRewritten": true
+      },
+      "parity": {
+        "512": {
+          "max": 0.001644134521484375,
+          "mean": 4.178590315567776e-05,
+          "unit": "CIELAB a/b",
+          "refRange": [
+            -84.84383392333984,
+            129.04098510742188
+          ]
+        },
+        "256": {
+          "max": 0.00128173828125,
+          "mean": 7.835150522073064e-05,
+          "unit": "CIELAB a/b",
+          "refRange": [
+            -146.1870880126953,
+            154.69163513183594
+          ]
+        },
+        "384": {
+          "max": 0.0017547607421875,
+          "mean": 4.324595244635058e-05,
+          "unit": "CIELAB a/b",
+          "refRange": [
+            -101.91814422607422,
+            134.89495849609375
+          ]
+        },
+        "640": {
+          "max": 0.0009765625,
+          "mean": 4.7702506353983765e-05,
+          "unit": "CIELAB a/b",
+          "refRange": [
+            -88.1981430053711,
+            148.0986785888672
+          ]
+        }
+      }
+    }
+  ]
+}

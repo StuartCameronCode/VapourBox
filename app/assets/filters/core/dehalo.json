@@ -123,6 +123,19 @@
         "deringThr",
         "deringDarkthr"
       ]
+    },
+    {
+      "id": "vine",
+      "sinceAppVersion": "1.7.0",
+      "name": "vine (NLMeans)",
+      "description": "Removes halos with non-local means and then puts back the edge detail the halo was riding on, so edges stay crisp where DeHalo_alpha softens them. Slower; best on line art and clean sources",
+      "function": "vine_dehalo (vs-jetpack, ported): core.vszip.NLMeans + _nnedi3",
+      "parameters": [
+        "vineStrength",
+        "vineSharp",
+        "vineSigma"
+      ],
+      "advancedOnly": true
     }
   ],
   "parameters": {
@@ -144,7 +157,8 @@
         "edge_cleaner",
         "vinverse",
         "vinverse2",
-        "hq_deringmod"
+        "hq_deringmod",
+        "vine"
       ],
       "ui": {
         "hidden": true
@@ -748,6 +762,60 @@
           ]
         }
       }
+    },
+    "vineStrength": {
+      "type": "number",
+      "default": 16.0,
+      "min": 1.0,
+      "max": 64.0,
+      "step": 1.0,
+      "ui": {
+        "label": "Strength",
+        "description": "How hard halos are smoothed away. Higher removes wider, brighter halos and more fine texture with them",
+        "widget": "slider",
+        "precision": 0,
+        "visibleWhen": {
+          "method": [
+            "vine"
+          ]
+        }
+      }
+    },
+    "vineSharp": {
+      "type": "number",
+      "default": 0.5,
+      "min": 0.05,
+      "max": 1.0,
+      "step": 0.05,
+      "ui": {
+        "label": "Sharpness",
+        "description": "How much of the twice-size pass is blended in, which keeps edges finer",
+        "widget": "slider",
+        "precision": 2,
+        "visibleWhen": {
+          "method": [
+            "vine"
+          ]
+        }
+      }
+    },
+    "vineSigma": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.3,
+      "max": 4.0,
+      "step": 0.1,
+      "ui": {
+        "label": "Detail split",
+        "description": "Where fine detail ends and halo begins (a blur radius). Larger treats wider structures as halo",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "method": [
+            "vine"
+          ]
+        }
+      }
     }
   },
   "ui": {
@@ -770,7 +838,9 @@
           "vinverseChroma",
           "deringMrad",
           "deringMsmooth",
-          "deringThr"
+          "deringThr",
+          "vineStrength",
+          "vineSharp"
         ],
         "expanded": true
       },
@@ -789,7 +859,8 @@
           "edgeSmallMode",
           "edgeHotPixels",
           "deringMthr",
-          "deringDarkthr"
+          "deringDarkthr",
+          "vineSigma"
         ],
         "expanded": false,
         "advancedOnly": true

@@ -50,6 +50,47 @@ Flutter — BSD 3-Clause
   https://github.com/flutter/flutter
   The UI toolkit the application is written in.
 
+ONNX Runtime — MIT
+  Copyright (c) Microsoft Corporation
+  https://github.com/microsoft/onnxruntime
+  Runs AI models for the features that need it. NOT distributed with
+  VapourBox: part of the optional AI runtime add-on, which the app downloads
+  as the project's own unmodified Python wheels from PyPI (onnxruntime; on
+  Windows onnxruntime-directml) only when the user asks (Settings → Add-ons).
+  ONNX Runtime's ThirdPartyNotices.txt, inside each wheel, lists the
+  open-source components it includes.
+
+NumPy — BSD-3-Clause
+  Copyright (c) 2005-2025, NumPy Developers.
+  https://github.com/numpy/numpy
+  The array library ONNX Runtime's Python interface uses. NOT distributed
+  with VapourBox: part of the optional AI runtime add-on, downloaded as the
+  project's own unmodified wheels from PyPI. Some platforms' wheels bundle
+  further libraries (OpenBLAS, LAPACK, the GCC runtime libraries), each under
+  the licence given in the LICENSE.txt inside the wheel.
+
+DirectML — Microsoft Software License Terms (DirectML redistributable)
+  © Microsoft Corporation. All rights reserved.
+  https://github.com/microsoft/DirectML
+  Licence: https://www.nuget.org/packages/Microsoft.AI.DirectML/1.15.4/License
+  The DirectX Machine Learning library (DirectML.dll) that lets ONNX Runtime
+  use any DirectX 12 graphics card. Windows only, and NOT distributed with
+  VapourBox: it comes inside the onnxruntime-directml wheel that the optional
+  AI runtime add-on downloads from PyPI when the user asks. Proprietary;
+  Microsoft permits its redistribution in applications for Windows.
+
+DeepFilterNet — MIT OR Apache-2.0 (at your option)
+  Copyright (c) 2021 Hendrik Schröter
+  https://github.com/Rikorose/DeepFilterNet
+  Speech enhancement for Audio Restoration: the deep-filter 0.5.6 program,
+  with the DeepFilterNet 3 model built in. The repository's code and model
+  are dual-licensed under the MIT licence (LICENSE-MIT) or the Apache License
+  2.0 (LICENSE-APACHE). NOT distributed with VapourBox: an optional add-on,
+  downloaded unmodified from the project's own v0.5.6 GitHub release only when
+  the user asks (Settings → Add-ons). The program statically includes the
+  Rust libraries it is built from (among them Sonos' tract), each under the
+  licence stated in its own crate.
+
 
 -------------------------------------------------------------------------------
 2. VapourSynth Python modules
@@ -73,6 +114,16 @@ mvsfunc — no licence stated upstream
   source. It is bundled unmodified because havsfunc imports it. If the author
   would prefer it not be redistributed, please open an issue and it will be
   removed.
+
+vs-jetpack (ported code) — MIT
+  Copyright (c) 2020 - 2025 Jaded-Encoding-Thaumaturgy
+  https://github.com/Jaded-Encoding-Thaumaturgy/vs-jetpack
+  Not bundled as a package: three of its functions are ported, as VapourBox's
+  own template code, from release v3.0.0 — FixInterlacedFades (vsdeinterlace;
+  upstream describes it as an improved version of the Fix-Telecined-Fades
+  plugin), vine_dehalo (vsdehalo) and mpeg2stinx (vsdenoise). Used by the
+  Deinterlace pass's IVTC fade fix, the Dehalo pass's vine method and the
+  Deblock pass's mpeg2stinx method.
 
 adjust — WTFPL
   Copyright (c) dubhater
@@ -175,7 +226,9 @@ vszip — MIT
   Copyright (c) 2024 Julek
   https://github.com/dnjulek/vapoursynth-zip
   Provides core.vszip.CLAHE (contrast-limited adaptive histogram
-  equalization), used by Color Correction's local contrast option.
+  equalization), used by Color Correction's local contrast option, and
+  core.vszip.NLMeans (non-local means on the CPU), used by Noise Reduction's
+  NLMeans method and the Dehalo pass's vine method.
   The binary statically includes two Zig libraries:
     zigimg — MIT, Copyright (c) 2019-2021 zigimg developers
       https://github.com/zigimg/zigimg
@@ -184,12 +237,22 @@ vszip — MIT
       https://github.com/dnjulek/vapoursynth-zig
       Licence text: LGPL-2.1.txt
 
+SangNom — MIT (source); binaries GPL-2.0
+  Copyright (c) 2016 james1201
+  Copyright (c) 2013 Victor Efimov
+  https://github.com/dubhatervapoursynth/vapoursynth-sangnom
+  The source header and LICENSE grant MIT; the same header states "Binaries
+  are GPL v2", and the PyPI wheels VapourBox ships declare GPL-2.0, so the
+  binaries are redistributed under GPL-2.0. Licence text: GPL-2.0.txt
+  Provides core.sangnom.SangNom, used by the Anti-aliasing pass's SangNom
+  method. Taken unmodified from the project's PyPI wheels (r45).
+
 RIFE (VapourSynth-RIFE-ncnn-Vulkan) — MIT
   Copyright (c) 2021-2022 HolyWu
   https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan
   Provides core.rife.RIFE, the Frame Rate pass's "AI interpolation" method.
   Shipped on macOS arm64, Windows x64 and Linux x64 only, in
-  vapoursynth/rife/. Based on rife-ncnn-vulkan:
+  vapoursynth/rife/ (the plugin only; its model is an add-on, below). Based on rife-ncnn-vulkan:
     rife-ncnn-vulkan — MIT, Copyright (c) 2020 nihui
       https://github.com/nihui/rife-ncnn-vulkan
   The binary statically includes:
@@ -212,8 +275,11 @@ RIFE 4.26 model — MIT
   ECCV 2022 paper's code:
     ECCV2022-RIFE — MIT, Copyright (c) Megvii Inc.
       https://github.com/hzwer/ECCV2022-RIFE
-  Shipped as the ncnn conversion (flownet.param / flownet.bin) published in
-  the VapourSynth-RIFE-ncnn-Vulkan repository, under its licence above.
+  NOT distributed with VapourBox: the optional "RIFE 4.26 interpolation model"
+  add-on, which the app downloads only when the user asks (Settings → Add-ons,
+  or on choosing AI interpolation). It is the ncnn conversion (flownet.param /
+  flownet.bin) published in the VapourSynth-RIFE-ncnn-Vulkan repository, under
+  its licence above, fetched from there at a pinned commit, unmodified.
 
 MoltenVK — Apache-2.0
   Copyright (c) 2015-2026 The Brenwill Workshop Ltd.
@@ -226,8 +292,8 @@ VSNCNN (vs-mlrt) — GPL-3.0
   No copyright notice is given upstream; published by AmusementClub
   https://github.com/AmusementClub/vs-mlrt
   Licence text: GPL-3.0.txt
-  Provides core.ncnn.Model, which runs Crop & Resize's AI upscaling
-  (Real-ESRGAN / Real-CUGAN). Shipped on macOS arm64, Windows x64 and Linux
+  Provides core.ncnn.Model, which runs Crop & Resize's AI upscaling (every
+  model it runs is an add-on). Shipped on macOS arm64, Windows x64 and Linux
   x64 only, in vapoursynth/ncnn/: built from the v15.16 source on macOS and
   Linux, vs-mlrt's own build on Windows. The binary statically includes:
     ncnn — BSD 3-Clause, Copyright (C) 2017 Tencent. All rights reserved.
@@ -248,11 +314,17 @@ VSNCNN (vs-mlrt) — GPL-3.0
       https://github.com/llvm/llvm-project/tree/main/openmp
       Licence text: Apache-2.0-LLVM-Exception.txt
 
-Real-ESRGAN anime video model — BSD 3-Clause
+Real-ESRGAN anime video model — BSD-3-Clause
   Copyright (c) 2021, Xintao Wang
   https://github.com/xinntao/Real-ESRGAN
-  The trained network weights of realesr-animevideov3, at 2x and 4x. Shipped as
-  vs-mlrt's ONNX conversions (RealESRGANv2-animevideo-xsx2/xsx4.onnx).
+  The trained network weights of realesr-animevideov3, at 2x and 4x, used by
+  the Real-ESRGAN upscaler. NOT distributed with VapourBox: part of the
+  optional "Real-ESRGAN anime & Real-CUGAN models" add-on, which the app
+  downloads only when the user asks (Settings → Add-ons, or on choosing the
+  upscaler). The files are vs-mlrt's ONNX conversions
+  (RealESRGANv2-animevideo-xsx2/xsx4.onnx), unmodified, hosted individually by
+  this project because vs-mlrt publishes them only inside one ~810 MB archive;
+  redistributed under the BSD 3-Clause licence whose text is given below.
 
 AnimeJaNai models — CC BY-NC-SA 4.0 (non-commercial)
   By the-database (GitHub); upstream names no other copyright holder.
@@ -265,11 +337,145 @@ AnimeJaNai models — CC BY-NC-SA 4.0 (non-commercial)
   upscaler). Free for non-commercial use only; anyone using them must keep to
   that.
 
+RestoreFormer++ model — Apache-2.0
+  By Zhouxia Wang, Jiawei Zhang, Tianshui Chen, Wenping Wang and Ping Luo (the
+  authors its README cites); its LICENSE names no copyright holder.
+  https://github.com/wzhouxiff/RestoreFormerPlusPlus
+  Licence text: Apache-2.0.txt
+  The trained RestoreFormer++ network (release v1.0.0), the Face Restoration
+  pass's default model. NOT distributed with VapourBox: part of the optional
+  face restoration add-on, which the app downloads only when the user asks
+  (Settings → Add-ons, or on switching the pass on), as an ONNX conversion of
+  the published weights (Scripts/models/make_face_restoration.py).
+
+RetinaFace face detector — MIT
+  By biubug6 (Pytorch_Retinaface). Its LICENSE reads "Copyright (c) 2019"
+  and names no holder.
+  https://github.com/biubug6/Pytorch_Retinaface
+  The RetinaFace ResNet-50 face detector (detection_Resnet50_Final.pth as
+  facexlib publishes it), which finds the faces and their landmarks for the
+  Face Restoration pass. NOT distributed with VapourBox: part of the optional
+  face restoration add-on, downloaded as an ONNX conversion only when the user
+  asks.
+
+BiSeNet face parser — MIT
+  Copyright (c) 2019 zll (face-parsing.PyTorch)
+  https://github.com/zllrunning/face-parsing.PyTorch
+  The BiSeNet face-parsing network (parsing_bisenet.pth as facexlib publishes
+  it), which limits the Face Restoration pass's blend to the face itself. NOT
+  distributed with VapourBox: part of the optional face restoration add-on,
+  downloaded as an ONNX conversion only when the user asks.
+
+facexlib — MIT
+  Copyright (c) 2020 Xintao Wang
+  https://github.com/xinntao/facexlib
+  The face-restoration reference code whose detector and parser weights the
+  face restoration add-on converts, and whose FFHQ alignment template and
+  paste-back the pass reproduces (worker/templates/face_restore.py). Its
+  weights reach users only through that optional add-on, downloaded when the
+  user asks.
+
+GFPGAN v1.4 model — Apache-2.0 + NVIDIA Source Code License (NC)
+  Copyright (C) 2021 THL A29 Limited, a Tencent company. All rights reserved.
+  https://github.com/TencentARC/GFPGAN
+  Licence: https://github.com/TencentARC/GFPGAN/blob/master/LICENSE
+  The trained GFPGAN v1.4 network (GFPGANv1.4.pth), an alternative model for
+  the Face Restoration pass. GFPGAN is Apache-2.0 except its third-party
+  components; its StyleGAN2-derived network code is under NVIDIA's Source Code
+  License, whose section 3.3 says the work "only may be used or intended for
+  use non-commercially", where "non-commercially" means "for research or
+  evaluation purposes only". NOT distributed with VapourBox: an optional
+  add-on (face-gfpgan), downloaded as an ONNX conversion only when the user
+  asks, after stating that restriction. Non-commercial use only; anyone using
+  it must keep to that.
+
+CodeFormer model — S-Lab License 1.0 (NC)
+  Copyright 2022 S-Lab
+  https://github.com/sczhou/CodeFormer
+  Licence: https://github.com/sczhou/CodeFormer/blob/master/LICENSE
+  The trained CodeFormer network (codeformer.pth, release v0.1.0), an
+  alternative model for the Face Restoration pass. The S-Lab License 1.0
+  permits redistribution and use for non-commercial purposes, with the
+  copyright notice and its disclaimer; commercial use requires contacting the
+  contributors. NOT distributed with VapourBox: an optional add-on
+  (face-codeformer), downloaded as an ONNX conversion only when the user asks,
+  after stating that restriction. Non-commercial use only.
+
+DDColor model — Apache-2.0
+  By Xiaoyang Kang, Tao Yang, Wenqi Ouyang, Peiran Ren, Lingzhi Li and Xuansong Xie
+  (the authors its README cites); its LICENSE names no copyright holder.
+  https://github.com/piddnad/DDColor
+  Licence text: Apache-2.0.txt
+  The trained DDColor-T network (the ddcolor_paper_tiny checkpoint, whose model
+  card states Apache-2.0), the Colourisation pass's default model. Its network
+  code adapts ConvNeXt (MIT, Meta Platforms), DETR and Mask2Former (Facebook).
+  NOT distributed with VapourBox: an optional add-on (colorize-ddcolor), which
+  the app downloads only when the user asks (Settings → Add-ons, or on
+  switching the pass on), as an ONNX conversion of the published weights
+  (Scripts/models/make_colorize_ddcolor.py).
+
+DeOldify Video model — MIT
+  Copyright (c) 2018 Jason Antic
+  https://github.com/jantic/DeOldify
+  The trained DeOldify Video generator (ColorizeVideo_gen.pth), an alternative
+  model for the Colourisation pass; DeOldify's README states that its
+  published weights are released under the MIT licence. Built on fastai
+  (Apache-2.0) and a ResNet-101 backbone (torchvision, BSD-3-Clause). NOT
+  distributed with VapourBox: an optional add-on (colorize-deoldify), which the
+  app downloads only when the user asks, as an ONNX conversion of the
+  published weights (Scripts/models/make_colorize_deoldify.py).
+
+Real-ESRGAN general model — BSD-3-Clause
+  Copyright (c) 2021, Xintao Wang
+  https://github.com/xinntao/Real-ESRGAN
+  The trained network weights of realesr-general-x4v3 and
+  realesr-general-wdn-x4v3, used by the Real-ESRGAN General upscaler. NOT
+  distributed with VapourBox: part of the optional "General & live-action
+  upscaling" add-on, which the app downloads only when the user asks (Settings
+  → Add-ons, or on choosing the upscaler). Upstream publishes PyTorch
+  checkpoints only; the add-on carries this project's ONNX conversions
+  (Scripts/models/convert_realesrgan.py), redistributed under the BSD 3-Clause
+  licence whose text is given below.
+
+2xLiveActionV1_SPAN model — Apache-2.0
+  Copyright 2025 jcj83429
+  https://github.com/jcj83429/upscaling/tree/main/2xLiveActionV1_SPAN
+  Licence text: Apache-2.0.txt
+  The 2x SPAN model for live-action video and film, used by the Live Action
+  SPAN upscaler, as upstream's own unmodified ONNX
+  (2xLiveActionV1_SPAN_490000.onnx). NOT distributed with VapourBox: part of
+  the optional "General & live-action upscaling" add-on, which the app
+  downloads from upstream only when the user asks. Relicensed by its author to
+  the Apache License 2.0 in upstream commit 5d8cdd2e; its NOTICE file reads:
+    Copyright 2025 jcj83429
+    Licensed under the Apache License, Version 2.0 (the "License"); you may
+    not use this file except in compliance with the License. You may obtain a
+    copy of the License at http://www.apache.org/licenses/LICENSE-2.0. Unless
+    required by applicable law or agreed to in writing, software distributed
+    under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
+    OR CONDITIONS OF ANY KIND, either express or implied. See the License for
+    the specific language governing permissions and limitations under the
+    License.
+
+Real-ESRGAN x4plus / x2plus models — BSD-3-Clause
+  Copyright (c) 2021, Xintao Wang
+  https://github.com/xinntao/Real-ESRGAN
+  The trained network weights of RealESRGAN_x4plus and RealESRGAN_x2plus, used
+  by the Real-ESRGAN x4plus upscaler. NOT distributed with VapourBox: the
+  optional "Real-ESRGAN x4plus / x2plus" add-on, which the app downloads only
+  when the user asks. Upstream publishes PyTorch checkpoints only; the add-on
+  carries this project's ONNX conversions, redistributed under the BSD
+  3-Clause licence whose text is given below.
+
 Real-CUGAN models — MIT
   Copyright (c) 2022 bilibili
   https://github.com/bilibili/ailab/tree/main/Real-CUGAN
   The trained network weights of the 2x models (no-denoise, conservative,
-  denoise3x). Shipped as vs-mlrt's ONNX conversions (up2x-latest-*.onnx).
+  denoise3x), used by the Real-CUGAN upscaler. NOT distributed with VapourBox:
+  part of the optional "Real-ESRGAN anime & Real-CUGAN models" add-on, which
+  the app downloads only when the user asks. The files are vs-mlrt's ONNX
+  conversions (up2x-latest-*.onnx), unmodified, hosted individually by this
+  project.
 
 DFTTest — GPL-3.0
   Copyright (C) 2007-2010 Kevin Stone (tritical); VapourSynth port by HolyWu
@@ -532,10 +738,13 @@ Appendix — full text of the short permissive licences
 
 MIT License
 -----------
-(Applies to zsmooth, vszip and the zigimg library it includes, CAS,
+(Applies to zsmooth, vszip and the zigimg library it includes, SangNom's
+source, the code ported from vs-jetpack, CAS,
 DCTFilter, BM3D, descale, the RIFE plugin, rife-ncnn-vulkan, the RIFE model and
-ECCV2022-RIFE, the Real-CUGAN models, whisper.cpp, the Whisper models, pip and
-the Clense filter
+ECCV2022-RIFE, the Real-CUGAN models, whisper.cpp, the Whisper models, ONNX
+Runtime, the RetinaFace face detector, the BiSeNet face parser, facexlib, the
+DeOldify Video model, pip
+and the Clense filter
 in vs-removegrain, each
 under the copyright notice given in its entry above.)
 
@@ -596,8 +805,8 @@ DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE, Version 2
 
 BSD 3-Clause License
 --------------------
-(Applies to Flutter, Zstandard, ncnn, the core of glslang, Protocol Buffers
-and the Real-ESRGAN model, under the copyright notices given above.)
+(Applies to Flutter, Zstandard, ncnn, the core of glslang, Protocol Buffers,
+the Real-ESRGAN models and NumPy, under the copyright notices given above.)
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:

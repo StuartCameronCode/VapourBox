@@ -4,6 +4,15 @@
 # that run the worker end-to-end through vspipe | ffmpeg). They are slow, so the
 # per-push CI gate runs `flutter test --exclude-tags heavy` and the nightly
 # workflow runs `flutter test --tags heavy`. Run them locally with either filter.
+#
+# The `gpu` tag marks tests that run RIFE or AI upscaling (ncnn on Vulkan), so
+# need a Vulkan device. The hosted CI runners have no GPU, so both workflows
+# exclude it (`--exclude-tags heavy,gpu`, `--tags heavy --exclude-tags gpu`).
+# A plain local `flutter test` includes them; they skip, saying why, where the
+# probe finds no device, and fail instead under VAPOURBOX_EXPECT_VULKAN=1. Run
+# them alone with `flutter test --tags gpu`.
 tags:
   heavy:
     # Full-encode integration tests — run nightly, excluded from the push gate.
+  gpu:
+    # Needs a Vulkan device (RIFE, AI upscaling) — excluded on the GPU-less CI runners.

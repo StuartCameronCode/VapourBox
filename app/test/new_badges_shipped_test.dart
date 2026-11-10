@@ -55,7 +55,15 @@ void main() {
 
   test('Noise Reduction: BM3D and KNLMeans in the method list', () {
     final s = _load('noise_reduction.json');
-    expect(s.methods.where(service.isMethodNew).map((m) => m.id).toSet(), {'bm3d', 'knlmeans'});
+    // Only the 1.5.0 stamps: NLMeans (CPU) carries 1.7.0 and is not part of
+    // this upgrade's story.
+    expect(
+        s.methods
+            .where((m) => m.sinceAppVersion == '1.5.0')
+            .where(service.isMethodNew)
+            .map((m) => m.id)
+            .toSet(),
+        {'bm3d', 'knlmeans'});
     expect(service.isMethodChoiceNew(s), isTrue);
     expect(service.isSchemaNew(s), isTrue);
   });
@@ -72,5 +80,32 @@ void main() {
 
   test('a filter with nothing new in 1.5.0 is not badged', () {
     expect(service.isSchemaNew(_load('deband.json')), isFalse);
+  });
+
+  group('1.7.0', () {
+    setUp(() async {
+      // Upgraded from 1.6.0 to 1.7.0.
+      SharedPreferences.setMockInitialValues({
+        'lastRunAppVersion': '1.6.0',
+        'lastSeenAppVersion': '1.6.0',
+      });
+      PackageInfo.setMockInitialValues(
+          appName: 'VapourBox', packageName: 'app.vapourbox.vapourbox',
+          version: '1.7.0', buildNumber: '1', buildSignature: '');
+      service.resetForTesting();
+      await service.initialize();
+    });
+
+    test('Face Restoration is a new filter', () {
+      expect(service.isSchemaNew(_load('face_restore.json')), isTrue);
+    });
+
+    test('Colourisation is a new filter', () {
+      expect(service.isSchemaNew(_load('colorize.json')), isTrue);
+    });
+
+    test('Descale, new in 1.5.0, is no longer badged', () {
+      expect(service.isSchemaNew(_load('descale.json')), isFalse);
+    });
   });
 }

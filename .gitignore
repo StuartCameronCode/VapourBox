@@ -117,7 +117,7 @@ BundledDependencies/Scripts/*.py
 !BundledDependencies/Scripts/.gitkeep
 
 # Add-ons (whisper binary + models, downloaded at runtime)
-addons/
+/addons/
 
 # Claude Code
 .claude/
@@ -127,3 +127,6 @@ tmpclaude-*
 licenseplan.md
 *.mkv
 !Tests/TestResources/soft_telecine_test.mkv
+
+# Locally converted add-on model files awaiting upload (see docs/ADDONS.md)
+addon-staging/

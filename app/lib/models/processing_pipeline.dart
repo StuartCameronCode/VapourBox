@@ -1,10 +1,13 @@
 import 'package:json_annotation/json_annotation.dart';
 
 import 'anti_alias_parameters.dart';
+import 'audio_restoration_parameters.dart';
 import 'geometry_parameters.dart';
 import 'deflicker_parameters.dart';
 import 'descale_parameters.dart';
+import 'colorize_parameters.dart';
 import 'edge_repair_parameters.dart';
+import 'face_restore_parameters.dart';
 import 'frame_rate_parameters.dart';
 import 'ghost_removal_parameters.dart';
 import 'grain_parameters.dart';
@@ -50,6 +53,9 @@ enum PassType {
   colorCorrection,
   chromaFixes,
   cropResize,
+  faceRestore,
+  colorize,
+  audioRestoration,
   subtitles,
 }
 
@@ -99,6 +105,12 @@ extension PassTypeExtension on PassType {
         return 'Chroma Fixes';
       case PassType.cropResize:
         return 'Crop / Resize';
+      case PassType.faceRestore:
+        return 'Face Restoration';
+      case PassType.colorize:
+        return 'Colourisation';
+      case PassType.audioRestoration:
+        return 'Audio Restoration';
       case PassType.subtitles:
         return 'Subtitles';
     }
@@ -148,6 +160,12 @@ extension PassTypeExtension on PassType {
         return 'Fix chroma bleeding and crawl artifacts';
       case PassType.cropResize:
         return 'Crop borders and resize output';
+      case PassType.faceRestore:
+        return 'Restore detail in blurry, low-resolution faces with AI';
+      case PassType.colorize:
+        return 'Colour black-and-white footage with AI';
+      case PassType.audioRestoration:
+        return 'Repair, clean and re-sync the soundtrack';
       case PassType.subtitles:
         return 'Generate subtitles using Whisper AI';
     }
@@ -203,6 +221,15 @@ class ProcessingPipeline {
   /// Crop and resize pass parameters.
   final CropResizeParameters cropResize;
 
+  /// Face restoration pass parameters (an add-on model).
+  final FaceRestoreParameters faceRestore;
+
+  /// Colourisation pass parameters (an add-on model).
+  final ColorizeParameters colorize;
+  /// Audio restoration (rendered by ffmpeg before the encode; not a
+  /// VapourSynth pass, so not in [enabledPasses]).
+  final AudioRestorationParameters audio;
+
   /// Subtitle generation pass parameters (Whisper AI).
   final SubtitleParameters subtitles;
 
@@ -228,6 +255,9 @@ class ProcessingPipeline {
     this.colorCorrection = const ColorCorrectionParameters(),
     this.chromaFixes = const ChromaFixParameters(),
     this.cropResize = const CropResizeParameters(),
+    this.faceRestore = const FaceRestoreParameters(),
+    this.colorize = const ColorizeParameters(),
+    this.audio = const AudioRestorationParameters(),
     this.subtitles = const SubtitleParameters(),
   });
 
@@ -256,6 +286,9 @@ class ProcessingPipeline {
       colorCorrection: const ColorCorrectionParameters(enabled: false),
       chromaFixes: const ChromaFixParameters(enabled: false),
       cropResize: const CropResizeParameters(enabled: false),
+      faceRestore: const FaceRestoreParameters(enabled: false),
+      colorize: const ColorizeParameters(enabled: false),
+      audio: const AudioRestorationParameters(enabled: false),
       subtitles: const SubtitleParameters(enabled: false),
     );
   }
@@ -320,6 +353,12 @@ class ProcessingPipeline {
     if (chromaFixes.enabled) {
       passes.add(PassType.chromaFixes);
     }
+    // Colourisation follows the cleanup and Chroma Fixes (whose repairs are
+    // to the chroma it replaces) and precedes Colour Correction, so the result
+    // can be graded.
+    if (colorize.enabled) {
+      passes.add(PassType.colorize);
+    }
     if (colorCorrection.enabled) {
       passes.add(PassType.colorCorrection);
     }
@@ -340,6 +379,12 @@ class ProcessingPipeline {
     if (cropResize.enabled &&
         (cropResize.cropEnabled || cropResize.resizeEnabled)) {
       passes.add(PassType.cropResize);
+    }
+    // Faces are restored at the delivered resolution, after the resize, and
+    // before the sharpening and grain that would otherwise act on the face
+    // the restorer is about to replace.
+    if (faceRestore.enabled) {
+      passes.add(PassType.faceRestore);
     }
     // Sharpening follows the resize (issue #109), so it works on the delivered
     // pixels: sharpened earlier, a downscale softens the edges again and an
@@ -362,7 +407,7 @@ class ProcessingPipeline {
     return passes;
   }
 
-  /// Get count of enabled passes (includes subtitles).
+  /// Get count of enabled passes (includes audio restoration and subtitles).
   int get enabledPassCount {
     var count = 0;
     if (deinterlace.enabled) count++;
@@ -386,11 +431,15 @@ class ProcessingPipeline {
     if (colorCorrection.enabled) count++;
     if (chromaFixes.enabled) count++;
     if (cropResize.enabled) count++;
+    if (faceRestore.enabled) count++;
+    if (colorize.enabled) count++;
+    if (audio.enabled) count++;
     if (subtitles.enabled) count++;
     return count;
   }
 
-  /// Get count of enabled video processing passes (excludes subtitles).
+  /// Get count of enabled video processing passes (excludes audio
+  /// restoration and subtitles).
   int get videoPassCount {
     var count = 0;
     if (deinterlace.enabled) count++;
@@ -414,6 +463,8 @@ class ProcessingPipeline {
     if (colorCorrection.enabled) count++;
     if (chromaFixes.enabled) count++;
     if (cropResize.enabled) count++;
+    if (faceRestore.enabled) count++;
+    if (colorize.enabled) count++;
     return count;
   }
 
@@ -462,6 +513,12 @@ class ProcessingPipeline {
         return chromaFixes.enabled;
       case PassType.cropResize:
         return cropResize.enabled;
+      case PassType.faceRestore:
+        return faceRestore.enabled;
+      case PassType.colorize:
+        return colorize.enabled;
+      case PassType.audioRestoration:
+        return audio.enabled;
       case PassType.subtitles:
         return subtitles.enabled;
     }
@@ -514,6 +571,12 @@ class ProcessingPipeline {
         return chromaFixes.summary;
       case PassType.cropResize:
         return cropResize.summary;
+      case PassType.faceRestore:
+        return faceRestore.summary;
+      case PassType.colorize:
+        return colorize.summary;
+      case PassType.audioRestoration:
+        return audio.summary;
       case PassType.subtitles:
         return subtitles.summary;
     }
@@ -541,6 +604,9 @@ class ProcessingPipeline {
     ColorCorrectionParameters? colorCorrection,
     ChromaFixParameters? chromaFixes,
     CropResizeParameters? cropResize,
+    FaceRestoreParameters? faceRestore,
+    ColorizeParameters? colorize,
+    AudioRestorationParameters? audio,
     SubtitleParameters? subtitles,
   }) {
     return ProcessingPipeline(
@@ -565,6 +631,9 @@ class ProcessingPipeline {
       colorCorrection: colorCorrection ?? this.colorCorrection,
       chromaFixes: chromaFixes ?? this.chromaFixes,
       cropResize: cropResize ?? this.cropResize,
+      faceRestore: faceRestore ?? this.faceRestore,
+      colorize: colorize ?? this.colorize,
+      audio: audio ?? this.audio,
       subtitles: subtitles ?? this.subtitles,
     );
   }
@@ -650,6 +719,12 @@ class ProcessingPipeline {
         return copyWith(
           cropResize: cropResize.copyWith(enabled: enabled),
         );
+      case PassType.faceRestore:
+        return copyWith(faceRestore: faceRestore.copyWith(enabled: enabled));
+      case PassType.colorize:
+        return copyWith(colorize: colorize.copyWith(enabled: enabled));
+      case PassType.audioRestoration:
+        return copyWith(audio: audio.copyWith(enabled: enabled));
       case PassType.subtitles:
         return copyWith(
           subtitles: subtitles.copyWith(enabled: enabled),

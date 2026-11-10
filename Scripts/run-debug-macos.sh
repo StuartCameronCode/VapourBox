@@ -98,8 +98,9 @@ cp "$WORKER_DIR/target/debug/vapourbox-worker" "$DEBUG_APP/Contents/MacOS/"
 # Copy templates (includes pipe_source.py used by VapourSynth scripts)
 mkdir -p "$DEBUG_APP/Contents/MacOS/templates"
 cp "$WORKER_DIR/templates/"*.vpy "$DEBUG_APP/Contents/MacOS/templates/"
-cp "$WORKER_DIR/templates/pipe_source.py" "$DEBUG_APP/Contents/MacOS/templates/"
-cp "$WORKER_DIR/templates/spotless.py" "$DEBUG_APP/Contents/MacOS/templates/"
+# Every helper module (pipe_source, ai_runtime, the vendored filters), as the
+# packaging scripts do: one left out works from worker/templates/ and fails here.
+cp "$WORKER_DIR/templates/"*.py "$DEBUG_APP/Contents/MacOS/templates/"
 
 # Always strip quarantine from deps. macOS SIGKILLs quarantined binaries
 # (ffmpeg/ffprobe/vspipe) on exec, which surfaces as opaque "Failed to run

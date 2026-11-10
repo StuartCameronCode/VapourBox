@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audio Restoration Probe</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --best: #e3f1e6; --bad: #f6e3e1; --warn: #9a6700; --bar: #3b6fb6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --best: #1d3324; --bad: #3a2321; --warn: #d9a400; --bar: #7aa7e6;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 32px 16px 80px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 44px 0 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+  h3 { font-size: 16px; margin: 26px 0 8px; }
+  .sub { color: var(--text-secondary); margin: 0 0 20px; }
+  code { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+  pre { font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); padding: 12px 14px; border-radius: 8px; overflow-x: auto; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  .limit { border-left: 3px solid var(--warn); padding: 6px 12px; margin: 12px 0; color: var(--text-secondary); }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; margin: 14px 0 22px; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+  caption { text-align: left; font-weight: 600; padding-bottom: 6px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 10px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  tr.best td { background: var(--best); }
+  tr.bad td { background: var(--bad); }
+  figure { margin: 18px 0 26px; }
+  figcaption { color: var(--text-secondary); font-size: 13.5px; margin-top: 6px; }
+  svg text { fill: var(--text-secondary); font: 12px -apple-system, sans-serif; }
+  svg .bar { fill: var(--bar); }
+  svg .axis { stroke: var(--border); }
+</style>
+</head>
+<body>
+<main>
+<h1>Audio restoration: where the sound moves, and what each step does</h1>
+<p class="sub">2026-11-08 · ffmpeg 9.0.2 (deps bundle, macOS arm64) · deep-filter 0.5.6 · Apple Silicon ·
+signals generated with ffmpeg's lavfi sources · scripts in <code>scripts/</code> (<code>run.sh</code> reproduces every number)</p>
+
+<div class="card">
+<p><strong>Question.</strong> VapourBox copied or re-encoded audio and never processed it. The Audio Restoration pass adds channel fixes, a sync offset, drift correction, declip/declick, rumble and hum removal, broadband denoise (<code>afftdn</code>), DeepFilterNet speech enhancement, loudness normalisation and a limiter. Before building it on ffmpeg's filters: which of them move the sound in time, which defaults are wrong for this use, and does each actually do its job on a known signal?</p>
+<p><strong>Outcome: built.</strong> Four filters move or mis-handle the audio with their defaults; each is handled in the one place every filter is chosen (<code>AudioPlan::new</code>, <code>worker/src/audio_restoration.rs</code>):</p>
+<ul>
+<li><code>afftdn</code> outputs its input <strong>25 ms late</strong> at every rate and strength → trimmed with <code>atrim=start_sample</code>; its default noise floor (<code>nf=-50</code>) barely touched real hiss → the source's measured floor is passed; its noise tracking (<code>tn=1</code>) undid that → off.</li>
+<li><code>atempo</code> moved every click <strong>~20 ms early</strong> on top of the stretch → drift is corrected by an exact <strong>resample</strong> instead.</li>
+<li><code>alimiter</code> delays by its attack and normalises back up to 0 dBFS by default → <code>latency=1:level=0</code>.</li>
+<li>Rendering to a WAV loses a late-starting audio stream's gap → <code>aresample=first_pts=0</code> first.</li>
+</ul>
+<p>DeepFilterNet (an add-on) delays by 30 ms; its own <code>-D</code> compensates. The architecture decision — render the soundtrack once, before the video encode, rather than filtering in the encode — is what DeepFilterNet, two-pass loudness, negative offsets and subtitle alignment all need.</p>
+</div>
+
+<h2>1. Which steps move the sound in time</h2>
+<p>A click track (3 ms bursts of 3 kHz at irregular times, plus a 440 Hz tone and pink noise) is filtered and cross-correlated with itself (<code>delay_probe.py</code>). Positive lag = output late.</p>
+<div class="tablewrap"><table>
+<caption>Lag in samples</caption>
+<tr><th>Filter</th><th>48 kHz</th><th>44.1 kHz</th><th>32 kHz</th></tr>
+<tr class="bad"><td><code>afftdn=nr=6 / 12 / 24:nf=-40</code></td><td>1200</td><td>1102</td><td>800</td></tr>
+<tr class="bad"><td><code>alimiter=limit=0.5</code> (defaults)</td><td>239</td><td>219</td><td>159</td></tr>
+<tr class="best"><td><code>alimiter=limit=0.5:level=0:latency=1</code></td><td>0</td><td>0</td><td>0</td></tr>
+<tr><td><code>adeclick</code>, <code>adeclip</code></td><td>0</td><td>0</td><td>0</td></tr>
+<tr><td><code>highpass=f=40</code>, <code>bandreject</code> ×2</td><td>0</td><td>0</td><td>0</td></tr>
+<tr><td><code>loudnorm</code> (+ <code>aresample</code> back from 192 kHz)</td><td>0</td><td>0</td><td>0</td></tr>
+<tr><td>drift resample (<code>aresample</code> 4× → <code>asetrate</code> → <code>aresample</code>)</td><td>0</td><td>0</td><td>0</td></tr>
+</table></div>
+<p><code>afftdn</code>'s delay is exactly 25 ms (rate / 40 samples) whatever its strength — Video-Enhancer's 1200 samples at 48 kHz is the same number. The plan trims <code>round(rate × 0.025)</code> samples at the source's own rate (1103 at 44.1 kHz; the measured 1102 is the correlation peak's integer position, within a sample).</p>
+<p><code>alimiter</code>'s default also normalises: a click track peaking at −1.34 dBFS, limited to −6 dB, came out peaking at <strong>0.00 dBFS</strong> with defaults and −6.02 dBFS with <code>level=0:latency=1</code>.</p>
+
+<h3>DeepFilterNet</h3>
+<div class="tablewrap"><table>
+<caption>deep-filter 0.5.6 on a 12 s click track</caption>
+<tr><th>Input</th><th>Flags</th><th>Output samples (48 kHz)</th><th>Lag (samples at 48 kHz)</th></tr>
+<tr><td>48 kHz, 576000 samples</td><td>—</td><td>576000</td><td>1440</td></tr>
+<tr class="best"><td>48 kHz</td><td><code>-D</code></td><td>574560</td><td>0</td></tr>
+<tr><td>44.1 kHz</td><td>—</td><td>576000</td><td>1439</td></tr>
+<tr class="best"><td>44.1 kHz</td><td><code>-D</code></td><td>574560</td><td>−1</td></tr>
+</table></div>
+<p>It accepts 44.1 kHz and always writes 48 kHz. <code>-D</code> removes its 30 ms STFT + lookahead delay and leaves the track that much short; the plan pads every track to the picture's exact sample count at the end (<code>apad=whole_len</code> + <code>atrim=end_sample</code>), so that is harmless.</p>
+
+<h3>atempo stretches <em>and</em> shifts</h3>
+<p><code>tempo_denoise_probe.py</code>: each click's position after the stretch against the expected <code>t / factor</code>.</p>
+<div class="tablewrap"><table>
+<caption>Click position error</caption>
+<tr><th>Chain</th><th>Mean</th><th>First click</th><th>Last click</th></tr>
+<tr class="bad"><td><code>atempo=1.004</code></td><td>−19.13 ms</td><td>0.00 ms</td><td>−21.18 ms</td></tr>
+<tr class="bad"><td><code>atempo=0.996</code></td><td>−19.38 ms</td><td>0.00 ms</td><td>−21.42 ms</td></tr>
+<tr class="bad"><td><code>atempo=1.02</code></td><td>−19.04 ms</td><td>0.00 ms</td><td>−19.21 ms</td></tr>
+<tr class="best"><td><code>asetrate</code> + <code>aresample</code> (×1.004, ×0.996, ×1.02)</td><td>0.01 ms</td><td>0.00 ms</td><td>≤0.01 ms</td></tr>
+</table></div>
+<p>The brief said <code>atempo</code>; the measurement says no. Drift between a capture's audio and its picture is a sample-clock error, so resampling is the exact inverse — it restores the original pitch along with the length (at most 0.5% by default, about 9 cents). <code>asetrate</code> only takes an integer rate, which straight from 48 kHz would be off by up to 1e-5 (37 ms over an hour), so the plan upsamples to the rate between 4× and 8× where <code>round(r1 × factor) / r1</code> is closest to the factor — within ~1e-11 (<code>resample_ratio</code>, unit-tested to under 0.4 ms an hour). The heavy test measures the encoded result: a 20 s picture with 20.08 s of audio puts every click within 2 ms of <code>t / 1.004</code>.</p>
+
+<h2>2. afftdn's noise floor</h2>
+<p>White noise at −38.8 dBFS RMS with clicks; the noise level measured in a click-free stretch after afftdn has adapted (<code>tempo_denoise_probe.py</code>).</p>
+<div class="tablewrap"><table>
+<caption>Noise floor after afftdn, nr=20</caption>
+<tr><th>Chain</th><th>Floor</th><th>Down by</th></tr>
+<tr class="bad"><td><code>afftdn=nr=20:nf=-50:tn=1</code> (first build)</td><td>−39.6 dB</td><td>0.7 dB</td></tr>
+<tr><td><code>afftdn=nr=20:nf=-50</code> (default floor)</td><td>−39.9 dB</td><td>1.1 dB</td></tr>
+<tr class="best"><td><code>afftdn=nr=20:nf=-39</code> (measured floor)</td><td>−52.4 dB</td><td>13.6 dB</td></tr>
+<tr class="bad"><td><code>afftdn=nr=20:nf=-39:tn=1</code></td><td>−39.6 dB</td><td>0.7 dB</td></tr>
+</table></div>
+<p class="limit"><strong>Correction, kept visible:</strong> the first build passed <code>nf=-50:tn=1</code>, reasoning that noise tracking would find the floor itself. The first heavy-test run showed 0.7 dB of reduction. Tracking does not rescue a wrong floor here — it defeats a right one.</p>
+<p>The floor afftdn is given is the source's: the RMS of the quietest tenth of 50 ms windows in a minute from the middle of the window, decoded at full bandwidth (white hiss is 8 dB quieter below 4 kHz than across 24, so an 8 kHz analysis would underestimate it), clamped to −80…−30 dB. The upper clamp guards against content with no pauses (continuous music), whose "floor" is the content itself.</p>
+<figure>
+<svg viewBox="0 0 520 190" width="100%" style="max-width:520px" role="img" aria-label="Noise reduction in a pause against afftdn's nr setting">
+  <line class="axis" x1="60" y1="150" x2="500" y2="150"/>
+  <line class="axis" x1="60" y1="20" x2="60" y2="150"/>
+  <text x="54" y="154" text-anchor="end">0</text>
+  <text x="54" y="111" text-anchor="end">5</text>
+  <text x="54" y="67" text-anchor="end">10</text>
+  <text x="54" y="24" text-anchor="end">15</text>
+  <line class="axis" x1="60" y1="107" x2="500" y2="107" stroke-dasharray="2 4"/>
+  <line class="axis" x1="60" y1="63" x2="500" y2="63" stroke-dasharray="2 4"/>
+  <rect class="bar" x="90" y="102" width="60" height="48"/>
+  <rect class="bar" x="200" y="65" width="60" height="85"/>
+  <rect class="bar" x="310" y="33" width="60" height="117"/>
+  <rect class="bar" x="420" y="18" width="60" height="132"/>
+  <text x="120" y="96" text-anchor="middle">5.5</text>
+  <text x="230" y="59" text-anchor="middle">9.8</text>
+  <text x="340" y="27" text-anchor="middle">13.5</text>
+  <text x="450" y="13" text-anchor="middle">15.2</text>
+  <text x="120" y="168" text-anchor="middle">nr 6</text>
+  <text x="230" y="168" text-anchor="middle">nr 12</text>
+  <text x="340" y="168" text-anchor="middle">nr 20</text>
+  <text x="450" y="168" text-anchor="middle">nr 30</text>
+  <text x="14" y="90" transform="rotate(-90 14 90)" text-anchor="middle">dB down in a pause</text>
+</svg>
+<figcaption>afftdn with the measured floor (−38.8 dB) on a gated 440 Hz tone over white noise (<code>quality_probe.py</code>): noise removed in the pauses at each strength. The tone's level in the bursts changed by less than 0.01 dB at every strength.</figcaption>
+</figure>
+
+<h2>3. The other steps on known signals</h2>
+<div class="tablewrap"><table>
+<caption>Hum notches, <code>bandreject</code> Q 8 at f, 2f, 3f (1 kHz tone + 50/100/150 Hz)</caption>
+<tr><th>Frequency</th><th>Down by</th></tr>
+<tr><td>50 Hz</td><td>47.1 dB</td></tr>
+<tr><td>100 Hz</td><td>60.7 dB</td></tr>
+<tr><td>150 Hz</td><td>70.5 dB</td></tr>
+<tr class="best"><td>1 kHz</td><td>0.0 dB</td></tr>
+</table></div>
+<p>Automatic hum detection reads the same minute as the noise floor: Goertzel power at 50/100/150 and 60/120/180 Hz, each in 2 s blocks (0.5 Hz resolution, so mains wandering by a tenth of a hertz stays in the bin), against six neighbours 4–7 Hz away. A line 12 dB above its neighbours counts; whichever mains frequency stands out more wins; nothing standing out means nothing is notched (and the job log says so). Unit tests cover 50.1 Hz hum with harmonics under noise and a tone, 60 Hz hum whose third harmonic dominates, and clean audio.</p>
+
+<div class="tablewrap"><table>
+<caption>Loudness, two passes (<code>print_format=json</code>, then <code>linear=true</code> with the measurement), 20 s syllable-modulated 200 Hz signal at −34.4 LUFS</caption>
+<tr><th>Target</th><th>Result (ebur128)</th><th>Error</th></tr>
+<tr><td>−23 LUFS</td><td>−23.0 LUFS</td><td>0.0 LU</td></tr>
+<tr><td>−16 LUFS</td><td>−16.0 LUFS</td><td>0.0 LU</td></tr>
+</table></div>
+
+<div class="tablewrap"><table>
+<caption>DeepFilterNet (<code>-D</code>) on a voiced, syllable-modulated harmonic signal in pink noise; input: pauses −44.8 dB, voiced −24.0 dB, SNR in the voiced bursts 20.9 dB</caption>
+<tr><th>Attenuation limit (<code>-a</code>)</th><th>Pauses down by</th><th>Voiced level</th><th>SNR in voiced</th><th>Lag</th><th>Time per minute (mono)</th></tr>
+<tr><td>100 (no limit)</td><td>25.3 dB</td><td>−1.1 dB</td><td>13.8 dB</td><td>0</td><td>3.8 s</td></tr>
+<tr><td>30</td><td>22.5 dB</td><td>−1.1 dB</td><td>14.0 dB</td><td>0</td><td>4.0 s</td></tr>
+<tr><td>15</td><td>13.7 dB</td><td>−0.9 dB</td><td>15.4 dB</td><td>0</td><td>3.9 s</td></tr>
+</table></div>
+<p class="limit"><strong>What this metric can't tell you.</strong> The signal is a test tone with a speech-like envelope, not speech. DeepFilterNet is trained on speech; it removed the noise in the pauses as expected, but it distorted the synthetic "voice" (SNR inside the bursts fell from 20.9 to ~14 dB), which says little about real dialogue. Judge it by ear on real recordings; the default (no limit) may be stronger than a natural-sounding result wants, which is why the limit is exposed.</p>
+
+<div class="tablewrap"><table>
+<caption>Speed: seconds to process one minute of 48 kHz stereo (pink noise), Apple Silicon</caption>
+<tr><th>Step</th><th>Seconds</th></tr>
+<tr><td>adeclip</td><td>2.94</td></tr>
+<tr><td>loudnorm (one pass)</td><td>2.08</td></tr>
+<tr><td>adeclick</td><td>1.18</td></tr>
+<tr><td>afftdn</td><td>0.29</td></tr>
+<tr><td>drift resample</td><td>0.29</td></tr>
+<tr><td>hum notches</td><td>0.10</td></tr>
+</table></div>
+<p>Everything is far faster than the video it accompanies; a two-hour tape with every step on adds a few minutes.</p>
+
+<h2>4. A late-starting audio stream</h2>
+<p><code>start_offset_probe.py</code>: a file whose audio starts 0.5 s after its video. Mapping the source's stream straight into the output (as the encoder always did) keeps that gap through the container's timestamps; a WAV has no timestamps.</p>
+<div class="tablewrap"><table>
+<caption>First sound and length of the rendered WAV</caption>
+<tr><th>Render</th><th>No seek</th><th>Seek to 2 s</th></tr>
+<tr class="bad"><td><code>anull</code></td><td>0.000 s, 9.5 s long</td><td>0.000 s, 8.0 s</td></tr>
+<tr class="best"><td><code>aresample=first_pts=0</code></td><td>0.500 s, 10.0 s long</td><td>0.000 s, 8.0 s</td></tr>
+</table></div>
+<p>So <code>aresample=first_pts=0</code> is the first filter of every render. The heavy test encodes such a file and finds every click 0.5 s later than in the stream itself.</p>
+
+<h2>5. Decisions</h2>
+<ul>
+<li><strong>Render the soundtrack before the encode</strong> (one WAV, 32-bit float so <code>adeclip</code>'s rebuilt peaks and later gain don't clip), and map it into the encode — never an <code>-af</code> on the encode. DeepFilterNet is a separate program; two-pass loudness must measure the whole track first; a negative offset needs audio from before the trim point; and the subtitles transcribe this file, which is the output's audio sample for sample, so their cues follow offset, drift and trim by construction. (Heavy test: a 2 s offset moved Whisper's cues by a median of 2.3 s — its timestamps are coarse.)</li>
+<li><strong>One decision site, fixed order, one <code>-af</code> per ffmpeg run</strong> — the encoder's <code>-vf</code> rule, for the same reason. Order: start padding → channels → declip → declick → rumble → hum → afftdn (+ its trim) → drift resample → lead silence → [DeepFilterNet] → loudness → limiter → length. Asserted for all 512 combinations of the toggles, with no, positive and negative offsets.</li>
+<li><strong>Drift factor = whole source audio length / whole encoded picture length</strong>, the picture's from output frames over output rate (<code>FrameMap</code>), applied only above 0.05 s and up to a cap (0.5% default) — a bigger mismatch is a missing stretch or the wrong track, not drift.</li>
+<li><strong>Offset and drift compose on the source timeline</strong>: source time = (in-point + t − offset) × factor. A positive offset from the start becomes silence; a negative one reads later — never <code>adelay</code> alone.</li>
+<li><strong>The track is cut or padded to the picture's exact length.</strong></li>
+<li><strong>One stream restored</strong>, first in the output; the others copied untouched with their own tags (naming one stream's <code>-map_metadata</code> stopped ffmpeg copying the rest's — found by the heavy test). With audio set to copy, the restored stream is encoded (FLAC/MKV, AAC/MP4·MOV, PCM/AVI).</li>
+<li><strong>DeepFilterNet as a manifest add-on</strong>, upstream's own v0.5.6 binaries pinned by hash (MIT OR Apache-2.0). macOS builds need macOS 13 (their <code>minos</code>); the arm64 build is linker-signed, the x64 build unsigned — the installer signs a program that fails <code>codesign --verify</code>.</li>
+<li><strong>No preview</strong>: the preview is picture only, and the panel says so.</li>
+</ul>
+
+<h2>6. Not tested</h2>
+<ul>
+<li>Windows and Linux (the filters are ffmpeg's, the same 9.0 series everywhere; DeepFilterNet's Windows, Linux musl and Linux aarch64 binaries never ran here), and the macOS x64 DeepFilterNet build (needs macOS 13 on Intel).</li>
+<li>Real recordings: every number here is from generated signals. Hum detection on real ground-loop hum with a strong bass line, the noise-floor estimate on content without pauses, and DeepFilterNet on real dialogue all deserve a listen.</li>
+<li>Very long sources: drift accuracy was measured over 20 s; the resample ratio's accuracy is computed (≤0.4 ms an hour), not measured over hours.</li>
+<li>Sources with more than two channels: the channel fix applies to stereo only and says so; the other steps run on every channel.</li>
+</ul>
+</main>
+</body>
+</html>

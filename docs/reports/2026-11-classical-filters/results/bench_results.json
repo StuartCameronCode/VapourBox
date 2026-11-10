@@ -1,0 +1,262 @@
+{
+ "640x480": {
+  "BM3D (bm3d r12, r=1, Final, sigma 16) - shipped": {
+   "median_fps": 1.5,
+   "runs": [
+    1.47,
+    1.5,
+    1.51
+   ]
+  },
+  "BM3D (bm3d r12, r=0, Final, sigma 16)": {
+   "median_fps": 1.14,
+   "runs": [
+    1.14,
+    1.14,
+    1.14
+   ]
+  },
+  "NLMeans vszip CPU (d=1 a=2 s=4, h 7)": {
+   "median_fps": 181.27,
+   "runs": [
+    182.17,
+    178.15,
+    181.27
+   ]
+  },
+  "KNLMeansCL GPU (d=1 a=2 s=4, h 7)": {
+   "median_fps": 126.55,
+   "runs": [
+    126.55,
+    125.96,
+    127.03
+   ]
+  },
+  "WNNM vszip (r=0, sigma 16)": {
+   "median_fps": 159.12,
+   "runs": [
+    156.9,
+    164.16,
+    159.12
+   ]
+  },
+  "WNNM vszip (r=1, sigma 16)": {
+   "median_fps": 90.32,
+   "runs": [
+    90.32,
+    91.42,
+    89.53
+   ]
+  },
+  "BM3D vszip (r=1, sigma 10)": {
+   "median_fps": 150.38,
+   "runs": [
+    150.38,
+    151.37,
+    146.78
+   ]
+  },
+  "input only (decode + noise)": {
+   "median_fps": 1999.44,
+   "runs": [
+    1999.44,
+    2015.16,
+    1992.33
+   ]
+  },
+  "AA: daa": {
+   "median_fps": 60.67,
+   "runs": [
+    61.18,
+    60.67,
+    60.53
+   ]
+  },
+  "AA: santiag (nnedi3, strength 1/1)": {
+   "median_fps": 27.21,
+   "runs": [
+    27.45,
+    27.11,
+    27.21
+   ]
+  },
+  "AA: SangNom (aa 48)": {
+   "median_fps": 79.93,
+   "runs": [
+    81.26,
+    78.09,
+    79.93
+   ]
+  },
+  "Dehalo: DeHalo_alpha (defaults)": {
+   "median_fps": 1398.99,
+   "runs": [
+    1398.99,
+    1431.08,
+    1383.68
+   ]
+  },
+  "Dehalo: vine (16, 0.5, 1.0)": {
+   "median_fps": 31.58,
+   "runs": [
+    31.3,
+    31.58,
+    31.73
+   ]
+  },
+  "Deblock: Deblock_QED (defaults)": {
+   "median_fps": 1073.55,
+   "runs": [
+    1066.51,
+    1076.15,
+    1073.55
+   ]
+  },
+  "Deblock: mpeg2stinx": {
+   "median_fps": 36.1,
+   "runs": [
+    36.1,
+    35.46,
+    36.39
+   ]
+  },
+  "IVTC fade fix (average), alone": {
+   "median_fps": 588.18,
+   "runs": [
+    584.98,
+    588.18,
+    600.31
+   ]
+  }
+ },
+ "1920x1080": {
+  "BM3D (bm3d r12, r=1, Final, sigma 16) - shipped": {
+   "median_fps": 0.21,
+   "runs": [
+    0.21,
+    0.22,
+    0.21
+   ]
+  },
+  "BM3D (bm3d r12, r=0, Final, sigma 16)": {
+   "median_fps": 0.14,
+   "runs": [
+    0.14,
+    0.14,
+    0.13
+   ]
+  },
+  "NLMeans vszip CPU (d=1 a=2 s=4, h 7)": {
+   "median_fps": 22.99,
+   "runs": [
+    22.64,
+    23.44,
+    22.99
+   ]
+  },
+  "KNLMeansCL GPU (d=1 a=2 s=4, h 7)": {
+   "median_fps": 18.49,
+   "runs": [
+    20.07,
+    18.49,
+    17.86
+   ]
+  },
+  "WNNM vszip (r=0, sigma 16)": {
+   "median_fps": 16.7,
+   "runs": [
+    15.03,
+    16.7,
+    16.77
+   ]
+  },
+  "WNNM vszip (r=1, sigma 16)": {
+   "median_fps": 10.28,
+   "runs": [
+    10.28,
+    10.42,
+    10.17
+   ]
+  },
+  "BM3D vszip (r=1, sigma 10)": {
+   "median_fps": 16.86,
+   "runs": [
+    17.43,
+    16.86,
+    14.99
+   ]
+  },
+  "input only (decode + noise)": {
+   "median_fps": 1146.66,
+   "runs": [
+    1146.66,
+    1138.22,
+    1149.18
+   ]
+  },
+  "AA: daa": {
+   "median_fps": 15.87,
+   "runs": [
+    15.87,
+    15.75,
+    16.33
+   ]
+  },
+  "AA: santiag (nnedi3, strength 1/1)": {
+   "median_fps": 19.56,
+   "runs": [
+    19.53,
+    19.66,
+    19.56
+   ]
+  },
+  "AA: SangNom (aa 48)": {
+   "median_fps": 8.59,
+   "runs": [
+    8.23,
+    8.59,
+    8.8
+   ]
+  },
+  "Dehalo: DeHalo_alpha (defaults)": {
+   "median_fps": 211.54,
+   "runs": [
+    190.72,
+    211.54,
+    226.6
+   ]
+  },
+  "Dehalo: vine (16, 0.5, 1.0)": {
+   "median_fps": 15.32,
+   "runs": [
+    15.32,
+    15.4,
+    14.8
+   ]
+  },
+  "Deblock: Deblock_QED (defaults)": {
+   "median_fps": 151.72,
+   "runs": [
+    151.61,
+    151.72,
+    152.85
+   ]
+  },
+  "Deblock: mpeg2stinx": {
+   "median_fps": 9.96,
+   "runs": [
+    9.96,
+    10.18,
+    8.96
+   ]
+  },
+  "IVTC fade fix (average), alone": {
+   "median_fps": 75.75,
+   "runs": [
+    74.15,
+    75.75,
+    76.01
+   ]
+  }
+ }
+}

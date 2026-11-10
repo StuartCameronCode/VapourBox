@@ -71,6 +71,7 @@ VapourBox/
 │   │   └── widgets/            # Reusable UI widgets
 │   ├── assets/filters/         # Built-in filter schemas (JSON)
 │   │   └── core/               # Core filters (deinterlace, denoise, etc.)
+│   ├── assets/addons/          # Add-on manifests, one JSON per add-on (docs/ADDONS.md)
 │   ├── macos/                  # macOS platform config
 │   ├── windows/                # Windows platform config
 │   └── linux/                  # Linux platform config
@@ -95,9 +96,10 @@ VapourBox/
 │   └── linux-arm64/
 │
 ├── licenses/                   # GPL, LGPL, NOTICES
-├── docs/                       # BUILDING, FILTER_SCHEMA, ENGINEERING_NOTES, …
+├── docs/                       # BUILDING, FILTER_SCHEMA, ADDONS, ENGINEERING_NOTES, …
 │   └── reports/                # Investigation reports (evidence behind decisions)
 ├── Scripts/                    # Build, package, and release scripts
+│   └── models/                 # Model conversion scripts for self-hosted add-on files
 └── .github/workflows/          # CI build workflows
 ```
 
@@ -115,11 +117,22 @@ VapourBox/
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded (see "Source Frame Size") |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
-| `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, the `--probe-rife` / `--probe-upscale` probe, and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
+| `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, RIFE's model add-on, the `--probe-rife` / `--probe-upscale` probe (on stand-in models, no add-on needed), and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
+| `worker/src/upscale_addons.rs` | The manifest add-on upscalers (Real-ESRGAN anime, Real-CUGAN, Real-ESRGAN General, Live Action SPAN, Real-ESRGAN x4plus/x2plus): which add-on holds which model, each network's own factor (see "GPU Plugins") |
+| `worker/src/addons.rs` | Manifest add-ons (compiled in from `app/assets/addons/` by `worker/build.rs`): install state, `require`, `addon_dir` (see "Add-ons", docs/ADDONS.md) |
+| `worker/src/ai_runtime.rs` | The AI runtime add-on's `--probe-ai-runtime`: runs the self-test model through `templates/ai_runtime.py`, classifies failures |
+| `worker/templates/ai_runtime.py` | ONNX Runtime helpers for passes: `setup`, `session` (provider choice), `map_frames`, NCHW frame conversion, `to_rgbs`/`from_rgbs`, `shifted`, `FrameMemo`, `Runner` |
+| `worker/templates/face_restore.py` | The Face Restoration pass: RetinaFace decode, FFHQ alignment, restore, BiSeNet mask, temporal smoothing, bit-exact merge (see "Face Restoration") |
+| `worker/src/models/face_restore_parameters.rs` | Face Restoration's parameters, its add-ons per model, and its temporal reach |
+| `worker/templates/colorize.py` | The Colourisation pass: model run at a fixed square size, temporal smoothing, Lab/RGB to chroma, luma kept bit-exact (see "Colourisation") |
+| `worker/src/models/colorize_parameters.rs` | Colourisation's parameters, its add-on per model, render size and temporal reach |
 | `worker/src/comment_metadata.rs` | The source's comment tag, prefixed with the version and passed to ffmpeg as an FFMETADATA file (issue #138) |
 | `worker/src/hdr_metadata.rs` | HDR10 mastering display / MaxCLL read from the source for x265, and the Dolby Vision profile (see "HDR Sources and Dolby Vision") |
 | `worker/src/native_res.rs` | `--detect-native`: the resolution and kernel a source was upscaled from, for the Descale pass (see "Descale") |
+| `worker/src/crop_detect.rs` | `--detect-crop`: black borders, blanking, letterbox bars and the head-switching band, for Crop & Resize's Detect (see "Crop Detection"); also the detectors' shared sampling and decode (`decode_samples`) |
+| `worker/src/noise_halo.rs` | `--detect-noise-halo`: a source's noise sigma and halo score, for the pass list's suggestions (see "Noise and Halo Scores") |
+| `worker/src/audio_restoration.rs` | Audio restoration: probes, the one `AudioPlan` (every `-af` filter, in order), the render before the encode, and the encoder's audio map/codec args (see "Audio Restoration") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
 
@@ -135,7 +148,15 @@ VapourBox/
 | `app/lib/services/temp_directory_service.dart` | Configurable scratch-file directory (see "Temporary Files Directory") |
 | `app/lib/services/overwrite_behavior_service.dart` | Default action for existing output files (see "Existing Output Files") |
 | `app/lib/models/native_res_report.dart` | What `--detect-native` found, as the Descale panel's Detect shows and applies it |
+| `app/lib/models/crop_detect_report.dart` | What `--detect-crop` found, and which suggestion (`CropApply`) the panel applies |
+| `app/lib/models/noise_halo_report.dart` | What `--detect-noise-halo` measured; stored on `QueueItem.noiseHalo`, read by `relevanceFor` |
+| `app/lib/views/pass_settings/crop_detect_panel.dart` | Crop & Resize's Detect borders panel: findings, Apply crop / Crop the bars too / Repair the band instead |
 | `app/lib/services/addon_service.dart` | Every optional third-party download (Whisper, AnimeJaNai): catalogue, install with requirements, remove with dependants (see "Add-ons") |
+| `app/lib/services/manifest_addon.dart` | `AddonManifest` + `ManifestAddonInstaller`: the generic installer for `app/assets/addons/*.json` (docs/ADDONS.md) |
+| `app/lib/models/audio_restoration_parameters.dart` | The Audio Restoration pass (`ProcessingPipeline.audio`, `PassType.audioRestoration`) and the DeepFilterNet add-on prompt |
+| `app/lib/models/ai_runtime_status.dart` | The worker's `--probe-ai-runtime` result |
+| `app/lib/models/face_restore_parameters.dart` | Face Restoration's parameters and the add-ons each model needs (`faceRestoreAddonIds`) |
+| `app/lib/models/colorize_parameters.dart` | Colourisation's parameters and the add-on each model needs (`colorizeAddonSelectedBy`) |
 | `app/lib/models/hdr_display.dart` | The display tone-map for the app's own source decodes (twin of `ColorMetadata::display_tonemap_filter`) and Dolby Vision detection |
 | `app/lib/models/gpu_plugin_status.dart` | The worker's GPU-plugin probe results, and the panels' notice decision |
 | `app/assets/filters/core/*.json` | Built-in filter schema definitions |
@@ -474,8 +495,8 @@ tried again — is in the renderer's header comment.
 **Name presets after the source, not the technique.** The user knows they
 captured a DV tape; they don't know it wants SMDegrain with a chroma-bleed fix.
 That is why the set includes `DV Camcorder Tape`, `PAL DVD / Broadcast`,
-`Anime DVD`, `8mm / Super 8 Film Scan` and `Low-Light Phone / Camera Video`
-alongside the three quality tiers.
+`Anime DVD`, `8mm / Super 8 Film Scan`, `Low-Light Phone / Camera Video` and
+`SD Tape → HD (YouTube / TV)` alongside the three quality tiers.
 
 **Set `category`.** `PresetCategory.quality` for a speed/quality tier,
 `PresetCategory.source` for one shaped around a kind of source; the menu in
@@ -683,19 +704,27 @@ default pipeline must be completely silent — both are asserted in
 `pass_advice_test.dart` / `pass_relevance_test.dart`.
 
 **Subtitles: transcribe first, mux last.** The pipeline order is
-`transcribe the source -> encode (burning in if asked) -> mux as a post-pass`,
-and it is load-bearing: burn-in needs the transcript before the encoder runs;
-muxing needs the encoded file to exist first. Transcription must run against the
-same trimmed audio window the encode uses (`extract_audio_range`), or cues drift
-by exactly the trimmed-off head — this is safe only because **nothing in the
-pipeline retimes audio**; a future audio-retiming pass would need to account for
-it. `SubtitleOutput::{burns_in, muxes, keeps_srt_file}` are asserted to cover
-every mode, so a mode that does none of the three can't silently produce nothing.
+`render restored audio (if on) -> transcribe -> encode (burning in if asked) ->
+mux as a post-pass`, and it is load-bearing: burn-in needs the transcript before
+the encoder runs; muxing needs the encoded file to exist first. **Transcription
+must hear exactly the output's soundtrack.** With Audio Restoration on, that is
+the rendered track (`AudioRestorer::render`), which is the output's audio
+sample for sample — trimmed, offset, drift-corrected — so cues follow any
+retiming by construction (`integration_audio_restoration_test.dart` checks a
+2 s offset moves the cues ~2 s). Without it, transcription reads the same
+trimmed window the encode uses (`extract_audio_range`), or cues drift by exactly
+the trimmed-off head; that is safe because nothing *else* retimes audio (IVTC
+and frame-rate conversion change the video timeline only). Any new step that
+moves audio in time belongs in `audio_restoration`, never in the encode.
+`SubtitleOutput::{burns_in, muxes, keeps_srt_file}` are asserted to cover every
+mode, so a mode that does none of the three can't silently produce nothing.
 
 **FFmpeg's `-vf` chain accumulates into one `Vec<String>` joined with commas —
 never push a second bare `-vf`.** ffmpeg only honours the *last* `-vf`, so two
 separate pushes (e.g. aspect stamping and subtitle burn-in) would silently drop
-the first one's effect.
+the first one's effect. The same goes for `-af`: every audio filter is chosen in
+`AudioPlan::new` and each ffmpeg run gets exactly one `-af`; the encode itself
+never filters audio (`test_real_ffmpeg_builder_delegates_audio_to_audio_restoration`).
 
 **Nothing of unbounded length goes on a child process's command line.**
 Windows caps it at 32,767 characters and refuses to start the process (os
@@ -857,6 +886,34 @@ The preview path needs the same source tags fed to swscale
 (`swscale_input_opts()`) or it guesses the matrix and shows a colour shift the
 real encode doesn't have.
 
+**BT.601 → BT.709 on SD → HD (app 1.7.0) is the one place the script
+converts colour.** Crop & Resize's `convertToBt709` (`Bt709Conversion`:
+`auto` default, `on`, `off`) converts a BT.601 source (tagged
+`bt470bg`/`smpte170m`, or untagged below 720 lines) when the output is HD
+(≥ 720 lines or ≥ 1280 wide, from `CropResizeParameters::output_size`, which
+mirrors the script's fitting). Rules:
+
+- **One decision: `VideoJob::converts_to_bt709`.** Everything that describes
+  what the script DELIVERS uses `VideoJob::output_color_metadata()`, never
+  `color_metadata()`: the encoder's input and output tags, the preview's
+  swscale step, and the passes after Crop & Resize (Face Restoration, RIFE,
+  the border fill). Only the AI upscale, which runs inside the resize before
+  the conversion, keeps the source's. A missed site relabels the converted
+  samples back to 601 — a silent colour shift.
+- **The matrix only.** Output tags say `bt709` for matrix and transfer; the
+  primaries keep the source's (tagged, or EBU/SMPTE C by height), because the
+  samples were not gamut-converted. A gamut conversion moved a 75% green by
+  55 levels on a player that does not colour-manage
+  (docs/reports/2026-11-crop-detect-709).
+- **R78's resizers let frame properties override `*_in_s` arguments**, so the
+  `{{#COLOR_709}}` block (both templates, right after `{{/RESIZE}}`) removes
+  `_Matrix`/`_Range` first. Any new block that converts colour with explicit
+  `*_in_s` arguments needs the same.
+- `integration_bt709_conversion_test.dart` (heavy) checks the pixels: every
+  patch within 3 levels (measured ≤ 0.67) of the source decoded as 601,
+  through the tags and when read as 709 regardless, preview = encode, and Off
+  stays 601 and bit-identical in YUV.
+
 ### HDR Sources and Dolby Vision (issue #133)
 
 An HDR source is processed and encoded as HDR; only what the user *sees* is
@@ -981,7 +1038,7 @@ A >8-bit source is read natively off the pipe. Two ways this breaks after that:
    computed **in the script from `clip.format`**, since a preceding pass may
    have changed the depth.
 3. **A limit counted per histogram bin scales with the CONTENT's depth, not
-   the container's.** `vszip.CLAHE` (8/16-bit only, so deeper clips run at
+   the container's.** `vszip.CLAHE` (8/16-bit only before vszip 23; the template still runs deeper clips at
    16-bit) needs `limit << (16 - content_depth)`: 8-bit content in a 16-bit
    histogram fills every 256th bin, genuine 10-bit every 64th, and ProRes 4444
    decodes as 12-bit whatever it holds. The template measures the content depth
@@ -1202,8 +1259,20 @@ usable Vulkan implementation ncnn can segfault** (RIFE does, in
 `ncnn::create_gpu_instance`; VSNCNN raises "get_gpu_device failed") rather
 than fail cleanly.
 
-- **Never autoloaded.** RIFE and its model live in `vapoursynth/rife/`, VSNCNN
-  and its models in `vapoursynth/ncnn/`, and on macOS the MoltenVK both use in
+- **Plugins in the bundle, models in add-ons (deps 1.16.0).** RIFE's model
+  is the `frame-rate-rife` add-on (upstream's ncnn conversion, fetched from
+  the plugin's repo at a pinned commit, installed under
+  `rife-v4.26_ensembleFalse/` because the plugin reads the model version — and
+  its padding — from substrings of that path); Real-ESRGAN anime and
+  Real-CUGAN are `upscale-anime` (vs-mlrt's ONNX files, byte for byte, which
+  we host because vs-mlrt publishes them only in an ~810 MB archive). Both are
+  declared in `ProcessingPipeline::required_addons()` and refused through
+  `addons::require` like every add-on; the panels prompt via
+  `modelAddonSelectedBy`, on choosing the method and on switching the pass
+  on. `attribution_test.dart` fails if the bundle lists a model or a
+  `download-deps-*` script fetches one.
+- **Never autoloaded.** RIFE lives in `vapoursynth/rife/`, VSNCNN in
+  `vapoursynth/ncnn/`, and on macOS the MoltenVK both use in
   `vapoursynth/moltenvk/` — all outside the plugin directory. The templates
   `LoadPlugin` them inside `{{#FRAME_RATE_RIFE}}` / `{{#UPSCALE_AI}}` only, so
   a missing runtime DLL, a broken driver or AVX in a static initializer can
@@ -1213,7 +1282,13 @@ than fail cleanly.
   first call: both dylibs leave `vkGetInstanceProcAddr` to whatever is already
   in the process.
 - **One probe, one wording.** `gpu_plugin.rs` prechecks the platform and files,
-  then runs the plugin once in a throwaway vspipe, printing stage markers so a
+  then runs the plugin once in a throwaway vspipe on a **stand-in network of
+  its own** — never an add-on, so "can't run here" is known before anything
+  is downloaded: VSNCNN gets `NCNN_SELFTEST_MODEL` (264 bytes, a 1x1 conv,
+  `Scripts/models/make_ncnn_selftest.py`) as bytes
+  (`path_is_serialization=True`), RIFE a two-layer weightless `flownet` with
+  its v4 blobs written beside the script — and checks the answer (a wrong one
+  is `WrongResult`). It prints stage markers so a
   silent crash still says where it died, and classifies the result into a
   `GpuPluginReason` with a user-facing remedy (`GpuPluginStatus::message`,
   naming the feature). The app shows that text the moment the feature is
@@ -1248,8 +1323,9 @@ than fail cleanly.
   mistakes on one clip but missed cuts between dark shots; switching needs
   more footage first. See docs/ENGINEERING_NOTES.md (2026-11-03).
 - **Upscaling: models, factors, tiles.** Five of vs-mlrt's ONNX conversions
-  ship (`gpu_plugin::UPSCALE_MODELS`): Real-ESRGAN animevideo 2x/4x and
-  Real-CUGAN 2x at three strengths. Factors follow the edge-directed path's
+  are the `upscale-anime` add-on (`upscale_addons::MODELS`, files prefixed
+  `upscale-`): Real-ESRGAN animevideo 2x/4x and Real-CUGAN 2x at three
+  strengths. Factors follow the edge-directed path's
   rule (3x behaves as 2x); CUGAN 4x is its 2x model twice, denoising on the
   first pass only (`CropResizeParameters::ai_upscale_models`). Above SD the
   frame runs in 512-px tiles with 16 px overlap — whole-frame CUGAN at 1080p
@@ -1266,32 +1342,64 @@ than fail cleanly.
   `ensure_methods_ready` also refuses it when `animejanai::runtime` finds the
   models missing (`MISSING_MESSAGE`). It keeps flat colour within 0.5 levels
   (Real-ESRGAN: up to 11).
+- **Live-action models are manifest add-ons on the same block** (app 1.7.0,
+  `upscale_addons.rs`): `upscale-general` — Real-ESRGAN General
+  (`realesr-general-x4v3`, optional denoise variant `-wdn-`) and jcj83429's
+  2xLiveActionV1 SPAN (Apache-2.0, upstream's ONNX pinned at a commit) — and
+  `upscale-esrgan-plus` — Real-ESRGAN x4plus/x2plus. Real-ESRGAN publishes
+  `.pth` only: `Scripts/models/convert_realesrgan.py` converts (opset 13,
+  x2plus's `pixel_unshuffle` as a one-hot stride-2 conv, which ncnn imports)
+  and we host the ONNX on `addon-models-v1`. They run on VSNCNN, so they need
+  no `ai-runtime` and exist exactly where VSNCNN ships (asserted). Declared in
+  `required_addons()` via `UpscaleMethod::addon`; the panel prompts with
+  `upscaleAddonSelectedBy`. **Factor rules:** General is 4x only, so 2x runs
+  4x and resamples down (`{{#AI_RESAMPLE}}`, Spline36 in float RGB — as
+  upstream's `--outscale`); SPAN is 2x only, 4x runs it twice; x2plus/x4plus
+  by factor. **x4plus runs in 384-px tiles above 384x384** (`ai_tiling`):
+  whole-frame at 720x576 lost the Vulkan device on a 16 GB Mac and 512 tiles
+  thrashed (29 s a frame); ~7 s a DVD frame at 4x. **A tile never exceeds
+  the frame** (`min(tile, width/height)`, every method): a tile larger than
+  the frame in either direction segfaults VSNCNN, and a wide, short picture
+  passes the area test. Flat-colour drift vs
+  Spline36: General 2.9, SPAN 0.6 (2x) / 1.3 (4x), x2plus 4.2, x4plus 12.2.
+  2xVHS2HD (RealPLKSR) was probed and **rejected**: ncnn's importer has no
+  ScatterND/Shape/Range/Where in its ONNX (see
+  docs/reports/2026-11-ai-upscale-addons).
+- **AI strength** (`aiStrength`, 0-1, default 1) applies to every AI method:
+  one `std.Merge` of a Spline36 upscale of the same frame with the network's
+  result, at the clip's format, before the props copy (`{{#AI_STRENGTH}}`).
+  At 1.0 the block is removed and the script is byte-identical to one without
+  the field (`test_188`); 0.5 halves a model's tint (11.2 → 5.8 levels).
 - **VSNCNN is built from source on macOS and Linux** (only Windows has a
   published build): static protobuf v3.21.12 and onnx at vs-mlrt's pinned
   commit, Tencent's prebuilt ncnn 20260526, VapourSynth's API 3 headers from
-  the R78 tag. Models come from vs-mlrt's ~810 MB `models.vX.7z` (the only
-  place they are published), extracted in one pass and each checked by hash.
-  Every pin and hash is in all three `download-deps-*` scripts.
-- **Tested for real in CI.** The hosted runners have no GPU, so
-  `.github/scripts/provision-vulkan.sh` gives Linux and Windows Mesa's
-  lavapipe (a CPU Vulkan driver ncnn accepts) and sets
-  `VAPOURBOX_EXPECT_VULKAN=1`. **macOS arm64 gets nothing and its GPU tests
-  skip**: the runners are VMs whose Metal device MoltenVK cannot open, and
-  lavapipe crashes there because the bundle's akarin exports its static
-  LLVM's symbols, which dyld then binds lavapipe's own LLVM to (see
-  docs/ENGINEERING_NOTES.md). MoltenVK is tested on real Macs only — run
-  the GPU suites locally with `VAPOURBOX_EXPECT_VULKAN=1` after touching it.
-  Under that variable every GPU test
-  **fails** rather than skips if a feature reports itself unavailable
+  the R78 tag. Every pin is in all three `download-deps-*` scripts, which
+  install no model.
+- **Tests that need a Vulkan device are tagged `gpu`, and CI leaves them
+  out.** The hosted runners have no GPU, so the push gate runs
+  `--exclude-tags heavy,gpu` and nightly `--tags heavy --exclude-tags
+  gpu` (`app/dart_test.yaml`). Without a device CI still checks that each
+  probe answers with a real reason (not `probeFailed`) and that a job that
+  cannot run is refused with the probe's wording. **Run the `gpu` tests on a
+  machine with a GPU after touching RIFE, VSNCNN, MoltenVK, the upscale
+  block or a model add-on**, with `VAPOURBOX_EXPECT_VULKAN=1`
+  (`flutter test --tags gpu`, plus `--tags heavy` for the encodes): under
+  that variable an unavailable feature **fails** rather than skips
   (`app/test/support/gpu_expectations.dart`), so a broken bundle cannot hide
-  behind "no GPU". `integration_gpu_plugins_test.dart` (push gate) probes,
-  checks the refusal and the script, and renders a real frame per feature;
+  behind "no GPU". Nothing else proves the Windows and Linux bundles' GPU
+  plugins actually run, so do it on those platforms before a deps or app
+  release too. Any test that runs a network through ncnn gets the tag (a
+  `group` cannot take tags in flutter_test, so tag each `test`).
+  `integration_gpu_plugins_test.dart` probes, checks the refusal and the
+  script, and renders a real frame per feature;
   `integration_ai_upscale_test.dart` and the RIFE group of
   `integration_frame_mapping_test.dart` (heavy) encode and check pixels — the
   upscalers against Spline36 on a synthetic pattern (colour within 2 levels for
-  CUGAN 2x, bar centre within 0.75 px for all).
+  CUGAN 2x, bar centre within 0.75 px for all). The ONNX Runtime passes (Face
+  Restoration, Colourisation) are not `gpu`: they run on the CPU provider
+  where there is no GPU, which is a path users take.
 
-See docs/ENGINEERING_NOTES.md (2026-10-24, 2026-10-25) for the measurements.
+See docs/ENGINEERING_NOTES.md (2026-10-24, 2026-10-25, 2026-11-09) for the measurements.
 
 ### Descale
 
@@ -1327,6 +1435,76 @@ keeps chroma and the source size. Rules:
   `integration_descale_test.dart` (heavy) checks detection on known masters,
   protection (grid exact vs. destroyed without the mask) and preview = encode.
 
+### Crop Detection (`--detect-crop`, app 1.7.0)
+
+Crop & Resize's **Detect borders** (`CropDetectPanel`) runs
+`crop_detect::detect`: 24 frames across the source or its trim, decoded as
+8-bit 4:4:4 and measured line by line in plain Rust (no VapourSynth). It is
+advisory exactly like Descale's Detect: nothing changes until the user picks
+Apply crop, Crop the bars too, or Repair the band instead. Rules:
+
+- **Brightness is a high percentile over every usable frame**, so a line that
+  carries picture in any frame is picture; a border line must also be flat
+  (detail floor 6 levels, so noisy blanking still counts). Frames too dark to
+  judge (central p90 < 48) are left out of everything. One line counts only if
+  it is true black in every frame (a capture card's first line).
+- **Bars wider than 5% of the dimension are framing** (letterbox / pillarbox):
+  reported, in `cropWithBars`, never in the recommended `crop`.
+- **Head switching**: a bottom line torn against the line above *in the same
+  field* (d = 2 when the job's field order is TFF/BFF), in luma or chroma
+  across ≥ 6 of 8 width segments, or shifted sideways by ≥ 3 px; in ≥ 50% of
+  usable frames; touching the bottom (≤ 2 lines skipped). Breadth and
+  persistence are what keep a burnt-in subtitle out.
+- **Rounded outward to steps the Crop pass accepts**, in the Crop pass's
+  orientation (`orient` maps through Rotate / Flip): even everywhere, fours
+  vertically when a 4:2:0 picture is still interlaced at the crop. Edge
+  Repair's alternative stays in source orientation and is offered only up to
+  its panel's 16-line maximum.
+- `confidence` is the share of usable frames whose picture reaches the edge;
+  low means thin evidence (a dark film), not a wrong edge. The panel warns
+  below 0.25.
+- `integration_crop_detect_test.dart` (heavy) builds fixtures from real VHS
+  picture with known borders, a band, a letterbox, subtitles and fades, and
+  asserts every edge within 2 lines; the unit tests in `crop_detect.rs` cover
+  the same traps on synthetic frames.
+
+### Noise and Halo Scores (`--detect-noise-halo`, app 1.7.0)
+
+The pass list badges Noise Reduction and Dehalo as Suggested only from a
+measurement of the picture (`noise_halo::detect`), run by
+`MainViewModel._measureNoiseHalo` in the background once a source is
+analysed, one source at a time, and stored on `QueueItem.noiseHalo`. Rules,
+from docs/reports/2026-11-noise-halo-scores:
+
+- **The worker decides.** `NOISE_HIGH` (3.5, sigma in 8-bit levels) and
+  `HALO_HIGH` (6.0, % of the step) live in `noise_halo.rs`; the report's
+  `noiseHigh` / `haloHigh` are the verdicts, and `relevanceFor` reads only
+  those, never the numbers. Change a threshold only with the report's scripts
+  re-run (`probelib.final_*` mirrors the Rust; `worker_parity.py` checks them
+  against each other; no verdict may differ).
+- **Suggest only; a low or missing score is silent.** Both measures
+  under-report (codec-skipped blocks read noiseless, sharpening of soft edges
+  rings past the plateau zone), so a low score is not evidence and nothing is
+  ever `notApplicable` from it. A failed measurement suggests nothing and
+  logs nothing.
+- **Noise is temporal, not spatial.** Motion-compensated frame difference
+  (16x16 blocks, +-10 px, match chosen on smoothed pictures), 10th percentile
+  of blocks, 25th percentile of 24 sampled pairs (12 above 1080p). A spatial
+  high-pass (Immerkaer, signalstats) is blind to tape-like and grain noise and
+  reads dense texture as noise; VCG's TOUT does not respond to noise at all.
+- **Halo is per edge and two-sided.** Step edges followed over 7 lines of one
+  field, plateaus 6-10 px out; each edge scores min(overshoot, undershoot), so
+  a cartoon outline scores 0. Fewer than 200 edges is no score.
+- **Per field unless known progressive** (`ScanType.progressive` /
+  `softTelecine`), so combing never reads as noise; **luma in the source's own
+  format and depth** (a yuv -> gray decode expands the range), in 8-bit units.
+- **The whole source is sampled, not the trim**, so the badge doesn't change
+  as in / out points move. Uses `crop_detect::decode_samples`, so all
+  detectors sample and decode alike.
+
+`integration_noise_halo_test.dart` (heavy) checks real clips: the VHS capture
+clean / with sigma 6 noise (8- and 10-bit agree), DVB-T clean / sharpened.
+
 ### Add-ons: optional third-party downloads
 
 Anything VapourBox can use but does not ship — because of its size (Whisper)
@@ -1357,6 +1535,215 @@ by `AddonService.addonsDir`), only when the user asks. Rules:
 - **Tested against the real download**: `WorkerHarness.ensureAnimeJanai()`
   installs from the pinned URL with the app's own extraction, so CI fails if
   the link or hashes stop holding.
+- **Every AI model is an add-on, never in the deps bundle** — no exceptions
+  since deps 1.16.0, when RIFE's and the anime upscalers' models moved out
+  (`attribution_test.dart` guards it) — and every new
+  add-on is a **manifest add-on**: one `app/assets/addons/<id>.json`
+  (format, checklist and hosting: **[docs/ADDONS.md](docs/ADDONS.md)**),
+  installed by the generic `ManifestAddonInstaller`
+  (`app/lib/services/manifest_addon.dart`) and compiled into the worker by
+  `worker/build.rs` (`worker/src/addons.rs`), so both sides read the same
+  file. Kinds: `files` (model pack, archive members hash-checked one by one)
+  and `python` (wheels unpacked into `addons/<id>/site-packages/`). An install
+  is staged in `<id>.new` and ends with the `.vapourbox-addon.json` marker
+  (id, version, platform); a manifest `version` bump makes the old install
+  count as missing. Whisper and AnimeJaNai keep their hand-written installers.
+  A plain file marked `"executable": true` is a program the worker runs
+  (DeepFilterNet): the installer sets its executable bit and, on macOS, signs
+  it ad hoc if `codesign --verify` fails (Apple Silicon will not run an
+  unsigned arm64 binary); the worker finds it with `Manifest::executable_for`.
+- **A pass declares its add-ons in `ProcessingPipeline::required_addons()`**
+  (`AddonNeed { feature, ids }`); `ScriptGenerator::ensure_methods_ready`
+  refuses the job via `addons::require` (naming them and Settings → Add-ons),
+  and emits the `{{#AI_RUNTIME}}` block (both templates) when one needs
+  `ai-runtime`.
+- **The AI runtime (`ai-runtime`, python kind)** is ONNX Runtime + NumPy for
+  the deps Python 3.12: onnxruntime 1.31.1 (macOS arm64, Linux),
+  onnxruntime-directml 1.24.4 (Windows), 1.23.2 on Intel Macs (`minOs` 13.0 —
+  the last Intel wheel). Passes use `templates/ai_runtime.py` (`setup`,
+  `session`, `map_frames`, NCHW helpers): it puts `site-packages` on
+  `sys.path` itself because **Windows' embeddable Python ignores
+  PYTHONPATH**. `--probe-ai-runtime` runs a committed self-test model the way
+  a job would (`ai_runtime.rs`, positive results cached per boot);
+  `VAPOURBOX_AI_FORCE_CPU=1` forces the CPU provider.
+- **`VAPOURBOX_ADDON_MIRROR=<dir>`** makes the installer (app and
+  `WorkerHarness.ensureAddon`) take files from a local directory, still size-
+  and hash-checked — how an add-on is tested before its files are uploaded.
+  Files we convert ourselves are staged in `addon-staging/` (gitignored, with
+  the conversion venv in `addon-staging/convert-venv`) and hosted on the
+  `addon-models-v1` release (not Latest), which only the owner uploads to,
+  each beside its upstream licence text (`LICENSE-<project>.txt`). While a
+  release is in development they may sit on a deps release candidate instead;
+  `release.sh` refuses to cut an app release while any manifest names an
+  `-rc` tag (docs/ADDONS.md, "Hosting").
+- **Tested for real**: `WorkerHarness.ensureAddon(id)` installs an add-on and
+  its requirements with the app's own installer; `integration_ai_runtime_test.dart`
+  (heavy) installs `ai-runtime` and runs the probe. `manifest_addon_test.dart`
+  asserts the worker (`--list-addons`) compiled in the same manifests.
+
+### Face Restoration
+
+The Face Restoration pass (`FaceRestoreParameters`, `PassType::FaceRestore`,
+app 1.7.0) finds faces with RetinaFace, aligns each to the FFHQ 512 template,
+restores it with RestoreFormer++ (default), GFPGAN v1.4 or CodeFormer, masks
+it to the face itself with BiSeNet and blends it back
+(`worker/templates/face_restore.py`, on `ai_runtime`). Rules:
+
+- **Models are add-ons, converted by committed scripts.** `face-restoration`
+  (RetinaFace R50 + BiSeNet + RestoreFormer++, the base), `face-gfpgan` and
+  `face-codeformer` (each `requires` the base; both non-commercial, with a
+  `usageNote`). `Scripts/models/make_face_*.py` reproduce the ONNX files from
+  upstream checkpoints pinned by hash; files are hosted on `addon-models-v1`.
+  Static shapes (detector 640x640 padded, 512x512 faces) so Core ML takes the
+  whole graph. GFPGAN is exported with its **fixed noise buffers**
+  (upstream draws new noise per call: flicker by construction); CodeFormer's
+  `w` is a graph **input** (exact at w = 0). Never ParseNet (CC BY-NC-SA, from
+  PSFRGAN) or InsightFace's detectors (non-commercial), whatever upstreams
+  default to.
+- **After Crop & Resize, before Sharpen** — restored at the delivered
+  resolution; first row of the Finishing stage.
+- **A pure function of neighbouring frames, never stateful.** Neighbours come
+  through `ai_runtime.shifted` clips into `std.ModifyFrame`; shared work
+  (detections, each frame's restored faces) through `ai_runtime.FrameMemo`.
+  Temporal smoothing (radius 1): landmarks averaged with hysteresis and
+  one-frame gap filling, and each restored face averaged in aligned space with
+  its neighbours', weighted down where the *input* moved. The preview's
+  `FrameMap` radius is **twice** that (`frames_read_either_side`): the blend
+  reads a neighbour, whose landmarks read one more.
+- **Bit-exact outside the faces**: the restored RGB frame is converted back
+  to the source format and composited with `std.MaskedMerge` (mask luma-sized,
+  `first_plane=True`), so a zero mask leaves every plane untouched. Never blend
+  in RGB and convert the whole frame back.
+- **Model runs are serialised per pass** (`ai_runtime.Runner` with one shared
+  lock), with a CPU retry if a GPU run fails: concurrent Core ML predictions
+  from VapourSynth's threads ran a 16 GB Mac out of GPU memory.
+- **NumPy only** — no OpenCV (it is in neither the deps bundle nor the
+  ai-runtime add-on); `pipeline_parity.py` in the report checks the NumPy
+  detection, alignment and paste-back against facexlib/OpenCV.
+- The panel prompts for the model's add-ons (`AddonPrompt.ensure`) when the
+  pass is turned on or the model changes, and shows the non-commercial note
+  for GFPGAN/CodeFormer; the worker refuses through `required_addons()`.
+
+`integration_face_restore_test.dart` (heavy) checks the face changes and every
+sample outside it is bit-exact (8- and 10-bit), each model runs, and preview =
+encode. See docs/ENGINEERING_NOTES.md (2026-11-08) and
+docs/reports/2026-11-face-restoration.
+
+### Colourisation
+
+The Colourisation pass (`ColorizeParameters`, `PassType::Colorize`, app 1.7.0)
+colours black-and-white footage with DDColor-T (default) or DeOldify's Video
+model (`worker/templates/colorize.py`, on `ai_runtime`). Rules:
+
+- **The luma is never touched.** The model's colour (DDColor: CIELAB a/b,
+  recombined with the frame's own lightness by a chain of `std.Expr` stages;
+  DeOldify: RGB) becomes YUV with the source's matrix, is converted to the
+  source format, and only its U and V are taken (`ShufflePlanes` with the
+  input as plane 0). Y is bit-exact at every depth; strength 0 is the input.
+  A source that already has colour is coloured from its luma all the same
+  (its own chroma replaced) — said in the panel's text, never blocked.
+- **Between Chroma Fixes and Color Correction** (Detail & Color stage): the
+  model judges the cleaned-up picture, and the result can be graded. It runs
+  before Crop & Resize, so it uses the source's colour tags, not the BT.709
+  conversion's.
+- **Models are add-ons, one per model** (`colorize-ddcolor`, 220 MB, Apache-2.0;
+  `colorize-deoldify`, 870 MB, MIT; each `requires` `ai-runtime`), converted by
+  `Scripts/models/make_colorize_{ddcolor,deoldify}.py` byte for byte. DeOldify
+  is rebuilt in plain PyTorch (fastai v1 does not install with a current
+  torch) and verified against an independent export. Both exports have
+  **dynamic** height/width; each session fixes them with ONNX Runtime's
+  free-dimension overrides (`ai_runtime.session(..., dims=)`), so one file
+  serves every render size and Core ML still gets static shapes. Core ML takes
+  each whole graph only because the exports rewrite `ReplicationPad2d`,
+  `Tensor.repeat` and DDColor's einsum (`colorize_models_common.py`) — without
+  that DDColor split into six partitions and ran 2.6x slower.
+- **Core ML compiles DDColor for 50-80 s per session** (every vspipe process;
+  DeOldify ~5 s). So the preview template passes `preview=True` and DDColor
+  previews on the CPU (`colorize.PREVIEW_ON_CPU`); outputs agree to <0.001
+  CIELAB units. Don't add `ModelCacheDirectory` casually: its cache is ~900 MB
+  per render size and the key is the model path, not the overridden shape.
+- **Temporal smoothing is a pure function of frames n-r..n+r**: each frame's
+  render-size prediction is averaged with its neighbours' (`shifted` +
+  `FrameMemo`), weighted to zero where the grey picture differs
+  (`MOTION_LIMIT`), so colour follows motion and a cut takes nothing from the
+  last shot. The `FrameMap` radius is `temporal_radius`.
+- No built-in preset turns it on (not even the film-scan one): a download of
+  220-870 MB and an invented colour are the user's choice.
+
+`integration_colorize_test.dart` (heavy) checks luma bit-exact (8- and 10-bit,
+and on a colour source), strength 0 = input, both models, and preview = encode.
+See docs/ENGINEERING_NOTES.md (2026-11-08) and docs/reports/2026-11-colourisation.
+
+### Audio Restoration
+
+The one pass that works on the soundtrack (`AudioRestorationParameters`,
+`ProcessingPipeline.audio`, app 1.7.0), in the pass list's "Audio & Subtitles"
+stage. **Not a VapourSynth pass**: it is not in `PassType` (Rust) or
+`enabled_passes`, never touches either `.vpy` (`test_185`), and the preview is
+picture only (the panel says so; its edits don't regenerate the preview).
+Rules, from docs/reports/2026-11-audio-restoration:
+
+- **Rendered before the encode, to a WAV, then mapped by the encoder** — never
+  an `-af` on the encode. That is what makes DeepFilterNet (a separate
+  program), two-pass loudness, a negative offset (reading audio from before the
+  trim point) and transcribing the output's own soundtrack possible, and it
+  keeps audio independent of how the video encode is run. `RenderedAudio` owns
+  the scratch directory and is held to the end of the job (after the mux).
+- **One decision site, fixed order.** `AudioPlan::new` chooses every filter:
+  `aresample=first_pts=0` (a stream that starts after the video keeps its gap —
+  a WAV has no timestamps) → `pan` → `adeclip` → `adeclick` → rumble `highpass`
+  → hum `bandreject` ×3 → `afftdn` + `atrim` of its delay → drift resample →
+  lead `adelay` → [DeepFilterNet] → `loudnorm` + `aresample` → `alimiter` →
+  `apad`+`atrim` to the picture's length. Each ffmpeg run gets one `-af`
+  (`every_combination_keeps_the_order_and_one_af_per_run`, 512 × 3 cases).
+- **Measured traps, each now handled in the plan:** `afftdn` outputs 25 ms
+  late at every rate (`atrim=start_sample=rate/40`); its default `nf=-50` took
+  0.7 dB off −39 dB hiss — it gets the source's measured floor (quietest tenth
+  of 50 ms windows, clamped −80…−30), and never `tn=1`, which undid it;
+  `alimiter` needs `latency=1` (else it delays by its attack) and `level=0`
+  (else it normalises up to 0 dBFS); `loudnorm` resamples to 192 kHz, so an
+  `aresample` follows it; DeepFilterNet delays 30 ms — `-D` compensates and
+  shortens the tail, which `apad` restores.
+- **Drift is corrected by resampling, not `atempo`.** atempo moved every click
+  ~20 ms early; drift is a sample-clock error, so resampling restores pitch as
+  well as length. `asetrate` takes only an integer, so the plan upsamples to an
+  `r1` in 4–8× the rate where `s / r1` is within ~1e-11 of the factor
+  (`resample_ratio`). The factor is (whole source's audio length) / (whole
+  encoded picture's length, `ProcessingPipeline::output_duration_secs` —
+  output frames over output rate from the `FrameMap`s); applied only when the
+  difference is > 0.05 s and ≤ the user's cap (0.5% default), skipped within
+  1e-6 of 1.
+- **Offset and drift compose on the source's timeline**: source time for output
+  time t is `(start + t − offset) × factor`; a positive offset from the start
+  is silence (`adelay`), never a negative seek.
+- **The window is the encoded picture's** (`OutputWindow::for_job`): from the
+  trim's in-point, `output_duration_secs` long. The rendered track is exactly
+  that many samples, so with restoration the output's audio is the picture's
+  length (passthrough could leave it longer).
+- **One stream is restored** (`streamIndex`, default the first). The encoder
+  maps the rendered track first, then the source's other audio streams
+  untouched, each with its own tags (`encode_map_args`; naming one stream's
+  `-map_metadata` switches off ffmpeg's copying for the rest). Passthrough
+  copies the others but must encode the restored one: FLAC in MKV, AAC at the
+  chosen quality in MP4/MOV, PCM in AVI (`restored_passthrough_codec`).
+- **Automatic choices are measured, never guessed**: a dead channel (≥30 dB
+  below the other, which is above −60 dBFS) and 50/60 Hz hum (Goertzel over
+  2 s blocks, a line ≥12 dB above its neighbours) are read from a minute in
+  the middle of the window; finding nothing leaves the audio alone and says so.
+- **DeepFilterNet is the `deepfilternet` manifest add-on** (upstream
+  deep-filter 0.5.6 binaries pinned by hash, MIT OR Apache-2.0, `minOs` 13.0
+  on macOS since upstream builds target it). The worker checks it in
+  `AudioRestorer::plan` (`DEEP_FILTER_FEATURE`), **not** in
+  `required_addons()`: that list gates the script generator, and a preview
+  must never be refused for an audio add-on.
+- **No built-in preset turns it on** (audited when it shipped): every step
+  depends on the recording, and switching the pass on re-encodes audio that
+  the presets otherwise copy. A source preset may later enable only the
+  self-checking steps (automatic channel fix, automatic hum), which do nothing
+  when they find nothing.
+- `vapourbox-worker --audio-plan --config job.json` prints every argument list
+  without rendering (`integration_audio_plan_test.dart`, push gate);
+  `integration_audio_restoration_test.dart` (heavy) measures the encoded audio.
 
 ### BM3D and KNLMeans Noise Reduction
 
@@ -1396,6 +1783,70 @@ the simple slots are full at four).
 - **The Noise Reduction pass's preview radius is per method**
   (`NoiseReductionParameters::temporal_radius`): BM3D's Final step re-reads
   its basic estimate's neighbours, so it reaches 2r; a fixed 3 was too few.
+
+### SangNom, NLMeans (CPU) and the vs-jetpack ports (deps 1.16.0, app 1.7.0)
+
+Five classical additions, all in the deps bundle (no add-ons). The evidence is
+[docs/reports/2026-11-classical-filters](docs/reports/2026-11-classical-filters/index.html).
+
+- **SangNom is its own Anti-aliasing method, never santiag's `type`.**
+  havsfunc's `santiag(type="sangnom")` calls `SangNom(order=0)` at strength
+  0, which SangNom r45 treats as double-rate: it refuses a clip without
+  `_FieldBased` and would double the frame count with it. So
+  `effective_santiag_type` stays pinned to nnedi3 and `AntiAliasMethod::SangNom`
+  runs its own block (2x Spline36, `SangNom(order=1)` per axis, back down,
+  field order restored — SangNom flags its output progressive). `aa` is in
+  8-bit units; the plugin scales it (8 vs 10-bit: 0.05 levels).
+- **SangNom's licence is split**: the source header and LICENSE grant MIT
+  (james1201, Victor Efimov) and the same header says "Binaries are GPL v2";
+  the PyPI wheels we ship declare GPL-2.0. NOTICES, About and the README say
+  both. One file per platform from the r45 wheels; x64 is SSE2 only, so no
+  `_tierFiles` entry.
+- **vszip must be >= 24.0.0** — the first release with the CPU `NLMeans`
+  (WNNM has been there since 22.0.0). `vapoursynth_integration_test` checks
+  `vszip.NLMeans` itself, not just the namespace, so a stale 22.1.0 bundle
+  fails. macOS x64 builds the sdist with **Zig 0.17.0** (`-Doptimize=fast`;
+  0.17 renamed the modes), and the headerpad patch now matches the
+  8-space `lib.use_llvm` inside `if (build_vs)`. vszip 23 made CLAHE accept
+  every depth; the template still feeds it 16-bit and its parity test holds
+  (1.34 levels against a 3.0 tolerance).
+- **NLMeans (CPU)** (`NoiseReductionMethod::NlMeans`, advanced) shares the
+  `knlm_*` parameters with KNLMeansCL: same algorithm, same arguments, same
+  picture (0.000 levels apart on the probe, 0.0003 in the heavy test). It
+  needs no OpenCL, so `KNLM_NO_DEVICE_MESSAGE` (and the app's fallback text
+  in `worker_manager.dart`) names it as the way out.
+- **WNNM is not a method.** Measured against the shipped BM3D on three Kodak
+  pans at sigma 4/8/12, each at its best sigma: luma +0.7 to −2.3 dB (ahead
+  only at sigma 4 with a temporal radius), chroma 2.6–7.2 dB worse. It is
+  fast (10 fps at 1080p with a temporal radius on an M1 Pro, where the shipped
+  BM3D path runs 0.2 fps), but NLMeans (CPU) fills that niche with better
+  chroma (23 fps).
+  Revisit only with a reason BM3D's quality and NLMeans' speed don't cover.
+- **The vs-jetpack ports are template code, not a dependency**: vine_dehalo
+  (`DehaloMethod::Vine`, advanced), mpeg2stinx (`DeblockMethod::Mpeg2Stinx`,
+  advanced) and FixInterlacedFades (`QTGMCParameters::ivtc_fix_fades`, an IVTC
+  option, mode `average`/`match`). Ported from release 3.0.0 (MIT,
+  Jaded-Encoding-Thaumaturgy) through `_expr()` / `_nnedi3()` (test_92/93),
+  without akarin's frame-property Expr (macOS x64 has no akarin), and checked
+  against vs-jetpack itself: mpeg2stinx 0.04 levels, the fade fix exact
+  (vine could not run there: its scalers need resize2, which we don't ship).
+- **mpeg2stinx is a cross-field filter and always takes the whole frame** —
+  the Deblock pass's per-field path skips it — and reads one frame each side
+  (`FrameMap::Identity { radius: 1 }`). On every synthetic fixture tried it
+  *lost* PSNR (it softens vertical detail); the schema says so. It is for the
+  specific comb-like noise of film DVDs encoded as interlaced MPEG-2.
+- **The fade fix runs right after VFM, before VDecimate**, in float. Its
+  per-frame gains are stamped as frame properties by `ModifyFrame` and applied
+  by **one** akarin expression (`x x.FadeGain0 *`); only where akarin is
+  absent (macOS x64) does a FrameEval make a `std.Expr` per frame. **Never
+  create an akarin node per frame inside concurrent FrameEvals**: the first
+  version did, and vspipe segfaulted, aborted or spun one core for 97 minutes
+  on 30 frames — fine single-threaded, and the small heavy test missed it. The
+  heavy suite now times a full 720x576 IVTC job. `std.DoubleWeave` flags its output
+  interlaced, so the block sets `_FieldBased` back to 0 — without it a later
+  resize treats progressive frames as fields. `average` leaves the last frames
+  of a fade to full black half-lit (one field is already black); `match`
+  cleans them.
 
 ### Preset System
 
@@ -1585,7 +2036,7 @@ cd worker && cargo test --test subtitle_integration_test -- --nocapture
 ### 2. Flutter `test/` suite — `app/test/`, run by `flutter test`  ← the CI gate
 
 ```bash
-cd app && flutter test --exclude-tags heavy   # what the push gate runs
+cd app && flutter test --exclude-tags heavy,gpu   # what the push gate runs
 cd app && flutter test                          # everything, incl. heavy (local)
 ```
 
@@ -1603,9 +2054,11 @@ Headless Dart-VM tests. Three groups:
   `addons/`.
 - **Integration tests** — `integration_*_test.dart`. They spawn the worker
   end-to-end via `app/test/support/worker_harness.dart`. The encode-heavy ones
-  are `@Tags(['heavy'])`: the **push gate** runs `--exclude-tags heavy`
+  are `@Tags(['heavy'])`: the **push gate** runs `--exclude-tags heavy,gpu`
   (script-only: `integration_filter_parameters_test`,
-  `integration_qtgmc_parameters_test`); **nightly.yml** runs `--tags heavy`.
+  `integration_qtgmc_parameters_test`); **nightly.yml** runs `--tags heavy
+  --exclude-tags gpu`. Tests that need a Vulkan device are tagged `gpu` and
+  run on no CI runner (see "GPU Plugins: RIFE and AI Upscaling").
   `grep -l "Tags(\['heavy'\])" app/test/*.dart` is the authority for which files
   those are.
 
@@ -1652,12 +2105,12 @@ cd worker && cargo run --release -- --config test_job.json
 
 Runs on push to `main` + PRs (skipped for doc-only changes via `paths-ignore`).
 Each job pulls the published deps bundle + the whisper add-on, then runs
-**suite #1 (`cargo test`) and suite #2 (`flutter test --exclude-tags heavy`)** —
+**suite #1 (`cargo test`) and suite #2 (`flutter test --exclude-tags heavy,gpu`)** —
 including the subtitle integration test, excluding the heavy full-encode
 integration tests. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
 (`macos-15-intel`), **Windows x64**, **Linux x64** (`ubuntu-24.04`). The heavy
 full-encode integration tests run separately in `.github/workflows/nightly.yml`
-(cron + `workflow_dispatch`) via `flutter test --tags heavy` on the same
+(cron + `workflow_dispatch`) via `flutter test --tags heavy --exclude-tags gpu` on the same
 4-platform matrix, running each x64 platform against **both** CPU-tier bundles.
 Fixtures (`small_clip.mp4`, telecine/interlaced clips) are
 committed under `Tests/TestResources/`.
@@ -2190,6 +2643,7 @@ Notes:
 | `Scripts/package-deps-macos.sh` | Package macOS deps |
 | `Scripts/package-deps-windows.ps1` | Package Windows deps |
 | `Scripts/package-deps-linux.sh` | Package Linux deps |
+| `Scripts/promote-deps-rc.py` | Re-stamp a tested deps release candidate's assets as the final version: names, `version.json`, delta `baseSha256`, sidecars; verifies every other entry unchanged |
 | `Scripts/make-deps-delta.py` | Cut an x64 platform's v2 delta from a full v2 build and the v3 bundle (run by the `delta-x64` job of each `build-deps-*` workflow) |
 | `Scripts/download-deps-linux.sh` | Build Linux deps from source |
 | `Scripts/run-debug-linux.sh` | Dev build + run for Linux |
@@ -2304,4 +2758,5 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.12.0 | 2026-10-04 | **Issue #101**: akarin 1.4.1 → **1.5.0** on every platform. The 1.4.1 Linux wheel put JIT code on the `brk` heap, where SELinux denies `PROT_EXEC`, so every job segfaulted on Fedora/RHEL from deps 1.8.0 on. `download-deps-linux.sh` now fails if `libakarin.so` lacks the mmap allocator |
 | 1.13.0 | 2026-10 | One new plugin; every other binary is built from the same sources as 1.12.0. Adds **vszip** 22.1.0 (MIT) for `vszip.CLAHE`, Color Correction's local contrast (issue #90). Baseline build only, flat in the plugin directory on every platform (the wheels' AVX2/AVX-512 variants are left out); macOS x64 builds the sdist with Zig 0.16.0 for the 12.0 floor, with header padding so it can be signed. The v2 CPU tier is no longer a second full bundle: each x64 platform publishes its v3 bundle plus `…-x64-v2-delta.zip`, the files in `_tierFiles` (zsmooth; on macOS also MVTools), extracted over it (`"tierFormat": "delta"`). Every x64 machine downloads the same bundle; only an older CPU fetches the few MB more. This is also what lets the Linux AppImage carry its deps for both tiers without doubling in size |
 | 1.14.0 | 2026-10-25 | Adds **RIFE** 4.26 (`r9_mod_v33`, MIT) + its model in `vapoursynth/rife/`, and **VSNCNN** (vs-mlrt v15.16, GPL-3.0) + Real-ESRGAN / Real-CUGAN models in `vapoursynth/ncnn/`, on macos-arm64, windows-x64 and linux-x64, with **MoltenVK** 1.4.2 (Apache-2.0) in `vapoursynth/moltenvk/` on macOS. Not autoloaded; see "GPU Plugins". **BM3D** r12 (MIT) on every platform; it had been macOS arm64 only (see "BM3D and KNLMeans Noise Reduction"). **descale** r12 (MIT) on every platform, for the Descale pass. (AnimeJaNai's models, used by the same VSNCNN, are an app add-on, not in the bundle). Published as the tested `deps-v1.14.0-rc1` bundles with only the version changed; every other file is byte-identical |
+| 1.16.0 | 2026-11-09 | **vszip 22.1.0 → 24.0.0** on every platform (CPU `NLMeans` for Noise Reduction's NLMeans (CPU) and the vine dehalo; macOS x64 sdist now built with Zig 0.17.0). Adds **SangNom** r45 (PyPI wheels; MIT source, GPL-2.0 binaries) on every platform for Anti-aliasing's SangNom method. Both single-file on x64 (no AVX), so `_tierFiles` is unchanged. **rc2: the AI models leave the bundle** — RIFE 4.26's (now the `frame-rate-rife` add-on) and the Real-ESRGAN anime / Real-CUGAN ones (now `upscale-anime`); the plugins stay, and their probes run stand-in models. Published as the tested `deps-v1.16.0-rc2` bundles with only the version changed (`Scripts/promote-deps-rc.py`) |
 | 1.15.0 | 2026-11-03 | **Issue #144**: KNLMeansCL moves to Jaded Encoding Thaumaturgy's fork **v1.3** on every platform (Windows: PyPI wheel, replacing Khanattila's 2018 v1.1.1 zip, which refused 10-bit 4:2:0; macOS/Linux: the `v1.3` tag, replacing unpinned master, which gave unrepeatable results on Apple's OpenCL). Both meson patchers learn v1.3's assigned `run_command` include probe. Published as the tested `deps-v1.15.0-rc1` bundles with only the version changed |

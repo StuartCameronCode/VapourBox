@@ -21,7 +21,7 @@
       "id": "rife",
       "sinceAppVersion": "1.5.0",
       "name": "AI interpolation (RIFE)",
-      "description": "Builds the new frames with the RIFE 4.26 neural network on the GPU. Somewhat more accurate than motion interpolation, several times slower; needs Vulkan.",
+      "description": "Builds the new frames with the RIFE 4.26 neural network on the GPU. Somewhat more accurate than motion interpolation, several times slower; needs Vulkan. The network is a separate 11 MB download, offered when you choose it.",
       "function": "core.rife.RIFE",
       "parameters": []
     },

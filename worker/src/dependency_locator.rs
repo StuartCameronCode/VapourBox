@@ -12,9 +12,10 @@ use crate::gpu_plugin::{self, GpuPlugin, GpuPluginFiles, GpuPluginReason, GpuPlu
 /// Why the KNLMeans noise-reduction method can't run, as the app shows it.
 pub const KNLM_NO_DEVICE_MESSAGE: &str = "KNLMeans runs on the graphics card through OpenCL, \
 and no OpenCL device that works with it was found on this computer. Updating the graphics \
-driver may fix this. BM3D does the same job on the CPU and needs nothing extra.";
+driver may fix this. Or choose NLMeans (CPU): the same filter with the same settings, run \
+on the processor instead, so it needs nothing extra.";
 pub const KNLM_DISABLED_MESSAGE: &str = "KNLMeans is turned off on this computer \
-(VAPOURBOX_DISABLE_OPENCL is set). BM3D does the same job on the CPU.";
+(VAPOURBOX_DISABLE_OPENCL is set). NLMeans (CPU) is the same filter run on the processor.";
 
 /// Platform-specific dependency locator.
 pub struct DependencyLocator {
@@ -860,6 +861,85 @@ impl DependencyLocator {
         }
 
         PathBuf::from("addons")
+    }
+
+    /// A manifest add-on's directory (`addons/<id>/`, see `addons.rs`).
+    pub fn addon_dir(&self, id: &str) -> PathBuf {
+        crate::addons::addon_dir(&self.addons_dir(), id)
+    }
+
+    /// Refuse unless every add-on in `ids` (and what they require) is
+    /// installed for this platform, naming them and Settings → Add-ons.
+    /// `feature` starts the message ("Face restoration needs …").
+    pub fn require_addons(&self, ids: &[&str], feature: &str) -> Result<()> {
+        crate::addons::require(&self.addons_dir(), ids, feature, self.platform_suffix())
+    }
+
+    /// Whether the AI runtime add-on runs here, and on which provider (see
+    /// `ai_runtime.rs`). As for the GPU plugins, only a positive result is
+    /// cached for the boot — keyed by the add-on's version and the force-CPU
+    /// setting too, so reinstalling or upgrading it re-probes — because a
+    /// failure is what the user is about to fix.
+    pub fn ai_runtime_status(&self) -> crate::ai_runtime::AiRuntimeStatus {
+        use crate::ai_runtime::{self, AiRuntimeReason, AiRuntimeStatus};
+        let addons = self.addons_dir();
+        if let Some(status) = ai_runtime::precheck(&addons, self.platform_suffix()) {
+            return status;
+        }
+        let force_cpu = ai_runtime::force_cpu_requested();
+        let version = crate::addons::manifest(crate::addons::AI_RUNTIME)
+            .map(|m| m.version.clone())
+            .unwrap_or_default();
+        let boot = Self::boot_token();
+        let cache_file = self.platform_dir().join("ai-runtime-probe.json");
+        if !boot.is_empty() {
+            if let Ok(txt) = std::fs::read_to_string(&cache_file) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&txt) {
+                    if json.get("boot").and_then(|v| v.as_str()) == Some(boot.as_str())
+                        && json.get("addonVersion").and_then(|v| v.as_str()) == Some(version.as_str())
+                        && json.get("forceCpu").and_then(|v| v.as_bool()) == Some(force_cpu)
+                    {
+                        if let Some(status) = json
+                            .get("status")
+                            .and_then(|s| serde_json::from_value::<AiRuntimeStatus>(s.clone()).ok())
+                            .filter(|s| s.available)
+                        {
+                            return status;
+                        }
+                    }
+                }
+            }
+        }
+        let vspipe = match self.vspipe_path() {
+            Ok(p) => p,
+            Err(e) => return AiRuntimeStatus::unavailable(AiRuntimeReason::ProbeFailed, e.to_string()),
+        };
+        let templates = match crate::script_generator::ScriptGenerator::pipe_source_dir() {
+            Ok(p) => p,
+            Err(e) => return AiRuntimeStatus::unavailable(AiRuntimeReason::ProbeFailed, e.to_string()),
+        };
+        let status = ai_runtime::run_probe(
+            &vspipe,
+            &self.build_environment(),
+            &templates,
+            &self.addon_dir(crate::addons::AI_RUNTIME),
+            force_cpu,
+        );
+        if status.available {
+            let _ = std::fs::write(
+                &cache_file,
+                serde_json::json!({
+                    "boot": boot,
+                    "addonVersion": version,
+                    "forceCpu": force_cpu,
+                    "status": status,
+                })
+                .to_string(),
+            );
+        } else {
+            let _ = std::fs::remove_file(&cache_file);
+        }
+        status
     }
 
     /// AnimeJaNai's installed model directory under the add-ons, or the

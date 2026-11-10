@@ -1,0 +1,25 @@
+{
+  "id": "colorize-ddcolor",
+  "version": "1.0.0",
+  "name": "DDColor colourisation model",
+  "feature": "Colourisation",
+  "description": "DDColor-T, the default model for the Colourisation pass: vivid, natural colour for black-and-white footage, predicted per frame and steadied over neighbouring frames. Converted to ONNX from the project's own published weights.",
+  "licence": "Apache-2.0",
+  "licenceUrl": "https://github.com/piddnad/DDColor/blob/master/LICENSE",
+  "credit": "Xiaoyang Kang, Tao Yang, Wenqi Ouyang, Peiran Ren, Lingzhi Li and Xuansong Xie",
+  "noticeName": "DDColor model",
+  "homepage": "https://github.com/piddnad/DDColor",
+  "requires": [
+    "ai-runtime"
+  ],
+  "kind": "files",
+  "platforms": "all",
+  "files": [
+    {
+      "name": "colorize-ddcolor-tiny.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/colorize-ddcolor-tiny.onnx",
+      "size": 220687346,
+      "sha256": "9300e48e7612fec4a0fffc38eb005fdd65bcc7a859390d6de0db3abf44e46d1c"
+    }
+  ]
+}

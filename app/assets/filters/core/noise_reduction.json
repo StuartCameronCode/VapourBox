@@ -204,6 +204,21 @@
         "knlmChroma"
       ],
       "advancedOnly": true
+    },
+    {
+      "id": "nlmeans",
+      "sinceAppVersion": "1.7.0",
+      "name": "NLMeans (CPU)",
+      "description": "The same non-local means filter as KNLMeansCL, with the same settings and the same result, run on the processor instead of the graphics card. Works on every computer; slower than KNLMeansCL where a GPU is available",
+      "function": "core.vszip.NLMeans",
+      "parameters": [
+        "knlmH",
+        "knlmD",
+        "knlmA",
+        "knlmS",
+        "knlmChroma"
+      ],
+      "advancedOnly": true
     }
   ],
   "parameters": {
@@ -232,7 +247,8 @@
         "mclean",
         "temporal_degrain2",
         "bm3d",
-        "knlmeans"
+        "knlmeans",
+        "nlmeans"
       ],
       "ui": {
         "hidden": true
@@ -1184,7 +1200,8 @@
         "precision": 1,
         "visibleWhen": {
           "method": [
-            "knlmeans"
+            "knlmeans",
+            "nlmeans"
           ]
         }
       }
@@ -1202,7 +1219,8 @@
         "widget": "slider",
         "visibleWhen": {
           "method": [
-            "knlmeans"
+            "knlmeans",
+            "nlmeans"
           ]
         }
       }
@@ -1220,7 +1238,8 @@
         "widget": "slider",
         "visibleWhen": {
           "method": [
-            "knlmeans"
+            "knlmeans",
+            "nlmeans"
           ]
         }
       }
@@ -1238,7 +1257,8 @@
         "widget": "slider",
         "visibleWhen": {
           "method": [
-            "knlmeans"
+            "knlmeans",
+            "nlmeans"
           ]
         }
       }
@@ -1253,7 +1273,8 @@
         "widget": "checkbox",
         "visibleWhen": {
           "method": [
-            "knlmeans"
+            "knlmeans",
+            "nlmeans"
           ]
         }
       }
@@ -1412,7 +1433,7 @@
         "expanded": true
       },
       {
-        "title": "KNLMeansCL",
+        "title": "Non-local means (KNLMeansCL / NLMeans)",
         "parameters": [
           "knlmH",
           "knlmD",

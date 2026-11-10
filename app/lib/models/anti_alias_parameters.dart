@@ -11,7 +11,9 @@ enum AntiAliasMethod {
   @JsonValue('daa')
   daa('daa', 'daa'),
   @JsonValue('santiag')
-  santiag('santiag', 'santiag');
+  santiag('santiag', 'santiag'),
+  @JsonValue('sangnom')
+  sangnom('sangnom', 'SangNom');
 
   const AntiAliasMethod(this.value, this.displayName);
   final String value;
@@ -37,10 +39,13 @@ class AntiAliasParameters {
   /// Horizontal strength for santiag (0 disables the horizontal pass).
   final int santiagStrh;
 
-  /// Interpolator for santiag. Only `nnedi3` is bundled, so the worker pins it
-  /// there regardless — havsfunc's other options would fail at script
-  /// evaluation.
+  /// Interpolator for santiag. The worker pins it to `nnedi3` regardless:
+  /// eedi2 is not bundled, and havsfunc's `sangnom` type is broken against
+  /// SangNom r45 (SangNom is its own method instead).
   final String santiagType;
+
+  /// SangNom's anti-aliasing strength, 0-128 in 8-bit units.
+  final int sangnomAa;
 
   const AntiAliasParameters({
     this.enabled = false,
@@ -48,6 +53,7 @@ class AntiAliasParameters {
     this.santiagStrv = 1,
     this.santiagStrh = 1,
     this.santiagType = 'nnedi3',
+    this.sangnomAa = 48,
   });
 
   AntiAliasParameters copyWith({
@@ -56,6 +62,7 @@ class AntiAliasParameters {
     int? santiagStrv,
     int? santiagStrh,
     String? santiagType,
+    int? sangnomAa,
   }) =>
       AntiAliasParameters(
         enabled: enabled ?? this.enabled,
@@ -63,6 +70,7 @@ class AntiAliasParameters {
         santiagStrv: santiagStrv ?? this.santiagStrv,
         santiagStrh: santiagStrh ?? this.santiagStrh,
         santiagType: santiagType ?? this.santiagType,
+        sangnomAa: sangnomAa ?? this.sangnomAa,
       );
 
   /// Short summary for the pass list row.
@@ -71,6 +79,7 @@ class AntiAliasParameters {
     if (method == AntiAliasMethod.santiag) {
       return 'santiag (H$santiagStrh / V$santiagStrv)';
     }
+    if (method == AntiAliasMethod.sangnom) return 'SangNom ($sangnomAa)';
     return method.displayName;
   }
 

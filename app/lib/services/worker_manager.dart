@@ -3,9 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 
 
+import '../models/ai_runtime_status.dart';
 import '../models/progress_info.dart';
 import '../models/gpu_plugin_status.dart';
+import '../models/crop_detect_report.dart';
 import '../models/native_res_report.dart';
+import '../models/noise_halo_report.dart';
 import '../models/video_job.dart';
 import 'job_runner.dart';
 import 'process_tree.dart';
@@ -189,7 +192,8 @@ class WorkerManager implements JobRunner {
       opencl: false,
       knlm: false,
       knlmMessage: 'VapourBox could not check for an OpenCL device, which '
-          'KNLMeans needs. BM3D does the same job on the CPU.',
+          'KNLMeans needs. NLMeans (CPU) is the same filter run on the '
+          'processor.',
     );
     final toolLocator = ToolLocator.instance;
     final workerPath = toolLocator.workerPath;
@@ -267,6 +271,39 @@ class WorkerManager implements JobRunner {
     }
   }
 
+  /// Ask the worker whether the AI runtime add-on runs here, and on which
+  /// execution provider (`--probe-ai-runtime`). The first call after a boot
+  /// (or after installing the add-on) imports ONNX Runtime and runs a test
+  /// model, so it takes a few seconds; a positive answer is cached by the
+  /// worker. Never throws: an unreadable answer is [AiRuntimeStatus.unknown].
+  static Future<AiRuntimeStatus> probeAiRuntime() async {
+    final toolLocator = ToolLocator.instance;
+    final workerPath = toolLocator.workerPath;
+    if (workerPath == null) return const AiRuntimeStatus.unknown();
+    try {
+      final result = await Process.run(
+        workerPath,
+        ['--probe-ai-runtime'],
+        environment: toolLocator.workerEnvironment,
+        workingDirectory: File(workerPath).parent.path,
+      );
+      if (result.exitCode != 0) return const AiRuntimeStatus.unknown();
+      for (final line in const LineSplitter().convert(result.stdout.toString())) {
+        try {
+          final decoded = jsonDecode(line.trim());
+          if (decoded is Map<String, dynamic> && decoded['available'] is bool) {
+            return AiRuntimeStatus.fromJson(decoded);
+          }
+        } catch (_) {
+          // Not the JSON line; keep scanning.
+        }
+      }
+      return const AiRuntimeStatus.unknown();
+    } catch (_) {
+      return const AiRuntimeStatus.unknown();
+    }
+  }
+
   /// Find the resolution and kernel [job]'s video was upscaled from
   /// (`--detect-native`). Decodes a few frames and tries every height and the
   /// common kernels, so it takes tens of seconds on HD. Never throws: a failure
@@ -299,6 +336,81 @@ class WorkerManager implements JobRunner {
       return NativeResReport.failed('The analysis did not report a result: ${result.stderr}');
     } catch (e) {
       return NativeResReport.failed('$e');
+    } finally {
+      if (await config.exists()) await config.delete();
+    }
+  }
+
+  /// Measure the black borders, blanking and head-switching band at the
+  /// edges of [job]'s video (`--detect-crop`, app 1.7.0). Decodes a couple of
+  /// dozen frames, so it takes a second or two. Never throws: a failure comes
+  /// back as [CropDetectReport.failed].
+  static Future<CropDetectReport> detectCrop(VideoJob job) async {
+    final toolLocator = ToolLocator.instance;
+    final workerPath = toolLocator.workerPath;
+    if (workerPath == null) {
+      return const CropDetectReport.failed('The VapourBox worker could not be found.');
+    }
+    final config = File(await TempDirectoryService.instance
+        .filePath('detect_crop_${job.id}.json'));
+    try {
+      await config.writeAsString(jsonEncode(job.toJson()));
+      final result = await Process.run(
+        workerPath,
+        ['--detect-crop', '--config', config.path],
+        environment: toolLocator.workerEnvironment,
+        workingDirectory: File(workerPath).parent.path,
+      );
+      for (final line in const LineSplitter().convert(result.stdout.toString()).reversed) {
+        final trimmed = line.trim();
+        if (!trimmed.startsWith('{')) continue;
+        try {
+          return CropDetectReport.fromJson(jsonDecode(trimmed) as Map<String, dynamic>);
+        } catch (_) {
+          // Not the JSON line; keep scanning.
+        }
+      }
+      return CropDetectReport.failed('The analysis did not report a result: ${result.stderr}');
+    } catch (e) {
+      return CropDetectReport.failed('$e');
+    } finally {
+      if (await config.exists()) await config.delete();
+    }
+  }
+
+  /// Measure how noisy [job]'s video is and how strongly its edges ring
+  /// (`--detect-noise-halo`, app 1.7.0), for the pass list's suggestions.
+  /// Decodes a couple of dozen frame pairs, so it takes a few seconds; run in
+  /// the background. Never throws: a failure comes back as
+  /// [NoiseHaloReport.failed], which suggests nothing.
+  static Future<NoiseHaloReport> detectNoiseHalo(VideoJob job) async {
+    final toolLocator = ToolLocator.instance;
+    final workerPath = toolLocator.workerPath;
+    if (workerPath == null) {
+      return const NoiseHaloReport.failed('The VapourBox worker could not be found.');
+    }
+    final config = File(await TempDirectoryService.instance
+        .filePath('detect_noise_halo_${job.id}.json'));
+    try {
+      await config.writeAsString(jsonEncode(job.toJson()));
+      final result = await Process.run(
+        workerPath,
+        ['--detect-noise-halo', '--config', config.path],
+        environment: toolLocator.workerEnvironment,
+        workingDirectory: File(workerPath).parent.path,
+      );
+      for (final line in const LineSplitter().convert(result.stdout.toString()).reversed) {
+        final trimmed = line.trim();
+        if (!trimmed.startsWith('{')) continue;
+        try {
+          return NoiseHaloReport.fromJson(jsonDecode(trimmed) as Map<String, dynamic>);
+        } catch (_) {
+          // Not the JSON line; keep scanning.
+        }
+      }
+      return NoiseHaloReport.failed('The analysis did not report a result: ${result.stderr}');
+    } catch (e) {
+      return NoiseHaloReport.failed('$e');
     } finally {
       if (await config.exists()) await config.delete();
     }

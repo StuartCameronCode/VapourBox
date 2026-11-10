@@ -8,6 +8,7 @@
 // Run with: flutter test test/pass_relevance_test.dart
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vapourbox/models/noise_halo_report.dart';
 import 'package:vapourbox/models/pass_relevance.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/services/field_order_detector.dart';
@@ -196,8 +197,10 @@ void main() {
 
     test('passes detection cannot judge are always neutral', () {
       // Dirt, scratches, grain, halos, banding and colour casts need eyes on
-      // the picture. If one of these ever starts making claims, the badge has
-      // stopped meaning anything.
+      // the picture. If one of these ever starts making claims from metadata
+      // alone, the badge has stopped meaning anything. (Noise and halos can be
+      // badged, but only from a measurement of the picture — see 'measured
+      // noise and halos' — never from what ffprobe says.)
       const invisible = [
         PassType.descratch,
         PassType.spotless,
@@ -208,6 +211,7 @@ void main() {
         PassType.sharpen,
         PassType.colorCorrection,
         PassType.subtitles,
+        PassType.audioRestoration,
       ];
 
       for (final scan in ScanType.values) {
@@ -229,6 +233,102 @@ void main() {
         final info = source(scanType: scan);
         expect(suggestedFor(info).intersection(notApplicableFor(info)), isEmpty);
       }
+    });
+  });
+
+  group('measured noise and halos', () {
+    const high = NoiseHaloReport(
+        noise: 6.2, halo: 14.0, haloEdges: 900, usablePairs: 24,
+        noiseHigh: true, haloHigh: true);
+    const low = NoiseHaloReport(
+        noise: 1.4, halo: 2.1, haloEdges: 900, usablePairs: 24);
+    // A score above the worker's threshold whose verdict is false is still
+    // "not high": the app never re-derives the verdict from the numbers.
+    const numbersOnly = NoiseHaloReport(
+        noise: 9.0, halo: 40.0, haloEdges: 900, usablePairs: 24);
+
+    test('unmeasured stays neutral', () {
+      for (final pass in [PassType.noiseReduction, PassType.dehalo]) {
+        expect(relevanceFor(pass, source()).level, PassRelevance.neutral);
+        expect(relevanceFor(pass, source(), measured: null).reason, isNull);
+      }
+    });
+
+    test('below the threshold stays neutral, never "not applicable"', () {
+      for (final measured in [low, numbersOnly]) {
+        for (final pass in [PassType.noiseReduction, PassType.dehalo]) {
+          final r = relevanceFor(pass, source(), measured: measured);
+          expect(r.level, PassRelevance.neutral, reason: '$pass');
+          expect(r.reason, isNull);
+        }
+      }
+    });
+
+    test('a failed measurement says nothing', () {
+      const failed = NoiseHaloReport.failed('decode error');
+      for (final pass in [PassType.noiseReduction, PassType.dehalo]) {
+        expect(relevanceFor(pass, source(), measured: failed).level,
+            PassRelevance.neutral);
+      }
+      // And a report claiming high with an error is still a failure.
+      const odd = NoiseHaloReport(noiseHigh: true, haloHigh: true, error: 'x');
+      expect(relevanceFor(PassType.noiseReduction, source(), measured: odd).level,
+          PassRelevance.neutral);
+    });
+
+    test('above the threshold recommends, with a reason', () {
+      final nr = relevanceFor(PassType.noiseReduction, source(), measured: high);
+      expect(nr.isRecommended, true);
+      expect(nr.reason, 'noise measured high');
+      final dh = relevanceFor(PassType.dehalo, source(), measured: high);
+      expect(dh.isRecommended, true);
+      expect(dh.reason, 'halos measured around edges');
+      // Each verdict badges only its own pass.
+      const noisyOnly = NoiseHaloReport(noise: 6.0, noiseHigh: true);
+      expect(relevanceFor(PassType.dehalo, source(), measured: noisyOnly).level,
+          PassRelevance.neutral);
+      expect(relevanceFor(PassType.noiseReduction, source(), measured: noisyOnly)
+          .isRecommended, true);
+    });
+
+    test('nothing loaded says nothing, measurement or not', () {
+      for (final pass in PassType.values) {
+        expect(relevanceFor(pass, null, measured: high).level,
+            PassRelevance.neutral);
+      }
+    });
+
+    test('a measurement changes no other pass', () {
+      for (final scan in ScanType.values) {
+        final info = source(scanType: scan, sar: '16:15');
+        for (final pass in PassType.values) {
+          if (pass == PassType.noiseReduction || pass == PassType.dehalo) {
+            continue;
+          }
+          final without = relevanceFor(pass, info);
+          final with_ = relevanceFor(pass, info, measured: high);
+          expect(with_.level, without.level, reason: '$pass / $scan');
+          expect(with_.reason, without.reason, reason: '$pass / $scan');
+        }
+      }
+    });
+
+    test('a noisy, haloed PAL DVD capture suggests at most six passes', () {
+      final info = source(
+        height: 576,
+        codec: 'mpeg2video',
+        scanType: ScanType.interlaced,
+        sar: '16:15',
+      );
+      final suggested = PassType.values
+          .where((p) => relevanceFor(p, info, measured: high).isRecommended)
+          .toSet();
+      expect(suggested.length, lessThanOrEqualTo(6));
+      expect(suggested, containsAll([PassType.noiseReduction, PassType.dehalo]));
+      final notApplicable = PassType.values
+          .where((p) => relevanceFor(p, info, measured: high).isNotApplicable)
+          .toSet();
+      expect(suggested.intersection(notApplicable), isEmpty);
     });
   });
 }

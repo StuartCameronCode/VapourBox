@@ -42,6 +42,19 @@ enum UpscaleMethod {
   /// non-commercial use only, downloaded when it is chosen.
   @JsonValue('animeJanai')
   animeJanai,
+  /// Real-ESRGAN's general model, for real-world footage, on the GPU (needs
+  /// Vulkan). 4x only: a 2x upscale resamples its result down. Its model is
+  /// the `upscale-general` add-on.
+  @JsonValue('realEsrganGeneral')
+  realEsrganGeneral,
+  /// jcj83429's 2xLiveActionV1 SPAN model, for live action, on the GPU. 2x
+  /// only: 4x runs it twice. Also in the `upscale-general` add-on.
+  @JsonValue('liveAction')
+  liveAction,
+  /// Real-ESRGAN x4plus / x2plus, the large, slow models, on the GPU. The
+  /// `upscale-esrgan-plus` add-on.
+  @JsonValue('realEsrganPlus')
+  realEsrganPlus,
 }
 
 /// What to do with the pixel aspect ratio (SAR) on output.
@@ -73,6 +86,25 @@ enum BorderColor {
   /// An `#RRGGBB` value from [CropResizeParameters.padCustomColor].
   @JsonValue('custom')
   custom,
+}
+
+/// Whether an SD (BT.601) source's colour is converted to BT.709 (app 1.7.0).
+///
+/// The worker makes the decision (`VideoJob::converts_to_bt709`): it converts
+/// the samples in the script and declares BT.709 to the encoder to match.
+enum Bt709Conversion {
+  /// Convert a BT.601 source when the output is HD-sized (720 lines, or 1280
+  /// columns).
+  @JsonValue('auto')
+  auto,
+
+  /// Convert a BT.601 source whatever the output size.
+  @JsonValue('on')
+  on,
+
+  /// Never convert.
+  @JsonValue('off')
+  off,
 }
 
 /// Crop/resize preset options.
@@ -196,6 +228,13 @@ class CropResizeParameters {
   /// AnimeJaNai's Sharp variant of the HD model.
   final bool animejanaiSharp;
 
+  /// Real-ESRGAN General's denoise variant (realesr-general-wdn-x4v3).
+  final bool generalDenoise;
+
+  /// How much of an AI upscale to keep, 0.0-1.0: the rest is a Spline36
+  /// upscale of the same frame. 1.0 (the default) is the network alone.
+  final double aiStrength;
+
   // --- nnedi3 controls for the edge-directed upscale paths ---
   // With EEDI3 selected these shape the nnedi3 sclip that guides it.
 
@@ -230,6 +269,13 @@ class CropResizeParameters {
 
   /// Maximum search distance (EEDI3 `mdis`).
   final int? upscaleMdis;
+
+  // --- Colour ---
+
+  /// BT.601 -> BT.709 conversion. Missing from a preset saved before 1.7.0,
+  /// which therefore gets [Bt709Conversion.auto], as the worker does.
+  @JsonKey(defaultValue: Bt709Conversion.auto, unknownEnumValue: Bt709Conversion.auto)
+  final Bt709Conversion convertToBt709;
 
   const CropResizeParameters({
     this.enabled = false,
@@ -267,6 +313,8 @@ class CropResizeParameters {
     this.cuganNoise = 'conservative',
     this.animejanaiModel = 'compact',
     this.animejanaiSharp = false,
+    this.generalDenoise = false,
+    this.aiStrength = 1.0,
     this.upscaleNsize,
     this.upscaleNeurons,
     this.upscaleQual,
@@ -277,6 +325,7 @@ class CropResizeParameters {
     this.upscaleGamma,
     this.upscaleNrad,
     this.upscaleMdis,
+    this.convertToBt709 = Bt709Conversion.auto,
   });
 
   /// Create parameters from a preset.
@@ -365,6 +414,8 @@ class CropResizeParameters {
     String? cuganNoise,
     String? animejanaiModel,
     bool? animejanaiSharp,
+    bool? generalDenoise,
+    double? aiStrength,
     int? upscaleNsize,
     int? upscaleNeurons,
     int? upscaleQual,
@@ -375,6 +426,7 @@ class CropResizeParameters {
     double? upscaleGamma,
     int? upscaleNrad,
     int? upscaleMdis,
+    Bt709Conversion? convertToBt709,
   }) {
     return CropResizeParameters(
       enabled: enabled ?? this.enabled,
@@ -407,6 +459,8 @@ class CropResizeParameters {
       cuganNoise: cuganNoise ?? this.cuganNoise,
       animejanaiModel: animejanaiModel ?? this.animejanaiModel,
       animejanaiSharp: animejanaiSharp ?? this.animejanaiSharp,
+      generalDenoise: generalDenoise ?? this.generalDenoise,
+      aiStrength: aiStrength ?? this.aiStrength,
       upscaleNsize: upscaleNsize ?? this.upscaleNsize,
       upscaleNeurons: upscaleNeurons ?? this.upscaleNeurons,
       upscaleQual: upscaleQual ?? this.upscaleQual,
@@ -417,6 +471,7 @@ class CropResizeParameters {
       upscaleGamma: upscaleGamma ?? this.upscaleGamma,
       upscaleNrad: upscaleNrad ?? this.upscaleNrad,
       upscaleMdis: upscaleMdis ?? this.upscaleMdis,
+      convertToBt709: convertToBt709 ?? this.convertToBt709,
     );
   }
 

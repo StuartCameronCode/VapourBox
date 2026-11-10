@@ -125,6 +125,19 @@ if [[ "$DEPS_TAG_IN_TREE" == *-rc* ]]; then
     echo "before cutting an app release. RC tags must never ship."
     exit 1
 fi
+# The same hazard for add-on files: while a release is in development, converted
+# models may be hosted on the deps release candidate (docs/ADDONS.md, "Hosting").
+# They must move to their permanent release, and the manifests be repointed,
+# before an app release can name them.
+RC_ADDON_URLS=$(grep -l 'releases/download/[^/"]*-rc[0-9]*/' "$PROJECT_ROOT"/app/assets/addons/*.json 2>/dev/null || true)
+if [[ -n "$RC_ADDON_URLS" ]]; then
+    echo -e "${RED}ERROR: add-on manifests download from a release candidate:${NC}"
+    echo "$RC_ADDON_URLS" | sed 's/^/         /'
+    echo ""
+    echo "Upload their files to addon-models-v1 and repoint the manifests"
+    echo "before cutting an app release. RC tags must never ship."
+    exit 1
+fi
 
 # Get current versions from GitHub
 echo -e "${YELLOW}Fetching current versions from GitHub...${NC}"

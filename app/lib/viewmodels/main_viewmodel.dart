@@ -6,7 +6,10 @@ import 'package:path/path.dart' as path;
 import '../models/dvd_info.dart';
 import '../models/dynamic_parameters.dart';
 import '../models/gpu_plugin_status.dart';
+import '../models/crop_detect_report.dart';
+import '../models/filter_registry.dart';
 import '../models/native_res_report.dart';
+import '../models/noise_halo_report.dart';
 import '../models/encoding_settings.dart';
 import '../models/parameter_converter.dart';
 import '../models/preview_frame_info.dart';
@@ -100,6 +103,17 @@ class MainViewModel extends ChangeNotifier {
   final Future<NativeResReport> Function(VideoJob job) _detectNative;
   ({String itemId, NativeResReport report})? _nativeRes;
   String? _detectingNativeResFor;
+
+  // Crop & Resize's Detect (app 1.7.0), keyed the same way.
+  final Future<CropDetectReport> Function(VideoJob job) _detectCrop;
+  ({String itemId, CropDetectReport report})? _cropReport;
+  String? _detectingCropFor;
+
+  // How noisy each source is and how strongly its edges ring (app 1.7.0),
+  // measured in the background after a source is analysed, one source at a
+  // time in the order they were added; the result lives on its QueueItem.
+  final Future<NoiseHaloReport> Function(VideoJob job) _detectNoiseHalo;
+  Future<void> _noiseHaloQueue = Future.value();
 
   // Set in dispose() so the async OpenCL probe doesn't notifyListeners() after
   // teardown (the top-level view model normally lives for the app's lifetime).
@@ -304,6 +318,113 @@ class MainViewModel extends ChangeNotifier {
     );
   }
 
+  /// What Crop & Resize's Detect found for the selected video, or null.
+  CropDetectReport? get cropReport =>
+      _cropReport != null && _cropReport!.itemId == _selectedItemId ? _cropReport!.report : null;
+
+  /// Whether Detect is measuring the selected video's edges.
+  bool get detectingCrop => _detectingCropFor != null && _detectingCropFor == _selectedItemId;
+
+  /// Measure the black borders, blanking and head-switching band of the
+  /// selected video (its trimmed range if there is one). The job carries the
+  /// pipeline and field order, because where the crop lands depends on them:
+  /// after Rotate / Flip, and on a still-interlaced 4:2:0 picture in fours.
+  Future<void> detectCrop() async {
+    final item = selectedItem;
+    if (item == null || _detectingCropFor != null) return;
+    _detectingCropFor = item.id;
+    notifyListeners();
+    final info = item.videoInfo;
+    final frameCount = info?.frameCount ?? 0;
+    final fieldOrder = _getEffectiveFieldOrder(item);
+    final job = VideoJob(
+      inputPath: item.inputPath,
+      outputPath: item.outputPath,
+      processingPipeline: _processingPipeline.copyWith(
+        deinterlace: _processingPipeline.deinterlace.copyWith(
+          tff: fieldOrder == FieldOrder.topFieldFirst,
+        ),
+      ),
+      encodingSettings: _encodingSettings,
+      detectedFieldOrder: fieldOrder,
+      totalFrames: info?.frameCount,
+      inputFrameRate: info?.frameRate,
+      inputWidth: info?.width,
+      inputHeight: info?.height,
+      inputPixelFormat: info?.pixelFormat,
+      inputSar: info?.sar,
+      inputColorRange: info?.colorRange,
+      startFrame: item.inPoint == null ? null : (item.inPoint! * frameCount).round(),
+      endFrame: item.outPoint == null ? null : (item.outPoint! * frameCount).round(),
+    );
+    final report = await _detectCrop(job);
+    if (_disposed) return;
+    _cropReport = (itemId: item.id, report: report);
+    _detectingCropFor = null;
+    notifyListeners();
+  }
+
+  /// The Crop sliders' maximum, from the schema, so an applied value is one
+  /// the control can show.
+  int _cropMax() {
+    final def = FilterRegistry.instance.get('crop_resize')?.parameters['cropLeft'];
+    return def?.max?.toInt() ?? 480;
+  }
+
+  /// Put one of Detect's suggestions into Crop & Resize (and, for
+  /// [CropApply.repairBand], Edge Repair), switching the passes on. Only ever
+  /// called from the panel's buttons: nothing is applied on its own.
+  void applyCropDetection(CropApply mode) {
+    final report = cropReport;
+    if (report == null || report.error != null || !report.found) return;
+    final sides = switch (mode) {
+      CropApply.crop => report.crop,
+      CropApply.cropWithBars => report.cropWithBars,
+      CropApply.repairBand => report.cropWithRepair,
+    };
+    if (sides == null) return;
+    final max = _cropMax();
+    int clamp(int v) => v.clamp(0, max);
+    final current = getDynamicParams('crop_resize');
+    updateDynamicParams(
+      'crop_resize',
+      DynamicParameters(
+        filterId: 'crop_resize',
+        enabled: current.enabled || !sides.isZero,
+        values: {
+          ...current.values,
+          'cropEnabled': !sides.isZero,
+          'cropLeft': clamp(sides.left),
+          'cropRight': clamp(sides.right),
+          'cropTop': clamp(sides.top),
+          'cropBottom': clamp(sides.bottom),
+        },
+        enabledOptionalParams: current.enabledOptionalParams,
+        lastOptionalValues: current.lastOptionalValues,
+      ),
+    );
+    final repair = report.edgeRepair;
+    if (mode == CropApply.repairBand && repair != null) {
+      final er = getDynamicParams('edge_repair');
+      updateDynamicParams(
+        'edge_repair',
+        DynamicParameters(
+          filterId: 'edge_repair',
+          enabled: true,
+          values: {
+            ...er.values,
+            if (repair.left > 0) 'left': repair.left,
+            if (repair.right > 0) 'right': repair.right,
+            if (repair.top > 0) 'top': repair.top,
+            if (repair.bottom > 0) 'bottom': repair.bottom,
+          },
+          enabledOptionalParams: er.enabledOptionalParams,
+          lastOptionalValues: er.lastOptionalValues,
+        ),
+      );
+    }
+  }
+
   bool get canShutDown => _systemShutdown.isSupported;
   bool get shutdownWhenDone => _shutdownWhenDone;
 
@@ -344,7 +465,8 @@ class MainViewModel extends ChangeNotifier {
       _regenerateOutputPath();
     }
     notifyListeners();
-    _requestPreviewUpdate();
+    // The preview is picture only: nothing in audio restoration changes it.
+    if (filterId != 'audio_restoration') _requestPreviewUpdate();
   }
 
   DynamicParameters _convertToParams(String filterId) {
@@ -391,6 +513,12 @@ class MainViewModel extends ChangeNotifier {
         return ParameterConverter.fromChromaFixes(_processingPipeline.chromaFixes);
       case 'crop_resize':
         return ParameterConverter.fromCropResize(_processingPipeline.cropResize);
+      case 'face_restore':
+        return ParameterConverter.fromFaceRestore(_processingPipeline.faceRestore);
+      case 'colorize':
+        return ParameterConverter.fromColorize(_processingPipeline.colorize);
+      case 'audio_restoration':
+        return ParameterConverter.fromAudioRestoration(_processingPipeline.audio);
       case 'subtitles':
         return ParameterConverter.fromSubtitles(_processingPipeline.subtitles);
       default:
@@ -476,6 +604,16 @@ class MainViewModel extends ChangeNotifier {
           descale: ParameterConverter.toDescale(params),
         );
         break;
+      case 'face_restore':
+        _processingPipeline = _processingPipeline.copyWith(
+          faceRestore: ParameterConverter.toFaceRestore(params),
+        );
+        break;
+      case 'colorize':
+        _processingPipeline = _processingPipeline.copyWith(
+          colorize: ParameterConverter.toColorize(params),
+        );
+        break;
       case 'edge_repair':
         _processingPipeline = _processingPipeline.copyWith(
           edgeRepair: ParameterConverter.toEdgeRepair(params),
@@ -515,6 +653,11 @@ class MainViewModel extends ChangeNotifier {
       case 'crop_resize':
         _processingPipeline = _processingPipeline.copyWith(
           cropResize: ParameterConverter.toCropResize(params),
+        );
+        break;
+      case 'audio_restoration':
+        _processingPipeline = _processingPipeline.copyWith(
+          audio: ParameterConverter.toAudioRestoration(params),
         );
         break;
       case 'subtitles':
@@ -635,9 +778,13 @@ class MainViewModel extends ChangeNotifier {
     JobRunner? runner,
     SystemShutdown? systemShutdown,
     Future<NativeResReport> Function(VideoJob job)? nativeResDetector,
+    Future<CropDetectReport> Function(VideoJob job)? cropDetector,
+    Future<NoiseHaloReport> Function(VideoJob job)? noiseHaloDetector,
   })  : _workerManager = runner ?? WorkerManager(),
         _systemShutdown = systemShutdown ?? PlatformSystemShutdown(),
-        _detectNative = nativeResDetector ?? WorkerManager.detectNativeResolution {
+        _detectNative = nativeResDetector ?? WorkerManager.detectNativeResolution,
+        _detectCrop = cropDetector ?? WorkerManager.detectCrop,
+        _detectNoiseHalo = noiseHaloDetector ?? WorkerManager.detectNoiseHalo {
     _setupSubscriptions();
     _initializePreviewGenerator();
     _probeGpuCapabilities();
@@ -848,6 +995,52 @@ class MainViewModel extends ChangeNotifier {
     if (_selectedItemId == item.id) {
       _requestPreviewUpdate();
     }
+
+    _measureNoiseHalo(_queue[index]);
+  }
+
+  /// The selected source's noise / halo measurement, or null until it is in
+  /// (or when nothing is selected). Only the pass list's suggestions read it.
+  NoiseHaloReport? get noiseHaloReport => selectedItem?.noiseHalo;
+
+  /// Measure [item]'s noise and halos in the background (app 1.7.0). Queued
+  /// behind any earlier measurement so a dropped folder doesn't start one
+  /// worker per file at once. Never blocks anything and never fails loudly: a
+  /// failed measurement is stored as such, and suggests nothing.
+  ///
+  /// The whole source is sampled, not its trim, so the result stays valid as
+  /// the in / out points move. Anything not known to be progressive is
+  /// measured field by field, so combing can't be read as noise.
+  void _measureNoiseHalo(QueueItem item) {
+    final info = item.videoInfo;
+    if (info == null || item.noiseHalo != null) return;
+    _noiseHaloQueue = _noiseHaloQueue.then((_) async {
+      if (_disposed || !_queue.any((q) => q.id == item.id)) return;
+      final progressive = info.scanType == ScanType.progressive ||
+          info.scanType == ScanType.softTelecine;
+      final job = VideoJob(
+        inputPath: item.inputPath,
+        outputPath: item.outputPath,
+        encodingSettings: _encodingSettings,
+        detectedFieldOrder:
+            progressive ? FieldOrder.progressive : FieldOrder.topFieldFirst,
+        totalFrames: info.frameCount,
+        inputFrameRate: info.frameRate,
+        inputWidth: info.width,
+        inputHeight: info.height,
+        inputPixelFormat: info.pixelFormat,
+        inputColorRange: info.colorRange,
+      );
+      NoiseHaloReport report;
+      try {
+        report = await _detectNoiseHalo(job);
+      } catch (e) {
+        report = NoiseHaloReport.failed('$e');
+      }
+      if (_disposed) return;
+      item.noiseHalo = report;
+      notifyListeners();
+    });
   }
 
   /// Removes a video from the queue.
@@ -1380,6 +1573,12 @@ class MainViewModel extends ChangeNotifier {
         return 'chroma_fixes';
       case PassType.cropResize:
         return 'crop_resize';
+      case PassType.faceRestore:
+        return 'face_restore';
+      case PassType.colorize:
+        return 'colorize';
+      case PassType.audioRestoration:
+        return 'audio_restoration';
       case PassType.subtitles:
         return 'subtitles';
     }
@@ -1482,8 +1681,11 @@ class MainViewModel extends ChangeNotifier {
     }
 
     // Subtitle-only mode: no video processing passes enabled, only subtitles
+    // Audio restoration needs the full job (it renders the output's
+    // soundtrack), so it rules out subtitle-only mode.
     final isSubtitleOnly = _processingPipeline.subtitles.enabled &&
-        _processingPipeline.enabledPasses.isEmpty;
+        _processingPipeline.enabledPasses.isEmpty &&
+        !_processingPipeline.audio.hasEffect;
     _lastJobSubtitleOnly = isSubtitleOnly &&
         _processingPipeline.subtitles.output == SubtitleOutput.srtFile;
 
@@ -1855,7 +2057,8 @@ class MainViewModel extends ChangeNotifier {
 
     // Subtitle-only with SRT output: use .srt extension
     final isSubtitleOnly = _processingPipeline.subtitles.enabled &&
-        _processingPipeline.videoPassCount == 0;
+        _processingPipeline.videoPassCount == 0 &&
+        !_processingPipeline.audio.hasEffect;
     if (isSubtitleOnly && _processingPipeline.subtitles.output == SubtitleOutput.srtFile) {
       return path.join(outputDir, '$outputFilename.srt');
     }

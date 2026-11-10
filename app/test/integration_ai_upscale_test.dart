@@ -1,13 +1,16 @@
-// Real-ESRGAN / Real-CUGAN / AnimeJaNai upscaling, encoded end to end and
-// checked by pixels. AnimeJaNai's models are an add-on, which the harness
-// installs from the upstream download the app pins.
+// Real-ESRGAN / Real-CUGAN / AnimeJaNai upscaling, and the add-on models
+// (Real-ESRGAN General, Live Action SPAN, Real-ESRGAN x4plus/x2plus), encoded
+// end to end and checked by pixels. AnimeJaNai's models are an add-on, which
+// the harness installs from the upstream download the app pins; the others
+// install through WorkerHarness.ensureAddon (VAPOURBOX_ADDON_MIRROR before
+// their files are uploaded).
 //
-// Wherever AI upscaling ships, CI gives the runner a Vulkan device (a software
-// one, lavapipe, on the GPU-less Linux and Windows runners) and sets
-// VAPOURBOX_EXPECT_VULKAN=1, so these must run there; see
-// support/gpu_expectations.dart. The source is the small progressive clip
-// (320x240) and each job encodes five frames, so even 4x CUGAN on a CPU Vulkan
-// driver finishes in minutes. It must be progressive: on a combed source the
+// Every test here needs a Vulkan device, so the file is tagged `gpu` and the
+// GPU-less CI runners leave it out (dart_test.yaml). Run it on a machine with
+// a GPU, with VAPOURBOX_EXPECT_VULKAN=1 so an unavailable feature fails rather
+// than skips; see support/gpu_expectations.dart. The source is the small
+// progressive clip (320x240) and each job encodes five frames, so even 4x
+// CUGAN on a CPU Vulkan driver (Mesa's lavapipe) finishes in minutes. It must be progressive: on a combed source the
 // networks rightly remove the combing, and that difference from Spline36 —
 // real detail at the source's own resolution — would swamp the comparison.
 //
@@ -29,12 +32,18 @@
 //     own wrapper doing nothing more than this template — the model, not the
 //     pipeline) and CUGAN 4x drifts ~4, so those get bounds just above that.
 //     AnimeJaNai keeps flat colour within half a level at 2x and 4x (measured
-//     0.3 and 0.5), so it gets the strictest bound;
+//     0.3 and 0.5), so it gets the strictest bound. The add-on models
+//     (1.7.0, measured on an M1 Pro): Real-ESRGAN General drifts up to 2.9
+//     levels (the same at 2x, where its 4x result is resampled down), Live
+//     Action SPAN 0.6 at 2x and 1.3 at 4x, Real-ESRGAN x2plus 4.2 and x4plus
+//     12.2 — each bounded just above;
+//   * AI strength 0.5 lands half-way between the network and Spline36 (the
+//     tint halves: 11.2 -> 5.8 levels for Real-ESRGAN 4x);
 //   * the preview of a frame is the encode's frame (the same script runs);
 //   * a 10-bit source stays 10-bit and matches the 8-bit result;
 //   * AnimeJaNai picks its SD model for an SD picture (where the HD size
 //     setting changes nothing) and the chosen HD model above 576 lines.
-@Tags(['heavy'])
+@Tags(['heavy', 'gpu'])
 library;
 
 import 'dart:io';
@@ -49,6 +58,7 @@ import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
+import 'package:vapourbox/services/image_dimensions.dart';
 
 import 'support/gpu_expectations.dart';
 import 'support/worker_harness.dart';
@@ -63,7 +73,9 @@ VideoJob _job(String name, UpscaleMethod method, int factor,
         {String noise = 'conservative',
         String? input,
         String pixFmt = 'yuv420p',
-        String animejanaiModel = 'compact'}) =>
+        String animejanaiModel = 'compact',
+        bool generalDenoise = false,
+        double aiStrength = 1.0}) =>
     VideoJob(
       id: const Uuid().v4(),
       inputPath: input ?? _input,
@@ -77,6 +89,8 @@ VideoJob _job(String name, UpscaleMethod method, int factor,
           upscaleFactor: factor,
           cuganNoise: noise,
           animejanaiModel: animejanaiModel,
+          generalDenoise: generalDenoise,
+          aiStrength: aiStrength,
         ),
       ),
       encodingSettings: const EncodingSettings(
@@ -96,19 +110,20 @@ VideoJob _job(String name, UpscaleMethod method, int factor,
 
 const _slowGpu = {'VAPOURBOX_STALL_TIMEOUT_SECS': '1200'};
 
-/// One preview frame, with the same budget as an encode: on Windows lavapipe a
-/// single 4x Real-CUGAN preview frame took over the harness's default 5 min.
-Future<PreviewResult> _preview(Map<String, dynamic> job, int frame, String label) =>
-    WorkerHarness.runPreview(job, frame: frame, label: label,
-        timeout: const Duration(minutes: 20), extraEnv: _slowGpu);
+/// One preview frame, with the same budget as an encode: on a CPU Vulkan
+/// driver (Windows lavapipe) a single 4x Real-CUGAN preview frame took over
+/// the harness's default 5 min.
+Future<PreviewResult> _preview(Map<String, dynamic> job, int frame, String label,
+        {Duration budget = const Duration(minutes: 20)}) =>
+    WorkerHarness.runPreview(job, frame: frame, label: label, timeout: budget, extraEnv: _slowGpu);
 
-Future<String> _encode(VideoJob job, String label) async {
+Future<String> _encode(VideoJob job, String label, {Duration budget = const Duration(minutes: 20)}) async {
   // The worker's stall watchdog fails a job after 600 s without a frame. On a
-  // CPU Vulkan driver (lavapipe, on the GPU-less CI runners) 4x Real-CUGAN's
+  // CPU Vulkan driver (Mesa's lavapipe, on Windows) 4x Real-CUGAN's
   // first frame — two whole network passes — took longer than that on
   // Windows, so allow the test's own budget instead.
   final r = await WorkerHarness.runJob(job.toJson(), label: label,
-      timeout: const Duration(minutes: 20), extraEnv: _slowGpu);
+      timeout: budget, extraEnv: _slowGpu);
   expect(r.success, isTrue, reason: '$label: ${r.error}\n${r.logs.join('\n')}');
   return r.outputPath!;
 }
@@ -161,12 +176,32 @@ void main() {
     (UpscaleMethod.realCugan, 4, 'conservative'),
     (UpscaleMethod.animeJanai, 2, ''),
     (UpscaleMethod.animeJanai, 4, ''),
+    // The add-on models (1.7.0): General is 4x native (2x resamples down),
+    // SPAN 2x native (4x runs it twice), x2plus/x4plus by factor.
+    (UpscaleMethod.realEsrganGeneral, 2, ''),
+    (UpscaleMethod.realEsrganGeneral, 4, ''),
+    (UpscaleMethod.liveAction, 2, ''),
+    (UpscaleMethod.liveAction, 4, ''),
+    (UpscaleMethod.realEsrganPlus, 2, ''),
+    (UpscaleMethod.realEsrganPlus, 4, ''),
   ];
 
-  /// The rule, plus AnimeJaNai's add-on where the method needs it.
+  /// The rule, plus the add-on every method's models are in: AnimeJaNai's
+  /// from upstream, the others through the app's manifest installer (which
+  /// honours VAPOURBOX_ADDON_MIRROR before the files are uploaded).
   Future<bool> ready(UpscaleMethod method) async {
     if (!await requireGpuPlugin('--probe-upscale')) return false;
-    if (method == UpscaleMethod.animeJanai) await WorkerHarness.ensureAnimeJanai();
+    switch (method) {
+      case UpscaleMethod.animeJanai:
+        await WorkerHarness.ensureAnimeJanai();
+      case UpscaleMethod.realEsrgan || UpscaleMethod.realCugan:
+        await WorkerHarness.ensureAddon('upscale-anime');
+      case UpscaleMethod.realEsrganGeneral || UpscaleMethod.liveAction:
+        await WorkerHarness.ensureAddon('upscale-general');
+      case UpscaleMethod.realEsrganPlus:
+        await WorkerHarness.ensureAddon('upscale-esrgan-plus');
+      default:
+    }
     return true;
   }
 
@@ -175,7 +210,10 @@ void main() {
     test(name, () async {
       if (!await ready(method)) return;
       final job = _job(name, method, factor, noise: noise);
-      final out = await _encode(job, name);
+      // x4plus at 4x is by far the heaviest network: five frames and a preview
+      // took 18 min on Linux lavapipe and ran past 20 on Windows'.
+      final budget = Duration(minutes: method == UpscaleMethod.realEsrganPlus && factor == 4 ? 50 : 20);
+      final out = await _encode(job, name, budget: budget);
 
       final s = await _stream(out);
       expect(s['width'], _w * factor);
@@ -201,7 +239,7 @@ void main() {
       }
 
       // The preview runs the same script on the same frame.
-      final pv = await _preview(job.toJson(), _start + 2, '${name}_pv');
+      final pv = await _preview(job.toJson(), _start + 2, '${name}_pv', budget: budget);
       expect(pv.success, isTrue, reason: pv.errorTail);
       final pvDiff = WorkerHarness.meanAbsDiff(
           await WorkerHarness.imageToRgb24(pv.png!, label: '${name}_pv'),
@@ -209,7 +247,7 @@ void main() {
       // ignore: avoid_print
       print('  $name preview vs encode: meanAbsDiff ${pvDiff.toStringAsFixed(2)}');
       expect(pvDiff, lessThan(1.0), reason: 'the preview is not the encoded picture');
-    }, timeout: const Timeout(Duration(minutes: 60)));
+    }, timeout: const Timeout(Duration(minutes: 120)));
   }
 
   // Flat patches keep their colour and a hard edge keeps its position — the
@@ -242,8 +280,8 @@ void main() {
       expect(r.exitCode, 0, reason: '${r.stderr}');
     });
 
-    VideoJob patternJob(String name, UpscaleMethod method, int factor) {
-      final j = _job(name, method, factor, input: pattern);
+    VideoJob patternJob(String name, UpscaleMethod method, int factor, {double aiStrength = 1.0}) {
+      final j = _job(name, method, factor, input: pattern, aiStrength: aiStrength);
       return VideoJob.fromJson({
         ...j.toJson(),
         'inputFrameRate': 25.0,
@@ -303,6 +341,9 @@ void main() {
       (UpscaleMethod.realEsrgan, 2, 6.0), (UpscaleMethod.realEsrgan, 4, 14.0),
       (UpscaleMethod.realCugan, 2, 2.0), (UpscaleMethod.realCugan, 4, 6.0),
       (UpscaleMethod.animeJanai, 2, 1.0), (UpscaleMethod.animeJanai, 4, 1.0),
+      (UpscaleMethod.realEsrganGeneral, 2, 4.0), (UpscaleMethod.realEsrganGeneral, 4, 4.0),
+      (UpscaleMethod.liveAction, 2, 1.5), (UpscaleMethod.liveAction, 4, 2.0),
+      (UpscaleMethod.realEsrganPlus, 2, 6.0), (UpscaleMethod.realEsrganPlus, 4, 14.0),
     ]) {
       test('${method.name} ${factor}x keeps colour and position', () async {
         if (!await ready(method)) return;
@@ -342,10 +383,68 @@ void main() {
         expect(((rt - l) - (rr - rl)).abs(), lessThan(4.0), reason: 'the bar changed size');
       }, timeout: const Timeout(Duration(minutes: 60)));
     }
+
+    // AI strength (1.7.0) blends the network's picture with a Spline36
+    // upscale: at 0.5 every pixel is half-way between the two (to rounding
+    // and dither), so Real-ESRGAN 4x's measured flat-colour tint halves.
+    test('AI strength 0.5 is half-way between the network and Spline36', () async {
+      if (!await ready(UpscaleMethod.realEsrgan)) return;
+      Future<Uint8List> frame(String name, UpscaleMethod m, {double strength = 1.0}) async {
+        final job = patternJob(name, m, 4, aiStrength: strength);
+        return WorkerHarness.frameRgb24(await _encode(job, name), 1, label: '${name}_1');
+      }
+
+      final full = await frame('strength_esrgan_full', UpscaleMethod.realEsrgan);
+      final half = await frame('strength_esrgan_half', UpscaleMethod.realEsrgan, strength: 0.5);
+      final spline = await frame('strength_spline36', UpscaleMethod.spline36);
+      final mid = Uint8List(full.length);
+      for (var i = 0; i < full.length; i++) {
+        mid[i] = ((full[i] + spline[i]) / 2).round();
+      }
+      final vsMid = WorkerHarness.meanAbsDiff(half, mid);
+      final w = _w * 4, inset = 48, size = patch * 4 - 2 * inset;
+      var worstFull = 0.0, worstHalf = 0.0;
+      for (final MapEntry(value: (x, y)) in patches.entries) {
+        final s = meanRgb(spline, w, x * 4 + inset, y * 4 + inset, size);
+        final f = meanRgb(full, w, x * 4 + inset, y * 4 + inset, size);
+        final h = meanRgb(half, w, x * 4 + inset, y * 4 + inset, size);
+        for (var c = 0; c < 3; c++) {
+          worstFull = (f[c] - s[c]).abs() > worstFull ? (f[c] - s[c]).abs() : worstFull;
+          worstHalf = (h[c] - s[c]).abs() > worstHalf ? (h[c] - s[c]).abs() : worstHalf;
+        }
+      }
+      // ignore: avoid_print
+      print('  strength 0.5 vs the mid-point: meanAbsDiff ${vsMid.toStringAsFixed(2)}; '
+          'worst patch drift full ${worstFull.toStringAsFixed(2)}, half ${worstHalf.toStringAsFixed(2)}');
+      expect(vsMid, lessThan(1.0), reason: 'strength 0.5 is not the average of the two');
+      expect(WorkerHarness.meanAbsDiff(half, full), greaterThan(0.5), reason: 'the blend did nothing');
+      expect((worstHalf - worstFull / 2).abs(), lessThan(1.0), reason: 'the tint did not halve');
+    }, timeout: const Timeout(Duration(minutes: 60)));
   });
 
+  // A tile larger than the frame in either direction segfaults VSNCNN. An
+  // 800x200 picture passes x4plus's area test for tiling (above 384x384) while
+  // being shorter than a 384-pixel tile, so the tile must shrink to fit.
+  test('a wide, short frame runs in tiles no larger than itself', () async {
+    if (!await ready(UpscaleMethod.realEsrganPlus)) return;
+    final wide = p.join(_outDir, 'source_800x200.mkv');
+    final made = await Process.run(
+      WorkerHarness.ffmpegPath,
+      ['-y', '-v', 'error', '-i', _input, '-frames:v', '110', '-vf', 'scale=800:200',
+        '-c:v', 'ffv1', wide],
+      environment: WorkerHarness.ffmpegEnv,
+    );
+    expect(made.exitCode, 0, reason: '${made.stderr}');
+    final j = _job('x4plus_wide', UpscaleMethod.realEsrganPlus, 4, input: wide);
+    final job = VideoJob.fromJson({...j.toJson(), 'inputWidth': 800, 'inputHeight': 200});
+    final pv = await _preview(job.toJson(), _start + 2, 'x4plus_wide');
+    expect(pv.success, isTrue, reason: pv.errorTail);
+    final size = encodedImageSize(pv.png!);
+    expect((size?.width, size?.height), (3200.0, 800.0));
+  }, timeout: const Timeout(Duration(minutes: 60)));
+
   test('a 10-bit source stays 10-bit and matches the 8-bit result', () async {
-    if (!await requireGpuPlugin('--probe-upscale')) return;
+    if (!await ready(UpscaleMethod.realEsrgan)) return;
     // Both fixtures from the same conversion, so frame N is the same picture
     // in each (the AVI's own frame count differs between decoders).
     final sources = <String, String>{};

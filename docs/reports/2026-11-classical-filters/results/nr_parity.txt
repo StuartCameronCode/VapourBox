@@ -1,0 +1,10 @@
+
+== depth parity: mean |8-bit run - N-bit run|, 8-bit levels (luma)
+  float round trip at 8-bit: 0.0000 levels
+  float round trip at 10-bit: 0.0000 levels
+  float round trip at 16-bit: 0.0000 levels
+  NLMeans vszip h=2            10-bit 0.005  16-bit 0.006
+  WNNM sigma=8                 10-bit 0.268  16-bit 0.272
+  BM3D template sigma=8        10-bit 0.273  16-bit 0.277
+
+vszip NLMeans vs KNLMeansCL, same args: mean |diff| Y 0.0000 U 0.0000 levels

@@ -1,7 +1,7 @@
 name: vapourbox
 description: "Video processing and cleanup powered by VapourSynth"
 publish_to: 'none'
-version: 1.6.0+41
+version: 1.7.0+42
 
 environment:
   sdk: ^3.6.2
@@ -58,5 +58,6 @@ flutter:
     - assets/deps-version.json
     - assets/whisper-addon.json
     - assets/animejanai-addon.json
+    - assets/addons/
     - assets/filters/
     - assets/filters/core/

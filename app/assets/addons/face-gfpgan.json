@@ -1,0 +1,26 @@
+{
+  "id": "face-gfpgan",
+  "version": "1.0.0",
+  "name": "GFPGAN v1.4 face restoration model",
+  "feature": "Face restoration",
+  "description": "GFPGAN v1.4, an alternative model for the Face Restoration pass: stronger, more stylised detail than RestoreFormer++. Converted to ONNX from Tencent ARC's published weights.",
+  "licence": "Apache-2.0 + NVIDIA Source Code License (NC)",
+  "licenceUrl": "https://github.com/TencentARC/GFPGAN/blob/master/LICENSE",
+  "usageNote": "Non-commercial use only (research or evaluation): GFPGAN's StyleGAN2-derived network is under NVIDIA's Source Code License.",
+  "credit": "THL A29 Limited, a Tencent company",
+  "noticeName": "GFPGAN v1.4 model",
+  "homepage": "https://github.com/TencentARC/GFPGAN",
+  "requires": [
+    "face-restoration"
+  ],
+  "kind": "files",
+  "platforms": "all",
+  "files": [
+    {
+      "name": "face-gfpgan-v1.4.onnx",
+      "url": "https://github.com/StuartCameronCode/VapourBox/releases/download/addon-models-v1/face-gfpgan-v1.4.onnx",
+      "size": 340357340,
+      "sha256": "c84d5c2bf1ddc5e61cfc71524b1a155b297c1c3e884255e6a8c0ce5230a91d94"
+    }
+  ]
+}

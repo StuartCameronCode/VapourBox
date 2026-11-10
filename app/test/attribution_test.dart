@@ -77,6 +77,7 @@ const _pluginToNotice = <String, String>{
   'removegrain': 'RemoveGrain',
   'removegrainvs': 'RemoveGrain',
   'retinex': 'Retinex',
+  'sangnom': 'SangNom — MIT',
   'tcanny': 'TCanny',
   'temporalmedian': 'TemporalMedian',
   'tmedian': 'TemporalMedian',
@@ -161,22 +162,19 @@ void main() {
 
     test('credits every file the bundle carries outside the plugin directory', () {
       // The ncnn plugins live outside the autoload directory (RIFE in
-      // vapoursynth/rife/, VSNCNN and its models in vapoursynth/ncnn/, MoltenVK
-      // in vapoursynth/moltenvk/), so they are listed under _extraFiles rather
-      // than in the per-platform lists.
+      // vapoursynth/rife/, VSNCNN in vapoursynth/ncnn/, MoltenVK in
+      // vapoursynth/moltenvk/), so they are listed under _extraFiles rather
+      // than in the per-platform lists. Their models are add-ons.
       final manifest = jsonDecode(
         File(p.join(root, 'Scripts', 'deps-expected-plugins.json')).readAsStringSync(),
       ) as Map<String, dynamic>;
       final extra = (manifest['_extraFiles'] as Map<String, dynamic>);
-      // Matched by prefix of the file's stem: the model files share one per family.
+      // Matched by prefix of the file's stem.
       const fileToNotice = <String, String>{
         'librife': 'RIFE (VapourSynth-RIFE-ncnn-Vulkan)',
         'libmoltenvk': 'MoltenVK',
-        'flownet': 'RIFE 4.26 model',
         'libvsncnn': 'VSNCNN (vs-mlrt)',
         'vsncnn': 'VSNCNN (vs-mlrt)',
-        'realesrganv2-animevideo': 'Real-ESRGAN anime video model',
-        'up2x-latest': 'Real-CUGAN models',
       };
       for (final entry in extra.entries) {
         for (final path in (entry.value as List).cast<String>()) {
@@ -190,6 +188,38 @@ void main() {
                   'in NOTICES.txt from its upstream LICENSE, then map it here.');
           expect(notices, contains(needle),
               reason: '${entry.key}: $path is shipped but "$needle" is not in NOTICES.txt');
+        }
+      }
+    });
+
+    // Every AI model is an add-on, never in the deps bundle (docs/ADDONS.md):
+    // a model's size or licence must cost nothing to users who don't use it,
+    // and the bundle must stay freely redistributable. RIFE's model and the
+    // anime upscalers' were bundled until deps 1.16.0.
+    test('the bundle carries no AI model', () {
+      final manifest = jsonDecode(
+        File(p.join(root, 'Scripts', 'deps-expected-plugins.json')).readAsStringSync(),
+      ) as Map<String, dynamic>;
+      final model = RegExp(r'\.(onnx|param|bin|pth|safetensors)$|/models/');
+      for (final MapEntry(key: bundle, value: files) in manifest.entries) {
+        if (bundle.startsWith('_') && bundle != '_extraFiles' && bundle != '_tierFiles') continue;
+        final lists = files is Map ? files.values : [files];
+        for (final list in lists) {
+          for (final f in (list as List).cast<String>()) {
+            expect(model.hasMatch(f), isFalse,
+                reason: '$bundle lists $f: a model belongs in an add-on (app/assets/addons/)');
+          }
+        }
+      }
+      // Nor do the scripts that build it fetch one.
+      for (final script in [
+        'download-deps-macos.sh',
+        'download-deps-linux.sh',
+        'download-deps-windows.ps1',
+      ]) {
+        final text = File(p.join(root, 'Scripts', script)).readAsStringSync();
+        for (final needle in ['models.\$VSMLRT_TAG', 'models.\$VsmlrtTag', 'flownet']) {
+          expect(text.contains(needle), isFalse, reason: '$script still fetches a model ($needle)');
         }
       }
     });
@@ -340,6 +370,8 @@ Set<String> _licenceFamilies(String text) {
     'bsd': 'bsd', 'apache': 'apache', 'isc': 'isc', 'boost': 'bsl', 'bsl': 'bsl',
     'psf': 'psf', 'python software': 'psf', 'zlib': 'zlib', 'unlicense': 'unlicense',
     'no licence': 'none stated', 'no license': 'none stated', 'no copyright': 'no copyright',
+    'microsoft software license': 'microsoft proprietary',
+    's-lab license': 's-lab', 'nvidia source code license': 'nvidia-nc',
   };
   final out = {for (final MapEntry(key: w, value: f) in words.entries) if (t.contains(w)) f};
   for (final m in RegExp(r'(?<!l)gpl[ -]?v?([23])').allMatches(t)) {

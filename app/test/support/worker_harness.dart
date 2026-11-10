@@ -30,7 +30,11 @@ import 'package:path/path.dart' as p;
 // importing this file does NOT initialize the app's rhttp HTTP client, which is
 // why the harness does its own dart:io download below (rhttp's native bindings
 // don't load under the headless `flutter test` VM).
+import 'package:vapourbox/services/addon_manager.dart';
 import 'package:vapourbox/services/addon_service.dart';
+import 'package:vapourbox/services/manifest_addon.dart';
+import 'package:vapourbox/services/process_tree.dart';
+import 'package:vapourbox/services/whisper_addon_manager.dart';
 import 'package:vapourbox/services/dependency_manager.dart'
     show DepsVersionInfo, DependencyManager;
 
@@ -137,6 +141,82 @@ class WorkerHarness {
     if (target.existsSync()) target.deleteSync(recursive: true);
     staging.renameSync(target.path);
     return target;
+  }
+
+  /// The add-ons directory the debug worker reads: `$VAPOURBOX_ADDONS_DIR`,
+  /// else the nearest `addons/` above the repo root (as the worker searches
+  /// upward from its binary — a git worktree inside the main checkout shares
+  /// the checkout's), else `<repoRoot>/addons`, created.
+  static Directory get addonsDirectory {
+    final found = _addonsDir;
+    if (found != null) return Directory(found);
+    var dir = Directory(repoRoot).parent;
+    for (var i = 0; i < 8; i++) {
+      final candidate = Directory(p.join(dir.path, 'addons'));
+      if (candidate.existsSync()) return candidate;
+      if (dir.parent.path == dir.path) break;
+      dir = dir.parent;
+    }
+    return Directory(p.join(repoRoot, 'addons'))..createSync(recursive: true);
+  }
+
+  /// Install the manifest add-on [id] (`app/assets/addons/<id>.json`) and what
+  /// it requires where the worker finds it, with the app's own
+  /// [ManifestAddonInstaller] — so a test of an add-on also tests that its
+  /// pinned URLs and hashes still hold. Honours `VAPOURBOX_ADDON_MIRROR`
+  /// (files taken from a local directory instead of downloaded, still
+  /// verified), which is how an add-on is tested before its files are
+  /// uploaded. No-op for what is already installed at this version.
+  static Future<Directory> ensureAddon(String id) async {
+    final manifests = {
+      for (final m in AddonManifest.loadDirectory(
+          Directory(p.join(repoRoot, 'app', 'assets', 'addons'))))
+        m.id: m,
+    };
+    final addons = addonsDirectory;
+    final order = <String>[];
+    void visit(String x) {
+      final m = manifests[x];
+      if (m == null) throw ArgumentError('No add-on manifest for "$x"');
+      m.requires.forEach(visit);
+      if (!order.contains(x)) order.add(x);
+    }
+
+    visit(id);
+    for (final x in order) {
+      final installer = ManifestAddonInstaller(manifests[x]!, platform);
+      if (installer.isInstalled(addons)) continue;
+      final mirror = installer.mirror;
+      stderr.writeln('[harness] installing add-on $x into ${addons.path}'
+          '${mirror != null ? ' from mirror $mirror' : ''}');
+      await installer.install(addons, _IoDownloader());
+      if (!installer.isInstalled(addons)) {
+        throw StateError('Add-on $x did not install completely');
+      }
+    }
+    return Directory(p.join(addons.path, id));
+  }
+
+  /// Install the Whisper engine and one language model where the worker finds
+  /// them, with the app's own installers (from `assets/whisper-addon.json`).
+  /// For a local run of the subtitle tests (CI provisions the add-on itself);
+  /// the small model is 466 MB. No-op for what is already installed.
+  static Future<Directory> ensureWhisper({String model = 'small'}) async {
+    final addons = addonsDirectory;
+    final manager = WhisperAddonManager(
+        jsonDecode(File(p.join(repoRoot, 'app', 'assets', 'whisper-addon.json')).readAsStringSync())
+            as Map<String, dynamic>,
+        platform);
+    for (final installer in manager.installers()) {
+      final id = installer.info.id;
+      if (id != WhisperAddonManager.engineAddonId && id != WhisperAddonManager.modelAddonId(model)) {
+        continue;
+      }
+      if (installer.isInstalled(addons)) continue;
+      stderr.writeln('[harness] installing $id into ${addons.path}');
+      await installer.install(addons, _IoDownloader());
+    }
+    return Directory(p.join(addons.path, WhisperAddonManager.dirName));
   }
 
   /// Whether the whisper add-on (whisper-cli) is available. Subtitle tests that
@@ -358,8 +438,10 @@ class WorkerHarness {
 
       final exitCode = await process.exitCode.timeout(
         timeout,
-        onTimeout: () {
-          process.kill();
+        onTimeout: () async {
+          // The whole tree: on Windows killing the worker alone leaves its
+          // vspipe running a network on every core, starving later tests.
+          await ProcessTree.killTree(process, ProcessSignal.sigkill);
           throw TimeoutException('$label timed out after ${timeout.inSeconds}s');
         },
       );
@@ -434,7 +516,7 @@ class WorkerHarness {
       if (logLines.any((l) => l.contains('"type":"error"'))) break;
     }
 
-    process.kill();
+    await ProcessTree.killTree(process);
     await process.exitCode.timeout(const Duration(seconds: 5), onTimeout: () {
       Process.killPid(process.pid, ProcessSignal.sigkill);
       return -1;
@@ -567,8 +649,8 @@ class WorkerHarness {
           .fold<BytesBuilder>(BytesBuilder(), (b, chunk) => b..add(chunk));
       final stderrFuture = process.stderr.transform(utf8.decoder).join();
 
-      final exitCode = await process.exitCode.timeout(timeout, onTimeout: () {
-        process.kill();
+      final exitCode = await process.exitCode.timeout(timeout, onTimeout: () async {
+        await ProcessTree.killTree(process, ProcessSignal.sigkill);
         throw TimeoutException('$label timed out after ${timeout.inSeconds}s');
       });
       final png = (await stdoutFuture).takeBytes();
@@ -1052,4 +1134,54 @@ class PreviewResult {
 
   @override
   String toString() => success ? 'SUCCESS (${png!.length} bytes)' : 'FAILED: $error\n$errorTail';
+}
+
+/// [AddonManager] over dart:io, for [WorkerHarness.ensureAddon]: the app's
+/// downloader uses rhttp, whose native library does not load under the
+/// headless `flutter test` VM. Streams to the file (models run to hundreds of
+/// MB) and checks size and hash as the app's does.
+class _IoDownloader extends AddonManager {
+  @override
+  Future<void> downloadFile(String url, File destination,
+      {int? expectedSize, String? expectedSha256, Map<String, String>? extraHeaders}) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 30);
+    final partial = File('${destination.path}.partial');
+    try {
+      var current = Uri.parse(url);
+      for (var redirects = 0;; redirects++) {
+        if (redirects > 6) throw StateError('too many redirects for $url');
+        final request = await client.getUrl(current);
+        request.followRedirects = false;
+        extraHeaders?.forEach(request.headers.set);
+        final response = await request.close();
+        if (response.isRedirect) {
+          final loc = response.headers.value(HttpHeaders.locationHeader);
+          await response.drain<void>();
+          if (loc == null) throw StateError('redirect without Location ($current)');
+          current = current.resolve(loc);
+          continue;
+        }
+        if (response.statusCode != 200) {
+          await response.drain<void>();
+          throw HttpException('HTTP ${response.statusCode} for $current');
+        }
+        await response.pipe(partial.openWrite());
+        break;
+      }
+      if (expectedSize != null && await partial.length() != expectedSize) {
+        throw StateError('$url: got ${await partial.length()} bytes, expected $expectedSize');
+      }
+      if (expectedSha256 != null) {
+        final digest = (await sha256.bind(partial.openRead()).first).toString();
+        if (digest != expectedSha256) {
+          throw StateError('$url: SHA256 mismatch, expected $expectedSha256, got $digest');
+        }
+      }
+      if (await destination.exists()) await destination.delete();
+      await partial.rename(destination.path);
+    } finally {
+      client.close(force: true);
+      if (await partial.exists()) await partial.delete();
+    }
+  }
 }
