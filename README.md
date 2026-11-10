@@ -19,9 +19,9 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg for
 - **Cleans up old footage.** Optional filters for tape noise, smeared colour, dust and scratches, flicker, ghosting, compression blocking, banding, camera shake and dark, flat pictures. They're off until you turn them on, and the presets turn on what a given kind of source needs.
 - **Colours black-and-white footage.** **Colourisation** predicts colour for film scans, old broadcasts and home movies with AI (DDColor or DeOldify Video, each an optional download), steadied across frames, and keeps the brightness of every pixel exactly as it was, so the result can be graded in Color Correction.
 - **Restores faces.** **Face Restoration** finds the faces in a soft VHS or low-resolution picture and redraws them with AI (RestoreFormer++, or GFPGAN or CodeFormer for non-commercial use) at the output resolution, steadied across frames to keep flicker down, leaving every other pixel untouched.
-- **Restores anime.** **Descale** undoes the upscale most HD anime went through in production, **BM3D** cleans flat colour without smearing lines, and **AI upscaling** redraws line art at 2× or 4×: Real-ESRGAN (sharpest, fastest), Real-CUGAN (gentler, with denoising) or AnimeJaNai (trained on HD anime).
+- **Restores anime.** **Descale** undoes the upscale most HD anime went through in production, **BM3D** cleans flat colour without smearing lines, and **AI upscaling** redraws line art at 2× or 4×: Real-ESRGAN (sharpest, fastest), Real-CUGAN (gentler, with denoising) or AnimeJaNai (trained on HD anime), each an optional download.
 - **Upscales live action** with AI models trained on real-world footage, each an optional download: Real-ESRGAN General (fast, with a noise-removing variant), Live Action SPAN (repairs compression, blur and halos on DVD and broadcast sources while keeping colour), or Real-ESRGAN x4plus (most detailed, slow). An **AI Strength** control blends any AI upscale back towards a plain one.
-- **Converts frame rates** — the broadcast standards or any rate you type in (24 → 48 or 60, say) — with motion interpolation or the **RIFE** AI interpolator.
+- **Converts frame rates** — the broadcast standards or any rate you type in (24 → 48 or 60, say) — with motion interpolation or the **RIFE** AI interpolator (an optional download).
 - **Restores the sound too.** Replaces a dead channel, removes hum, rumble, clicks, clipping and hiss, cleans up speech with the **DeepFilterNet** AI model, puts sound that is out of step or drifting back in sync, and evens out loudness.
 - **Writes subtitles** from speech with Whisper AI, as an `.srt` file, an embedded track, or burnt into the picture.
 
@@ -50,7 +50,7 @@ There is no account, no telemetry, and nothing is uploaded.
 
 1. Download the `.dmg` for your Mac (Apple menu → About This Mac): `arm64` for Apple Silicon, `x64` for Intel.
 2. Open it and drag **VapourBox** to Applications.
-3. The first launch downloads its processing components (~100 MB).
+3. The first launch downloads its processing components (~130 MB on Apple Silicon, ~105 MB on Intel).
 
 VapourBox is signed with an Apple Developer ID and notarized, so it opens without Gatekeeper warnings.
 
@@ -61,7 +61,7 @@ VapourBox is signed with an Apple Developer ID and notarized, so it opens withou
 
 1. Download the `-setup.exe` installer and run it.
 2. The installer isn't code-signed, so SmartScreen may say it "protected your PC". Choose **More info → Run anyway**.
-3. Launch VapourBox from the Start menu. The first launch downloads its processing components (~145 MB).
+3. Launch VapourBox from the Start menu. The first launch downloads its processing components (~205 MB).
 
 It installs for your user only (`%LOCALAPPDATA%\Programs\VapourBox`), so it never asks for administrator rights. A newer installer upgrades in place; uninstalling from **Settings → Apps** also removes the downloaded components, and leaves your presets alone.
 
@@ -78,13 +78,13 @@ It installs for your user only (`%LOCALAPPDATA%\Programs\VapourBox`), so it neve
 
 To get a menu entry and in-place updates, open it with [Gear Lever](https://github.com/mijorus/gearlever), [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate).
 
-Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract it and run `./vapourbox`. It downloads its processing components (~240 MB) on first launch.
+Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract it and run `./vapourbox`. It downloads its processing components (~265 MB on x64, ~220 MB on ARM) on first launch.
 
 </details>
 
 ## Hardware and add-ons
 
-**GPU features.** RIFE frame interpolation and AI upscaling run on the graphics card through Vulkan: on any Apple Silicon Mac, and on Windows and Linux x64 PCs with a current graphics driver (RIFE on Windows also needs the Microsoft Visual C++ Redistributable). They aren't available on Intel Macs or Linux on ARM yet. GPU deinterlacing and KNLMeans denoising use OpenCL instead; without it, deinterlacing falls back to the CPU, and NLMeans gives KNLMeans' result on the CPU. Whenever you choose a GPU feature your machine can't run, VapourBox says what's missing and how to fix it. Face restoration runs through the AI runtime instead: on the graphics card and Neural Engine on a Mac (Core ML), on any DirectX 12 graphics card on Windows (DirectML), and on the CPU on Linux, which is several times slower.
+**GPU features.** RIFE frame interpolation and AI upscaling run on the graphics card through Vulkan: on any Apple Silicon Mac, and on Windows and Linux x64 PCs with a current graphics driver. They aren't available on Intel Macs or Linux on ARM yet. GPU deinterlacing and KNLMeans denoising use OpenCL instead; without it, deinterlacing falls back to the CPU, and NLMeans gives KNLMeans' result on the CPU. Whenever you choose a GPU feature your machine can't run, VapourBox says what's missing and how to fix it. Face Restoration and Colourisation run through the AI runtime instead: on the graphics card and Neural Engine on a Mac (Core ML), on any DirectX 12 graphics card on Windows (DirectML), and on the CPU on Linux, which is several times slower. On Windows, RIFE and the AI runtime also need the Microsoft Visual C++ Redistributable. On Intel Macs, Face Restoration, Colourisation and DeepFilterNet need macOS 13 or later.
 
 **Add-ons.** A few features use third-party downloads that aren't part of VapourBox: the Whisper engine and language models for subtitles, the models for AI upscaling (anime and live action) and for RIFE frame interpolation, DeepFilterNet for speech enhancement in Audio Restoration, the face restoration and colourisation models, and the AI runtime (Microsoft's ONNX Runtime) that AI model add-ons run on. VapourBox offers to download one the first time you need it, stating its source, size and licence, and **Settings → Add-ons** installs or removes them at any time. AnimeJaNai is free for **non-commercial use only** (CC BY-NC-SA 4.0); for paid work, use Real-ESRGAN or Real-CUGAN instead. Of the face restoration models, RestoreFormer++ (the default) is free for any use; GFPGAN and CodeFormer are for **non-commercial use only**.
 
@@ -94,8 +94,8 @@ Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract
 
 | | |
 |---|---|
-| **Video** | H.264, H.265, ProRes (Proxy to 4444 XQ), FFV1 (lossless); hardware encoding via VideoToolbox, NVENC, Quick Sync or AMF |
-| **Audio** | Passthrough, AAC, Opus or FLAC, or none |
+| **Video** | H.264, H.265, ProRes (Proxy to 4444 XQ), FFV1, HuffYUV or FFVHuff (lossless); hardware encoding via VideoToolbox, NVENC, Quick Sync or AMF |
+| **Audio** | Passthrough; AAC, MP3, AC-3, Opus, FLAC or PCM; or none |
 | **Containers** | MKV, MP4, MOV, AVI |
 | **Reads** | `.dv` · `.mts` `.m2ts` · `.vob` `.m2v` `.mpg` `.mpeg` · `.mxf` · `.avi` `.mov` `.mp4` `.mkv` `.ts` `.wmv` `.webm` `.flv`, DVD discs and `VIDEO_TS` folders |
 | **Source formats** | 4:1:1 (NTSC DV), 4:1:0, 4:2:0/4:2:2/4:4:4 up to 16-bit, RGB, grayscale |
@@ -309,6 +309,13 @@ Components taken pre-built rather than compiled from source come unmodified from
 - **[ffmpeg.martin-riedl.de](https://ffmpeg.martin-riedl.de)** — static FFmpeg for Apple Silicon
 - **[BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)** — static FFmpeg for Windows and Linux
 - **[python-build-standalone](https://github.com/astral-sh/python-build-standalone)** — the relocatable Python used on macOS and Linux
+- **[python.org](https://www.python.org/downloads/windows/)** — the embeddable Python used on Windows
+- **[PyPI](https://pypi.org)** — the plugins their authors publish as wheels: akarin, bwdif, dedot, descale, SangNom and vszip (and on Windows also BM3D and KNLMeansCL)
+- **The plugins' own GitHub releases** — most Windows plugins, VapourSynth itself on Windows, and zsmooth
+- **[styler00dollar/VapourSynth-RIFE-ncnn-Vulkan](https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan)** — the RIFE plugin
+- **[AmusementClub/vs-mlrt](https://github.com/AmusementClub/vs-mlrt)** — VSNCNN on Windows (macOS and Linux build it from source)
+- **[Tencent/ncnn](https://github.com/Tencent/ncnn)** — the ncnn library VSNCNN is built against on macOS and Linux
+- **[KhronosGroup/MoltenVK](https://github.com/KhronosGroup/MoltenVK)** — Vulkan on macOS
 - **[Homebrew](https://brew.sh)** — the `whisper-cpp` build used for the macOS subtitle add-on
 
 The Intel Mac build compiles its support libraries from source to run on macOS 12, and is the one build without `akarin`, whose only macOS build needs macOS 14. Intel Macs don't need it: VapourSynth's own expression compiler covers them.
