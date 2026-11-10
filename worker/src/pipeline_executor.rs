@@ -163,6 +163,28 @@ fn preview_window(target: i32, radius: i32) -> (i32, i32, i32) {
 }
 
 use crate::audio_restoration::{self, RestoredTrack};
+/// The `PREVIEW_INFO:` line a preview reports on stderr after rendering: the
+/// frame it rendered, which of that frame's outputs, and — when not square —
+/// the display aspect the encode will declare for it. The PNG carries no
+/// aspect, so without that last token the app had to guess, and it guessed the
+/// *source's* shape: a 720x576 4:3 source upscaled and padded to 1920x1080 was
+/// drawn squashed into 4:3 (issue #149).
+fn preview_info_line(job: &VideoJob, target: i32, out: &crate::models::PreviewOutput) -> String {
+    let mut line = format!(
+        "PREVIEW_INFO:frame={} sub_frame={} sub_frames={} generated={}",
+        target, out.sub_frame, out.sub_frames, out.generated as u8
+    );
+    if let Some(token) = job
+        .effective_pipeline()
+        .output_aspect(job.input_sar.as_deref())
+        .preview_token()
+    {
+        line.push(' ');
+        line.push_str(&token);
+    }
+    line
+}
+
 use crate::comment_metadata::{self, CommentFile};
 use crate::gpu_plugin::GpuPlugin;
 use crate::hdr_metadata::HdrMetadata;
@@ -972,10 +994,8 @@ impl PipelineExecutor {
         // a resize ran, which used to drop it and leave an anamorphic source
         // squashed (#50).
         let pipeline = job.effective_pipeline();
-        // A quarter turn exchanges pixel width and height, so the SAR that
-        // describes the source no longer describes the rotated frame. Adjust it
-        // before declaring it, or a rotated anamorphic source is stretched by
-        // the square of its own aspect.
+        // `output_aspect` adjusts the SAR for a quarter turn; the preview
+        // reports the same decision, so the two cannot disagree (#149).
         //
         // Filters accumulate into one chain. ffmpeg takes the LAST -vf and
         // silently drops any earlier one, so appending a second would throw
@@ -983,8 +1003,7 @@ impl PipelineExecutor {
         // would have broken issue #50's third leg.
         let mut vf: Vec<String> = Vec::new();
 
-        let rotated_sar = pipeline.geometry.adjusted_sar(input_sar);
-        match pipeline.crop_resize.aspect_declaration(rotated_sar.as_deref()) {
+        match pipeline.output_aspect(input_sar) {
             AspectDeclaration::Sar(sar) => {
                 // '/' as the ratio separator — ':' is ffmpeg's filter option separator.
                 vf.push(format!("setsar={}", sar.replace(':', "/")));
@@ -1250,8 +1269,9 @@ impl PipelineExecutor {
     /// then emits the exact output frame that `frame_index` maps to (accounting
     /// for any frame-rate change such as QTGMC double-rate). The requested frame
     /// is echoed back on stderr as `PREVIEW_INFO:frame=N sub_frame=K
-    /// sub_frames=C generated=0|1` so the caller can
-    /// label the result truthfully.
+    /// sub_frames=C generated=0|1 [sar=N/D | dar=N/D]` so the caller can
+    /// label the result truthfully and draw it at the encode's display aspect
+    /// (see [`preview_info_line`]).
     pub fn generate_preview(&self, job: &VideoJob, frame_index: i32, sub_frame: u32) -> Result<()> {
         use std::io::Write;
 
@@ -1509,10 +1529,7 @@ impl PipelineExecutor {
 
         // Echo the frame we actually rendered so the caller can label it (the
         // PNG itself is the only thing on stdout, so this goes to stderr).
-        eprintln!(
-            "PREVIEW_INFO:frame={} sub_frame={} sub_frames={} generated={}",
-            target, out.sub_frame, out.sub_frames, out.generated as u8
-        );
+        eprintln!("{}", preview_info_line(job, target, &out));
 
         // Write PNG to stdout
         std::io::stdout().write_all(&output.stdout)?;
@@ -1950,6 +1967,51 @@ mod tests {
         args.push(job.output_path.clone());
 
         args
+    }
+
+    fn preview_out() -> crate::models::PreviewOutput {
+        crate::models::PreviewOutput {
+            local_index: 3,
+            rate_pad: 0,
+            sub_frame: 0,
+            sub_frames: 2,
+            generated: false,
+        }
+    }
+
+    /// The preview reports the aspect the encode will declare, so the app can
+    /// draw the processed frame at its own shape (issue #149).
+    #[test]
+    fn preview_info_reports_the_output_aspect() {
+        let mut job = create_test_job("/tmp/out.mkv");
+        job.input_sar = Some("16:15".to_string());
+        assert_eq!(
+            preview_info_line(&job, 7, &preview_out()),
+            "PREVIEW_INFO:frame=7 sub_frame=0 sub_frames=2 generated=0 sar=16/15"
+        );
+
+        // Squaring the pixels resamples the grid: nothing to declare.
+        let mut pipeline = job.effective_pipeline();
+        pipeline.crop_resize.enabled = true;
+        pipeline.crop_resize.pixel_aspect = crate::models::PixelAspectMode::Square;
+        job.processing_pipeline = Some(pipeline.clone());
+        assert_eq!(
+            preview_info_line(&job, 7, &preview_out()),
+            "PREVIEW_INFO:frame=7 sub_frame=0 sub_frames=2 generated=0"
+        );
+
+        // A forced display aspect is reported as a DAR.
+        pipeline.crop_resize.pixel_aspect = crate::models::PixelAspectMode::Preserve;
+        pipeline.crop_resize.display_aspect = Some("16:9".to_string());
+        job.processing_pipeline = Some(pipeline);
+        assert!(preview_info_line(&job, 7, &preview_out()).ends_with(" dar=16/9"));
+
+        // Square-pixel source, nothing changed: the line is what it always was.
+        let job = create_test_job("/tmp/out.mkv");
+        assert_eq!(
+            preview_info_line(&job, 7, &preview_out()),
+            "PREVIEW_INFO:frame=7 sub_frame=0 sub_frames=2 generated=0"
+        );
     }
 
     fn create_test_job(output_path: &str) -> VideoJob {

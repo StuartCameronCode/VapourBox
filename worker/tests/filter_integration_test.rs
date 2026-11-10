@@ -7818,3 +7818,67 @@ fn test_209_gpu_plugin_models_are_addons() {
     assert!(cases[0].0.effective_pipeline().required_addons().iter().any(|n| n.ids == [RIFE_ADDON]));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Issue #149: the preview must be drawn at the shape the encode declares, and
+/// fitted the same way. Two halves:
+/// - the preview script's square-pixel fitting reads the source SAR exactly as
+///   the encode's does (the app used to send no `inputSar` with a preview job,
+///   so `{{SOURCE_SAR}}` fell back to 1 and a 720x576 4:3 source was fitted to
+///   1350x1080 in the preview but 1440x1080 in the encode);
+/// - the declaration the preview reports (`output_aspect`) is the one the
+///   encode stamps, for the reporter's setup (square + resize + pad) and for
+///   the default Preserve.
+#[test]
+fn test_210_preview_aspect_matches_the_encode() {
+    create_output_dir();
+    let mut job = create_base_job("test_210_preview_aspect");
+    job.qtgmc_parameters.enabled = false;
+    job.input_sar = Some("16:15".to_string());
+    let crop_resize = CropResizeParameters {
+        enabled: true,
+        resize_enabled: true,
+        pixel_aspect: PixelAspectMode::Square,
+        target_width: Some(1440),
+        target_height: Some(1080),
+        ..Default::default()
+    };
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+        crop_resize: crop_resize.clone(),
+        ..ProcessingPipeline::default()
+    });
+
+    let generator = ScriptGenerator::new().unwrap();
+    let encode = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    let params = PreviewParams {
+        rate_pad: 0,
+        width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 5,
+        fps_num: 25, fps_den: 1, output_index: 2,
+    };
+    let preview = std::fs::read_to_string(generator.generate_preview(&job, &params).unwrap()).unwrap();
+
+    let aspect_line = |script: &str| {
+        script
+            .lines()
+            .find(|l| l.starts_with("_display_aspect = (clip.width *"))
+            .map(str::to_string)
+    };
+    let encode_line = aspect_line(&encode).expect("encode fits by display aspect");
+    assert!(encode_line.contains("1.0667"), "source SAR 16/15 expected: {encode_line}");
+    assert_eq!(
+        aspect_line(&preview).as_deref(),
+        Some(encode_line.as_str()),
+        "the preview must fit by the same display aspect as the encode"
+    );
+
+    // Square pixels: nothing to declare, so the preview reports nothing.
+    let pipeline = job.effective_pipeline();
+    assert_eq!(pipeline.output_aspect(job.input_sar.as_deref()), AspectDeclaration::None);
+
+    // Preserve keeps the source SAR on the padded frame; the preview reports it.
+    let mut preserve = pipeline.clone();
+    preserve.crop_resize.pixel_aspect = PixelAspectMode::Preserve;
+    let declared = preserve.output_aspect(job.input_sar.as_deref());
+    assert_eq!(declared, AspectDeclaration::Sar("16:15".to_string()));
+    assert_eq!(declared.preview_token().as_deref(), Some("sar=16/15"));
+}

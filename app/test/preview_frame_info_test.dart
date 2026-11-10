@@ -1,3 +1,5 @@
+import 'dart:ui' show Size;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vapourbox/models/preview_frame_info.dart';
 
@@ -30,6 +32,53 @@ void main() {
       final info = PreviewFrameInfo.parse(
           'PREVIEW_INFO:frame=3 sub_frame=9 sub_frames=2 generated=0')!;
       expect(info.subFrame, 1);
+    });
+
+    // Issue #149: the processed frame is drawn at the aspect the encode will
+    // declare, not the source's.
+    test('reads the output SAR the encode will declare', () {
+      final info = PreviewFrameInfo.parse(
+          'PREVIEW_INFO:frame=3 sub_frame=0 sub_frames=1 generated=0 sar=16/15')!;
+      expect(info.outputSar, closeTo(16 / 15, 1e-9));
+      expect(info.outputDar, isNull);
+      // 1920x1080 padded, Preserve kept the PAL 4:3 SAR: wider than 16:9.
+      expect(info.displayAspectFor(const Size(1920, 1080)),
+          closeTo(1920 / 1080 * 16 / 15, 1e-9));
+    });
+
+    test('a forced DAR wins over the frame size', () {
+      final info =
+          PreviewFrameInfo.parse('PREVIEW_INFO:frame=3 dar=16/9')!;
+      expect(info.outputDar, closeTo(16 / 9, 1e-9));
+      expect(info.displayAspectFor(const Size(720, 576)), closeTo(16 / 9, 1e-9));
+    });
+
+    test('no aspect token means square pixels: the frame\'s own shape', () {
+      final info = PreviewFrameInfo.parse(
+          'PREVIEW_INFO:frame=3 sub_frame=0 sub_frames=1 generated=0')!;
+      expect(info.outputSar, isNull);
+      expect(info.outputDar, isNull);
+      expect(info.displayAspectFor(const Size(1920, 1080)),
+          closeTo(16 / 9, 1e-9));
+    });
+
+    test('a malformed aspect is ignored rather than drawn zero-wide', () {
+      final info =
+          PreviewFrameInfo.parse('PREVIEW_INFO:frame=3 sar=0/1 dar=wide')!;
+      expect(info.outputSar, isNull);
+      expect(info.outputDar, isNull);
+      expect(info.frame, 3);
+    });
+  });
+
+  group('PreviewFrameInfo.parseRatio', () {
+    test('accepts the forms the worker and users write', () {
+      expect(PreviewFrameInfo.parseRatio('16/9'), closeTo(16 / 9, 1e-9));
+      expect(PreviewFrameInfo.parseRatio('16:9'), closeTo(16 / 9, 1e-9));
+      expect(PreviewFrameInfo.parseRatio('1.5'), 1.5);
+      for (final junk in [null, '', '16/0', '-4/3', 'wide', '1/2/3']) {
+        expect(PreviewFrameInfo.parseRatio(junk), isNull, reason: '$junk');
+      }
     });
   });
 }

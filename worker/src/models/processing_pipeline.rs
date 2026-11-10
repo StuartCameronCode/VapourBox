@@ -9,6 +9,7 @@ use super::{
     ChromaDenoiseParameters, ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
     DebandParameters, DeblockParameters, DehaloParameters, DeinterlaceMethod, DeScratchParameters,
     SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters, FrameRateParameters, FrameRateMethod, NoiseReductionMethod, DeflickerParameters, EdgeRepairParameters, GhostRemovalParameters, DescaleParameters, FaceRestoreParameters, ColorizeParameters, AudioRestorationParameters,};
+use super::AspectDeclaration;
 
 /// Minimum temporal context (frames on each side of the target) a windowed
 /// preview decodes, regardless of which filters are enabled. Motion-compensated
@@ -860,6 +861,20 @@ impl ProcessingPipeline {
         declared.max(MIN_PREVIEW_RADIUS)
     }
 
+    /// How the output's aspect is declared, given the source's SAR as ffprobe
+    /// reports it ("16:15", or `None` for square pixels).
+    ///
+    /// The single decision used by both the encode (which stamps it with
+    /// `setsar`/`setdar`, because the Y4M pipe strips aspect) and the preview
+    /// (which reports it so the app can draw the processed frame at the shape
+    /// the encode will have — issue #149). A quarter turn exchanges pixel width
+    /// and height, so the source SAR is adjusted for rotation first, or a
+    /// rotated anamorphic source is stretched by the square of its own aspect.
+    pub fn output_aspect(&self, input_sar: Option<&str>) -> AspectDeclaration {
+        let rotated_sar = self.geometry.adjusted_sar(input_sar);
+        self.crop_resize.aspect_declaration(rotated_sar.as_deref())
+    }
+
     /// Check if a specific pass is enabled.
     pub fn is_pass_enabled(&self, pass: PassType) -> bool {
         match pass {
@@ -893,6 +908,49 @@ impl ProcessingPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_output_aspect_carries_the_source_sar_through() {
+        let p = ProcessingPipeline::default();
+        assert_eq!(p.output_aspect(Some("16:15")), AspectDeclaration::Sar("16:15".into()));
+        assert_eq!(p.output_aspect(None), AspectDeclaration::None);
+    }
+
+    #[test]
+    fn test_output_aspect_adjusts_the_sar_for_a_quarter_turn() {
+        let p = ProcessingPipeline {
+            geometry: GeometryParameters {
+                enabled: true,
+                rotation: crate::models::Rotation::Cw90,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(p.output_aspect(Some("16:15")), AspectDeclaration::Sar("15:16".into()));
+    }
+
+    #[test]
+    fn test_output_aspect_follows_the_crop_resize_decision() {
+        let square = ProcessingPipeline {
+            crop_resize: CropResizeParameters {
+                enabled: true,
+                pixel_aspect: crate::models::PixelAspectMode::Square,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(square.output_aspect(Some("16:15")), AspectDeclaration::None);
+
+        let forced = ProcessingPipeline {
+            crop_resize: CropResizeParameters {
+                enabled: true,
+                display_aspect: Some("16:9".into()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(forced.output_aspect(Some("16:15")), AspectDeclaration::Dar("16/9".into()));
+    }
 
     fn retimed(target: (u32, u32), src: (u32, u32), method: FrameRateMethod, deinterlace: bool) -> ProcessingPipeline {
         ProcessingPipeline {

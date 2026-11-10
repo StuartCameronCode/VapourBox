@@ -47,23 +47,6 @@ class _PreviewPanelState extends State<PreviewPanel> {
   }
 
   Widget _buildPreviewComparison(BuildContext context, MainViewModel viewModel) {
-    // Compute display aspect ratio for SAR correction.
-    // DAR = (width / height) * (sarNum / sarDen)
-    // Only needed when SAR is non-square (e.g. anamorphic DVD 32:27).
-    double? displayAspectRatio;
-    final videoInfo = viewModel.videoInfo;
-    if (videoInfo != null && videoInfo.sar != null) {
-      final parts = videoInfo.sar!.split(':');
-      if (parts.length == 2) {
-        final sarNum = double.tryParse(parts[0]);
-        final sarDen = double.tryParse(parts[1]);
-        if (sarNum != null && sarDen != null && sarDen > 0) {
-          displayAspectRatio =
-              (videoInfo.width / videoInfo.height) * (sarNum / sarDen);
-        }
-      }
-    }
-
     // The scope reads the processed preview, falling back to the source frame
     // before any pass has rendered — that is what the user is looking at.
     final scopeImage = viewModel.processedPreview ?? viewModel.currentFrame;
@@ -78,7 +61,10 @@ class _PreviewPanelState extends State<PreviewPanel> {
               afterImage: scopeImage,
               isBeforeLoading: viewModel.isAnalyzing,
               isAfterLoading: viewModel.isGeneratingPreview,
-              displayAspectRatio: displayAspectRatio,
+              // Each side at its own shape: the processed frame at the
+              // encode's, not the source's (issue #149).
+              beforeAspectRatio: viewModel.sourceDisplayAspect,
+              afterAspectRatio: viewModel.comparisonAfterAspect,
               zoomController: viewModel.previewZoom,
             ),
           ),

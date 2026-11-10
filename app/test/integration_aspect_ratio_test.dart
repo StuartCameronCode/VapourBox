@@ -13,15 +13,23 @@ library;
 // ignore_for_file: avoid_print — these tests print diagnostics to the test log.
 
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' show Size;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:vapourbox/models/crop_resize_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
+import 'package:vapourbox/models/geometry_parameters.dart';
+import 'package:vapourbox/models/noise_reduction_parameters.dart';
+import 'package:vapourbox/models/preview_frame_info.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
+import 'package:vapourbox/services/image_dimensions.dart';
+import 'package:vapourbox/viewmodels/main_viewmodel.dart'
+    show processedDisplayAspect;
 
 import 'support/worker_harness.dart';
 
@@ -35,18 +43,87 @@ const _srcWidth = 720;
 const _srcHeight = 576;
 const _srcSar = 16 / 11;
 
+/// The issue #149 source: 720x576 PAL 4:3 (16:15 pixels), a flat mid-grey so
+/// the picture's extent inside the bars can be measured.
+late String _pal43;
+
+VideoJob _job(
+  String name,
+  CropResizeParameters cropResize, {
+  required String input,
+  required String inputSar,
+  ProcessingPipeline? pipeline,
+}) =>
+    VideoJob(
+      id: const Uuid().v4(),
+      inputPath: input,
+      outputPath: '$_outDir/$name.mkv',
+      processingPipeline: pipeline ??
+          ProcessingPipeline(
+            deinterlace: const QTGMCParameters(enabled: false),
+            cropResize: cropResize,
+          ),
+      encodingSettings: const EncodingSettings(
+        codec: VideoCodec.h264,
+        container: ContainerFormat.mkv,
+        audioMode: AudioMode.none,
+      ),
+      inputWidth: _srcWidth,
+      inputHeight: _srcHeight,
+      inputFrameRate: 25.0,
+      inputPixelFormat: 'yuv420p',
+      inputSar: inputSar,
+    );
+
+/// Preview one frame the way the app does, returning the PNG, what the
+/// worker reported for it, and the display aspect the app draws it at.
+Future<({Uint8List png, PreviewFrameInfo info, double? aspect})> _preview(
+  String name,
+  CropResizeParameters cropResize, {
+  required String input,
+  required String inputSar,
+  ProcessingPipeline? pipeline,
+}) async {
+  final job = _job(name, cropResize,
+      input: input, inputSar: inputSar, pipeline: pipeline);
+  final result =
+      await WorkerHarness.runPreview(job.toJson(), frame: 2, label: name);
+  expect(result.success, isTrue, reason: '$name: $result');
+  final info = PreviewFrameInfo.parse(result.logs);
+  expect(info, isNotNull, reason: '$name: no PREVIEW_INFO line');
+  final aspect = processedDisplayAspect(result.png, info);
+  print('  $name (preview): ${encodedImageSize(result.png!)} '
+      'SAR=${info!.outputSar} DAR=${info.outputDar} -> drawn at $aspect');
+  return (png: result.png!, info: info, aspect: aspect);
+}
+
+/// Columns of the middle row that are picture rather than black bars.
+Future<int> _pictureWidth(Uint8List rgb24, int width, int height) async {
+  final row = (height ~/ 2) * width * 3;
+  var count = 0;
+  for (var x = 0; x < width; x++) {
+    final i = row + x * 3;
+    if (rgb24[i] + rgb24[i + 1] + rgb24[i + 2] > 3 * 64) count++;
+  }
+  return count;
+}
+
 Future<({int width, int height, String sar, String dar})> _encode(
   String name,
-  CropResizeParameters cropResize,
-) async {
+  CropResizeParameters cropResize, {
+  String? input,
+  String inputSar = '16:11',
+  ProcessingPipeline? pipeline,
+}) async {
   final job = VideoJob(
     id: const Uuid().v4(),
-    inputPath: _anamorphic,
+    inputPath: input ?? _anamorphic,
     outputPath: '$_outDir/$name.mkv',
-    processingPipeline: ProcessingPipeline(
-      deinterlace: const QTGMCParameters(enabled: false),
-      cropResize: cropResize,
-    ),
+    processingPipeline: pipeline ??
+        ProcessingPipeline(
+          deinterlace: const QTGMCParameters(enabled: false),
+          cropResize: cropResize,
+        ),
     encodingSettings: const EncodingSettings(
       codec: VideoCodec.h264,
       container: ContainerFormat.mkv,
@@ -55,7 +132,7 @@ Future<({int width, int height, String sar, String dar})> _encode(
     inputWidth: _srcWidth,
     inputHeight: _srcHeight,
     inputFrameRate: 25.0,
-    inputSar: '16:11',
+    inputSar: inputSar,
     startFrame: 0,
     endFrame: 4,
   );
@@ -114,6 +191,22 @@ void main() {
         selector: 'v:0', entries: ['sample_aspect_ratio']);
     expect(src?['sample_aspect_ratio'], '16:11',
         reason: 'fixture must be anamorphic to exercise this at all');
+
+    _pal43 = '$_outDir/src_pal_4x3_16x15.mkv';
+    final pal = await Process.run(
+      WorkerHarness.ffmpegPath,
+      [
+        '-hide_banner', '-loglevel', 'error', '-y',
+        '-f', 'lavfi',
+        '-i', 'color=c=0x808080:size=${_srcWidth}x$_srcHeight:rate=25:duration=0.4',
+        '-c:v', 'ffv1', '-pix_fmt', 'yuv420p',
+        // 16:15 pixels: PAL 4:3. 720 * 16/15 / 576 = 4:3.
+        '-vf', 'setsar=16/15',
+        _pal43,
+      ],
+      environment: WorkerHarness.ffmpegEnv,
+    );
+    expect(pal.exitCode, 0, reason: 'fixture: ${pal.stderr}');
   });
 
   group('aspect ratio (full encode)', () {
@@ -215,6 +308,119 @@ void main() {
       // padding takes it back out to the full box.
       expect(out.width, 1280);
       expect(out.height, 1024);
+    }, timeout: const Timeout(Duration(minutes: 5)));
+  });
+
+  // Issue #149: a 720x576 PAL 4:3 capture resized to 1440x1080 and given
+  // borders out to 1920x1080 previewed squashed, because the processed frame
+  // was drawn at the source's 4:3. The preview now reports the aspect the
+  // encode declares, and is fitted with the same SAR.
+  group('preview aspect (issue #149)', () {
+    CropResizeParameters reporter(PixelAspectMode mode) => CropResizeParameters(
+          enabled: true,
+          resizeEnabled: true,
+          targetWidth: 1440,
+          targetHeight: 1080,
+          maintainAspect: true,
+          pixelAspect: mode,
+          padEnabled: true,
+          padWidth: 1920,
+          padHeight: 1080,
+        );
+
+    test('square pixels: drawn 16:9, picture fitted like the encode', () async {
+      final params = reporter(PixelAspectMode.square);
+      final preview = await _preview('preview_149_square', params,
+          input: _pal43, inputSar: '16:15');
+      expect(encodedImageSize(preview.png), const Size(1920, 1080));
+      expect(preview.info.outputSar, isNull);
+      expect(preview.info.outputDar, isNull);
+      expect(preview.aspect, closeTo(16 / 9, 1e-6),
+          reason: 'the processed frame must not be drawn at the source\'s 4:3');
+
+      // The picture inside the bars is the width the encode makes it: 4:3
+      // at 1080 tall is 1440. Without the source SAR in the preview job it
+      // was fitted as 1350.
+      final out = await _encode('aspect_149_square', params,
+          input: _pal43, inputSar: '16:15');
+      expect((out.width, out.height), (1920, 1080));
+      final encoded = await _pictureWidth(
+          await WorkerHarness.frameRgb24(
+              '$_outDir/aspect_149_square.mkv', 0, label: 'enc149'),
+          1920, 1080);
+      final previewed = await _pictureWidth(
+          await WorkerHarness.imageToRgb24(preview.png, label: 'pv149'),
+          1920, 1080);
+      print('  picture width: encode $encoded, preview $previewed');
+      expect(encoded, closeTo(1440, 4));
+      expect(previewed, closeTo(encoded, 4));
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('preserve: drawn at the SAR the encode stamps', () async {
+      final params = reporter(PixelAspectMode.preserve);
+      final preview = await _preview('preview_149_preserve', params,
+          input: _pal43, inputSar: '16:15');
+      expect(preview.info.outputSar, closeTo(16 / 15, 1e-9));
+      final out = await _encode('aspect_149_preserve', params,
+          input: _pal43, inputSar: '16:15');
+      expect(preview.aspect, closeTo(_displayAspect(out), 0.01),
+          reason: 'the preview must be drawn at the encode\'s display aspect');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('a forced display aspect is reported as a DAR', () async {
+      final preview = await _preview(
+        'preview_149_dar',
+        const CropResizeParameters(enabled: true, displayAspect: '16:9'),
+        input: _pal43,
+        inputSar: '16:15',
+      );
+      expect(preview.info.outputDar, closeTo(16 / 9, 1e-9));
+      expect(preview.aspect, closeTo(16 / 9, 1e-9));
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    // The everyday case, and the one the fix could break: an anamorphic
+    // source that no pass reshapes. Before #149 both sides were drawn at the
+    // source's aspect without asking; now the processed side relies on the
+    // worker's report, so it must come out the source's shape.
+    test('an anamorphic source only denoised keeps its shape', () async {
+      final pipeline = ProcessingPipeline(
+        deinterlace: const QTGMCParameters(enabled: false),
+        noiseReduction:
+            NoiseReductionParameters.fromPreset(NoiseReductionPreset.light),
+      );
+      const none = CropResizeParameters();
+      final preview = await _preview('preview_149_denoise', none,
+          input: _anamorphic, inputSar: '16:11', pipeline: pipeline);
+      expect(encodedImageSize(preview.png), Size(_srcWidth.toDouble(), _srcHeight.toDouble()));
+      expect(preview.info.outputSar, closeTo(16 / 11, 1e-9));
+      final out = await _encode('aspect_149_denoise', none,
+          input: _anamorphic, inputSar: '16:11', pipeline: pipeline);
+      const source = _srcWidth * _srcSar / _srcHeight;
+      expect(_displayAspect(out), closeTo(source, 0.01));
+      expect(preview.aspect, closeTo(source, 0.01),
+          reason: 'with nothing reshaping it the processed frame must be '
+              'drawn at the source\'s display aspect, as it was before #149');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    // A quarter turn swaps the stored width and height and inverts the SAR:
+    // 720x576 at 16:15 (4:3) becomes 576x720 at 15:16 (3:4).
+    test('a rotated anamorphic source is drawn at the encode\'s shape',
+        () async {
+      final pipeline = ProcessingPipeline(
+        deinterlace: const QTGMCParameters(enabled: false),
+        geometry:
+            const GeometryParameters(enabled: true, rotation: Rotation.cw90),
+      );
+      const none = CropResizeParameters();
+      final preview = await _preview('preview_149_rotate', none,
+          input: _pal43, inputSar: '16:15', pipeline: pipeline);
+      expect(encodedImageSize(preview.png), Size(_srcHeight.toDouble(), _srcWidth.toDouble()));
+      expect(preview.info.outputSar, closeTo(15 / 16, 1e-9));
+      final out = await _encode('aspect_149_rotate', none,
+          input: _pal43, inputSar: '16:15', pipeline: pipeline);
+      expect((out.width, out.height), (_srcHeight, _srcWidth));
+      expect(_displayAspect(out), closeTo(3 / 4, 0.01));
+      expect(preview.aspect, closeTo(_displayAspect(out), 0.01));
     }, timeout: const Timeout(Duration(minutes: 5)));
   });
 }

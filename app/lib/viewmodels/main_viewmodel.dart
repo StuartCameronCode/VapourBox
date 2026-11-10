@@ -24,6 +24,7 @@ import '../services/disc_detector.dart';
 import '../services/dvd_service.dart';
 import '../services/field_order_detector.dart';
 import '../services/frame_math.dart';
+import '../services/image_dimensions.dart';
 import '../services/timeline_math.dart';
 import '../services/preset_service.dart';
 import '../services/preview_generator.dart';
@@ -33,6 +34,18 @@ import '../services/job_runner.dart';
 import '../services/system_shutdown.dart';
 import '../services/worker_manager.dart';
 import '../widgets/comparison_zoom_controller.dart';
+
+/// The display aspect a processed preview is drawn at: its stored size with
+/// the aspect the worker reported for it applied, i.e. the shape the encode
+/// will have. Null — draw it at its own pixel shape — when there is no image,
+/// its size can't be read, or the worker reported nothing (issue #149).
+@visibleForTesting
+double? processedDisplayAspect(Uint8List? image, PreviewFrameInfo? info) {
+  if (image == null || info == null) return null;
+  final pixels = encodedImageSize(image);
+  if (pixels == null || pixels.isEmpty) return null;
+  return info.displayAspectFor(pixels);
+}
 
 /// Main view model managing application state.
 class MainViewModel extends ChangeNotifier {
@@ -245,7 +258,8 @@ class MainViewModel extends ChangeNotifier {
 
   /// Put an analysed video in the queue and select it, for widget tests.
   @visibleForTesting
-  void debugAddQueueItemForTest(String path, {required int width, required int height}) {
+  void debugAddQueueItemForTest(String path,
+      {required int width, required int height, String? sar}) {
     final item = QueueItem(
       inputPath: path,
       outputPath: '$path.out.mkv',
@@ -258,6 +272,7 @@ class MainViewModel extends ChangeNotifier {
         codec: 'h264',
         pixelFormat: 'yuv420p',
         hasAudio: false,
+        sar: sar,
       ),
     );
     _queue.add(item);
@@ -672,6 +687,27 @@ class MainViewModel extends ChangeNotifier {
   List<Uint8List> get thumbnails => selectedItem?.thumbnails ?? [];
   Uint8List? get currentFrame => selectedItem?.currentFrame;
   Uint8List? get processedPreview => selectedItem?.processedPreview;
+
+  /// The display aspect of [processedPreview] — the shape the encode will
+  /// have — or null when it is drawn at its own pixel shape.
+  double? get processedPreviewAspect => selectedItem?.processedPreviewAspect;
+
+  /// The source's display aspect, `width / height * SAR`, for the "before"
+  /// frame; null for square pixels or an unreadable SAR.
+  double? get sourceDisplayAspect {
+    final info = videoInfo;
+    if (info == null || info.height <= 0) return null;
+    final sar = PreviewFrameInfo.parseRatio(info.sar);
+    if (sar == null) return null;
+    return info.width / info.height * sar;
+  }
+
+  /// The aspect the "after" side of the comparison is drawn at: the processed
+  /// frame's own (the encode's shape, which a resize, pad, crop, rotation or
+  /// squaring makes different from the source's — issue #149), or, until a
+  /// processed frame exists, the source's, since the source frame stands in.
+  double? get comparisonAfterAspect =>
+      processedPreview != null ? processedPreviewAspect : sourceDisplayAspect;
   double get scrubberPosition => selectedItem?.scrubberPosition ?? 0.0;
   bool get isGeneratingPreview => _isGeneratingPreview;
   double get videoDuration => _previewGenerator.duration;
@@ -1417,8 +1453,8 @@ class MainViewModel extends ChangeNotifier {
       );
 
       if (generation == _previewGeneration && !cancelToken.isCancelled) {
-        item.processedPreview = preview;
-        _previewFrameInfo = preview == null ? null : _previewGenerator.lastFrameInfo;
+        _acceptProcessedPreview(
+            item, preview, preview == null ? null : _previewGenerator.lastFrameInfo);
         // The worker clamps to the frames there are, e.g. after the frame
         // rate pass is switched off; step on from what it showed.
         if (_previewFrameInfo != null) _previewSubFrame = _previewFrameInfo!.subFrame;
@@ -1433,6 +1469,27 @@ class MainViewModel extends ChangeNotifier {
       _isGeneratingPreview = false;
       notifyListeners();
     }
+  }
+
+  /// Store a rendered preview on [item] with the display aspect it is drawn
+  /// at. The aspect is kept with the image because [previewFrameInfo] goes
+  /// null as soon as the scrubber moves, while this image stays on screen
+  /// until the next one replaces it (issue #149).
+  void _acceptProcessedPreview(
+      QueueItem item, Uint8List? preview, PreviewFrameInfo? info) {
+    item.processedPreview = preview;
+    _previewFrameInfo = info;
+    item.processedPreviewAspect = processedDisplayAspect(preview, info);
+  }
+
+  /// Deliver a preview as the worker would have, for tests of what the
+  /// comparison is drawn at.
+  @visibleForTesting
+  void debugAcceptProcessedPreview(Uint8List? preview, PreviewFrameInfo? info) {
+    final item = selectedItem;
+    if (item == null) return;
+    _acceptProcessedPreview(item, preview, info);
+    notifyListeners();
   }
 
   /// Cancels any ongoing preview generation.

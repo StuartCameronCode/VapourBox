@@ -835,6 +835,38 @@ Three things decide the shape of the output, and they live in different places:
 else so a typo falls back to the source's own aspect rather than reaching ffmpeg
 as a broken filter argument.
 
+**The preview has to show the same shape (issue #149).** The preview PNG carries
+no aspect, so the app used to draw the processed frame at the **source's**
+display aspect. Anything a pass reshaped (a 720x576 4:3 source resized and
+padded to 1920x1080, say) came out squashed. Three invariants now hold:
+
+- **One decision, two consumers.** `ProcessingPipeline::output_aspect(input_sar)`
+  (rotation-adjusted SAR → `aspect_declaration`) is used by the encode's
+  `setsar`/`setdar` **and** by the preview. The preview reports it on its
+  `PREVIEW_INFO:` stderr line as `sar=N/D` or `dar=N/D` (nothing for square
+  pixels). `PreviewFrameInfo.displayAspectFor` turns that plus the PNG's size into
+  the shape to draw.
+- **Each side has its own aspect.** `BeforeAfterComparisonWidget` takes
+  `beforeAspectRatio` (source) and `afterAspectRatio` (processed). 1:1 is
+  measured against the processed one. The processed aspect is stored on the
+  `QueueItem` next to the image (`processedPreviewAspect`), not read from
+  `previewFrameInfo`, which goes null as soon as the scrubber moves.
+- **The preview job must carry `inputSar`.** `{{SOURCE_SAR}}` falls back to 1
+  without it, so square-pixel fitting previewed a different frame from the
+  one encoded (1350 vs 1440 wide in the #149 setup). `PreviewGenerator` reads it
+  through the same `FieldOrderDetector.normalizeSar` as the encode job.
+
+The panel reads both sides' aspects from the view model
+(`sourceDisplayAspect`, `comparisonAfterAspect`), not from its own arithmetic,
+so the wiring is testable without a worker (`debugAcceptProcessedPreview`).
+
+Covered by `test_185` (Rust), `preview_frame_info_test`, `preview_aspect_test`
+(including the view-model wiring: an unreshaped anamorphic source keeps its
+shape, the aspect survives a scrubber move), `before_after_comparison_test`, and
+the heavy `preview aspect (issue #149)` group in `integration_aspect_ratio_test.dart`,
+which compares the preview with the encode for square, preserve, forced DAR,
+denoise-only anamorphic and rotated anamorphic jobs.
+
 ### Borders (issue #86)
 
 Two ways to add bars, sharing one step at the **very end of both templates**

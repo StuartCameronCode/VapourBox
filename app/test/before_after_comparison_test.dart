@@ -66,6 +66,8 @@ void main() {
       double height = 300,
       double devicePixelRatio = 1,
       double? displayAspectRatio,
+      Uint8List? beforeImage,
+      double? beforeAspectRatio,
     }) async {
       tester.view.devicePixelRatio = devicePixelRatio;
       tester.view.physicalSize =
@@ -78,9 +80,12 @@ void main() {
             width: width,
             height: height,
             child: BeforeAfterComparisonWidget(
-              beforeImage: image,
+              beforeImage: beforeImage ?? image,
               afterImage: image,
-              displayAspectRatio: displayAspectRatio,
+              beforeAspectRatio: beforeImage != null
+                  ? beforeAspectRatio
+                  : displayAspectRatio,
+              afterAspectRatio: displayAspectRatio,
               zoomController: controller,
             ),
           ),
@@ -148,6 +153,55 @@ void main() {
 
       final fittedHeight = 398 / (16 / 9);
       expect(scaleOf(tester), closeTo(480 / fittedHeight, 1e-9));
+    });
+
+    // Issue #149: a 720x576 PAL 4:3 source upscaled and padded to a
+    // 1920x1080 canvas was drawn squashed into the source's 4:3 shape.
+    testWidgets('each side is drawn at its own display aspect',
+        (tester) async {
+      final source = await tester.runAsync(() => _png(720, 576));
+      final processed = await tester.runAsync(() => _png(1920, 1080));
+      await pump(
+        tester,
+        processed!,
+        displayAspectRatio: 16 / 9,
+        beforeImage: source!,
+        beforeAspectRatio: 4 / 3,
+      );
+
+      // Stack order: the processed layer, then the source layer.
+      final images = find.descendant(
+        of: find.byType(BeforeAfterComparisonWidget),
+        matching: find.byType(Image),
+      );
+      expect(images, findsNWidgets(2));
+      final after = tester.getRect(images.at(0));
+      final before = tester.getRect(images.at(1));
+      expect(after.width / after.height, closeTo(16 / 9, 1e-6));
+      expect(before.width / before.height, closeTo(4 / 3, 1e-6));
+      // Both fit the 398x298 panel: the processed one by width, the source
+      // by height.
+      expect(after.width, closeTo(398, 1e-6));
+      expect(before.height, closeTo(298, 1e-6));
+    });
+
+    testWidgets('1:1 is measured against the processed frame\'s aspect',
+        (tester) async {
+      final source = await tester.runAsync(() => _png(720, 576));
+      final processed = await tester.runAsync(() => _png(1920, 1080));
+      await pump(
+        tester,
+        processed!,
+        displayAspectRatio: 16 / 9,
+        beforeImage: source!,
+        beforeAspectRatio: 4 / 3,
+      );
+      controller.showActualSize();
+      await tester.pumpAndSettle();
+
+      // Fitted 398 wide at 16:9; 1:1 puts its 1080 rows on 1080 pixels.
+      final fittedHeight = 398 / (16 / 9);
+      expect(scaleOf(tester), closeTo(1080 / fittedHeight, 1e-9));
     });
 
     testWidgets('the frame is drawn on the pixel grid at 1:1', (tester) async {
