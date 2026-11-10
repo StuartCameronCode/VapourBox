@@ -402,7 +402,7 @@ mod tests {
         assert_eq!(n(Some("bt709"), Some("bt709"), Some("bt709")), None);
         assert_eq!(n(Some("unknown"), Some("unknown"), Some("unknown")), None);
         assert_eq!(n(Some("N/A"), Some(""), Some("  ")), None);
-        // aramkolt's ProRes.
+        // The reported ProRes capture's tags.
         assert_eq!(
             n(Some("unknown"), Some("reserved"), Some("reserved")).as_deref(),
             Some("setparams=color_primaries=unknown:color_trc=unknown")
