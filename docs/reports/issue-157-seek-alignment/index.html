@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #157: seek alignment</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+  figure { margin: 18px 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>Issue #157 — after a seek, the decoder repeated the first frame</h1>
+<p class="meta">2026-11-10 · issue <a href="https://github.com/StuartCameronCode/VapourBox/issues/157">#157</a>
+(reported on the videohelp forum, thread 419911, post #152) · measured on an Apple M-series Mac
+(macOS arm64), deps 1.16.0 (FFmpeg 9.0), against the worker of app 1.7.0 and the same worker with the fix</p>
+
+<div class="card">
+<strong>Outcome: fixed.</strong> With every filter off, the preview's Processed frame lagged the
+Original by one frame. Cause: the worker's source decoders write <code>rawvideo</code>, so ffmpeg
+times their output at a constant rate, and after a seek, for many time bases, that timing
+<span class="bad">emitted the first kept frame twice</span>. Every later frame landed one slot
+late. The same decoder feeds trimmed encodes and the detectors, so:
+<ul>
+<li><strong>Preview</strong>: showed frame N−1 (the app's own Original decode showed N).</li>
+<li><strong>Trimmed encodes</strong>: a trim of 41..52 came out <code>41, 41, 42 … 51</code>: first
+frame doubled, last frame lost, picture one frame late against the audio.</li>
+<li><strong>Noise score</strong>: every sampled pair was one picture twice, so a source with
+sigma ≈ 4.5 noise scored <span class="bad">0.0</span> and Noise Reduction was never suggested.</li>
+</ul>
+The fix puts <code>setpts=PTS-STARTPTS</code> at the front of a seeking decoder's one
+<code>-vf</code> (<code>worker/src/source_decode.rs</code>), and stops the preview passing a
+pointless <code>-ss 0</code>, so a window at frame 0 decodes exactly like an untrimmed encode.
+<span class="good">Every affected source now decodes the right frames from every start
+tried</span>; untrimmed encodes are bit-identical to before.
+</div>
+
+<h2>1. The mechanism</h2>
+<p>The ffmpeg CLI picks an output timing mode from the muxer's flags. <code>rawvideo</code> declares
+<code>AVFMT_NOTIMESTAMPS</code> but not <code>AVFMT_VARIABLE_FPS</code>, so it gets
+<strong>constant-rate</strong> timing: frames are placed on a grid at the output rate, and a frame
+is repeated or dropped to keep the grid filled. An image muxer (the app's JPEG Original frame)
+declares both, so it gets passthrough timing. That is why the Original side was right and the
+Processed side was not.</p>
+<p>Both seeking decoders seek to <code>(first − 0.5) / fps</code>, half a frame before the frame
+wanted, so ffmpeg's accurate seek keeps exactly that frame. Its timestamp then sits half a frame
+after the output's zero. For some time bases, the constant-rate grid fills that gap by emitting
+the frame twice. <code>setpts=PTS-STARTPTS</code> rebases the first kept frame to 0, so there is no
+gap to fill.</p>
+<p><code>-fps_mode passthrough</code> would also remove the gap, but it changes what a
+soft-telecine source decodes to (§5). It is the right tool only for the VFR decoder
+(<code>timeline_decoder_args</code>, issue #137), which places stored frames in the script itself
+and is untouched here.</p>
+
+<h2>2. Which sources were affected</h2>
+<p>8 frames decoded from source frame 40, seeking as the worker does. Each picture is named by
+its index in an independent <strong>sequential</strong> decode of the same file (MD5 of the luma
+plane; <code>-fps_mode passthrough</code>, every stored frame once, no seek). The last two columns
+count, over 7–8 start frames (1, 10, 40–43, 77, near the end), how often the 8 frames were exactly
+<code>start … start+7</code>. Script: <code>dup_probe.py</code>.</p>
+<div class="scroll">
+<table>
+<tr><th>Source</th><th>Time base</th><th>Before (default timing)</th><th>After (<code>setpts</code>)</th><th class="num">Right, before</th><th class="num">Right, after</th></tr>
+<tr><th colspan="6">Affected: fixed</th></tr>
+<tr><td><code>small_clip.mp4</code> (H.264, 29.97)</td><td>1/2997</td><td class="bad">40, 40, 41 … 46</td><td>40, 41 … 47</td><td class="num">0/8</td><td class="num good">8/8</td></tr>
+<tr><td><code>seek_timebase_2997.mov</code> (new fixture, H.264, 29.97)</td><td>1/11988</td><td class="bad">40, 40, 41 … 46</td><td>40, 41 … 47</td><td class="num">0/8</td><td class="num good">8/8</td></tr>
+<tr><td>ProRes 422 Proxy MOV, 29.97 (variant)</td><td>1/11988</td><td class="bad">40, 40, 41 … 46</td><td>40, 41 … 47</td><td class="num">0/8</td><td class="num good">8/8</td></tr>
+<tr><td>H.264 MKV, 25 (variant)</td><td>1/1000</td><td class="bad">40, 40, 41 … 46</td><td>40, 41 … 47</td><td class="num">0/8</td><td class="num good">8/8</td></tr>
+<tr><td>Noisy ProRes HQ MOV / noisy H.264 MP4 (variants)</td><td>1/11988, 1/2997</td><td class="bad">40, 40, 41 … 46</td><td>40, 41 … 47</td><td class="num">0/8</td><td class="num good">8/8</td></tr>
+<tr><th colspan="6">Unaffected: unchanged</th></tr>
+<tr><td><code>colorize_test.mp4</code> (24)</td><td>1/12288</td><td>40 … 47</td><td>40 … 47</td><td class="num">8/8</td><td class="num">8/8</td></tr>
+<tr><td><code>face_restore_test.mp4</code> (29.97)</td><td>1/30000</td><td>40 … 47</td><td>40 … 47</td><td class="num">8/8</td><td class="num">8/8</td></tr>
+<tr><td><code>prores422_10bit_telecine.mov</code> (30 frames)</td><td>1/30000</td><td>right</td><td>right</td><td class="num">2/2</td><td class="num">2/2</td></tr>
+<tr><td><code>pal-sd-25.mov</code></td><td>1/25</td><td colspan="4">static colour bars: every frame identical, so this fixture can't show a shift either way</td></tr>
+<tr><th colspan="6">Seek lands on the wrong picture for other reasons (§6): the duplicate run is gone, the position is not fixed</th></tr>
+<tr><td><code>pal-dvbt-fieldcoded-25i.ts</code></td><td>1/90000</td><td class="bad">28 ×8</td><td>28, 29 … 35</td><td class="num">0/8</td><td class="num">0/8</td></tr>
+<tr><td>MPEG-2 PAL DVD program stream, open GOP (variant)</td><td>1/90000</td><td class="bad">48 ×8</td><td>48, 49 … 55</td><td class="num">0/8</td><td class="num">1/8</td></tr>
+<tr><td>H.264 MPEG-TS, 25 (variant)</td><td>1/90000</td><td class="bad">50 ×8</td><td>50, 51 … 57</td><td class="num">0/8</td><td class="num">0/8</td></tr>
+<tr><td><code>hard_telecine_test.avi</code> (MPEG-2 in AVI)</td><td>1001/30000</td><td>38, 39 … 45</td><td>38, 39 … 45</td><td class="num">0/8</td><td class="num">0/8</td></tr>
+<tr><td><code>interlaced_test.avi</code> (Lagarith, 75 stored frames)</td><td>1/25</td><td>36 … 43</td><td>36 … 43</td><td class="num">0/7</td><td class="num">1/7</td></tr>
+<tr><td><code>soft_telecine_test.mkv</code> (MPEG-2, 23.976)</td><td>1/1000</td><td class="bad">40, 40, 40, 42, 42, 44, 45, 45</td><td>40, 40, 40, 41, 42 … 45</td><td class="num">0/8</td><td class="num">0/8</td></tr>
+</table>
+</div>
+<p class="caption">The "variant" rows are built by <code>make_variants.py</code> from ffmpeg's
+<code>testsrc2</code> (every frame differs) and are not committed. The committed
+<code>seek_timebase_2997.mov</code> is made by
+<code>Tests/TestResources/generate_seek_timebase_test.sh</code>; its 1/11988 timescale is the one
+from a user's ProRes clip in the same forum thread. <strong>Limit:</strong> MD5 identity says
+<em>which</em> stored picture came out, which is exact for this question, but only for decodes of the
+same file; it says nothing about colour.</p>
+<p><strong>Not fully confirmed:</strong> the plan asked for a TS "without an audio-first gap". ffmpeg's
+MPEG-TS muxer adds its own 1.4 s mux delay, so the variant's video starts at 1.48 s anyway, and like
+the PS variant its seek lands on a later keyframe. Neither TS file isolates the duplicate from the
+position bug, and both are recorded as follow-up work (§6).</p>
+
+<h2>3. What the user saw, and what they see now</h2>
+<p>Script: <code>worker_probe.py</code> runs the worker itself, with every pass off. The preview of
+frame N, and the app's Original (the exact arguments of <code>PreviewGenerator.beforeFrameArgs</code>,
+to PNG), are each compared with the sequential decode's frames N−2 … N+2 by mean absolute RGB
+difference; the closest is reported. A trimmed FFV1 encode of 41..52 is named frame by frame by MD5.</p>
+<table>
+<tr><th>Source</th><th>Preview of 10 / 41 / 60, before</th><th>after</th><th>Original</th><th>Trim 41..52, before</th><th>after</th></tr>
+<tr><td><code>small_clip.mp4</code></td><td class="bad">N−1, N−1, N−1</td><td class="good">N, N, N</td><td>N (both)</td><td class="bad">41, 41, 42 … 51</td><td class="good">41, 42 … 52</td></tr>
+<tr><td><code>seek_timebase_2997.mov</code></td><td class="bad">N−1, N−1, N−1</td><td class="good">N, N, N</td><td>N (both)</td><td class="bad">41, 41, 42 … 51</td><td class="good">41, 42 … 52</td></tr>
+<tr><td><code>colorize_test.mp4</code></td><td colspan="2">unchanged; nearly static black-and-white, so the nearest-frame test is not decisive (neighbours within 2 levels of each other)</td><td>same as preview</td><td>41 … 52</td><td>41 … 52</td></tr>
+<tr><td><code>interlaced_test.avi</code></td><td colspan="2">unchanged; against the sequential decode it reads N−2 at 41 and 60 because of its 4 leading null frames (§6)</td><td>same as preview</td><td colspan="2">37 … 48 both (same reason)</td></tr>
+</table>
+<p>Preview against Original, before the fix: mean difference 2.7–11.5 on <code>small_clip.mp4</code>,
+4.0–5.5 on the MOV. After: <span class="good">0.00</span> on both.</p>
+
+<figure>
+<a href="img/01-original-frame-41.png"><img src="img/01-original-frame-41.png" alt="small_clip.mp4 frame 41, the Original"></a>
+<figcaption class="caption"><strong>1.</strong> The Original side for <code>small_clip.mp4</code>
+frame 41: the app's own decode, correct before and after. Every image here is 2× nearest-neighbour.</figcaption>
+</figure>
+<figure>
+<a href="img/02-processed-before-fix.png"><img src="img/02-processed-before-fix.png" alt="Processed preview of frame 41 before the fix"></a>
+<figcaption class="caption"><strong>2.</strong> The Processed preview of frame 41 before the fix, every pass
+off. It is frame 40: compare the man's chin and collar with image 1.</figcaption>
+</figure>
+<figure>
+<a href="img/04-difference-before-fix.png"><img src="img/04-difference-before-fix.png" alt="Difference between preview and Original before the fix, amplified 8x"></a>
+<figcaption class="caption"><strong>3.</strong> |image 2 − image 1|, amplified 8×. Every moving edge lights up:
+with nothing processed, this is the whole of what the "one frame behind" report saw.</figcaption>
+</figure>
+<figure>
+<a href="img/03-processed-after-fix.png"><img src="img/03-processed-after-fix.png" alt="Processed preview of frame 41 after the fix"></a>
+<figcaption class="caption"><strong>4.</strong> The Processed preview of frame 41 after the fix.</figcaption>
+</figure>
+<figure>
+<a href="img/05-difference-after-fix.png"><img src="img/05-difference-after-fix.png" alt="Difference after the fix: black"></a>
+<figcaption class="caption"><strong>5.</strong> |image 4 − image 1|, amplified 8×: black, i.e. the same picture.</figcaption>
+</figure>
+
+<h2>4. What must not change</h2>
+<h3>Untrimmed encodes</h3>
+<p>An untrimmed encode does not seek, so its decoder arguments are unchanged by construction (unit
+test <code>decoders_that_do_not_seek_are_unchanged</code>). Measured anyway: every decoded frame of an
+FFV1 encode by the worker before and after (framemd5) is
+<span class="good">identical</span> for <code>small_clip.mp4</code> (3151 frames),
+<code>seek_timebase_2997.mov</code> (90), <code>interlaced_test.avi</code> with no passes (75) and with
+QTGMC (150), and <code>soft_telecine_test.mkv</code> (120). Script: <code>identity_probe.py</code>.</p>
+<h3>The preview of frame 0</h3>
+<p>The preview used to pass <code>-ss 0.000000</code> for a window starting at frame 0. That
+<em>is</em> a seek: ffmpeg re-bases timestamps on the seek point and trims anything before it.
+The fix passes no <code>-ss</code> there, like an untrimmed encode. Measured on all 13 sources
+(<code>frame0_probe.py</code>): preview frame 0 is unchanged on 11 and changed on two,
+<code>hard_telecine_test.avi</code> and the DVB-T <code>.ts</code>. On both it now
+<span class="good">equals frame 0 of the untrimmed encode</span> (mean difference 0.00; before 9.24 and
+2.13). With <code>setpts</code> alone, preview frame 0 on late-starting video would have depended on the
+seek; that is why the decision is "no <code>-ss</code>, no reset" rather than "always reset".</p>
+<h3>Telecine</h3>
+<p><code>telecine_probe.py</code>, trimmed encodes of frames 10..69:</p>
+<ul>
+<li><strong>IVTC</strong> on <code>hard_telecine_test.avi</code>: 48 frames before and after,
+<span class="good">bit-identical</span> (this source has no duplicate to remove).</li>
+<li><strong>No passes</strong> on <code>soft_telecine_test.mkv</code>: 60 frames before and after. Before,
+<span class="bad">15 of the 60 stored film frames were missing</span> from the output (11, 13, 16, 18,
+23, …), replaced by repeats of their neighbours. After, <span class="good">none are missing</span>.
+The first frame still comes out three times, exactly as it does at the start of an untrimmed decode
+(the untrimmed decode of this file is 122 slots for 120 stored frames).</li>
+<li><strong>Soft Telecine</strong> method, same file: 48 frames before and after; the pictures differ.
+That method drops 1 frame in 5 even untrimmed when the job's rate is 23.976 (25 of 120 missing). That
+is its own behaviour, recorded in §6, not something this fix changes.</li>
+</ul>
+<p>So <code>setpts</code> keeps what a constant-rate decode does with pulldown. The extra repeat runs and
+drops in the default column came from the seek gap, not the source.</p>
+
+<h2>5. The detectors</h2>
+<p><code>--detect-crop</code>, <code>--detect-noise-halo</code> and <code>--detect-native</code> decode
+through <code>preview_decoder_args</code>, so they get the fix. <code>detector_probe.py</code> runs the
+first two with the worker before and after, and counts how many of the noise detector's 24 sampled
+pairs the old decoder delivered as the same picture twice:</p>
+<table>
+<tr><th>Source</th><th class="num">Pairs that were one picture twice</th><th class="num">Noise before → after</th><th>Suggested</th></tr>
+<tr><td>Noisy H.264 MP4, 1/2997 (temporal noise, ffmpeg <code>noise=alls=10</code>)</td><td class="num">24/24</td><td class="num bad">0.0 → 4.62</td><td>no → <span class="good">yes</span></td></tr>
+<tr><td>Noisy ProRes HQ MOV, 1/11988 (same noise)</td><td class="num">24/24</td><td class="num bad">0.0 → 4.18</td><td>no → <span class="good">yes</span></td></tr>
+<tr><td><code>small_clip.mp4</code>, <code>seek_timebase_2997.mov</code>, clean variants</td><td class="num">24/24</td><td class="num">0.0 → 0.0</td><td>no → no</td></tr>
+<tr><td><code>pal-dvbt-fieldcoded-25i.ts</code></td><td class="num">15/24</td><td class="num">0.0 → 0.0</td><td>no → no</td></tr>
+<tr><td><code>interlaced_test.avi</code>, <code>colorize_test.mp4</code>, <code>face_restore_test.mp4</code></td><td class="num">0/24</td><td class="num">unchanged</td><td>unchanged</td></tr>
+</table>
+<p>Halo scores moved by under 0.7 (none near the 6.0 threshold), and the crop report (crop, crop with
+bars, confidence) was identical on every source. On the affected clean sources the noise score stays
+0.0 because they are compressed clean video, whose skipped blocks read noiseless anyway (as the noise
+report already says). <strong>Limit:</strong> the noisy sources are synthetic; the point is only that
+a measurable noise was read as none.</p>
+<p><strong>The noise report's calibration is not affected.</strong> Its fixtures
+(<a href="../2026-11-noise-halo-scores/index.html">2026-11-noise-halo-scores</a>) are intra-frame FFV1
+MKVs, which decode correctly after a seek (checked: an FFV1 MKV at 25 fps matched from every start
+frame). Its reference measurement reads from frame 0 without seeking. Only its informational full-clip
+worker runs on <code>small_clip.mp4</code> and the DVB-T <code>.ts</code> read duplicated pairs, and both
+score 0.0 before and after. Its thresholds stand and its scripts are unchanged.</p>
+
+<h2>6. Not fixed here: the seek lands on the wrong picture</h2>
+<p>Measuring against an independent decode turned up sources where the seek itself, not the timing,
+lands somewhere else. Every row is the same with <code>-fps_mode passthrough</code>, so it is not this
+bug. They are separate follow-ups:</p>
+<ul>
+<li><strong>MPEG-PS and MPEG-TS</strong> (DVD program stream, H.264 TS, the DVB-T capture): the decode
+starts at a <em>later</em> keyframe (start 40 → 48 with a 12-frame GOP, → 50 with a 25-frame GOP). The
+earlier hypothesis for the DVB-T file, "video starts 1.32 s after its audio", may be part of it. This is
+what DVD/VOB users get, so it is the most important of the three.</li>
+<li><strong>MPEG-2 in AVI</strong> (<code>hard_telecine_test.avi</code>): lands 1–2 frames early (start 10
+→ 8, 40 → 38), and start 1 → 45.</li>
+<li><strong>Leading repeats in an untrimmed decode</strong>: <code>interlaced_test.avi</code> decodes to 79
+constant-rate slots for 75 stored frames (frame 0 four times, frame 1 twice: AVI null frames), and
+<code>soft_telecine_test.mkv</code> to 122 slots for 120. The app's frame numbers and the encode's then
+disagree by those slots, and the Soft Telecine method's 1-in-5 drop depends on which rate the job
+carries.</li>
+<li><strong>Correction (review): one case this fix does change.</strong> A seek <em>into</em> a run of
+leading null frames (<code>interlaced_test.avi</code>, stored pts 0 then 5, in-points 1–4) used to be
+right from the first real frame on, because constant-rate timing filled the gap from the seek point; the
+reset rebases to the first stored frame after the gap, so the whole trim now runs up to two frames early
+(an in-point of 3: 4, 6, 7 … instead of 4, 4, 4, 6, 7 …; the first slot is wrong either way). This broke
+<code>integration_frame_mapping_test.dart</code>'s "from an in-point" (in-point 3), which now starts at 6,
+past the gap. A seek into a <em>mid-stream</em> null-frame run (a dropped-frame capture) is unchanged:
+measured on an FFV1 AVI with frames 100–104 dropped, the old decoder and the reset give the same frames from
+every start 97–106 (both wrong for an in-point inside the run, 100–104). Leading null frames are task 16's.
+<code>scripts/gap_probe.py</code>.</li>
+</ul>
+<p><code>integration_seek_alignment_test.dart</code> covers only sources whose sequential numbering
+<em>is</em> the app's numbering, so it does not claim these.</p>
+
+<h2>7. Decisions</h2>
+<ul>
+<li><strong><code>setpts=PTS-STARTPTS</code>, first in the one <code>-vf</code></strong>: it rebases to the
+first frame the accurate seek kept (the seek's own trim runs before the user filter chain), and
+ffmpeg honours only the last <code>-vf</code>, so it can't be a second one. Measured against the alternative of subtracting the seek's fixed half
+frame (<code>setpts=PTS-0.5/fps/TB</code>, which would keep a gap after the seek point): it fixes the same
+49 doubled starts, but in a 1/25 time base the half frame ties and rounds a frame early, and it broke seeks
+just before a mid-stream null-frame run that the reset handles like the old decoder.</li>
+<li><strong>Not <code>-fps_mode passthrough</code></strong>: same result on ordinary sources, but on
+soft telecine it hands over stored frames (40 … 47) instead of the constant-rate slots an untrimmed
+encode gets. That would make trimmed and untrimmed encodes of one source disagree.</li>
+<li><strong>Only when the decoder seeks</strong>: untrimmed encodes stay byte-identical, and the preview
+of frame 0 decodes like the encode of frame 0 (§4).</li>
+<li><strong>Tested against an independent decode</strong>: preview-vs-encode tests could never see this,
+because both paths shifted together. The heavy test compares the preview, the app's Original and a
+trimmed encode each with <code>select=eq(n,N)</code> of the source. It fails 8 of 12 cases against the
+worker before the fix.</li>
+</ul>
+
+<h2>8. What wasn't tested</h2>
+<ul>
+<li>Windows and Linux. The duplicate comes from the ffmpeg CLI's timing logic, not from a decoder or
+the CPU, and every platform runs FFmpeg 9.0, so the same behaviour is expected. The heavy test runs
+nightly on all four.</li>
+<li>VFR sources: their decoder (<code>timeline_decoder_args</code>) already uses passthrough timing and
+is unchanged.</li>
+<li>Descale's <code>--detect-native</code> wasn't re-run: it decodes single frames, so the fix only
+changes which frame it measures.</li>
+</ul>
+
+<h2>9. Reproduce</h2>
+<pre>cd worker &amp;&amp; cargo build                      # the "after" worker
+# build a "before" worker from the commit before the fix, next to a deps/ directory
+BEFORE_WORKER=/path/to/before/vapourbox-worker \
+  docs/reports/issue-157-seek-alignment/scripts/run.sh</pre>
+<p><code>scripts/</code>: <code>seeklib.py</code> (shared decode helpers), <code>make_variants.py</code>,
+<code>dup_probe.py</code> (§2), <code>worker_probe.py</code> (§3), <code>images.py</code> (images 1–5),
+<code>identity_probe.py</code>, <code>frame0_probe.py</code>, <code>telecine_probe.py</code> (§4),
+<code>detector_probe.py</code> (§5), <code>run.sh</code> (all of them). Tests:
+<code>app/test/integration_seek_alignment_test.dart</code> (heavy) and the unit tests in
+<code>worker/src/source_decode.rs</code>.</p>
+</main>
+</body>
+</html>

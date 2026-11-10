@@ -3486,3 +3486,56 @@ anonymous download link for one asset returned 504 for a while (a
 GitHub incident; the API served the file) — re-uploading did not help, waiting
 did. A manifest's `url` is independent of its installed `name`, so a stuck
 asset could have been re-hosted under another name without touching code.
+
+### Seek alignment: the decoder repeated the first frame after a seek (issue #157, 2026-11-10)
+
+Full report with scripts:
+[docs/reports/issue-157-seek-alignment/](reports/issue-157-seek-alignment/index.html).
+
+- Reported (videohelp forum, thread 419911 post #152): with every filter off,
+  the preview's Processed frame lagged the Original by one.
+- Cause: the worker's decoders write `rawvideo`, which has
+  `AVFMT_NOTIMESTAMPS` but not `AVFMT_VARIABLE_FPS`, so the ffmpeg CLI times
+  it at a **constant rate**. The preview decoder (always) and a trimmed encode's
+  decoder seek to `(first - 0.5) / fps`; the kept frame then sits half a frame
+  after the output's zero, and for time bases such as MP4 1/2997, MOV 1/11988,
+  MKV 1/1000 and TS 1/90000 the constant-rate grid fills that gap by emitting
+  the frame twice. Preview: frame N-1 beside a correct Original (an image
+  muxer gets passthrough timing). Trim 41..52: `41, 41, 42 .. 51`. Noise
+  score: every sampled pair one picture twice, so sigma ~4.5 noise read 0.0
+  and was never suggested. A soft-telecine trim lost 15 of 60 film frames.
+- Fix: `setpts=PTS-STARTPTS` first in the seeking decoder's single `-vf`
+  (`source_decode::RESET_PTS_FILTER`), and no `-ss` at all when the preview
+  window starts at frame 0, so it decodes like the untrimmed encode (which
+  moved preview frame 0 onto the encode's frame 0 on two sources and left the
+  other 11 unchanged). Untrimmed encodes are bit-identical (framemd5, five
+  jobs incl. QTGMC). Not `-fps_mode passthrough`: on soft telecine it hands
+  over stored frames instead of the constant-rate slots an untrimmed encode
+  gets.
+- Why no test saw it: preview and encode shifted together, and the
+  frame-mapping fixture (`interlaced_test.avi`, 1/25) has no doubled frame.
+- Correction (review): that fixture's **leading** null frames (stored pts 0,
+  then 5) are the one case the reset changes. A seek into them was right
+  from the first real frame on (constant-rate timing filled the gap from the
+  seek point); the reset rebases to the frame after the gap, so a trim from
+  1..4 runs up to two frames early. The frame-mapping test's "from an
+  in-point" used in-point 3 and failed; it now starts at 6. Mid-stream null
+  frames (dropped-frame captures, which report `avg == r` and so never reach
+  the VFR decoder) are unchanged: frames 100-104 dropped, old decoder and
+  reset give the same frames from every start 97-106 (both wrong for an
+  in-point inside the run). Subtracting the seek's half frame
+  instead (`PTS-0.5/fps/TB`, keeps gaps) fixes the same doubles but ties
+  and rounds early in a 1/25 time base and broke starts 98-99 there. Leading
+  null frames are a follow-up (task 16). Script: the report's
+  `scripts/gap_probe.py`.
+  `integration_seek_alignment_test.dart` compares the preview, the app's
+  Original (`PreviewGenerator.beforeFrameArgs`) and a trimmed FFV1 encode each
+  with an independent `select=eq(n,N)` decode; against the old worker it fails
+  8 of 12. New fixture `seek_timebase_2997.mov` (1/11988).
+- The noise report's thresholds stand: its fixtures are intra FFV1 MKVs, which
+  seek correctly, and its reference reads from frame 0.
+- Found while measuring, **not fixed here**, all the same under passthrough
+  timing: MPEG-PS/TS seeks start at a later keyframe (DVD-style PS: 40 -> 48;
+  TS: 40 -> 50; the DVB-T capture); MPEG-2 in AVI lands 1-2 frames early;
+  AVI null frames and soft telecine give an untrimmed decode leading repeat
+  slots (79 slots for 75 frames; 122 for 120), so frame numbers disagree.

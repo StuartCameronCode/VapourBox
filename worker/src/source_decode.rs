@@ -26,13 +26,39 @@
 //!    the expected size through untouched (a full-frame `crop` is a pointer
 //!    no-op) and fails the decode on any other size, including a mid-stream
 //!    resolution change, which with no guard at all would desync into garbage.
+//! 3. **A seek must not shift the frames** (issue #157). Writing `rawvideo`,
+//!    ffmpeg times its output at a constant rate (the muxer has
+//!    `AVFMT_NOTIMESTAMPS` but not `AVFMT_VARIABLE_FPS`). After an input `-ss`
+//!    to `(first - 0.5) / fps`, the first kept frame arrives half a frame
+//!    after the seek point, and for many time bases (1/2997 MP4, 1/11988 MOV,
+//!    1/90000 TS) constant-rate timing fills that gap by emitting the frame
+//!    **twice**: the preview showed frame N-1 and a trim of 100..109 came out
+//!    `100, 100, 101 .. 108`. [`RESET_PTS_FILTER`] rebases the first kept frame
+//!    to 0, on every decoder that seeks. Not `-fps_mode passthrough`: that
+//!    also drops a soft-telecine source's pulldown repeats, which IVTC expects.
 //!
-//! See docs/ENGINEERING_NOTES.md, "Clean aperture: decode the stored frame".
+//! See docs/ENGINEERING_NOTES.md, "Clean aperture: decode the stored frame",
+//! and docs/reports/issue-157-seek-alignment.
 
 /// Input option placed before `-i` on every ffmpeg that decodes the source's
 /// pictures for the pipeline (encode decoder, preview decoder). See the module
 /// docs for why `codec` and not `none`/`all`.
 pub const APPLY_CROPPING: [&str; 2] = ["-apply_cropping", "codec"];
+
+/// First filter of a decoder that seeks: the first kept frame becomes PTS 0, so
+/// constant-rate output timing has no gap to fill with a repeated frame. See
+/// rule 3 in the module docs.
+pub const RESET_PTS_FILTER: &str = "setpts=PTS-STARTPTS";
+
+/// The decoder's single `-vf` (ffmpeg honours only the last one): the PTS
+/// reset when the decoder seeks, then the size guard.
+fn decoder_filter(width: i32, height: i32, seeks: bool) -> String {
+    if seeks {
+        format!("{},{}", RESET_PTS_FILTER, size_guard_filter(width, height))
+    } else {
+        size_guard_filter(width, height)
+    }
+}
 
 /// The message ffmpeg's `crop` filter logs when [`size_guard_filter`] rejects a
 /// frame. Used to recognise a guard failure in the decoder's stderr and replace
@@ -87,13 +113,17 @@ pub fn encode_decoder_args(
     total_frames: Option<i32>,
 ) -> Vec<String> {
     let mut args: Vec<String> = Vec::new();
+    let mut seeks = false;
 
     // Seek to the start frame if specified (before -i for an accurate,
     // fast decode-seek). Target the midpoint of the interval *before*
     // `start` so the first kept frame (PTS >= seek time) is exactly `start`,
     // not start±1 — the boundary `start/fps` is ambiguous under PTS rounding.
+    // The seek then needs the PTS reset (module docs, rule 3); an untrimmed
+    // decode is left exactly as it was.
     if let Some(start) = start_frame {
         if start > 0 {
+            seeks = true;
             let fps = input_frame_rate.unwrap_or(29.97);
             let seek_time = ((start as f64 - 0.5) / fps).max(0.0);
             args.push("-ss".to_string());
@@ -105,7 +135,7 @@ pub fn encode_decoder_args(
     args.extend([
         "-i".to_string(), input_path.to_string(),
         "-map".to_string(), "0:v:0".to_string(), // only first video stream
-        "-vf".to_string(), size_guard_filter(width, height),
+        "-vf".to_string(), decoder_filter(width, height, seeks),
         "-f".to_string(), "rawvideo".to_string(),
         "-pix_fmt".to_string(), pix_fmt.to_string(),
         "-v".to_string(), "error".to_string(),
@@ -135,8 +165,10 @@ pub fn encode_decoder_args(
     args
 }
 
-/// The preview path's decoder: `num_frames` raw frames from `seek_time` into
-/// `output_path`. Same cropping and size rules as [`encode_decoder_args`].
+/// The preview path's decoder (also the detectors'): `num_frames` raw frames
+/// from `seek_time` into `output_path`. Same cropping, size and seek rules as
+/// [`encode_decoder_args`]: a window starting at frame 0 (`seek_time` 0) does
+/// not seek, exactly like an untrimmed encode, so the two agree on frame 0.
 pub fn preview_decoder_args(
     input_path: &str,
     seek_time: f64,
@@ -146,13 +178,18 @@ pub fn preview_decoder_args(
     pix_fmt: &str,
     output_path: &str,
 ) -> Vec<String> {
-    let mut args: Vec<String> = vec!["-ss".to_string(), format!("{:.6}", seek_time)];
+    let seeks = seek_time > 0.0;
+    let mut args: Vec<String> = Vec::new();
+    if seeks {
+        args.push("-ss".to_string());
+        args.push(format!("{:.6}", seek_time));
+    }
     args.extend(APPLY_CROPPING.iter().map(|s| s.to_string()));
     args.extend([
         "-i".to_string(), input_path.to_string(),
         "-map".to_string(), "0:v:0".to_string(),
         "-frames:v".to_string(), num_frames.to_string(),
-        "-vf".to_string(), size_guard_filter(width, height),
+        "-vf".to_string(), decoder_filter(width, height, seeks),
         "-f".to_string(), "rawvideo".to_string(),
         "-pix_fmt".to_string(), pix_fmt.to_string(),
         "-v".to_string(), "error".to_string(),
@@ -262,11 +299,56 @@ mod tests {
     fn decoders_guard_the_probed_size() {
         for (path, args) in both() {
             let vf = pos(&args, "-vf").unwrap_or_else(|| panic!("{path}: no -vf"));
-            assert_eq!(args[vf + 1], size_guard_filter(720, 576), "{path}");
+            // The guard is the chain's last filter (a seeking decoder resets
+            // PTS ahead of it).
+            assert!(args[vf + 1].ends_with(&size_guard_filter(720, 576)), "{path}: {args:?}");
             // Exactly one -vf: ffmpeg honours only the last.
             assert_eq!(args.iter().filter(|a| *a == "-vf").count(), 1, "{path}");
             assert!(vf > pos(&args, "-i").unwrap(), "{path}: -vf must be an output option");
         }
+    }
+
+    fn vf(args: &[String]) -> &str {
+        &args[pos(args, "-vf").expect("a -vf") + 1]
+    }
+
+    #[test]
+    fn seeking_decoders_reset_pts_before_the_guard() {
+        // Issue #157: after a seek, rawvideo's constant-rate timing repeated
+        // the first frame. The reset must come first in the ONE -vf chain.
+        let trimmed =
+            encode_decoder_args("in.mov", 720, 576, "yuv420p", Some(25.0), Some(10), Some(19), None);
+        for (path, args) in [("trimmed encode", trimmed), ("preview", preview_args())] {
+            assert!(pos(&args, "-ss").is_some(), "{path} seeks");
+            assert_eq!(
+                vf(&args),
+                format!("{},{}", RESET_PTS_FILTER, size_guard_filter(720, 576)),
+                "{path}"
+            );
+            assert_eq!(args.iter().filter(|a| *a == "-vf").count(), 1, "{path}");
+            assert_eq!(RESET_PTS_FILTER, "setpts=PTS-STARTPTS");
+            // Never passthrough timing: it drops soft-telecine pulldown repeats.
+            assert!(pos(&args, "-fps_mode").is_none(), "{path}");
+        }
+    }
+
+    #[test]
+    fn decoders_that_do_not_seek_are_unchanged() {
+        // An untrimmed encode (and a trim from frame 0) keeps exactly its old
+        // arguments: no seek, so nothing to reset.
+        let untrimmed = encode_args();
+        let from_zero =
+            encode_decoder_args("in.mov", 720, 576, "yuv422p10le", Some(25.0), Some(0), Some(19), None);
+        let preview_at_zero =
+            preview_decoder_args("in.mov", 0.0, 4, 720, 576, "yuv422p10le", "frames.raw");
+        for (path, args) in
+            [("untrimmed", untrimmed), ("from zero", from_zero), ("preview at 0", preview_at_zero)]
+        {
+            assert!(pos(&args, "-ss").is_none(), "{path}: {args:?}");
+            assert_eq!(vf(&args), size_guard_filter(720, 576), "{path}");
+        }
+        // The VFR decoder places stored frames itself and is left alone.
+        assert_eq!(vf(&timeline_args()), size_guard_filter(720, 576));
     }
 
     #[test]

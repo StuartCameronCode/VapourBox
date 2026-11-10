@@ -563,9 +563,14 @@ void main() {
       await check(job('subframe_sync'), [12, 13, 21]);
     }, timeout: const Timeout(Duration(minutes: 10)));
 
+    // The in-point is past interlaced_test.avi's leading null frames (stored
+    // pts 0, then 5). A seek into that gap rebases to the first stored frame
+    // after it (issue #157's PTS reset), so a trim starting at 1..4 is shifted
+    // against the untrimmed numbering — the leading-repeat-slots problem of its
+    // own, not what this test is about. Same offsets as 3 -> 13, 19.
     test('from an in-point', () async {
-      await check(job('subframe_sync_trim', start: 3, end: 50), [13, 19],
-          origin: 3);
+      await check(job('subframe_sync_trim', start: 6, end: 53), [16, 22],
+          origin: 6);
     }, timeout: const Timeout(Duration(minutes: 10)));
   });
 
