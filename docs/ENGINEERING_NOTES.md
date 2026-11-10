@@ -3230,6 +3230,30 @@ Untested: a real capture with a visible head-switching band (none in
 one), and Windows/Linux (the analysis is plain Rust; only the decode is
 platform-specific).
 
+### Frame Rate + Noise Reduction + Sharpen: dark patches not reproduced (issue #148, 2026-11-10)
+
+Full report with scripts:
+[docs/reports/issue-148-frame-rate-combined/](reports/issue-148-frame-rate-combined/index.html).
+
+- Reported: "black shadow-like patches" once Denoise and Sharpen were added to
+  a frame rate conversion that was clean alone. No clip, method or platform.
+- Measured on macOS arm64 by exec'ing the template's own `{{#FRAME_RATE}}`
+  block after the filters: the share of synthesized-frame pixels darker than
+  **both** real neighbours by >24/255. 5 denoisers x 4 sharpeners x
+  FlowFPS/RIFE x 8/10-bit sit at 0.001-0.005% with or without the filters (a
+  single black 32x32 block in the 320x240 fixture is 1.3%). Fast pan and hard
+  cuts: same with and without.
+- Suspects ruled out here: FlowFPS at 10/16-bit matches 8-bit to 0.14/255
+  mean (MVTools master); RIFE's RGBS input is already out of range from the
+  *source* (1.2% of samples < -0.05), sharpening barely moves it.
+- No pass changed. A clamp before RIFE or a prefiltered FlowFPS search would
+  change every frame-rate job's output for no measured defect.
+- Untested and most likely: MVTools **v24** (Windows, macOS x64) and RIFE on
+  non-Apple Vulkan drivers. `integration_frame_rate_combined_test.dart`
+  (heavy, nightly, all four platforms) asserts NR + Sharpen stay within 0.05
+  percentage points of frame rate alone, so it covers exactly those.
+- `pal-sd-25.mov` is static colour bars: useless for anything motion-related.
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and
