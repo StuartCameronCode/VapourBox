@@ -1766,9 +1766,7 @@ class MainViewModel extends ChangeNotifier {
     // Subtitle-only mode: no video processing passes enabled, only subtitles
     // Audio restoration needs the full job (it renders the output's
     // soundtrack), so it rules out subtitle-only mode.
-    final isSubtitleOnly = _processingPipeline.subtitles.enabled &&
-        _processingPipeline.enabledPasses.isEmpty &&
-        !_processingPipeline.audio.hasEffect;
+    final isSubtitleOnly = _processingPipeline.isSubtitleOnly;
     _lastJobSubtitleOnly = isSubtitleOnly &&
         _processingPipeline.subtitles.output == SubtitleOutput.srtFile;
 
@@ -2141,9 +2139,7 @@ class MainViewModel extends ChangeNotifier {
     final outputFilename = _encodingSettings.generateOutputFilename(inputBaseName);
 
     // Subtitle-only with SRT output: use .srt extension
-    final isSubtitleOnly = _processingPipeline.subtitles.enabled &&
-        _processingPipeline.videoPassCount == 0 &&
-        !_processingPipeline.audio.hasEffect;
+    final isSubtitleOnly = _processingPipeline.isSubtitleOnly;
     if (isSubtitleOnly && _processingPipeline.subtitles.output == SubtitleOutput.srtFile) {
       return path.join(outputDir, '$outputFilename.srt');
     }

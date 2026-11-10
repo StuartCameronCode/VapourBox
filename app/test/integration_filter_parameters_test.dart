@@ -499,6 +499,39 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    // Always with no crop or resize (forum #154/#155), by the panel's own
+    // route: the pass starts switched off, the user picks Always, and editing
+    // a value switches the pass on (enabledByEditFrom). It then converts the
+    // SD picture at its own size, with no resize in the script.
+    test('crop_resize: BT.709 Always converts with no crop or resize', () async {
+      final off = ParameterConverter.fromCropResize(const CropResizeParameters())
+          .withEnabled(false);
+      expect(off.values['cropEnabled'], isFalse);
+      expect(off.values['resizeEnabled'], isFalse);
+      Future<String> scriptFor(String mode) async {
+        // Auto is the default, so "choosing" it changes nothing; switch the
+        // pass on by hand to test Auto with the pass on and no geometry.
+        final edited = mode == 'auto'
+            ? off.withEnabled(true)
+            : off.withValue('convertToBt709', mode).enabledByEditFrom(off);
+        final params = ParameterConverter.toCropResize(edited);
+        expect(params.enabled, isTrue, reason: 'choosing an option switches the pass on');
+        final job = buildJob(testName: 'bt709_nogeom_$mode', cropResize: params);
+        return generateScriptViaWorker(job);
+      }
+
+      const block = 'RemoveFrameProps(clip, props=["_Matrix", "_Range", "_ColorRange"])';
+      final on = await scriptFor('on');
+      expect(on, contains(block));
+      expect(on, contains('matrix_in_s="170m"'));
+      expect(on, contains('matrix_s="709"'));
+      expect(on, isNot(contains('width=target_w')), reason: 'no resize block without a resize');
+      expect(await scriptFor('auto'), isNot(contains(block)),
+          reason: 'Auto leaves an SD output alone');
+      expect(await scriptFor('off'), isNot(contains(block)));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     // Issue #50: temperature/tint white balance. U carries blue-yellow and V
     // carries red-cyan, so warm is -U/+V; a sign error here is invisible until
     // you look at the picture.

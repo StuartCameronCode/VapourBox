@@ -375,9 +375,11 @@ class ProcessingPipeline {
     }
     // Crop and resize are one pass and run together, crop first. The crop used
     // to run ahead of everything else, which meant it could not remove the
-    // edges Stabilize exposes (issue #109).
-    if (cropResize.enabled &&
-        (cropResize.cropEnabled || cropResize.resizeEnabled)) {
+    // edges Stabilize exposes (issue #109). Listed whenever it is on, not only
+    // when it crops or resizes: it also upscales, pads, squares pixels and
+    // converts BT.601 to BT.709 at any size, and [isSubtitleOnly] reads this
+    // list. In step with the worker's `enabled_passes`.
+    if (cropResize.enabled) {
       passes.add(PassType.cropResize);
     }
     // Faces are restored at the delivered resolution, after the resize, and
@@ -437,6 +439,13 @@ class ProcessingPipeline {
     if (subtitles.enabled) count++;
     return count;
   }
+
+  /// Whether a job only transcribes: subtitles on, and nothing that touches
+  /// the picture or the soundtrack. The worker then skips the encode entirely,
+  /// so a pass missing from [enabledPasses] would be silently dropped. The one
+  /// test, used for both the job and its output path.
+  bool get isSubtitleOnly =>
+      subtitles.enabled && enabledPasses.isEmpty && !audio.hasEffect;
 
   /// Get count of enabled video processing passes (excludes audio
   /// restoration and subtitles).

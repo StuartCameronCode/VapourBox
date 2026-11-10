@@ -1258,6 +1258,13 @@ mod tests {
         assert!(!on.converts_to_bt709(false, (720, 576)));
         let off = CropResizeParameters { convert_to_bt709: Bt709Conversion::Off, ..p.clone() };
         assert!(!off.converts_to_bt709(true, (1920, 1080)));
+        // No crop or resize: an enabled pass still converts on On, at SD size.
+        let colour_only = CropResizeParameters { enabled: true, ..CropResizeParameters::default() };
+        assert!(!colour_only.crop_enabled && !colour_only.resize_enabled);
+        assert_eq!(colour_only.output_size(720, 576, 1.0), (720, 576));
+        assert!(CropResizeParameters { convert_to_bt709: Bt709Conversion::On, ..colour_only.clone() }
+            .converts_to_bt709(true, (720, 576)));
+        assert!(!colour_only.converts_to_bt709(true, (720, 576)), "Auto leaves SD alone");
         let disabled = CropResizeParameters { enabled: false, convert_to_bt709: Bt709Conversion::On, ..p };
         assert!(!disabled.converts_to_bt709(true, (1920, 1080)), "a disabled pass converts nothing");
     }

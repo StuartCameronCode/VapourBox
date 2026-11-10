@@ -8332,3 +8332,73 @@ fn test_221_template_field_based_sites_are_all_accounted_for() {
         );
     }
 }
+
+/// BT.601 -> BT.709 "Always" with no crop or resize (forum #154/#155): the
+/// pass's switch decides, not its geometry. An enabled Crop & Resize with every
+/// geometry control off converts an SD source at its own size, in BOTH scripts,
+/// with the encoder told BT.709 (primaries kept). Auto and Off leave it alone,
+/// and a switched-off pass converts nothing whatever the mode.
+#[test]
+fn test_222_bt709_always_without_geometry() {
+    create_output_dir();
+    let job_for = |mode: Bt709Conversion, enabled: bool| {
+        let mut job = create_base_job("test_222_bt709_no_geometry");
+        job.qtgmc_parameters.enabled = false;
+        job.input_width = Some(720);
+        job.input_height = Some(576);
+        job.input_pixel_format = Some("yuv420p".to_string());
+        job.input_color_matrix = Some("bt470bg".to_string());
+        job.input_color_range = Some("tv".to_string());
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            crop_resize: CropResizeParameters {
+                enabled,
+                convert_to_bt709: mode,
+                ..CropResizeParameters::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+
+    let job = job_for(Bt709Conversion::On, true);
+    let pipeline = job.effective_pipeline();
+    assert!(!pipeline.crop_resize.crop_enabled && !pipeline.crop_resize.resize_enabled);
+    assert!(!pipeline.crop_resize.use_integer_upscale && !pipeline.crop_resize.pad_enabled);
+    assert_eq!(job.estimated_output_size(), Some((720, 576)));
+    assert!(job.converts_to_bt709());
+    // Listed as a pass, so the app never treats the job as subtitle-only.
+    assert_eq!(pipeline.enabled_passes(), vec![PassType::CropResize]);
+    assert_eq!(
+        job.output_color_metadata().to_ffmpeg_output_args(),
+        ["-colorspace", "bt709", "-color_primaries", "bt470bg", "-color_trc", "bt709", "-color_range", "tv"]
+    );
+    let (encode, preview) = generate_both_scripts(&job);
+    for script in [&encode, &preview] {
+        assert!(script.contains(r#"RemoveFrameProps(clip, props=["_Matrix", "_Range", "_ColorRange"])"#));
+        assert!(script.contains(r#"matrix_in_s="470bg""#));
+        assert!(script.contains(r#"matrix_s="709""#));
+        assert!(script.contains(r#"range_in_s="limited""#));
+        assert!(!script.contains("width=target_w"), "no resize block without a resize");
+        assert!(!script.contains("{{C709") && !script.contains("{{#COLOR_709"), "unsubstituted placeholder");
+    }
+    run_job_and_verify(&job, "BT.709 Always, no geometry", &[r#"matrix_s="709""#]).unwrap();
+
+    for (mode, enabled, why) in [
+        (Bt709Conversion::Auto, true, "Auto leaves an SD output alone"),
+        (Bt709Conversion::Off, true, "Off never converts"),
+        (Bt709Conversion::On, false, "a switched-off pass converts nothing"),
+    ] {
+        let job = job_for(mode, enabled);
+        assert!(!job.converts_to_bt709(), "{why}");
+        assert_eq!(
+            job.output_color_metadata().to_ffmpeg_output_args(),
+            ["-colorspace", "bt470bg", "-color_range", "tv"],
+            "{why}: source tags kept"
+        );
+        let (encode, preview) = generate_both_scripts(&job);
+        for script in [&encode, &preview] {
+            assert!(!script.contains(r#"RemoveFrameProps(clip, props=["_Matrix""#), "{why}");
+        }
+    }
+}

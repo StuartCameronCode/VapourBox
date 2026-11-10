@@ -515,7 +515,11 @@ class CropResizeParameters {
     if (displayAspect != null && displayAspect!.isNotEmpty) {
       parts.add('DAR $displayAspect');
     }
-    return parts.isEmpty ? 'Custom' : parts.join(' ');
+    if (parts.isEmpty) {
+      // Converting colour is all the pass does (it needs no crop or resize).
+      return convertToBt709 == Bt709Conversion.on ? 'BT.709' : 'Custom';
+    }
+    return parts.join(' ');
   }
 
   factory CropResizeParameters.fromJson(Map<String, dynamic> json) =>
