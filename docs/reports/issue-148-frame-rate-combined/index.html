@@ -191,6 +191,12 @@ by nearly as much.</li>
 </ul>
 </div>
 
+<div class="card correction"><p><strong>Correction (review, same day).</strong>
+The regression test as first committed compared only the <em>mean</em> over the ~40
+synthesized frames, with the 0.05-point tolerance. A black block confined to one
+frame adds just 1.3/40 ≈ 0.03 points to that mean, so it would have passed. The test
+now also bounds the worst single frame (§8).</p></div>
+
 <h2>7. What wasn't tested</h2>
 <ul>
 <li><strong>Windows x64</strong> and <strong>macOS x64</strong>, which ship the MVTools v24
@@ -220,8 +226,10 @@ output for every frame-rate job, and neither addresses anything measured.</li>
 <li><strong>A nightly regression test</strong>,
 <code>app/test/integration_frame_rate_combined_test.dart</code>: for FlowFPS and RIFE
 (RIFE where the GPU probe says it runs), the dark share with default Noise
-Reduction + Sharpen must stay within 0.05 percentage points of frame rate alone.
-That tolerance is ~10× the noise floor and ~25× below a single black block,
+Reduction + Sharpen must stay within 0.05 percentage points of frame rate alone
+on the mean over synthesized frames, and within 0.25 on the worst single frame.
+The mean tolerance is ~10× the noise floor; the worst-frame one is ~5× the
+worst frames measured here (0.02–0.05%) and ~5× below one black 32×32 block (1.3%),
 so it fails on the reported defect without flaking on sharpening contrast. It runs
 on all four nightly platforms, which includes MVTools v24 on Windows and macOS x64
 and RIFE on the Windows/Linux runners: the coverage this report lacks.</li>

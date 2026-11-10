@@ -12,8 +12,11 @@
 /// darker than BOTH real frames either side of it by more than 24/255. An
 /// interpolator has nothing to build such a pixel from, so it is the signature
 /// of the reported defect. On the fixture it is ~0.001-0.005% whatever the
-/// passes; a single black 32x32 block in this 320x240 clip would be 1.3%. The
-/// tolerance (0.05 percentage points) sits far between the two.
+/// passes; a single black 32x32 block in this 320x240 clip would be 1.3% of
+/// the frame it appears in. It is checked two ways: the mean over every
+/// synthesized frame (within 0.05 percentage points of frame rate alone), and
+/// the worst single frame (within 0.25), because a patch confined to one frame
+/// adds only ~0.03 points to a mean over ~40 frames and would pass that alone.
 ///
 /// Heavy (full encodes) — nightly, not the push gate.
 @Tags(['heavy'])
@@ -44,8 +47,13 @@ String get _outDir => '${WorkerHarness.outputDir}/frame_rate_combined';
 // small_clip.mp4: 320x240 yuv420p, 29.97 fps, real (film) motion.
 const _w = 320, _h = 240, _frames = 40;
 
-/// Percentage points the combined pipeline may exceed frame-rate-only by.
-const _tolerance = 0.05;
+/// Percentage points the combined pipeline may exceed frame-rate-only by:
+/// the mean over synthesized frames, and the worst single one. Measured
+/// worst frames are ~0.02-0.05%, so 0.25 is ~5x above that spread and ~5x
+/// below one black 32x32 block.
+const _meanTolerance = 0.05, _worstTolerance = 0.25;
+
+typedef _DarkShare = ({double mean, double worst});
 
 VideoJob _job(String label, FrameRateMethod method, {required bool filters}) =>
     VideoJob(
@@ -90,10 +98,11 @@ Future<List<Uint8List>> _lumaFrames(String path) async {
   ];
 }
 
-/// Mean, over the synthesized frames (odd indices at 2x), of the percentage
-/// of pixels darker than both neighbouring real frames by more than [t].
-double _darkPatchPercent(List<Uint8List> f, {int t = 24}) {
-  var sum = 0.0, n = 0;
+/// Over the synthesized frames (odd indices at 2x), the mean and the worst
+/// percentage of pixels darker than both neighbouring real frames by more
+/// than [t].
+_DarkShare _darkPatchPercent(List<Uint8List> f, {int t = 24}) {
+  var sum = 0.0, worst = 0.0, n = 0;
   for (var m = 1; m + 1 < f.length; m += 2) {
     final a = f[m - 1], y = f[m], b = f[m + 1];
     var dark = 0;
@@ -101,14 +110,16 @@ double _darkPatchPercent(List<Uint8List> f, {int t = 24}) {
       final lo = a[i] < b[i] ? a[i] : b[i];
       if (y[i] < lo - t) dark++;
     }
-    sum += dark / y.length;
+    final share = dark / y.length;
+    sum += share;
+    if (share > worst) worst = share;
     n++;
   }
   expect(n, greaterThan(10), reason: 'too few synthesized frames to measure');
-  return 100 * sum / n;
+  return (mean: 100 * sum / n, worst: 100 * worst);
 }
 
-Future<double> _measure(String label, FrameRateMethod method,
+Future<_DarkShare> _measure(String label, FrameRateMethod method,
     {required bool filters}) async {
   final r = await WorkerHarness.runJob(
       _job(label, method, filters: filters).toJson(),
@@ -119,9 +130,10 @@ Future<double> _measure(String label, FrameRateMethod method,
   final frames = await _lumaFrames(r.outputPath!);
   // 29.97 -> 59.94 doubles the count exactly.
   expect(frames.length, _frames * 2);
-  final pct = _darkPatchPercent(frames);
-  print('  $label: dark-patch ${pct.toStringAsFixed(4)}%');
-  return pct;
+  final d = _darkPatchPercent(frames);
+  print('  $label: dark-patch mean ${d.mean.toStringAsFixed(4)}% '
+      'worst ${d.worst.toStringAsFixed(4)}%');
+  return d;
 }
 
 void main() {
@@ -141,11 +153,18 @@ void main() {
           await _measure('${method.name}_alone', method, filters: false);
       final combined =
           await _measure('${method.name}_nr_sharpen', method, filters: true);
-      expect(combined, lessThan(alone + _tolerance),
+      expect(combined.mean, lessThan(alone.mean + _meanTolerance),
           reason: 'synthesized frames gained dark patches once Noise '
-              'Reduction and Sharpen were added (issue #148): '
-              '${combined.toStringAsFixed(4)}% vs '
-              '${alone.toStringAsFixed(4)}% with frame rate conversion alone');
+              'Reduction and Sharpen were added (issue #148): mean '
+              '${combined.mean.toStringAsFixed(4)}% vs '
+              '${alone.mean.toStringAsFixed(4)}% with frame rate conversion '
+              'alone');
+      expect(combined.worst, lessThan(alone.worst + _worstTolerance),
+          reason: 'a synthesized frame gained dark patches once Noise '
+              'Reduction and Sharpen were added (issue #148): worst frame '
+              '${combined.worst.toStringAsFixed(4)}% vs '
+              '${alone.worst.toStringAsFixed(4)}% with frame rate conversion '
+              'alone');
     }, timeout: const Timeout(Duration(minutes: 45)));
   }
 }

@@ -3251,7 +3251,9 @@ Full report with scripts:
 - Untested and most likely: MVTools **v24** (Windows, macOS x64) and RIFE on
   non-Apple Vulkan drivers. `integration_frame_rate_combined_test.dart`
   (heavy, nightly, all four platforms) asserts NR + Sharpen stay within 0.05
-  percentage points of frame rate alone, so it covers exactly those.
+  percentage points of frame rate alone on the mean over synthesized frames
+  **and** within 0.25 on the worst single frame, so it covers exactly those.
+  The mean alone would miss a one-frame patch (~0.03 points over 40 frames).
 - `pal-sd-25.mov` is static colour bars: useless for anything motion-related.
 
 ### Testing a deps change before publishing
