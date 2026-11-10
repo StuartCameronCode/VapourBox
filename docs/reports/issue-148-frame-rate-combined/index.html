@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #148 — Frame Rate combined with Noise Reduction and Sharpen</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>Issue #148 — Frame Rate combined with Noise Reduction and Sharpen</h1>
+<p class="meta">2026-11-10 · issue <a href="https://github.com/StuartCameronCode/VapourBox/issues/148">#148</a> ·
+measured on an Apple M4 Pro (macOS arm64), deps 1.14.0 bundle, against the templates of app 1.6.0</p>
+
+<div class="card">
+<strong>Outcome: not reproduced; no pipeline change made.</strong> The reporter saw
+"glitches" and "black shadow-like patches" once Noise Reduction and Sharpen were
+added to a frame rate conversion that was clean on its own. On macOS arm64, across
+5 denoisers × 4 sharpeners × FlowFPS/RIFE × 8/10-bit, plus a fast pan and hard
+cuts, adding Noise Reduction and Sharpen <span class="good">never measurably
+increased dark patches</span> in the synthesized frames. Every cell sits at the same
+~0.001–0.005% noise floor; a single black 32×32 block would be 1.3%. The three
+code-level suspects were each tested and none holds up here (below).
+The likeliest remaining explanations are platform-specific (Windows MVTools v24,
+or RIFE on a particular GPU/driver) or content-specific, and both need the
+reporter's clip, method and GPU. A nightly regression test now pins the measured
+behaviour (<code>app/test/integration_frame_rate_combined_test.dart</code>).
+</div>
+
+<h2>1. What runs, and in what order</h2>
+<p>In the generated script: Noise Reduction → … → Resize → <strong>Sharpen</strong>
+(after resize, issue #109) → Film Grain → <strong>Frame Rate</strong> (last video pass).
+Denoise, then sharpen, then interpolate is the conventional order, so a pass-order
+bug was not the lead. What adding the two passes changes is the <em>input</em> the
+interpolator sees.</p>
+<p>The probes do not copy the frame-rate code. They extract the
+<code>{{#FRAME_RATE}}</code> block from <code>worker/templates/pipeline_template.vpy</code>,
+fill its placeholders as the worker does (block 16, overlap 8, 29.97 → 59.94), and
+exec it after <code>haf.SMDegrain</code> / <code>haf.LSFmod</code> etc. at the app's
+defaults. RIFE runs through MoltenVK on the M4 Pro GPU.</p>
+
+<h2>2. The metric</h2>
+<p>For each <em>synthesized</em> frame (every odd frame at 2×), the share of luma
+pixels darker than <strong>both</strong> real frames either side of it by more than
+24/255. An interpolator has nothing to build such a pixel from, so "darker than
+both" is the signature of the reported black patches. A brighter-than-both share
+is recorded alongside it as a control.</p>
+<p class="caption"><strong>What it can't tell you:</strong> motion alone produces such
+pixels at moving edges (see the pan, §4), so it compares configurations; it is not
+an absolute defect count. It sees luma only. One 40-frame film clip is not a
+population, and Apple Silicon running MVTools master is not Windows running v24.</p>
+
+<h2>3. Hypotheses tested</h2>
+
+<h3>H1 — RIFE fed out-of-range RGB by the sharpener</h3>
+<p>The RIFE block converts YUV to <code>RGBS</code> and passes it on unclamped; a
+sharpener's overshoot could push samples below 0, outside what the network was
+trained on. Measured (<code>scripts/range.py</code>): the share of RGB samples below
+−0.05 in the worst frame.</p>
+<table>
+<tr><th>Input to RIFE</th><th class="num">min</th><th class="num">max</th><th class="num">worst-frame share &lt; −0.05</th></tr>
+<tr><td>source</td><td class="num">−0.082</td><td class="num">0.904</td><td class="num">1.242%</td></tr>
+<tr><td>SMDegrain</td><td class="num">−0.082</td><td class="num">0.904</td><td class="num">1.241%</td></tr>
+<tr><td>LSFmod</td><td class="num">−0.107</td><td class="num">0.909</td><td class="num">1.439%</td></tr>
+<tr><td>SMDegrain + LSFmod</td><td class="num">−0.103</td><td class="num">0.904</td><td class="num">1.436%</td></tr>
+</table>
+<p><span class="warn">Weak.</span> The <em>unfiltered</em> source already sends
+1.2% of samples below −0.05 into RIFE; sharpening adds about a sixth to that, and the
+matrix (§4) shows RIFE's output unaffected either way. Clamping before RIFE was the
+planned fix for this hypothesis and was <strong>not</strong> made: with no measurable
+effect it would only change synthesized frames for every user on speculation.</p>
+
+<h3>H2 — FlowFPS's motion search misled by denoised/sharpened detail</h3>
+<p>Both <code>mv.Analyse</code> calls search the same unfiltered super clip. Flattened
+texture or sharpening halos could mislead block matching, and FlowFPS warps along
+whatever vectors it gets. <span class="warn">Not supported:</span> FlowFPS's dark
+share with any denoiser or sharpener is within the noise of FlowFPS alone (§4), and
+the frames look the same (§5). A prefiltered search clip was the planned fix; it
+was not made, because it would change every FlowFPS job's output with no
+measured defect to justify it.</p>
+
+<h3>H3 — FlowFPS wrong above 8 bits</h3>
+<p>A >8-bit source (or 4:2:0 at >8-bit, converted to <code>YUV422P16</code> by the
+block) runs FlowFPS at high depth. Measured (<code>scripts/depth.py</code>): FlowFPS on
+the same clip at 10 and 16 bits differs from 8-bit by a mean <strong>0.13/255</strong>
+(worst frame 0.29) and <strong>0.14/255</strong> (worst 0.32). <span class="good">Ruled
+out on arm64</span> (MVTools master). Windows and macOS x64 ship the v24 release,
+which was not tested.</p>
+
+<h2>4. The matrix</h2>
+<p>Dark share of synthesized frames, mean over frames (worst frame in brackets),
+29.97 → 59.94, from <code>scripts/matrix.py</code>. The 10-bit source is the same clip
+converted to <code>YUV420P10</code>. Sharpeners: LSFmod at strength 200 (twice the
+default), CAS at 1.0 (its maximum), aWarpSharp2 at defaults.</p>
+<div class="scroll">
+<table>
+<tr><th>Noise Reduction + Sharpen</th><th class="num">FlowFPS 8-bit</th><th class="num">FlowFPS 10-bit</th><th class="num">RIFE 8-bit</th><th class="num">RIFE 10-bit</th></tr>
+<tr><td><strong>none + none (FPS only)</strong></td><td class="num">0.001% (0.033)</td><td class="num">0.001% (0.033)</td><td class="num">0.001% (0.026)</td><td class="num">0.001% (0.026)</td></tr>
+<tr><td>none + LSFmod 200</td><td class="num">0.001% (0.014)</td><td class="num">0.001% (0.013)</td><td class="num">0.002% (0.034)</td><td class="num">0.002% (0.034)</td></tr>
+<tr><td>none + CAS 1.0</td><td class="num">0.005% (0.042)</td><td class="num">0.005% (0.043)</td><td class="num">0.005% (0.035)</td><td class="num">0.005% (0.033)</td></tr>
+<tr><td>none + aWarpSharp2</td><td class="num">0.001% (0.016)</td><td class="num">0.001% (0.016)</td><td class="num">0.001% (0.021)</td><td class="num">0.001% (0.021)</td></tr>
+<tr><td>SMDegrain + none</td><td class="num">0.001% (0.030)</td><td class="num">0.001% (0.031)</td><td class="num">0.001% (0.033)</td><td class="num">0.001% (0.031)</td></tr>
+<tr><td>SMDegrain + LSFmod 200</td><td class="num">0.001% (0.017)</td><td class="num">0.001% (0.017)</td><td class="num">0.002% (0.038)</td><td class="num">0.002% (0.038)</td></tr>
+<tr><td>SMDegrain + CAS 1.0</td><td class="num">0.005% (0.042)</td><td class="num">0.004% (0.038)</td><td class="num">0.005% (0.048)</td><td class="num">0.005% (0.044)</td></tr>
+<tr><td>SMDegrain + aWarpSharp2</td><td class="num">0.001% (0.017)</td><td class="num">0.001% (0.013)</td><td class="num">0.001% (0.027)</td><td class="num">0.001% (0.027)</td></tr>
+<tr><td>MCTemporalDenoise + none</td><td class="num">0.001% (0.029)</td><td class="num">0.001% (0.030)</td><td class="num">0.001% (0.033)</td><td class="num">0.001% (0.031)</td></tr>
+<tr><td>MCTemporalDenoise + LSFmod 200</td><td class="num">0.001% (0.017)</td><td class="num">0.001% (0.013)</td><td class="num">0.002% (0.036)</td><td class="num">0.002% (0.038)</td></tr>
+<tr><td>DFTTest + none</td><td class="num">0.001% (0.031)</td><td class="num">0.001% (0.031)</td><td class="num">0.001% (0.031)</td><td class="num">0.001% (0.033)</td></tr>
+<tr><td>DFTTest + LSFmod 200</td><td class="num">0.001% (0.010)</td><td class="num">0.001% (0.010)</td><td class="num">0.002% (0.035)</td><td class="num">0.002% (0.035)</td></tr>
+<tr><td>FFT3DFilter (sharpen 1.0) + none</td><td class="num">0.001% (0.018)</td><td class="num">0.001% (0.017)</td><td class="num">0.002% (0.029)</td><td class="num">0.002% (0.025)</td></tr>
+<tr><td>FFT3DFilter (sharpen 1.0) + LSFmod 200</td><td class="num">0.003% (0.031)</td><td class="num">0.003% (0.023)</td><td class="num">0.003% (0.034)</td><td class="num">0.003% (0.035)</td></tr>
+</table>
+</div>
+<p>The highest cell, CAS at maximum, is 0.005%: about 4 pixels in a 320×240
+frame, and the same with or without a denoiser. For scale, one black 32×32 block
+is 1.3%, some 260× more.</p>
+
+<h3>Stress: fast pan and hard cuts</h3>
+<p><code>scripts/stress.py</code>. The pan crops a moving window (8 px/frame) from a 2×
+enlargement; the cuts splice two parts of the clip every 8 frames.</p>
+<table>
+<tr><th>Case</th><th class="num">FlowFPS alone</th><th class="num">FlowFPS + SMDegrain + LSFmod</th><th class="num">RIFE alone</th><th class="num">RIFE + SMDegrain + LSFmod</th></tr>
+<tr><td>fast pan</td><td class="num">0.658% (0.871)</td><td class="num">0.767% (1.014)</td><td class="num">0.610% (0.779)</td><td class="num">0.714% (0.938)</td></tr>
+<tr><td>hard cuts</td><td class="num">0.001% (0.033)</td><td class="num">0.001% (0.039)</td><td class="num">0.051% (0.547)</td><td class="num">0.051% (0.562)</td></tr>
+</table>
+<p>On the pan the metric rises for every configuration because motion itself puts
+pixels darker than both neighbours at moving edges; the filtered pipeline is ~15%
+higher, consistent with sharpening adding edge contrast, and the frames show no
+patches (§5). At cuts RIFE's worst frame is the one spanning the cut, and it is the
+same with and without the filters.</p>
+
+<h2>5. What it looks like</h2>
+<p><a href="img/01-film-real-synth-real.png"><img src="img/01-film-real-synth-real.png" alt="Grid of film frames: rows FlowFPS alone, FlowFPS with filters, RIFE alone, RIFE with filters; columns real, synthesized, real"></a></p>
+<p class="caption"><strong>Figure 1 — film clip, output frames 10/11/12.</strong> Columns: real · synthesized · real.
+Rows top to bottom: FlowFPS alone · FlowFPS + SMDegrain + LSFmod · RIFE alone · RIFE + SMDegrain + LSFmod.
+Look in the middle column for dark blotches near the moving leg and headlamp that
+are absent from both neighbours: there are none in any row.</p>
+<p><a href="img/02-pan-real-synth-real.png"><img src="img/02-pan-real-synth-real.png" alt="The same grid for a fast synthetic pan"></a></p>
+<p class="caption"><strong>Figure 2 — fast pan, output frames 28/29/30</strong>, same layout. The
+synthesized column moves smoothly between its neighbours in all four rows; the
+filtered rows are visibly crisper and no darker.</p>
+
+<h2>6. Corrections made during the work</h2>
+<div class="card correction">
+<ul>
+<li>The plan assumed the 10-bit fixture <code>pal-sd-25.mov</code> would test real
+motion at depth. It is <strong>static colour bars</strong>, so every metric on it was
+exactly 0, which proves nothing. The 10-bit column above uses the film clip
+converted to 10-bit instead.</li>
+<li>The plan named H1 (RIFE input range) the most likely cause. The range
+measurement made it the least supported: the source alone is already out of range
+by nearly as much.</li>
+</ul>
+</div>
+
+<div class="card correction"><p><strong>Correction (review, same day).</strong>
+The regression test as first committed compared only the <em>mean</em> over the ~40
+synthesized frames, with the 0.05-point tolerance. A black block confined to one
+frame adds just 1.3/40 ≈ 0.03 points to that mean, so it would have passed. The test
+now also bounds the worst single frame (§8).</p></div>
+
+<h2>7. What wasn't tested</h2>
+<ul>
+<li><strong>Windows x64</strong> and <strong>macOS x64</strong>, which ship the MVTools v24
+release rather than master. FlowFPS's frame count already differs between the two
+(issue #129); its pixels may too. This is the likeliest place for the bug to be.</li>
+<li><strong>RIFE on NVIDIA/AMD/Intel Vulkan drivers.</strong> RIFE ran on Apple GPU via MoltenVK only.</li>
+<li><strong>KNLMeansCL</strong> — the machine measured had no usable OpenCL device in this
+session. BM3D, mClean, TemporalDegrain2 and the rest of the denoisers weren't measured.</li>
+<li>Combinations with <strong>QTGMC</strong> (double-rate deinterlace before the retime),
+resize, or other passes; the reporter listed only "FPS", "Denoise" and "Sharpness".</li>
+<li>The <strong>preview</strong> path, and the encoder: everything here is the script's
+output, upstream of ffmpeg. The regression test encodes losslessly (FFV1) for the
+same reason.</li>
+<li>The reporter's own footage. None was supplied.</li>
+<li>The full app pipeline, end to end. No Rust toolchain was available to build a
+1.6.0 worker on the machine measured, so the probes exec the template block
+directly. The new regression test drives the real worker and will run in
+<code>nightly.yml</code>; it was type-checked (<code>flutter analyze</code>) but not
+executed before commit.</li>
+</ul>
+
+<h2>8. Decisions</h2>
+<ul>
+<li><strong>No change to the Frame Rate, Noise Reduction or Sharpen passes.</strong>
+Both candidate fixes (clamp before RIFE; prefiltered FlowFPS search) would alter
+output for every frame-rate job, and neither addresses anything measured.</li>
+<li><strong>A nightly regression test</strong>,
+<code>app/test/integration_frame_rate_combined_test.dart</code>: for FlowFPS and RIFE
+(RIFE where the GPU probe says it runs), the dark share with default Noise
+Reduction + Sharpen must stay within 0.05 percentage points of frame rate alone
+on the mean over synthesized frames, and within 0.25 on the worst single frame.
+The mean tolerance is ~10× the noise floor; the worst-frame one is ~5× the
+worst frames measured here (0.02–0.05%) and ~5× below one black 32×32 block (1.3%),
+so it fails on the reported defect without flaking on sharpening contrast. It runs
+on all four nightly platforms, which includes MVTools v24 on Windows and macOS x64
+and RIFE on the Windows/Linux runners: the coverage this report lacks.</li>
+<li><strong>Ask the reporter</strong> for a short clip, the Frame Rate method and target,
+the Noise Reduction and Sharpen methods, the OS and the GPU, linking this report.</li>
+</ul>
+
+<h2>9. Reproducing</h2>
+<pre>VAPOURBOX_DEPS_DIR=&lt;deps/macos-arm64&gt; ISSUE148_SCRATCH=&lt;scratch dir&gt; \
+  docs/reports/issue-148-frame-rate-combined/scripts/run.sh</pre>
+<p><code>run.sh</code> decodes 40 frames of <code>Tests/TestResources/small_clip.mp4</code>
+(from 0 s and from 30 s) into the scratch directory and runs <code>range.py</code>,
+<code>depth.py</code>, <code>matrix.py</code>, <code>stress.py</code> and <code>images.py</code>
+with the bundle's Python. <code>harness.py</code> holds the loader, the template
+extraction and the metric. The RIFE paths it fills in are the macOS bundle layout.</p>
+</main>
+</body>
+</html>
