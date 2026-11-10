@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vapourbox/models/preview_frame_info.dart';
 import 'package:vapourbox/services/field_order_detector.dart';
 import 'package:vapourbox/viewmodels/main_viewmodel.dart';
+import 'package:vapourbox/widgets/comparison_view_mode.dart';
 
 /// Just enough of a PNG for its header to be read: signature, IHDR length and
 /// type, width, height.
@@ -136,6 +137,29 @@ void viewModelAspects() {
     expect(vm.previewFrameInfo, isNull);
     expect(vm.processedPreview, isNotNull);
     expect(vm.comparisonAfterAspect, closeTo(16 / 9, 1e-9));
+  });
+
+  test('the preview view mode defaults to Split and notifies on change', () {
+    expect(vm.previewViewMode, ComparisonViewMode.split);
+    var notified = 0;
+    vm.addListener(() => notified++);
+    vm.setPreviewViewMode(ComparisonViewMode.processed);
+    expect(vm.previewViewMode, ComparisonViewMode.processed);
+    expect(notified, 1);
+    vm.setPreviewViewMode(ComparisonViewMode.processed);
+    expect(notified, 1, reason: 'no change, no rebuild');
+  });
+
+  test('the view mode survives a scrubber move and a new preview', () async {
+    vm.debugAddQueueItemForTest('/tmp/vb_pal.mkv',
+        width: 720, height: 576, sar: '16:15');
+    vm.setPreviewViewMode(ComparisonViewMode.original);
+    vm.debugAcceptProcessedPreview(_pngHeader(1920, 1080),
+        PreviewFrameInfo.parse('PREVIEW_INFO:frame=0'));
+    await vm.setScrubberPosition(0.5);
+    vm.debugAcceptProcessedPreview(_pngHeader(1920, 1080),
+        PreviewFrameInfo.parse('PREVIEW_INFO:frame=3'));
+    expect(vm.previewViewMode, ComparisonViewMode.original);
   });
 
   test('a failed preview clears the stored aspect with the image', () {

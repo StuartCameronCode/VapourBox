@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../models/app_shortcut.dart';
 import '../services/image_dimensions.dart';
+import 'comparison_view_mode.dart';
 import 'comparison_zoom_controller.dart';
 
 /// A widget that displays a before/after comparison with a draggable divider.
@@ -26,7 +27,8 @@ class BeforeAfterComparisonWidget extends StatefulWidget {
   /// The "after" image data (shown on the right).
   final Uint8List? afterImage;
 
-  /// Initial divider position (0.0 to 1.0, default 0.5).
+  /// Initial divider position (0.0 to 1.0, default 0.5). The divider spans
+  /// the whole panel: at 0 the processed frame fills it, at 1 the original.
   final double initialDividerPosition;
 
   /// Whether the before image is loading.
@@ -51,6 +53,14 @@ class BeforeAfterComparisonWidget extends StatefulWidget {
   /// Lets keyboard shortcuts drive Fit / 1:1 from outside the widget.
   final ComparisonZoomController? zoomController;
 
+  /// Which frame is shown: the original, the processed one, or both split by
+  /// the divider. Controlled by the parent so it survives a new preview.
+  final ComparisonViewMode viewMode;
+
+  /// Called when the user picks a mode in the Original | Split | Processed
+  /// control. The control is shown only when this is set.
+  final ValueChanged<ComparisonViewMode>? onViewModeChanged;
+
   const BeforeAfterComparisonWidget({
     super.key,
     this.beforeImage,
@@ -61,6 +71,8 @@ class BeforeAfterComparisonWidget extends StatefulWidget {
     this.beforeAspectRatio,
     this.afterAspectRatio,
     this.zoomController,
+    this.viewMode = ComparisonViewMode.split,
+    this.onViewModeChanged,
   });
 
   @override
@@ -176,16 +188,25 @@ class _BeforeAfterComparisonWidgetState
     );
   }
 
-  /// Display aspect of the frame [_imagePixels] measures: the processed
-  /// frame's when there is one, else the source's.
-  double? get _measuredAspect => widget.afterImage != null
-      ? widget.afterAspectRatio
-      : widget.beforeAspectRatio;
+  /// The frame the 1:1 scale is measured against, with its display aspect:
+  /// the frame on screen. In Original mode that is the source; otherwise the
+  /// processed frame, which is what is being inspected, else the source
+  /// standing in for it. One getter, so size and aspect can't come from
+  /// different frames.
+  ({Uint8List? bytes, double? aspect}) get _measuredFrame {
+    if (widget.viewMode == ComparisonViewMode.original) {
+      return (bytes: widget.beforeImage, aspect: widget.beforeAspectRatio);
+    }
+    return widget.afterImage != null
+        ? (bytes: widget.afterImage, aspect: widget.afterAspectRatio)
+        : (bytes: widget.beforeImage, aspect: widget.beforeAspectRatio);
+  }
 
-  /// Pixel size of the frame the 1:1 scale is measured against: the
-  /// processed frame, which is what is being inspected, else the source.
+  double? get _measuredAspect => _measuredFrame.aspect;
+
+  /// Pixel size of the frame in [_measuredFrame].
   Size? get _imagePixels {
-    final bytes = widget.afterImage ?? widget.beforeImage;
+    final bytes = _measuredFrame.bytes;
     if (!identical(bytes, _sizedBytes)) {
       _sizedBytes = bytes;
       _sizedResult = bytes == null ? null : encodedImageSize(bytes);
@@ -315,6 +336,12 @@ class _BeforeAfterComparisonWidgetState
     });
   }
 
+  bool get _isSplit => widget.viewMode == ComparisonViewMode.split;
+
+  void _setDivider(double position) {
+    setState(() => _dividerPosition = position.clamp(0.0, 1.0));
+  }
+
   void _handlePanZoomStart(PointerPanZoomStartEvent event) {
     _panZoomStartScale = _scale;
     _isPanZooming = true;
@@ -407,113 +434,125 @@ class _BeforeAfterComparisonWidgetState
                 fit: StackFit.expand,
                 children: [
                   // After image (full width, shown on right side)
-                  Transform(
-                    alignment: Alignment.center,
-                    transform: Matrix4.identity()
-                      ..translate(drawnOffset.dx, drawnOffset.dy)
-                      ..scale(_scale, _scale),
-                    child: _buildImageLayer(
-                      imageData: widget.afterImage,
-                      displayAspectRatio: widget.afterAspectRatio,
-                      isLoading: widget.isAfterLoading,
-                      colorScheme: colorScheme,
-                      label: 'Processed',
-                    ),
-                  ),
-
-                  // Before image (clipped to left of divider)
-                  // Clip stays in screen space so the split aligns with the divider
-                  ClipRect(
-                    clipper: _SplitClipper(dividerPosition: _dividerPosition),
-                    child: Transform(
+                  if (widget.viewMode != ComparisonViewMode.original)
+                    Transform(
                       alignment: Alignment.center,
                       transform: Matrix4.identity()
                         ..translate(drawnOffset.dx, drawnOffset.dy)
                         ..scale(_scale, _scale),
                       child: _buildImageLayer(
-                        imageData: widget.beforeImage,
-                        displayAspectRatio: widget.beforeAspectRatio,
-                        isLoading: widget.isBeforeLoading,
+                        imageData: widget.afterImage,
+                        displayAspectRatio: widget.afterAspectRatio,
+                        isLoading: widget.isAfterLoading,
                         colorScheme: colorScheme,
-                        label: 'Original',
+                        label: 'Processed',
                       ),
                     ),
-                  ),
 
-                  // Labels
-                  Positioned(
-                    left: 12,
-                    top: 12,
-                    child: _buildLabel('Original', colorScheme),
-                  ),
-                  Positioned(
-                    right: 12,
-                    top: 12,
-                    child: _buildLabel('Processed', colorScheme),
-                  ),
-
-                  // Divider line
-                  Positioned(
-                    left: constraints.maxWidth * _dividerPosition - 1.5,
-                    top: 0,
-                    bottom: 0,
-                    child: Container(
-                      width: 3,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.5),
-                            blurRadius: 4,
-                          ),
-                        ],
+                  // Before image: clipped to the left of the divider in Split
+                  // mode (the clip stays in screen space so the split aligns
+                  // with the divider), whole in Original mode.
+                  if (widget.viewMode != ComparisonViewMode.processed)
+                    ClipRect(
+                      clipper: _SplitClipper(
+                        dividerPosition: _isSplit ? _dividerPosition : 1.0,
+                      ),
+                      child: Transform(
+                        alignment: Alignment.center,
+                        transform: Matrix4.identity()
+                          ..translate(drawnOffset.dx, drawnOffset.dy)
+                          ..scale(_scale, _scale),
+                        child: _buildImageLayer(
+                          imageData: widget.beforeImage,
+                          displayAspectRatio: widget.beforeAspectRatio,
+                          isLoading: widget.isBeforeLoading,
+                          colorScheme: colorScheme,
+                          label: 'Original',
+                        ),
                       ),
                     ),
-                  ),
 
-                  // Divider handle
-                  Positioned(
-                    left: constraints.maxWidth * _dividerPosition - 20,
-                    top: (constraints.maxHeight - 40) / 2,
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.drag_handle,
-                        color: Colors.black54,
-                        size: 20,
+                  // Labels: only the side(s) on screen.
+                  if (widget.viewMode != ComparisonViewMode.processed)
+                    Positioned(
+                      left: 12,
+                      top: 12,
+                      child: _buildLabel('Original', colorScheme),
+                    ),
+                  if (widget.viewMode != ComparisonViewMode.original)
+                    Positioned(
+                      right: 12,
+                      top: 12,
+                      child: _buildLabel('Processed', colorScheme),
+                    ),
+
+                  // Divider line. It reaches both edges of the panel; drawn
+                  // inset there so the whole line stays visible.
+                  if (_isSplit)
+                    Positioned(
+                      key: const Key('comparison-divider'),
+                      left: (constraints.maxWidth * _dividerPosition - 1.5)
+                          .clamp(0.0, math.max(0.0, constraints.maxWidth - 3)),
+                      top: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 3,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.5),
+                              blurRadius: 4,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
+
+                  // Divider handle, inset at the edges so it stays fully on
+                  // screen while the line sits at the edge.
+                  if (_isSplit)
+                    Positioned(
+                      key: const Key('comparison-divider-handle'),
+                      left: (constraints.maxWidth * _dividerPosition - 20)
+                          .clamp(0.0, math.max(0.0, constraints.maxWidth - 40)),
+                      top: (constraints.maxHeight - 40) / 2,
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.drag_handle,
+                          color: Colors.black54,
+                          size: 20,
+                        ),
+                      ),
+                    ),
 
                   // Gesture detector for dragging divider and double-tap reset
                   Positioned.fill(
                     child: GestureDetector(
                       onHorizontalDragUpdate: (details) {
-                        if (_isPanZooming || _isMiddleDragging) return;
-                        setState(() {
-                          _dividerPosition +=
-                              details.delta.dx / constraints.maxWidth;
-                          _dividerPosition = _dividerPosition.clamp(0.05, 0.95);
-                        });
+                        if (_isPanZooming || _isMiddleDragging || !_isSplit) {
+                          return;
+                        }
+                        _setDivider(_dividerPosition +
+                            details.delta.dx / constraints.maxWidth);
                       },
                       onTapDown: (details) {
-                        setState(() {
-                          _dividerPosition =
-                              details.localPosition.dx / constraints.maxWidth;
-                          _dividerPosition = _dividerPosition.clamp(0.05, 0.95);
-                        });
+                        if (!_isSplit) return;
+                        _setDivider(
+                            details.localPosition.dx / constraints.maxWidth);
                       },
                       onDoubleTap: _resetZoom,
                       child: Container(
@@ -521,6 +560,20 @@ class _BeforeAfterComparisonWidgetState
                       ),
                     ),
                   ),
+
+                  // Original | Split | Processed (top centre)
+                  if (widget.onViewModeChanged != null)
+                    Positioned(
+                      top: 12,
+                      left: 96,
+                      right: 96,
+                      child: Center(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: _buildViewModeControl(),
+                        ),
+                      ),
+                    ),
 
                   // Zoom controls (bottom-left)
                   if (widget.beforeImage != null || widget.afterImage != null)
@@ -647,14 +700,14 @@ class _BeforeAfterComparisonWidgetState
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _zoomButton(
+          _pillButton(
             'Fit',
             tooltip: AppShortcut.previewFit
                 .tooltipFor('Fit the whole frame in the panel'),
             selected: _isAtFit,
             onPressed: _isAtFit ? null : _resetZoom,
           ),
-          _zoomButton(
+          _pillButton(
             '1:1',
             tooltip: AppShortcut.previewActualSize.tooltipFor(
                 'Actual pixels — one video pixel per screen pixel'),
@@ -681,7 +734,31 @@ class _BeforeAfterComparisonWidgetState
     );
   }
 
-  Widget _zoomButton(
+  /// Original | Split | Processed, styled like the zoom pill, in the order
+  /// the panes sit.
+  Widget _buildViewModeControl() {
+    return Container(
+      key: const Key('comparison-view-mode'),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final mode in ComparisonViewMode.values)
+            _pillButton(
+              mode.label,
+              tooltip: mode.tooltip,
+              selected: widget.viewMode == mode,
+              onPressed: () => widget.onViewModeChanged?.call(mode),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _pillButton(
     String text, {
     required String tooltip,
     required bool selected,

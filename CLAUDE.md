@@ -1341,6 +1341,13 @@ asserted in `shutdown_when_done_test.dart`:
   exact vertically (stretched horizontally by SAR). The shortcuts reach the
   widget's zoom through `MainViewModel.previewZoom`
   (`ComparisonZoomController`); `before_after_comparison_test.dart` covers it.
+- **Preview view mode (Original / Split / Processed)** is
+  `MainViewModel.previewViewMode` (shortcuts B / S / P), passed into the
+  controlled `BeforeAfterComparisonWidget`, so it survives scrubber moves and
+  new previews. The divider spans the full 0–1 of the panel (it was 5–95%,
+  which hid a typical left crop); line and handle are drawn inset at the
+  edges. Each mode draws only its side at its own aspect, and 1:1 measures the
+  frame on screen (Original: the source; otherwise the processed frame).
 - **Themes** are `AppTheme` in `theme_service.dart`, persisted as `appTheme`
   and provided above the MaterialApp. Theme-specific decoration beyond
   `ColorScheme` (Pride's stripe) goes through the `AppDecorations` theme

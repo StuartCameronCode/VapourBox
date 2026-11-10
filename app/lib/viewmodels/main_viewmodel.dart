@@ -34,6 +34,7 @@ import '../services/failure_log_writer.dart';
 import '../services/job_runner.dart';
 import '../services/system_shutdown.dart';
 import '../services/worker_manager.dart';
+import '../widgets/comparison_view_mode.dart';
 import '../widgets/comparison_zoom_controller.dart';
 
 /// The display aspect a processed preview is drawn at: its stored size with
@@ -150,6 +151,18 @@ class MainViewModel extends ChangeNotifier {
   /// Fit / 1:1 on the before/after preview (issue #8). The zoom itself is
   /// view state held by the comparison; this lets the shortcuts reach it.
   final ComparisonZoomController previewZoom = ComparisonZoomController();
+
+  /// Original / Split / Processed on the before/after preview. Held here, not
+  /// in the comparison or on a queue item, so it survives scrubber moves, new
+  /// previews and switching videos.
+  ComparisonViewMode _previewViewMode = ComparisonViewMode.split;
+  ComparisonViewMode get previewViewMode => _previewViewMode;
+
+  void setPreviewViewMode(ComparisonViewMode mode) {
+    if (mode == _previewViewMode) return;
+    _previewViewMode = mode;
+    notifyListeners();
+  }
 
   // Shut down when the queue finishes (issue #123). Armed for one run only:
   // _stopProcessing disarms it, so a run the user cancelled can't leave it
