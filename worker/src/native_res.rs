@@ -195,6 +195,9 @@ pub fn detect(deps: &DependencyLocator, job: &VideoJob) -> Result<NativeResRepor
         job.end_frame.map(|f| f.max(0) as u64),
     );
 
+    // A `reserved` colour tag fails the conversion to gray16le outright.
+    let tag_fix = job.decode_tag_neutraliser();
+
     let dir = std::env::temp_dir().join(format!("vapourbox_native_{}", job.id));
     fs::create_dir_all(&dir).with_context(|| format!("creating {dir:?}"))?;
     let result = (|| -> Result<NativeResReport> {
@@ -211,6 +214,7 @@ pub fn detect(deps: &DependencyLocator, job: &VideoJob) -> Result<NativeResRepor
                     height,
                     "gray16le",
                     path.to_string_lossy().as_ref(),
+                    tag_fix.as_deref(),
                 ))
                 .envs(&env)
                 .stdout(Stdio::null())

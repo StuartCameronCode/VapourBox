@@ -338,6 +338,9 @@ impl PipelineExecutor {
         //
         // A VFR source decodes its stored frames for the trim's window instead
         // — the same `window_for_trim` the script was generated from.
+        // Clears a tag FFmpeg's scaler refuses (`reserved`), in case the
+        // decoder converts to the pipe format — see source_decode.rs.
+        let tag_fix = job.decode_tag_neutraliser();
         let decoder_args = match &self.timeline {
             Some(t) => source_decode::timeline_decoder_args(
                 &job.input_path,
@@ -346,6 +349,7 @@ impl PipelineExecutor {
                 pix_fmt,
                 &t.window_for_trim(job.start_frame, job.end_frame),
                 "pipe:1",
+                tag_fix.as_deref(),
             ),
             None => source_decode::encode_decoder_args(
                 &job.input_path,
@@ -356,6 +360,7 @@ impl PipelineExecutor {
                 job.start_frame,
                 job.end_frame,
                 job.total_frames,
+                tag_fix.as_deref(),
             ),
         };
 
@@ -1390,6 +1395,7 @@ impl PipelineExecutor {
 
         // Same decode as the encode path: the full stored frame at exactly the
         // probed size, never resampled — see source_decode.rs.
+        let tag_fix = job.decode_tag_neutraliser();
         let decoder_args = match &window {
             Some(w) => source_decode::timeline_decoder_args(
                 &job.input_path,
@@ -1398,6 +1404,7 @@ impl PipelineExecutor {
                 pix_fmt,
                 w,
                 raw_path.to_string_lossy().as_ref(),
+                tag_fix.as_deref(),
             ),
             None => source_decode::preview_decoder_args(
                 &job.input_path,
@@ -1407,6 +1414,7 @@ impl PipelineExecutor {
                 height,
                 pix_fmt,
                 raw_path.to_string_lossy().as_ref(),
+                tag_fix.as_deref(),
             ),
         };
         let extract_result = Command::new(&ffmpeg_path)

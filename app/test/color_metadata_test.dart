@@ -25,6 +25,14 @@ void main() {
       expect(colorTag(const {}, 'color_space'), isNull);
     });
 
+    test('forwards a value FFmpeg rejects, such as ProRes\'s reserved', () {
+      // Deliberate: the worker needs the raw tag to know the decoder must
+      // clear it (VideoJob::decode_tag_neutraliser). The encoder's tags drop
+      // it in ColorMetadata::from_raw.
+      expect(colorTag({'color_primaries': 'reserved'}, 'color_primaries'),
+          'reserved');
+    });
+
     test('trims surrounding whitespace', () {
       expect(colorTag({'color_space': ' bt709 '}, 'color_space'), 'bt709');
     });

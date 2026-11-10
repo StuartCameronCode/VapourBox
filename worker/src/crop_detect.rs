@@ -871,12 +871,15 @@ pub fn decode_samples<T: Send>(
     let env = deps.build_environment();
     let (width, height) = frame_size(job)?;
     let fps = job.input_frame_rate.filter(|f| *f > 0.0).unwrap_or(29.97);
+    // A `reserved` colour tag fails the conversion to `pix_fmt` outright.
+    let tag_fix = job.decode_tag_neutraliser();
 
     let decode = |frame: i32| -> Result<T> {
         let seek = ((frame as f64 - 0.5) / fps).max(0.0);
         let out = Command::new(&ffmpeg)
             .args(source_decode::preview_decoder_args(
                 &job.input_path, seek, count, width, height, pix_fmt, "pipe:1",
+                tag_fix.as_deref(),
             ))
             .envs(&env)
             .stdin(Stdio::null())

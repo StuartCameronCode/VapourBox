@@ -631,6 +631,13 @@ enum ScanType {
 /// command line. Anything unrecognised is dropped again worker-side, in
 /// `ColorMetadata::from_raw`, so a surprising value cannot reach ffmpeg.
 /// `PreviewGenerator` reads the tags with this too.
+///
+/// A value FFmpeg rejects, such as ProRes's `reserved`, is **forwarded on
+/// purpose**, not dropped here: FFmpeg's decoder reads the tag from the stream
+/// whatever the job says, so every decode that converts the pixel format has
+/// to know the tag is invalid to clear it first (`ColorTags.decodeNeutraliser`,
+/// and the worker's `VideoJob::decode_tag_neutraliser` from the job's tags).
+/// The encoder's tags still drop it, in `ColorMetadata::from_raw`.
 String? colorTag(Map<String, dynamic> stream, String key) {
   final value = (stream[key] as String?)?.trim();
   if (value == null || value.isEmpty || value == 'unknown' || value == 'N/A') {

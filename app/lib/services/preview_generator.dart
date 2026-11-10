@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:path/path.dart' as path;
 import 'package:uuid/uuid.dart';
 
+import '../models/color_tags.dart';
 import '../models/encoding_settings.dart';
 import '../models/hdr_display.dart';
 import '../models/preview_frame_info.dart';
@@ -93,6 +94,41 @@ class PreviewGenerator {
         transfer: _colorTransfer,
         range: _colorRange,
       );
+
+  /// Clears a colour tag FFmpeg's scaler refuses (`reserved`), or null when
+  /// every tag is usable. See [ColorTags.decodeNeutraliser].
+  String? get _tagFix => ColorTags.decodeNeutraliser(
+        matrix: _colorMatrix,
+        primaries: _colorPrimaries,
+        transfer: _colorTransfer,
+      );
+
+  /// The ffmpeg arguments for one timeline thumbnail at [time] seconds.
+  /// [tagFix] precedes `scale`, which is the step that converts.
+  static List<String> thumbnailArgs({
+    required String videoPath,
+    required double time,
+    String? toneMap,
+    String? tagFix,
+    required String outputPath,
+  }) {
+    return [
+      '-y',
+      '-ss', time.toStringAsFixed(3),
+      ...sourceDecodeOptions,
+      '-i', videoPath,
+      '-vframes', '1',
+      // Scaled first: tone-mapping a 4K frame in float costs far more
+      // than the 160-pixel thumbnail it ends up as.
+      '-vf', [
+        if (tagFix != null) tagFix,
+        'scale=160:-1',
+        if (toneMap != null) toneMap,
+      ].join(','),
+      '-q:v', '5',
+      outputPath,
+    ];
+  }
 
   /// Log messages from preview generation (stderr output).
   final List<String> _previewLog = [];
@@ -221,26 +257,32 @@ class PreviewGenerator {
   /// output is written with passthrough timing, so unlike the worker's
   /// `rawvideo` decoders it needs no PTS reset after the seek (issue #157).
   ///
-  /// `integration_seek_alignment_test.dart` runs exactly these arguments (with
-  /// a PNG [outputPath]) against an independent sequential decode, so keep
-  /// every decode option here rather than at the call site.
+  /// [tagFix] goes first in the one `-vf`: the JPEG/PNG encode converts the
+  /// pixel format, which fails on a `reserved` tag.
+  ///
+  /// `integration_seek_alignment_test.dart` and
+  /// `integration_reserved_colour_tags_test.dart` run exactly these arguments
+  /// (with a PNG [outputPath]), so keep every decode option here rather than at
+  /// the call site.
   static List<String> beforeFrameArgs({
     required String videoPath,
     required int frameIndex,
     required double frameRate,
     String? toneMap,
+    String? tagFix,
     required String outputPath,
   }) {
     final frame = frameIndex < 0 ? 0 : frameIndex;
     final seekTime = (frame - 0.5) / frameRate;
     final ss = seekTime < 0 ? 0.0 : seekTime;
+    final vf = [if (tagFix != null) tagFix, if (toneMap != null) toneMap];
     return [
       '-y',
       '-ss', ss.toStringAsFixed(6),
       ...sourceDecodeOptions,
       '-i', videoPath,
       '-frames:v', '1',
-      if (toneMap != null) ...['-vf', toneMap],
+      if (vf.isNotEmpty) ...['-vf', vf.join(',')],
       '-q:v', '2',
       outputPath,
     ];
@@ -269,6 +311,7 @@ class PreviewGenerator {
           frameIndex: frame,
           frameRate: _frameRate,
           toneMap: _toneMap,
+          tagFix: _tagFix,
           outputPath: outputPath,
         ),
       );
@@ -651,21 +694,13 @@ class PreviewGenerator {
     try {
       final result = await Process.run(
         _ffmpegPath!,
-        [
-          '-y',
-          '-ss', time.toStringAsFixed(3),
-          ...sourceDecodeOptions,
-          '-i', videoPath,
-          '-vframes', '1',
-          // Scaled first: tone-mapping a 4K frame in float costs far more
-          // than the 160-pixel thumbnail it ends up as.
-          '-vf', [
-            'scale=160:-1',
-            if (_toneMap case final toneMap?) toneMap,
-          ].join(','),
-          '-q:v', '5',
-          outputPath,
-        ],
+        thumbnailArgs(
+          videoPath: videoPath,
+          time: time,
+          toneMap: _toneMap,
+          tagFix: _tagFix,
+          outputPath: outputPath,
+        ),
       );
 
       if (result.exitCode == 0 && await File(outputPath).exists()) {
