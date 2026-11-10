@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reserved colour tags: before frame, thumbnails and Detect fail</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: -4px; }
+  .correction { border-left: 3px solid var(--warn); }
+</style>
+</head>
+<body>
+<main>
+<h1>Sources tagged with <code>reserved</code> colour primaries/transfer</h1>
+<p class="meta">2026-11-10 · reported on the videohelp forum (thread 419911, posts #123/#140/#150) with a
+ProRes capture · measured on an M1 Pro (macOS arm64) against the deps 1.16.0 bundle (FFmpeg 9.0.2)</p>
+
+<div class="card">
+<strong>Outcome.</strong> FFmpeg 9's scaler refuses to convert a frame tagged
+<code>color_primaries=reserved</code> / <code>color_transfer=reserved</code>, and fails the whole
+decode. That emptied the app's Original side ("No preview") and timeline and failed Detect borders, as
+reported. It also failed Descale's Detect, and the encode and preview of a ProRes 4444 with alpha,
+which nobody had reported. Every decode of the source now puts a <code>setparams</code> that sets
+<em>only the invalid</em> tags to <code>unknown</code> first in its one <code>-vf</code>. The fixed
+decodes are bit-identical to the same file untagged, and a source with usable tags decodes with
+exactly the arguments it always had. Built.
+</div>
+
+<h2>1. The source and the error</h2>
+<p>The clip is ProRes 422 (<code>apcn</code>), 720x486, yuv422p10le, BFF, 2997/100 fps, time base
+1/11988, with <code>pcm_s24le</code> as stream 0 and video as stream 1. ffprobe reports
+<code>color_space=unknown</code>, <code>color_primaries=reserved</code>,
+<code>color_transfer=reserved</code>, <code>color_range=tv</code>. Any ffmpeg that converts its pixel
+format stops with:</p>
+<pre>[swscaler] Unsupported input (Operation not supported): fmt:yuv422p10le csp:unknown prim:reserved trc:reserved -&gt; fmt:yuv422p …</pre>
+
+<h3>Where <code>reserved</code> comes from</h3>
+<p>FFmpeg's ProRes decoder reads the header's colour fields as ISO 23091 codes, where 0 is
+<code>reserved</code> and "unspecified" is 2. Apple's ProRes spec uses 0 for "unknown". So a ProRes
+writer that marks colour as unknown the Apple way produces exactly these tags. FFmpeg's own
+<code>prores_metadata</code> bitstream filter does it too: its <code>unknown</code> constant writes
+code 0, and it refuses 2 and 3.</p>
+<table>
+<tr><th>prores_metadata setting</th><th>ffprobe then reports</th></tr>
+<tr><td><code>color_primaries=unknown:color_trc=unknown</code></td><td>prim <code>reserved</code>, trc <code>reserved</code> (the reported clip's tags)</td></tr>
+<tr><td><code>color_primaries=2</code> / <code>=3</code></td><td>refused ("not a valid value")</td></tr>
+<tr><td><code>colorspace=0</code></td><td>matrix <code>gbr</code> (on a YUV stream)</td></tr>
+</table>
+<p>H.264 is not affected in the same way. Its decoder maps reserved codes to <code>unknown</code> itself:
+<code>h264_metadata</code> with primaries/transfer 0 or 3 probed as <code>unknown</code> and converted
+fine. The exception is matrix 15, <code>ipt-c2</code> (Dolby Vision profile 5), which fails with
+"Impossible to convert". The fixture and the tests are therefore ProRes.</p>
+
+<h2>2. Which decodes fail</h2>
+<p>From <code>scripts/probe_tag_rules.py</code> on the reported clip, each call site's own arguments
+without and with <code>setparams=color_primaries=unknown:color_trc=unknown</code> at the front of its
+filter chain. Exit 211 is ffmpeg's failure.</p>
+<table>
+<tr><th>Decode</th><th>Converts?</th><th>Before the fix</th><th>With the neutraliser</th></tr>
+<tr><td>App before frame (<code>PreviewGenerator.getFrameAtIndex</code>, JPEG)</td><td>yes</td><td class="bad">exit 211</td><td class="good">OK</td></tr>
+<tr><td>App timeline thumbnail (<code>scale=160:-1</code>)</td><td>yes</td><td class="bad">exit 211</td><td class="good">OK</td></tr>
+<tr><td>Worker <code>--detect-crop</code> (yuv444p)</td><td>yes</td><td class="bad">exit 211</td><td class="good">OK</td></tr>
+<tr><td>Worker <code>--detect-native</code> (gray16le). <strong>Not in the original report.</strong></td><td>yes</td><td class="bad">exit 211</td><td class="good">OK</td></tr>
+<tr><td>Worker preview / encode decoder, <code>--detect-noise-halo</code> (the source's own format)</td><td>no</td><td class="good">OK</td><td class="good">OK, raw bytes identical</td></tr>
+<tr><td>App field-order analysis (<code>idet</code>, no <code>-pix_fmt</code>)</td><td>no</td><td class="good">OK</td><td>unchanged</td></tr>
+</table>
+
+<h3>The encode is affected too, when its decoder converts</h3>
+<p>The worker's decoders write the pipe format chosen by <code>decode_pixel_format</code>. That is the
+source's own format, except when <code>pipe_source</code> cannot read it. ProRes 4444 with alpha
+decodes as <code>yuva444p12le</code>, which is converted to <code>yuv444p12le</code>. With reserved tags:</p>
+<table>
+<tr><th>Encode-decoder conversion yuva444p12le → yuv444p12le</th><th>Result</th></tr>
+<tr><td>as before</td><td class="bad">Unsupported input</td></tr>
+<tr><td>with the neutraliser</td><td class="good">OK, bit-identical to the same file untagged</td></tr>
+</table>
+<p>So the neutraliser belongs in all three <code>source_decode</code> builders (encode, preview, VFR
+timeline), and through them in every detector. It is not only for the detectors. The heavy test checks
+that the encode and preview of such a clip fail on the old worker and match an untagged twin on the new one.</p>
+
+<h2>3. What the neutraliser must and must not touch</h2>
+<p>From <code>scripts/probe_tag_rules.py</code>, on testsrc2 ProRes fixtures it builds itself:</p>
+<table>
+<tr><th>Measurement</th><th>Result</th></tr>
+<tr><td>Reserved primaries + transfer, clear only primaries</td><td class="bad">still fails (<code>prim:unknown trc:reserved</code>)</td></tr>
+<tr><td>… clear only transfer</td><td class="bad">still fails</td></tr>
+<tr><td>… clear both</td><td class="good">OK</td></tr>
+<tr><td>Fixed decode vs the untagged original: yuv444p, gray16le, rgb24</td><td class="good">identical, all three</td></tr>
+<tr><td>bt709 matrix + reserved primaries/transfer, matrix kept, rgb24</td><td class="good">identical to the untagged file read as 709</td></tr>
+<tr><td>A <em>valid</em> bt709 source: clear primaries + transfer (yuv444p, gray16le)</td><td class="good">identical</td></tr>
+<tr><td>A <em>valid</em> bt709 source: clear the matrix, yuv444p</td><td class="good">identical</td></tr>
+<tr><td>A <em>valid</em> bt709 source: clear the matrix, <strong>gray16le</strong></td><td class="bad">differs: max 27.8 8-bit levels, mean 15.2</td></tr>
+<tr><td>RGB source (FFV1 gbrp, probed matrix <code>gbr</code>): clear the matrix</td><td class="good">identical (yuv444p, rgb24)</td></tr>
+<tr><td><code>-colorspace gbr</code> as an option</td><td>rejected; FFmpeg's option name is <code>rgb</code></td></tr>
+</table>
+<p>Hence the rule:</p>
+<ul>
+<li><strong>Per tag, only where it is invalid</strong>, meaning not on the lists
+<code>ColorMetadata::from_raw</code> already uses. Untagged values (<code>unknown</code>,
+<code>N/A</code>, empty) need nothing. A blanket "set everything to unknown" would change Descale
+Detect's input on every tagged source, by up to 28 levels. With an unknown matrix, swscale's yuv→gray
+is an exact limited→full expansion; with bt709 it is something else.</li>
+<li><strong><code>gbr</code> counts as valid.</strong> It is ffprobe's name for the RGB identity
+matrix, swscale handles it, and clearing it changed nothing. Leaving it alone keeps RGB sources'
+arguments unchanged.</li>
+<li><strong><code>ipt-c2</code> is cleared.</strong> swscale cannot convert it, and a Dolby Vision
+profile 5 picture is warned about, never blocked. With a PQ transfer, the HDR tone-map's own leading
+<code>setparams</code> overrides the matrix anyway.</li>
+</ul>
+
+<h2>4. Decisions</h2>
+<ul>
+<li><strong>The raw tag stays in the job.</strong> The task first proposed making the app's
+<code>colorTag()</code> drop <code>reserved</code>. It doesn't. The decoder reads the tag from the
+stream whatever the job says, so the worker has to know the stream's tag is invalid in order to clear
+it, and the job is the only place it can learn that without its own ffprobe (which would cost every
+preview render). Clearing unconditionally whatever <code>from_raw</code> didn't keep was also rejected
+(section 3: it changes gray16le pixels when the job lacks a valid tag the file has). The encoder's tags
+still drop <code>reserved</code>, in <code>from_raw</code>.</li>
+<li><strong>One decision on each side, byte-identical.</strong> In the worker it is
+<code>color_metadata::decode_tag_neutraliser</code> (via <code>VideoJob::decode_tag_neutraliser</code>),
+placed by <code>source_decode::decoder_filter</code> ahead of the size guard. In the app it is
+<code>ColorTags.decodeNeutraliser</code>, placed by <code>PreviewGenerator.beforeFrameArgs</code> /
+<code>thumbnailArgs</code> ahead of <code>scale</code> and the HDR tone map.
+<code>color_tags_test.dart</code> parses the Rust lists from source and repeats the Rust case table.</li>
+<li><strong>Unchanged arguments for usable tags.</strong> No tag fix means the <code>-vf</code> is
+exactly the size guard, as before (asserted in <code>source_decode.rs</code>).</li>
+</ul>
+
+<h2>5. The reported clip, after the fix</h2>
+<p>From <code>scripts/real_clip_worker.py</code>, with the job built as the app builds it (ffprobe's raw
+tags through <code>colorTag</code>). No frame of the clip is reproduced here or committed: it is
+the reporter's footage.</p>
+<table>
+<tr><th>Run</th><th>Result</th></tr>
+<tr><td><code>--detect-crop</code></td><td class="good">OK, 1.1 s: crop left 14, right 8, top 0, bottom 0; 24/24 frames usable</td></tr>
+<tr><td><code>--detect-native</code></td><td class="good">OK, 4.0 s: no clear native resolution (dip 0.75, so not upscaled)</td></tr>
+<tr><td><code>--detect-noise-halo</code></td><td class="good">OK, 2.7 s: noise 0.0, no suggestion (see below)</td></tr>
+<tr><td>Preview, frame 300</td><td class="good">OK, 0.3 s</td></tr>
+<tr><td>Trimmed encode, frames 100–129 (FFV1)</td><td class="good">OK, 30 frames</td></tr>
+<tr><td>Before frame and thumbnail, the app's arguments with the fix</td><td class="good">OK (section 2)</td></tr>
+</table>
+<p><strong>Noted, no action:</strong> <code>--detect-noise-halo</code> reports noise 0.0 on this clip
+under any tagging. It is telecined film, and the 3:2 pulldown's repeated fields match each other
+exactly, which a motion-compensated difference reads as noiseless. That only withholds a suggestion,
+which matches the documented rule that a low score is silent.</p>
+<p>The forum report also described the Processed side as showing no difference. Part of that was the
+one-frame seek offset, a separate bug with its own fix (seek alignment).</p>
+
+<h2>6. Tests</h2>
+<ul>
+<li><strong>Fixtures</strong> (<code>Tests/TestResources/generate_reserved_colour_tags_test.sh</code>,
+stream copy only): <code>reserved_colour_tags.mov</code> is 15 frames of
+<code>prores422_10bit_telecine.mov</code> laid out like the reported clip (audio first, 1/11988 time
+base), 1.7 MB. <code>reserved_colour_tags_4444a.mov</code> is ProRes 4444 with alpha, 320x240,
+10 frames, 0.55 MB. The script fails unless ffprobe reports <code>reserved,reserved</code>.</li>
+<li><strong>Heavy</strong> (<code>integration_reserved_colour_tags_test.dart</code>): every check
+compares against an untagged twin, which is the fixture stream-copied with bt709 primaries/transfer and
+the matrix left unknown. The checks: before frame and thumbnail fail without the fix (a guard that the
+fixture still reproduces the bug) and with it equal the twin's picture (MAD 0); each of the three
+detectors' reports equals the twin's; preview of both fixtures equals the twin's (MAD 0); the 4444a
+encode's frames equal the twin's (MD5).
+<br>Run against the <em>unfixed</em> worker: <code>--detect-crop</code>, <code>--detect-native</code>,
+the preview and the encode tests <span class="bad">fail</span>, and <code>--detect-noise-halo</code>
+passes (no conversion, as predicted). With the fix, all 8 pass.</li>
+<li><strong>Unit</strong>: the case table and "never touches an accepted value" sweep on both sides;
+<code>source_decode</code> keeps one <code>-vf</code> with the fix first, and is unchanged without
+one; the Dart lists equal the Rust source's; argument placement with the HDR tone map and with DV5
+(<code>ipt-c2</code> + PQ).</li>
+</ul>
+
+<h2>7. Limits and what wasn't tested</h2>
+<ul>
+<li>Measured on macOS arm64 with FFmpeg 9.0.2 only. The scaler is shared code and FFmpeg is pinned to
+the 9.0 series everywhere, but the nightly heavy run is what checks Windows and Linux.</li>
+<li>One real clip. Other writers that produce <code>reserved</code> (a MOV <code>colr</code> atom on
+another codec, for example) were not found or tested. The rule does not depend on the codec.</li>
+<li>No app screenshot. Every result here is an exit code or a bit-exact comparison, and none is a visual judgement.</li>
+<li>An invalid <code>color_range</code> (ffprobe reports only tv/pc/unknown) and tags that change
+mid-stream away from the probed ones are not handled.</li>
+<li><strong>Found in passing, not fixed here:</strong> <code>--detect-native</code> decodes gray16le
+through swscale, so Descale Detect's luma depends on the matrix tag (section 3: up to 28 levels between
+a bt709-tagged and an untagged copy of the same picture). <code>--detect-noise-halo</code> avoids this
+by decoding the source's own format and taking its luma plane. This fix does not make it worse: a
+valid tag is never cleared.</li>
+</ul>
+
+<h2>Scripts</h2>
+<ul>
+<li><code>scripts/run.sh</code>: runs both scripts below. Set <code>DEPS</code>, <code>SCRATCH</code> and, for section 5, <code>CLIP</code>.</li>
+<li><code>scripts/probe_tag_rules.py</code>: sections 1–3, building every fixture from testsrc2; with a clip, the call-site table.</li>
+<li><code>scripts/real_clip_worker.py</code>: section 5, with the worker on a real clip.</li>
+</ul>
+</main>
+</body>
+</html>

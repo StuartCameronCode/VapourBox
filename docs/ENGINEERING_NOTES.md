@@ -3256,6 +3256,36 @@ Full report with scripts:
   The mean alone would miss a one-frame patch (~0.03 points over 40 frames).
 - `pal-sd-25.mov` is static colour bars: useless for anything motion-related.
 
+### Sources tagged `reserved`: clear invalid colour tags before converting (2026-11-10)
+
+Full report with scripts:
+[docs/reports/2026-11-reserved-colour-tags/](reports/2026-11-reserved-colour-tags/index.html).
+
+- Reported on the videohelp forum with a ProRes 422 capture: no Original
+  frame, no thumbnails, Detect borders "No frames could be decoded." Its tags
+  are `color_primaries=reserved`, `color_transfer=reserved`. FFmpeg's ProRes
+  decoder reads code 0 (Apple's "unknown") as ISO 23091's `reserved`, and
+  FFmpeg 9's scaler refuses to convert such a frame
+  (`Unsupported input … prim:reserved trc:reserved`).
+- Every decode that converts the pixel format failed: the app's before frame
+  and thumbnails, `--detect-crop`, `--detect-native` (not reported), and the
+  encode/preview of a ProRes 4444 with alpha (`yuva444p12le` is converted to
+  the pipe format). Decodes in the source's own format were fine.
+- Fix: `setparams` sets each *invalid* tag (off `ColorMetadata`'s lists;
+  `gbr` counts as valid) to `unknown`, first in the decode's one `-vf`
+  (worker `decode_tag_neutraliser` via `source_decode::decoder_filter`; app
+  `ColorTags.decodeNeutraliser` via `PreviewGenerator.beforeFrameArgs` /
+  `thumbnailArgs`). The result is bit-identical to the same file untagged.
+- Never clear a valid tag: on a bt709 source, yuv → gray16le with
+  `colorspace=unknown` differs by up to 28 levels (mean 15). That is also why
+  the job keeps the raw `reserved` (the app's `colorTag` forwards it). The
+  worker decides from it rather than clearing whatever `from_raw` dropped.
+- Clearing only one of primaries/transfer is not enough when both are
+  reserved.
+- Open: `--detect-native`'s gray16le decode depends on the matrix tag in any
+  case (the same 28 levels). `--detect-noise-halo` avoids it by reading the
+  luma plane of the source's own format.
+
 ### Testing a deps change before publishing
 
 A PR that changes `deps/` has a chicken-and-egg problem: `ci-test.yml` and
