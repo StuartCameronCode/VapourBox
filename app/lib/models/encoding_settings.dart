@@ -241,6 +241,14 @@ class EncodingSettings {
 
   Map<String, dynamic> toJson() => _$EncodingSettingsToJson(this);
 
+  /// The colour format the script actually converts to: [chromaSubsampling],
+  /// except for v210, which stores 10-bit 4:2:2 and nothing else, so the
+  /// worker converts to that whatever is selected (field-aware, in the
+  /// script). Mirrors `EncodingSettings::effective_chroma_subsampling`; see
+  /// `v210ChromaPinWarning` for what the user is told.
+  ChromaSubsampling get effectiveChromaSubsampling =>
+      codec.isUncompressed ? ChromaSubsampling.yuv422p10 : chromaSubsampling;
+
   /// Backward compatibility: alias for audioMode == passthrough.
   @Deprecated('Use audioMode instead')
   bool get audioCopy => audioMode == AudioMode.passthrough;
@@ -255,9 +263,9 @@ class EncodingSettings {
     // terms of a number that does nothing. ProRes is set by its profile;
     // lossless has no quality at all.
     if (!codec.hasQualityControl) {
-      return codec.isProRes
-          ? 'Fixed by the ${codec.displayName} profile'
-          : 'Lossless';
+      if (codec.isProRes) return 'Fixed by the ${codec.displayName} profile';
+      if (codec.isUncompressed) return 'Uncompressed';
+      return 'Lossless';
     }
     if (codec == VideoCodec.h264Videotoolbox || codec == VideoCodec.h265Videotoolbox) {
       // VideoToolbox: CRF is remapped to q:v (inverted scale) in the worker.

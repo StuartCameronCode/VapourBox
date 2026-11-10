@@ -185,7 +185,7 @@ impl VideoJob {
     /// like everything else about custom code, it is the user's to get right.
     pub fn encoder_input_pix_fmt(&self) -> String {
         self.encoding_settings
-            .chroma_subsampling
+            .effective_chroma_subsampling()
             .ffmpeg_pix_fmt()
             .map(str::to_string)
             .unwrap_or_else(|| {
@@ -704,6 +704,25 @@ impl EncodingSettings {
     pub fn effective_max_cache_size_mb(&self) -> Option<u32> {
         self.max_cache_size_mb.filter(|mb| *mb > 0)
     }
+
+    /// The output colour format the script actually converts to: the user's
+    /// choice, except where the codec stores one format and only one.
+    ///
+    /// v210 is always 10-bit 4:2:2, so the conversion is done here, in the
+    /// script, where `_FieldBased` makes zimg field-aware. Left to ffmpeg's
+    /// `-pix_fmt`, an interlaced 4:2:0 source would have its two fields'
+    /// chroma blended together (measured: rows of 64/192 came out 84/172),
+    /// and a user-selected 8-bit format would be reduced first and padded
+    /// back up, losing depth for nothing. `v210ChromaPinWarning` in
+    /// `app/lib/utils/pixel_format.dart` tells the user, pinned to
+    /// `v210_stores_422_10_whatever_is_selected`.
+    pub fn effective_chroma_subsampling(&self) -> ChromaSubsampling {
+        if self.codec.is_uncompressed() {
+            ChromaSubsampling::Yuv422P10
+        } else {
+            self.chroma_subsampling
+        }
+    }
 }
 
 impl Default for EncodingSettings {
@@ -794,6 +813,13 @@ pub enum VideoCodec {
 
     #[serde(rename = "prores_ks -profile:v 5")]
     ProRes4444Xq,
+
+    // Uncompressed
+    /// Uncompressed 10-bit 4:2:2 (`v210`), the editing intermediate Premiere
+    /// and Resolve take natively. Always stored as `yuv422p10le`, which the
+    /// script produces itself (see `EncodingSettings::effective_chroma_subsampling`).
+    #[serde(rename = "v210")]
+    V210,
 }
 
 /// Encoder family for grouping quality/preset logic.
@@ -806,6 +832,8 @@ pub enum EncoderFamily {
     Amf,
     ProRes,
     Lossless,
+    /// v210: no quality, no preset, a data rate fixed by the frame size.
+    Uncompressed,
 }
 
 #[allow(dead_code)]
@@ -832,6 +860,7 @@ impl VideoCodec {
             VideoCodec::ProResHQ => "prores_ks",
             VideoCodec::ProRes4444 => "prores_ks",
             VideoCodec::ProRes4444Xq => "prores_ks",
+            VideoCodec::V210 => "v210",
         }
     }
 
@@ -857,6 +886,7 @@ impl VideoCodec {
         VideoCodec::ProResHQ,
         VideoCodec::ProRes4444,
         VideoCodec::ProRes4444Xq,
+        VideoCodec::V210,
     ];
 
     /// Get the ProRes profile value, if applicable.
@@ -887,7 +917,8 @@ impl VideoCodec {
             | VideoCodec::H265Amf
             | VideoCodec::FFV1
             | VideoCodec::Huffyuv
-            | VideoCodec::Ffvhuff => None,
+            | VideoCodec::Ffvhuff
+            | VideoCodec::V210 => None,
         }
     }
 
@@ -904,6 +935,21 @@ impl VideoCodec {
     /// Check if this is a lossless codec (FFV1, HuffYUV, FFVHuff).
     pub fn is_lossless(&self) -> bool {
         matches!(self.encoder_family(), EncoderFamily::Lossless)
+    }
+
+    /// Whether this is an uncompressed codec (v210). Deliberately not part of
+    /// `is_lossless`: that family defaults to AVI and is grouped as "Lossless"
+    /// in the UI, while v210 is an editing intermediate that belongs in MOV.
+    pub fn is_uncompressed(&self) -> bool {
+        matches!(self.encoder_family(), EncoderFamily::Uncompressed)
+    }
+
+    /// Whether the output is flagged with the picture's field order when it is
+    /// still interlaced (see `ScriptGenerator::output_field_order`). The
+    /// editing intermediates only: an NLE reads the flag to decide how to
+    /// treat the fields. Other codecs are unchanged.
+    pub fn flags_field_order(&self) -> bool {
+        self.is_prores() || self.is_uncompressed()
     }
 
     /// FFmpeg output pixel format to force for this codec, given the format the
@@ -956,6 +1002,11 @@ impl VideoCodec {
             // Classic HuffYUV only supports yuv422p (not yuv420p); ffvhuff and
             // the others accept yuv420p.
             VideoCodec::Huffyuv => return Some("yuv422p"),
+            // v210 stores 10-bit 4:2:2 and nothing else. The script already
+            // delivers exactly that (`effective_chroma_subsampling`), field-
+            // aware, so this is a guard rather than a conversion: ffmpeg's own
+            // 4:2:0 -> 4:2:2 conversion blends the two fields' chroma.
+            VideoCodec::V210 => return Some("yuv422p10le"),
             // AMF takes nv12 natively. Left to negotiate, ffmpeg will hand a
             // >8-bit source to the encoder as p010, and 10-bit HEVC encode is
             // only supported on some AMD ASICs — where it isn't, the AMF
@@ -1019,7 +1070,7 @@ impl VideoCodec {
                 "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow",
             ],
             EncoderFamily::Amf => &["speed", "balanced", "quality"],
-            // VideoToolbox, ProRes and the lossless codecs take no preset.
+            // VideoToolbox, ProRes, the lossless codecs and v210 take no preset.
             _ => &[],
         }
     }
@@ -1063,7 +1114,13 @@ impl VideoCodec {
 
     /// Whether this is a hardware-accelerated encoder.
     pub fn is_hardware(&self) -> bool {
-        !matches!(self.encoder_family(), EncoderFamily::Software | EncoderFamily::ProRes | EncoderFamily::Lossless)
+        !matches!(
+            self.encoder_family(),
+            EncoderFamily::Software
+                | EncoderFamily::ProRes
+                | EncoderFamily::Lossless
+                | EncoderFamily::Uncompressed
+        )
     }
 
     /// Get the encoder family for this codec.
@@ -1075,6 +1132,7 @@ impl VideoCodec {
             VideoCodec::H264Videotoolbox | VideoCodec::H265Videotoolbox => EncoderFamily::Videotoolbox,
             VideoCodec::H264Amf | VideoCodec::H265Amf => EncoderFamily::Amf,
             VideoCodec::FFV1 | VideoCodec::Huffyuv | VideoCodec::Ffvhuff => EncoderFamily::Lossless,
+            VideoCodec::V210 => EncoderFamily::Uncompressed,
             // Exhaustive, not a catch-all: a non-ProRes variant added later
             // would otherwise be silently classified as ProRes and take the
             // `-profile:v` branch in `build_encoder_quality_args`.
@@ -1089,7 +1147,7 @@ impl VideoCodec {
 
     /// Get the preferred container format for this codec.
     pub fn preferred_container(&self) -> ContainerFormat {
-        if self.is_prores() {
+        if self.is_prores() || self.is_uncompressed() {
             ContainerFormat::Mov
         } else if self.is_lossless() {
             ContainerFormat::Avi
@@ -1120,6 +1178,7 @@ impl VideoCodec {
             VideoCodec::ProResHQ => "ProRes 422 HQ",
             VideoCodec::ProRes4444 => "ProRes 4444",
             VideoCodec::ProRes4444Xq => "ProRes 4444 XQ",
+            VideoCodec::V210 => "Uncompressed 10-bit 4:2:2 (v210)",
         }
     }
 }
@@ -1452,6 +1511,77 @@ mod tests {
     /// file stamped 4444 carrying 4:2:2.
     ///
     /// Like the HuffYUV and AMF pins, this holds whatever the pipeline produced
+    /// v210 is the uncompressed family, alone: no quality, no preset, MOV by
+    /// default, never hardware, and its serde name is the wire format.
+    #[test]
+    fn v210_is_uncompressed() {
+        let c = VideoCodec::V210;
+        assert_eq!(serde_json::to_string(&c).unwrap(), "\"v210\"");
+        assert_eq!(serde_json::from_str::<VideoCodec>("\"v210\"").unwrap(), c);
+        assert_eq!(c.ffmpeg_codec(), "v210");
+        assert_eq!(c.encoder_family(), EncoderFamily::Uncompressed);
+        assert!(c.is_uncompressed() && !c.is_lossless() && !c.is_prores());
+        assert!(!c.is_hardware());
+        assert!(c.available_presets().is_empty());
+        assert_eq!(c.preferred_container(), ContainerFormat::Mov);
+        assert!(c.flags_field_order());
+        for codec in VideoCodec::ALL.iter().copied() {
+            assert_eq!(codec.is_uncompressed(), codec == VideoCodec::V210, "{codec:?}");
+            assert_eq!(codec.flags_field_order(), codec.is_prores() || codec == VideoCodec::V210);
+        }
+        for fmt in ["yuv420p", "yuv422p", "yuv420p10le", "yuv422p10le", "yuv444p10le", "yuv422p16le"] {
+            assert_eq!(c.forced_pix_fmt(fmt), Some("yuv422p10le"), "{fmt}");
+        }
+    }
+
+    /// The table `v210ChromaPinWarning` (app/lib/utils/pixel_format.dart) is
+    /// pinned to, in `app/test/v210_chroma_pin_warning_test.dart`. Change one,
+    /// change both.
+    ///
+    /// Whatever Color Format is selected, the script converts to 10-bit 4:2:2
+    /// for v210. Each row: (selection, source, chroma lost, selection ignored).
+    #[test]
+    fn v210_stores_422_10_whatever_is_selected() {
+        use crate::pixel_format::{chroma_and_depth, ChromaClass};
+        use ChromaSubsampling as C;
+        let sources = ["yuv420p", "yuv411p", "yuv422p", "yuv422p10le", "yuv444p10le", "yuv422p16le"];
+        for &cs in ChromaSubsampling::ALL {
+            for src in sources {
+                let mut job: VideoJob = serde_json::from_value(serde_json::json!({
+                    "id": "00000000-0000-0000-0000-000000000000",
+                    "inputPath": "in.mov",
+                    "outputPath": "out.mov",
+                    "qtgmcParameters": {},
+                    "encodingSettings": {},
+                }))
+                .unwrap();
+                job.input_pixel_format = Some(src.to_string());
+                job.encoding_settings.codec = VideoCodec::V210;
+                job.encoding_settings.chroma_subsampling = cs;
+                assert_eq!(job.encoding_settings.effective_chroma_subsampling(), C::Yuv422P10);
+                assert_eq!(job.encoder_input_pix_fmt(), "yuv422p10le", "{cs:?} {src}");
+
+                // What the pin warning reports, derived from the same facts.
+                let chosen = cs.ffmpeg_pix_fmt().unwrap_or(src);
+                let (chosen_chroma, _) = chroma_and_depth(chosen);
+                let chroma_lost = chosen_chroma == ChromaClass::C444;
+                let ignored = !matches!(cs, C::Original | C::Yuv422P10);
+                let expected: (bool, bool) = match (cs, src) {
+                    (C::Original, "yuv444p10le") => (true, false),
+                    (C::Original, _) => (false, false),
+                    (C::Yuv422P10, _) => (false, false),
+                    (C::Yuv444P10, _) => (true, true),
+                    (C::Yuv420 | C::Yuv420P10 | C::Yuv422, _) => (false, true),
+                };
+                assert_eq!((chroma_lost, ignored), expected, "{cs:?} from {src}");
+            }
+        }
+        // Any other codec keeps the selection.
+        let mut s = EncodingSettings::default();
+        s.chroma_subsampling = C::Yuv420;
+        assert_eq!(s.effective_chroma_subsampling(), C::Yuv420);
+    }
+
     /// — the profile is the whole input to the decision.
     #[test]
     fn prores_profile_decides_the_chroma() {
@@ -1554,7 +1684,7 @@ mod tests {
         );
         assert_eq!(
             VideoCodec::ALL.len(),
-            19,
+            20,
             "a VideoCodec variant was added without listing it in ALL"
         );
     }

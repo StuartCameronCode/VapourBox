@@ -215,7 +215,10 @@ enum VideoCodec {
   prores422('prores_ks -profile:v 2', 'ProRes 422'),
   proresHQ('prores_ks -profile:v 3', 'ProRes 422 HQ'),
   prores4444('prores_ks -profile:v 4', 'ProRes 4444'),
-  prores4444Xq('prores_ks -profile:v 5', 'ProRes 4444 XQ');
+  prores4444Xq('prores_ks -profile:v 5', 'ProRes 4444 XQ'),
+
+  // Uncompressed
+  v210('v210', 'Uncompressed 10-bit 4:2:2 (v210)');
 
   const VideoCodec(this.value, this.displayName);
 
@@ -262,6 +265,9 @@ enum VideoCodec {
         return 'Full 4:4:4 colour, for compositing';
       case VideoCodec.prores4444Xq:
         return 'Full 4:4:4 colour at the highest data rate';
+      case VideoCodec.v210:
+        return 'Uncompressed 10-bit 4:2:2 for editing (Premiere, Resolve). Very '
+            'large: about 221 Mbit/s at 720x576 25p, 1.1 Gbit/s at 1080p25';
     }
   }
 
@@ -285,7 +291,13 @@ enum VideoCodec {
   /// This lives on the model rather than inline in the settings dialog so it
   /// can be asserted across `VideoCodec.values` — a codec added later cannot
   /// quietly acquire a slider the worker ignores.
-  bool get hasQualityControl => !isLossless && !isProRes;
+  bool get hasQualityControl => !isLossless && !isProRes && !isUncompressed;
+
+  /// Whether this is an uncompressed codec (v210). Deliberately not part of
+  /// [isLossless]: that family defaults to AVI and is grouped as "Lossless",
+  /// while v210 is an editing intermediate that belongs in MOV. Mirrors
+  /// `VideoCodec::is_uncompressed` in the worker.
+  bool get isUncompressed => this == VideoCodec.v210;
 
   /// Whether this codec produces H.264 output (software or hardware).
   bool get isH264 => this == h264 || this == h264Nvenc || this == h264Qsv ||
@@ -312,11 +324,12 @@ enum VideoCodec {
     if (this == h264Amf || this == h265Amf) return 'AMD AMF';
     if (isProRes) return 'ProRes';
     if (isLossless) return 'Lossless';
+    if (isUncompressed) return 'Uncompressed';
     return 'Software';
   }
 
   ContainerFormat get preferredContainer {
-    if (isProRes) return ContainerFormat.mov;
+    if (isProRes || isUncompressed) return ContainerFormat.mov;
     if (isLossless) return ContainerFormat.avi;
     return ContainerFormat.mp4;
   }
@@ -328,14 +341,16 @@ enum VideoCodec {
         // MP4 supports H.264, H.265 (software and hardware)
         return isH264 || isH265;
       case ContainerFormat.mov:
-        // MOV supports H.264, H.265, ProRes
-        return isH264 || isH265 || isProRes;
+        // MOV supports H.264, H.265, ProRes, v210
+        return isH264 || isH265 || isProRes || isUncompressed;
       case ContainerFormat.mkv:
-        // MKV supports H.264, H.265, and lossless (FFV1/HuffYUV/FFVHuff)
-        return isH264 || isH265 || isLossless;
+        // MKV supports H.264, H.265, lossless (FFV1/HuffYUV/FFVHuff), v210
+        return isH264 || isH265 || isLossless || isUncompressed;
       case ContainerFormat.avi:
-        // AVI supports lossless (FFV1/HuffYUV/FFVHuff), H.264 (uncommon)
-        return isLossless || isH264;
+        // AVI supports lossless (FFV1/HuffYUV/FFVHuff), H.264 (uncommon) and
+        // v210 — though AVI cannot say whether the picture is interlaced.
+        // (MP4 has no tag for v210 at all: ffmpeg refuses the mux.)
+        return isLossless || isH264 || isUncompressed;
     }
   }
 
@@ -353,7 +368,7 @@ enum VideoCodec {
     if (this == h264Amf || this == h265Amf) {
       return ['speed', 'balanced', 'quality'];
     }
-    // VideoToolbox, ProRes, FFV1 don't have presets
+    // VideoToolbox, ProRes, the lossless codecs and v210 don't have presets
     return null;
   }
 
@@ -365,6 +380,16 @@ enum VideoCodec {
     if (this == h264Amf || this == h265Amf) return 'balanced';
     return 'medium';
   }
+}
+
+/// v210's data rate in bits per second for a frame size and rate.
+///
+/// v210 packs six pixels into 16 bytes, and each line is padded to a multiple
+/// of 48 pixels (128 bytes): 720x576 at 25 fps is 221,184,000 bit/s, which is
+/// what ffmpeg itself reports for the stream.
+int v210BitsPerSecond(int width, int height, double fps) {
+  final lineBytes = ((width + 47) ~/ 48) * 128;
+  return (lineBytes * height * 8 * fps).round();
 }
 
 /// Output container formats.

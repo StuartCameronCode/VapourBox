@@ -1137,6 +1137,12 @@ does, and decides bit depth as well as chroma:
 | `yuv422p10` | `vs.YUV422P10` | normalize chroma without dropping to 8-bit |
 | `yuv444p10` | `vs.YUV444P10` | full chroma — ProRes 4444, x264/x265; no GPU encoder |
 
+**v210 overrides the selection**: the script always converts to `YUV422P10`
+for it (`EncodingSettings::effective_chroma_subsampling`, Dart
+`effectiveChromaSubsampling`) — see "Intermediate codecs" below. Anything that
+reads the output format (the conversion block, `encoder_input_pix_fmt`, the
+bit-depth warning) must use the effective one.
+
 Tests must **sweep the enum** (`ChromaSubsampling::ALL` in Rust, kept complete
 by a catch-all-free match plus a count assertion; `ChromaSubsampling.values` in
 Dart) rather than a hand-written list — `yuv420p10` was once missing from three
@@ -2113,6 +2119,43 @@ having written nothing.
 See docs/ENGINEERING_NOTES.md for the specific measurements (which profiles are
 bit-identical with/without the pin, the dB gain from the advanced quant-matrix
 options) and the `copyWith`/enum-dispatch traps this shipped with.
+
+### Intermediate codecs: v210 and ProRes (field order, chroma)
+
+`VideoCodec::V210` (serde `"v210"`, app 1.8.0) is uncompressed 10-bit 4:2:2
+for editors: MOV (default), MKV, AVI; never MP4 (no tag). Its own family,
+`EncoderFamily::Uncompressed` / Dart `isUncompressed` — **not** `isLossless`,
+which means AVI and the "Lossless" group. No quality, presets or `-crf`. The
+evidence for every rule here is docs/reports/2026-11-v210-field-order.
+
+- **vspipe's Y4M header always says `Ip`**, whatever `_FieldBased` is, so
+  ffmpeg never learns a still-interlaced picture's field order from the pipe.
+  For the codecs that flag it (`VideoCodec::flags_field_order`: ProRes, v210)
+  `pipeline_executor::field_order_args` declares it **on the pipe input**,
+  `-top 1|0` before `-i -`, from `ScriptGenerator::output_field_order`. Never
+  `-field_order` (inert in FFmpeg 9: overwritten from the frame flags) and
+  never `setfield` in `-vf` (a Custom FFmpeg Argument `-vf` drops it). Without
+  it a MOV's `fiel` atom says progressive (`0x0100`).
+- **ProRes also gets `-flags +ildct`**: its frame header has its own field
+  flag, which stays progressive unless the frame is coded as fields.
+- **A pass that makes a still-interlaced clip progressive must be taught to
+  `output_field_order`** (today: Stabilize pitch, Deblock mpeg2stinx, the
+  Frame Rate pass). `test_221` counts every `SetFieldBased(` in both templates
+  and fails on one it doesn't know.
+- **v210's 4:2:2 10-bit comes from the script, never from ffmpeg's
+  `-pix_fmt`**, which blends interlaced 4:2:0 chroma across the fields; zimg
+  honours `_FieldBased`. `forced_pix_fmt` still pins `yuv422p10le` as a guard.
+  ProRes from 4:2:0 still converts in ffmpeg (open follow-up).
+- `v210ChromaPinWarning` (Dart) is a second implementation of the override
+  and is pinned case for case to `v210_stores_422_10_whatever_is_selected`.
+- **No `+faststart` for v210** (`uses_faststart`): it rewrites the whole
+  ~1 Gbit/s file a second time. Restored audio beside v210 is PCM
+  (`restored_passthrough_codec`).
+- **Test field order with the `fiel` atom's bytes** (`0x0209` TFF, `0x020e`
+  BFF), not only ffprobe's `tb`/`bt` labels. AVI carries no field order at
+  all. `integration_v210_output_test.dart` (heavy) checks these, v210 bit-exact
+  against a 10-bit 4:2:2 source, per-field chroma, PCM in MOV and preview =
+  encode.
 
 ## QTGMC Parameters Reference
 

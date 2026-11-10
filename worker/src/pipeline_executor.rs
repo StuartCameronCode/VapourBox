@@ -196,6 +196,58 @@ use crate::progress_reporter::ProgressReporter;
 use crate::script_generator::{PreviewParams, ScriptGenerator};
 use crate::source_timing::SourceTimeline;
 
+/// The encoder arguments that declare a still-interlaced picture's field order.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct FieldOrderArgs {
+    /// Before `-i -` on the Y4M input: `-top 1` (TFF) or `-top 0` (BFF).
+    pub input: Vec<String>,
+    /// After the codec's quality args: `-flags +ildct` for ProRes.
+    pub encoder: Vec<String>,
+}
+
+/// The one decision about how the encode declares field order, used by every
+/// builder of the encoder's arguments.
+///
+/// vspipe writes `Ip` (progressive) in every Y4M header, whatever
+/// `_FieldBased` says, so without this an interlaced ProRes or v210 MOV is
+/// written with a `fiel` atom of `0x0100`, i.e. flagged progressive. Measured
+/// against FFmpeg 9.0 (docs/reports/2026-11-v210-field-order):
+///
+/// - `-field_order tt` as an output option is inert: the encoder's field
+///   order is overwritten from the frames' flags.
+/// - `-top 1|0` on the Y4M input flags the frames, which gives `fiel 0x0209`
+///   (TFF) / `0x020e` (BFF) in MOV and `tb` / `bt` in MKV. AVI has no field
+///   order to write. `setfield` in `-vf` works too, but a Custom FFmpeg
+///   Argument `-vf` replaces the chain and would drop it.
+/// - ProRes also carries a field flag in its own frame header, which stays
+///   progressive unless the frame is coded as fields (`-flags +ildct`).
+pub fn field_order_args(job: &VideoJob) -> FieldOrderArgs {
+    let codec = job.encoding_settings.codec;
+    if !codec.flags_field_order() {
+        return FieldOrderArgs::default();
+    }
+    let pipeline = job.effective_pipeline();
+    let Some(tff) = ScriptGenerator::output_field_order(job, &pipeline) else {
+        return FieldOrderArgs::default();
+    };
+    FieldOrderArgs {
+        input: vec!["-top".to_string(), if tff { "1" } else { "0" }.to_string()],
+        encoder: if codec.is_prores() {
+            vec!["-flags".to_string(), "+ildct".to_string()]
+        } else {
+            Vec::new()
+        },
+    }
+}
+
+/// Whether an MP4/MOV output gets `-movflags +faststart`. Not for v210:
+/// faststart rewrites the whole file in a second pass to move the index to
+/// the front, which at ~1 Gbit/s (an hour of 1080p is ~500 GB) doubles the
+/// disk I/O and needs the space twice, for a streaming feature no editor uses.
+pub fn uses_faststart(codec: VideoCodec) -> bool {
+    !codec.is_uncompressed()
+}
+
 /// Executes the ffmpeg (decode) | vspipe | ffmpeg (encode) pipeline.
 pub struct PipelineExecutor {
     reporter: ProgressReporter,
@@ -891,6 +943,11 @@ impl PipelineExecutor {
         // Declaring the same tags here leaves it nothing to convert. Must match
         // the output flags exactly — see ColorMetadata.
         args.extend(job.output_color_metadata().to_ffmpeg_input_args());
+        // Field order of a still-interlaced picture, for the codecs that flag
+        // it: the Y4M header always says progressive, so it is declared here,
+        // on the input, where a Custom FFmpeg Argument `-vf` cannot drop it.
+        let field_order = field_order_args(job);
+        args.extend(field_order.input.iter().cloned());
         args.extend(["-i".to_string(), "-".to_string()]);
 
         // Input 1: Original file for audio stream
@@ -960,6 +1017,8 @@ impl PipelineExecutor {
 
         // Encoder-family-specific quality and preset args
         Self::build_encoder_quality_args(&mut args, job);
+        // ProRes codes a still-interlaced picture as fields (`+ildct`).
+        args.extend(field_order.encoder.iter().cloned());
 
         // HDR10 mastering display / content light level (issue #133). The pipe
         // drops them with the rest of the side data; x265 is the one encoder
@@ -991,7 +1050,9 @@ impl PipelineExecutor {
             if settings.codec.is_h265() {
                 args.extend(["-tag:v".to_string(), "hvc1".to_string()]);
             }
-            args.extend(["-movflags".to_string(), "+faststart".to_string()]);
+            if uses_faststart(settings.codec) {
+                args.extend(["-movflags".to_string(), "+faststart".to_string()]);
+            }
         }
 
         // Declare the output's aspect ratio. The Y4M pipe from vspipe strips it,
@@ -1135,7 +1196,7 @@ impl PipelineExecutor {
         let (from_chroma, from_depth) = pixel_format::chroma_and_depth(from);
         let (to_chroma, to_depth) = pixel_format::chroma_and_depth(to);
 
-        if codec.is_prores() {
+        if codec.is_prores() || codec.is_uncompressed() {
             // Nothing is lost when both chroma and depth are kept or widened,
             // which is the common case for a ProRes job: say nothing rather
             // than report a conversion as if it were a cost.
@@ -1260,7 +1321,7 @@ impl PipelineExecutor {
                     args.extend(["-qp_b".to_string(), settings.quality.to_string()]);
                     args.extend(["-quality".to_string(), preset.clone()]);
                 }
-                EncoderFamily::Lossless | EncoderFamily::ProRes => {
+                EncoderFamily::Lossless | EncoderFamily::ProRes | EncoderFamily::Uncompressed => {
                     // No quality/preset args needed
                 }
             }
@@ -1919,6 +1980,8 @@ mod tests {
         // colour tags declared on it (mirrors build_ffmpeg_args).
         args.extend(["-f".to_string(), "yuv4mpegpipe".to_string()]);
         args.extend(job.output_color_metadata().to_ffmpeg_input_args());
+        let field_order = field_order_args(job);
+        args.extend(field_order.input.iter().cloned());
         args.extend(["-i".to_string(), "-".to_string()]);
 
         // Input 1: Original file for audio stream
@@ -1936,6 +1999,7 @@ mod tests {
 
         // Encoder-family-specific quality and preset args
         PipelineExecutor::build_encoder_quality_args(&mut args, job);
+        args.extend(field_order.encoder.iter().cloned());
 
         // HDR10 static metadata (mirrors build_ffmpeg_args); the probe needs a
         // real file, so tests set `TEST_HDR` through `with_hdr` instead.
@@ -1955,7 +2019,9 @@ mod tests {
             if settings.codec.is_h265() {
                 args.extend(["-tag:v".to_string(), "hvc1".to_string()]);
             }
-            args.extend(["-movflags".to_string(), "+faststart".to_string()]);
+            if uses_faststart(settings.codec) {
+                args.extend(["-movflags".to_string(), "+faststart".to_string()]);
+            }
         }
 
         // Colour tags. This helper duplicates build_ffmpeg_args rather than
@@ -2794,6 +2860,146 @@ mod tests {
         // ffvhuff accepts yuv420p natively — no forced pixel format
         assert!(!args.contains(&"-pix_fmt".to_string()), "ffvhuff should not force -pix_fmt");
         assert!(!args.contains(&"-crf".to_string()), "ffvhuff should not have -crf");
+    }
+
+    /// v210: the codec, its one pixel format, and nothing a quality family
+    /// would add — the data rate is fixed by the frame size.
+    #[test]
+    fn test_ffmpeg_args_v210() {
+        for container in [ContainerFormat::Mov, ContainerFormat::Mkv, ContainerFormat::Avi] {
+            let mut job = create_test_job(&format!("output.{}", container.extension()));
+            job.encoding_settings.codec = VideoCodec::V210;
+            job.encoding_settings.container = container;
+            job.input_pixel_format = Some("yuv420p".to_string());
+            let args = build_ffmpeg_args_for_test(&job);
+
+            let at = |flag: &str| args.iter().position(|a| a == flag);
+            assert_eq!(args[at("-c:v").unwrap() + 1], "v210");
+            assert_eq!(args[at("-pix_fmt").unwrap() + 1], "yuv422p10le");
+            for absent in ["-crf", "-preset", "-profile:v", "-q:v", "-b:v", "-cq", "-qp_i", "-global_quality"] {
+                assert!(at(absent).is_none(), "{container:?}: v210 must not get {absent}: {args:?}");
+            }
+            assert!(
+                !args.iter().any(|a| a.contains("faststart")),
+                "{container:?}: no faststart for v210 (a second full pass over a huge file)"
+            );
+        }
+    }
+
+    /// Faststart stays for every other codec in MP4/MOV.
+    #[test]
+    fn test_faststart_only_skipped_for_uncompressed() {
+        for codec in VideoCodec::ALL.iter().copied() {
+            assert_eq!(uses_faststart(codec), !codec.is_uncompressed(), "{codec:?}");
+        }
+        let mut job = create_test_job("output.mov");
+        job.encoding_settings.codec = VideoCodec::ProResHQ;
+        job.encoding_settings.container = ContainerFormat::Mov;
+        assert!(build_ffmpeg_args_for_test(&job).contains(&"+faststart".to_string()));
+    }
+
+    /// The pipe already delivers 10-bit 4:2:2 for v210 (the script converts,
+    /// field-aware), so the job log says nothing about a conversion.
+    #[test]
+    fn test_v210_pix_fmt_note() {
+        assert_eq!(
+            PipelineExecutor::pix_fmt_change_note(VideoCodec::V210, "yuv422p10le", "yuv422p10le"),
+            None
+        );
+        assert_eq!(
+            PipelineExecutor::pix_fmt_change_note(VideoCodec::V210, "yuv420p", "yuv422p10le"),
+            None,
+            "padding up loses nothing"
+        );
+        let note = PipelineExecutor::pix_fmt_change_note(VideoCodec::V210, "yuv444p10le", "yuv422p10le")
+            .expect("4:4:4 down to 4:2:2 is said");
+        assert!(note.contains("stores"), "{note}");
+        assert!(!note.contains("cannot encode"), "{note}");
+    }
+
+    fn field_order_job(codec: VideoCodec, container: ContainerFormat) -> VideoJob {
+        let mut job = create_test_job(&format!("output.{}", container.extension()));
+        job.encoding_settings.codec = codec;
+        job.encoding_settings.container = container;
+        let mut pipeline = crate::models::ProcessingPipeline::default();
+        pipeline.deinterlace.enabled = false;
+        job.processing_pipeline = Some(pipeline);
+        job
+    }
+
+    /// Field order reaches the encoder only for the intermediates, only when
+    /// the picture is still interlaced, on the pipe input (`-top`, ahead of
+    /// `-i -`), and ProRes alone codes fields (`+ildct`).
+    #[test]
+    fn test_field_order_args_matrix() {
+        use crate::models::FieldOrder;
+        let codecs = [
+            (VideoCodec::V210, ContainerFormat::Mov),
+            (VideoCodec::V210, ContainerFormat::Mkv),
+            (VideoCodec::ProResHQ, ContainerFormat::Mov),
+            (VideoCodec::FFV1, ContainerFormat::Mkv),
+            (VideoCodec::H264, ContainerFormat::Mp4),
+        ];
+        // (deinterlace on, detected order, stabilize pitch) -> expected top
+        let cases: [(bool, Option<FieldOrder>, bool, Option<&str>); 6] = [
+            (true, Some(FieldOrder::TopFieldFirst), false, None),
+            (false, Some(FieldOrder::TopFieldFirst), false, Some("1")),
+            (false, Some(FieldOrder::BottomFieldFirst), false, Some("0")),
+            (false, Some(FieldOrder::Progressive), false, None),
+            (false, None, false, None),
+            (false, Some(FieldOrder::TopFieldFirst), true, None),
+        ];
+        for (codec, container) in codecs {
+            for (deint, order, pitch, expected) in cases {
+                let mut job = field_order_job(codec, container);
+                job.detected_field_order = order;
+                let p = job.processing_pipeline.as_mut().unwrap();
+                p.deinterlace.enabled = deint;
+                if pitch {
+                    p.stabilize.enabled = true;
+                    p.stabilize.pitch_mode = crate::models::PitchMode::Auto;
+                }
+                let args = build_ffmpeg_args_for_test(&job);
+                let ctx = format!("{codec:?} {container:?} deint={deint} {order:?} pitch={pitch}: {args:?}");
+                let expected = if codec.flags_field_order() { expected } else { None };
+                match expected {
+                    Some(v) => {
+                        let top = args.iter().position(|a| a == "-top").expect(&ctx);
+                        let pipe = args.windows(2).position(|w| w[0] == "-i" && w[1] == "-").unwrap();
+                        assert_eq!(args[top + 1], v, "{ctx}");
+                        assert!(top < pipe, "-top must be an input option of the pipe: {ctx}");
+                        assert_eq!(
+                            args.iter().any(|a| a == "+ildct"),
+                            codec.is_prores(),
+                            "{ctx}"
+                        );
+                    }
+                    None => {
+                        assert!(!args.contains(&"-top".to_string()), "{ctx}");
+                        assert!(!args.contains(&"+ildct".to_string()), "{ctx}");
+                    }
+                }
+                // Never the inert output option.
+                assert!(!args.contains(&"-field_order".to_string()), "{ctx}");
+            }
+        }
+    }
+
+    /// The real builder takes field order from the same helper, on the pipe.
+    #[test]
+    fn test_real_ffmpeg_builder_declares_field_order_on_the_pipe() {
+        let src = include_str!("pipeline_executor.rs").replace("\r\n", "\n");
+        let start = src.find("fn build_ffmpeg_args(\n").expect("real builder");
+        let body = &src[start..];
+        let body = &body[..body.find("\n    }\n").expect("end of builder")];
+        let helper = body.find("field_order_args(job)").expect("field order helper");
+        let input = body.find("field_order.input").expect("input args");
+        let pipe = body
+            .find(r#"args.extend(["-i".to_string(), "-".to_string()]);"#)
+            .expect("pipe input");
+        assert!(helper < input && input < pipe, "-top belongs before -i -");
+        assert!(body.contains("field_order.encoder"), "ProRes +ildct");
+        assert!(body.contains("uses_faststart(settings.codec)"));
     }
 
     #[test]
