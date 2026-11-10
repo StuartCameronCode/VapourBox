@@ -7,7 +7,6 @@ import 'package:provider/provider.dart';
 
 import '../models/app_shortcut.dart';
 import '../models/preview_frame_info.dart';
-import '../services/field_order_detector.dart' show VideoInfo;
 import '../services/timeline_math.dart';
 import '../viewmodels/main_viewmodel.dart';
 import '../widgets/before_after_comparison.dart';
@@ -47,20 +46,7 @@ class _PreviewPanelState extends State<PreviewPanel> {
     );
   }
 
-  /// The display aspect of the source frame, `width / height * SAR`, or null
-  /// for square pixels or an unreadable SAR.
-  static double? _sourceDisplayAspect(VideoInfo? videoInfo) {
-    if (videoInfo == null || videoInfo.height <= 0) return null;
-    final sar = PreviewFrameInfo.parseRatio(videoInfo.sar);
-    if (sar == null) return null;
-    return videoInfo.width / videoInfo.height * sar;
-  }
-
   Widget _buildPreviewComparison(BuildContext context, MainViewModel viewModel) {
-    // The source's display aspect, for SAR correction of the "before"
-    // frame: DAR = (width / height) * SAR. Null for square pixels.
-    final sourceAspect = _sourceDisplayAspect(viewModel.videoInfo);
-
     // The scope reads the processed preview, falling back to the source frame
     // before any pass has rendered — that is what the user is looking at.
     final scopeImage = viewModel.processedPreview ?? viewModel.currentFrame;
@@ -75,15 +61,10 @@ class _PreviewPanelState extends State<PreviewPanel> {
               afterImage: scopeImage,
               isBeforeLoading: viewModel.isAnalyzing,
               isAfterLoading: viewModel.isGeneratingPreview,
-              beforeAspectRatio: sourceAspect,
-              // The processed frame is drawn at the shape the encode will
-              // have, which a resize, pad, crop, rotation or squaring makes
-              // different from the source's (issue #149). Until a processed
-              // frame exists the source frame stands in for it, at its own
-              // aspect.
-              afterAspectRatio: viewModel.processedPreview != null
-                  ? viewModel.processedPreviewAspect
-                  : sourceAspect,
+              // Each side at its own shape: the processed frame at the
+              // encode's, not the source's (issue #149).
+              beforeAspectRatio: viewModel.sourceDisplayAspect,
+              afterAspectRatio: viewModel.comparisonAfterAspect,
               zoomController: viewModel.previewZoom,
             ),
           ),

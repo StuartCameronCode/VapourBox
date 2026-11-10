@@ -856,10 +856,16 @@ padded to 1920x1080, say) came out squashed. Three invariants now hold:
   one encoded (1350 vs 1440 wide in the #149 setup). `PreviewGenerator` reads it
   through the same `FieldOrderDetector.normalizeSar` as the encode job.
 
-Covered by `test_185` (Rust), `preview_frame_info_test`, `preview_aspect_test`,
-`before_after_comparison_test`, and the heavy `preview aspect (issue #149)`
-group in `integration_aspect_ratio_test.dart`, which compares the preview's
-picture extent with the encode's.
+The panel reads both sides' aspects from the view model
+(`sourceDisplayAspect`, `comparisonAfterAspect`), not from its own arithmetic,
+so the wiring is testable without a worker (`debugAcceptProcessedPreview`).
+
+Covered by `test_185` (Rust), `preview_frame_info_test`, `preview_aspect_test`
+(including the view-model wiring: an unreshaped anamorphic source keeps its
+shape, the aspect survives a scrubber move), `before_after_comparison_test`, and
+the heavy `preview aspect (issue #149)` group in `integration_aspect_ratio_test.dart`,
+which compares the preview with the encode for square, preserve, forced DAR,
+denoise-only anamorphic and rotated anamorphic jobs.
 
 ### Borders (issue #86)
 

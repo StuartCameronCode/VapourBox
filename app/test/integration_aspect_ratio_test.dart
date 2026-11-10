@@ -21,6 +21,8 @@ import 'package:uuid/uuid.dart';
 
 import 'package:vapourbox/models/crop_resize_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
+import 'package:vapourbox/models/geometry_parameters.dart';
+import 'package:vapourbox/models/noise_reduction_parameters.dart';
 import 'package:vapourbox/models/preview_frame_info.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
@@ -50,15 +52,17 @@ VideoJob _job(
   CropResizeParameters cropResize, {
   required String input,
   required String inputSar,
+  ProcessingPipeline? pipeline,
 }) =>
     VideoJob(
       id: const Uuid().v4(),
       inputPath: input,
       outputPath: '$_outDir/$name.mkv',
-      processingPipeline: ProcessingPipeline(
-        deinterlace: const QTGMCParameters(enabled: false),
-        cropResize: cropResize,
-      ),
+      processingPipeline: pipeline ??
+          ProcessingPipeline(
+            deinterlace: const QTGMCParameters(enabled: false),
+            cropResize: cropResize,
+          ),
       encodingSettings: const EncodingSettings(
         codec: VideoCodec.h264,
         container: ContainerFormat.mkv,
@@ -78,8 +82,10 @@ Future<({Uint8List png, PreviewFrameInfo info, double? aspect})> _preview(
   CropResizeParameters cropResize, {
   required String input,
   required String inputSar,
+  ProcessingPipeline? pipeline,
 }) async {
-  final job = _job(name, cropResize, input: input, inputSar: inputSar);
+  final job = _job(name, cropResize,
+      input: input, inputSar: inputSar, pipeline: pipeline);
   final result =
       await WorkerHarness.runPreview(job.toJson(), frame: 2, label: name);
   expect(result.success, isTrue, reason: '$name: $result');
@@ -107,15 +113,17 @@ Future<({int width, int height, String sar, String dar})> _encode(
   CropResizeParameters cropResize, {
   String? input,
   String inputSar = '16:11',
+  ProcessingPipeline? pipeline,
 }) async {
   final job = VideoJob(
     id: const Uuid().v4(),
     inputPath: input ?? _anamorphic,
     outputPath: '$_outDir/$name.mkv',
-    processingPipeline: ProcessingPipeline(
-      deinterlace: const QTGMCParameters(enabled: false),
-      cropResize: cropResize,
-    ),
+    processingPipeline: pipeline ??
+        ProcessingPipeline(
+          deinterlace: const QTGMCParameters(enabled: false),
+          cropResize: cropResize,
+        ),
     encodingSettings: const EncodingSettings(
       codec: VideoCodec.h264,
       container: ContainerFormat.mkv,
@@ -368,6 +376,51 @@ void main() {
       );
       expect(preview.info.outputDar, closeTo(16 / 9, 1e-9));
       expect(preview.aspect, closeTo(16 / 9, 1e-9));
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    // The everyday case, and the one the fix could break: an anamorphic
+    // source that no pass reshapes. Before #149 both sides were drawn at the
+    // source's aspect without asking; now the processed side relies on the
+    // worker's report, so it must come out the source's shape.
+    test('an anamorphic source only denoised keeps its shape', () async {
+      final pipeline = ProcessingPipeline(
+        deinterlace: const QTGMCParameters(enabled: false),
+        noiseReduction:
+            NoiseReductionParameters.fromPreset(NoiseReductionPreset.light),
+      );
+      const none = CropResizeParameters();
+      final preview = await _preview('preview_149_denoise', none,
+          input: _anamorphic, inputSar: '16:11', pipeline: pipeline);
+      expect(encodedImageSize(preview.png), Size(_srcWidth.toDouble(), _srcHeight.toDouble()));
+      expect(preview.info.outputSar, closeTo(16 / 11, 1e-9));
+      final out = await _encode('aspect_149_denoise', none,
+          input: _anamorphic, inputSar: '16:11', pipeline: pipeline);
+      const source = _srcWidth * _srcSar / _srcHeight;
+      expect(_displayAspect(out), closeTo(source, 0.01));
+      expect(preview.aspect, closeTo(source, 0.01),
+          reason: 'with nothing reshaping it the processed frame must be '
+              'drawn at the source\'s display aspect, as it was before #149');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    // A quarter turn swaps the stored width and height and inverts the SAR:
+    // 720x576 at 16:15 (4:3) becomes 576x720 at 15:16 (3:4).
+    test('a rotated anamorphic source is drawn at the encode\'s shape',
+        () async {
+      final pipeline = ProcessingPipeline(
+        deinterlace: const QTGMCParameters(enabled: false),
+        geometry:
+            const GeometryParameters(enabled: true, rotation: Rotation.cw90),
+      );
+      const none = CropResizeParameters();
+      final preview = await _preview('preview_149_rotate', none,
+          input: _pal43, inputSar: '16:15', pipeline: pipeline);
+      expect(encodedImageSize(preview.png), Size(_srcHeight.toDouble(), _srcWidth.toDouble()));
+      expect(preview.info.outputSar, closeTo(15 / 16, 1e-9));
+      final out = await _encode('aspect_149_rotate', none,
+          input: _pal43, inputSar: '16:15', pipeline: pipeline);
+      expect((out.width, out.height), (_srcHeight, _srcWidth));
+      expect(_displayAspect(out), closeTo(3 / 4, 0.01));
+      expect(preview.aspect, closeTo(_displayAspect(out), 0.01));
     }, timeout: const Timeout(Duration(minutes: 5)));
   });
 }

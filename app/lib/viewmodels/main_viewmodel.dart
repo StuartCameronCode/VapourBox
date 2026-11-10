@@ -258,7 +258,8 @@ class MainViewModel extends ChangeNotifier {
 
   /// Put an analysed video in the queue and select it, for widget tests.
   @visibleForTesting
-  void debugAddQueueItemForTest(String path, {required int width, required int height}) {
+  void debugAddQueueItemForTest(String path,
+      {required int width, required int height, String? sar}) {
     final item = QueueItem(
       inputPath: path,
       outputPath: '$path.out.mkv',
@@ -271,6 +272,7 @@ class MainViewModel extends ChangeNotifier {
         codec: 'h264',
         pixelFormat: 'yuv420p',
         hasAudio: false,
+        sar: sar,
       ),
     );
     _queue.add(item);
@@ -689,6 +691,23 @@ class MainViewModel extends ChangeNotifier {
   /// The display aspect of [processedPreview] — the shape the encode will
   /// have — or null when it is drawn at its own pixel shape.
   double? get processedPreviewAspect => selectedItem?.processedPreviewAspect;
+
+  /// The source's display aspect, `width / height * SAR`, for the "before"
+  /// frame; null for square pixels or an unreadable SAR.
+  double? get sourceDisplayAspect {
+    final info = videoInfo;
+    if (info == null || info.height <= 0) return null;
+    final sar = PreviewFrameInfo.parseRatio(info.sar);
+    if (sar == null) return null;
+    return info.width / info.height * sar;
+  }
+
+  /// The aspect the "after" side of the comparison is drawn at: the processed
+  /// frame's own (the encode's shape, which a resize, pad, crop, rotation or
+  /// squaring makes different from the source's — issue #149), or, until a
+  /// processed frame exists, the source's, since the source frame stands in.
+  double? get comparisonAfterAspect =>
+      processedPreview != null ? processedPreviewAspect : sourceDisplayAspect;
   double get scrubberPosition => selectedItem?.scrubberPosition ?? 0.0;
   bool get isGeneratingPreview => _isGeneratingPreview;
   double get videoDuration => _previewGenerator.duration;
@@ -1434,10 +1453,8 @@ class MainViewModel extends ChangeNotifier {
       );
 
       if (generation == _previewGeneration && !cancelToken.isCancelled) {
-        item.processedPreview = preview;
-        _previewFrameInfo = preview == null ? null : _previewGenerator.lastFrameInfo;
-        item.processedPreviewAspect =
-            processedDisplayAspect(preview, _previewFrameInfo);
+        _acceptProcessedPreview(
+            item, preview, preview == null ? null : _previewGenerator.lastFrameInfo);
         // The worker clamps to the frames there are, e.g. after the frame
         // rate pass is switched off; step on from what it showed.
         if (_previewFrameInfo != null) _previewSubFrame = _previewFrameInfo!.subFrame;
@@ -1452,6 +1469,27 @@ class MainViewModel extends ChangeNotifier {
       _isGeneratingPreview = false;
       notifyListeners();
     }
+  }
+
+  /// Store a rendered preview on [item] with the display aspect it is drawn
+  /// at. The aspect is kept with the image because [previewFrameInfo] goes
+  /// null as soon as the scrubber moves, while this image stays on screen
+  /// until the next one replaces it (issue #149).
+  void _acceptProcessedPreview(
+      QueueItem item, Uint8List? preview, PreviewFrameInfo? info) {
+    item.processedPreview = preview;
+    _previewFrameInfo = info;
+    item.processedPreviewAspect = processedDisplayAspect(preview, info);
+  }
+
+  /// Deliver a preview as the worker would have, for tests of what the
+  /// comparison is drawn at.
+  @visibleForTesting
+  void debugAcceptProcessedPreview(Uint8List? preview, PreviewFrameInfo? info) {
+    final item = selectedItem;
+    if (item == null) return;
+    _acceptProcessedPreview(item, preview, info);
+    notifyListeners();
   }
 
   /// Cancels any ongoing preview generation.
