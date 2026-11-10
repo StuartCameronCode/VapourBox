@@ -1504,13 +1504,6 @@ mod tests {
         }
     }
 
-    /// ProRes stores a chroma layout fixed by its profile, and ffmpeg's format
-    /// negotiation does not know that — measured against the bundled build,
-    /// `prores_ks -profile:v 4` auto-selects `yuv422p10le` from a yuv420p input
-    /// exactly as `-profile:v 2` does. Unpinned, ProRes 4444 therefore writes a
-    /// file stamped 4444 carrying 4:2:2.
-    ///
-    /// Like the HuffYUV and AMF pins, this holds whatever the pipeline produced
     /// v210 is the uncompressed family, alone: no quality, no preset, MOV by
     /// default, never hardware, and its serde name is the wire format.
     #[test]
@@ -1535,7 +1528,7 @@ mod tests {
     }
 
     /// The table `v210ChromaPinWarning` (app/lib/utils/pixel_format.dart) is
-    /// pinned to, in `app/test/v210_chroma_pin_warning_test.dart`. Change one,
+    /// pinned to, in `app/test/v210_test.dart`. Change one,
     /// change both.
     ///
     /// Whatever Color Format is selected, the script converts to 10-bit 4:2:2
@@ -1582,6 +1575,13 @@ mod tests {
         assert_eq!(s.effective_chroma_subsampling(), C::Yuv420);
     }
 
+    /// ProRes stores a chroma layout fixed by its profile, and ffmpeg's format
+    /// negotiation does not know that — measured against the bundled build,
+    /// `prores_ks -profile:v 4` auto-selects `yuv422p10le` from a yuv420p input
+    /// exactly as `-profile:v 2` does. Unpinned, ProRes 4444 therefore writes a
+    /// file stamped 4444 carrying 4:2:2.
+    ///
+    /// Like the HuffYUV and AMF pins, this holds whatever the pipeline produced
     /// — the profile is the whole input to the decision.
     #[test]
     fn prores_profile_decides_the_chroma() {

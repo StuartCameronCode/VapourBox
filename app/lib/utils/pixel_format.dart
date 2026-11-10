@@ -316,7 +316,7 @@ String? proresChromaPinWarning({
 ///
 /// **A second implementation of the worker's decision.** Pinned case for case
 /// to `v210_stores_422_10_whatever_is_selected` in
-/// `worker/src/models/video_job.rs` by `app/test/v210_chroma_pin_warning_test.dart`.
+/// `worker/src/models/video_job.rs` by `app/test/v210_test.dart`.
 /// Change one, change both.
 String? v210ChromaPinWarning({
   required VideoCodec codec,
