@@ -11,6 +11,7 @@ import 'package:vapourbox/models/parameter_converter.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/sharpen_parameters.dart';
+import 'package:vapourbox/models/stabilize_parameters.dart';
 
 void main() {
   group('ParameterConverter', () {
@@ -390,6 +391,71 @@ void main() {
         expect(dynamic.values['padWidth'], 720);
         expect(dynamic.values['padHeight'], 576);
         expect(dynamic.values['padColor'], 'black');
+      });
+    });
+
+    group('stabilize', () {
+      test('round-trips every field through the dynamic form', () {
+        const typed = StabilizeParameters(
+          enabled: true,
+          weave: false,
+          dxmax: 7,
+          dymax: 2,
+          mirror: 3,
+          pitchMode: PitchMode.file,
+          maxPitchDeviation: 2.5,
+          smoothingRadius: 14,
+          invertFactors: true,
+          pitchEdgeFill: EdgeFill.black,
+        );
+        final dynamic = ParameterConverter.fromStabilize(typed);
+        expect(dynamic.filterId, 'stabilize');
+        expect(dynamic.values['pitchMode'], 'file');
+        expect(dynamic.values['pitchEdgeFill'], 'black');
+        final back = ParameterConverter.toStabilize(dynamic);
+        expect(back.toJson(), typed.toJson());
+      });
+
+      test('is part of the dynamic pipeline both ways', () {
+        const pipeline = ProcessingPipeline(
+          stabilize: StabilizeParameters(
+              enabled: true, pitchMode: PitchMode.auto, smoothingRadius: 6),
+        );
+        final dynamicPipeline = ParameterConverter.fromPipeline(pipeline);
+        expect(dynamicPipeline.get('stabilize')?.enabled, isTrue);
+        final back = ParameterConverter.toPipeline(dynamicPipeline);
+        expect(back.stabilize.enabled, isTrue);
+        expect(back.stabilize.pitchMode, PitchMode.auto);
+        expect(back.stabilize.smoothingRadius, 6);
+      });
+
+      test('a pass saved before pitch correction keeps doing only weave', () {
+        // What a preset or job from before issue #150 holds.
+        final loaded = StabilizeParameters.fromJson(
+            {'enabled': true, 'dxmax': 6, 'dymax': 2, 'mirror': 3});
+        expect(loaded.weave, isTrue);
+        expect(loaded.pitchMode, PitchMode.off);
+        expect(loaded.dxmax, 6);
+        // And through the dynamic form the panel edits.
+        final viaDynamic = ParameterConverter.toStabilize(
+            ParameterConverter.fromStabilize(loaded));
+        expect(viaDynamic.toJson(), loaded.toJson());
+      });
+
+      test('wire names match the worker', () {
+        // Rust: StabilizeParameters (serde camelCase), PitchMode/EdgeFill
+        // camelCase variants — see test_pitch_serde_names_are_the_wire_format.
+        final json = const StabilizeParameters(
+          enabled: true, pitchMode: PitchMode.file, pitchEdgeFill: EdgeFill.black,
+        ).toJson();
+        expect(json.keys, containsAll(<String>[
+          'enabled', 'weave', 'dxmax', 'dymax', 'mirror', 'pitchMode',
+          'maxPitchDeviation', 'smoothingRadius', 'invertFactors', 'pitchEdgeFill',
+        ]));
+        expect(json['pitchMode'], 'file');
+        expect(json['pitchEdgeFill'], 'black');
+        expect(PitchMode.values.map((m) => m.value), ['off', 'auto', 'file']);
+        expect(EdgeFill.values.map((m) => m.value), ['extend', 'black']);
       });
     });
 

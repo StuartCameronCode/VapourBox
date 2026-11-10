@@ -40,6 +40,7 @@ clip = create_pipe_clip(
     fps_num={{INPUT_FPS_NUM}},
     fps_den={{INPUT_FPS_DEN}},
     pix_fmt="{{INPUT_PIX_FMT}}",
+    cache_frames={{PIPE_CACHE_FRAMES}},
 )
 
 {{#VFR_TIMELINE}}
@@ -2107,6 +2108,7 @@ if clip.format.color_family == vs.YUV:
 # PASS: STABILIZE
 # ============================================================================
 {{#STABILIZE}}
+{{#STAB_WEAVE}}
 # Stab - global motion stabilisation via MVTools' Depan family. Measures the
 # frame-to-frame shift and subtracts it, so shake is cancelled while a
 # deliberate pan survives. Frame count is unchanged, which is why this is an
@@ -2121,6 +2123,39 @@ clip = haf.Stab(
     dymax={{STAB_DYMAX}},
     mirror={{STAB_MIRROR}},
 )
+{{/STAB_WEAVE}}
+{{#STAB_PITCH}}
+# Vertical pitch / frame-height breathing (issue #150): pull-through film
+# scanners let the film slip in the gate, stretching or squashing the picture
+# vertically by a fraction of a percent from frame to frame, which the weave
+# correction above cannot remove. Each frame is resampled about its centre at a
+# constant frame size. The logic lives in stabilize.py so the encode and the
+# preview can't drift apart.
+import sys as _stab_sys
+_stab_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
+from stabilize import correct_pitch as _stab_correct_pitch
+{{#STAB_CLEAR_FIELD_BASED}}
+# Not deinterlaced, but the source is flagged interlaced: a vertical resample
+# would mix the fields, so treat it as progressive (film scans are).
+clip = core.std.SetFieldBased(clip, 0)
+{{/STAB_CLEAR_FIELD_BASED}}
+clip = _stab_correct_pitch(
+    clip,
+    mode="{{STAB_PITCH_MODE}}",
+{{#STAB_FACTORS_PATH}}
+    factors_path=r"{{STAB_FACTORS_PATH}}",
+{{/STAB_FACTORS_PATH}}
+    # Frame n of this clip is source frame offset + n * rate_den // rate_num
+    # (preview window / trim start, and any deinterlace rate change).
+    frame_offset={{STAB_FRAME_OFFSET}},
+    rate_num={{STAB_RATE_NUM}},
+    rate_den={{STAB_RATE_DEN}},
+    invert={{STAB_INVERT}},
+    max_deviation_pct={{STAB_MAX_DEVIATION}},
+    radius={{STAB_RADIUS}},
+    black={{STAB_BLACK}},
+)
+{{/STAB_PITCH}}
 {{/STABILIZE}}
 
 # ============================================================================

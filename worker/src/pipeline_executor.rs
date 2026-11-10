@@ -1374,6 +1374,7 @@ impl PipelineExecutor {
             fps_den,
             output_index,
             rate_pad: out.rate_pad,
+            source_frame_offset: first,
         };
 
         let script_path = script_generator.generate_preview(job, &preview_params)?;
@@ -2038,6 +2039,7 @@ mod tests {
             input_color_transfer: None,
             input_color_range: None,
             burn_in_subtitle_path: None,
+            pitch_factors_path: None,
         }
     }
 

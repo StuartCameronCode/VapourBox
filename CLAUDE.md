@@ -114,6 +114,7 @@ VapourBox/
 | `worker/src/script_generator.rs` | Template substitution for .vpy |
 | `worker/src/pipeline_executor.rs` | vspipe \| ffmpeg execution |
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
+| `worker/templates/stabilize.py` | Stabilize pass's vertical pitch correction (see "Stabilize") |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded (see "Source Frame Size") |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
@@ -146,6 +147,7 @@ VapourBox/
 | `app/lib/services/filter_loader.dart` | Load filter schemas from JSON |
 | `app/lib/services/preset_service.dart` | Save/load user presets |
 | `app/lib/services/temp_directory_service.dart` | Configurable scratch-file directory (see "Temporary Files Directory") |
+| `app/lib/services/pitch_factor_file.dart` | Per-video pitch factor files: sidecar lookup + summary (see "Stabilize") |
 | `app/lib/services/overwrite_behavior_service.dart` | Default action for existing output files (see "Existing Output Files") |
 | `app/lib/models/native_res_report.dart` | What `--detect-native` found, as the Descale panel's Detect shows and applies it |
 | `app/lib/models/crop_detect_report.dart` | What `--detect-crop` found, and which suggestion (`CropApply`) the panel applies |
@@ -1130,6 +1132,72 @@ VapourSynth Cache → Override max cache size** (`EncodingSettings.maxCacheSizeM
 MB, null = off). `EncodingSettings::effective_max_cache_size_mb` treats 0 as
 off. `test_162` asserts both scripts. Don't reintroduce a hard-coded value —
 SD never reaches the cap, so a too-low one passes every SD test.
+
+### Stabilize: weave and pitch (issue #150)
+
+One pass, two independent corrections, weave first. It runs **last before
+framing** (after Colour Correction, before Rotate / Flip and Crop & Resize), so
+a crop can remove the edges both corrections expose.
+
+- **Weave / shake** — havsfunc `Stab(clp, dxmax, dymax, mirror)`
+  (`mv.DepanEstimate` / `DepanCompensate` against a 15-frame average), called
+  straight from both templates. On by default (`weave: true`).
+- **Vertical pitch ("frame height breathing")** — pull-through film scanners
+  let the film slip in the gate, so each frame is a fraction of a percent
+  taller or shorter than the last. `worker/templates/stabilize.py`
+  (`correct_pitch`, imported by **both** templates so preview and encode can't
+  drift) resamples each frame about its centre at a **constant frame size**
+  (`src_top`/`src_height`), sub-pixel. Rounding the height to even pixels and
+  padding back, as the issue proposed, makes any correction under ~0.19% at
+  1080 lines a no-op — i.e. all real breathing. **Off by default.**
+  - `auto`: the relative scale + shift between **adjacent** frames is measured
+    by grid search on a narrow luma strip, then each frame is corrected to the
+    mean of its ±radius window. Comparing against a temporal *average* was
+    clearly less accurate: motion and the breathing itself blur the average.
+    Pairs whose best match still differs by > 3/255 are treated as cuts.
+    Stateless per frame, so a preview measures exactly what the encode does.
+  - `file`: one factor per **source** frame. The factor is the *measured*
+    height ratio (1.004 = 0.4% too tall); `invertFactors` accepts the other
+    convention.
+
+Invariants that are easy to break:
+
+- **A pipeline saved before pitch existed must produce the same script.** Old
+  JSON has only `enabled/dxmax/dymax/mirror`; it deserialises to weave on,
+  pitch off, and the generator emits the Stab block byte-for-byte as before
+  (the inner `{{#STAB_WEAVE}}`/`{{#STAB_PITCH}}` tags go with their whole
+  lines — `keep_block_lines`). `test_212` pins it.
+- **The pass's temporal reach is declared.** `Stab` reads n-8…n+9 (measured
+  under vspipe: the ±7 average, its scene-change look-ahead, and Depan's
+  interleaved pair), auto pitch another radius+1. `StabilizeParameters::radius`
+  feeds the preview window and `pipe_cache_frames`; it used to be treated as
+  spatial, which starved a windowed preview.
+- **Every per-frame lookup must add the clip's source-frame offset.** Frame `n`
+  in the script is not source frame `n`: the preview decodes a window starting
+  at `first` (`PreviewParams::source_frame_offset`), a trimmed encode starts at
+  `start_frame`, and double-rate deinterlacing or IVTC before the pass changes
+  the count (`ProcessingPipeline::rate_before_stabilize`, composed from the
+  `FrameMap`s of the passes ahead of it). Lose any of these and every frame
+  gets another frame's factor, with no error.
+- **The factor file is per job, never per pipeline.** `VideoJob.pitchFactorsPath`
+  (Rust and Dart), set from `QueueItem.pitchFactorsPath`. Pipelines are saved
+  into presets shared by every video in the queue. `<video>.pitch.txt` (also
+  `<stem>.pitch.txt`, `<stem>_pitch.txt`) is picked up when a video is added.
+- **File mode without a usable file is an error**, raised by the script
+  generator with the bad line's number — not a silent pass-through.
+- **Pitch on a still-interlaced clip clears `_FieldBased`** (a vertical resample
+  would mix the fields; film scans are progressive). Weave alone leaves it.
+- **`pipe_source` evicts silently.** It keeps `cache_frames` decoded frames and
+  returns the *last* frame read for anything already evicted. The cache is
+  sized from the pipeline's declared radius (`pipe_cache_frames`, never below
+  the old 40), so a pass with a large window must report it through its
+  `FrameMap` radius.
+
+Tests: `test_211`…`test_218` (script generation, legacy block, offsets, errors,
+cache size, field marking) and `app/test/integration_stabilize_test.dart`
+(heavy), which injects known breathing with the pass's own file mode and checks
+that file mode, auto mode and the preview each bring the picture back toward
+the undistorted original.
 
 ### Temporary Files Directory
 

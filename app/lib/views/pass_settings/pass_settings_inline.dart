@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -11,6 +12,7 @@ import '../../models/pass_advice.dart';
 import '../../models/processing_pipeline.dart';
 import '../../models/gpu_plugin_status.dart';
 import '../../services/addon_service.dart';
+import '../../services/pitch_factor_file.dart';
 import '../../services/whisper_addon_manager.dart';
 import '../../utils/pixel_format.dart';
 import '../../viewmodels/main_viewmodel.dart';
@@ -135,9 +137,32 @@ class PassSettingsInline extends StatelessWidget {
                 _handleParamChange(context, viewModel, filterId, params, newParams);
               },
             ),
+            _buildPitchFactorFile(viewModel, filterId, params),
           ],
         );
       },
+    );
+  }
+
+  /// Stabilize in "From File" pitch mode: the selected video's factor file,
+  /// with Choose / Clear. Per video (never part of a preset), so it is shown
+  /// here rather than as a schema parameter.
+  Widget _buildPitchFactorFile(
+    MainViewModel viewModel,
+    String filterId,
+    DynamicParameters params,
+  ) {
+    if (filterId != 'stabilize' || params.values['pitchMode'] != 'file') {
+      return const SizedBox.shrink();
+    }
+    final item = viewModel.selectedItem;
+    if (item == null) return const SizedBox.shrink();
+    return _PitchFactorFileRow(
+      key: ValueKey('${item.id}:${item.pitchFactorsPath}'),
+      videoPath: item.inputPath,
+      path: item.pitchFactorsPath,
+      videoFrames: item.videoInfo?.frameCount,
+      onChanged: viewModel.setPitchFactorsPath,
     );
   }
 
@@ -772,6 +797,107 @@ class _FaceRestoreNoticeState extends State<FaceRestoreNotice> {
           ),
         );
       },
+    );
+  }
+}
+
+/// The selected video's pitch factor file, its status, and Choose / Clear.
+class _PitchFactorFileRow extends StatefulWidget {
+  final String videoPath;
+  final String? path;
+  final int? videoFrames;
+  final ValueChanged<String?> onChanged;
+
+  const _PitchFactorFileRow({
+    super.key,
+    required this.videoPath,
+    required this.path,
+    required this.videoFrames,
+    required this.onChanged,
+  });
+
+  @override
+  State<_PitchFactorFileRow> createState() => _PitchFactorFileRowState();
+}
+
+class _PitchFactorFileRowState extends State<_PitchFactorFileRow> {
+  Future<PitchFactorFileInfo>? _info;
+
+  @override
+  void initState() {
+    super.initState();
+    final path = widget.path;
+    if (path != null) _info = PitchFactorFile.inspect(path);
+  }
+
+  Future<void> _choose() async {
+    final result = await FilePicker.platform.pickFiles(
+      dialogTitle: 'Choose pitch factor file',
+      type: FileType.custom,
+      allowedExtensions: PitchFactorFile.pickerExtensions,
+    );
+    final picked = result?.files.single.path;
+    if (picked != null) widget.onChanged(picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final path = widget.path;
+    final name = path?.split(RegExp(r'[/\\]')).last;
+    final sidecar = PitchFactorFile.sidecarCandidates(widget.videoPath)[1]
+        .split(RegExp(r'[/\\]'))
+        .last;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Pitch Factor File (this video)', style: theme.textTheme.labelLarge),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  name ?? 'None selected',
+                  overflow: TextOverflow.ellipsis,
+                  style: path == null
+                      ? theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.error)
+                      : theme.textTheme.bodyMedium,
+                ),
+              ),
+              TextButton(onPressed: _choose, child: const Text('Choose…')),
+              if (path != null)
+                IconButton(
+                  tooltip: 'Clear',
+                  icon: const Icon(Icons.close, size: 18),
+                  onPressed: () => widget.onChanged(null),
+                ),
+            ],
+          ),
+          if (path == null)
+            Text(
+              'Choose a file, or put $sidecar next to the video before adding it. '
+              'Without one, this video can\'t be processed in From File mode.',
+              style: theme.textTheme.bodySmall,
+            )
+          else
+            FutureBuilder<PitchFactorFileInfo>(
+              future: _info,
+              builder: (context, snapshot) {
+                final info = snapshot.data;
+                if (info == null) return const SizedBox.shrink();
+                return Text(
+                  info.describe(widget.videoFrames),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: info.isValid ? null : theme.colorScheme.error,
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
     );
   }
 }

@@ -139,7 +139,7 @@ extension PassTypeExtension on PassType {
       case PassType.antiAlias:
         return 'Smooth stair-stepping on diagonal edges';
       case PassType.stabilize:
-        return 'Remove shake and weave from the picture';
+        return 'Remove shake, gate weave and frame-height breathing';
       case PassType.geometry:
         return 'Rotate or mirror the picture';
       case PassType.grain:

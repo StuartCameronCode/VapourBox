@@ -61,7 +61,7 @@ _FORMAT_MAP = {
 class _PipeReader:
     """Reads raw video frames from stdin with a small cache for temporal filters."""
 
-    def __init__(self, width, height, vs_format):
+    def __init__(self, width, height, vs_format, cache_frames=40):
         self.width = width
         self.height = height
 
@@ -84,7 +84,7 @@ class _PipeReader:
 
         self._pipe = sys.stdin.buffer
         self._cache = OrderedDict()
-        self._cache_limit = 40  # enough for QTGMC TR2 + margin
+        self._cache_limit = max(40, int(cache_frames))  # >= QTGMC TR2 + margin
         self._next = 0
         self._lock = threading.Lock()
         self._eof = False
@@ -165,7 +165,8 @@ class _PipeReader:
         return fout
 
 
-def create_pipe_clip(width, height, num_frames, fps_num, fps_den, pix_fmt):
+def create_pipe_clip(width, height, num_frames, fps_num, fps_den, pix_fmt,
+                     cache_frames=40):
     """
     Create a VapourSynth clip that reads raw frames from stdin.
 
@@ -176,6 +177,10 @@ def create_pipe_clip(width, height, num_frames, fps_num, fps_den, pix_fmt):
         fps_num: FPS numerator
         fps_den: FPS denominator
         pix_fmt: FFmpeg pixel format string (e.g. 'yuv420p')
+        cache_frames: Decoded frames kept for out-of-order reads. Must cover
+            the pipeline's temporal window plus vspipe's read-ahead: a frame
+            evicted before it is read again comes back as the *last* frame,
+            silently. The worker sizes it from the pipeline's total radius.
 
     Returns:
         vs.VideoNode backed by stdin pipe
@@ -185,7 +190,7 @@ def create_pipe_clip(width, height, num_frames, fps_num, fps_den, pix_fmt):
                          f"Supported: {', '.join(_FORMAT_MAP.keys())}")
 
     vs_format = _FORMAT_MAP[pix_fmt]
-    reader = _PipeReader(width, height, vs_format)
+    reader = _PipeReader(width, height, vs_format, cache_frames)
 
     blank = core.std.BlankClip(
         width=width, height=height,

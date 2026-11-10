@@ -16,7 +16,7 @@ use crate::models::{
     ChromaDenoiseMethod, FrameRateMethod, SpotLessMethod, DeflickerMethod, EdgeRepairParameters,
     parse_ratio,
     DehaloMethod, DeblockMethod, SharpenMethod, DeinterlaceMethod,
-    FieldOrder,
+    FieldOrder, EdgeFill, PitchMode, parse_pitch_factors,
 };
 
 /// CPU dispatch level to hand `ctmf.CTMF`'s `opt` argument.
@@ -113,6 +113,27 @@ pub struct PreviewParams {
     /// Copies of the first frame to put in front of the Frame Rate pass, so
     /// its retime runs in the encode's phase (`PreviewOutput::rate_pad`).
     pub rate_pad: u64,
+    /// Source frame number of the first decoded frame (the window start).
+    /// Anything that looks frames up by source number — the stabiliser's
+    /// pitch factor file — must add it, or every preview frame gets the
+    /// factor of the wrong frame.
+    pub source_frame_offset: i32,
+}
+
+/// Per-script inputs to the Stabilize pass that aren't pipeline settings.
+struct StabilizeContext {
+    /// Source frame number of clip frame 0 (trim start / preview window start).
+    frame_offset: i64,
+    /// The worker's validated, normalised copy of the job's factor file.
+    factors_path: Option<PathBuf>,
+}
+
+/// Decoded frames `pipe_source` must keep for out-of-order reads: the whole
+/// temporal window either side, plus vspipe's read-ahead. Too few and an
+/// evicted frame silently comes back as the last frame read. Never below the
+/// 40 it was fixed at before it was sized from the pipeline.
+pub fn pipe_cache_frames(pipeline: &ProcessingPipeline) -> u32 {
+    (2 * pipeline.total_radius() + 24).max(40)
 }
 
 impl ScriptGenerator {
@@ -310,7 +331,10 @@ impl ScriptGenerator {
         let pipeline = job.effective_pipeline();
         self.ensure_methods_ready(&pipeline)?;
 
-        let script = self.substitute_parameters(&self.template, job, &pipeline, &job.input_path);
+        // A trimmed encode seeks the decoder, so clip frame 0 is start_frame.
+        let offset = job.start_frame.unwrap_or(0).max(0) as i64;
+        let stab = Self::stabilize_context(job, &pipeline, offset, "encode")?;
+        let script = self.substitute_parameters(&self.template, job, &pipeline, &stab);
 
         // Write to temp file
         let temp_dir = env::temp_dir();
@@ -327,6 +351,8 @@ impl ScriptGenerator {
     pub fn generate_preview(&self, job: &VideoJob, preview_params: &PreviewParams) -> Result<PathBuf> {
         let pipeline = job.effective_pipeline();
         self.ensure_methods_ready(&pipeline)?;
+        let stab = Self::stabilize_context(
+            job, &pipeline, preview_params.source_frame_offset.max(0) as i64, "preview")?;
 
         // Start with preview template and substitute preview-specific params
         let mut script = self.preview_template.clone();
@@ -348,6 +374,7 @@ impl ScriptGenerator {
         script = script.replace("{{FPS_DEN}}", &preview_params.fps_den.to_string());
         script = script.replace("{{PREVIEW_OUTPUT_INDEX}}", &preview_params.output_index.to_string());
         script = script.replace("{{PREVIEW_RATE_PAD}}", &preview_params.rate_pad.to_string());
+        script = script.replace("{{PIPE_CACHE_FRAMES}}", &pipe_cache_frames(&pipeline).to_string());
         // Field-based: same derivation as the encode path, so the preview can't
         // deinterlace at a different field order than the final render.
         if let Some(fb) = Self::field_based_for(job, &pipeline) {
@@ -359,7 +386,7 @@ impl ScriptGenerator {
         }
 
         // Now apply the same pipeline substitutions
-        script = self.substitute_parameters_on(&script, job, &pipeline);
+        script = self.substitute_parameters_on(&script, job, &pipeline, &stab);
 
         // Write to temp file
         let temp_dir = env::temp_dir();
@@ -465,8 +492,47 @@ impl ScriptGenerator {
         Self::field_based_for(job, pipeline).map(|fb| fb == 2)
     }
 
+    /// Validate and normalise the job's pitch factor file when the Stabilize
+    /// pass needs it, writing a clean one-factor-per-line copy to the temp
+    /// directory for the script to read.
+    ///
+    /// File mode without a usable file is an error rather than a silent
+    /// no-op: the user asked for that correction, and an encode without it is
+    /// indistinguishable from one with it until someone looks closely.
+    fn stabilize_context(
+        job: &VideoJob,
+        pipeline: &ProcessingPipeline,
+        frame_offset: i64,
+        purpose: &str,
+    ) -> Result<StabilizeContext> {
+        let stab = &pipeline.stabilize;
+        if !(stab.pitch_active() && stab.pitch_mode == PitchMode::File) {
+            return Ok(StabilizeContext { frame_offset, factors_path: None });
+        }
+        let source = job
+            .pitch_factors_path
+            .as_deref()
+            .filter(|p| !p.trim().is_empty())
+            .ok_or_else(|| anyhow::anyhow!(
+                "Stabilize: pitch correction is set to 'From file', but no pitch factor file is selected for this video"
+            ))?;
+        let text = fs::read_to_string(source)
+            .with_context(|| format!("Stabilize: cannot read pitch factor file {}", source))?;
+        let factors = parse_pitch_factors(&text)
+            .with_context(|| format!("Stabilize: invalid pitch factor file {}", source))?;
+
+        let mut normalised = String::with_capacity(factors.len() * 12);
+        for f in &factors {
+            normalised.push_str(&format!("{:.8}\n", f));
+        }
+        let path = env::temp_dir().join(format!("{}_{}_pitch_factors.txt", job.id, purpose));
+        fs::write(&path, normalised)
+            .with_context(|| format!("Failed to write pitch factors to {:?}", path))?;
+        Ok(StabilizeContext { frame_offset, factors_path: Some(path) })
+    }
+
     /// Substitute parameters in a script string.
-    fn substitute_parameters(&self, template: &str, job: &VideoJob, pipeline: &ProcessingPipeline, _input_path: &str) -> String {
+    fn substitute_parameters(&self, template: &str, job: &VideoJob, pipeline: &ProcessingPipeline, stab: &StabilizeContext) -> String {
         let mut script = template.to_string();
 
         // Pipe source parameters — FFmpeg decodes, pipes raw frames to VapourSynth via stdin
@@ -491,6 +557,7 @@ impl ScriptGenerator {
             None => job.total_frames.unwrap_or(1),
         };
         script = script.replace("{{TOTAL_FRAMES}}", &total_frames.to_string());
+        script = script.replace("{{PIPE_CACHE_FRAMES}}", &pipe_cache_frames(pipeline).to_string());
 
         // FPS as rational number
         let (fps_num, fps_den) = self.frame_rate_to_rational(job.input_frame_rate.unwrap_or(29.97));
@@ -514,7 +581,7 @@ impl ScriptGenerator {
             script = remove_block("{{#SET_FIELD_BASED}}", "{{/SET_FIELD_BASED}}", script);
         }
 
-        self.substitute_parameters_on(&script, job, pipeline)
+        self.substitute_parameters_on(&script, job, pipeline, stab)
     }
 
     /// Get the directory where pipe_source.py lives (same search as templates).
@@ -555,7 +622,7 @@ impl ScriptGenerator {
     }
 
     /// Substitute pipeline parameters on an already-prepared script.
-    fn substitute_parameters_on(&self, script: &str, job: &VideoJob, pipeline: &ProcessingPipeline) -> String {
+    fn substitute_parameters_on(&self, script: &str, job: &VideoJob, pipeline: &ProcessingPipeline, stab_ctx: &StabilizeContext) -> String {
         let mut script = self.substitute_addons(script.to_string(), pipeline);
         let params = &pipeline.deinterlace;
 
@@ -1767,12 +1834,59 @@ impl ScriptGenerator {
         // STABILIZE PASS
         // ====================================================================
         let stabilize = &pipeline.stabilize;
-        if stabilize.enabled {
+        if stabilize.is_active() {
             script = script.replace("{{#STABILIZE}}", "");
             script = script.replace("{{/STABILIZE}}", "");
-            script = script.replace("{{STAB_DXMAX}}", &stabilize.effective_dxmax().to_string());
-            script = script.replace("{{STAB_DYMAX}}", &stabilize.effective_dymax().to_string());
-            script = script.replace("{{STAB_MIRROR}}", &stabilize.effective_mirror().to_string());
+
+            // Weave (havsfunc Stab). Its inner tags go with their whole lines,
+            // so a weave-only pass — every pipeline saved before pitch
+            // correction existed — gets the block it always got.
+            if stabilize.weave_active() {
+                script = keep_block_lines("STAB_WEAVE", script);
+                script = script.replace("{{STAB_DXMAX}}", &stabilize.effective_dxmax().to_string());
+                script = script.replace("{{STAB_DYMAX}}", &stabilize.effective_dymax().to_string());
+                script = script.replace("{{STAB_MIRROR}}", &stabilize.effective_mirror().to_string());
+            } else {
+                script = remove_block("{{#STAB_WEAVE}}", "{{/STAB_WEAVE}}", script);
+            }
+
+            // Pitch (issue #150). File mode only reaches the script with a
+            // validated file (see stabilize_context, which errors otherwise).
+            let pitch_mode = match (stabilize.pitch_mode, &stab_ctx.factors_path) {
+                (PitchMode::File, None) => PitchMode::Off,
+                (m, _) if stabilize.pitch_active() => m,
+                _ => PitchMode::Off,
+            };
+            if pitch_mode != PitchMode::Off {
+                script = keep_block_lines("STAB_PITCH", script);
+                // Not deinterlaced but marked field-based: a vertical resample
+                // would mix the two fields, so treat the clip as progressive
+                // (film scans are) from here on.
+                if Self::still_interlaced_tff(job, pipeline).is_some() {
+                    script = keep_block_lines("STAB_CLEAR_FIELD_BASED", script);
+                } else {
+                    script = remove_block("{{#STAB_CLEAR_FIELD_BASED}}", "{{/STAB_CLEAR_FIELD_BASED}}", script);
+                }
+                let py_bool = |b: bool| if b { "True" } else { "False" };
+                let factors = stab_ctx.factors_path.as_ref().map(|p| p.to_string_lossy().to_string());
+                if factors.is_some() {
+                    script = keep_block_lines("STAB_FACTORS_PATH", script);
+                    script = script.replace("{{STAB_FACTORS_PATH}}", factors.as_deref().unwrap_or(""));
+                } else {
+                    script = remove_block("{{#STAB_FACTORS_PATH}}", "{{/STAB_FACTORS_PATH}}", script);
+                }
+                let (rate_num, rate_den) = pipeline.rate_before_stabilize();
+                script = script.replace("{{STAB_PITCH_MODE}}", pitch_mode.script_value());
+                script = script.replace("{{STAB_FRAME_OFFSET}}", &stab_ctx.frame_offset.to_string());
+                script = script.replace("{{STAB_RATE_NUM}}", &rate_num.to_string());
+                script = script.replace("{{STAB_RATE_DEN}}", &rate_den.to_string());
+                script = script.replace("{{STAB_INVERT}}", py_bool(stabilize.invert_factors));
+                script = script.replace("{{STAB_MAX_DEVIATION}}", &format_double(stabilize.effective_max_deviation()));
+                script = script.replace("{{STAB_RADIUS}}", &stabilize.effective_smoothing_radius().to_string());
+                script = script.replace("{{STAB_BLACK}}", py_bool(stabilize.pitch_edge_fill == EdgeFill::Black));
+            } else {
+                script = remove_block("{{#STAB_PITCH}}", "{{/STAB_PITCH}}", script);
+            }
         } else {
             script = remove_block("{{#STABILIZE}}", "{{/STABILIZE}}", script);
         }
@@ -2728,6 +2842,19 @@ pub(crate) fn ai_runtime_block(script: String, dir: Option<&Path>) -> String {
             .replace("{{AI_RUNTIME_DIR}}", &py_str(dir)),
         None => remove_block("{{#AI_RUNTIME}}", "{{/AI_RUNTIME}}", script),
     }
+}
+
+/// Keep a block's contents, removing its `{{#NAME}}` / `{{/NAME}}` tags
+/// together with the newline after each, so a tag on a line of its own leaves
+/// no blank line behind. (Plain `replace(tag, "")` leaves one.)
+fn keep_block_lines(name: &str, script: String) -> String {
+    let start_tag = format!("{{{{#{}}}}}", name);
+    let end_tag = format!("{{{{/{}}}}}", name);
+    script
+        .replace(&format!("{}\n", start_tag), "")
+        .replace(&format!("{}\n", end_tag), "")
+        .replace(&start_tag, "")
+        .replace(&end_tag, "")
 }
 
 /// Remove a block from start tag to end tag (including the line).

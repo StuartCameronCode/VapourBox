@@ -220,7 +220,7 @@ impl PassType {
             PassType::Deband => "Remove color banding from gradients",
             PassType::Sharpen => "Sharpen edges and enhance detail",
             PassType::AntiAlias => "Smooth stair-stepping on diagonal edges",
-            PassType::Stabilize => "Remove shake and weave from the picture",
+            PassType::Stabilize => "Remove shake, gate weave and frame-height breathing",
             PassType::Geometry => "Rotate or mirror the picture",
             PassType::Grain => "Add film grain back after denoising",
             PassType::Deflicker => "Even out brightness pulsing between frames",
@@ -644,6 +644,9 @@ impl ProcessingPipeline {
                 radius: self.chroma_denoise.radius(),
             },
             PassType::SpotLess => FrameMap::Identity { radius: 2 },
+            // Stab's temporal average plus, for auto pitch, the measured pairs
+            // either side (issue #150).
+            PassType::Stabilize => FrameMap::Identity { radius: self.stabilize.radius() },
             PassType::DeScratch => FrameMap::Identity { radius: 1 },
             PassType::Deflicker => FrameMap::Identity { radius: self.deflicker.radius() },
             PassType::EdgeRepair => FrameMap::Identity { radius: 0 },
@@ -744,6 +747,24 @@ impl ProcessingPipeline {
                 FrameMap::Decimate { cycle, keep: cycle - 1 }
             }
         }
+    }
+
+    /// Frame-rate change, as `(num, den)` output/input, of the passes that run
+    /// before Stabilize (in practice deinterlacing: double rate or IVTC). The
+    /// pass's per-source-frame lookup — the pitch factor file — maps its clip
+    /// frame `n` back to source frame `offset + n * den / num` (issue #150).
+    pub fn rate_before_stabilize(&self) -> (u64, u64) {
+        let (mut num, mut den) = (1u64, 1u64);
+        for pass in self.enabled_passes() {
+            if pass == PassType::Stabilize {
+                break;
+            }
+            let (n, d) = self.frame_map_for(pass).rate_factor();
+            num *= n;
+            den *= d;
+        }
+        let g = gcd(num, den).max(1);
+        (num / g, den / g)
     }
 
     /// Total output frame count for a given source frame count, composing every
@@ -1172,6 +1193,31 @@ mod tests {
         let span = p.invert(20);
         assert_eq!(span.start, 10);
         assert!(span.exact);
+    }
+
+    #[test]
+    fn test_stabilize_radius_and_rate_before_it() {
+        let mut p = ProcessingPipeline::default();
+        p.deinterlace.enabled = false;
+        p.stabilize.enabled = true;
+        // Weave only: Stab's measured reach is declared, so a windowed
+        // preview decodes enough context (it used to be treated as spatial).
+        assert_eq!(p.frame_map_for(PassType::Stabilize).radius(), 9);
+        p.stabilize.pitch_mode = crate::models::PitchMode::Auto;
+        assert_eq!(p.frame_map_for(PassType::Stabilize).radius(), 20);
+        // Identity map: the frame count is unchanged.
+        assert_eq!(p.output_count(500), 500);
+        assert_eq!(p.rate_before_stabilize(), (1, 1));
+
+        p.deinterlace.enabled = true;
+        p.deinterlace.method = DeinterlaceMethod::Qtgmc;
+        p.deinterlace.fps_divisor = None; // double rate
+        assert_eq!(p.rate_before_stabilize(), (2, 1));
+        p.deinterlace.fps_divisor = Some(2);
+        assert_eq!(p.rate_before_stabilize(), (1, 1));
+        p.deinterlace.method = DeinterlaceMethod::Ivtc;
+        p.deinterlace.ivtc_cycle = Some(5);
+        assert_eq!(p.rate_before_stabilize(), (4, 5));
     }
 
     #[test]

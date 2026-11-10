@@ -271,6 +271,7 @@ class PreviewGenerator {
     required EncodingSettings encodingSettings,
     int subFrame = 0,
     int? startFrame,
+    String? pitchFactorsPath,
     CancelToken? cancelToken,
   }) async {
     if (_currentVideoPath == null || _workerPath == null) {
@@ -328,6 +329,9 @@ class PreviewGenerator {
         // encode's retime starts from, so a generated frame is previewed at
         // the moment the encode makes it.
         startFrame: startFrame,
+        // The selected video's factor file for Stabilize's "From File" pitch
+        // mode, so the preview corrects with the same factors as the encode.
+        pitchFactorsPath: pitchFactorsPath,
       );
 
       // Write job config to file

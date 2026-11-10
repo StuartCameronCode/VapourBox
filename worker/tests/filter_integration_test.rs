@@ -65,6 +65,7 @@ fn create_base_job(output_name: &str) -> VideoJob {
         input_color_transfer: None,
         input_color_range: None,
         burn_in_subtitle_path: None,
+        pitch_factors_path: None,
     }
 }
 
@@ -1273,6 +1274,7 @@ fn create_ivtc_base_job(output_name: &str) -> VideoJob {
         input_color_transfer: None,
         input_color_range: None,
         burn_in_subtitle_path: None,
+        pitch_factors_path: None,
     }
 }
 
@@ -1941,6 +1943,7 @@ fn test_55_preview_selects_exact_frame() {
     let generator = ScriptGenerator::new().expect("create generator");
     let params = PreviewParams {
         rate_pad: 0,
+        source_frame_offset: 0,
         width: 720,
         height: 576,
         pix_fmt: "yuv420p".to_string(),
@@ -3057,6 +3060,7 @@ fn generate_both_scripts(job: &VideoJob) -> (String, String) {
 
     let params = PreviewParams {
         rate_pad: 0,
+        source_frame_offset: 0,
         width: job.input_width.unwrap_or(720),
         height: job.input_height.unwrap_or(480),
         pix_fmt: job
@@ -4065,6 +4069,7 @@ fn test_107_stabilize() {
             dxmax: 6,
             dymax: 8,
             mirror: 3,
+            ..Default::default()
         },
         ..ProcessingPipeline::default()
     });
@@ -4090,6 +4095,7 @@ fn test_108_stabilize_limits_are_normalized() {
             dxmax: -3,
             dymax: -3,
             mirror: 9,
+            ..Default::default()
         },
         ..ProcessingPipeline::default()
     });
@@ -6010,6 +6016,7 @@ fn test_162_max_cache_size_is_only_set_when_overridden() {
         let generator = ScriptGenerator::new().expect("Failed to create generator");
         let params = PreviewParams {
         rate_pad: 0,
+        source_frame_offset: 0,
             width: 720,
             height: 480,
             pix_fmt: "yuv420p".to_string(),
@@ -6191,6 +6198,7 @@ fn both_scripts_with(generator: &ScriptGenerator, job: &VideoJob) -> anyhow::Res
     let encode = std::fs::read_to_string(generator.generate(job)?)?;
     let params = PreviewParams {
         rate_pad: 0,
+        source_frame_offset: 0,
         width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 11,
         fps_num: 25, fps_den: 1, output_index: 5,
     };
@@ -6250,6 +6258,7 @@ fn test_167_rife_unavailable_refuses_with_the_probe_message() {
     assert_eq!(err, message);
     let params = PreviewParams {
         rate_pad: 0,
+        source_frame_offset: 0,
         width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 11,
         fps_num: 25, fps_den: 1, output_index: 5,
     };
@@ -6818,6 +6827,7 @@ fn test_182_preview_retime_padding() {
 
         let params = PreviewParams {
             rate_pad: 1,
+            source_frame_offset: 0,
             width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 5,
             fps_num: 24, fps_den: 1, output_index: 3,
         };
@@ -7780,6 +7790,7 @@ fn test_209_gpu_plugin_models_are_addons() {
     ];
     let params = PreviewParams {
         rate_pad: 0,
+        source_frame_offset: 0,
         width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 11,
         fps_num: 25, fps_den: 1, output_index: 5,
     };
@@ -7852,6 +7863,7 @@ fn test_210_preview_aspect_matches_the_encode() {
     let encode = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
     let params = PreviewParams {
         rate_pad: 0,
+        source_frame_offset: 0,
         width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 5,
         fps_num: 25, fps_den: 1, output_index: 2,
     };
@@ -7881,4 +7893,306 @@ fn test_210_preview_aspect_matches_the_encode() {
     let declared = preserve.output_aspect(job.input_sar.as_deref());
     assert_eq!(declared, AspectDeclaration::Sar("16:15".to_string()));
     assert_eq!(declared.preview_token().as_deref(), Some("sar=16/15"));
+}
+
+// ============================================================================
+// STABILIZE pitch correction (issue #150): vertical pitch ("frame height
+// breathing") added to the existing Stabilize pass, after its havsfunc Stab
+// weave correction. These cover script generation; the picture-level checks
+// (does it actually undo a known distortion?) are in the Flutter heavy suite,
+// integration_stabilize_test.dart.
+// ============================================================================
+
+fn stabilize_job(name: &str, stabilize: StabilizeParameters) -> VideoJob {
+    let mut job = create_base_job(name);
+    job.qtgmc_parameters.enabled = false;
+    job.detected_field_order = Some(FieldOrder::Progressive);
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..QTGMCParameters::default() },
+        stabilize,
+        ..ProcessingPipeline::default()
+    });
+    job
+}
+
+fn stabilize_preview_script_at(job: &VideoJob, source_frame_offset: i32) -> Result<String, String> {
+    let generator = ScriptGenerator::new().map_err(|e| e.to_string())?;
+    let params = PreviewParams {
+        rate_pad: 0,
+        source_frame_offset,
+        width: 720,
+        height: 576,
+        pix_fmt: "yuv420p".to_string(),
+        num_frames: 40,
+        fps_num: 25,
+        fps_den: 1,
+        output_index: 18,
+    };
+    let path = generator.generate_preview(job, &params).map_err(|e| format!("{:#}", e))?;
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+fn write_factor_file(name: &str, contents: &str) -> String {
+    create_output_dir();
+    let path = get_output_path(name).with_extension("txt");
+    std::fs::write(&path, contents).expect("write factor file");
+    path.to_string_lossy().to_string()
+}
+
+fn assert_no_stab_placeholders(label: &str, script: &str) {
+    assert!(
+        !script.contains("{{STAB") && !script.contains("{{#STAB") && !script.contains("{{/STAB")
+            && !script.contains("{{PIPE_CACHE"),
+        "{}: unreplaced placeholder in:\n{}", label, script
+    );
+}
+
+#[test]
+fn test_211_stabilize_disabled_leaves_no_trace() {
+    // Off by default, and an off pass must leave the scripts exactly as they
+    // were: no import, no call, no unreplaced placeholder.
+    create_output_dir();
+    let job = stabilize_job("test_211_stabilize_off", StabilizeParameters::default());
+    let (encode, preview) = generate_both_scripts(&job);
+    for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        for marker in ["haf.Stab(", "from stabilize import", "_stab_correct_pitch", "STABILIZE}}"] {
+            assert!(!script.contains(marker), "{}: unexpected '{}' in:\n{}", label, marker, script);
+        }
+        assert_no_stab_placeholders(label, script);
+    }
+}
+
+#[test]
+fn test_212_stabilize_saved_before_pitch_is_unchanged() {
+    // A pipeline saved before pitch correction existed has only
+    // enabled/dxmax/dymax/mirror. It must deserialise to weave-only and get
+    // exactly the Stabilize block it always got, byte for byte.
+    create_output_dir();
+    let stabilize: StabilizeParameters =
+        serde_json::from_str(r#"{"enabled":true,"dxmax":6,"dymax":2,"mirror":3}"#).unwrap();
+    let job = stabilize_job("test_212_stabilize_legacy", stabilize);
+    let expected = "# PASS: STABILIZE\n\
+# ============================================================================\n\
+\n\
+# Stab - global motion stabilisation via MVTools' Depan family. Measures the\n\
+# frame-to-frame shift and subtracts it, so shake is cancelled while a\n\
+# deliberate pan survives. Frame count is unchanged, which is why this is an\n\
+# ordinary pass.\n\
+#\n\
+# The signature is Stab(clp, dxmax, dymax, mirror) — there is no `range`\n\
+# argument, whatever other Stab implementations take. `mirror` fills the edges\n\
+# the shift exposes rather than leaving them black.\n\
+clip = haf.Stab(\n    clip,\n    dxmax=6,\n    dymax=2,\n    mirror=3,\n)\n\
+\n\
+\n\
+# ============================================================================\n";
+    let (encode, preview) = generate_both_scripts(&job);
+    for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        let start = script.find("# PASS: STABILIZE").expect("stabilize section");
+        let end = start + script[start..].find("# PASS: ROTATE / FLIP").expect("rotate section");
+        assert_eq!(&script[start..end], expected, "{}: Stabilize block changed", label);
+        assert_no_stab_placeholders(label, script);
+    }
+}
+
+#[test]
+fn test_213_stabilize_auto_pitch_is_in_both_scripts() {
+    create_output_dir();
+    let job = stabilize_job("test_213_stabilize_auto", StabilizeParameters {
+        enabled: true,
+        dxmax: 6,
+        dymax: 3,
+        pitch_mode: PitchMode::Auto,
+        max_pitch_deviation: 1.5,
+        smoothing_radius: 8,
+        pitch_edge_fill: EdgeFill::Black,
+        ..StabilizeParameters::default()
+    });
+    let (encode, preview) = generate_both_scripts(&job);
+    for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        for expected in [
+            "haf.Stab(",
+            "dxmax=6",
+            "dymax=3",
+            "from stabilize import correct_pitch as _stab_correct_pitch",
+            "mode=\"auto\"",
+            "max_deviation_pct=1.5",
+            "radius=8",
+            "black=True",
+        ] {
+            assert!(script.contains(expected), "{}: missing '{}' in:\n{}", label, expected, script);
+        }
+        assert!(!script.contains("factors_path"), "{}: auto mode reads no file", label);
+        assert!(!script.contains("SetFieldBased(clip, 0)"), "{}: progressive source", label);
+        assert_no_stab_placeholders(label, script);
+        // Weave, then pitch, both where the pass has always run: after colour
+        // correction, before rotate / crop.
+        let color = script.find("PASS 9: COLOR CORRECTION").unwrap();
+        let weave = script.find("clip = haf.Stab(").unwrap();
+        let pitch = script.find("clip = _stab_correct_pitch(").unwrap();
+        let rotate = script.find("PASS: ROTATE / FLIP").unwrap();
+        assert!(color < weave && weave < pitch && pitch < rotate, "{}: Stabilize is out of order", label);
+    }
+}
+
+#[test]
+fn test_214_stabilize_file_pitch_uses_source_frame_numbers() {
+    // The factor file is indexed by SOURCE frame. A trimmed encode starts its
+    // clip at start_frame and a preview at its window start, so each script
+    // must carry its own offset — factors[n] would give every frame of a
+    // preview or a trimmed export the wrong factor.
+    create_output_dir();
+    let factors = write_factor_file(
+        "test_214_factors",
+        "# pitch log from the reporter's tool\n1.0012\n0.9990\n\n1.0004  # slip\n",
+    );
+    let mut job = stabilize_job("test_214_stabilize_file", StabilizeParameters {
+        enabled: true,
+        weave: false,
+        pitch_mode: PitchMode::File,
+        invert_factors: true,
+        ..StabilizeParameters::default()
+    });
+    job.pitch_factors_path = Some(factors);
+    job.start_frame = Some(100);
+    job.end_frame = Some(200);
+
+    let generator = ScriptGenerator::new().unwrap();
+    let encode = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    assert!(encode.contains("frame_offset=100"), "encode must start at the trim:\n{}", encode);
+    assert!(encode.contains("mode=\"file\""));
+    assert!(!encode.contains("haf.Stab("), "weave is off");
+    assert!(encode.contains("invert=True"));
+    assert!(encode.contains("rate_num=1") && encode.contains("rate_den=1"));
+    assert_no_stab_placeholders("encode", &encode);
+
+    // The script reads the worker's normalised copy, not the user's file.
+    let line = encode.lines().find(|l| l.contains("factors_path=r\"")).expect("factors_path line");
+    let path = line.split("r\"").nth(1).unwrap().trim_end_matches("\",");
+    let normalised = std::fs::read_to_string(path).expect("normalised factor file exists");
+    let values: Vec<f64> = normalised.lines().map(|l| l.parse().unwrap()).collect();
+    assert_eq!(values, vec![1.0012, 0.9990, 1.0004]);
+
+    let preview = stabilize_preview_script_at(&job, 37).unwrap();
+    assert!(preview.contains("frame_offset=37"), "preview must start at its window:\n{}", preview);
+}
+
+#[test]
+fn test_215_stabilize_file_pitch_follows_double_rate_deinterlace() {
+    // Double-rate QTGMC runs first, so the stabiliser sees two frames per
+    // source frame and must look factors up at n // 2.
+    create_output_dir();
+    let factors = write_factor_file("test_215_factors", "1.001\n0.999\n");
+    let mut job = create_base_job("test_215_stabilize_double_rate");
+    job.qtgmc_parameters = QTGMCParameters {
+        enabled: true,
+        preset: QTGMCPreset::Fast,
+        tff: Some(true),
+        ..QTGMCParameters::default()
+    };
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        stabilize: StabilizeParameters {
+            enabled: true,
+            pitch_mode: PitchMode::File,
+            ..StabilizeParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    job.pitch_factors_path = Some(factors);
+    run_job_and_verify(&job, "Stabilize after double-rate QTGMC", &[
+        "rate_num=2",
+        "rate_den=1",
+        "haf.QTGMC(",
+    ]).unwrap();
+    // Deinterlaced output is progressive: no field marking to clear.
+    let generator = ScriptGenerator::new().unwrap();
+    let encode = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+    assert!(!encode.contains("SetFieldBased(clip, 0)"));
+}
+
+#[test]
+fn test_216_stabilize_file_pitch_without_a_usable_file_fails_loudly() {
+    // File mode is an explicit request for a correction; producing a job
+    // without it would be indistinguishable from one with it.
+    create_output_dir();
+    let params = StabilizeParameters {
+        enabled: true,
+        pitch_mode: PitchMode::File,
+        ..StabilizeParameters::default()
+    };
+    let generator = ScriptGenerator::new().unwrap();
+
+    let job = stabilize_job("test_216_no_file", params.clone());
+    let err = format!("{:#}", generator.generate(&job).unwrap_err());
+    assert!(err.contains("no pitch factor file"), "{}", err);
+    assert!(stabilize_preview_script_at(&job, 0).unwrap_err().contains("no pitch factor file"));
+
+    let mut job = stabilize_job("test_216_missing_file", params.clone());
+    job.pitch_factors_path = Some("/nonexistent/vapourbox/pitch.txt".to_string());
+    let err = format!("{:#}", generator.generate(&job).unwrap_err());
+    assert!(err.contains("cannot read pitch factor file"), "{}", err);
+
+    let mut job = stabilize_job("test_216_bad_file", params);
+    job.pitch_factors_path = Some(write_factor_file("test_216_bad", "1.0\n1.0\nbanana\n"));
+    let err = format!("{:#}", generator.generate(&job).unwrap_err());
+    assert!(err.contains("line 3"), "error should name the bad line: {}", err);
+}
+
+#[test]
+fn test_217_pipe_cache_covers_the_temporal_window() {
+    // pipe_source returns the LAST frame read for anything it has already
+    // evicted — silently. Its cache has to cover the pipeline's whole window,
+    // which the stabiliser enlarges considerably.
+    create_output_dir();
+    let job = stabilize_job("test_217_pipe_cache", StabilizeParameters {
+        enabled: true,
+        pitch_mode: PitchMode::Auto,
+        smoothing_radius: 20,
+        ..StabilizeParameters::default()
+    });
+    let radius = job.effective_pipeline().total_radius();
+    assert!(radius >= 9 + 21, "stabiliser window must count toward the radius");
+    let (encode, preview) = generate_both_scripts(&job);
+    for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        let line = script.lines().find(|l| l.contains("cache_frames=")).expect("cache_frames");
+        let frames: u32 = line.trim().trim_start_matches("cache_frames=").trim_end_matches(',').parse().unwrap();
+        assert!(frames >= 2 * radius + 1, "{}: cache {} < window {}", label, frames, 2 * radius + 1);
+    }
+    // And a plain pipeline keeps the old floor.
+    let plain = stabilize_job("test_217_plain", StabilizeParameters::default());
+    let (encode, preview) = generate_both_scripts(&plain);
+    assert!(encode.contains("cache_frames=40,"));
+    assert!(preview.contains("cache_frames=40,"));
+}
+
+#[test]
+fn test_218_stabilize_pitch_without_deinterlace_drops_field_marking() {
+    // A vertical resample of a field-based clip mixes the fields. Film scans
+    // flagged interlaced (or interlaced material the user chose not to
+    // deinterlace) get their pitch corrected as progressive. Weave alone keeps
+    // the marking, as it always has.
+    create_output_dir();
+    let mut job = stabilize_job("test_218_field_based", StabilizeParameters {
+        enabled: true,
+        pitch_mode: PitchMode::Auto,
+        ..StabilizeParameters::default()
+    });
+    job.detected_field_order = Some(FieldOrder::TopFieldFirst);
+    let (encode, preview) = generate_both_scripts(&job);
+    for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        let mark = script.find("core.std.SetFieldBased(clip, 2)").expect("source is marked TFF");
+        let clear = script.find("core.std.SetFieldBased(clip, 0)").expect("pitch clears it");
+        let pitch = script.find("clip = _stab_correct_pitch(").unwrap();
+        assert!(mark < clear && clear < pitch, "{}: wrong order", label);
+    }
+
+    let mut weave_only = stabilize_job("test_218_weave_only", StabilizeParameters {
+        enabled: true,
+        ..StabilizeParameters::default()
+    });
+    weave_only.detected_field_order = Some(FieldOrder::TopFieldFirst);
+    let (encode, preview) = generate_both_scripts(&weave_only);
+    assert!(!encode.contains("core.std.SetFieldBased(clip, 0)"));
+    assert!(!preview.contains("core.std.SetFieldBased(clip, 0)"));
 }
