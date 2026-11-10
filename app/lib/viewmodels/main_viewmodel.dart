@@ -26,6 +26,7 @@ import '../services/field_order_detector.dart';
 import '../services/frame_math.dart';
 import '../services/image_dimensions.dart';
 import '../services/timeline_math.dart';
+import '../services/pitch_factor_file.dart';
 import '../services/preset_service.dart';
 import '../services/preview_generator.dart';
 import '../services/temp_directory_service.dart';
@@ -911,6 +912,7 @@ class MainViewModel extends ChangeNotifier {
       final item = QueueItem(
         inputPath: filePath,
         outputPath: outputPath,
+        pitchFactorsPath: PitchFactorFile.findSidecar(filePath),
         status: QueueItemStatus.pending,
       );
       newItems.add(item);
@@ -1449,6 +1451,7 @@ class MainViewModel extends ChangeNotifier {
         encodingSettings: _encodingSettings,
         subFrame: _previewSubFrame,
         startFrame: item.inPointFrame,
+        pitchFactorsPath: item.pitchFactorsPath,
         cancelToken: cancelToken,
       );
 
@@ -1641,6 +1644,16 @@ class MainViewModel extends ChangeNotifier {
     }
   }
 
+  /// Sets (or with null, clears) the selected video's pitch factor file for
+  /// the Stabilize pass's "From File" mode. Per video, never per preset.
+  void setPitchFactorsPath(String? path) {
+    final item = selectedItem;
+    if (item == null) return;
+    item.pitchFactorsPath = (path == null || path.isEmpty) ? null : path;
+    notifyListeners();
+    _requestPreviewUpdate();
+  }
+
   /// Expands a pass's settings inline, collapsing whichever was open. Selecting
   /// the pass that is already expanded collapses it.
   void selectPass(PassType pass) {
@@ -1787,6 +1800,8 @@ class MainViewModel extends ChangeNotifier {
           _processingPipeline.subtitles.burnInPath.trim().isEmpty
               ? null
               : _processingPipeline.subtitles.burnInPath.trim(),
+      // Per video, never per preset: a factor log belongs to one film.
+      pitchFactorsPath: item.pitchFactorsPath,
     );
 
     // Record the audio config each file is actually encoded with. If a file's

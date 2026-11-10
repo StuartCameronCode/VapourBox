@@ -184,6 +184,7 @@ VideoJob buildJob({
   DescaleParameters? descale,
   FaceRestoreParameters? faceRestore,
   ColorizeParameters? colorize,
+  String? pitchFactorsPath,
 }) => VideoJob(
   id: const Uuid().v4(),
   inputPath: TestConfig.inputFile,
@@ -213,6 +214,7 @@ VideoJob buildJob({
     codec: VideoCodec.h264, container: ContainerFormat.mkv, audioMode: AudioMode.none,
   ),
   startFrame: 10, endFrame: 30,
+  pitchFactorsPath: pitchFactorsPath,
 );
 
 /// Map NR schema param IDs to converter keys (differ in casing for ThSAD/ThSADC).
@@ -1490,7 +1492,54 @@ void main() {
       // Stab(clp, dxmax, dymax, mirror) — there is no `range` argument, and
       // passing one is a TypeError at script evaluation.
       expect(actual.containsKey('range'), isFalse);
+      // Pitch correction is off by default: no extra module, no extra call.
+      expect(script, isNot(contains('_stab_correct_pitch(')));
       print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // --- STABILIZE pitch correction (issue #150) ---
+    test('stabilize: auto pitch params', () async {
+      loadSchema('stabilize'); // confirm schema parses
+      const typed = StabilizeParameters(
+        enabled: true, dxmax: 6, dymax: 2, pitchMode: PitchMode.auto,
+        maxPitchDeviation: 1.5, smoothingRadius: 12, pitchEdgeFill: EdgeFill.black,
+      );
+      final script = await generateScriptViaWorker(
+          buildJob(testName: 'stabilize_auto', stabilize: typed));
+      final weave = parseFilterParams(script, 'haf.Stab(');
+      expect(weave['dxmax'], '6');
+      expect(weave['dymax'], '2');
+      expect(script, contains('_stab_correct_pitch('));
+      final actual = parseFilterParams(script, '_stab_correct_pitch(');
+      expect(actual['mode'], '"auto"');
+      expect(actual['max_deviation_pct'], '1.5');
+      expect(actual['radius'], '12');
+      expect(actual['black'], 'True');
+      expect(actual.containsKey('factors_path'), isFalse);
+      expect(script.indexOf('haf.Stab('), lessThan(script.indexOf('_stab_correct_pitch(')));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('stabilize: file pitch reads the job\'s factor file at the trim offset', () async {
+      final factors = File('${Directory.systemTemp.path}/vb_stab_${const Uuid().v4()}.pitch.txt');
+      await factors.writeAsString('# reel 1\n1.001\n0.999\n1.0005\n');
+      try {
+        const typed = StabilizeParameters(
+          enabled: true, weave: false, pitchMode: PitchMode.file, invertFactors: true,
+        );
+        final script = await generateScriptViaWorker(buildJob(
+            testName: 'stabilize_file', stabilize: typed, pitchFactorsPath: factors.path));
+        expect(script, isNot(contains('haf.Stab(')));
+        final actual = parseFilterParams(script, '_stab_correct_pitch(');
+        expect(actual['mode'], '"file"');
+        expect(actual['invert'], 'True');
+        // buildJob trims from frame 10: the lookup must start there.
+        expect(actual['frame_offset'], '10');
+        expect(actual['factors_path'], startsWith('r"'));
+        print('  PASS');
+      } finally {
+        await factors.delete();
+      }
     }, timeout: const Timeout(Duration(minutes: 2)));
 
     test('chroma_fixes: LUTDeRainbow with its 10-bit guard', () async {

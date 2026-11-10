@@ -59,6 +59,11 @@ class VideoJob {
   /// subtitles to every video in a batch.
   final String? burnInSubtitlePath;
 
+  /// Per-video pitch factor file for the Stabilize pass in "From File" mode
+  /// (issue #150). On the job rather than in the pipeline, because pipelines
+  /// are saved into presets shared by every video in the queue.
+  final String? pitchFactorsPath;
+
   VideoJob({
     String? id,
     required this.inputPath,
@@ -82,6 +87,7 @@ class VideoJob {
     this.inputColorTransfer,
     this.inputColorRange,
     this.burnInSubtitlePath,
+    this.pitchFactorsPath,
   })  : id = id ?? const Uuid().v4(),
         qtgmcParameters = qtgmcParameters ?? QTGMCParameters(),
         encodingSettings = encodingSettings ?? EncodingSettings();
@@ -118,6 +124,7 @@ class VideoJob {
     String? inputColorTransfer,
     String? inputColorRange,
     String? burnInSubtitlePath,
+    String? pitchFactorsPath,
   }) {
     return VideoJob(
       id: id ?? this.id,
@@ -142,6 +149,7 @@ class VideoJob {
       inputColorTransfer: inputColorTransfer ?? this.inputColorTransfer,
       inputColorRange: inputColorRange ?? this.inputColorRange,
       burnInSubtitlePath: burnInSubtitlePath ?? this.burnInSubtitlePath,
+      pitchFactorsPath: pitchFactorsPath ?? this.pitchFactorsPath,
     );
   }
 }

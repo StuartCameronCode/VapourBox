@@ -420,9 +420,15 @@ class ParameterConverter {
       enabled: params.enabled,
       values: {
         'method': 'stab',
+        'weave': params.weave,
         'dxmax': params.dxmax,
         'dymax': params.dymax,
         'mirror': params.mirror,
+        'pitchMode': params.pitchMode.value,
+        'maxPitchDeviation': params.maxPitchDeviation,
+        'smoothingRadius': params.smoothingRadius,
+        'invertFactors': params.invertFactors,
+        'pitchEdgeFill': params.pitchEdgeFill.value,
       },
     );
   }
@@ -432,9 +438,15 @@ class ParameterConverter {
     final v = params.values;
     return StabilizeParameters(
       enabled: params.enabled,
+      weave: v['weave'] as bool? ?? true,
       dxmax: _asInt(v['dxmax']) ?? 4,
       dymax: _asInt(v['dymax']) ?? 4,
       mirror: _asInt(v['mirror']) ?? 0,
+      pitchMode: PitchMode.fromValue(v['pitchMode'] as String?),
+      maxPitchDeviation: (v['maxPitchDeviation'] as num?)?.toDouble() ?? 1.0,
+      smoothingRadius: _asInt(v['smoothingRadius']) ?? 10,
+      invertFactors: v['invertFactors'] as bool? ?? false,
+      pitchEdgeFill: EdgeFill.fromValue(v['pitchEdgeFill'] as String?),
     );
   }
 

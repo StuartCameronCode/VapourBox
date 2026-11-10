@@ -90,6 +90,13 @@ pub struct VideoJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub burn_in_subtitle_path: Option<String>,
 
+    /// Per-video pitch factor file for the Stabilize pass in `file` mode
+    /// (issue #150). Lives on the job, not in the pipeline, because pipelines
+    /// are saved into presets that apply to every video in the queue, and a
+    /// factor log belongs to exactly one film.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pitch_factors_path: Option<String>,
+
 }
 
 impl VideoJob {

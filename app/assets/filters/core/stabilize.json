@@ -1,10 +1,10 @@
 {
   "$schema": "https://vapourbox.app/schemas/filter-v1.json",
   "id": "stabilize",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Stabilize",
-  "description": "Remove shake and weave from the picture",
-  "longDescription": "Measures how much the whole frame moves between shots and cancels it, so a shaky capture holds still. Deliberate camera movement survives: only the difference from the recent trend is removed.\n\nUse it on telecine weave, film scans that wobble in the gate, and handheld camcorder footage. It runs last before cropping, because it shifts the picture within the frame and leaves thin empty edges — a small crop afterwards removes them.\n\nThe shift leaves thin empty edges; set Fill Exposed Edges to mirror them back in, or crop them away afterwards.",
+  "description": "Remove shake, gate weave and frame-height breathing",
+  "longDescription": "Two independent corrections.\n\nRemove Shake / Weave measures how much the whole frame moves and cancels it, so a shaky capture holds still. Deliberate camera movement survives: only the difference from the recent trend is removed. Use it on telecine weave, film scans that wobble in the gate, and handheld camcorder footage.\n\nPitch Correction removes \"breathing\" in scanned 8mm, Super 8 and 16mm film: on pull-through scanners the film slips in the gate, so each frame comes out a fraction of a percent taller or shorter than the last, which a position stabiliser can't fix. Auto measures it from the footage, comparing each frame with its neighbours, so slow intentional zooms and tilts are kept. From File uses one factor per frame from a text file (reel.pitch.txt next to the video is picked up automatically).\n\nThe pass runs last before cropping, because both corrections move picture within the frame and leave thin edges: fill them below, or crop them away afterwards.",
   "category": "cleanup",
   "icon": "stay_current_landscape",
   "order": 11,
@@ -47,6 +47,14 @@
         "hidden": true
       }
     },
+    "weave": {
+      "type": "boolean",
+      "default": true,
+      "ui": {
+        "label": "Remove Shake / Weave",
+        "description": "Steady frame-to-frame bounce, side-to-side drift and handheld shake"
+      }
+    },
     "dxmax": {
       "type": "integer",
       "default": 4,
@@ -56,7 +64,10 @@
       "ui": {
         "label": "Max Horizontal Shift",
         "description": "Largest sideways correction, in pixels. 0 leaves the horizontal axis alone",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "weave": true
+        }
       }
     },
     "dymax": {
@@ -68,7 +79,10 @@
       "ui": {
         "label": "Max Vertical Shift",
         "description": "Largest up/down correction, in pixels. 0 leaves the vertical axis alone",
-        "widget": "slider"
+        "widget": "slider",
+        "visibleWhen": {
+          "weave": true
+        }
       }
     },
     "mirror": {
@@ -83,18 +97,120 @@
       "ui": {
         "label": "Fill Exposed Edges",
         "description": "Shifting the picture leaves thin empty edges. 0 leaves them black, 1 fills top and bottom, 2 left and right, 3 all four — which saves cropping afterwards",
-        "widget": "dropdown"
+        "widget": "dropdown",
+        "visibleWhen": {
+          "weave": true
+        }
+      }
+    },
+    "pitchMode": {
+      "type": "enum",
+      "default": "off",
+      "options": [
+        "off",
+        "auto",
+        "file"
+      ],
+      "ui": {
+        "label": "Pitch Correction",
+        "description": "Even out frame-height breathing from film slipping in a scanner's gate",
+        "widget": "dropdown",
+        "optionLabels": {
+          "off": "Off",
+          "auto": "Auto (measure from video)",
+          "file": "From File (per-frame factors)"
+        }
+      }
+    },
+    "maxPitchDeviation": {
+      "type": "number",
+      "default": 1.0,
+      "min": 0.1,
+      "max": 5.0,
+      "step": 0.1,
+      "ui": {
+        "label": "Max Pitch Correction (%)",
+        "description": "Largest height change applied to a frame; also limits values from a file. Auto measures more coarsely above about 1%, so keep it near the breathing you see",
+        "widget": "slider",
+        "precision": 1,
+        "visibleWhen": {
+          "pitchMode": [
+            "auto",
+            "file"
+          ]
+        }
+      }
+    },
+    "smoothingRadius": {
+      "type": "integer",
+      "default": 10,
+      "min": 2,
+      "max": 30,
+      "step": 1,
+      "ui": {
+        "label": "Comparison Window",
+        "description": "Frames each side a frame is compared with. Larger smooths more but follows quick zooms less closely",
+        "widget": "slider",
+        "visibleWhen": {
+          "pitchMode": "auto"
+        }
+      }
+    },
+    "invertFactors": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "label": "Factors Are Corrections",
+        "description": "Tick if the file lists the stretch to apply, not the measured frame height",
+        "visibleWhen": {
+          "pitchMode": "file"
+        }
+      }
+    },
+    "pitchEdgeFill": {
+      "type": "enum",
+      "default": "extend",
+      "options": [
+        "extend",
+        "black"
+      ],
+      "ui": {
+        "label": "Pitch Edge Fill",
+        "description": "What fills the rows a pitch correction moves in from outside the frame",
+        "widget": "dropdown",
+        "optionLabels": {
+          "extend": "Extend picture",
+          "black": "Black"
+        },
+        "visibleWhen": {
+          "pitchMode": [
+            "auto",
+            "file"
+          ]
+        }
       }
     }
   },
   "ui": {
     "sections": [
       {
-        "title": "Settings",
+        "title": "Shake / Weave",
         "parameters": [
+          "weave",
           "dxmax",
           "dymax",
           "mirror"
+        ],
+        "expanded": true
+      },
+      {
+        "title": "Pitch (Frame Height)",
+        "parameters": [
+          "pitchMode",
+          "maxPitchDeviation",
+          "smoothingRadius",
+          "invertFactors",
+          "pitchEdgeFill"
         ],
         "expanded": true
       }

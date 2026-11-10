@@ -61,6 +61,7 @@ import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/sharpen_parameters.dart';
 import 'package:vapourbox/models/spotless_parameters.dart';
+import 'package:vapourbox/models/stabilize_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 
 import 'support/worker_harness.dart';
@@ -291,6 +292,7 @@ ProcessingPipeline _only({
   FrameRateParameters frameRate = const FrameRateParameters(),
   DescaleParameters descale = const DescaleParameters(),
   AntiAliasParameters antiAlias = const AntiAliasParameters(),
+  StabilizeParameters stabilize = const StabilizeParameters(),
 }) {
   return ProcessingPipeline(
     deinterlace: deinterlace,
@@ -311,6 +313,7 @@ ProcessingPipeline _only({
     frameRate: frameRate,
     descale: descale,
     antiAlias: antiAlias,
+    stabilize: stabilize,
   );
 }
 
@@ -376,6 +379,23 @@ List<_Pass> _passes() => [
       _Pass('descratch', _only(descratch: const DeScratchParameters(enabled: true))),
 
       _Pass('spotless', _only(spotless: const SpotLessParameters(enabled: true))),
+
+      // Stabilize (weave + pitch correction, issue #150): Depan and the pitch
+      // search must see the same picture at any depth, and the black edge fill
+      // is computed from the format rather than written as 8-bit constants.
+      _Pass(
+        'stabilize',
+        _only(
+          stabilize: const StabilizeParameters(enabled: true, pitchMode: PitchMode.auto),
+        ),
+      ),
+      _Pass(
+        'stabilize_black_edges',
+        _only(
+          stabilize: const StabilizeParameters(
+              enabled: true, pitchMode: PitchMode.auto, pitchEdgeFill: EdgeFill.black),
+        ),
+      ),
 
       _Pass(
         'noise_smdegrain',

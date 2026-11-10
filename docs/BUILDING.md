@@ -63,7 +63,7 @@ VapourBox/
 │   │   ├── pixel_format.rs
 │   │   └── progress_reporter.rs
 │   ├── templates/              # pipeline_template.vpy, preview_template.vpy,
-│   │                           #   pipe_source.py, spotless.py
+│   │                           #   pipe_source.py, spotless.py, stabilize.py
 │   └── tests/                  # filter/preview/subtitle integration tests
 │
 ├── deps/                       # Platform dependencies (NOT committed —

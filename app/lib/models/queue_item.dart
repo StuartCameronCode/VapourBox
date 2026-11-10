@@ -60,6 +60,11 @@ class QueueItem {
   /// Extraction progress (0.0 to 1.0), used during DVD extraction.
   double extractionProgress;
 
+  /// Pitch factor file for the Stabilize pass in "From File" mode. Per video,
+  /// because a factor log belongs to one film. Found automatically as a
+  /// sidecar when the video is added (see PitchFactorFile).
+  String? pitchFactorsPath;
+
   // Per-video in/out markers (normalized 0.0-1.0)
   double? inPoint;
   double? outPoint;
@@ -96,6 +101,7 @@ class QueueItem {
     this.videoInfo,
     this.dvdSourceInfo,
     this.extractionProgress = 0.0,
+    this.pitchFactorsPath,
     this.inPoint,
     this.outPoint,
     List<Uint8List>? thumbnails,
@@ -183,6 +189,7 @@ class QueueItem {
     String? inputPath,
     String? outputPath,
     VideoInfo? videoInfo,
+    String? pitchFactorsPath,
     double? inPoint,
     double? outPoint,
     List<Uint8List>? thumbnails,
@@ -202,6 +209,7 @@ class QueueItem {
       inputPath: inputPath ?? this.inputPath,
       outputPath: outputPath ?? this.outputPath,
       videoInfo: videoInfo ?? this.videoInfo,
+      pitchFactorsPath: pitchFactorsPath ?? this.pitchFactorsPath,
       inPoint: inPoint ?? this.inPoint,
       outPoint: outPoint ?? this.outPoint,
       thumbnails: thumbnails ?? this.thumbnails,
