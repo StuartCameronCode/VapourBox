@@ -103,7 +103,7 @@ VapourBox/
 │   └── linux-arm64/
 │
 ├── licenses/                   # GPL, LGPL, NOTICES
-├── docs/                       # BUILDING, FILTER_SCHEMA, ADDONS, ENGINEERING_NOTES, FEATURE_MAP, …
+├── docs/                       # BUILDING, FILTER_SCHEMA, ADDONS, ENGINEERING_NOTES, FEATURE_MAP, PITCH_FACTOR_FILES, …
 │   └── reports/                # Investigation reports (evidence behind decisions)
 ├── Scripts/                    # Build, package, and release scripts
 │   └── models/                 # Model conversion scripts for self-hosted add-on files
@@ -1192,6 +1192,10 @@ Invariants that are easy to break:
   `<stem>.pitch.txt`, `<stem>_pitch.txt`) is picked up when a video is added.
 - **File mode without a usable file is an error**, raised by the script
   generator with the bad line's number — not a silent pass-through.
+- **The file format is documented for users in
+  [docs/PITCH_FACTOR_FILES.md](docs/PITCH_FACTOR_FILES.md)** (linked from the
+  README's pipeline table). Change it with `parse_pitch_factors`,
+  `PitchFactorFile.sidecarCandidates` or the factor's meaning (`invertFactors`).
 - **Pitch on a still-interlaced clip clears `_FieldBased`** (a vertical resample
   would mix the fields; film scans are progressive). Weave alone leaves it.
 - **`pipe_source` evicts silently.** It keeps `cache_frames` decoded frames and
