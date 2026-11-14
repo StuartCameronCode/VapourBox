@@ -3637,3 +3637,55 @@ as for v210. Full evidence:
 - The warnings judge loss/padding from the source (the selection never
   reaches the encode); the bit-depth warning is silent for ProRes, or every
   ProRes 4444 source (decoded as 12-bit) would warn on every job.
+
+### Sources whose video starts after their audio (2026-11-14)
+
+Report: [docs/reports/2026-11-video-start-offset](reports/2026-11-video-start-offset/index.html).
+
+- **The fault.** An input `-ss` counts from the container's start, which is
+  the earliest stream's. On a DVB-T capture the sound starts 1.2 s before the
+  first picture, so every seek landed ~30 frames early. On constructed
+  fixtures with a 1 s gap (TS, MKV, MP4; `generate_video_start_offset.sh`)
+  the preview, the before frame and a trim of 30..59 all showed frame N−25;
+  frames 0–25 all showed frame 0.
+- **Untrimmed decodes differed by container.** For TS, ffmpeg rebases the
+  video to its own first timestamp: no padding, but the sound came out
+  **1.01 s late** (the DVB-T clip: 1.2 s), for every job. For MKV/MP4 the
+  constant-rate decode led with 25 copies of the first picture; an MP4 (which
+  has `nb_frames`) then lost its last 25 pictures to `-frames:v`.
+- **The frame count.** Without `nb_frames` the app counted the container's
+  duration: 158 frames for the DVB-T clip's 128, 125 for a 100-frame MKV.
+  It now counts the video's own duration plus its leading pictures, else the
+  container's less the offset.
+- **The offset's definition took one correction.** First taken as the
+  smallest PTS among the first 64 video packets (the stream's `start_time` is
+  the first *packet*, an I picture 0.12 s after three leading B pictures on
+  the DVB-T clip). That made `hard_telecine_test.avi` (MPEG-2 in AVI, no
+  audio) read 0.067 s: its first two packets carry no PTS. The offset is now
+  the earlier of the stream's `start_time` and that smallest PTS, which
+  reads 0 there.
+- **Keeping sync: delay the picture, copy the sound.** Measured alternatives
+  (planning): a stream-copy `-ss` on the sound is off by 0.06–0.30 s and pads
+  the video; `-itsoffset` keeps the desync. Re-encoding the sound with an
+  exact cut works but loses the sound before the picture. Delaying the
+  picture in the encoder (`settb=1/120000`, `setpts`, `-enc_time_base`; at
+  the default 1/fps time base the delay rounded to 10 ms off) keeps the
+  sound-first layout, losslessly: sync ≤ 0.8 ms in MKV, MP4 and AVI output
+  (AVI writes null frames for the gap), copied or restored, trimmed or not.
+- **The step and the badge.** "Start the sound with the picture" (Audio
+  Restoration) drops the sound before the first picture; it is suggested at
+  a gap ≥ 0.25 s (fixtures: 0 or ≥ 1.0 s; ffmpeg's TS muxer leaves 10–21 ms).
+  The detected gap is never put into the sync offset, which moves sound
+  against picture.
+- **Unchanged:** every fixture whose streams start together encodes and
+  previews bit-identically (framemd5 of every stream, preview PNG bytes).
+- **Not fixed:** MPEG-TS seeks that land on a later keyframe, so the DVB-T
+  clip's preview and before frame are still off between keyframes (its trim
+  30..59 and untrimmed encode are now exact), and past its last keyframe
+  (frames 120–127 of 128) the preview is black and the before frame empty;
+  before the fix the same fault hit timeline slots 128–157, which held no
+  picture at all. An MKV without stream durations whose audio outlasts its
+  video still over-counts by the tail.
+- **The heavy test** (`integration_video_start_offset_test.dart`) fails 28
+  of its 40 cases against the worker from before the fix.
+

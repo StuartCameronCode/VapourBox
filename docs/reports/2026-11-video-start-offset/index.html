@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video starting after its audio</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+    --video: #2f6fb3; --audio: #b35c2f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+      --video: #6ea8e6; --audio: #e6936e;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+  figure { margin: 18px 0; }
+  .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+  .panels figure { margin: 0; }
+  .panels img { width: 100%; }
+  svg text { fill: var(--text-secondary); font-size: 11px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Sources whose video starts after their audio</h1>
+<p class="meta">2026-11-14 · split from the forum-feedback task (frame-index offset on a DVB-T
+<code>.ts</code>) · measured on an Apple M-series Mac (macOS arm64), deps 1.16.0 (FFmpeg 9.0),
+against the worker and app on <code>main</code> before the fix (app 1.7.0 plus #157's seek fix) and
+the same with the fix</p>
+
+<div class="card">
+<strong>Outcome: fixed, except where a separate MPEG-TS seek fault still applies.</strong>
+An input <code>-ss</code> counts from the <em>container's</em> start, which is the earliest
+stream's. On a broadcast capture the sound starts first (the DVB-T clip: 1.2 s before the first
+picture), so every seek of "frame N" landed early, and the two kinds of untrimmed decode handled
+the gap differently:
+<ul>
+<li><strong>Preview, before frame and trims</strong> showed frame <span class="bad">N−25</span> on
+fixtures with a 1 s gap (frames 0–25 all showed frame 0).</li>
+<li><strong>Untrimmed MKV/MP4 encodes</strong> began with 25 copies of the first picture; an MP4
+then <span class="bad">lost its last 25 pictures</span> to the frame limit.</li>
+<li><strong>Untrimmed TS encodes</strong> had the right pictures but the sound came out
+<span class="bad">1.01 s late</span> (1.2 s on the DVB-T clip): every job on such a file, whatever
+its passes.</li>
+<li><strong>The app counted the file, not the video</strong>: 158 frames for the DVB-T clip's 128,
+125 for a 100-frame MKV.</li>
+</ul>
+Now frame N counts from the video's first picture: <span class="good">every seek adds the video's
+start offset</span>, a decode that doesn't seek resets timestamps when there is a gap, and the frame
+count is the video's own. The output keeps the source's layout (sound first, the picture joining
+when it does in the source): <span class="good">in sync to within 0.8 ms</span> in MKV, MP4 and AVI
+output, with the sound copied losslessly. Audio Restoration gains <em>Start the sound with the
+picture</em> to drop the sound before the first picture instead, suggested when the gap is
+≥ 0.25 s. <span class="good">Sources whose streams start together are bit-identical</span> to
+before. Not fixed here: MPEG-TS seeks that land on a later keyframe, so the DVB-T clip's preview
+is still off between keyframes.
+</div>
+
+<h2>1. The DVB-T clip's timestamps</h2>
+<p><code>Tests/TestResources/pal-dvbt-fieldcoded-25i.ts</code>: field-coded H.264, 25i, open GOP.
+The container's <code>start_time</code> is the audio's, 1.400 s. The video stream's
+<code>start_time</code> is 2.722 s, which is its first <em>packet</em>, an I picture. Three B
+pictures stored after it are shown before it:</p>
+<table>
+<tr><th>File order</th><th class="num">Byte position</th><th class="num">PTS (s)</th><th>Type</th><th>Shown as</th></tr>
+<tr><td>1</td><td class="num">31396</td><td class="num">2.722</td><td>I</td><td>picture 3</td></tr>
+<tr><td>2</td><td class="num">81968</td><td class="num">2.642</td><td>B</td><td>picture 1</td></tr>
+<tr><td>3</td><td class="num">103024</td><td class="num">2.602</td><td>B</td><td>picture 0</td></tr>
+<tr><td>4</td><td class="num">117312</td><td class="num">2.682</td><td>B</td><td>picture 2</td></tr>
+<tr><td>5</td><td class="num">130472</td><td class="num">2.882</td><td>P</td><td>…</td></tr>
+</table>
+<p>So the first picture is at 2.602 s and the <strong>offset is 1.202 s</strong> (30 frames), not
+the 1.322 s the stream's <code>start_time</code> suggests. The leading B pictures decode without a
+single warning and are real pictures:</p>
+<figure>
+<a href="img/01-dvbt-head.png"><img src="img/01-dvbt-head.png" alt="The DVB-T clip's first four pictures in presentation order"></a>
+<div class="caption">The DVB-T clip's first four pictures in presentation order, half size: the
+three leading B pictures (PTS 2.602, 2.642, 2.682) and the I picture (2.722). All four are clean
+pictures of the same shot, so the task's caveat about broken leading frames ("reference picture
+missing") does not apply to this file. Before the fix the untrimmed decode started at the third
+of them, dropping two.</div>
+</figure>
+
+<h2>2. The fixtures</h2>
+<p>The DVB-T clip has a second fault on top of this one: an MPEG-TS seek lands on the next
+keyframe. On that file alone, the two faults can't be told apart. So the fix is measured on
+three constructed fixtures with known content, made by the committed
+<code>Tests/TestResources/generate_video_start_offset.sh</code>:</p>
+<ul>
+<li><strong>Video:</strong> <code>testsrc2</code>, 320x240, 25 fps, 100 frames. Every frame
+differs, and each carries its own number and time burnt in. Source frames 25 and 75 are
+white.</li>
+<li><strong>Audio:</strong> 5 s of a quiet 200 Hz tone, with a 40 ms 1 kHz beep at the moments
+the white frames are shown.</li>
+<li><strong>The gap:</strong> the video starts 1 s after the audio (<code>-itsoffset</code>), so
+each beep lands on its flash when the file is played by its timestamps.</li>
+</ul>
+<table>
+<tr><th>Fixture</th><th>Streams</th><th class="num">Container start</th><th class="num">Video start</th><th class="num">Offset</th></tr>
+<tr><td><code>late_video_intra.ts</code></td><td>H.264 all-intra + MP2 (all-intra, so a TS seek lands on the frame asked for)</td><td class="num">1.400</td><td class="num">2.410</td><td class="num">1.010</td></tr>
+<tr><td><code>late_video.mkv</code></td><td>H.264, GOP 25, B-frames + FLAC</td><td class="num">0.000</td><td class="num">1.000</td><td class="num">1.000</td></tr>
+<tr><td><code>late_video.mp4</code></td><td>H.264, GOP 25, B-frames + AAC (an edit list holds the gap)</td><td class="num">0.000</td><td class="num">1.000</td><td class="num">1.000</td></tr>
+</table>
+<p>A picture is identified by the MD5 of its luma plane, matched against a reference decode:
+every stored picture once, in presentation order, decoded from the start without a seek
+(<code>-fps_mode passthrough</code>). A worker preview is a PNG, so it goes through RGB and can't
+hash the same. It is matched by mean absolute difference against every reference picture
+instead, and the margin to the next-best match is reported.
+<em>Limit:</em> MD5 identity says <em>which</em> picture was delivered, not that its colour is
+right. Colour is covered by the reserved-tags and colour-tag reports.</p>
+
+<h2>3. What each path shows for frame N</h2>
+<p>Every pass off. "Before" is the worker and app on <code>main</code>; "after" is with the fix.
+The app's before frame is <code>PreviewGenerator.beforeFrameArgs</code>, run as the app runs it.
+Each number is the reference index of the picture shown (<code>frame_probe.py</code>).</p>
+<div class="scroll">
+<table>
+<tr><th>Source</th><th>Path</th><th class="num">N=0</th><th class="num">1</th><th class="num">24</th><th class="num">25</th><th class="num">26</th><th class="num">60</th><th class="num">last</th><th>Trim 30..59</th><th>Untrimmed encode</th></tr>
+<tr><td rowspan="4"><code>late_video_intra.ts</code></td>
+  <td>preview, before</td><td class="num">0</td><td class="num">1</td><td class="num bad">5</td><td class="num bad">5</td><td class="num bad">5</td><td class="num bad">35</td><td class="num bad">74</td><td class="bad" rowspan="2">5..34</td><td class="bad" rowspan="2">125 frames: 0..99, then 25 repeats of 99</td></tr>
+<tr><td>before frame, before</td><td class="num">0</td><td class="num bad">0</td><td class="num bad">0</td><td class="num bad">0</td><td class="num bad">1</td><td class="num bad">35</td><td class="num bad">74</td></tr>
+<tr><td>preview, after</td><td class="num good">0</td><td class="num good">1</td><td class="num good">24</td><td class="num good">25</td><td class="num good">26</td><td class="num good">60</td><td class="num good">99</td><td class="good" rowspan="2">30..59</td><td class="good" rowspan="2">100 frames, 0..99</td></tr>
+<tr><td>before frame, after</td><td class="num good">0</td><td class="num good">1</td><td class="num good">24</td><td class="num good">25</td><td class="num good">26</td><td class="num good">60</td><td class="num good">99</td></tr>
+<tr><td rowspan="4"><code>late_video.mkv</code></td>
+  <td>preview, before</td><td class="num">0</td><td class="num bad">0</td><td class="num bad">5</td><td class="num bad">5</td><td class="num bad">5</td><td class="num bad">35</td><td class="num bad">74</td><td class="bad" rowspan="2">5..34</td><td class="bad" rowspan="2">125 frames: 25 copies of 0, then 0..99</td></tr>
+<tr><td>before frame, before</td><td class="num">0</td><td class="num bad">0</td><td class="num bad">0</td><td class="num bad">0</td><td class="num bad">1</td><td class="num bad">35</td><td class="num bad">74</td></tr>
+<tr><td>preview, after</td><td class="num good">0</td><td class="num good">1</td><td class="num good">24</td><td class="num good">25</td><td class="num good">26</td><td class="num good">60</td><td class="num good">99</td><td class="good" rowspan="2">30..59</td><td class="good" rowspan="2">100 frames, 0..99</td></tr>
+<tr><td>before frame, after</td><td class="num good">0</td><td class="num good">1</td><td class="num good">24</td><td class="num good">25</td><td class="num good">26</td><td class="num good">60</td><td class="num good">99</td></tr>
+<tr><td rowspan="4"><code>late_video.mp4</code></td>
+  <td>preview, before</td><td class="num">0</td><td class="num bad">0</td><td class="num bad">5</td><td class="num bad">5</td><td class="num bad">5</td><td class="num bad">35</td><td class="num bad">74</td><td class="bad" rowspan="2">5..34</td><td class="bad" rowspan="2">100 frames: 25 copies of 0, then 0..74 (75..99 lost)</td></tr>
+<tr><td>before frame, before</td><td class="num">0</td><td class="num bad">0</td><td class="num bad">0</td><td class="num bad">0</td><td class="num bad">1</td><td class="num bad">35</td><td class="num bad">74</td></tr>
+<tr><td>preview, after</td><td class="num good">0</td><td class="num good">1</td><td class="num good">24</td><td class="num good">25</td><td class="num good">26</td><td class="num good">60</td><td class="num good">99</td><td class="good" rowspan="2">30..59</td><td class="good" rowspan="2">100 frames, 0..99</td></tr>
+<tr><td>before frame, after</td><td class="num good">0</td><td class="num good">1</td><td class="num good">24</td><td class="num good">25</td><td class="num good">26</td><td class="num good">60</td><td class="num good">99</td></tr>
+<tr><td rowspan="4"><code>pal-dvbt-fieldcoded-25i.ts</code><br><span class="caption">(last = 125; GOPs, so the TS keyframe fault applies)</span></td>
+  <td>preview, before</td><td class="num bad">2</td><td class="num bad">3</td><td class="num bad">8</td><td class="num bad">8</td><td class="num bad">8</td><td class="num bad">33</td><td class="num bad">117</td><td class="bad" rowspan="2">3..32</td><td class="bad" rowspan="2">158 frames: from picture 2 (0, 1 lost), 33 repeats of 125 at the end</td></tr>
+<tr><td>before frame, before</td><td class="num bad">3</td><td class="num bad">3</td><td class="num bad">3</td><td class="num bad">3</td><td class="num bad">3</td><td class="num bad">30</td><td class="num bad">112</td></tr>
+<tr><td>preview, after</td><td class="num good">0</td><td class="num good">1</td><td class="num warn">33</td><td class="num warn">33</td><td class="num warn">33</td><td class="num warn">61</td><td class="num bad">black</td><td class="good" rowspan="2">30..59</td><td class="good" rowspan="2">128 frames: 0..125, two repeats at the end (below)</td></tr>
+<tr><td>before frame, after</td><td class="num good">0</td><td class="num warn">3</td><td class="num warn">28</td><td class="num warn">28</td><td class="num warn">28</td><td class="num warn">84</td><td class="num bad">none<span class="caption"> (ffmpeg writes nothing)</span></td></tr>
+</table>
+</div>
+<p class="caption">Before the fix, a 1 s gap shifted everything 25 frames early, and the first 26
+frames all collapsed onto picture 0 or 1. After the fix, every path is exact on all three
+fixtures. On the DVB-T clip, frame 0 is now its true first picture on both sides, and the trim
+and the untrimmed encode are exact. The preview and the before frame of other frames still land
+on a later keyframe (amber): that is the MPEG-TS seek fault, which this report doesn't fix. The
+preview decodes a window that starts a few frames before N, so its keyframe overshoot differs
+from the before frame's. The clip's keyframes are pictures 3, 31, 59, 87 and 115. A seek for
+any frame past the last one now finds no keyframe to land on: the preview of frames 120–127 is
+<span class="bad">black</span> and the before frame is empty. Before the fix, the same thing
+happened to the last 30 positions of a timeline that was 30 frames too long (128–157), which
+showed no real picture either. The fix moves the fault onto real frames, though fewer of them,
+and it ends when MPEG-TS seeks do. A preview match's MAD is about 4.6 on the fixtures and 2.1 on
+the DVB-T clip, against 9–12 and 3–5 for the next-best picture. Frame 25 ties with frame 75
+(MAD 2.0 for both) because both are plain white.</p>
+
+<figure>
+<div class="panels">
+<figure><a href="img/02-mkv-f60-source.png"><img src="img/02-mkv-f60-source.png" alt="Source frame 60"></a><div class="caption">Source frame 60 (reference decode). The counter reads 60.</div></figure>
+<figure><a href="img/02-mkv-f60-preview-before.png"><img src="img/02-mkv-f60-preview-before.png" alt="Preview of frame 60 before the fix"></a><div class="caption"><span class="bad">Before:</span> the worker preview of frame 60 shows <strong>35</strong>.</div></figure>
+<figure><a href="img/02-mkv-f35-source.png"><img src="img/02-mkv-f35-source.png" alt="Source frame 35"></a><div class="caption">Source frame 35, for comparison: the same picture as the old preview.</div></figure>
+<figure><a href="img/02-mkv-f60-preview-after.png"><img src="img/02-mkv-f60-preview-after.png" alt="Preview of frame 60 after the fix"></a><div class="caption"><span class="good">After:</span> the preview of frame 60 shows 60.</div></figure>
+</div>
+<div class="caption"><code>late_video.mkv</code>, frame 60, every pass off. Full size (320x240),
+scaled nearest-neighbour. Look at the burnt-in counter: the old preview was 25 frames early,
+exactly the 1 s gap.</div>
+</figure>
+
+<h3>The DVB-T clip's two extra slots</h3>
+<p>The untrimmed decode now gives 128 slots for 126 stored pictures. The two repeats are the
+last two slots (125 and 127 repeat 124 and 125). They match two real 80 ms gaps in the clip's
+own timestamps at 7.522 → 7.602 → 7.682 s. So 128 is the clip's true length on the 25 fps grid,
+not a leading-repeat fault.</p>
+
+<h2>4. The frame count</h2>
+<table>
+<tr><th>Source</th><th>What ffprobe gives</th><th class="num">App, before</th><th class="num">App, after</th><th class="num">Untrimmed decode, after</th></tr>
+<tr><td><code>late_video_intra.ts</code></td><td>no <code>nb_frames</code>; stream 4.0 s, file 5.01 s</td><td class="num bad">125</td><td class="num good">100</td><td class="num">100</td></tr>
+<tr><td><code>late_video.mkv</code></td><td>no <code>nb_frames</code>, no stream duration; file 5.0 s</td><td class="num bad">125</td><td class="num good">100</td><td class="num">100</td></tr>
+<tr><td><code>late_video.mp4</code></td><td><code>nb_frames</code> 100</td><td class="num">100</td><td class="num">100</td><td class="num">100</td></tr>
+<tr><td><code>pal-dvbt-fieldcoded-25i.ts</code></td><td>no <code>nb_frames</code>; stream 5.0 s + 0.12 s leading; file 6.32 s</td><td class="num bad">158</td><td class="num good">128</td><td class="num">128</td></tr>
+</table>
+<p>The rule (<code>FieldOrderDetector.frameCountFromDuration</code>): when there is no
+<code>nb_frames</code>, use the video stream's own duration plus its leading pictures. If the
+stream has no duration either, use the container's duration less the offset. Variable-rate sources
+keep their own rule (issue #137). <em>Known limit, not fixed:</em> an MKV with no per-stream
+durations whose audio outlasts its video still over-counts by the audio's tail.</p>
+
+<h2>5. Sound and picture in sync</h2>
+<p>Each white frame's presentation time and each beep's onset are read from the <em>output
+file's own</em> timestamps, so a stream that starts late in the output counts the way a player
+would play it (<code>sync_probe.py</code>). Each flash is paired with the first beep from 0.5 s
+before it to 1.5 s after. Beeps are 2 s apart and the fault being looked for is late sound, so
+the pairing is unambiguous. 0 is right.</p>
+<div class="scroll">
+<table>
+<tr><th>Source</th><th>Case</th><th class="num">Before (s)</th><th class="num">After (s)</th><th>After: output layout</th></tr>
+<tr><td rowspan="5"><code>late_video_intra.ts</code></td><td>untrimmed, sound copied</td><td class="num bad">+1.0101, +1.0101</td><td class="num good">+0.0001, +0.0001</td><td>picture from 1.010 s, sound from 0</td></tr>
+<tr><td>untrimmed, Audio Restoration (limiter)</td><td class="num bad">+1.0104 <span class="caption">(the second flash has no beep: the sound was cut to the picture's length, 1 s early)</span></td><td class="num good">+0.0004, −0.0002</td><td>picture from 1.010 s</td></tr>
+<tr><td>untrimmed, start the sound with the picture</td><td class="num">—</td><td class="num good">+0.0004, +0.0004</td><td>both from 0</td></tr>
+<tr><td>trimmed 30..89, sound copied</td><td class="num">+0.0101</td><td class="num good">+0.0001</td><td>copy cuts on a packet: sound 0.05 s ahead</td></tr>
+<tr><td>trimmed 30..89, restored</td><td class="num">+0.0101</td><td class="num good">+0.0001</td><td>both from 0</td></tr>
+<tr><td rowspan="5"><code>late_video.mkv</code></td><td>untrimmed, sound copied</td><td class="num">+0.0001 <span class="caption">(one flash: 25 frozen frames in front pushed frame 75 off the end)</span></td><td class="num good">+0.0001, −0.0003</td><td>picture from 1.000 s</td></tr>
+<tr><td>untrimmed, Audio Restoration (limiter)</td><td class="num">+0.0004 <span class="caption">(one flash)</span></td><td class="num good">+0.0004, −0.0003</td><td>picture from 1.000 s</td></tr>
+<tr><td>untrimmed, start the sound with the picture</td><td class="num">—</td><td class="num good">+0.0008, +0.0008</td><td>both from 0</td></tr>
+<tr><td>trimmed 30..89, sound copied</td><td class="num">+0.0001</td><td class="num good">−0.0003</td><td>sound 0.195 s ahead (packet cut)</td></tr>
+<tr><td>trimmed 30..89, restored</td><td class="num">+0.0002</td><td class="num good">−0.0001</td><td>both from 0</td></tr>
+<tr><td rowspan="5"><code>late_video.mp4</code></td><td>untrimmed, sound copied</td><td class="num">+0.0001 <span class="caption">(one flash)</span></td><td class="num good">+0.0001, −0.0002</td><td>picture from 1.000 s</td></tr>
+<tr><td>untrimmed, Audio Restoration (limiter)</td><td class="num">+0.0004 <span class="caption">(one flash)</span></td><td class="num good">+0.0004, −0.0002</td><td>picture from 1.000 s</td></tr>
+<tr><td>untrimmed, start the sound with the picture</td><td class="num">—</td><td class="num good">+0.0004, +0.0004</td><td>both from 0</td></tr>
+<tr><td>trimmed 30..89, sound copied</td><td class="num">+0.0001</td><td class="num good">−0.0002</td><td>sound 0.259 s ahead (packet cut)</td></tr>
+<tr><td>trimmed 30..89, restored</td><td class="num">+0.0001</td><td class="num good">+0.0001</td><td>both from 0</td></tr>
+<tr><td><code>late_video.mp4</code></td><td>untrimmed, copied, <strong>MP4</strong> output</td><td class="num">+0.0001 <span class="caption">(one flash)</span></td><td class="num good">+0.0001, +0.0001</td><td>edit list holds the 1 s</td></tr>
+<tr><td><code>late_video_intra.ts</code></td><td>untrimmed, copied, <strong>AVI</strong> output</td><td class="num bad">+1.0101, +1.0101</td><td class="num good">+0.0001, +0.0001</td><td>AVI has no start offset: ffmpeg writes null frames, shown as the first picture held</td></tr>
+</table>
+</div>
+<p class="caption">The MKV/MP4 "before" rows are in sync because the 25 frozen frames happened to
+fill the gap. The TS rows were not: ffmpeg rebases a TS video to its own first timestamp, so the
+picture moved 1 s earlier and the sound did not. Trimmed jobs were in sync before as well, but
+on the wrong pictures (§3), since the picture and the sound were both seeked 25 frames early.
+<em>Corrected during the work:</em> the first version of the probe paired flashes and beeps in
+order and reported −2.0 s for the trimmed MKV/MP4 copies. A stream copy cuts on a packet
+boundary, so it keeps 0.2–0.26 s of sound from before the in-point, including frame 25's beep,
+which has no flash in the output. The pairing rule above fixed the probe; the outputs were
+right.</p>
+
+<figure>
+<svg viewBox="0 0 860 210" width="100%" role="img" aria-label="Timeline of late_video_intra.ts untrimmed encode, before and after: picture and sound tracks with flash and beep marks">
+  <g transform="translate(150,0)">
+    <!-- scale: 0..5.2 s over 680 px -->
+    <line x1="0" y1="190" x2="680" y2="190" stroke="currentColor" stroke-opacity="0.3"/>
+    <g font-size="11">
+      <text x="0" y="205">0 s</text><text x="130.8" y="205">1</text><text x="261.5" y="205">2</text>
+      <text x="392.3" y="205">3</text><text x="523" y="205">4</text><text x="653.8" y="205">5</text>
+    </g>
+    <!-- before: picture 0..4.0, flashes 1.0, 3.0; sound 0..5.01, beeps 2.01, 4.01 -->
+    <rect x="0" y="22" width="523" height="16" rx="3" fill="var(--video)" fill-opacity="0.35"/>
+    <rect x="130.8" y="18" width="5" height="24" fill="var(--video)"/>
+    <rect x="392.3" y="18" width="5" height="24" fill="var(--video)"/>
+    <rect x="0" y="52" width="655" height="16" rx="3" fill="var(--audio)" fill-opacity="0.35"/>
+    <rect x="262.8" y="48" width="5" height="24" fill="var(--audio)"/>
+    <rect x="524.3" y="48" width="5" height="24" fill="var(--audio)"/>
+    <!-- after: picture 1.01..5.01, flashes 2.01, 4.01; sound 0..5.01, beeps 2.01, 4.01 -->
+    <rect x="132.1" y="112" width="523" height="16" rx="3" fill="var(--video)" fill-opacity="0.35"/>
+    <rect x="262.8" y="108" width="5" height="24" fill="var(--video)"/>
+    <rect x="524.3" y="108" width="5" height="24" fill="var(--video)"/>
+    <rect x="0" y="142" width="655" height="16" rx="3" fill="var(--audio)" fill-opacity="0.35"/>
+    <rect x="262.8" y="138" width="5" height="24" fill="var(--audio)"/>
+    <rect x="524.3" y="138" width="5" height="24" fill="var(--audio)"/>
+  </g>
+  <text x="0" y="14" font-weight="600">Before</text>
+  <text x="0" y="34">picture (flash)</text>
+  <text x="0" y="64">sound (beep)</text>
+  <text x="0" y="104" font-weight="600">After</text>
+  <text x="0" y="124">picture (flash)</text>
+  <text x="0" y="154">sound (beep)</text>
+</svg>
+<div class="caption"><code>late_video_intra.ts</code>, untrimmed, sound copied, drawn from the
+measured output timestamps (<code>sync_probe.py</code>). Bars are each stream's span in the
+output file; the marks are the white frames (blue) and the beeps (orange). Before, the picture
+started at 0 and every beep came 1.01 s after its flash. After, the picture starts 1.010 s in, as
+it does in the source, and each beep lands on its flash.</div>
+</figure>
+
+<h2>6. Sources whose streams start together are unchanged</h2>
+<p>For every other fixture in <code>Tests/TestResources</code>, three outputs were compared
+between the two workers (<code>identity_probe.py</code>): an untrimmed and a trimmed (10..40) FFV1
+encode with the sound copied, compared by <code>framemd5</code> of every stream, and the preview of
+frame 10, compared by its PNG bytes.</p>
+<p id="identity">Result: <span class="good">identical in every case</span>:
+<code>colorize_test.mp4</code>, <code>face_restore_test.mp4</code>,
+<code>hard_telecine_test.avi</code>, <code>interlaced_test.avi</code>, <code>pal-sd-25.mov</code>,
+<code>prores422_10bit_telecine.mov</code>, <code>reserved_colour_tags.mov</code>,
+<code>reserved_colour_tags_4444a.mov</code>, <code>seek_timebase_2997.mov</code>,
+<code>small_clip.mp4</code>, <code>soft_telecine_test.mkv</code>. The Rust unit tests also pin the
+decoder and encoder arguments for an offset-0 job word for word.</p>
+
+<div class="card correction">
+<strong>Correction: the offset's definition.</strong> The offset was first taken as the smallest
+PTS among the video's first 64 packets, less the container's start. On the DVB-T clip that is
+right (the stream's <code>start_time</code> is the I picture, 0.12 s after the first picture
+shown). But <code>hard_telecine_test.avi</code> (MPEG-2 in AVI, no audio) then read
+<span class="warn">0.067 s</span>: its first two packets carry no PTS at all, so the smallest
+<em>listed</em> PTS is the third picture's. The worker would have shifted every seek on that file
+by two frames, and the app (which probes only when the stream starts after the container) would
+not have. The offset is now the earlier of the stream's <code>start_time</code> and that smallest
+PTS. That reads 0 on the AVI and 1.202 on the DVB-T clip, and the worker and the app run the same
+ffprobe arguments (a test pins them word for word).
+</div>
+
+<h2>7. When to suggest "Start the sound with the picture"</h2>
+<p>Offsets across every fixture with a video stream (<code>offset_probe.py</code>):</p>
+<table>
+<tr><th>Offset</th><th>Files</th></tr>
+<tr><td class="num">0</td><td>12 fixtures: MP4, MOV, MKV, AVI. (<code>small_clip.mp4</code>'s first picture is at −0.100 s through its edit list, which still reads as 0.)</td></tr>
+<tr><td class="num">1.000–1.010</td><td>the three constructed fixtures</td></tr>
+<tr><td class="num">1.202</td><td>the DVB-T broadcast capture</td></tr>
+</table>
+<p>While building the plan, ffmpeg's own MPEG-TS muxer measured 10–21 ms between streams on
+files whose streams were muxed together. That must not badge. The threshold is
+<strong>0.25 s</strong> (<code>videoStartSuggestThreshold</code>). <em>Limit:</em> this rests on
+one real broadcast clip. Camcorder <code>.MTS</code> files and other broadcasters were not
+measured.</p>
+
+<h2>8. Decisions</h2>
+<ul>
+<li><strong>Frame N is the Nth picture from the video's first presented picture</strong>, never a
+slot on the container's timeline. That is what the app already assumed wherever
+<code>nb_frames</code> exists. Counting from the container would put 1.2 s of frozen picture at the
+start of every DVB-T timeline.</li>
+<li><strong>The untrimmed decode resets timestamps rather than seeking to the offset.</strong> A
+seek on a TS hits the keyframe fault and lost a whole GOP on the DVB-T clip (it started at
+picture 28). <code>setpts=PTS-STARTPTS</code> with no seek removes MKV/MP4's padding and keeps
+the TS's leading B pictures. Frame 0 never seeks, in the worker or the app, for the same
+reason.</li>
+<li><strong>Sync is kept by default, by delaying the picture.</strong> The source is not out of
+sync: its sound and picture are aligned by their timestamps, and the video simply starts later.
+Measured alternatives, from planning:
+<ul>
+<li>A stream-copy <code>-ss</code> on the sound: 0.06–0.30 s off, and pads the video.</li>
+<li><code>-itsoffset</code>: keeps the desync.</li>
+<li>An exact re-encoded cut: in sync, but loses the sound before the picture.</li>
+</ul>
+Delaying the picture in the encoder (<code>settb=1/120000,setpts=PTS+…</code> first in the one
+<code>-vf</code>, plus <code>-enc_time_base</code>) reproduces the source's layout with the sound
+copied losslessly. At the encoder's default 1/fps time base, the delay rounded to 10 ms off.
+1/120000 is a whole number of ticks per frame at every broadcast rate.</li>
+<li><strong>Dropping the sound before the picture is a choice, in Audio Restoration.</strong> An
+exact cut needs the sound decoded, which is what that pass's render does. It has no value to
+enter, because the worker reads the gap from the timestamps.</li>
+<li><strong>The detected gap is never put into Audio Restoration's sync offset.</strong> That
+control moves sound against picture. Prefilling it with 1.2 s would <em>create</em> a 1.2 s
+desync on top of the kept layout.</li>
+<li><strong>No delay without sound.</strong> A file can start with a teletext or data stream and
+have no audio. Seeks still need the offset there, but the output doesn't need a delay.</li>
+</ul>
+
+<h2>9. Not fixed, not tested, limits</h2>
+<ul>
+<li><strong>MPEG-TS seeks that land on a later keyframe</strong> (a separate task). The DVB-T
+clip's preview and before frame are still wrong between keyframes, and for frames past its last
+keyframe (120–127) they are now black or empty (§3). Its trim 30..59 happened to come out
+exact. That task should build on <code>source_decode::seek_time</code>, the one place seek times
+are now computed.</li>
+<li><strong>Leading pictures that do not decode.</strong> A capture that starts mid-GOP, with
+missing references, would now keep its broken leading pictures as frames 0–2, where before two
+were dropped by accident. No such file was available to test.</li>
+<li><strong>An MKV with no per-stream durations whose audio outlasts its video</strong> still
+over-counts by the audio's tail.</li>
+<li><strong>Players:</strong> a video track that starts late was checked only by ffprobe/ffmpeg
+reading the outputs' timestamps. QuickTime, VLC and editors were not tried. If one shows the gap
+badly, <em>Start the sound with the picture</em> is the way out.</li>
+<li><strong>A Custom FFmpeg Argument <code>-vf</code></strong> replaces the encoder's filter
+chain, so it drops the delay as well. The job log warns.</li>
+<li><strong>Coverage:</strong> one broadcast clip and constructed fixtures. Apple Silicon only:
+the arithmetic is platform-independent, but no other platform's ffmpeg was run.</li>
+</ul>
+
+<h2>10. Reproducing</h2>
+<pre>cd worker &amp;&amp; cargo build      # the "after" worker
+# a "before" worker: cargo build in a checkout of the commit before the fix, with deps/
+BEFORE_WORKER=/path/to/before/worker/target/debug/vapourbox-worker \
+  docs/reports/2026-11-video-start-offset/scripts/run.sh</pre>
+<p><code>run.sh</code> runs <code>offset_probe.py</code> (§1, §7), <code>frame_probe.py</code>
+(§3, §4), <code>sync_probe.py</code> (§5), <code>identity_probe.py</code> (§6) and
+<code>images.py</code>. Each takes the repo from its own location and its scratch directory from
+<code>$OFFSET_WORK</code>. The fixtures are rebuilt by
+<code>Tests/TestResources/generate_video_start_offset.sh</code>. The heavy test
+<code>app/test/integration_video_start_offset_test.dart</code> checks the same pictures and sync
+on every run. Run against the worker from before the fix, it fails 28 of its 40 cases. The 12
+that pass are:</p>
+<ul>
+<li>frame 0;</li>
+<li>the frame-count checks, which are app-side;</li>
+<li>the TS fixture's untrimmed pictures;</li>
+<li>the trimmed sync cases (in sync before too, but on the wrong pictures);</li>
+<li>the offset-0 control.</li>
+</ul>
+</main>
+</body>
+</html>

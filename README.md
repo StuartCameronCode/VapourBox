@@ -132,7 +132,7 @@ Most sources need only a few of these, and the presets pick them for you. Filter
 | 21 | **Sharpen** | Soft pictures, sharpened after the resize so the result isn't softened again |
 | 22 | **Film Grain** | Grain added back after denoising, so the picture doesn't look plastic |
 | 23 | **Frame Rate** | PAL ↔ NTSC and other rate changes, or any custom rate, by motion interpolation, RIFE, or frame repetition |
-| 24 | **Audio Restoration** | A dead channel, hum, rumble, clicks, clipping, hiss, sound out of sync or drifting, uneven loudness; speech enhancement with DeepFilterNet |
+| 24 | **Audio Restoration** | A dead channel, hum, rumble, clicks, clipping, hiss, sound out of sync or drifting, uneven loudness; speech enhancement with DeepFilterNet; sound that starts before the picture (broadcast captures) |
 | 25 | **Subtitles** | Speech-to-text with Whisper AI, from the restored sound |
 
 The order is designed so each step works on the right picture: damage and noise are removed first, the picture is framed and resized next, and only then sharpened and given grain. The frame rate is converted last, so every other filter works on real frames. Borders are added after everything else, so nothing touches them.
