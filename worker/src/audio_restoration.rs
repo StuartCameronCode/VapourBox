@@ -786,6 +786,7 @@ pub enum RestoredTrackCodec {
 }
 
 impl RestoredTrackCodec {
+    #[cfg(test)]
     pub const ALL: [RestoredTrackCodec; 4] =
         [RestoredTrackCodec::Aac, RestoredTrackCodec::Flac, RestoredTrackCodec::Pcm16, RestoredTrackCodec::Pcm24];
 
