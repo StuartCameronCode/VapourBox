@@ -68,6 +68,7 @@ fn create_base_job(output_name: &str) -> VideoJob {
         pitch_factors_path: None,
         video_start_offset: None,
         seek_plan: None,
+        decoder_delay_frames: None,
         source_has_audio: None,
     }
 }
@@ -1280,6 +1281,7 @@ fn create_ivtc_base_job(output_name: &str) -> VideoJob {
         pitch_factors_path: None,
         video_start_offset: None,
         seek_plan: None,
+        decoder_delay_frames: None,
         source_has_audio: None,
     }
 }

@@ -1,0 +1,285 @@
+{
+ "_comment": "Seek decisions both source_decode::source_seek/seek_arg (Rust) and SeekPlan.frameSeekArgs/formatSeek (Dart) must reproduce. Expected values computed in exact rational arithmetic: ss = ceil(((frame + delay - 0.5) / fps + videoStart) us); trimFrames when delay > 0 and that time < 0.5 s (issue #173).",
+ "cases": [
+  {
+   "frame": 1,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 0,
+   "ss": "0.016684",
+   "trimFrames": null,
+   "note": "NTSC, no delay: 43 is a tie row (1.418083|3 rounds up)"
+  },
+  {
+   "frame": 10,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 0,
+   "ss": "0.316984",
+   "trimFrames": null,
+   "note": "NTSC, no delay: 43 is a tie row (1.418083|3 rounds up)"
+  },
+  {
+   "frame": 41,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 0,
+   "ss": "1.351350",
+   "trimFrames": null,
+   "note": "NTSC, no delay: 43 is a tie row (1.418083|3 rounds up)"
+  },
+  {
+   "frame": 43,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 0,
+   "ss": "1.418084",
+   "trimFrames": null,
+   "note": "NTSC, no delay: 43 is a tie row (1.418083|3 rounds up)"
+  },
+  {
+   "frame": 77,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 0,
+   "ss": "2.552550",
+   "trimFrames": null,
+   "note": "NTSC, no delay: 43 is a tie row (1.418083|3 rounds up)"
+  },
+  {
+   "frame": 1000,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 0,
+   "ss": "33.349984",
+   "trimFrames": null,
+   "note": "NTSC, no delay: 43 is a tie row (1.418083|3 rounds up)"
+  },
+  {
+   "frame": 324000,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 0,
+   "ss": "10810.783317",
+   "trimFrames": null,
+   "note": "NTSC, no delay: 43 is a tie row (1.418083|3 rounds up)"
+  },
+  {
+   "frame": 1,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 1,
+   "ss": null,
+   "trimFrames": 1,
+   "note": "NTSC MPEG-2 AVI, delay 1"
+  },
+  {
+   "frame": 10,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 1,
+   "ss": null,
+   "trimFrames": 10,
+   "note": "NTSC MPEG-2 AVI, delay 1"
+  },
+  {
+   "frame": 41,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 1,
+   "ss": "1.384717",
+   "trimFrames": null,
+   "note": "NTSC MPEG-2 AVI, delay 1"
+  },
+  {
+   "frame": 43,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 1,
+   "ss": "1.451450",
+   "trimFrames": null,
+   "note": "NTSC MPEG-2 AVI, delay 1"
+  },
+  {
+   "frame": 77,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 1,
+   "ss": "2.585917",
+   "trimFrames": null,
+   "note": "NTSC MPEG-2 AVI, delay 1"
+  },
+  {
+   "frame": 1,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 2,
+   "ss": null,
+   "trimFrames": 1,
+   "note": "H.264 AVI, delay 2; count path below 0.5 s"
+  },
+  {
+   "frame": 2,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 2,
+   "ss": null,
+   "trimFrames": 2,
+   "note": "H.264 AVI, delay 2; count path below 0.5 s"
+  },
+  {
+   "frame": 3,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 2,
+   "ss": null,
+   "trimFrames": 3,
+   "note": "H.264 AVI, delay 2; count path below 0.5 s"
+  },
+  {
+   "frame": 14,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 2,
+   "ss": "0.517184",
+   "trimFrames": null,
+   "note": "H.264 AVI, delay 2; count path below 0.5 s"
+  },
+  {
+   "frame": 15,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 2,
+   "ss": "0.550550",
+   "trimFrames": null,
+   "note": "H.264 AVI, delay 2; count path below 0.5 s"
+  },
+  {
+   "frame": 16,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 2,
+   "ss": "0.583917",
+   "trimFrames": null,
+   "note": "H.264 AVI, delay 2; count path below 0.5 s"
+  },
+  {
+   "frame": 40,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 2,
+   "ss": "1.384717",
+   "trimFrames": null,
+   "note": "H.264 AVI, delay 2; count path below 0.5 s"
+  },
+  {
+   "frame": 1,
+   "fpsNum": 25,
+   "fpsDen": 1,
+   "videoStart": 0.0,
+   "delay": 1,
+   "ss": null,
+   "trimFrames": 1,
+   "note": "PAL, delay 1"
+  },
+  {
+   "frame": 10,
+   "fpsNum": 25,
+   "fpsDen": 1,
+   "videoStart": 0.0,
+   "delay": 1,
+   "ss": null,
+   "trimFrames": 10,
+   "note": "PAL, delay 1"
+  },
+  {
+   "frame": 12,
+   "fpsNum": 25,
+   "fpsDen": 1,
+   "videoStart": 0.0,
+   "delay": 1,
+   "ss": "0.500000",
+   "trimFrames": null,
+   "note": "PAL, delay 1"
+  },
+  {
+   "frame": 13,
+   "fpsNum": 25,
+   "fpsDen": 1,
+   "videoStart": 0.0,
+   "delay": 1,
+   "ss": "0.540000",
+   "trimFrames": null,
+   "note": "PAL, delay 1"
+  },
+  {
+   "frame": 100,
+   "fpsNum": 25,
+   "fpsDen": 1,
+   "videoStart": 0.0,
+   "delay": 1,
+   "ss": "4.020000",
+   "trimFrames": null,
+   "note": "PAL, delay 1"
+  },
+  {
+   "frame": 10,
+   "fpsNum": 25,
+   "fpsDen": 1,
+   "videoStart": 0.0,
+   "delay": 0,
+   "ss": "0.380000",
+   "trimFrames": null,
+   "note": "PAL: exact decimals, unchanged"
+  },
+  {
+   "frame": 40,
+   "fpsNum": 25,
+   "fpsDen": 1,
+   "videoStart": 0.0,
+   "delay": 0,
+   "ss": "1.580000",
+   "trimFrames": null,
+   "note": "PAL: exact decimals, unchanged"
+  },
+  {
+   "frame": 40,
+   "fpsNum": 25,
+   "fpsDen": 1,
+   "videoStart": 1.202022,
+   "delay": 0,
+   "ss": "2.782022",
+   "trimFrames": null,
+   "note": "late video, no delay"
+  },
+  {
+   "frame": 0,
+   "fpsNum": 30000,
+   "fpsDen": 1001,
+   "videoStart": 0.0,
+   "delay": 2,
+   "ss": null,
+   "trimFrames": null,
+   "note": "frame 0 never seeks"
+  }
+ ]
+}
