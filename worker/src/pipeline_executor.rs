@@ -464,14 +464,13 @@ impl PipelineExecutor {
                 width,
                 height,
                 pix_fmt,
-                job.source_seek(
+                &job.decode_start(
                     job.start_frame.unwrap_or(0) as i64,
                     job.input_frame_rate.unwrap_or(29.97),
                 ),
                 job.start_frame,
                 job.end_frame,
                 job.total_frames,
-                job.video_start(),
                 tag_fix.as_deref(),
             ),
         };
@@ -1194,10 +1193,11 @@ impl PipelineExecutor {
         // Y4M pipe (starts at 0) and audio from the original container.
         // Safe/no-op when timestamps are already aligned.
         let is_framerate_change = pipeline.deinterlace.enabled
-            && matches!(
-                pipeline.deinterlace.method,
-                DeinterlaceMethod::Ivtc | DeinterlaceMethod::SoftTelecine
-            );
+            && match pipeline.deinterlace.method {
+                DeinterlaceMethod::Ivtc => true,
+                DeinterlaceMethod::SoftTelecine => pipeline.soft_telecine_decimates(),
+                _ => false,
+            };
         if is_framerate_change {
             args.extend(["-avoid_negative_ts".to_string(), "make_zero".to_string()]);
             args.push("-start_at_zero".to_string());
@@ -1450,7 +1450,7 @@ impl PipelineExecutor {
         // interval *before* `first` (i.e. (first - 0.5)/fps) lands squarely on
         // `first` for CFR sources, avoiding the ±1-frame ambiguity of seeking to
         // the frame boundary itself.
-        let source_seek = job.source_seek(first as i64, frame_rate);
+        let start = job.decode_start(first as i64, frame_rate);
         // A VFR source's window is in grid slots, decoded from its stored
         // frames — the same derivation as the encode (issue #137).
         let window = self
@@ -1470,9 +1470,12 @@ impl PipelineExecutor {
         // delayed AVI's start it counts pictures instead of seeking (rule 7).
         let planned = match &window {
             Some(w) => source_decode::decoder_seek(w.seek_time, job.seek_plan()),
-            None => source_seek,
+            None => start.seek.unwrap_or_default(),
         };
-        let decoder_seek = planned.ss.unwrap_or(0.0);
+        let decoder_seek = match (&window, start.seek) {
+            (None, None) => start.ss.unwrap_or(0.0),
+            _ => planned.ss.unwrap_or(0.0),
+        };
         let mut plan_note = match planned.trim_from {
             Some(t) => format!(", MPEG-TS/PS: trim from {:.6}s", t),
             None => String::new(),
@@ -1482,6 +1485,10 @@ impl PipelineExecutor {
         }
         if job.decoder_delay() > 0 && window.is_none() {
             plan_note.push_str(&format!(", decoder delay {} frame(s)", job.decoder_delay()));
+        }
+        // On the source's grid (source_decode rule 8): say so.
+        if let (None, None, Some(g)) = (&window, start.seek, job.source_grid()) {
+            plan_note.push_str(&format!(", grid {}/{} from slot {}", g.rate_num, g.rate_den, first));
         }
         eprintln!(
             "Preview: source frame {} (window {}..{}, local {}, output index {}, output {} of {}, rate pad {}) seek {:.6}s ({}x{} {}{}{})",
@@ -1560,13 +1567,12 @@ impl PipelineExecutor {
             ),
             None => source_decode::preview_decoder_args(
                 &job.input_path,
-                source_seek,
+                &start,
                 num_frames,
                 width,
                 height,
                 pix_fmt,
                 raw_path.to_string_lossy().as_ref(),
-                job.video_start(),
                 tag_fix.as_deref(),
             ),
         };
@@ -2307,6 +2313,7 @@ mod tests {
             video_start_offset: None,
             seek_plan: None,
             decoder_delay_frames: None,
+            source_grid: None,
             source_has_audio: None,
         }
     }

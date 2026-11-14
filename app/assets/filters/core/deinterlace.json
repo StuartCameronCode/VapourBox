@@ -130,8 +130,8 @@
     {
       "id": "soft_telecine",
       "name": "Soft Telecine",
-      "description": "Fix frame rate for DVD soft telecine sources misdetected as 29.97fps",
-      "function": "core.std.AssumeFPS",
+      "description": "Remove the 3:2 pulldown repeats a DVD soft telecine source decodes to at 29.97 fps, leaving the 23.976 fps film frames. A source already stored at its film rate needs nothing removed, and is passed through.",
+      "function": "core.vivtc.VDecimate",
       "parameters": []
     },
     {

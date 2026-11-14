@@ -89,6 +89,7 @@ fn test_preview_10bit_422_matches_source_frame() {
         video_start_offset: None,
         seek_plan: None,
         decoder_delay_frames: None,
+        source_grid: None,
         source_has_audio: None,
     };
 

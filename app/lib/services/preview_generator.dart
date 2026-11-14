@@ -73,6 +73,10 @@ class PreviewGenerator {
   /// other format. See [SeekPlan].
   SeekPlan? _seekPlan;
 
+  /// The source's frame grid (issue #174), null when it has none (packets
+  /// without timestamps), which seeks as before. See [SourceGrid].
+  SourceGrid? _sourceGrid;
+
   /// Frames late the decoder stamps each picture of an AVI that stores
   /// decode-order timestamps (issue #173), 0 for every other source. Every
   /// seek of the source adds it.
@@ -135,14 +139,22 @@ class PreviewGenerator {
     String? toneMap,
     String? tagFix,
     SeekPlan? seekPlan,
+    SourceGrid? grid,
     double frameRate = 0,
     int decoderDelayFrames = 0,
     required String outputPath,
   }) {
+    // On the source's grid (issue #174), the thumbnail is the frame shown at
+    // [time]: the same picture the Original shows for that frame.
+    final onGrid = grid != null && grid.isValid
+        ? grid.startAt((time * grid.fps).round(), videoStartOffset, seekPlan)
+        : null;
     final target = time + videoStartOffset;
     final delayed = seekPlan == null && decoderDelayFrames > 0 && frameRate > 0;
     final ({List<String> input, String? trim})? planned;
-    if (seekPlan != null) {
+    if (onGrid != null) {
+      planned = null;
+    } else if (seekPlan != null) {
       planned = SeekPlan.seekArgs(target, seekPlan);
     } else if (target <= 0) {
       planned = (input: const <String>[], trim: null);
@@ -156,8 +168,9 @@ class PreviewGenerator {
     }
     return [
       '-y',
+      ...?onGrid?.input,
       ...?planned?.input,
-      if (planned == null) ...['-ss', target.toStringAsFixed(3)],
+      if (planned == null && onGrid == null) ...['-ss', target.toStringAsFixed(3)],
       ...sourceDecodeOptions,
       '-i', videoPath,
       '-vframes', '1',
@@ -165,6 +178,7 @@ class PreviewGenerator {
       // than the 160-pixel thumbnail it ends up as.
       '-vf', [
         if (tagFix != null) tagFix,
+        ...?onGrid?.filters,
         if (planned?.trim != null) planned!.trim!,
         'scale=160:-1',
         if (toneMap != null) toneMap,
@@ -189,6 +203,7 @@ class PreviewGenerator {
   int get totalFrames => _totalFrames;
   double get videoStartOffset => _videoStartOffset;
   SeekPlan? get seekPlan => _seekPlan;
+  SourceGrid? get sourceGrid => _sourceGrid;
   int get decoderDelayFrames => _decoderDelayFrames;
 
   /// Get all preview log messages.
@@ -314,6 +329,12 @@ class PreviewGenerator {
   /// starts at the next keyframe. Twin of the worker's
   /// `source_decode::decoder_seek`; null leaves the arguments as they were.
   ///
+  /// With a [grid] (issue #174, the worker's `source_decode::decode_start`),
+  /// the decode copies timestamps, starts [SourceGrid.lookbackSlots] early
+  /// and keeps slot [frameIndex] of the grid: a frame inside a run of null
+  /// frames or a pulldown repeat is the stored frame before it, exactly as
+  /// the encode and the preview decode it. It replaces the plain seek.
+  ///
   /// [tagFix] goes first in the one `-vf`: the JPEG/PNG encode converts the
   /// pixel format, which fails on a `reserved` tag. The trim follows it,
   /// ahead of the tone map, so dropped frames are never tone-mapped.
@@ -330,24 +351,35 @@ class PreviewGenerator {
     String? toneMap,
     String? tagFix,
     SeekPlan? seekPlan,
+    SourceGrid? grid,
     int decoderDelayFrames = 0,
     required String outputPath,
   }) {
     final frame = frameIndex < 0 ? 0 : frameIndex;
-    final seek = SeekPlan.frameSeekArgs(
-      frame: frame,
-      frameRate: frameRate,
-      videoStartOffset: videoStartOffset,
-      decoderDelayFrames: decoderDelayFrames,
-      plan: seekPlan,
-    );
+    final offset = videoStartOffset > 0 ? videoStartOffset : 0.0;
+    // On the source's grid (issue #174) the grid decides; otherwise the seek
+    // of #157/#169/#173.
+    final onGrid = grid != null && grid.isValid
+        ? grid.startAt(frame, offset, seekPlan)
+        : null;
+    final seek = onGrid != null
+        ? null
+        : SeekPlan.frameSeekArgs(
+            frame: frame,
+            frameRate: frameRate,
+            videoStartOffset: videoStartOffset,
+            decoderDelayFrames: decoderDelayFrames,
+            plan: seekPlan,
+          );
     final vf = [
       if (tagFix != null) tagFix,
+      ...?onGrid?.filters,
       if (seek?.trim != null) seek!.trim!,
       if (toneMap != null) toneMap,
     ];
     return [
       '-y',
+      ...?onGrid?.input,
       ...?seek?.input,
       ...sourceDecodeOptions,
       '-i', videoPath,
@@ -384,6 +416,7 @@ class PreviewGenerator {
           toneMap: _toneMap,
           tagFix: _tagFix,
           seekPlan: _seekPlan,
+          grid: _sourceGrid,
           decoderDelayFrames: _decoderDelayFrames,
           outputPath: outputPath,
         ),
@@ -723,6 +756,15 @@ class PreviewGenerator {
       formatName: format?['format_name'] as String?,
     );
 
+    // The grid the worker's decoders place the frames on (issue #174): the
+    // Original and the thumbnails start on it too, so a null frame or a
+    // pulldown repeat shows the same picture on both sides.
+    _sourceGrid = await FieldOrderDetector.probeSourceGrid(
+      _ffprobePath!,
+      videoPath,
+      frameRate: _frameRate,
+    );
+
     // Parse frame count: the same length the job is built with, which for a
     // variable-frame-rate source is its duration, not its stored frames.
     final streamDuration =
@@ -735,7 +777,9 @@ class PreviewGenerator {
           duration: streamDuration ?? _duration,
           frameRate: _frameRate,
         ) ??
-        FieldOrderDetector.frameCountFromDuration(
+        await FieldOrderDetector.frameCountWithoutStoredCount(
+          _ffprobePath!,
+          videoPath,
           streamDuration: streamDuration,
           containerDuration: _duration,
           start: videoStart,
@@ -814,6 +858,7 @@ class PreviewGenerator {
           toneMap: _toneMap,
           tagFix: _tagFix,
           seekPlan: _seekPlan,
+          grid: _sourceGrid,
           decoderDelayFrames: _decoderDelayFrames,
           outputPath: outputPath,
         ),

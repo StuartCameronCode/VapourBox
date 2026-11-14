@@ -125,7 +125,7 @@ VapourBox/
 | `worker/templates/srestore.py` | The Unblend pass: VapourBox's windowed port of srestore (see "Unblend (SRestore)") |
 | `worker/src/models/unblend_parameters.rs` | Unblend's parameters, srestore's ratio arithmetic (`srestore_ratio`) and the refusal wording |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
-| `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset, an AVI's decoder delay, the MPEG-TS/PS `SeekPlan`, and the one seek decision, `source_seek` / `seek_arg` (see "Source Frame Size", "Colour metadata") |
+| `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset, an AVI's decoder delay, and the one seek decision, `source_seek` / `seek_arg`, the source grid every constant-rate decoder starts on (`decode_start`; see "Source Frame Size", "Colour metadata") |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, RIFE's model add-on, the `--probe-rife` / `--probe-upscale` probe (on stand-in models, no add-on needed), and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
@@ -1066,8 +1066,46 @@ the **single** builder of both decoders' arguments (encode + preview):
   VFR decoder uses it). **Test seek alignment against an independent decode**
   (`select=eq(n,N)` of the source), never preview against encode, which shift
   together — `integration_seek_alignment_test.dart` (heavy). MPEG-PS/TS (issue
-  #169) and AVI (issue #173, below) seek with rules of their own; leading null
-  frames still seek to the wrong picture (docs/reports/issue-157-seek-alignment).
+  #169) and AVI (issue #173, below) seek with rules of their own; on a source
+  with a grid (next rule) the grid's own trim and reset replace this one.
+
+- **Frame N is slot N of the source's grid, placed by timestamp (issue
+  #174).** The grid is the job's rate as the stream's exact fraction
+  (`2997/100` is not `30000/1001`), from the first picture; each slot shows
+  the stored frame its timestamp puts there, so an AVI null frame or a
+  pulldown repeat is a slot showing the frame before it. `rawvideo`'s own
+  constant-rate output did not do that (a first frame's repeat flag became
+  extra slots: every frame of `soft_telecine_test.mkv` two late), and a seek
+  kept the frame *after* a null run or a repeat. So every constant-rate
+  decoder (encode, preview, detectors) starts through
+  `source_decode::decode_start` / `VideoJob::decode_start`: `-copyts`, a seek
+  `GRID_LOOKBACK_SLOTS` (8) early, then `SourceGrid::filters` —
+  `setpts=PTS-<first picture>/TB` (the **same constant in every decoder**, so
+  `fps` rounds half-slot ties identically), `fps=N/D`, `trim=start_pts=N`,
+  `setpts=PTS-STARTPTS`. The grid comes from the video-start probe
+  (`grid_from_probe`, filled by `fill_source_grid`); the app's twin
+  `SourceGrid.fromProbe` / `startAt` drives the Original and thumbnails, pinned
+  by `Tests/TestResources/source_grid_vectors.json`. **No grid when a probed
+  packet lacks PTS** (MPEG-2/MPEG-4/H.264 in AVI: decode-order timestamps);
+  those keep the seek rules here. **Frame 0 of a TS/PS runs without
+  `-copyts`** (a `SeekPlan` source; `filters_from_first_picture`, the grid
+  anchored by `setpts=PTS-STARTPTS`): `-copyts` turns off ffmpeg's timestamp
+  discontinuity correction, and an untrimmed decode of a program stream whose
+  clock resets (the DVD import writes cells back to back) stopped at the
+  reset, the rest a frozen frame.
+  The VFR decoder is separate and unchanged.
+  `integration_source_grid_test.dart` (heavy) checks preview, Original, trims,
+  untrimmed encodes and counts against an independent timestamp placement
+  (docs/reports/issue-174-source-grid).
+- **Soft Telecine decimates only at 29.97/30 fps** (`soft_telecine_decimates_at`,
+  app twin `VideoInfo.softTelecineDecimates`, shared
+  `soft_telecine_rates.json`). A DVD's header says 29.97 and ffprobe reports
+  that in VOB and MKV alike, so its decode holds 3:2 repeats; a source stored
+  at its film rate already is the film, and VDecimate removed one real frame
+  in five. The encode script pipes whole 5-frame cycles
+  (`ProcessingPipeline::pipe_frames`) so a partial last cycle loses a repeat,
+  not a film frame. The app treats a film-rate soft-telecine source as
+  progressive (no auto-switch, no Deinterlace suggestion).
 
 - **Frame N counts from the video's first picture, and every seek says so.**
   An input `-ss` counts from the *container's* start, the earliest stream's;
@@ -1089,8 +1127,10 @@ the **single** builder of both decoders' arguments (encode + preview):
     (TS). With offset 0 every argument list is byte-for-byte as before.
   - **The frame count is the video's**, not the file's:
     `FieldOrderDetector.frameCountFromDuration` (stream duration plus leading
-    pictures, else container duration less the offset) when `nb_frames` is
-    absent.
+    pictures) when `nb_frames` is absent; with no stream duration either
+    (Matroska), the last picture's grid slot + 1
+    (`frameCountWithoutStoredCount`), since the container duration counts
+    repeat flags (issue #174).
   - **The output keeps the source's layout: sound first, picture delayed.**
     `VideoJob::output_video_delay` is the one decision (0 when trimmed, when
     there is no sound, or with Audio Restoration's `startWithPicture`); the

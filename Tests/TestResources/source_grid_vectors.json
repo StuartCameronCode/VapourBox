@@ -1,0 +1,42 @@
+{
+  "_comment": "Issue #16: the source grid, probed and started at a frame. Read by worker source_decode.rs (grid_from_probe, decode_start) and app source_grid_test.dart (SourceGrid.fromProbe, startAt), so the Original and thumbnails start exactly as the worker's decoders do. A start with \"copyts\": false (frame 0 of a TS/PS) keeps ffmpeg's discontinuity correction and anchors the grid with STARTPTS.",
+  "cases": [
+    {
+      "name": "small_clip.mp4: the stream's exact 2997/100, an edit list's pre-roll before the start",
+      "probe": {"packets": [{"pts_time": "-0.100100"}, {"pts_time": "0.000000"}], "streams": [{"start_time": "0.000000", "r_frame_rate": "2997/100", "avg_frame_rate": "2997/100"}], "format": {"start_time": "0.000000"}},
+      "jobFps": 29.97,
+      "grid": {"rateNum": 2997, "rateDen": 100, "origin": 0.0},
+      "starts": [
+        {"frame": 0, "videoStart": 0.0, "ss": null, "filters": ["setpts=PTS-0.000000/TB", "fps=2997/100", "trim=start_pts=0", "setpts=PTS-STARTPTS"]},
+        {"frame": 5, "videoStart": 0.0, "ss": null, "filters": ["setpts=PTS-0.000000/TB", "fps=2997/100", "trim=start_pts=5", "setpts=PTS-STARTPTS"]},
+        {"frame": 40, "videoStart": 0.0, "ss": "1.051052", "filters": ["setpts=PTS-0.000000/TB", "fps=2997/100", "trim=start_pts=40", "setpts=PTS-STARTPTS"]}
+      ]
+    },
+    {
+      "name": "DVB-T: field-coded (avg is the rate), open GOP before the stream start, sound first, a TS seek plan",
+      "probe": {"packets": [{"pts_time": "2.722022"}, {"pts_time": "2.602022"}, {"pts_time": "2.642022"}], "streams": [{"start_time": "2.722022", "r_frame_rate": "50/1", "avg_frame_rate": "25/1"}], "format": {"start_time": "1.400000"}},
+      "jobFps": 25.0,
+      "grid": {"rateNum": 25, "rateDen": 1, "origin": 2.602022},
+      "starts": [
+        {"frame": 40, "videoStart": 1.202022, "plan": {"preroll": 1.82, "containerStart": 1.4}, "ss": "0.642022", "filters": ["setpts=PTS-2.602022/TB", "fps=25/1", "trim=start_pts=40", "setpts=PTS-STARTPTS"]},
+        {"frame": 20, "videoStart": 1.202022, "plan": {"preroll": 1.82, "containerStart": 1.4}, "ss": null, "filters": ["setpts=PTS-2.602022/TB", "fps=25/1", "trim=start_pts=20", "setpts=PTS-STARTPTS"]},
+        {"frame": 0, "videoStart": 1.202022, "plan": {"preroll": 1.82, "containerStart": 1.4}, "copyts": false, "ss": null, "filters": ["setpts=PTS-STARTPTS", "fps=25/1", "trim=start_pts=0", "setpts=PTS-STARTPTS"]},
+        {"frame": 40, "videoStart": 1.202022, "ss": "2.462022", "filters": ["setpts=PTS-2.602022/TB", "fps=25/1", "trim=start_pts=40", "setpts=PTS-STARTPTS"]}
+      ]
+    },
+    {
+      "name": "a job at another rate than the stream's: the job's",
+      "probe": {"packets": [{"pts_time": "0.000000"}], "streams": [{"start_time": "0.000000", "r_frame_rate": "25/1", "avg_frame_rate": "25/1"}], "format": {"start_time": "0.000000"}},
+      "jobFps": 23.976,
+      "grid": {"rateNum": 24000, "rateDen": 1001, "origin": 0.0},
+      "starts": []
+    },
+    {
+      "name": "MPEG-2 in AVI: packets without a PTS get no grid",
+      "probe": {"packets": [{"pts_time": "N/A"}, {"pts_time": "0.066733"}], "streams": [{"start_time": "0.000000", "r_frame_rate": "30000/1001", "avg_frame_rate": "30000/1001"}], "format": {"start_time": "0.000000"}},
+      "jobFps": 29.97,
+      "grid": null,
+      "starts": []
+    }
+  ]
+}

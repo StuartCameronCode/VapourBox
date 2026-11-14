@@ -386,6 +386,18 @@ impl Default for ProcessingPipeline {
 }
 
 #[allow(dead_code)]
+/// Whether a soft-telecine source decoded at `fps` carries 3:2 pulldown
+/// repeats for the Soft Telecine method to remove (issue #174): only at
+/// 29.97 or 30 fps. A DVD's MPEG-2 header says 29.97, and the decode then
+/// holds 5 slots for every 4 film frames. A stream stored at its film rate
+/// (23.976 or 24, its repeat flags only in the bitstream) decodes to the film
+/// frames themselves, and removing one in five drops real frames. Any other
+/// rate (PAL's 24 -> 25 pulldown would need a cycle of 25) is left alone.
+/// The app's twin is `VideoInfo.softTelecineDecimates`.
+pub fn soft_telecine_decimates_at(fps: f64) -> bool {
+    (fps - 30000.0 / 1001.0).abs() < 0.05 || (fps - 30.0).abs() < 0.05
+}
+
 impl ProcessingPipeline {
     /// Create a pipeline from legacy QTGMC-only parameters.
     pub fn from_legacy(qtgmc_params: &QTGMCParameters) -> Self {
@@ -796,10 +808,44 @@ impl ProcessingPipeline {
                     FrameMap::Identity { radius: 1 }
                 }
             }
-            DeinterlaceMethod::Ivtc | DeinterlaceMethod::SoftTelecine => {
+            DeinterlaceMethod::Ivtc => {
                 let cycle = d.ivtc_cycle.unwrap_or(5).max(2) as u32;
                 FrameMap::Decimate { cycle, keep: cycle - 1 }
             }
+            // Only a decode at a pulldown rate holds repeats to remove; at the
+            // film rate the stored frames already are the film (issue #174).
+            DeinterlaceMethod::SoftTelecine if self.soft_telecine_decimates() => {
+                FrameMap::Decimate { cycle: 5, keep: 4 }
+            }
+            DeinterlaceMethod::SoftTelecine => FrameMap::Identity { radius: 0 },
+        }
+    }
+
+    /// How many frames the encode script's pipe source presents for a
+    /// decode of `decoded` frames. Soft Telecine's VDecimate removes one
+    /// frame from every cycle of 5, including a last, partial one, where it
+    /// can only take a real film frame: a DVD-shaped 120-frame film decodes to
+    /// 149 slots, and frame 118 went missing. So the clip is rounded up to a
+    /// whole cycle; `pipe_source` repeats the last frame into the extra slots,
+    /// and VDecimate removes those repeats instead (issue #174).
+    pub fn pipe_frames(&self, decoded: i32) -> i32 {
+        if self.deinterlace.enabled
+            && self.deinterlace.method == DeinterlaceMethod::SoftTelecine
+            && self.soft_telecine_decimates()
+        {
+            (decoded.max(1) + 4) / 5 * 5
+        } else {
+            decoded
+        }
+    }
+
+    /// Whether the Soft Telecine method removes pulldown repeats: only when
+    /// the source rate (filled by `VideoJob::effective_pipeline`) is a
+    /// pulldown rate. Unknown rate: as it always did.
+    pub fn soft_telecine_decimates(&self) -> bool {
+        match (self.frame_rate.source_fps_num, self.frame_rate.source_fps_den) {
+            (Some(n), Some(d)) if n > 0 && d > 0 => soft_telecine_decimates_at(n as f64 / d as f64),
+            _ => true,
         }
     }
 
@@ -843,6 +889,8 @@ impl ProcessingPipeline {
     /// IVTC change the count and the rate together, so the length stays the
     /// source's; a frame-rate conversion's count is floored, so it can be up
     /// to one output frame short. Audio restoration fits the sound to this.
+    /// The count is of what the script pipes ([`Self::pipe_frames`]): Soft
+    /// Telecine's whole last cycle keeps its last film frame.
     pub fn output_duration_secs(&self, source_frames: u64, source_fps: f64) -> Option<f64> {
         if !(source_fps > 0.0) {
             return None;
@@ -857,7 +905,8 @@ impl ProcessingPipeline {
             den /= g;
         }
         let out_rate = source_fps * num as f64 / den as f64;
-        Some(self.output_count(source_frames) as f64 / out_rate)
+        let piped = i32::try_from(source_frames).map_or(source_frames, |n| self.pipe_frames(n) as u64);
+        Some(self.output_count(piped) as f64 / out_rate)
     }
 
     /// Map a final output frame index back to the source frame span that
@@ -1436,5 +1485,47 @@ mod tests {
         // Even an all-identity pipeline gets the minimum preview window.
         let p = ProcessingPipeline::default();
         assert!(p.total_radius() >= MIN_PREVIEW_RADIUS);
+    }
+
+    /// The Soft Telecine method decimates only at a pulldown rate (issue #174).
+    /// `soft_telecine_rates.json` holds the table; the app's
+    /// `VideoInfo.softTelecineDecimates` test reads the same file.
+    #[test]
+    fn soft_telecine_decimates_only_at_a_pulldown_rate() {
+        let table: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../Tests/TestResources/soft_telecine_rates.json"
+        ))
+        .unwrap();
+        for row in table["rates"].as_array().unwrap() {
+            let fps = row["fps"].as_f64().unwrap();
+            let want = row["decimates"].as_bool().unwrap();
+            assert_eq!(soft_telecine_decimates_at(fps), want, "{fps}");
+            let mut p = ProcessingPipeline::default();
+            p.deinterlace.enabled = true;
+            p.deinterlace.method = DeinterlaceMethod::SoftTelecine;
+            let (n, d) = crate::models::fps_to_rational(fps);
+            p.frame_rate.source_fps_num = Some(n as u32);
+            p.frame_rate.source_fps_den = Some(d as u32);
+            assert_eq!(p.output_count(120), if want { 96 } else { 120 }, "{fps}");
+        }
+    }
+
+    #[test]
+    fn soft_telecine_pipes_whole_cycles() {
+        let mut p = ProcessingPipeline::default();
+        p.deinterlace.enabled = true;
+        p.deinterlace.method = DeinterlaceMethod::SoftTelecine;
+        p.frame_rate.source_fps_num = Some(30000);
+        p.frame_rate.source_fps_den = Some(1001);
+        assert_eq!(p.pipe_frames(149), 150);
+        assert_eq!(p.pipe_frames(150), 150);
+        // The picture's length counts the padded cycle's 120th film frame,
+        // so Audio Restoration fits the sound to all of it.
+        let secs = p.output_duration_secs(149, 30000.0 / 1001.0).unwrap();
+        assert!((secs - 120.0 * 1001.0 / 24000.0).abs() < 1e-9, "{secs}");
+        p.frame_rate.source_fps_num = Some(24000);
+        assert_eq!(p.pipe_frames(149), 149, "nothing removed at the film rate");
+        p.deinterlace.method = DeinterlaceMethod::Ivtc;
+        assert_eq!(p.pipe_frames(149), 149);
     }
 }

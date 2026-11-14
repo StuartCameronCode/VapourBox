@@ -1,0 +1,12 @@
+{
+  "_comment": "Whether the Soft Telecine method removes pulldown repeats at each source rate (issue #174). Read by worker processing_pipeline.rs and app source_grid_test.dart.",
+  "rates": [
+    { "fps": 23.976, "decimates": false },
+    { "fps": 24.0, "decimates": false },
+    { "fps": 25.0, "decimates": false },
+    { "fps": 29.97, "decimates": true },
+    { "fps": 30.0, "decimates": true },
+    { "fps": 50.0, "decimates": false },
+    { "fps": 59.94, "decimates": false }
+  ]
+}

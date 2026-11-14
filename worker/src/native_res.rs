@@ -257,17 +257,16 @@ pub fn detect(deps: &DependencyLocator, job: &VideoJob) -> Result<NativeResRepor
         let mut paths = Vec::new();
         for &frame in &frames {
             let path = dir.join(format!("frame_{frame}.gray16"));
-            let seek = job.source_seek(frame as i64, fps);
+            let start = job.decode_start(frame as i64, fps);
             let out = Command::new(&ffmpeg)
                 .args(source_decode::preview_decoder_args(
                     &job.input_path,
-                    seek,
+                    &start,
                     1,
                     width,
                     height,
                     &pix_fmt,
                     "pipe:1",
-                    job.video_start(),
                     tag_fix.as_deref(),
                 ))
                 .envs(&env)

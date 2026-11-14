@@ -69,6 +69,7 @@ fn create_base_job(output_name: &str) -> VideoJob {
         video_start_offset: None,
         seek_plan: None,
         decoder_delay_frames: None,
+        source_grid: None,
         source_has_audio: None,
     }
 }
@@ -1282,6 +1283,7 @@ fn create_ivtc_base_job(output_name: &str) -> VideoJob {
         video_start_offset: None,
         seek_plan: None,
         decoder_delay_frames: None,
+        source_grid: None,
         source_has_audio: None,
     }
 }
@@ -8511,6 +8513,37 @@ fn test_224_video_start_offset_never_touches_the_scripts() {
             assert!(!script.contains(word), "{word} reached the script");
         }
     }
+}
+/// Issue #174: the Soft Telecine method removes pulldown repeats only from a
+/// 29.97 decode. A source stored at its film rate already decodes to the film
+/// frames, so at 23.976 the script has no VDecimate (it removed one real film
+/// frame in five), and the source grid never reaches either script.
+#[test]
+fn test_240_soft_telecine_decimates_only_at_a_pulldown_rate() {
+    create_output_dir();
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_addons(std::env::temp_dir().join("vb-no-addons-here"), "macos-arm64");
+    let mut job = create_base_job("test_240_soft_telecine");
+    let mut pipeline = ProcessingPipeline::default();
+    pipeline.deinterlace.enabled = true;
+    pipeline.deinterlace.method = DeinterlaceMethod::SoftTelecine;
+    job.processing_pipeline = Some(pipeline);
+
+    job.input_frame_rate = Some(29.97);
+    let (encode, _) = both_scripts_with(&generator, &job).unwrap();
+    assert!(encode.contains("core.vivtc.VDecimate(clip)"), "29.97 must decimate");
+
+    job.input_frame_rate = Some(23.976);
+    let (encode_film, preview_film) = both_scripts_with(&generator, &job).unwrap();
+    assert!(!encode_film.contains("VDecimate"), "23.976 must not decimate");
+    assert!(!preview_film.contains("VDecimate"));
+    assert_eq!(job.effective_pipeline().output_count(120), 120);
+
+    job.source_grid = Some(vapourbox_worker::source_decode::SourceGrid { rate_num: 24000, rate_den: 1001, origin: 0.0 });
+    let (encode_grid, preview_grid) = both_scripts_with(&generator, &job).unwrap();
+    assert_eq!(encode_grid, encode_film, "the grid is the decoder's, never the script's");
+    assert_eq!(preview_grid, preview_film);
 }
 
 // ===========================================================================

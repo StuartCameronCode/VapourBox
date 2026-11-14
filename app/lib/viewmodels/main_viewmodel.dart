@@ -997,9 +997,18 @@ class MainViewModel extends ChangeNotifier {
 
       switch (videoInfo.scanType) {
         case ScanType.softTelecine:
-          targetMethod = DeinterlaceMethod.softTelecine;
-          targetEnabled = true;
-          logMsg = 'Soft telecine detected \u2014 switched to Soft Telecine';
+          if (videoInfo.softTelecineDecimates) {
+            targetMethod = DeinterlaceMethod.softTelecine;
+            targetEnabled = true;
+            logMsg = 'Soft telecine detected \u2014 switched to Soft Telecine';
+          } else {
+            // Stored at its film rate: the frames already are the film, and
+            // removing one in five would drop real frames (issue #174).
+            targetEnabled = false;
+            logMsg = 'Soft telecine flags at the film rate '
+                '(${videoInfo.frameRate.toStringAsFixed(3)} fps) \u2014 the frames '
+                'are already progressive film, deinterlacing disabled';
+          }
           break;
         case ScanType.telecine:
           targetMethod = DeinterlaceMethod.ivtc;

@@ -3530,6 +3530,68 @@ GitHub incident; the API served the file) — re-uploading did not help, waiting
 did. A manifest's `url` is independent of its installed `name`, so a stuck
 asset could have been re-hosted under another name without touching code.
 
+### Source grid: frame N is a slot, placed by timestamp; Soft Telecine at a film rate (issue #174, 2026-11-14)
+
+Full report with scripts:
+[docs/reports/issue-174-source-grid/](reports/issue-174-source-grid/index.html).
+
+- The follow-up #157 left: on sources whose stored frames are not one per
+  frame number, the `rawvideo` decoders' constant-rate output disagreed with
+  the timestamps. ffmpeg emits a frame as often as its *duration* covers, and
+  a `repeat_pict` flag lengthens the duration while the next timestamp stays
+  put: `soft_telecine_test.mkv` (23.976 header, frame-repeat flags) decoded
+  to 122 slots for 120 frames, every encoded frame two late. At a gap's edge
+  it rounds differently (`interlaced_test.avi` slot 4; a MakeMKV-like MKV put
+  the pulldown repeat a slot early in one cycle of four). And #157's reset
+  rebased a seek to the first frame it *kept*, which inside a null run or on a
+  pulldown repeat is the frame after the slot.
+- **Decision: frame N is slot N of the grid at the job's rate (the stream's
+  exact fraction) from the first picture**, each slot showing the stored frame
+  its timestamp puts there: the rule the VFR path already uses, and what the
+  sound and the app's counts already assumed. Every constant-rate decoder runs
+  `-copyts`, `setpts=PTS-<first picture>/TB` (the same constant everywhere, so
+  `fps` rounds pulldown's half-slot ties identically in every decoder),
+  `fps=N/D`, `trim=start_pts=N`, `setpts=PTS-STARTPTS`, seeking 8 slots early
+  (plus #169's preroll). Measured exact against an independent timestamp
+  placement on 14 fixtures, untrimmed and from every start tried; regular
+  sources identical frame for frame. Rejected: the grid with #157's reset
+  (still wrong in null runs and on pulldown: 7/11, 2/17), and routing null-frame
+  AVIs through the VFR timeline (a whole-file packet scan on every preview of
+  a large capture).
+- **No grid without PTS.** MPEG-2/MPEG-4/H.264 in AVI store decode-order
+  timestamps; #173's decoder delay handles them and they keep its arguments.
+- **What the app sends for soft telecine:** a DVD's header always says 29.97,
+  and ffprobe reports 29.97 for it in a VOB (r 60000/1001, avg 30000/1001;
+  `selectFrameRate` takes avg) and in Matroska even with one timestamp per
+  film frame. So VDecimate was right there, and wrong only for a source whose
+  own rate is the film rate: 24 of 120 film frames removed, 19.18 fps stamped.
+  Soft Telecine now decimates at 29.97/30 only (`soft_telecine_decimates_at`,
+  app twin `VideoInfo.softTelecineDecimates`, shared `soft_telecine_rates.json`);
+  the app treats a 23.976 soft-telecine source as progressive film. And it
+  pipes whole 5-frame cycles (`pipe_frames`): the VOB's 149 slots left a
+  partial last cycle from which VDecimate took real frame 118/119.
+- Matroska with no `nb_frames` and no stream duration is counted from its last
+  picture (`frameCountFromLastPicture`): the container duration counted the
+  last frames' repeat flags (121 for 120).
+- Not fixed: a start inside a null run longer than the 8-slot lookback;
+  `small_clip.mp4`'s `nb_frames` still counts 3 frames its edit list drops.
+- **Corrected at review: frame 0 of a TS/PS drops `-copyts`.** The grid's
+  `-copyts` turns off ffmpeg's timestamp discontinuity correction. Two
+  program streams joined so the clock resets at picture 150 (what the DVD
+  import writes for a title whose cells reset) gave 150 of 300 pictures
+  through the grid from frame 0 (`reset_probe.py`); in the worker
+  `pipe_source` would have frozen the last one for the rest. Frame 0 of a
+  `SeekPlan` source now decodes without `-copyts`, the grid anchored by
+  `setpts=PTS-STARTPTS` instead of the origin constant
+  (`SourceGrid::filters_from_first_picture`, app `startAt`): 300 of 300, and
+  slot for slot the `-copyts` grid on the VOB, the DVB-T clip and the
+  late-video TS. Dropping the grid there instead was tried first and lost the
+  VOB's last film frame under Soft Telecine again. Seeking TS/PS decodes
+  still run `-copyts` (#169) and still stop at such a reset (task #21).
+- Also at review: `output_duration_secs` counts `pipe_frames`, so Audio
+  Restoration fits the sound to Soft Telecine's padded last cycle (120 film
+  frames from 149 slots, not 119).
+
 ### Seek alignment: the decoder repeated the first frame after a seek (issue #157, 2026-11-10)
 
 Full report with scripts:
@@ -3569,7 +3631,8 @@ Full report with scripts:
   in-point inside the run). Subtracting the seek's half frame
   instead (`PTS-0.5/fps/TB`, keeps gaps) fixes the same doubles but ties
   and rounds early in a 1/25 time base and broke starts 98-99 there. Leading
-  null frames are a follow-up (task 16). Script: the report's
+  null frames were a follow-up, fixed by the source grid (issue #174, entry
+  above). Script: the report's
   `scripts/gap_probe.py`.
   `integration_seek_alignment_test.dart` compares the preview, the app's
   Original (`PreviewGenerator.beforeFrameArgs`) and a trimmed FFV1 encode each
@@ -3704,67 +3767,6 @@ Report: [docs/reports/2026-11-video-start-offset](reports/2026-11-video-start-of
 - **The heavy test** (`integration_video_start_offset_test.dart`) fails 28
   of its 40 cases against the worker from before the fix.
 
-### Unblend (SRestore): havsfunc's srestore only decimates on R78; a windowed port (2026-11-14)
-
-Full report with scripts:
-[docs/reports/2026-11-srestore/](reports/2026-11-srestore/index.html).
-
-- Requested on the videohelp forum: deblend footage frame-rate converted by
-  blending (film on PAL through a standards converter, PAL to NTSC).
-- **havsfunc r31's `srestore` is plain decimation on VapourSynth R78.** Its
-  detector's history only advances when `FrameEval` is called for the frame
-  after the last one (`jmp`); it relied on `std.Cache(make_linear=True)`,
-  which R78 ignores ("Critical: … passed through instead"), and its
-  `ChangeFPS` requests only the frames it keeps (0, 2, 4, …). `jmp` was true
-  0 times in 143 calls at 1 and 8 requests; its picks equal decimation's,
-  frame for frame. Never call it.
-- `worker/templates/srestore.py` ports upstream's arithmetic line for line
-  (300/300 decisions identical to havsfunc driven frame by frame) but makes
-  each decision a replay over a fixed window (`UNBLEND_WINDOW` = 48 frames),
-  so encode, preview and thread count agree by construction: vspipe `-r 1` vs
-  default byte-identical, preview = encode at 42 emulated and 5 real targets.
-  Pre-roll can't do this: the phase tracker still disagreed at 36% of frames
-  after 160 frames of pre-roll (plan-stage synthetic fixture).
-- Recovery on ground-truth fixtures (`generate_blended_test.sh`): film in 50i
-  143/143 frames clean (decimation 87), PAL in 59.94i 101/125 (73). The
-  window is never below the linear run's clean count at 48; 32 was (141).
-- **A preview radius must cover the window index, not just the pixels read**
-  (46 back): a radius of 46 mismatched 6 of 22 targets. `FrameMap` radius =
-  window + 8, converted to source frames.
-- **Pin a clip's cache when many shifted copies read it.** The 49 shifted
-  reads of the 1x1 measurement clip made VapourSynth's automatic cache evict
-  it, and QTGMC behind it ran 830-894 times for 300 frames (3x the time).
-  `std.SetVideoCache(mode=1, fixedsize=1, maxsize=4096)` brought it to 299
-  and the pass to within ~2% of QTGMC alone.
-- srestore's own `numr/denm` must be the exact target ratio or the job is
-  refused (89 of 150 swept pairs pass, including every conversion the pass is
-  for; 59.94 → 50 would be 835/1001). `unblend_parameters.rs` ports the
-  arithmetic and is tested against the sweep's table.
-- It is its own pass right after Deinterlace, not a Frame Rate method: the
-  Frame Rate pass runs after denoise, sharpen, grain and resize, which change
-  what the detector measures.
-- Not tested: a real blended capture (none available), non-macOS platforms
-  beyond the nightly run.
-
-### ProRes in MOV: no `+faststart`, PCM for restored audio (2026-11-14)
-
-Follow-up to the v210 entry above. Full evidence:
-[docs/reports/2026-11-prores-faststart/](reports/2026-11-prores-faststart/index.html).
-
-- ProRes and v210 are both **editing intermediates**
-  (`VideoCodec::is_editing_intermediate`), and both now skip `+faststart` and
-  get PCM for a restored track under Passthrough. Field-order flagging
-  is decided separately (`field_order_signal`).
-- `+faststart`'s second pass on 3 min of ProRes HQ 1080p (191 Mbit/s,
-  4.3 GB) added 1.5–6.0 s on an M1 Pro's internal SSD (0.4–1.4 s/GB, median
-  ~0.9), after the bar reached 100%. Slow disks were not measured (an
-  estimated 10–20 min per hour of HQ on a ~150 MB/s HDD). It shifts the file
-  **in place**: the old `uses_faststart` comment's "needs the space twice"
-  was wrong.
-- A restored track beside ProRes was AAC; an editor re-encodes the soundtrack
-  on delivery, so that was two lossy generations. Now `pcm_s16le` (`sowt`),
-  ~1.5 Mbit/s stereo. 24-bit PCM for intermediates (the render is f32) is a
-  separate, open question.
 
 ### MPEG-PS/TS seeks started at the next keyframe (issue #169, 2026-11-14)
 
@@ -3848,3 +3850,65 @@ Report: [docs/reports/issue-173-avi-seek](reports/issue-173-avi-seek/index.html)
   `avi_h264_bframes.avi` and `avi_ntsc_intra.avi`
   (`generate_avi_seek_test.sh`); the worker from before the fix fails 17 of
   its 38 cases.
+
+### Unblend (SRestore): havsfunc's srestore only decimates on R78; a windowed port (2026-11-14)
+
+Full report with scripts:
+[docs/reports/2026-11-srestore/](reports/2026-11-srestore/index.html).
+
+- Requested on the videohelp forum: deblend footage frame-rate converted by
+  blending (film on PAL through a standards converter, PAL to NTSC).
+- **havsfunc r31's `srestore` is plain decimation on VapourSynth R78.** Its
+  detector's history only advances when `FrameEval` is called for the frame
+  after the last one (`jmp`); it relied on `std.Cache(make_linear=True)`,
+  which R78 ignores ("Critical: … passed through instead"), and its
+  `ChangeFPS` requests only the frames it keeps (0, 2, 4, …). `jmp` was true
+  0 times in 143 calls at 1 and 8 requests; its picks equal decimation's,
+  frame for frame. Never call it.
+- `worker/templates/srestore.py` ports upstream's arithmetic line for line
+  (300/300 decisions identical to havsfunc driven frame by frame) but makes
+  each decision a replay over a fixed window (`UNBLEND_WINDOW` = 48 frames),
+  so encode, preview and thread count agree by construction: vspipe `-r 1` vs
+  default byte-identical, preview = encode at 42 emulated and 5 real targets.
+  Pre-roll can't do this: the phase tracker still disagreed at 36% of frames
+  after 160 frames of pre-roll (plan-stage synthetic fixture).
+- Recovery on ground-truth fixtures (`generate_blended_test.sh`): film in 50i
+  143/143 frames clean (decimation 87), PAL in 59.94i 101/125 (73). The
+  window is never below the linear run's clean count at 48; 32 was (141).
+- **A preview radius must cover the window index, not just the pixels read**
+  (46 back): a radius of 46 mismatched 6 of 22 targets. `FrameMap` radius =
+  window + 8, converted to source frames.
+- **Pin a clip's cache when many shifted copies read it.** The 49 shifted
+  reads of the 1x1 measurement clip made VapourSynth's automatic cache evict
+  it, and QTGMC behind it ran 830-894 times for 300 frames (3x the time).
+  `std.SetVideoCache(mode=1, fixedsize=1, maxsize=4096)` brought it to 299
+  and the pass to within ~2% of QTGMC alone.
+- srestore's own `numr/denm` must be the exact target ratio or the job is
+  refused (89 of 150 swept pairs pass, including every conversion the pass is
+  for; 59.94 → 50 would be 835/1001). `unblend_parameters.rs` ports the
+  arithmetic and is tested against the sweep's table.
+- It is its own pass right after Deinterlace, not a Frame Rate method: the
+  Frame Rate pass runs after denoise, sharpen, grain and resize, which change
+  what the detector measures.
+- Not tested: a real blended capture (none available), non-macOS platforms
+  beyond the nightly run.
+
+### ProRes in MOV: no `+faststart`, PCM for restored audio (2026-11-14)
+
+Follow-up to the v210 entry above. Full evidence:
+[docs/reports/2026-11-prores-faststart/](reports/2026-11-prores-faststart/index.html).
+
+- ProRes and v210 are both **editing intermediates**
+  (`VideoCodec::is_editing_intermediate`), and both now skip `+faststart` and
+  get PCM for a restored track under Passthrough. Field-order flagging
+  is decided separately (`field_order_signal`).
+- `+faststart`'s second pass on 3 min of ProRes HQ 1080p (191 Mbit/s,
+  4.3 GB) added 1.5–6.0 s on an M1 Pro's internal SSD (0.4–1.4 s/GB, median
+  ~0.9), after the bar reached 100%. Slow disks were not measured (an
+  estimated 10–20 min per hour of HQ on a ~150 MB/s HDD). It shifts the file
+  **in place**: the old `uses_faststart` comment's "needs the space twice"
+  was wrong.
+- A restored track beside ProRes was AAC; an editor re-encodes the soundtrack
+  on delivery, so that was two lossy generations. Now `pcm_s16le` (`sowt`),
+  ~1.5 Mbit/s stereo. 24-bit PCM for intermediates (the render is f32) is a
+  separate, open question.

@@ -13,8 +13,8 @@
 // sequential decode of the source picked by index (`select=eq(n,N)`), never
 // one pipeline path against another. The fixtures are ones whose sequential
 // numbering is the app's frame numbering (no leading null frames, no
-// pulldown). Sources where it isn't (soft telecine, AVI null frames) are
-// separate issues; see docs/reports/issue-157-seek-alignment.
+// pulldown, video starting with the container). Soft telecine and AVI null
+// frames are integration_source_grid_test.dart's (issue #174).
 //
 // MPEG-PS and MPEG-TS (issue #169) are here too. They have no keyframe index,
 // so a plain seek started decoding at the keyframe AFTER the frame asked for
@@ -188,9 +188,12 @@ Future<({double offset, SeekPlan? plan})> _seekInfo(String video) async {
 
 /// The app's own "before" picture of [frame], through the same argument
 /// builder `PreviewGenerator.getFrameAtIndex` uses (PNG instead of JPEG, so
-/// the comparison isn't measuring JPEG).
+/// the comparison isn't measuring JPEG), with the source grid the app probes
+/// (issue #174; none for an AVI that stores decode-order timestamps).
 Future<Uint8List> _beforeFrame(String video, int frame, double fps,
     ({double offset, SeekPlan? plan}) seek, int delay) async {
+  final grid = await FieldOrderDetector.probeSourceGrid(
+      WorkerHarness.ffprobePath, video, frameRate: fps);
   final out = File(p.join(Directory.systemTemp.path,
       'vb_seek_before_${DateTime.now().microsecondsSinceEpoch}.png'));
   try {
@@ -203,6 +206,7 @@ Future<Uint8List> _beforeFrame(String video, int frame, double fps,
         videoStartOffset: seek.offset,
         seekPlan: seek.plan,
         decoderDelayFrames: delay,
+        grid: grid,
         outputPath: out.path,
       ),
       environment: WorkerHarness.ffmpegEnv,

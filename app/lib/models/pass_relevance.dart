@@ -68,10 +68,15 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info,
     {NoiseHaloReport? measured}) {
   if (info == null) return PassRelevanceResult.neutral;
 
-  final isProgressive = info.scanType == ScanType.progressive;
+  // Soft telecine stored at its film rate already decodes to progressive
+  // film frames: nothing to deinterlace or decimate (issue #174).
+  final filmRateSoftTelecine =
+      info.scanType == ScanType.softTelecine && !info.softTelecineDecimates;
+  final isProgressive =
+      info.scanType == ScanType.progressive || filmRateSoftTelecine;
   final isFielded = info.scanType == ScanType.interlaced ||
       info.scanType == ScanType.telecine ||
-      info.scanType == ScanType.softTelecine;
+      info.softTelecineDecimates;
   final isSd = info.height <= _sdMaxHeight;
 
   switch (pass) {

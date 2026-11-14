@@ -112,6 +112,14 @@ pub struct VideoJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seek_plan: Option<crate::source_decode::SeekPlan>,
 
+    /// The constant-rate grid every decoder places the source's frames on
+    /// (`source_decode::grid_from_probe`, rule 8, issue #174): the stream's
+    /// exact rate and its first picture. `None` (the decoders keep their old
+    /// arguments) when the probe failed or the source's packets lack
+    /// timestamps. Filled by the worker when the job omits it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_grid: Option<crate::source_decode::SourceGrid>,
+
     /// Frames late the decoder stamps every picture of an AVI that stores
     /// decode-order timestamps (`source_decode::decoder_delay_from_probe`,
     /// issue #173): 1 for MPEG-2 and MPEG-4 ASP, 2 for H.264 with B-frames.
@@ -139,6 +147,26 @@ impl VideoJob {
         self.decoder_delay_frames
             .filter(|d| *d <= crate::source_decode::MAX_DECODER_DELAY)
             .unwrap_or(0)
+    }
+
+    /// The source grid, when there is a usable one.
+    pub fn source_grid(&self) -> Option<&crate::source_decode::SourceGrid> {
+        self.source_grid.as_ref().filter(|g| g.is_valid())
+    }
+
+    /// How a constant-rate decoder of the source starts at source frame
+    /// `frame` (`source_decode::decode_start`): on the source's grid when it
+    /// has one, else [`Self::source_seek`]. Every such decoder (encode,
+    /// preview, detectors) takes its start from here.
+    pub fn decode_start(&self, frame: i64, fps: f64) -> crate::source_decode::DecodeStart {
+        crate::source_decode::decode_start(
+            frame,
+            fps,
+            self.video_start(),
+            self.decoder_delay(),
+            self.seek_plan(),
+            self.source_grid(),
+        )
     }
 
     /// How a decoder of the source starts at source frame `frame`

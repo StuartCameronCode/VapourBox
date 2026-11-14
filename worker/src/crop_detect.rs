@@ -875,11 +875,11 @@ pub fn decode_samples<T: Send>(
     let tag_fix = job.decode_tag_neutraliser();
 
     let decode = |frame: i32| -> Result<T> {
-        let seek = job.source_seek(frame as i64, fps);
+        let start = job.decode_start(frame as i64, fps);
         let out = Command::new(&ffmpeg)
             .args(source_decode::preview_decoder_args(
-                &job.input_path, seek, count, width, height, pix_fmt, "pipe:1",
-                job.video_start(), tag_fix.as_deref(),
+                &job.input_path, &start, count, width, height, pix_fmt, "pipe:1",
+                tag_fix.as_deref(),
             ))
             .envs(&env)
             .stdin(Stdio::null())
