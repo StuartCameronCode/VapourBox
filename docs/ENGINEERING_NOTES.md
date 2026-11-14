@@ -3797,3 +3797,7 @@ Report: [docs/reports/issue-169-mpeg-seek](reports/issue-169-mpeg-seek/index.htm
 - **Not handled:** raw elementary streams (`.m2v`, `.h264`: no timestamps;
   their seeks are byte guesses), timestamp discontinuities (spliced
   recordings, VOB sets whose clock resets), GOPs longer than the 20 s window.
+  Across a backward clock reset a trimmed decode was already wrong. It used
+  to start a GOP late and run through the reset. With `-copyts` it starts on
+  the right frame and stops at the reset (review: 52 of 150 frames;
+  `discontinuity_probe.py`).

@@ -22,6 +22,7 @@ python3 landing_probe.py | tee "$SEEK_WORK/landing.txt"
 python3 seek_probe.py --json "$SEEK_WORK/seek.json" | tee "$SEEK_WORK/seek.txt"
 python3 raw_es_probe.py | tee "$SEEK_WORK/raw_es.txt"
 python3 cost_probe.py | tee "$SEEK_WORK/cost.txt"
+python3 discontinuity_probe.py | tee "$SEEK_WORK/discontinuity.txt"
 for v in before after; do
     w=$BEFORE; [ $v = after ] && w=$AFTER
     python3 worker_probe.py --worker "$w" --label $v --json "$SEEK_WORK/worker_$v.json" | tee "$SEEK_WORK/worker_$v.txt"
