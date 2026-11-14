@@ -1288,7 +1288,8 @@ timeline continuous.
 
 - **`dvd_reader::title_cells` is the one decision of what a title plays**:
   chapter by chapter from the VTS PTT table (pgcn, pgn), each program's cells
-  from its PGC's program map, one cell of each angle block. The picker's
+  from its PGC's program map (a chapter runs on through programs no chapter
+  starts at, which a player plays too), one cell of each angle block. The picker's
   chapter and title durations come from the same cells (angle 1), so they
   match what is extracted. **Never copy the whole title set** (what the
   import did before: every title of the VTS, every angle interleaved), not

@@ -608,15 +608,19 @@ pub(crate) fn title_cells(
     }
 
     let ptt = ptt_entries_offset(vts_data, title.vts_ttn)?;
+    if ptt + nr_ptts as usize * 4 > vts_data.len() {
+        bail!("the title's PTT table runs past the end of the IFO");
+    }
+    // Every chapter's (PGC, program). A chapter plays from its program up to
+    // the next program some chapter starts at (or the PGC's end): programs no
+    // chapter points at still play, as on a player.
+    let starts: Vec<(u16, usize)> = (0..nr_ptts as usize)
+        .map(|i| (read_u16_be(vts_data, ptt + i * 4), read_u16_be(vts_data, ptt + i * 4 + 2) as usize))
+        .collect();
     let mut cells = Vec::new();
 
     for chapter in first_ch..=last_ch {
-        let entry = ptt + (chapter as usize - 1) * 4;
-        if entry + 4 > vts_data.len() {
-            bail!("Chapter {} is past the end of the PTT table", chapter);
-        }
-        let pgcn = read_u16_be(vts_data, entry);
-        let pgn = read_u16_be(vts_data, entry + 2) as usize;
+        let (pgcn, pgn) = starts[chapter as usize - 1];
 
         let pgc = pgc_offset(vts_data, pgcn as usize)
             .with_context(|| format!("Chapter {}", chapter))?;
@@ -633,8 +637,12 @@ pub(crate) fn title_cells(
         if map + nr_programs > vts_data.len() || table + nr_cells * CELL_PLAYBACK_SIZE > vts_data.len() {
             bail!("PGC {} tables out of bounds", pgcn);
         }
+        let mut last_pgn = pgn;
+        while last_pgn < nr_programs && !starts.contains(&(pgcn, last_pgn + 1)) {
+            last_pgn += 1;
+        }
         let start = vts_data[map + pgn - 1] as usize;
-        let end = if pgn < nr_programs { (vts_data[map + pgn] as usize).saturating_sub(1) } else { nr_cells };
+        let end = if last_pgn < nr_programs { (vts_data[map + last_pgn] as usize).saturating_sub(1) } else { nr_cells };
         if start == 0 || start > end || end > nr_cells {
             bail!("Program {} of PGC {} has an invalid cell range {}-{}", pgn, pgcn, start, end);
         }
@@ -1809,6 +1817,31 @@ mod tests {
         let cells = title_cells(&vts, &entry(1, 2, 1), None, 1).unwrap();
         assert_eq!(sectors(&cells), [(100, 199), (0, 99)]);
         assert_eq!(cells.iter().map(|c| c.chapter).collect::<Vec<_>>(), [1, 2]);
+    }
+
+    /// A PGC can hold more programs than the title has chapters: a program
+    /// no chapter starts at belongs to the chapter before it (a player plays
+    /// it), so it is copied with that chapter rather than dropped.
+    #[test]
+    fn title_cells_keep_programs_no_chapter_starts_at() {
+        let vts = build_vts(
+            &[vec![(1, 1), (1, 3)]],
+            &[TPgc {
+                program_map: vec![1, 2, 3, 4],
+                cells: vec![
+                    TCell(NORMAL, 10, 0, 99),
+                    TCell(NORMAL, 10, 100, 199),
+                    TCell(NORMAL, 10, 200, 299),
+                    TCell(NORMAL, 10, 300, 399),
+                ],
+            }],
+        );
+        let t = entry(1, 2, 1);
+        let all = title_cells(&vts, &t, None, 1).unwrap();
+        assert_eq!(all.iter().map(|c| c.cell).collect::<Vec<_>>(), [1, 2, 3, 4]);
+        assert_eq!(all.iter().map(|c| c.chapter).collect::<Vec<_>>(), [1, 1, 2, 2]);
+        assert_eq!(sectors(&title_cells(&vts, &t, Some((1, 1)), 1).unwrap()), [(0, 99), (100, 199)]);
+        assert_eq!(sectors(&title_cells(&vts, &t, Some((2, 2)), 1).unwrap()), [(200, 299), (300, 399)]);
     }
 
     #[test]
