@@ -86,7 +86,10 @@ void main() {
   Future<void> settle(WidgetTester tester) => tester.pump(const Duration(seconds: 1));
 
   Future<void> detect(WidgetTester tester) async {
-    vm.debugAddQueueItemForTest('/videos/tape.avi', width: 720, height: 576);
+    // The reported ProRes capture's tags (task #5): Apple's "unknown" read
+    // as `reserved`, which the worker must be told about to clear.
+    vm.debugAddQueueItemForTest('/videos/tape.avi', width: 720, height: 576,
+        colorMatrix: 'bt709', colorPrimaries: 'reserved', colorTransfer: 'reserved', colorRange: 'tv');
     await pumpPanel(tester);
     await tester.tap(find.text('Detect borders'));
     await tester.pump();
@@ -122,6 +125,10 @@ void main() {
     expect(asked.single.inputPath, '/videos/tape.avi');
     expect(asked.single.processingPipeline, isNotNull,
         reason: 'the worker needs the pipeline: the crop follows Rotate / Flip');
+    final job = asked.single;
+    expect((job.inputColorMatrix, job.inputColorPrimaries, job.inputColorTransfer, job.inputColorRange),
+        ('bt709', 'reserved', 'reserved', 'tv'),
+        reason: 'without the raw tags the worker cannot clear a reserved one before converting');
     expect(find.text('Left: 10 px of black / blanking and a 2-px soft edge'), findsOneWidget);
     expect(find.text('Top: 72-line letterbox bar'), findsOneWidget);
     expect(find.textContaining('Bottom: 8 lines of head-switching noise'), findsOneWidget);

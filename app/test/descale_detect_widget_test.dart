@@ -98,6 +98,22 @@ void main() {
     await settle(tester);
   });
 
+  testWidgets('the job carries the source\'s raw colour tags and range', (tester) async {
+    answer = const NativeResReport(found: false, height: 559, width: 699, kernel: 'bicubic', dip: 0.91);
+    vm.debugAddQueueItemForTest('/videos/prores.mov', width: 1920, height: 1080,
+        colorMatrix: 'bt709', colorPrimaries: 'reserved', colorTransfer: 'reserved', colorRange: 'pc');
+    await pumpPanel(tester);
+    await tester.tap(find.text('Detect native resolution'));
+    await tester.pump();
+    await tester.pump();
+    final job = asked.single;
+    // `reserved` must reach the worker (it clears it before a converting
+    // decode) and the range decides how the luma is scaled.
+    expect((job.inputColorMatrix, job.inputColorPrimaries, job.inputColorTransfer, job.inputColorRange),
+        ('bt709', 'reserved', 'reserved', 'pc'));
+    await settle(tester);
+  });
+
   testWidgets('no clear native resolution: said plainly, nothing to apply', (tester) async {
     answer = const NativeResReport(found: false, height: 559, width: 699, kernel: 'bicubic', dip: 0.91);
     vm.debugAddQueueItemForTest('/videos/vhs.avi', width: 720, height: 576);

@@ -943,6 +943,9 @@ in its one `-vf`. Never clear a valid tag (a valid matrix moves yuv → gray16le
 by up to 28 levels), which is why the job carries ffprobe's **raw** tags
 (`colorTag` forwards `reserved`) and `from_raw` drops them only for the
 encoder's flags. A new decode of the source must use the same helper.
+**Every detector job carries the source's raw tags**
+(`MainViewModel._detectorJob`): the worker can only clear a `reserved` tag
+the job tells it about.
 `integration_reserved_colour_tags_test.dart` (heavy) checks each one against
 an untagged twin; see docs/reports/2026-11-reserved-colour-tags.
 
@@ -1674,8 +1677,12 @@ keeps chroma and the source size. Rules:
   dip is ≤ 0.5 of its neighbours' median — a never-upscaled VHS capture
   measures ~0.9, a credit-free master ~0.14. All candidates are spliced into
   one clip and read with `frames()`, so VapourSynth runs them in parallel
-  (~30 s at 1080p). A fixture for any of this must have real detail at its
-  native resolution: an upscale of low-res footage is so smooth that 8-bit
+  (~30 s at 1080p). **The luma is the source's own Y plane**: decoded in the
+  pipe format and scaled by `native_res::luma_gray16` (limited expanded to
+  full-range GRAY16, full scaled), never a decode to gray — swscale makes
+  that with the matrix tag, and a BT.709-tagged copy of a master lost its dip
+  entirely. The thresholds are calibrated on this scaling. A fixture for
+  any of this must have real detail at its native resolution: an upscale of low-res footage is so smooth that 8-bit
   rounding hides every height's misfit.
 - The panel never applies a guess: no clear dip is reported as such.
   `integration_descale_test.dart` (heavy) checks detection on known masters,

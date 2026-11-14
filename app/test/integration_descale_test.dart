@@ -50,9 +50,39 @@ Future<String> _master(String name, String scaleFlags, {bool credits = false}) a
   return out;
 }
 
+/// [master] re-encoded losslessly at 10-bit, untagged or tagged BT.709 —
+/// the same samples under two labels.
+Future<String> _tenBit(String master, String name, {required bool bt709}) async {
+  final out = p.join(_dir, '$name.mkv');
+  const tags = ['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709'];
+  final r = await Process.run(
+    WorkerHarness.ffmpegPath,
+    ['-y', '-v', 'error', '-i', master,
+      '-vf', bt709
+          ? 'format=yuv420p10le,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709'
+          : 'format=yuv420p10le',
+      if (bt709) ...tags, '-c:v', 'ffv1', out],
+    environment: WorkerHarness.ffmpegEnv,
+  );
+  expect(r.exitCode, 0, reason: '${r.stderr}');
+  return out;
+}
+
+/// The first frame's 16-bit luma plane, read without any conversion.
+Future<List<int>> _luma10(String path) async {
+  final r = await Process.run(
+    WorkerHarness.ffmpegPath,
+    ['-v', 'error', '-i', path, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'yuv420p10le', '-'],
+    environment: WorkerHarness.ffmpegEnv,
+    stdoutEncoding: null,
+  );
+  expect(r.exitCode, 0, reason: '${r.stderr}');
+  return (r.stdout as List<int>).sublist(0, 1920 * 1080 * 2);
+}
+
 VideoJob _job(String name, String input, DescaleParameters ds,
         {int width = 1920, int height = 1080, String pixFmt = 'yuv420p', double fps = 29.97,
-         int total = _frames}) =>
+         int total = _frames, String? matrix, String? primaries, String? transfer}) =>
     VideoJob(
       id: const Uuid().v4(),
       inputPath: input,
@@ -68,6 +98,9 @@ VideoJob _job(String name, String input, DescaleParameters ds,
       inputPixelFormat: pixFmt,
       inputFrameRate: fps,
       totalFrames: total,
+      inputColorMatrix: matrix,
+      inputColorPrimaries: primaries,
+      inputColorTransfer: transfer,
     );
 
 Future<Map<String, dynamic>> _detect(VideoJob job) async {
@@ -162,6 +195,30 @@ void main() {
       final r = await _detect(_job('d_vhs', WorkerHarness.inputFile, const DescaleParameters(),
           width: 720, height: 576, pixFmt: 'yuv422p', fps: 25, total: 75));
       expect(r['found'], isFalse, reason: 'a never-upscaled VHS capture reported a native resolution');
+    }, timeout: const Timeout(Duration(minutes: 10)));
+
+    // The matrix tag says how to make RGB from YUV; it must not change the
+    // luma Detect measures. A decode to gray16le through swscale did (up to
+    // 28 levels between these two files).
+    test('a BT.709-tagged copy gives exactly the untagged copy\'s report', () async {
+      final plain = await _tenBit(catrom, 'catrom10', bt709: false);
+      final tagged = await _tenBit(catrom, 'catrom10_709', bt709: true);
+      final probe = await WorkerHarness.firstStream(tagged, selector: 'v:0', entries: ['color_space']);
+      expect(probe!['color_space'], 'bt709', reason: 'the tagged copy is not tagged');
+      final plainProbe = await WorkerHarness.firstStream(plain, selector: 'v:0', entries: ['color_space']);
+      expect(plainProbe!['color_space'], isNot('bt709'));
+      expect(await _luma10(tagged), await _luma10(plain), reason: 'the two copies hold different samples');
+
+      final a = await _detect(_job('d_c10', plain, const DescaleParameters(), pixFmt: 'yuv420p10le'));
+      final b = await _detect(_job('d_c10_709', tagged, const DescaleParameters(),
+          pixFmt: 'yuv420p10le', matrix: 'bt709', primaries: 'bt709', transfer: 'bt709'));
+      for (final r in [a, b]) {
+        expect(r['found'], isTrue);
+        expect((r['height'], r['kernel'], r['bicubicC']), (720, 'bicubic', 0.5));
+      }
+      for (final k in ['dip', 'kernels', 'curve', 'frames']) {
+        expect(b[k], a[k], reason: '$k differs between the tagged and untagged copy');
+      }
     }, timeout: const Timeout(Duration(minutes: 10)));
   });
 

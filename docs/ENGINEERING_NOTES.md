@@ -3285,6 +3285,19 @@ Full report with scripts:
 - Open: `--detect-native`'s gray16le decode depends on the matrix tag in any
   case (the same 28 levels). `--detect-noise-halo` avoids it by reading the
   luma plane of the source's own format.
+  **Fixed 2026-11-14**: `--detect-native` now decodes the pipe format and
+  scales the Y plane itself (`native_res::luma_gray16`: limited range
+  expanded to 0–65535, full range scaled — within one code of an *untagged*
+  source's gray16le, so the calibrated cap and dip threshold are unchanged).
+  It mattered more than 28 levels suggests: a BT.709-tagged copy of the 10-bit
+  Catmull-Rom test master lost its dip altogether (1063p, dip 0.59, not
+  found; untagged 720p, 0.144). Now both give the identical report.
+- Also found then: the app built all three Detect jobs (`--detect-native`,
+  `--detect-crop`, `--detect-noise-halo`) without the matrix, primaries and
+  transfer (Descale's without the range too), so `decode_tag_neutraliser`
+  never fired from the app — only the heavy test, whose jobs carry tags,
+  proved the fix. They now share `MainViewModel._detectorJob`, which always
+  carries the four raw tags. See the report's addendum (section 8).
 
 ### Testing a deps change before publishing
 
