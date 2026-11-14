@@ -182,6 +182,13 @@ impl VideoJob {
         )
     }
 
+    /// How a decode of the source's sound reaches `start` seconds on the
+    /// container timeline (`source_decode::sound_seek`, rule 9): a delayed
+    /// AVI near its start skips after decoding instead of seeking.
+    pub fn sound_seek(&self, start: f64) -> crate::source_decode::SoundSeek {
+        crate::source_decode::sound_seek(start, self.decoder_delay())
+    }
+
     /// The video start offset in seconds, 0 when unknown or invalid.
     pub fn video_start(&self) -> f64 {
         self.video_start_offset.filter(|o| o.is_finite() && *o > 0.0).unwrap_or(0.0)

@@ -162,7 +162,7 @@ fn preview_window(target: i32, radius: i32) -> (i32, i32, i32) {
     (first, local, num_frames)
 }
 
-use crate::audio_restoration::{self, RestoredTrack};
+use crate::audio_restoration::{self, RestoredTrack, SoundCopy};
 /// The `PREVIEW_INFO:` line a preview reports on stderr after rendering: the
 /// frame it rendered, which of that frame's outputs, and — when not square —
 /// the display aspect the encode will declare for it. The PNG carries no
@@ -317,6 +317,10 @@ pub struct PipelineExecutor {
     /// The track audio restoration rendered for this job, mapped in place of
     /// the source's stream (see `audio_restoration`). `None` otherwise.
     restored_audio: Option<RestoredTrack>,
+    /// A NUT copy of the source's sound, which the encoder seeks in place of
+    /// the source when a delayed AVI cannot seek its sound (`source_decode`
+    /// rule 9, `audio_restoration::needs_sound_sidecar`). `None` otherwise.
+    sound_copy: Option<SoundCopy>,
 }
 
 /// Watches for the pipeline making no progress at all.
@@ -381,6 +385,7 @@ impl PipelineExecutor {
             ffmpeg_process: None,
             timeline: None,
             restored_audio: None,
+            sound_copy: None,
         })
     }
 
@@ -393,6 +398,12 @@ impl PipelineExecutor {
     /// Use a restored audio track (see `self.restored_audio`).
     pub fn with_restored_audio(mut self, track: Option<RestoredTrack>) -> Self {
         self.restored_audio = track;
+        self
+    }
+
+    /// Take the source's sound from a copy (see `self.sound_copy`).
+    pub fn with_sound_copy(mut self, copy: Option<SoundCopy>) -> Self {
+        self.sound_copy = copy;
         self
     }
 
@@ -1024,6 +1035,12 @@ impl PipelineExecutor {
         // Input 3: the restored audio track, when audio restoration ran.
         args.extend(audio_restoration::encode_input_args(self.restored_audio.as_ref()));
 
+        // Next input: the copy of the source's sound, when a delayed AVI
+        // cannot seek its own near its start (rule 9). Input 1 is unchanged;
+        // it still supplies subtitles (an AVI's XSUB, which MKV cannot copy).
+        let sound = sound_copy_input(self.sound_copy.as_ref(), self.restored_audio.is_some());
+        args.extend(sound_copy_input_args(job, self.sound_copy.as_ref()));
+
         // Progress output to a temp file (avoids Windows pipe buffering delay)
         args.extend(["-progress".to_string(), progress_file.to_string_lossy().to_string()]);
 
@@ -1032,7 +1049,7 @@ impl PipelineExecutor {
         // Audio from the original (every stream, `1:a?`), or — when audio
         // restoration rendered a track — that track (input 3) first, then the
         // source's other audio streams. One decision site: audio_restoration.
-        args.extend(audio_restoration::encode_map_args(settings, self.restored_audio.as_ref(), 3));
+        args.extend(audio_restoration::encode_map_args(settings, self.restored_audio.as_ref(), 3, sound));
 
         // Preserve existing subtitle streams from source (? = optional, no error if none)
         let subtitle_embed_pending = job.subtitle_settings.as_ref()
@@ -1788,6 +1805,21 @@ pub fn source_audio_input_seek(job: &VideoJob) -> Vec<String> {
     }
 }
 
+/// The input index and stream count of the sound copy, which comes after the
+/// source (1), the metadata file (2) and the restored track (3, if any).
+pub fn sound_copy_input(copy: Option<&SoundCopy>, restored: bool) -> Option<(usize, u32)> {
+    copy.map(|c| (3 + usize::from(restored), c.streams))
+}
+
+/// The sound copy's input, seeked exactly as the source's sound would be:
+/// NUT, unlike the delayed AVI, seeks there sample-exact.
+pub fn sound_copy_input_args(job: &VideoJob, copy: Option<&SoundCopy>) -> Vec<String> {
+    let Some(c) = copy else { return Vec::new() };
+    let mut args = source_audio_input_seek(job);
+    args.extend(["-i".to_string(), c.path.to_string_lossy().to_string()]);
+    args
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2017,6 +2049,62 @@ mod tests {
         args
     }
 
+    thread_local! {
+        static TEST_SOUND_COPY: std::cell::RefCell<Option<SoundCopy>> = const { std::cell::RefCell::new(None) };
+    }
+
+    /// Build args as the job would run them, with a sound copy whenever
+    /// `needs_sound_sidecar` asks for one.
+    fn build_ffmpeg_args_with_sound_copy(job: &VideoJob) -> Vec<String> {
+        let copy = audio_restoration::needs_sound_sidecar(job, None)
+            .then(|| SoundCopy { path: "/tmp/sound.nut".into(), streams: 1 });
+        TEST_SOUND_COPY.with(|c| *c.borrow_mut() = copy);
+        let args = build_ffmpeg_args_for_test(job);
+        TEST_SOUND_COPY.with(|c| *c.borrow_mut() = None);
+        args
+    }
+
+    /// Rule 9: a delayed AVI trimmed at frame 2 takes its sound from the NUT
+    /// copy, seeked as the source would have been; input 1 is unchanged.
+    /// Past COUNT_SEEK_BELOW, or with no delay, nothing changes.
+    #[test]
+    fn a_delayed_avi_trimmed_near_its_start_seeks_a_copy_of_its_sound() {
+        let mut job = create_test_job("/tmp/out.mkv");
+        job.input_path = "input.avi".to_string();
+        job.input_frame_rate = Some(30000.0 / 1001.0);
+        job.start_frame = Some(2);
+        job.end_frame = Some(61);
+        let plain = build_ffmpeg_args_with_sound_copy(&job);
+        job.decoder_delay_frames = Some(2);
+        let args = build_ffmpeg_args_with_sound_copy(&job);
+        let joined = args.join(" ");
+        assert!(
+            joined.contains("-ss 0.066733 -i input.avi -ss 0.066733 -i /tmp/sound.nut"),
+            "{joined}"
+        );
+        assert!(joined.contains("-map 2:a? -map_metadata:s:a:0 1:s:a:0"), "{joined}");
+        assert!(!joined.contains("1:a?"), "{joined}");
+        assert!(plain.join(" ").contains("-map 1:a?"));
+        assert!(!plain.join(" ").contains("sound.nut"));
+
+        job.start_frame = Some(20);
+        assert!(!build_ffmpeg_args_with_sound_copy(&job).join(" ").contains("sound.nut"));
+        job.start_frame = None;
+        job.end_frame = None;
+        assert!(!build_ffmpeg_args_with_sound_copy(&job).join(" ").contains("sound.nut"));
+    }
+
+    #[test]
+    fn the_sound_copy_follows_the_restored_track() {
+        let c = SoundCopy { path: "/tmp/s.nut".into(), streams: 2 };
+        assert_eq!(sound_copy_input(Some(&c), false), Some((3, 2)));
+        assert_eq!(sound_copy_input(Some(&c), true), Some((4, 2)));
+        assert_eq!(sound_copy_input(None, true), None);
+        let job = create_test_job("/tmp/out.mkv");
+        assert!(sound_copy_input_args(&job, None).is_empty());
+        assert_eq!(sound_copy_input_args(&job, Some(&c)), ["-i", "/tmp/s.nut"]);
+    }
+
     /// An HDR10 source encoded with x265 keeps its mastering display and light
     /// levels; the same source to any other encoder, or an SDR one, gets none.
     #[test]
@@ -2103,7 +2191,12 @@ mod tests {
             .find("audio_restoration::encode_input_args(self.restored_audio.as_ref())")
             .expect("restored track input");
         assert!(file < track, "the restored track must be input 3, after the metadata file");
-        assert!(body.contains("audio_restoration::encode_map_args(settings, self.restored_audio.as_ref(), 3)"));
+        assert!(body.contains("audio_restoration::encode_map_args(settings, self.restored_audio.as_ref(), 3, sound)"));
+        let copy = body
+            .find("args.extend(sound_copy_input_args(job, self.sound_copy.as_ref()));")
+            .expect("sound copy input");
+        assert!(track < copy, "the sound copy comes after the restored track");
+        assert!(body.contains("sound_copy_input(self.sound_copy.as_ref(), self.restored_audio.is_some())"));
         assert!(body.contains("audio_restoration::encode_codec_args(settings, self.restored_audio.as_ref())"));
         assert!(!body.contains("\"1:a?\""), "audio mapping belongs to audio_restoration");
         assert_eq!(body.matches("\"-af\"").count(), 0, "the encode never filters audio itself");
@@ -2173,6 +2266,11 @@ mod tests {
         args.extend(source_audio_input_seek(job));
         args.extend(["-i".to_string(), job.input_path.clone()]);
 
+        // Input 2: the sound copy, when the job needs one (mirrors
+        // build_ffmpeg_args; tests set it through `TEST_SOUND_COPY`).
+        let copy = TEST_SOUND_COPY.with(|c| c.borrow().clone());
+        args.extend(sound_copy_input_args(job, copy.as_ref()));
+
         // Progress output to temp file
         args.extend(["-progress".to_string(), "/tmp/test_progress.txt".to_string()]);
 
@@ -2184,9 +2282,12 @@ mod tests {
         }
         args.extend(video_delay_encoder_args(job));
 
-        // Map streams: video from input 0 (processed), audio from input 1 (original) if not disabled
+        // Map streams: video from input 0 (processed), audio from input 1
+        // (original) if not disabled, or from the sound copy (rule 9;
+        // mirrors build_ffmpeg_args, at index 2 since this has no metadata file).
         args.extend(["-map".to_string(), "0:v".to_string()]);
-        args.extend(audio_restoration::encode_map_args(settings, None, 2));
+        let sound = TEST_SOUND_COPY.with(|c| c.borrow().clone());
+        args.extend(audio_restoration::encode_map_args(settings, None, 2, sound.as_ref().map(|c| (2, c.streams))));
 
         // Video codec
         args.extend(["-c:v".to_string(), settings.codec.ffmpeg_codec().to_string()]);

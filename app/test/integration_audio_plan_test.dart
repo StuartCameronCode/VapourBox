@@ -144,6 +144,36 @@ void main() {
     expect(none['active'], isFalse);
   });
 
+  test('a delayed AVI trimmed near its start skips its sound after decoding', () async {
+    // avi_h264_bframes.avi: H.264 with B-frames in AVI (decoder delay 2),
+    // PCM at 32 kHz. An input -ss under ~0.12 s fails there and loses ~1.3 s
+    // of sound (source_decode rule 9), so the head is dropped in the chain,
+    // right after the padding. From frame 20 it seeks as before.
+    final avi = p.join(WorkerHarness.repoRoot, 'Tests', 'TestResources', 'avi_h264_bframes.avi');
+    Map<String, dynamic> at(int start) => AudioFixtures.job(avi, {'limiter': true}, extra: {
+          'inputFrameRate': 30000 / 1001,
+          'inputWidth': 320,
+          'inputHeight': 240,
+          'startFrame': start,
+          'endFrame': 61,
+          'totalFrames': 62 - start,
+        });
+    final near = await AudioFixtures.plan(at(2));
+    expect(near['decoderDelay'], 2);
+    expect(near['readSkip'], isTrue);
+    final restore = (near['restore'] as List).cast<String>();
+    expect(restore, isNot(contains('-ss')));
+    // An input -t counts from the file's start: the in-point plus the window.
+    expect(double.parse(restore[restore.indexOf('-t') + 1]), closeTo(2 * 1001 / 30000 + 2.002 + 1, 1e-5));
+    expect(af(restore), startsWith('aresample=first_pts=0,atrim=start_sample=2135,asetpts=PTS-STARTPTS,'));
+
+    final far = await AudioFixtures.plan(at(20));
+    expect(far['readSkip'], isFalse);
+    final farRestore = (far['restore'] as List).cast<String>();
+    expect(double.parse(farRestore[farRestore.indexOf('-ss') + 1]), closeTo(20 * 1001 / 30000, 1e-6));
+    expect(af(farRestore), isNot(contains('atrim=start_sample')));
+  });
+
   test('the length follows the encoded picture, not the source frame count', () async {
     // Double-rate deinterlacing doubles the frames and the rate: same length.
     final plan = await AudioFixtures.plan(AudioFixtures.job(deadRightHum, {'limiter': true},

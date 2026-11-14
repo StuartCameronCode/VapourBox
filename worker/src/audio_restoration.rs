@@ -31,6 +31,13 @@
 //!    after the video does (common in captures). Mapping the source's stream
 //!    straight into the output kept that gap through its timestamps; a WAV has
 //!    none, so it must be made of samples.
+//!    1a. On a delayed AVI read from near its start (`source_decode` rule 9),
+//!    where an input `-ss` fails and loses ~1.3 s of sound, the read starts
+//!    at 0 and `atrim=start_sample` + `asetpts` drop the head here: after
+//!    the padding (so the count is on the container timeline) and before the
+//!    drift resample (the read point is in source time). Not an output
+//!    `-ss`: ffmpeg trims an output after the whole `-af` chain, whose own
+//!    trims and padding would move the cut.
 //! 2. channel fix (`pan`) — before anything measures or filters the channels.
 //! 3. `adeclip` — first of the repairs: it reconstructs peaks from the shape
 //!    of the clipped waveform, which any filter ahead of it would change.
@@ -134,6 +141,10 @@ pub struct OutputWindow {
     pub start: f64,
     /// `None` when the length is unknown: the audio then runs to its end.
     pub duration: Option<f64>,
+    /// The source's decoder delay in frames (`VideoJob::decoder_delay`):
+    /// non-zero only for an AVI that stores decode-order timestamps, which
+    /// cannot seek its sound near its start (`source_decode` rule 9).
+    pub decoder_delay: u32,
 }
 
 impl OutputWindow {
@@ -156,7 +167,7 @@ impl OutputWindow {
             .filter(|n| *n > 0)
             .and_then(|n| job.effective_pipeline().output_duration_secs(n as u64, fps))
             .map(|d| d + delay);
-        Self { start, duration }
+        Self { start, duration, decoder_delay: job.decoder_delay() }
     }
 }
 
@@ -375,6 +386,9 @@ pub struct AudioPlan {
     pub source_rate: u32,
     /// Where to start reading the source (seconds, `-ss` before `-i`).
     pub read_start: f64,
+    /// Whether `read_start` is reached by decoding from 0 and dropping it in
+    /// the chain (step 1a, `source_decode` rule 9) rather than by `-ss`.
+    pub read_skip: bool,
     /// How much to read (`-t`), when the window's length is known.
     pub read_duration: Option<f64>,
     /// The first ffmpeg run's filters, in order.
@@ -512,6 +526,19 @@ impl AudioPlan {
         let read_duration = window.duration.map(|d| {
             (d - lead).max(0.0) * factor + READ_MARGIN_SECONDS + if p.denoise { AFFTDN_DELAY_SECONDS } else { 0.0 }
         });
+        // 1a. A read an input seek would get wrong is dropped after decoding,
+        // right behind the padding.
+        let read_skip = crate::source_decode::sound_seek_fails(read_start, window.decoder_delay);
+        if read_skip {
+            let n = (read_start * rate as f64).round() as u64;
+            f.insert(1, format!("atrim=start_sample={n}"));
+            f.insert(2, "asetpts=PTS-STARTPTS".to_string());
+            notes.push(
+                "The source cannot seek its sound this near its start (an AVI with a decoder delay), \
+                 so it is read from the beginning and the head dropped."
+                    .into(),
+            );
+        }
 
         // 9–12.
         let deep_filter = p.deep_filter.then(|| p.deep_filter_attenuation.clamp(1, 100));
@@ -538,6 +565,7 @@ impl AudioPlan {
             stream: p.stream_index,
             source_rate: rate,
             read_start,
+            read_skip,
             read_duration,
             restore_filters: f,
             deep_filter,
@@ -557,11 +585,14 @@ impl AudioPlan {
     /// The first run: the source's chosen stream through the restore chain.
     pub fn restore_args(&self, source: &str, output: &Path) -> Vec<String> {
         let mut args = quiet_args();
-        if self.read_start > 0.0 {
+        if self.read_start > 0.0 && !self.read_skip {
             args.extend(["-ss".into(), format!("{:.6}", self.read_start)]);
         }
+        // An input -t counts from where the read starts: the file's start
+        // when the head is dropped in the chain.
+        let head = if self.read_skip { self.read_start } else { 0.0 };
         if let Some(t) = self.read_duration {
-            args.extend(["-t".into(), format!("{:.6}", t)]);
+            args.extend(["-t".into(), format!("{:.6}", t + head)]);
         }
         args.extend(["-i".into(), source.to_string()]);
         args.extend(["-map".into(), format!("0:a:{}", self.stream)]);
@@ -635,6 +666,24 @@ impl AudioPlan {
         args.extend(wav_output_args(output));
         args
     }
+}
+
+/// The analysis decode: `ANALYSIS_SECONDS` from `start`, as 32-bit float at
+/// `rate`. An input seek, except where it fails (`source_decode` rule 9),
+/// where the seek goes after `-i` and the head is decoded and discarded.
+fn analysis_args(input: &str, stream: u32, start: f64, decoder_delay: u32, rate: u32) -> Vec<String> {
+    let seek = ["-ss".to_string(), format!("{start:.3}"), "-t".to_string(), format!("{ANALYSIS_SECONDS}")];
+    let input = ["-i".to_string(), input.to_string()];
+    let mut args: Vec<String> = ["-v", "error", "-nostdin"].iter().map(|s| s.to_string()).collect();
+    if crate::source_decode::sound_seek_fails(start, decoder_delay) {
+        args.extend(input);
+        args.extend(seek);
+    } else {
+        args.extend(seek);
+        args.extend(input);
+    }
+    args.extend(["-map".into(), format!("0:a:{stream}"), "-ar".into(), rate.to_string(), "-f".into(), "f32le".into(), "-".into()]);
+    args
 }
 
 fn quiet_args() -> Vec<String> {
@@ -725,17 +774,33 @@ pub fn encode_input_args(track: Option<&RestoredTrack>) -> Vec<String> {
 /// the one a player picks by default — then the source's other audio streams
 /// untouched, in their order, with the restored stream's tags (language,
 /// title) carried over to the rendered one.
-pub fn encode_map_args(settings: &EncodingSettings, track: Option<&RestoredTrack>, track_input: usize) -> Vec<String> {
+///
+/// `sound` is the [`SoundCopy`]'s input and stream count when the source's
+/// sound is copied from it rather than from input 1 (`source_decode` rule 9).
+/// Its streams' tags are still taken from the source, every one named.
+pub fn encode_map_args(
+    settings: &EncodingSettings,
+    track: Option<&RestoredTrack>,
+    track_input: usize,
+    sound: Option<(usize, u32)>,
+) -> Vec<String> {
     if settings.audio_mode == AudioMode::None {
         return Vec::new();
     }
+    let from = sound.map_or(1, |(input, _)| input);
     let Some(t) = track else {
-        return vec!["-map".into(), "1:a?".into()];
+        let mut args = vec!["-map".into(), format!("{from}:a?")];
+        if let Some((_, streams)) = sound {
+            for k in 0..streams {
+                args.extend([format!("-map_metadata:s:a:{k}"), format!("1:s:a:{k}")]);
+            }
+        }
+        return args;
     };
     let mut args = vec!["-map".into(), format!("{track_input}:a:0")];
     let others: Vec<u32> = (0..t.source_streams).filter(|k| *k != t.stream).collect();
     for k in &others {
-        args.extend(["-map".into(), format!("1:a:{k}")]);
+        args.extend(["-map".into(), format!("{from}:a:{k}")]);
     }
     // Tags per output stream. Naming one stream's switches off ffmpeg's own
     // copying for the rest, so every audio stream is named.
@@ -826,6 +891,64 @@ pub fn restored_passthrough_codec(container: ContainerFormat, video: VideoCodec)
         ContainerFormat::Mp4 | ContainerFormat::Mov => RestoredTrackCodec::Aac,
         ContainerFormat::Avi => RestoredTrackCodec::Pcm16,
     }
+}
+
+// ---------------------------------------------------------------------------
+// The source's sound for a delayed AVI trimmed near its start
+// ---------------------------------------------------------------------------
+
+/// A copy of the source's audio streams in NUT, which the encoder seeks in
+/// place of the source (`source_decode` rule 9): an input `-ss` on a delayed
+/// AVI below `COUNT_SEEK_BELOW` fails and drops ~1.3 s of sound, and the
+/// encode cannot filter audio. NUT keeps each stream's own time base
+/// (1/sample rate) and any codec an AVI holds, so its seek is sample-exact;
+/// an MKA copy was 9 samples off, an audio-only AVI ~10 ms on MP3 (see
+/// docs/reports/2026-11-avi-audio-seek).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SoundCopy {
+    pub path: PathBuf,
+    /// How many audio streams it holds: the source's, in order.
+    pub streams: u32,
+}
+
+/// A [`SoundCopy`] and its scratch directory, removed when this is dropped
+/// (held to the end of the job, like [`RenderedAudio`]).
+pub struct SoundSidecar {
+    pub copy: SoundCopy,
+    work: PathBuf,
+}
+
+impl Drop for SoundSidecar {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.work);
+    }
+}
+
+/// Whether the encode must take the source's sound from a [`SoundCopy`]:
+/// it carries source audio (all of it, or the streams beside a rendered
+/// track), and that sound's seek would fail (`VideoJob::sound_seek`).
+pub fn needs_sound_sidecar(job: &VideoJob, track: Option<&RestoredTrack>) -> bool {
+    job.encoding_settings.audio_mode != AudioMode::None
+        && job.source_has_audio != Some(false)
+        && track.map_or(true, |t| t.source_streams > 1)
+        && matches!(
+            job.sound_seek(job.source_audio_start()),
+            crate::source_decode::SoundSeek::Skip(_)
+        )
+}
+
+/// The ffmpeg arguments that copy every audio stream of `source` into the NUT
+/// file `out`, up to `end` seconds (the window's end plus a margin) when known.
+pub fn sound_copy_args(source: &str, end: Option<f64>, out: &Path) -> Vec<String> {
+    let mut args = quiet_args();
+    args.extend(["-v".into(), "error".into(), "-i".into(), source.to_string()]);
+    args.extend(["-map".into(), "0:a".into(), "-c".into(), "copy".into()]);
+    if let Some(t) = end {
+        args.extend(["-t".into(), format!("{t:.6}")]);
+    }
+    args.extend(["-map_metadata".into(), "-1".into(), "-f".into(), "nut".into()]);
+    args.push(out.to_string_lossy().to_string());
+    args
 }
 
 // ---------------------------------------------------------------------------
@@ -996,6 +1119,67 @@ impl AudioRestorer {
         Ok(Some(rendered))
     }
 
+    /// The [`SoundCopy`] the encode seeks, when it needs one
+    /// ([`needs_sound_sidecar`]). A failure is a warning, not a refusal: the
+    /// encode then seeks the source as before and may lose its first second
+    /// or so of sound, which the warning says.
+    pub fn sound_sidecar(&self, job: &VideoJob, track: Option<&RestoredTrack>) -> Option<SoundSidecar> {
+        if !needs_sound_sidecar(job, track) {
+            return None;
+        }
+        // A silent source has nothing to copy, and nothing to lose.
+        let streams = match self.probe_source(&job.input_path, 0) {
+            Ok(Some(s)) if s.streams > 0 => s.streams,
+            Ok(_) => return None,
+            Err(e) => {
+                self.log(LogLevel::Warning, &format!(
+                    "Could not probe the source's sound for the trim ({e:#}); the first ~1.3 s of sound may be missing."
+                ));
+                return None;
+            }
+        };
+        match self.write_sound_copy(job, streams) {
+            Ok(sidecar) => {
+                self.log(LogLevel::Info, &format!(
+                    "The source has a decoder delay (AVI) and the trim starts within {} s, where it cannot \
+                     seek its sound: the sound is copied to a temporary file so the trim can.",
+                    crate::source_decode::COUNT_SEEK_BELOW
+                ));
+                Some(sidecar)
+            }
+            Err(e) => {
+                self.log(LogLevel::Warning, &format!(
+                    "Could not copy the source's sound for the trim ({e:#}); the first ~1.3 s of sound may be missing."
+                ));
+                None
+            }
+        }
+    }
+
+    fn write_sound_copy(&self, job: &VideoJob, streams: u32) -> Result<SoundSidecar> {
+        let work = std::env::temp_dir().join(format!("vb_sound_{}", job.id));
+        let _ = std::fs::remove_dir_all(&work);
+        std::fs::create_dir_all(&work).context("Failed to create the sound copy's directory")?;
+        let sidecar = SoundSidecar { copy: SoundCopy { path: work.join("sound.nut"), streams }, work };
+        let end = job
+            .source_audio_window()
+            .and_then(|(start, duration)| duration.map(|d| start + d + READ_MARGIN_SECONDS));
+        let args = sound_copy_args(&job.input_path, end, &sidecar.copy.path);
+        self.log(LogLevel::Debug, &format!("ffmpeg (sound copy): {args:?}"));
+        let out = Command::new(self.deps.ffmpeg_path()?)
+            .args(&args)
+            .envs(self.deps.build_environment())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .context("Failed to start ffmpeg")?;
+        if !out.status.success() {
+            let err = String::from_utf8_lossy(&out.stderr);
+            bail!("ffmpeg exited with {}: {}", out.status, err.trim());
+        }
+        Ok(sidecar)
+    }
+
     fn log(&self, level: LogLevel, msg: &str) {
         self.reporter.send_log(level, msg);
     }
@@ -1018,9 +1202,7 @@ impl AudioRestorer {
         let start = window.start + window.duration.map_or(0.0, |d| (d / 2.0 - ANALYSIS_SECONDS / 2.0).max(0.0));
         let rate = source.sample_rate.clamp(8000, ANALYSIS_MAX_RATE);
         let out = Command::new(&ffmpeg)
-            .args(["-v", "error", "-nostdin", "-ss", &format!("{start:.3}"), "-t", &format!("{ANALYSIS_SECONDS}"),
-                   "-i", input, "-map", &format!("0:a:{}", p.stream_index),
-                   "-ar", &rate.to_string(), "-f", "f32le", "-"])
+            .args(analysis_args(input, p.stream_index, start, window.decoder_delay, rate))
             .envs(self.deps.build_environment())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -1233,7 +1415,7 @@ mod tests {
     }
 
     fn window(start: f64, d: f64) -> OutputWindow {
-        OutputWindow { start, duration: Some(d) }
+        OutputWindow { start, duration: Some(d), decoder_delay: 0 }
     }
 
     fn on() -> AudioRestorationParameters {
@@ -1278,7 +1460,7 @@ mod tests {
         let rank = |n: &str| order.iter().position(|o| *o == n).unwrap_or_else(|| panic!("unexpected filter {n}"));
         // 9 toggles → 512 combinations, each with and without a negative offset.
         for mask in 0u32..512 {
-            for offset in [0, 250, -250] {
+            for (offset, delayed) in [(0, false), (250, false), (-250, false), (0, true), (-250, true)] {
                 let p = AudioRestorationParameters {
                     enabled: true,
                     channel_fix: if mask & 1 != 0 { ChannelFix::LeftOnly } else { ChannelFix::Off },
@@ -1295,10 +1477,24 @@ mod tests {
                     ..Default::default()
                 };
                 let drift = if mask % 3 == 0 { Some(1.002) } else { None };
-                let plan = AudioPlan::new(&p, &stereo48(), window(1.0, 30.0), &Analysis::default(), drift);
+                // A delayed AVI read from 0.2 s drops its head in the chain
+                // (step 1a), right after the padding and nowhere else.
+                let w = if delayed {
+                    OutputWindow { decoder_delay: 2, ..window(0.2, 30.0) }
+                } else {
+                    window(1.0, 30.0)
+                };
+                let plan = AudioPlan::new(&p, &stereo48(), w, &Analysis::default(), drift);
+                assert_eq!(plan.read_skip, delayed, "mask {mask} offset {offset}");
+                if delayed {
+                    assert!(plan.restore_filters[1].starts_with("atrim=start_sample="), "{:?}", plan.restore_filters);
+                    assert_eq!(plan.restore_filters[2], "asetpts=PTS-STARTPTS");
+                }
+                let skip = if delayed { 2 } else { 0 };
                 let ranks: Vec<usize> = names(&plan.restore_filters)
                     .iter()
                     .enumerate()
+                    .filter(|(i, _)| !(1..=skip).contains(i))
                     // The trailing atrim of the length fix is the last filter;
                     // the first aresample is step 1, the drift resample's two
                     // aresamples belong with its asetrate.
@@ -1683,19 +1879,122 @@ mod tests {
     #[test]
     fn encoder_maps_the_restored_track_first_and_keeps_the_others() {
         let s = settings(AudioMode::Passthrough, ContainerFormat::Mkv);
-        assert_eq!(encode_map_args(&s, None, 3), vec!["-map", "1:a?"]);
+        assert_eq!(encode_map_args(&s, None, 3, None), vec!["-map", "1:a?"]);
         let t = RestoredTrack { path: "r.wav".into(), stream: 1, source_streams: 3 };
         assert_eq!(
-            encode_map_args(&s, Some(&t), 3),
+            encode_map_args(&s, Some(&t), 3, None),
             vec![
                 "-map", "3:a:0", "-map", "1:a:0", "-map", "1:a:2",
                 "-map_metadata:s:a:0", "1:s:a:1", "-map_metadata:s:a:1", "1:s:a:0",
                 "-map_metadata:s:a:2", "1:s:a:2",
             ]
         );
-        assert!(encode_map_args(&settings(AudioMode::None, ContainerFormat::Mkv), Some(&t), 3).is_empty());
+        assert!(encode_map_args(&settings(AudioMode::None, ContainerFormat::Mkv), Some(&t), 3, None).is_empty());
         assert_eq!(encode_input_args(Some(&t)), vec!["-i", "r.wav"]);
         assert!(encode_input_args(None).is_empty());
+    }
+
+    /// Rule 9: the source's sound from the copy (input 4 here), its tags
+    /// still from the source, every stream named.
+    #[test]
+    fn encoder_maps_the_sound_copy_with_the_sources_tags() {
+        let s = settings(AudioMode::Passthrough, ContainerFormat::Mkv);
+        assert_eq!(
+            encode_map_args(&s, None, 3, Some((3, 2))),
+            vec!["-map", "3:a?", "-map_metadata:s:a:0", "1:s:a:0", "-map_metadata:s:a:1", "1:s:a:1"]
+        );
+        let t = RestoredTrack { path: "r.wav".into(), stream: 0, source_streams: 2 };
+        assert_eq!(
+            encode_map_args(&s, Some(&t), 3, Some((4, 2))),
+            vec!["-map", "3:a:0", "-map", "4:a:1", "-map_metadata:s:a:0", "1:s:a:0", "-map_metadata:s:a:1", "1:s:a:1"]
+        );
+        assert!(encode_map_args(&settings(AudioMode::None, ContainerFormat::Mkv), None, 3, Some((3, 1))).is_empty());
+    }
+
+    fn delayed_avi(start_frame: Option<i32>) -> VideoJob {
+        let mut job: VideoJob = serde_json::from_value(serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000022",
+            "inputPath": "in.avi",
+            "outputPath": "out.mkv",
+            "qtgmcParameters": {},
+            "encodingSettings": {},
+        }))
+        .unwrap();
+        job.input_frame_rate = Some(30000.0 / 1001.0);
+        job.start_frame = start_frame;
+        job.end_frame = Some(61);
+        job.decoder_delay_frames = Some(2);
+        job
+    }
+
+    #[test]
+    fn the_sound_copy_is_used_only_where_the_seek_fails() {
+        let job = delayed_avi(Some(2));
+        assert!(needs_sound_sidecar(&job, None));
+        // A rendered track covers the only stream; with a second, that one
+        // still comes from the source.
+        let one = RestoredTrack { path: "r.wav".into(), stream: 0, source_streams: 1 };
+        let two = RestoredTrack { source_streams: 2, ..one.clone() };
+        assert!(!needs_sound_sidecar(&job, Some(&one)));
+        assert!(needs_sound_sidecar(&job, Some(&two)));
+        // No sound, no source sound, untrimmed, far enough in, no delay.
+        let mut j = job.clone();
+        j.encoding_settings.audio_mode = AudioMode::None;
+        assert!(!needs_sound_sidecar(&j, None));
+        let mut j = job.clone();
+        j.source_has_audio = Some(false);
+        assert!(!needs_sound_sidecar(&j, None));
+        assert!(!needs_sound_sidecar(&delayed_avi(None), None));
+        assert!(!needs_sound_sidecar(&delayed_avi(Some(20)), None));
+        let mut j = job.clone();
+        j.decoder_delay_frames = None;
+        assert!(!needs_sound_sidecar(&j, None));
+    }
+
+    #[test]
+    fn the_sound_copy_is_nut_and_stops_after_the_window() {
+        let args = sound_copy_args("in.avi", Some(3.07), Path::new("/t/sound.nut"));
+        let joined = args.join(" ");
+        assert!(joined.contains("-i in.avi -map 0:a -c copy -t 3.070000"), "{joined}");
+        assert!(joined.ends_with("-f nut /t/sound.nut"), "{joined}");
+        assert!(!sound_copy_args("in.avi", None, Path::new("s.nut")).contains(&"-t".to_string()));
+    }
+
+    /// Rule 9 in the render: no -ss, the head dropped right after the padding,
+    /// the input -t counted from the file's start. The same job without the
+    /// delay, or further in, reads with -ss exactly as before.
+    #[test]
+    fn a_delayed_avi_near_its_start_drops_the_head_in_the_chain() {
+        let src = SourceAudio { streams: 1, channels: 1, sample_rate: 32_000, duration: Some(3.0) };
+        let start = 2.0 * 1001.0 / 30000.0;
+        let delayed = OutputWindow { start, duration: Some(2.0), decoder_delay: 2 };
+        let plan = AudioPlan::new(&on(), &src, delayed, &Analysis::default(), None);
+        assert!(plan.read_skip);
+        assert_eq!(
+            plan.restore_filters[..3],
+            ["aresample=first_pts=0", "atrim=start_sample=2135", "asetpts=PTS-STARTPTS"]
+        );
+        let args = plan.restore_args("in.avi", Path::new("a.wav"));
+        assert!(!args.contains(&"-ss".to_string()), "{args:?}");
+        let t = args[args.iter().position(|a| a == "-t").unwrap() + 1].parse::<f64>().unwrap();
+        assert!((t - (start + plan.read_duration.unwrap())).abs() < 1e-6, "{t}");
+
+        let plain = AudioPlan::new(&on(), &src, OutputWindow { decoder_delay: 0, ..delayed }, &Analysis::default(), None);
+        assert!(!plain.read_skip);
+        assert!(plain.restore_args("in.avi", Path::new("a.wav")).join(" ").contains("-ss 0.066733 -t "));
+        assert!(!plain.restore_filters.iter().any(|f| f.starts_with("atrim=start_sample")));
+        let far = AudioPlan::new(&on(), &src, OutputWindow { start: 1.0, ..delayed }, &Analysis::default(), None);
+        assert!(!far.read_skip);
+    }
+
+    #[test]
+    fn the_analysis_seeks_after_the_input_only_where_the_seek_fails() {
+        let a = analysis_args("in.avi", 0, 0.0667, 2, 32_000).join(" ");
+        assert!(a.contains("-i in.avi -ss 0.067 -t 60"), "{a}");
+        let b = analysis_args("in.avi", 0, 0.0667, 0, 32_000).join(" ");
+        assert!(b.contains("-ss 0.067 -t 60 -i in.avi"), "{b}");
+        let c = analysis_args("in.avi", 0, 0.0, 2, 32_000).join(" ");
+        assert!(c.contains("-ss 0.000 -t 60 -i in.avi"), "{c}");
     }
 
     #[test]

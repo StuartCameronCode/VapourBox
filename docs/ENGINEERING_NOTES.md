@@ -3862,6 +3862,8 @@ Report: [docs/reports/issue-173-avi-seek](reports/issue-173-avi-seek/index.html)
   from a trim whose in-point is under 0.13 s on such an AVI (input `-ss` on
   the audio). A stream-copied soundtrack can't be trimmed by filter, so this
   needs its own mechanism; a follow-up task.
+  *(Fixed the same day; see "A delayed AVI cannot seek its sound near its
+  start" below.)*
 - Rejected: `-fflags +genpts` (the I picture's generated PTS is still 1),
   `-noaccurate_seek`, a fixed +1/fps for every AVI (H.264 is 2, intra 0),
   seeking at `(N - 0.25)/fps` (changes every source's seek and narrows the
@@ -3959,3 +3961,34 @@ Follow-up to the entry above. Full evidence:
   dB of margin everywhere; corrected in place in the report. Premiere,
   Resolve and Avid were not tested. AVI beside a non-intermediate is now the
   only 16-bit restored track.
+
+### A delayed AVI cannot seek its sound near its start (2026-11-14)
+
+Report: [docs/reports/2026-11-avi-audio-seek](reports/2026-11-avi-audio-seek/index.html).
+Follow-up to #173.
+
+- **Cause.** ffmpeg starts an input seek 3/23 s early when *any* stream has
+  a decoder delay, so `-ss` on the sound of such an AVI below ~0.12 s fails
+  even with `-vn`. A trim of `avi_h264_bframes.avi` from frame 2 to MKV had
+  its sound start 1.277 s after the picture; in AVI or a WAV the whole track
+  shifted 1.28 s early. MOV/MP4 copies of the same streams seek exactly.
+- **Fix, one decision** (`source_decode::sound_seek`, rule 9, gated on the
+  decoder delay and `COUNT_SEEK_BELOW` like rule 7). Audio Restoration's
+  render decodes from 0 and drops the head in its chain, right after
+  `aresample=first_pts=0`; an output `-ss` would be applied after the whole
+  chain (afftdn's trim, the length fix) and cut in the wrong place. Analysis
+  and transcription use an output-side `-ss`. Both exact.
+- **The copy encode seeks a NUT copy of the sound.** It can't filter audio
+  and routing through Audio Restoration would change the codec under
+  Passthrough. NUT keeps 1/sample-rate time bases: exact for PCM and MP3.
+  MKA was 9 samples off, an audio-only AVI 5 ms on MP3. Pre-trimming the
+  copy at the in-point was worse: ffmpeg rebased its first packet to 0
+  (29 ms late).
+- **Found: Passthrough trims to AVI run their sound late** by the stream
+  copy's pre-roll (the copy starts where the demuxer's seek lands). MKV/MP4
+  store it as a later video start and stay in sync; AVI can't. Frame 20:
+  667 ms on the fixture, 395 ms on `small_clip.mp4`, with or without this
+  fix. Task #24.
+- `integration_avi_audio_seek_test.dart` (heavy) uses a chirp copy of the
+  fixture's picture (the 440 Hz sine can't show 1.3 s: 572 whole periods);
+  11 of 12 cases fail without rule 9, the frame-20 control passes either way.
