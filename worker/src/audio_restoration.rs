@@ -141,14 +141,31 @@ impl OutputWindow {
     /// encoded video (its output frame count over its output rate, from the
     /// pipeline's `FrameMap`s — not the source's count, which double-rate
     /// deinterlacing, IVTC and frame-rate conversion all change).
+    ///
+    /// Both are on the source's container timeline, which is what the render's
+    /// `-ss` counts from. When the output keeps a source's sound-first layout
+    /// (`VideoJob::output_video_delay`), the window starts at the container's
+    /// start and is that much longer; otherwise it starts at the in-point's
+    /// picture, the video's start offset included.
     pub fn for_job(job: &VideoJob) -> Self {
         let fps = job.input_frame_rate.unwrap_or(29.97);
-        let start = job.start_frame.filter(|s| *s > 0).map_or(0.0, |s| s as f64 / fps);
+        let start = job.source_audio_start();
+        let delay = job.output_video_delay();
         let duration = job
             .total_frames
             .filter(|n| *n > 0)
-            .and_then(|n| job.effective_pipeline().output_duration_secs(n as u64, fps));
+            .and_then(|n| job.effective_pipeline().output_duration_secs(n as u64, fps))
+            .map(|d| d + delay);
         Self { start, duration }
+    }
+}
+
+/// The job-log note for "start the sound with the picture".
+pub fn start_with_picture_note(video_start: f64) -> String {
+    if video_start > 0.0 {
+        format!("Start with the picture: the {video_start:.3} s of sound before the first picture is dropped.")
+    } else {
+        "Start with the picture: the sound already starts with the picture; nothing dropped.".to_string()
     }
 }
 
@@ -817,6 +834,12 @@ impl AudioRestorer {
         if !p.has_effect() {
             return Ok(None);
         }
+        if p.only_starts_with_picture() && job.video_start() <= 0.0 {
+            // Nothing to drop: the sound already starts with the picture, so
+            // leave it to the encoder (copied, not re-encoded).
+            self.log(LogLevel::Info, "Start the sound with the picture: this video's sound and picture already start together; nothing to drop.");
+            return Ok(None);
+        }
         if p.uses_deep_filter() {
             // Refused before anything runs, with the add-on refusal every
             // feature gives (the app offers the download when it is chosen).
@@ -867,7 +890,10 @@ impl AudioRestorer {
         } else {
             None
         };
-        let plan = AudioPlan::new(&p, &source, window, &analysis, drift);
+        let mut plan = AudioPlan::new(&p, &source, window, &analysis, drift);
+        if p.start_with_picture {
+            plan.notes.push(start_with_picture_note(job.video_start()));
+        }
         Ok(Some((plan, source)))
     }
 
@@ -994,7 +1020,12 @@ impl AudioRestorer {
         let video = frames
             .filter(|n| *n > 0)
             .and_then(|n| job.effective_pipeline().output_duration_secs(n as u64, fps));
-        let audio = source.duration.or_else(|| self.measure_audio_duration(&job.input_path, job.effective_pipeline().audio.stream_index));
+        // The sound before the first picture is not drift: compare only the
+        // part that runs under the picture.
+        let audio = source
+            .duration
+            .or_else(|| self.measure_audio_duration(&job.input_path, job.effective_pipeline().audio.stream_index))
+            .map(|a| a - job.video_start());
         match (audio, video) {
             (Some(a), Some(v)) => drift_decision(a, v, max_percent),
             _ => DriftDecision::Skip("the audio or picture length could not be measured".into()),
@@ -1504,6 +1535,59 @@ mod tests {
         assert_eq!((b.channels, b.sample_rate, b.duration), (6, 44_100, Some(3601.25)));
         assert!(parse_source_probe(json, 2).is_none());
         assert!(parse_source_probe(r#"{"streams":[]}"#, 0).is_none());
+    }
+
+    /// A source whose video starts after its sound: the rendered track keeps
+    /// the sound before the first picture (the encoder delays the picture by
+    /// as much), unless "start with the picture" drops it, and a trim reads
+    /// from the in-point's picture, offset included.
+    #[test]
+    fn the_window_follows_the_video_start_offset() {
+        let mut job: VideoJob = serde_json::from_value(serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000002",
+            "inputPath": "in.ts", "outputPath": "out.mkv",
+            "qtgmcParameters": {}, "encodingSettings": {},
+            "totalFrames": 125, "inputFrameRate": 25.0,
+            "videoStartOffset": 1.2,
+            "processingPipeline": { "deinterlace": { "enabled": false } }
+        }))
+        .unwrap();
+        let w = OutputWindow::for_job(&job);
+        assert_eq!(w.start, 0.0);
+        assert!((w.duration.unwrap() - 6.2).abs() < 1e-9, "{w:?}");
+
+        let mut p = job.effective_pipeline();
+        p.audio.enabled = true;
+        p.audio.start_with_picture = true;
+        job.processing_pipeline = Some(p);
+        let w = OutputWindow::for_job(&job);
+        assert!((w.start - 1.2).abs() < 1e-9 && (w.duration.unwrap() - 5.0).abs() < 1e-9, "{w:?}");
+
+        job.start_frame = Some(25);
+        job.total_frames = Some(50);
+        let w = OutputWindow::for_job(&job);
+        assert!((w.start - 2.2).abs() < 1e-9 && (w.duration.unwrap() - 2.0).abs() < 1e-9, "{w:?}");
+
+        // The plan reads from the window's start, with nothing else changed.
+        let plan = AudioPlan::new(
+            &job.effective_pipeline().audio,
+            &SourceAudio { streams: 1, channels: 2, sample_rate: 48_000, duration: Some(6.1) },
+            w,
+            &Analysis::default(),
+            None,
+        );
+        assert!((plan.read_start - 2.2).abs() < 1e-9);
+    }
+
+    #[test]
+    fn start_with_picture_alone_does_nothing_without_a_gap() {
+        let p = AudioRestorationParameters { enabled: true, start_with_picture: true, ..Default::default() };
+        assert!(p.has_effect());
+        assert!(p.only_starts_with_picture());
+        let both = AudioRestorationParameters { limiter: true, ..p.clone() };
+        assert!(!both.only_starts_with_picture());
+        assert!(start_with_picture_note(1.322).contains("1.322 s"));
+        assert!(start_with_picture_note(0.0).contains("nothing dropped"));
     }
 
     /// The picture's length is its output frames over its output rate, so

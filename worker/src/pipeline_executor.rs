@@ -463,6 +463,7 @@ impl PipelineExecutor {
                 job.start_frame,
                 job.end_frame,
                 job.total_frames,
+                job.video_start(),
                 tag_fix.as_deref(),
             ),
         };
@@ -1005,14 +1006,9 @@ impl PipelineExecutor {
         // (Y4M from vspipe contains only video, so we need the original file for audio)
         // When trimming, seek the audio input to the same start point so ffmpeg
         // doesn't read the entire audio track (which hangs for small segments of
-        // large files).
-        if let Some(start) = job.start_frame {
-            if start > 0 {
-                let fps = job.input_frame_rate.unwrap_or(29.97);
-                let start_time = start as f64 / fps;
-                args.extend(["-ss".to_string(), format!("{:.6}", start_time)]);
-            }
-        }
+        // large files). One decision with the video delay below and Audio
+        // Restoration's window: `VideoJob::source_audio_start`.
+        args.extend(source_audio_input_seek(job));
         args.extend(["-i".to_string(), job.input_path.clone()]);
 
         // Input 2: the output's comment, as an FFMETADATA file (issue #138)
@@ -1123,6 +1119,11 @@ impl PipelineExecutor {
         // would have broken issue #50's third leg.
         let mut vf: Vec<String> = Vec::new();
 
+        // A source whose video starts after its sound keeps that layout: the
+        // picture is delayed by the gap (first, so burn-in draws each cue at
+        // its output time). See `VideoJob::output_video_delay`.
+        vf.extend(video_delay_filters(job));
+
         match pipeline.output_aspect(input_sar) {
             AspectDeclaration::Sar(sar) => {
                 // '/' as the ratio separator — ':' is ffmpeg's filter option separator.
@@ -1154,6 +1155,16 @@ impl PipelineExecutor {
 
         if !vf.is_empty() {
             args.extend(["-vf".to_string(), vf.join(",")]);
+        }
+        args.extend(video_delay_encoder_args(job));
+        if job.output_video_delay() > 0.0
+            && settings.custom_ffmpeg_args.split_whitespace().any(|a| a == "-vf" || a.starts_with("-vf:") || a == "-filter:v")
+        {
+            self.reporter.send_log(
+                LogLevel::Warning,
+                "A Custom FFmpeg Argument replaces the video filter chain, which also drops the delay that keeps \
+                 this source's picture in sync with its sound (its video starts after its audio).",
+            );
         }
 
         // Re-declare the source's colour tags for exactly the same reason as the
@@ -1431,7 +1442,7 @@ impl PipelineExecutor {
         // interval *before* `first` (i.e. (first - 0.5)/fps) lands squarely on
         // `first` for CFR sources, avoiding the ±1-frame ambiguity of seeking to
         // the frame boundary itself.
-        let seek_time = ((first as f64 - 0.5) / frame_rate).max(0.0);
+        let seek_time = source_decode::seek_time(first as i64, frame_rate, job.video_start());
         // A VFR source's window is in grid slots, decoded from its stored
         // frames — the same derivation as the encode (issue #137).
         let window = self
@@ -1448,7 +1459,7 @@ impl PipelineExecutor {
 
         let decoder_seek = match &window {
             Some(w) => w.seek_time.unwrap_or(0.0),
-            None => seek_time,
+            None => seek_time.unwrap_or(0.0),
         };
         eprintln!(
             "Preview: source frame {} (window {}..{}, local {}, output index {}, output {} of {}, rate pad {}) seek {:.6}s ({}x{} {}{})",
@@ -1529,6 +1540,7 @@ impl PipelineExecutor {
                 height,
                 pix_fmt,
                 raw_path.to_string_lossy().as_ref(),
+                job.video_start(),
                 tag_fix.as_deref(),
             ),
         };
@@ -1700,6 +1712,47 @@ impl PipelineExecutor {
 impl Drop for PipelineExecutor {
     fn drop(&mut self) {
         self.terminate();
+    }
+}
+
+
+/// Ticks per second of the time base the video delay is stamped in. A
+/// multiple of every broadcast rate's frame duration (25, 50, 24, 30, 60, and
+/// their /1001 variants all take a whole number of ticks), so the frames stay
+/// evenly spaced; the encoder's default, 1/fps, would round the delay to a
+/// whole frame (measured: 10 ms off on a 1.01 s gap).
+pub const VIDEO_DELAY_TIMESCALE: u64 = 120_000;
+
+/// The encoder `-vf` entries that delay the picture by
+/// `VideoJob::output_video_delay`, or none.
+pub fn video_delay_filters(job: &VideoJob) -> Vec<String> {
+    let delay = job.output_video_delay();
+    if delay <= 0.0 {
+        return Vec::new();
+    }
+    let ticks = (delay * VIDEO_DELAY_TIMESCALE as f64).round() as u64;
+    vec![
+        format!("settb=1/{VIDEO_DELAY_TIMESCALE}"),
+        format!("setpts=PTS+{ticks}"),
+    ]
+}
+
+/// The output option that keeps [`video_delay_filters`]' time base through the
+/// encoder, or none.
+pub fn video_delay_encoder_args(job: &VideoJob) -> Vec<String> {
+    if job.output_video_delay() <= 0.0 {
+        return Vec::new();
+    }
+    vec!["-enc_time_base:v".to_string(), format!("1/{VIDEO_DELAY_TIMESCALE}")]
+}
+
+/// The `-ss` before the source input the encoder takes its sound from, or none.
+pub fn source_audio_input_seek(job: &VideoJob) -> Vec<String> {
+    let start = job.source_audio_start();
+    if start > 0.0 {
+        vec!["-ss".to_string(), format!("{:.6}", start)]
+    } else {
+        Vec::new()
     }
 }
 
@@ -2024,6 +2077,52 @@ mod tests {
         assert_eq!(body.matches("\"-af\"").count(), 0, "the encode never filters audio itself");
     }
 
+    /// A source whose video starts after its sound keeps that layout: the
+    /// encoder delays the picture by the gap in a fine time base and copies
+    /// the sound from the container's start. Trimmed, both start at the
+    /// in-point and the sound's seek carries the gap. No gap, no change.
+    #[test]
+    fn a_late_video_is_delayed_in_the_encoder_not_cut_from_the_sound() {
+        let mut job = create_test_job("/tmp/out.mkv");
+        job.input_frame_rate = Some(25.0);
+        assert!(video_delay_filters(&job).is_empty());
+        assert!(video_delay_encoder_args(&job).is_empty());
+        assert!(source_audio_input_seek(&job).is_empty());
+
+        job.video_start_offset = Some(1.010022);
+        assert_eq!(video_delay_filters(&job), ["settb=1/120000", "setpts=PTS+121203"]);
+        assert_eq!(video_delay_encoder_args(&job), ["-enc_time_base:v", "1/120000"]);
+        assert!(source_audio_input_seek(&job).is_empty(), "the sound is copied from the start");
+
+        job.start_frame = Some(30);
+        assert!(video_delay_filters(&job).is_empty());
+        assert_eq!(source_audio_input_seek(&job), ["-ss", "2.210022"]);
+
+        // Every broadcast rate's frame is a whole number of ticks.
+        for (num, den) in [(25u64, 1u64), (50, 1), (24, 1), (30, 1), (60, 1), (24000, 1001), (30000, 1001), (60000, 1001)] {
+            assert_eq!((VIDEO_DELAY_TIMESCALE * den) % num, 0, "{num}/{den}");
+        }
+    }
+
+    /// The real builder takes the delay and the sound's seek from the helpers
+    /// above, the delay first in the one -vf (so burn-in draws at output time).
+    #[test]
+    fn test_real_ffmpeg_builder_uses_the_video_start_helpers() {
+        let src = include_str!("pipeline_executor.rs").replace("\r\n", "\n");
+        let start = src.find("fn build_ffmpeg_args(\n").expect("real builder");
+        let body = &src[start..];
+        let body = &body[..body.find("\n    }\n").expect("end of builder")];
+        let seek = body.find("args.extend(source_audio_input_seek(job));").expect("audio seek");
+        let input = body.find(r#"args.extend(["-i".to_string(), job.input_path.clone()]);"#).unwrap();
+        assert!(seek < input, "the sound's seek is an input option of the source");
+        let delay = body.find("vf.extend(video_delay_filters(job));").expect("delay filters");
+        let aspect = body.find("pipeline.output_aspect(input_sar)").unwrap();
+        let burn = body.find("subtitles='{}'").unwrap();
+        assert!(delay < aspect && delay < burn, "the delay comes first in the chain");
+        assert!(body.contains("args.extend(video_delay_encoder_args(job));"));
+        assert!(!body.contains("start as f64 / fps"), "no second derivation of the sound's start");
+    }
+
     /// Helper to build FFmpeg args without requiring a full PipelineExecutor.
     /// This mirrors the logic in PipelineExecutor::build_ffmpeg_args for testing.
     fn build_ffmpeg_args_for_test(job: &VideoJob) -> Vec<String> {
@@ -2168,6 +2267,7 @@ mod tests {
             input_color_range: None,
             burn_in_subtitle_path: None,
             pitch_factors_path: None,
+            video_start_offset: None,
         }
     }
 

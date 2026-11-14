@@ -61,6 +61,14 @@ pub struct AudioRestorationParameters {
     #[serde(default)]
     pub offset_ms: i32,
 
+    /// Drop the sound that plays before the video's first picture, so the
+    /// output starts with both. Only does anything on a source whose video
+    /// starts after its audio (`VideoJob::video_start_offset`); without it the
+    /// output keeps the source's layout, sound first. The cut is exact, which
+    /// is why it is a step here: copied audio can only be cut on a packet.
+    #[serde(default)]
+    pub start_with_picture: bool,
+
     /// Stretch or squeeze the sound to the picture's length when the two were
     /// recorded on clocks that disagreed.
     #[serde(default)]
@@ -147,6 +155,7 @@ impl Default for AudioRestorationParameters {
             stream_index: 0,
             channel_fix: ChannelFix::Off,
             offset_ms: 0,
+            start_with_picture: false,
             drift_correction: false,
             drift_max_percent: default_drift_max_percent(),
             declip: false,
@@ -176,6 +185,7 @@ impl AudioRestorationParameters {
         self.enabled
             && (self.channel_fix != ChannelFix::Off
                 || self.offset_ms != 0
+                || self.start_with_picture
                 || self.drift_correction
                 || self.declip
                 || self.declick
@@ -185,6 +195,14 @@ impl AudioRestorationParameters {
                 || self.deep_filter
                 || self.loudness_normalize
                 || self.limiter)
+    }
+
+    /// Whether "start the sound with the picture" is the only step chosen: then
+    /// the pass has nothing to do on a source whose video starts with its
+    /// audio, and the audio is left to the encoder as it would be without it.
+    pub fn only_starts_with_picture(&self) -> bool {
+        self.start_with_picture
+            && !Self { start_with_picture: false, ..self.clone() }.has_effect()
     }
 
     /// Whether the job needs the DeepFilterNet add-on.
