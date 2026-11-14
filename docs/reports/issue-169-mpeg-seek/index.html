@@ -283,7 +283,9 @@ picture 150, and asks a trimmed decode for 150 frames. Starting at 100 the old s
 Starting at 140 the old seek returned 6 and the fix 10. Starting at 160, past the reset, both
 returned none. So a trim whose in-point is before a backward reset and whose out-point is after it
 is now shorter. Before, it started late. Both are wrong. Such files are rare within one title, and
-frame numbering across a reset needs its own fix.</li>
+frame numbering across a reset needs its own fix. <em>Fixed since by task #21</em>: a source with a reset is
+decoded from a joined copy, and frame N counts straight through
+(<a href="../2026-11-timestamp-resets/index.html">its report</a>).</li>
 <li><strong>A GOP longer than the 20 s window</strong>, or one that grows later in the file than
 the first 20 s. The preroll can then be short, and the worst case is the old behaviour (a later
 keyframe), never worse.</li>

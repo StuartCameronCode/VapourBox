@@ -145,7 +145,7 @@ Every filter explains in place what it does and when to use it. Where two filter
 <details>
 <summary><b>DVDs and folders</b></summary>
 
-**A disc:** click the disc icon in the toolbar, or **Open DVD**. Pick a title from the list (duration, resolution, chapters and audio tracks are shown) and **Add to Queue**; it's extracted, analysed and queued like any other video.
+**A disc:** click the disc icon in the toolbar, or **Open DVD**. Pick a title from the list (duration, resolution, chapters and audio tracks are shown) and **Add to Queue**; it's extracted, analysed and queued like any other video. If the title's timestamps restart partway (common when a title spans several parts of the disc), it is joined into one continuous timeline as it is extracted. The same happens to any `.vob`, `.mpg` or `.ts` you add whose timestamps restart: VapourBox decodes it from a joined copy in the temporary files folder, which takes about as much space as the file and is deleted when you remove it from the queue.
 
 **A ripped disc:** drag in a folder containing `VIDEO_TS`, the `VIDEO_TS` folder itself, or a flat rip (the `VIDEO_TS.IFO` and `.VOB` files directly in a folder). The title picker opens automatically.
 

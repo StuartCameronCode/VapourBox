@@ -32,6 +32,16 @@
 // 1 -> 45). Frames 1-3 and the trim from 2 are in the count-from-start window.
 // Fixtures: Tests/TestResources/generate_avi_seek_test.sh and
 // generate_telecine_test.sh. See docs/reports/issue-173-avi-seek.
+//
+// Timestamp resets (task #21): a TS/PS whose clock goes back mid-file (a DVD
+// title spanning VOB IDs, a spliced capture). The app decodes it from a joined
+// copy made by the worker (TimestampContinuityService, run here exactly as
+// _analyzeQueueItem runs it), and frame N is the Nth picture of the ORIGINAL
+// in a sequential decode. Before, the count stopped at the reset (150 of 300),
+// a seek past it landed in the first segment, and a trim across it stopped
+// there. Fixtures: the seek_reset_* pair from generate_mpeg_seek_test.sh, with
+// a flash at picture 175 and a beep at the same moment, for sync. See
+// docs/reports/2026-11-timestamp-resets.
 @Tags(['heavy'])
 library;
 
@@ -48,6 +58,8 @@ import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 import 'package:vapourbox/services/field_order_detector.dart';
 import 'package:vapourbox/services/preview_generator.dart';
+import 'package:vapourbox/services/timestamp_continuity_service.dart';
+import 'package:vapourbox/services/tool_locator.dart';
 
 import 'support/worker_harness.dart';
 
@@ -144,7 +156,8 @@ Future<int> _decoderDelay(String video) async {
       videoStart: 0);
 }
 
-VideoJob _job(String input, _Source s, String name, {int? start, int? end}) {
+VideoJob _job(String input, _Source s, String name,
+    {int? start, int? end, AudioMode audio = AudioMode.none, bool checked = false}) {
   const off = QTGMCParameters(enabled: false);
   return VideoJob(
     id: const Uuid().v4(),
@@ -155,7 +168,7 @@ VideoJob _job(String input, _Source s, String name, {int? start, int? end}) {
     encodingSettings: EncodingSettings(
       codec: VideoCodec.ffv1,
       container: ContainerFormat.mkv,
-      audioMode: AudioMode.none,
+      audioMode: audio,
     ),
     inputWidth: s.width,
     inputHeight: s.height,
@@ -164,6 +177,7 @@ VideoJob _job(String input, _Source s, String name, {int? start, int? end}) {
     startFrame: start,
     endFrame: end,
     totalFrames: start != null && end != null ? end - start + 1 : null,
+    continuityChecked: checked,
   );
 }
 
@@ -239,9 +253,10 @@ void _expectFrame(String what, Uint8List img, int n, Map<int, Uint8List> refs) {
       reason: '$what is not the same picture as source frame $n ($table)');
 }
 
-Future<Map<int, Uint8List>> _neighbours(String video, int n) async => {
+Future<Map<int, Uint8List>> _neighbours(String video, int n, {int? count}) async => {
       for (final k in [n - 1, n, n + 1])
-        k: await WorkerHarness.frameRgb24(video, k, label: 'src'),
+        if (k >= 0 && (count == null || k < count))
+          k: await WorkerHarness.frameRgb24(video, k, label: 'src'),
     };
 
 void main() {
@@ -347,4 +362,141 @@ void main() {
       }
     });
   }
+
+  for (final file in ['seek_reset_dvd_pal.mpg', 'seek_reset_h264.ts']) {
+    group('$file (timestamps reset at picture 150, task #21)', () {
+      final original = _resource(file);
+      late String decode;
+      late _Source source;
+      late ({double offset, SeekPlan? plan}) seek;
+
+      setUpAll(() async {
+        await ToolLocator.instance.initialize();
+        final service = TimestampContinuityService(
+            workerPath: WorkerHarness.workerPath, environment: WorkerHarness.workerEnv);
+        final r = await service.prepare(original, const Uuid().v4());
+        expect(r.error, isNull);
+        expect(r.checked, isTrue);
+        expect(r.scan!.videoResetPictures, [150]);
+        expect(r.proxy, isNotNull, reason: 'a reset means a joined copy');
+        decode = r.proxy!.path;
+        addTearDown(r.proxy!.delete);
+        source = await _probe(decode);
+        seek = await _seekInfo(decode);
+        expect(seek.plan, isNotNull, reason: 'the copy is still an MPEG-PS/TS');
+      });
+
+      test('the analysed frame count is every picture (it was the last segment\'s)',
+          () async {
+        final before = await FieldOrderDetector().getVideoInfo(original);
+        final after = await FieldOrderDetector().getVideoInfo(decode);
+        expect(before!.frameCount, lessThan(160), reason: 'the fault the copy fixes');
+        // A program stream whose last picture's packet has no PTS counts one
+        // short, reset or not (seek_dvd_pal.mpg: 149 of 150): task #26.
+        expect(after!.frameCount, file.endsWith('.mpg') ? inInclusiveRange(299, 300) : 300);
+      });
+
+      for (final n in [100, 149, 150, 151, 160, 290]) {
+        test('the preview and the before frame of $n are picture $n of the original',
+            () async {
+          final pv = await WorkerHarness.runPreview(
+              _job(decode, source, 'reset_preview', checked: true).toJson(),
+              frame: n,
+              label: 'reset_preview_$n');
+          expect(pv.success, isTrue, reason: '${pv.error}\n${pv.errorTail}');
+          final refs = await _neighbours(original, n);
+          _expectFrame('the preview',
+              await WorkerHarness.imageToRgb24(pv.png!, label: 'preview'), n, refs);
+          _expectFrame('the before frame',
+              await _beforeFrame(decode, n, source.fps, seek, await _decoderDelay(decode)),
+              n, refs);
+        });
+      }
+
+      for (final (start, end, checks) in [
+        (100, 200, [0, 1, 49, 50, 51, 100]),
+        (160, 190, [0, 1, 30]),
+        (null, null, [0, 149, 150, 299]),
+      ]) {
+        final what = start == null ? 'an untrimmed encode' : 'a trim of $start..$end';
+        test('$what is exact, across the reset', () async {
+          final name = 'reset_${p.basenameWithoutExtension(file)}_${start ?? 'all'}';
+          final r = await WorkerHarness.runJob(
+            _job(decode, source, name, start: start, end: end, checked: true).toJson(),
+            label: 'reset_encode',
+          );
+          expect(r.success, isTrue, reason: r.error);
+          final frames = await WorkerHarness.firstStream(r.outputPath!,
+              selector: 'v:0', entries: ['nb_read_frames'], countFrames: true);
+          final count = start == null ? 300 : end! - start + 1;
+          expect(int.parse(frames!['nb_read_frames'].toString()), count);
+          for (final i in checks) {
+            final n = (start ?? 0) + i;
+            _expectFrame('output frame $i',
+                await WorkerHarness.frameRgb24(r.outputPath!, i, label: 'reset'), n,
+                await _neighbours(original, n, count: 300));
+          }
+        });
+      }
+
+      for (final (start, end) in [(null, null), (160, 190)]) {
+        test('sound stays with picture after the reset '
+            '(${start == null ? 'untrimmed' : 'trim $start..$end'})', () async {
+          final name = 'reset_sync_${p.basenameWithoutExtension(file)}_${start ?? 'all'}';
+          final r = await WorkerHarness.runJob(
+            _job(decode, source, name,
+                    start: start, end: end, audio: AudioMode.passthrough, checked: true)
+                .toJson(),
+            label: 'reset_sync',
+          );
+          expect(r.success, isTrue, reason: r.error);
+          final flash = await _flashTime(r.outputPath!);
+          final beep = await _beepTime(r.outputPath!);
+          // Within a frame and a half: the beep starts with the 40 ms flash
+          // picture; MP2 frames are 24 ms.
+          expect((beep - flash).abs(), lessThan(0.06),
+              reason: 'flash at ${flash.toStringAsFixed(3)} s, '
+                  'beep at ${beep.toStringAsFixed(3)} s');
+        });
+      }
+    });
+  }
+}
+
+/// When the output's white flash picture is shown (its pts), in seconds.
+Future<double> _flashTime(String video) async {
+  final j = await WorkerHarness.ffprobeJson([
+    '-v', 'error', '-f', 'lavfi',
+    'movie=${video.replaceAll(':', '\\:')},signalstats',
+    '-show_entries', 'frame=pts_time:frame_tags=lavfi.signalstats.YAVG',
+    '-of', 'json',
+  ]);
+  for (final f in (j['frames'] as List)) {
+    final yavg = double.tryParse('${(f['tags'] as Map?)?['lavfi.signalstats.YAVG']}') ?? 0;
+    if (yavg > 200) return double.parse('${f['pts_time']}');
+  }
+  fail('no flash in $video');
+}
+
+/// When the output's beep starts, in seconds: the first 10 ms window (mono,
+/// 48 kHz) sample over 2000 (the fixture's 1 kHz tone peaks at ~4300, the
+/// rest is silence), on the audio stream's own clock.
+Future<double> _beepTime(String video) async {
+  final a = await WorkerHarness.firstStream(video,
+      selector: 'a:0', entries: ['start_time']);
+  final start = double.tryParse('${a?['start_time']}') ?? 0;
+  final r = await Process.run(
+    WorkerHarness.ffmpegPath,
+    ['-v', 'error', '-i', video, '-map', '0:a:0', '-ac', '1', '-ar', '48000',
+     '-f', 's16le', '-'],
+    environment: WorkerHarness.ffmpegEnv,
+    stdoutEncoding: null,
+  );
+  expect(r.exitCode, 0, reason: '${r.stderr}');
+  final bytes = Uint8List.fromList(r.stdout as List<int>);
+  final samples = bytes.buffer.asInt16List(0, bytes.length ~/ 2);
+  for (var i = 0; i < samples.length; i++) {
+    if (samples[i].abs() > 2000) return start + i / 48000;
+  }
+  fail('no beep in $video');
 }

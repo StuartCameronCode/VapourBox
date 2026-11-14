@@ -127,6 +127,13 @@ pub struct VideoJob {
     /// job omits it; `None` and 0 both mean none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decoder_delay_frames: Option<u32>,
+    /// Whether the app has scanned `input_path` for timestamp resets
+    /// (`source_continuity`, task #21) and, finding one, sent the continuous
+    /// copy instead. A job without it (hand-written) is scanned by the worker,
+    /// which only warns: its frame numbers were chosen against whatever
+    /// timeline its author saw, so the worker never changes it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub continuity_checked: bool,
 
     /// Whether the source has an audio stream, probed by the worker only when
     /// the video starts late (`source_decode::probe_has_audio`). `None` means
@@ -2181,6 +2188,18 @@ mod video_start_tests {
         p.audio.enabled = true;
         p.audio.start_with_picture = true;
         job.processing_pipeline = Some(p);
+    }
+
+    #[test]
+    fn continuity_checked_is_optional_on_the_wire() {
+        let mut j = job(None);
+        assert!(!j.continuity_checked);
+        assert!(!serde_json::to_string(&j).unwrap().contains("continuityChecked"));
+        j.continuity_checked = true;
+        let s = serde_json::to_string(&j).unwrap();
+        assert!(s.contains("\"continuityChecked\":true"), "{s}");
+        let back: VideoJob = serde_json::from_str(&s).unwrap();
+        assert!(back.continuity_checked);
     }
 
     #[test]

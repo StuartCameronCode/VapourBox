@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timestamp resets</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+  figure { margin: 18px 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>Task #21: MPEG-PS/TS whose timestamps reset mid-file</h1>
+<p class="meta">2026-11-14 · follows issue #169 (task #14, <a href="../issue-169-mpeg-seek/index.html">its report</a>,
+§8) · measured on an Apple M-series Mac (macOS arm64), deps 1.16.0 (FFmpeg 9.0.2), with this
+branch's debug worker</p>
+
+<div class="card">
+<strong>Outcome: fixed by decoding a joined copy.</strong> A program or transport stream whose
+clock goes back (or leaps forward) mid-file is what you get from a DVD title that spans VOB IDs, a
+broadcast capture spliced across a programme change, and, as found here, VapourBox's own DVD import
+of a multi-title set. On such a file the app counted only the last segment's frames, so even an
+<span class="bad">untrimmed encode stopped at the first reset</span>. A seek past a reset was
+<span class="bad">undefined</span>, and #169's trim <span class="bad">stopped at the reset</span>.
+<p>The worker now scans a TS/PS's packet timestamps once. When the clock resets, it stream-copies
+the file into the <em>same container</em> without <code>-copyts</code>. ffmpeg's own discontinuity
+correction then makes the timestamps continuous, with one offset per segment shared by every stream,
+so sync within a segment is kept. Everything decodes that copy. A file with no reset is never
+copied, and every argument it gets is unchanged.</p>
+</div>
+
+<h2>1. Definition: frame N across a reset</h2>
+<p><strong>Frame N is the Nth slot of the source's continuous timeline</strong>, with each segment
+following the last exactly as ffmpeg's correction joins them (what a player shows). Frame 0 is
+still the video's first picture (#168), and slots are still on the constant-rate grid (#157).</p>
+<p><strong>A reset is what ffmpeg itself corrects</strong> in a discontinuous format when
+<code>-copyts</code> is off. Per audio or video stream, in decode order, it is a DTS more than
+0.1 s <em>behind</em> the stream's last, or more than 10 s (<code>dts_delta_threshold</code>)
+<em>ahead</em>. <code>source_continuity::resets_from_packets</code> is the one statement of this
+rule, and the app reads its answer through <code>--scan-timestamps</code>.
+<code>fixtures_probe.py</code> checks the edges:</p>
+<table>
+<tr><th>Variant</th><th>Resets found</th><th>Expected</th></tr>
+<tr><td>5 s forward gap (a signal drop-out)</td><td class="num">0</td><td>none: a real gap, which every decoder already fills alike</td></tr>
+<tr><td>15 s forward gap</td><td class="num">2 (video at picture 100, and audio)</td><td>reset</td></tr>
+<tr><td>clock passing the 33-bit wrap within one stream</td><td class="num">0</td><td>none: the demuxer unwraps it</td></tr>
+<tr><td>two clocks joined (backward)</td><td class="num">2 (video at picture 100, and audio)</td><td>reset</td></tr>
+<tr><td>DVD-style PS with AC-3 + LPCM sound, two clocks</td><td class="num">3 → 0 after the copy</td><td>copied with both tracks, continuous</td></tr>
+</table>
+
+<h2>2. Before and after</h2>
+<p><code>before_after_probe.py</code> runs on the committed fixtures
+(<code>seek_reset_dvd_pal.mpg</code>, <code>seek_reset_h264.ts</code>). Each is two 150-picture
+halves with their own clocks, so the clock goes back at picture 150. It uses #14's seek decoder
+(<code>-copyts</code>, <code>-ss</code> a preroll early, absolute <code>trim</code>, PTS reset)
+from frame N, asking for 101 frames, and names every picture against a sequential decode of the
+original (MD5 of a 64x48 luma).</p>
+<table>
+<tr><th></th><th>Original (MPEG-PS)</th><th>Joined copy (MPEG-PS)</th><th>Original (TS)</th><th>Joined copy (TS)</th></tr>
+<tr><td>ffprobe video duration → app frame count</td><td class="bad">6.00 s → 150</td><td>11.96 s → 299*</td><td class="bad">6.00 s → 150</td><td class="good">12.00 s → 300</td></tr>
+<tr><td>sequential decode / with <code>-copyts</code></td><td>300 / <span class="bad">151</span></td><td class="good">300 / 300</td><td>300 / <span class="bad">152</span></td><td class="good">300 / 300</td></tr>
+<tr><td>from 100: frames, first–last picture</td><td class="bad">52, 100–(stops)</td><td class="good">101, 100–200</td><td class="bad">52, 100–(stops)</td><td class="good">101, 100–200</td></tr>
+<tr><td>from 140</td><td class="bad">12</td><td class="good">101, 140–240</td><td class="bad">10, starting at picture 290</td><td class="good">101, 140–240</td></tr>
+<tr><td>from 149 / 150 / 151 / 160</td><td class="bad">1 / 0 / 0 / 0</td><td class="good">101 each, exact</td><td class="bad">1 / 0 / 0 / 0</td><td class="good">101 each, exact</td></tr>
+<tr><td>from 290 (10 left)</td><td class="bad">0</td><td class="good">10, 290–299</td><td class="bad">0</td><td class="good">10, 290–299</td></tr>
+</table>
+<p class="caption">On the original TS, starting at 140 delivered pictures from the <em>second</em>
+segment (290 on). This is a seek past or near a reset landing in whichever segment the timestamp
+search finds first. *The PS copy counts 299 of 300 for a separate reason: its last picture's packet
+carries no PTS, so ffprobe's duration is one frame short. <code>seek_dvd_pal.mpg</code> has no reset
+and counts 149 of 150 for the same reason. That fault is tracked as task #26.</p>
+<p>Through the app's own path, the heavy <code>integration_seek_alignment_test.dart</code> adds both
+fixtures, made continuous by <code>TimestampContinuityService</code> exactly as analysis does:</p>
+<ul>
+<li>the preview and the Original side at 100, 149, 150, 151, 160 and 290 are those pictures of the original</li>
+<li>trims 100..200 (101 frames, across the reset) and 160..190 are exact</li>
+<li>an untrimmed encode has all 300 frames</li>
+<li>with the sound copied, the beep in the second segment is within 60 ms of the flash it was made with, both untrimmed and in the 160..190 trim</li>
+</ul>
+<p>All 57 tests in the file pass, including #14's fixtures, which have no reset and therefore no copy.</p>
+
+<h2>3. Why a copy, and why this container</h2>
+<ul>
+<li><strong>Per-segment offsets in each decoder</strong> (the task's first idea) were rejected.
+<code>-ss</code> can't reach a later segment, because its timestamps occur once per segment, so
+every seek would need a byte offset and its own <code>setpts</code> continuity. The sound paths
+that copy (passthrough) can't filter at all. It would have meant five or more argument builders, in
+both Rust and Dart, made segment-aware.</li>
+<li><strong>Dropping <code>-copyts</code></strong> was rejected. It fixes neither the frame count nor
+a seek past a reset, and #169 showed that the relative trim is wrong on late-video TS.</li>
+<li><strong>An MKV copy</strong> was rejected. It needs <code>+genpts</code> (some PS packets have no
+PTS). It stores 1 ms timestamps, which risks the soft-telecine slot placement of #174. It moves the
+source out of the TS/PS seek rules of #169. A same-container copy keeps every format-specific rule
+byte for byte.
+<div class="card correction"><strong>Correction.</strong> At planning, an MKV remux measured
+quadratic in the number of resets (10 / 30 / 90 resets: 0.18 / 0.85 / 7.5 s). <code>cost_probe.py</code>
+did not reproduce that on its 4 s 720x576 AC-3 segments: 0.06 / 0.10 / 0.31 s, no faster-growing
+than the PS copy. The planning segments were different files (small testsrc2, MP2). The
+quadratic growth is therefore not established, and the rejection rests on the other reasons above.</div></li>
+<li><strong>Always remuxing every DVD import</strong> was rejected. A title with no reset would gain
+a muxer pass and nothing else.</li>
+</ul>
+
+<h2>4. What it costs</h2>
+<table>
+<tr><th class="num">Resets</th><th class="num">File</th><th class="num">Scan</th><th class="num">PS copy (incl. its re-scan)</th></tr>
+<tr><td class="num">10</td><td class="num">32 MB</td><td class="num">0.09 s</td><td class="num">0.22 s</td></tr>
+<tr><td class="num">30</td><td class="num">90 MB</td><td class="num">0.13 s</td><td class="num">0.35 s</td></tr>
+<tr><td class="num">90</td><td class="num">264 MB</td><td class="num">0.26 s</td><td class="num">0.89 s</td></tr>
+</table>
+<p class="caption"><code>cost_probe.py</code>, internal SSD. The scan reads the whole file. At
+planning it took 0.72 s for 482 MB and 90k packets, so expect about 1–2 s per GB. The copy also
+needs <strong>free space equal to the source</strong> in the temp folder (Settings → General →
+Temporary Files). On a slow disk or a network share, both scale with read speed.</p>
+
+<h2>5. How often resets occur (step 1): not measured</h2>
+<p>This machine has no DVD rips or broadcast recordings, so the frequency in real material is
+<span class="warn">unmeasured</span>. <code>reset_survey.py</code> runs the shipped rule over any
+files or folders. What reading the code did establish:</p>
+<div class="card"><strong>VapourBox's DVD import copies the whole title set, not the title.</strong>
+<code>dvd_reader::extract_title</code> opens the title's VTS (<code>DVD_READ_TITLE_VOBS</code>) and
+copies every block of it. That means every title in the set (a TV-series disc commonly holds all its
+episodes in one), every angle interleaved, and the chapter range ignored. Each title usually starts
+its own clock, so resets in VapourBox's own DVD output are likely to be <em>common</em>. The import
+now joins them (§6), which makes such a file decode correctly from end to end. Extracting only
+the chosen title is a separate fix (task #27).</div>
+
+<h2>6. What changed</h2>
+<ul>
+<li><code>worker/src/source_continuity.rs</code>: the reset rule, the scan, the copy arguments
+(<code>-map 0:v -map 0:a? -map 0:s? -c copy -map_metadata 0 -f vob|mpegts</code>, no
+<code>-copyts</code>, no <code>-muxdelay</code>, so the copy keeps the source's start time; if the
+muxer refuses a subtitle stream, it retries without subtitles), and the check before a copy is used
+(no reset left, every video packet present).</li>
+<li>CLI: <code>--scan-timestamps</code> and <code>--make-continuous … --output</code>. DVD import
+extracts to <code>.part</code> and then renames it, or joins it into the output.</li>
+<li>A hand-written encode job (<code>continuityChecked</code> unset) on a file with a reset gets a
+<strong>warning</strong>, never a silent change: its frame numbers were chosen against an unknown
+timeline.</li>
+<li>App: analysis makes the copy (<code>TimestampContinuityService</code>).
+<code>QueueItem.decodePath</code> is what every probe and decode reads, while
+<code>inputPath</code> still names the output, Show in Folder and sidecars. A static test classifies
+every read. Video Info and the log say when a copy is used, and the copy is deleted with the item.</li>
+</ul>
+
+<h2>7. Not tested, limits</h2>
+<ul>
+<li>No real DVD or DVB material (§5). Seamless-branching and multi-angle titles are untested beyond
+the fact that the import copies their interleaved blocks.</li>
+<li>Sync is checked on synthetic segments whose sound and picture start within 11 ms of each other.
+A segment whose own sound leads its picture by more keeps that lead (one offset per segment), but
+that is not measured here.</li>
+<li>Preview and the detectors do not scan; they read whatever the app hands them. A hand-written
+preview job on a file with a reset is not warned about.</li>
+<li>One machine (macOS arm64). The worker's rule and the copy are plain ffmpeg/ffprobe calls, the
+same on every platform.</li>
+</ul>
+
+<h2>8. Reproduce</h2>
+<pre>cd worker &amp;&amp; cargo build
+docs/reports/2026-11-timestamp-resets/scripts/run.sh            # §1, §2, §4
+python3 docs/reports/2026-11-timestamp-resets/scripts/reset_survey.py /path/to/VIDEO_TS …
+cd app &amp;&amp; flutter test test/integration_seek_alignment_test.dart --tags heavy</pre>
+<p>The fixtures are made by <code>Tests/TestResources/generate_mpeg_seek_test.sh</code>.</p>
+</main>
+</body>
+</html>

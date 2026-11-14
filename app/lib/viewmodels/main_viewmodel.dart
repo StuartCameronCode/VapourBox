@@ -33,6 +33,7 @@ import '../services/temp_directory_service.dart';
 import '../services/failure_log_writer.dart';
 import '../services/job_runner.dart';
 import '../services/system_shutdown.dart';
+import '../services/timestamp_continuity_service.dart';
 import '../services/worker_manager.dart';
 import '../widgets/comparison_view_mode.dart';
 import '../widgets/comparison_zoom_controller.dart';
@@ -55,6 +56,9 @@ class MainViewModel extends ChangeNotifier {
   /// test — see JobRunner for why that matters.
   final JobRunner _workerManager;
   final FieldOrderDetector _fieldOrderDetector = FieldOrderDetector();
+
+  /// Scans an MPEG-PS/TS for timestamp resets and joins them (task #21).
+  final TimestampContinuityService _continuity;
   final PreviewGenerator _previewGenerator = PreviewGenerator();
   final DvdService _dvdService = DvdService();
   final DiscDetector _discDetector = DiscDetector();
@@ -202,6 +206,9 @@ class MainViewModel extends ChangeNotifier {
 
   // Computed getters that delegate to selected item
   String? get inputPath => selectedItem?.inputPath;
+
+  /// The file the selected video is decoded from ([QueueItem.decodePath]).
+  String? get decodePath => selectedItem?.decodePath;
   String? get outputPath => selectedItem?.outputPath;
   VideoInfo? get videoInfo => selectedItem?.videoInfo;
   bool get isExtracting =>
@@ -316,7 +323,8 @@ class MainViewModel extends ChangeNotifier {
     int? at(double? point) =>
         !trimmed || point == null ? null : (point * frameCount).round();
     return VideoJob(
-      inputPath: item.inputPath,
+      inputPath: item.decodePath,
+      continuityChecked: item.continuityChecked,
       outputPath: item.outputPath,
       processingPipeline: pipeline,
       encodingSettings: _encodingSettings,
@@ -852,7 +860,9 @@ class MainViewModel extends ChangeNotifier {
     Future<NativeResReport> Function(VideoJob job)? nativeResDetector,
     Future<CropDetectReport> Function(VideoJob job)? cropDetector,
     Future<NoiseHaloReport> Function(VideoJob job)? noiseHaloDetector,
+    TimestampContinuityService? continuityService,
   })  : _workerManager = runner ?? WorkerManager(),
+        _continuity = continuityService ?? const TimestampContinuityService(),
         _systemShutdown = systemShutdown ?? PlatformSystemShutdown(),
         _detectNative = nativeResDetector ?? WorkerManager.detectNativeResolution,
         _detectCrop = cropDetector ?? WorkerManager.detectCrop,
@@ -967,6 +977,46 @@ class MainViewModel extends ChangeNotifier {
     }
   }
 
+  /// Scans [item] for timestamp resets and, finding one, makes the joined
+  /// copy it is decoded from ([QueueItem.continuityProxy]). Never blocks: a
+  /// failed scan or copy leaves the source as it is, and says so.
+  Future<void> _prepareContinuity(QueueItem item) async {
+    if (item.continuityProxy != null) return;
+    final r = await _continuity.prepare(
+      item.inputPath,
+      item.id,
+      onJoining: (scan) {
+        _log(LogLevel.info,
+            '${item.filename}: timestamps reset ${scan.resetCount == 1 ? "once" : "${scan.resetCount} times"} '
+            '(at picture ${scan.videoResetPictures.join(", ")}); joining the segments '
+            'into one timeline in the temp folder\u2026');
+        item.extractionProgress = 0.0;
+        notifyListeners();
+      },
+      onProgress: (f) {
+        item.extractionProgress = f;
+        notifyListeners();
+      },
+    );
+    item.continuityChecked = r.checked;
+    item.extractionProgress = 0.0;
+    if (r.proxy != null) {
+      if (!_queue.contains(item)) {
+        r.proxy!.delete();
+        return;
+      }
+      item.continuityProxy = r.proxy;
+      _log(LogLevel.info, '${item.filename}: ${r.proxy!.note}');
+    } else if (r.error != null) {
+      _log(LogLevel.warning,
+          '${item.filename}: its timestamps reset, but joining them failed (${r.error}). '
+          'Frames after the first reset may be missing or wrong.');
+    }
+  }
+
+  void _log(LogLevel level, String message) =>
+      _logMessages.add(LogMessage(level: level, message: message));
+
   /// Analyzes a queue item (loads video info and thumbnails).
   Future<void> _analyzeQueueItem(QueueItem item) async {
     final index = _queue.indexWhere((q) => q.id == item.id);
@@ -975,9 +1025,16 @@ class MainViewModel extends ChangeNotifier {
     _queue[index].status = QueueItemStatus.analyzing;
     notifyListeners();
 
+    // A TS/PS whose clock resets mid-file is decoded from a joined copy, so
+    // every count, seek and trim below sees one continuous timeline.
+    await _prepareContinuity(item);
+    // The join can take minutes, so the queue may have changed: work on the
+    // item itself from here, not on the index found before it.
+    if (!_queue.contains(item)) return;
+
     // Analyze video
     try {
-      _queue[index].videoInfo = await _fieldOrderDetector.getVideoInfo(item.inputPath);
+      item.videoInfo = await _fieldOrderDetector.getVideoInfo(item.decodePath);
     } catch (e) {
       _logMessages.add(LogMessage(
         level: LogLevel.warning,
@@ -989,7 +1046,7 @@ class MainViewModel extends ChangeNotifier {
     // ONCE (for the first analyzed file) so that dropping additional files does
     // not silently overwrite the pipeline the user has already configured for
     // the queue (issue #12).
-    final videoInfo = _queue[index].videoInfo;
+    final videoInfo = item.videoInfo;
     if (videoInfo != null && !_scanTypeAutoApplied) {
       DeinterlaceMethod? targetMethod;
       bool? targetEnabled;
@@ -1058,10 +1115,10 @@ class MainViewModel extends ChangeNotifier {
     // Load thumbnails if this is the selected item
     if (_selectedItemId == item.id) {
       try {
-        _queue[index].thumbnails = await _previewGenerator.loadVideo(item.inputPath);
-        _queue[index].thumbnailRangeStart = 0.0;
-        _queue[index].thumbnailRangeEnd = 1.0;
-        _queue[index].currentFrame = await _previewGenerator.getFrameAtIndex(0);
+        item.thumbnails = await _previewGenerator.loadVideo(item.decodePath);
+        item.thumbnailRangeStart = 0.0;
+        item.thumbnailRangeEnd = 1.0;
+        item.currentFrame = await _previewGenerator.getFrameAtIndex(0);
       } catch (e) {
         _logMessages.add(LogMessage(
           level: LogLevel.warning,
@@ -1070,7 +1127,7 @@ class MainViewModel extends ChangeNotifier {
       }
     }
 
-    _queue[index].status = QueueItemStatus.ready;
+    item.status = QueueItemStatus.ready;
     notifyListeners();
 
     // Generate initial processed preview if selected
@@ -1078,7 +1135,7 @@ class MainViewModel extends ChangeNotifier {
       _requestPreviewUpdate();
     }
 
-    _measureNoiseHalo(_queue[index]);
+    _measureNoiseHalo(item);
   }
 
   /// The selected source's noise / halo measurement, or null until it is in
@@ -1173,7 +1230,7 @@ class MainViewModel extends ChangeNotifier {
     // Load thumbnails if not already loaded
     if (item.thumbnails.isEmpty && item.status != QueueItemStatus.analyzing) {
       try {
-        item.thumbnails = await _previewGenerator.loadVideo(item.inputPath);
+        item.thumbnails = await _previewGenerator.loadVideo(item.decodePath);
         item.thumbnailRangeStart = 0.0;
         item.thumbnailRangeEnd = 1.0;
         if (item.timelineZoom > 1.0) _requestThumbnailRegeneration();
@@ -1190,7 +1247,7 @@ class MainViewModel extends ChangeNotifier {
     } else if (item.thumbnails.isNotEmpty) {
       // Reload video in preview generator to sync duration
       try {
-        await _previewGenerator.loadVideo(item.inputPath);
+        await _previewGenerator.loadVideo(item.decodePath);
       } catch (e) {
         // Ignore errors
       }
@@ -1417,7 +1474,7 @@ class MainViewModel extends ChangeNotifier {
     final rangeEnd = timelineViewEnd;
     try {
       item.thumbnails = await _previewGenerator.loadVideoRange(
-        videoPath: item.inputPath,
+        videoPath: item.decodePath,
         startTime: rangeStart * videoDuration,
         endTime: rangeEnd * videoDuration,
         thumbnailCount: 20,
@@ -1801,7 +1858,8 @@ class MainViewModel extends ChangeNotifier {
     // Build job configuration
     final job = VideoJob(
       id: item.id,
-      inputPath: item.inputPath,
+      inputPath: item.decodePath,
+      continuityChecked: item.continuityChecked,
       outputPath: item.outputPath,
       qtgmcParameters: _qtgmcParams.copyWith(
         tff: _getEffectiveFieldOrder(item) == FieldOrder.topFieldFirst,
@@ -2369,6 +2427,9 @@ class MainViewModel extends ChangeNotifier {
 
   /// Delete the extracted temp file for a single DVD queue item.
   void _cleanupDvdTempFile(QueueItem item) {
+    // The joined copy of a source whose timestamps reset is a temp file too.
+    item.continuityProxy?.delete();
+    item.continuityProxy = null;
     if (item.dvdSourceInfo == null) return;
     final tempFile = File(item.dvdSourceInfo!.tempFilePath);
     if (tempFile.existsSync()) {
@@ -2383,9 +2444,7 @@ class MainViewModel extends ChangeNotifier {
   /// Clean up any remaining DVD temp files (called on dispose).
   void _cleanupDvdTempFiles() {
     for (final item in _queue) {
-      if (item.dvdSourceInfo != null) {
-        _cleanupDvdTempFile(item);
-      }
+      _cleanupDvdTempFile(item);
     }
   }
 

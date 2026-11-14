@@ -2415,6 +2415,7 @@ mod tests {
             seek_plan: None,
             decoder_delay_frames: None,
             source_grid: None,
+            continuity_checked: false,
             source_has_audio: None,
         }
     }

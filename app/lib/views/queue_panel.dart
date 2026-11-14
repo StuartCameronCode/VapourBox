@@ -227,6 +227,8 @@ class _QueuePanelState extends State<QueuePanel> {
               children: [
                 _InfoRow(label: 'File', value: item.filename),
                 _InfoRow(label: 'Path', value: item.inputPath),
+                if (item.continuityProxy != null)
+                  _InfoRow(label: 'Timestamps', value: item.continuityProxy!.note),
                 if (item.videoInfo != null) ...[
                   _InfoRow(label: 'Resolution', value: item.videoInfo!.resolution),
                   _InfoRow(label: 'Frame Rate', value: item.videoInfo!.frameRateFormatted),
@@ -376,6 +378,14 @@ class _QueueItemTile extends StatelessWidget {
                                 color: colorScheme.tertiary,
                               ),
                         ),
+                      ] else if (item.status == QueueItemStatus.analyzing &&
+                          item.extractionProgress > 0) ...[
+                        Text(
+                          'Joining timestamps... ${(item.extractionProgress * 100).round()}%',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: colorScheme.tertiary,
+                              ),
+                        ),
                       ] else ...[
                       if (item.resolution.isNotEmpty) ...[
                         Text(
@@ -490,10 +500,15 @@ class _QueueItemTile extends StatelessWidget {
           ),
         );
       case QueueItemStatus.analyzing:
-        return const SizedBox(
+        // extractionProgress > 0 while a source whose timestamps reset is
+        // being joined (task #21), which can take minutes.
+        return SizedBox(
           width: 18,
           height: 18,
-          child: CircularProgressIndicator(strokeWidth: 2),
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            value: item.extractionProgress > 0 ? item.extractionProgress : null,
+          ),
         );
       case QueueItemStatus.ready:
         return Icon(

@@ -72,3 +72,45 @@ check seek_dvd_pal.mpg 12
     -bf 2 -x264-params open_gop=1 -pix_fmt yuv420p \
     -c:a mp2 -b:a 64k -f mpegts "$OUTPUT_DIR/seek_gop_late_video.ts"
 check seek_gop_late_video.ts 25
+
+# Timestamp resets (task #21): one 300-frame (12 s) clip encoded as two
+# halves, each its own program/transport stream whose clock starts afresh,
+# joined byte for byte. Picture 150 (the second half's first) goes back to the
+# first half's start time, as a DVD title spanning VOB IDs or a capture
+# spliced across a programme change does. A white flash at picture 175 and a
+# 1 kHz beep at 7.0 s (the same moment) are in the second half, for sync.
+#
+#   seek_reset_dvd_pal.mpg  MPEG-2 PS, as seek_dvd_pal.mpg
+#   seek_reset_h264.ts      H.264 + MP2 in MPEG-TS
+reset_half() {
+    local start="$1" out="$2" fmt="$3"; shift 3
+    "$FFMPEG" -y -v error \
+        -f lavfi -i "testsrc2=size=352x288:rate=25:duration=12,drawbox=c=white:t=fill:enable='eq(n\,175)',trim=start_frame=$start:end_frame=$((start + 150)),setpts=PTS-STARTPTS" \
+        -f lavfi -i "sine=frequency=1000:sample_rate=48000:duration=12,volume=0:enable='not(between(t\,7\,7.08))',atrim=start=$((start / 25)):duration=6,asetpts=PTS-STARTPTS" \
+        -map 0:v -map 1:a "$@" -f "$fmt" "$out"
+}
+
+reset_join() {
+    local out="$1" fmt="$2"; shift 2
+    local tmp
+    tmp="$(mktemp -d)"
+    reset_half 0 "$tmp/a" "$fmt" "$@"
+    reset_half 150 "$tmp/b" "$fmt" "$@"
+    cat "$tmp/a" "$tmp/b" > "$OUTPUT_DIR/$out"
+    rm -rf "$tmp"
+    local frames
+    frames="$("$FFMPEG" -v error -i "$OUTPUT_DIR/$out" -map 0:v -f null - -progress pipe:1 \
+        | awk -F= '$1 == "frame" { f = $2 } END { print f }')"
+    if [ "$frames" != 300 ]; then
+        echo "$out: expected 300 pictures in a sequential decode, got $frames" >&2
+        exit 1
+    fi
+    echo "Wrote $out ($frames pictures, timestamps reset at picture 150)"
+}
+
+reset_join seek_reset_dvd_pal.mpg vob \
+    -c:v mpeg2video -b:v 600k -maxrate 1200k -bufsize 1835k -g 12 -bf 2 -flags -cgop \
+    -sc_threshold 1000000000 -pix_fmt yuv420p -c:a mp2 -b:a 96k
+reset_join seek_reset_h264.ts mpegts \
+    -c:v libx264 -preset veryfast -crf 28 -g 25 -keyint_min 25 -sc_threshold 0 \
+    -bf 2 -x264-params open_gop=1 -pix_fmt yuv420p -c:a mp2 -b:a 64k
