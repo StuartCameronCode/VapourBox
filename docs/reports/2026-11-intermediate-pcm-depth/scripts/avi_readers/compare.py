@@ -21,6 +21,7 @@ import sys
 WORK = os.environ["WORK"]
 AVI = os.path.join(WORK, "avi")
 VDUB = os.path.join(WORK, "vdub")
+LOCAL = os.path.join(WORK, "local")  # vlc_read.sh: other players, any platform
 FIXTURES = ["ffv1_s24", "huffyuv_s24", "h264_s24", "ffv1_s16"]
 READERS = ["vfw", "acm", "acm_plain24", "dshow", "mf"]
 
@@ -49,9 +50,9 @@ def compare(out, out_bits, ref, ref_bits, out_float=False):
     else:
         o = ints(out, out_bits)
     res = {"samples": len(o), "ref_samples": len(r)}
-    if out_bits == 32 and ref_bits == 24:
-        o = [x >> 8 for x in o]
-        out_bits = 24
+    if out_bits > ref_bits:  # a wider container: the stored samples in its top bits
+        o = [x >> (out_bits - ref_bits) for x in o]
+        out_bits = ref_bits
     if out_bits == ref_bits:
         res["verdict"] = "exact" if o == r else "differs"
     elif ref_bits == 24 and out_bits == 16:
@@ -73,7 +74,7 @@ def compare(out, out_bits, ref, ref_bits, out_float=False):
         first = next((i for i in range(n) if o[i] != rr[i]), None)
         res["first_mismatch"] = first
         if first is None and len(o) != len(r):
-            res["verdict"] += " (length only)"
+            res["verdict"] = "exact, but %d samples %s" % (abs(len(o) - len(r)), "short" if len(o) < len(r) else "long")
     return res
 
 
@@ -123,21 +124,20 @@ for fx in FIXTURES:
                 bits = ref_bits
             row["result"] = compare(data, bits, ref, ref_bits)
         rows.append(row)
-    for tool in ["vd1104", "vd2"]:
-        for mode in ["direct", "full"]:
-            path = os.path.join(VDUB, f"{tool}_{mode}_{fx}.wav")
-            status = os.path.join(VDUB, f"{tool}_{mode}_{fx}.status")
-            if not os.path.exists(status):
-                continue
-            row = {"fixture": fx, "reader": f"{tool}_{mode}", "note": open(status).read().strip()}
-            w = wav(path) if os.path.exists(path) and os.path.getsize(path) > 44 else None
-            row["ok"] = w is not None
-            if w:
-                h, data = w
-                row["format"] = h
-                is_float = h["wFormatTag"] == "0x0003" or h["subformat_tag"] == 3
-                row["result"] = compare(data, h["bits"], ref, ref_bits, out_float=is_float)
-            rows.append(row)
+    for where, name in [(VDUB, f"{t}_{m}") for t in ("vd1104", "vd2") for m in ("direct", "full")] + [(LOCAL, "vlc")]:
+        path = os.path.join(where, f"{name}_{fx}.wav")
+        status = os.path.join(where, f"{name}_{fx}.status")
+        if not os.path.exists(status):
+            continue
+        row = {"fixture": fx, "reader": name, "note": open(status).read().strip()}
+        w = wav(path) if os.path.exists(path) and os.path.getsize(path) > 44 else None
+        row["ok"] = w is not None
+        if w:
+            h, data = w
+            row["format"] = h
+            is_float = h["wFormatTag"] == "0x0003" or h["subformat_tag"] == 3
+            row["result"] = compare(data, h["bits"], ref, ref_bits, out_float=is_float)
+        rows.append(row)
 
 for r in rows:
     print(json.dumps(r))

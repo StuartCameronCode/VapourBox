@@ -71,10 +71,12 @@ jobs:
           }
 
       - name: VirtualDub
+        continue-on-error: true
         shell: pwsh
         run: pwsh "$env:SCRIPTS\virtualdub.ps1" -Work $env:WORK -Tools "$env:WORK\tools"
 
       - name: Windows readers and comparison
+        if: always()
         shell: pwsh
         run: |
           [System.Environment]::OSVersion.VersionString

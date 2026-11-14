@@ -26,7 +26,7 @@ function Screenshot([string]$path) {
 
 function Esc([string]$p) { $p.Replace('\', '\\') }
 
-$tools = @{ vd1104 = (Join-Path $Tools 'vd1104\vdub64.exe'); vd2 = (Join-Path $Tools 'vd2\vdub64.exe') }
+$exes = @{ vd1104 = (Join-Path $Tools 'vd1104\vdub64.exe'); vd2 = (Join-Path $Tools 'vd2\vdub64.exe') }
 foreach ($fx in 'ffv1_s24', 'huffyuv_s24', 'h264_s24', 'ffv1_s16') {
   $avi = Join-Path $Work "avi\$fx.avi"
   foreach ($tool in 'vd1104', 'vd2') {
@@ -42,7 +42,7 @@ VirtualDub.audio.SetConversion(0, 0, 0, 0, 0);
 VirtualDub.SaveWAV("$(Esc $wav)");
 "@
       Set-Content -Path "$stem.vdscript" -Value $script -Encoding ascii
-      $p = Start-Process -FilePath $tools[$tool] -ArgumentList '/s', "`"$stem.vdscript`"", '/x' `
+      $p = Start-Process -FilePath $exes[$tool] -ArgumentList '/s', "`"$stem.vdscript`"", '/x' `
              -RedirectStandardOutput "$stem.log" -RedirectStandardError "$stem.err" -PassThru -WindowStyle Normal
       if ($p.WaitForExit(90000)) {
         $status = "exit $($p.ExitCode)"
