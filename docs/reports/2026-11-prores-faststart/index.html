@@ -127,6 +127,12 @@ Audio → Convert. Only the Passthrough default changed.</li>
 <li><strong>16-bit PCM</strong> (<code>pcm_s16le</code>, the existing <code>AudioCodec::Pcm</code>), the same as v210.
 The rendered track is 32-bit float, so a 24-bit option for intermediates would keep more. That is a separate
 decision because it needs a new codec value. Left as a follow-up.</li>
+<li class="correction"><strong>Superseded 2026-11-14:</strong> the restored track beside ProRes and v210 is now
+<strong>24-bit</strong> (<code>pcm_s24le</code>, <code>in24</code> in MOV), through its own
+<code>RestoredTrackCodec</code> rather than a new <code>AudioCodec</code> value, so <code>AudioCodec::Pcm</code>
+stays <code>pcm_s16le</code>. Measurement and reasons:
+<a href="../2026-11-intermediate-pcm-depth/index.html">24-bit PCM for an editing intermediate's restored audio</a>.
+The text above is left as it was decided.</li>
 </ul>
 
 <h2>Verification</h2>
@@ -137,6 +143,8 @@ checks every ProRes profile in MOV has no <code>+faststart</code>, and checks H.
 <code>encode_codec_args</code> gives ProRes MOV <code>-c:a:0 pcm_s16le</code> with no bitrate.</li>
 <li>Heavy: <code>integration_audio_restoration_test.dart</code> encodes ProRes and v210 MOVs with restoration
 on and audio copied, and checks the first audio stream is <code>pcm_s16le</code>.</li>
+<li class="correction"><strong>Since 2026-11-14</strong> these tests expect <code>pcm_s24le</code> (see the
+correction under Decisions); the heavy test also covers v210 in MKV and AVI.</li>
 </ul>
 
 <h2>Not tested</h2>
