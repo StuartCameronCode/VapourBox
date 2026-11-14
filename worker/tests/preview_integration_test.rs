@@ -87,6 +87,7 @@ fn test_preview_10bit_422_matches_source_frame() {
         burn_in_subtitle_path: None,
         pitch_factors_path: None,
         video_start_offset: None,
+        seek_plan: None,
         source_has_audio: None,
     };
 

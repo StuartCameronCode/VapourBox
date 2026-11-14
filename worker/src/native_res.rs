@@ -269,6 +269,7 @@ pub fn detect(deps: &DependencyLocator, job: &VideoJob) -> Result<NativeResRepor
                     "pipe:1",
                     job.video_start(),
                     tag_fix.as_deref(),
+                    job.seek_plan(),
                 ))
                 .envs(&env)
                 .stdin(Stdio::null())

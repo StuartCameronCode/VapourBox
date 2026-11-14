@@ -69,6 +69,10 @@ class PreviewGenerator {
   /// sound starts first; see [VideoStart]). Every seek of the source adds it.
   double _videoStartOffset = 0;
 
+  /// How seeks reach a frame on an MPEG-TS/PS (issue #169), null for every
+  /// other format. See [SeekPlan].
+  SeekPlan? _seekPlan;
+
   /// Video dimensions and pixel format (for pipe source).
   int _videoWidth = 0;
   int _videoHeight = 0;
@@ -110,18 +114,24 @@ class PreviewGenerator {
   /// The ffmpeg arguments for one timeline thumbnail at [time] seconds on
   /// the video's own timeline (0 = its first picture). [videoStartOffset] is
   /// added because `-ss` counts from the file's start. [tagFix] precedes
-  /// `scale`, which is the step that converts.
+  /// `scale`, which is the step that converts. On an MPEG-TS/PS, [seekPlan]
+  /// seeks a GOP early and trims to the moment (issue #169): a plain seek
+  /// there decodes from the next keyframe, and past the last one, nothing.
   static List<String> thumbnailArgs({
     required String videoPath,
     required double time,
     double videoStartOffset = 0,
     String? toneMap,
     String? tagFix,
+    SeekPlan? seekPlan,
     required String outputPath,
   }) {
+    final target = time + videoStartOffset;
+    final planned = seekPlan == null ? null : SeekPlan.seekArgs(target, seekPlan);
     return [
       '-y',
-      '-ss', (time + videoStartOffset).toStringAsFixed(3),
+      ...?planned?.input,
+      if (planned == null) ...['-ss', target.toStringAsFixed(3)],
       ...sourceDecodeOptions,
       '-i', videoPath,
       '-vframes', '1',
@@ -129,6 +139,7 @@ class PreviewGenerator {
       // than the 160-pixel thumbnail it ends up as.
       '-vf', [
         if (tagFix != null) tagFix,
+        if (planned?.trim != null) planned!.trim!,
         'scale=160:-1',
         if (toneMap != null) toneMap,
       ].join(','),
@@ -151,6 +162,7 @@ class PreviewGenerator {
   double get frameRate => _frameRate;
   int get totalFrames => _totalFrames;
   double get videoStartOffset => _videoStartOffset;
+  SeekPlan? get seekPlan => _seekPlan;
 
   /// Get all preview log messages.
   List<String> get previewLog => List.unmodifiable(_previewLog);
@@ -270,8 +282,14 @@ class PreviewGenerator {
   /// output is written with passthrough timing, so unlike the worker's
   /// `rawvideo` decoders it needs no PTS reset after the seek (issue #157).
   ///
+  /// On an MPEG-TS/PS, [seekPlan] seeks a GOP early with `-copyts` and drops
+  /// to the frame with an absolute `trim` (issue #169): a plain seek there
+  /// starts at the next keyframe. Twin of the worker's
+  /// `source_decode::decoder_seek`; null leaves the arguments as they were.
+  ///
   /// [tagFix] goes first in the one `-vf`: the JPEG/PNG encode converts the
-  /// pixel format, which fails on a `reserved` tag.
+  /// pixel format, which fails on a `reserved` tag. The trim follows it,
+  /// ahead of the tone map, so dropped frames are never tone-mapped.
   ///
   /// `integration_seek_alignment_test.dart` and
   /// `integration_reserved_colour_tags_test.dart` run exactly these arguments
@@ -284,14 +302,22 @@ class PreviewGenerator {
     double videoStartOffset = 0,
     String? toneMap,
     String? tagFix,
+    SeekPlan? seekPlan,
     required String outputPath,
   }) {
     final frame = frameIndex < 0 ? 0 : frameIndex;
     final offset = videoStartOffset > 0 ? videoStartOffset : 0.0;
-    final vf = [if (tagFix != null) tagFix, if (toneMap != null) toneMap];
+    final seek = frame > 0
+        ? SeekPlan.seekArgs((frame - 0.5) / frameRate + offset, seekPlan)
+        : null;
+    final vf = [
+      if (tagFix != null) tagFix,
+      if (seek?.trim != null) seek!.trim!,
+      if (toneMap != null) toneMap,
+    ];
     return [
       '-y',
-      if (frame > 0) ...['-ss', ((frame - 0.5) / frameRate + offset).toStringAsFixed(6)],
+      ...?seek?.input,
       ...sourceDecodeOptions,
       '-i', videoPath,
       '-frames:v', '1',
@@ -326,6 +352,7 @@ class PreviewGenerator {
           videoStartOffset: _videoStartOffset,
           toneMap: _toneMap,
           tagFix: _tagFix,
+          seekPlan: _seekPlan,
           outputPath: outputPath,
         ),
       );
@@ -647,6 +674,14 @@ class PreviewGenerator {
     );
     _videoStartOffset = videoStart.offset;
 
+    // An MPEG-TS/PS has no keyframe index, so its seeks start a GOP early
+    // and trim to the frame (the twin of the worker's seek plan, #169).
+    _seekPlan = await FieldOrderDetector.probeSeekPlan(
+      _ffprobePath!,
+      videoPath,
+      formatName: format?['format_name'] as String?,
+    );
+
     // Parse frame count: the same length the job is built with, which for a
     // variable-frame-rate source is its duration, not its stored frames.
     final streamDuration =
@@ -736,6 +771,7 @@ class PreviewGenerator {
           videoStartOffset: _videoStartOffset,
           toneMap: _toneMap,
           tagFix: _tagFix,
+          seekPlan: _seekPlan,
           outputPath: outputPath,
         ),
       );

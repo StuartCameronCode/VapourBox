@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #169: MPEG-PS/TS seeks</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+  figure { margin: 18px 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>Issue #169 — MPEG-PS/TS seeks started at the next keyframe</h1>
+<p class="meta">2026-11-14 · issue <a href="https://github.com/StuartCameronCode/VapourBox/issues/169">#169</a>
+(found while fixing #157; follows #168, the video start offset) · measured on an Apple M-series Mac
+(macOS arm64), deps 1.16.0 (FFmpeg 9.0.2), against the worker of commit <code>5c3b762</code> and the same worker with the fix</p>
+
+<div class="card">
+<strong>Outcome: fixed.</strong> MPEG program streams (DVD rips, <code>.vob</code>/<code>.mpg</code>,
+and VapourBox's own DVD import, which writes MPEG-PS) and transport streams (broadcast captures,
+<code>.ts</code>/<code>.m2ts</code>) have no keyframe index. A seek to frame N there started decoding
+at the <span class="bad">keyframe after N</span>: up to a whole GOP late, and
+<span class="bad">nothing at all</span> past the last keyframe. The preview, the Original side, a
+trim's in-point, timeline thumbnails and the detectors' samples were all affected. The preview and
+the Original were usually wrong <em>together</em>, so the comparison looked fine.
+<p>The fix, for these two formats only: seek one GOP (measured from the file) earlier, keep the
+file's own timestamps (<code>-copyts</code>) and drop to the frame with an absolute
+<code>trim</code>. Every other format keeps exactly the arguments it had.</p>
+</div>
+
+<h2>1. The mechanism</h2>
+<p>libavformat seeks a container without an index by binary search over timestamps, reading them
+with the demuxer's <code>read_timestamp</code> callback. For MPEG-TS and MPEG-PS that callback adds
+<em>every</em> packet to the index as a keyframe (mpegts.c says
+<code>AVINDEX_KEYFRAME /* FIXME keyframe? */</code>). So the search stops on the packet whose DTS is
+just before the target, which is almost always a non-key packet inside the target's own GOP. The
+decoder can't start there. It discards everything up to the next keyframe, and ffmpeg's accurate
+seek keeps all of that, since it is already past the target.</p>
+<p>Script: <code>landing_probe.py</code>. It stream-copies the first packets after the seek with
+<code>-copyinkf</code>, so the non-key ones show (<code>F=0x0</code>), then decodes from the same
+seek. Frame 40 of each source:</p>
+<div class="scroll"><table>
+<tr><th>Source</th><th>GOP</th><th class="num">Target (file time)</th><th>First packets read</th><th class="num">Plain seek decodes</th></tr>
+<tr><td>DVD-style MPEG-2 PS, 720x576 (variant)</td><td>12, open</td><td class="num">2.120 s</td><td>DTS 1.980, 2.100, 2.100: none a keyframe</td><td class="num bad">48</td></tr>
+<tr><td><code>seek_dvd_pal.mpg</code> (fixture)</td><td>12, open</td><td class="num">2.120 s</td><td>DTS 1.980, 2.100, 2.100: none a keyframe</td><td class="num bad">48</td></tr>
+<tr><td>H.264 TS (variant)</td><td>25</td><td class="num">3.060 s</td><td>DTS 2.920, 2.960, 3.000: none a keyframe</td><td class="num bad">50</td></tr>
+<tr><td><code>seek_gop_late_video.ts</code> (fixture, video 1 s late)</td><td>25, open</td><td class="num">3.990 s</td><td>DTS 3.850, 3.890, 3.930: none a keyframe</td><td class="num bad">50</td></tr>
+<tr><td><code>pal-dvbt-fieldcoded-25i.ts</code> (real DVB-T)</td><td>28, field-coded</td><td class="num">4.182 s</td><td>DTS 4.042, 4.062, 4.082: none a keyframe</td><td class="num bad">56</td></tr>
+</table></div>
+<p class="caption">Each result is the first picture of the GOP after the one holding frame 40
+(including that GOP's leading B pictures: the DVB-T clip's keyframe 59 is shown after 56–58). This
+predicts every row of the table in the task (10 → 12, 40 → 48, 77 → 84 with GOP 12; 10 → 25,
+40 → 50 with GOP 25).</p>
+<p>Not the cause: the container start offset (that was #168, and the fault is identical with the
+offset applied), and output timing (<code>-fps_mode passthrough</code> gives the same pictures,
+#157 report §6).</p>
+
+<h2>2. The fix</h2>
+<pre>-copyts [-ss T−preroll] -apply_cropping codec -i in.ts … -vf [tagfix,]trim=start=container_start+T,setpts=PTS-STARTPTS,&lt;size guard&gt;
+  T = source_decode::seek_time(N)   (container-relative, as before: (N−0.5)/fps + video start)</pre>
+<ul>
+<li><strong>Preroll ≥ one GOP + reorder delay.</strong> The search lands at DTS ≤ T − preroll. The
+next keyframe's DTS is at most one GOP later, and it is shown at most the reorder delay (PTS − DTS)
+after that, so it is shown no later than T. The pictures from it to N then decode with their
+references, including N when N is a leading B picture of a later keyframe.</li>
+<li><strong><code>-copyts</code> and an absolute trim.</strong> Without <code>-copyts</code>,
+ffmpeg's timestamps after the seek are not reliably "file time − (container start + seek)". When the
+early seek falls before a late video's first packet, or there is no seek, the frames come out
+rebased to the video's first picture instead, and a trim relative to the seek keeps the wrong frame
+(the <em>relative</em> rows below: 1 → 25 and 10 → 35 on the 1 s late TS). With
+<code>-copyts</code> the filter always sees the PES timestamps.</li>
+<li><strong>The trim goes before the PTS reset</strong>, so #157's rule (the first kept frame is
+PTS 0 for <code>rawvideo</code>'s constant-rate timing) still holds.</li>
+<li><strong>The preroll is measured, once per source</strong> (<code>source_decode::seek_plan_from_probe</code>):
+ffprobe reads the first 20 s of packets. Preroll = the largest gap between keyframes + the largest
+PTS − DTS + 0.5 s, at least 1 s. With fewer than two keyframes in the window it is 20 s. Measured:
+DVD fixture 1.22 s (GOP 0.60 by the timestamps the PS carries, reorder 0.12), H.264 TS 1.66 s, DVB-T
+1.82 s.</li>
+<li><strong>Only <code>mpegts</code> and <code>mpeg</code></strong> (ffprobe's
+<code>format_name</code>) get a plan. MP4, MOV, MKV and AVI seek by index, and they were exact
+already (#157), so their argument lists are unchanged byte for byte (unit-tested).</li>
+<li><strong>One decision, two copies.</strong> The worker probes the plan into
+<code>VideoJob.seek_plan</code> (<code>fill_seek_plan</code>, like the video start offset) and
+every decoder takes it: encode, preview, the VFR timeline decoder, and the detectors through
+<code>crop_detect::decode_samples</code> and <code>native_res</code>. The app's twin
+(<code>FieldOrderDetector.seekPlanFromProbe</code>, same probe arguments, word for word) drives the
+Original frame and the timeline thumbnails. Both read <code>Tests/TestResources/seek_probe_dvbt.json</code>
+in their unit tests.</li>
+</ul>
+
+<h2>3. Every way of seeking, on every source</h2>
+<p>Script: <code>seek_probe.py</code>. 8 pictures from each start frame, each named by its index in
+an independent sequential decode (<code>-fps_mode passthrough</code>, no seek, MD5 of the luma
+plane). The cell shows the first picture decoded; red is wrong (any of the 8 differs).</p>
+<div class="scroll"><table>
+<tr><th>Source</th><th>Seek</th><th>1</th><th>10</th><th>30</th><th>40</th><th>47</th><th>49</th><th>77</th><th>last − 9</th></tr>
+<tr><td rowspan="4"><code>seek_dvd_pal.mpg</code><br><span class="caption">GOP 12, 150 pictures</span></td>
+ <td>plain (before)</td><td class="num">1</td><td class="num bad">12</td><td class="num bad">36</td><td class="num bad">48</td><td class="num bad">48</td><td class="num">49</td><td class="num bad">84</td><td class="num bad">141 → 144</td></tr>
+<tr><td>copyts, 0.5 s</td><td class="num">1</td><td class="num">10</td><td class="num">30</td><td class="num">40</td><td class="num">47</td><td class="num">49</td><td class="num">77</td><td class="num">141</td></tr>
+<tr><td>copyts, 1–3 s</td><td class="num">1</td><td class="num">10</td><td class="num">30</td><td class="num">40</td><td class="num">47</td><td class="num">49</td><td class="num">77</td><td class="num">141</td></tr>
+<tr><td><strong>plan, 1.22 s</strong></td><td class="num good">1</td><td class="num good">10</td><td class="num good">30</td><td class="num good">40</td><td class="num good">47</td><td class="num good">49</td><td class="num good">77</td><td class="num good">141</td></tr>
+<tr><td rowspan="5"><code>seek_gop_late_video.ts</code><br><span class="caption">GOP 25, video 1 s late</span></td>
+ <td>plain (before)</td><td class="num">1</td><td class="num bad">25</td><td class="num bad">50</td><td class="num bad">50</td><td class="num bad">50</td><td class="num bad">50</td><td class="num bad">100</td><td class="num bad">none</td></tr>
+<tr><td>relative trim, 2 s (no <code>-copyts</code>)</td><td class="num bad">26</td><td class="num bad">35</td><td class="num bad">50</td><td class="num bad">50</td><td class="num bad">50</td><td class="num bad">50</td><td class="num">77</td><td class="num">141</td></tr>
+<tr><td>copyts, 0.5 s</td><td class="num">1</td><td class="num">10</td><td class="num">30</td><td class="num bad">50</td><td class="num bad">50</td><td class="num bad">50</td><td class="num">77</td><td class="num bad">none</td></tr>
+<tr><td>copyts, 1–3 s</td><td class="num">1</td><td class="num">10</td><td class="num">30</td><td class="num">40</td><td class="num">47</td><td class="num">49</td><td class="num">77</td><td class="num">141</td></tr>
+<tr><td><strong>plan, 1.66 s</strong></td><td class="num good">1</td><td class="num good">10</td><td class="num good">30</td><td class="num good">40</td><td class="num good">47</td><td class="num good">49</td><td class="num good">77</td><td class="num good">141</td></tr>
+<tr><td rowspan="4"><code>pal-dvbt-fieldcoded-25i.ts</code><br><span class="caption">GOP 28, field-coded, video 1.2 s late, 126 pictures</span></td>
+ <td>plain (before)</td><td class="num bad">3</td><td class="num bad">28</td><td class="num">30</td><td class="num bad">56</td><td class="num bad">56</td><td class="num bad">56</td><td class="num bad">84</td><td class="num bad">117 → none</td></tr>
+<tr><td>copyts, 0.5 s</td><td class="num">1</td><td class="num">10</td><td class="num">30</td><td class="num">40</td><td class="num bad">56</td><td class="num bad">56</td><td class="num bad">84</td><td class="num">117</td></tr>
+<tr><td>copyts, 1–3 s</td><td class="num">1</td><td class="num">10</td><td class="num">30</td><td class="num">40</td><td class="num">47</td><td class="num">49</td><td class="num">77</td><td class="num">117</td></tr>
+<tr><td><strong>plan, 1.82 s</strong></td><td class="num good">1</td><td class="num good">10</td><td class="num good">30</td><td class="num good">40</td><td class="num good">47</td><td class="num good">49</td><td class="num good">77</td><td class="num good">117</td></tr>
+<tr><td><code>late_video_intra.ts</code> (all-intra)</td><td>plain and plan (1.00 s)</td><td class="num">1</td><td class="num">10</td><td class="num">30</td><td class="num">40</td><td class="num">47</td><td class="num">49</td><td class="num">77</td><td class="num">91</td></tr>
+<tr><td><code>late_video.mp4</code>, MKV variant (controls)</td><td>plain (no plan)</td><td class="num">1</td><td class="num">10</td><td class="num">30</td><td class="num">40</td><td class="num">47</td><td class="num">49</td><td class="num">77</td><td class="num">last − 9</td></tr>
+</table></div>
+<p class="caption">Also in the script's output and agreeing with the rows above: <code>late_video_gop.ts</code>
+(the #168 fixtures' content with 25-frame GOPs), the full-size DVD variant and the H.264 TS variant
+with no audio gap. On the DVB-T clip, a start of 118 (its last 8 pictures) is wrong at
+<em>every</em> preroll, plain seek included: the decode repeats 124 and drops a picture at the
+very end. Its untrimmed constant-rate decode does the same (125 slots for 126 stored pictures), so
+that is the clip's tail timestamps (task #16's area), not the seek. The heavy test stops at 117 for
+that reason.</p>
+<p><strong>What this shows and doesn't:</strong> a preroll of 1 s happens to be enough for every
+fixture here (no GOP is longer than 1.12 s), and 0.5 s is not. That is why the preroll is measured
+per file rather than fixed: a broadcast H.264 stream with 2–5 s GOPs needs more. The rule was not
+checked against such a stream from a real broadcaster. It was checked on a synthetic 1080p TS with
+2 s GOPs (§6).</p>
+
+<h2>4. The worker, before and after</h2>
+<p>Script: <code>worker_probe.py</code>, run with both workers, every pass off. The preview is the
+worker's <code>--preview --frame N</code>. The Original is the app's before-frame command,
+mirrored (with the video start offset; with the seek plan only after the fix). Each picture is
+named by the closest sequential frame from N−5 to N+35 (mean absolute luma difference over the full
+picture). A trim is a lossless FFV1 encode, each output frame named by MD5.</p>
+<div class="scroll"><table>
+<tr><th>Source</th><th>Frame</th><th class="num">Preview, before</th><th class="num">Original, before</th><th class="num">Both, after</th></tr>
+<tr><td rowspan="6"><code>seek_dvd_pal.mpg</code></td><td>1</td><td class="num">1</td><td class="num">1</td><td class="num good">1</td></tr>
+<tr><td>10</td><td class="num bad">17</td><td class="num bad">12</td><td class="num good">10</td></tr>
+<tr><td>41</td><td class="num">41</td><td class="num bad">48</td><td class="num good">41</td></tr>
+<tr><td>47</td><td class="num bad">53</td><td class="num bad">48</td><td class="num good">47</td></tr>
+<tr><td>77</td><td class="num">77</td><td class="num bad">84</td><td class="num good">77</td></tr>
+<tr><td>145</td><td class="num bad">149</td><td class="num">145</td><td class="num good">145</td></tr>
+<tr><td rowspan="7"><code>seek_gop_late_video.ts</code></td><td>1</td><td class="num">1</td><td class="num">1</td><td class="num good">1</td></tr>
+<tr><td>10</td><td class="num bad">30</td><td class="num bad">25</td><td class="num good">10</td></tr>
+<tr><td>41</td><td class="num bad">55</td><td class="num bad">50</td><td class="num good">41</td></tr>
+<tr><td>49</td><td class="num bad">55</td><td class="num bad">50</td><td class="num good">49</td></tr>
+<tr><td>77</td><td class="num bad">80</td><td class="num bad">100</td><td class="num good">77</td></tr>
+<tr><td>141</td><td class="num bad">145</td><td class="num bad">none</td><td class="num good">141</td></tr>
+<tr><td>148</td><td class="num bad">145</td><td class="num bad">none</td><td class="num good">148</td></tr>
+<tr><td rowspan="5"><code>pal-dvbt-fieldcoded-25i.ts</code></td><td>10</td><td class="num bad">33</td><td class="num bad">28</td><td class="num good">10</td></tr>
+<tr><td>40</td><td class="num bad">61</td><td class="num bad">56</td><td class="num good">40</td></tr>
+<tr><td>58</td><td class="num bad">61</td><td class="num">58</td><td class="num good">58</td></tr>
+<tr><td>77</td><td class="num bad">89</td><td class="num bad">84</td><td class="num good">77</td></tr>
+<tr><td>117</td><td class="num">117</td><td class="num bad">none</td><td class="num good">117</td></tr>
+<tr><td><code>small_clip.mp4</code> (control)</td><td>10, 41, 77</td><td class="num">exact</td><td class="num">exact</td><td class="num good">exact</td></tr>
+</table></div>
+<div class="scroll"><table>
+<tr><th>Trimmed encode</th><th>Before</th><th>After</th></tr>
+<tr><td><code>seek_dvd_pal.mpg</code> 37..52</td><td>37 … 52 (exact by chance)</td><td class="good">37 … 52</td></tr>
+<tr><td><code>seek_gop_late_video.ts</code> 37..52</td><td class="bad">50 … 65 (starts at the next GOP)</td><td class="good">37 … 52</td></tr>
+<tr><td><code>pal-dvbt-fieldcoded-25i.ts</code> 45..60</td><td class="bad">56 … 71</td><td class="good">45 … 60</td></tr>
+<tr><td><code>late_video_gop.ts</code> 30..59</td><td class="bad">50 … 79</td><td class="good">30 … 59</td></tr>
+<tr><td><code>small_clip.mp4</code> 41..52 (control)</td><td>41 … 52</td><td class="good">41 … 52</td></tr>
+</table></div>
+<p class="caption">The preview decodes a window that starts a few frames before N (the temporal
+radius), so its overshoot differed from the Original's and the two disagreed by a few frames, and
+sometimes one was right by chance (DVD 41 and 77; a seek window that starts at a keyframe). The
+"none" rows were a black or empty Original past the last keyframe.</p>
+
+<figure>
+<div class="scroll"><table>
+<tr><th>Source frame 41</th><th>Preview, before</th><th>Original, before</th><th>Preview, after</th><th>Original, after</th></tr>
+<tr>
+<td><a href="img/01-source-frame-41.png"><img src="img/01-source-frame-41.png" alt="Source frame 41"></a></td>
+<td><a href="img/02-preview-before.png"><img src="img/02-preview-before.png" alt="Preview before the fix"></a></td>
+<td><a href="img/03-original-before.png"><img src="img/03-original-before.png" alt="Original before the fix"></a></td>
+<td><a href="img/04-preview-after.png"><img src="img/04-preview-after.png" alt="Preview after the fix"></a></td>
+<td><a href="img/05-original-after.png"><img src="img/05-original-after.png" alt="Original after the fix"></a></td>
+</tr></table></div>
+<figcaption class="caption"><code>seek_gop_late_video.ts</code>, frame 41, every pass off, full
+size (320x240). Read the counter in the top-left corner. Source frame 41 is 1.640 s. Before the fix
+the preview showed <span class="bad">55</span> and the Original <span class="bad">50</span>. After,
+both are 41: the Original's PNG is byte-identical to the reference, and the preview's has the same pixels with a different PNG header.</figcaption>
+</figure>
+
+<h2>5. The detectors</h2>
+<p>Script: <code>detector_probe.py</code>. <code>--detect-noise-halo</code> and
+<code>--detect-crop</code> sample 24 frames across the source through the same decoder as the
+preview.</p>
+<div class="scroll"><table>
+<tr><th>Source</th><th class="num">Usable samples, before → after</th><th>Noise / halo verdicts</th><th>Crop</th></tr>
+<tr><td><code>pal-dvbt-fieldcoded-25i.ts</code></td><td class="num">23 → <span class="good">24</span></td><td>no / no, both (halo −3.46 → −3.33)</td><td>8, 8, 0, 8 both</td></tr>
+<tr><td><code>seek_gop_late_video.ts</code></td><td class="num">21 → <span class="good">24</span></td><td>no / no, both</td><td>none, both</td></tr>
+<tr><td><code>seek_dvd_pal.mpg</code></td><td class="num">24 → 24</td><td>no / no, both (halo 0.58 → 0.55)</td><td>none, both</td></tr>
+</table></div>
+<p class="caption">Before, the samples past the last keyframe decoded nothing and were dropped, and
+the others were pictures up to a GOP late. No verdict changes on these sources: they are clean, and
+the wrong pictures came from the same clip. The detectors' thresholds and calibration are unaffected
+(their fixtures are MKVs, which carry no plan). <code>integration_noise_halo_test</code> and
+<code>integration_crop_detect_test</code> pass unchanged.</p>
+
+<h2>6. What it costs</h2>
+<p>Script: <code>cost_probe.py</code>. An 11-frame preview-style decode from the middle of a
+30 s 1080p H.264 TS with 2 s GOPs (plan: 2.70 s), median of 5 runs: plain seek
+<strong>0.071 s</strong>, the fix <strong>0.155 s</strong>, a 3 s preroll 0.176 s. About one GOP
+of extra decode per seek. Negligible for SD MPEG-2. The detectors pay it 24 times per run. Measured
+on Apple Silicon only. An untrimmed encode doesn't seek, so it pays nothing.</p>
+<p>A decode that starts at a non-key packet makes FFmpeg's H.264 decoder log
+"co located POCs unavailable" or "mmco: unref short failure" for the frames it can't reference.
+Those frames are before the trim, and the plain seek logged the same. The worker treats only the
+exit status, and the size guard's message, as failure.</p>
+
+<h2>7. Decisions</h2>
+<ul>
+<li><strong>Seek early and trim, not <code>-seek2any</code>.</strong> <code>-seek2any</code> seeks
+to any packet. That is effectively what already happened, and it makes the decoder output broken
+pictures.</li>
+<li><strong>Not "decode from the start".</strong> That is O(N) per seek: a frame an hour into a DVD
+would take a minute or more per preview, and the detectors take 24 samples.</li>
+<li><strong>Not a per-seek keyframe probe.</strong> It would be exact with no slack, but costs one
+more process per seek in both worker and app. A GOP-sized preroll measured once does the same job
+for ~0.1 s.</li>
+<li><strong>Only TS/PS.</strong> Indexed formats were exact, so changing their arguments buys
+nothing and costs a GOP of decode. No plan means byte-identical arguments (unit test
+<code>a_plan_leaves_frame_zero_and_untrimmed_decodes_alone</code> and the existing pins).</li>
+<li><strong>Frame 0 still never seeks or trims</strong> (#168): no change to an untrimmed decode.</li>
+<li><strong>Thumbnails too.</strong> CLAUDE.md says every seek goes through the one rule, and a
+plain thumbnail seek past the last keyframe produced nothing.</li>
+<li><strong>The worker probes the plan itself</strong>, like the video start offset, so a job JSON
+from any app version gets it. A job that carries <code>seekPlan</code> is not re-probed.</li>
+</ul>
+
+<h2>8. Not fixed, not tested, limits</h2>
+<ul>
+<li><strong>Raw elementary streams</strong> (<code>.m2v</code> → <code>mpegvideo</code>,
+<code>.h264</code>/<code>.264</code>) have no timestamps at all. Seeks there are byte-rate guesses
+(<code>raw_es_probe.py</code>: m2v 1 → 12, 10 → 0, 40 → 36; raw H.264: nothing decodes after any
+seek). They get no plan. They are rarely a user's source.</li>
+<li><strong>Timestamp discontinuities</strong> (a recording spliced across streams, a VOB set
+whose clock resets between cells). "Frame N = N/fps after the first picture" is not defined there,
+and <code>-copyts</code> turns off ffmpeg's discontinuity correction. Neither the old seek nor the
+new one handles them. <em>Corrected at review:</em> the original wording said this was untested.
+<code>discontinuity_probe.py</code> joins two copies of a program stream, so the clock resets at
+picture 150, and asks a trimmed decode for 150 frames. Starting at 100 the old seek returned all
+150, though from picture 108. The fix starts at 100 but returns only 52: it stops at the reset.
+Starting at 140 the old seek returned 6 and the fix 10. Starting at 160, past the reset, both
+returned none. So a trim whose in-point is before a backward reset and whose out-point is after it
+is now shorter. Before, it started late. Both are wrong. Such files are rare within one title, and
+frame numbering across a reset needs its own fix.</li>
+<li><strong>A GOP longer than the 20 s window</strong>, or one that grows later in the file than
+the first 20 s. The preroll can then be short, and the worst case is the old behaviour (a later
+keyframe), never worse.</li>
+<li><strong>MPEG-2 in AVI</strong> (seeks 1–2 frames early) and <strong>leading repeat slots</strong>
+(AVI null frames, soft telecine, the DVB-T tail above) are tasks #15 and #16.</li>
+<li><strong>Only macOS arm64.</strong> The seek is FFmpeg's demuxer code, which is the same on every
+platform, and the heavy tests run nightly on all four.</li>
+</ul>
+
+<h2>9. Tests</h2>
+<ul>
+<li>Rust unit tests (<code>source_decode.rs</code>): the DVB-T plan from the shared probe JSON,
+formats, floor and fallback, <code>decoder_seek</code>, every builder's <code>-copyts</code>/<code>-ss</code>
+before <code>-i</code> and trim-then-reset in the one <code>-vf</code>, frame 0 and untrimmed
+unchanged. <code>video_job.rs</code>: <code>seekPlan</code> round trip.</li>
+<li>Dart unit tests (<code>mpeg_seek_plan_test.dart</code>): the same plan from the same JSON, probe
+arguments and constants read from the Rust source, before frame and thumbnails with and without a
+plan.</li>
+<li>Heavy: <code>integration_seek_alignment_test.dart</code> adds <code>seek_dvd_pal.mpg</code>,
+<code>seek_gop_late_video.ts</code> (from <code>Tests/TestResources/generate_mpeg_seek_test.sh</code>)
+and the DVB-T clip. It checks preview, Original and a mid-GOP trim against the sequential decode, at
+mid-GOP frames, leading B pictures and past the last keyframe.
+<code>integration_video_start_offset_test.dart</code> adds <code>late_video_gop.ts</code>, so the
+pictures, trims and sound sync are also checked on a TS that seeks with a plan.</li>
+</ul>
+
+<h2>10. Reproduce</h2>
+<pre>BEFORE_WORKER=&lt;worker built from 5c3b762&gt; docs/reports/issue-169-mpeg-seek/scripts/run.sh</pre>
+<p><code>run.sh</code> builds the uncommitted variants (<code>make_variants.py</code>) into
+<code>$SEEK_WORK</code> and runs every script above. The committed fixtures come from
+<code>Tests/TestResources/generate_mpeg_seek_test.sh</code> and
+<code>generate_video_start_offset.sh</code>.</p>
+</main>
+</body>
+</html>

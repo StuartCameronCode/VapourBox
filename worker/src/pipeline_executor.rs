@@ -457,6 +457,7 @@ impl PipelineExecutor {
                 &t.window_for_trim(job.start_frame, job.end_frame),
                 "pipe:1",
                 tag_fix.as_deref(),
+                job.seek_plan(),
             ),
             None => source_decode::encode_decoder_args(
                 &job.input_path,
@@ -469,6 +470,7 @@ impl PipelineExecutor {
                 job.total_frames,
                 job.video_start(),
                 tag_fix.as_deref(),
+                job.seek_plan(),
             ),
         };
 
@@ -1465,11 +1467,26 @@ impl PipelineExecutor {
             Some(w) => w.seek_time.unwrap_or(0.0),
             None => seek_time.unwrap_or(0.0),
         };
+        // On an MPEG-TS/PS the decoder seeks a GOP earlier and trims to the
+        // target (source_decode rule 6); say so, with what it actually runs.
+        let planned = source_decode::decoder_seek(
+            (decoder_seek > 0.0).then_some(decoder_seek),
+            job.seek_plan(),
+        );
+        let plan_note = match planned.trim_from {
+            Some(t) => format!(
+                ", MPEG-TS/PS: -ss {:.6}s, trim from {:.6}s",
+                planned.ss.unwrap_or(0.0),
+                t
+            ),
+            None => String::new(),
+        };
         eprintln!(
-            "Preview: source frame {} (window {}..{}, local {}, output index {}, output {} of {}, rate pad {}) seek {:.6}s ({}x{} {}{})",
+            "Preview: source frame {} (window {}..{}, local {}, output index {}, output {} of {}, rate pad {}) seek {:.6}s ({}x{} {}{}{})",
             target, first, target + radius, local, output_index, out.sub_frame + 1, out.sub_frames, out.rate_pad,
             decoder_seek, width, height, pix_fmt,
-            if window.is_some() { ", variable frame rate" } else { "" }
+            if window.is_some() { ", variable frame rate" } else { "" },
+            plan_note
         );
 
         // Field order is derived inside the script generator (see
@@ -1537,6 +1554,7 @@ impl PipelineExecutor {
                 w,
                 raw_path.to_string_lossy().as_ref(),
                 tag_fix.as_deref(),
+                job.seek_plan(),
             ),
             None => source_decode::preview_decoder_args(
                 &job.input_path,
@@ -1548,6 +1566,7 @@ impl PipelineExecutor {
                 raw_path.to_string_lossy().as_ref(),
                 job.video_start(),
                 tag_fix.as_deref(),
+                job.seek_plan(),
             ),
         };
         let extract_result = Command::new(&ffmpeg_path)
@@ -2285,6 +2304,7 @@ mod tests {
             burn_in_subtitle_path: None,
             pitch_factors_path: None,
             video_start_offset: None,
+            seek_plan: None,
             source_has_audio: None,
         }
     }
