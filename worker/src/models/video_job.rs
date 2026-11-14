@@ -1051,6 +1051,15 @@ impl VideoCodec {
         matches!(self.encoder_family(), EncoderFamily::Uncompressed)
     }
 
+    /// Whether this is an editing intermediate (ProRes, v210): a file made to
+    /// be cut in an NLE, not delivered. It gets no `+faststart`
+    /// (`pipeline_executor::uses_faststart`) and PCM for a restored audio
+    /// track under Passthrough (`audio_restoration::restored_passthrough_codec`).
+    /// Field-order flagging is decided separately (`field_order_signal`).
+    pub fn is_editing_intermediate(&self) -> bool {
+        self.is_prores() || self.is_uncompressed()
+    }
+
     /// How this codec declares a still-interlaced picture's field order (see
     /// `ScriptGenerator::output_field_order`, `pipeline_executor::field_order_args`).
     /// Measured in docs/reports/2026-11-field-order-other-codecs.

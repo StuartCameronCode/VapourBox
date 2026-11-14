@@ -1978,7 +1978,8 @@ Rules, from docs/reports/2026-11-audio-restoration:
   untouched, each with its own tags (`encode_map_args`; naming one stream's
   `-map_metadata` switches off ffmpeg's copying for the rest). Passthrough
   copies the others but must encode the restored one: FLAC in MKV, AAC at the
-  chosen quality in MP4/MOV, PCM in AVI (`restored_passthrough_codec`).
+  chosen quality in MP4/MOV, PCM in AVI, and PCM in any container beside an
+  editing intermediate, ProRes or v210 (`restored_passthrough_codec`).
 - **Automatic choices are measured, never guessed**: a dead channel (≥30 dB
   below the other, which is above −60 dBFS) and 50/60 Hz hum (Goertzel over
   2 s blocks, a line ≥12 dB above its neighbours) are read from a minute in
@@ -2275,9 +2276,15 @@ evidence for every rule here is docs/reports/2026-11-v210-field-order.
   padding are judged from the **source**, since the selection never reaches
   the encode. `chromaConversionBitDepthWarning` is silent for ProRes (every
   ProRes 4444 source decodes as 12-bit).
-- **No `+faststart` for v210** (`uses_faststart`): it rewrites the whole
-  ~1 Gbit/s file a second time. Restored audio beside v210 is PCM
-  (`restored_passthrough_codec`).
+- **Editing intermediates (ProRes and v210, `VideoCodec::is_editing_intermediate`)
+  get no `+faststart` and PCM restored audio.** Faststart reads and rewrites
+  the whole file after the last frame (in place, no extra space; ~0.9 s/GB on
+  an internal SSD, much more on a USB disk or NAS, with the progress bar at
+  100%) for web playback no editor needs (`uses_faststart`). A restored track
+  under Passthrough is PCM rather than AAC, since the editor encodes the
+  soundtrack again on delivery (`restored_passthrough_codec`). Field-order
+  flagging is a separate table (`field_order_signal`). See
+  docs/reports/2026-11-prores-faststart.
 - **Test field order with the `fiel` atom's bytes** (`0x0209` TFF, `0x020e`
   BFF; `WorkerHarness.movFielAtom`, which walks the boxes — x265's option
   string contains "fiel"), not only ffprobe's `tb`/`bt` labels, and x264's

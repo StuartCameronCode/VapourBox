@@ -255,6 +255,19 @@ void main() {
     });
   });
 
+  test('beside ProRes or v210 in MOV with audio copied, the restored stream is PCM', () async {
+    // An editing intermediate keeps its restored audio lossless
+    // (restored_passthrough_codec); AAC would be a second lossy generation.
+    for (final codec in ['prores_ks -profile:v 0', 'v210']) {
+      final label = codec == 'v210' ? 'v210' : 'prores';
+      final out = await _encode(AudioFixtures.job(clicks, {'limiter': true},
+          container: 'mov', label: 'intermediate_$label',
+          encoding: {'audioMode': 'passthrough', 'codec': codec}));
+      final first = await WorkerHarness.firstStream(out, selector: 'a:0', entries: ['codec_name']);
+      expect(first!['codec_name'], 'pcm_s16le', reason: codec);
+    }
+  });
+
   test('subtitles are transcribed from the restored sound, so cues follow the offset', () async {
     // CI provisions Whisper; locally, VAPOURBOX_FETCH_WHISPER=1 installs the
     // engine and the small model (466 MB) with the app's own installers.

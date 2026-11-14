@@ -3730,3 +3730,23 @@ Full report with scripts:
   what the detector measures.
 - Not tested: a real blended capture (none available), non-macOS platforms
   beyond the nightly run.
+
+### ProRes in MOV: no `+faststart`, PCM for restored audio (2026-11-14)
+
+Follow-up to the v210 entry above. Full evidence:
+[docs/reports/2026-11-prores-faststart/](reports/2026-11-prores-faststart/index.html).
+
+- ProRes and v210 are both **editing intermediates**
+  (`VideoCodec::is_editing_intermediate`), and both now skip `+faststart` and
+  get PCM for a restored track under Passthrough. Field-order flagging
+  is decided separately (`field_order_signal`).
+- `+faststart`'s second pass on 3 min of ProRes HQ 1080p (191 Mbit/s,
+  4.3 GB) added 1.5–6.0 s on an M1 Pro's internal SSD (0.4–1.4 s/GB, median
+  ~0.9), after the bar reached 100%. Slow disks were not measured (an
+  estimated 10–20 min per hour of HQ on a ~150 MB/s HDD). It shifts the file
+  **in place**: the old `uses_faststart` comment's "needs the space twice"
+  was wrong.
+- A restored track beside ProRes was AAC; an editor re-encodes the soundtrack
+  on delivery, so that was two lossy generations. Now `pcm_s16le` (`sowt`),
+  ~1.5 Mbit/s stereo. 24-bit PCM for intermediates (the render is f32) is a
+  separate, open question.
