@@ -255,16 +255,44 @@ void main() {
     });
   });
 
-  test('beside ProRes or v210 in MOV with audio copied, the restored stream is PCM', () async {
-    // An editing intermediate keeps its restored audio lossless
-    // (restored_passthrough_codec); AAC would be a second lossy generation.
-    for (final codec in ['prores_ks -profile:v 0', 'v210']) {
-      final label = codec == 'v210' ? 'v210' : 'prores';
+  test('beside ProRes or v210, with audio copied, the restored stream is 24-bit PCM', () async {
+    // An editing intermediate keeps its restored audio lossless and 24-bit
+    // (restored_passthrough_codec; docs/reports/2026-11-intermediate-pcm-depth):
+    // AAC would be a second lossy generation, 16-bit rounds the float render's
+    // quietest detail away. The same render in MKV (FLAC, already 24-bit) is
+    // the reference: every one must decode to the same samples.
+    Future<List<int>> s32(String path) async {
+      final r = await Process.run(WorkerHarness.ffmpegPath,
+          ['-v', 'error', '-i', path, '-map', '0:a:0', '-f', 's32le', '-'],
+          environment: WorkerHarness.workerEnv, stdoutEncoding: null);
+      expect(r.exitCode, 0, reason: '${r.stderr}');
+      return r.stdout as List<int>;
+    }
+
+    final reference = await _encode(AudioFixtures.job(clicks, {'limiter': true},
+        container: 'mkv', label: 'intermediate_reference', encoding: {'audioMode': 'passthrough'}));
+    final ref = await WorkerHarness.firstStream(reference,
+        selector: 'a:0', entries: ['codec_name', 'bits_per_raw_sample']);
+    expect(ref!['codec_name'], 'flac');
+    expect(ref['bits_per_raw_sample'], '24', reason: 'a restored track in MKV is 24-bit FLAC');
+    final expected = await s32(reference);
+
+    for (final (codec, container) in [
+      ('prores_ks -profile:v 0', 'mov'),
+      ('v210', 'mov'),
+      ('v210', 'mkv'),
+      ('v210', 'avi'),
+    ]) {
+      final label = '${codec == 'v210' ? 'v210' : 'prores'}_$container';
       final out = await _encode(AudioFixtures.job(clicks, {'limiter': true},
-          container: 'mov', label: 'intermediate_$label',
+          container: container, label: 'intermediate_$label',
           encoding: {'audioMode': 'passthrough', 'codec': codec}));
-      final first = await WorkerHarness.firstStream(out, selector: 'a:0', entries: ['codec_name']);
-      expect(first!['codec_name'], 'pcm_s16le', reason: codec);
+      final first = await WorkerHarness.firstStream(out,
+          selector: 'a:0', entries: ['codec_name', 'codec_tag_string', 'bits_per_sample']);
+      expect(first!['codec_name'], 'pcm_s24le', reason: label);
+      expect(first['bits_per_sample'], 24, reason: label);
+      if (container == 'mov') expect(first['codec_tag_string'], 'in24', reason: label);
+      expect(await s32(out), orderedEquals(expected), reason: '$label: the same samples as the MKV reference');
     }
   });
 

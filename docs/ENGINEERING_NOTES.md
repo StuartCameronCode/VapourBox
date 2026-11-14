@@ -3911,4 +3911,31 @@ Follow-up to the v210 entry above. Full evidence:
 - A restored track beside ProRes was AAC; an editor re-encodes the soundtrack
   on delivery, so that was two lossy generations. Now `pcm_s16le` (`sowt`),
   ~1.5 Mbit/s stereo. 24-bit PCM for intermediates (the render is f32) is a
-  separate, open question.
+  separate, open question. *(2026-11-14: answered — now 24-bit, see the next entry.)*
+
+### 24-bit PCM for an editing intermediate's restored audio (2026-11-14)
+
+Follow-up to the entry above. Full evidence:
+[docs/reports/2026-11-intermediate-pcm-depth/](reports/2026-11-intermediate-pcm-depth/index.html).
+
+- The restored track beside ProRes / v210 under Passthrough is now
+  `pcm_s24le` (`in24` + `enda` in MOV, `A_PCM/INT/LIT` in MKV,
+  `WAVE_FORMAT_EXTENSIBLE` in AVI), via its own `RestoredTrackCodec`;
+  `AudioCodec::Pcm` (Convert → PCM, a wire value) stays `pcm_s16le`.
+- Measured through the worker's own render (`--audio-plan`), synthetic
+  VHS/DV hiss over real speech at −24 dBFS: 16-bit's error is −101 dBFS
+  (inaudible), but noise reduction takes DV 16-bit pauses to −92…−118 dBFS,
+  where rounding erases 45–100% of their samples, correlated with the signal
+  (distortion, not noise); DeepFilterNet's fades to silence lose 41–63% of
+  their tail samples (24-bit: 8–14%). TPDF dither adds −93 dBFS noise, as
+  loud as or louder than those pauses. 24-bit's error is −143 dBFS.
+- No overs in any case (loudnorm's −1.5 dBTP holds even without the
+  limiter), so float PCM was not needed.
+- The same render as FLAC in MKV (ffmpeg picks s32/24-bit from float) and as
+  24-bit PCM in MOV/MKV/AVI decodes bit-identical; AVFoundation reads the MOV
+  track sample-identical to ffmpeg. Cost: +0.77 Mbit/s (0.3% of v210 SD,
+  5.5% of ProRes Proxy SD).
+- The first probe run used music and quiet speech (5 dB SNR) and found ≥ 24
+  dB of margin everywhere; corrected in place in the report. Premiere,
+  Resolve and Avid were not tested. AVI beside a non-intermediate is now the
+  only 16-bit restored track.
