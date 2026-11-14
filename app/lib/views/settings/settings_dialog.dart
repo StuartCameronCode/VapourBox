@@ -1426,9 +1426,11 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     EncodingSettings settings,
   ) {
     final message = chromaConversionBitDepthWarning(
-      // The format the worker really converts to (v210 overrides the choice).
+      // The format the worker really converts to (v210 and ProRes override
+      // the choice; ProRes is silent, see the function).
       targetBitDepth: settings.effectiveChromaSubsampling.outputBitDepth,
       pixelFormat: viewModel.videoInfo?.pixelFormat,
+      codec: settings.codec,
     );
     if (message == null) return const [];
     return [const SizedBox(height: 12), WarningBanner(message: message)];
@@ -1450,9 +1452,10 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     return [const SizedBox(height: 12), WarningBanner(message: message)];
   }
 
-  /// Issue #81: a ProRes profile stores a chroma layout of its own, and the
-  /// worker pins it — so say when that overrides the selected colour format,
-  /// in either direction. v210 stores 10-bit 4:2:2 whatever is selected.
+  /// Issue #81: a ProRes profile stores a chroma layout of its own, and v210
+  /// stores 10-bit 4:2:2; the worker converts to it whatever is selected — so
+  /// say when that ignores the selected colour format, loses the source's
+  /// chroma, or pads it up.
   List<Widget> _buildIntermediateChromaWarning(
     MainViewModel viewModel,
     EncodingSettings settings,

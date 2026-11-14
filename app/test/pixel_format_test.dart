@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vapourbox/utils/pixel_format.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
+import 'package:vapourbox/models/video_job.dart';
 
 void main() {
   group('pixelFormatBitDepth', () {
@@ -149,6 +150,48 @@ void main() {
       expect(
           chromaConversionBitDepthWarning(targetBitDepth: 8, pixelFormat: null),
           isNull);
+    });
+
+    test('silent for ProRes, whose 10 bits are fixed by the encoder', () {
+      // The worker converts every ProRes job to its profile's 10-bit format
+      // (effectiveChromaSubsampling), so the target is 10 for every ProRes
+      // job — and every ProRes 4444 source decodes as 12-bit. Warning here
+      // would fire on every ProRes 4444 re-encode and advise "Match source",
+      // which is already selected.
+      for (final codec in VideoCodec.values.where((c) => c.isProRes)) {
+        for (final cs in ChromaSubsampling.values) {
+          final settings = EncodingSettings(codec: codec, chromaSubsampling: cs);
+          for (final src in ['yuv444p12le', 'yuv422p16le', 'yuv422p10le']) {
+            expect(
+              chromaConversionBitDepthWarning(
+                targetBitDepth:
+                    settings.effectiveChromaSubsampling.outputBitDepth,
+                pixelFormat: src,
+                codec: codec,
+              ),
+              isNull,
+              reason: '${codec.displayName} ${cs.value} from $src',
+            );
+          }
+        }
+      }
+    });
+
+    test('other codecs still warn, v210 included', () {
+      expect(
+          chromaConversionBitDepthWarning(
+              targetBitDepth: 8,
+              pixelFormat: 'yuv422p10le',
+              codec: VideoCodec.h264),
+          isNotNull);
+      expect(
+          chromaConversionBitDepthWarning(
+              targetBitDepth: EncodingSettings(codec: VideoCodec.v210)
+                  .effectiveChromaSubsampling
+                  .outputBitDepth,
+              pixelFormat: 'yuv422p16le',
+              codec: VideoCodec.v210),
+          contains('16-bit'));
     });
   });
 
