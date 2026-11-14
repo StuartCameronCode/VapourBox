@@ -12,9 +12,11 @@
 //
 // Fixtures: Tests/TestResources/generate_video_start_offset.sh (a white frame
 // at source frames 25 and 75, a 1 kHz beep at the same moments, the video
-// starting 1 s after the audio). The TS is all-intra so a seek lands on the
-// frame asked for: MPEG-TS seeks that land on a later keyframe are a separate
-// problem. See docs/reports/2026-11-video-start-offset.
+// starting 1 s after the audio). late_video_intra.ts is all-intra, so its
+// seeks land on the frame asked for; late_video_gop.ts has 25-frame GOPs, so
+// its seeks need the seek plan too (issue #169: an MPEG-TS seek otherwise
+// lands on the next keyframe). See docs/reports/2026-11-video-start-offset
+// and docs/reports/issue-169-mpeg-seek.
 @Tags(['heavy'])
 library;
 
@@ -40,7 +42,7 @@ String get _outDir => '${WorkerHarness.outputDir}/video_start_offset';
 String _resource(String name) =>
     p.join(WorkerHarness.repoRoot, 'Tests', 'TestResources', name);
 
-const _fixtures = ['late_video_intra.ts', 'late_video.mkv', 'late_video.mp4'];
+const _fixtures = ['late_video_intra.ts', 'late_video_gop.ts', 'late_video.mkv', 'late_video.mp4'];
 const _frames = 100;
 const _fps = 25.0;
 const _previewFrames = [0, 1, 24, 25, 26, 60, 99];
@@ -94,8 +96,17 @@ Future<VideoStart> _videoStart(String video) async {
   );
 }
 
+/// The app's seek plan for [video], as `PreviewGenerator` probes it: null
+/// unless it is an MPEG-TS/PS.
+Future<SeekPlan?> _seekPlan(String video) async {
+  final f = await WorkerHarness.ffprobeJson(
+      ['-v', 'error', '-show_entries', 'format=format_name', '-of', 'json', video]);
+  return FieldOrderDetector.probeSeekPlan(WorkerHarness.ffprobePath, video,
+      formatName: f['format']?['format_name'] as String?);
+}
+
 /// The app's before picture of [frame], through `beforeFrameArgs` (PNG).
-Future<Uint8List> _beforeFrame(String video, int frame, double offset) async {
+Future<Uint8List> _beforeFrame(String video, int frame, double offset, SeekPlan? plan) async {
   final out = File(p.join(Directory.systemTemp.path,
       'vb_vstart_before_${DateTime.now().microsecondsSinceEpoch}.png'));
   try {
@@ -106,6 +117,7 @@ Future<Uint8List> _beforeFrame(String video, int frame, double offset) async {
         frameIndex: frame,
         frameRate: _fps,
         videoStartOffset: offset,
+        seekPlan: plan,
         outputPath: out.path,
       ),
       environment: WorkerHarness.ffmpegEnv,
@@ -239,10 +251,14 @@ void main() {
       final video = _resource(file);
       final stem = p.basenameWithoutExtension(file);
       late VideoStart start;
+      late SeekPlan? plan;
 
       setUpAll(() async {
         expect(await File(video).exists(), isTrue, reason: 'missing $video');
         start = await _videoStart(video);
+        plan = await _seekPlan(video);
+        expect(plan != null, file.endsWith('.ts'),
+            reason: 'a TS seeks with a plan, nothing else does ($plan)');
       });
 
       test('the app finds the 1 s gap and counts the video, not the file', () async {
@@ -271,7 +287,7 @@ void main() {
           expect(pv.success, isTrue, reason: '${pv.error}\n${pv.errorTail}');
           await _expectFrame('the preview', await WorkerHarness.imageToRgb24(pv.png!), video, n);
           await _expectFrame(
-              'the before frame', await _beforeFrame(video, n, start.offset), video, n);
+              'the before frame', await _beforeFrame(video, n, start.offset, plan), video, n);
         });
       }
 

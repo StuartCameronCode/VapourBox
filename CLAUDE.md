@@ -123,7 +123,7 @@ VapourBox/
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/templates/stabilize.py` | Stabilize pass's vertical pitch correction (see "Stabilize") |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
-| `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset, the one `seek_time`, and the source grid every constant-rate decoder starts on (`decode_start`; see "Source Frame Size", "Colour metadata") |
+| `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset, the one `seek_time`, and the MPEG-TS/PS `SeekPlan` / `decoder_seek`, the source grid every constant-rate decoder starts on (`decode_start`; see "Source Frame Size", "Colour metadata") |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, RIFE's model add-on, the `--probe-rife` / `--probe-upscale` probe (on stand-in models, no add-on needed), and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
@@ -1131,8 +1131,34 @@ the **single** builder of both decoders' arguments (encode + preview):
     moves sound against picture and would create the desync it seems to fix.
   `integration_video_start_offset_test.dart` (heavy) checks pictures and sync
   on late-video TS/MKV/MP4 fixtures (docs/reports/2026-11-video-start-offset).
-  MPEG-TS seeks that land on a later keyframe are a separate fault (the DVB-T
-  clip's preview is still off for that reason).
+
+- **MPEG-TS/PS seek a GOP early and trim to the frame (issue #169).** They
+  have no keyframe index: libavformat's timestamp search lands on a non-key
+  packet inside frame N's GOP and decoding started at the *next* keyframe
+  (DVD 40 → 48, H.264 TS 40 → 50, nothing past the last keyframe). For
+  `format_name` `mpegts`/`mpeg` (DVD rips and the DVD import's own output
+  included) the job carries a `SeekPlan` (`source_decode::seek_plan_from_probe`:
+  largest keyframe gap + largest PTS − DTS + 0.5 s, ≥ 1 s, from 20 s of
+  packets), filled by the worker (`fill_seek_plan`, `VideoJob.seek_plan`).
+  `source_decode::decoder_seek` is the one place a decoder's seek is built:
+  with a plan, `-copyts -ss (T − preroll)` and `trim=start=container_start+T`
+  in the one `-vf` after the tag fix and before the PTS reset; without one,
+  exactly the old `-ss T`.
+  - **Never trim relative to the seek** (no `-copyts`): when the early seek
+    falls before a late video's first packet, ffmpeg rebases the frames to
+    the first picture and the trim keeps the wrong one.
+  - **The app's twin** is `FieldOrderDetector.seekPlanFromProbe` with
+    `seekProbeArgs` and `SeekPlan.seekArgs`, used by `beforeFrameArgs` and
+    `thumbnailArgs`; `mpeg_seek_plan_test.dart` pins the arguments and
+    constants to the Rust source, and both sides read
+    `Tests/TestResources/seek_probe_dvbt.json`.
+  - **Every other format has no plan and keeps its arguments byte for byte.**
+    Raw elementary streams (`mpegvideo`, `h264`) are not covered: they have no
+    timestamps to trim by.
+  `integration_seek_alignment_test.dart` checks a DVD-style PS, a late-video
+  H.264 TS (`generate_mpeg_seek_test.sh`) and the DVB-T clip at mid-GOP
+  frames, leading B pictures and past the last keyframe; see
+  docs/reports/issue-169-mpeg-seek.
 
 `integration_clean_aperture_test.dart` (heavy) asserts a clean-aperture MOV and
 MKV come through bit-exact at full size. See docs/ENGINEERING_NOTES.md,

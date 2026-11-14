@@ -3726,7 +3726,7 @@ Report: [docs/reports/2026-11-video-start-offset](reports/2026-11-video-start-of
   against picture.
 - **Unchanged:** every fixture whose streams start together encodes and
   previews bit-identically (framemd5 of every stream, preview PNG bytes).
-- **Not fixed:** MPEG-TS seeks that land on a later keyframe, so the DVB-T
+- **Not fixed (fixed since by issue #169, entry below):** MPEG-TS seeks that land on a later keyframe, so the DVB-T
   clip's preview and before frame are still off between keyframes (its trim
   30..59 and untrimmed encode are now exact), and past its last keyframe
   (frames 120–127 of 128) the preview is black and the before frame empty;
@@ -3736,3 +3736,41 @@ Report: [docs/reports/2026-11-video-start-offset](reports/2026-11-video-start-of
 - **The heavy test** (`integration_video_start_offset_test.dart`) fails 28
   of its 40 cases against the worker from before the fix.
 
+
+### MPEG-PS/TS seeks started at the next keyframe (issue #169, 2026-11-14)
+
+Report: [docs/reports/issue-169-mpeg-seek](reports/issue-169-mpeg-seek/index.html).
+
+- **The fault.** MPEG-TS and MPEG-PS have no keyframe index, so libavformat
+  seeks them by a binary search over timestamps whose `read_timestamp`
+  callback indexes every packet as a keyframe. The search stops on a non-key
+  packet inside frame N's GOP, and the decoder starts at the *next* keyframe:
+  DVD (GOP 12) 10 → 12, 40 → 48; H.264 TS (GOP 25) 10 → 25, 40 → 50; DVB-T
+  40 → 56; past the last keyframe, nothing (a black preview, an empty
+  Original, a detector sample dropped). Preview, Original, trims, thumbnails
+  and detectors were all affected, the preview and the Original often
+  together. The trims of the GOP fixtures started at the next GOP.
+- **The fix:** `-copyts -ss (T − preroll)` and `trim=start=container_start+T`
+  ahead of the PTS reset. The preroll is measured once per source (largest
+  keyframe gap + largest PTS − DTS + 0.5 s, at least 1 s, 20 s with under two
+  keyframes in the 20 s probe): 1.22 s (DVD fixture), 1.66 s (H.264 TS),
+  1.82 s (DVB-T). Only `format_name` `mpegts`/`mpeg` get a plan. Every other
+  format's arguments are unchanged byte for byte.
+- **`-copyts` is required.** Seeking early and trimming *relative* to the
+  seek failed whenever the early seek fell before a late video's first packet
+  (or there was no seek): ffmpeg then rebased the frames to the first picture,
+  and the trim kept frame 25 for frame 1 on the 1 s late TS.
+- **A fixed 0.5 s preroll fails** on 25- and 28-frame GOPs (the measured
+  preroll is per file for that reason). 1 s happens to cover every fixture.
+  No real broadcast stream with 2–5 s GOPs was tested; a synthetic 1080p TS
+  with 2 s GOPs costs 0.071 → 0.155 s per 11-frame preview decode.
+- **The DVB-T clip's last 8 pictures** repeat 124 and drop one at every
+  preroll and in the untrimmed decode too: the clip's tail timestamps, not
+  the seek (task #16's area).
+- **Not handled:** raw elementary streams (`.m2v`, `.h264`: no timestamps;
+  their seeks are byte guesses), timestamp discontinuities (spliced
+  recordings, VOB sets whose clock resets), GOPs longer than the 20 s window.
+  Across a backward clock reset a trimmed decode was already wrong. It used
+  to start a GOP late and run through the reset. With `-copyts` it starts on
+  the right frame and stops at the reset (review: 52 of 150 frames;
+  `discontinuity_probe.py`).
