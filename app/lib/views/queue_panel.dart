@@ -227,6 +227,8 @@ class _QueuePanelState extends State<QueuePanel> {
               children: [
                 _InfoRow(label: 'File', value: item.filename),
                 _InfoRow(label: 'Path', value: item.inputPath),
+                if (item.continuityProxy != null)
+                  _InfoRow(label: 'Timestamps', value: item.continuityProxy!.note),
                 if (item.videoInfo != null) ...[
                   _InfoRow(label: 'Resolution', value: item.videoInfo!.resolution),
                   _InfoRow(label: 'Frame Rate', value: item.videoInfo!.frameRateFormatted),

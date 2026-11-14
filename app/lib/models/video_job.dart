@@ -64,6 +64,11 @@ class VideoJob {
   /// are saved into presets shared by every video in the queue.
   final String? pitchFactorsPath;
 
+  /// True when the app scanned the source for timestamp resets and, finding
+  /// one, sent its joined copy as [inputPath] (task #21). When false the
+  /// worker scans and warns.
+  final bool continuityChecked;
+
   VideoJob({
     String? id,
     required this.inputPath,
@@ -88,6 +93,7 @@ class VideoJob {
     this.inputColorRange,
     this.burnInSubtitlePath,
     this.pitchFactorsPath,
+    this.continuityChecked = false,
   })  : id = id ?? const Uuid().v4(),
         qtgmcParameters = qtgmcParameters ?? QTGMCParameters(),
         encodingSettings = encodingSettings ?? EncodingSettings();
@@ -125,6 +131,7 @@ class VideoJob {
     String? inputColorRange,
     String? burnInSubtitlePath,
     String? pitchFactorsPath,
+    bool? continuityChecked,
   }) {
     return VideoJob(
       id: id ?? this.id,
@@ -150,6 +157,7 @@ class VideoJob {
       inputColorRange: inputColorRange ?? this.inputColorRange,
       burnInSubtitlePath: burnInSubtitlePath ?? this.burnInSubtitlePath,
       pitchFactorsPath: pitchFactorsPath ?? this.pitchFactorsPath,
+      continuityChecked: continuityChecked ?? this.continuityChecked,
     );
   }
 }

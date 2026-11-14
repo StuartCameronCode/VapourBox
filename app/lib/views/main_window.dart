@@ -1251,7 +1251,7 @@ class MainWindow extends StatelessWidget {
     // Check audio compatibility
     final service = AudioCompatibilityService();
     final compatibility = await service.checkCompatibility(
-      inputPath: viewModel.inputPath!,
+      inputPath: viewModel.decodePath!,
       outputContainer: viewModel.encodingSettings.container,
       audioMode: viewModel.encodingSettings.audioMode,
     );

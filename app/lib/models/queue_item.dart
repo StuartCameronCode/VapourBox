@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:uuid/uuid.dart';
 
 import '../services/field_order_detector.dart';
+import '../services/timestamp_continuity_service.dart';
 import 'noise_halo_report.dart';
 
 /// Status of a queue item.
@@ -57,6 +58,16 @@ class QueueItem {
   /// Optional DVD source info (for display and temp file cleanup).
   DvdSourceInfo? dvdSourceInfo;
 
+  /// The joined copy this source is decoded from, when its timestamps reset
+  /// mid-file (an MPEG-PS/TS, task #21; see `TimestampContinuityService`).
+  /// Null for every other source.
+  ContinuityProxy? continuityProxy;
+
+  /// Whether the source was scanned for timestamp resets (and, having one,
+  /// given a [continuityProxy]). Sent to the worker as `continuityChecked`,
+  /// which otherwise scans and warns.
+  bool continuityChecked;
+
   /// Extraction progress (0.0 to 1.0), used during DVD extraction.
   double extractionProgress;
 
@@ -100,6 +111,8 @@ class QueueItem {
     required this.outputPath,
     this.videoInfo,
     this.dvdSourceInfo,
+    this.continuityProxy,
+    this.continuityChecked = false,
     this.extractionProgress = 0.0,
     this.pitchFactorsPath,
     this.inPoint,
@@ -117,6 +130,12 @@ class QueueItem {
     this.errorMessage,
   })  : id = id ?? const Uuid().v4(),
         thumbnails = thumbnails ?? [];
+
+  /// The file every probe and decode reads: the joined copy when the source's
+  /// timestamps reset, else [inputPath]. [inputPath] stays the user's file,
+  /// for naming the output, display, Show in Folder and sidecar lookups;
+  /// `queue_item_decode_path_test.dart` checks every read is one or the other.
+  String get decodePath => continuityProxy?.path ?? inputPath;
 
   /// Returns the filename from the input path, or DVD display name if from a DVD.
   String get filename {
