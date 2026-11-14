@@ -198,7 +198,8 @@ VapourBox/
 
 # macOS x64 (native, on an Intel Mac): same script — uname -m reports x86_64 so
 # it targets deps/macos-x64. FFmpeg comes pre-built from evermeet.cx, most
-# plugins from Stefan-Olt; descratch/neo-f3kdb/nnedi3cl/vivtc build from source.
+# plugins from Stefan-Olt; descratch/neo-f3kdb/nnedi3cl/vivtc/fmtconv build
+# from source.
 ./scripts/download-deps-macos.sh
 # x64 deps can NOT be built on Apple Silicon any more: Homebrew's installer
 # refuses to create the Intel prefix under Rosetta. Use CI, or unzip a
@@ -2768,7 +2769,14 @@ resubmitting or re-checking against a newer fmtconv release.
 fmtconv is pinned to **r31**, sourced from GitLab (the GitHub mirror is
 abandoned and stale) on every platform — keep macOS/Linux's `FMTCONV_TAG` and
 the Windows zip URL in step, since r31 changed interlaced PAL-DV chroma
-placement and a version skew would change chroma per-OS.
+placement and a version skew would change chroma per-OS. Both macOS arches
+build it from source with the patch applied (dead code on x86, as on Linux
+x64); **never take a prebuilt fmtconv on macOS x64** — Stefan-Olt's only
+x86_64 build is git-18a9cecb, pre-r31, which is what deps ≤ 1.16.0 shipped
+(docs/reports/2026-11-fmtconv-macos-x64-r31). The push gate's
+`fmtconv version pin` test (`vapoursynth_integration_test.dart`) checks r31's
+chroma placement by its pixels on every platform; it skips only on a macOS x64
+bundle at 1.16.0 or older, the known skew.
 
 ## Debugging Tips
 

@@ -113,7 +113,8 @@ reports `x86_64`, so it targets `deps/macos-x64`). FFmpeg is sourced pre-built
 from [evermeet.cx](https://evermeet.cx/ffmpeg/) (static x86_64); most plugins
 come pre-built from
 [Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build), and
-`descratch`/`neo-f3kdb`/`nnedi3cl`/`vivtc` build from source.
+`descratch`/`neo-f3kdb`/`nnedi3cl`/`vivtc` build from source, as does `fmtconv`
+(Stefan-Olt's x86_64 build predates the pinned r31).
 
 ```bash
 ./Scripts/download-deps-macos.sh --force
@@ -420,7 +421,8 @@ VapourBox bundles all runtime dependencies. No external installations are requir
 | libdvdread | Latest | DVD reading and navigation |
 
 The full per-platform plugin contract is `Scripts/deps-expected-plugins.json`.
-fmtconv is **pinned to r31 on every platform** and carries a local patch
+fmtconv is **pinned to r31 on every platform** (both macOS arches and Linux
+build it from source; Windows downloads upstream's r31 zip) and carries a local patch
 (`Scripts/patches/fmtconv-r31-arm-int-scaler.patch`) that fixes black output from
 its non-SIMD integer scaler on arm64; havsfunc carries five compatibility patches.
 Both are explained in [CLAUDE.md](../CLAUDE.md) — keep the versions in step across

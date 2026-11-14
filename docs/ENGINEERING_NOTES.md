@@ -2011,6 +2011,26 @@ stale post-r30 snapshot. All platforms now use **r31**, pinned:
 vertical positions were swapped, vertical subsampling > 2 unhandled), so a
 version skew between platforms would change chroma per-OS.
 
+**2026-11-14: macOS x64 had not been on r31.** Through deps 1.16.0 the x64
+branch of `download-deps-macos.sh` took Stefan-Olt's prebuilt
+`fmtconv-git-18a9cecb` (2024-08-02: 34 commits after r30, 18 before r31). It
+has the AVX2 14→16-bit fix but not r31's chroma-placement fix (`3079bd6`), and
+nothing checked the version. The skew was latent: on 62 cases through the
+published x64 bundle (havsfunc Bob/Resize/MinBlur, bitdepth, mvsfunc Depth,
+QTGMC Draft and Placebo), both builds were bit-identical. Only the paths r31
+changed differ (`cplace="dv"` on interlaced 4:2:0, 4:4:0, 4:1:0), and
+VapourBox reaches none of them: nothing passes `cplace`, and the decoder turns
+4:4:0/4:1:0 into 4:2:2. QTGMC Placebo first looked different; it varies from
+run to run with several threads and is bit-identical on one. r31 now builds
+from source on both macOS arches (same tag and patch; on x86 the patch is dead
+code). The x86_64 build targets 12.0 and has no static initializers, so the
+v2 gate passes and fmtconv needs no `_tierFiles` entry. The push gate's
+`fmtconv version pin` test checks r31's behaviour on every platform: a U = V
+ramp resampled with `cplace="dv"` gives U−V = −606 on r31, +606 before. It
+skips on a macOS x64 bundle at 1.16.0 or older. Not compared: the SSE2 path,
+real footage. See
+[docs/reports/2026-11-fmtconv-macos-x64-r31](reports/2026-11-fmtconv-macos-x64-r31/index.html).
+
 
 ---
 
