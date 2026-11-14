@@ -110,32 +110,48 @@ pub fn decoder_filter(width: i32, height: i32, seeks: bool, tag_fix: Option<&str
 /// picture in the file but are shown before it).
 pub const VIDEO_START_PACKETS: u32 = 64;
 
+/// ffprobe's arguments (before the input) for [`video_start_from_probe`]. The
+/// app runs the same (`FieldOrderDetector.videoStartProbeArgs`).
+pub const VIDEO_START_PROBE_ARGS: [&str; 10] = [
+    "-v", "error",
+    "-select_streams", "v:0",
+    "-show_entries", "packet=pts_time:stream=start_time:format=start_time",
+    "-read_intervals", "%+#64",
+    "-of", "json",
+];
+
 /// Where the video's first picture starts, in seconds after the container's
-/// start (which is what an input `-ss` is measured from): the smallest PTS
-/// among the first video packets, minus the format's `start_time`. Never
-/// negative; 0 when the video starts first, or when anything is missing.
+/// start (which is what an input `-ss` is measured from): the earlier of the
+/// video stream's `start_time` and the smallest PTS among its first packets,
+/// minus the format's `start_time`. Never negative; 0 when the video starts
+/// first, or when anything is missing.
 ///
-/// Not the stream's `start_time`: that is the first packet's, and on an open
-/// GOP the pictures shown before it come later in the file (the DVB-T
-/// fixture's three leading B pictures sit 0.12 s before its I picture).
+/// Not the stream's `start_time` alone: that is the first packet's, and on an
+/// open GOP the pictures shown before it come later in the file (the DVB-T
+/// fixture's three leading B pictures sit 0.12 s before its I picture). Not
+/// the packets alone either: MPEG-2 in AVI stores packets with no PTS
+/// (`hard_telecine_test.avi`'s first two), so the smallest one *listed* can
+/// be a later picture's.
 ///
-/// `json` is ffprobe's output for
-/// `-select_streams v:0 -show_entries packet=pts_time:format=start_time -of json`.
+/// `json` is ffprobe's output for [`VIDEO_START_PROBE_ARGS`].
 pub fn video_start_from_probe(json: &serde_json::Value) -> f64 {
-    let container = json
-        .get("format")
-        .and_then(|f| f.get("start_time"))
-        .and_then(|s| s.as_str())
-        .and_then(|s| s.parse::<f64>().ok());
+    let num = |v: Option<&serde_json::Value>| v.and_then(|s| s.as_str()).and_then(|s| s.parse::<f64>().ok());
+    let container = num(json.get("format").and_then(|f| f.get("start_time")));
+    let stream = num(json
+        .get("streams")
+        .and_then(|s| s.as_array())
+        .and_then(|s| s.first())
+        .and_then(|s| s.get("start_time")));
     let first = json
         .get("packets")
         .and_then(|p| p.as_array())
         .map(|packets| {
             packets
                 .iter()
-                .filter_map(|p| p.get("pts_time")?.as_str()?.parse::<f64>().ok())
-                .fold(f64::INFINITY, f64::min)
+                .filter_map(|p| num(p.get("pts_time")))
+                .fold(stream.unwrap_or(f64::INFINITY), f64::min)
         })
+        .or(stream)
         .filter(|t| t.is_finite());
     match (container, first) {
         (Some(c), Some(f)) if f > c => f - c,
@@ -151,14 +167,8 @@ pub fn probe_video_start(
     input: &str,
 ) -> Option<f64> {
     let out = std::process::Command::new(ffprobe)
-        .args([
-            "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "packet=pts_time:format=start_time",
-            "-read_intervals", &format!("%+#{VIDEO_START_PACKETS}"),
-            "-of", "json",
-            input,
-        ])
+        .args(VIDEO_START_PROBE_ARGS)
+        .arg(input)
         .envs(env)
         .stderr(std::process::Stdio::null())
         .output()
@@ -635,6 +645,30 @@ mod tests {
         // Video 1 s in: the smallest PTS, wherever it sits in the file.
         let o = video_start_from_probe(&probe("0.000000", &["1.080000", "1.000000", "1.040000"]));
         assert!((o - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn packets_without_a_pts_fall_back_to_the_stream_start() {
+        // MPEG-2 in AVI: the first two packets have no PTS, so the smallest
+        // listed one (0.067) is the third picture's; the stream starts at 0.
+        let json = serde_json::json!({
+            "packets": [{ "pts_time": "N/A" }, {}, { "pts_time": "0.066733" }, { "pts_time": "0.100100" }],
+            "streams": [{ "start_time": "0.000000" }],
+            "format": { "start_time": "0.000000" },
+        });
+        assert_eq!(video_start_from_probe(&json), 0.0);
+        // The stream's start alone, when no packet has a PTS.
+        let json = serde_json::json!({
+            "packets": [{}],
+            "streams": [{ "start_time": "1.5" }],
+            "format": { "start_time": "0.5" },
+        });
+        assert!((video_start_from_probe(&json) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn the_probe_reads_as_many_packets_as_it_says() {
+        assert!(VIDEO_START_PROBE_ARGS.contains(&format!("%+#{VIDEO_START_PACKETS}").as_str()));
     }
 
     #[test]

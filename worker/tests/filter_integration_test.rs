@@ -8451,3 +8451,42 @@ fn test_222_bt709_always_without_geometry() {
         }
     }
 }
+
+/// A video that starts after its sound (2026-11, docs/reports/
+/// 2026-11-video-start-offset): the offset moves the decoder's seek and the
+/// encoder's video delay, both outside VapourSynth, and Audio Restoration's
+/// "start the sound with the picture" works on the sound alone. Neither may
+/// change either script.
+#[test]
+fn test_223_video_start_offset_never_touches_the_scripts() {
+    create_output_dir();
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_addons(std::env::temp_dir().join("vb-no-addons-here"), "macos-arm64");
+    let mut job = create_base_job("test_223_video_start_offset");
+    job.processing_pipeline = Some(ProcessingPipeline::default());
+    let (encode_off, preview_off) = both_scripts_with(&generator, &job).unwrap();
+
+    job.video_start_offset = Some(1.202022);
+    job.start_frame = Some(30);
+    job.end_frame = Some(59);
+    let (encode_trim, preview_trim) = both_scripts_with(&generator, &job).unwrap();
+    job.start_frame = None;
+    job.end_frame = None;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        audio: AudioRestorationParameters {
+            enabled: true,
+            start_with_picture: true,
+            ..Default::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let (encode_on, preview_on) = both_scripts_with(&generator, &job).unwrap();
+    assert_eq!(encode_on, encode_off, "the encode script must not change");
+    assert_eq!(preview_on, preview_off, "the preview script must not change");
+    for script in [&encode_on, &preview_on, &encode_trim, &preview_trim] {
+        for word in ["1.202", "setpts", "settb"] {
+            assert!(!script.contains(word), "{word} reached the script");
+        }
+    }
+}

@@ -133,8 +133,9 @@ impl VideoJob {
     /// this much and the sound is copied (or rendered) from the container's
     /// start. That is in sync and loses nothing. It is 0 when there is no gap,
     /// when the job is trimmed (both then start at the in-point), when the
-    /// output or the source has no audio, and when Audio Restoration's "start the sound with
-    /// the picture" drops the sound before the first picture instead.
+    /// output or the source has no audio, and when Audio Restoration's "start
+    /// the sound with the picture" drops the sound before the first picture
+    /// instead.
     pub fn output_video_delay(&self) -> f64 {
         let offset = self.video_start();
         if offset <= 0.0

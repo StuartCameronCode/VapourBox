@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn json_names_match_the_app() {
         let json = r#"{"enabled":true,"streamIndex":1,"channelFix":"leftOnly","offsetMs":-120,
-            "driftCorrection":true,"driftMaxPercent":0.3,"declip":true,"declick":true,
+            "startWithPicture":true,"driftCorrection":true,"driftMaxPercent":0.3,"declip":true,"declick":true,
             "declickThreshold":3,"humRemoval":true,"humFrequency":"60","rumbleFilter":true,
             "rumbleCutoffHz":60,"denoise":true,"denoiseStrength":18,"deepFilter":true,
             "deepFilterAttenuation":30,"loudnessNormalize":true,"loudnessTarget":-23,
@@ -227,6 +227,7 @@ mod tests {
         assert_eq!(p.stream_index, 1);
         assert_eq!(p.channel_fix, ChannelFix::LeftOnly);
         assert_eq!(p.offset_ms, -120);
+        assert!(p.start_with_picture);
         assert_eq!(p.hum_frequency, HumFrequency::Hz60);
         assert_eq!(p.deep_filter_attenuation, 30);
         assert_eq!(p.loudness_target, -23.0);
