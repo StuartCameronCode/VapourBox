@@ -30,6 +30,15 @@ void main() {
       }
     });
 
+    // A 14-bit source is processed at 16-bit (fmtconv has no 14-bit output,
+    // task #23), but it is still a 14-bit source: the "your N-bit source"
+    // warnings must say 14.
+    test('14-bit formats', () {
+      for (final f in ['yuv420p14le', 'yuv444p14le', 'gray14le', 'gbrp14le']) {
+        expect(pixelFormatBitDepth(f), 14, reason: f);
+      }
+    });
+
     test('16-bit formats', () {
       for (final f in [
         'yuv420p16le', 'yuv444p16le', 'gray16le', 'gbrp16le',

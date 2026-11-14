@@ -45,9 +45,8 @@ _FORMAT_MAP = {
     'yuv420p12le': vs.YUV420P12,
     'yuv422p12le': vs.YUV422P12,
     'yuv444p12le': vs.YUV444P12,
-    'yuv420p14le': vs.YUV420P14,
-    'yuv422p14le': vs.YUV422P14,
-    'yuv444p14le': vs.YUV444P14,
+    # No 14-bit: fmtconv can't write it, and havsfunc's Bob/Resize/Deblock_QED
+    # need to, so pixel_format.rs decodes 14-bit sources as 16 (task #23).
     'yuv420p16le': vs.YUV420P16,
     'yuv422p16le': vs.YUV422P16,
     'yuv444p16le': vs.YUV444P16,

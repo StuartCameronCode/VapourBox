@@ -8548,6 +8548,42 @@ fn test_240_soft_telecine_decimates_only_at_a_pulldown_rate() {
     assert_eq!(preview_grid, preview_film);
 }
 
+/// Task #23: fmtconv has no 14-bit output, and havsfunc goes back to the
+/// clip's depth through it in Bob/Resize/Deblock_QED, so a 14-bit clip failed
+/// QTGMC at every preset. A 14-bit source is piped as 16-bit, and an
+/// `original` output is encoded from that 16-bit format.
+#[test]
+fn test_241_14_bit_source_pipes_as_16() {
+    create_output_dir();
+    let generator = ScriptGenerator::new().unwrap();
+    for (probed, piped) in [
+        ("yuv420p14le", "yuv420p16le"),
+        ("yuv422p14le", "yuv422p16le"),
+        ("gray14le", "yuv420p16le"),
+        ("gbrp14le", "yuv444p16le"),
+    ] {
+        let mut job = create_base_job("test_241_14_bit_source");
+        job.qtgmc_parameters.enabled = true;
+        job.qtgmc_parameters.tff = Some(true);
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: job.qtgmc_parameters.clone(),
+            ..ProcessingPipeline::default()
+        });
+        job.input_pixel_format = Some(probed.to_string());
+        job.encoding_settings.chroma_subsampling = ChromaSubsampling::Original;
+
+        // The preview's pix_fmt is handed to the generator by the executor,
+        // from the same decode_pixel_format (pipeline_executor's preview
+        // path), so only the encode script is checked here; the heavy
+        // integration_high_bit_depth_filters_test renders 14-bit previews.
+        let encode = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+        let expected = format!(r#"pix_fmt="{}""#, piped);
+        assert!(encode.contains(&expected), "{}: encode should pipe {}", probed, piped);
+        assert!(!encode.contains("p14le"), "{}: no 14-bit format may reach the script", probed);
+        assert_eq!(job.encoder_input_pix_fmt(), piped, "{}", probed);
+    }
+}
+
 // ===========================================================================
 // Unblend (SRestore), app 1.8.0 — docs/reports/2026-11-srestore
 // ===========================================================================
