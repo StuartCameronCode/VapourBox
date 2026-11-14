@@ -18,6 +18,7 @@ const _everything = AudioRestorationParameters(
   streamIndex: 1,
   channelFix: ChannelFix.rightOnly,
   offsetMs: -120,
+  startWithPicture: true,
   driftCorrection: true,
   driftMaxPercent: 0.3,
   declip: true,
@@ -44,9 +45,11 @@ void main() {
     expect(json['channelFix'], 'rightOnly');
     expect(json['humFrequency'], '60');
     expect(json['offsetMs'], -120);
+    expect(json['startWithPicture'], true);
     expect(json['deepFilterAttenuation'], 30);
     expect(json.keys.toSet(), {
-      'enabled', 'streamIndex', 'channelFix', 'offsetMs', 'driftCorrection',
+      'enabled', 'streamIndex', 'channelFix', 'offsetMs', 'startWithPicture',
+      'driftCorrection',
       'driftMaxPercent', 'declip', 'declick', 'declickThreshold', 'humRemoval',
       'humFrequency', 'rumbleFilter', 'rumbleCutoffHz', 'denoise',
       'denoiseStrength', 'deepFilter', 'deepFilterAttenuation',
