@@ -122,6 +122,8 @@ VapourBox/
 | `worker/src/pipeline_executor.rs` | vspipe \| ffmpeg execution |
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/templates/stabilize.py` | Stabilize pass's vertical pitch correction (see "Stabilize") |
+| `worker/templates/srestore.py` | The Unblend pass: VapourBox's windowed port of srestore (see "Unblend (SRestore)") |
+| `worker/src/models/unblend_parameters.rs` | Unblend's parameters, srestore's ratio arithmetic (`srestore_ratio`) and the refusal wording |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset and the one `seek_time` (see "Source Frame Size", "Colour metadata") |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
@@ -1425,6 +1427,49 @@ time span `[t, t+1)`; the worker reports `sub_frame`, `sub_frames` and
   frame against a lossless encode, and fails by 13 levels without the pad.
 - A source frame with no output of its own (down-conversion, decimation)
   shows the output just before it, as the preview always has.
+
+### Unblend (SRestore) (app 1.8.0)
+
+The Unblend pass (`UnblendParameters`, `PassType::Unblend`) recovers the
+original frames of a frame-rate conversion done by blending. Rules, from
+[docs/reports/2026-11-srestore](docs/reports/2026-11-srestore/index.html):
+
+- **Never call `haf.srestore`.** On R78 it is plain decimation: it relied on
+  `std.Cache(make_linear=True)`, which R78 ignores, and its detector's
+  history only advances on consecutive frames, which `ChangeFPS` never
+  requests. `worker/templates/srestore.py` runs upstream's arithmetic
+  unchanged (`_Detector.step`); keep it line for line with havsfunc.
+- **Every decision is a pure function of a window**: a replay over frames
+  `max(origin, n - UNBLEND_WINDOW) .. n` with fresh state, in encode and
+  preview alike. The detector's phase tracker never converges from a fresh
+  start, so pre-rolling a preview or forcing linear access cannot make it
+  match the encode. No state may survive between frames other than memos of
+  pure values.
+- **Its own pass, right after Deinterlace** (before Edge Repair): denoising,
+  deflicker, sharpening, grain and resizing all change what the detector
+  measures. Not a Frame Rate method; the two combine.
+- **The preview pads and tells the detector where real frames start**
+  (`PreviewOutput::unblend_pad` / `unblend_origin`, `{{PREVIEW_UNBLEND_*}}`),
+  computed by `preview_output`, which walks every retime the same way. The
+  `FrameMap` radius covers the replay's start index (window + 8), not only
+  the pixels it reads: a radius of the measured reach mismatched.
+- **The measurement clip's cache is pinned** (`std.SetVideoCache` in
+  `stats_clip`). Each decision reads it through one shifted copy per window
+  frame; left to automatic sizing it was evicted and QTGMC ran ~3x.
+  Picks come from a few pre-built shifted clips, never a node per frame.
+- **Only exact ratios run.** srestore computes `numr/denm` in floating point;
+  `unblend_ratio` (Rust port, tested against the report's
+  `data/ratio_table.json`) refuses any target where that is not exactly the
+  target/input ratio, or where srestore would not decimate (not lower, or
+  below a fifth). The script raises on the same condition. The app warns with
+  the same wording (`unblendTargetProblem`) and advises on Deinterlace off,
+  single rate or IVTC (`pass_advice.dart`).
+- Not exposed: `thresh`, `mode`, `omode`, `speed` (upstream defaults); no
+  built-in preset turns it on.
+
+`integration_unblend_test.dart` (heavy) checks recovery on the blended
+fixtures (`generate_blended_test.sh`) against plain decimation, exact length
+and rate, 8 = 10-bit, and preview = encode.
 
 ### Frame Rate targets (issue #129)
 

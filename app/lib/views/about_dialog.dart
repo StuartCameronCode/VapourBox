@@ -183,6 +183,13 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/HomeOfVapourSynthEvolution/mvsfunc',
                       ),
                       _ComponentTile(
+                        name: 'srestore 2.7e (ported code)',
+                        license: 'Unlicense',
+                        copyright: 'From havsfunc; ported into VapourBox\'s '
+                            'templates for the Unblend pass',
+                        url: 'https://github.com/HomeOfVapourSynthEvolution/havsfunc',
+                      ),
+                      _ComponentTile(
                         name: 'vs-jetpack (ported code)',
                         license: 'MIT',
                         copyright: 'Jaded-Encoding-Thaumaturgy; '

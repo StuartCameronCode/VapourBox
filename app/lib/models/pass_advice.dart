@@ -110,6 +110,38 @@ List<PassAdvice> adviseOn(ProcessingPipeline pipeline) {
     ));
   }
 
+  // --- Unblend without a double-rate deinterlace ---
+  // The detector finds clean frames among the deinterlacer's output, one per
+  // field. Asserted in pass_advice_test.dart.
+  if (on(PassType.unblend)) {
+    final d = pipeline.deinterlace;
+    if (!d.enabled) {
+      advice.add(const PassAdvice(
+        PassType.unblend,
+        'Deinterlace is off. On interlaced video Unblend needs it on, at double '
+        'rate: the blends are between fields, and only a deinterlaced picture '
+        'shows them as frames. Leave it off only for video that is already '
+        'progressive.',
+      ));
+    } else if (d.method == DeinterlaceMethod.ivtc ||
+        d.method == DeinterlaceMethod.softTelecine) {
+      advice.add(const PassAdvice(
+        PassType.unblend,
+        'Inverse telecine already restores film frames from a 3:2 pulldown, '
+        'which repeats fields rather than blending them. Unblend is for '
+        'conversions that blended frames; use Deinterlace at double rate with it '
+        'instead.',
+      ));
+    } else if ((d.fpsDivisor ?? 1) != 1) {
+      advice.add(const PassAdvice(
+        PassType.unblend,
+        'Deinterlace is set to single rate, which keeps one frame per pair of '
+        'fields and throws away half of the clean frames Unblend looks for. '
+        'Set it to double rate.',
+      ));
+    }
+  }
+
   // --- Levels set by hand on top of levels set automatically ---
   // Automatic levels measures the picture and places black and white itself,
   // and it runs first — so the manual input/output points are dropped (the

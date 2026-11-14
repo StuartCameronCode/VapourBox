@@ -1,0 +1,18 @@
+{
+ "film": {
+  "frames": 300,
+  "identical_decisions": 300,
+  "ratio": [
+   480,
+   1001
+  ]
+ },
+ "pal": {
+  "frames": 300,
+  "identical_decisions": 300,
+  "ratio": [
+   1001,
+   2400
+  ]
+ }
+}

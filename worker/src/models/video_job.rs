@@ -296,6 +296,13 @@ impl VideoJob {
             fr.source_fps_num = Some(num);
             fr.source_fps_den = Some(den);
         }
+        // Unblend's ratio is taken against the same rate.
+        let ub = &mut pipeline.unblend;
+        if ub.source_fps_num.is_none() || ub.source_fps_den.is_none() {
+            let (num, den) = self.input_fps_rational();
+            ub.source_fps_num = Some(num);
+            ub.source_fps_den = Some(den);
+        }
         pipeline
     }
 

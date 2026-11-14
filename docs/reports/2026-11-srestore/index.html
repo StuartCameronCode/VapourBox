@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unblend (SRestore): blended frame-rate conversions</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: -4px; }
+  .correction { border-left: 3px solid var(--warn); }
+</style>
+</head>
+<body>
+<main>
+<h1>Unblend (SRestore): recovering frames from blended frame-rate conversions</h1>
+<p class="meta">2026-11-14 · requested on the videohelp forum (thread 419911, post #152) · measured on an
+Apple Silicon Mac (macOS arm64) against the deps 1.16.0 bundle (VapourSynth R78, havsfunc r31), on a
+machine shared with other work (load average up to 42), so times are relative, never absolute</p>
+
+<div class="card">
+<strong>Outcome.</strong> havsfunc's <code>srestore</code>, which ships in the bundle, does nothing useful
+on VapourSynth R78: its detector keeps its history in variables that only advance when it is called
+for consecutive frames, it relied on <code>std.Cache(make_linear=True)</code> to make that happen, and R78
+ignores <code>make_linear</code>. Its output is identical to plain decimation. A VapourBox port
+(<code>worker/templates/srestore.py</code>) runs upstream's per-frame arithmetic unchanged (300/300
+decisions identical to havsfunc driven frame by frame), but makes every decision a pure function of the
+48 frames before it, so the preview, the encode and any thread count agree. On fixtures with a known
+answer it recovers <strong>143/143</strong> film frames from PAL blending (plain decimation: 87) and
+<strong>101/125</strong> PAL frames from NTSC blending (decimation: 73), at the deinterlacer's cost plus a few percent.
+<strong>Built</strong>, as its own pass, <em>Unblend (SRestore)</em>, right after Deinterlace.
+</div>
+
+<h2>1. What was asked, and the plan</h2>
+<p>SRestore deblends footage that was frame-rate converted by blending: 23.976 fps film on PAL through a
+standards converter, a PAL programme converted to NTSC. Every movement shows a double image that no
+deinterlacer removes. The usual chain is double-rate QTGMC, then <code>srestore(frate=…)</code>.</p>
+<p>The plan was to probe havsfunc's <code>srestore</code> before building on it: its ~30
+<code>nonlocal</code> variables make the output depend on the order frames are requested, which threatens
+preview = encode; its output length comes from its own <code>numr/denm</code> arithmetic; and it measures an
+8-bit copy of the picture.</p>
+
+<h2>2. havsfunc's srestore on R78 is plain decimation</h2>
+<p><code>srestore</code> ends with <code>ChangeFPS(core.std.Cache(last, make_linear=True), …)</code>. R78 prints:</p>
+<pre>Critical: Explicitly instantiated a Cache with make_linear set. This is no longer possible and the
+original clip has been passed through instead which may cause severe issues.</pre>
+<p>Its detector's history (seven frames of blend, clear, difference and motion measurements, plus a phase
+tracker) only advances when <code>jmp = lfr + 1 == n</code>, i.e. when it is called for the frame after the
+last one it saw; otherwise every register is reset to the current frame's value. <code>ChangeFPS</code>
+only requests the frames it keeps, so the detector never sees two in a row
+(<code>scripts/requests.py</code>, on the deinterlaced film fixture through vspipe):</p>
+<table>
+<tr><th>Concurrent requests</th><th class="num">Detector calls</th><th class="num"><code>jmp</code> true</th><th>Frames evaluated</th></tr>
+<tr><td>1</td><td class="num">143</td><td class="num bad">0</td><td>0, 2, 4, 6, 8, 10, …</td></tr>
+<tr><td>8</td><td class="num">143</td><td class="num bad">0</td><td>0, 2, 4, 6, 8, 10, …</td></tr>
+</table>
+<p>So its output is exactly what decimation gives (Section 5, both fixtures: the same picks, frame for
+frame). srestore is the only function in havsfunc that uses <code>make_linear</code> or keeps state across
+<code>FrameEval</code> calls, so nothing else in the templates is affected.</p>
+
+<h2>3. The port: upstream's arithmetic, a fixed window</h2>
+<p><code>worker/templates/srestore.py</code> splits upstream into three parts:</p>
+<ul>
+<li><strong>Measurements</strong> (<code>stats_clip</code>): upstream's own, on an 8-bit copy of the luma
+(downscaled, frame differences, the blend expression, three <code>PlaneStats</code>), gathered as four frame
+properties on a 1x1 clip.</li>
+<li><strong>The detector</strong> (<code>_Detector.step</code>): upstream's <code>srestore_inside</code> for an
+integer <code>omode</code> (the default 6), line for line, minus the clip output. The <code>"pp0".."pp3"</code>
+post-processors synthesize pixels and are not ported.</li>
+<li><strong>The output</strong>: the decision for frame n replays the detector with fresh state over frames
+<code>max(origin, n − 48) … n</code>; the frame it names is taken from one of a few pre-built shifted copies
+of the clip (no node per frame), and <code>SelectEvery</code> with exact integer offsets decimates to the target.</li>
+</ul>
+<p><strong>Faithfulness</strong> (<code>scripts/parity.py</code>): driven linearly (every frame, in order, one
+thread), the port and an instrumented havsfunc make <strong>300/300 identical decisions</strong> on both
+deinterlaced fixtures. havsfunc there runs its expression through akarin (VapourBox's ARM patch), so this
+also covers the Expr implementation.</p>
+
+<h3>Why a window, not pre-roll or forced linear access</h3>
+<p>The detector's phase tracker (<code>offs</code>, <code>lpos</code>) does not forget where it started. In the
+plan stage, on a frame-level synthetic fixture, starting fresh K frames back still gave a different decision
+from the sequential run at 36% of frames with K = 160 (95% with K = 0). So neither "pre-roll the preview
+until the state converges" nor "make the encode linear" can make a preview equal the encode. Pictures
+converge much faster than the state does (Section 5). Making the decision a pure function of a window,
+used by both the encode and the preview, gives equality by construction.</p>
+<p class="caption">Those plan-stage numbers came from a cruder fixture (no interlacing, no QTGMC) and are
+superseded by Section 5 for recovery; they are kept here because they are what ruled pre-roll out.</p>
+
+<h2>4. Fixtures with a known answer</h2>
+<p><code>Tests/TestResources/generate_blended_test.sh</code> (FFmpeg only) builds two:</p>
+<ul>
+<li><code>blended_film_50i.mkv</code>: small_clip frames 1350–1493 taken as 23.976p film, repeated 2:3 to
+59.94 (as telecine does), blended to 50p by linear interpolation between the two nearest frames
+(<code>framerate</code>), interlaced to 25i TFF. Unblended to 23.976 it should give back the 144 frames.</li>
+<li><code>blended_pal_5994i.mkv</code>: frames 1350–1474 as 25p PAL, blended to 59.94p and interlaced to 29.97i,
+at 10-bit 4:2:2. Unblended to 25 it should give back the 125 frames.</li>
+</ul>
+<p>Both are x264 at CRF 10, lossy on purpose. <strong>"Clean"</strong> means within 1.77 (film) / 1.72 (PAL)
+luma levels of an original frame (±4 positions searched). That limit is the 99th percentile + 0.25 of the same
+chain with frames repeated instead of blended (an unblended twin, built by <code>score.py</code>), whose
+frames sit 1.04–1.07 levels from their originals at the median. A 50/50 blend of neighbours sits 3.5–3.6
+levels from either original at the median, but only 0.28 at the 10th percentile: where nothing moves, a blend
+<em>is</em> clean, and the metric counts it so.</p>
+<p><strong>What the metric can't tell you:</strong> the fixtures are synthetic linear blends of one clip,
+the easy case. A real standards converter blends fields with its own filters and noise. No real blended
+capture was available. Recovery on real tapes will be lower, and how much lower is not known.</p>
+
+<h2>5. Recovery</h2>
+<p><code>scripts/score.py</code>, both fixtures after double-rate QTGMC (Slower, as the Deinterlace pass's default):</p>
+<table>
+<tr><th>Variant</th><th class="num">Film → 23.976: clean</th><th class="num">distinct originals</th><th class="num">PAL → 25: clean</th><th class="num">distinct originals</th></tr>
+<tr><td>Plain decimation (Frame Rate: Repeat frames)</td><td class="num">87/143 (60.8%)</td><td class="num">80</td><td class="num">73/125 (58.4%)</td><td class="num">73</td></tr>
+<tr><td>havsfunc srestore as shipped</td><td class="num bad">87/143 (60.8%)</td><td class="num">80</td><td class="num bad">73/125 (58.4%)</td><td class="num">73</td></tr>
+<tr><td>Port, linear (whole clip, in order)</td><td class="num">143/143 (100%)</td><td class="num">126</td><td class="num">93/125 (74.4%)</td><td class="num">91</td></tr>
+<tr><td>Port, window 8</td><td class="num">133 (93.0%)</td><td class="num">106</td><td class="num">97 (77.6%)</td><td class="num">90</td></tr>
+<tr><td>Port, window 16</td><td class="num">131 (91.6%)</td><td class="num">103</td><td class="num">101 (80.8%)</td><td class="num">94</td></tr>
+<tr><td>Port, window 32</td><td class="num">141 (98.6%)</td><td class="num">117</td><td class="num">101 (80.8%)</td><td class="num">94</td></tr>
+<tr><td><strong>Port, window 48 (shipped)</strong></td><td class="num good">143 (100%)</td><td class="num">117</td><td class="num good">101 (80.8%)</td><td class="num">94</td></tr>
+<tr><td>Port, window 64</td><td class="num">142 (99.3%)</td><td class="num">119</td><td class="num">101 (80.8%)</td><td class="num">94</td></tr>
+<tr><td>Port, window 128</td><td class="num">143 (100%)</td><td class="num">120</td><td class="num">101 (80.8%)</td><td class="num">95</td></tr>
+</table>
+<p>"Distinct originals" counts the different original frames among the clean outputs. 144/125 is the most
+possible, but not every original has a clean copy left in the blended stream, so the ceiling is below that.
+The window loses some cadence against the linear run on the film fixture (117 distinct against 126: more
+repeated and skipped originals), and does slightly better than it on the PAL fixture. 48 is the smallest
+window that is never worse than the linear run in clean frames on either fixture. The full rows, including
+repeats and skips, are in <code>data/score.json</code>.</p>
+<p>The worst frame of plain decimation, next to the port's output at the same position and the original
+(each 2x, nearest neighbour):</p>
+<p><a href="img/1-film-worst-decimated-frame.png"><img src="img/1-film-worst-decimated-frame.png" alt="Three panels: a blended double image, the restored frame, the original" style="width:100%"></a></p>
+<p class="caption">Film fixture, output frame 110. Left: plain decimation, 5.87 levels from the nearest original:
+the arm and head are a double image. Middle: Unblend, 1.50 levels from original 110. Right: original 110.</p>
+<p><a href="img/2-pal-worst-decimated-frame.png"><img src="img/2-pal-worst-decimated-frame.png" alt="Three panels: blended, restored, original, PAL fixture" style="width:100%"></a></p>
+<p class="caption">PAL fixture (10-bit, shown at 8-bit), output frame 108. Left: decimation (5.05 levels).
+Middle: Unblend (1.33). Right: original 108.</p>
+
+<h2>6. Order, threads and the preview</h2>
+<p><code>scripts/order.py</code>:</p>
+<ul>
+<li>The encode through vspipe at 1 concurrent request and at the default: <strong>byte-identical Y4M</strong>,
+both fixtures.</li>
+<li>Temporal reach of one output frame: 46 input frames back (the replay starts 48 back, but its oldest
+measurement reads frames from two later) and 4 ahead.</li>
+<li>Preview emulation (decode a window around the target, pad it with copies of its first frame so its index
+modulo the ratio's period is the encode's, tell the detector where real frames start): <strong>identical
+to the encode at all 42 targets</strong>.</li>
+</ul>
+<div class="card correction"><strong>Correction.</strong> The first run used a window radius of 46 (the measured
+reach) and mismatched 6 of 22 film targets. The replay starts at <em>n − 48</em>, and that index has to be in
+the window even though its pixels are not read, so the radius must be at least the window. The worker's
+<code>FrameMap</code> radius is the window plus 8.</div>
+<p>In the app, <code>ProcessingPipeline::preview_output</code> computes the padding and the detector origin
+for Unblend as it does for the Frame Rate pass (both, when both are on). The heavy test
+(<code>integration_unblend_test.dart</code>) previews five source frames of the film fixture through the real
+worker and finds each identical to its encode frame (difference 0.00).</p>
+
+<h2>7. Length, rates and refusals</h2>
+<p>srestore computes its own ratio (<code>numr/denm</code>) in floating point from the input and target rates.
+<code>scripts/lengths.py</code> sweeps 10 source rates × 15 targets (named and custom):
+<strong>89 pairs</strong> where srestore decimates and its ratio is the exact target ratio. In every one, the port's
+output is exactly <code>floor(n × num / den)</code> frames at exactly the target rate, at every length
+tried from 1 to 2401 frames. A clip so short it would give no frame at all is refused with an error.
+The other 61 are refused by the worker (and raise in the script):</p>
+<ul>
+<li>48 where srestore would not decimate: the target is not below the input rate, or below a fifth of it;</li>
+<li>13 where srestore's ratio only approximates the target, all NTSC-to-integer ones, e.g. 59.94 → 50
+(835/1001 instead of 1001/1200) or 29.97 → 25.</li>
+</ul>
+<p>Every conversion the pass is for is accepted: 50 → 23.976 / 24 / 25 / 29.97 and 59.94 → 23.976 / 24 / 25 / 29.97.
+The table is <code>data/ratio_table.json</code>, and the Rust port of the ratio arithmetic
+(<code>unblend_parameters.rs</code>) is tested against every row of it.</p>
+
+<h2>8. Depth, Expr implementation, cost</h2>
+<p><code>scripts/depth_speed.py</code> and <code>scripts/cache.py</code>:</p>
+<ul>
+<li><strong>8 vs 10-bit:</strong> the film fixture after QTGMC, shifted exactly to 10-bit: identical measurements,
+identical decisions, outputs identical after converting back. Through the worker, a 10-bit copy of the source
+gives the 8-bit encode's frames exactly. The PAL fixture is 10-bit 4:2:2 throughout.</li>
+<li><strong>Expr:</strong> the one expression goes through the usual <code>_expr()</code> helper (akarin on ARM).
+akarin and VapourSynth's own <code>std.Expr</code> give bit-identical measurements on both fixtures; this was
+checked because the detector thresholds them.</li>
+<li><strong>Cost:</strong> the first version tripled the time of an SD encode. Each decision reads its window
+through 49 shifted copies of the measurement clip, VapourSynth's automatic cache sizing evicted those frames,
+and with them the QTGMC frames behind them. 300 QTGMC frames were computed 799–894 times (up to 14 times each).
+Pinning the measurement clip's cache (<code>std.SetVideoCache</code>, 1x1 frames) fixes it:</li>
+</ul>
+<table>
+<tr><th>Film fixture at 720x576, three runs</th><th class="num">Time</th><th class="num">QTGMC frames computed</th></tr>
+<tr><td>QTGMC alone (300 frames)</td><td class="num">2.38–2.42 s</td><td class="num">300</td></tr>
+<tr><td>QTGMC + Unblend (143 frames out)</td><td class="num good">2.41–2.46 s</td><td class="num">299</td></tr>
+<tr><td>QTGMC + Unblend, cache not pinned</td><td class="num bad">7.64–8.13 s</td><td class="num">830–894</td></tr>
+</table>
+<p>One preview frame at SD took 0.43–1.32 s across runs on the loaded machine, against 0.04–0.07 s for QTGMC
+alone with its own small window. The window has to be decoded and deinterlaced, about 28 source frames
+either side.</p>
+
+<h2>9. Decisions</h2>
+<ul>
+<li><strong>Not havsfunc's srestore.</strong> It decimates and nothing more on R78 (Section 2).</li>
+<li><strong>A window of 48, the same in encode and preview.</strong> Pure by construction; recovery on both
+fixtures at least the linear run's.</li>
+<li><strong>Its own pass right after Deinterlace, not a Frame Rate method.</strong> The Frame Rate pass runs
+last, after denoising (which averages blends into clean frames), sharpening and grain (which add
+frame-to-frame differences the detector reads), and resizing. The detector has to see the blends as the
+deinterlacer leaves them. As a separate pass it also combines with a later Frame Rate conversion.
+Decided with the user.</li>
+<li><strong>Only the target is exposed.</strong> <code>thresh</code>, <code>mode</code>, <code>omode</code> and
+<code>speed</code> stay at upstream's defaults: nothing here showed a fixture another value fixes.</li>
+<li><strong>Unreachable targets are refused</strong> with one wording, shown by the panel too; combinations
+that work but waste it (Deinterlace off, single rate, IVTC) get advice, never a block.</li>
+<li><strong>No built-in preset turns it on.</strong> Blending is a property of one particular conversion, and
+on footage that was never blended the pass only decimates (judder).</li>
+</ul>
+
+<h2>10. Not tested</h2>
+<ul>
+<li>A real blended capture (none was available; the fixtures are synthetic linear blends).</li>
+<li>x86, Windows and Linux: the port is pure Python and core filters, and the decisions do not depend on the
+Expr implementation, but every number here is from macOS arm64. The nightly heavy run covers the other platforms.</li>
+<li>Upstream's other modes (<code>omode</code> 1–5 and the pp post-processors, <code>mode</code> 3, <code>speed</code>).</li>
+<li>Blends that are not between neighbouring frames, and sources whose cadence changes mid-clip (edits after
+the conversion).</li>
+</ul>
+
+<h2>11. Scripts</h2>
+<p>All in <code>scripts/</code>; run each as <code>SRESTORE_PROBE_DIR=/some/scratch ./run.sh &lt;script&gt;.py</code>
+(the bundle's own Python, <code>$VAPOURBOX_DEPS</code> or the repo's <code>deps/macos-arm64</code>). The
+deinterlaced fixtures and decodes are cached in the scratch directory, not committed.</p>
+<table>
+<tr><th>Script</th><th>Produces</th></tr>
+<tr><td><code>probelib.py</code></td><td>Raw-frame reader, QTGMC as the pass runs it, truth frames, nearest-original scoring</td></tr>
+<tr><td><code>requests.py</code></td><td>Section 2 (<code>data/requests.json</code>)</td></tr>
+<tr><td><code>parity.py</code></td><td>Port vs havsfunc, linear (<code>data/parity.json</code>)</td></tr>
+<tr><td><code>score.py</code></td><td>Section 5 (<code>data/score.json</code>)</td></tr>
+<tr><td><code>order.py</code></td><td>Section 6 (<code>data/order.json</code>)</td></tr>
+<tr><td><code>lengths.py</code></td><td>Section 7 (<code>data/ratio_table.json</code>, read by the Rust tests)</td></tr>
+<tr><td><code>depth_speed.py</code>, <code>cache.py</code></td><td>Section 8 (<code>data/depth_speed.json</code>, <code>data/cache.json</code>)</td></tr>
+<tr><td><code>images.py</code></td><td><code>img/</code></td></tr>
+</table>
+</main>
+</body>
+</html>

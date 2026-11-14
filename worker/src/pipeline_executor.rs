@@ -1505,6 +1505,8 @@ impl PipelineExecutor {
             fps_den,
             output_index,
             rate_pad: out.rate_pad,
+            unblend_pad: out.unblend_pad,
+            unblend_origin: out.unblend_origin,
             source_frame_offset: first,
         };
 
@@ -2213,6 +2215,8 @@ mod tests {
             sub_frame: 0,
             sub_frames: 2,
             generated: false,
+            unblend_pad: 0,
+            unblend_origin: 0,
         }
     }
 

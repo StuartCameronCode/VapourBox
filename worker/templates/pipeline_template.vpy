@@ -550,6 +550,24 @@ clip = core.vivtc.VDecimate(clip)
 {{/DEINTERLACE}}
 
 # ============================================================================
+# PASS 2b: UNBLEND (SRestore)
+# ============================================================================
+{{#UNBLEND}}
+# Recover the original frames of a frame-rate conversion done by blending
+# (film shown on PAL through a standards converter, PAL converted to NTSC).
+# Straight after deinterlacing: the detector has to see the blends exactly as
+# the deinterlacer leaves them. srestore.py is VapourBox's port of srestore
+# 2.7e, not havsfunc.srestore, which on this VapourSynth never sees two
+# consecutive frames and only decimates (docs/reports/2026-11-srestore). Each
+# decision replays a fixed window, so the preview and the encode agree.
+import sys as _unb_sys
+_unb_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
+import srestore as _unb
+# The encode's clip starts at its first frame, so no phase padding.
+clip = _unb.unblend(clip, {{UNBLEND_NUM}}, {{UNBLEND_DEN}}, origin=0, window={{UNBLEND_WINDOW}})
+{{/UNBLEND}}
+
+# ============================================================================
 # PASS 3: DESCRATCH (scratch removal)
 # ============================================================================
 # PASS 1c: EDGE REPAIR / GHOST REMOVAL
