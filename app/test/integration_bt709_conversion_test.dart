@@ -159,7 +159,11 @@ void main() {
   });
 
   VideoJob job(String name, String input, Bt709Conversion mode,
-      {int width = _srcW, int height = _srcH, bool sourceTagged = true, int targetH = 1080}) {
+      {int width = _srcW,
+      int height = _srcH,
+      bool sourceTagged = true,
+      int targetH = 1080,
+      bool resize = true}) {
     return VideoJob(
       id: const Uuid().v4(),
       inputPath: input,
@@ -168,7 +172,8 @@ void main() {
         deinterlace: const QTGMCParameters(enabled: false),
         cropResize: CropResizeParameters(
           enabled: true,
-          resizeEnabled: true,
+          // Off: the pass is on for the conversion alone (forum #154/#155).
+          resizeEnabled: resize,
           targetWidth: targetH * 16 ~/ 9,
           targetHeight: targetH,
           maintainAspect: true,
@@ -291,5 +296,64 @@ void main() {
     final diff = WorkerHarness.meanAbsDiff(previewRgb, encoded);
     print('  preview vs encode mean abs diff: ${diff.toStringAsFixed(3)}/255');
     expect(diff, lessThan(1.0), reason: 'the preview shows different colours from the encode');
+  }, timeout: const Timeout(Duration(minutes: 5)));
+  // Always with no crop or resize (forum #154/#155): the pass is on for the
+  // conversion alone, so the picture stays SD and only its colour changes.
+  test('Always with no crop or resize: SD stays SD, converted', () async {
+    final out = await encode(job('always_nogeom.mkv', tagged, Bt709Conversion.on, resize: false));
+    final t = await tags(out);
+    print('  always, no geometry: $t');
+    expect(t['width'], _srcW);
+    expect(t['height'], _srcH);
+    expect(t['color_space'], 'bt709');
+    expect(t['color_transfer'], 'bt709');
+    expect(t['color_range'], 'tv');
+    expect(t['color_primaries'], 'smpte170m',
+        reason: 'only the matrix is converted, so the primaries stay the source\'s');
+    final viaTags = _patchRgb(await _decode(out, _swsMatrix(t['color_space'] as String?)));
+    final as709 = _patchRgb(await _decode(out, 'bt709'));
+    for (final name in _patches.keys) {
+      final d = _maxDelta(viaTags[name]!, source601[name]!);
+      print('  $name: max delta ${d.toStringAsFixed(2)}');
+      expect(d, lessThanOrEqualTo(_tolerance), reason: '$name through the output\'s tags');
+      expect(_maxDelta(as709[name]!, source601[name]!), lessThanOrEqualTo(_tolerance),
+          reason: '$name decoded as 709');
+    }
+  }, timeout: const Timeout(Duration(minutes: 5)));
+
+  test('Always with no crop or resize: the preview shows what the encode stores', () async {
+    final j = job('always_nogeom_preview.mkv', tagged, Bt709Conversion.on, resize: false);
+    final out = await encode(j);
+    const frame = 2;
+    final preview = await WorkerHarness.runPreview(j.toJson(), frame: frame);
+    expect(preview.success, isTrue, reason: '$preview');
+    final previewRgb = await WorkerHarness.imageToRgb24(preview.png!, label: 'pv709ng');
+    final encoded = await WorkerHarness.frameRgb24(out, frame, label: 'enc709ng');
+    final diff = WorkerHarness.meanAbsDiff(previewRgb, encoded);
+    print('  preview vs encode mean abs diff: ${diff.toStringAsFixed(3)}/255');
+    expect(diff, lessThan(1.0), reason: 'the preview shows different colours from the encode');
+  }, timeout: const Timeout(Duration(minutes: 5)));
+
+  test('Never and Auto with no crop or resize: bit-identical to the source', () async {
+    Future<List<int>> yuv(String path, String name) async {
+      final raw = '$_outDir/$name.yuv';
+      await _ffmpeg(['-i', path, '-f', 'rawvideo', '-pix_fmt', 'yuv420p', raw]);
+      return File(raw).readAsBytes();
+    }
+
+    final source = await yuv(tagged, 'nogeom_source');
+    for (final mode in [Bt709Conversion.off, Bt709Conversion.auto]) {
+      final out = await encode(job('nogeom_${mode.name}.mkv', tagged, mode, resize: false));
+      final t = await tags(out);
+      expect(t['color_space'], 'smpte170m', reason: '${mode.name}: tags stay 601');
+      expect(t['color_primaries'], 'smpte170m');
+      final output = await yuv(out, 'nogeom_${mode.name}');
+      expect(output.length, source.length, reason: '${mode.name}: same frames');
+      var differing = 0;
+      for (var i = 0; i < source.length; i++) {
+        if (source[i] != output[i]) differing++;
+      }
+      expect(differing, 0, reason: '${mode.name}: every sample is the source\'s');
+    }
   }, timeout: const Timeout(Duration(minutes: 5)));
 }
