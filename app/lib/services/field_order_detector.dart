@@ -130,7 +130,9 @@ class FieldOrderDetector {
         frameRate: frameRate ?? 0,
         duration: duration ?? 0,
         frameCount: frameCount ??
-            frameCountFromDuration(
+            await frameCountWithoutStoredCount(
+              ffprobe,
+              videoPath,
               streamDuration: _parseDuration(videoStream['duration'] as String?),
               containerDuration: duration,
               start: videoStart,
@@ -589,12 +591,49 @@ class FieldOrderDetector {
     return d > 0 ? (d * frameRate).round() : 0;
   }
 
-  /// ffprobe's arguments (before the input) for [videoStartFromProbe]: the
-  /// worker's `source_decode::VIDEO_START_PROBE_ARGS`, word for word.
+  /// The length in frames of a source with no `nb_frames`: by its stream
+  /// duration when it has one ([frameCountFromDuration]); otherwise
+  /// (Matroska/WebM) from its last picture on its grid
+  /// ([frameCountFromLastPicture]), which is what the worker's decode
+  /// produces, falling back to the container's duration.
+  static Future<int> frameCountWithoutStoredCount(
+    String ffprobe,
+    String videoPath, {
+    required double? streamDuration,
+    required double? containerDuration,
+    required VideoStart start,
+    required double? frameRate,
+  }) async {
+    final byDuration = frameCountFromDuration(
+      streamDuration: streamDuration,
+      containerDuration: containerDuration,
+      start: start,
+      frameRate: frameRate,
+    );
+    if ((streamDuration != null && streamDuration > 0) ||
+        containerDuration == null ||
+        frameRate == null ||
+        frameRate <= 0) {
+      return byDuration;
+    }
+    final grid =
+        await probeSourceGrid(ffprobe, videoPath, frameRate: frameRate);
+    if (grid == null) return byDuration;
+    final last = await probeLastPicture(ffprobe, videoPath,
+        containerDuration: containerDuration);
+    if (last == null) return byDuration;
+    final n = frameCountFromLastPicture(last, grid);
+    return n > 0 ? n : byDuration;
+  }
+
+  /// ffprobe's arguments (before the input) for [videoStartFromProbe] and
+  /// [SourceGrid.fromProbe]: the worker's
+  /// `source_decode::VIDEO_START_PROBE_ARGS`, word for word.
   static const videoStartProbeArgs = [
     '-v', 'error',
     '-select_streams', 'v:0',
-    '-show_entries', 'packet=pts_time:stream=start_time:format=start_time',
+    '-show_entries',
+    'packet=pts_time:stream=start_time,r_frame_rate,avg_frame_rate:format=start_time',
     '-read_intervals', '%+#64',
     '-of', 'json',
   ];
@@ -721,6 +760,67 @@ class FieldOrderDetector {
     }
   }
 
+  /// The [SourceGrid] the worker's decoders place this source's frames on,
+  /// at [frameRate] (the rate the job carries), from the same probe as
+  /// [probeVideoStart]. Null on any failure, or when the source's packets
+  /// lack timestamps: its decodes then seek as before.
+  static Future<SourceGrid?> probeSourceGrid(
+    String ffprobe,
+    String videoPath, {
+    required double frameRate,
+  }) async {
+    try {
+      final result =
+          await Process.run(ffprobe, [...videoStartProbeArgs, videoPath]);
+      if (result.exitCode != 0) return null;
+      return SourceGrid.fromProbe(
+          jsonDecode(result.stdout as String) as Map<String, dynamic>,
+          frameRate);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The source's length on its [grid] from its last picture's presentation
+  /// time: the slot that picture lands on, plus one. What the worker's grid
+  /// decode produces (issue #16), where the container's duration can count
+  /// the last frame's repeat flags (`soft_telecine_test.mkv`: 121 for 120).
+  static int frameCountFromLastPicture(double lastPts, SourceGrid grid) {
+    final n = ((lastPts - grid.origin) * grid.fps).round() + 1;
+    return n > 0 ? n : 0;
+  }
+
+  /// The largest packet PTS in the last [tail] seconds of the file, or null.
+  /// Asked only of a source with neither `nb_frames` nor a stream duration
+  /// (Matroska/WebM), whose container duration is all there is otherwise.
+  static Future<double?> probeLastPicture(
+    String ffprobe,
+    String videoPath, {
+    required double containerDuration,
+    double tail = 3.0,
+  }) async {
+    final from = containerDuration - tail;
+    try {
+      final result = await Process.run(ffprobe, [
+        '-v', 'error',
+        '-select_streams', 'v:0',
+        '-show_entries', 'packet=pts_time',
+        if (from > 0) ...['-read_intervals', '${from.toStringAsFixed(3)}%'],
+        '-of', 'csv=p=0',
+        videoPath,
+      ]);
+      if (result.exitCode != 0) return null;
+      double? last;
+      for (final line in (result.stdout as String).split('\n')) {
+        final t = double.tryParse(line.trim().replaceAll(',', ''));
+        if (t != null && t.isFinite && (last == null || t > last)) last = t;
+      }
+      return last;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Probe where the video's first picture sits, but only when the video
   /// stream starts after the container (its sound starts first): the first
   /// picture is never later than the stream's `start_time`, so otherwise
@@ -794,6 +894,155 @@ class SeekPlan {
   @override
   String toString() =>
       'SeekPlan(preroll: $preroll, containerStart: $containerStart)';
+}
+
+/// The constant-rate grid every decode of the source places its frames on
+/// (issue #16): the job's rate as the stream's exact fraction, from the
+/// video's first picture. Twin of the worker's `source_decode::SourceGrid`;
+/// frame N is slot N, so a null frame or a pulldown repeat is a slot that
+/// shows the stored frame before it, and every decode, preview, encode, the
+/// Original and the thumbnails, agrees on which picture that is.
+class SourceGrid {
+  final int rateNum;
+  final int rateDen;
+
+  /// The first picture's presentation time, in the file's own timestamps.
+  final double origin;
+
+  const SourceGrid(
+      {required this.rateNum, required this.rateDen, required this.origin});
+
+  /// Slots a decode starting at frame N begins before it: the worker's
+  /// `GRID_LOOKBACK_SLOTS`.
+  static const lookbackSlots = 8;
+
+  /// The worker's `GRID_RATE_TOLERANCE`.
+  static const rateTolerance = 0.001;
+
+  double get fps => rateNum / rateDen;
+
+  bool get isValid => rateNum > 0 && rateDen > 0 && origin.isFinite;
+
+  /// The filters that place frames on the grid and keep slots from [first]:
+  /// the worker's `SourceGrid::filters`, character for character.
+  List<String> filters(int first) => [
+        'setpts=PTS-${origin.toStringAsFixed(6)}/TB',
+        'fps=$rateNum/$rateDen',
+        'trim=start_pts=${first < 0 ? 0 : first}',
+        'setpts=PTS-STARTPTS',
+      ];
+
+  /// The `-copyts`/`-ss` input options and the filters (ahead of anything
+  /// else after the tag fix) that start a decode at source frame [frame]:
+  /// the worker's `source_decode::decode_start` with a grid.
+  ({List<String> input, List<String> filters}) startAt(
+      int frame, double videoStartOffset, SeekPlan? plan) {
+    final f = frame < 0 ? 0 : frame;
+    final back = f - lookbackSlots;
+    double? ss = back > 0
+        ? (back - 0.5) / fps + (videoStartOffset > 0 ? videoStartOffset : 0)
+        : null;
+    final usablePlan = plan != null &&
+        plan.preroll.isFinite &&
+        plan.preroll > 0 &&
+        plan.containerStart.isFinite;
+    if (ss != null && usablePlan) ss -= plan.preroll;
+    if (ss != null && ss <= 0) ss = null;
+    return (
+      input: ['-copyts', if (ss != null) ...['-ss', ss.toStringAsFixed(6)]],
+      filters: filters(f),
+    );
+  }
+
+  static (int, int)? _rate(Object? v) {
+    if (v is! String) return null;
+    final parts = v.trim().split('/');
+    if (parts.length != 2) return null;
+    final n = int.tryParse(parts[0]);
+    final d = int.tryParse(parts[1]);
+    return n != null && d != null && n > 0 && d > 0 ? (n, d) : null;
+  }
+
+  /// Twin of the worker's `source_decode::grid_from_probe`: null when any
+  /// probed packet has no PTS (MPEG-2 in AVI) or nothing usable is there.
+  static SourceGrid? fromProbe(Map<String, dynamic> json, double jobFps) {
+    double? num(Object? v) {
+      final d = v == null ? null : double.tryParse('$v');
+      return d != null && d.isFinite ? d : null;
+    }
+
+    final packets = json['packets'] as List<dynamic>?;
+    if (packets == null || packets.isEmpty) return null;
+    var first = double.infinity;
+    for (final p in packets) {
+      final t = num((p as Map<String, dynamic>)['pts_time']);
+      if (t == null) return null;
+      if (t < first) first = t;
+    }
+    final streams = (json['streams'] as List<dynamic>?) ?? const [];
+    final stream =
+        streams.isEmpty ? null : streams.first as Map<String, dynamic>;
+    final start = num(stream?['start_time']);
+    if (start != null && start < first) first = start;
+    final container =
+        num((json['format'] as Map<String, dynamic>?)?['start_time']);
+    final origin = container != null && container > first ? container : first;
+
+    final r = _rate(stream?['r_frame_rate']);
+    final a = _rate(stream?['avg_frame_rate']);
+    (int, int)? streamRate;
+    if (r != null && a != null) {
+      final ratio = (r.$1 * a.$2) / (r.$2 * a.$1);
+      streamRate = ratio > 1.8 && ratio < 2.2 ? a : r;
+    } else {
+      streamRate = r ?? a;
+    }
+    (int, int) rate;
+    if (streamRate != null &&
+        (jobFps <= 0 ||
+            ((streamRate.$1 / streamRate.$2 - jobFps) / jobFps).abs() <=
+                rateTolerance)) {
+      rate = streamRate;
+    } else if (jobFps > 0) {
+      rate = fpsToRational(jobFps);
+    } else {
+      return null;
+    }
+    final grid = SourceGrid(rateNum: rate.$1, rateDen: rate.$2, origin: origin);
+    return grid.isValid ? grid : null;
+  }
+
+  /// The worker's `models::fps_to_rational`: the broadcast rates exactly,
+  /// anything else as thousandths (unreduced, as the worker writes it).
+  static (int, int) fpsToRational(double fps) {
+    const common = [
+      (23.976, 24000, 1001),
+      (24.0, 24, 1),
+      (25.0, 25, 1),
+      (29.97, 30000, 1001),
+      (30.0, 30, 1),
+      (50.0, 50, 1),
+      (59.94, 60000, 1001),
+      (60.0, 60, 1),
+    ];
+    for (final (f, n, d) in common) {
+      if ((fps - f).abs() < 0.01) return (n, d);
+    }
+    return ((fps * 1000).round(), 1000);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is SourceGrid &&
+      other.rateNum == rateNum &&
+      other.rateDen == rateDen &&
+      other.origin == origin;
+
+  @override
+  int get hashCode => Object.hash(rateNum, rateDen, origin);
+
+  @override
+  String toString() => 'SourceGrid($rateNum/$rateDen from $origin)';
 }
 
 /// Where a source's video starts, for a file whose sound starts first (a
@@ -972,7 +1221,22 @@ class VideoInfo {
   /// - Soft telecine: container is ~29.97fps, content is ~23.976fps
   /// - Hard telecine: container is ~29.97fps, content is ~23.976fps (after IVTC)
   /// - Progressive/interlaced: same as container rate
+  /// Whether the Soft Telecine method has pulldown repeats to remove from
+  /// this source: only at 29.97 or 30 fps (issue #16). A stream stored at its
+  /// film rate, its repeat flags only in the bitstream, decodes to the film
+  /// frames already. Twin of the worker's `soft_telecine_decimates_at`; both
+  /// read `Tests/TestResources/soft_telecine_rates.json` in their tests.
+  bool get softTelecineDecimates =>
+      scanType == ScanType.softTelecine && isPulldownRate(frameRate);
+
+  /// A rate whose decode of a soft-telecine source holds 3:2 repeats.
+  static bool isPulldownRate(double fps) =>
+      (fps - 30000 / 1001).abs() < 0.05 || (fps - 30).abs() < 0.05;
+
   double get contentFrameRate {
+    if (scanType == ScanType.softTelecine && !softTelecineDecimates) {
+      return frameRate;
+    }
     if (scanType == ScanType.softTelecine || scanType == ScanType.telecine) {
       // 3:2 pulldown: 4 content frames displayed as 5 container frames
       // 29.97 * 4/5 = 23.976

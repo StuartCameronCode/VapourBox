@@ -467,6 +467,7 @@ impl PipelineExecutor {
                 job.video_start(),
                 tag_fix.as_deref(),
                 job.seek_plan(),
+                job.source_grid(),
             ),
         };
 
@@ -1188,10 +1189,11 @@ impl PipelineExecutor {
         // Y4M pipe (starts at 0) and audio from the original container.
         // Safe/no-op when timestamps are already aligned.
         let is_framerate_change = pipeline.deinterlace.enabled
-            && matches!(
-                pipeline.deinterlace.method,
-                DeinterlaceMethod::Ivtc | DeinterlaceMethod::SoftTelecine
-            );
+            && match pipeline.deinterlace.method {
+                DeinterlaceMethod::Ivtc => true,
+                DeinterlaceMethod::SoftTelecine => pipeline.soft_telecine_decimates(),
+                _ => false,
+            };
         if is_framerate_change {
             args.extend(["-avoid_negative_ts".to_string(), "make_zero".to_string()]);
             args.push("-start_at_zero".to_string());
@@ -1469,13 +1471,26 @@ impl PipelineExecutor {
             (decoder_seek > 0.0).then_some(decoder_seek),
             job.seek_plan(),
         );
-        let plan_note = match planned.trim_from {
-            Some(t) => format!(
-                ", MPEG-TS/PS: -ss {:.6}s, trim from {:.6}s",
-                planned.ss.unwrap_or(0.0),
-                t
-            ),
-            None => String::new(),
+        let plan_note = match (&window, job.source_grid()) {
+            // Without a VFR timeline, a source with a grid starts there
+            // (source_decode rule 7): say what the decoder actually runs.
+            (None, Some(g)) => {
+                let start = source_decode::decode_start(
+                    first as i64, frame_rate, job.video_start(), job.seek_plan(), Some(g),
+                );
+                format!(
+                    ", grid {}/{} from slot {}: -ss {:.6}s",
+                    g.rate_num, g.rate_den, first, start.ss.unwrap_or(0.0)
+                )
+            }
+            _ => match planned.trim_from {
+                Some(t) => format!(
+                    ", MPEG-TS/PS: -ss {:.6}s, trim from {:.6}s",
+                    planned.ss.unwrap_or(0.0),
+                    t
+                ),
+                None => String::new(),
+            },
         };
         eprintln!(
             "Preview: source frame {} (window {}..{}, local {}, output index {}, output {} of {}, rate pad {}) seek {:.6}s ({}x{} {}{}{})",
@@ -1552,7 +1567,8 @@ impl PipelineExecutor {
             ),
             None => source_decode::preview_decoder_args(
                 &job.input_path,
-                seek_time,
+                first as i64,
+                frame_rate,
                 num_frames,
                 width,
                 height,
@@ -1561,6 +1577,7 @@ impl PipelineExecutor {
                 job.video_start(),
                 tag_fix.as_deref(),
                 job.seek_plan(),
+                job.source_grid(),
             ),
         };
         let extract_result = Command::new(&ffmpeg_path)
@@ -2297,6 +2314,7 @@ mod tests {
             pitch_factors_path: None,
             video_start_offset: None,
             seek_plan: None,
+            source_grid: None,
             source_has_audio: None,
         }
     }

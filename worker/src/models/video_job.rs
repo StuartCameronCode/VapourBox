@@ -112,6 +112,14 @@ pub struct VideoJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seek_plan: Option<crate::source_decode::SeekPlan>,
 
+    /// The constant-rate grid every decoder places the source's frames on
+    /// (`source_decode::grid_from_probe`, rule 7): the stream's exact rate and
+    /// its first picture. `None` (the decoders keep their old arguments) when
+    /// the probe failed or the source's packets lack timestamps. Filled by the
+    /// worker when the job omits it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_grid: Option<crate::source_decode::SourceGrid>,
+
     /// Whether the source has an audio stream, probed by the worker only when
     /// the video starts late (`source_decode::probe_has_audio`). `None` means
     /// unknown and is treated as yes. Not on the wire.
@@ -124,6 +132,11 @@ impl VideoJob {
     /// The seek plan, when the source needs one and it is usable.
     pub fn seek_plan(&self) -> Option<&crate::source_decode::SeekPlan> {
         self.seek_plan.as_ref().filter(|p| p.is_valid())
+    }
+
+    /// The source grid, when there is a usable one.
+    pub fn source_grid(&self) -> Option<&crate::source_decode::SourceGrid> {
+        self.source_grid.as_ref().filter(|g| g.is_valid())
     }
 
     /// The video start offset in seconds, 0 when unknown or invalid.

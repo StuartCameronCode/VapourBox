@@ -585,7 +585,7 @@ impl ScriptGenerator {
         // VFR_TIMELINE block turns them into the job's slots.
         let total_frames = match &self.timeline {
             Some(t) => t.src_count as i32,
-            None => job.total_frames.unwrap_or(1),
+            None => pipeline.pipe_frames(job.total_frames.unwrap_or(1)),
         };
         script = script.replace("{{TOTAL_FRAMES}}", &total_frames.to_string());
         script = script.replace("{{PIPE_CACHE_FRAMES}}", &pipe_cache_frames(pipeline).to_string());
@@ -712,10 +712,20 @@ impl ScriptGenerator {
             // place. Each arm used to remove the others by hand, and the Soft
             // Telecine arm missed Bwdif's — leaving its raw placeholders in the
             // script as a Python SyntaxError (issue #108).
+            // Soft Telecine at a film rate has nothing to remove (issue #16).
+            let keeps = |method: DeinterlaceMethod| {
+                method == params.method
+                    && (method != DeinterlaceMethod::SoftTelecine || pipeline.soft_telecine_decimates())
+            };
+            if params.method == DeinterlaceMethod::SoftTelecine && !pipeline.soft_telecine_decimates() {
+                eprintln!(
+                    "Soft Telecine: the source is already at its film rate; no frames to remove"
+                );
+            }
             for (method, name) in DEINT_METHOD_BLOCKS {
                 let open = format!("{{{{#{name}}}}}");
                 let close = format!("{{{{/{name}}}}}");
-                if method == params.method {
+                if keeps(method) {
                     script = script.replace(&open, "");
                     script = script.replace(&close, "");
                 } else {

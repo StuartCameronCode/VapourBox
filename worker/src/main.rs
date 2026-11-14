@@ -387,6 +387,7 @@ fn run_detect_native(args: &Args) -> ExitCode {
         fill_frame_size(&mut job, Some(&deps), |_| {});
         fill_video_start(&mut job, Some(&deps), |_| {});
         fill_seek_plan(&mut job, Some(&deps), |_| {});
+        fill_source_grid(&mut job, Some(&deps), |_| {});
         native_res::detect(&deps, &job)
     })();
     match result {
@@ -414,6 +415,7 @@ fn run_detect_crop(args: &Args) -> ExitCode {
         fill_frame_size(&mut job, Some(&deps), |_| {});
         fill_video_start(&mut job, Some(&deps), |_| {});
         fill_seek_plan(&mut job, Some(&deps), |_| {});
+        fill_source_grid(&mut job, Some(&deps), |_| {});
         crop_detect::detect(&deps, &job)
     })();
     match result {
@@ -441,6 +443,7 @@ fn run_detect_noise_halo(args: &Args) -> ExitCode {
         fill_frame_size(&mut job, Some(&deps), |_| {});
         fill_video_start(&mut job, Some(&deps), |_| {});
         fill_seek_plan(&mut job, Some(&deps), |_| {});
+        fill_source_grid(&mut job, Some(&deps), |_| {});
         noise_halo::detect(&deps, &job)
     })();
     match result {
@@ -650,6 +653,7 @@ fn run_preview_mode(args: &Args) -> ExitCode {
     fill_frame_size(&mut job, deps.as_ref(), |msg| eprintln!("{}", msg));
     fill_video_start(&mut job, deps.as_ref(), |msg| eprintln!("{}", msg));
     fill_seek_plan(&mut job, deps.as_ref(), |msg| eprintln!("{}", msg));
+    fill_source_grid(&mut job, deps.as_ref(), |msg| eprintln!("{}", msg));
 
     // The frame index is passed straight through to the worker — no
     // time-conversion round-trip — so the rendered frame is exactly the one the
@@ -774,6 +778,33 @@ fn fill_seek_plan(
     }
 }
 
+/// Fill a missing `source_grid` from ffprobe (see
+/// `source_decode::grid_from_probe`, rule 7). A job that carries it is never
+/// touched; a source with no grid (a failed probe, packets without
+/// timestamps) keeps the decoders' old arguments.
+fn fill_source_grid(
+    job: &mut VideoJob,
+    deps: Option<&dependency_locator::DependencyLocator>,
+    log: impl Fn(&str),
+) {
+    if job.source_grid.is_some() {
+        return;
+    }
+    let Some(d) = deps else { return };
+    let Ok(ffprobe) = d.ffprobe_path() else { return };
+    let fps = job.input_frame_rate.unwrap_or(29.97);
+    match source_decode::probe_source_grid(&ffprobe, &d.build_environment(), &job.input_path, fps) {
+        Some(grid) => {
+            log(&format!(
+                "Frames are placed on a {}/{} fps grid from the first picture ({:.6} s)",
+                grid.rate_num, grid.rate_den, grid.origin
+            ));
+            job.source_grid = Some(grid);
+        }
+        None => log("No frame grid for this source (timestamps missing); decoding as before"),
+    }
+}
+
 /// A variable-frame-rate source's timeline (issue #137, see `source_timing`),
 /// or `None` to decode at constant rate as before.
 ///
@@ -857,6 +888,11 @@ fn run_worker(
     // trim to the frame (source_decode, rule 6).
     fill_seek_plan(&mut job, deps.as_ref(), |msg| {
         reporter.send_log(models::LogLevel::Info, msg)
+    });
+    // Every constant-rate decoder places the frames on the source's grid
+    // (source_decode, rule 7).
+    fill_source_grid(&mut job, deps.as_ref(), |msg| {
+        reporter.send_log(models::LogLevel::Debug, msg)
     });
 
     // A variable-frame-rate source is decoded as stored and placed on the

@@ -73,6 +73,10 @@ class PreviewGenerator {
   /// other format. See [SeekPlan].
   SeekPlan? _seekPlan;
 
+  /// The source's frame grid (issue #16), null when it has none (packets
+  /// without timestamps), which seeks as before. See [SourceGrid].
+  SourceGrid? _sourceGrid;
+
   /// Video dimensions and pixel format (for pipe source).
   int _videoWidth = 0;
   int _videoHeight = 0;
@@ -124,14 +128,23 @@ class PreviewGenerator {
     String? toneMap,
     String? tagFix,
     SeekPlan? seekPlan,
+    SourceGrid? grid,
     required String outputPath,
   }) {
+    // On the source's grid (issue #16), the thumbnail is the frame shown at
+    // [time]: the same picture the Original shows for that frame.
+    final onGrid = grid != null && grid.isValid
+        ? grid.startAt((time * grid.fps).round(), videoStartOffset, seekPlan)
+        : null;
     final target = time + videoStartOffset;
-    final planned = seekPlan == null ? null : SeekPlan.seekArgs(target, seekPlan);
+    final planned = onGrid != null || seekPlan == null
+        ? null
+        : SeekPlan.seekArgs(target, seekPlan);
     return [
       '-y',
+      ...?onGrid?.input,
       ...?planned?.input,
-      if (planned == null) ...['-ss', target.toStringAsFixed(3)],
+      if (planned == null && onGrid == null) ...['-ss', target.toStringAsFixed(3)],
       ...sourceDecodeOptions,
       '-i', videoPath,
       '-vframes', '1',
@@ -139,6 +152,7 @@ class PreviewGenerator {
       // than the 160-pixel thumbnail it ends up as.
       '-vf', [
         if (tagFix != null) tagFix,
+        ...?onGrid?.filters,
         if (planned?.trim != null) planned!.trim!,
         'scale=160:-1',
         if (toneMap != null) toneMap,
@@ -163,6 +177,7 @@ class PreviewGenerator {
   int get totalFrames => _totalFrames;
   double get videoStartOffset => _videoStartOffset;
   SeekPlan? get seekPlan => _seekPlan;
+  SourceGrid? get sourceGrid => _sourceGrid;
 
   /// Get all preview log messages.
   List<String> get previewLog => List.unmodifiable(_previewLog);
@@ -287,6 +302,12 @@ class PreviewGenerator {
   /// starts at the next keyframe. Twin of the worker's
   /// `source_decode::decoder_seek`; null leaves the arguments as they were.
   ///
+  /// With a [grid] (issue #16, the worker's `source_decode::decode_start`),
+  /// the decode copies timestamps, starts [SourceGrid.lookbackSlots] early
+  /// and keeps slot [frameIndex] of the grid: a frame inside a run of null
+  /// frames or a pulldown repeat is the stored frame before it, exactly as
+  /// the encode and the preview decode it. It replaces the plain seek.
+  ///
   /// [tagFix] goes first in the one `-vf`: the JPEG/PNG encode converts the
   /// pixel format, which fails on a `reserved` tag. The trim follows it,
   /// ahead of the tone map, so dropped frames are never tone-mapped.
@@ -303,20 +324,26 @@ class PreviewGenerator {
     String? toneMap,
     String? tagFix,
     SeekPlan? seekPlan,
+    SourceGrid? grid,
     required String outputPath,
   }) {
     final frame = frameIndex < 0 ? 0 : frameIndex;
     final offset = videoStartOffset > 0 ? videoStartOffset : 0.0;
-    final seek = frame > 0
+    final onGrid = grid != null && grid.isValid
+        ? grid.startAt(frame, offset, seekPlan)
+        : null;
+    final seek = onGrid == null && frame > 0
         ? SeekPlan.seekArgs((frame - 0.5) / frameRate + offset, seekPlan)
         : null;
     final vf = [
       if (tagFix != null) tagFix,
+      ...?onGrid?.filters,
       if (seek?.trim != null) seek!.trim!,
       if (toneMap != null) toneMap,
     ];
     return [
       '-y',
+      ...?onGrid?.input,
       ...?seek?.input,
       ...sourceDecodeOptions,
       '-i', videoPath,
@@ -353,6 +380,7 @@ class PreviewGenerator {
           toneMap: _toneMap,
           tagFix: _tagFix,
           seekPlan: _seekPlan,
+          grid: _sourceGrid,
           outputPath: outputPath,
         ),
       );
@@ -682,6 +710,15 @@ class PreviewGenerator {
       formatName: format?['format_name'] as String?,
     );
 
+    // The grid the worker's decoders place the frames on (issue #16): the
+    // Original and the thumbnails start on it too, so a null frame or a
+    // pulldown repeat shows the same picture on both sides.
+    _sourceGrid = await FieldOrderDetector.probeSourceGrid(
+      _ffprobePath!,
+      videoPath,
+      frameRate: _frameRate,
+    );
+
     // Parse frame count: the same length the job is built with, which for a
     // variable-frame-rate source is its duration, not its stored frames.
     final streamDuration =
@@ -694,7 +731,9 @@ class PreviewGenerator {
           duration: streamDuration ?? _duration,
           frameRate: _frameRate,
         ) ??
-        FieldOrderDetector.frameCountFromDuration(
+        await FieldOrderDetector.frameCountWithoutStoredCount(
+          _ffprobePath!,
+          videoPath,
           streamDuration: streamDuration,
           containerDuration: _duration,
           start: videoStart,
@@ -772,6 +811,7 @@ class PreviewGenerator {
           toneMap: _toneMap,
           tagFix: _tagFix,
           seekPlan: _seekPlan,
+          grid: _sourceGrid,
           outputPath: outputPath,
         ),
       );

@@ -60,11 +60,21 @@ void main() {
         ScanType.telecine,
         ScanType.softTelecine,
       ]) {
-        final result =
-            relevanceFor(PassType.deinterlace, source(scanType: scan));
+        // Soft telecine needs its pulldown rate to have anything to remove.
+        final result = relevanceFor(
+            PassType.deinterlace,
+            source(
+                scanType: scan,
+                frameRate: scan == ScanType.softTelecine ? 29.97 : 25.0));
         expect(result.isRecommended, true, reason: '$scan should suggest it');
         expect(result.reason, contains(scan.displayName.toLowerCase()));
       }
+    });
+
+    test('soft telecine at its film rate is progressive film (issue #16)', () {
+      final result = relevanceFor(PassType.deinterlace,
+          source(scanType: ScanType.softTelecine, frameRate: 23.976));
+      expect(result.isNotApplicable, true);
     });
 
     test('not applicable for progressive', () {
