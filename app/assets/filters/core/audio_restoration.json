@@ -18,6 +18,7 @@
       "parameters": [
         "channelFix",
         "offsetMs",
+        "startWithPicture",
         "driftCorrection",
         "driftMaxPercent",
         "declip",
@@ -56,6 +57,11 @@
     { "function": "afftdn", "role": "broadband noise reduction", "activeWhen": { "denoise": true } },
     { "function": "atempo", "role": "drift correction", "activeWhen": { "driftCorrection": true } },
     { "function": "-ss / adelay", "role": "where the sound starts: the trim and the sync offset" },
+    {
+      "function": "-ss",
+      "role": "start the sound with the picture: drop the sound before the first picture",
+      "activeWhen": { "startWithPicture": true }
+    },
     {
       "function": "deep-filter (DeepFilterNet)",
       "role": "speech enhancement",
@@ -108,6 +114,16 @@
         "label": "Sync offset (ms)",
         "description": "Moves the sound against the picture. Positive delays the sound (use it when lips move before you hear them); negative plays it earlier.",
         "widget": "number"
+      }
+    },
+    "startWithPicture": {
+      "type": "boolean",
+      "default": false,
+      "sinceAppVersion": "1.8.0",
+      "ui": {
+        "label": "Start the sound with the picture",
+        "description": "For a recording whose sound starts before its picture, as broadcast (DVB-T) captures do. Without this the output keeps that layout, in sync: sound first, the picture joining when it does in the recording. With it, the sound before the first picture is dropped, so both start together. Does nothing when they already start together; never moves the sound against the picture.",
+        "widget": "checkbox"
       }
     },
     "driftCorrection": {
@@ -315,7 +331,7 @@
     "sections": [
       {
         "title": "Channels and Sync",
-        "parameters": ["channelFix", "offsetMs", "driftCorrection", "driftMaxPercent"],
+        "parameters": ["channelFix", "offsetMs", "startWithPicture", "driftCorrection", "driftMaxPercent"],
         "expanded": true
       },
       {

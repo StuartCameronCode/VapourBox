@@ -46,6 +46,17 @@
 //!    its one `-vf` ([`decoder_filter`]); `None` leaves the args exactly as they
 //!    were.
 //!
+//! 5. **Frame N counts from the video's first picture, and every seek says
+//!    so.** An input `-ss` is measured from the *container's* start,
+//!    which is the earliest stream's: on a broadcast capture that is the
+//!    audio, 1.3 s before the first picture. [`seek_time`] adds the job's
+//!    `video_start_offset` ([`probe_video_start`]: the first presented
+//!    picture's PTS minus the container start) to every seek. A decoder that
+//!    does not seek still resets PTS when the offset is non-zero, which drops
+//!    the copies of the first picture that ffmpeg's constant-rate output would
+//!    otherwise put into the gap (MKV/MP4) and keeps open-GOP leading pictures
+//!    that it would drop as negative-time (TS). With no offset nothing changes.
+//!
 //! See docs/ENGINEERING_NOTES.md, "Clean aperture: decode the stored frame",
 //! docs/reports/issue-157-seek-alignment and docs/reports/2026-11-reserved-colour-tags.
 
@@ -94,6 +105,125 @@ pub fn decoder_filter(width: i32, height: i32, seeks: bool, tag_fix: Option<&str
     chain.join(",")
 }
 
+/// Packets read to find the first presented picture: enough to cover the
+/// reorder window of any open GOP (leading B pictures come after their I
+/// picture in the file but are shown before it).
+pub const VIDEO_START_PACKETS: u32 = 64;
+
+/// ffprobe's arguments (before the input) for [`video_start_from_probe`]. The
+/// app runs the same (`FieldOrderDetector.videoStartProbeArgs`).
+pub const VIDEO_START_PROBE_ARGS: [&str; 10] = [
+    "-v", "error",
+    "-select_streams", "v:0",
+    "-show_entries", "packet=pts_time:stream=start_time:format=start_time",
+    "-read_intervals", "%+#64",
+    "-of", "json",
+];
+
+/// Where the video's first picture starts, in seconds after the container's
+/// start (which is what an input `-ss` is measured from): the earlier of the
+/// video stream's `start_time` and the smallest PTS among its first packets,
+/// minus the format's `start_time`. Never negative; 0 when the video starts
+/// first, or when anything is missing.
+///
+/// Not the stream's `start_time` alone: that is the first packet's, and on an
+/// open GOP the pictures shown before it come later in the file (the DVB-T
+/// fixture's three leading B pictures sit 0.12 s before its I picture). Not
+/// the packets alone either: MPEG-2 in AVI stores packets with no PTS
+/// (`hard_telecine_test.avi`'s first two), so the smallest one *listed* can
+/// be a later picture's.
+///
+/// `json` is ffprobe's output for [`VIDEO_START_PROBE_ARGS`].
+pub fn video_start_from_probe(json: &serde_json::Value) -> f64 {
+    let num = |v: Option<&serde_json::Value>| v.and_then(|s| s.as_str()).and_then(|s| s.parse::<f64>().ok());
+    let container = num(json.get("format").and_then(|f| f.get("start_time")));
+    let stream = num(json
+        .get("streams")
+        .and_then(|s| s.as_array())
+        .and_then(|s| s.first())
+        .and_then(|s| s.get("start_time")));
+    let first = json
+        .get("packets")
+        .and_then(|p| p.as_array())
+        .map(|packets| {
+            packets
+                .iter()
+                .filter_map(|p| num(p.get("pts_time")))
+                .fold(stream.unwrap_or(f64::INFINITY), f64::min)
+        })
+        .or(stream)
+        .filter(|t| t.is_finite());
+    match (container, first) {
+        (Some(c), Some(f)) if f > c => f - c,
+        _ => 0.0,
+    }
+}
+
+/// [`video_start_from_probe`] for a file. `None` when ffprobe could not read
+/// it (the caller then treats the offset as 0, today's behaviour).
+pub fn probe_video_start(
+    ffprobe: &std::path::Path,
+    env: &std::collections::HashMap<String, String>,
+    input: &str,
+) -> Option<f64> {
+    let out = std::process::Command::new(ffprobe)
+        .args(VIDEO_START_PROBE_ARGS)
+        .arg(input)
+        .envs(env)
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    Some(video_start_from_probe(&json))
+}
+
+/// Whether the file has an audio stream. Asked only when the video starts
+/// late: the gap is kept in the output only to keep sound and picture in
+/// step, so with no sound there is nothing to keep (a DVB recording stripped
+/// of its audio can still start with a teletext or data stream). `None` when
+/// ffprobe could not answer.
+pub fn probe_has_audio(
+    ffprobe: &std::path::Path,
+    env: &std::collections::HashMap<String, String>,
+    input: &str,
+) -> Option<bool> {
+    let out = std::process::Command::new(ffprobe)
+        .args(["-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", input])
+        .envs(env)
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| !String::from_utf8_lossy(&out.stdout).trim().is_empty())
+}
+
+/// The input `-ss` that makes source frame `frame` the first one decoded, or
+/// `None` for frame 0 (decode from the start: see rule 5 for why frame 0
+/// never seeks, even when the video starts after the container).
+///
+/// The midpoint of the interval *before* `frame`, so the first kept frame
+/// (PTS >= the seek time) is exactly `frame` under PTS rounding, plus the
+/// video's start offset, since `-ss` counts from the container's start.
+/// Every decoder of the source takes its seek from here.
+pub fn seek_time(frame: i64, fps: f64, video_start: f64) -> Option<f64> {
+    if frame <= 0 {
+        return None;
+    }
+    let fps = if fps > 0.0 { fps } else { 29.97 };
+    let t = (frame as f64 - 0.5) / fps + video_start.max(0.0);
+    (t > 0.0).then_some(t)
+}
+
+/// Whether a decoder resets PTS: when it seeks (rule 3) and, whatever it
+/// does, when the video starts after the container (rule 5).
+pub fn resets_pts(seeks: bool, video_start: f64) -> bool {
+    seeks || video_start > 0.0
+}
+
 /// If a failed decoder's stderr shows the size guard tripped, the error to
 /// report instead of ffmpeg's exit code.
 pub fn explain_decoder_failure(stderr: &str, width: i32, height: i32) -> Option<String> {
@@ -125,32 +255,29 @@ pub fn encode_decoder_args(
     start_frame: Option<i32>,
     end_frame: Option<i32>,
     total_frames: Option<i32>,
+    video_start: f64,
     tag_fix: Option<&str>,
 ) -> Vec<String> {
     let mut args: Vec<String> = Vec::new();
-    let mut seeks = false;
 
     // Seek to the start frame if specified (before -i for an accurate,
-    // fast decode-seek). Target the midpoint of the interval *before*
-    // `start` so the first kept frame (PTS >= seek time) is exactly `start`,
-    // not start±1 — the boundary `start/fps` is ambiguous under PTS rounding.
-    // The seek then needs the PTS reset (module docs, rule 3); an untrimmed
-    // decode is left exactly as it was.
-    if let Some(start) = start_frame {
-        if start > 0 {
-            seeks = true;
-            let fps = input_frame_rate.unwrap_or(29.97);
-            let seek_time = ((start as f64 - 0.5) / fps).max(0.0);
-            args.push("-ss".to_string());
-            args.push(format!("{:.6}", seek_time));
-        }
+    // fast decode-seek), at [`seek_time`]. The seek then needs the PTS reset
+    // (module docs, rule 3); an untrimmed decode of a source whose streams
+    // start together is left exactly as it was.
+    let seek = start_frame.and_then(|start| {
+        seek_time(start as i64, input_frame_rate.unwrap_or(29.97), video_start)
+    });
+    if let Some(t) = seek {
+        args.push("-ss".to_string());
+        args.push(format!("{:.6}", t));
     }
+    let reset = resets_pts(seek.is_some(), video_start);
 
     args.extend(APPLY_CROPPING.iter().map(|s| s.to_string()));
     args.extend([
         "-i".to_string(), input_path.to_string(),
         "-map".to_string(), "0:v:0".to_string(), // only first video stream
-        "-vf".to_string(), decoder_filter(width, height, seeks, tag_fix),
+        "-vf".to_string(), decoder_filter(width, height, reset, tag_fix),
         "-f".to_string(), "rawvideo".to_string(),
         "-pix_fmt".to_string(), pix_fmt.to_string(),
         "-v".to_string(), "error".to_string(),
@@ -182,30 +309,34 @@ pub fn encode_decoder_args(
 
 /// The preview path's decoder (also the detectors'): `num_frames` raw frames
 /// from `seek_time` into `output_path`. Same cropping, size and seek rules as
-/// [`encode_decoder_args`]: a window starting at frame 0 (`seek_time` 0) does
-/// not seek, exactly like an untrimmed encode, so the two agree on frame 0.
+/// [`encode_decoder_args`]: a window starting at frame 0 (`seek` `None`, from
+/// [`seek_time`]) does not seek, exactly like an untrimmed encode, so the two
+/// agree on frame 0.
+#[allow(clippy::too_many_arguments)]
 pub fn preview_decoder_args(
     input_path: &str,
-    seek_time: f64,
+    seek: Option<f64>,
     num_frames: i32,
     width: i32,
     height: i32,
     pix_fmt: &str,
     output_path: &str,
+    video_start: f64,
     tag_fix: Option<&str>,
 ) -> Vec<String> {
-    let seeks = seek_time > 0.0;
+    let seek = seek.filter(|t| *t > 0.0);
     let mut args: Vec<String> = Vec::new();
-    if seeks {
+    if let Some(t) = seek {
         args.push("-ss".to_string());
-        args.push(format!("{:.6}", seek_time));
+        args.push(format!("{:.6}", t));
     }
+    let reset = resets_pts(seek.is_some(), video_start);
     args.extend(APPLY_CROPPING.iter().map(|s| s.to_string()));
     args.extend([
         "-i".to_string(), input_path.to_string(),
         "-map".to_string(), "0:v:0".to_string(),
         "-frames:v".to_string(), num_frames.to_string(),
-        "-vf".to_string(), decoder_filter(width, height, seeks, tag_fix),
+        "-vf".to_string(), decoder_filter(width, height, reset, tag_fix),
         "-f".to_string(), "rawvideo".to_string(),
         "-pix_fmt".to_string(), pix_fmt.to_string(),
         "-v".to_string(), "error".to_string(),
@@ -258,11 +389,11 @@ mod tests {
     use super::*;
 
     fn encode_args() -> Vec<String> {
-        encode_decoder_args("in.mov", 720, 576, "yuv422p10le", Some(25.0), None, None, Some(100), None)
+        encode_decoder_args("in.mov", 720, 576, "yuv422p10le", Some(25.0), None, None, Some(100), 0.0, None)
     }
 
     fn preview_args() -> Vec<String> {
-        preview_decoder_args("in.mov", 0.38, 11, 720, 576, "yuv422p10le", "frames.raw", None)
+        preview_decoder_args("in.mov", Some(0.38), 11, 720, 576, "yuv422p10le", "frames.raw", 0.0, None)
     }
 
     fn pos(args: &[String], flag: &str) -> Option<usize> {
@@ -334,7 +465,7 @@ mod tests {
         // Issue #157: after a seek, rawvideo's constant-rate timing repeated
         // the first frame. The reset must come first in the ONE -vf chain.
         let trimmed =
-            encode_decoder_args("in.mov", 720, 576, "yuv420p", Some(25.0), Some(10), Some(19), None, None);
+            encode_decoder_args("in.mov", 720, 576, "yuv420p", Some(25.0), Some(10), Some(19), None, 0.0, None);
         for (path, args) in [("trimmed encode", trimmed), ("preview", preview_args())] {
             assert!(pos(&args, "-ss").is_some(), "{path} seeks");
             assert_eq!(
@@ -355,9 +486,9 @@ mod tests {
         // arguments: no seek, so nothing to reset.
         let untrimmed = encode_args();
         let from_zero =
-            encode_decoder_args("in.mov", 720, 576, "yuv422p10le", Some(25.0), Some(0), Some(19), None, None);
+            encode_decoder_args("in.mov", 720, 576, "yuv422p10le", Some(25.0), Some(0), Some(19), None, 0.0, None);
         let preview_at_zero =
-            preview_decoder_args("in.mov", 0.0, 4, 720, 576, "yuv422p10le", "frames.raw", None);
+            preview_decoder_args("in.mov", None, 4, 720, 576, "yuv422p10le", "frames.raw", 0.0, None);
         for (path, args) in
             [("untrimmed", untrimmed), ("from zero", from_zero), ("preview at 0", preview_at_zero)]
         {
@@ -389,7 +520,7 @@ mod tests {
 
     #[test]
     fn encode_decoder_trims_and_limits_frames() {
-        let args = encode_decoder_args("in.mov", 720, 576, "yuv420p", Some(25.0), Some(10), Some(19), None, None);
+        let args = encode_decoder_args("in.mov", 720, 576, "yuv420p", Some(25.0), Some(10), Some(19), None, 0.0, None);
         // Seek before -i, to the midpoint before the start frame.
         let ss = pos(&args, "-ss").unwrap();
         assert!(ss < pos(&args, "-i").unwrap());
@@ -436,8 +567,8 @@ mod tests {
     fn decoders_clear_invalid_colour_tags_first() {
         let fix = Some("setparams=color_primaries=unknown:color_trc=unknown");
         let all = [
-            ("encode", encode_decoder_args("in.mov", 720, 576, "yuv444p12le", Some(25.0), Some(10), Some(19), None, fix)),
-            ("preview", preview_decoder_args("in.mov", 0.38, 11, 720, 576, "yuv444p12le", "frames.raw", fix)),
+            ("encode", encode_decoder_args("in.mov", 720, 576, "yuv444p12le", Some(25.0), Some(10), Some(19), None, 0.0, fix)),
+            ("preview", preview_decoder_args("in.mov", Some(0.38), 11, 720, 576, "yuv444p12le", "frames.raw", 0.0, fix)),
             ("timeline", timeline_decoder_args("in.mov", 720, 576, "yuv444p12le", &timeline_window(), "pipe:1", fix)),
         ];
         for (path, args) in all {
@@ -475,5 +606,118 @@ mod tests {
         let msg = explain_decoder_failure(stderr, 720, 576).expect("guard failure recognised");
         assert!(msg.contains("720x576"));
         assert!(explain_decoder_failure("Broken pipe", 720, 576).is_none());
+    }
+
+    // --- Rule 5: a video that starts after the container's start -----------
+
+    fn dvbt_probe() -> serde_json::Value {
+        // ffprobe's answer for Tests/TestResources/pal-dvbt-fieldcoded-25i.ts;
+        // the app's twin (FieldOrderDetector.videoStartFromProbe) reads the
+        // same file and must agree.
+        let text = include_str!("../../Tests/TestResources/video_start_probe_dvbt.json");
+        serde_json::from_str(text).unwrap()
+    }
+
+    #[test]
+    fn video_start_is_the_first_picture_not_the_first_packet() {
+        // The first packet (the I picture) is at 2.722 s, but three leading B
+        // pictures are shown from 2.602 s; the container (the audio) starts
+        // at 1.400 s.
+        let offset = video_start_from_probe(&dvbt_probe());
+        assert!((offset - 1.202022).abs() < 1e-6, "{offset}");
+    }
+
+    #[test]
+    fn video_start_is_zero_unless_the_video_starts_later() {
+        let probe = |start: &str, pts: &[&str]| {
+            serde_json::json!({
+                "packets": pts.iter().map(|p| serde_json::json!({ "pts_time": p })).collect::<Vec<_>>(),
+                "format": { "start_time": start },
+            })
+        };
+        // Streams start together, or the video starts first.
+        assert_eq!(video_start_from_probe(&probe("0.000000", &["0.000000", "0.040000"])), 0.0);
+        assert_eq!(video_start_from_probe(&probe("1.400000", &["1.400000"])), 0.0);
+        // Anything missing means no gap: today's behaviour.
+        assert_eq!(video_start_from_probe(&serde_json::json!({})), 0.0);
+        assert_eq!(video_start_from_probe(&probe("N/A", &["1.0"])), 0.0);
+        assert_eq!(video_start_from_probe(&probe("0.0", &[])), 0.0);
+        // Video 1 s in: the smallest PTS, wherever it sits in the file.
+        let o = video_start_from_probe(&probe("0.000000", &["1.080000", "1.000000", "1.040000"]));
+        assert!((o - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn packets_without_a_pts_fall_back_to_the_stream_start() {
+        // MPEG-2 in AVI: the first two packets have no PTS, so the smallest
+        // listed one (0.067) is the third picture's; the stream starts at 0.
+        let json = serde_json::json!({
+            "packets": [{ "pts_time": "N/A" }, {}, { "pts_time": "0.066733" }, { "pts_time": "0.100100" }],
+            "streams": [{ "start_time": "0.000000" }],
+            "format": { "start_time": "0.000000" },
+        });
+        assert_eq!(video_start_from_probe(&json), 0.0);
+        // The stream's start alone, when no packet has a PTS.
+        let json = serde_json::json!({
+            "packets": [{}],
+            "streams": [{ "start_time": "1.5" }],
+            "format": { "start_time": "0.5" },
+        });
+        assert!((video_start_from_probe(&json) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn the_probe_reads_as_many_packets_as_it_says() {
+        assert!(VIDEO_START_PROBE_ARGS.contains(&format!("%+#{VIDEO_START_PACKETS}").as_str()));
+    }
+
+    #[test]
+    fn seek_time_adds_the_video_start_and_frame_zero_never_seeks() {
+        // With no offset it is exactly the old (N - 0.5) / fps.
+        for n in [1i64, 10, 41, 1000] {
+            assert_eq!(seek_time(n, 25.0, 0.0), Some((n as f64 - 0.5) / 25.0));
+        }
+        assert_eq!(seek_time(0, 25.0, 0.0), None);
+        assert_eq!(seek_time(0, 25.0, 1.322), None, "frame 0 resets PTS instead");
+        assert_eq!(seek_time(-3, 25.0, 1.0), None);
+        let t = seek_time(40, 25.0, 1.202022).unwrap();
+        assert!((t - (39.5 / 25.0 + 1.202022)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_late_video_resets_pts_even_without_a_seek() {
+        // Untrimmed: no -ss (a TS seek can land a GOP late), one -vf, reset first.
+        let untrimmed =
+            encode_decoder_args("in.ts", 720, 576, "yuv420p", Some(25.0), None, None, Some(100), 1.2, None);
+        let preview_at_zero =
+            preview_decoder_args("in.ts", None, 4, 720, 576, "yuv420p", "frames.raw", 1.2, None);
+        for (path, args) in [("untrimmed", untrimmed), ("preview at 0", preview_at_zero)] {
+            assert!(pos(&args, "-ss").is_none(), "{path}: {args:?}");
+            assert_eq!(vf(&args), format!("{},{}", RESET_PTS_FILTER, size_guard_filter(720, 576)), "{path}");
+            assert_eq!(args.iter().filter(|a| *a == "-vf").count(), 1, "{path}");
+        }
+        // Trimmed: the seek carries the offset.
+        let trimmed =
+            encode_decoder_args("in.ts", 720, 576, "yuv420p", Some(25.0), Some(40), Some(49), None, 1.2, None);
+        let ss = pos(&trimmed, "-ss").unwrap();
+        assert_eq!(trimmed[ss + 1], format!("{:.6}", 39.5 / 25.0 + 1.2));
+    }
+
+    #[test]
+    fn no_offset_leaves_every_decoder_exactly_as_before() {
+        // Pinned in full: a source whose streams start together decodes with
+        // the arguments it always had.
+        assert_eq!(
+            encode_args(),
+            [
+                "-apply_cropping", "codec", "-i", "in.mov", "-map", "0:v:0", "-vf",
+                &size_guard_filter(720, 576), "-f", "rawvideo", "-pix_fmt", "yuv422p10le",
+                "-v", "error", "-frames:v", "100", "pipe:1",
+            ]
+        );
+        assert_eq!(
+            encode_decoder_args("in.mov", 720, 576, "yuv420p", Some(25.0), Some(10), Some(19), None, 0.0, None)[..2],
+            ["-ss".to_string(), format!("{:.6}", 9.5 / 25.0)]
+        );
     }
 }

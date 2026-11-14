@@ -97,9 +97,92 @@ pub struct VideoJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pitch_factors_path: Option<String>,
 
+    /// Seconds from the container's start to the video's first picture
+    /// (`source_decode::video_start_from_probe`). Non-zero when the audio
+    /// starts first, as on broadcast captures. Every seek adds it, and the
+    /// output keeps the gap (see `output_video_delay`). Filled by the worker
+    /// when the job omits it; `None` and 0 both mean "no gap".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_start_offset: Option<f64>,
+
+    /// Whether the source has an audio stream, probed by the worker only when
+    /// the video starts late (`source_decode::probe_has_audio`). `None` means
+    /// unknown and is treated as yes. Not on the wire.
+    #[serde(skip)]
+    pub source_has_audio: Option<bool>,
+
 }
 
 impl VideoJob {
+    /// The video start offset in seconds, 0 when unknown or invalid.
+    pub fn video_start(&self) -> f64 {
+        self.video_start_offset.filter(|o| o.is_finite() && *o > 0.0).unwrap_or(0.0)
+    }
+
+    /// The in-point in seconds on the video's own timeline (0 untrimmed).
+    fn in_point_secs(&self) -> f64 {
+        let fps = self.input_frame_rate.filter(|f| *f > 0.0).unwrap_or(29.97);
+        self.start_frame.filter(|s| *s > 0).map_or(0.0, |s| s as f64 / fps)
+    }
+
+    /// Seconds the output's picture starts after its sound: the one decision
+    /// for how a source whose video starts after its audio is laid out.
+    ///
+    /// By default the output keeps the source's own layout, sound first, the
+    /// picture joining `video_start` later: the encoder delays the video by
+    /// this much and the sound is copied (or rendered) from the container's
+    /// start. That is in sync and loses nothing. It is 0 when there is no gap,
+    /// when the job is trimmed (both then start at the in-point), when the
+    /// output or the source has no audio, and when Audio Restoration's "start
+    /// the sound with the picture" drops the sound before the first picture
+    /// instead.
+    pub fn output_video_delay(&self) -> f64 {
+        let offset = self.video_start();
+        if offset <= 0.0
+            || self.in_point_secs() > 0.0
+            || self.encoding_settings.audio_mode == AudioMode::None
+            || self.source_has_audio == Some(false)
+        {
+            return 0.0;
+        }
+        let audio = self.effective_pipeline().audio;
+        if audio.enabled && audio.start_with_picture {
+            return 0.0;
+        }
+        offset
+    }
+
+    /// The span of the source's sound the output carries, as `(start,
+    /// duration)` on the container timeline, for reading the source's audio
+    /// directly (transcription without Audio Restoration): what the encoder's
+    /// audio input covers. `None` for the whole track, which is what an
+    /// untrimmed job whose streams start together carries.
+    pub fn source_audio_window(&self) -> Option<(f64, Option<f64>)> {
+        let fps = self.input_frame_rate.filter(|f| *f > 0.0).unwrap_or(29.97);
+        let start = self.source_audio_start();
+        let delay = self.output_video_delay();
+        let picture = match (self.start_frame, self.end_frame) {
+            (Some(s), Some(e)) if e >= s => Some((e - s + 1) as f64 / fps),
+            (None, Some(e)) | (Some(0), Some(e)) => Some((e + 1) as f64 / fps),
+            _ => None,
+        };
+        if start <= 0.0 && picture.is_none() {
+            return None;
+        }
+        Some((start, picture.map(|p| p + delay)))
+    }
+
+    /// Where the output's sound starts on the source's container timeline (what
+    /// an input `-ss` on the source counts from): the container's start when
+    /// the picture is delayed, else the in-point's picture.
+    pub fn source_audio_start(&self) -> f64 {
+        if self.output_video_delay() > 0.0 {
+            0.0
+        } else {
+            self.video_start() + self.in_point_secs()
+        }
+    }
+
     /// The source's colour tags, validated. Empty when the source was untagged.
     pub fn color_metadata(&self) -> ColorMetadata {
         ColorMetadata::from_raw(
@@ -1976,5 +2059,110 @@ mod tests {
             serde_json::to_string(&FieldOrder::TopFieldFirst).unwrap(),
             "\"tff\""
         );
+    }
+}
+
+#[cfg(test)]
+mod video_start_tests {
+    use super::*;
+
+    /// 125 frames at 25 fps whose video starts `offset` s after its sound.
+    fn job(offset: Option<f64>) -> VideoJob {
+        let mut job: VideoJob = serde_json::from_value(serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000000",
+            "inputPath": "in.ts",
+            "outputPath": "out.mkv",
+            "qtgmcParameters": {},
+            "encodingSettings": {},
+            "totalFrames": 125,
+            "inputFrameRate": 25.0,
+        }))
+        .unwrap();
+        let mut pipeline = ProcessingPipeline::default();
+        pipeline.deinterlace.enabled = false;
+        job.processing_pipeline = Some(pipeline);
+        job.video_start_offset = offset;
+        job
+    }
+
+    fn start_with_picture(job: &mut VideoJob) {
+        let mut p = job.effective_pipeline();
+        p.audio.enabled = true;
+        p.audio.start_with_picture = true;
+        job.processing_pipeline = Some(p);
+    }
+
+    #[test]
+    fn the_field_is_optional_on_the_wire() {
+        let j = job(None);
+        assert!(!serde_json::to_string(&j).unwrap().contains("videoStartOffset"));
+        let mut j = job(Some(1.25));
+        let back: VideoJob = serde_json::from_str(&serde_json::to_string(&j).unwrap()).unwrap();
+        assert_eq!(back.video_start_offset, Some(1.25));
+        j.video_start_offset = Some(f64::NAN);
+        assert_eq!(j.video_start(), 0.0);
+        assert_eq!(job(Some(-0.5)).video_start(), 0.0);
+    }
+
+    #[test]
+    fn untrimmed_output_keeps_the_sound_first_layout() {
+        let j = job(Some(1.322));
+        assert_eq!(j.output_video_delay(), 1.322);
+        assert_eq!(j.source_audio_start(), 0.0);
+        assert_eq!(j.source_audio_window(), None, "the whole track");
+
+        // No gap: nothing changes.
+        for offset in [None, Some(0.0)] {
+            let j = job(offset);
+            assert_eq!(j.output_video_delay(), 0.0);
+            assert_eq!(j.source_audio_start(), 0.0);
+            assert_eq!(j.source_audio_window(), None);
+        }
+    }
+
+    #[test]
+    fn a_trim_starts_sound_and_picture_together_at_the_in_point() {
+        let mut j = job(Some(1.322));
+        j.start_frame = Some(40);
+        j.end_frame = Some(89);
+        assert_eq!(j.output_video_delay(), 0.0);
+        assert!((j.source_audio_start() - (1.322 + 1.6)).abs() < 1e-9);
+        let (s, d) = j.source_audio_window().unwrap();
+        assert!((s - 2.922).abs() < 1e-9 && (d.unwrap() - 2.0).abs() < 1e-9);
+
+        // Without a gap it is exactly the old trim window.
+        j.video_start_offset = None;
+        assert_eq!(j.source_audio_window(), Some((1.6, Some(2.0))));
+
+        // An out-point alone keeps the delay, so the sound runs that much longer.
+        let mut j = job(Some(1.0));
+        j.end_frame = Some(49);
+        assert_eq!(j.output_video_delay(), 1.0);
+        assert_eq!(j.source_audio_window(), Some((0.0, Some(3.0))));
+    }
+
+    #[test]
+    fn start_with_picture_or_no_audio_drops_the_delay() {
+        let mut j = job(Some(1.322));
+        start_with_picture(&mut j);
+        assert_eq!(j.output_video_delay(), 0.0);
+        assert_eq!(j.source_audio_start(), 1.322);
+
+        // The step does nothing while the pass is off.
+        let mut p = j.effective_pipeline();
+        p.audio.enabled = false;
+        j.processing_pipeline = Some(p);
+        assert_eq!(j.output_video_delay(), 1.322);
+
+        let mut j = job(Some(1.322));
+        j.encoding_settings.audio_mode = AudioMode::None;
+        assert_eq!(j.output_video_delay(), 0.0, "no sound to keep in sync");
+
+        // A source with no audio stream at all (an earlier data stream made
+        // the gap): seeks still need the offset, the output needs no delay.
+        let mut j = job(Some(1.322));
+        j.source_has_audio = Some(false);
+        assert_eq!(j.output_video_delay(), 0.0);
+        assert_eq!(j.video_start(), 1.322);
     }
 }

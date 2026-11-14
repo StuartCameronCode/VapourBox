@@ -339,6 +339,7 @@ fn run_audio_plan(args: &Args) -> ExitCode {
         let mut job: models::VideoJob = serde_json::from_str(&std::fs::read_to_string(config)?)?;
         let deps = dependency_locator::DependencyLocator::new()?;
         fill_total_frames(&mut job, Some(&deps), |_| {});
+        fill_video_start(&mut job, Some(&deps), |_| {});
         let reporter = ProgressReporter::new_to_stderr();
         let Some((plan, source)) = audio_restoration::AudioRestorer::new(reporter, deps).plan(&job)? else {
             return Ok(serde_json::json!({ "active": false }));
@@ -356,6 +357,9 @@ fn run_audio_plan(args: &Args) -> ExitCode {
             "measure": plan.measure_args(&p(first)),
             "finish": (!plan.single_pass()).then(|| plan.finish_args(&p(first), &p("restored.wav"), None)),
             "notes": plan.notes,
+            "readStart": plan.read_start,
+            "videoStartOffset": job.video_start(),
+            "videoDelay": job.output_video_delay(),
         }))
     })();
     match result {
@@ -381,6 +385,7 @@ fn run_detect_native(args: &Args) -> ExitCode {
         let mut job: models::VideoJob = serde_json::from_str(&std::fs::read_to_string(config)?)?;
         let deps = dependency_locator::DependencyLocator::new()?;
         fill_frame_size(&mut job, Some(&deps), |_| {});
+        fill_video_start(&mut job, Some(&deps), |_| {});
         native_res::detect(&deps, &job)
     })();
     match result {
@@ -406,6 +411,7 @@ fn run_detect_crop(args: &Args) -> ExitCode {
         let mut job: models::VideoJob = serde_json::from_str(&std::fs::read_to_string(config)?)?;
         let deps = dependency_locator::DependencyLocator::new()?;
         fill_frame_size(&mut job, Some(&deps), |_| {});
+        fill_video_start(&mut job, Some(&deps), |_| {});
         crop_detect::detect(&deps, &job)
     })();
     match result {
@@ -431,6 +437,7 @@ fn run_detect_noise_halo(args: &Args) -> ExitCode {
         let mut job: models::VideoJob = serde_json::from_str(&std::fs::read_to_string(config)?)?;
         let deps = dependency_locator::DependencyLocator::new()?;
         fill_frame_size(&mut job, Some(&deps), |_| {});
+        fill_video_start(&mut job, Some(&deps), |_| {});
         noise_halo::detect(&deps, &job)
     })();
     match result {
@@ -638,6 +645,7 @@ fn run_preview_mode(args: &Args) -> ExitCode {
     };
     let deps = dependency_locator::DependencyLocator::new().ok();
     fill_frame_size(&mut job, deps.as_ref(), |msg| eprintln!("{}", msg));
+    fill_video_start(&mut job, deps.as_ref(), |msg| eprintln!("{}", msg));
 
     // The frame index is passed straight through to the worker — no
     // time-conversion round-trip — so the rendered frame is exactly the one the
@@ -705,6 +713,35 @@ fn fill_frame_size(
         log(&format!("Probed input frame size: {}x{}", w, h));
         job.input_width = Some(w);
         job.input_height = Some(h);
+    }
+}
+
+/// Fill a missing `video_start_offset` from ffprobe (see
+/// `source_decode::video_start_from_probe`). A job that carries it is never
+/// touched; a failed probe leaves it unset, which means no gap.
+fn fill_video_start(
+    job: &mut VideoJob,
+    deps: Option<&dependency_locator::DependencyLocator>,
+    log: impl Fn(&str),
+) {
+    if job.video_start_offset.is_some() {
+        return;
+    }
+    let Some(d) = deps else { return };
+    let Ok(ffprobe) = d.ffprobe_path() else { return };
+    if let Some(offset) =
+        source_decode::probe_video_start(&ffprobe, &d.build_environment(), &job.input_path)
+    {
+        if offset > 0.0 {
+            job.source_has_audio =
+                source_decode::probe_has_audio(&ffprobe, &d.build_environment(), &job.input_path);
+            log(&format!(
+                "The video's first picture starts {:.3} s after the file's start (its sound starts first); \
+                 frame numbers count from the picture",
+                offset
+            ));
+        }
+        job.video_start_offset = Some(offset);
     }
 }
 
@@ -781,6 +818,11 @@ fn run_worker(
     // error for any other source rather than a silent rescale (source_decode).
     fill_frame_size(&mut job, deps.as_ref(), |msg| {
         reporter.send_log(models::LogLevel::Debug, msg)
+    });
+    // Where the video's first picture sits after the container's start: every
+    // seek adds it, and the output keeps the gap (source_decode, rule 5).
+    fill_video_start(&mut job, deps.as_ref(), |msg| {
+        reporter.send_log(models::LogLevel::Info, msg)
     });
 
     // A variable-frame-rate source is decoded as stored and placed on the
@@ -888,16 +930,7 @@ fn run_worker(
     let mut whisper_srt: Option<std::path::PathBuf> = None;
     if let Some(ref sub_settings) = job.subtitle_settings {
         if sub_settings.enabled && job.burn_in_subtitle_path.is_none() {
-            let fps = job.input_frame_rate.unwrap_or(29.97);
-            let source_window = match (job.start_frame, job.end_frame) {
-                (Some(start), Some(end)) if end >= start => Some((
-                    start as f64 / fps,
-                    Some((end - start + 1) as f64 / fps),
-                )),
-                (Some(start), None) => Some((start as f64 / fps, None)),
-                (None, Some(end)) => Some((0.0, Some((end + 1) as f64 / fps))),
-                _ => None,
-            };
+            let source_window = job.source_audio_window();
             let (transcribe_from, window) = match &restored_audio {
                 Some(r) => (r.track.path.to_string_lossy().to_string(), None),
                 None => (job.input_path.clone(), source_window),

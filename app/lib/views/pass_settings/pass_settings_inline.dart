@@ -114,6 +114,8 @@ class PassSettingsInline extends StatelessWidget {
             _buildOpenCLWarning(context, viewModel, filterId, params),
             _buildGpuPluginNotice(context, viewModel, filterId, params),
             _buildKnlmNotice(viewModel, filterId, params),
+            if (filterId == 'audio_restoration')
+              _buildVideoStartNotice(context, viewModel),
             if (animeJanaiSelectedBy(filterId, params.values))
               const AnimeJanaiNotice()
             else if (modelAddonSelectedBy(filterId, params.values) case final id?)
@@ -284,6 +286,38 @@ class PassSettingsInline extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
+    );
+  }
+
+  /// What the source's timestamps say about where its sound starts, for Audio
+  /// Restoration's "start the sound with the picture". Shown whenever there
+  /// is a gap, badge or not, and never changes a value.
+  Widget _buildVideoStartNotice(BuildContext context, MainViewModel viewModel) {
+    final message = videoStartNotice(viewModel.videoInfo?.videoStartOffset ?? 0);
+    if (message == null) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: scheme.secondaryContainer,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.info_outline, size: 20, color: scheme.onSecondaryContainer),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(color: scheme.onSecondaryContainer),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

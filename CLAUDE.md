@@ -123,7 +123,7 @@ VapourBox/
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/templates/stabilize.py` | Stabilize pass's vertical pitch correction (see "Stabilize") |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
-| `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared (see "Source Frame Size", "Colour metadata") |
+| `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset and the one `seek_time` (see "Source Frame Size", "Colour metadata") |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, RIFE's model add-on, the `--probe-rife` / `--probe-upscale` probe (on stand-in models, no add-on needed), and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
@@ -726,6 +726,8 @@ trimmed window the encode uses (`extract_audio_range`), or cues drift by exactly
 the trimmed-off head; that is safe because nothing *else* retimes audio (IVTC
 and frame-rate conversion change the video timeline only). Any new step that
 moves audio in time belongs in `audio_restoration`, never in the encode.
+(The encoder's delay of a late-starting picture, `output_video_delay`, is not
+an exception: it keeps the source's own timing and moves no audio.)
 `SubtitleOutput::{burns_in, muxes, keeps_srt_file}` are asserted to cover every
 mode, so a mode that does none of the three can't silently produce nothing.
 
@@ -1061,6 +1063,43 @@ the **single** builder of both decoders' arguments (encode + preview):
   together — `integration_seek_alignment_test.dart` (heavy). MPEG-PS/TS, MPEG-2
   in AVI and leading null frames still seek to the wrong picture for other
   reasons (docs/reports/issue-157-seek-alignment).
+
+- **Frame N counts from the video's first picture, and every seek says so.**
+  An input `-ss` counts from the *container's* start, the earliest stream's;
+  on a broadcast (DVB-T) capture that is the sound, 1.2 s before the first
+  picture, so frame N used to name a picture ~30 frames early. The offset is
+  the earlier of the video stream's `start_time` and the smallest PTS of its
+  first 64 packets, less the container's `start_time`
+  (`source_decode::video_start_from_probe`; an open GOP shows B pictures
+  stored after the first packet, MPEG-2 in AVI stores packets with no PTS).
+  The worker probes it (`VideoJob.video_start_offset`, filled in `main.rs`);
+  the app's twin is `FieldOrderDetector.videoStartFromProbe`, run with the
+  same `videoStartProbeArgs` (a test pins them word for word).
+  - **Every seek goes through `source_decode::seek_time`** (encode, preview,
+    every detector) and the app's `beforeFrameArgs` / `thumbnailArgs`; none
+    keeps its own `(N - 0.5)/fps`. Frame 0 never seeks, on either side.
+  - **A decoder that does not seek still resets PTS when the offset is
+    non-zero** (`resets_pts`): that drops ffmpeg's constant-rate copies of
+    the first picture (MKV/MP4) and keeps an open GOP's leading pictures
+    (TS). With offset 0 every argument list is byte-for-byte as before.
+  - **The frame count is the video's**, not the file's:
+    `FieldOrderDetector.frameCountFromDuration` (stream duration plus leading
+    pictures, else container duration less the offset) when `nb_frames` is
+    absent.
+  - **The output keeps the source's layout: sound first, picture delayed.**
+    `VideoJob::output_video_delay` is the one decision (0 when trimmed, when
+    there is no sound, or with Audio Restoration's `startWithPicture`); the
+    encoder delays the picture in its one `-vf` (`settb=1/120000`, `setpts`,
+    `-enc_time_base`) and copies the sound from the start, which is in sync
+    and lossless. A trim seeks the sound to offset + in-point
+    (`source_audio_start`), as do `OutputWindow` and transcription.
+  - **Only `startWithPicture` drops the sound before the first picture**, and
+    **never prefill the sync offset (`offsetMs`) from the start offset**: it
+    moves sound against picture and would create the desync it seems to fix.
+  `integration_video_start_offset_test.dart` (heavy) checks pictures and sync
+  on late-video TS/MKV/MP4 fixtures (docs/reports/2026-11-video-start-offset).
+  MPEG-TS seeks that land on a later keyframe are a separate fault (the DVB-T
+  clip's preview is still off for that reason).
 
 `integration_clean_aperture_test.dart` (heavy) asserts a clean-aperture MOV and
 MKV come through bit-exact at full size. See docs/ENGINEERING_NOTES.md,
@@ -1882,6 +1921,13 @@ Rules, from docs/reports/2026-11-audio-restoration:
   trim's in-point, `output_duration_secs` long. The rendered track is exactly
   that many samples, so with restoration the output's audio is the picture's
   length (passthrough could leave it longer).
+- **"Start the sound with the picture"** (`startWithPicture`) drops the sound
+  before a late-starting video's first picture: the window starts at the
+  offset and the encoder's video delay goes to 0. It has no value (the worker
+  reads the gap from the timestamps) and does nothing without a gap. The pass
+  list suggests the pass when the gap is ≥ 0.25 s
+  (`videoStartSuggestThreshold`; ffmpeg's TS muxer leaves 10–21 ms), and the
+  panel describes any gap; neither ticks anything. See "Source Frame Size".
 - **One stream is restored** (`streamIndex`, default the first). The encoder
   maps the rendered track first, then the source's other audio streams
   untouched, each with its own tags (`encode_map_args`; naming one stream's
