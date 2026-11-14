@@ -156,6 +156,10 @@ cannot, so the extra sound plays under the first picture: 33–100 ms late at fr
 (1.28 s early before it), and 667 ms late at frame 20, with or without it. <code>small_clip.mp4</code>
 trimmed from frame 20 to AVI is 0.395 s late. Pre-trimming the NUT copy at the in-point was tried and
 is worse in MKV: ffmpeg rebases the copy's first packet (29 ms in) to 0, so the sound lands 29 ms late.</p>
+<p><strong>2026-11-15: fixed by task #24</strong> (<a href="../2026-11-avi-copy-trim/index.html">AVI copy trim</a>):
+PCM trimmed into AVI is re-written in its own codec (in sync to the sample, bit-identical, frames 1–3 and 20 of
+this fixture included), compressed sound is copied from the packet nearest the in-point. Table 4's AVI rows and
+the heavy test's AVI bound above describe the code before that fix; the test now requires lag 0.</p>
 </div>
 
 <h2>Limits</h2>

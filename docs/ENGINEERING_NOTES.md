@@ -3990,7 +3990,7 @@ Follow-up to #173.
   copy's pre-roll (the copy starts where the demuxer's seek lands). MKV/MP4
   store it as a later video start and stay in sync; AVI can't. Frame 20:
   667 ms on the fixture, 395 ms on `small_clip.mp4`, with or without this
-  fix. Task #24.
+  fix. Task #24 (fixed 2026-11-15, below).
 - `integration_avi_audio_seek_test.dart` (heavy) uses a chirp copy of the
   fixture's picture (the 440 Hz sine can't show 1.3 s: 572 whole periods);
   11 of 12 cases fail without rule 9, the frame-20 control passes either way.
@@ -4093,3 +4093,39 @@ Report: the update under the fixtures table in
   is now exactly 300, and its untrimmed encode carries the app's count. The
   new group checks the app's count against the worker's decode, and checks
   that an untrimmed `seek_dvd_pal.mpg` encode ends on picture 149.
+
+### A Passthrough trim into AVI runs its sound late (task #24, 2026-11-15)
+
+Report: [docs/reports/2026-11-avi-copy-trim](reports/2026-11-avi-copy-trim/index.html).
+Follow-up to task #22.
+
+- **Cause.** A stream copy keeps packets from where the demuxer's seek
+  lands, the keyframe before the in-point; the pre-roll gets negative
+  timestamps and the muxer shifts everything up. MKV/MP4/MOV store that as
+  a later video start (≤ 1 ms). AVI can't store where a stream starts, so the
+  pre-roll plays under the first picture: 76–375 ms late on a 0.4 s-GOP
+  source, 667 ms on `avi_h264_bframes.avi` at frame 20, a GOP at worst.
+- **PCM is re-written in its own codec** (`-c:a:N pcm_*`, the six linear
+  codecs AVI holds): input `-ss` + decode is trimmed to the sample by
+  ffmpeg's accurate seek, and the round trip is bit-identical. No `-af`.
+- **Compressed sound is still copied, from the packet nearest the
+  in-point** (the user's choice over decoding it to PCM): a second input of
+  the same file (or task 22's NUT copy) with `-copypriorss:a 0`. The trap:
+  ffmpeg drops a copied packet whose timestamp, *in the stream's own time
+  base*, is below the seek rounded to that time base. An AVI's MP3/AC-3
+  count in packets (3/125, 4/125), so the plain seek already keeps the
+  nearest packet, and the half-packet-early seek planned for every stream
+  kept the one before (+19 to +27 ms). A fine time base (MP4 1/48000, MKV
+  1/1000) keeps the first packet at or after the seek (up to −21 ms), so
+  only those streams seek half a packet early (`time_base * 4 <= packet`).
+- **Result:** PCM lag 0 and max diff 0 (frames 1–3 and 20 of the delayed
+  AVI too); AC-3/MP3 from an AVI exactly where MKV puts them (their AVI
+  timestamps limit both to ±9 ms); AAC in MP4 and AC-3 in MKV within half a
+  packet (+6, +8.6, −9, −3.2, +10.9, −7.2 ms). Everything outside a seeked
+  Passthrough copy into AVI keeps its arguments byte for byte (swept in a
+  Rust test).
+- **Found on the way:** an untrimmed late-video source to AVI gets a 1/600
+  video time base full of null frames, its first picture held from 0
+  (avienc pads gaps only after the first packet). Task #30.
+- `integration_avi_copy_trim_test.dart` (heavy) and the AVI cases of
+  `integration_avi_audio_seek_test.dart`: 13 fail with the cut switched off.

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AVI copy trim</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+  figure { margin: 18px 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>A Passthrough trim into AVI runs its sound late</h1>
+<p class="meta">2026-11-15 · macOS arm64, deps 1.16.0 (FFmpeg 9.0.2) · task #24, follow-up to
+<a href="../2026-11-avi-audio-seek/index.html">the AVI audio seek</a> (task #22)</p>
+
+<div class="card">
+<p><strong>Outcome: fixed.</strong> With Passthrough audio and a trim, the encoder seeks the source's sound with an
+input <code>-ss</code> and copies it. A stream copy keeps the packets from where the demuxer's seek lands, the
+keyframe before the in-point. Matroska, MP4 and MOV store that pre-roll as a later start of the video and stay in
+sync. <strong>AVI cannot store where a stream starts</strong>, so the pre-roll played under the first picture and the
+whole track ran late: 76–375 ms on these fixtures (a keyframe every 0.4 s), 667 ms on
+<code>avi_h264_bframes.avi</code> at frame 20 (one keyframe), and a whole GOP at worst.</p>
+<p>For a seeked Passthrough copy into AVI (<code>audio_restoration::needs_sound_cut</code>):</p>
+<ul>
+<li><strong>Linear PCM</strong> (<code>pcm_u8</code>, <code>s16le</code>, <code>s24le</code>, <code>s32le</code>,
+<code>f32le</code>, <code>f64le</code>) is re-written in its own codec. Seeked and decoded, ffmpeg trims it to the
+sample: the output is the source <strong>sample for sample</strong> (max difference 0), in sync to the sample.</li>
+<li><strong>Compressed sound</strong> (MP3, AC-3, AAC, …) is still <strong>copied</strong>, its bits untouched, from
+the packet whose start is nearest the in-point: a second input of the same file with
+<code>-copypriorss:a 0</code>, seeked half a packet early only when the stream's time base is finer than a packet
+(table 1). Within half a packet (≤ 16 ms for AC-3), and from an AVI source exactly where MKV puts it.</li>
+<li>MKV, MP4, MOV, Convert, None and untrimmed jobs keep every argument.</li>
+</ul>
+<p>Keeping the codec over decoding compressed sound to PCM was the user's choice: the copy loses nothing and
+lands within half a packet; decoding would be exact but changes the codec.</p>
+</div>
+
+<h2>Method</h2>
+<p>Fixtures (built by the scripts, nothing committed): the first 12 s of <code>small_clip.mp4</code>'s picture
+(H.264, a keyframe every 0.4 s from 0.3 s), stream-copied, with a 12 s chirp (150 → 3030 Hz, never repeating)
+as PCM, MP3 and AC-3 in AVI, AAC in MP4 and AC-3 in MKV; and a two-stream AVI (PCM + AC-3). Trims from frames
+20, 100 and 251 (0.67, 3.34, 8.37 s). Task 22's chirp copy of <code>avi_h264_bframes.avi</code> (a decoder delay,
+one keyframe) from frames 1–3 and 20.</p>
+<p><em>Sound vs picture</em> is where the source's sound at the in-point plays against the output's first picture
+(+ = late): half a second of chirp, cross-correlated at 8 kHz against a decode of the source. It reads within
+±0.4 ms of an exact match (seen on bit-identical outputs, where the in-point falls between 8 kHz samples), so
+read anything inside that as in sync. <em>Max diff</em> compares the output from its first picture with the source
+from the in-point, a second of each, decoded at the source's own rate: 0 is bit-identical.</p>
+
+<h2>1. Why the cut is what it is</h2>
+<p>The encode's own shape: a lavfi picture standing in for vspipe's Y4M, the source as input 1 with the trim's
+<code>-ss</code>, <code>-shortest</code>. Each cell is frames 20 / 100 / 251, ms; <sup>=</sup> marks a
+bit-identical output.</p>
+<div class="scroll">
+<table><thead><tr><th>source</th><th>packet</th><th>time base</th><th class="num">MKV, copy (today)</th><th class="num">MP4, copy (today)</th><th class="num">AVI, copy (today)</th><th class="num">AVI, -copypriorss 0</th><th class="num">AVI, -copypriorss 0, half a packet early</th><th class="num">AVI, decode to PCM</th></tr></thead><tbody>
+<tr><td>PCM s16 in AVI</td><td class="num">21.3 ms</td><td>1/48000</td><td class="num">+0.4 / -0.4 / +0.0</td><td class="num">—</td><td class="num bad">+283.4 / +136.6 / +375.0</td><td class="num">-15.2 / -12.8 / -9.0</td><td class="num">+6.0 / +8.6 / -9.0</td><td class="num">+0.0<sup>=</sup> / +0.0<sup>=</sup> / +0.4<sup>=</sup></td></tr>
+<tr><td>MP3 in AVI</td><td class="num">24.0 ms</td><td>3/125</td><td class="num">-4.6 / +0.6 / -1.0</td><td class="num">-4.6 / +0.6 / -1.0</td><td class="num bad">+259.4 / +144.6 / +359.0</td><td class="num">-4.6 / +0.6 / -1.0</td><td class="num">+19.4 / +0.6 / +23.0</td><td class="num">-4.6 / +0.6 / -1.0</td></tr>
+<tr><td>AC-3 in AVI</td><td class="num">32.0 ms</td><td>4/125</td><td class="num">-4.6 / +8.6 / -9.0</td><td class="num">-4.6 / +8.6 / -9.0</td><td class="num bad">+251.4 / +136.6 / +375.0</td><td class="num">-4.6 / +8.6 / -9.0</td><td class="num">+27.4 / +8.6 / +23.0</td><td class="num">-4.6 / +8.6 / -9.0</td></tr>
+<tr><td>AAC in MP4</td><td class="num">21.3 ms</td><td>1/48000</td><td class="num">-0.6 / +0.0 / +0.0</td><td class="num">+0.0 / +0.0 / +0.4</td><td class="num bad">+368.8 / +243.2 / +76.8</td><td class="num">-15.2 / -12.8 / -9.0</td><td class="num">+6.0 / +8.6 / -9.0</td><td class="num">+0.0 / +0.0 / +0.4</td></tr>
+<tr><td>AC-3 in MKV</td><td class="num">32.0 ms</td><td>1/1000</td><td class="num">+0.4 / -0.4 / +0.0</td><td class="num">+0.8 / +0.9 / +0.8</td><td class="num bad">+252.7 / +106.9 / +344.8</td><td class="num">-3.2 / -21.1 / -7.2</td><td class="num">-3.2 / +10.9 / -7.2</td><td class="num">+0.4 / -0.4 / +0.0</td></tr>
+</tbody></table>
+
+</div>
+<p class="caption">Script: <code>scripts/ffmpeg_candidates.py</code>.</p>
+<ul>
+<li><strong>Today's copy is late by the pre-roll in AVI only.</strong> MP4 and MKV store it (≤ 1 ms).</li>
+<li><strong>Decoding PCM is exact</strong> and bit-identical; re-writing it in its own codec is lossless.</li>
+<li><strong><code>-copypriorss 0</code> drops the copy's packets before the seek</strong>, but how depends on the
+stream's time base: ffmpeg drops a packet whose timestamp, in that time base, is below the seek rounded to it.
+An AVI's compressed audio counts in packets (MP3 3/125, AC-3 4/125), so the rounding alone keeps the packet
+<em>nearest</em> the in-point, exactly where MKV and a full decode put it; seeking half a packet early there kept
+the one before (+19 to +27 ms). A fine time base (MP4 1/48000, MKV 1/1000) keeps the first packet at or after the
+seek (up to a packet early, −21 ms), and the half-packet-early seek is what finds the nearest. So the worker
+seeks early only for a stream whose time base is under a quarter of its packet.</li>
+<li><strong>From an AVI source, MP3 and AC-3 are limited by the demuxer's own timestamps</strong> (−9 to +9 ms here,
+in MKV, MP4 and a full decode alike; task 22 saw the same on MP3). Not this fault, and not changed.</li>
+</ul>
+
+<h2>2. The worker, end to end</h2>
+<p>A Passthrough trim (FFV1) to MKV and AVI, frames 20 / 100 / 251 to frame 340; task 22's delayed AVI to frame 61.
+Frames 1–3 of the delayed AVI read their sound from task 22's NUT copy, through the same cut.</p>
+<div class="scroll">
+
+<table><thead><tr><th>source</th><th class="num">in-point</th><th>MKV codec</th><th class="num">MKV sound vs picture</th><th>AVI codec</th><th class="num">AVI sound vs picture</th><th class="num">AVI max diff from in-point</th></tr></thead><tbody>
+<tr><td>PCM s16 in AVI</td><td class="num">20</td><td>pcm_s16le</td><td class="num">+0.4 ms</td><td>pcm_s16le</td><td class="num">+0.0 ms</td><td class="num">0.0e+00</td></tr>
+<tr><td>PCM s16 in AVI</td><td class="num">100</td><td>pcm_s16le</td><td class="num">-0.4 ms</td><td>pcm_s16le</td><td class="num">+0.0 ms</td><td class="num">0.0e+00</td></tr>
+<tr><td>PCM s16 in AVI</td><td class="num">251</td><td>pcm_s16le</td><td class="num">+0.0 ms</td><td>pcm_s16le</td><td class="num">+0.4 ms</td><td class="num">0.0e+00</td></tr>
+<tr><td>MP3 in AVI</td><td class="num">20</td><td>mp3</td><td class="num">-4.6 ms</td><td>mp3</td><td class="num">-4.6 ms</td><td class="num">—</td></tr>
+<tr><td>MP3 in AVI</td><td class="num">100</td><td>mp3</td><td class="num">+0.6 ms</td><td>mp3</td><td class="num">+0.6 ms</td><td class="num">—</td></tr>
+<tr><td>MP3 in AVI</td><td class="num">251</td><td>mp3</td><td class="num">-1.0 ms</td><td>mp3</td><td class="num">-1.0 ms</td><td class="num">—</td></tr>
+<tr><td>AC-3 in AVI</td><td class="num">20</td><td>ac3</td><td class="num">-4.6 ms</td><td>ac3</td><td class="num">-4.6 ms</td><td class="num">—</td></tr>
+<tr><td>AC-3 in AVI</td><td class="num">100</td><td>ac3</td><td class="num">+8.6 ms</td><td>ac3</td><td class="num">+8.6 ms</td><td class="num">—</td></tr>
+<tr><td>AC-3 in AVI</td><td class="num">251</td><td>ac3</td><td class="num">-9.0 ms</td><td>ac3</td><td class="num">-9.0 ms</td><td class="num">—</td></tr>
+<tr><td>AAC in MP4</td><td class="num">20</td><td>aac</td><td class="num">-0.6 ms</td><td>aac</td><td class="num">+6.0 ms</td><td class="num">—</td></tr>
+<tr><td>AAC in MP4</td><td class="num">100</td><td>aac</td><td class="num">+0.0 ms</td><td>aac</td><td class="num">+8.6 ms</td><td class="num">—</td></tr>
+<tr><td>AAC in MP4</td><td class="num">251</td><td>aac</td><td class="num">+0.0 ms</td><td>aac</td><td class="num">-9.0 ms</td><td class="num">—</td></tr>
+<tr><td>AC-3 in MKV</td><td class="num">20</td><td>ac3</td><td class="num">+0.4 ms</td><td>ac3</td><td class="num">-3.2 ms</td><td class="num">—</td></tr>
+<tr><td>AC-3 in MKV</td><td class="num">100</td><td>ac3</td><td class="num">-0.4 ms</td><td>ac3</td><td class="num">+10.9 ms</td><td class="num">—</td></tr>
+<tr><td>AC-3 in MKV</td><td class="num">251</td><td>ac3</td><td class="num">+0.0 ms</td><td>ac3</td><td class="num">-7.2 ms</td><td class="num">—</td></tr>
+<tr><td>PCM + AC-3 in AVI, stream 0</td><td class="num">20</td><td>pcm_s16le</td><td class="num">+0.4 ms</td><td>pcm_s16le</td><td class="num">+0.0 ms</td><td class="num">0.0e+00</td></tr>
+<tr><td>PCM + AC-3 in AVI, stream 1</td><td class="num">20</td><td>ac3</td><td class="num">-4.6 ms</td><td>ac3</td><td class="num">-4.6 ms</td><td class="num">—</td></tr>
+<tr><td>PCM + AC-3 in AVI, stream 0</td><td class="num">100</td><td>pcm_s16le</td><td class="num">-0.4 ms</td><td>pcm_s16le</td><td class="num">+0.0 ms</td><td class="num">0.0e+00</td></tr>
+<tr><td>PCM + AC-3 in AVI, stream 1</td><td class="num">100</td><td>ac3</td><td class="num">+8.6 ms</td><td>ac3</td><td class="num">+8.6 ms</td><td class="num">—</td></tr>
+<tr><td>PCM + AC-3 in AVI, stream 0</td><td class="num">251</td><td>pcm_s16le</td><td class="num">+0.0 ms</td><td>pcm_s16le</td><td class="num">+0.4 ms</td><td class="num">0.0e+00</td></tr>
+<tr><td>PCM + AC-3 in AVI, stream 1</td><td class="num">251</td><td>ac3</td><td class="num">-9.0 ms</td><td>ac3</td><td class="num">-9.0 ms</td><td class="num">—</td></tr>
+<tr><td>avi_h264_bframes.avi chirp (PCM 32 kHz)</td><td class="num">1</td><td>pcm_s16le</td><td class="num">+0.4 ms</td><td>pcm_s16le</td><td class="num">+0.0 ms</td><td class="num">0.0e+00</td></tr>
+<tr><td>avi_h264_bframes.avi chirp (PCM 32 kHz)</td><td class="num">2</td><td>pcm_s16le</td><td class="num">-0.2 ms</td><td>pcm_s16le</td><td class="num">+0.0 ms</td><td class="num">0.0e+00</td></tr>
+<tr><td>avi_h264_bframes.avi chirp (PCM 32 kHz)</td><td class="num">3</td><td>pcm_s16le</td><td class="num">+0.1 ms</td><td>pcm_s16le</td><td class="num">+0.0 ms</td><td class="num">0.0e+00</td></tr>
+<tr><td>avi_h264_bframes.avi chirp (PCM 32 kHz)</td><td class="num">20</td><td>pcm_s16le</td><td class="num">+0.4 ms</td><td>pcm_s16le</td><td class="num">+0.0 ms</td><td class="num">0.0e+00</td></tr>
+</tbody></table>
+
+</div>
+<p class="caption">Script: <code>scripts/worker_avi_trim.py</code>. MKV's copied PCM starts at its stored, millisecond
+timestamp, so its samples are not compared. Before the fix the AVI column read as table 1's "AVI, copy (today)"
+(task 22's report: +667 ms for the delayed AVI at frame 20, +33 to +100 ms at frames 1–3).</p>
+
+<h2>Considered and not taken</h2>
+<ul>
+<li><strong>Decode every copied stream to PCM.</strong> Exact for all codecs, but the source's MP3/AC-3/AAC would
+no longer be passed through. Kept as the answer for PCM only, where it costs nothing.</li>
+<li><strong>Warn only.</strong> A GOP of desync is not something to leave in a file.</li>
+<li><strong>Delay the picture instead.</strong> AVI pads a video gap with null frames only after the first packet
+(avienc), so the first picture would be held from 0 over the pre-roll's sound. The same muxer behaviour affects an
+untrimmed late-video source to AVI: task #30.</li>
+<li><strong>Pre-trimming the NUT copy at the in-point</strong> (task 22) rebased its first packet to 0 and landed
+29 ms late in MKV.</li>
+</ul>
+
+<h2>Limits</h2>
+<ul>
+<li>macOS arm64, FFmpeg 9.0.2 only. The rounding in <code>-copypriorss</code> is ffmpeg's muxer code, the same in the
+9.0 series every platform pins; nightly runs the heavy test on the others.</li>
+<li>One picture source (a 0.4 s GOP) and one delayed AVI. A longer GOP only makes today's lag bigger; the cut does
+not depend on it.</li>
+<li>Copying compressed sound from mid-stream starts its decoder cold: MP3's bit reservoir or AAC's priming may
+colour the first frame. The cross-correlation, half a second in, does not see it.</li>
+<li>A source mixing a packet-counted and a fine-time-base compressed stream would get one early seek for both; no
+single container produces that.</li>
+<li>Big-endian, DVD and Blu-ray PCM cannot go into AVI at all (ffmpeg refuses the header), and A-law/µ-law are
+copied by packet; neither changed.</li>
+<li>The probe reads the first 256 audio packets for durations; a stream whose packets change length later is cut by
+its early packets' length.</li>
+</ul>
+
+<h2>Tests</h2>
+<ul>
+<li>Rust: <code>the_sound_is_cut_only_for_a_seeked_copy_into_avi</code>,
+<code>the_cut_probe_reads_codecs_and_packet_lengths</code>, <code>a_cut_maps_each_stream_from_its_own_input</code>,
+<code>a_passthrough_trim_into_avi_cuts_its_sound</code>,
+<code>a_sound_cut_changes_nothing_outside_a_seeked_copy_into_avi</code> (every container × audio mode × trim,
+byte-identical where the cut does not apply), <code>the_packet_input_follows_the_sound_copy</code>, and the
+real-builder delegation test.</li>
+<li>Heavy: <code>integration_avi_copy_trim_test.dart</code> (PCM bit-identical and lag 0; AC-3 in AVI, AAC in MP4,
+AC-3 in MKV within half a packet + 1 ms and, from an AVI, within 1 ms of the MKV trim; two streams; MKV control)
+and <code>integration_avi_audio_seek_test.dart</code>'s AVI cases, now lag 0 and bit-identical at frames 1–3 and
+20. With the cut switched off, 13 of their tests fail.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>sh docs/reports/2026-11-avi-copy-trim/scripts/run.sh</pre>
+<p>Needs the deps bundle (<code>VAPOURBOX_DEPS_DIR</code>, else <code>deps/&lt;platform&gt;</code>) and, for table 2,
+a built worker that finds it. Scratch files go to <code>AVI_CUT_WORK</code> or a fresh temporary directory. Plain
+Python, no NumPy; table 2 takes about a minute and a half.</p>
+</main>
+</body>
+</html>

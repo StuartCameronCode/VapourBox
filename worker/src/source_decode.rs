@@ -114,10 +114,17 @@
 //!    and the stream-copy encode seeks a NUT copy of the sound
 //!    (`audio_restoration::needs_sound_sidecar`).
 //!
+//! 10. **A copied sound trimmed into AVI is cut at the in-point** (task 24).
+//!    A stream copy keeps packets from where the seek lands, before the
+//!    in-point; AVI cannot store where a stream starts, so that pre-roll ran
+//!    the sound late by up to a GOP. `audio_restoration::needs_sound_cut`
+//!    decides; PCM is re-written in its own codec (exact), compressed sound is
+//!    copied from the packet nearest the in-point (`SoundCut`).
+//!
 //! See docs/ENGINEERING_NOTES.md, "Clean aperture: decode the stored frame",
 //! docs/reports/issue-157-seek-alignment, docs/reports/issue-169-mpeg-seek,
 //! docs/reports/issue-173-avi-seek, docs/reports/issue-174-source-grid,
-//! docs/reports/2026-11-avi-audio-seek and
+//! docs/reports/2026-11-avi-audio-seek, docs/reports/2026-11-avi-copy-trim and
 //! docs/reports/2026-11-reserved-colour-tags.
 
 /// Input option placed before `-i` on every ffmpeg that decodes the source's
