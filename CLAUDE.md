@@ -961,6 +961,12 @@ mirrors the script's fitting). Rules:
   samples were not gamut-converted. A gamut conversion moved a 75% green by
   55 levels on a player that does not colour-manage
   (docs/reports/2026-11-crop-detect-709).
+- **Always needs the pass on, not its geometry.** With Cropping and Resize
+  both off, an enabled Crop & Resize still converts, at the source's size
+  (choosing Always in the panel switches the pass on). So `enabled_passes()` /
+  `enabledPasses` list Crop & Resize whenever it is on: the app's subtitle-only
+  test (`ProcessingPipeline.isSubtitleOnly`) reads that list, and a pass
+  missing from it is skipped with the whole encode. `test_222`.
 - **R78's resizers let frame properties override `*_in_s` arguments**, so the
   `{{#COLOR_709}}` block (both templates, right after `{{/RESIZE}}`) removes
   `_Matrix`/`_Range` first. Any new block that converts colour with explicit
@@ -968,7 +974,8 @@ mirrors the script's fitting). Rules:
 - `integration_bt709_conversion_test.dart` (heavy) checks the pixels: every
   patch within 3 levels (measured ≤ 0.67) of the source decoded as 601,
   through the tags and when read as 709 regardless, preview = encode, and Off
-  stays 601 and bit-identical in YUV.
+  stays 601 and bit-identical in YUV; with no crop or resize, Always converts
+  at SD size and Auto / Off are byte-identical to the source.
 
 ### HDR Sources and Dolby Vision (issue #133)
 

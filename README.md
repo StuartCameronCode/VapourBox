@@ -127,7 +127,7 @@ Most sources need only a few of these, and the presets pick them for you. Filter
 | 16 | **Color Correction** | Brightness, contrast, saturation, levels, white balance, shadow detail and local contrast, set by hand or measured |
 | 17 | **Stabilize** | Shake and weave from telecine, film scans or a handheld camera, and the frame-height "breathing" of pull-through film scanners (8mm, Super 8): measured from the footage, or read per frame from a factor file (`reel.pitch.txt` next to `reel.mp4` is picked up automatically; file format in [docs/PITCH_FACTOR_FILES.md](docs/PITCH_FACTOR_FILES.md)) |
 | 18 | **Rotate / Flip** | Sideways, upside-down or mirrored footage |
-| 19 | **Crop & Resize** | Black borders, tape blanking and head-switching noise (measured for you by **Detect borders**), scaling and upscaling (edge-directed or AI) with SD colour converted to HD's BT.709, and borders to reach an exact frame size |
+| 19 | **Crop & Resize** | Black borders, tape blanking and head-switching noise (measured for you by **Detect borders**), scaling and upscaling (edge-directed or AI) with SD colour converted to BT.709 (for HD, or always), and borders to reach an exact frame size |
 | 20 | **Face Restoration** | Blurry, low-resolution faces, redrawn by AI at the output resolution (optional download) |
 | 21 | **Sharpen** | Soft pictures, sharpened after the resize so the result isn't softened again |
 | 22 | **Film Grain** | Grain added back after denoising, so the picture doesn't look plastic |

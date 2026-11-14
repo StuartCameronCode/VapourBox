@@ -250,7 +250,7 @@
           "on": "Always",
           "off": "Never"
         },
-        "description": "An SD video's colour is BT.601. Upscaled to HD it is still tagged 601, which is correct, but many players and TVs ignore the tag on an HD picture and decode it as BT.709, which shifts greens and reds. Auto converts the colour to BT.709 when the output is at least 720 lines (or 1280 wide), so every player shows it the same; Always converts at any size. The source's primaries are kept and tagged. Never leaves the colour and its tags as they are."
+        "description": "An SD video's colour is BT.601. Upscaled to HD it is still tagged 601, which is correct, but many players and TVs ignore the tag on an HD picture and decode it as BT.709, which shifts greens and reds. Auto converts the colour to BT.709 when the output is at least 720 lines (or 1280 wide), so every player shows it the same. Always converts at any size, with or without a crop or resize: choosing it switches this pass on, and it converts even with Cropping and Resize both off (switching the pass off switches the conversion off too). The source's primaries are kept and tagged. Never leaves the colour and its tags as they are."
       }
     },
     "useIntegerUpscale": {
@@ -1114,7 +1114,7 @@
     },
     {
       "function": "core.resize.Spline36",
-      "role": "BT.601 to BT.709 colour (the matrix only), after the resize, when the output is HD",
+      "role": "BT.601 to BT.709 colour (the matrix only), after any resize: under Auto when the output is HD, under Always at any size",
       "activeWhen": {
         "convertToBt709": [
           "auto",

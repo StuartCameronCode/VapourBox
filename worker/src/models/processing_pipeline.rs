@@ -490,10 +490,11 @@ impl ProcessingPipeline {
         }
         // Crop and resize are one pass and run together, crop first. The crop
         // used to run ahead of everything else, which meant it could not
-        // remove the edges Stabilize exposes (issue #109).
-        if self.crop_resize.enabled
-            && (self.crop_resize.crop_enabled || self.crop_resize.resize_enabled)
-        {
+        // remove the edges Stabilize exposes (issue #109). Listed whenever it
+        // is on, not only when it crops or resizes: it also upscales, pads,
+        // squares pixels and converts BT.601 to BT.709 at any size, and the
+        // app decides subtitle-only mode from this list.
+        if self.crop_resize.enabled {
             passes.push(PassType::CropResize);
         }
 
@@ -1119,6 +1120,20 @@ mod tests {
         assert!(passes.contains(&PassType::NoiseReduction));
         assert!(passes.contains(&PassType::ColorCorrection));
         assert!(!passes.contains(&PassType::ChromaFixes));
+    }
+
+    #[test]
+    fn crop_resize_is_a_pass_whenever_it_is_on() {
+        let mut pipeline = ProcessingPipeline::default();
+        pipeline.deinterlace.enabled = false;
+        pipeline.crop_resize.enabled = true;
+        pipeline.crop_resize.convert_to_bt709 = crate::models::Bt709Conversion::On;
+        assert_eq!(pipeline.enabled_passes(), vec![PassType::CropResize], "colour conversion only");
+        pipeline.crop_resize.convert_to_bt709 = crate::models::Bt709Conversion::Auto;
+        pipeline.crop_resize.pad_enabled = true;
+        assert_eq!(pipeline.enabled_passes(), vec![PassType::CropResize], "borders only");
+        pipeline.crop_resize.enabled = false;
+        assert!(pipeline.enabled_passes().is_empty());
     }
 
     #[test]
