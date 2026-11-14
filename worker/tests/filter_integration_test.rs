@@ -8351,7 +8351,7 @@ fn test_223_prores_converts_to_its_profile_format_in_both_scripts() {
             "target_format = vs.YUV422P10"
         };
         for cs in ChromaSubsampling::ALL.iter().copied() {
-            let mut job = create_base_job("test_222_prores");
+            let mut job = create_base_job("test_223_prores");
             job.encoding_settings.codec = codec;
             job.encoding_settings.container = ContainerFormat::Mov;
             job.encoding_settings.chroma_subsampling = cs;

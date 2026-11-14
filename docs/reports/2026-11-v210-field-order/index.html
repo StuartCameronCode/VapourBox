@@ -136,6 +136,8 @@ script always converts to <code>YUV422P10</code> itself
 between fields: moving edges.</p>
 <p class="warn">ProRes has the same latent problem for interlaced 4:2:0 sources. It is unchanged here,
 because changing it changes existing ProRes output. Left as a follow-up.</p>
+<p class="caption">Update 2026-11-14: done. ProRes now converts in the script too, measured in
+<a href="../2026-11-prores-script-chroma/index.html">ProRes chroma conversion in the script</a>.</p>
 
 <h3>P8 · Data rate</h3>
 <p>FFmpeg reports <strong>221,184 kb/s</strong> for 720x576 25p v210. That matches v210's packing (6 pixels

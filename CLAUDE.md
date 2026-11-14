@@ -2149,20 +2149,31 @@ evidence for every rule here is docs/reports/2026-11-v210-field-order.
   `output_field_order`** (today: Stabilize pitch, Deblock mpeg2stinx, the
   Frame Rate pass). `test_221` counts every `SetFieldBased(` in both templates
   and fails on one it doesn't know.
-- **v210's 4:2:2 10-bit comes from the script, never from ffmpeg's
+- **The stored format comes from the script, never from ffmpeg's
   `-pix_fmt`**, which blends interlaced 4:2:0 chroma across the fields; zimg
-  honours `_FieldBased`. `forced_pix_fmt` still pins `yuv422p10le` as a guard.
-  ProRes from 4:2:0 still converts in ffmpeg (open follow-up).
-- `v210ChromaPinWarning` (Dart) is a second implementation of the override
-  and is pinned case for case to `v210_stores_422_10_whatever_is_selected`.
+  honours `_FieldBased`. `VideoCodec::fixed_output_format` (Dart
+  `fixedOutputFormat`) is the one statement: v210 → 10-bit 4:2:2, ProRes by
+  profile number (≥ 4 → 10-bit 4:4:4, else 4:2:2). The Color Format
+  selection is ignored for both. `forced_pix_fmt` still pins the same format
+  as a guard (`fixed_output_format_agrees_with_the_pin`). This changed
+  existing ProRes output (app 1.8.0) wherever a conversion happens; every case
+  measured equal or better, and a source already in the profile's format is
+  bit-identical (docs/reports/2026-11-prores-script-chroma).
+- `v210ChromaPinWarning` / `proresChromaPinWarning` (Dart, one shared body)
+  are second implementations of the override, pinned case for case to
+  `v210_stores_422_10_whatever_is_selected` /
+  `prores_converts_to_its_profile_format_whatever_is_selected`. Loss and
+  padding are judged from the **source**, since the selection never reaches
+  the encode. `chromaConversionBitDepthWarning` is silent for ProRes (every
+  ProRes 4444 source decodes as 12-bit).
 - **No `+faststart` for v210** (`uses_faststart`): it rewrites the whole
   ~1 Gbit/s file a second time. Restored audio beside v210 is PCM
   (`restored_passthrough_codec`).
 - **Test field order with the `fiel` atom's bytes** (`0x0209` TFF, `0x020e`
   BFF), not only ffprobe's `tb`/`bt` labels. AVI carries no field order at
   all. `integration_v210_output_test.dart` (heavy) checks these, v210 bit-exact
-  against a 10-bit 4:2:2 source, per-field chroma, PCM in MOV and preview =
-  encode.
+  against a 10-bit 4:2:2 source, per-field chroma (v210, ProRes Proxy/HQ/4444),
+  PCM in MOV and preview = encode.
 
 ## QTGMC Parameters Reference
 
