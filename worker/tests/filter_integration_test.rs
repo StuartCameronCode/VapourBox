@@ -67,6 +67,7 @@ fn create_base_job(output_name: &str) -> VideoJob {
         burn_in_subtitle_path: None,
         pitch_factors_path: None,
         video_start_offset: None,
+        source_has_audio: None,
     }
 }
 
@@ -1277,6 +1278,7 @@ fn create_ivtc_base_job(output_name: &str) -> VideoJob {
         burn_in_subtitle_path: None,
         pitch_factors_path: None,
         video_start_offset: None,
+        source_has_audio: None,
     }
 }
 

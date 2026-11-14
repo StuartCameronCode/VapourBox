@@ -105,6 +105,12 @@ pub struct VideoJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video_start_offset: Option<f64>,
 
+    /// Whether the source has an audio stream, probed by the worker only when
+    /// the video starts late (`source_decode::probe_has_audio`). `None` means
+    /// unknown and is treated as yes. Not on the wire.
+    #[serde(skip)]
+    pub source_has_audio: Option<bool>,
+
 }
 
 impl VideoJob {
@@ -127,13 +133,14 @@ impl VideoJob {
     /// this much and the sound is copied (or rendered) from the container's
     /// start. That is in sync and loses nothing. It is 0 when there is no gap,
     /// when the job is trimmed (both then start at the in-point), when the
-    /// output has no audio, and when Audio Restoration's "start the sound with
+    /// output or the source has no audio, and when Audio Restoration's "start the sound with
     /// the picture" drops the sound before the first picture instead.
     pub fn output_video_delay(&self) -> f64 {
         let offset = self.video_start();
         if offset <= 0.0
             || self.in_point_secs() > 0.0
             || self.encoding_settings.audio_mode == AudioMode::None
+            || self.source_has_audio == Some(false)
         {
             return 0.0;
         }
@@ -2149,5 +2156,12 @@ mod video_start_tests {
         let mut j = job(Some(1.322));
         j.encoding_settings.audio_mode = AudioMode::None;
         assert_eq!(j.output_video_delay(), 0.0, "no sound to keep in sync");
+
+        // A source with no audio stream at all (an earlier data stream made
+        // the gap): seeks still need the offset, the output needs no delay.
+        let mut j = job(Some(1.322));
+        j.source_has_audio = Some(false);
+        assert_eq!(j.output_video_delay(), 0.0);
+        assert_eq!(j.video_start(), 1.322);
     }
 }

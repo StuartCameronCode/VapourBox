@@ -2277,6 +2277,7 @@ mod tests {
             burn_in_subtitle_path: None,
             pitch_factors_path: None,
             video_start_offset: None,
+            source_has_audio: None,
         }
     }
 

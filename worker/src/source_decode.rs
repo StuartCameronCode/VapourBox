@@ -170,6 +170,27 @@ pub fn probe_video_start(
     Some(video_start_from_probe(&json))
 }
 
+/// Whether the file has an audio stream. Asked only when the video starts
+/// late: the gap is kept in the output only to keep sound and picture in
+/// step, so with no sound there is nothing to keep (a DVB recording stripped
+/// of its audio can still start with a teletext or data stream). `None` when
+/// ffprobe could not answer.
+pub fn probe_has_audio(
+    ffprobe: &std::path::Path,
+    env: &std::collections::HashMap<String, String>,
+    input: &str,
+) -> Option<bool> {
+    let out = std::process::Command::new(ffprobe)
+        .args(["-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", input])
+        .envs(env)
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| !String::from_utf8_lossy(&out.stdout).trim().is_empty())
+}
+
 /// The input `-ss` that makes source frame `frame` the first one decoded, or
 /// `None` for frame 0 (decode from the start: see rule 5 for why frame 0
 /// never seeks, even when the video starts after the container).

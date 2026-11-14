@@ -733,6 +733,8 @@ fn fill_video_start(
         source_decode::probe_video_start(&ffprobe, &d.build_environment(), &job.input_path)
     {
         if offset > 0.0 {
+            job.source_has_audio =
+                source_decode::probe_has_audio(&ffprobe, &d.build_environment(), &job.input_path);
             log(&format!(
                 "The video's first picture starts {:.3} s after the file's start (its sound starts first); \
                  frame numbers count from the picture",
