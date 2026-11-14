@@ -12,6 +12,15 @@
 //! nearest format that *is* readable and let the decoder convert. The choice is
 //! always a superset of the source (never lower chroma resolution or bit depth),
 //! so normalization can't degrade the image.
+//!
+//! **14-bit is never piped** (task #23): fmtconv's `bitdepth` has no 14-bit
+//! integer output (r31 and git-18a9cecb alike), and havsfunc returns to the
+//! clip's own depth through it in `Bob`, `Resize(dmode=1)` and `Deblock_QED`.
+//! A 14-bit clip failed QTGMC at every preset, Anti-aliasing (santiag) and
+//! Deblock QED. A 14-bit (or 13-bit) source is decoded as 16-bit instead:
+//! lossless (each 16-bit sample keeps the 14-bit value in its top bits; an
+//! exact shift in limited range) and free (both are 2 bytes a sample). See
+//! docs/reports/2026-11-14-bit-sources.
 
 /// Formats `templates/pipe_source.py` reads directly off the pipe.
 ///
@@ -31,9 +40,6 @@ pub const NATIVE_FORMATS: &[&str] = &[
     "yuv420p12le",
     "yuv422p12le",
     "yuv444p12le",
-    "yuv420p14le",
-    "yuv422p14le",
-    "yuv444p14le",
     "yuv420p16le",
     "yuv422p16le",
     "yuv444p16le",
@@ -85,7 +91,7 @@ impl PipeFormat {
     pub fn conversion_note(&self) -> Option<String> {
         self.converted_from.as_ref().map(|from| {
             format!(
-                "Source pixel format {} can't be read directly; decoding as {} instead",
+                "Source pixel format {} is decoded as {} for processing",
                 from, self.name
             )
         })
@@ -223,9 +229,11 @@ fn parse_depth(tail: &str) -> Option<u32> {
 
 /// The native format name for a chroma class at (at least) `depth` bits.
 fn native_name(class: ChromaClass, depth: u32) -> String {
-    // The depths VapourSynth has integer formats for. Round *up* so the pipe
-    // format never has less precision than the source.
-    let depth = [8, 9, 10, 12, 14, 16]
+    // The depths the pipeline works in. Round *up* so the pipe format never
+    // has less precision than the source. 14 is deliberately absent: fmtconv
+    // can't write 14-bit, and havsfunc's Bob/Resize/Deblock_QED go back to the
+    // clip's depth through it (task #23, docs/reports/2026-11-14-bit-sources).
+    let depth = [8, 9, 10, 12, 16]
         .into_iter()
         .find(|d| *d >= depth)
         .unwrap_or(16);
@@ -297,9 +305,39 @@ mod tests {
         // 11/13/15-bit don't exist in ffmpeg, but rounding up is what keeps an
         // unexpected depth from silently truncating.
         assert_eq!(native_name(ChromaClass::C420, 11), "yuv420p12le");
-        assert_eq!(native_name(ChromaClass::C444, 13), "yuv444p14le");
+        assert_eq!(native_name(ChromaClass::C444, 13), "yuv444p16le");
         assert_eq!(native_name(ChromaClass::C422, 17), "yuv422p16le");
         assert_eq!(name_of("yuv444p32le"), "yuv444p16le");
+    }
+
+    /// Task #23: fmtconv has no 14-bit output, so QTGMC, santiag and
+    /// Deblock_QED all failed on a 14-bit clip. Every 14-bit source decodes
+    /// as 16-bit, keeping its chroma class.
+    #[test]
+    fn test_14_bit_sources_decode_as_16() {
+        for (probed, expected) in [
+            ("yuv420p14le", "yuv420p16le"),
+            ("yuv422p14le", "yuv422p16le"),
+            ("yuv444p14le", "yuv444p16le"),
+            ("yuv420p14be", "yuv420p16le"),
+            ("yuva444p14le", "yuv444p16le"),
+            ("gray14le", "yuv420p16le"),
+            ("gbrp14le", "yuv444p16le"),
+            ("gbrap14le", "yuv444p16le"),
+        ] {
+            let result = decode_pixel_format(Some(probed));
+            assert_eq!(result.name, expected, "{}", probed);
+            assert_eq!(result.converted_from.as_deref(), Some(probed), "{}", probed);
+        }
+    }
+
+    /// Nothing at 14 bits may come back into the pipe list: it is the one
+    /// depth havsfunc's fmtconv calls refuse.
+    #[test]
+    fn test_no_native_format_is_14_bit() {
+        for fmt in NATIVE_FORMATS {
+            assert_ne!(classify(fmt).1, 14, "{} is 14-bit", fmt);
+        }
     }
 
     #[test]

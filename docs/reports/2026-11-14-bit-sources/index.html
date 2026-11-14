@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>14-bit Sources</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>14-bit sources: QTGMC failed at every preset</h1>
+<p class="meta">2026-11-15 · task #23 · deps 1.16.0 · measured on an Apple Silicon Mac (macOS arm64 bundle);
+macOS x64 measured by task #19 (<a href="../2026-11-fmtconv-macos-x64-r31/index.html">fmtconv report</a>);
+Windows and Linux are covered by the nightly heavy run, not measured here</p>
+
+<div class="card">
+<p><strong>Outcome: built.</strong> fmtconv's <code>fmtc.bitdepth</code> has no 14-bit integer output, in r31 and
+git-18a9cecb alike. havsfunc goes back to the clip's own depth through it in <code>Bob</code>, <code>Resize</code>
+and <code>Deblock_QED</code>, so on a 14-bit clip <strong>QTGMC failed at every preset</strong>, as did the
+Anti-aliasing pass's santiag and the Deblock pass's QED method. A 14-bit source was piped natively
+(<code>yuv4xxp14le</code>), and a 13-bit depth rounded up to 14.</p>
+<p><code>pixel_format::decode_pixel_format</code>, the one place the worker picks the pipe format, now
+decodes 14-bit (and anything rounding to 13 or 14) as <strong>16-bit</strong>. The conversion loses nothing and costs no
+speed (both depths use 2 bytes a sample). Every consumer follows: the encode and preview decoders, both
+templates, the encoder's input format and the three detectors. The one visible effect: with Output Colour Format
+<em>original</em>, a 14-bit source comes out 16-bit, which only FFV1 and FFVHuff store as such.</p>
+</div>
+
+<h2>1. A real job, before and after</h2>
+<p>FFV1 fixtures made losslessly from one degraded interlaced MPEG-2 master (<code>testsrc2</code> plus seeded noise, TFF,
+352x288, 2 s). Each was run with <code>vapourbox-worker --config</code> and the default pipeline (QTGMC on, TFF, x264 output).
+"Before" is a worker built at <code>efedef0</code> with that commit's templates; "after" is this change.</p>
+<div class="scroll"><table>
+<tr><th>source pix_fmt</th><th>piped before</th><th>before</th><th>piped after</th><th>after</th></tr>
+<tr><td><code>yuv420p12le</code> (control)</td><td><code>yuv420p12le</code></td><td class="good">ok, 100 frames</td><td><code>yuv420p12le</code></td><td class="good">ok, 100 frames</td></tr>
+<tr><td><code>yuv420p14le</code></td><td><code>yuv420p14le</code></td><td class="bad">failed</td><td><code>yuv420p16le</code></td><td class="good">ok, 100 frames</td></tr>
+<tr><td><code>gray14le</code></td><td><code>yuv420p14le</code></td><td class="bad">failed</td><td><code>yuv420p16le</code></td><td class="good">ok, 100 frames</td></tr>
+<tr><td><code>gbrp14le</code></td><td><code>yuv444p14le</code></td><td class="bad">failed</td><td><code>yuv444p16le</code></td><td class="good">ok, 100 frames</td></tr>
+</table></div>
+<p class="caption">Each failure was <code>vapoursynth.Error: bitdepth: output pixel bitdepth not supported.</code> in the
+vspipe log. The user did not see that: the job's error was the encoder's <code>ffmpeg exited with exit code 234 …
+Header too large</code>, because vspipe died before writing a Y4M header. That reporting problem is task #28.</p>
+
+<h2>2. Which havsfunc functions refuse 14-bit</h2>
+<p><code>scripts/haf_depths.py</code> runs each function on the same grainy YUV420 clip at 9, 12, 14 and 16 bits, with the
+macOS arm64 bundle's Python (havsfunc r31 with VapourBox's patches, fmtconv r31).</p>
+<div class="scroll"><table>
+<tr><th>function</th><th>9</th><th>12</th><th>14</th><th>16</th><th>reaches it from</th></tr>
+<tr><td><code>QTGMC</code> Slower / Fast / Draft, and Fast with FPSDivisor=2</td><td class="good">ok</td><td class="good">ok</td><td class="bad">bitdepth</td><td class="good">ok</td><td>Deinterlace (via <code>Bob</code> and <code>Resize</code>)</td></tr>
+<tr><td><code>Bob</code></td><td class="good">ok</td><td class="good">ok</td><td class="bad">bitdepth</td><td class="good">ok</td><td>QTGMC</td></tr>
+<tr><td><code>Resize</code></td><td class="good">ok</td><td class="good">ok</td><td class="bad">bitdepth</td><td class="good">ok</td><td>QTGMC, santiag</td></tr>
+<tr><td><code>santiag</code></td><td class="good">ok</td><td class="good">ok</td><td class="bad">bitdepth</td><td class="good">ok</td><td>Anti-aliasing</td></tr>
+<tr><td><code>Deblock_QED</code></td><td class="good">ok</td><td class="good">ok</td><td class="bad">bitdepth</td><td class="good">ok</td><td>Deblock (QED); not in the task's original list</td></tr>
+<tr><td><code>daa</code>, <code>DeHalo_alpha</code>, <code>FineDehalo</code>, <code>HQDeringmod</code>, <code>EdgeCleaner</code>, <code>SMDegrain</code>,
+<code>MCTemporalDenoise</code>, <code>LSFmod</code>, <code>ContraSharpening</code>, <code>GrainFactory3</code>, <code>STPresso</code>,
+<code>Vinverse</code>, <code>FixChromaBleedingMod</code>, <code>Stab</code></td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td><td></td></tr>
+<tr><td><code>YAHR</code>, <code>MinBlur(r=2)</code></td><td class="bad">CTMF</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td><td>Dehalo (YAHR)</td></tr>
+</table></div>
+<div class="card correction">
+<p><strong>Correction.</strong> The plan for this task said 9-bit sources were "fine everywhere". The committed
+script shows <code>YAHR</code> and <code>MinBlur(r=2)</code> failing at 9-bit: <code>ctmf.CTMF</code> accepts
+8/10/12/14/16 only. A 9-bit run of the heavy test's pass matrix confirms one app-visible failure, Dehalo's YAHR method.
+It is unrelated to 14-bit and left alone here; it is filed as task #31, where the same remedy (decoding 9 as 10) would apply.</p>
+</div>
+
+<h2>3. The decoder's 14 → 16-bit conversion loses nothing</h2>
+<p><code>scripts/shift_check.py</code> decodes one frame of a 14-bit 4:4:4 FFV1 file twice, as <code>yuv444p14le</code> and as
+<code>yuv444p16le</code>, and compares each sample.</p>
+<table>
+<tr><th>source range</th><th class="num">samples</th><th class="num">exact <code>x &lt;&lt; 2</code></th><th class="num"><code>y &gt;&gt; 2 == x</code></th><th class="num">max distance from <code>x·65535/16383</code></th></tr>
+<tr><td>limited (tv)</td><td class="num">304,128</td><td class="num">304,128</td><td class="num">304,128</td><td class="num">3.00</td></tr>
+<tr><td>full (pc)</td><td class="num">304,128</td><td class="num">222,348</td><td class="num">304,128</td><td class="num">3.00</td></tr>
+</table>
+<p class="caption">Limited range is a pure shift. Full range is scaled toward 65535/16383, within 3/65535 of the
+ideal curve (less than one 14-bit step, which is 4). In both cases every 16-bit sample holds the source's 14-bit value in its top 14
+bits, so nothing is lost and nothing downstream needs undoing. The detectors (<code>native_res</code>,
+<code>noise_halo</code>, <code>crop_detect</code>) take the depth from the pipe format, so their 8-bit-unit measurements
+are unchanged.</p>
+<div class="card correction">
+<p><strong>Correction.</strong> The plan described the full-range conversion as exactly <code>round(x·65535/16383)</code>.
+That holds for only some samples; what does hold is <code>y &gt;&gt; 2 == x</code> for all of them, which is the property that matters.</p>
+</div>
+
+<h2>4. What changes at the encoder</h2>
+<p>From <code>scripts/reproduce.sh</code>: the same 5 frames handed to each encoder as 14-bit and as 16-bit 4:2:0,
+with no <code>-pix_fmt</code>, as the worker does under <em>original</em>.</p>
+<table>
+<tr><th>encoder</th><th>from 14-bit</th><th>from 16-bit</th></tr>
+<tr><td>libx264</td><td><code>yuv420p10le</code></td><td><code>yuv420p10le</code></td></tr>
+<tr><td>libx265</td><td><code>yuv420p12le</code></td><td><code>yuv420p12le</code></td></tr>
+<tr><td>libsvtav1</td><td><code>yuv420p10le</code></td><td><code>yuv420p10le</code></td></tr>
+<tr><td>FFV1</td><td><code>yuv420p14le</code></td><td class="warn"><code>yuv420p16le</code></td></tr>
+<tr><td>FFVHuff</td><td><code>yuv420p14le</code></td><td class="warn"><code>yuv420p16le</code></td></tr>
+</table>
+<p>ProRes and v210 have fixed formats from the script, and hardware encoders take <code>forced_pix_fmt</code>, which looks only at
+<code>depth &gt; 8</code>. So only <strong>FFV1 and FFVHuff</strong> change. Stored at 16-bit, the 14-bit fixture's FFV1 file grows
+<strong>7.8%</strong> (2,812,203 → 3,031,693 bytes). That is the worst case, an unfiltered source whose two lowest bits are zero; after
+any filtering the picture genuinely has 16-bit precision. The plan's figure (~11%, 2.14 → 2.38 MB) came from an earlier, uncommitted
+fixture with different content. This script's 7.8% supersedes it; the gap is a reminder that the overhead depends on the
+content.</p>
+
+<h2>5. Decisions</h2>
+<ul>
+<li><strong>Decode 14-bit as 16-bit in <code>decode_pixel_format</code></strong> (built). It is the single decision site and every consumer
+already calls it, so the decoders, the scripts and the encoder's input format cannot disagree. 14 is the only depth fmtconv
+refuses. <code>NATIVE_FORMATS</code> and <code>pipe_source.py</code> drop the three <code>p14le</code> entries, and a unit test fails if
+a 14-bit format comes back.</li>
+<li><strong>Rejected: a 14 → 16 guard around each havsfunc call.</strong> It would be needed around QTGMC, santiag and
+Deblock_QED in both templates, plus any future havsfunc function that calls <code>fmtc.bitdepth</code> or <code>haf.Resize</code>:
+a permanent special case spread across the templates, for no gain in picture.</li>
+<li><strong>Rejected: converting back to 14-bit for <em>original</em>.</strong> It would need a second decision (the probed depth
+beside the pipe depth) in the output conversion and in <code>encoder_input_pix_fmt</code>, and would round away real precision
+after filtering. The only effect of not doing it is FFV1/FFVHuff writing 16-bit, which is documented.</li>
+</ul>
+
+<h2>6. Tests</h2>
+<ul>
+<li>Rust: <code>pixel_format</code> unit tests (every 14-bit layout → 16, no native format at 14, 13 → 16) and
+<code>test_241_14_bit_source_pipes_as_16</code> (the generated script and <code>encoder_input_pix_fmt</code>).</li>
+<li>Heavy (<code>integration_high_bit_depth_filters_test.dart</code>): "preview runs on deeper formats" gains a
+<code>yuv422p14le</code> row, and every pass gains santiag, which the pass matrix lacked. A new group compares 14-bit with 16-bit previews
+for passthrough, default QTGMC, santiag and Deblock QED (mean abs diff 0.003–0.007 levels, fixtures alone 0.004). It also encodes the
+default pipeline to FFV1 from <code>yuv420p14le</code> (output <code>yuv420p16le</code>, 50 frames) and previews <code>gray14le</code>
+and <code>gbrp14le</code>. Before the change, 6 of that group's 7 tests failed.</li>
+<li>The deeper-formats row is 4:2:2, not 4:2:0: on any 4:2:0 fixture, 8-bit included, the DeScratch pass fails with a resize error
+unrelated to depth (task #29).</li>
+</ul>
+
+<h2>7. Not tested</h2>
+<ul>
+<li>Windows and Linux bundles directly. Their fmtconv is the same r31, and the nightly heavy run covers them.</li>
+<li>Which real-world files decode as 14-bit. FFV1 at 14-bit (<code>yuv4xxp14</code>, <code>gray14</code>, <code>gbrp14</code>/<code>gbrap14</code>)
+is confirmed, which plausibly includes archival film scans. H.264 High 4:4:4 Predictive at 14-bit is decodable by ffmpeg but could not
+be produced locally (libx264 has no 14-bit). The fix keys on the decoded format, so the codec does not matter.</li>
+</ul>
+
+<h2>Reproducing</h2>
+<pre>SCRATCH=/some/scratch/dir docs/reports/2026-11-14-bit-sources/scripts/reproduce.sh
+# the "before" column: a worker built from efedef0 or earlier
+SCRATCH=… WORKER=/path/to/old/vapourbox-worker docs/reports/2026-11-14-bit-sources/scripts/reproduce.sh</pre>
+<p class="caption">An old worker finds its templates next to its executable or by searching upward; give it that commit's
+<code>worker/templates</code>, or it reads the new <code>pipe_source.py</code>, which no longer accepts 14-bit.</p>
+</main>
+</body>
+</html>

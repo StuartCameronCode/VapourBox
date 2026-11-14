@@ -4028,3 +4028,27 @@ Report: [docs/reports/2026-11-timestamp-resets](reports/2026-11-timestamp-resets
   reset (task #26).
 - **Not measured:** how often resets occur in real DVD/DVB material (none on
   the test machine); `reset_survey.py` does it.
+
+### 14-bit sources decode as 16-bit: fmtconv has no 14-bit output (task #23, 2026-11-15)
+
+Full evidence:
+[docs/reports/2026-11-14-bit-sources/](reports/2026-11-14-bit-sources/index.html).
+
+- `fmtc.bitdepth(bits=14)` is refused ("output pixel bitdepth not
+  supported") by r31 and git-18a9cecb alike. havsfunc returns to the clip's
+  own depth through it in `Bob`, `Resize` and `Deblock_QED`, so a 14-bit clip
+  failed QTGMC at every preset (Slower, Fast, Draft, FPSDivisor=2), santiag
+  and Deblock QED, and passed at 9/12/16. A 14-bit FFV1 source
+  (`yuv420p14le`, `gray14le`, `gbrp14le`) failed the default pipeline; the
+  user saw only the encoder's "Header too large" (task #28).
+- `pixel_format::native_name` now rounds to 8/9/10/12/16, and the three
+  `p14le` formats left `NATIVE_FORMATS` and `pipe_source.py`. The decoder's
+  14 → 16 conversion keeps every sample's value in its top 14 bits (limited
+  range: an exact `<< 2`; full range: within 3/65535 of x·65535/16383).
+  Guards around each havsfunc call were rejected as a permanent special case
+  in both templates.
+- Under Output Colour Format `original` a 14-bit source comes out 16-bit;
+  only FFV1/FFVHuff store that as such (+7.8% FFV1 size on an unfiltered
+  14-bit fixture). x264/x265/SVT-AV1 negotiate the same depth from 14 or 16.
+- Found on the way, filed: DeScratch fails on every 4:2:0 source (task #29);
+  Dehalo's YAHR fails on 9-bit, where CTMF has no format (task #31).

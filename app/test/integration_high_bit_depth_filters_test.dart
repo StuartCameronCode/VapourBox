@@ -520,6 +520,19 @@ List<_Pass> _passes() => [
         ),
       ),
 
+      // santiag (havsfunc) goes back to the clip's depth through haf.Resize,
+      // i.e. fmtc.bitdepth, which has no 14-bit output: it failed on every
+      // 14-bit source until those were decoded as 16 (task #23).
+      _Pass(
+        'anti_alias_santiag',
+        _only(
+          antiAlias: const AntiAliasParameters(
+            enabled: true,
+            method: AntiAliasMethod.santiag,
+          ),
+        ),
+      ),
+
       // The IVTC fade fix works in float, so a correct block is depth-blind.
       // This fixture holds no fade, and on a frame that is not fading the fix
       // changes ~0.1 levels by design — so it cannot be required to change
@@ -890,12 +903,14 @@ void main() {
   });
 
   // ===========================================================================
-  // 2. Do the deeper formats work too? 12-bit is ProRes 4444 XQ; 16-bit is what
-  //    the high-precision paths convert to internally, so a pass that rejects it
+  // 2. Do the deeper formats work too? 12-bit is ProRes 4444 XQ; 14-bit is
+  //    FFV1 film scans (decoded as 16-bit, task #23: QTGMC, santiag and
+  //    Deblock QED all failed on it before); 16-bit is what the
+  //    high-precision paths convert to internally, so a pass that rejects it
   //    is a latent failure even for a 10-bit source.
   // ===========================================================================
   group('preview runs on deeper formats', () {
-    for (final pixFmt in ['yuv444p12le', 'yuv422p16le']) {
+    for (final pixFmt in ['yuv444p12le', 'yuv422p14le', 'yuv422p16le']) {
       for (final pass in _passes()) {
         test('${pass.name} on $pixFmt', () async {
           if (await _skipWithoutDevice(pass)) return;
@@ -970,6 +985,119 @@ void main() {
                 'expressed in 8-bit levels is most likely reaching the filter '
                 'unscaled — see the Levels and Tweak blocks in the templates.');
       }, timeout: const Timeout(Duration(minutes: 6)));
+    }
+  });
+
+  // ===========================================================================
+  // 3a. 14-bit sources (task #23). fmtconv's bitdepth has no 14-bit output and
+  //     havsfunc returns to the clip's depth through it (Bob, Resize,
+  //     Deblock_QED), so the worker decodes 14-bit as 16-bit. The decoder's
+  //     14 -> 16 conversion is an exact shift, so a 14-bit source must give
+  //     the 16-bit fixture's picture.
+  // ===========================================================================
+  group('14-bit sources (task #23)', () {
+    const qtgmcDefault = QTGMCParameters(enabled: true, tff: true);
+
+    // The two fixtures are separate conversions of the master, and ffmpeg
+    // upsamples its 4:2:0 chroma separately at each depth, so measure what
+    // they differ by before any filter and allow a pass only its own
+    // rounding on top.
+    double? baseline;
+    Future<double> diff14vs16(ProcessingPipeline pipeline, String label) async {
+      final src14 = await _fixture('yuv422p14le');
+      final src16 = await _fixture('yuv422p16le');
+      final r14 = await WorkerHarness.runPreview(
+        _job(fixture: src14, pixFmt: 'yuv422p14le', pipeline: pipeline).toJson(),
+        frame: _previewFrame,
+        label: '${label}_14',
+      );
+      final r16 = await WorkerHarness.runPreview(
+        _job(fixture: src16, pixFmt: 'yuv422p16le', pipeline: pipeline).toJson(),
+        frame: _previewFrame,
+        label: '${label}_16',
+      );
+      expect(r14.success, isTrue, reason: '$label failed on 14-bit: $r14');
+      expect(r16.success, isTrue, reason: '$label failed on 16-bit: $r16');
+      return WorkerHarness.meanAbsDiff(
+          await WorkerHarness.imageToRgb24(r14.png!, label: '${label}_r14'),
+          await WorkerHarness.imageToRgb24(r16.png!, label: '${label}_r16'));
+    }
+
+    final cases = <String, ProcessingPipeline>{
+      'passthrough': _only(),
+      'deinterlace_default': _only(deinterlace: qtgmcDefault),
+      'anti_alias_santiag': _only(
+          antiAlias: const AntiAliasParameters(
+              enabled: true, method: AntiAliasMethod.santiag)),
+      'deblock_qed': _only(
+          deblock: const DeblockParameters(
+              enabled: true, method: DeblockMethod.deblockQed)),
+    };
+    for (final entry in cases.entries) {
+      test('${entry.key}: 14-bit gives the 16-bit picture', () async {
+        baseline ??= await diff14vs16(_only(), 'p14_passthrough');
+        final diff = entry.key == 'passthrough'
+            ? baseline!
+            : await diff14vs16(entry.value, 'p14_${entry.key}');
+        print('  ${entry.key}: 14 vs 16-bit mean abs diff '
+            '${diff.toStringAsFixed(3)} (fixtures alone: '
+            '${baseline!.toStringAsFixed(3)})');
+        expect(diff, lessThan(baseline! + 0.25));
+      }, timeout: const Timeout(Duration(minutes: 6)));
+    }
+
+    test('default pipeline encodes a 14-bit 4:2:0 source to FFV1', () async {
+      final fixture = await _fixture('yuv420p14le');
+      final pipeline = _only(deinterlace: qtgmcDefault);
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: fixture,
+        outputPath: '$_outDir/p14_encode.mkv',
+        qtgmcParameters: pipeline.deinterlace,
+        processingPipeline: pipeline,
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.mkv,
+          audioMode: AudioMode.none,
+          chromaSubsampling: ChromaSubsampling.original,
+        ),
+        detectedFieldOrder: FieldOrder.topFieldFirst,
+        totalFrames: _frames,
+        inputFrameRate: _fps,
+        inputWidth: _width,
+        inputHeight: _height,
+        inputPixelFormat: 'yuv420p14le',
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'p14_encode');
+      expect(result.success, isTrue, reason: result.error);
+      final out = await WorkerHarness.firstStream(result.outputPath!,
+          selector: 'v:0',
+          entries: ['pix_fmt', 'nb_read_frames'],
+          countFrames: true);
+      expect(out, isNotNull);
+      print('  14-bit encode -> ${out!['pix_fmt']}, '
+          '${out['nb_read_frames']} frames');
+      // Documented: "match source" delivers a 14-bit source as 16-bit, the
+      // depth the pipeline worked in.
+      expect(out['pix_fmt'], 'yuv420p16le');
+      // QTGMC at double rate.
+      expect(int.parse('${out['nb_read_frames']}'), _frames * 2);
+    }, timeout: const Timeout(Duration(minutes: 8)));
+
+    for (final pixFmt in ['gray14le', 'gbrp14le']) {
+      test('$pixFmt previews through QTGMC', () async {
+        final fixture = await _fixture(pixFmt);
+        final result = await WorkerHarness.runPreview(
+          _job(
+                  fixture: fixture,
+                  pixFmt: pixFmt,
+                  pipeline: _only(deinterlace: qtgmcDefault))
+              .toJson(),
+          frame: _previewFrame,
+          label: 'p14_$pixFmt',
+        );
+        expect(result.success, isTrue, reason: '$pixFmt failed: $result');
+      }, timeout: const Timeout(Duration(minutes: 4)));
     }
   });
 
