@@ -1947,6 +1947,8 @@ fn test_55_preview_selects_exact_frame() {
     let generator = ScriptGenerator::new().expect("create generator");
     let params = PreviewParams {
         rate_pad: 0,
+        unblend_pad: 0,
+        unblend_origin: 0,
         source_frame_offset: 0,
         width: 720,
         height: 576,
@@ -3064,6 +3066,8 @@ fn generate_both_scripts(job: &VideoJob) -> (String, String) {
 
     let params = PreviewParams {
         rate_pad: 0,
+        unblend_pad: 0,
+        unblend_origin: 0,
         source_frame_offset: 0,
         width: job.input_width.unwrap_or(720),
         height: job.input_height.unwrap_or(480),
@@ -6020,6 +6024,8 @@ fn test_162_max_cache_size_is_only_set_when_overridden() {
         let generator = ScriptGenerator::new().expect("Failed to create generator");
         let params = PreviewParams {
         rate_pad: 0,
+        unblend_pad: 0,
+        unblend_origin: 0,
         source_frame_offset: 0,
             width: 720,
             height: 480,
@@ -6202,6 +6208,8 @@ fn both_scripts_with(generator: &ScriptGenerator, job: &VideoJob) -> anyhow::Res
     let encode = std::fs::read_to_string(generator.generate(job)?)?;
     let params = PreviewParams {
         rate_pad: 0,
+        unblend_pad: 0,
+        unblend_origin: 0,
         source_frame_offset: 0,
         width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 11,
         fps_num: 25, fps_den: 1, output_index: 5,
@@ -6262,6 +6270,8 @@ fn test_167_rife_unavailable_refuses_with_the_probe_message() {
     assert_eq!(err, message);
     let params = PreviewParams {
         rate_pad: 0,
+        unblend_pad: 0,
+        unblend_origin: 0,
         source_frame_offset: 0,
         width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 11,
         fps_num: 25, fps_den: 1, output_index: 5,
@@ -6831,6 +6841,8 @@ fn test_182_preview_retime_padding() {
 
         let params = PreviewParams {
             rate_pad: 1,
+            unblend_pad: 0,
+            unblend_origin: 0,
             source_frame_offset: 0,
             width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 5,
             fps_num: 24, fps_den: 1, output_index: 3,
@@ -7794,6 +7806,8 @@ fn test_209_gpu_plugin_models_are_addons() {
     ];
     let params = PreviewParams {
         rate_pad: 0,
+        unblend_pad: 0,
+        unblend_origin: 0,
         source_frame_offset: 0,
         width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 11,
         fps_num: 25, fps_den: 1, output_index: 5,
@@ -7867,6 +7881,8 @@ fn test_210_preview_aspect_matches_the_encode() {
     let encode = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
     let params = PreviewParams {
         rate_pad: 0,
+        unblend_pad: 0,
+        unblend_origin: 0,
         source_frame_offset: 0,
         width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 5,
         fps_num: 25, fps_den: 1, output_index: 2,
@@ -7923,6 +7939,8 @@ fn stabilize_preview_script_at(job: &VideoJob, source_frame_offset: i32) -> Resu
     let generator = ScriptGenerator::new().map_err(|e| e.to_string())?;
     let params = PreviewParams {
         rate_pad: 0,
+        unblend_pad: 0,
+        unblend_origin: 0,
         source_frame_offset,
         width: 720,
         height: 576,
@@ -8489,4 +8507,120 @@ fn test_224_video_start_offset_never_touches_the_scripts() {
             assert!(!script.contains(word), "{word} reached the script");
         }
     }
+}
+
+// ===========================================================================
+// Unblend (SRestore), app 1.8.0 — docs/reports/2026-11-srestore
+// ===========================================================================
+
+/// 25i, deinterlaced at double rate (50p), unblended to `target`.
+fn unblend_job(name: &str, target: FrameRateTarget) -> VideoJob {
+    let mut job = create_base_job(name);
+    job.input_frame_rate = Some(25.0);
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.preset = QTGMCPreset::Fast;
+    job.qtgmc_parameters.tff = Some(true);
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        unblend: UnblendParameters { enabled: true, target, ..Default::default() },
+        noise_reduction: NoiseReductionParameters { enabled: true, ..Default::default() },
+        ..ProcessingPipeline::default()
+    });
+    job
+}
+
+/// The pass runs VapourBox's port (never havsfunc's srestore, which only
+/// decimates on R78) with the target and window, right after QTGMC and
+/// before every other pass, in both scripts; the encode never pads.
+#[test]
+fn test_225_unblend_script() {
+    create_output_dir();
+    let job = unblend_job("test_225_unblend", FrameRateTarget::Film23976);
+    let (encode, preview) = both_scripts_with(&ScriptGenerator::new().unwrap(), &job).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("import srestore as _unb"), "{name}: module not imported");
+        assert!(!script.contains("haf.srestore("), "{name}: havsfunc's srestore must not be used");
+        let qtgmc = script.find("clip = haf.QTGMC(").expect("QTGMC");
+        let call = script.find("clip = _unb.unblend(clip, 24000, 1001, origin=").expect("unblend call");
+        assert!(script.contains(&format!("window={})", UNBLEND_WINDOW)), "{name}: window");
+        let denoise = script.find("PASS 5: NOISE REDUCTION").expect("noise reduction");
+        assert!(qtgmc < call && call < denoise, "{name}: Unblend must sit between QTGMC and the denoiser");
+        assert!(!script.contains("{{UNBLEND") && !script.contains("{{PREVIEW_UNBLEND") && !script.contains("{{#UNBLEND"),
+            "{name}: placeholder left");
+    }
+    assert!(encode.contains("origin=0, window="), "the encode's detector starts at frame 0");
+    assert!(!encode.contains("_unb_pad"), "the encode must not pad");
+    assert!(preview.contains("_unb_pad = 0\n"), "preview pad not substituted");
+
+    // Off: no trace of it.
+    let mut off = job.clone();
+    off.processing_pipeline.as_mut().unwrap().unblend.enabled = false;
+    let (encode, preview) = both_scripts_with(&ScriptGenerator::new().unwrap(), &off).unwrap();
+    assert!(!encode.contains("_unb") && !preview.contains("_unb"));
+}
+
+/// A target Unblend cannot reach (raising the rate, the same rate, or a ratio
+/// srestore would compute differently) refuses the job with the panel's
+/// wording, rather than emitting a script that raises at evaluation.
+#[test]
+fn test_226_unblend_refuses_unreachable_targets() {
+    create_output_dir();
+    let generator = ScriptGenerator::new().unwrap();
+    for target in [FrameRateTarget::Pal50, FrameRateTarget::Ntsc5994] {
+        let job = unblend_job("test_226_up", target);
+        let err = generator.generate(&job).unwrap_err().to_string();
+        assert!(err.contains("can only lower the frame rate"), "{target:?}: {err}");
+        assert!(err.contains("from 50 fps"), "{target:?}: the rate at the pass is 50 after QTGMC: {err}");
+    }
+    // Without deinterlacing, 25p can't be unblended to 25.
+    let mut job = unblend_job("test_226_same", FrameRateTarget::Pal25);
+    let p = job.processing_pipeline.as_mut().unwrap();
+    p.deinterlace.enabled = false;
+    job.qtgmc_parameters.enabled = false;
+    assert!(generator.generate(&job).is_err());
+    // NTSC double rate to 50 is a ratio srestore approximates (835/1001).
+    let mut job = unblend_job("test_226_ratio", FrameRateTarget::Pal50);
+    job.input_frame_rate = Some(29.97);
+    assert!(generator.generate(&job).is_err());
+}
+
+/// The progress total and the Frame Rate pass's input rate follow Unblend's
+/// retime: 25i -> 50p -> 23.976 is 480/1001 of the double-rate count.
+#[test]
+fn test_227_unblend_frame_count() {
+    for (target, num, den) in [
+        (FrameRateTarget::Film23976, 480u64, 1001u64),
+        (FrameRateTarget::Film24, 12, 25),
+        (FrameRateTarget::Pal25, 1, 2),
+    ] {
+        let p = unblend_job("test_227", target).effective_pipeline();
+        for n in [1u64, 7, 97, 1001, 12345] {
+            assert_eq!(p.output_count(n), 2 * n * num / den, "{target:?} n={n}");
+        }
+    }
+    // NTSC: 29.97i -> 59.94p -> 23.976 is 2/5.
+    let mut job = unblend_job("test_227_ntsc", FrameRateTarget::Film23976);
+    job.input_frame_rate = Some(29.97);
+    assert_eq!(job.effective_pipeline().output_count(1000), 800);
+}
+
+/// The preview's padding and detector origin reach the script.
+#[test]
+fn test_228_unblend_preview_pad_and_origin() {
+    create_output_dir();
+    let job = unblend_job("test_228_pad", FrameRateTarget::Film23976);
+    let params = PreviewParams {
+        rate_pad: 0,
+        unblend_pad: 7,
+        unblend_origin: 9,
+        source_frame_offset: 40,
+        width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 61,
+        fps_num: 25, fps_den: 1, output_index: 3,
+    };
+    let preview = std::fs::read_to_string(
+        ScriptGenerator::new().unwrap().generate_preview(&job, &params).unwrap()).unwrap();
+    assert!(preview.contains("_unb_pad = 7\n"));
+    assert!(preview.contains("origin=9, window="));
+    let pad = preview.find("clip = clip[0] * _unb_pad + clip").expect("pad");
+    assert!(pad < preview.find("clip = _unb.unblend(").unwrap(), "padding must come before the pass");
 }

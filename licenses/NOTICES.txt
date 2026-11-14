@@ -115,6 +115,13 @@ mvsfunc — no licence stated upstream
   would prefer it not be redistributed, please open an issue and it will be
   removed.
 
+srestore 2.7e, from havsfunc (ported code) — Unlicense (public domain dedication)
+  https://github.com/HomeOfVapourSynthEvolution/havsfunc
+  Not called from havsfunc: its srestore() (headed "srestore v2.7e", an
+  AviSynth script ported to VapourSynth) is ported, as VapourBox's own
+  template code (worker/templates/srestore.py), from havsfunc r31, with its
+  detection arithmetic unchanged. Used by the Unblend (SRestore) pass.
+
 vs-jetpack (ported code) — MIT
   Copyright (c) 2020 - 2025 Jaded-Encoding-Thaumaturgy
   https://github.com/Jaded-Encoding-Thaumaturgy/vs-jetpack

@@ -25,6 +25,7 @@ import 'qtgmc_parameters.dart';
 import 'processing_pipeline.dart';
 import 'sharpen_parameters.dart';
 import 'subtitle_parameters.dart';
+import 'unblend_parameters.dart';
 
 /// Converts typed parameter classes to DynamicParameters for schema-based processing.
 class ParameterConverter {
@@ -667,6 +668,29 @@ class ParameterConverter {
     );
   }
 
+  static DynamicParameters fromUnblend(UnblendParameters params) {
+    return DynamicParameters(
+      filterId: 'unblend',
+      enabled: params.enabled,
+      values: {
+        'target': params.target.name,
+        'customFps': params.customFps,
+      },
+    );
+  }
+
+  static UnblendParameters toUnblend(DynamicParameters params) {
+    final v = params.values;
+    return UnblendParameters(
+      enabled: params.enabled,
+      target: FrameRateTarget.values.firstWhere(
+        (t) => t.name == v['target'],
+        orElse: () => FrameRateTarget.film23976,
+      ),
+      customFps: (v['customFps'] as num?)?.toDouble() ?? 24.0,
+    );
+  }
+
   static DynamicParameters fromGrain(GrainParameters params) {
     return DynamicParameters(
       filterId: 'grain',
@@ -1158,6 +1182,7 @@ class ParameterConverter {
         'geometry': fromGeometry(pipeline.geometry),
         'grain': fromGrain(pipeline.grain),
         'frame_rate': fromFrameRate(pipeline.frameRate),
+        'unblend': fromUnblend(pipeline.unblend),
         'deflicker': fromDeflicker(pipeline.deflicker),
         'descale': fromDescale(pipeline.descale),
         'edge_repair': fromEdgeRepair(pipeline.edgeRepair),
@@ -1823,6 +1848,9 @@ class ParameterConverter {
       frameRate: dynamic.get('frame_rate') != null
           ? toFrameRate(dynamic.get('frame_rate')!)
           : const FrameRateParameters(),
+      unblend: dynamic.get('unblend') != null
+          ? toUnblend(dynamic.get('unblend')!)
+          : const UnblendParameters(),
       grain: dynamic.get('grain') != null
           ? toGrain(dynamic.get('grain')!)
           : const GrainParameters(),

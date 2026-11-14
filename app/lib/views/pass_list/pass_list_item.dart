@@ -249,6 +249,8 @@ class PassListItem extends StatelessWidget {
         return Icons.grain;
       case PassType.frameRate:
         return Icons.speed;
+      case PassType.unblend:
+        return Icons.filter_none;
       case PassType.deflicker:
         return Icons.flourescent;
       case PassType.edgeRepair:

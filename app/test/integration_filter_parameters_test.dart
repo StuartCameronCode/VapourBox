@@ -35,6 +35,7 @@ import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/sharpen_parameters.dart';
 import 'package:vapourbox/models/spotless_parameters.dart';
 import 'package:vapourbox/models/stabilize_parameters.dart';
+import 'package:vapourbox/models/unblend_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 
 import 'package:vapourbox/services/manifest_addon.dart';
@@ -1048,6 +1049,55 @@ void main() {
       final ntsc = await generateScriptViaWorker(
           customJob('fr_custom_ntsc', 59.94, FrameRateMethod.duplicate));
       expect(ntsc, contains('haf.ChangeFPS(clip, 60000, 1001)'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // --- UNBLEND (SRestore port) ---
+    test('unblend: the target reaches the port, right after QTGMC', () async {
+      loadSchema('unblend'); // confirm schema parses
+      // Through the converter, as the panel does: the schema's values in.
+      final typed = ParameterConverter.toUnblend(const DynamicParameters(
+        filterId: 'unblend',
+        enabled: true,
+        values: {'target': 'film24', 'customFps': 24.0},
+      ));
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/unblend.mkv',
+        processingPipeline: ProcessingPipeline(
+          // small_clip is 29.97: double rate gives Unblend 59.94.
+          deinterlace: const QTGMCParameters(enabled: true, tff: true),
+          unblend: typed,
+          noiseReduction: const NoiseReductionParameters(enabled: true),
+        ),
+        encodingSettings: const EncodingSettings(),
+        inputFrameRate: 29.97,
+      );
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('import srestore as _unb'));
+      expect(script, contains('clip = _unb.unblend(clip, 24, 1, origin=0, window=48)'));
+      expect(script, isNot(contains('haf.srestore(')));
+      final qtgmc = script.indexOf('haf.QTGMC(');
+      final unblend = script.indexOf('_unb.unblend(');
+      final denoise = script.indexOf('PASS 5: NOISE REDUCTION');
+      expect(qtgmc < unblend && unblend < denoise, isTrue,
+          reason: 'Unblend must run between Deinterlace and Noise Reduction');
+
+      // A target above the rate at the pass is refused, not scripted.
+      final up = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/unblend_up.mkv',
+        processingPipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          unblend: UnblendParameters(enabled: true, target: FrameRateTarget.ntsc2997),
+        ),
+        encodingSettings: const EncodingSettings(),
+        inputFrameRate: 29.97,
+      );
+      await expectLater(generateScriptViaWorker(up), throwsA(isA<StateError>()
+          .having((e) => e.message, 'message', contains('can only lower the frame rate'))));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 

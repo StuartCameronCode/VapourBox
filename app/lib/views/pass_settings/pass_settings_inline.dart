@@ -10,6 +10,7 @@ import '../../models/filter_registry.dart';
 import '../../models/filter_schema.dart';
 import '../../models/pass_advice.dart';
 import '../../models/processing_pipeline.dart';
+import '../../models/unblend_parameters.dart';
 import '../../models/gpu_plugin_status.dart';
 import '../../services/addon_service.dart';
 import '../../services/pitch_factor_file.dart';
@@ -66,6 +67,8 @@ class PassSettingsInline extends StatelessWidget {
         return 'grain';
       case PassType.frameRate:
         return 'frame_rate';
+      case PassType.unblend:
+        return 'unblend';
       case PassType.deflicker:
         return 'deflicker';
       case PassType.edgeRepair:
@@ -112,6 +115,7 @@ class PassSettingsInline extends StatelessWidget {
             _buildDescription(context, schema),
             _buildInteractionAdvice(context, viewModel),
             _buildOpenCLWarning(context, viewModel, filterId, params),
+            if (filterId == 'unblend') _buildUnblendTargetWarning(viewModel),
             _buildGpuPluginNotice(context, viewModel, filterId, params),
             _buildKnlmNotice(viewModel, filterId, params),
             if (filterId == 'audio_restoration')
@@ -181,6 +185,21 @@ class PassSettingsInline extends StatelessWidget {
   /// still renders. See [adviceFor].
   Widget _buildInteractionAdvice(BuildContext context, MainViewModel viewModel) {
     final message = adviceFor(passType, viewModel.processingPipeline);
+    if (message == null) return const SizedBox.shrink();
+    return WarningBanner(message: message);
+  }
+
+  /// Unblend can only lower the rate. Said as soon as the target can't be
+  /// reached from the selected video's rate after deinterlacing, in the words
+  /// the worker uses when it refuses such a job.
+  Widget _buildUnblendTargetWarning(MainViewModel viewModel) {
+    final fps = viewModel.videoInfo?.frameRate;
+    if (fps == null || fps <= 0) return const SizedBox.shrink();
+    final pipeline = viewModel.processingPipeline;
+    final message = unblendTargetProblem(
+      pipeline.unblend.targetFps,
+      unblendInputFps(pipeline.deinterlace, fps),
+    );
     if (message == null) return const SizedBox.shrink();
     return WarningBanner(message: message);
   }

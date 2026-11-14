@@ -17,6 +17,7 @@
   "geometry.json",
   "grain.json",
   "frame_rate.json",
+  "unblend.json",
   "deflicker.json",
   "edge_repair.json",
   "ghost_removal.json",
