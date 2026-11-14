@@ -157,7 +157,11 @@ Future<int> _decoderDelay(String video) async {
 }
 
 VideoJob _job(String input, _Source s, String name,
-    {int? start, int? end, AudioMode audio = AudioMode.none, bool checked = false}) {
+    {int? start,
+    int? end,
+    int? total,
+    AudioMode audio = AudioMode.none,
+    bool checked = false}) {
   const off = QTGMCParameters(enabled: false);
   return VideoJob(
     id: const Uuid().v4(),
@@ -176,7 +180,7 @@ VideoJob _job(String input, _Source s, String name,
     inputFrameRate: s.fps,
     startFrame: start,
     endFrame: end,
-    totalFrames: start != null && end != null ? end - start + 1 : null,
+    totalFrames: total ?? (start != null && end != null ? end - start + 1 : null),
     continuityChecked: checked,
   );
 }
@@ -363,6 +367,57 @@ void main() {
     });
   }
 
+  // Task #26: an MPEG-PS whose last picture's packet has no PTS. ffprobe's
+  // stream duration ends one picture early (seek_dvd_pal.mpg: 5.96 s, 149 of
+  // 150), and the untrimmed encode, capped at the app's count, dropped it.
+  group('a last picture with no PTS is counted and encoded (task #26)', () {
+    setUpAll(() => ToolLocator.instance.initialize());
+
+    for (final file in [
+      'seek_dvd_pal.mpg',
+      'seek_gop_late_video.ts',
+      'late_video_gop.ts',
+      // soft_telecine_dvd.vob is integration_source_grid_test.dart's: the
+      // worker's fallback count is pictures (120), not its grid's 149 slots.
+    ]) {
+      test('$file: the app counts what an untrimmed decode delivers', () async {
+        final video = _resource(file);
+        final info = await FieldOrderDetector().getVideoInfo(video);
+        // The worker's own count when a job carries none: a full decode
+        // on the source's grid, exactly the encode's length.
+        final source = await _probe(video);
+        final r = await WorkerHarness.runJob(
+            _job(video, source, 'count_${p.basenameWithoutExtension(file)}').toJson(),
+            label: 'count');
+        expect(r.success, isTrue, reason: r.error);
+        final frames = await WorkerHarness.firstStream(r.outputPath!,
+            selector: 'v:0', entries: ['nb_read_frames'], countFrames: true);
+        expect(info!.frameCount, int.parse(frames!['nb_read_frames'].toString()));
+      });
+    }
+
+    test('seek_dvd_pal.mpg: the untrimmed encode keeps its last picture', () async {
+      final video = _resource('seek_dvd_pal.mpg');
+      final seq = await WorkerHarness.firstStream(video,
+          selector: 'v:0', entries: ['nb_read_frames'], countFrames: true);
+      expect(int.parse(seq!['nb_read_frames'].toString()), 150,
+          reason: 'the sequential decode');
+      final info = await FieldOrderDetector().getVideoInfo(video);
+      expect(info!.frameCount, 150);
+      final r = await WorkerHarness.runJob(
+          _job(video, await _probe(video), 'last_picture_dvd', total: info.frameCount)
+              .toJson(),
+          label: 'last_picture');
+      expect(r.success, isTrue, reason: r.error);
+      final out = await WorkerHarness.firstStream(r.outputPath!,
+          selector: 'v:0', entries: ['nb_read_frames'], countFrames: true);
+      expect(int.parse(out!['nb_read_frames'].toString()), 150);
+      _expectFrame('the last output frame',
+          await WorkerHarness.frameRgb24(r.outputPath!, 149, label: 'last'), 149,
+          await _neighbours(video, 149, count: 150));
+    });
+  });
+
   for (final file in ['seek_reset_dvd_pal.mpg', 'seek_reset_h264.ts']) {
     group('$file (timestamps reset at picture 150, task #21)', () {
       final original = _resource(file);
@@ -391,9 +446,8 @@ void main() {
         final before = await FieldOrderDetector().getVideoInfo(original);
         final after = await FieldOrderDetector().getVideoInfo(decode);
         expect(before!.frameCount, lessThan(160), reason: 'the fault the copy fixes');
-        // A program stream whose last picture's packet has no PTS counts one
-        // short, reset or not (seek_dvd_pal.mpg: 149 of 150): task #26.
-        expect(after!.frameCount, file.endsWith('.mpg') ? inInclusiveRange(299, 300) : 300);
+        // The PS copy's last picture's packet has no PTS: counted since task #26.
+        expect(after!.frameCount, 300);
       });
 
       for (final n in [100, 149, 150, 151, 160, 290]) {
@@ -421,8 +475,14 @@ void main() {
         final what = start == null ? 'an untrimmed encode' : 'a trim of $start..$end';
         test('$what is exact, across the reset', () async {
           final name = 'reset_${p.basenameWithoutExtension(file)}_${start ?? 'all'}';
+          // Untrimmed, the job carries the app's count, as the app sends it:
+          // the encode stops at it (-frames:v), so a short count drops pictures.
+          final total = start == null
+              ? (await FieldOrderDetector().getVideoInfo(decode))!.frameCount
+              : null;
           final r = await WorkerHarness.runJob(
-            _job(decode, source, name, start: start, end: end, checked: true).toJson(),
+            _job(decode, source, name, start: start, end: end, total: total, checked: true)
+                .toJson(),
             label: 'reset_encode',
           );
           expect(r.success, isTrue, reason: r.error);

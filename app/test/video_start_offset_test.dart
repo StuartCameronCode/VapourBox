@@ -116,6 +116,108 @@ void main() {
     });
   });
 
+  group('a last picture with no PTS (task #26)', () {
+    Map<String, dynamic> dvdTail() => jsonDecode(
+            File('../Tests/TestResources/tail_frames_probe_dvd_pal.json').readAsStringSync())
+        as Map<String, dynamic>;
+    Map<String, dynamic> frames(List<List<String?>> f) => {
+          'frames': [
+            for (final x in f)
+              {
+                if (x[0] != null) 'best_effort_timestamp_time': x[0],
+                if (x[1] != null) 'duration_time': x[1],
+              }
+          ]
+        };
+
+    test('seek_dvd_pal.mpg: the flushed P picture is 6.46 + 0.04, and counted', () {
+      // ffprobe: stream start 0.54, duration 5.96 -> 149; decoded: 150.
+      final t = FieldOrderDetector.untimedLastPicture(dvdTail(), frameRate: 25);
+      expect(t, closeTo(6.50, 1e-9));
+      expect(
+          FieldOrderDetector.frameCountWithUntimedTail(
+            byDuration: FieldOrderDetector.frameCountFromDuration(
+              streamDuration: 5.96,
+              containerDuration: 5.970022,
+              start: VideoStart.none,
+              frameRate: 25,
+            ),
+            untimedLast: t,
+            streamStart: 0.54,
+            start: VideoStart.none,
+            frameRate: 25,
+          ),
+          150);
+    });
+
+    test('every frame timed: no answer, the count is unchanged', () {
+      final t = FieldOrderDetector.untimedLastPicture(
+          frames([['1.00', '0.04'], ['1.04', '0.04']]), frameRate: 25);
+      expect(t, isNull);
+      expect(
+          FieldOrderDetector.frameCountWithUntimedTail(
+              byDuration: 149, untimedLast: t, streamStart: 0.54,
+              start: VideoStart.none, frameRate: 25),
+          149);
+    });
+
+    test('untimed frames chain; those before the first timed one are skipped', () {
+      expect(
+          FieldOrderDetector.untimedLastPicture(
+              frames([[null, '0.04'], ['1.00', '0.04'], [null, '0.04'], [null, '0.04']]),
+              frameRate: 25),
+          closeTo(1.08, 1e-9));
+      expect(
+          FieldOrderDetector.untimedLastPicture(frames([[null, '0.04']]), frameRate: 25),
+          isNull);
+    });
+
+    test("the previous frame's duration (a repeat) counts, else one frame", () {
+      expect(
+          FieldOrderDetector.untimedLastPicture(
+              frames([['1.00', '0.050044'], [null, null]]), frameRate: 25),
+          closeTo(1.050044, 1e-9));
+      expect(
+          FieldOrderDetector.untimedLastPicture(
+              frames([['1.00', null], [null, null]]), frameRate: 25),
+          closeTo(1.04, 1e-9));
+    });
+
+    test('never lowers a count; leading pictures move the origin', () {
+      expect(
+          FieldOrderDetector.frameCountWithUntimedTail(
+              byDuration: 200, untimedLast: 6.50, streamStart: 0.54,
+              start: VideoStart.none, frameRate: 25),
+          200);
+      // First picture 0.12 s before the stream's start_time: three more slots.
+      expect(
+          FieldOrderDetector.frameCountWithUntimedTail(
+              byDuration: 100, untimedLast: 6.50, streamStart: 0.54,
+              start: const VideoStart(offset: 0, leading: 0.12), frameRate: 25),
+          153);
+    });
+
+    test('only an MPEG-TS/PS with a stream start is probed', () {
+      expect(FieldOrderDetector.probesUntimedTail('mpeg', 0.54), isTrue);
+      expect(FieldOrderDetector.probesUntimedTail('mpegts', 1.4), isTrue);
+      expect(FieldOrderDetector.probesUntimedTail('mpeg', null), isFalse);
+      expect(FieldOrderDetector.probesUntimedTail('matroska,webm', 0), isFalse);
+      expect(FieldOrderDetector.probesUntimedTail('mov,mp4,m4a,3gp,3g2,mj2', 0), isFalse);
+      expect(FieldOrderDetector.probesUntimedTail(null, 0), isFalse);
+    });
+
+    test('the tail probe decodes the last seconds, from an absolute time', () {
+      expect(FieldOrderDetector.tailFramesProbeArgs(3.5), [
+        '-v', 'error',
+        '-select_streams', 'v:0',
+        '-show_entries', 'frame=best_effort_timestamp_time,duration_time',
+        '-read_intervals', '3.500000%',
+        '-of', 'json',
+      ]);
+      expect(FieldOrderDetector.tailFramesProbeArgs(-1)[7], '0.000000%');
+    });
+  });
+
   group('before frame and thumbnails (twin of source_decode::seek_time)', () {
     List<String> before(int frame, double offset) => PreviewGenerator.beforeFrameArgs(
         videoPath: 'in.ts',

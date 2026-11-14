@@ -4024,8 +4024,8 @@ Report: [docs/reports/2026-11-timestamp-resets](reports/2026-11-timestamp-resets
 - **Found on the way:** the DVD import copies the whole title set (every
   title, every angle, chapters ignored), so its output often has resets; it
   now joins them, and extracting the title alone is a separate task. A PS
-  whose last picture has no PTS counts one frame short with or without a
-  reset (task #26).
+  whose last picture has no PTS counted one frame short with or without a
+  reset (task #26, fixed 2026-11-15; see below).
 - **Not measured:** how often resets occur in real DVD/DVB material (none on
   the test machine); `reset_survey.py` does it.
 
@@ -4052,3 +4052,44 @@ Full evidence:
   14-bit fixture). x264/x265/SVT-AV1 negotiate the same depth from 14 or 16.
 - Found on the way, filed: DeScratch fails on every 4:2:0 source (task #29);
   Dehalo's YAHR fails on 9-bit, where CTMF has no format (task #31).
+
+### A PS whose last picture has no PTS counted one frame short (task #26, 2026-11-15)
+
+Report: the update under the fixtures table in
+[docs/reports/2026-11-timestamp-resets](reports/2026-11-timestamp-resets/index.html)
+(`scripts/last_picture_count_probe.py`).
+
+- **Cause.** An MPEG-PS (DVD/VOB) leaves some packets without a PTS. Mid-
+  stream the decoder still times such a picture from its DTS, but the
+  reference picture flushed at the end has no timestamp at all
+  (`ffprobe -show_frames`: `N/A`). ffprobe's stream duration ends at the
+  largest *known* PTS, so `seek_dvd_pal.mpg` (150 pictures) lasted 5.96 s
+  and counted 149. The joined copy of `seek_reset_dvd_pal.mpg` counted 299
+  of 300. The untrimmed encode, capped at the app's count with
+  `-frames:v`, dropped the last picture.
+- **Fix (app only).** `frameCountWithoutStoredCount` on an MPEG-TS/PS
+  (`probesUntimedTail`) decodes the last 3 s (`tailFramesProbeArgs`).
+  `untimedLastPicture` stamps an untimed frame with the previous frame's
+  time plus its duration, which is what `ffmpeg_dec.c` does: 6.46 + 0.04 =
+  6.50 s, the time `showinfo` reports in the encode. The count becomes
+  that picture's slot + 1 (`frameCountWithUntimedTail`), never fewer than
+  the duration's. With every frame timed, nothing changes. Both
+  `getVideoInfo` and `PreviewGenerator` pass the stream start and the
+  format.
+- **No worker twin.** The worker counts only when a job carries no count,
+  and then by decoding (`probe_frame_count`, `-count_frames`), which was
+  right already.
+- **Rejected:** "DTS plus the reorder delay" from a packet probe. The
+  delay varies: the tail's largest PTS − DTS is 0.12 s and the missing
+  picture's is 0.08 s, so that rule would count 151. `-count_frames` /
+  `-count_packets` at analysis were also rejected: a full decode of a DVD
+  takes minutes, and packets are pictures, not grid slots.
+- **Limits:** a last GOP longer than 3 s decodes nothing in the window, so
+  the duration's count stands. No fixture combines an untimed last picture
+  with a soft-telecine repeat.
+- Tests: `video_start_offset_test.dart` (push gate; the real tail probe in
+  `Tests/TestResources/tail_frames_probe_dvd_pal.json`) and
+  `integration_seek_alignment_test.dart` (heavy). The reset group's PS count
+  is now exactly 300, and its untrimmed encode carries the app's count. The
+  new group checks the app's count against the worker's decode, and checks
+  that an untrimmed `seek_dvd_pal.mpg` encode ends on picture 149.

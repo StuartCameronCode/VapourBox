@@ -784,6 +784,8 @@ class PreviewGenerator {
           containerDuration: _duration,
           start: videoStart,
           frameRate: _frameRate,
+          streamStart: double.tryParse('${videoStream['start_time']}'),
+          formatName: format?['format_name'] as String?,
         );
 
     // The timeline is the video's: with the sound starting first, the file's

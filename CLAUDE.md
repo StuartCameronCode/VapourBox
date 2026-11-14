@@ -1139,7 +1139,11 @@ the **single** builder of both decoders' arguments (encode + preview):
     pictures) when `nb_frames` is absent; with no stream duration either
     (Matroska), the last picture's grid slot + 1
     (`frameCountWithoutStoredCount`), since the container duration counts
-    repeat flags (issue #174).
+    repeat flags (issue #174). On an MPEG-TS/PS the stream duration misses a
+    last picture whose packet has no PTS (DVD: 149 of 150), so the app
+    decodes the last 3 s and counts it as ffmpeg's decoder stamps it
+    (previous frame + its duration; `untimedLastPicture`), never lowering
+    the count (task #26).
   - **The output keeps the source's layout: sound first, picture delayed.**
     `VideoJob::output_video_delay` is the one decision (0 when trimmed, when
     there is no sound, or with Audio Restoration's `startWithPicture`); the
