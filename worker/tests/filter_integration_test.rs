@@ -1158,6 +1158,10 @@ fn test_34_audio_passthrough_with_video_processing() {
     let generator = ScriptGenerator::new().expect("Failed to create generator");
     let script_path = generator.generate(&job).expect("Failed to generate script");
     let script_content = std::fs::read_to_string(&script_path).unwrap_or_default();
+    // The script names the templates directory by absolute path; a checkout
+    // whose path contains "audio" must not fail this.
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_string_lossy().into_owned();
+    let script_content = script_content.replace(&repo, "<repo>");
 
     // VapourSynth scripts should not contain any audio-related functions
     assert!(

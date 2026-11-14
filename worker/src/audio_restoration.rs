@@ -813,8 +813,9 @@ pub fn encode_map_args(
 
 /// The encoder's audio codec arguments. Passthrough copies — except the
 /// rendered track, which is new audio and must be encoded: FLAC in MKV, AAC
-/// at the chosen quality in MP4/MOV, 16-bit PCM in AVI — and 24-bit PCM
+/// at the chosen quality in MP4/MOV, 24-bit PCM in AVI — and 24-bit PCM
 /// whatever the container beside an editing intermediate (ProRes, v210).
+/// See `restored_passthrough_codec`.
 pub fn encode_codec_args(settings: &EncodingSettings, track: Option<&RestoredTrack>) -> Vec<String> {
     let mut args = Vec::new();
     match settings.audio_mode {
@@ -846,20 +847,17 @@ pub fn encode_codec_args(settings: &EncodingSettings, track: Option<&RestoredTra
 pub enum RestoredTrackCodec {
     Aac,
     Flac,
-    Pcm16,
     Pcm24,
 }
 
 impl RestoredTrackCodec {
     #[cfg(test)]
-    pub const ALL: [RestoredTrackCodec; 4] =
-        [RestoredTrackCodec::Aac, RestoredTrackCodec::Flac, RestoredTrackCodec::Pcm16, RestoredTrackCodec::Pcm24];
+    pub const ALL: [RestoredTrackCodec; 3] = [RestoredTrackCodec::Aac, RestoredTrackCodec::Flac, RestoredTrackCodec::Pcm24];
 
     pub fn ffmpeg_name(self) -> &'static str {
         match self {
             RestoredTrackCodec::Aac => "aac",
             RestoredTrackCodec::Flac => "flac",
-            RestoredTrackCodec::Pcm16 => "pcm_s16le",
             RestoredTrackCodec::Pcm24 => "pcm_s24le",
         }
     }
@@ -868,20 +866,29 @@ impl RestoredTrackCodec {
     pub fn takes_bitrate(self) -> bool {
         match self {
             RestoredTrackCodec::Aac => true,
-            RestoredTrackCodec::Flac | RestoredTrackCodec::Pcm16 | RestoredTrackCodec::Pcm24 => false,
+            RestoredTrackCodec::Flac | RestoredTrackCodec::Pcm24 => false,
         }
     }
 }
 
 /// What a restored track is encoded as when the audio setting is Passthrough.
 ///
-/// An editing intermediate (ProRes, v210) gets 24-bit PCM in every container:
-/// its soundtrack will be encoded again on delivery, so a lossy restored track
-/// would be two lossy generations, and PCM is what editors expect beside it.
-/// 24-bit rather than 16 because the render is 32-bit float: 16-bit rounds
-/// the quietest detail of pauses and fades to zero (measurable, not audible),
-/// costs the same order of data rate, and MKV's FLAC is already 24-bit
-/// (bit-identical to this) — docs/reports/2026-11-intermediate-pcm-depth.
+/// Wherever the track is lossless it keeps 24 bits: the render is 32-bit
+/// float, and 16-bit rounds the quietest detail of pauses and fades to zero
+/// (measurable, not audible) — docs/reports/2026-11-intermediate-pcm-depth.
+/// - An editing intermediate (ProRes, v210) gets 24-bit PCM in every
+///   container: its soundtrack will be encoded again on delivery, so a lossy
+///   restored track would be two lossy generations, and PCM is what editors
+///   expect beside it.
+/// - MKV gets FLAC, which ffmpeg writes at 24 bits from the float render.
+/// - AVI gets 24-bit PCM beside every codec, written as
+///   `WAVE_FORMAT_EXTENSIBLE` (ffmpeg's only form above 16 bits). Video for
+///   Windows, DirectShow, Media Foundation, VirtualDub 1.10.4 and VirtualDub2
+///   read it sample for sample; ACM, the old conversion layer, refuses 24-bit
+///   PCM in either header form (report, F6). Convert → PCM still gives 16 bits
+///   for a reader that needs them.
+/// - MP4/MOV otherwise get AAC.
+/// All three lossless forms decode to the same samples.
 pub fn restored_passthrough_codec(container: ContainerFormat, video: VideoCodec) -> RestoredTrackCodec {
     if video.is_editing_intermediate() {
         return RestoredTrackCodec::Pcm24;
@@ -889,7 +896,7 @@ pub fn restored_passthrough_codec(container: ContainerFormat, video: VideoCodec)
     match container {
         ContainerFormat::Mkv => RestoredTrackCodec::Flac,
         ContainerFormat::Mp4 | ContainerFormat::Mov => RestoredTrackCodec::Aac,
-        ContainerFormat::Avi => RestoredTrackCodec::Pcm16,
+        ContainerFormat::Avi => RestoredTrackCodec::Pcm24,
     }
 }
 
@@ -2008,10 +2015,16 @@ mod tests {
             encode_codec_args(&settings(AudioMode::Passthrough, ContainerFormat::Mp4), Some(&t)),
             vec!["-c:a", "copy", "-c:a:0", "aac", "-b:a:0", "192k"]
         );
+        // AVI, beside a codec that is not an intermediate: 24-bit PCM too.
         assert_eq!(
             encode_codec_args(&settings(AudioMode::Passthrough, ContainerFormat::Avi), Some(&t)),
-            vec!["-c:a", "copy", "-c:a:0", "pcm_s16le"]
+            vec!["-c:a", "copy", "-c:a:0", "pcm_s24le"]
         );
+        for codec in [VideoCodec::FFV1, VideoCodec::Huffyuv, VideoCodec::Ffvhuff, VideoCodec::H264] {
+            let mut avi = settings(AudioMode::Passthrough, ContainerFormat::Avi);
+            avi.codec = codec;
+            assert_eq!(encode_codec_args(&avi, Some(&t)), vec!["-c:a", "copy", "-c:a:0", "pcm_s24le"], "{codec:?}");
+        }
         // Beside ProRes in MOV: 24-bit PCM, with no bitrate.
         let mut prores = settings(AudioMode::Passthrough, ContainerFormat::Mov);
         prores.codec = VideoCodec::ProResHQ;
@@ -2022,11 +2035,15 @@ mod tests {
             v210.codec = VideoCodec::V210;
             assert_eq!(encode_codec_args(&v210, Some(&t)), vec!["-c:a", "copy", "-c:a:0", "pcm_s24le"], "{container:?}");
         }
-        // Convert → PCM is the user's choice and stays 16-bit.
+        // Convert → PCM is the user's choice and stays 16-bit, in AVI too.
         let mut convert_pcm = settings(AudioMode::Convert, ContainerFormat::Mov);
         convert_pcm.codec = VideoCodec::ProResHQ;
         convert_pcm.audio_codec = AudioCodec::Pcm;
         assert_eq!(encode_codec_args(&convert_pcm, Some(&t)), vec!["-c:a", "pcm_s16le"]);
+        let mut convert_avi = settings(AudioMode::Convert, ContainerFormat::Avi);
+        convert_avi.codec = VideoCodec::FFV1;
+        convert_avi.audio_codec = AudioCodec::Pcm;
+        assert_eq!(encode_codec_args(&convert_avi, Some(&t)), vec!["-c:a", "pcm_s16le"]);
         // Without a track, exactly what the encoder always did.
         assert_eq!(encode_codec_args(&settings(AudioMode::Passthrough, ContainerFormat::Mp4), None), vec!["-c:a", "copy"]);
         let mut convert = settings(AudioMode::Convert, ContainerFormat::Mp4);
@@ -2062,22 +2079,30 @@ mod tests {
         assert_eq!(num_precise(1.000999), "1.000999");
     }
 
-    /// An editing intermediate's (ProRes, v210) restored track is 24-bit PCM
-    /// in every container; every other codec keeps the container's choice.
+    /// The restored track is 24-bit PCM beside an editing intermediate (ProRes,
+    /// v210) in every container, and in AVI beside every codec; otherwise FLAC
+    /// in MKV (also 24-bit) and AAC in MP4/MOV. Nothing is 16-bit any more.
     #[test]
-    fn restored_passthrough_is_24_bit_pcm_beside_intermediates() {
+    fn restored_passthrough_keeps_24_bits_where_it_can() {
         let all = [ContainerFormat::Mp4, ContainerFormat::Mov, ContainerFormat::Mkv, ContainerFormat::Avi];
         for video in VideoCodec::ALL.iter().copied() {
             for container in all {
                 let codec = restored_passthrough_codec(container, video);
-                assert_eq!(codec == RestoredTrackCodec::Pcm24, video.is_editing_intermediate(), "{video:?}/{container:?}");
+                let pcm24 = video.is_editing_intermediate() || container == ContainerFormat::Avi;
+                assert_eq!(codec == RestoredTrackCodec::Pcm24, pcm24, "{video:?}/{container:?}");
+                if !pcm24 {
+                    let expected = if container == ContainerFormat::Mkv { RestoredTrackCodec::Flac } else { RestoredTrackCodec::Aac };
+                    assert_eq!(codec, expected, "{video:?}/{container:?}");
+                }
             }
         }
         assert!(VideoCodec::ProResHQ.is_editing_intermediate() && VideoCodec::V210.is_editing_intermediate());
         assert_eq!(restored_passthrough_codec(ContainerFormat::Mov, VideoCodec::H264), RestoredTrackCodec::Aac);
         assert_eq!(restored_passthrough_codec(ContainerFormat::Mp4, VideoCodec::H265), RestoredTrackCodec::Aac);
         assert_eq!(restored_passthrough_codec(ContainerFormat::Mkv, VideoCodec::FFV1), RestoredTrackCodec::Flac);
-        assert_eq!(restored_passthrough_codec(ContainerFormat::Avi, VideoCodec::H264), RestoredTrackCodec::Pcm16);
+        for video in [VideoCodec::FFV1, VideoCodec::Huffyuv, VideoCodec::Ffvhuff, VideoCodec::H264] {
+            assert_eq!(restored_passthrough_codec(ContainerFormat::Avi, video), RestoredTrackCodec::Pcm24, "{video:?}");
+        }
     }
 
     /// The restored track's encoder names, and the user-facing PCM wire value
@@ -2085,7 +2110,7 @@ mod tests {
     #[test]
     fn restored_track_codec_names_and_the_pcm_wire_value() {
         let names: Vec<_> = RestoredTrackCodec::ALL.iter().map(|c| (c.ffmpeg_name(), c.takes_bitrate())).collect();
-        assert_eq!(names, vec![("aac", true), ("flac", false), ("pcm_s16le", false), ("pcm_s24le", false)]);
+        assert_eq!(names, vec![("aac", true), ("flac", false), ("pcm_s24le", false)]);
         assert_eq!(AudioCodec::Pcm.ffmpeg_name(), "pcm_s16le");
         assert_eq!(serde_json::to_string(&AudioCodec::Pcm).unwrap(), "\"pcm_s16le\"");
     }

@@ -3962,7 +3962,36 @@ Follow-up to the entry above. Full evidence:
 - The first probe run used music and quiet speech (5 dB SNR) and found ≥ 24
   dB of margin everywhere; corrected in place in the report. Premiere,
   Resolve and Avid were not tested. AVI beside a non-intermediate is now the
-  only 16-bit restored track.
+  only 16-bit restored track. *(2026-11-15: no longer — see the next entry.)*
+
+### 24-bit restored audio in AVI beside every codec (2026-11-15)
+
+Follow-up to the entry above (task 25). Evidence: F6 of
+[docs/reports/2026-11-intermediate-pcm-depth/](reports/2026-11-intermediate-pcm-depth/index.html#f6).
+
+- AVI beside FFV1, HuffYUV, FFVHuff or H.264 now gets `pcm_s24le` for the
+  restored track under Passthrough, as MKV already got 24-bit FLAC.
+  `RestoredTrackCodec::Pcm16` is gone; no restored track is 16-bit.
+  Convert → PCM (`pcm_s16le`) is unchanged and is the way to get 16 bits.
+- The question was the readers, not the depth: ffmpeg writes >16-bit PCM in
+  AVI only as `WAVE_FORMAT_EXTENSIBLE` (0xFFFE, 24 valid bits, mask 0x3,
+  subformat PCM), with no option for a plain 0x0001 header.
+- Measured on a GitHub Windows Server 2025 runner (scripts in the report):
+  Video for Windows (`AVIStreamRead`), DirectShow (AVI Splitter → Sample
+  Grabber, offering `MEDIASUBTYPE_PCM` with the extensible format) and
+  Media Foundation's Source Reader return the stored 24-bit samples exactly;
+  VirtualDub 1.10.4 (HuffYUV fixture; it has no VfW decoder for FFV1/H.264,
+  the 16-bit control fails identically) and VirtualDub2 save them exactly in
+  direct copy and full processing. MF starts 96 frames in and VirtualDub2
+  pads 960 frames, for the 16-bit control too. VLC 3.0.23 (macOS) reads them
+  exactly.
+- **ACM refuses 24-bit PCM** (`ACMERR_NOTPOSSIBLE`) whether the header is
+  extensible or plain 0x0001, and converts the 16-bit control. So the header
+  is not the problem there, and only tools that convert through ACM are
+  affected; VirtualDub 1.10.4's own full processing is not one of them.
+- Blackmagic's Resolve 16.2 and 20 codec lists document embedded AVI audio
+  as Linear PCM 16/24/32-bit. Premiere Pro and Vegas were not tested; forum
+  reports (unverified) describe both dropping 24-bit AVI audio.
 
 ### A delayed AVI cannot seek its sound near its start (2026-11-14)
 

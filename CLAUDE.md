@@ -2124,12 +2124,18 @@ Rules, from docs/reports/2026-11-audio-restoration:
   untouched, each with its own tags (`encode_map_args`; naming one stream's
   `-map_metadata` switches off ffmpeg's copying for the rest). Passthrough
   copies the others but must encode the restored one: FLAC in MKV, AAC at the
-  chosen quality in MP4/MOV, 16-bit PCM in AVI, and 24-bit PCM (`pcm_s24le`)
-  in any container beside an editing intermediate, ProRes or v210
+  chosen quality in MP4/MOV, and 24-bit PCM (`pcm_s24le`) in AVI beside any
+  codec and in any container beside an editing intermediate, ProRes or v210
   (`restored_passthrough_codec`, which returns its own `RestoredTrackCodec`:
   `AudioCodec::Pcm` is the user's Convert choice and stays `pcm_s16le` on the
-  wire). The render is f32; ffmpeg's FLAC from it is already 24-bit, and the
-  same render as FLAC/MKV and 24-bit PCM in MOV/MKV/AVI decodes bit-identical.
+  wire). No restored track is 16-bit. The render is f32; ffmpeg's FLAC from it
+  is already 24-bit, and the same render as FLAC/MKV and 24-bit PCM in
+  MOV/MKV/AVI decodes bit-identical. 24-bit PCM in AVI can only be
+  `WAVE_FORMAT_EXTENSIBLE`; Video for Windows, DirectShow, Media Foundation
+  and VirtualDub 1.10.4/VirtualDub2 read it sample for sample, ACM refuses
+  24-bit in any header, Premiere and Vegas are untested
+  (docs/reports/2026-11-intermediate-pcm-depth, F6). Convert → PCM is the
+  16-bit way out.
 - **Automatic choices are measured, never guessed**: a dead channel (≥30 dB
   below the other, which is above −60 dBFS) and 50/60 Hz hum (Goertzel over
   2 s blocks, a line ≥12 dB above its neighbours) are read from a minute in

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Reproduce every number in ../index.html.
+# Reproduce every number in ../index.html (F6's Windows half: see its Reproduce).
 #
 #   WORK=/scratch/dir ./run.sh
 #
@@ -48,4 +48,12 @@ if [ "$(uname -s)" = Darwin ]; then
       echo "samples: DIFFER from ffmpeg's decode"
     fi
   done
+fi
+# F6: the AVI fixtures, their headers, and VLC's read where VLC is installed.
+# The Windows readers run on a GitHub runner (see the report's Reproduce).
+"${PYTHON:-python3}" "$HERE/avi_readers/make_fixtures.py"
+: "${VLC:=$( [ -x /Applications/VLC.app/Contents/MacOS/VLC ] && echo /Applications/VLC.app/Contents/MacOS/VLC || command -v vlc || true)}"
+if [ -n "$VLC" ]; then
+  VLC="$VLC" "$HERE/avi_readers/vlc_read.sh"
+  "${PYTHON:-python3}" "$HERE/avi_readers/compare.py"
 fi
