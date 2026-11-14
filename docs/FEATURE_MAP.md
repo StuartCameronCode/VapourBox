@@ -399,10 +399,10 @@ GitHub API.
 - **VapourBox:**
   - [README](../README.md)
   - filter schemas in `app/assets/filters/core/`
-  - `worker/src/models/video_job.rs` (`VideoCodec`, `ContainerFormat`)
+  - `worker/src/models/video_job.rs` (`VideoCodec`, `ContainerFormat`,
+    `VideoCodec::field_order_signal`)
   - `worker/src/pipeline_executor.rs` (stream mapping)
-  - `worker/src/models/video_job.rs` (`VideoCodec::field_order_signal`) and
-    `worker/src/source_decode.rs` (the video's start offset)
+  - `worker/src/source_decode.rs` (the video's start offset)
 - **HandBrake:**
   - [filters](https://handbrake.fr/docs/en/latest/technical/filters-summary.html)
   - [HDR and Dolby Vision](https://handbrake.fr/docs/en/latest/technical/hdr.html)
