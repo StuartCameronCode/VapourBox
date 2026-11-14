@@ -113,12 +113,20 @@ pub struct VideoJob {
     pub seek_plan: Option<crate::source_decode::SeekPlan>,
 
     /// The constant-rate grid every decoder places the source's frames on
-    /// (`source_decode::grid_from_probe`, rule 7): the stream's exact rate and
-    /// its first picture. `None` (the decoders keep their old arguments) when
-    /// the probe failed or the source's packets lack timestamps. Filled by the
-    /// worker when the job omits it.
+    /// (`source_decode::grid_from_probe`, rule 8, issue #174): the stream's
+    /// exact rate and its first picture. `None` (the decoders keep their old
+    /// arguments) when the probe failed or the source's packets lack
+    /// timestamps. Filled by the worker when the job omits it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_grid: Option<crate::source_decode::SourceGrid>,
+
+    /// Frames late the decoder stamps every picture of an AVI that stores
+    /// decode-order timestamps (`source_decode::decoder_delay_from_probe`,
+    /// issue #173): 1 for MPEG-2 and MPEG-4 ASP, 2 for H.264 with B-frames.
+    /// Every seek adds it; nothing else does. Filled by the worker when the
+    /// job omits it; `None` and 0 both mean none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decoder_delay_frames: Option<u32>,
 
     /// Whether the source has an audio stream, probed by the worker only when
     /// the video starts late (`source_decode::probe_has_audio`). `None` means
@@ -134,9 +142,44 @@ impl VideoJob {
         self.seek_plan.as_ref().filter(|p| p.is_valid())
     }
 
+    /// The decoder delay in frames, 0 when unknown or out of range.
+    pub fn decoder_delay(&self) -> u32 {
+        self.decoder_delay_frames
+            .filter(|d| *d <= crate::source_decode::MAX_DECODER_DELAY)
+            .unwrap_or(0)
+    }
+
     /// The source grid, when there is a usable one.
     pub fn source_grid(&self) -> Option<&crate::source_decode::SourceGrid> {
         self.source_grid.as_ref().filter(|g| g.is_valid())
+    }
+
+    /// How a constant-rate decoder of the source starts at source frame
+    /// `frame` (`source_decode::decode_start`): on the source's grid when it
+    /// has one, else [`Self::source_seek`]. Every such decoder (encode,
+    /// preview, detectors) takes its start from here.
+    pub fn decode_start(&self, frame: i64, fps: f64) -> crate::source_decode::DecodeStart {
+        crate::source_decode::decode_start(
+            frame,
+            fps,
+            self.video_start(),
+            self.decoder_delay(),
+            self.seek_plan(),
+            self.source_grid(),
+        )
+    }
+
+    /// How a decoder of the source starts at source frame `frame`
+    /// (`source_decode::source_seek`): every decoder that targets a frame
+    /// takes its seek from here.
+    pub fn source_seek(&self, frame: i64, fps: f64) -> crate::source_decode::DecoderSeek {
+        crate::source_decode::source_seek(
+            frame,
+            fps,
+            self.video_start(),
+            self.decoder_delay(),
+            self.seek_plan(),
+        )
     }
 
     /// The video start offset in seconds, 0 when unknown or invalid.
@@ -2142,6 +2185,24 @@ mod video_start_tests {
         // An unusable plan is no plan.
         j.seek_plan = Some(SeekPlan { preroll: 0.0, container_start: 1.4 });
         assert!(j.seek_plan().is_none());
+    }
+
+    #[test]
+    fn the_decoder_delay_is_optional_on_the_wire_and_moves_seeks_only() {
+        let mut j = job(None);
+        assert!(!serde_json::to_string(&j).unwrap().contains("decoderDelayFrames"));
+        assert_eq!(j.decoder_delay(), 0);
+        let before_delay = j.output_video_delay();
+        j.decoder_delay_frames = Some(1);
+        let back: VideoJob = serde_json::from_str(&serde_json::to_string(&j).unwrap()).unwrap();
+        assert_eq!(back.decoder_delay_frames, Some(1));
+        assert_eq!(j.decoder_delay(), 1);
+        // Seeks move by a frame; the picture's place against the sound does not.
+        assert_eq!(j.source_seek(41, 25.0).ss, crate::source_decode::seek_time(42, 25.0, 0.0));
+        assert_eq!(j.output_video_delay(), before_delay);
+        assert_eq!(j.video_start(), 0.0);
+        j.decoder_delay_frames = Some(9);
+        assert_eq!(j.decoder_delay(), 0, "an implausible delay is no delay");
     }
 
     #[test]

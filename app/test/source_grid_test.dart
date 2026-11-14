@@ -110,7 +110,7 @@ void main() {
         grid: grid,
         outputPath: 'out.png',
       );
-      expect(args[args.indexOf('-ss') + 1], ((32 - 0.5) / 25).toStringAsFixed(6));
+      expect(args[args.indexOf('-ss') + 1], SeekPlan.formatSeek((32 - 0.5) / 25));
       expect(args[args.indexOf('-vf') + 1],
           'setparams=color_primaries=unknown,setpts=PTS-0.000000/TB,fps=25/1,'
           'trim=start_pts=40,setpts=PTS-STARTPTS,zscale=t=linear');
@@ -124,7 +124,7 @@ void main() {
         outputPath: 'out.png',
       );
       expect(args, isNot(contains('-copyts')));
-      expect(args[args.indexOf('-ss') + 1], (39.5 / 25).toStringAsFixed(6));
+      expect(args[args.indexOf('-ss') + 1], SeekPlan.formatSeek(39.5 / 25));
     });
 
     test('a thumbnail is the frame shown at its time', () {

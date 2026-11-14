@@ -460,14 +460,14 @@ impl PipelineExecutor {
                 width,
                 height,
                 pix_fmt,
-                job.input_frame_rate,
+                &job.decode_start(
+                    job.start_frame.unwrap_or(0) as i64,
+                    job.input_frame_rate.unwrap_or(29.97),
+                ),
                 job.start_frame,
                 job.end_frame,
                 job.total_frames,
-                job.video_start(),
                 tag_fix.as_deref(),
-                job.seek_plan(),
-                job.source_grid(),
             ),
         };
 
@@ -1446,7 +1446,7 @@ impl PipelineExecutor {
         // interval *before* `first` (i.e. (first - 0.5)/fps) lands squarely on
         // `first` for CFR sources, avoiding the ±1-frame ambiguity of seeking to
         // the frame boundary itself.
-        let seek_time = source_decode::seek_time(first as i64, frame_rate, job.video_start());
+        let start = job.decode_start(first as i64, frame_rate);
         // A VFR source's window is in grid slots, decoded from its stored
         // frames — the same derivation as the encode (issue #137).
         let window = self
@@ -1461,37 +1461,31 @@ impl PipelineExecutor {
         let out = pipeline.preview_output(origin, first as u64, target as u64, sub_frame as u64);
         let output_index = out.local_index as i32;
 
-        let decoder_seek = match &window {
-            Some(w) => w.seek_time.unwrap_or(0.0),
-            None => seek_time.unwrap_or(0.0),
+        // What the decoder actually runs: on an MPEG-TS/PS it seeks a GOP
+        // earlier and trims to the target (source_decode rule 6); near a
+        // delayed AVI's start it counts pictures instead of seeking (rule 7).
+        let planned = match &window {
+            Some(w) => source_decode::decoder_seek(w.seek_time, job.seek_plan()),
+            None => start.seek.unwrap_or_default(),
         };
-        // On an MPEG-TS/PS the decoder seeks a GOP earlier and trims to the
-        // target (source_decode rule 6); say so, with what it actually runs.
-        let planned = source_decode::decoder_seek(
-            (decoder_seek > 0.0).then_some(decoder_seek),
-            job.seek_plan(),
-        );
-        let plan_note = match (&window, job.source_grid()) {
-            // Without a VFR timeline, a source with a grid starts there
-            // (source_decode rule 7): say what the decoder actually runs.
-            (None, Some(g)) => {
-                let start = source_decode::decode_start(
-                    first as i64, frame_rate, job.video_start(), job.seek_plan(), Some(g),
-                );
-                format!(
-                    ", grid {}/{} from slot {}: -ss {:.6}s",
-                    g.rate_num, g.rate_den, first, start.ss.unwrap_or(0.0)
-                )
-            }
-            _ => match planned.trim_from {
-                Some(t) => format!(
-                    ", MPEG-TS/PS: -ss {:.6}s, trim from {:.6}s",
-                    planned.ss.unwrap_or(0.0),
-                    t
-                ),
-                None => String::new(),
-            },
+        let decoder_seek = match (&window, start.seek) {
+            (None, None) => start.ss.unwrap_or(0.0),
+            _ => planned.ss.unwrap_or(0.0),
         };
+        let mut plan_note = match planned.trim_from {
+            Some(t) => format!(", MPEG-TS/PS: trim from {:.6}s", t),
+            None => String::new(),
+        };
+        if let Some(n) = planned.trim_frames {
+            plan_note.push_str(&format!(", decoding from the start and dropping {n} frames"));
+        }
+        if job.decoder_delay() > 0 && window.is_none() {
+            plan_note.push_str(&format!(", decoder delay {} frame(s)", job.decoder_delay()));
+        }
+        // On the source's grid (source_decode rule 8): say so.
+        if let (None, None, Some(g)) = (&window, start.seek, job.source_grid()) {
+            plan_note.push_str(&format!(", grid {}/{} from slot {}", g.rate_num, g.rate_den, first));
+        }
         eprintln!(
             "Preview: source frame {} (window {}..{}, local {}, output index {}, output {} of {}, rate pad {}) seek {:.6}s ({}x{} {}{}{})",
             target, first, target + radius, local, output_index, out.sub_frame + 1, out.sub_frames, out.rate_pad,
@@ -1567,17 +1561,13 @@ impl PipelineExecutor {
             ),
             None => source_decode::preview_decoder_args(
                 &job.input_path,
-                first as i64,
-                frame_rate,
+                &start,
                 num_frames,
                 width,
                 height,
                 pix_fmt,
                 raw_path.to_string_lossy().as_ref(),
-                job.video_start(),
                 tag_fix.as_deref(),
-                job.seek_plan(),
-                job.source_grid(),
             ),
         };
         let extract_result = Command::new(&ffmpeg_path)
@@ -2314,6 +2304,7 @@ mod tests {
             pitch_factors_path: None,
             video_start_offset: None,
             seek_plan: None,
+            decoder_delay_frames: None,
             source_grid: None,
             source_has_audio: None,
         }

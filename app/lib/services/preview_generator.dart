@@ -73,9 +73,14 @@ class PreviewGenerator {
   /// other format. See [SeekPlan].
   SeekPlan? _seekPlan;
 
-  /// The source's frame grid (issue #16), null when it has none (packets
+  /// The source's frame grid (issue #174), null when it has none (packets
   /// without timestamps), which seeks as before. See [SourceGrid].
   SourceGrid? _sourceGrid;
+
+  /// Frames late the decoder stamps each picture of an AVI that stores
+  /// decode-order timestamps (issue #173), 0 for every other source. Every
+  /// seek of the source adds it.
+  int _decoderDelayFrames = 0;
 
   /// Video dimensions and pixel format (for pipe source).
   int _videoWidth = 0;
@@ -121,6 +126,12 @@ class PreviewGenerator {
   /// `scale`, which is the step that converts. On an MPEG-TS/PS, [seekPlan]
   /// seeks a GOP early and trims to the moment (issue #169): a plain seek
   /// there decodes from the next keyframe, and past the last one, nothing.
+  ///
+  /// An AVI that stores decode-order timestamps (issue #173) stamps each
+  /// picture [decoderDelayFrames] frames late, so the seek adds them (at
+  /// [frameRate]); near its start such a file cannot seek at all, so the
+  /// thumbnail decodes from the start and drops pictures by count. A
+  /// thumbnail at the very start never seeks.
   static List<String> thumbnailArgs({
     required String videoPath,
     required double time,
@@ -129,17 +140,32 @@ class PreviewGenerator {
     String? tagFix,
     SeekPlan? seekPlan,
     SourceGrid? grid,
+    double frameRate = 0,
+    int decoderDelayFrames = 0,
     required String outputPath,
   }) {
-    // On the source's grid (issue #16), the thumbnail is the frame shown at
+    // On the source's grid (issue #174), the thumbnail is the frame shown at
     // [time]: the same picture the Original shows for that frame.
     final onGrid = grid != null && grid.isValid
         ? grid.startAt((time * grid.fps).round(), videoStartOffset, seekPlan)
         : null;
     final target = time + videoStartOffset;
-    final planned = onGrid != null || seekPlan == null
-        ? null
-        : SeekPlan.seekArgs(target, seekPlan);
+    final delayed = seekPlan == null && decoderDelayFrames > 0 && frameRate > 0;
+    final ({List<String> input, String? trim})? planned;
+    if (onGrid != null) {
+      planned = null;
+    } else if (seekPlan != null) {
+      planned = SeekPlan.seekArgs(target, seekPlan);
+    } else if (target <= 0) {
+      planned = (input: const <String>[], trim: null);
+    } else if (delayed) {
+      final t = target + decoderDelayFrames / frameRate;
+      planned = t < SeekPlan.countSeekBelow
+          ? (input: const <String>[], trim: 'trim=start_frame=${(time * frameRate).round()}')
+          : (input: ['-ss', SeekPlan.formatSeek(t)], trim: null);
+    } else {
+      planned = null;
+    }
     return [
       '-y',
       ...?onGrid?.input,
@@ -178,6 +204,7 @@ class PreviewGenerator {
   double get videoStartOffset => _videoStartOffset;
   SeekPlan? get seekPlan => _seekPlan;
   SourceGrid? get sourceGrid => _sourceGrid;
+  int get decoderDelayFrames => _decoderDelayFrames;
 
   /// Get all preview log messages.
   List<String> get previewLog => List.unmodifiable(_previewLog);
@@ -302,7 +329,7 @@ class PreviewGenerator {
   /// starts at the next keyframe. Twin of the worker's
   /// `source_decode::decoder_seek`; null leaves the arguments as they were.
   ///
-  /// With a [grid] (issue #16, the worker's `source_decode::decode_start`),
+  /// With a [grid] (issue #174, the worker's `source_decode::decode_start`),
   /// the decode copies timestamps, starts [SourceGrid.lookbackSlots] early
   /// and keeps slot [frameIndex] of the grid: a frame inside a run of null
   /// frames or a pulldown repeat is the stored frame before it, exactly as
@@ -325,16 +352,25 @@ class PreviewGenerator {
     String? tagFix,
     SeekPlan? seekPlan,
     SourceGrid? grid,
+    int decoderDelayFrames = 0,
     required String outputPath,
   }) {
     final frame = frameIndex < 0 ? 0 : frameIndex;
     final offset = videoStartOffset > 0 ? videoStartOffset : 0.0;
+    // On the source's grid (issue #174) the grid decides; otherwise the seek
+    // of #157/#169/#173.
     final onGrid = grid != null && grid.isValid
         ? grid.startAt(frame, offset, seekPlan)
         : null;
-    final seek = onGrid == null && frame > 0
-        ? SeekPlan.seekArgs((frame - 0.5) / frameRate + offset, seekPlan)
-        : null;
+    final seek = onGrid != null
+        ? null
+        : SeekPlan.frameSeekArgs(
+            frame: frame,
+            frameRate: frameRate,
+            videoStartOffset: videoStartOffset,
+            decoderDelayFrames: decoderDelayFrames,
+            plan: seekPlan,
+          );
     final vf = [
       if (tagFix != null) tagFix,
       ...?onGrid?.filters,
@@ -381,6 +417,7 @@ class PreviewGenerator {
           tagFix: _tagFix,
           seekPlan: _seekPlan,
           grid: _sourceGrid,
+          decoderDelayFrames: _decoderDelayFrames,
           outputPath: outputPath,
         ),
       );
@@ -702,6 +739,15 @@ class PreviewGenerator {
     );
     _videoStartOffset = videoStart.offset;
 
+    // An AVI holding MPEG-2/MPEG-4/H.264 with a decoder delay stamps every
+    // picture that many frames late (issue #173): seeks add it.
+    _decoderDelayFrames = await FieldOrderDetector.probeDecoderDelay(
+      _ffprobePath!,
+      videoPath,
+      hasBFrames: videoStream['has_b_frames'] as int?,
+      videoStart: _videoStartOffset,
+    );
+
     // An MPEG-TS/PS has no keyframe index, so its seeks start a GOP early
     // and trim to the frame (the twin of the worker's seek plan, #169).
     _seekPlan = await FieldOrderDetector.probeSeekPlan(
@@ -710,7 +756,7 @@ class PreviewGenerator {
       formatName: format?['format_name'] as String?,
     );
 
-    // The grid the worker's decoders place the frames on (issue #16): the
+    // The grid the worker's decoders place the frames on (issue #174): the
     // Original and the thumbnails start on it too, so a null frame or a
     // pulldown repeat shows the same picture on both sides.
     _sourceGrid = await FieldOrderDetector.probeSourceGrid(
@@ -808,10 +854,12 @@ class PreviewGenerator {
           videoPath: videoPath,
           time: time,
           videoStartOffset: _videoStartOffset,
+          frameRate: _frameRate,
           toneMap: _toneMap,
           tagFix: _tagFix,
           seekPlan: _seekPlan,
           grid: _sourceGrid,
+          decoderDelayFrames: _decoderDelayFrames,
           outputPath: outputPath,
         ),
       );

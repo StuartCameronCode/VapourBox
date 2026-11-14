@@ -68,6 +68,7 @@ fn create_base_job(output_name: &str) -> VideoJob {
         pitch_factors_path: None,
         video_start_offset: None,
         seek_plan: None,
+        decoder_delay_frames: None,
         source_grid: None,
         source_has_audio: None,
     }
@@ -1281,6 +1282,7 @@ fn create_ivtc_base_job(output_name: &str) -> VideoJob {
         pitch_factors_path: None,
         video_start_offset: None,
         seek_plan: None,
+        decoder_delay_frames: None,
         source_grid: None,
         source_has_audio: None,
     }
@@ -8494,8 +8496,7 @@ fn test_224_video_start_offset_never_touches_the_scripts() {
         }
     }
 }
-
-/// Issue #16: the Soft Telecine method removes pulldown repeats only from a
+/// Issue #174: the Soft Telecine method removes pulldown repeats only from a
 /// 29.97 decode. A source stored at its film rate already decodes to the film
 /// frames, so at 23.976 the script has no VDecimate (it removed one real film
 /// frame in five), and the source grid never reaches either script.

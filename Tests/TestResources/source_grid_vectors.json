@@ -9,7 +9,7 @@
       "starts": [
         {"frame": 0, "videoStart": 0.0, "ss": null, "filters": ["setpts=PTS-0.000000/TB", "fps=2997/100", "trim=start_pts=0", "setpts=PTS-STARTPTS"]},
         {"frame": 5, "videoStart": 0.0, "ss": null, "filters": ["setpts=PTS-0.000000/TB", "fps=2997/100", "trim=start_pts=5", "setpts=PTS-STARTPTS"]},
-        {"frame": 40, "videoStart": 0.0, "ss": "1.051051", "filters": ["setpts=PTS-0.000000/TB", "fps=2997/100", "trim=start_pts=40", "setpts=PTS-STARTPTS"]}
+        {"frame": 40, "videoStart": 0.0, "ss": "1.051052", "filters": ["setpts=PTS-0.000000/TB", "fps=2997/100", "trim=start_pts=40", "setpts=PTS-STARTPTS"]}
       ]
     },
     {

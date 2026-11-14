@@ -783,7 +783,7 @@ class FieldOrderDetector {
 
   /// The source's length on its [grid] from its last picture's presentation
   /// time: the slot that picture lands on, plus one. What the worker's grid
-  /// decode produces (issue #16), where the container's duration can count
+  /// decode produces (issue #174), where the container's duration can count
   /// the last frame's repeat flags (`soft_telecine_test.mkv`: 121 for 120).
   static int frameCountFromLastPicture(double lastPts, SourceGrid grid) {
     final n = ((lastPts - grid.origin) * grid.fps).round() + 1;
@@ -818,6 +818,96 @@ class FieldOrderDetector {
       return last;
     } catch (_) {
       return null;
+    }
+  }
+
+  /// ffprobe's arguments (before the input) for [decoderDelayFromProbe]:
+  /// the worker's `source_decode::DECODER_DELAY_PROBE_ARGS`, word for word.
+  /// It decodes the first packets, so it runs only for a source that
+  /// [storesDecodeOrder].
+  static const decoderDelayProbeArgs = [
+    '-v', 'error',
+    '-select_streams', 'v:0',
+    '-show_entries', 'frame=best_effort_timestamp_time:stream=r_frame_rate:format=start_time',
+    '-read_intervals', '%+#16',
+    '-of', 'json',
+  ];
+
+  /// The largest decoder delay believed (`MAX_DECODER_DELAY`).
+  static const maxDecoderDelay = 4;
+
+  /// Whether a source stores decode-order timestamps only (issue #173): some
+  /// packet in ffprobe's answer to [videoStartProbeArgs] carries no PTS. AVI
+  /// does this for MPEG-2, MPEG-4 ASP and H.264 with B-frames. Twin of the
+  /// worker's `source_decode::stores_decode_order`.
+  static bool storesDecodeOrder(Map<String, dynamic> json) {
+    final packets = (json['packets'] as List<dynamic>?) ?? const [];
+    return packets.any((p) => !(p as Map<String, dynamic>).containsKey('pts_time'));
+  }
+
+  /// How many frames late the decoder stamps every picture of such a source,
+  /// from ffprobe's answer to [decoderDelayProbeArgs]: the first decoded
+  /// picture's timestamp less the container start and [videoStart], in whole
+  /// frames of `r_frame_rate`; 0 unless 1..[maxDecoderDelay]. Twin of the
+  /// worker's `source_decode::decoder_delay_from_probe`; both read
+  /// `Tests/TestResources/decoder_delay_probe_avi.json` in their tests.
+  static int decoderDelayFromProbe(
+      Map<String, dynamic> json, double videoStart) {
+    double? num(Object? v) {
+      final d = v == null ? null : double.tryParse('$v');
+      return d != null && d.isFinite ? d : null;
+    }
+
+    final streams = (json['streams'] as List<dynamic>?) ?? const [];
+    final rateStr = streams.isEmpty
+        ? null
+        : (streams.first as Map<String, dynamic>)['r_frame_rate'] as String?;
+    double? rate;
+    final parts = rateStr?.split('/');
+    if (parts != null && parts.length == 2) {
+      final n = double.tryParse(parts[0]);
+      final d = double.tryParse(parts[1]);
+      if (n != null && d != null && n > 0 && d > 0) rate = n / d;
+    }
+    final frames = (json['frames'] as List<dynamic>?) ?? const [];
+    final first = frames.isEmpty
+        ? null
+        : num((frames.first as Map<String, dynamic>)['best_effort_timestamp_time']);
+    if (rate == null || first == null) return 0;
+    final format = json['format'] as Map<String, dynamic>?;
+    final container = num(format?['start_time']) ?? 0.0;
+    final delay =
+        ((first - container - (videoStart > 0 ? videoStart : 0.0)) * rate).round();
+    return delay >= 1 && delay <= maxDecoderDelay ? delay : 0;
+  }
+
+  /// Probe the decoder delay (issue #173), but only for a stream that reports
+  /// one ([hasBFrames] > 0, from the probe the caller already ran) and stores
+  /// decode-order timestamps: one packet probe, then one short decode. 0
+  /// for every other source, and on any failure.
+  static Future<int> probeDecoderDelay(
+    String ffprobe,
+    String videoPath, {
+    required int? hasBFrames,
+    required double videoStart,
+  }) async {
+    if (hasBFrames == null || hasBFrames <= 0) return 0;
+    try {
+      final packets =
+          await Process.run(ffprobe, [...videoStartProbeArgs, videoPath]);
+      if (packets.exitCode != 0) return 0;
+      if (!storesDecodeOrder(
+          jsonDecode(packets.stdout as String) as Map<String, dynamic>)) {
+        return 0;
+      }
+      final frames =
+          await Process.run(ffprobe, [...decoderDelayProbeArgs, videoPath]);
+      if (frames.exitCode != 0) return 0;
+      return decoderDelayFromProbe(
+          jsonDecode(frames.stdout as String) as Map<String, dynamic>,
+          videoStart);
+    } catch (_) {
+      return 0;
     }
   }
 
@@ -873,13 +963,58 @@ class SeekPlan {
         !plan.preroll.isFinite ||
         plan.preroll <= 0 ||
         !plan.containerStart.isFinite) {
-      return (input: ['-ss', target.toStringAsFixed(6)], trim: null);
+      return (input: ['-ss', formatSeek(target)], trim: null);
     }
     final early = target - plan.preroll;
     return (
-      input: ['-copyts', if (early > 0) ...['-ss', early.toStringAsFixed(6)]],
-      trim: 'trim=start=${(plan.containerStart + target).toStringAsFixed(6)}',
+      input: ['-copyts', if (early > 0) ...['-ss', formatSeek(early)]],
+      trim: 'trim=start=${formatSeek(plan.containerStart + target)}',
     );
+  }
+
+  /// A seek time as ffmpeg takes it: seconds to the microsecond, rounded
+  /// **up** (issue #173). An AVI's tick is one frame, so `(N - 0.5) / fps`
+  /// sits exactly on half a tick; to the nearest microsecond it often fell
+  /// below the half and the decode began a frame early. The 1 ns allowance
+  /// keeps whole microseconds as they are. Twin of the worker's
+  /// `source_decode::seek_arg`.
+  static String formatSeek(double t) =>
+      ((t * 1e6 - 1e-3).ceil() / 1e6).toStringAsFixed(6);
+
+  /// Below this seek time a source with a decoder delay decodes from the
+  /// start and drops pictures by count (`COUNT_SEEK_BELOW`): an AVI cannot
+  /// seek there, since ffmpeg starts such a seek 3/23 s early.
+  static const countSeekBelow = 0.5;
+
+  /// The input options and `trim` that make source frame [frame] the first
+  /// one decoded, or null for frame 0 (never seeks). [decoderDelayFrames] is
+  /// added to the frame (an AVI stamps each picture that many frames late),
+  /// except under a [plan]; with a delay, a seek before [countSeekBelow]
+  /// becomes no seek and `trim=start_frame=`[frame]. Twin of the worker's
+  /// `source_decode::source_seek`; both check
+  /// `Tests/TestResources/seek_arg_cases.json`.
+  static ({List<String> input, String? trim})? frameSeekArgs({
+    required int frame,
+    required double frameRate,
+    double videoStartOffset = 0,
+    int decoderDelayFrames = 0,
+    SeekPlan? plan,
+  }) {
+    if (frame <= 0) return null;
+    final fps = frameRate > 0 ? frameRate : 29.97;
+    final usable = plan != null &&
+        plan.preroll.isFinite &&
+        plan.preroll > 0 &&
+        plan.containerStart.isFinite;
+    final delay = usable
+        ? 0
+        : decoderDelayFrames.clamp(0, FieldOrderDetector.maxDecoderDelay);
+    final offset = videoStartOffset > 0 ? videoStartOffset : 0.0;
+    final target = (frame + delay - 0.5) / fps + offset;
+    if (delay > 0 && target < countSeekBelow) {
+      return (input: const <String>[], trim: 'trim=start_frame=$frame');
+    }
+    return seekArgs(target, usable ? plan : null);
   }
 
   @override
@@ -897,7 +1032,7 @@ class SeekPlan {
 }
 
 /// The constant-rate grid every decode of the source places its frames on
-/// (issue #16): the job's rate as the stream's exact fraction, from the
+/// (issue #174): the job's rate as the stream's exact fraction, from the
 /// video's first picture. Twin of the worker's `source_decode::SourceGrid`;
 /// frame N is slot N, so a null frame or a pulldown repeat is a slot that
 /// shows the stored frame before it, and every decode, preview, encode, the
@@ -949,7 +1084,7 @@ class SourceGrid {
     if (ss != null && usablePlan) ss -= plan.preroll;
     if (ss != null && ss <= 0) ss = null;
     return (
-      input: ['-copyts', if (ss != null) ...['-ss', ss.toStringAsFixed(6)]],
+      input: ['-copyts', if (ss != null) ...['-ss', SeekPlan.formatSeek(ss)]],
       filters: filters(f),
     );
   }
@@ -1222,7 +1357,7 @@ class VideoInfo {
   /// - Hard telecine: container is ~29.97fps, content is ~23.976fps (after IVTC)
   /// - Progressive/interlaced: same as container rate
   /// Whether the Soft Telecine method has pulldown repeats to remove from
-  /// this source: only at 29.97 or 30 fps (issue #16). A stream stored at its
+  /// this source: only at 29.97 or 30 fps (issue #174). A stream stored at its
   /// film rate, its repeat flags only in the bitstream, decodes to the film
   /// frames already. Twin of the worker's `soft_telecine_decimates_at`; both
   /// read `Tests/TestResources/soft_telecine_rates.json` in their tests.

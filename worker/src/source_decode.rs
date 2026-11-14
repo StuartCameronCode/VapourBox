@@ -72,8 +72,42 @@
 //!    wrong frame. Every other format has no plan and keeps its arguments
 //!    byte for byte ([`decoder_seek`]).
 //!
+//! 7. **An AVI lands on frame N too** (issue #173). Three faults, one fix
+//!    each, all in [`source_seek`] and [`seek_arg`]:
+//!    - AVI stores decode-order timestamps only. With a decoder delay
+//!      (MPEG-2, MPEG-4 ASP, H.264 with B-frames) ffmpeg stamps display
+//!      picture *k* as *k + D*, so a seek landed D frames early. The worker
+//!      measures D ([`decoder_delay_from_probe`], only for a source whose
+//!      packets carry no PTS) and every seek adds it. Seeks only: the
+//!      untrimmed encode was already right, and the sound is not moved.
+//!    - An AVI's tick is one frame, so `(N - 0.5) / fps` sits exactly on half
+//!      a tick; printed to the nearest microsecond it often fell below the
+//!      half and the trim rounded to N - 1 (one start in three on every
+//!      NTSC-rate AVI, B-frames or not). Every seek value is rounded *up*.
+//!    - ffmpeg starts a seek 3/23 s early for a delayed stream, and an AVI
+//!      cannot seek before its start: frames 1-3 jumped ~1.5 s ("could not
+//!      seek"). Below [`COUNT_SEEK_BELOW`] a delayed source decodes from the
+//!      start and drops the first N pictures by count (`trim=start_frame`).
+//!
+//! 8. **Every constant-rate decoder places the frames on the source's grid**
+//!    (issue #174). Frame N is slot N of the grid at the job's rate (the
+//!    stream's exact fraction) from the video's first picture; each slot shows
+//!    the stored frame its timestamp puts there, so a null frame or a pulldown
+//!    repeat is a slot showing the frame before it. `rawvideo`'s own
+//!    constant-rate output did not: it gave a first frame with a repeat flag
+//!    extra slots (`soft_telecine_test.mkv`: 122 for 120, every frame two
+//!    late) and rounded a gap's edge differently, and a seek into a null run or
+//!    onto a pulldown repeat kept the stored frame *after* it. So the decoder
+//!    copies timestamps, seeks [`GRID_LOOKBACK_SLOTS`] early (and a
+//!    [`SeekPlan`]'s preroll more), and runs [`SourceGrid::filters`]: `setpts`
+//!    to the first picture (the same constant in every decoder, so the `fps`
+//!    filter rounds identically in all of them), `fps`, `trim=start_pts=N`, the
+//!    reset. [`decode_start`] is the one decision. A source whose packets lack
+//!    PTS (rule 7's AVIs) has no grid and keeps rules 3-7.
+//!
 //! See docs/ENGINEERING_NOTES.md, "Clean aperture: decode the stored frame",
-//! docs/reports/issue-157-seek-alignment, docs/reports/issue-169-mpeg-seek and
+//! docs/reports/issue-157-seek-alignment, docs/reports/issue-169-mpeg-seek,
+//! docs/reports/issue-173-avi-seek, docs/reports/issue-174-source-grid and
 //! docs/reports/2026-11-reserved-colour-tags.
 
 /// Input option placed before `-i` on every ffmpeg that decodes the source's
@@ -115,16 +149,17 @@ pub fn decoder_filter(
     height: i32,
     seeks: bool,
     tag_fix: Option<&str>,
-    trim_from: Option<f64>,
+    seek: &DecoderSeek,
 ) -> String {
     let mut chain: Vec<String> = Vec::new();
     if let Some(fix) = tag_fix {
         chain.push(fix.to_string());
     }
-    if let Some(t) = trim_from {
-        chain.push(trim_filter(t));
+    let trim = seek.trim();
+    if let Some(t) = &trim {
+        chain.push(t.clone());
     }
-    if seeks || trim_from.is_some() {
+    if seeks || trim.is_some() {
         chain.push(RESET_PTS_FILTER.to_string());
     }
     chain.push(size_guard_filter(width, height));
@@ -136,9 +171,8 @@ pub fn decoder_filter(
 /// picture in the file but are shown before it).
 pub const VIDEO_START_PACKETS: u32 = 64;
 
-/// ffprobe's arguments (before the input) for [`video_start_from_probe`] and
-/// [`grid_from_probe`]. The app runs the same
-/// (`FieldOrderDetector.videoStartProbeArgs`).
+/// ffprobe's arguments (before the input) for [`video_start_from_probe`]. The
+/// app runs the same (`FieldOrderDetector.videoStartProbeArgs`).
 pub const VIDEO_START_PROBE_ARGS: [&str; 10] = [
     "-v", "error",
     "-select_streams", "v:0",
@@ -193,8 +227,18 @@ pub fn probe_video_start(
     env: &std::collections::HashMap<String, String>,
     input: &str,
 ) -> Option<f64> {
+    probe_json(ffprobe, env, &VIDEO_START_PROBE_ARGS, input).map(|j| video_start_from_probe(&j))
+}
+
+/// ffprobe's JSON answer to `args` for a file, `None` on any failure.
+pub fn probe_json(
+    ffprobe: &std::path::Path,
+    env: &std::collections::HashMap<String, String>,
+    args: &[&str],
+    input: &str,
+) -> Option<serde_json::Value> {
     let out = std::process::Command::new(ffprobe)
-        .args(VIDEO_START_PROBE_ARGS)
+        .args(args)
         .arg(input)
         .envs(env)
         .stderr(std::process::Stdio::null())
@@ -203,8 +247,89 @@ pub fn probe_video_start(
     if !out.status.success() {
         return None;
     }
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
-    Some(video_start_from_probe(&json))
+    serde_json::from_slice(&out.stdout).ok()
+}
+
+/// Whether the source stores its pictures with decode-order timestamps only
+/// (rule 7): some of the first packets [`VIDEO_START_PROBE_ARGS`] lists carry
+/// no PTS. AVI does this for any codec with a decoder delay (MPEG-2, MPEG-4
+/// ASP, H.264 with B-frames); no MP4, MOV, MKV or TS fixture does. Only then
+/// is [`DECODER_DELAY_PROBE_ARGS`] worth a decode.
+pub fn stores_decode_order(json: &serde_json::Value) -> bool {
+    json.get("packets")
+        .and_then(|p| p.as_array())
+        .is_some_and(|packets| packets.iter().any(|p| p.get("pts_time").is_none()))
+}
+
+/// ffprobe's arguments (before the input) for [`decoder_delay_from_probe`]:
+/// decodes the first few packets. The app runs the same
+/// (`FieldOrderDetector.decoderDelayProbeArgs`).
+pub const DECODER_DELAY_PROBE_ARGS: [&str; 10] = [
+    "-v", "error",
+    "-select_streams", "v:0",
+    "-show_entries", "frame=best_effort_timestamp_time:stream=r_frame_rate:format=start_time",
+    "-read_intervals", "%+#16",
+    "-of", "json",
+];
+
+/// The largest decoder delay believed (H.264 in AVI measures 2).
+pub const MAX_DECODER_DELAY: u32 = 4;
+
+/// How many frames late the decoder stamps every picture of a source that
+/// stores decode-order timestamps (rule 7): the first decoded picture's
+/// timestamp, less the container start and the video start offset, in whole
+/// frames of the stream's `r_frame_rate` (an AVI's one-frame tick). Whole
+/// frames because ffprobe prints six decimals, which would reopen the
+/// rounding tie [`seek_arg`] closes. 0 unless it is 1..=[`MAX_DECODER_DELAY`].
+///
+/// `json` is ffprobe's output for [`DECODER_DELAY_PROBE_ARGS`].
+pub fn decoder_delay_from_probe(json: &serde_json::Value, video_start: f64) -> u32 {
+    let num = |v: Option<&serde_json::Value>| {
+        v.and_then(|s| s.as_str()).and_then(|s| s.parse::<f64>().ok()).filter(|t| t.is_finite())
+    };
+    let rate = json
+        .get("streams")
+        .and_then(|s| s.as_array())
+        .and_then(|s| s.first())
+        .and_then(|s| s.get("r_frame_rate"))
+        .and_then(|r| r.as_str())
+        .and_then(|r| {
+            let (n, d) = r.split_once('/')?;
+            let (n, d) = (n.parse::<f64>().ok()?, d.parse::<f64>().ok()?);
+            (n > 0.0 && d > 0.0).then(|| n / d)
+        });
+    let first = json
+        .get("frames")
+        .and_then(|f| f.as_array())
+        .and_then(|f| f.first())
+        .and_then(|f| num(f.get("best_effort_timestamp_time")));
+    let (Some(rate), Some(first)) = (rate, first) else { return 0 };
+    let container = num(json.get("format").and_then(|f| f.get("start_time"))).unwrap_or(0.0);
+    let frames = ((first - container - video_start.max(0.0)) * rate).round();
+    if frames >= 1.0 && frames <= MAX_DECODER_DELAY as f64 {
+        frames as u32
+    } else {
+        0
+    }
+}
+
+/// [`video_start_from_probe`] and, for a source that [`stores_decode_order`],
+/// [`decoder_delay_from_probe`], for a file. `None` when ffprobe could not
+/// read it (offset and delay then count as 0, the old behaviour).
+pub fn probe_video_timing(
+    ffprobe: &std::path::Path,
+    env: &std::collections::HashMap<String, String>,
+    input: &str,
+) -> Option<(f64, u32)> {
+    let json = probe_json(ffprobe, env, &VIDEO_START_PROBE_ARGS, input)?;
+    let offset = video_start_from_probe(&json);
+    let delay = if stores_decode_order(&json) {
+        probe_json(ffprobe, env, &DECODER_DELAY_PROBE_ARGS, input)
+            .map_or(0, |j| decoder_delay_from_probe(&j, offset))
+    } else {
+        0
+    };
+    Some((offset, delay))
 }
 
 /// Whether the file has an audio stream. Asked only when the video starts
@@ -254,7 +379,26 @@ pub fn resets_pts(seeks: bool, video_start: f64) -> bool {
 /// The `trim` that drops every frame before `t`, an absolute timestamp in
 /// seconds (the decoder runs with `-copyts`, rule 6).
 pub fn trim_filter(t: f64) -> String {
-    format!("trim=start={:.6}", t)
+    format!("trim=start={}", seek_arg(t))
+}
+
+/// The `trim` that drops the first `frame` decoded pictures (rule 7: a
+/// delayed AVI's seeks near the start count instead of seeking).
+pub fn trim_frames_filter(frame: i64) -> String {
+    format!("trim=start_frame={}", frame)
+}
+
+/// A seek time as ffmpeg takes it (`-ss`, `trim=start=`): seconds to the
+/// microsecond, rounded **up** (rule 7). ffmpeg parses the value to whole
+/// microseconds and then rounds it to the stream's nearest tick. In an AVI one
+/// tick is one frame, so `(N - 0.5) / fps` falls exactly on half a tick; to
+/// the nearest microsecond it often printed just *below* the half and the trim
+/// started a frame early (1 start in 3 on every NTSC-rate AVI). Rounded up it
+/// is never below the half, and an exact half rounds up in ffmpeg. The 1 ns
+/// allowance stops a value that is already whole microseconds (0.38 s, held
+/// as 380000.00000000006 us) from gaining one.
+pub fn seek_arg(t: f64) -> String {
+    format!("{:.6}", (t * 1e6 - 1e-3).ceil() / 1e6)
 }
 
 /// Formats seeked by a timestamp search rather than an index (rule 6), as
@@ -369,18 +513,28 @@ pub fn probe_seek_plan(
     seek_plan_from_probe(&json)
 }
 
-/// What one decoder does to start at a target: its `-ss` (if any) and, under
-/// a [`SeekPlan`], the absolute time `trim` drops to (`-copyts` with it).
+/// What one decoder does to start at a target: its `-ss` (if any), under a
+/// [`SeekPlan`] the absolute time `trim` drops to (`-copyts` with it), or, for
+/// a delayed AVI near its start (rule 7), the number of decoded pictures to
+/// drop with no seek at all.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct DecoderSeek {
     pub ss: Option<f64>,
     pub trim_from: Option<f64>,
+    pub trim_frames: Option<i64>,
 }
 
 impl DecoderSeek {
     /// Whether the decoder starts anywhere but the beginning.
     pub fn seeks(&self) -> bool {
-        self.ss.is_some() || self.trim_from.is_some()
+        self.ss.is_some() || self.trim_from.is_some() || self.trim_frames.is_some()
+    }
+
+    /// The `trim` filter this seek needs in the decoder's one `-vf`, if any.
+    pub fn trim(&self) -> Option<String> {
+        self.trim_from
+            .map(trim_filter)
+            .or_else(|| self.trim_frames.map(trim_frames_filter))
     }
 
     /// The `-copyts`/`-ss` input options, in order, before `-i`.
@@ -391,7 +545,7 @@ impl DecoderSeek {
         }
         if let Some(t) = self.ss {
             args.push("-ss".to_string());
-            args.push(format!("{:.6}", t));
+            args.push(seek_arg(t));
         }
         args
     }
@@ -406,18 +560,52 @@ pub fn decoder_seek(target: Option<f64>, plan: Option<&SeekPlan>) -> DecoderSeek
         return DecoderSeek::default();
     };
     match plan.filter(|p| p.is_valid()) {
-        None => DecoderSeek { ss: Some(t), trim_from: None },
+        None => DecoderSeek { ss: Some(t), ..DecoderSeek::default() },
         Some(p) => {
             let early = t - p.preroll;
             DecoderSeek {
                 ss: (early > 0.0).then_some(early),
                 trim_from: Some(p.container_start + t),
+                trim_frames: None,
             }
         }
     }
 }
 
-/// Slots a decoder that starts at frame N begins decoding before it (rule 7),
+/// Below this seek time a delayed AVI decodes from the start and drops
+/// pictures by count (rule 7). ffmpeg starts such a seek 3/23 s early, and
+/// below that the AVI demuxer cannot seek at all; half a second leaves a
+/// margin at any rate, for at most a few frames more of decoding.
+pub const COUNT_SEEK_BELOW: f64 = 0.5;
+
+/// The one decision for every decoder that starts at source frame `frame`
+/// (encode, preview, detectors): [`seek_time`] moved by the decoder delay of
+/// an AVI that stores decode-order timestamps ([`decoder_delay_from_probe`],
+/// rule 7), through [`decoder_seek`] for an MPEG-TS/PS plan (rule 6). A
+/// source with a plan never takes a delay (no TS/PS stores packets without
+/// PTS, and the plan trims by its own timestamps), and a delayed source near
+/// its start counts pictures instead of seeking. With no delay this is
+/// exactly `decoder_seek(seek_time(..), plan)`.
+pub fn source_seek(
+    frame: i64,
+    fps: f64,
+    video_start: f64,
+    delay_frames: u32,
+    plan: Option<&SeekPlan>,
+) -> DecoderSeek {
+    if frame <= 0 {
+        return DecoderSeek::default();
+    }
+    let plan = plan.filter(|p| p.is_valid());
+    let delay = if plan.is_some() { 0 } else { delay_frames.min(MAX_DECODER_DELAY) as i64 };
+    let target = seek_time(frame + delay, fps, video_start);
+    if delay > 0 && target.is_some_and(|t| t < COUNT_SEEK_BELOW) {
+        return DecoderSeek { trim_frames: Some(frame), ..DecoderSeek::default() };
+    }
+    decoder_seek(target, plan)
+}
+
+/// Slots a decoder that starts at frame N begins decoding before it (rule 8),
 /// so a slot inside a run of null frames, or a pulldown repeat, is reached
 /// from the stored frame it repeats. Measured: a 4-slot leading null run and
 /// a 5-frame mid-stream one are exact from every start with 8.
@@ -429,7 +617,7 @@ pub const GRID_LOOKBACK_SLOTS: i64 = 8;
 /// a frame every few hours).
 pub const GRID_RATE_TOLERANCE: f64 = 0.001;
 
-/// The constant-rate grid a source's frames are placed on (rule 7): the job's
+/// The constant-rate grid a source's frames are placed on (rule 8): the job's
 /// rate as the stream's exact fraction, from the video's first picture.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -563,18 +751,35 @@ pub fn probe_source_grid(
 /// options and the filters ahead of the size guard. The one decision every
 /// such decoder (encode, preview, detectors) takes its start from.
 ///
-/// With a [`SourceGrid`] (rule 7): `-copyts`, a seek [`GRID_LOOKBACK_SLOTS`]
+/// With a [`SourceGrid`] (rule 8): `-copyts`, a seek [`GRID_LOOKBACK_SLOTS`]
 /// before the frame (and a [`SeekPlan`]'s preroll before that, on TS/PS),
 /// then [`SourceGrid::filters`] down to slot `frame`. Without one, exactly
-/// the arguments of rules 3, 5 and 6.
+/// the arguments of rules 3, 5, 6 and 7 ([`source_seek`]).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DecodeStart {
     pub ss: Option<f64>,
     pub copyts: bool,
     pub filters: Vec<String>,
+    /// Without a grid, the seek of rules 3-7 these were built from (for the
+    /// preview's log line); `None` on a grid.
+    pub seek: Option<DecoderSeek>,
 }
 
 impl DecodeStart {
+    /// The start of a decoder with no grid: exactly the `-ss`, trim and
+    /// reset of rules 3, 5, 6 and 7 for `seek`.
+    pub fn from_seek(seek: DecoderSeek, video_start: f64) -> Self {
+        let mut filters = Vec::new();
+        let trim = seek.trim();
+        if let Some(t) = &trim {
+            filters.push(t.clone());
+        }
+        if resets_pts(seek.seeks(), video_start) || trim.is_some() {
+            filters.push(RESET_PTS_FILTER.to_string());
+        }
+        DecodeStart { ss: seek.ss, copyts: seek.trim_from.is_some(), filters, seek: Some(seek) }
+    }
+
     /// The `-copyts`/`-ss` input options, in order, before `-i`.
     pub fn input_args(&self) -> Vec<String> {
         let mut args = Vec::new();
@@ -583,7 +788,7 @@ impl DecodeStart {
         }
         if let Some(t) = self.ss {
             args.push("-ss".to_string());
-            args.push(format!("{:.6}", t));
+            args.push(seek_arg(t));
         }
         args
     }
@@ -601,11 +806,13 @@ impl DecodeStart {
     }
 }
 
-/// See [`DecodeStart`]. `fps` is the job's rate (used only without a grid).
+/// See [`DecodeStart`]. `fps` is the job's rate and `delay_frames` the
+/// AVI decoder delay of rule 7, both used only without a grid.
 pub fn decode_start(
     frame: i64,
     fps: f64,
     video_start: f64,
+    delay_frames: u32,
     plan: Option<&SeekPlan>,
     grid: Option<&SourceGrid>,
 ) -> DecodeStart {
@@ -619,19 +826,12 @@ pub fn decode_start(
                 (t, None) => t,
                 (None, Some(_)) => None,
             };
-            DecodeStart { ss, copyts: true, filters: g.filters(frame) }
+            DecodeStart { ss, copyts: true, filters: g.filters(frame), seek: None }
         }
-        None => {
-            let seek = decoder_seek(seek_time(frame, fps, video_start), plan);
-            let mut filters = Vec::new();
-            if let Some(t) = seek.trim_from {
-                filters.push(trim_filter(t));
-            }
-            if resets_pts(seek.seeks(), video_start) || seek.trim_from.is_some() {
-                filters.push(RESET_PTS_FILTER.to_string());
-            }
-            DecodeStart { ss: seek.ss, copyts: seek.trim_from.is_some(), filters }
-        }
+        None => DecodeStart::from_seek(
+            source_seek(frame, fps, video_start, delay_frames, plan),
+            video_start,
+        ),
     }
 }
 
@@ -662,28 +862,21 @@ pub fn encode_decoder_args(
     width: i32,
     height: i32,
     pix_fmt: &str,
-    input_frame_rate: Option<f64>,
+    start: &DecodeStart,
     start_frame: Option<i32>,
     end_frame: Option<i32>,
     total_frames: Option<i32>,
-    video_start: f64,
     tag_fix: Option<&str>,
-    plan: Option<&SeekPlan>,
-    grid: Option<&SourceGrid>,
 ) -> Vec<String> {
-    // Start at the in-point ([`decode_start`]): on the source's grid when it
-    // has one (rule 7); otherwise an accurate `-ss` before `-i` with the PTS
-    // reset (rule 3), and on a TS/PS a preroll and a trim (rule 6). An
+    let mut args: Vec<String> = Vec::new();
+
+    // Start at the in-point: `start` is [`decode_start`] for `start_frame`.
+    // On the source's grid when it has one (rule 8); otherwise an accurate
+    // `-ss` before `-i` with the PTS reset (rule 3), on a TS/PS a preroll and
+    // a trim (rule 6), near a delayed AVI's start a trim by count (rule 7). An
     // untrimmed decode of a source with no grid whose streams start together
     // is left exactly as it was.
-    let start = decode_start(
-        start_frame.unwrap_or(0) as i64,
-        input_frame_rate.unwrap_or(29.97),
-        video_start,
-        plan,
-        grid,
-    );
-    let mut args: Vec<String> = start.input_args();
+    args.extend(start.input_args());
 
     args.extend(APPLY_CROPPING.iter().map(|s| s.to_string()));
     args.extend([
@@ -720,26 +913,21 @@ pub fn encode_decoder_args(
 }
 
 /// The preview path's decoder (also the detectors'): `num_frames` raw frames
-/// from source frame `first_frame` into `output_path`, started by
-/// [`decode_start`] exactly as [`encode_decoder_args`] starts at an in-point.
-/// A window starting at frame 0 does not seek, like an untrimmed encode, so
-/// the two agree on frame 0.
+/// from `start` ([`decode_start`] for the window's first frame) into
+/// `output_path`. Same cropping, size and seek rules as
+/// [`encode_decoder_args`]: a window starting at frame 0 does not seek,
+/// exactly like an untrimmed encode, so the two agree on frame 0.
 #[allow(clippy::too_many_arguments)]
 pub fn preview_decoder_args(
     input_path: &str,
-    first_frame: i64,
-    fps: f64,
+    start: &DecodeStart,
     num_frames: i32,
     width: i32,
     height: i32,
     pix_fmt: &str,
     output_path: &str,
-    video_start: f64,
     tag_fix: Option<&str>,
-    plan: Option<&SeekPlan>,
-    grid: Option<&SourceGrid>,
 ) -> Vec<String> {
-    let start = decode_start(first_frame, fps, video_start, plan, grid);
     let mut args: Vec<String> = start.input_args();
     args.extend(APPLY_CROPPING.iter().map(|s| s.to_string()));
     args.extend([
@@ -782,7 +970,7 @@ pub fn timeline_decoder_args(
     args.extend([
         "-i".to_string(), input_path.to_string(),
         "-map".to_string(), "0:v:0".to_string(),
-        "-vf".to_string(), decoder_filter(width, height, false, tag_fix, seek.trim_from),
+        "-vf".to_string(), decoder_filter(width, height, false, tag_fix, &seek),
         "-fps_mode".to_string(), "passthrough".to_string(),
         "-frames:v".to_string(), window.src_count.to_string(),
         "-f".to_string(), "rawvideo".to_string(),
@@ -799,11 +987,16 @@ mod tests {
     use super::*;
 
     fn encode_args() -> Vec<String> {
-        encode_decoder_args("in.mov", 720, 576, "yuv422p10le", Some(25.0), None, None, Some(100), 0.0, None, None, None)
+        encode_decoder_args("in.mov", 720, 576, "yuv422p10le", &DecodeStart::from_seek(DecoderSeek::default(), 0.0), None, None, Some(100), None)
     }
 
     fn preview_args() -> Vec<String> {
-        preview_decoder_args("in.mov", 10, 25.0, 11, 720, 576, "yuv422p10le", "frames.raw", 0.0, None, None, None)
+        preview_decoder_args("in.mov", &DecodeStart::from_seek(decoder_seek(Some(0.38), None), 0.0), 11, 720, 576, "yuv422p10le", "frames.raw", None)
+    }
+
+    /// The seek the worker builds for an encode trimmed at `start`.
+    fn test_seek(start: Option<i32>, fps: f64, video_start: f64, plan: Option<&SeekPlan>) -> DecoderSeek {
+        source_seek(start.unwrap_or(0) as i64, fps, video_start, 0, plan)
     }
 
     fn pos(args: &[String], flag: &str) -> Option<usize> {
@@ -875,7 +1068,7 @@ mod tests {
         // Issue #157: after a seek, rawvideo's constant-rate timing repeated
         // the first frame. The reset must come first in the ONE -vf chain.
         let trimmed =
-            encode_decoder_args("in.mov", 720, 576, "yuv420p", Some(25.0), Some(10), Some(19), None, 0.0, None, None, None);
+            encode_decoder_args("in.mov", 720, 576, "yuv420p", &DecodeStart::from_seek(test_seek(Some(10), 25.0, 0.0, None), 0.0), Some(10), Some(19), None, None);
         for (path, args) in [("trimmed encode", trimmed), ("preview", preview_args())] {
             assert!(pos(&args, "-ss").is_some(), "{path} seeks");
             assert_eq!(
@@ -896,9 +1089,9 @@ mod tests {
         // arguments: no seek, so nothing to reset.
         let untrimmed = encode_args();
         let from_zero =
-            encode_decoder_args("in.mov", 720, 576, "yuv422p10le", Some(25.0), Some(0), Some(19), None, 0.0, None, None, None);
+            encode_decoder_args("in.mov", 720, 576, "yuv422p10le", &DecodeStart::from_seek(test_seek(Some(0), 25.0, 0.0, None), 0.0), Some(0), Some(19), None, None);
         let preview_at_zero =
-            preview_decoder_args("in.mov", 0, 25.0, 4, 720, 576, "yuv422p10le", "frames.raw", 0.0, None, None, None);
+            preview_decoder_args("in.mov", &DecodeStart::from_seek(DecoderSeek::default(), 0.0), 4, 720, 576, "yuv422p10le", "frames.raw", None);
         for (path, args) in
             [("untrimmed", untrimmed), ("from zero", from_zero), ("preview at 0", preview_at_zero)]
         {
@@ -930,7 +1123,7 @@ mod tests {
 
     #[test]
     fn encode_decoder_trims_and_limits_frames() {
-        let args = encode_decoder_args("in.mov", 720, 576, "yuv420p", Some(25.0), Some(10), Some(19), None, 0.0, None, None, None);
+        let args = encode_decoder_args("in.mov", 720, 576, "yuv420p", &DecodeStart::from_seek(test_seek(Some(10), 25.0, 0.0, None), 0.0), Some(10), Some(19), None, None);
         // Seek before -i, to the midpoint before the start frame.
         let ss = pos(&args, "-ss").unwrap();
         assert!(ss < pos(&args, "-i").unwrap());
@@ -977,8 +1170,8 @@ mod tests {
     fn decoders_clear_invalid_colour_tags_first() {
         let fix = Some("setparams=color_primaries=unknown:color_trc=unknown");
         let all = [
-            ("encode", encode_decoder_args("in.mov", 720, 576, "yuv444p12le", Some(25.0), Some(10), Some(19), None, 0.0, fix, None, None)),
-            ("preview", preview_decoder_args("in.mov", 10, 25.0, 11, 720, 576, "yuv444p12le", "frames.raw", 0.0, fix, None, None)),
+            ("encode", encode_decoder_args("in.mov", 720, 576, "yuv444p12le", &DecodeStart::from_seek(test_seek(Some(10), 25.0, 0.0, None), 0.0), Some(10), Some(19), None, fix)),
+            ("preview", preview_decoder_args("in.mov", &DecodeStart::from_seek(decoder_seek(Some(0.38), None), 0.0), 11, 720, 576, "yuv444p12le", "frames.raw", fix)),
             ("timeline", timeline_decoder_args("in.mov", 720, 576, "yuv444p12le", &timeline_window(), "pipe:1", fix, None)),
         ];
         for (path, args) in all {
@@ -1003,7 +1196,7 @@ mod tests {
     /// A source with usable tags decodes with exactly the args it always had.
     #[test]
     fn decoders_without_a_tag_fix_are_unchanged() {
-        assert_eq!(decoder_filter(720, 576, false, None, None), size_guard_filter(720, 576));
+        assert_eq!(decoder_filter(720, 576, false, None, &DecoderSeek::default()), size_guard_filter(720, 576));
         for (path, args) in both() {
             assert!(!args.iter().any(|a| a.contains("setparams")), "{path}: {args:?}");
         }
@@ -1098,9 +1291,9 @@ mod tests {
     fn a_late_video_resets_pts_even_without_a_seek() {
         // Untrimmed: no -ss (a TS seek can land a GOP late), one -vf, reset first.
         let untrimmed =
-            encode_decoder_args("in.ts", 720, 576, "yuv420p", Some(25.0), None, None, Some(100), 1.2, None, None, None);
+            encode_decoder_args("in.ts", 720, 576, "yuv420p", &DecodeStart::from_seek(test_seek(None, 25.0, 1.2, None), 1.2), None, None, Some(100), None);
         let preview_at_zero =
-            preview_decoder_args("in.ts", 0, 25.0, 4, 720, 576, "yuv420p", "frames.raw", 1.2, None, None, None);
+            preview_decoder_args("in.ts", &DecodeStart::from_seek(decoder_seek(None, None), 1.2), 4, 720, 576, "yuv420p", "frames.raw", None);
         for (path, args) in [("untrimmed", untrimmed), ("preview at 0", preview_at_zero)] {
             assert!(pos(&args, "-ss").is_none(), "{path}: {args:?}");
             assert_eq!(vf(&args), format!("{},{}", RESET_PTS_FILTER, size_guard_filter(720, 576)), "{path}");
@@ -1108,7 +1301,7 @@ mod tests {
         }
         // Trimmed: the seek carries the offset.
         let trimmed =
-            encode_decoder_args("in.ts", 720, 576, "yuv420p", Some(25.0), Some(40), Some(49), None, 1.2, None, None, None);
+            encode_decoder_args("in.ts", 720, 576, "yuv420p", &DecodeStart::from_seek(test_seek(Some(40), 25.0, 1.2, None), 1.2), Some(40), Some(49), None, None);
         let ss = pos(&trimmed, "-ss").unwrap();
         assert_eq!(trimmed[ss + 1], format!("{:.6}", 39.5 / 25.0 + 1.2));
     }
@@ -1126,7 +1319,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            encode_decoder_args("in.mov", 720, 576, "yuv420p", Some(25.0), Some(10), Some(19), None, 0.0, None, None, None)[..2],
+            encode_decoder_args("in.mov", 720, 576, "yuv420p", &DecodeStart::from_seek(test_seek(Some(10), 25.0, 0.0, None), 0.0), Some(10), Some(19), None, None)[..2],
             ["-ss".to_string(), format!("{:.6}", 9.5 / 25.0)]
         );
     }
@@ -1199,12 +1392,12 @@ mod tests {
 
     #[test]
     fn decoder_seek_without_a_plan_is_the_plain_seek() {
-        assert_eq!(decoder_seek(Some(1.58), None), DecoderSeek { ss: Some(1.58), trim_from: None });
+        assert_eq!(decoder_seek(Some(1.58), None), DecoderSeek { ss: Some(1.58), ..DecoderSeek::default() });
         assert_eq!(decoder_seek(None, None), DecoderSeek::default());
         assert_eq!(decoder_seek(None, Some(&plan())), DecoderSeek::default(), "frame 0 never seeks");
         // An invalid plan is no plan.
         let bad = SeekPlan { preroll: f64::NAN, container_start: 0.0 };
-        assert_eq!(decoder_seek(Some(1.58), Some(&bad)), DecoderSeek { ss: Some(1.58), trim_from: None });
+        assert_eq!(decoder_seek(Some(1.58), Some(&bad)), DecoderSeek { ss: Some(1.58), ..DecoderSeek::default() });
     }
 
     #[test]
@@ -1224,8 +1417,8 @@ mod tests {
         let p = plan();
         let target = 39.5 / 25.0 + 1.2;
         let all = [
-            ("encode", encode_decoder_args("in.ts", 720, 576, "yuv420p", Some(25.0), Some(40), Some(49), None, 1.2, None, Some(&p), None)),
-            ("preview", preview_decoder_args("in.ts", 40, 25.0, 11, 720, 576, "yuv420p", "frames.raw", 1.2, None, Some(&p), None)),
+            ("encode", encode_decoder_args("in.ts", 720, 576, "yuv420p", &DecodeStart::from_seek(test_seek(Some(40), 25.0, 1.2, Some(&p)), 1.2), Some(40), Some(49), None, None)),
+            ("preview", preview_decoder_args("in.ts", &DecodeStart::from_seek(decoder_seek(Some(target), Some(&p)), 1.2), 11, 720, 576, "yuv420p", "frames.raw", None)),
             ("timeline", timeline_decoder_args("in.ts", 720, 576, "yuv420p",
                 &crate::source_timing::TimelineWindow { src_count: 9, seek_time: Some(target), slots: Vec::new() },
                 "pipe:1", None, Some(&p))),
@@ -1244,15 +1437,15 @@ mod tests {
             assert_eq!(args.iter().filter(|a| *a == "-vf").count(), 1, "{path}");
         }
         // The tag fix still goes first.
-        let args = preview_decoder_args("in.ts", 40, 25.0, 1, 720, 576, "yuv420p", "f.raw", 1.2, Some("setparams=colorspace=unknown"), Some(&p), None);
+        let args = preview_decoder_args("in.ts", &DecodeStart::from_seek(decoder_seek(Some(target), Some(&p)), 1.2), 1, 720, 576, "yuv420p", "f.raw", Some("setparams=colorspace=unknown"));
         assert!(vf(&args).starts_with("setparams=colorspace=unknown,trim=start="), "{args:?}");
     }
 
     #[test]
     fn a_plan_leaves_frame_zero_and_untrimmed_decodes_alone() {
         let p = plan();
-        let untrimmed = encode_decoder_args("in.ts", 720, 576, "yuv420p", Some(25.0), None, None, Some(100), 1.2, None, Some(&p), None);
-        let at_zero = preview_decoder_args("in.ts", 0, 25.0, 4, 720, 576, "yuv420p", "frames.raw", 1.2, None, Some(&p), None);
+        let untrimmed = encode_decoder_args("in.ts", 720, 576, "yuv420p", &DecodeStart::from_seek(test_seek(None, 25.0, 1.2, Some(&p)), 1.2), None, None, Some(100), None);
+        let at_zero = preview_decoder_args("in.ts", &DecodeStart::from_seek(decoder_seek(None, Some(&p)), 1.2), 4, 720, 576, "yuv420p", "frames.raw", None);
         for (path, args) in [("untrimmed", untrimmed), ("preview at 0", at_zero)] {
             assert!(pos(&args, "-ss").is_none() && pos(&args, "-copyts").is_none(), "{path}: {args:?}");
             assert_eq!(vf(&args), format!("{},{}", RESET_PTS_FILTER, size_guard_filter(720, 576)), "{path}");
@@ -1266,7 +1459,155 @@ mod tests {
         assert_eq!(serde_json::from_value::<SeekPlan>(v).unwrap(), plan());
     }
 
-    // ---- rule 7: the source grid (issue #16) ----
+    // ---- Issue #173: AVI seeks (rule 7) ----
+
+    fn json(text: &str) -> serde_json::Value {
+        serde_json::from_str(text).unwrap()
+    }
+
+    #[test]
+    fn decode_order_storage_is_recognised_from_the_packet_probe() {
+        // hard_telecine_test.avi: 22 of its first 64 packets carry no PTS.
+        let avi = json(include_str!("../../Tests/TestResources/video_start_probe_avi.json"));
+        assert!(stores_decode_order(&avi));
+        assert_eq!(video_start_from_probe(&avi), 0.0, "the AVI's video starts with the file");
+        // Every packet of the DVB-T capture has one: no decoding probe for it.
+        let ts = json(include_str!("../../Tests/TestResources/video_start_probe_dvbt.json"));
+        assert!(!stores_decode_order(&ts));
+        assert!(!stores_decode_order(&serde_json::json!({})));
+    }
+
+    #[test]
+    fn the_mpeg2_avi_decoder_delay_is_one_frame() {
+        let probe = json(include_str!("../../Tests/TestResources/decoder_delay_probe_avi.json"));
+        assert_eq!(decoder_delay_from_probe(&probe, 0.0), 1);
+        // Measured from the video's first picture, not the file's.
+        assert_eq!(decoder_delay_from_probe(&probe, 0.033367), 0);
+    }
+
+    #[test]
+    fn implausible_decoder_delays_are_ignored() {
+        let probe = |first: &str, rate: &str| {
+            serde_json::json!({
+                "frames": [{ "best_effort_timestamp_time": first }],
+                "streams": [{ "r_frame_rate": rate }],
+                "format": { "start_time": "0.000000" }
+            })
+        };
+        assert_eq!(decoder_delay_from_probe(&probe("0.066733", "30000/1001"), 0.0), 2, "H.264 in AVI");
+        assert_eq!(decoder_delay_from_probe(&probe("0.000000", "30000/1001"), 0.0), 0);
+        assert_eq!(decoder_delay_from_probe(&probe("0.200000", "25/1"), 0.0), 0, "5 frames: not a delay");
+        assert_eq!(decoder_delay_from_probe(&probe("0.040000", "0/0"), 0.0), 0);
+        assert_eq!(decoder_delay_from_probe(&serde_json::json!({ "frames": [] }), 0.0), 0);
+    }
+
+    /// The shared table (`Tests/TestResources/seek_arg_cases.json`, computed in
+    /// exact arithmetic; the Dart twin checks the same rows).
+    #[test]
+    fn source_seek_matches_the_shared_table() {
+        let table = json(include_str!("../../Tests/TestResources/seek_arg_cases.json"));
+        let cases = table["cases"].as_array().unwrap();
+        assert!(cases.len() > 20);
+        for c in cases {
+            let frame = c["frame"].as_i64().unwrap();
+            let fps = c["fpsNum"].as_f64().unwrap() / c["fpsDen"].as_f64().unwrap();
+            let vs = c["videoStart"].as_f64().unwrap();
+            let delay = c["delay"].as_u64().unwrap() as u32;
+            let seek = source_seek(frame, fps, vs, delay, None);
+            assert_eq!(seek.ss.map(seek_arg), c["ss"].as_str().map(String::from), "{c}");
+            assert_eq!(seek.trim_frames, c["trimFrames"].as_i64(), "{c}");
+            assert_eq!(seek.trim_from, None, "{c}");
+        }
+    }
+
+    #[test]
+    fn seek_values_round_up_to_the_microsecond() {
+        // Frame 43 of an NTSC AVI: 42.5 ticks of 1001/30000 is 1.4180833.. s.
+        // To the nearest microsecond it printed 1.418083, below the half tick,
+        // and the trim began at frame 42.
+        let t = seek_time(43, 30000.0 / 1001.0, 0.0).unwrap();
+        assert_eq!(format!("{t:.6}"), "1.418083", "the old formatting");
+        assert_eq!(seek_arg(t), "1.418084");
+        // Whole microseconds are left alone (0.38 is 380000.00000000006 us).
+        assert_eq!(seek_arg(0.38), "0.380000");
+        assert_eq!(seek_arg(1.58 + 1.202022), "2.782022");
+        assert_eq!(trim_filter(0.38), "trim=start=0.380000");
+    }
+
+    #[test]
+    fn a_delayed_avi_counts_pictures_near_its_start() {
+        let seek = source_seek(2, 30000.0 / 1001.0, 0.0, 1, None);
+        assert_eq!(seek, DecoderSeek { ss: None, trim_from: None, trim_frames: Some(2) });
+        for (path, args) in [
+            ("encode", encode_decoder_args("in.avi", 720, 480, "yuv420p", &DecodeStart::from_seek(seek, 0.0), Some(2), Some(13), None, Some("setparams=colorspace=unknown"))),
+            ("preview", preview_decoder_args("in.avi", &DecodeStart::from_seek(seek, 0.0), 11, 720, 480, "yuv420p", "f.raw", Some("setparams=colorspace=unknown"))),
+        ] {
+            assert!(pos(&args, "-ss").is_none(), "{path}: no input seek: {args:?}");
+            assert!(pos(&args, "-copyts").is_none(), "{path}");
+            assert_eq!(args.iter().filter(|a| *a == "-vf").count(), 1, "{path}");
+            // Tag fix first, the count trim, then the reset that rebases after it.
+            assert_eq!(
+                vf(&args),
+                format!(
+                    "setparams=colorspace=unknown,trim=start_frame=2,{RESET_PTS_FILTER},{}",
+                    size_guard_filter(720, 480)
+                ),
+                "{path}"
+            );
+        }
+        // -frames:v still counts output frames.
+        let enc = encode_decoder_args("in.avi", 720, 480, "yuv420p", &DecodeStart::from_seek(seek, 0.0), Some(2), Some(13), None, None);
+        assert_eq!(enc[pos(&enc, "-frames:v").unwrap() + 1], "12");
+    }
+
+    #[test]
+    fn a_delayed_avi_seeks_the_delay_later_past_the_window() {
+        let fps = 30000.0 / 1001.0;
+        let seek = source_seek(41, fps, 0.0, 1, None);
+        assert_eq!(seek.ss, seek_time(42, fps, 0.0));
+        assert_eq!(seek.trim_frames, None);
+        let args = preview_decoder_args("in.avi", &DecodeStart::from_seek(seek, 0.0), 11, 720, 480, "yuv420p", "f.raw", None);
+        assert_eq!(args[..2], ["-ss".to_string(), "1.384717".to_string()]);
+        assert_eq!(vf(&args), format!("{RESET_PTS_FILTER},{}", size_guard_filter(720, 480)));
+        // Frame 0 never seeks, delay or not.
+        assert_eq!(source_seek(0, fps, 0.0, 2, None), DecoderSeek::default());
+        // Out-of-range delays are clamped, never trusted.
+        assert_eq!(source_seek(100, 25.0, 0.0, 99, None).ss, seek_time(104, 25.0, 0.0));
+    }
+
+    #[test]
+    fn without_a_delay_source_seek_is_the_plain_decoder_seek() {
+        for frame in [1, 10, 41, 43, 1000] {
+            for fps in [25.0, 30000.0 / 1001.0, 24000.0 / 1001.0] {
+                for plan in [None, Some(plan())] {
+                    assert_eq!(
+                        source_seek(frame, fps, 1.2, 0, plan.as_ref()),
+                        decoder_seek(seek_time(frame, fps, 1.2), plan.as_ref()),
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_seek_plan_takes_no_decoder_delay() {
+        // No TS/PS stores packets without PTS; if one ever reports a delay the
+        // plan's absolute trim stays on its own timestamps.
+        let p = plan();
+        assert_eq!(
+            source_seek(40, 25.0, 1.2, 1, Some(&p)),
+            decoder_seek(seek_time(40, 25.0, 1.2), Some(&p))
+        );
+        assert_eq!(source_seek(1, 25.0, 0.0, 1, Some(&p)).trim_frames, None);
+    }
+
+    #[test]
+    fn the_decoder_delay_probe_reads_frames_not_packets() {
+        assert_eq!(DECODER_DELAY_PROBE_ARGS[4], "-show_entries");
+        assert!(DECODER_DELAY_PROBE_ARGS[5].starts_with("frame=best_effort_timestamp_time"));
+        assert_eq!(&DECODER_DELAY_PROBE_ARGS[6..8], ["-read_intervals", "%+#16"]);
+    }
+    // ---- rule 8: the source grid (issue #174) ----
 
     fn grid_probe(r: &str, avg: &str, start: &str, container: &str, pts: &[&str]) -> serde_json::Value {
         serde_json::json!({
@@ -1327,7 +1668,8 @@ mod tests {
 
     #[test]
     fn grid_decoders_copy_timestamps_and_keep_slots_from_the_frame() {
-        let args = encode_decoder_args("in.mkv", 720, 576, "yuv420p", Some(25.0), None, None, Some(100), 1.2, None, None, Some(&grid()));
+        let start = decode_start(0, 25.0, 1.2, 0, None, Some(&grid()));
+        let args = encode_decoder_args("in.mkv", 720, 576, "yuv420p", &start, None, None, Some(100), None);
         assert_eq!(args[0], "-copyts");
         assert!(pos(&args, "-ss").is_none(), "untrimmed never seeks");
         assert_eq!(
@@ -1335,14 +1677,15 @@ mod tests {
             format!("setpts=PTS-1.200000/TB,fps=25/1,trim=start_pts=0,setpts=PTS-STARTPTS,{}", size_guard_filter(720, 576))
         );
         // An in-point seeks the lookback early and drops to its slot.
-        let args = encode_decoder_args("in.mkv", 720, 576, "yuv420p", Some(25.0), Some(40), Some(49), None, 1.2, None, None, Some(&grid()));
+        let start = decode_start(40, 25.0, 1.2, 0, None, Some(&grid()));
+        let args = encode_decoder_args("in.mkv", 720, 576, "yuv420p", &start, Some(40), Some(49), None, None);
         let ss: f64 = args[pos(&args, "-ss").unwrap() + 1].parse().unwrap();
         assert!((ss - ((40 - GRID_LOOKBACK_SLOTS) as f64 - 0.5) / 25.0 - 1.2).abs() < 1e-6);
         assert!(pos(&args, "-copyts").unwrap() < pos(&args, "-ss").unwrap());
         assert!(vf(&args).contains("fps=25/1,trim=start_pts=40,setpts=PTS-STARTPTS,crop="));
         assert_eq!(args[pos(&args, "-frames:v").unwrap() + 1], "10");
         // The preview window and the encode start the same way.
-        let p = preview_decoder_args("in.mkv", 40, 25.0, 10, 720, 576, "yuv420p", "f.raw", 1.2, None, None, Some(&grid()));
+        let p = preview_decoder_args("in.mkv", &start, 10, 720, 576, "yuv420p", "f.raw", None);
         assert_eq!(p[..pos(&p, "-i").unwrap()], args[..pos(&args, "-i").unwrap()]);
         assert_eq!(vf(&p), vf(&args));
     }
@@ -1352,40 +1695,52 @@ mod tests {
         // interlaced_test.avi's in-points 1-4 are inside its leading null run:
         // only a decode from frame 0 reaches the stored frame they repeat.
         for n in 1..=GRID_LOOKBACK_SLOTS {
-            let s = decode_start(n, 25.0, 0.0, None, Some(&grid()));
+            let s = decode_start(n, 25.0, 0.0, 0, None, Some(&grid()));
             assert_eq!(s.ss, None, "frame {n}");
             assert!(s.copyts);
             assert_eq!(s.filters[2], format!("trim=start_pts={n}"));
         }
-        assert!(decode_start(GRID_LOOKBACK_SLOTS + 1, 25.0, 0.0, None, Some(&grid())).ss.is_some());
+        assert!(decode_start(GRID_LOOKBACK_SLOTS + 1, 25.0, 0.0, 0, None, Some(&grid())).ss.is_some());
     }
 
     #[test]
     fn a_grid_on_a_ts_adds_the_plans_preroll() {
-        let s = decode_start(40, 25.0, 1.2, Some(&plan()), Some(&grid()));
+        let s = decode_start(40, 25.0, 1.2, 0, Some(&plan()), Some(&grid()));
         let expect = ((40 - GRID_LOOKBACK_SLOTS) as f64 - 0.5) / 25.0 + 1.2 - plan().preroll;
         assert!((s.ss.unwrap() - expect).abs() < 1e-9);
         assert!(!s.filters.iter().any(|f| f.starts_with("trim=start=")), "the slot trim replaces the time trim");
         // Preroll past the start: no -ss, still the slot.
-        let s = decode_start(10, 25.0, 1.2, Some(&plan()), Some(&grid()));
+        let s = decode_start(10, 25.0, 1.2, 0, Some(&plan()), Some(&grid()));
         assert_eq!(s.ss, None);
         assert_eq!(s.filters[2], "trim=start_pts=10");
     }
 
     #[test]
     fn without_a_grid_decode_start_is_the_old_seek() {
-        for (frame, vs, plan) in [(0, 0.0, None), (10, 0.0, None), (0, 1.2, None), (40, 1.2, None), (40, 1.2, Some(plan())), (0, 1.2, Some(plan()))] {
-            let s = decode_start(frame, 25.0, vs, plan.as_ref(), None);
-            let old = decoder_seek(seek_time(frame, 25.0, vs), plan.as_ref());
+        let cases = [(0, 0.0, 0, None), (10, 0.0, 0, None), (0, 1.2, 0, None), (40, 1.2, 0, None),
+                     (40, 1.2, 0, Some(plan())), (0, 1.2, 0, Some(plan())), (3, 0.0, 1, None), (41, 0.0, 2, None)];
+        for (frame, vs, delay, plan) in cases {
+            let s = decode_start(frame, 25.0, vs, delay, plan.as_ref(), None);
+            let old = source_seek(frame, 25.0, vs, delay, plan.as_ref());
             assert_eq!(s.ss, old.ss);
             assert_eq!(s.copyts, old.trim_from.is_some());
             assert_eq!(
                 s.vf(720, 576, None),
-                decoder_filter(720, 576, resets_pts(old.seeks(), vs), None, old.trim_from)
+                decoder_filter(720, 576, resets_pts(old.seeks(), vs), None, &old)
             );
+            assert_eq!(s.input_args(), old.input_args());
         }
         let bad = SourceGrid { rate_num: 0, rate_den: 1, origin: 0.0 };
-        assert_eq!(decode_start(10, 25.0, 0.0, None, Some(&bad)), decode_start(10, 25.0, 0.0, None, None));
+        assert_eq!(decode_start(10, 25.0, 0.0, 0, None, Some(&bad)), decode_start(10, 25.0, 0.0, 0, None, None));
+    }
+
+    #[test]
+    fn a_grid_replaces_the_avi_delay_count() {
+        // A source with a grid has PTS on every packet, so it never has a
+        // decoder delay; if one were set, the grid still decides.
+        let s = decode_start(3, 25.0, 0.0, 1, None, Some(&grid()));
+        assert!(s.seek.is_none());
+        assert_eq!(s.filters[2], "trim=start_pts=3");
     }
 
     #[test]
@@ -1414,10 +1769,11 @@ mod tests {
                     start["frame"].as_i64().unwrap(),
                     case["jobFps"].as_f64().unwrap(),
                     start["videoStart"].as_f64().unwrap(),
+                    0,
                     plan.as_ref(),
                     grid.as_ref(),
                 );
-                let ss = s.ss.map(|t| format!("{:.6}", t));
+                let ss = s.ss.map(seek_arg);
                 assert_eq!(ss.as_deref(), start["ss"].as_str(), "{name} frame {}", start["frame"]);
                 let filters: Vec<String> = serde_json::from_value(start["filters"].clone()).unwrap();
                 assert_eq!(s.filters, filters, "{name}");
