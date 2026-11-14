@@ -106,6 +106,32 @@ segment (290 on). This is a seek past or near a reset landing in whichever segme
 search finds first. *The PS copy counts 299 of 300 for a separate reason: its last picture's packet
 carries no PTS, so ffprobe's duration is one frame short. <code>seek_dvd_pal.mpg</code> has no reset
 and counts 149 of 150 for the same reason. That fault is tracked as task #26.</p>
+<p><strong>Update 2026-11-15 (task #26): fixed.</strong> The picture with no PTS is the reference
+picture the decoder flushes at the end: <code>ffprobe -show_frames</code> gives it no timestamp at
+all, and ffmpeg's decoder stamps it with the previous frame's time plus that frame's duration (6.46 +
+0.04 = 6.50 s in <code>seek_dvd_pal.mpg</code>). ffprobe's stream duration ends at the largest
+<em>known</em> PTS, so it leaves that picture out. On an MPEG-TS/PS counted by duration, the app now
+decodes the last 3 s and stamps an untimed frame the same way
+(<code>FieldOrderDetector.untimedLastPicture</code>). If one turns up, the count becomes its slot + 1,
+never fewer than before. Nothing changes when every frame is timed. The worker needed no change: it
+counts by decoding (<code>-count_frames</code>) only when a job carries no count.
+Script: <code>scripts/last_picture_count_probe.py</code>.</p>
+<table>
+<tr><th>File</th><th>Before</th><th>After</th><th>Untimed last picture</th><th>Decoded</th></tr>
+<tr><td><code>seek_dvd_pal.mpg</code></td><td class="bad">149</td><td class="good">150</td><td>6.500 s</td><td>150</td></tr>
+<tr><td>joined <code>seek_reset_dvd_pal.mpg</code></td><td class="bad">299</td><td class="good">300</td><td>12.500 s</td><td>300</td></tr>
+<tr><td>joined <code>seek_reset_h264.ts</code></td><td>300</td><td>300</td><td>–</td><td>300</td></tr>
+<tr><td><code>seek_gop_late_video.ts</code> / <code>late_video_gop.ts</code> / <code>late_video_intra.ts</code></td><td>150 / 100 / 100</td><td>unchanged</td><td>–</td><td>150 / 100 / 100</td></tr>
+<tr><td><code>pal-dvbt-fieldcoded-25i.ts</code></td><td>128</td><td>128</td><td>–</td><td>126†</td></tr>
+<tr><td><code>soft_telecine_dvd.vob</code></td><td>149</td><td>149</td><td>–</td><td>120†</td></tr>
+</table>
+<p class="caption">Before: stream duration plus leading pictures, at the app's rate. After: with the
+untimed last picture counted. Decoded: <code>ffprobe -count_frames</code>, which counts pictures.
+†Where the decoded count differs, that is not this fault: the DVB-T clip's grid holds 128 slots
+(issue #168) and the soft-telecine VOB's grid holds 149 slots for its 120 pictures (issue #174).
+Their tests check those counts. Limits: a TS/PS whose last GOP is longer than 3 s decodes nothing
+in the window and keeps the duration's count. No fixture has both an untimed last picture and a
+soft-telecine repeat on it.</p>
 <p>Through the app's own path, the heavy <code>integration_seek_alignment_test.dart</code> adds both
 fixtures, made continuous by <code>TimestampContinuityService</code> exactly as analysis does:</p>
 <ul>

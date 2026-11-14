@@ -169,11 +169,11 @@ VideoJob _job(String input, _Reference s, String name,
 /// computes it for a constant-rate source.
 Future<int> _appCount(String path, double fps) async {
   final v = await WorkerHarness.firstStream(path,
-      selector: 'v:0', entries: ['nb_frames', 'duration']);
+      selector: 'v:0', entries: ['nb_frames', 'duration', 'start_time']);
   final nb = int.tryParse('${v!['nb_frames']}');
   if (nb != null) return nb;
-  final f = await WorkerHarness.ffprobeJson(
-      ['-v', 'error', '-show_entries', 'format=duration', '-of', 'json', path]);
+  final f = await WorkerHarness.ffprobeJson(['-v', 'error', '-show_entries',
+      'format=duration,format_name', '-of', 'json', path]);
   return FieldOrderDetector.frameCountWithoutStoredCount(
     WorkerHarness.ffprobePath,
     path,
@@ -181,6 +181,8 @@ Future<int> _appCount(String path, double fps) async {
     containerDuration: double.tryParse('${(f['format'] as Map)['duration']}'),
     start: VideoStart.none,
     frameRate: fps,
+    streamStart: double.tryParse('${v['start_time']}'),
+    formatName: (f['format'] as Map)['format_name'] as String?,
   );
 }
 

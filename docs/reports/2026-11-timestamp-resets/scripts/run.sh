@@ -13,4 +13,5 @@ cd "$HERE"
 python3 before_after_probe.py | tee "$RESET_WORK/before_after.txt"
 python3 fixtures_probe.py | tee "$RESET_WORK/fixtures.txt"
 python3 cost_probe.py | tee "$RESET_WORK/cost.txt"
+python3 last_picture_count_probe.py | tee "$RESET_WORK/last_picture.txt"  # task #26
 echo "Results in $RESET_WORK"

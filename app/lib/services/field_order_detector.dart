@@ -137,6 +137,8 @@ class FieldOrderDetector {
               containerDuration: duration,
               start: videoStart,
               frameRate: frameRate,
+              streamStart: double.tryParse('${videoStream['start_time']}'),
+              formatName: format?['format_name'] as String?,
             ),
         codec: codec ?? 'unknown',
         pixelFormat: pixelFormat ?? 'unknown',
@@ -592,10 +594,12 @@ class FieldOrderDetector {
   }
 
   /// The length in frames of a source with no `nb_frames`: by its stream
-  /// duration when it has one ([frameCountFromDuration]); otherwise
-  /// (Matroska/WebM) from its last picture on its grid
-  /// ([frameCountFromLastPicture]), which is what the worker's decode
-  /// produces, falling back to the container's duration.
+  /// duration when it has one ([frameCountFromDuration]), on an MPEG-TS/PS
+  /// plus a last picture whose packet has no PTS
+  /// ([frameCountWithUntimedTail], task #26); otherwise (Matroska/WebM) from
+  /// its last picture on its grid ([frameCountFromLastPicture]), which is
+  /// what the worker's decode produces, falling back to the container's
+  /// duration.
   static Future<int> frameCountWithoutStoredCount(
     String ffprobe,
     String videoPath, {
@@ -603,6 +607,8 @@ class FieldOrderDetector {
     required double? containerDuration,
     required VideoStart start,
     required double? frameRate,
+    double? streamStart,
+    String? formatName,
   }) async {
     final byDuration = frameCountFromDuration(
       streamDuration: streamDuration,
@@ -610,6 +616,24 @@ class FieldOrderDetector {
       start: start,
       frameRate: frameRate,
     );
+    if (streamDuration != null &&
+        streamDuration > 0 &&
+        frameRate != null &&
+        frameRate > 0 &&
+        streamStart != null &&
+        probesUntimedTail(formatName, streamStart)) {
+      final untimed = await probeUntimedLastPicture(ffprobe, videoPath,
+          streamStart: streamStart,
+          streamDuration: streamDuration,
+          frameRate: frameRate);
+      return frameCountWithUntimedTail(
+        byDuration: byDuration,
+        untimedLast: untimed,
+        streamStart: streamStart,
+        start: start,
+        frameRate: frameRate,
+      );
+    }
     if ((streamDuration != null && streamDuration > 0) ||
         containerDuration == null ||
         frameRate == null ||
@@ -624,6 +648,108 @@ class FieldOrderDetector {
     if (last == null) return byDuration;
     final n = frameCountFromLastPicture(last, grid);
     return n > 0 ? n : byDuration;
+  }
+
+  /// Seconds before the stream's end that [tailFramesProbeArgs] decode from.
+  static const tailFramesProbeSeconds = 3.0;
+
+  /// ffprobe's arguments (before the input) for [untimedLastPicture]: the
+  /// frames decoded from [from] (an absolute timestamp, as `-read_intervals`
+  /// takes it) to the end.
+  static List<String> tailFramesProbeArgs(double from) => [
+        '-v', 'error',
+        '-select_streams', 'v:0',
+        '-show_entries', 'frame=best_effort_timestamp_time,duration_time',
+        '-read_intervals', '${(from > 0 ? from : 0.0).toStringAsFixed(6)}%',
+        '-of', 'json',
+      ];
+
+  /// Whether [frameCountWithoutStoredCount] looks for a last picture with no
+  /// timestamp: only on an MPEG-TS/PS (the formats a [SeekPlan] covers) with
+  /// a known stream start. Every other source is counted as before.
+  static bool probesUntimedTail(String? formatName, double? streamStart) =>
+      streamStart != null && seeksByTimestampSearch(formatName);
+
+  /// The presentation time ffmpeg's decoder gives the last picture that has
+  /// no timestamp of its own, from ffprobe's answer to [tailFramesProbeArgs];
+  /// null when every frame has one (task #26).
+  ///
+  /// An MPEG-PS (DVD/VOB) leaves some packets without a PTS. Mid-stream the
+  /// decoder still times such a picture from its DTS, but the reference
+  /// picture flushed at the end has neither, and ffprobe's stream duration
+  /// (largest known PTS plus its duration) ends one picture early:
+  /// `seek_dvd_pal.mpg` lasts 5.96 s by ffprobe and decodes 150 pictures.
+  /// ffmpeg's decoder (`ffmpeg_dec.c`) stamps such a frame with the previous
+  /// frame's time plus that frame's duration, and so does this walk: a frame
+  /// with no timestamp gets `prev + prev's duration_time` (else one frame at
+  /// [frameRate]); untimed frames before the first timed one are skipped.
+  static double? untimedLastPicture(Map<String, dynamic> json,
+      {required double frameRate}) {
+    double? num(Object? v) {
+      final d = v == null ? null : double.tryParse('$v');
+      return d != null && d.isFinite ? d : null;
+    }
+
+    final frames = (json['frames'] as List<dynamic>?) ?? const [];
+    double? prevT;
+    var prevD = 0.0;
+    double? last;
+    for (final f in frames) {
+      final m = f as Map<String, dynamic>;
+      var t = num(m['best_effort_timestamp_time']);
+      final d = num(m['duration_time']);
+      final dur = d != null && d > 0 ? d : (frameRate > 0 ? 1 / frameRate : 0.0);
+      if (t == null) {
+        if (prevT == null) continue;
+        t = prevT + prevD;
+        if (last == null || t > last) last = t;
+      }
+      prevT = t;
+      prevD = dur;
+    }
+    return last;
+  }
+
+  /// The frame count by duration ([byDuration]) with a last picture that had
+  /// no timestamp ([untimedLast], from [untimedLastPicture]) counted in: its
+  /// slot on the grid from the first picture (`streamStart - leading`), plus
+  /// one. Never fewer than [byDuration].
+  static int frameCountWithUntimedTail({
+    required int byDuration,
+    required double? untimedLast,
+    required double streamStart,
+    required VideoStart start,
+    required double frameRate,
+  }) {
+    if (untimedLast == null || frameRate <= 0) return byDuration;
+    final first = streamStart - start.leading;
+    final n = ((untimedLast - first) * frameRate).round() + 1;
+    return n > byDuration ? n : byDuration;
+  }
+
+  /// Probe [untimedLastPicture] over the last [tailFramesProbeSeconds] of
+  /// the stream. Null on any failure, or when nothing decodes there (a GOP
+  /// longer than the window): the count is then the duration's.
+  static Future<double?> probeUntimedLastPicture(
+    String ffprobe,
+    String videoPath, {
+    required double streamStart,
+    required double streamDuration,
+    required double frameRate,
+  }) async {
+    try {
+      final result = await Process.run(ffprobe, [
+        ...tailFramesProbeArgs(
+            streamStart + streamDuration - tailFramesProbeSeconds),
+        videoPath,
+      ]);
+      if (result.exitCode != 0) return null;
+      return untimedLastPicture(
+          jsonDecode(result.stdout as String) as Map<String, dynamic>,
+          frameRate: frameRate);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// ffprobe's arguments (before the input) for [videoStartFromProbe] and
