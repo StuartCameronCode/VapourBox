@@ -4118,6 +4118,12 @@ Follow-up to task #22.
   kept the one before (+19 to +27 ms). A fine time base (MP4 1/48000, MKV
   1/1000) keeps the first packet at or after the seek (up to −21 ms), so
   only those streams seek half a packet early (`time_base * 4 <= packet`).
+  The NUT copy re-times the same MP3/AC-3 to 1/sample rate, so read from
+  it every compressed stream seeks early (`SoundCut::half_any_packet`;
+  found in review: from the copy, the plain seek kept the packet after the
+  in-point: an MP3 chirp under the delayed AVI's picture, trimmed at
+  frame 1 into AVI, measured −18.9 ms, +7.2 ms after; half a packet is
+  13 ms). The heavy test's MP3 cases (frames 1–3) fail without it.
 - **Result:** PCM lag 0 and max diff 0 (frames 1–3 and 20 of the delayed
   AVI too); AC-3/MP3 from an AVI exactly where MKV puts them (their AVI
   timestamps limit both to ±9 ms); AAC in MP4 and AC-3 in MKV within half a

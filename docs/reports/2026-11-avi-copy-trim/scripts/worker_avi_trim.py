@@ -1,7 +1,7 @@
 """Table 2: the worker end to end. A Passthrough trim (FFV1) of each fixture
 from frames 20, 100 and 251, to MKV and AVI; and the chirp copy of
 avi_h264_bframes.avi (a decoder delay, one keyframe; task 22) from frames
-1-3 and 20. Reports the output's audio codec(s), where the in-point's sound
+1-3 and 20, as PCM and as MP3. Reports the output's audio codec(s), where the in-point's sound
 plays against the first picture (+ = late) and, for PCM, the largest sample
 difference from the source.
 
@@ -73,3 +73,12 @@ if not os.path.exists(chirp):
        'aevalsrc=0.5*sin(2*PI*(200*t+300*t*t)):s=32000:d=3.003', '-map', '0:v', '-c:v', 'copy',
        '-map', '1:a', '-c:a', 'pcm_s16le', chirp)
 rows('avi_h264_bframes.avi chirp (PCM 32 kHz)', chirp, (1, 2, 3, 20), 61)
+
+# Review correction: the same picture with an MP3 chirp. Frames 1-3 read
+# their sound from the NUT copy, which counts MP3 in samples, not packets.
+mp3 = work('mp3_h264_bframes.avi')
+if not os.path.exists(mp3):
+    ff('-i', os.path.join(RES, 'avi_h264_bframes.avi'), '-f', 'lavfi', '-i',
+       'aevalsrc=0.5*sin(2*PI*(200*t+300*t*t)):s=44100:d=3.003', '-map', '0:v', '-c:v', 'copy',
+       '-map', '1:a', '-c:a', 'libmp3lame', '-b:a', '192k', mp3)
+rows('avi_h264_bframes.avi chirp (MP3 44.1 kHz)', mp3, (1, 2, 3, 20), 61)

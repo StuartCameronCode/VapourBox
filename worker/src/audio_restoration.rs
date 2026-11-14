@@ -1051,6 +1051,11 @@ pub struct SoundCut {
     /// by ffmpeg's rounding) or no duration was stated (the cut is then the
     /// first packet at or after the in-point).
     pub half_packet: f64,
+    /// Half the longest packet among every [`CutStream::Packet`] stream,
+    /// whatever its time base: the early seek when the packets are read from
+    /// the NUT sound copy instead ([`SoundCopy`]), whose audio time base is
+    /// the sample rate, so even an AVI's MP3/AC-3 needs it there.
+    pub half_any_packet: f64,
 }
 
 impl SoundCut {
@@ -1123,7 +1128,8 @@ pub fn sound_cut_from_probe(json: &str) -> Option<SoundCut> {
         .filter(|(p, tb)| tb.map_or(true, |tb| tb * 4.0 <= **p))
         .map(|(p, _)| *p / 2.0)
         .fold(0.0, f64::max);
-    Some(SoundCut { streams: cut, half_packet: half })
+    let half_any = longest.iter().map(|p| *p / 2.0).fold(0.0, f64::max);
+    Some(SoundCut { streams: cut, half_packet: half, half_any_packet: half_any })
 }
 
 /// "4/125" → 0.032.
@@ -2256,6 +2262,8 @@ mod tests {
         let avi = r#"{"packets": [{"stream_index": 1, "duration_time": "0.032000"}],
             "streams": [{"index": 1, "codec_name": "ac3", "time_base": "4/125"}]}"#;
         assert_eq!(sound_cut_from_probe(avi).unwrap().half_packet, 0.0);
+        // ...but read from the NUT copy (time base 1/sample rate) it does.
+        assert!((sound_cut_from_probe(avi).unwrap().half_any_packet - 0.016).abs() < 1e-9);
         let mp4 = r#"{"packets": [{"stream_index": 1, "duration_time": "0.021333"}],
             "streams": [{"index": 1, "codec_name": "aac", "time_base": "1/48000"}]}"#;
         assert!((sound_cut_from_probe(mp4).unwrap().half_packet - 0.0106665).abs() < 1e-9);
@@ -2279,14 +2287,14 @@ mod tests {
     #[test]
     fn a_cut_maps_each_stream_from_its_own_input() {
         let s = settings(AudioMode::Passthrough, ContainerFormat::Avi);
-        let pcm = SoundCut { streams: vec![CutStream::Exact("pcm_s16le")], half_packet: 0.0 };
+        let pcm = SoundCut { streams: vec![CutStream::Exact("pcm_s16le")], half_packet: 0.0, half_any_packet: 0.0 };
         assert_eq!(
             encode_map_args(&s, None, 3, None, Some((&pcm, 3))),
             vec!["-map", "1:a:0", "-map_metadata:s:a:0", "1:s:a:0"]
         );
         assert_eq!(encode_codec_args(&s, None, Some(&pcm)), vec!["-c:a", "copy", "-c:a:0", "pcm_s16le"]);
 
-        let ac3 = SoundCut { streams: vec![CutStream::Packet], half_packet: 0.016 };
+        let ac3 = SoundCut { streams: vec![CutStream::Packet], half_packet: 0.016, half_any_packet: 0.016 };
         assert_eq!(
             encode_map_args(&s, None, 3, None, Some((&ac3, 3))),
             vec!["-map", "3:a:0", "-map_metadata:s:a:0", "1:s:a:0"]
@@ -2294,7 +2302,7 @@ mod tests {
         assert_eq!(encode_codec_args(&s, None, Some(&ac3)), vec!["-c:a", "copy", "-copypriorss:a", "0"]);
 
         // Mixed, from the sound copy (input 3) with the packet input at 4.
-        let mixed = SoundCut { streams: vec![CutStream::Exact("pcm_s24le"), CutStream::Packet], half_packet: 0.012 };
+        let mixed = SoundCut { streams: vec![CutStream::Exact("pcm_s24le"), CutStream::Packet], half_packet: 0.012, half_any_packet: 0.012 };
         assert_eq!(
             encode_map_args(&s, None, 3, Some((3, 2)), Some((&mixed, 4))),
             vec!["-map", "3:a:0", "-map", "4:a:1", "-map_metadata:s:a:0", "1:s:a:0", "-map_metadata:s:a:1", "1:s:a:1"]
@@ -2308,6 +2316,7 @@ mod tests {
         let three = SoundCut {
             streams: vec![CutStream::Packet, CutStream::Exact("pcm_s16le"), CutStream::Exact("pcm_u8")],
             half_packet: 0.016,
+            half_any_packet: 0.016,
         };
         let t = RestoredTrack { path: "r.wav".into(), stream: 1, source_streams: 3 };
         assert_eq!(

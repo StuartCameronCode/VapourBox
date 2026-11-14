@@ -165,6 +165,15 @@ void main() {
       '-map', '0:v', '-map', '0:a', '-map', '1:a', '-c', 'copy', two,
     ]);
     sources['two'] = two;
+    // Task 22's delayed AVI (decoder delay, one keyframe) with an MP3 chirp:
+    // trims under half a second read the sound from the NUT copy.
+    final mp3 = p.join(_outDir, 'src_mp3_delayed.avi');
+    await AudioFixtures.ffmpeg([
+      '-i', p.join(WorkerHarness.repoRoot, 'Tests', 'TestResources', 'avi_h264_bframes.avi'),
+      '-f', 'lavfi', '-i', 'aevalsrc=0.5*sin(2*PI*(150*t+120*t*t)):s=44100:d=3.003',
+      '-map', '0:v', '-c:v', 'copy', '-map', '1:a', '-c:a', 'libmp3lame', '-b:a', '192k', mp3,
+    ]);
+    sources['mp3_delayed'] = mp3;
   });
 
   for (final start in [20, 100]) {
@@ -223,6 +232,24 @@ void main() {
     expect(lag, isNotNull);
     expect(lag!.abs(), lessThanOrEqualTo((17 * _rate / 1000).round()), reason: 'lag $lag');
   });
+
+  // Review of task 24: the NUT copy counts MP3 in samples, not packets, so
+  // its packet input must seek half a packet early too. Before: -18.9 ms at
+  // frame 1 (half an MP3 packet at 44.1 kHz is 13.1 ms).
+  for (final start in [1, 2, 3]) {
+    test('MP3 under a delayed AVI trimmed into AVI from frame $start is within half a packet', () async {
+      final source = await _sound(sources['mp3_delayed']!);
+      final job = _job(sources['mp3_delayed']!, 'mp3_delayed_$start', start, 'avi')
+        ..['endFrame'] = 61
+        ..['totalFrames'] = 61 - start + 1;
+      final out = await _encode(job);
+      expect(await _codec(out, 0), 'mp3', reason: 'still a copy');
+      final lag = _syncLag(source, await _sound(out), start, await _videoStart(out));
+      expect(lag, isNotNull);
+      final bound = ((1152 / 44.1 / 2 + 1) * _rate / 1000).round();
+      expect(lag!.abs(), lessThanOrEqualTo(bound), reason: 'lag $lag samples');
+    });
+  }
 
   test('MKV keeps its copy: the pre-roll is stored and the sound in sync', () async {
     final source = await _sound(sources['aac_mp4']!);

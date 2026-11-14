@@ -1266,7 +1266,8 @@ the **single** builder of both decoders' arguments (encode + preview):
     **only where the stream's time base is finer than a quarter packet**:
     ffmpeg drops by timestamp in the stream's own time base, so an AVI's
     MP3/AC-3 (counted in packets) is already cut at the nearest packet, and
-    an early seek kept the one before.
+    an early seek kept the one before. **The NUT copy always seeks early**
+    (`half_any_packet`): NUT counts that same sound in samples.
   - Both builders (`build_ffmpeg_args`, `build_ffmpeg_args_for_test`) take
     it through `sound_cut_input` / `sound_cut_input_args`; a failed probe is
     a warning, never a refusal; everything else keeps its arguments byte for

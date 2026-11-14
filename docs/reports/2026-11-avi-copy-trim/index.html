@@ -109,7 +109,12 @@ An AVI's compressed audio counts in packets (MP3 3/125, AC-3 4/125), so the roun
 <em>nearest</em> the in-point, exactly where MKV and a full decode put it; seeking half a packet early there kept
 the one before (+19 to +27 ms). A fine time base (MP4 1/48000, MKV 1/1000) keeps the first packet at or after the
 seek (up to a packet early, −21 ms), and the half-packet-early seek is what finds the nearest. So the worker
-seeks early only for a stream whose time base is under a quarter of its packet.</li>
+seeks early only for a stream whose time base is under a quarter of its packet. <em>Correction (review):</em> read
+from task 22's NUT copy, the same MP3/AC-3 is counted in samples (1/44100 here), and the plain seek kept the packet
+<em>after</em> the in-point (13.5 ms on a 26 ms MP3 packet, ffmpeg alone), so from the copy every compressed stream
+seeks early. The delayed AVI's sound in section 2 is PCM, so no fixture took that path; with an MP3 chirp
+(<code>worker_avi_trim.py</code>'s last rows) frame 1 into AVI measured −18.9 ms before the change and +7.2 ms
+after (frames 2, 3, 20: −11.6, −4.4, −11.8 ms either way; MKV within 0.4 ms).</li>
 <li><strong>From an AVI source, MP3 and AC-3 are limited by the demuxer's own timestamps</strong> (−9 to +9 ms here,
 in MKV, MP4 and a full decode alike; task 22 saw the same on MP3). Not this fault, and not changed.</li>
 </ul>
