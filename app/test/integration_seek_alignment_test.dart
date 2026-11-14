@@ -408,7 +408,8 @@ void main() {
           _expectFrame('the preview',
               await WorkerHarness.imageToRgb24(pv.png!, label: 'preview'), n, refs);
           _expectFrame('the before frame',
-              await _beforeFrame(decode, n, source.fps, seek), n, refs);
+              await _beforeFrame(decode, n, source.fps, seek, await _decoderDelay(decode)),
+              n, refs);
         });
       }
 
