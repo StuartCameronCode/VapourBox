@@ -14,6 +14,13 @@
 //! a height is reported as found only when its error is well below its
 //! neighbours'; a source that was never upscaled has no dip at all, and is
 //! reported as such rather than given a guess that would damage it.
+//!
+//! The luma analysed is the source's own Y plane: the frames are decoded in
+//! the pipe format (`pixel_format::decode_pixel_format`) and the plane is
+//! scaled here ([`luma_gray16`]). Never a decode to gray: swscale makes that
+//! luma with the frame's matrix tag, and a BT.709-tagged copy of a master came
+//! out up to 28 levels away from the untagged one — far enough that the 720p
+//! dip vanished (docs/reports/2026-11-reserved-colour-tags, addendum).
 
 use std::fs;
 use std::process::{Command, Stdio};
@@ -23,6 +30,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::dependency_locator::DependencyLocator;
 use crate::models::VideoJob;
+use crate::pixel_format;
 use crate::source_decode;
 
 /// Marker for the analysis script's one result line on stderr.
@@ -75,7 +83,50 @@ pub fn sample_frames(total: Option<u64>, start: Option<u64>, end: Option<u64>) -
         .collect()
 }
 
-/// The analysis script. `{paths}` are raw GRAY16 frames of `{w}`x`{h}`.
+/// The pipe format the sample frames are decoded in, its bit depth, and
+/// whether its samples are full range: the same choice `noise_halo` makes, so
+/// the luma plane comes through untouched.
+fn luma_source(job: &VideoJob) -> (String, u32, bool) {
+    let pipe = pixel_format::decode_pixel_format(job.input_pixel_format.as_deref());
+    let (_, depth) = pixel_format::chroma_and_depth(&pipe.name);
+    let full_range = job.color_metadata().is_full_range() || pipe.name.starts_with("yuvj");
+    (pipe.name, depth, full_range)
+}
+
+/// The luma plane at the start of `bytes` (8-bit, or little-endian 16-bit
+/// samples holding `depth` bits) as little-endian GRAY16 at full range: a
+/// limited-range plane is expanded (black 0, white 65535, clamped), a
+/// full-range one scaled. This is what FFmpeg's decode to gray16le gives for
+/// an UNTAGGED source (within one code), which is what the analysis's error
+/// cap and `DIP_THRESHOLD` were calibrated on. `None` for a short buffer.
+pub fn luma_gray16(bytes: &[u8], width: usize, height: usize, depth: u32, full_range: bool) -> Option<Vec<u8>> {
+    let n = width * height;
+    let unit = f64::from(1u32 << depth.saturating_sub(8));
+    let (black, range) = if full_range {
+        (0.0, f64::from((1u32 << depth) - 1))
+    } else {
+        (16.0 * unit, 219.0 * unit)
+    };
+    let scale = |v: f64| ((v - black) * 65535.0 / range).round().clamp(0.0, 65535.0) as u16;
+    let samples: Vec<u16> = if depth > 8 {
+        if bytes.len() < 2 * n {
+            return None;
+        }
+        bytes[..2 * n]
+            .chunks_exact(2)
+            .map(|c| scale(f64::from(u16::from_le_bytes([c[0], c[1]]))))
+            .collect()
+    } else {
+        if bytes.len() < n {
+            return None;
+        }
+        bytes[..n].iter().map(|&v| scale(f64::from(v))).collect()
+    };
+    Some(samples.into_iter().flat_map(u16::to_le_bytes).collect())
+}
+
+/// The analysis script. `{paths}` are raw GRAY16 frames of `{w}`x`{h}`, full
+/// range ([`luma_gray16`]), so its 2-level cap is in full-range 8-bit levels.
 fn analysis_script(paths: &[String], width: i32, height: i32) -> String {
     let paths = paths.iter().map(|p| crate::gpu_plugin::py_str(std::path::Path::new(p))).collect::<Vec<_>>().join(", ");
     format!(
@@ -195,7 +246,9 @@ pub fn detect(deps: &DependencyLocator, job: &VideoJob) -> Result<NativeResRepor
         job.end_frame.map(|f| f.max(0) as u64),
     );
 
-    // A `reserved` colour tag fails the conversion to gray16le outright.
+    let (pix_fmt, depth, full_range) = luma_source(job);
+    // A `reserved` colour tag fails a conversion to the pipe format outright
+    // (a source format pipe_source can't read is converted).
     let tag_fix = job.decode_tag_neutraliser();
 
     let dir = std::env::temp_dir().join(format!("vapourbox_native_{}", job.id));
@@ -212,23 +265,27 @@ pub fn detect(deps: &DependencyLocator, job: &VideoJob) -> Result<NativeResRepor
                     1,
                     width,
                     height,
-                    "gray16le",
-                    path.to_string_lossy().as_ref(),
+                    &pix_fmt,
+                    "pipe:1",
                     job.video_start(),
                     tag_fix.as_deref(),
                 ))
                 .envs(&env)
-                .stdout(Stdio::null())
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .output()
                 .context("running ffmpeg")?;
-            if !out.status.success() || !path.exists() {
+            if !out.status.success() {
                 let stderr = String::from_utf8_lossy(&out.stderr);
                 if let Some(msg) = source_decode::explain_decoder_failure(&stderr, width, height) {
                     bail!("{msg}");
                 }
                 bail!("Could not decode frame {frame}: {stderr}");
             }
+            let luma = luma_gray16(&out.stdout, width as usize, height as usize, depth, full_range)
+                .with_context(|| format!("short decode at frame {frame}"))?;
+            fs::write(&path, luma).with_context(|| format!("writing {path:?}"))?;
             paths.push(path.to_string_lossy().to_string());
         }
 
@@ -318,6 +375,59 @@ mod tests {
         assert_eq!(r.kernels[0].0, "Bicubic (Catmull-Rom)");
         assert_eq!(r.curve[1], (720, 1e-8));
         assert!(!report_from(&raw(0.93), vec![5]).found);
+    }
+
+    fn job(pix: Option<&str>, range: Option<&str>) -> VideoJob {
+        let mut j: VideoJob = serde_json::from_value(serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000001", "inputPath": "/in.mov", "outputPath": "/out.mkv",
+            "qtgmcParameters": {}, "encodingSettings": {},
+        }))
+        .unwrap();
+        j.input_pixel_format = pix.map(str::to_string);
+        j.input_color_range = range.map(str::to_string);
+        j
+    }
+
+    fn samples(bytes: &[u8]) -> Vec<u16> {
+        bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect()
+    }
+
+    #[test]
+    fn luma_is_decoded_in_the_pipe_format_never_as_gray() {
+        assert_eq!(luma_source(&job(Some("yuv420p10le"), None)), ("yuv420p10le".into(), 10, false));
+        assert_eq!(luma_source(&job(Some("yuv422p"), Some("tv"))), ("yuv422p".into(), 8, false));
+        assert_eq!(luma_source(&job(Some("rgb24"), None)), ("yuv444p".into(), 8, false));
+        assert_eq!(luma_source(&job(Some("yuvj420p"), None)), ("yuvj420p".into(), 8, true));
+        assert_eq!(luma_source(&job(Some("yuv420p"), Some("pc"))), ("yuv420p".into(), 8, true));
+        assert_eq!(luma_source(&job(None, None)).0, "yuv420p");
+        for pix in ["gray", "gray16le", "gray10le"] {
+            assert!(!luma_source(&job(Some(pix), None)).0.starts_with("gray"), "{pix}");
+        }
+    }
+
+    #[test]
+    fn limited_luma_is_expanded_to_full_range_gray16() {
+        // 8-bit: 16 is black, 235 white, outside clamps; the trailing chroma
+        // bytes are not read.
+        let out = luma_gray16(&[16, 235, 126, 0, 255, 99, 99], 5, 1, 8, false).unwrap();
+        let mid = (110.0 * 65535.0_f64 / 219.0).round() as u16;
+        assert_eq!(samples(&out), vec![0, 65535, mid, 0, 65535]);
+        // 10-bit: 64 black, 940 white, the same mid grey.
+        let raw: Vec<u8> = [64u16, 940, 504, 1023].iter().flat_map(|v| v.to_le_bytes()).collect();
+        assert_eq!(samples(&luma_gray16(&raw, 4, 1, 10, false).unwrap()), vec![0, 65535, mid, 65535]);
+    }
+
+    #[test]
+    fn full_range_luma_is_scaled_not_expanded() {
+        assert_eq!(samples(&luma_gray16(&[0, 255, 128], 3, 1, 8, true).unwrap()), vec![0, 65535, 32896]);
+        let raw: Vec<u8> = [0u16, 1023].iter().flat_map(|v| v.to_le_bytes()).collect();
+        assert_eq!(samples(&luma_gray16(&raw, 2, 1, 10, true).unwrap()), vec![0, 65535]);
+    }
+
+    #[test]
+    fn a_short_decode_is_none() {
+        assert!(luma_gray16(&[16; 5], 3, 2, 8, false).is_none());
+        assert!(luma_gray16(&[0; 11], 3, 2, 10, false).is_none());
     }
 
     #[test]

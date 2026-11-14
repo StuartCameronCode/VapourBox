@@ -22,3 +22,7 @@ python3 -I "$HERE/probe_tag_rules.py" "$DEPS/ffmpeg/ffmpeg" "$DEPS/ffmpeg/ffprob
 if [ -n "${CLIP:-}" ]; then
   python3 -I "$HERE/real_clip_worker.py" "$WORKER" "$DEPS" "$CLIP" "$SCRATCH/real"
 fi
+
+# Addendum (2026-11-14): Descale Detect's luma no longer follows the matrix tag.
+python3 -I "$HERE/luma_scaling_check.py" "$DEPS/ffmpeg/ffmpeg" "$DEPS/ffmpeg/ffprobe" \
+  "$SCRATCH/luma" "$WORKER" "$DEPS"
