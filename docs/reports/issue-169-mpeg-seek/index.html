@@ -276,7 +276,14 @@ seek). They get no plan. They are rarely a user's source.</li>
 <li><strong>Timestamp discontinuities</strong> (a recording spliced across streams, a VOB set
 whose clock resets between cells). "Frame N = N/fps after the first picture" is not defined there,
 and <code>-copyts</code> turns off ffmpeg's discontinuity correction. Neither the old seek nor the
-new one handles them. Not tested.</li>
+new one handles them. <em>Corrected at review:</em> the original wording said this was untested.
+<code>discontinuity_probe.py</code> joins two copies of a program stream, so the clock resets at
+picture 150, and asks a trimmed decode for 150 frames. Starting at 100 the old seek returned all
+150, though from picture 108. The fix starts at 100 but returns only 52: it stops at the reset.
+Starting at 140 the old seek returned 6 and the fix 10. Starting at 160, past the reset, both
+returned none. So a trim whose in-point is before a backward reset and whose out-point is after it
+is now shorter. Before, it started late. Both are wrong. Such files are rare within one title, and
+frame numbering across a reset needs its own fix.</li>
 <li><strong>A GOP longer than the 20 s window</strong>, or one that grows later in the file than
 the first 20 s. The preroll can then be short, and the worst case is the old behaviour (a later
 keyframe), never worse.</li>
