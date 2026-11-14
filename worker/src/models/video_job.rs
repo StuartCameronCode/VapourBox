@@ -105,6 +105,13 @@ pub struct VideoJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video_start_offset: Option<f64>,
 
+    /// How the decoders seek an MPEG-TS/PS source, which has no keyframe
+    /// index (`source_decode::seek_plan_from_probe`, issue #169): a GOP early,
+    /// then a trim to the frame. `None` for every other format, which seeks
+    /// as it always did. Filled by the worker when the job omits it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seek_plan: Option<crate::source_decode::SeekPlan>,
+
     /// Whether the source has an audio stream, probed by the worker only when
     /// the video starts late (`source_decode::probe_has_audio`). `None` means
     /// unknown and is treated as yes. Not on the wire.
@@ -114,6 +121,11 @@ pub struct VideoJob {
 }
 
 impl VideoJob {
+    /// The seek plan, when the source needs one and it is usable.
+    pub fn seek_plan(&self) -> Option<&crate::source_decode::SeekPlan> {
+        self.seek_plan.as_ref().filter(|p| p.is_valid())
+    }
+
     /// The video start offset in seconds, 0 when unknown or invalid.
     pub fn video_start(&self) -> f64 {
         self.video_start_offset.filter(|o| o.is_finite() && *o > 0.0).unwrap_or(0.0)
@@ -2102,6 +2114,21 @@ mod video_start_tests {
         j.video_start_offset = Some(f64::NAN);
         assert_eq!(j.video_start(), 0.0);
         assert_eq!(job(Some(-0.5)).video_start(), 0.0);
+    }
+
+    #[test]
+    fn the_seek_plan_is_optional_on_the_wire() {
+        use crate::source_decode::SeekPlan;
+        let mut j = job(None);
+        assert!(!serde_json::to_string(&j).unwrap().contains("seekPlan"));
+        assert!(j.seek_plan().is_none());
+        let plan = SeekPlan { preroll: 1.82, container_start: 1.4 };
+        j.seek_plan = Some(plan);
+        let back: VideoJob = serde_json::from_str(&serde_json::to_string(&j).unwrap()).unwrap();
+        assert_eq!(back.seek_plan, Some(plan));
+        // An unusable plan is no plan.
+        j.seek_plan = Some(SeekPlan { preroll: 0.0, container_start: 1.4 });
+        assert!(j.seek_plan().is_none());
     }
 
     #[test]

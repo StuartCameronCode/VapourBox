@@ -216,6 +216,7 @@ pub fn detect(deps: &DependencyLocator, job: &VideoJob) -> Result<NativeResRepor
                     path.to_string_lossy().as_ref(),
                     job.video_start(),
                     tag_fix.as_deref(),
+                    job.seek_plan(),
                 ))
                 .envs(&env)
                 .stdout(Stdio::null())
