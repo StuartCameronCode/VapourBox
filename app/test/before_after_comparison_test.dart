@@ -10,9 +10,11 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vapourbox/services/image_dimensions.dart';
 import 'package:vapourbox/widgets/before_after_comparison.dart';
+import 'package:vapourbox/widgets/comparison_view_mode.dart';
 import 'package:vapourbox/widgets/comparison_zoom_controller.dart';
 
 Future<Uint8List> _png(int width, int height) async {
@@ -259,6 +261,267 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       controller.showActualSize();
       controller.fit();
+    });
+  });
+
+  // Forum feedback (videohelp 419911): the divider stopped 5% short of each
+  // edge, hiding a typical left crop; and there was no way to see either frame
+  // whole.
+  group('divider and view modes', () {
+    const panel = Size(400, 300);
+
+    Future<void> pump(
+      WidgetTester tester, {
+      required Uint8List before,
+      required Uint8List after,
+      double? beforeAspectRatio,
+      double? afterAspectRatio,
+      ComparisonViewMode viewMode = ComparisonViewMode.split,
+      ValueChanged<ComparisonViewMode>? onViewModeChanged,
+      ComparisonZoomController? zoomController,
+    }) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1000, 1000);
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: panel.width,
+            height: panel.height,
+            child: BeforeAfterComparisonWidget(
+              beforeImage: before,
+              afterImage: after,
+              beforeAspectRatio: beforeAspectRatio,
+              afterAspectRatio: afterAspectRatio,
+              viewMode: viewMode,
+              onViewModeChanged: onViewModeChanged,
+              zoomController: zoomController,
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    Rect panelRect(WidgetTester tester) =>
+        tester.getRect(find.byType(BeforeAfterComparisonWidget));
+
+    /// The width of the screen-space clip that shows the original.
+    double originalClipWidth(WidgetTester tester) {
+      final clip = tester.renderObject<RenderClipRect>(find
+          .descendant(
+            of: find.byType(BeforeAfterComparisonWidget),
+            matching: find.byType(ClipRect),
+          )
+          .first);
+      return clip.clipper!.getClip(clip.size).width;
+    }
+
+    Finder images() => find.descendant(
+          of: find.byType(BeforeAfterComparisonWidget),
+          matching: find.byType(Image),
+        );
+
+    testWidgets('a drag past either edge takes the divider to 0 and 1',
+        (tester) async {
+      final image = await tester.runAsync(() => _png(200, 100));
+      await pump(tester, before: image!, after: image);
+      final bounds = panelRect(tester);
+      final centre = bounds.center;
+
+      await tester.dragFrom(centre, const Offset(-1000, 0));
+      await tester.pumpAndSettle();
+      expect(originalClipWidth(tester), 0);
+      final lineAtLeft =
+          tester.getRect(find.byKey(const Key('comparison-divider')));
+      final handleAtLeft =
+          tester.getRect(find.byKey(const Key('comparison-divider-handle')));
+      // The 1 px border insets the content; the line touches its left edge.
+      expect(lineAtLeft.left, closeTo(bounds.left + 1, 1e-6));
+      expect(handleAtLeft.left, greaterThanOrEqualTo(bounds.left));
+
+      await tester.dragFrom(centre, const Offset(2000, 0));
+      await tester.pumpAndSettle();
+      final contentWidth = bounds.width - 2;
+      expect(originalClipWidth(tester), closeTo(contentWidth, 1e-6));
+      final lineAtRight =
+          tester.getRect(find.byKey(const Key('comparison-divider')));
+      final handleAtRight =
+          tester.getRect(find.byKey(const Key('comparison-divider-handle')));
+      expect(lineAtRight.right, closeTo(bounds.right - 1, 1e-6));
+      expect(handleAtRight.right, lessThanOrEqualTo(bounds.right));
+    });
+
+    testWidgets('a tap at the edge puts the divider there, not 5% in',
+        (tester) async {
+      final image = await tester.runAsync(() => _png(200, 100));
+      await pump(tester, before: image!, after: image);
+      final bounds = panelRect(tester);
+
+      await tester.tapAt(Offset(bounds.left + 1.5, bounds.center.dy));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(originalClipWidth(tester), lessThan(1));
+    });
+
+    group('each mode shows only its own side', () {
+      late Uint8List source;
+      late Uint8List processed;
+
+      Future<void> load(WidgetTester tester) async {
+        source = (await tester.runAsync(() => _png(720, 576)))!;
+        processed = (await tester.runAsync(() => _png(1920, 1080)))!;
+      }
+
+      Future<void> pumpMode(WidgetTester tester, ComparisonViewMode mode) =>
+          pump(
+            tester,
+            before: source,
+            after: processed,
+            beforeAspectRatio: 4 / 3,
+            afterAspectRatio: 16 / 9,
+            viewMode: mode,
+          );
+
+      testWidgets('Original', (tester) async {
+        await load(tester);
+        await pumpMode(tester, ComparisonViewMode.original);
+        expect(images(), findsOneWidget);
+        final rect = tester.getRect(images());
+        expect(rect.width / rect.height, closeTo(4 / 3, 1e-6));
+        expect(find.text('Original'), findsOneWidget);
+        expect(find.text('Processed'), findsNothing);
+        expect(find.byKey(const Key('comparison-divider')), findsNothing);
+        expect(
+            find.byKey(const Key('comparison-divider-handle')), findsNothing);
+      });
+
+      testWidgets('Processed', (tester) async {
+        await load(tester);
+        await pumpMode(tester, ComparisonViewMode.processed);
+        expect(images(), findsOneWidget);
+        final rect = tester.getRect(images());
+        expect(rect.width / rect.height, closeTo(16 / 9, 1e-6));
+        expect(find.text('Processed'), findsOneWidget);
+        expect(find.text('Original'), findsNothing);
+        expect(find.byKey(const Key('comparison-divider')), findsNothing);
+      });
+
+      testWidgets('Split', (tester) async {
+        await load(tester);
+        await pumpMode(tester, ComparisonViewMode.split);
+        expect(images(), findsNWidgets(2));
+        expect(find.text('Original'), findsOneWidget);
+        expect(find.text('Processed'), findsOneWidget);
+        expect(find.byKey(const Key('comparison-divider')), findsOneWidget);
+      });
+
+      testWidgets('dragging does nothing outside Split', (tester) async {
+        await load(tester);
+        await pumpMode(tester, ComparisonViewMode.original);
+        await tester.dragFrom(
+            panelRect(tester).center, const Offset(-1000, 0));
+        await tester.pumpAndSettle();
+        // Back in Split, the divider is still in the middle.
+        await pumpMode(tester, ComparisonViewMode.split);
+        expect(originalClipWidth(tester),
+            closeTo((panel.width - 2) / 2, 1e-6));
+      });
+    });
+
+    testWidgets('1:1 is measured against the frame on screen',
+        (tester) async {
+      final controller = ComparisonZoomController();
+      final source = await tester.runAsync(() => _png(720, 576));
+      final processed = await tester.runAsync(() => _png(1920, 1080));
+      Future<void> pumpMode(ComparisonViewMode mode) => pump(
+            tester,
+            before: source!,
+            after: processed!,
+            beforeAspectRatio: 4 / 3,
+            afterAspectRatio: 16 / 9,
+            viewMode: mode,
+            zoomController: controller,
+          );
+
+      await pumpMode(ComparisonViewMode.processed);
+      controller.showActualSize();
+      await tester.pumpAndSettle();
+      double scale() => tester
+          .widget<Transform>(find
+              .descendant(
+                of: find.byType(BeforeAfterComparisonWidget),
+                matching: find.byType(Transform),
+              )
+              .first)
+          .transform
+          .getMaxScaleOnAxis();
+      // 398 wide at 16:9; 1080 rows on 1080 pixels.
+      expect(scale(), closeTo(1080 / (398 / (16 / 9)), 1e-9));
+      expect(find.text('100%'), findsOneWidget);
+
+      // The 4:3 source fits by height (298); 576 rows on 576 pixels.
+      await pumpMode(ComparisonViewMode.original);
+      expect(scale(), closeTo(576 / 298, 1e-9));
+      expect(find.text('100%'), findsOneWidget);
+    });
+
+    testWidgets('the mode and the divider survive a new processed frame',
+        (tester) async {
+      final source = await tester.runAsync(() => _png(720, 576));
+      final first = await tester.runAsync(() => _png(1920, 1080));
+      final second = await tester.runAsync(() => _png(1280, 720));
+
+      // Move the divider in Split first.
+      await pump(tester, before: source!, after: first!);
+      await tester.dragFrom(panelRect(tester).center, const Offset(-100, 0));
+      await tester.pumpAndSettle();
+      final moved = originalClipWidth(tester);
+      expect(moved, lessThan((panel.width - 2) / 2));
+
+      await pump(tester,
+          before: source,
+          after: first,
+          viewMode: ComparisonViewMode.processed);
+      await pump(tester,
+          before: source,
+          after: second!,
+          viewMode: ComparisonViewMode.processed);
+      expect(images(), findsOneWidget);
+      final shown = tester.widget<Image>(images()).image as MemoryImage;
+      expect(identical(shown.bytes, second), isTrue);
+
+      // Back to Split: the divider is where the user left it.
+      await pump(tester, before: source, after: second);
+      expect(originalClipWidth(tester), closeTo(moved, 1e-6));
+    });
+
+    testWidgets('the view-mode control reports a tap, with shortcut tooltips',
+        (tester) async {
+      final image = await tester.runAsync(() => _png(200, 100));
+      final picked = <ComparisonViewMode>[];
+      await pump(tester,
+          before: image!, after: image, onViewModeChanged: picked.add);
+
+      final control = find.byKey(const Key('comparison-view-mode'));
+      expect(control, findsOneWidget);
+      await tester.tap(
+          find.descendant(of: control, matching: find.text('Processed')));
+      await tester.tap(
+          find.descendant(of: control, matching: find.text('Original')));
+      expect(picked,
+          [ComparisonViewMode.processed, ComparisonViewMode.original]);
+
+      for (final mode in ComparisonViewMode.values) {
+        expect(find.byTooltip(mode.shortcut.tooltipFor(mode.description)),
+            findsOneWidget);
+      }
+    });
+
+    testWidgets('no control without a callback', (tester) async {
+      final image = await tester.runAsync(() => _png(200, 100));
+      await pump(tester, before: image!, after: image);
+      expect(find.byKey(const Key('comparison-view-mode')), findsNothing);
     });
   });
 }

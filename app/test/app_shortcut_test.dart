@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vapourbox/models/app_shortcut.dart';
 import 'package:vapourbox/widgets/app_shortcut_scope.dart';
+import 'package:vapourbox/widgets/comparison_view_mode.dart';
 
 void main() {
   group('AppShortcut', () {
@@ -140,6 +141,33 @@ void main() {
 
       expect(fired, [AppShortcut.openSettings]);
       debugDefaultTargetPlatformOverride = null;
+    });
+
+    testWidgets('B / S / P pick the preview view mode, but not while typing',
+        (tester) async {
+      final fired = <ComparisonViewMode>[];
+      final field = await pump(tester, {
+        for (final mode in ComparisonViewMode.values)
+          mode.shortcut: () => fired.add(mode),
+      });
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+      expect(fired, [
+        ComparisonViewMode.original,
+        ComparisonViewMode.split,
+        ComparisonViewMode.processed,
+      ]);
+
+      fired.clear();
+      field.fieldFocus.requestFocus();
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+      await tester.pump();
+      expect(fired, isEmpty);
     });
 
     testWidgets('a null binding lets the key through', (tester) async {

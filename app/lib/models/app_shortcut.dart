@@ -89,6 +89,21 @@ enum AppShortcut {
     alternates: [LogicalKeyboardKey.numpad0],
     primary: true,
   ),
+  previewOriginal(
+    'Show original (before)',
+    AppShortcutGroup.preview,
+    LogicalKeyboardKey.keyB,
+  ),
+  previewSplit(
+    'Split original / processed',
+    AppShortcutGroup.preview,
+    LogicalKeyboardKey.keyS,
+  ),
+  previewProcessed(
+    'Show processed',
+    AppShortcutGroup.preview,
+    LogicalKeyboardKey.keyP,
+  ),
   zoomIn(
     'Zoom in',
     AppShortcutGroup.zoom,

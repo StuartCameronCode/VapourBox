@@ -164,6 +164,7 @@ Every filter explains in place what it does and when to use it. Where two filter
 <summary><b>Preview, timeline and trimming</b></summary>
 
 - **Click** a thumbnail to jump there, or **drag** to scrub. The transport buttons step a frame at a time or jump to either end.
+- **Original / Split / Processed** (B / S / P) above the preview show either frame whole or both side by side; in Split, drag the divider all the way to either edge.
 - Zoom the preview with the **mouse wheel** or **pinch**; **double-click** resets it. **1:1** shows actual pixels, the way to judge fine detail, and **Fit** shows the whole frame.
 - The **mouse wheel** or **pinch** also zooms the timeline around the cursor, and **Shift+wheel** or a **two-finger swipe** pans it.
 - **Set In** / **Set Out** process only part of the source, handy for trying settings on a short section.
@@ -185,6 +186,7 @@ Every button with a shortcut shows it in its tooltip, and **?** lists them all. 
 | Go to in / out point | ⇧I / ⇧O | Shift+I / Shift+O |
 | Clear in and out points | ⌥X | Alt+X |
 | Preview at actual pixels (1:1) / fit | ⌘1 / ⌘0 | Ctrl+1 / Ctrl+0 |
+| Show original / split / processed | B / S / P | B / S / P |
 | Zoom timeline in / out / to fit | = / - / \ | = / - / \ |
 | Add videos | ⌘O | Ctrl+O |
 | Start processing | ⌘↩ | Ctrl+Enter |

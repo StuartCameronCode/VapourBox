@@ -16,6 +16,7 @@ import '../services/theme_service.dart';
 import '../models/app_shortcut.dart';
 import '../widgets/app_shortcut_scope.dart';
 import '../widgets/dynamic_range_badge.dart';
+import '../widgets/comparison_view_mode.dart';
 import 'keyboard_shortcuts_dialog.dart';
 import 'video_file_picker.dart';
 import '../viewmodels/main_viewmodel.dart';
@@ -112,6 +113,9 @@ class MainWindow extends StatelessWidget {
       AppShortcut.previewActualSize:
           whenPreviewing(viewModel.previewZoom.showActualSize),
       AppShortcut.previewFit: whenPreviewing(viewModel.previewZoom.fit),
+      for (final mode in ComparisonViewMode.values)
+        mode.shortcut:
+            whenPreviewing(() => viewModel.setPreviewViewMode(mode)),
       AppShortcut.zoomIn: whenPreviewing(viewModel.zoomIn),
       AppShortcut.zoomOut: whenPreviewing(viewModel.zoomOut),
       AppShortcut.zoomToFit: whenPreviewing(viewModel.resetTimelineZoom),

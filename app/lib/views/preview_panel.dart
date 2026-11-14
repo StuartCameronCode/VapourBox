@@ -66,6 +66,8 @@ class _PreviewPanelState extends State<PreviewPanel> {
               beforeAspectRatio: viewModel.sourceDisplayAspect,
               afterAspectRatio: viewModel.comparisonAfterAspect,
               zoomController: viewModel.previewZoom,
+              viewMode: viewModel.previewViewMode,
+              onViewModeChanged: viewModel.setPreviewViewMode,
             ),
           ),
 
