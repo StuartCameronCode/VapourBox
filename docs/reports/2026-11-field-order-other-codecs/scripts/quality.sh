@@ -9,8 +9,8 @@
 # Fixtures, each piped as the worker pipes it (a Y4M whose header says Ip):
 #   vhs   Tests/TestResources/interlaced_test.avi, 720x576 25i VHS, TFF (idet 75/75), 79 frames
 #   dvbt  Tests/TestResources/pal-dvbt-fieldcoded-25i.ts, 720x576 25i broadcast, TFF (idet 126/126), 125 frames
-#   bff   vhs with its first line dropped and a black line added at the bottom:
-#         the same pictures with the field order swapped (idet: BFF 75/75)
+#   bff   vhs shifted up one line (lines 1-574 kept, two black lines added at the
+#         bottom): the same pictures with the field order swapped (idet: BFF 75/75)
 # All as yuv420p (H.264's usual delivery format). Quality is measured per
 # field: both the encode and the source are split with separatefields, so a
 # progressive-coded and an interlaced-coded file are judged on the same pictures.

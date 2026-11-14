@@ -104,12 +104,16 @@ Future<Set<(int, int)>> _frameFlags(String path) async {
   };
 }
 
-/// Per-frame MD5s of [path] decoded as yuv422p.
+/// Per-frame MD5s of [path] decoded as yuv422p, on the constant-rate grid.
+///
+/// `-fps_mode cfr` because the source AVI has null frames (stored frames
+/// 0, 5, 6, …): framemd5 alone would pass only the stored ones, while the
+/// worker's decode repeats into the gaps, exactly as `cfr` does here.
 Future<List<String>> _frameMd5s(String path) async {
   final r = await Process.run(
     WorkerHarness.ffmpegPath,
     ['-v', 'error', '-i', path, '-frames:v', '$_frames', '-map', '0:v:0',
-     '-pix_fmt', 'yuv422p', '-f', 'framemd5', '-'],
+     '-fps_mode', 'cfr', '-pix_fmt', 'yuv422p', '-f', 'framemd5', '-'],
     environment: WorkerHarness.ffmpegEnv,
   );
   expect(r.exitCode, 0, reason: 'framemd5 $path: ${r.stderr}');
