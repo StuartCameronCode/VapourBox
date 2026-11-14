@@ -281,8 +281,14 @@ VapourBox is a front end to other people's work. Thanks in particular to:
 - **akarin** by Akarin, now maintained by the Jaded Encoding Thaumaturgy project — the expression compiler that makes Apple Silicon and ARM Linux several times faster
 - **fmtconv** by Firesledge (Laurent de Soras) — format conversion and resampling
 - **zsmooth** by Austin Dworaczyk Wiltshire — chroma denoising (CCD, originally by Sergey Stolyarevsky for VirtualDub) and the RemoveGrain family
-- **dubhater** — VapourSynth ports of MVTools, nnedi3, AWarpSharp2, TemporalMedian, FluxSmooth, Bifrost and `adjust`
-- **HolyWu** — VapourSynth ports of DFTTest, TTempSmooth, TCanny, CTMF, DCTFilter, Deblock, AddGrain, CAS, EEDI3 and NNEDI3CL
+- **dubhater** — VapourSynth ports of MVTools, nnedi3, AWarpSharp2, TemporalMedian, FluxSmooth, Bifrost and `adjust`, and FillBorders, which Edge Repair uses
+- **HolyWu** — VapourSynth ports of DFTTest, TTempSmooth, TCanny, CTMF, DCTFilter, Deblock, AddGrain, CAS, EEDI3 and NNEDI3CL, and of minamina's **LGhost** (Ghost Removal)
+- **Bwdif** by Thomas Mundt and HolyWu, based on YADIF by Michael Niedermayer and James Darnley and the BBC's Weston 3-field algorithm — the fast deinterlacer
+- **Fizick** (Alexander G. Balakhnin) — **DeScratch**, and **FFT3DFilter** (VapourSynth port by Yusuke Nakamura)
+- **RemoveDirt** by Rainer Wittmann, with additional work by Ferenc Pintér — SpotLess's fast dirt-removal method
+- **neo_f3kdb** by Xinyue Lu, forked from flash3kyuu_deband by SAPikachu — Deband
+- **DeDot** by Fredrik Mellbin, a port of the AviSynth DeDot filter — rainbow and dot-crawl reduction in Chroma Fixes
+- **zimg** by sekrit-twc — the scaling and format-conversion library behind VapourSynth's resizers
 - **mawen1250** — Retinex, BM3D and mvsfunc
 - **Edoardo Brunetti** (maintained by Jaded Encoding Thaumaturgy) — KNLMeansCL
 - **Frechdachs** (maintained by Jaded Encoding Thaumaturgy) — descale
@@ -312,7 +318,7 @@ Full licence texts, copyright holders and every bundled component are listed in 
 Components taken pre-built rather than compiled from source come unmodified from:
 
 - **[yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins)** — ARM64 VapourSynth plugins for macOS
-- **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** — cross-platform VapourSynth plugins (used for `tmedian`)
+- **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** — cross-platform VapourSynth plugins: most of the Intel Mac build's plugins, TemporalMedian and RemoveDirt on Apple Silicon, and RemoveDirt and LGhost on Linux x64
 - **[evermeet.cx](https://evermeet.cx/ffmpeg/)** — static FFmpeg for Intel Macs
 - **[ffmpeg.martin-riedl.de](https://ffmpeg.martin-riedl.de)** — static FFmpeg for Apple Silicon
 - **[BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)** — static FFmpeg for Windows and Linux

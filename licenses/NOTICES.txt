@@ -728,7 +728,8 @@ Direct dependencies:
                 json_annotation, uuid, shared_preferences, url_launcher,
                 window_manager, rhttp, archive, crypto, package_info_plus
   Rust:         serde, serde_json, uuid, clap, thiserror, anyhow, ctrlc, which,
-                chrono, libloading
+                chrono, libloading; nix (macOS and Linux) and windows
+                (Windows)
 
 
 -------------------------------------------------------------------------------
