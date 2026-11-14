@@ -16,10 +16,11 @@
 //
 // A stream copy keeps the source's sound from the packet its seek lands on,
 // here the file's start (the fixture has one keyframe). Matroska carries that
-// pre-roll in its timestamps, so it stays in sync; AVI cannot, so its sound
-// runs late by up to the in-point, as every copy trim to AVI does (frame 20
-// too, 667 ms, without this fix touching it). That is a separate fault and
-// only bounded here. See docs/reports/2026-11-avi-audio-seek.
+// pre-roll in its timestamps, so it stays in sync. AVI cannot: its sound ran
+// late by up to the in-point (667 ms at frame 20) until task 24 re-wrote
+// PCM in its own codec for a trim into AVI, cut to the sample
+// (`audio_restoration::SoundCut`; integration_avi_copy_trim_test.dart). See
+// docs/reports/2026-11-avi-audio-seek and docs/reports/2026-11-avi-copy-trim.
 @Tags(['heavy'])
 library;
 
@@ -212,16 +213,18 @@ void main() {
     });
   }
 
-  for (final start in [1, 2, 3]) {
-    test('the chirp copied to AVI from frame $start is late by at most the in-point', () async {
+  for (final start in [1, 2, 3, 20]) {
+    test('the chirp trimmed into AVI from frame $start is the source sample for sample', () async {
       final out = await _encode(_job(chirp, 'chirp_avi_$start', start: start, container: 'avi'));
       final starts = await _starts(out);
-      final lag = _syncLag(source, await _sound(out), start, starts.video);
-      // AVI drops the copy's pre-roll timing: late by at most the in-point
-      // (see the header). Before the fix it was 1.28 s early.
-      final inPoint = (start / _fps * _rate).round();
+      final sound = await _sound(out);
+      final lag = _syncLag(source, sound, start, starts.video);
+      // Before task 22, 1.28 s early (frames 1-3); before task 24, late by
+      // the in-point (the copy's pre-roll from the file's start).
       expect(lag, isNotNull, reason: 'the in-point\'s sound is not near the picture: $starts');
-      expect(lag, inInclusiveRange(-40, inPoint + 40), reason: 'lag $lag samples, $starts');
+      expect(lag, 0, reason: 'lag $lag samples, $starts');
+      final from = (start / _fps * _rate).round();
+      expect(_maxDiff(source, from, sound, (starts.video * _rate).round(), _rate), 0);
     });
   }
 

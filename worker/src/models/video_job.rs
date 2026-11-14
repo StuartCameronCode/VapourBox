@@ -1479,6 +1479,18 @@ impl ContainerFormat {
             ContainerFormat::Avi => "AVI",
         }
     }
+
+    /// Whether the container records where each stream starts. Matroska and
+    /// MP4/MOV (an edit list) do, so a stream copy's pre-roll before a trim's
+    /// in-point is stored as a later video start and stays in sync. AVI does
+    /// not: everything plays from 0, so the pre-roll would run the sound late
+    /// (`audio_restoration::needs_sound_cut`).
+    pub fn stores_stream_start(&self) -> bool {
+        match self {
+            ContainerFormat::Mp4 | ContainerFormat::Mov | ContainerFormat::Mkv => true,
+            ContainerFormat::Avi => false,
+        }
+    }
 }
 
 /// Video field order.

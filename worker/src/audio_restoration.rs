@@ -778,16 +778,43 @@ pub fn encode_input_args(track: Option<&RestoredTrack>) -> Vec<String> {
 /// `sound` is the [`SoundCopy`]'s input and stream count when the source's
 /// sound is copied from it rather than from input 1 (`source_decode` rule 9).
 /// Its streams' tags are still taken from the source, every one named.
+///
+/// `cut` is the [`SoundCut`] and its packet input when the copied sound is
+/// cut for AVI ([`needs_sound_cut`]): every copied stream is then mapped on
+/// its own, a PCM one from the sound's usual input (seeked to the in-point),
+/// a compressed one from the packet input, every one's tags named.
 pub fn encode_map_args(
     settings: &EncodingSettings,
     track: Option<&RestoredTrack>,
     track_input: usize,
     sound: Option<(usize, u32)>,
+    cut: Option<(&SoundCut, usize)>,
 ) -> Vec<String> {
     if settings.audio_mode == AudioMode::None {
         return Vec::new();
     }
     let from = sound.map_or(1, |(input, _)| input);
+    if let Some((c, packet_input)) = cut {
+        let mut args = Vec::new();
+        if track.is_some() {
+            args.extend(["-map".into(), format!("{track_input}:a:0")]);
+        }
+        let streams = copied_streams(track, c.streams.len() as u32);
+        for (_, k) in &streams {
+            let input = match c.streams.get(*k as usize) {
+                Some(CutStream::Packet) => packet_input,
+                _ => from,
+            };
+            args.extend(["-map".into(), format!("{input}:a:{k}")]);
+        }
+        if let Some(t) = track {
+            args.extend(["-map_metadata:s:a:0".into(), format!("1:s:a:{}", t.stream)]);
+        }
+        for (j, k) in &streams {
+            args.extend([format!("-map_metadata:s:a:{j}"), format!("1:s:a:{k}")]);
+        }
+        return args;
+    }
     let Some(t) = track else {
         let mut args = vec!["-map".into(), format!("{from}:a?")];
         if let Some((_, streams)) = sound {
@@ -815,7 +842,12 @@ pub fn encode_map_args(
 /// rendered track, which is new audio and must be encoded: FLAC in MKV, AAC
 /// at the chosen quality in MP4/MOV, 16-bit PCM in AVI — and 24-bit PCM
 /// whatever the container beside an editing intermediate (ProRes, v210).
-pub fn encode_codec_args(settings: &EncodingSettings, track: Option<&RestoredTrack>) -> Vec<String> {
+///
+/// With a [`SoundCut`] (Passthrough into AVI, seeked), each copied PCM stream
+/// is re-written in its own codec instead (`-c:a:N`, bit-identical, cut to the
+/// sample), and `-copypriorss:a 0` drops a compressed stream's packets before
+/// its seek.
+pub fn encode_codec_args(settings: &EncodingSettings, track: Option<&RestoredTrack>, cut: Option<&SoundCut>) -> Vec<String> {
     let mut args = Vec::new();
     match settings.audio_mode {
         AudioMode::Passthrough => {
@@ -825,6 +857,19 @@ pub fn encode_codec_args(settings: &EncodingSettings, track: Option<&RestoredTra
                 args.extend(["-c:a:0".into(), codec.ffmpeg_name().into()]);
                 if codec.takes_bitrate() {
                     args.extend(["-b:a:0".into(), format!("{}k", settings.audio_quality.bitrate())]);
+                }
+            }
+            if let Some(c) = cut {
+                let mut packets = false;
+                for (j, k) in copied_streams(track, c.streams.len() as u32) {
+                    match c.streams.get(k as usize) {
+                        Some(CutStream::Exact(codec)) => args.extend([format!("-c:a:{j}"), (*codec).to_string()]),
+                        Some(CutStream::Packet) => packets = true,
+                        None => {}
+                    }
+                }
+                if packets {
+                    args.extend(["-copypriorss:a".into(), "0".into()]);
                 }
             }
         }
@@ -949,6 +994,143 @@ pub fn sound_copy_args(source: &str, end: Option<f64>, out: &Path) -> Vec<String
     args.extend(["-map_metadata".into(), "-1".into(), "-f".into(), "nut".into()]);
     args.push(out.to_string_lossy().to_string());
     args
+}
+
+/// The output audio index and source audio stream of each stream the encode
+/// copies from the source, in output order: every source stream, or, beside
+/// a rendered track (output 0), the others.
+pub fn copied_streams(track: Option<&RestoredTrack>, streams: u32) -> Vec<(u32, u32)> {
+    let first = u32::from(track.is_some());
+    (0..streams)
+        .filter(|k| track.map_or(true, |t| t.stream != *k))
+        .enumerate()
+        .map(|(j, k)| (first + j as u32, k))
+        .collect()
+}
+
+/// PCM codecs that AVI holds and that decode and encode back bit for bit:
+/// the ones a [`SoundCut`] re-writes instead of copying (measured
+/// bit-identical, docs/reports/2026-11-avi-copy-trim). A-law/µ-law and the
+/// big-endian or DVD/Blu-ray layouts are not among them (AVI refuses the
+/// latter, so their copy fails as it always did).
+pub const EXACT_PCM_CODECS: [&str; 6] = ["pcm_u8", "pcm_s16le", "pcm_s24le", "pcm_s32le", "pcm_f32le", "pcm_f64le"];
+
+/// How the encode carries one copied source stream into AVI.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CutStream {
+    /// Re-written in this (its own) PCM codec: seeked to the in-point and
+    /// decoded, so ffmpeg's accurate seek cuts it to the sample.
+    Exact(&'static str),
+    /// Still a copy, from the packet boundary nearest the in-point.
+    Packet,
+}
+
+/// A Passthrough trim into a container that cannot store a stream's start
+/// (AVI, [`needs_sound_cut`]). A copy keeps the packets from where the
+/// demuxer's seek lands, before the in-point (a GOP early on a long-GOP
+/// source); MKV/MP4/MOV store that as a later video start, AVI plays it under
+/// the first picture and the whole track runs late. So PCM is re-written,
+/// exact, and a compressed stream is copied from a second input of the same
+/// file seeked `half_packet` early, with `-copypriorss:a 0`: its first packet
+/// is then the one whose start is nearest the in-point (within half a packet).
+///
+/// ffmpeg drops a copied packet when its timestamp, in the stream's own time
+/// base, is below the seek rounded to that time base. An AVI's compressed
+/// audio counts in packets (AC-3 4/125, MP3 3/125), so the rounding alone
+/// keeps the nearest packet and a seek to the in-point is right; seeking it
+/// half a packet early kept the one before (measured +27 ms). A fine time
+/// base (MP4 1/48000, MKV 1/1000) keeps the first packet at or after the
+/// seek, so only those streams ask for the early seek.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SoundCut {
+    /// Every source audio stream, in order.
+    pub streams: Vec<CutStream>,
+    /// Half the longest packet among the [`CutStream::Packet`] streams whose
+    /// time base is finer than a quarter of a packet, seconds; 0 when there
+    /// are none (a stream counted in packets, as in AVI, is cut at the nearest
+    /// by ffmpeg's rounding) or no duration was stated (the cut is then the
+    /// first packet at or after the in-point).
+    pub half_packet: f64,
+}
+
+impl SoundCut {
+    /// Whether any stream is copied by packet (and so needs the packet input).
+    pub fn has_packet_streams(&self) -> bool {
+        self.streams.iter().any(|s| *s == CutStream::Packet)
+    }
+}
+
+/// Whether the encode's copied sound must be cut ([`SoundCut`]): Passthrough
+/// into a container with no stream start (AVI), carrying source audio (all
+/// of it, or the streams beside a rendered track), and the encoder seeks it
+/// (a trim, or `startWithPicture` on a late video). Every other job keeps its
+/// arguments byte for byte.
+pub fn needs_sound_cut(job: &VideoJob, track: Option<&RestoredTrack>) -> bool {
+    job.encoding_settings.audio_mode == AudioMode::Passthrough
+        && !job.encoding_settings.container.stores_stream_start()
+        && job.source_has_audio != Some(false)
+        && track.map_or(true, |t| t.source_streams > 1)
+        && job.source_audio_start() > 0.0
+}
+
+/// ffprobe's arguments (before the input) for [`sound_cut_from_probe`]: each
+/// audio stream's codec and the durations of its first packets, read from the
+/// file's start (no seek, so a delayed AVI's failed seek cannot affect it).
+pub const SOUND_CUT_PROBE_ARGS: [&str; 9] = [
+    "-v", "error", "-select_streams", "a", "-read_intervals", "%+#256",
+    "-show_entries", "stream=index,codec_name,time_base:packet=stream_index,duration_time", "-of",
+];
+
+/// The [`SoundCut`] for a source, from ffprobe's JSON for
+/// [`SOUND_CUT_PROBE_ARGS`] (`-of json`). `None` when it lists no audio.
+pub fn sound_cut_from_probe(json: &str) -> Option<SoundCut> {
+    let v: serde_json::Value = serde_json::from_str(json).ok()?;
+    let streams = v.get("streams")?.as_array()?;
+    if streams.is_empty() {
+        return None;
+    }
+    let mut cut = Vec::new();
+    let mut indices = Vec::new();
+    let mut time_bases = Vec::new();
+    for s in streams {
+        time_bases.push(s.get("time_base").and_then(|t| t.as_str()).and_then(parse_time_base));
+        let codec = s.get("codec_name").and_then(|c| c.as_str()).unwrap_or("");
+        cut.push(match EXACT_PCM_CODECS.iter().find(|c| **c == codec) {
+            Some(c) => CutStream::Exact(c),
+            None => CutStream::Packet,
+        });
+        indices.push(s.get("index").and_then(|i| i.as_i64()).unwrap_or(-1));
+    }
+    let mut longest = vec![0.0f64; cut.len()];
+    for p in v.get("packets").and_then(|p| p.as_array()).into_iter().flatten() {
+        let Some(k) = p.get("stream_index").and_then(|i| i.as_i64()).and_then(|i| indices.iter().position(|x| *x == i)) else {
+            continue;
+        };
+        if cut[k] != CutStream::Packet {
+            continue;
+        }
+        let d = p.get("duration_time").and_then(|d| d.as_str()).and_then(|d| d.parse::<f64>().ok());
+        if let Some(d) = d.filter(|d| d.is_finite() && *d > 0.0 && *d < 1.0) {
+            longest[k] = longest[k].max(d);
+        }
+    }
+    // Only a stream whose time base is finer than its packets needs the early
+    // seek; one counted in packets is cut at the nearest by the rounding (an
+    // unknown time base is taken as fine).
+    let half = longest
+        .iter()
+        .zip(&time_bases)
+        .filter(|(p, tb)| tb.map_or(true, |tb| tb * 4.0 <= **p))
+        .map(|(p, _)| *p / 2.0)
+        .fold(0.0, f64::max);
+    Some(SoundCut { streams: cut, half_packet: half })
+}
+
+/// "4/125" → 0.032.
+fn parse_time_base(s: &str) -> Option<f64> {
+    let (n, d) = s.split_once('/')?;
+    let (n, d): (f64, f64) = (n.trim().parse().ok()?, d.trim().parse().ok()?);
+    (n > 0.0 && d > 0.0).then_some(n / d)
 }
 
 // ---------------------------------------------------------------------------
@@ -1154,6 +1336,59 @@ impl AudioRestorer {
                 None
             }
         }
+    }
+
+    /// The [`SoundCut`] the encode applies, when it needs one
+    /// ([`needs_sound_cut`]). A failed probe is a warning: the encode then
+    /// copies as before, its sound late by the copy's pre-roll.
+    pub fn sound_cut(&self, job: &VideoJob, track: Option<&RestoredTrack>) -> Option<SoundCut> {
+        if !needs_sound_cut(job, track) {
+            return None;
+        }
+        let late = "the sound may run late by up to a keyframe interval; MKV or Convert keeps it in sync";
+        let ffprobe = match self.deps.ffprobe_path() {
+            Ok(p) => p,
+            Err(e) => {
+                self.log(LogLevel::Warning, &format!("Could not probe the source's sound for the AVI trim ({e:#}); {late}."));
+                return None;
+            }
+        };
+        let out = Command::new(&ffprobe)
+            .args(SOUND_CUT_PROBE_ARGS)
+            .args(["json", job.input_path.as_str()])
+            .envs(self.deps.build_environment())
+            .output();
+        let cut = match out {
+            Ok(o) if o.status.success() => sound_cut_from_probe(&String::from_utf8_lossy(&o.stdout)),
+            Ok(o) => {
+                let err = String::from_utf8_lossy(&o.stderr);
+                self.log(LogLevel::Warning, &format!("Could not probe the source's sound for the AVI trim ({}); {late}.", err.trim()));
+                return None;
+            }
+            Err(e) => {
+                self.log(LogLevel::Warning, &format!("Could not probe the source's sound for the AVI trim ({e}); {late}."));
+                return None;
+            }
+        };
+        let Some(cut) = cut else {
+            // No audio stream to cut (or an unreadable probe): nothing to copy late.
+            return None;
+        };
+        let copied = copied_streams(track, cut.streams.len() as u32);
+        let exact = copied.iter().any(|(_, k)| matches!(cut.streams[*k as usize], CutStream::Exact(_)));
+        let packet = copied.iter().any(|(_, k)| cut.streams[*k as usize] == CutStream::Packet);
+        let mut parts = Vec::new();
+        if exact {
+            parts.push("PCM sound is re-written in its own format, cut to the sample".to_string());
+        }
+        if packet {
+            parts.push("compressed sound is copied from the packet nearest the in-point (within half a packet)".to_string());
+        }
+        self.log(LogLevel::Info, &format!(
+            "AVI cannot store where a stream starts, so a copied sound would keep the seek's pre-roll and run late: the {}.",
+            parts.join("; the ")
+        ));
+        Some(cut)
     }
 
     fn write_sound_copy(&self, job: &VideoJob, streams: u32) -> Result<SoundSidecar> {
@@ -1879,17 +2114,17 @@ mod tests {
     #[test]
     fn encoder_maps_the_restored_track_first_and_keeps_the_others() {
         let s = settings(AudioMode::Passthrough, ContainerFormat::Mkv);
-        assert_eq!(encode_map_args(&s, None, 3, None), vec!["-map", "1:a?"]);
+        assert_eq!(encode_map_args(&s, None, 3, None, None), vec!["-map", "1:a?"]);
         let t = RestoredTrack { path: "r.wav".into(), stream: 1, source_streams: 3 };
         assert_eq!(
-            encode_map_args(&s, Some(&t), 3, None),
+            encode_map_args(&s, Some(&t), 3, None, None),
             vec![
                 "-map", "3:a:0", "-map", "1:a:0", "-map", "1:a:2",
                 "-map_metadata:s:a:0", "1:s:a:1", "-map_metadata:s:a:1", "1:s:a:0",
                 "-map_metadata:s:a:2", "1:s:a:2",
             ]
         );
-        assert!(encode_map_args(&settings(AudioMode::None, ContainerFormat::Mkv), Some(&t), 3, None).is_empty());
+        assert!(encode_map_args(&settings(AudioMode::None, ContainerFormat::Mkv), Some(&t), 3, None, None).is_empty());
         assert_eq!(encode_input_args(Some(&t)), vec!["-i", "r.wav"]);
         assert!(encode_input_args(None).is_empty());
     }
@@ -1900,15 +2135,15 @@ mod tests {
     fn encoder_maps_the_sound_copy_with_the_sources_tags() {
         let s = settings(AudioMode::Passthrough, ContainerFormat::Mkv);
         assert_eq!(
-            encode_map_args(&s, None, 3, Some((3, 2))),
+            encode_map_args(&s, None, 3, Some((3, 2)), None),
             vec!["-map", "3:a?", "-map_metadata:s:a:0", "1:s:a:0", "-map_metadata:s:a:1", "1:s:a:1"]
         );
         let t = RestoredTrack { path: "r.wav".into(), stream: 0, source_streams: 2 };
         assert_eq!(
-            encode_map_args(&s, Some(&t), 3, Some((4, 2))),
+            encode_map_args(&s, Some(&t), 3, Some((4, 2)), None),
             vec!["-map", "3:a:0", "-map", "4:a:1", "-map_metadata:s:a:0", "1:s:a:0", "-map_metadata:s:a:1", "1:s:a:1"]
         );
-        assert!(encode_map_args(&settings(AudioMode::None, ContainerFormat::Mkv), None, 3, Some((3, 1))).is_empty());
+        assert!(encode_map_args(&settings(AudioMode::None, ContainerFormat::Mkv), None, 3, Some((3, 1)), None).is_empty());
     }
 
     fn delayed_avi(start_frame: Option<i32>) -> VideoJob {
@@ -1949,6 +2184,149 @@ mod tests {
         let mut j = job.clone();
         j.decoder_delay_frames = None;
         assert!(!needs_sound_sidecar(&j, None));
+    }
+
+    fn avi_trim(start_frame: Option<i32>) -> VideoJob {
+        let mut job = delayed_avi(start_frame);
+        job.decoder_delay_frames = None;
+        job.encoding_settings.container = ContainerFormat::Avi;
+        job.encoding_settings.audio_mode = AudioMode::Passthrough;
+        job
+    }
+
+    /// Task 24: only a Passthrough copy into AVI that the encoder seeks is
+    /// cut; every container that stores a stream's start, every other audio
+    /// mode and an unseeked job keep their arguments.
+    #[test]
+    fn the_sound_is_cut_only_for_a_seeked_copy_into_avi() {
+        let job = avi_trim(Some(20));
+        assert!(needs_sound_cut(&job, None));
+        for container in [ContainerFormat::Mp4, ContainerFormat::Mov, ContainerFormat::Mkv, ContainerFormat::Avi] {
+            let mut j = job.clone();
+            j.encoding_settings.container = container;
+            assert_eq!(needs_sound_cut(&j, None), !container.stores_stream_start(), "{container:?}");
+        }
+        for mode in [AudioMode::Convert, AudioMode::None] {
+            let mut j = job.clone();
+            j.encoding_settings.audio_mode = mode;
+            assert!(!needs_sound_cut(&j, None), "{mode:?}");
+        }
+        let mut j = job.clone();
+        j.source_has_audio = Some(false);
+        assert!(!needs_sound_cut(&j, None));
+        assert!(!needs_sound_cut(&avi_trim(None), None), "untrimmed: the copy starts at 0");
+        assert!(!needs_sound_cut(&avi_trim(Some(0)), None));
+        // Beside a rendered track: only when other streams are copied.
+        let one = RestoredTrack { path: "r.wav".into(), stream: 0, source_streams: 1 };
+        let two = RestoredTrack { source_streams: 2, ..one.clone() };
+        assert!(!needs_sound_cut(&job, Some(&one)));
+        assert!(needs_sound_cut(&job, Some(&two)));
+        // A late video's sound seeked to its first picture counts too.
+        let mut j = avi_trim(None);
+        j.video_start_offset = Some(0.5);
+        j.processing_pipeline = Some(serde_json::from_value(serde_json::json!({
+            "audio": {"enabled": true, "startWithPicture": true}
+        })).unwrap());
+        assert!(j.source_audio_start() > 0.0);
+        assert!(needs_sound_cut(&j, Some(&two)));
+    }
+
+    #[test]
+    fn the_cut_probe_reads_codecs_and_packet_lengths() {
+        // An MKV's: fine time bases, so the copied streams want the early seek.
+        let json = r#"{"packets": [
+            {"stream_index": 1, "duration_time": "0.021333"},
+            {"stream_index": 2, "duration_time": "0.032000"},
+            {"stream_index": 2, "duration_time": "0.032000"},
+            {"stream_index": 3, "duration_time": "0.024000"},
+            {"stream_index": 3, "duration_time": "N/A"},
+            {"stream_index": 3}
+        ], "streams": [
+            {"index": 1, "codec_name": "pcm_s16le", "time_base": "1/1000"},
+            {"index": 2, "codec_name": "ac3", "time_base": "1/1000"},
+            {"index": 3, "codec_name": "mp3", "time_base": "1/1000"}
+        ]}"#;
+        let cut = sound_cut_from_probe(json).unwrap();
+        assert_eq!(cut.streams, vec![CutStream::Exact("pcm_s16le"), CutStream::Packet, CutStream::Packet]);
+        // PCM's chunk length does not count: only the copied streams'.
+        assert!((cut.half_packet - 0.016).abs() < 1e-9, "{}", cut.half_packet);
+        assert!(cut.has_packet_streams());
+        // An AVI's compressed audio counts in packets: no early seek (the
+        // seek's rounding picks the nearest packet). AAC in MP4 does want it.
+        let avi = r#"{"packets": [{"stream_index": 1, "duration_time": "0.032000"}],
+            "streams": [{"index": 1, "codec_name": "ac3", "time_base": "4/125"}]}"#;
+        assert_eq!(sound_cut_from_probe(avi).unwrap().half_packet, 0.0);
+        let mp4 = r#"{"packets": [{"stream_index": 1, "duration_time": "0.021333"}],
+            "streams": [{"index": 1, "codec_name": "aac", "time_base": "1/48000"}]}"#;
+        assert!((sound_cut_from_probe(mp4).unwrap().half_packet - 0.0106665).abs() < 1e-9);
+        assert_eq!(parse_time_base("3/125"), Some(0.024));
+        assert_eq!(parse_time_base("0/0"), None);
+        for codec in EXACT_PCM_CODECS {
+            let one = format!(r#"{{"streams": [{{"index": 1, "codec_name": "{codec}"}}]}}"#);
+            assert_eq!(sound_cut_from_probe(&one).unwrap().streams, vec![CutStream::Exact(codec)]);
+        }
+        // AVI refuses these; AAC etc. are copied; no packets → half 0.
+        for codec in ["pcm_s16be", "pcm_dvd", "pcm_alaw", "aac", "mp2"] {
+            let one = format!(r#"{{"streams": [{{"index": 1, "codec_name": "{codec}"}}]}}"#);
+            let c = sound_cut_from_probe(&one).unwrap();
+            assert_eq!(c.streams, vec![CutStream::Packet], "{codec}");
+            assert_eq!(c.half_packet, 0.0);
+        }
+        assert!(sound_cut_from_probe(r#"{"streams": []}"#).is_none());
+        assert!(sound_cut_from_probe("").is_none());
+    }
+
+    #[test]
+    fn a_cut_maps_each_stream_from_its_own_input() {
+        let s = settings(AudioMode::Passthrough, ContainerFormat::Avi);
+        let pcm = SoundCut { streams: vec![CutStream::Exact("pcm_s16le")], half_packet: 0.0 };
+        assert_eq!(
+            encode_map_args(&s, None, 3, None, Some((&pcm, 3))),
+            vec!["-map", "1:a:0", "-map_metadata:s:a:0", "1:s:a:0"]
+        );
+        assert_eq!(encode_codec_args(&s, None, Some(&pcm)), vec!["-c:a", "copy", "-c:a:0", "pcm_s16le"]);
+
+        let ac3 = SoundCut { streams: vec![CutStream::Packet], half_packet: 0.016 };
+        assert_eq!(
+            encode_map_args(&s, None, 3, None, Some((&ac3, 3))),
+            vec!["-map", "3:a:0", "-map_metadata:s:a:0", "1:s:a:0"]
+        );
+        assert_eq!(encode_codec_args(&s, None, Some(&ac3)), vec!["-c:a", "copy", "-copypriorss:a", "0"]);
+
+        // Mixed, from the sound copy (input 3) with the packet input at 4.
+        let mixed = SoundCut { streams: vec![CutStream::Exact("pcm_s24le"), CutStream::Packet], half_packet: 0.012 };
+        assert_eq!(
+            encode_map_args(&s, None, 3, Some((3, 2)), Some((&mixed, 4))),
+            vec!["-map", "3:a:0", "-map", "4:a:1", "-map_metadata:s:a:0", "1:s:a:0", "-map_metadata:s:a:1", "1:s:a:1"]
+        );
+        assert_eq!(
+            encode_codec_args(&s, None, Some(&mixed)),
+            vec!["-c:a", "copy", "-c:a:0", "pcm_s24le", "-copypriorss:a", "0"]
+        );
+
+        // Beside a rendered track of stream 1: the track first, then 0 and 2.
+        let three = SoundCut {
+            streams: vec![CutStream::Packet, CutStream::Exact("pcm_s16le"), CutStream::Exact("pcm_u8")],
+            half_packet: 0.016,
+        };
+        let t = RestoredTrack { path: "r.wav".into(), stream: 1, source_streams: 3 };
+        assert_eq!(
+            encode_map_args(&s, Some(&t), 3, None, Some((&three, 4))),
+            vec![
+                "-map", "3:a:0", "-map", "4:a:0", "-map", "1:a:2",
+                "-map_metadata:s:a:0", "1:s:a:1", "-map_metadata:s:a:1", "1:s:a:0",
+                "-map_metadata:s:a:2", "1:s:a:2",
+            ]
+        );
+        assert_eq!(
+            encode_codec_args(&s, Some(&t), Some(&three)),
+            vec!["-c:a", "copy", "-c:a:0", "pcm_s16le", "-c:a:2", "pcm_u8", "-copypriorss:a", "0"]
+        );
+        assert_eq!(copied_streams(Some(&t), 3), vec![(1, 0), (2, 2)]);
+        assert_eq!(copied_streams(None, 2), vec![(0, 0), (1, 1)]);
+        // Convert / None ignore a cut.
+        assert_eq!(encode_codec_args(&settings(AudioMode::None, ContainerFormat::Avi), None, Some(&mixed)), vec!["-an"]);
+        assert!(encode_map_args(&settings(AudioMode::None, ContainerFormat::Avi), None, 3, None, Some((&mixed, 3))).is_empty());
     }
 
     #[test]
@@ -2001,38 +2379,38 @@ mod tests {
     fn passthrough_copies_the_others_and_encodes_the_restored_track() {
         let t = RestoredTrack { path: "r.wav".into(), stream: 0, source_streams: 2 };
         assert_eq!(
-            encode_codec_args(&settings(AudioMode::Passthrough, ContainerFormat::Mkv), Some(&t)),
+            encode_codec_args(&settings(AudioMode::Passthrough, ContainerFormat::Mkv), Some(&t), None),
             vec!["-c:a", "copy", "-c:a:0", "flac"]
         );
         assert_eq!(
-            encode_codec_args(&settings(AudioMode::Passthrough, ContainerFormat::Mp4), Some(&t)),
+            encode_codec_args(&settings(AudioMode::Passthrough, ContainerFormat::Mp4), Some(&t), None),
             vec!["-c:a", "copy", "-c:a:0", "aac", "-b:a:0", "192k"]
         );
         assert_eq!(
-            encode_codec_args(&settings(AudioMode::Passthrough, ContainerFormat::Avi), Some(&t)),
+            encode_codec_args(&settings(AudioMode::Passthrough, ContainerFormat::Avi), Some(&t), None),
             vec!["-c:a", "copy", "-c:a:0", "pcm_s16le"]
         );
         // Beside ProRes in MOV: 24-bit PCM, with no bitrate.
         let mut prores = settings(AudioMode::Passthrough, ContainerFormat::Mov);
         prores.codec = VideoCodec::ProResHQ;
-        assert_eq!(encode_codec_args(&prores, Some(&t)), vec!["-c:a", "copy", "-c:a:0", "pcm_s24le"]);
+        assert_eq!(encode_codec_args(&prores, Some(&t), None), vec!["-c:a", "copy", "-c:a:0", "pcm_s24le"]);
         // Beside v210, in each of its containers.
         for container in [ContainerFormat::Mov, ContainerFormat::Mkv, ContainerFormat::Avi] {
             let mut v210 = settings(AudioMode::Passthrough, container);
             v210.codec = VideoCodec::V210;
-            assert_eq!(encode_codec_args(&v210, Some(&t)), vec!["-c:a", "copy", "-c:a:0", "pcm_s24le"], "{container:?}");
+            assert_eq!(encode_codec_args(&v210, Some(&t), None), vec!["-c:a", "copy", "-c:a:0", "pcm_s24le"], "{container:?}");
         }
         // Convert → PCM is the user's choice and stays 16-bit.
         let mut convert_pcm = settings(AudioMode::Convert, ContainerFormat::Mov);
         convert_pcm.codec = VideoCodec::ProResHQ;
         convert_pcm.audio_codec = AudioCodec::Pcm;
-        assert_eq!(encode_codec_args(&convert_pcm, Some(&t)), vec!["-c:a", "pcm_s16le"]);
+        assert_eq!(encode_codec_args(&convert_pcm, Some(&t), None), vec!["-c:a", "pcm_s16le"]);
         // Without a track, exactly what the encoder always did.
-        assert_eq!(encode_codec_args(&settings(AudioMode::Passthrough, ContainerFormat::Mp4), None), vec!["-c:a", "copy"]);
+        assert_eq!(encode_codec_args(&settings(AudioMode::Passthrough, ContainerFormat::Mp4), None, None), vec!["-c:a", "copy"]);
         let mut convert = settings(AudioMode::Convert, ContainerFormat::Mp4);
         convert.audio_codec = AudioCodec::Opus;
-        assert_eq!(encode_codec_args(&convert, Some(&t)), vec!["-c:a", "libopus", "-b:a", "192k"]);
-        assert_eq!(encode_codec_args(&settings(AudioMode::None, ContainerFormat::Mp4), None), vec!["-an"]);
+        assert_eq!(encode_codec_args(&convert, Some(&t), None), vec!["-c:a", "libopus", "-b:a", "192k"]);
+        assert_eq!(encode_codec_args(&settings(AudioMode::None, ContainerFormat::Mp4), None, None), vec!["-an"]);
     }
 
     #[test]
