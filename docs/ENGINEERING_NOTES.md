@@ -3825,6 +3825,8 @@ Report: [docs/reports/issue-169-mpeg-seek](reports/issue-169-mpeg-seek/index.htm
   to start a GOP late and run through the reset. With `-copyts` it starts on
   the right frame and stops at the reset (review: 52 of 150 frames;
   `discontinuity_probe.py`).
+  *Fixed since by task #21 (entry below): a source with a reset is decoded
+  from a joined copy.*
 
 ### AVI seeks landed 1-2 frames early, and frames 1-3 about 1.5 s late (issue #173, 2026-11-14)
 
@@ -3992,3 +3994,37 @@ Follow-up to #173.
 - `integration_avi_audio_seek_test.dart` (heavy) uses a chirp copy of the
   fixture's picture (the 440 Hz sine can't show 1.3 s: 572 whole periods);
   11 of 12 cases fail without rule 9, the frame-20 control passes either way.
+
+### MPEG-PS/TS whose timestamps reset mid-file (task #21, 2026-11-14)
+
+Report: [docs/reports/2026-11-timestamp-resets](reports/2026-11-timestamp-resets/index.html).
+
+- **The fault was wider than the trim.** On a TS/PS whose clock goes back
+  (a DVD title spanning VOB IDs, a spliced capture) ffprobe's duration covers
+  the last segment only, so the app counted 150 of 300 frames and the
+  untrimmed encode stopped there too; a seek past the reset is undefined
+  (`-ss` searches timestamps that occur once per segment: from 140 the TS
+  fixture delivered pictures 290 on); #169's `-copyts` trim stops at it
+  (from 100: 52 of 101 frames; from 150 on: none).
+- **Fix: a same-container copy without `-copyts`**, made only when the scan
+  finds a reset. ffmpeg's discontinuity correction then joins the segments
+  with one offset per segment for every stream (sync kept), and every
+  decoder, count and seek works unchanged on the copy: 300 frames, every
+  start exact, sound within 60 ms of a flash after the reset. A reset is
+  ffmpeg's own rule (DTS > 0.1 s back or > 10 s forward, per A/V stream);
+  a 5 s drop-out and a 33-bit wrap are not resets.
+- **Rejected:** per-segment offsets in every decoder (`-ss` can't reach a
+  later segment; copied sound can't be filtered), dropping `-copyts`, an MKV
+  copy (`+genpts`, 1 ms timestamps, leaves the TS/PS seek rules). The
+  planning measurement that an MKV remux grows quadratically with the number
+  of resets did **not** reproduce on the cost probe's segments (0.31 s at 90);
+  the rejection rests on the other reasons.
+- **Cost:** the scan reads the whole file (~0.1–0.3 s for 30–260 MB; ~1–2 s
+  per GB); the copy needs free temp space equal to the source.
+- **Found on the way:** the DVD import copies the whole title set (every
+  title, every angle, chapters ignored), so its output often has resets; it
+  now joins them, and extracting the title alone is a separate task. A PS
+  whose last picture has no PTS counts one frame short with or without a
+  reset (task #26).
+- **Not measured:** how often resets occur in real DVD/DVB material (none on
+  the test machine); `reset_survey.py` does it.

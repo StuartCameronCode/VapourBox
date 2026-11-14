@@ -126,6 +126,7 @@ VapourBox/
 | `worker/src/models/unblend_parameters.rs` | Unblend's parameters, srestore's ratio arithmetic (`srestore_ratio`) and the refusal wording |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset, an AVI's decoder delay, and the one seek decision, `source_seek` / `seek_arg`, the source grid every constant-rate decoder starts on (`decode_start`; see "Source Frame Size", "Colour metadata") |
+| `worker/src/source_continuity.rs` | Timestamp resets in an MPEG-PS/TS: the rule, `--scan-timestamps`, and the continuous same-container copy decoded instead (see "Source Frame Size") |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, RIFE's model add-on, the `--probe-rife` / `--probe-upscale` probe (on stand-in models, no add-on needed), and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
@@ -155,6 +156,7 @@ VapourBox/
 | `app/lib/services/worker_manager.dart` | Process spawning, IPC |
 | `app/lib/services/filter_loader.dart` | Load filter schemas from JSON |
 | `app/lib/services/preset_service.dart` | Save/load user presets |
+| `app/lib/services/timestamp_continuity_service.dart` | Runs the worker's reset scan and copy at analysis; `ContinuityProxy` is `QueueItem.decodePath` |
 | `app/lib/services/temp_directory_service.dart` | Configurable scratch-file directory (see "Temporary Files Directory") |
 | `app/lib/services/pitch_factor_file.dart` | Per-video pitch factor files: sidecar lookup + summary (see "Stabilize") |
 | `app/lib/services/overwrite_behavior_service.dart` | Default action for existing output files (see "Existing Output Files") |
@@ -1219,6 +1221,27 @@ the **single** builder of both decoders' arguments (encode + preview):
   `integration_seek_alignment_test.dart` (heavy) covers three AVI fixtures
   (`generate_avi_seek_test.sh`, `hard_telecine_test.avi`)
   (docs/reports/issue-173-avi-seek).
+- **A TS/PS whose timestamps reset is decoded from a joined copy (task #21).**
+  A DVD title over several VOB IDs, a spliced capture, or the DVD import's
+  own output (it copies the whole title set) has a clock that goes back
+  mid-file: ffprobe counts the last segment only, `-ss` can't reach a later
+  segment, and `-copyts` stops at the reset. `source_continuity.rs` is the
+  one decision: a reset is ffmpeg's own (DTS > 0.1 s back or > 10 s forward,
+  per A/V stream), and the fix is a **same-container stream copy without
+  `-copyts`**, checked (no reset left, every video packet) before use and
+  made only when a reset is found — a file without one keeps every argument.
+  - **The app makes it at analysis** (`TimestampContinuityService`,
+    `--scan-timestamps` / `--make-continuous`) into the temp directory.
+    **`QueueItem.decodePath` is what every probe and decode reads;
+    `inputPath` stays the user's file** (output name, display, Show in
+    Folder, sidecars). `queue_item_decode_path_test.dart` fails on any new
+    `.inputPath` read until it is classified. Jobs carry
+    `continuityChecked`; without it the worker scans and only **warns**.
+  - **The DVD import joins** (extracts to `.part`, then renames or joins).
+  - **Never per-segment offsets in the decoders** (copied sound can't be
+    filtered, `-ss` can't target a segment) and never an MKV copy (leaves
+    the TS/PS rules). `integration_seek_alignment_test.dart` checks the
+    `seek_reset_*` fixtures through the copy (docs/reports/2026-11-timestamp-resets).
 
 `integration_clean_aperture_test.dart` (heavy) asserts a clean-aperture MOV and
 MKV come through bit-exact at full size. See docs/ENGINEERING_NOTES.md,
