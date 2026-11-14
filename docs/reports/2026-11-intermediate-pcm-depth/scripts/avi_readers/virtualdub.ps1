@@ -4,10 +4,15 @@
 #
 # For each fixture and each VirtualDub: open it, save its audio with "Direct
 # stream copy" and again with "Full processing mode" (no conversion asked for),
-# via the command-line driver (vdub64.exe /s script /x). Writes
+# by running the GUI executable with a script (/s script /x). Writes
 # $Work\vdub\<tool>_<mode>_<fixture>.wav and a .status file saying how the run
-# ended. A run that does not finish in 90 s is killed after a screenshot of the
-# desktop ($Work\vdub\<...>.png): VirtualDub reports errors in modal dialogs.
+# ended. A run that does not finish in 60 s is killed after a screenshot of the
+# desktop ($Work\vdub\<...>.png) and a list of the process's windows, visible
+# or not: VirtualDub reports errors in modal dialogs.
+#
+# Each VirtualDub shows its GPL licence on first run, recording that it did
+# before the dialog opens (license.cpp), so one warm-up run per tool, killed,
+# gets it out of the way.
 param([Parameter(Mandatory)][string]$Work, [Parameter(Mandatory)][string]$Tools)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
@@ -24,9 +29,51 @@ function Screenshot([string]$path) {
   } catch { "screenshot failed: $_" | Write-Host }
 }
 
+Add-Type @'
+using System; using System.Text; using System.Runtime.InteropServices; using System.Collections.Generic;
+public static class Win {
+  delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  public static string Titles(HashSet<uint> pids) {
+    var sb = new StringBuilder();
+    EnumWindows((h, l) => { uint pid; GetWindowThreadProcessId(h, out pid);
+      if (pids.Contains(pid)) { var t = new StringBuilder(512); GetWindowText(h, t, 512);
+        if (t.Length > 0) sb.Append((IsWindowVisible(h) ? "[visible] " : "[hidden] ") + t + "; "); }
+      return true; }, IntPtr.Zero);
+    return sb.ToString();
+  }
+}
+'@
+
+function VdProcs { Get-Process | Where-Object { $_.ProcessName -match '^(vdub|Veedub|VirtualDub)' } }
+
 function Esc([string]$p) { $p.Replace('\', '\\') }
 
-$exes = @{ vd1104 = (Join-Path $Tools 'vd1104\vdub64.exe'); vd2 = (Join-Path $Tools 'vd2\vdub64.exe') }
+$exes = @{ vd1104 = (Join-Path $Tools 'vd1104\Veedub64.exe'); vd2 = (Join-Path $Tools 'vd2\VirtualDub64.exe') }
+
+# Run one script; returns how it ended.
+function RunVd([string]$tool, [string]$stem, [int]$timeoutMs) {
+  $p = Start-Process -FilePath $exes[$tool] -ArgumentList '/s', "`"$stem.vdscript`"", '/x' -PassThru
+  if ($p.WaitForExit($timeoutMs)) { return "exit $($p.ExitCode)" }
+  Screenshot "$stem.png"
+  $pids = New-Object 'System.Collections.Generic.HashSet[uint32]'
+  VdProcs | ForEach-Object { [void]$pids.Add([uint32]$_.Id) }
+  $titles = [Win]::Titles($pids)
+  VdProcs | Stop-Process -Force
+  Start-Sleep -Seconds 1
+  return "timed out (killed); windows: $titles"
+}
+
+foreach ($tool in 'vd1104', 'vd2') {
+  $stem = Join-Path $out "${tool}_warmup"
+  Set-Content -Path "$stem.vdscript" -Value "VirtualDub.Open(`"$(Esc (Join-Path $Work 'avi\ffv1_s16.avi'))`");" -Encoding ascii
+  $status = RunVd $tool $stem 30000
+  Set-Content -Path "$stem.status" -Value $status
+  Write-Host "$tool warm-up : $status"
+}
 foreach ($fx in 'ffv1_s24', 'huffyuv_s24', 'h264_s24', 'ffv1_s16') {
   $avi = Join-Path $Work "avi\$fx.avi"
   foreach ($tool in 'vd1104', 'vd2') {
@@ -42,15 +89,7 @@ VirtualDub.audio.SetConversion(0, 0, 0, 0, 0);
 VirtualDub.SaveWAV("$(Esc $wav)");
 "@
       Set-Content -Path "$stem.vdscript" -Value $script -Encoding ascii
-      $p = Start-Process -FilePath $exes[$tool] -ArgumentList '/s', "`"$stem.vdscript`"", '/x' `
-             -RedirectStandardOutput "$stem.log" -RedirectStandardError "$stem.err" -PassThru -WindowStyle Normal
-      if ($p.WaitForExit(90000)) {
-        $status = "exit $($p.ExitCode)"
-      } else {
-        Screenshot "$stem.png"
-        Get-Process | Where-Object { $_.ProcessName -match '^(vdub|Veedub|VirtualDub)' } | Stop-Process -Force
-        $status = 'timed out (killed; see screenshot)'
-      }
+      $status = RunVd $tool $stem 60000
       if (-not (Test-Path $wav)) { $status += '; no WAV written' }
       Set-Content -Path "$stem.status" -Value $status
       Write-Host "$tool $mode $fx : $status"
