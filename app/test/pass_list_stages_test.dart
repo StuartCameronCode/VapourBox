@@ -37,6 +37,7 @@ void main() {
     // fails, confirm against script_generator.rs before changing it.
     expect(flattened, [
       PassType.deinterlace,
+      PassType.unblend,
       PassType.edgeRepair,
       PassType.ghostRemoval,
       PassType.deflicker,
@@ -66,6 +67,14 @@ void main() {
 
   group('the placements that carry meaning', () {
     int indexOf(PassType p) => flattened.indexOf(p);
+
+    test('unblend runs straight after deinterlacing', () {
+      // Its detector reads the blends exactly as the deinterlacer leaves them;
+      // anything that averages, sharpens or resizes frames first changes what
+      // it measures (docs/reports/2026-11-srestore). Mirrored in
+      // ProcessingPipeline.enabledPasses and the Rust test_225.
+      expect(indexOf(PassType.unblend), indexOf(PassType.deinterlace) + 1);
+    });
 
     test('anti-aliasing runs before sharpening', () {
       // Sharpening a stair-stepped edge makes the stepping more visible, not

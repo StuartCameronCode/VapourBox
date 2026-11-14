@@ -208,6 +208,9 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info,
     // metadata at all; only the pass's own detection can tell.
     case PassType.descale:
     case PassType.frameRate:
+    // Whether a conversion was done by blending is not in the metadata; only
+    // looking at the frames could tell, and nothing measures that yet.
+    case PassType.unblend:
     case PassType.grain:
       return PassRelevanceResult.neutral;
   }

@@ -3285,6 +3285,19 @@ Full report with scripts:
 - Open: `--detect-native`'s gray16le decode depends on the matrix tag in any
   case (the same 28 levels). `--detect-noise-halo` avoids it by reading the
   luma plane of the source's own format.
+  **Fixed 2026-11-14**: `--detect-native` now decodes the pipe format and
+  scales the Y plane itself (`native_res::luma_gray16`: limited range
+  expanded to 0–65535, full range scaled — within one code of an *untagged*
+  source's gray16le, so the calibrated cap and dip threshold are unchanged).
+  It mattered more than 28 levels suggests: a BT.709-tagged copy of the 10-bit
+  Catmull-Rom test master lost its dip altogether (1063p, dip 0.59, not
+  found; untagged 720p, 0.144). Now both give the identical report.
+- Also found then: the app built all three Detect jobs (`--detect-native`,
+  `--detect-crop`, `--detect-noise-halo`) without the matrix, primaries and
+  transfer (Descale's without the range too), so `decode_tag_neutraliser`
+  never fired from the app — only the heavy test, whose jobs carry tags,
+  proved the fix. They now share `MainViewModel._detectorJob`, which always
+  carries the four raw tags. See the report's addendum (section 8).
 
 ### Testing a deps change before publishing
 
@@ -3837,3 +3850,65 @@ Report: [docs/reports/issue-173-avi-seek](reports/issue-173-avi-seek/index.html)
   `avi_h264_bframes.avi` and `avi_ntsc_intra.avi`
   (`generate_avi_seek_test.sh`); the worker from before the fix fails 17 of
   its 38 cases.
+
+### Unblend (SRestore): havsfunc's srestore only decimates on R78; a windowed port (2026-11-14)
+
+Full report with scripts:
+[docs/reports/2026-11-srestore/](reports/2026-11-srestore/index.html).
+
+- Requested on the videohelp forum: deblend footage frame-rate converted by
+  blending (film on PAL through a standards converter, PAL to NTSC).
+- **havsfunc r31's `srestore` is plain decimation on VapourSynth R78.** Its
+  detector's history only advances when `FrameEval` is called for the frame
+  after the last one (`jmp`); it relied on `std.Cache(make_linear=True)`,
+  which R78 ignores ("Critical: … passed through instead"), and its
+  `ChangeFPS` requests only the frames it keeps (0, 2, 4, …). `jmp` was true
+  0 times in 143 calls at 1 and 8 requests; its picks equal decimation's,
+  frame for frame. Never call it.
+- `worker/templates/srestore.py` ports upstream's arithmetic line for line
+  (300/300 decisions identical to havsfunc driven frame by frame) but makes
+  each decision a replay over a fixed window (`UNBLEND_WINDOW` = 48 frames),
+  so encode, preview and thread count agree by construction: vspipe `-r 1` vs
+  default byte-identical, preview = encode at 42 emulated and 5 real targets.
+  Pre-roll can't do this: the phase tracker still disagreed at 36% of frames
+  after 160 frames of pre-roll (plan-stage synthetic fixture).
+- Recovery on ground-truth fixtures (`generate_blended_test.sh`): film in 50i
+  143/143 frames clean (decimation 87), PAL in 59.94i 101/125 (73). The
+  window is never below the linear run's clean count at 48; 32 was (141).
+- **A preview radius must cover the window index, not just the pixels read**
+  (46 back): a radius of 46 mismatched 6 of 22 targets. `FrameMap` radius =
+  window + 8, converted to source frames.
+- **Pin a clip's cache when many shifted copies read it.** The 49 shifted
+  reads of the 1x1 measurement clip made VapourSynth's automatic cache evict
+  it, and QTGMC behind it ran 830-894 times for 300 frames (3x the time).
+  `std.SetVideoCache(mode=1, fixedsize=1, maxsize=4096)` brought it to 299
+  and the pass to within ~2% of QTGMC alone.
+- srestore's own `numr/denm` must be the exact target ratio or the job is
+  refused (89 of 150 swept pairs pass, including every conversion the pass is
+  for; 59.94 → 50 would be 835/1001). `unblend_parameters.rs` ports the
+  arithmetic and is tested against the sweep's table.
+- It is its own pass right after Deinterlace, not a Frame Rate method: the
+  Frame Rate pass runs after denoise, sharpen, grain and resize, which change
+  what the detector measures.
+- Not tested: a real blended capture (none available), non-macOS platforms
+  beyond the nightly run.
+
+### ProRes in MOV: no `+faststart`, PCM for restored audio (2026-11-14)
+
+Follow-up to the v210 entry above. Full evidence:
+[docs/reports/2026-11-prores-faststart/](reports/2026-11-prores-faststart/index.html).
+
+- ProRes and v210 are both **editing intermediates**
+  (`VideoCodec::is_editing_intermediate`), and both now skip `+faststart` and
+  get PCM for a restored track under Passthrough. Field-order flagging
+  is decided separately (`field_order_signal`).
+- `+faststart`'s second pass on 3 min of ProRes HQ 1080p (191 Mbit/s,
+  4.3 GB) added 1.5–6.0 s on an M1 Pro's internal SSD (0.4–1.4 s/GB, median
+  ~0.9), after the bar reached 100%. Slow disks were not measured (an
+  estimated 10–20 min per hour of HQ on a ~150 MB/s HDD). It shifts the file
+  **in place**: the old `uses_faststart` comment's "needs the space twice"
+  was wrong.
+- A restored track beside ProRes was AAC; an editor re-encodes the soundtrack
+  on delivery, so that was two lossy generations. Now `pcm_s16le` (`sowt`),
+  ~1.5 Mbit/s stereo. 24-bit PCM for intermediates (the render is f32) is a
+  separate, open question.

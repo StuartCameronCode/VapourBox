@@ -364,6 +364,13 @@ impl VideoJob {
             fr.source_fps_num = Some(num);
             fr.source_fps_den = Some(den);
         }
+        // Unblend's ratio is taken against the same rate.
+        let ub = &mut pipeline.unblend;
+        if ub.source_fps_num.is_none() || ub.source_fps_den.is_none() {
+            let (num, den) = self.input_fps_rational();
+            ub.source_fps_num = Some(num);
+            ub.source_fps_den = Some(den);
+        }
         pipeline
     }
 
@@ -1110,6 +1117,15 @@ impl VideoCodec {
     /// in the UI, while v210 is an editing intermediate that belongs in MOV.
     pub fn is_uncompressed(&self) -> bool {
         matches!(self.encoder_family(), EncoderFamily::Uncompressed)
+    }
+
+    /// Whether this is an editing intermediate (ProRes, v210): a file made to
+    /// be cut in an NLE, not delivered. It gets no `+faststart`
+    /// (`pipeline_executor::uses_faststart`) and PCM for a restored audio
+    /// track under Passthrough (`audio_restoration::restored_passthrough_codec`).
+    /// Field-order flagging is decided separately (`field_order_signal`).
+    pub fn is_editing_intermediate(&self) -> bool {
+        self.is_prores() || self.is_uncompressed()
     }
 
     /// How this codec declares a still-interlaced picture's field order (see

@@ -122,6 +122,8 @@ VapourBox/
 | `worker/src/pipeline_executor.rs` | vspipe \| ffmpeg execution |
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/templates/stabilize.py` | Stabilize pass's vertical pitch correction (see "Stabilize") |
+| `worker/templates/srestore.py` | The Unblend pass: VapourBox's windowed port of srestore (see "Unblend (SRestore)") |
+| `worker/src/models/unblend_parameters.rs` | Unblend's parameters, srestore's ratio arithmetic (`srestore_ratio`) and the refusal wording |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset, an AVI's decoder delay, and the one seek decision, `source_seek` / `seek_arg`, the source grid every constant-rate decoder starts on (`decode_start`; see "Source Frame Size", "Colour metadata") |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
@@ -941,6 +943,9 @@ in its one `-vf`. Never clear a valid tag (a valid matrix moves yuv → gray16le
 by up to 28 levels), which is why the job carries ffprobe's **raw** tags
 (`colorTag` forwards `reserved`) and `from_raw` drops them only for the
 encoder's flags. A new decode of the source must use the same helper.
+**Every detector job carries the source's raw tags**
+(`MainViewModel._detectorJob`): the worker can only clear a `reserved` tag
+the job tells it about.
 `integration_reserved_colour_tags_test.dart` (heavy) checks each one against
 an untagged twin; see docs/reports/2026-11-reserved-colour-tags.
 
@@ -1525,6 +1530,49 @@ time span `[t, t+1)`; the worker reports `sub_frame`, `sub_frames` and
 - A source frame with no output of its own (down-conversion, decimation)
   shows the output just before it, as the preview always has.
 
+### Unblend (SRestore) (app 1.8.0)
+
+The Unblend pass (`UnblendParameters`, `PassType::Unblend`) recovers the
+original frames of a frame-rate conversion done by blending. Rules, from
+[docs/reports/2026-11-srestore](docs/reports/2026-11-srestore/index.html):
+
+- **Never call `haf.srestore`.** On R78 it is plain decimation: it relied on
+  `std.Cache(make_linear=True)`, which R78 ignores, and its detector's
+  history only advances on consecutive frames, which `ChangeFPS` never
+  requests. `worker/templates/srestore.py` runs upstream's arithmetic
+  unchanged (`_Detector.step`); keep it line for line with havsfunc.
+- **Every decision is a pure function of a window**: a replay over frames
+  `max(origin, n - UNBLEND_WINDOW) .. n` with fresh state, in encode and
+  preview alike. The detector's phase tracker never converges from a fresh
+  start, so pre-rolling a preview or forcing linear access cannot make it
+  match the encode. No state may survive between frames other than memos of
+  pure values.
+- **Its own pass, right after Deinterlace** (before Edge Repair): denoising,
+  deflicker, sharpening, grain and resizing all change what the detector
+  measures. Not a Frame Rate method; the two combine.
+- **The preview pads and tells the detector where real frames start**
+  (`PreviewOutput::unblend_pad` / `unblend_origin`, `{{PREVIEW_UNBLEND_*}}`),
+  computed by `preview_output`, which walks every retime the same way. The
+  `FrameMap` radius covers the replay's start index (window + 8), not only
+  the pixels it reads: a radius of the measured reach mismatched.
+- **The measurement clip's cache is pinned** (`std.SetVideoCache` in
+  `stats_clip`). Each decision reads it through one shifted copy per window
+  frame; left to automatic sizing it was evicted and QTGMC ran ~3x.
+  Picks come from a few pre-built shifted clips, never a node per frame.
+- **Only exact ratios run.** srestore computes `numr/denm` in floating point;
+  `unblend_ratio` (Rust port, tested against the report's
+  `data/ratio_table.json`) refuses any target where that is not exactly the
+  target/input ratio, or where srestore would not decimate (not lower, or
+  below a fifth). The script raises on the same condition. The app warns with
+  the same wording (`unblendTargetProblem`) and advises on Deinterlace off,
+  single rate or IVTC (`pass_advice.dart`).
+- Not exposed: `thresh`, `mode`, `omode`, `speed` (upstream defaults); no
+  built-in preset turns it on.
+
+`integration_unblend_test.dart` (heavy) checks recovery on the blended
+fixtures (`generate_blended_test.sh`) against plain decimation, exact length
+and rate, 8 = 10-bit, and preview = encode.
+
 ### Frame Rate targets (issue #129)
 
 The Frame Rate pass offers the six broadcast rates plus **`custom`**, whose
@@ -1728,8 +1776,12 @@ keeps chroma and the source size. Rules:
   dip is ≤ 0.5 of its neighbours' median — a never-upscaled VHS capture
   measures ~0.9, a credit-free master ~0.14. All candidates are spliced into
   one clip and read with `frames()`, so VapourSynth runs them in parallel
-  (~30 s at 1080p). A fixture for any of this must have real detail at its
-  native resolution: an upscale of low-res footage is so smooth that 8-bit
+  (~30 s at 1080p). **The luma is the source's own Y plane**: decoded in the
+  pipe format and scaled by `native_res::luma_gray16` (limited expanded to
+  full-range GRAY16, full scaled), never a decode to gray — swscale makes
+  that with the matrix tag, and a BT.709-tagged copy of a master lost its dip
+  entirely. The thresholds are calibrated on this scaling. A fixture for
+  any of this must have real detail at its native resolution: an upscale of low-res footage is so smooth that 8-bit
   rounding hides every height's misfit.
 - The panel never applies a guess: no clear dip is reported as such.
   `integration_descale_test.dart` (heavy) checks detection on known masters,
@@ -2032,7 +2084,8 @@ Rules, from docs/reports/2026-11-audio-restoration:
   untouched, each with its own tags (`encode_map_args`; naming one stream's
   `-map_metadata` switches off ffmpeg's copying for the rest). Passthrough
   copies the others but must encode the restored one: FLAC in MKV, AAC at the
-  chosen quality in MP4/MOV, PCM in AVI (`restored_passthrough_codec`).
+  chosen quality in MP4/MOV, PCM in AVI, and PCM in any container beside an
+  editing intermediate, ProRes or v210 (`restored_passthrough_codec`).
 - **Automatic choices are measured, never guessed**: a dead channel (≥30 dB
   below the other, which is above −60 dBFS) and 50/60 Hz hum (Goertzel over
   2 s blocks, a line ≥12 dB above its neighbours) are read from a minute in
@@ -2329,9 +2382,15 @@ evidence for every rule here is docs/reports/2026-11-v210-field-order.
   padding are judged from the **source**, since the selection never reaches
   the encode. `chromaConversionBitDepthWarning` is silent for ProRes (every
   ProRes 4444 source decodes as 12-bit).
-- **No `+faststart` for v210** (`uses_faststart`): it rewrites the whole
-  ~1 Gbit/s file a second time. Restored audio beside v210 is PCM
-  (`restored_passthrough_codec`).
+- **Editing intermediates (ProRes and v210, `VideoCodec::is_editing_intermediate`)
+  get no `+faststart` and PCM restored audio.** Faststart reads and rewrites
+  the whole file after the last frame (in place, no extra space; ~0.9 s/GB on
+  an internal SSD, much more on a USB disk or NAS, with the progress bar at
+  100%) for web playback no editor needs (`uses_faststart`). A restored track
+  under Passthrough is PCM rather than AAC, since the editor encodes the
+  soundtrack again on delivery (`restored_passthrough_codec`). Field-order
+  flagging is a separate table (`field_order_signal`). See
+  docs/reports/2026-11-prores-faststart.
 - **Test field order with the `fiel` atom's bytes** (`0x0209` TFF, `0x020e`
   BFF; `WorkerHarness.movFielAtom`, which walks the boxes — x265's option
   string contains "fiel"), not only ffprobe's `tb`/`bt` labels, and x264's

@@ -273,7 +273,13 @@ class MainViewModel extends ChangeNotifier {
   /// Put an analysed video in the queue and select it, for widget tests.
   @visibleForTesting
   void debugAddQueueItemForTest(String path,
-      {required int width, required int height, String? sar}) {
+      {required int width,
+      required int height,
+      String? sar,
+      String? colorMatrix,
+      String? colorPrimaries,
+      String? colorTransfer,
+      String? colorRange}) {
     final item = QueueItem(
       inputPath: path,
       outputPath: '$path.out.mkv',
@@ -287,11 +293,47 @@ class MainViewModel extends ChangeNotifier {
         pixelFormat: 'yuv420p',
         hasAudio: false,
         sar: sar,
+        colorMatrix: colorMatrix,
+        colorPrimaries: colorPrimaries,
+        colorTransfer: colorTransfer,
+        colorRange: colorRange,
       ),
     );
     _queue.add(item);
     _selectedItemId = item.id;
     notifyListeners();
+  }
+
+  /// The job a detector (`--detect-native`, `--detect-crop`,
+  /// `--detect-noise-halo`) runs on: the source as probed, its trim unless
+  /// [trimmed] is false. It always carries the source's raw colour tags: the
+  /// worker clears a `reserved` tag before any decode that converts (FFmpeg
+  /// refuses it) only if the job says so, and reads the range to scale luma.
+  VideoJob _detectorJob(QueueItem item,
+      {ProcessingPipeline? pipeline, FieldOrder? fieldOrder, bool trimmed = true}) {
+    final info = item.videoInfo;
+    final frameCount = info?.frameCount ?? 0;
+    int? at(double? point) =>
+        !trimmed || point == null ? null : (point * frameCount).round();
+    return VideoJob(
+      inputPath: item.inputPath,
+      outputPath: item.outputPath,
+      processingPipeline: pipeline,
+      encodingSettings: _encodingSettings,
+      detectedFieldOrder: fieldOrder,
+      totalFrames: info?.frameCount,
+      inputFrameRate: info?.frameRate,
+      inputWidth: info?.width,
+      inputHeight: info?.height,
+      inputPixelFormat: info?.pixelFormat,
+      inputSar: info?.sar,
+      inputColorMatrix: info?.colorMatrix,
+      inputColorPrimaries: info?.colorPrimaries,
+      inputColorTransfer: info?.colorTransfer,
+      inputColorRange: info?.colorRange,
+      startFrame: at(item.inPoint),
+      endFrame: at(item.outPoint),
+    );
   }
 
   /// What Detect found for the selected video, or null (not run for it yet).
@@ -309,21 +351,7 @@ class MainViewModel extends ChangeNotifier {
     if (item == null || _detectingNativeResFor != null) return;
     _detectingNativeResFor = item.id;
     notifyListeners();
-    final info = item.videoInfo;
-    final frameCount = info?.frameCount ?? 0;
-    final job = VideoJob(
-      inputPath: item.inputPath,
-      outputPath: item.outputPath,
-      encodingSettings: _encodingSettings,
-      totalFrames: info?.frameCount,
-      inputFrameRate: info?.frameRate,
-      inputWidth: info?.width,
-      inputHeight: info?.height,
-      inputPixelFormat: info?.pixelFormat,
-      startFrame: item.inPoint == null ? null : (item.inPoint! * frameCount).round(),
-      endFrame: item.outPoint == null ? null : (item.outPoint! * frameCount).round(),
-    );
-    final report = await _detectNative(job);
+    final report = await _detectNative(_detectorJob(item));
     if (_disposed) return;
     _nativeRes = (itemId: item.id, report: report);
     _detectingNativeResFor = null;
@@ -363,28 +391,15 @@ class MainViewModel extends ChangeNotifier {
     if (item == null || _detectingCropFor != null) return;
     _detectingCropFor = item.id;
     notifyListeners();
-    final info = item.videoInfo;
-    final frameCount = info?.frameCount ?? 0;
     final fieldOrder = _getEffectiveFieldOrder(item);
-    final job = VideoJob(
-      inputPath: item.inputPath,
-      outputPath: item.outputPath,
-      processingPipeline: _processingPipeline.copyWith(
+    final job = _detectorJob(
+      item,
+      pipeline: _processingPipeline.copyWith(
         deinterlace: _processingPipeline.deinterlace.copyWith(
           tff: fieldOrder == FieldOrder.topFieldFirst,
         ),
       ),
-      encodingSettings: _encodingSettings,
-      detectedFieldOrder: fieldOrder,
-      totalFrames: info?.frameCount,
-      inputFrameRate: info?.frameRate,
-      inputWidth: info?.width,
-      inputHeight: info?.height,
-      inputPixelFormat: info?.pixelFormat,
-      inputSar: info?.sar,
-      inputColorRange: info?.colorRange,
-      startFrame: item.inPoint == null ? null : (item.inPoint! * frameCount).round(),
-      endFrame: item.outPoint == null ? null : (item.outPoint! * frameCount).round(),
+      fieldOrder: fieldOrder,
     );
     final report = await _detectCrop(job);
     if (_disposed) return;
@@ -528,6 +543,8 @@ class MainViewModel extends ChangeNotifier {
         return ParameterConverter.fromGrain(_processingPipeline.grain);
       case 'frame_rate':
         return ParameterConverter.fromFrameRate(_processingPipeline.frameRate);
+      case 'unblend':
+        return ParameterConverter.fromUnblend(_processingPipeline.unblend);
       case 'deflicker':
         return ParameterConverter.fromDeflicker(_processingPipeline.deflicker);
       case 'edge_repair':
@@ -667,6 +684,11 @@ class MainViewModel extends ChangeNotifier {
             sourceFpsNum: _processingPipeline.frameRate.sourceFpsNum,
             sourceFpsDen: _processingPipeline.frameRate.sourceFpsDen,
           ),
+        );
+        break;
+      case 'unblend':
+        _processingPipeline = _processingPipeline.copyWith(
+          unblend: ParameterConverter.toUnblend(params),
         );
         break;
       case 'color_correction':
@@ -1078,18 +1100,10 @@ class MainViewModel extends ChangeNotifier {
       if (_disposed || !_queue.any((q) => q.id == item.id)) return;
       final progressive = info.scanType == ScanType.progressive ||
           info.scanType == ScanType.softTelecine;
-      final job = VideoJob(
-        inputPath: item.inputPath,
-        outputPath: item.outputPath,
-        encodingSettings: _encodingSettings,
-        detectedFieldOrder:
-            progressive ? FieldOrder.progressive : FieldOrder.topFieldFirst,
-        totalFrames: info.frameCount,
-        inputFrameRate: info.frameRate,
-        inputWidth: info.width,
-        inputHeight: info.height,
-        inputPixelFormat: info.pixelFormat,
-        inputColorRange: info.colorRange,
+      final job = _detectorJob(
+        item,
+        fieldOrder: progressive ? FieldOrder.progressive : FieldOrder.topFieldFirst,
+        trimmed: false,
       );
       NoiseHaloReport report;
       try {
@@ -1641,6 +1655,8 @@ class MainViewModel extends ChangeNotifier {
         return 'grain';
       case PassType.frameRate:
         return 'frame_rate';
+      case PassType.unblend:
+        return 'unblend';
       case PassType.deflicker:
         return 'deflicker';
       case PassType.edgeRepair:

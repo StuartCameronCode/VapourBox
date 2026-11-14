@@ -215,14 +215,43 @@ mid-stream away from the probed ones are not handled.</li>
 through swscale, so Descale Detect's luma depends on the matrix tag (section 3: up to 28 levels between
 a bt709-tagged and an untagged copy of the same picture). <code>--detect-noise-halo</code> avoids this
 by decoding the source's own format and taking its luma plane. This fix does not make it worse: a
-valid tag is never cleared.</li>
+valid tag is never cleared.
+<br><strong>Since fixed (2026-11-14), see section 8.</strong> The app's Detect jobs also turned out not
+to carry these tags at all, so in the app this report's fix never reached the three detectors; that is
+fixed in the same change.</li>
 </ul>
+
+<h2>8. Addendum (2026-11-14): Descale Detect's luma</h2>
+<p><code>--detect-native</code> asked ffmpeg for <code>gray16le</code>, which swscale makes with the
+frame's matrix tag. It now decodes the pipe format (as <code>--detect-noise-halo</code> does) and the
+worker scales the Y plane itself (<code>native_res::luma_gray16</code>): limited range expanded to
+0–65535, full range scaled. That is what an <em>untagged</em> source's <code>gray16le</code> already
+was, which is what Detect's thresholds were calibrated on.</p>
+<table>
+<tr><th>Measurement (FFmpeg 9.0.2, 320x240 testsrc2 in FFV1)</th><th>Result</th></tr>
+<tr><td>Untagged gray16le vs <code>luma_gray16</code>: 8-bit, 10-bit, 10-bit full range</td><td class="good">within 1 code of 65535</td></tr>
+<tr><td>… <code>yuvj420p</code></td><td>127 codes (0.49 levels): swscale's yuvj→gray path is neither ×257 nor a shift</td></tr>
+<tr><td>10-bit gray16le, bt709-tagged vs untagged</td><td class="bad">max 27.7 levels, mean 14.7</td></tr>
+<tr><td>10-bit, the pipe format (yuv420p10le), bt709-tagged vs untagged</td><td class="good">identical</td></tr>
+</table>
+<table>
+<tr><th><code>--detect-native</code>, 720p → 1080p Catmull-Rom master at 10-bit (heavy test's twin pair)</th><th>Before</th><th>After</th></tr>
+<tr><td>Untagged</td><td>720p Catmull-Rom, dip 0.1436</td><td>720p Catmull-Rom, dip 0.1436</td></tr>
+<tr><td>Tagged bt709 (same samples)</td><td class="bad">nothing found: 1063p, dip 0.59</td><td class="good">identical report to the untagged one</td></tr>
+</table>
+<p>The existing fixtures' dips moved by under 1e-6 (Catmull-Rom 0.1435989 → 0.1435997, bilinear
+0.1358382 → 0.1358425, credits 0.3535843 → 0.3535850, VHS 0.9084483 → 0.9084481). The heavy test
+<code>integration_descale_test.dart</code> now requires the tagged copy's report to equal the untagged
+one's exactly. Limit: a source format the pipe cannot read is still converted by swscale (YUV→YUV keeps
+the luma; RGB→YUV uses a fixed matrix whatever the tag), a path shared with <code>--detect-noise-halo</code>.</p>
 
 <h2>Scripts</h2>
 <ul>
-<li><code>scripts/run.sh</code>: runs both scripts below. Set <code>DEPS</code>, <code>SCRATCH</code> and, for section 5, <code>CLIP</code>.</li>
+<li><code>scripts/run.sh</code>: runs the scripts below. Set <code>DEPS</code>, <code>SCRATCH</code> and, for section 5, <code>CLIP</code>.</li>
 <li><code>scripts/probe_tag_rules.py</code>: sections 1–3, building every fixture from testsrc2; with a clip, the call-site table.</li>
 <li><code>scripts/real_clip_worker.py</code>: section 5, with the worker on a real clip.</li>
+<li><code>scripts/luma_scaling_check.py</code>: section 8 (its worker run uses a master made at 10-bit
+directly, dip 0.074, both copies identical).</li>
 </ul>
 </main>
 </body>

@@ -12,6 +12,10 @@ archive video:
 links at the end of this page before you rely on a cell. Corrections are welcome
 as an [issue](https://github.com/StuartCameronCode/VapourBox/issues).
 
+The VapourBox column was last checked on 2026-11-14, against the current source
+rather than only the latest release (1.7.0). Anything added since 1.7.0 is marked
+"(1.8.0)", the release it is due in.
+
 ## How to read it
 
 | Mark | Meaning |
@@ -119,6 +123,7 @@ converter with some AI features.
 | GPU back-ends | Vulkan (ncnn), Core ML, DirectML | — | — | CUDA (NVIDIA effects) | TensorRT, CUDA, Vulkan | Vulkan |
 | **Frame rate** | | | | | | |
 | Non-AI conversion | ✅ motion-compensated, any rate | 🟡 drop/duplicate | 🟡 drop/duplicate | ✅ InterFrame, SVPFlow… | ✅ MVTools, InterFrame, SVP | ✅ minterpolate |
+| Undo a blended conversion (SRestore) | ✅ Unblend pass | ❓ | ❓ | ❓ | ❓ | ❓ |
 | **Audio** | | | | | | |
 | Passthrough / re-encode | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ |
 | Hum, clicks, hiss, clipping | ✅ + DeepFilterNet speech | 🟡 in development | ❓ | ❓ | ❓ | ❓ |
@@ -131,7 +136,7 @@ converter with some AI features.
 | **Output** | | | | | | |
 | H.264 / H.265 | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ |
 | AV1 / VP9 | ❌ / ❌ | ✅ / ✅ | ✅ / ✅ | ✅ / ❓ | ✅ / ✅ | ✅ / ✅ |
-| ProRes / FFV1 | ✅ Proxy–4444 XQ / ✅ | ✅ / ✅ | ❌ / ❌ | ❓ / ❓ | ✅ / ✅ | ✅ / ✅ |
+| ProRes / FFV1 | ✅ Proxy–4444 XQ / ✅; also uncompressed v210 (1.8.0) | ✅ / ✅ | ❌ / ❌ | ❓ / ❓ | ✅ / ✅ | ✅ / ✅ |
 | Hardware encoders | NVENC, QSV, AMF, VideoToolbox | NVENC, QSV, AMF, VideoToolbox, MF, VAAPI | NVENC, QSV, AMF, VideoToolbox, VAAPI | NVENC, QSV, AMF | NVENC, QSV, AMF, VideoToolbox (ProRes) | NVENC, QSV, AMF, VideoToolbox, MF, VAAPI |
 | 10-bit | ✅ | ✅ | ✅ | ✅ | ❓ | ❓ |
 | HDR10 static metadata kept | ✅ (x265) | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -140,7 +145,7 @@ converter with some AI features.
 | Containers | MKV, MP4, MOV, AVI | MP4, MKV, WebM, MOV | MKV, MP4 (+ GIF/WebP/AVIF) | MKV, MP4, others via FFmpeg | MOV, MP4, MKV, M2TS, WebM, AVI, Blu-ray | many, incl. MXF |
 | **Workflow** | | | | | | |
 | Presets | ✅ named after the source (VHS, DV, film scan, anime DVD…) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Preview | ✅ before/after, frame-accurate, 1:1 | ✅ live preview | ✅ thumbnail | ✅ comparison tool | ✅ original/filtered/diff | 🟡 player |
+| Preview | ✅ before/after, frame-accurate, 1:1; original / split / processed modes (1.8.0) | ✅ live preview | ✅ thumbnail | ✅ comparison tool | ✅ original/filtered/diff | 🟡 player |
 | Trim / queue | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ |
 | Custom script or FFmpeg arguments | ✅ both | 🟡 encoder options | ✅ FFmpeg | ✅ script editor | ✅ VapourSynth sections | ✅ FFmpeg |
 | Command line | 🟡 worker takes a JSON job; not documented for users | ✅ | ❓ | 🟡 | ❓ | ✅ |
@@ -194,7 +199,7 @@ Topaz Video is the commercial reference point.
 | **Output** | | | | | | |
 | H.264 / H.265 | ✅ / ✅ | ✅ / ✅ | 🟡 any FFmpeg encoder | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ |
 | AV1 / VP9 | ❌ / ❌ | 🟡 Win, RTX 40 / Arc / ✅ | 🟡 any FFmpeg encoder | ✅ / ✅ | ✅ / ✅ | ❌ / ❌ |
-| ProRes / FFV1 | ✅ / ✅ | ✅ / ✅ | 🟡 any FFmpeg encoder | ✅ / ✅ | ✅ / ✅ | ❌ / ❌ |
+| ProRes / FFV1 | ✅ / ✅; also v210 (1.8.0) | ✅ / ✅ | 🟡 any FFmpeg encoder | ✅ / ✅ | ✅ / ✅ | ❌ / ❌ |
 | Hardware encoders | NVENC, QSV, AMF, VideoToolbox | 🟡 NVENC documented | ❓ | NVENC, AMF, QSV | NVENC, VAAPI | NVENC, AMF, QSV |
 | 10-bit output | ✅ | ✅ | 🟡 | ✅ | ✅ | ❌ |
 | **Workflow** | | | | | | |
@@ -252,7 +257,7 @@ columns reflect what they document now.
 | **Subtitles** | | | | | | | | | |
 | Keep existing / speech-to-text | 🟡 / ✅ | ❓ / ❓ | ❌ / ❓ | ❓ / ❓ | ✅ / ❓ | ❓ / ❓ | ❓ / ❓ | ❓ / ❓ | ✅ / ❓ |
 | **Output** | | | | | | | | | |
-| Codecs | H.264, H.265, ProRes, FFV1, HuffYUV | H.264 | H.264, H.265 (NVENC) | H.264 | H.265 (NVENC) | H.264, ProRes HQ, FFV1, HuffYUV, UT Video | ProRes HQ, FFV1 | ProRes HQ, AV1 | H.264, H.265, AV1, VP9, ProRes, VVC |
+| Codecs | H.264, H.265, ProRes, v210 (1.8.0), FFV1, HuffYUV, FFVHuff | H.264 | H.264, H.265 (NVENC) | H.264 | H.265 (NVENC) | H.264, ProRes HQ, FFV1, HuffYUV, UT Video | ProRes HQ, FFV1 | ProRes HQ, AV1 | H.264, H.265, AV1, VP9, ProRes, VVC |
 | 10-bit output | ✅ | ❌ | ❌ | ❌ | ✅ | 🟡 ProRes only | ✅ | ✅ | 🟡 |
 | Containers | MKV, MP4, MOV, AVI | MP4 | MP4 | by file extension | MP4, MOV, MKV | MP4, MOV, MKV, AVI | MKV, MOV | MOV, MKV | MKV, MP4, AVI, MOV, WebM |
 | **Workflow** | | | | | | | | | |
@@ -331,7 +336,11 @@ archival workflow:
   are Windows-only. Several AI tools need an NVIDIA GPU.
 - **Tape and disc sources handled correctly.** It reads NTSC DV's 4:1:1 chroma,
   10–16-bit film scans and variable-frame-rate phone video, reads DVDs and
-  `VIDEO_TS` directly, and carries aspect ratio and colour tags through.
+  `VIDEO_TS` directly, and carries aspect ratio and colour tags through. From
+  1.8.0, a broadcast capture whose picture starts after its sound keeps the two
+  in sync and counts frames from the first picture, and a picture left
+  interlaced is written with its field order flagged (ProRes, v210, FFV1,
+  HuffYUV, FFVHuff) or coded as interlaced (H.264).
 - **A preview that matches the encode.** The before/after preview is
   frame-accurate and shows every generated frame of a rate conversion, at 1:1
   if you want. The presets are named after the source, not the technique.
@@ -390,8 +399,10 @@ GitHub API.
 - **VapourBox:**
   - [README](../README.md)
   - filter schemas in `app/assets/filters/core/`
-  - `worker/src/models/video_job.rs` (`VideoCodec`, `ContainerFormat`)
+  - `worker/src/models/video_job.rs` (`VideoCodec`, `ContainerFormat`,
+    `VideoCodec::field_order_signal`)
   - `worker/src/pipeline_executor.rs` (stream mapping)
+  - `worker/src/source_decode.rs` (the video's start offset)
 - **HandBrake:**
   - [filters](https://handbrake.fr/docs/en/latest/technical/filters-summary.html)
   - [HDR and Dolby Vision](https://handbrake.fr/docs/en/latest/technical/hdr.html)

@@ -183,6 +183,13 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/HomeOfVapourSynthEvolution/mvsfunc',
                       ),
                       _ComponentTile(
+                        name: 'srestore 2.7e (ported code)',
+                        license: 'Unlicense',
+                        copyright: 'From havsfunc; ported into VapourBox\'s '
+                            'templates for the Unblend pass',
+                        url: 'https://github.com/HomeOfVapourSynthEvolution/havsfunc',
+                      ),
+                      _ComponentTile(
                         name: 'vs-jetpack (ported code)',
                         license: 'MIT',
                         copyright: 'Jaded-Encoding-Thaumaturgy; '
@@ -219,7 +226,8 @@ class _AboutDialogState extends State<AboutDialog> {
                         name: 'MVTools',
                         license: 'GPL 2.0',
                         copyright: 'Port by dubhater, from Manao\'s AviSynth '
-                            'plugin with work by Fizick and Pinterf',
+                            'plugin with later work by Fizick, Pinterf and '
+                            'the SVP team',
                         url: 'https://github.com/dubhater/vapoursynth-mvtools',
                       ),
                       _ComponentTile(
@@ -251,7 +259,8 @@ class _AboutDialogState extends State<AboutDialog> {
                         name: 'akarin',
                         license: 'LGPL 3.0',
                         copyright: 'Akarin; maintained by Jaded Encoding '
-                            'Thaumaturgy. Statically links LLVM',
+                            'Thaumaturgy. Statically links LLVM (Apache 2.0 '
+                            'with LLVM exception)',
                         url: 'https://github.com/Jaded-Encoding-Thaumaturgy/akarin-vapoursynth-plugin',
                       ),
                       _ComponentTile(

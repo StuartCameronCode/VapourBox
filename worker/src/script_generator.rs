@@ -113,6 +113,10 @@ pub struct PreviewParams {
     /// Copies of the first frame to put in front of the Frame Rate pass, so
     /// its retime runs in the encode's phase (`PreviewOutput::rate_pad`).
     pub rate_pad: u64,
+    /// The same for the Unblend pass, and where its real frames start
+    /// (`PreviewOutput::unblend_pad` / `unblend_origin`).
+    pub unblend_pad: u64,
+    pub unblend_origin: u64,
     /// Source frame number of the first decoded frame (the window start).
     /// Anything that looks frames up by source number — the stabiliser's
     /// pitch factor file — must add it, or every preview frame gets the
@@ -246,6 +250,15 @@ impl ScriptGenerator {
                 anyhow::bail!("{message}");
             }
         }
+        // Unblend only lowers the rate, and only to a ratio srestore reaches
+        // exactly; the script would raise on anything else.
+        if pipeline.unblend.enabled {
+            match pipeline.unblend_ratio() {
+                Some(Ok(_)) => {}
+                Some(Err(message)) => anyhow::bail!("{message}"),
+                None => anyhow::bail!("Unblend needs the source frame rate."),
+            }
+        }
         for need in pipeline.required_addons() {
             match &self.addons {
                 Some((dir, platform)) => crate::addons::require(dir, &need.ids, need.feature, platform)?,
@@ -374,6 +387,8 @@ impl ScriptGenerator {
         script = script.replace("{{FPS_DEN}}", &preview_params.fps_den.to_string());
         script = script.replace("{{PREVIEW_OUTPUT_INDEX}}", &preview_params.output_index.to_string());
         script = script.replace("{{PREVIEW_RATE_PAD}}", &preview_params.rate_pad.to_string());
+        script = script.replace("{{PREVIEW_UNBLEND_PAD}}", &preview_params.unblend_pad.to_string());
+        script = script.replace("{{PREVIEW_UNBLEND_ORIGIN}}", &preview_params.unblend_origin.to_string());
         script = script.replace("{{PIPE_CACHE_FRAMES}}", &pipe_cache_frames(&pipeline).to_string());
         // Field-based: same derivation as the encode path, so the preview can't
         // deinterlace at a different field order than the final render.
@@ -2211,6 +2226,24 @@ impl ScriptGenerator {
             _ => {
                 script = remove_block("{{#CUSTOM_VS}}", "{{/CUSTOM_VS}}", script);
             }
+        }
+
+        // ====================================================================
+        // UNBLEND PASS (SRestore)
+        // ====================================================================
+        match pipeline.unblend_ratio() {
+            Some(Ok(_)) if pipeline.unblend.enabled => {
+                // The script is given the target rate itself; it derives the
+                // same ratio from the clip's rate and raises if they differ.
+                let (num, den) = pipeline.unblend.target_fraction();
+                script = script
+                    .replace("{{#UNBLEND}}", "")
+                    .replace("{{/UNBLEND}}", "")
+                    .replace("{{UNBLEND_NUM}}", &num.to_string())
+                    .replace("{{UNBLEND_DEN}}", &den.to_string())
+                    .replace("{{UNBLEND_WINDOW}}", &crate::models::UNBLEND_WINDOW.to_string());
+            }
+            _ => script = remove_block("{{#UNBLEND}}", "{{/UNBLEND}}", script),
         }
 
         // ====================================================================
