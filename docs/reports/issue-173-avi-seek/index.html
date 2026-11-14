@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #173: AVI seeks</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+  figure { margin: 18px 0; }
+</style>
+
+</head>
+<body>
+<main>
+<h1>Issue #173: AVI seeks land on the wrong frame</h1>
+<p class="meta">2026-11-14 · macOS arm64, deps 1.16.0 (FFmpeg 9.0) · branch built on issue #169's seek plan ·
+<a href="https://github.com/StuartCameronCode/VapourBox/issues/173">issue #173</a></p>
+
+<div class="card">
+<p><strong>Outcome: fixed.</strong> Seeking an AVI to frame N decoded a different picture in the preview,
+the app's Original frame, trimmed encodes and the detectors. There were <strong>three faults</strong>, and two of them reach
+well beyond the MPEG-2 file this started from:</p>
+<ol>
+<li><strong>A rounding tie on every NTSC-rate AVI</strong> (HuffYUV, DV, intra MPEG-4, B-frames or not): 1 start
+frame in 3 was a frame early.</li>
+<li><strong>A decoder delay</strong> in AVIs holding MPEG-2, MPEG-4 ASP or H.264 B-frames: every seek was 1 frame early
+(2 for H.264).</li>
+<li><strong>No seek at all near the start</strong> of those same files: frame 1 decoded as frame 45 (H.264: 60).
+The H.264 AVI's <em>untrimmed</em> encode was wrong as well, with frame 0 three times and the last two frames lost.</li>
+</ol>
+<p>After the fix, every start frame of every AVI tried lands on its picture. Untrimmed encodes of
+the other fixtures are byte-identical (framemd5). <strong>Not fixed:</strong> on such an AVI, a trim whose in-point is under 0.13 s still
+loses about 1.3 s of sound (§6, follow-up task).</p>
+</div>
+
+<h2>1. How it was measured</h2>
+<p>Every start frame (1 to ~86) of each source was decoded the way the worker's seeking decoder does: an input <code>-ss</code>,
+<code>setpts=PTS-STARTPTS</code>, three frames. Each picture is named by its index in an independent sequential decode
+(<code>-fps_mode passthrough</code>, MD5 of the luma plane), the same numbering as <code>select=eq(n,N)</code>.
+<code>scripts/sweep.py</code> does this; <code>scripts/make_avi_variants.py</code> builds the variants from
+<code>testsrc2</code>, where every frame differs.</p>
+<p class="caption">Limits: synthetic content, short files (90–100 frames), one machine (macOS arm64) and one FFmpeg (9.0). The
+reference numbering is the app's numbering for these fixtures. It is not for soft telecine or AVI null frames (task #16),
+and those were left out.</p>
+
+<h2>2. The mechanism</h2>
+<p>From <code>scripts/timestamps.py</code> on <code>hard_telecine_test.avi</code> (MPEG-2, time base 1001/30000):</p>
+<table>
+<tr><th>Packet (decode order)</th><th>DTS</th><th>PTS</th></tr>
+<tr><td>I</td><td>0</td><td>N/A</td></tr><tr><td>P</td><td>1</td><td>N/A</td></tr>
+<tr><td>B</td><td>2</td><td>2</td></tr><tr><td>B</td><td>3</td><td>3</td></tr><tr><td>P</td><td>4</td><td>N/A</td></tr>
+</table>
+<p>AVI stores only decode timestamps. The B packet at decode index 2 is shown at display index 1, so its "PTS" is display + 1. The decoded
+frames carry best-effort timestamps <strong>1, 2, 3 …</strong> for display pictures 0, 1, 2 …: the I picture comes out
+when packet 1 (DTS 1) is decoded. That is fault 2: the decoder delay D (here 1) is added to every picture's time.</p>
+<p>Fault 1 sits on top of it. One tick is one frame, so the seek point <code>(N − 0.5)/fps</code> is exactly half a tick. ffmpeg
+reads <code>-ss</code> to the microsecond and rounds the trim start to the nearest tick:</p>
+<table>
+<tr><th>Frame</th><th><code>-ss</code> (<code>%.6f</code>)</th><th>In ticks</th><th>First kept (<code>-copyts</code>)</th></tr>
+<tr><td>10</td><td>0.316983</td><td>9.499990</td><td class="bad">stamp 9 (display 8)</td></tr>
+<tr><td>41</td><td>1.351350</td><td>40.500000</td><td>stamp 41 (display 40: only the delay)</td></tr>
+<tr><td>43</td><td>1.418083</td><td>42.499990</td><td class="bad">stamp 42 (display 41)</td></tr>
+</table>
+<p>Whenever the six decimals fall below the half, the start rounds down a whole frame. This happens on 2 starts in 3 at
+30000/1001 and never at 25 fps, whose decimals are exact. It doesn't need B-frames.</p>
+<p>Fault 3: the seek to frame 1 (<code>-ss 0.016683</code>) logs
+<code>could not seek to position 0.017</code> and the first frame kept is stamp 46 (display 45). <code>fftools/ffmpeg_demux.c</code>
+moves a seek <code>3*AV_TIME_BASE/23</code> (0.13 s) earlier whenever a stream has a decoder delay and the format can't seek by PTS. Below
+0.13 s that is negative, the AVI index has no entry for it, and decoding resumes wherever probing left the demuxer.</p>
+
+<h2>3. Results: every start frame</h2>
+<p><code>scripts/sweep.py</code>. Wrong start frames, by rule. <em>old</em> is the worker before this fix. <em>delay</em> adds the
+measured decoder delay. <em>ceil</em> also rounds the seek up to the microsecond. <em>fix</em> also counts from the start below 0.5 s, which is
+exactly what the worker now does.</p>
+<table>
+<tr><th>Source</th><th>Time base</th><th>Delay</th><th>old</th><th>delay</th><th>ceil</th><th>fix</th></tr>
+<tr><td><code>hard_telecine_test.avi</code> (MPEG-2)</td><td>1001/30000</td><td>1</td><td class="bad">86/86</td><td>30</td><td>2 (1, 2 → 45)</td><td class="good">0</td></tr>
+<tr><td><code>avi_h264_bframes.avi</code> (H.264)</td><td>1001/30000</td><td>2</td><td class="bad">86/86</td><td>30</td><td>1 (1 → 60)</td><td class="good">0</td></tr>
+<tr><td>MPEG-4 ASP, B-frames (variant)</td><td>1001/30000</td><td>1</td><td class="bad">86/86</td><td>30</td><td>2</td><td class="good">0</td></tr>
+<tr><td>MPEG-2 PAL, B-frames (variant)</td><td>1/25</td><td>1</td><td class="bad">89/89</td><td>2</td><td>2</td><td class="good">0</td></tr>
+<tr><td><code>avi_ntsc_intra.avi</code> (MPEG-4, no B)</td><td>1001/30000</td><td>0</td><td class="bad">29/86</td><td>29</td><td class="good">0</td><td class="good">0</td></tr>
+<tr><td>HuffYUV NTSC (variant)</td><td>1001/30000</td><td>0</td><td class="bad">29/86</td><td>29</td><td class="good">0</td><td class="good">0</td></tr>
+<tr><td>DV NTSC (variant)</td><td>1001/30000</td><td>0</td><td class="bad">29/86</td><td>29</td><td class="good">0</td><td class="good">0</td></tr>
+<tr><td><code>small_clip.mp4</code>, <code>seek_timebase_2997.mov</code>, <code>face_restore_test.mp4</code>, H.264 B-frame MKV, FFV1 MKV</td><td>various</td><td>0</td><td>0</td><td>0</td><td>0</td><td class="good">0</td></tr>
+</table>
+<p>The <em>delay</em> column's 30 failures are the tie again. Adding exactly one tick moves the seek point to N + 0.5 ticks, which ties the same way.</p>
+
+<h2>4. Results: the worker itself, before and after</h2>
+<p><code>scripts/worker_probe.py</code> runs the real worker (every pass off, FFV1 output) built from the commit before the fix and after it. Each delivered
+picture is named by its index in the sequential decode.</p>
+<table>
+<tr><th>Source</th><th>Path</th><th>Before</th><th>After</th></tr>
+<tr><td rowspan="4"><code>hard_telecine_test.avi</code></td><td>preview 10 / 41 / 43 / 77</td><td class="bad">9 / 40 / 42 / 76</td><td class="good">10 / 41 / 43 / 77</td></tr>
+<tr><td>trim 2..13</td><td class="bad">45, 46 … 56</td><td class="good">2, 3 … 13</td></tr>
+<tr><td>trim 41..52</td><td class="bad">40, 41 … 51</td><td class="good">41 … 52</td></tr>
+<tr><td>untrimmed</td><td>= source</td><td>= source</td></tr>
+<tr><td rowspan="4"><code>avi_h264_bframes.avi</code></td><td>preview 1 / 2 / 3 / 10 / 41 / 43 / 77</td><td class="bad">0 / 0 / 1 / 8 / 39 / 41 / 75</td><td class="good">exact</td></tr>
+<tr><td>trim 2..13</td><td class="bad">60, 61 … 71</td><td class="good">2 … 13</td></tr>
+<tr><td>trim 41..52</td><td class="bad">39 … 50</td><td class="good">41 … 52</td></tr>
+<tr><td>untrimmed</td><td class="bad">0, 0, 0, 1, 2 … 87</td><td class="good">= source</td></tr>
+<tr><td><code>avi_ntsc_intra.avi</code></td><td>trim 43..54</td><td class="bad">42 … 53</td><td class="good">43 … 54</td></tr>
+<tr><td>small_clip.mp4, seek_timebase_2997.mov, face_restore_test.mp4, interlaced_test.avi, pal-sd-25.mov</td><td>untrimmed</td><td colspan="2">framemd5 identical before and after</td></tr>
+</table>
+<p>A preview decodes a window that starts a few frames before the target, so a seek that is wrong by the delay only
+shows when the window start is the faulty seek. Frames 1–3 of the MPEG-2 file previewed correctly before the fix because their window started at 0.
+<code>integration_seek_alignment_test.dart</code> (heavy) now covers all three fixtures. The worker from before the fix fails 17 of its 38 cases;
+the fixed worker passes all 38.</p>
+
+<h3>What it looked like</h3>
+<p>Each image: the reference picture (left), the worker before the fix (middle), after (right). Top-left quarter, not scaled.
+<code>testsrc2</code> prints its timestamp and frame number. In the telecined file that is the <em>film</em> frame, so compare pictures, not the number.</p>
+<figure><a href="img/01-mpeg2-avi-preview-43.png"><img src="img/01-mpeg2-avi-preview-43.png" alt="Preview of frame 43, MPEG-2 AVI"></a>
+<figcaption>1. <code>hard_telecine_test.avi</code>, preview of frame 43: before the fix, the processed picture is frame 42.</figcaption></figure>
+<figure><a href="img/02-mpeg2-avi-trim-from-2.png"><img src="img/02-mpeg2-avi-trim-from-2.png" alt="First frame of a trim from 2, MPEG-2 AVI"></a>
+<figcaption>2. The same file, first frame of a trim starting at frame 2. Before the fix the seek failed and the encode started at frame 45
+(film frame 36, 1.5 s in). After it, the combed telecine frame 2.</figcaption></figure>
+<figure><a href="img/03-ntsc-intra-trim-from-43.png"><img src="img/03-ntsc-intra-trim-from-43.png" alt="First frame of a trim from 43, intra AVI"></a>
+<figcaption>3. <code>avi_ntsc_intra.avi</code> (no B-frames), first frame of a trim from 43: before the fix, frame 42 (counter 42). This is the
+rounding tie alone, the fault every NTSC AVI capture had.</figcaption></figure>
+<figure><a href="img/04-h264-avi-preview-41.png"><img src="img/04-h264-avi-preview-41.png" alt="Preview of frame 41, H.264 AVI"></a>
+<figcaption>4. <code>avi_h264_bframes.avi</code>, preview of frame 41: a decoder delay of 2 put the window start two frames early.</figcaption></figure>
+
+<h2>5. The fix</h2>
+<ul>
+<li><strong>Round every seek value up to the microsecond</strong> (<code>source_decode::seek_arg</code>; the app's
+<code>SeekPlan.formatSeek</code>), with a 1 ns allowance so exact values (0.38 s) stay as they are. An exact half tick is then
+rounded up by ffmpeg itself (start 41 above). This applies to every source. On MP4, MOV and MKV the strings change by at most 1 µs, and no picture changed (§3, §4).</li>
+<li><strong>Measure the decoder delay and add it to every seek.</strong> It is probed only when one of the first 64 packets has no PTS. That
+check reuses the existing video-start probe, which no committed MP4/MOV/MKV/TS fixture triggers. The probe decodes up to 16 packets and takes the first picture's
+timestamp in whole frames (1–4). Six-decimal timestamps would reopen the tie, which is why it snaps to whole frames. The delay moves <em>seeks only</em>, never the video start offset or the output's sound/picture
+layout.</li>
+<li><strong>Below 0.5 s, decode from the start and drop N pictures</strong> (<code>trim=start_frame=N</code> ahead of the PTS reset)
+for a source with a delay. A delayed source also resets PTS when it doesn't seek; that fixed the H.264 AVI's untrimmed encode,
+whose 2-frame timestamp gap rawvideo's constant-rate output had filled with copies of frame 0. MPEG-2's 1-frame gap is
+under ffmpeg's duplication threshold.</li>
+<li>One decision, <code>source_seek</code>, on top of #169's <code>decoder_seek</code>, so every decoder that starts at a frame
+(encode, preview, crop/noise/native detectors) uses it. The app's twin <code>SeekPlan.frameSeekArgs</code> drives the Original frame and thumbnails, and both sides
+check <code>Tests/TestResources/seek_arg_cases.json</code>, computed in exact rational arithmetic. A first thumbnail no longer seeks
+at all, since <code>-ss 0</code> hit the same failure (it showed frame 45).</li>
+</ul>
+
+<h2>6. Not fixed here: the sound near the start</h2>
+<p>The same failed seek hits an audio input <code>-ss</code>. <code>scripts/audio_window.py</code> uses an MPEG-4 B-frame AVI with MP3 sound:</p>
+<table><tr><th>In-point</th><th>Missing vs. an exact trim</th></tr>
+<tr><td>0.0667 s</td><td class="bad">1.277 s (could not seek)</td></tr>
+<tr><td>0.1 s</td><td class="bad">1.244 s (could not seek)</td></tr>
+<tr><td>0.2 s</td><td>−0.008 s</td></tr><tr><td>1.0 s</td><td>+0.008 s</td></tr></table>
+<p>So a trim from frame 1–3 of such an AVI starts its sound ~1.3 s late. The encode copies the sound and never filters it, so this needs
+a mechanism of its own. It is a follow-up agentbob task (#22). The ±8 ms at 0.2 s and 1.0 s is MP3 frame granularity and is unrelated.</p>
+
+<h2>7. Decisions and alternatives</h2>
+<ul>
+<li><strong>Delay on seeks only, not in <code>video_start_offset</code>.</strong> Folding it in would also delay the picture against the
+sound in the output of every B-frame AVI with audio (#168's sound-first layout). The untrimmed encode already treated stored frame
+<em>k</em> as time <em>k</em>/fps, and trims now match it.</li>
+<li><strong>Rejected:</strong>
+<ul>
+<li><code>-fflags +genpts</code>: the I picture's generated PTS is still 1.</li>
+<li><code>-noaccurate_seek</code>: same landing.</li>
+<li>A fixed +1/fps for every AVI: wrong for H.264 (2) and intra codecs (0).</li>
+<li>Seeking at <code>(N − 0.25)/fps</code>: changes every source's seek and narrows the margin for timestamp jitter.</li>
+<li>Decoding from the start for every AVI seek: O(N).</li>
+</ul></li>
+<li><strong>Count window of 0.5 s</strong>, not exactly 3/23 s: a frame or two of margin at any rate, for at most ~15 extra SD frames decoded.</li>
+<li><strong>Not tested:</strong>
+<ul>
+<li>Windows and Linux. The behaviour is FFmpeg's own, and every platform runs 9.0.</li>
+<li>DivX "packed bitstream" AVIs.</li>
+<li>AVIs with a decoder delay above 2.</li>
+<li>VFR sources: AVI is constant-rate by construction, and the VFR decoder is unchanged.</li>
+</ul></li>
+</ul>
+
+<h2>8. Reproducing</h2>
+<p><code>BEFORE_WORKER=&lt;worker built from the parent commit&gt; scripts/run.sh</code> runs every script into
+<code>$AVI_SEEK_WORK</code>. The committed fixtures come from <code>Tests/TestResources/generate_avi_seek_test.sh</code>; the other variants
+are rebuilt by <code>make_avi_variants.py</code>.</p>
+</main>
+</body>
+</html>

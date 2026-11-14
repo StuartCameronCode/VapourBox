@@ -13,8 +13,8 @@
 // sequential decode of the source picked by index (`select=eq(n,N)`), never
 // one pipeline path against another. The fixtures are ones whose sequential
 // numbering is the app's frame numbering (no leading null frames, no
-// pulldown). Sources where it isn't (MPEG-2 in AVI, soft telecine, AVI null
-// frames) are separate issues; see docs/reports/issue-157-seek-alignment.
+// pulldown, video starting with the container). Soft telecine and AVI null
+// frames are integration_source_grid_test.dart's (issue #174).
 //
 // MPEG-PS and MPEG-TS (issue #169) are here too. They have no keyframe index,
 // so a plain seek started decoding at the keyframe AFTER the frame asked for
@@ -23,6 +23,15 @@
 // leading B picture just before a keyframe, and past the last keyframe.
 // Fixtures: Tests/TestResources/generate_mpeg_seek_test.sh. See
 // docs/reports/issue-169-mpeg-seek.
+//
+// AVI (issue #173) is here too. Its tick is one frame and it stores
+// decode-order timestamps, so a seek went wrong three ways: a decoder delay
+// (MPEG-2/MPEG-4: each picture stamped 1 frame late, H.264: 2), a half-tick
+// rounding tie on every NTSC-rate AVI (1 start in 3 a frame early: 10, 43 and
+// 77 are tie rows), and no seek at all for frames 1-3 of a delayed one (frame
+// 1 -> 45). Frames 1-3 and the trim from 2 are in the count-from-start window.
+// Fixtures: Tests/TestResources/generate_avi_seek_test.sh and
+// generate_telecine_test.sh. See docs/reports/issue-173-avi-seek.
 @Tags(['heavy'])
 library;
 
@@ -47,16 +56,18 @@ String get _outDir => '${WorkerHarness.outputDir}/seek_alignment';
 String _resource(String name) =>
     p.join(WorkerHarness.repoRoot, 'Tests', 'TestResources', name);
 
-/// A fixture, why it is here, the frames its preview is checked at and the
-/// trim it is encoded with.
+/// A fixture, why it is here, the frames its preview is checked at, the
+/// trims it is encoded with and the decoder delay the app must find.
 class _Fixture {
   final String file;
   final String why;
   final List<int> frames;
-  final int trimStart;
-  final int trimEnd;
+  final List<(int, int)> trims;
+  final int delay;
   const _Fixture(this.file, this.why,
-      {this.frames = const [10, 41, 77], this.trimStart = 41, this.trimEnd = 52});
+      {this.frames = const [10, 41, 77],
+      this.trims = const [(41, 52)],
+      this.delay = 0});
 }
 
 const _fixtures = [
@@ -68,18 +79,28 @@ const _fixtures = [
   // leading B picture of the GOP shown from 48; 145 is after the last
   // keyframe (144). The in-point 37 is mid-GOP.
   _Fixture('seek_dvd_pal.mpg', 'MPEG-PS (DVD), 12-frame open GOPs: affected before #169',
-      frames: [1, 10, 41, 47, 77, 145], trimStart: 37, trimEnd: 52),
+      frames: [1, 10, 41, 47, 77, 145], trims: [(37, 52)]),
   // Keyframes at 0, 25, 50, ..., 125, video 1 s after the audio; 49 is the
   // leading B picture of the GOP from 50; 141 and 148 are past the last.
   _Fixture('seek_gop_late_video.ts',
       'MPEG-TS, 25-frame open GOPs, video 1 s late: affected before #169',
-      frames: [1, 10, 41, 49, 77, 141, 148], trimStart: 37, trimEnd: 52),
+      frames: [1, 10, 41, 49, 77, 141, 148], trims: [(37, 52)]),
   // The broadcast capture: keyframes at pictures 3, 31, 59, 87, 115, field
   // coded, video 1.2 s late. Frames past 117 are left out: its constant-rate
   // tail repeats a picture whether or not it seeks (see the #169 report).
   _Fixture('pal-dvbt-fieldcoded-25i.ts',
       'MPEG-TS DVB-T capture, 28-frame GOPs: affected before #169',
-      frames: [10, 40, 58, 77, 117], trimStart: 45, trimEnd: 60),
+      frames: [10, 40, 58, 77, 117], trims: [(45, 60)]),
+  // Issue #173.
+  _Fixture('hard_telecine_test.avi',
+      'MPEG-2 in AVI, decoder delay 1: 1-2 frames early (1 -> 45) before #173',
+      frames: [1, 2, 3, 10, 41, 43, 77], trims: [(41, 52), (2, 13)], delay: 1),
+  _Fixture('avi_h264_bframes.avi',
+      'H.264 in AVI, decoder delay 2: 2-3 frames early (1 -> 60) before #173',
+      frames: [1, 2, 3, 10, 41, 43, 77], trims: [(41, 52), (2, 13)], delay: 2),
+  _Fixture('avi_ntsc_intra.avi',
+      'MPEG-4 AVI without B-frames, 29.97: the rounding tie alone before #173',
+      frames: [1, 10, 41, 43, 77], trims: [(43, 54)]),
 ];
 
 /// What the app learns from ffprobe, as `FieldOrderDetector` would send it.
@@ -109,6 +130,18 @@ Future<_Source> _probe(String path) async {
   // clip's r_frame_rate is its 50 Hz field rate).
   return _Source(v['width'] as int, v['height'] as int, v['pix_fmt'] as String,
       FieldOrderDetector.selectFrameRate(r, a) ?? (r > 0 ? r : a));
+}
+
+/// The decoder delay `PreviewGenerator` finds for [video] (issue #173), as
+/// the app probes it.
+Future<int> _decoderDelay(String video) async {
+  final j = await WorkerHarness.ffprobeJson([
+    '-v', 'error', '-select_streams', 'v:0', '-show_entries',
+    'stream=has_b_frames', '-of', 'json', video,
+  ]);
+  return FieldOrderDetector.probeDecoderDelay(WorkerHarness.ffprobePath, video,
+      hasBFrames: (j['streams'] as List).first['has_b_frames'] as int?,
+      videoStart: 0);
 }
 
 VideoJob _job(String input, _Source s, String name, {int? start, int? end}) {
@@ -155,9 +188,12 @@ Future<({double offset, SeekPlan? plan})> _seekInfo(String video) async {
 
 /// The app's own "before" picture of [frame], through the same argument
 /// builder `PreviewGenerator.getFrameAtIndex` uses (PNG instead of JPEG, so
-/// the comparison isn't measuring JPEG).
+/// the comparison isn't measuring JPEG), with the source grid the app probes
+/// (issue #174; none for an AVI that stores decode-order timestamps).
 Future<Uint8List> _beforeFrame(String video, int frame, double fps,
-    ({double offset, SeekPlan? plan}) seek) async {
+    ({double offset, SeekPlan? plan}) seek, int delay) async {
+  final grid = await FieldOrderDetector.probeSourceGrid(
+      WorkerHarness.ffprobePath, video, frameRate: fps);
   final out = File(p.join(Directory.systemTemp.path,
       'vb_seek_before_${DateTime.now().microsecondsSinceEpoch}.png'));
   try {
@@ -169,6 +205,8 @@ Future<Uint8List> _beforeFrame(String video, int frame, double fps,
         frameRate: fps,
         videoStartOffset: seek.offset,
         seekPlan: seek.plan,
+        decoderDelayFrames: delay,
+        grid: grid,
         outputPath: out.path,
       ),
       environment: WorkerHarness.ffmpegEnv,
@@ -217,6 +255,7 @@ void main() {
       final video = _resource(f.file);
       late _Source source;
       late ({double offset, SeekPlan? plan}) seek;
+      late int delay;
 
       setUpAll(() async {
         expect(await File(video).exists(), isTrue, reason: 'missing $video');
@@ -225,6 +264,10 @@ void main() {
         // Only the MPEG-PS/TS fixtures seek with a plan.
         expect(seek.plan != null, f.file.endsWith('.ts') || f.file.endsWith('.mpg'),
             reason: '${f.file}: ${seek.plan}');
+        // The app must find the decoder delay the worker uses (issue #173):
+        // only the delayed AVIs have one.
+        delay = await _decoderDelay(video);
+        expect(delay, f.delay, reason: '${f.file}: decoder delay');
       });
 
       for (final n in f.frames) {
@@ -237,7 +280,7 @@ void main() {
           expect(pv.success, isTrue, reason: '${pv.error}\n${pv.errorTail}');
           final preview =
               await WorkerHarness.imageToRgb24(pv.png!, label: 'preview');
-          final before = await _beforeFrame(video, n, source.fps, seek);
+          final before = await _beforeFrame(video, n, source.fps, seek, delay);
           final refs = await _neighbours(video, n);
 
           _expectFrame('the preview', preview, n, refs);
@@ -245,31 +288,63 @@ void main() {
         });
       }
 
-      test('a trimmed lossless encode of ${f.trimStart}..${f.trimEnd} starts at '
-          '${f.trimStart} and ends at ${f.trimEnd}', () async {
-        final r = await WorkerHarness.runJob(
-          _job(video, source, 'trim_${p.basenameWithoutExtension(f.file)}',
-                  start: f.trimStart, end: f.trimEnd)
-              .toJson(),
-          label: 'seek_trim',
-        );
-        expect(r.success, isTrue, reason: r.error);
-        final out = r.outputPath!;
-        final count = f.trimEnd - f.trimStart + 1;
+      if (f.delay > 0) {
+        // A delayed AVI's first picture is stamped D frames in; rawvideo's
+        // constant-rate output used to fill that gap with copies of it (H.264
+        // in AVI: frame 0 three times, the last two frames lost).
+        test('an untrimmed lossless encode is the source, frame for frame', () async {
+          final total = int.parse((await WorkerHarness.firstStream(video,
+                  selector: 'v:0', entries: ['nb_read_frames'], countFrames: true))![
+              'nb_read_frames']
+              .toString());
+          final job = _job(video, source, 'untrimmed_${p.basenameWithoutExtension(f.file)}');
+          final r = await WorkerHarness.runJob(
+              {...job.toJson(), 'totalFrames': total},
+              label: 'seek_untrimmed');
+          expect(r.success, isTrue, reason: r.error);
+          final out = r.outputPath!;
+          final frames = await WorkerHarness.firstStream(out,
+              selector: 'v:0', entries: ['nb_read_frames'], countFrames: true);
+          expect(int.parse(frames!['nb_read_frames'].toString()), total);
+          for (final n in [0, 1, 2, total - 1]) {
+            final refs = {
+              for (final k in [n - 1, n, n + 1].where((k) => k >= 0 && k < total))
+                k: await WorkerHarness.frameRgb24(video, k, label: 'src'),
+            };
+            _expectFrame('output frame $n of the untrimmed encode',
+                await WorkerHarness.frameRgb24(out, n, label: 'full'), n, refs);
+          }
+        });
+      }
 
-        final frames = await WorkerHarness.firstStream(out,
-            selector: 'v:0', entries: ['nb_read_frames'], countFrames: true);
-        expect(int.parse(frames!['nb_read_frames'].toString()), count);
+      for (final (trimStart, trimEnd) in f.trims) {
+        test('a trimmed lossless encode of $trimStart..$trimEnd starts at '
+            '$trimStart and ends at $trimEnd', () async {
+          final r = await WorkerHarness.runJob(
+            _job(video, source,
+                    'trim_${p.basenameWithoutExtension(f.file)}_$trimStart',
+                    start: trimStart, end: trimEnd)
+                .toJson(),
+            label: 'seek_trim',
+          );
+          expect(r.success, isTrue, reason: r.error);
+          final out = r.outputPath!;
+          final count = trimEnd - trimStart + 1;
 
-        // The first two frames catch a doubled first frame (41, 41, 42 ..);
-        // the last catches the frame that doubling pushed off the end.
-        for (final i in [0, 1, count - 1]) {
-          final n = f.trimStart + i;
-          _expectFrame('output frame $i of the trim',
-              await WorkerHarness.frameRgb24(out, i, label: 'trim'), n,
-              await _neighbours(video, n));
-        }
-      });
+          final frames = await WorkerHarness.firstStream(out,
+              selector: 'v:0', entries: ['nb_read_frames'], countFrames: true);
+          expect(int.parse(frames!['nb_read_frames'].toString()), count);
+
+          // The first two frames catch a doubled first frame (41, 41, 42 ..);
+          // the last catches the frame that doubling pushed off the end.
+          for (final i in [0, 1, count - 1]) {
+            final n = trimStart + i;
+            _expectFrame('output frame $i of the trim',
+                await WorkerHarness.frameRgb24(out, i, label: 'trim'), n,
+                await _neighbours(video, n));
+          }
+        });
+      }
     });
   }
 }

@@ -3613,7 +3613,9 @@ Full report with scripts:
   seek correctly, and its reference reads from frame 0.
 - Found while measuring, **not fixed here**, all the same under passthrough
   timing: MPEG-PS/TS seeks start at a later keyframe (DVD-style PS: 40 -> 48;
-  TS: 40 -> 50; the DVB-T capture); MPEG-2 in AVI lands 1-2 frames early;
+  TS: 40 -> 50; the DVB-T capture); MPEG-2 in AVI lands 1-2 frames early
+  (cause and fix: "AVI seeks", 2026-11-14, below: three faults, two of them
+  wider than MPEG-2);
   AVI null frames and soft telecine give an untrimmed decode leading repeat
   slots (79 slots for 75 frames; 122 for 120), so frame numbers disagree.
 
@@ -3774,3 +3776,48 @@ Report: [docs/reports/issue-169-mpeg-seek](reports/issue-169-mpeg-seek/index.htm
   to start a GOP late and run through the reset. With `-copyts` it starts on
   the right frame and stops at the reset (review: 52 of 150 frames;
   `discontinuity_probe.py`).
+
+### AVI seeks landed 1-2 frames early, and frames 1-3 about 1.5 s late (issue #173, 2026-11-14)
+
+Report: [docs/reports/issue-173-avi-seek](reports/issue-173-avi-seek/index.html).
+
+- **Three faults, measured against a sequential decode of every start frame.**
+  An AVI's tick is one frame and it stores decode-order timestamps only.
+  - **Decoder delay.** With MPEG-2, MPEG-4 ASP or H.264 B-frames, ffmpeg
+    stamps display picture k as k + D (D = 1; 2 for H.264). Every seek landed
+    D frames early.
+  - **Half-tick rounding tie.** `(N - 0.5)/fps` sits exactly on half a tick;
+    `%.6f` printed it just below on 1 start in 3, and the trim rounded to
+    N - 1. **This hits every NTSC-rate AVI, B-frames or not** (HuffYUV, DV:
+    29/90 wrong), not just MPEG-2. 25 fps is exact and safe.
+  - **No seek near the start.** ffmpeg starts a seek 3/23 s early when a
+    stream has a decoder delay; below 0 the AVI demuxer reports "could not
+    seek" and decoding resumes where probing stopped (frame 1 -> 45; H.264
+    in AVI: -> 60).
+- **Fix.** Seek values are rounded up to the microsecond (`seek_arg`).
+  The decoder delay is measured (only when a first packet has no PTS: no
+  committed MP4/MOV/MKV/TS fixture has one) and added to every seek; below
+  0.5 s a delayed source decodes from the start and trims by count. With
+  delay 0 nothing but the rounding changes, and untrimmed encodes of five
+  other fixtures are framemd5-identical.
+- **The delay moves seeks only**, not `video_start_offset` or the
+  output's sync. The untrimmed encode treats stored frame k as time k/fps
+  and trims now do the same. Folding it into the start offset would delay
+  the picture against the sound in every B-frame AVI.
+- **Found on the way: the H.264 AVI's untrimmed encode was wrong too.** Its
+  2-frame timestamp gap made rawvideo's constant-rate output start
+  `0, 0, 0, 1 …` and lose the last two frames. MPEG-2's 1-frame gap is under
+  ffmpeg's duplication threshold. A delayed source now rebases PTS even
+  when it doesn't seek (`DecoderSeek::rebase`).
+- **Not fixed: the sound.** The same failed seek drops ~1.25-1.3 s of audio
+  from a trim whose in-point is under 0.13 s on such an AVI (input `-ss` on
+  the audio). A stream-copied soundtrack can't be trimmed by filter, so this
+  needs its own mechanism; a follow-up task.
+- Rejected: `-fflags +genpts` (the I picture's generated PTS is still 1),
+  `-noaccurate_seek`, a fixed +1/fps for every AVI (H.264 is 2, intra 0),
+  seeking at `(N - 0.25)/fps` (changes every source's seek and narrows the
+  timing-jitter margin), decoding from the start for every AVI seek (O(N)).
+- `integration_seek_alignment_test.dart` gains `hard_telecine_test.avi`,
+  `avi_h264_bframes.avi` and `avi_ntsc_intra.avi`
+  (`generate_avi_seek_test.sh`); the worker from before the fix fails 17 of
+  its 38 cases.

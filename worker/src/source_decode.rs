@@ -522,6 +522,11 @@ pub struct DecoderSeek {
     pub ss: Option<f64>,
     pub trim_from: Option<f64>,
     pub trim_frames: Option<i64>,
+    /// Rebase PTS even when not seeking (rule 7): a delayed source's first
+    /// picture is stamped D frames in, and `rawvideo`'s constant-rate output
+    /// filled that gap with copies of it (H.264 in AVI, D = 2: frame 0 three
+    /// times, untrimmed encode included).
+    pub rebase: bool,
 }
 
 impl DecoderSeek {
@@ -567,6 +572,7 @@ pub fn decoder_seek(target: Option<f64>, plan: Option<&SeekPlan>) -> DecoderSeek
                 ss: (early > 0.0).then_some(early),
                 trim_from: Some(p.container_start + t),
                 trim_frames: None,
+                rebase: false,
             }
         }
     }
@@ -593,16 +599,17 @@ pub fn source_seek(
     delay_frames: u32,
     plan: Option<&SeekPlan>,
 ) -> DecoderSeek {
-    if frame <= 0 {
-        return DecoderSeek::default();
-    }
     let plan = plan.filter(|p| p.is_valid());
     let delay = if plan.is_some() { 0 } else { delay_frames.min(MAX_DECODER_DELAY) as i64 };
+    let rebase = delay > 0;
+    if frame <= 0 {
+        return DecoderSeek { rebase, ..DecoderSeek::default() };
+    }
     let target = seek_time(frame + delay, fps, video_start);
     if delay > 0 && target.is_some_and(|t| t < COUNT_SEEK_BELOW) {
-        return DecoderSeek { trim_frames: Some(frame), ..DecoderSeek::default() };
+        return DecoderSeek { trim_frames: Some(frame), rebase, ..DecoderSeek::default() };
     }
-    decoder_seek(target, plan)
+    DecoderSeek { rebase, ..decoder_seek(target, plan) }
 }
 
 /// Slots a decoder that starts at frame N begins decoding before it (rule 8),
@@ -774,7 +781,7 @@ impl DecodeStart {
         if let Some(t) = &trim {
             filters.push(t.clone());
         }
-        if resets_pts(seek.seeks(), video_start) || trim.is_some() {
+        if resets_pts(seek.seeks() || seek.rebase, video_start) || trim.is_some() {
             filters.push(RESET_PTS_FILTER.to_string());
         }
         DecodeStart { ss: seek.ss, copyts: seek.trim_from.is_some(), filters, seek: Some(seek) }
@@ -1537,7 +1544,7 @@ mod tests {
     #[test]
     fn a_delayed_avi_counts_pictures_near_its_start() {
         let seek = source_seek(2, 30000.0 / 1001.0, 0.0, 1, None);
-        assert_eq!(seek, DecoderSeek { ss: None, trim_from: None, trim_frames: Some(2) });
+        assert_eq!(seek, DecoderSeek { trim_frames: Some(2), rebase: true, ..DecoderSeek::default() });
         for (path, args) in [
             ("encode", encode_decoder_args("in.avi", 720, 480, "yuv420p", &DecodeStart::from_seek(seek, 0.0), Some(2), Some(13), None, Some("setparams=colorspace=unknown"))),
             ("preview", preview_decoder_args("in.avi", &DecodeStart::from_seek(seek, 0.0), 11, 720, 480, "yuv420p", "f.raw", Some("setparams=colorspace=unknown"))),
@@ -1569,8 +1576,14 @@ mod tests {
         let args = preview_decoder_args("in.avi", &DecodeStart::from_seek(seek, 0.0), 11, 720, 480, "yuv420p", "f.raw", None);
         assert_eq!(args[..2], ["-ss".to_string(), "1.384717".to_string()]);
         assert_eq!(vf(&args), format!("{RESET_PTS_FILTER},{}", size_guard_filter(720, 480)));
-        // Frame 0 never seeks, delay or not.
-        assert_eq!(source_seek(0, fps, 0.0, 2, None), DecoderSeek::default());
+        // Frame 0 never seeks, delay or not, but a delayed source rebases its
+        // PTS so constant-rate output does not repeat its first picture.
+        let zero = source_seek(0, fps, 0.0, 2, None);
+        assert_eq!(zero, DecoderSeek { rebase: true, ..DecoderSeek::default() });
+        let untrimmed = encode_decoder_args("in.avi", 720, 480, "yuv420p", &DecodeStart::from_seek(zero, 0.0), None, None, Some(90), None);
+        assert!(pos(&untrimmed, "-ss").is_none());
+        assert_eq!(vf(&untrimmed), format!("{RESET_PTS_FILTER},{}", size_guard_filter(720, 480)));
+        assert_eq!(source_seek(0, fps, 0.0, 0, None), DecoderSeek::default(), "no delay: unchanged");
         // Out-of-range delays are clamped, never trusted.
         assert_eq!(source_seek(100, 25.0, 0.0, 99, None).ss, seek_time(104, 25.0, 0.0));
     }
@@ -1726,7 +1739,7 @@ mod tests {
             assert_eq!(s.copyts, old.trim_from.is_some());
             assert_eq!(
                 s.vf(720, 576, None),
-                decoder_filter(720, 576, resets_pts(old.seeks(), vs), None, &old)
+                decoder_filter(720, 576, resets_pts(old.seeks() || old.rebase, vs), None, &old)
             );
             assert_eq!(s.input_args(), old.input_args());
         }
