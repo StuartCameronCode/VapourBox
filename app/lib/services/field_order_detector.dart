@@ -628,6 +628,99 @@ class FieldOrderDetector {
     return VideoStart(offset: offset, leading: leading);
   }
 
+  /// Formats seeked by a timestamp search rather than an index, as
+  /// ffprobe's `format_name` names them: the worker's
+  /// `source_decode::TIMESTAMP_SEARCH_FORMATS`.
+  static const timestampSearchFormats = ['mpegts', 'mpeg'];
+
+  /// Seconds of video [seekProbeArgs] reads (`SEEK_PROBE_SECONDS`).
+  static const seekProbeSeconds = 20;
+
+  /// Added to the measured GOP and reorder delay (`SEEK_PREROLL_MARGIN`).
+  static const seekPrerollMargin = 0.5;
+
+  /// The smallest preroll (`SEEK_PREROLL_MIN`).
+  static const seekPrerollMin = 1.0;
+
+  /// ffprobe's arguments (before the input) for [seekPlanFromProbe]: the
+  /// worker's `source_decode::SEEK_PROBE_ARGS`, word for word.
+  static const seekProbeArgs = [
+    '-v', 'error',
+    '-select_streams', 'v:0',
+    '-show_entries', 'packet=pts_time,dts_time,flags:format=format_name,start_time',
+    '-read_intervals', '%+20',
+    '-of', 'json',
+  ];
+
+  /// Whether a container (ffprobe's comma-separated `format_name`) seeks by
+  /// timestamp search, so its decodes need a [SeekPlan].
+  static bool seeksByTimestampSearch(String? formatName) =>
+      formatName != null &&
+      formatName
+          .split(',')
+          .any((n) => timestampSearchFormats.contains(n.trim()));
+
+  /// The [SeekPlan] for a source from ffprobe's answer to [seekProbeArgs], or
+  /// null when its format seeks by index. Twin of the worker's
+  /// `source_decode::seek_plan_from_probe`: the preroll is the largest gap
+  /// between keyframes, plus the largest PTS - DTS and [seekPrerollMargin],
+  /// at least [seekPrerollMin]; the whole window with fewer than two
+  /// keyframes. Both read `Tests/TestResources/seek_probe_dvbt.json` in their
+  /// tests.
+  static SeekPlan? seekPlanFromProbe(Map<String, dynamic> json) {
+    final format = json['format'] as Map<String, dynamic>?;
+    if (!seeksByTimestampSearch(format?['format_name'] as String?)) return null;
+    double? num(Object? v) {
+      final d = v == null ? null : double.tryParse('$v');
+      return d != null && d.isFinite ? d : null;
+    }
+
+    final containerStart = num(format?['start_time']) ?? 0.0;
+    final packets = (json['packets'] as List<dynamic>?) ?? const [];
+    final keys = <double>[];
+    var reorder = 0.0;
+    for (final p in packets) {
+      final m = p as Map<String, dynamic>;
+      final pts = num(m['pts_time']);
+      final dts = num(m['dts_time']);
+      if (pts != null && dts != null && pts - dts > reorder) reorder = pts - dts;
+      final key = (m['flags'] as String?)?.startsWith('K') ?? false;
+      final t = pts ?? dts;
+      if (key && t != null) keys.add(t);
+    }
+    var gop = seekProbeSeconds.toDouble();
+    if (keys.length >= 2) {
+      gop = 0.0;
+      for (var i = 1; i < keys.length; i++) {
+        if (keys[i] - keys[i - 1] > gop) gop = keys[i] - keys[i - 1];
+      }
+    }
+    final preroll = gop + reorder + seekPrerollMargin;
+    return SeekPlan(
+      preroll: preroll < seekPrerollMin ? seekPrerollMin : preroll,
+      containerStart: containerStart,
+    );
+  }
+
+  /// Probe the [SeekPlan], but only when [formatName] (from the probe the
+  /// caller already ran) is an MPEG-TS/PS: every other source gets null, at
+  /// no cost, and seeks as before. Null on any failure too.
+  static Future<SeekPlan?> probeSeekPlan(
+    String ffprobe,
+    String videoPath, {
+    required String? formatName,
+  }) async {
+    if (!seeksByTimestampSearch(formatName)) return null;
+    try {
+      final result = await Process.run(ffprobe, [...seekProbeArgs, videoPath]);
+      if (result.exitCode != 0) return null;
+      return seekPlanFromProbe(
+          jsonDecode(result.stdout as String) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Probe where the video's first picture sits, but only when the video
   /// stream starts after the container (its sound starts first): the first
   /// picture is never later than the stream's `start_time`, so otherwise
@@ -654,6 +747,53 @@ class FieldOrderDetector {
       return VideoStart.none;
     }
   }
+}
+
+/// How the source's decodes seek an MPEG-TS/PS, which has no keyframe index
+/// (issue #169): [preroll] seconds before the target, keeping the file's own
+/// timestamps (`-copyts`), then an absolute `trim` at [containerStart] plus
+/// the target. Twin of the worker's `source_decode::SeekPlan`.
+class SeekPlan {
+  /// Seconds to seek before the target: one GOP plus the reorder delay, so a
+  /// keyframe is decoded before the target is.
+  final double preroll;
+
+  /// The container's `start_time`, what `-ss` counts from.
+  final double containerStart;
+
+  const SeekPlan({required this.preroll, required this.containerStart});
+
+  /// The `-copyts` / `-ss` input options and the `trim` filter that make
+  /// [target] (a container-relative seek time, as `-ss` takes it) the first
+  /// frame decoded. Without a plan, the plain `-ss` it always was and no
+  /// trim. Twin of the worker's `source_decode::decoder_seek`.
+  static ({List<String> input, String? trim}) seekArgs(
+      double target, SeekPlan? plan) {
+    if (plan == null ||
+        !plan.preroll.isFinite ||
+        plan.preroll <= 0 ||
+        !plan.containerStart.isFinite) {
+      return (input: ['-ss', target.toStringAsFixed(6)], trim: null);
+    }
+    final early = target - plan.preroll;
+    return (
+      input: ['-copyts', if (early > 0) ...['-ss', early.toStringAsFixed(6)]],
+      trim: 'trim=start=${(plan.containerStart + target).toStringAsFixed(6)}',
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is SeekPlan &&
+      other.preroll == preroll &&
+      other.containerStart == containerStart;
+
+  @override
+  int get hashCode => Object.hash(preroll, containerStart);
+
+  @override
+  String toString() =>
+      'SeekPlan(preroll: $preroll, containerStart: $containerStart)';
 }
 
 /// Where a source's video starts, for a file whose sound starts first (a

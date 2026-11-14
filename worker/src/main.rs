@@ -386,6 +386,7 @@ fn run_detect_native(args: &Args) -> ExitCode {
         let deps = dependency_locator::DependencyLocator::new()?;
         fill_frame_size(&mut job, Some(&deps), |_| {});
         fill_video_start(&mut job, Some(&deps), |_| {});
+        fill_seek_plan(&mut job, Some(&deps), |_| {});
         native_res::detect(&deps, &job)
     })();
     match result {
@@ -412,6 +413,7 @@ fn run_detect_crop(args: &Args) -> ExitCode {
         let deps = dependency_locator::DependencyLocator::new()?;
         fill_frame_size(&mut job, Some(&deps), |_| {});
         fill_video_start(&mut job, Some(&deps), |_| {});
+        fill_seek_plan(&mut job, Some(&deps), |_| {});
         crop_detect::detect(&deps, &job)
     })();
     match result {
@@ -438,6 +440,7 @@ fn run_detect_noise_halo(args: &Args) -> ExitCode {
         let deps = dependency_locator::DependencyLocator::new()?;
         fill_frame_size(&mut job, Some(&deps), |_| {});
         fill_video_start(&mut job, Some(&deps), |_| {});
+        fill_seek_plan(&mut job, Some(&deps), |_| {});
         noise_halo::detect(&deps, &job)
     })();
     match result {
@@ -646,6 +649,7 @@ fn run_preview_mode(args: &Args) -> ExitCode {
     let deps = dependency_locator::DependencyLocator::new().ok();
     fill_frame_size(&mut job, deps.as_ref(), |msg| eprintln!("{}", msg));
     fill_video_start(&mut job, deps.as_ref(), |msg| eprintln!("{}", msg));
+    fill_seek_plan(&mut job, deps.as_ref(), |msg| eprintln!("{}", msg));
 
     // The frame index is passed straight through to the worker — no
     // time-conversion round-trip — so the rendered frame is exactly the one the
@@ -745,6 +749,31 @@ fn fill_video_start(
     }
 }
 
+/// Fill a missing `seek_plan` from ffprobe (see
+/// `source_decode::seek_plan_from_probe`, issue #169): only an MPEG-TS/PS
+/// source gets one. A job that carries it is never touched; a failed probe
+/// leaves it unset, which means seeking as before.
+fn fill_seek_plan(
+    job: &mut VideoJob,
+    deps: Option<&dependency_locator::DependencyLocator>,
+    log: impl Fn(&str),
+) {
+    if job.seek_plan.is_some() {
+        return;
+    }
+    let Some(d) = deps else { return };
+    let Ok(ffprobe) = d.ffprobe_path() else { return };
+    if let Some(plan) =
+        source_decode::probe_seek_plan(&ffprobe, &d.build_environment(), &job.input_path)
+    {
+        log(&format!(
+            "MPEG-TS/PS source (no keyframe index): seeks start {:.2} s early and drop to the frame",
+            plan.preroll
+        ));
+        job.seek_plan = Some(plan);
+    }
+}
+
 /// A variable-frame-rate source's timeline (issue #137, see `source_timing`),
 /// or `None` to decode at constant rate as before.
 ///
@@ -822,6 +851,11 @@ fn run_worker(
     // Where the video's first picture sits after the container's start: every
     // seek adds it, and the output keeps the gap (source_decode, rule 5).
     fill_video_start(&mut job, deps.as_ref(), |msg| {
+        reporter.send_log(models::LogLevel::Info, msg)
+    });
+    // An MPEG-TS/PS has no keyframe index: its seeks start a GOP early and
+    // trim to the frame (source_decode, rule 6).
+    fill_seek_plan(&mut job, deps.as_ref(), |msg| {
         reporter.send_log(models::LogLevel::Info, msg)
     });
 
