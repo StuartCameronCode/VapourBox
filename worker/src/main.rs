@@ -10,6 +10,10 @@
 //! DVD modes:
 //!   --dvd-info <path>: Enumerate DVD titles, output JSON to stdout
 //!   --dvd-extract <path> --title N [--chapters S-E] --output <path>: Extract DVD title
+//!
+//! Timestamp resets (MPEG-PS/TS, see source_continuity):
+//!   --scan-timestamps <path>: print the resets as JSON
+//!   --make-continuous <path> --output <path>: write the continuous copy
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -26,6 +30,7 @@ mod dependency_locator;
 mod dvd_reader;
 mod pipeline_executor;
 mod pixel_format;
+mod source_continuity;
 mod source_decode;
 mod source_timing;
 mod progress_reporter;
@@ -88,9 +93,20 @@ struct Args {
     #[arg(long)]
     chapters: Option<String>,
 
-    /// Output file path (required with --dvd-extract)
+    /// Output file path (required with --dvd-extract and --make-continuous)
     #[arg(long)]
     output: Option<PathBuf>,
+
+    /// Scan an MPEG-PS/TS for timestamp resets and print JSON
+    /// (`{"format", "applies", "resets": [...], "videoPackets"}`) to stdout.
+    #[arg(long)]
+    scan_timestamps: Option<String>,
+
+    /// Copy an MPEG-PS/TS with a timestamp reset to `--output` with
+    /// continuous timestamps (same container), reporting progress as JSON
+    /// lines (phase "joining"); the copy is checked before it is kept.
+    #[arg(long)]
+    make_continuous: Option<String>,
 
     /// Probe mode: report whether a usable OpenCL device is available as JSON
     /// (`{"opencl": true|false}`) to stdout and exit. Used by the app to warn
@@ -193,6 +209,13 @@ fn main() -> ExitCode {
     // DVD extract mode: extract title to file
     if let Some(ref dvd_path) = args.dvd_extract {
         return run_dvd_extract(&args, dvd_path);
+    }
+
+    if let Some(ref input) = args.scan_timestamps {
+        return run_scan_timestamps(input);
+    }
+    if let Some(ref input) = args.make_continuous {
+        return run_make_continuous(&args, input);
     }
 
     // OpenCL probe mode: emit availability as JSON and exit (no progress stream).
@@ -604,7 +627,19 @@ fn run_dvd_extract(args: &Args, dvd_path: &str) -> ExitCode {
 
     let reporter = ProgressReporter::new();
 
-    match dvd_reader::extract_title(dvd_path, title, start_chapter, end_chapter, &output, &reporter) {
+    // Extract beside the output, then join any timestamp resets into the
+    // output (source_continuity): a title that spans VOB IDs restarts its
+    // clock at each one.
+    let mut part_name = output.as_os_str().to_owned();
+    part_name.push(".part");
+    let part = PathBuf::from(part_name);
+    let result = dvd_reader::extract_title(dvd_path, title, start_chapter, end_chapter, &part, &reporter)
+        .and_then(|()| join_dvd_resets(&part, &output, &reporter));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&part);
+    }
+
+    match result {
         Ok(()) => {
             reporter.send_complete(true, Some(&output.to_string_lossy()));
             ExitCode::SUCCESS
@@ -613,6 +648,152 @@ fn run_dvd_extract(args: &Args, dvd_path: &str) -> ExitCode {
             reporter.send_error(&format!("{:#}", e));
             reporter.send_complete(false, None);
             ExitCode::from(1)
+        }
+    }
+}
+
+/// The DVD import's last step: scan the extraction and, when its timestamps
+/// reset, join it into `output` (else rename it there).
+fn join_dvd_resets(part: &Path, output: &Path, reporter: &ProgressReporter) -> Result<()> {
+    let deps = dependency_locator::DependencyLocator::new().ok();
+    let tools = deps.as_ref().and_then(|d| {
+        Some((d.ffmpeg_path().ok()?, d.ffprobe_path().ok()?, d.build_environment()))
+    });
+    let outcome = source_continuity::finish_import(
+        part,
+        output,
+        |p| match &tools {
+            Some((_, ffprobe, env)) => source_continuity::scan(ffprobe, env, p),
+            None => anyhow::bail!("ffprobe was not found"),
+        },
+        |scan| {
+            let (ffmpeg, ffprobe, env) = tools.as_ref().expect("scanned with the same tools");
+            reporter.send_log(
+                models::LogLevel::Info,
+                &format!(
+                    "The title's {}; joining them into one continuous timeline \
+                     (needs as much free space again as the title, until done)",
+                    scan.summary()
+                ),
+            );
+            let start = std::time::Instant::now();
+            source_continuity::make_continuous(
+                ffmpeg,
+                ffprobe,
+                env,
+                &part.to_string_lossy(),
+                scan,
+                output,
+                |f| {
+                    let done = (f * 1000.0) as i32;
+                    let elapsed = start.elapsed().as_secs_f64();
+                    let eta = if f > 0.0 { elapsed / f - elapsed } else { 0.0 };
+                    reporter.send_progress_phase(
+                        &models::ProgressInfo::new(done, 1000, 0.0, eta),
+                        "joining",
+                    );
+                },
+            )
+        },
+    )?;
+    match outcome {
+        source_continuity::ImportOutcome::Unchanged => {}
+        source_continuity::ImportOutcome::Joined(scan) => reporter.send_log(
+            models::LogLevel::Info,
+            &format!("Joined {} timestamp reset(s): frames now count straight through", scan.resets.len()),
+        ),
+        source_continuity::ImportOutcome::Kept(why) => reporter.send_log(
+            models::LogLevel::Warning,
+            &format!(
+                "Kept the title as extracted: {}. The app will try to join it again when it analyses it",
+                why
+            ),
+        ),
+    }
+    Ok(())
+}
+
+/// `--scan-timestamps`: print the source's timestamp resets as JSON.
+fn run_scan_timestamps(input: &str) -> ExitCode {
+    let result = dependency_locator::DependencyLocator::new().and_then(|d| {
+        let ffprobe = d.ffprobe_path()?;
+        source_continuity::scan(&ffprobe, &d.build_environment(), input)
+    });
+    match result {
+        Ok(scan) => {
+            println!("{}", serde_json::to_string(&scan).unwrap_or_default());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            println!("{}", serde_json::json!({"type": "error", "message": format!("{:#}", e)}));
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `--make-continuous`: write the continuous copy of a source with a reset,
+/// as progress JSON lines like `--dvd-extract`. A source without one is an
+/// error (there is nothing to join), so the caller never gets a needless
+/// copy.
+fn run_make_continuous(args: &Args, input: &str) -> ExitCode {
+    let Some(output) = args.output.clone() else {
+        eprintln!("Error: --output is required with --make-continuous");
+        return ExitCode::from(1);
+    };
+    let reporter = ProgressReporter::new();
+    let result = (|| -> Result<source_continuity::ContinuityScan> {
+        let d = dependency_locator::DependencyLocator::new()?;
+        let (ffmpeg, ffprobe, env) = (d.ffmpeg_path()?, d.ffprobe_path()?, d.build_environment());
+        let scan = source_continuity::scan(&ffprobe, &env, input)?;
+        if !scan.needs_copy() {
+            anyhow::bail!("{} has no timestamp reset to join", input);
+        }
+        reporter.send_log(models::LogLevel::Info, &format!("Source {}; joining", scan.summary()));
+        let start = std::time::Instant::now();
+        source_continuity::make_continuous(&ffmpeg, &ffprobe, &env, input, &scan, &output, |f| {
+            let elapsed = start.elapsed().as_secs_f64();
+            let eta = if f > 0.0 { elapsed / f - elapsed } else { 0.0 };
+            reporter.send_progress_phase(
+                &models::ProgressInfo::new((f * 1000.0) as i32, 1000, 0.0, eta),
+                "joining",
+            );
+        })?;
+        Ok(scan)
+    })();
+    match result {
+        Ok(_) => {
+            reporter.send_complete(true, Some(&output.to_string_lossy()));
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            reporter.send_error(&format!("{:#}", e));
+            reporter.send_complete(false, None);
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// Warn when a job the app did not prepare (`continuity_checked` false)
+/// reads an MPEG-PS/TS whose timestamps reset. Never changes the job: its
+/// frame numbers were chosen against an unknown timeline.
+fn warn_on_resets(
+    job: &VideoJob,
+    deps: Option<&dependency_locator::DependencyLocator>,
+    log: impl Fn(&str),
+) {
+    if job.continuity_checked {
+        return;
+    }
+    let Some(d) = deps else { return };
+    let Ok(ffprobe) = d.ffprobe_path() else { return };
+    if let Ok(scan) = source_continuity::scan(&ffprobe, &d.build_environment(), &job.input_path) {
+        if scan.needs_copy() {
+            log(&format!(
+                "The source's {}. Frames after the first reset are not reliable in this job: \
+                 open the file in VapourBox, which decodes such a source from a joined copy, \
+                 or remux it first (ffmpeg -i in -map 0 -c copy out, without -copyts)",
+                scan.summary()
+            ));
         }
     }
 }
@@ -906,6 +1087,13 @@ fn run_worker(
     fill_seek_plan(&mut job, deps.as_ref(), |msg| {
         reporter.send_log(models::LogLevel::Info, msg)
     });
+    // ... and its clock may reset mid-file (source_continuity), which the app
+    // handles before it sends a job; a hand-written job only gets a warning.
+    if job.seek_plan.is_some() {
+        warn_on_resets(&job, deps.as_ref(), |msg| {
+            reporter.send_log(models::LogLevel::Warning, msg)
+        });
+    }
     // Every constant-rate decoder places the frames on the source's grid
     // (source_decode, rule 7).
     fill_source_grid(&mut job, deps.as_ref(), |msg| {

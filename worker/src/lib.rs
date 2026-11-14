@@ -12,6 +12,7 @@ pub mod filter_registry;
 pub mod filter_schema;
 pub mod pipeline_executor;
 pub mod pixel_format;
+pub mod source_continuity;
 pub mod source_decode;
 pub mod source_timing;
 pub mod progress_reporter;
