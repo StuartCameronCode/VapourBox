@@ -1080,6 +1080,9 @@ if [ "$ARCH" = "x86_64" ]; then
     # does NOT ship (neo-f3kdb, nnedi3cl, vivtc, descratch) from source. The
     # clean CI runner has no full VapourSynth dev install, so the from-source
     # path used on arm64 doesn't work here; pre-built is the robust route.
+    # fmtconv is the exception: it is built from source on both arches after
+    # this split, because its version is pinned on every platform and
+    # Stefan-Olt's only x86_64 build is git-18a9cecb, which predates r31.
     # Pinned URLs are immutable release assets - to refresh, re-resolve the
     # latest darwin-x86_64 asset for each plugin id.
     # ========================================================================
@@ -1092,7 +1095,6 @@ if [ "$ARCH" = "x86_64" ]; then
     fi
     download_prebuilt_plugin "ZNEDI3"        "libznedi3.dylib"      "$STEFANOLT/xxx.abc.znedi3/3bd542a/darwin-x86_64/2026-01-10T23.47.38%2B00.00Z/ZNEDI3-3bd542a-darwin-x86_64.zip"
     download_prebuilt_plugin "EEDI3m"        "libeedi3m.dylib"      "$STEFANOLT/com.holywu.eedi3/r8/darwin-x86_64/2026-01-15T20.48.25%2B00.00Z/EEDI3m-r8-darwin-x86_64.zip"
-    download_prebuilt_plugin "fmtconv"       "libfmtconv.dylib"     "$STEFANOLT/fmtconv/git-18a9cecb/darwin-x86_64/2024-10-10T14.48.08%2B00.00Z/fmtconv-git-18a9cecb-darwin-x86_64.zip"
     download_prebuilt_plugin "DFTTest"       "libdfttest.dylib"     "$STEFANOLT/com.holywu.dfttest/git-89034df/darwin-x86_64/2024-10-09T23.03.28%2B00.00Z/DFTTest-git-89034df-darwin-x86_64.zip"
     download_prebuilt_plugin "MiscFilters"   "libmiscfilters.dylib" "$STEFANOLT/com.vapoursynth.misc/git-07e0589/darwin-x86_64/2024-10-09T22.52.15%2B00.00Z/Miscfilters-git-07e0589-darwin-x86_64.zip"
     download_prebuilt_plugin "RemoveGrain"   "libremovegrain.dylib" "$STEFANOLT/com.vapoursynth.removegrainvs/git-89ca38a/darwin-x86_64/2024-10-09T22.52.26%2B00.00Z/RemoveGrain-git-89ca38a-darwin-x86_64.zip"
@@ -1370,44 +1372,6 @@ build_plugin "eedi3m" \
     "libeedi3m.dylib" \
     "meson setup build --buildtype=release && ninja -C build"
 
-# fmtconv (format conversion)
-# Upstream moved to GitLab in Aug 2023; the GitHub repo is an abandoned mirror
-# whose final commit is literally "Repository moved to Gitlab", so cloning its
-# master pinned us to a stale post-r30 snapshot. Use GitLab and pin the tag so
-# the build is reproducible and every platform ships the same fmtconv version
-# (r31 also fixes interlaced PAL-DV chroma placement — U/V vertical positions
-# were swapped and vertical subsampling > 2 was unhandled).
-# NOTE: r31 does NOT fix the aarch64 integer-scaler bug (vertical resampling of
-# sub-16-bit sources returns black). We fix that ourselves with
-# patches/fmtconv-r31-arm-int-scaler.patch, applied right after the clone below.
-FMTCONV_TAG="r31"
-echo ""
-echo "=== Building fmtconv ($FMTCONV_TAG) ==="
-if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfmtconv.dylib" ]; then
-    rm -rf fmtconv
-    git clone --depth 1 --branch "$FMTCONV_TAG" https://gitlab.com/EleonoreMizo/fmtconv.git fmtconv
-    # Fix the non-x86 integer vertical scaler, which returns a black plane for
-    # any source below 16-bit — that is what broke havsfunc's Bob(), and with it
-    # QTGMC's Placebo/Very Slow noise pass and the Draft preset. The patch header
-    # has the full analysis. Hard-fail rather than silently shipping the bug back.
-    (cd fmtconv && git apply "$SCRIPT_DIR/patches/fmtconv-r31-arm-int-scaler.patch") || {
-        echo "  ERROR: patches/fmtconv-r31-arm-int-scaler.patch did not apply." >&2
-        echo "  fmtconv $FMTCONV_TAG may have changed upstream — re-check the patch." >&2
-        exit 1
-    }
-    echo "  Patched fmtconv integer scaler (non-x86 vertical resample)"
-    cd fmtconv/build/unix
-    ./autogen.sh
-    ./configure
-    make -j$(sysctl -n hw.ncpu)
-    cp .libs/libfmtconv.dylib "$PLUGINS_DIR/" 2>/dev/null || \
-        find ../.. -name "libfmtconv*.dylib" | head -1 | xargs -I {} cp {} "$PLUGINS_DIR/libfmtconv.dylib"
-    cd "$BUILD_DIR"
-    echo "  Built fmtconv"
-else
-    echo "  fmtconv already exists, skipping"
-fi
-
 # DFTTest (FFT-based denoising)
 # On ARM64, we use the pre-built version from yuygfgg (downloaded above)
 if [ "$ARCH" != "arm64" ]; then
@@ -1614,6 +1578,58 @@ download_prebuilt_plugin "TemporalMedian" "libtmedian.dylib" "$TMEDIAN_URL"
 
 fi  # end plugin arch split (x86_64 pre-built / arm64 from-source)
 
+# fmtconv (format conversion), built from source on BOTH arches.
+# Upstream moved to GitLab in Aug 2023; the GitHub repo is an abandoned mirror
+# whose final commit is literally "Repository moved to Gitlab", so cloning its
+# master pinned us to a stale post-r30 snapshot. Use GitLab and pin the tag so
+# the build is reproducible and every platform ships the same fmtconv version
+# (r31 also fixes interlaced PAL-DV chroma placement — U/V vertical positions
+# were swapped and vertical subsampling > 2 was unhandled). Keep FMTCONV_TAG in
+# step with download-deps-linux.sh and the Windows zip URL;
+# vapoursynth_integration_test.dart's "fmtconv is r31" test fails on any
+# platform that ships an older chroma placement.
+#
+# Through deps 1.16.0 the x64 bundle took Stefan-Olt's prebuilt git-18a9cecb
+# (between r30 and r31) instead, so it lacked that chroma fix. See
+# docs/reports/2026-11-fmtconv-macos-x64-r31.
+#
+# NOTE: r31 does NOT fix the aarch64 integer-scaler bug (vertical resampling of
+# sub-16-bit sources returns black). We fix that ourselves with
+# patches/fmtconv-r31-arm-int-scaler.patch, applied right after the clone below.
+# It is applied on x86_64 too, as on Linux x64, where it is dead code: the
+# SSE2/AVX2 scalers replace the patched function. MACOSX_DEPLOYMENT_TARGET is
+# exported near the top, so the x64 build targets the 12.0 floor (issue #39);
+# its AVX/AVX2 translation units have no static initializers, so the v2 tier's
+# load-time SIMD gate passes and fmtconv needs no _tierFiles entry.
+FMTCONV_TAG="r31"
+cd "$BUILD_DIR"
+echo ""
+echo "=== Building fmtconv ($FMTCONV_TAG) ==="
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfmtconv.dylib" ]; then
+    rm -rf fmtconv
+    git clone --depth 1 --branch "$FMTCONV_TAG" https://gitlab.com/EleonoreMizo/fmtconv.git fmtconv
+    # Fix the non-x86 integer vertical scaler, which returns a black plane for
+    # any source below 16-bit — that is what broke havsfunc's Bob(), and with it
+    # QTGMC's Placebo/Very Slow noise pass and the Draft preset. The patch header
+    # has the full analysis. Hard-fail rather than silently shipping the bug back.
+    (cd fmtconv && git apply "$SCRIPT_DIR/patches/fmtconv-r31-arm-int-scaler.patch") || {
+        echo "  ERROR: patches/fmtconv-r31-arm-int-scaler.patch did not apply." >&2
+        echo "  fmtconv $FMTCONV_TAG may have changed upstream — re-check the patch." >&2
+        exit 1
+    }
+    echo "  Patched fmtconv integer scaler (non-x86 vertical resample; dead code on x86)"
+    cd fmtconv/build/unix
+    ./autogen.sh
+    ./configure
+    make -j$(sysctl -n hw.ncpu)
+    cp .libs/libfmtconv.dylib "$PLUGINS_DIR/" 2>/dev/null || \
+        find ../.. -name "libfmtconv*.dylib" | head -1 | xargs -I {} cp {} "$PLUGINS_DIR/libfmtconv.dylib"
+    cd "$BUILD_DIR"
+    echo "  Built fmtconv"
+else
+    echo "  fmtconv already exists, skipping"
+fi
+
 # The three plugins below are built from source on BOTH arches, so they sit
 # outside the arch split above. They started inside its arm64 branch, where
 # x64 never reached them and the packaging guard failed on all three missing
@@ -1632,8 +1648,7 @@ fi  # end plugin arch split (x86_64 pre-built / arm64 from-source)
 # skew would make the same job denoise differently per OS.
 #
 # Built by invoking the compiler directly rather than through its autotools
-# build: it is one C file, and autoconf/automake/libtool are not otherwise
-# required by any deps build.
+# build: it is one C file, so there is nothing for autotools to do.
 FLUXSMOOTH_TAG="v2"
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfluxsmooth.dylib" ]; then
     echo ""
@@ -1660,7 +1675,7 @@ fi
 # binary; see the fluxsmooth note above for why every platform tracks that.
 #
 # Its source is one C file, so it is compiled directly rather than through its
-# autotools build — no autoconf/automake/libtool needed in CI. It includes
+# autotools build. It includes
 # <vapoursynth/VapourSynth4.h>, so the include path has to be the PARENT of a
 # directory called vapoursynth — which is what the symlink farm created next to
 # VS_INC_DIR above provides.

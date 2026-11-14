@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fmtconv r31 on macOS x64</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>macOS x64 shipped fmtconv git-18a9cecb, not r31</h1>
+<p class="meta">2026-11-14 · deps 1.16.0 · measured on an Apple M1 Pro: the published macOS x64 bundle
+under Rosetta 2 with each fmtconv build swapped in, and the macOS arm64 1.16.0 bundle natively</p>
+
+<div class="card">
+<strong>Outcome: built.</strong> <code>download-deps-macos.sh</code> now builds fmtconv r31 from
+source on both macOS architectures (same tag, same patch), instead of taking Stefan-Olt's prebuilt
+<code>git-18a9cecb</code> on x64. That makes "fmtconv is pinned to r31 on every platform" true.
+A pixel fingerprint for r31's chroma-placement fix is now a push-gate test on all four CI platforms.
+The skew changed nothing VapourBox could reach: every case the shipped pipeline uses was bit-identical
+between the two builds. It was a latent difference, not a live one. The fix reaches users with the next
+deps release; until then the new test skips on a macOS x64 bundle at 1.16.0 or older.
+</div>
+
+<h2>1. What deps 1.16.0 macOS x64 ships</h2>
+<table>
+<tr><th>Property</th><th>Value</th></tr>
+<tr><td>File</td><td><code>vapoursynth/plugins/libfmtconv.dylib</code>, 5,535,536 bytes</td></tr>
+<tr><td>SHA-256</td><td><code>3671e24a4ef8b8c34834948ef99499cd9f72efb35b2b173464d6303dcc66a28f</code></td></tr>
+<tr><td>Origin</td><td>Stefan-Olt/vs-plugin-build <code>fmtconv-git-18a9cecb-darwin-x86_64</code> (2024-10-10), byte for byte what
+the x86_64 branch of <code>download-deps-macos.sh</code> fetched</td></tr>
+<tr><td>Minimum macOS</td><td><code>LC_VERSION_MIN_MACOSX 10.11</code></td></tr>
+<tr><td>v2 tier</td><td>Not in <code>_tierFiles</code>, so not in the v2 delta: both CPU tiers run this build</td></tr>
+</table>
+<p>macOS arm64 and Linux build r31 from the GitLab tag; Windows downloads upstream's <code>fmtconv-r31.zip</code>.
+CLAUDE.md and NOTICES already said every platform shipped r31. Nothing checked it: the
+expected-plugins list names the file, not its version.</p>
+
+<h2>2. Where 18a9cecb sits upstream</h2>
+<p>From a clone of <code>gitlab.com/EleonoreMizo/fmtconv</code>: <code>18a9cecb</code> (2024-08-02, "URL update")
+is 34 commits after r30 (<code>e1b75cf</code>, 2022-08-31) and 18 before r31 (<code>f841f5f</code>, 2026-04-12).</p>
+<ul>
+<li><strong>It already has</strong> the fixes that matter on x86: the missing AVX2 direct-conversion paths
+(r31's changelog: "14 to 16 bit AVX2 conversion path") and the <code>bitblt_int_to_flt_cpp</code> fix.</li>
+<li><strong>It lacks</strong> <code>3079bd6</code> "resample: fixed chroma placement": DV placement put its vertical
+offset on V (plane 2) instead of U (plane 1), MPEG-2 placement on a transposed 4:2:2 (4:4:0) clip was wrong, and
+vertical subsampling above 2 (4:1:0) was unhandled for DV / top-left. It also lacks r31's new matrices,
+transfers and primaries (IPT-C2, S-Log3 rescale, L*, LogC4, NTSC-J D93, AWG4), none of which VapourBox requests.</li>
+</ul>
+
+<h2>3. Did the skew change VapourBox's output? No</h2>
+<p>62 cases (<code>scripts/probe.py</code>), each hashed over every plane of every frame, run with the published x64
+bundle's own Python under Rosetta, once with the shipped dylib and once with r31 built for x86_64 (section 4).
+A third run repeated the shipped build, to separate fmtconv differences from nondeterminism.
+Source: 320x240 grain, blurred and grained again, 12 frames.</p>
+<div class="scroll"><table>
+<tr><th>Case (what reaches fmtconv)</th><th>Formats</th><th>18a9cecb vs r31</th></tr>
+<tr><td><code>haf.Bob</code> (QTGMC's noise pass, Draft's interpolation)</td><td>420p8/10/16, 422p10, 444p16</td><td class="good">bit-identical</td></tr>
+<tr><td><code>haf.Resize</code>: gauss same-size (QTGMC's Sbb), santiag's field shift, a downscale</td><td>same</td><td class="good">bit-identical</td></tr>
+<tr><td><code>fmtc.bitdepth</code> 16-bit full range (Deblock_QED), <code>mvf.Depth</code> to 8-bit, <code>haf.MinBlur</code></td><td>same + 420p14</td><td class="good">bit-identical</td></tr>
+<tr><td><code>haf.QTGMC</code> Draft</td><td>420p8/10/16, 422p10, 444p16</td><td class="good">bit-identical</td></tr>
+<tr><td><code>haf.QTGMC</code> Placebo, default threads</td><td>420p8, 420p10, 422p10</td><td class="warn">differs, and differs between runs of the same build</td></tr>
+<tr><td><code>haf.QTGMC</code> Placebo, one thread (<code>scripts/placebo_1thread.py</code>)</td><td>420p8, 420p10, 422p10</td><td class="good">bit-identical, and the same on a second run of each build</td></tr>
+<tr><td><code>haf.QTGMC</code> Placebo</td><td>420p16, 444p16</td><td class="good">bit-identical</td></tr>
+<tr><td><code>fmtc.resample(cplace="dv")</code>, interlaced, vertical scale</td><td>420p8/10/14/16</td><td class="bad">differs (expected)</td></tr>
+<tr><td>same</td><td>422p10, 444p16</td><td class="good">bit-identical (no vertical subsampling, so no vertical placement)</td></tr>
+<tr><td><code>fmtc.resample(cplace="mpeg2")</code> on 4:4:0</td><td>440p8</td><td class="bad">differs (expected)</td></tr>
+<tr><td><code>fmtc.resample(cplace="dv")</code> on 4:1:0</td><td>410p8</td><td class="bad">differs (expected)</td></tr>
+</table></div>
+<div class="card correction">
+<strong>Correction, kept in place.</strong> The first comparison showed QTGMC Placebo differing between the two
+builds, which looked like an fmtconv effect. Repeating the shipped build alone gave a different hash again, on the
+same three formats (which ones vary changes from run to run). So these were QTGMC's own nondeterminism with
+several threads, not fmtconv. To be sure, the three formats were re-run with <code>core.num_threads = 1</code>,
+twice per build: all four runs gave the same hashes.
+</div>
+<p><strong>Why the differing cases can't be reached:</strong> nothing in the templates, havsfunc or the mvsfunc functions
+we call passes <code>cplace</code>, so it is always fmtconv's default <code>mpeg2</code>. A 4:4:0 or 4:1:0 source never
+reaches fmtconv: the decoder converts both to 4:2:2 (<code>pixel_format.rs</code>), and Rotate restores formats with zimg.</p>
+<p><strong>Limits of this result.</strong> Rosetta runs the AVX2 paths, so the SSE2-only path a v2-tier CPU takes was
+not compared. The clips are synthetic, not real footage. The 14-bit rows of Bob, Resize and QTGMC are absent from
+the table because they fail on <em>both</em> builds (section 6).</p>
+
+<h2>4. r31 on x86_64 within the platform's constraints</h2>
+<p><code>scripts/build-r31-x86_64.sh</code>: the r31 tag, <code>patches/fmtconv-r31-arm-int-scaler.patch</code>
+applied, <code>MACOSX_DEPLOYMENT_TARGET=12.0</code>, cross-built with <code>clang -arch x86_64</code>.</p>
+<table>
+<tr><th>Check</th><th>18a9cecb (shipped)</th><th>r31 (built here)</th></tr>
+<tr><td>Builds</td><td>n/a</td><td class="good">cleanly</td></tr>
+<tr><td>Minimum macOS (x64 floor is 12.0)</td><td>10.11</td><td class="good">12.0 (<code>LC_BUILD_VERSION minos</code>)</td></tr>
+<tr><td><code>check-load-time-simd.py</code> (v2 tier gate)</td><td class="good">ok, 0 initializers</td><td class="good">ok, 0 initializers</td></tr>
+</table>
+<p>fmtconv's AVX/AVX2 translation units have no static initializers, so the v2 tier needs no separate build and
+fmtconv gets no <code>_tierFiles</code> entry. The ARM patch is dead code on x86, where the SSE2/AVX2 scalers replace the
+patched function; Linux x64 has always shipped it applied. The macos-15-intel runner builds natively, so the first
+<code>build-deps-macos.yml</code> x64 run is the real proof of the CI toolchain; the composed-v2 gate checks the result.</p>
+
+<h2>5. A fingerprint for "is this r31?"</h2>
+<p><code>scripts/fingerprint.py</code>: a 64x64 4:2:0 clip with flat luma and <em>identical</em> U and V planes, each a
+ramp rising down the picture. Split into fields (TFF), then
+<code>fmtc.resample(scalev=2, interlaced=1, interlacedd=0, cplace=…)</code>. With U = V going in, any U−V coming out is
+chroma placement alone. 16-bit averages:</p>
+<table>
+<tr><th>Build</th><th class="num"><code>dv</code> field 0 U−V</th><th class="num"><code>dv</code> field 1 U−V</th><th class="num"><code>mpeg2</code> U−V</th></tr>
+<tr><td>18a9cecb (published x64, Rosetta)</td><td class="num bad">+606.31</td><td class="num bad">+606.31</td><td class="num">0.00</td></tr>
+<tr><td>r31 x86_64 (built here, Rosetta)</td><td class="num good">−606.31</td><td class="num good">−606.31</td><td class="num">0.00</td></tr>
+<tr><td>r31 + patch (macOS arm64 1.16.0 bundle, native)</td><td class="num good">−606.31</td><td class="num good">−606.31</td><td class="num">0.00</td></tr>
+</table>
+<p>The sign flips exactly between versions and does not depend on the SIMD path, so the test needs no reference image.
+It is <code>fmtconv version pin</code> in <code>app/test/vapoursynth_integration_test.dart</code> (push gate, every platform):
+<code>dv</code> must be below −300 on both fields and <code>mpeg2</code> within 1. It skips on a macOS x64 bundle whose
+<code>version.json</code> says 1.16.0 or older, the known skew, and enforces from the next deps release on.
+Run against the 18a9cecb build it fails with "+606.31"; against both r31 builds it passes.</p>
+
+<h2>6. Side finding: 14-bit sources and havsfunc (not fixed here)</h2>
+<p><code>fmtc.bitdepth(bits=14)</code> is refused ("output pixel bitdepth not supported") by both builds. havsfunc's
+<code>Resize</code> and <code>Bob</code> convert through it, so <code>haf.QTGMC</code> fails at every preset on a 14-bit source,
+on every platform. The worker passes <code>yuv4xxp14le</code> through natively. Tracked separately; it is not a version
+skew and r31 does not change it.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>Build r31 on x64 rather than reword the docs to accept the skew.</strong> It builds and passes both gates,
+it removes one more unversioned prebuilt, and it keeps the invariant true for the day something passes
+<code>cplace="dv"</code>.</li>
+<li><strong>Apply the ARM patch on x86 too</strong>, as Linux x64 does: one recipe, and the patch is dead code there.</li>
+<li><strong>Test the behaviour, not the version string.</strong> fmtconv reports no version at run time; the chroma
+fingerprint is what a skew would actually change.</li>
+<li><strong>Skip, don't fail, against 1.16.0 on macOS x64</strong>, so the push gate stays green until the next deps
+release, which turns the check on by itself.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li>The SSE2 path (v2-tier CPUs); real footage; the macos-15-intel runner's own build (the next
+<code>build-deps-macos.yml</code> run).</li>
+<li>Windows' r31 zip was not re-fingerprinted here; the push gate now does that on every run.</li>
+</ul>
+
+<h2>Reproducing</h2>
+<pre>SCRATCH=/some/scratch/dir ARM64_DEPS=/path/to/deps/macos-arm64 \
+  docs/reports/2026-11-fmtconv-macos-x64-r31/scripts/reproduce.sh</pre>
+<p><code>reproduce.sh</code> downloads the published x64 bundle, runs <code>build-r31-x86_64.sh</code>, then
+<code>fingerprint.py</code> and <code>probe.py</code> through <code>run-with-dylib.sh</code> with each dylib, and tabulates with
+<code>compare.py</code>. Needs an Apple Silicon Mac with Rosetta 2, <code>gh</code>, and autoconf/automake/libtool.</p>
+</main>
+</body>
+</html>

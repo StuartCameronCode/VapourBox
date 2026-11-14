@@ -6,6 +6,7 @@
 // Note: Requires platform-specific deps to be present with all plugins.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
@@ -13,6 +14,7 @@ import 'package:path/path.dart' as path;
 
 void main() {
   late String depsDir;
+  late String depsPlatform;
   late String vspipePath;
   late String ffmpegPath;
   late String pipeSourceDir;
@@ -23,7 +25,6 @@ void main() {
     final scriptDir = Directory.current.path;
 
     // Determine platform-specific deps folder
-    final String depsPlatform;
     final String vspipeExe;
     final String ffmpegExe;
     if (Platform.isWindows) {
@@ -519,6 +520,90 @@ print("QTGMC preset luma OK")
       expect(result.stdout.toString(), contains('QTGMC preset luma OK'));
     }, timeout: const Timeout(Duration(minutes: 5)));
   });
+
+  // fmtconv is pinned to r31 on every platform (download-deps-{macos,linux}.sh
+  // FMTCONV_TAG, the Windows zip URL). r31's "resample: fixed chroma placement"
+  // moved DV placement's vertical offset from V to U, so an older build gives a
+  // different picture for the same job, and nothing else would notice: through
+  // deps 1.16.0 the macOS x64 bundle shipped Stefan-Olt's git-18a9cecb (between
+  // r30 and r31) for exactly that reason. See
+  // docs/reports/2026-11-fmtconv-macos-x64-r31.
+  //
+  // The fingerprint: U and V are the same vertical ramp, so any U-V difference
+  // after a field-aware vertical resample comes from chroma placement alone.
+  // With cplace="dv", r31 gives U-V = -606 (16-bit levels) on both fields and
+  // older builds +606; mpeg2 gives 0 on both. The sign does not depend on the
+  // SIMD path, so it needs no reference image.
+  group('fmtconv version pin', () {
+    test('fmtc.resample has r31 chroma placement (DV on interlaced 4:2:0)',
+        () async {
+      if (depsPlatform == 'macos-x64' && _depsVersionAtMost(depsDir, [1, 16, 0])) {
+        markTestSkipped('macos-x64 deps <= 1.16.0 ship fmtconv git-18a9cecb '
+            '(pre-r31); enforced from the next deps release');
+        return;
+      }
+      final script = '''
+import vapoursynth as vs
+core = vs.core
+
+rows = [core.std.BlankClip(format=vs.GRAY8, width=32, height=1, length=2,
+                           color=[40 + 5 * i]) for i in range(32)]
+ramp = core.std.StackVertical(rows)
+y = core.std.BlankClip(format=vs.GRAY8, width=64, height=64, length=2, color=[128])
+clip = core.std.ShufflePlanes([y, ramp, ramp], [0, 0, 0], vs.YUV)
+assert clip.format.id == vs.YUV420P8, clip.format.name
+fields = core.std.SeparateFields(core.std.SetFieldBased(clip, 2), tff=True)
+
+def u_minus_v(cplace, n):
+    out = core.fmtc.resample(fields, scalev=2, interlaced=1, interlacedd=0,
+                             cplace=cplace)
+    u = core.std.PlaneStats(out, plane=1).get_frame(n).props['PlaneStatsAverage']
+    v = core.std.PlaneStats(out, plane=2).get_frame(n).props['PlaneStatsAverage']
+    return (u - v) * 65535
+
+for n in range(2):
+    dv = u_minus_v("dv", n)
+    mpeg2 = u_minus_v("mpeg2", n)
+    print(f"CHECK field={n} dv_U-V={dv:+.2f} mpeg2_U-V={mpeg2:+.2f}")
+    if abs(mpeg2) > 1.0:
+        raise Exception(f"mpeg2 placement should treat U and V alike, got {mpeg2:+.2f}")
+    if dv > -300:
+        raise Exception(f"cplace='dv' gave U-V={dv:+.2f}; r31 gives about -606 "
+                        f"and pre-r31 fmtconv +606. Is this bundle's fmtconv r31?")
+print("fmtconv r31 chroma placement OK")
+''';
+
+      final result =
+          await _runVspipeScript(vspipePath, script, depsDir: depsDir);
+      expect(result.exitCode, 0, reason: 'stderr: ${result.stderr}');
+      expect(result.stdout.toString(),
+          contains('fmtconv r31 chroma placement OK'));
+    });
+  });
+}
+
+/// Whether the deps bundle at [depsDir] says (in its version.json) it is at
+/// most [max]. A missing or unreadable file counts as newer, so the check it
+/// guards still runs.
+bool _depsVersionAtMost(String depsDir, List<int> max) {
+  try {
+    final json = jsonDecode(
+            File(path.join(depsDir, 'version.json')).readAsStringSync())
+        as Map<String, dynamic>;
+    final parts = (json['version'] as String)
+        .split('-')
+        .first
+        .split('.')
+        .map(int.parse)
+        .toList();
+    for (var i = 0; i < max.length; i++) {
+      final v = i < parts.length ? parts[i] : 0;
+      if (v != max[i]) return v < max[i];
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 /// Builds a VapourSynth script that uses pipe_source to read raw video from stdin.
