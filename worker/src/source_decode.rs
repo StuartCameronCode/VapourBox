@@ -46,8 +46,8 @@
 //!    its one `-vf` ([`decoder_filter`]); `None` leaves the args exactly as they
 //!    were.
 //!
-//! 5. **Frame N counts from the video's first picture, and every seek says so**
-//!   . An input `-ss` is measured from the *container's* start,
+//! 5. **Frame N counts from the video's first picture, and every seek says
+//!    so.** An input `-ss` is measured from the *container's* start,
 //!    which is the earliest stream's: on a broadcast capture that is the
 //!    audio, 1.3 s before the first picture. [`seek_time`] adds the job's
 //!    `video_start_offset` ([`probe_video_start`]: the first presented
@@ -58,8 +58,7 @@
 //!    that it would drop as negative-time (TS). With no offset nothing changes.
 //!
 //! See docs/ENGINEERING_NOTES.md, "Clean aperture: decode the stored frame",
-//! docs/reports/issue-157-seek-alignment, docs/reports/2026-11-reserved-colour-tags
-//! and docs/reports/2026-11-video-start-offset.
+//! docs/reports/issue-157-seek-alignment and docs/reports/2026-11-reserved-colour-tags.
 
 /// Input option placed before `-i` on every ffmpeg that decodes the source's
 /// pictures for the pipeline (encode decoder, preview decoder). See the module

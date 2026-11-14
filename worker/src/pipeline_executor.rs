@@ -2137,11 +2137,20 @@ mod tests {
         args.extend(field_order.input.iter().cloned());
         args.extend(["-i".to_string(), "-".to_string()]);
 
-        // Input 1: Original file for audio stream
+        // Input 1: Original file for audio stream, seeked as build_ffmpeg_args does
+        args.extend(source_audio_input_seek(job));
         args.extend(["-i".to_string(), job.input_path.clone()]);
 
         // Progress output to temp file
         args.extend(["-progress".to_string(), "/tmp/test_progress.txt".to_string()]);
+
+        // A late video's delay (mirrors build_ffmpeg_args; the rest of its -vf
+        // chain is not mirrored here).
+        let delay = video_delay_filters(job);
+        if !delay.is_empty() {
+            args.extend(["-vf".to_string(), delay.join(",")]);
+        }
+        args.extend(video_delay_encoder_args(job));
 
         // Map streams: video from input 0 (processed), audio from input 1 (original) if not disabled
         args.extend(["-map".to_string(), "0:v".to_string()]);
