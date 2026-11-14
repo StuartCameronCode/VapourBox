@@ -13,8 +13,8 @@
 // sequential decode of the source picked by index (`select=eq(n,N)`), never
 // one pipeline path against another. The fixtures are ones whose sequential
 // numbering is the app's frame numbering (no leading null frames, no
-// pulldown). Sources where it isn't (soft telecine, AVI null frames) are separate issues; see
-// docs/reports/issue-157-seek-alignment.
+// pulldown). Sources where it isn't (soft telecine, AVI null frames) are
+// separate issues; see docs/reports/issue-157-seek-alignment.
 //
 // MPEG-PS and MPEG-TS (issue #169) are here too. They have no keyframe index,
 // so a plain seek started decoding at the keyframe AFTER the frame asked for
