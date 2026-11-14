@@ -492,6 +492,37 @@ impl ScriptGenerator {
         Self::field_based_for(job, pipeline).map(|fb| fb == 2)
     }
 
+    /// The field order the encoded picture actually has: `Some(true)` for top
+    /// field first, `Some(false)` for bottom, `None` for progressive.
+    ///
+    /// The Y4M pipe cannot say (vspipe writes `Ip` whatever `_FieldBased` is),
+    /// so the encoder is told on its input (`-top`) for codecs that flag it
+    /// (`VideoCodec::flags_field_order`). Starts from [`still_interlaced_tff`]
+    /// and drops to progressive wherever a pass after Deinterlace makes the
+    /// frames progressive. Every `SetFieldBased(…, 0)` in the templates is
+    /// accounted for by `template_field_based_sites_are_all_accounted_for`, so
+    /// a new pass that does this fails until it is taught here.
+    ///
+    /// [`still_interlaced_tff`]: Self::still_interlaced_tff
+    pub fn output_field_order(job: &VideoJob, pipeline: &ProcessingPipeline) -> Option<bool> {
+        let tff = Self::still_interlaced_tff(job, pipeline)?;
+        // Stabilize's pitch correction resamples vertically and clears
+        // _FieldBased first ({{#STAB_CLEAR_FIELD_BASED}}).
+        if pipeline.stabilize.pitch_active() {
+            return None;
+        }
+        // mpeg2stinx is a cross-field filter for film DVDs encoded as
+        // interlaced MPEG-2, and marks its output progressive.
+        if pipeline.deblock.enabled && pipeline.deblock.method == DeblockMethod::Mpeg2Stinx {
+            return None;
+        }
+        // A retimed woven frame is an interpolated picture, not a field pair.
+        if pipeline.frame_rate.enabled {
+            return None;
+        }
+        Some(tff)
+    }
+
     /// Validate and normalise the job's pitch factor file when the Stabilize
     /// pass needs it, writing a clean one-factor-per-line copy to the temp
     /// directory for the script to read.
@@ -2650,7 +2681,7 @@ impl ScriptGenerator {
         // vapoursynth_format), so adding an output format is one line there
         // rather than another arm here. `None` means "keep the source format",
         // bit depth included.
-        match job.encoding_settings.chroma_subsampling.vapoursynth_format() {
+        match job.encoding_settings.effective_chroma_subsampling().vapoursynth_format() {
             None => {
                 script = remove_block("{{#CHROMA_CONVERT}}", "{{/CHROMA_CONVERT}}", script);
             }

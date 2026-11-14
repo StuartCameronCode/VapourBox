@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v210 output and interlaced field-order flagging</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>v210 output and interlaced field-order flagging</h1>
+<p class="meta">2026-11-10 · forum request (videohelp thread 419911, post #154) ·
+measured on Apple Silicon (macOS arm64), deps 1.16.0 bundle (FFmpeg 9.0.2, VapourSynth R78), against the templates of app 1.7.0</p>
+
+<div class="card">
+<strong>Outcome: built.</strong> Uncompressed 10-bit 4:2:2 (<code>v210</code>) is a new output codec, in MOV
+(default), MKV and AVI. Probing for it found that <span class="bad">every still-interlaced ProRes or v210 MOV
+was flagged progressive</span> (<code>fiel</code> atom <code>0x0100</code>), because vspipe's Y4M header always
+says <code>Ip</code>. The encoder is now told the field order on the pipe input with <code>-top</code>
+(<code>fiel 0x0209</code> TFF / <code>0x020e</code> BFF), and ProRes codes the frame as fields
+(<code>-flags +ildct</code>). The suggested <code>-field_order</code> output option is
+<span class="bad">inert in FFmpeg 9</span>. A second finding: FFmpeg's <code>-pix_fmt</code> conversion of
+interlaced 4:2:0 to 4:2:2 blends the two fields' chroma, so v210's 4:2:2 is made in the script, field-aware.
+</div>
+
+<h2>What was asked, and what had to be checked</h2>
+<p>Strasse asked for MOV output with v210 uncompressed: AVI plays badly on a Mac, and FFV1/HuffYUV/FFVHuff
+aren't usable directly in Premiere or Resolve, so users transcode to v210 anyway. The bundled FFmpeg's
+<code>v210</code> encoder takes <code>yuv422p10le yuv422p</code>, so no deps change is needed. An editing
+intermediate is only useful if the editor treats its fields correctly, so the field-order flag was checked
+for v210 and the existing ProRes output.</p>
+
+<h2>Findings</h2>
+<p>All from <code>scripts/probe.sh</code>. The test clip is a 720x576 25 fps 10-bit 4:2:2 blank, marked
+<code>_FieldBased=2</code> (TFF) in VapourSynth, piped as Y4M exactly as the worker does.</p>
+
+<h3>P1 · vspipe never says a clip is interlaced</h3>
+<pre>YUV4MPEG2 C422p10 W720 H576 F25:1 Ip A0:0 XLENGTH=10</pre>
+<p>The header's <code>Ip</code> (progressive) is written whatever <code>_FieldBased</code> is, so FFmpeg
+never learns the field order from the pipe.</p>
+
+<h3>P2–P5 · What reaches the file</h3>
+<div class="scroll"><table>
+<tr><th>Encode</th><th>MOV <code>fiel</code></th><th>ffprobe <code>field_order</code></th><th>frame header (interlaced, tff)</th></tr>
+<tr><td>v210, nothing (before this change)</td><td class="bad">0100</td><td>progressive</td><td>0, 0</td></tr>
+<tr><td>v210, <code>-field_order tt</code> (output option)</td><td class="bad">0100</td><td>progressive</td><td>0, 0</td></tr>
+<tr><td>v210, <code>-top 1</code> (input option)</td><td class="good">0209</td><td>tb</td><td>1, 1</td></tr>
+<tr><td>v210, <code>-top 0</code> (input option)</td><td class="good">020e</td><td>bt</td><td>1, 0</td></tr>
+<tr><td>v210, <code>-vf setfield=tff</code></td><td class="good">0209</td><td>tb</td><td>1, 1</td></tr>
+<tr><td>ProRes 422 HQ, nothing (before this change)</td><td class="bad">0100</td><td>progressive</td><td>0, 0</td></tr>
+<tr><td>ProRes 422 HQ, <code>-top 1</code></td><td class="good">0209</td><td>tb</td><td class="warn">0, 0</td></tr>
+<tr><td>ProRes 422 HQ, <code>-top 1 -flags +ildct</code></td><td class="good">0209</td><td>tb</td><td class="good">1, 1</td></tr>
+<tr><td>ProRes 422 HQ, <code>-top 0 -flags +ildct</code></td><td class="good">020e</td><td>bt</td><td class="good">1, 0</td></tr>
+</table></div>
+<ul>
+<li><strong>P2.</strong> Before this change every still-interlaced ProRes and v210 MOV said
+<em>progressive</em>. That's actively wrong, not just missing: an editor reading <code>0x0100</code> treats
+the woven frame as one picture.</li>
+<li><strong>P3.</strong> <code>-field_order tt</code> on the output does nothing. FFmpeg's encoder setup
+takes the field order from the frames' own flags and overwrites the option.</li>
+<li><strong>P4.</strong> <code>-top 1|0</code> before <code>-i -</code> (a decoder option on the Y4M input)
+flags the frames. <code>setfield</code> in the <code>-vf</code> chain does the same, but a Custom FFmpeg
+Argument <code>-vf</code> replaces the whole chain and would drop it, so the input option is used. CLAUDE.md
+gives the same reasoning for declaring colour tags on the input. In QuickTime, <code>fiel</code> 9 = two
+interleaved fields, top first; 14 = bottom first. ffprobe's <code>tb</code>/<code>bt</code> labels are
+FFmpeg's names for these, and they read confusingly. The atom bytes are what an editor reads, so the tests
+check the bytes.</li>
+<li><strong>P5.</strong> ProRes has a field flag in its own frame header, which stays progressive unless
+the frame is coded as fields (<code>+ildct</code>). Apple codes interlaced ProRes that way. v210 has no
+bitstream flag; its frame-level values come from the container.</li>
+</ul>
+
+<h3>P6 · Containers</h3>
+<table>
+<tr><th>Container</th><th>v210, <code>-top 1</code></th></tr>
+<tr><td>MOV</td><td class="good">tb (<code>fiel 0x0209</code>)</td></tr>
+<tr><td>MKV</td><td class="good">tb</td></tr>
+<tr><td>AVI</td><td class="warn">unknown: AVI has nowhere to write it</td></tr>
+<tr><td>MP4</td><td class="bad">refused: "Could not find tag for codec v210"</td></tr>
+</table>
+<p>So v210 is offered in MOV (default), MKV and AVI. The README says AVI carries no field order.</p>
+
+<h3>P7 · FFmpeg's 4:2:0 → 4:2:2 conversion blends the fields' chroma</h3>
+<p>An interlaced 4:2:0 frame whose field 0 has chroma U = 64 and field 1 U = 192 (in a woven 4:2:0
+picture, chroma row <i>k</i> belongs to field <i>k</i> mod 2). The U rows of the 4:2:2 result, 8-bit
+units:</p>
+<table>
+<tr><th>Converted by</th><th>U rows 2…11</th></tr>
+<tr><td>FFmpeg <code>-pix_fmt yuv422p10le</code> (frames flagged interlaced)</td><td class="bad">172, 172, 84, 84, 172, 172, 84, 84, 172, 172</td></tr>
+<tr><td>VapourSynth <code>resize</code> with <code>_FieldBased=2</code></td><td class="good">64, 192, 64, 192, 64, 192, 64, 192, 64, 192</td></tr>
+</table>
+<p>FFmpeg's auto-inserted scaler treats the woven frame as progressive, mixing the fields' colour on
+every moving edge. zimg honours <code>_FieldBased</code> and keeps each field's chroma exact. So for v210 the
+script always converts to <code>YUV422P10</code> itself
+(<code>EncodingSettings::effective_chroma_subsampling</code>), whatever Color Format is selected. FFmpeg's
+<code>-pix_fmt yuv422p10le</code> stays only as a guard and converts nothing. This is a synthetic worst case
+(fully saturated, opposite colours per field). On real footage the error is confined to chroma that differs
+between fields: moving edges.</p>
+<p class="warn">ProRes has the same latent problem for interlaced 4:2:0 sources. It is unchanged here,
+because changing it changes existing ProRes output. Left as a follow-up.</p>
+
+<h3>P8 · Data rate</h3>
+<p>FFmpeg reports <strong>221,184 kb/s</strong> for 720x576 25p v210. That matches v210's packing (6 pixels
+per 16 bytes, lines padded to 48 pixels): <code>ceil(720/48)·128 · 576 · 8 · 25 = 221,184,000</code> bit/s.
+1080p25 is 1,105,920,000 bit/s, about 8.3 GB a minute. For the same reason, MP4/MOV's <code>+faststart</code>
+(a second full pass that rewrites the file to move its index to the front) is skipped for v210.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>Field order from one decision.</strong> <code>ScriptGenerator::output_field_order</code> starts
+from "deinterlacing off and a field order detected". It drops to progressive where a pass makes the frames
+progressive: Stabilize's pitch correction, Deblock's mpeg2stinx, and a Frame Rate conversion (a retimed
+woven frame is not a field pair). A test counts every <code>SetFieldBased(</code> in both templates, so a
+new pass that clears the marking fails until it is accounted for.</li>
+<li><strong>Only v210 and ProRes are flagged.</strong> FFV1/HuffYUV in MKV could take the flag as
+metadata, and x264/x265 would need real interlaced coding. Both are separate decisions, left as
+follow-ups.</li>
+<li><strong>v210's colour format is not the user's choice.</strong> Any other selection is converted to
+10-bit 4:2:2 directly, and the settings dialog says so (<code>v210ChromaPinWarning</code>, pinned to the
+worker's table).</li>
+<li><strong>Restored audio beside v210 is PCM</strong>, not the container's usual lossy codec.</li>
+</ul>
+
+<h2>Verification</h2>
+<p><code>app/test/integration_v210_output_test.dart</code> (heavy) encodes real jobs and checks:</p>
+<ul>
+<li>a 10-bit 4:2:2 ProRes source comes back bit for bit in v210 (framemd5 of all 25 frames)</li>
+<li>the <code>fiel</code> bytes and <code>field_order</code> for v210 MOV/MKV and ProRes MOV at TFF and BFF,
+plus ProRes's frame header</li>
+<li>AVI stays <code>unknown</code>, and a deinterlaced job stays <code>0x0100</code></li>
+<li>each field's chroma survives the 4:2:0 → 4:2:2 conversion on a red/blue field fixture
+(10-bit rows exactly 360/960)</li>
+<li>PCM passthrough and conversion in MOV</li>
+<li>preview = encode (meanAbsDiff 0.000)</li>
+</ul>
+<p>The Rust tests cover the argument matrix (which codecs and jobs get <code>-top</code> and
+<code>+ildct</code>) and the script's conversion block.</p>
+
+<h2>Not tested</h2>
+<ul>
+<li>Windows and Linux FFmpeg builds. <code>-top</code> is a generic decoder option, so the nightly heavy
+run on all four platforms is the check there.</li>
+<li>Opening the files in Premiere Pro or DaVinci Resolve. The <code>fiel</code> values are Apple's
+documented meanings, but no NLE was run.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>SCRATCH=/path/to/scratch docs/reports/2026-11-v210-field-order/scripts/probe.sh</pre>
+<p>It needs the deps bundle (<code>deps/macos-arm64</code>, or <code>DEPS=…</code>) and writes only under
+<code>$SCRATCH</code>.</p>
+</main>
+</body>
+</html>

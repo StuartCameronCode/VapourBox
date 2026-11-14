@@ -66,7 +66,7 @@ use anyhow::{bail, Context, Result};
 use crate::dependency_locator::DependencyLocator;
 use crate::models::{
     AudioCodec, AudioMode, AudioRestorationParameters, ChannelFix, ContainerFormat,
-    EncodingSettings, HumFrequency, LogLevel, ProgressInfo, VideoJob,
+    EncodingSettings, HumFrequency, LogLevel, ProgressInfo, VideoCodec, VideoJob,
 };
 use crate::progress_reporter::ProgressReporter;
 
@@ -731,14 +731,15 @@ pub fn encode_map_args(settings: &EncodingSettings, track: Option<&RestoredTrack
 
 /// The encoder's audio codec arguments. Passthrough copies — except the
 /// rendered track, which is new audio and must be encoded: FLAC in MKV, AAC
-/// at the chosen quality in MP4/MOV, PCM in AVI.
+/// at the chosen quality in MP4/MOV, PCM in AVI — and PCM whatever the
+/// container beside uncompressed v210 video.
 pub fn encode_codec_args(settings: &EncodingSettings, track: Option<&RestoredTrack>) -> Vec<String> {
     let mut args = Vec::new();
     match settings.audio_mode {
         AudioMode::Passthrough => {
             args.extend(["-c:a".into(), "copy".into()]);
             if track.is_some() {
-                let codec = restored_passthrough_codec(settings.container);
+                let codec = restored_passthrough_codec(settings.container, settings.codec);
                 args.extend(["-c:a:0".into(), codec.ffmpeg_name().into()]);
                 if !codec.is_lossless() {
                     args.extend(["-b:a:0".into(), format!("{}k", settings.audio_quality.bitrate())]);
@@ -757,7 +758,14 @@ pub fn encode_codec_args(settings: &EncodingSettings, track: Option<&RestoredTra
 }
 
 /// What a restored track is encoded as when the audio setting is Passthrough.
-pub fn restored_passthrough_codec(container: ContainerFormat) -> AudioCodec {
+///
+/// An uncompressed (v210) output is an editing intermediate: its restored
+/// track is PCM in every container rather than a lossy codec beside
+/// uncompressed picture.
+pub fn restored_passthrough_codec(container: ContainerFormat, video: VideoCodec) -> AudioCodec {
+    if video.is_uncompressed() {
+        return AudioCodec::Pcm;
+    }
     match container {
         ContainerFormat::Mkv => AudioCodec::Flac,
         ContainerFormat::Mp4 | ContainerFormat::Mov => AudioCodec::Aac,
@@ -1616,5 +1624,17 @@ mod tests {
         assert_eq!(num(0.891251), "0.8913");
         assert_eq!(num(-0.0), "0");
         assert_eq!(num_precise(1.000999), "1.000999");
+    }
+
+    /// An uncompressed (v210) output's restored track is PCM in every
+    /// container; every other codec keeps the container's choice.
+    #[test]
+    fn restored_passthrough_is_pcm_beside_v210() {
+        for container in [ContainerFormat::Mp4, ContainerFormat::Mov, ContainerFormat::Mkv, ContainerFormat::Avi] {
+            assert_eq!(restored_passthrough_codec(container, VideoCodec::V210), AudioCodec::Pcm);
+        }
+        assert_eq!(restored_passthrough_codec(ContainerFormat::Mov, VideoCodec::ProResHQ), AudioCodec::Aac);
+        assert_eq!(restored_passthrough_codec(ContainerFormat::Mkv, VideoCodec::FFV1), AudioCodec::Flac);
+        assert_eq!(restored_passthrough_codec(ContainerFormat::Avi, VideoCodec::H264), AudioCodec::Pcm);
     }
 }

@@ -576,11 +576,7 @@ impl DependencyLocator {
         if !out.status.success() {
             return None;
         }
-        String::from_utf8_lossy(&out.stdout)
-            .trim()
-            .parse::<i32>()
-            .ok()
-            .filter(|&n| n > 0)
+        first_count(&String::from_utf8_lossy(&out.stdout))
     }
 
     /// ffprobe's `width`x`height` for the first video stream — the size the
@@ -1118,6 +1114,19 @@ impl DependencyLocator {
     }
 }
 
+/// The first line of ffprobe's `nb_read_frames` output as a positive count.
+///
+/// FFmpeg 9 prints a stream a second time under each stream group it belongs
+/// to (a QuickTime file with a timecode track, e.g. `pal-sd-25.mov`), so the
+/// output is `125\n125\n`. Parsing the whole of it failed, and a job without
+/// `totalFrames` then encoded a single frame.
+fn first_count(stdout: &str) -> Option<i32> {
+    stdout
+        .lines()
+        .find_map(|l| l.trim().parse::<i32>().ok())
+        .filter(|&n| n > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1129,5 +1138,14 @@ mod tests {
             platform: Platform::WindowsX64,
         };
         assert_eq!(locator.platform_suffix(), "windows-x64");
+    }
+
+    #[test]
+    fn frame_count_takes_the_first_line() {
+        assert_eq!(super::first_count("125\n125\n"), Some(125));
+        assert_eq!(super::first_count("79\n"), Some(79));
+        assert_eq!(super::first_count("N/A\n"), None);
+        assert_eq!(super::first_count("0\n"), None);
+        assert_eq!(super::first_count(""), None);
     }
 }

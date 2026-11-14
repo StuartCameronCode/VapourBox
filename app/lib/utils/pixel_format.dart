@@ -303,3 +303,44 @@ String? proresChromaPinWarning({
   // less costly, so this stays quiet.
   return null;
 }
+
+/// Warning when v210 overrides the chosen output colour format, or `null`
+/// when there is nothing to say.
+///
+/// v210 stores uncompressed 10-bit 4:2:2 and nothing else, so the worker
+/// converts to exactly that in the script, whatever Color Format is selected
+/// (`EncodingSettings::effective_chroma_subsampling`). A sibling of
+/// [proresChromaPinWarning], with the same silences: padding 4:2:0 up loses
+/// nothing, and depth on its own is not mentioned (the bit-depth warning
+/// covers a source deeper than 10 bits, from the effective format).
+///
+/// **A second implementation of the worker's decision.** Pinned case for case
+/// to `v210_stores_422_10_whatever_is_selected` in
+/// `worker/src/models/video_job.rs` by `app/test/v210_test.dart`.
+/// Change one, change both.
+String? v210ChromaPinWarning({
+  required VideoCodec codec,
+  required ChromaSubsampling chromaSubsampling,
+  String? pixelFormat,
+}) {
+  if (!codec.isUncompressed) return null;
+
+  if (chromaSubsampling == ChromaSubsampling.yuv422p10) return null;
+
+  if (chromaSubsampling == ChromaSubsampling.original) {
+    // Nothing to say until a file is loaded and we know its format, and
+    // nothing to say about a 4:2:0 or 4:2:2 source: it is padded up.
+    if (pixelFormat == null) return null;
+    if (pixelFormatChromaLayout(pixelFormat) != ChromaLayout.c444) return null;
+    return 'Your source is $pixelFormat, and "Match source" keeps it, but '
+        '${codec.displayName} stores 4:2:2, so the chroma will be resampled '
+        'down to it. Choose ProRes 4444 to keep the full chroma.';
+  }
+
+  final lost = pixelFormatChromaLayout(chromaSubsampling.value) == ChromaLayout.c444
+      ? ' The extra chroma detail is resampled down.'
+      : '';
+  return '${chromaSubsampling.label} is selected, but ${codec.displayName} '
+      'always stores 10-bit 4:2:2, so this setting is ignored: the picture '
+      'goes to 10-bit 4:2:2 directly.$lost';
+}

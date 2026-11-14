@@ -40,9 +40,19 @@ void main() {
       }
     });
 
+    test('is false for uncompressed v210', () {
+      final uncompressed =
+          VideoCodec.values.where((c) => c.isUncompressed).toList();
+      expect(uncompressed, [VideoCodec.v210]);
+      for (final codec in uncompressed) {
+        expect(codec.hasQualityControl, isFalse,
+            reason: '${codec.displayName} stores every frame as it is');
+      }
+    });
+
     test('is true for every other codec', () {
       final tunable = VideoCodec.values
-          .where((c) => !c.isProRes && !c.isLossless)
+          .where((c) => !c.isProRes && !c.isLossless && !c.isUncompressed)
           .toList();
       expect(tunable, isNotEmpty, reason: 'sanity: tunable codecs exist');
 
@@ -58,9 +68,13 @@ void main() {
       // disagrees with the two predicates, would render two Quality sections
       // or none.
       for (final codec in VideoCodec.values) {
-        expect(codec.isProRes && codec.isLossless, isFalse,
-            reason: '${codec.displayName} cannot be both');
-        expect(codec.hasQualityControl, !(codec.isProRes || codec.isLossless),
+        final families = [codec.isProRes, codec.isLossless, codec.isUncompressed]
+            .where((b) => b)
+            .length;
+        expect(families, lessThanOrEqualTo(1),
+            reason: '${codec.displayName} belongs to one family at most');
+        expect(codec.hasQualityControl,
+            !(codec.isProRes || codec.isLossless || codec.isUncompressed),
             reason: '${codec.displayName}: getter disagrees with its parts');
       }
     });

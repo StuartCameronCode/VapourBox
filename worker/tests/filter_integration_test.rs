@@ -8196,3 +8196,139 @@ fn test_218_stabilize_pitch_without_deinterlace_drops_field_marking() {
     assert!(!encode.contains("core.std.SetFieldBased(clip, 0)"));
     assert!(!preview.contains("core.std.SetFieldBased(clip, 0)"));
 }
+
+// ============================================================================
+// v210: uncompressed 10-bit 4:2:2 (task 7, forum thread 419911)
+// ============================================================================
+
+#[test]
+fn test_219_v210_forces_422p10_in_both_scripts() {
+    // v210 stores 10-bit 4:2:2 and nothing else. The script converts to it
+    // whatever Color Format is selected, so the conversion is field-aware
+    // (zimg honours _FieldBased); ffmpeg's -pix_fmt would blend the two
+    // fields' chroma of an interlaced 4:2:0 source.
+    create_output_dir();
+    for cs in ChromaSubsampling::ALL.iter().copied() {
+        let mut job = create_base_job("test_219_v210");
+        job.encoding_settings.codec = VideoCodec::V210;
+        job.encoding_settings.container = ContainerFormat::Mov;
+        job.encoding_settings.chroma_subsampling = cs;
+        job.input_pixel_format = Some("yuv420p".to_string());
+        let mut pipeline = ProcessingPipeline::default();
+        pipeline.deinterlace.enabled = false;
+        job.processing_pipeline = Some(pipeline);
+        let (encode, preview) = generate_both_scripts(&job);
+        for (label, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(
+                script.contains("target_format = vs.YUV422P10"),
+                "{cs:?} {label}: v210 must convert to YUV422P10 in the script"
+            );
+            // Still interlaced: the conversion happens after the clip is
+            // marked field-based, so zimg resamples chroma per field.
+            let mark = script.find("core.std.SetFieldBased(clip, 2)").expect("marked TFF");
+            let conv = script.find("target_format = vs.YUV422P10").unwrap();
+            assert!(mark < conv, "{cs:?} {label}: conversion must follow the field marking");
+        }
+    }
+
+    // Any other codec with Original keeps the source format: no block.
+    let mut job = create_base_job("test_219_ffv1");
+    job.encoding_settings.chroma_subsampling = ChromaSubsampling::Original;
+    let (encode, preview) = generate_both_scripts(&job);
+    assert!(!encode.contains("target_format = "));
+    assert!(!preview.contains("target_format = "));
+}
+
+#[test]
+fn test_220_output_field_order() {
+    // What the encode declares as the picture's field order (`-top`), for the
+    // codecs that flag it. Still interlaced unless a pass makes it progressive.
+    fn job_with(detected: Option<FieldOrder>, edit: impl FnOnce(&mut ProcessingPipeline)) -> (VideoJob, ProcessingPipeline) {
+        let mut job = create_base_job("test_220");
+        job.detected_field_order = detected;
+        let mut p = ProcessingPipeline::default();
+        p.deinterlace.enabled = false;
+        edit(&mut p);
+        job.processing_pipeline = Some(p.clone());
+        (job, p)
+    }
+    let order = |detected, edit: &dyn Fn(&mut ProcessingPipeline)| {
+        let (job, p) = job_with(detected, |p| edit(p));
+        ScriptGenerator::output_field_order(&job, &p)
+    };
+    let tff = Some(FieldOrder::TopFieldFirst);
+    let bff = Some(FieldOrder::BottomFieldFirst);
+    assert_eq!(order(tff, &|_| {}), Some(true));
+    assert_eq!(order(bff, &|_| {}), Some(false));
+    assert_eq!(order(Some(FieldOrder::Progressive), &|_| {}), None);
+    assert_eq!(order(None, &|_| {}), None);
+    assert_eq!(order(tff, &|p| p.deinterlace.enabled = true), None, "deinterlaced");
+    assert_eq!(
+        order(tff, &|p| {
+            p.stabilize.enabled = true;
+            p.stabilize.pitch_mode = PitchMode::Auto;
+        }),
+        None,
+        "pitch correction clears _FieldBased"
+    );
+    assert_eq!(
+        order(tff, &|p| {
+            p.stabilize.enabled = true; // weave only keeps the marking
+        }),
+        Some(true)
+    );
+    assert_eq!(
+        order(tff, &|p| {
+            p.deblock.enabled = true;
+            p.deblock.method = DeblockMethod::Mpeg2Stinx;
+        }),
+        None,
+        "mpeg2stinx marks its output progressive"
+    );
+    assert_eq!(
+        order(tff, &|p| {
+            p.deblock.enabled = true; // per-field deblock keeps it interlaced
+        }),
+        Some(true)
+    );
+    assert_eq!(order(tff, &|p| p.frame_rate.enabled = true), None, "retimed");
+}
+
+#[test]
+fn test_221_template_field_based_sites_are_all_accounted_for() {
+    // `ScriptGenerator::output_field_order` must know every place a template
+    // makes a still-interlaced clip progressive, or an interlaced flag is
+    // written over progressive frames. Each `SetFieldBased(` site is listed
+    // here with the reason it is (or is not) a progressive-making step. A new
+    // one fails this test until it is added — and, if it clears the marking
+    // on a still-interlaced clip, taught to `output_field_order`.
+    let expected: &[(&str, &str)] = &[
+        ("core.std.SetFieldBased(clip, {{FIELD_BASED}})", "the source marking itself"),
+        ("core.std.SetFieldBased(_fade_f, 0), tff=True)", "IVTC fade fix, internal; IVTC is deinterlacing"),
+        ("clip = core.std.SetFieldBased(clip, 0)\n", "IVTC fade fix (deinterlacing), Deblock mpeg2stinx, Stabilize pitch"),
+        ("core.std.SetFieldBased(c, 0), tff=_stx_tff)", "mpeg2stinx internal"),
+        ("core.std.SetFieldBased(c, 2 if _stx_tff else 1)", "mpeg2stinx internal"),
+        ("core.std.SetFieldBased(core.std.Merge(_stx_1, _stx_2), 0)", "mpeg2stinx output: progressive"),
+        ("core.std.SetFieldBased(clip, {{AA_FIELD_BASED_VALUE}})", "SangNom restores the source order"),
+    ];
+    // How many of each: the bare `clip, 0` line appears three times (fade fix,
+    // mpeg2stinx, Stabilize pitch), AA twice (two SangNom blocks).
+    let counts = [1usize, 1, 3, 1, 1, 1, 2];
+    for name in ["pipeline_template.vpy", "preview_template.vpy"] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates").join(name);
+        let src = std::fs::read_to_string(&path).unwrap().replace("\r\n", "\n");
+        let total = src.matches("SetFieldBased(").count();
+        let mut accounted = 0;
+        for ((pattern, why), n) in expected.iter().zip(counts) {
+            let found = src.matches(pattern).count();
+            assert_eq!(found, n, "{name}: `{pattern}` ({why}) expected {n}, found {found}");
+            accounted += found;
+        }
+        assert_eq!(
+            total, accounted,
+            "{name}: a SetFieldBased call this test does not know about. If it \
+             makes a still-interlaced clip progressive, teach \
+             ScriptGenerator::output_field_order, then list it here."
+        );
+    }
+}

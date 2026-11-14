@@ -3569,3 +3569,30 @@ Full report with scripts:
   TS: 40 -> 50; the DVB-T capture); MPEG-2 in AVI lands 1-2 frames early;
   AVI null frames and soft telecine give an untrimmed decode leading repeat
   slots (79 slots for 75 frames; 122 for 120), so frame numbers disagree.
+
+### v210 output, and interlaced ProRes/v210 flagged progressive (2026-11-10)
+
+Forum request (videohelp 419911, #154): uncompressed 10-bit 4:2:2 in MOV for
+Premiere/Resolve. Full evidence:
+[docs/reports/2026-11-v210-field-order/](reports/2026-11-v210-field-order/index.html).
+
+- **Every still-interlaced ProRes/v210 MOV was flagged progressive**
+  (`fiel 0x0100`). vspipe writes `Ip` in the Y4M header whatever
+  `_FieldBased` says. `-field_order tt` on the output is inert in FFmpeg 9
+  (overwritten from the frame flags); `-top 1|0` on the pipe input works
+  (`fiel 0x0209` / `0x020e`, MKV `tb`/`bt`; AVI has nowhere to put it).
+  ProRes also needs `-flags +ildct`, or its own frame header stays
+  progressive. The choice is `pipeline_executor::field_order_args`, from
+  `ScriptGenerator::output_field_order`.
+- **FFmpeg's `-pix_fmt` conversion of interlaced 4:2:0 to 4:2:2 blends the
+  fields' chroma** (U rows 64/192 came out 172/84; zimg with `_FieldBased`
+  keeps 64/192). v210's 4:2:2 10-bit is therefore made in the script
+  (`EncodingSettings::effective_chroma_subsampling`). ProRes from interlaced
+  4:2:0 still goes through FFmpeg's conversion: a follow-up, since changing it
+  changes existing output.
+- v210 is ~221 Mbit/s at 720x576 25p and ~1.1 Gbit/s at 1080p25, so it skips
+  `+faststart` (a second full pass over the file) and restored audio beside it
+  is PCM.
+- Found on the way: `DependencyLocator::probe_frame_count` failed on a MOV
+  whose stream FFmpeg 9 also prints under a stream group (`125\n125\n`), so a
+  job without `totalFrames` encoded one frame. It now takes the first line.

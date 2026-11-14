@@ -14,7 +14,7 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg for
 
 ## What it does
 
-- **Converts and archives.** Reads camcorder DV and AVCHD, MPEG-2 from discs and recorders, MXF, and ordinary MP4/MKV/AVI/MOV files, including formats consumer converters mishandle (NTSC DV's 4:1:1 chroma, 10–16-bit film scans). Writes H.264, H.265, ProRes or lossless FFV1, with hardware encoding where available. DVDs and `VIDEO_TS` folders are read directly, and aspect ratio is carried through correctly.
+- **Converts and archives.** Reads camcorder DV and AVCHD, MPEG-2 from discs and recorders, MXF, and ordinary MP4/MKV/AVI/MOV files, including formats consumer converters mishandle (NTSC DV's 4:1:1 chroma, 10–16-bit film scans). Writes H.264, H.265, ProRes, uncompressed 10-bit 4:2:2 (v210) or lossless FFV1, with hardware encoding where available. DVDs and `VIDEO_TS` folders are read directly, and aspect ratio is carried through correctly.
 - **Fixes how the picture is stored.** Detects interlaced and telecined sources, then deinterlaces with QTGMC or recovers the original film frames with inverse telecine (or by stripping soft-telecine flags).
 - **Cleans up old footage.** Optional filters for tape noise, smeared colour, dust and scratches, flicker, ghosting, compression blocking, banding, camera shake and dark, flat pictures. They're off until you turn them on, and the presets turn on what a given kind of source needs.
 - **Colours black-and-white footage.** **Colourisation** predicts colour for film scans, old broadcasts and home movies with AI (DDColor or DeOldify Video, each an optional download), steadied across frames, and keeps the brightness of every pixel exactly as it was, so the result can be graded in Color Correction.
@@ -94,12 +94,12 @@ Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract
 
 | | |
 |---|---|
-| **Video** | H.264, H.265, ProRes (Proxy to 4444 XQ), FFV1, HuffYUV or FFVHuff (lossless); hardware encoding via VideoToolbox, NVENC, Quick Sync or AMF |
-| **Audio** | Passthrough; AAC, MP3, AC-3, Opus, FLAC or PCM; or none |
+| **Video** | H.264, H.265, ProRes (Proxy to 4444 XQ), uncompressed 10-bit 4:2:2 (v210, for Premiere and Resolve: MOV is the container to choose), FFV1, HuffYUV or FFVHuff (lossless); hardware encoding via VideoToolbox, NVENC, Quick Sync or AMF. ProRes and v210 of a picture left interlaced are flagged with its field order in MOV and MKV (AVI cannot carry it) |
+| **Audio** | Passthrough; AAC, MP3, AC-3, Opus, FLAC or uncompressed PCM; or none |
 | **Containers** | MKV, MP4, MOV, AVI |
 | **Reads** | `.dv` · `.mts` `.m2ts` · `.vob` `.m2v` `.mpg` `.mpeg` · `.mxf` · `.avi` `.mov` `.mp4` `.mkv` `.ts` `.wmv` `.webm` `.flv`, DVD discs and `VIDEO_TS` folders |
 | **Source formats** | 4:1:1 (NTSC DV), 4:1:0, 4:2:0/4:2:2/4:4:4 up to 16-bit, RGB, grayscale |
-| **Colour format** | Match the source, or convert to 4:2:0 8-bit (plays everywhere), 4:2:0 10-bit (for GPU encoders), 4:2:2 8- or 10-bit, or 4:4:4 10-bit. Matching a 10-bit source makes a 10-bit file, which some players and browsers won't open |
+| **Colour format** | Match the source, or convert to 4:2:0 8-bit (plays everywhere), 4:2:0 10-bit (for GPU encoders), 4:2:2 8- or 10-bit, or 4:4:4 10-bit. Matching a 10-bit source makes a 10-bit file, which some players and browsers won't open. v210 is always 4:2:2 10-bit, whatever is chosen |
 | **HDR** | HDR10, HLG and Dolby Vision (profiles 7, 8 and 9) are processed and saved as HDR, and shown tone-mapped in the preview. H.265 keeps HDR10's mastering-display and light-level metadata. Dolby Vision's own dynamic metadata isn't kept, so the output plays as standard HDR. Dolby Vision Profile 5, used by some streaming services, can't be decoded and shows pink and green |
 | **Aspect ratio** | Non-square pixels preserved, even through a resize; or convert to square pixels, force a display aspect, or letterbox to a target size |
 

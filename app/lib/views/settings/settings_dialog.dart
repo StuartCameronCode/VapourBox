@@ -1079,7 +1079,9 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                       ? '${settings.codec.displayName} encodes at a fixed quality '
                           'set by the profile. There is no quality setting — pick a '
                           'different profile for a different data rate.'
-                      : 'This is a lossless codec. No quality setting is needed.',
+                      : settings.codec.isUncompressed
+                          ? _v210QualityNote(viewModel)
+                          : 'This is a lossless codec. No quality setting is needed.',
                 ),
               ),
 
@@ -1249,7 +1251,7 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                   ),
                   ..._buildChromaBitDepthWarning(viewModel, settings),
                   ..._buildChromaEncoderWarning(viewModel, settings),
-                  ..._buildProresChromaWarning(viewModel, settings),
+                  ..._buildIntermediateChromaWarning(viewModel, settings),
                 ],
               ),
             ),
@@ -1424,7 +1426,8 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     EncodingSettings settings,
   ) {
     final message = chromaConversionBitDepthWarning(
-      targetBitDepth: settings.chromaSubsampling.outputBitDepth,
+      // The format the worker really converts to (v210 overrides the choice).
+      targetBitDepth: settings.effectiveChromaSubsampling.outputBitDepth,
       pixelFormat: viewModel.videoInfo?.pixelFormat,
     );
     if (message == null) return const [];
@@ -1449,18 +1452,41 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
 
   /// Issue #81: a ProRes profile stores a chroma layout of its own, and the
   /// worker pins it — so say when that overrides the selected colour format,
-  /// in either direction.
-  List<Widget> _buildProresChromaWarning(
+  /// in either direction. v210 stores 10-bit 4:2:2 whatever is selected.
+  List<Widget> _buildIntermediateChromaWarning(
     MainViewModel viewModel,
     EncodingSettings settings,
   ) {
     final message = proresChromaPinWarning(
-      codec: settings.codec,
-      chromaSubsampling: settings.chromaSubsampling,
-      pixelFormat: viewModel.videoInfo?.pixelFormat,
-    );
+          codec: settings.codec,
+          chromaSubsampling: settings.chromaSubsampling,
+          pixelFormat: viewModel.videoInfo?.pixelFormat,
+        ) ??
+        v210ChromaPinWarning(
+          codec: settings.codec,
+          chromaSubsampling: settings.chromaSubsampling,
+          pixelFormat: viewModel.videoInfo?.pixelFormat,
+        );
     if (message == null) return const [];
     return [const SizedBox(height: 12), WarningBanner(message: message)];
+  }
+
+  /// v210's fixed data rate, for the loaded video when its size is known.
+  String _v210QualityNote(MainViewModel viewModel) {
+    const base = 'Uncompressed: every frame is stored as it is, so there is no '
+        'quality setting.';
+    final info = viewModel.videoInfo;
+    final w = info?.width, h = info?.height, fps = info?.frameRate;
+    if (w == null || h == null || fps == null || w <= 0 || h <= 0 || fps <= 0) {
+      return '$base About 221 Mbit/s at 720x576 25p, 1.1 Gbit/s at 1080p25.';
+    }
+    final mbit = v210BitsPerSecond(w, h, fps) / 1e6;
+    final rate = mbit >= 1000
+        ? '${(mbit / 1000).toStringAsFixed(2)} Gbit/s'
+        : '${mbit.round()} Mbit/s';
+    final gbPerMin = v210BitsPerSecond(w, h, fps) * 60 / 8 / 1e9;
+    return '$base At the source frame size that is about $rate '
+        '(${gbPerMin.toStringAsFixed(1)} GB a minute) before audio.';
   }
 
   /// Whether a hardware encoder is relevant to the current platform's GPU APIs:
@@ -1498,6 +1524,9 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     // enum, which runs Proxy -> 4444 XQ by ascending data rate.
     final proresCodecs =
         VideoCodec.values.where((c) => c.isProRes).toList(growable: false);
+    // v210 sits with ProRes: both are editing intermediates.
+    final uncompressedCodecs =
+        VideoCodec.values.where((c) => c.isUncompressed).toList(growable: false);
     final losslessCodecs = <VideoCodec>[
       VideoCodec.ffv1, VideoCodec.huffyuv, VideoCodec.ffvhuff,
     ];
@@ -1527,14 +1556,14 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
       }
     }
 
-    // ProRes section
-    final supportedProres = proresCodecs
+    // Editing intermediates: ProRes, then uncompressed v210.
+    final supportedIntermediates = [...proresCodecs, ...uncompressedCodecs]
         .where((c) => c.supportsContainer(settings.container))
         .toList();
-    if (supportedProres.isNotEmpty) {
+    if (supportedIntermediates.isNotEmpty) {
       children.add(const SizedBox(height: 8));
-      children.add(_buildCodecGroupLabel(context, 'ProRes'));
-      for (final codec in supportedProres) {
+      children.add(_buildCodecGroupLabel(context, 'Editing Intermediates'));
+      for (final codec in supportedIntermediates) {
         children.add(_buildCodecRadio(context, viewModel, settings, codec));
       }
     }
