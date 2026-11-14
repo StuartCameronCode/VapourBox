@@ -2127,7 +2127,7 @@ See docs/ENGINEERING_NOTES.md for the specific measurements (which profiles are
 bit-identical with/without the pin, the dB gain from the advanced quant-matrix
 options) and the `copyWith`/enum-dispatch traps this shipped with.
 
-### Intermediate codecs: v210 and ProRes (field order, chroma)
+### Intermediate codecs: v210 and ProRes; field order for every codec
 
 `VideoCodec::V210` (serde `"v210"`, app 1.8.0) is uncompressed 10-bit 4:2:2
 for editors: MOV (default), MKV, AVI; never MP4 (no tag). Its own family,
@@ -2137,14 +2137,32 @@ evidence for every rule here is docs/reports/2026-11-v210-field-order.
 
 - **vspipe's Y4M header always says `Ip`**, whatever `_FieldBased` is, so
   ffmpeg never learns a still-interlaced picture's field order from the pipe.
-  For the codecs that flag it (`VideoCodec::flags_field_order`: ProRes, v210)
-  `pipeline_executor::field_order_args` declares it **on the pipe input**,
-  `-top 1|0` before `-i -`, from `ScriptGenerator::output_field_order`. Never
-  `-field_order` (inert in FFmpeg 9: overwritten from the frame flags) and
-  never `setfield` in `-vf` (a Custom FFmpeg Argument `-vf` drops it). Without
-  it a MOV's `fiel` atom says progressive (`0x0100`).
-- **ProRes also gets `-flags +ildct`**: its frame header has its own field
-  flag, which stays progressive unless the frame is coded as fields.
+  `VideoCodec::field_order_signal` decides per codec, exhaustively (no
+  catch-all arm), and `pipeline_executor::field_order_args` declares it
+  **on the pipe input**, `-top 1|0` before `-i -`, from
+  `ScriptGenerator::output_field_order`. Never `-field_order` (inert in
+  FFmpeg 9: overwritten from the frame flags) and never `setfield` in `-vf`
+  (a Custom FFmpeg Argument `-vf` drops it). Without it a MOV's `fiel` atom
+  says progressive (`0x0100`). Per codec (docs/reports/2026-11-field-order-other-codecs):
+  - **v210, FFV1, HuffYUV, FFVHuff: `-top` only** — MKV FieldOrder, MOV
+    `fiel`; pixels bit-identical. FFV1 also writes it in its own bitstream,
+    so it survives in AVI; the others in AVI carry nothing.
+  - **ProRes: `-top` + `-flags +ildct`** — its frame header has its own
+    field flag, which stays progressive unless the frame is coded as fields.
+  - **x264: `-top` + `-flags +ildct` + `-x264-params tff=1|bff=1`** — real
+    interlaced (MBAFF) coding; it beat progressive coding of the woven frame
+    at equal bitrate on every fixture. `+ildct` alone left a BFF picture's
+    `pic_struct` SEI saying top-first on most frames (libx264 starts from
+    TFF). A Custom FFmpeg Argument `-x264-params` replaces ours. Apple's
+    hardware decoder refuses MBAFF (AVFoundation decodes it in software).
+  - **x265 and every hardware encoder: nothing.** x265 has no interlaced
+    coding (its `interlace` mode declares each woven frame one field,
+    `field_seq_flag=1`); a container-only flag is read by AVFoundation but
+    not by FFmpeg-based players, so they would disagree about one file.
+    VideoToolbox ignores `+ildct`; NVENC/QSV/AMF can't be verified here.
+  - **`field_order_note` logs it** when a still-interlaced picture goes out
+    unflagged (these codecs, or a container-only codec in AVI). Said, never
+    refused.
 - **A pass that makes a still-interlaced clip progressive must be taught to
   `output_field_order`** (today: Stabilize pitch, Deblock mpeg2stinx, the
   Frame Rate pass). `test_221` counts every `SetFieldBased(` in both templates
@@ -2170,10 +2188,15 @@ evidence for every rule here is docs/reports/2026-11-v210-field-order.
   ~1 Gbit/s file a second time. Restored audio beside v210 is PCM
   (`restored_passthrough_codec`).
 - **Test field order with the `fiel` atom's bytes** (`0x0209` TFF, `0x020e`
-  BFF), not only ffprobe's `tb`/`bt` labels. AVI carries no field order at
-  all. `integration_v210_output_test.dart` (heavy) checks these, v210 bit-exact
-  against a 10-bit 4:2:2 source, per-field chroma (v210, ProRes Proxy/HQ/4444),
-  PCM in MOV and preview = encode.
+  BFF; `WorkerHarness.movFielAtom`, which walks the boxes — x265's option
+  string contains "fiel"), not only ffprobe's `tb`/`bt` labels, and x264's
+  with the bitstream (`bitstreamHeaderCounts`: `frame_mbs_only_flag`,
+  `pic_struct`). `test_field_order_args_matrix` sweeps every codec x
+  container. `integration_field_order_test.dart` (heavy) checks each codec's
+  flags and that the lossless ones stay bit-exact;
+  `integration_v210_output_test.dart` (heavy) checks v210 bit-exact against a
+  10-bit 4:2:2 source, per-field chroma (v210, ProRes Proxy/HQ/4444), PCM in
+  MOV and preview = encode.
 
 ## QTGMC Parameters Reference
 

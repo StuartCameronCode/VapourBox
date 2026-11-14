@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Field order for every codec</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>Field order for the other codecs: FFV1, HuffYUV, FFVHuff, x264, x265</h1>
+<p class="meta">2026-11-14 · follow-up to <a href="../2026-11-v210-field-order/index.html">v210 output and interlaced
+field-order flagging</a> · measured on Apple Silicon (macOS arm64), deps 1.16.0 bundle (FFmpeg 9.0), VLC 3.0.23</p>
+
+<div class="card">
+<strong>Outcome: built for five codecs, deliberately not for the rest.</strong>
+vspipe's Y4M header always says <code>Ip</code>, so before this change every codec but ProRes and v210 wrote a
+picture left interlaced as progressive.
+<ul>
+<li><span class="good">FFV1, HuffYUV, FFVHuff</span> now get <code>-top 1|0</code> on the pipe input, as v210 does:
+MKV FieldOrder <code>tb</code>/<code>bt</code>, MOV <code>fiel 0x0209</code>/<code>0x020e</code>, pixels
+bit-identical. FFV1 also writes it in its own bitstream, so it survives even in AVI.</li>
+<li><span class="good">x264</span> now codes the picture interlaced (MBAFF: <code>-flags +ildct
+-x264-params tff=1|bff=1</code>). At equal bitrate it beat coding the woven frame as progressive on all three
+fixtures: +0.33 to +1.00 dB field PSNR on VHS, +0.07 to +0.18 dB on broadcast; BD-rate −16.5 % / −2.2 %.
+It costs ~20 % encode time, and Apple's hardware decoder refuses MBAFF.</li>
+<li><span class="warn">x265 and every hardware encoder</span> are left unflagged. x265 has no interlaced coding,
+and a container-only flag on a progressive bitstream is read by some players and ignored by others. The job log
+now says so whenever a picture left interlaced goes out unflagged.</li>
+</ul>
+</div>
+
+<h2>Method</h2>
+<p>The source is <code>Tests/TestResources/interlaced_test.avi</code> (720x576 25i VHS capture, TFF by idet),
+decoded to a Y4M as vspipe pipes it (header <code>Ip</code>, 4:2:0). Each codec is encoded with and without
+<code>-top</code>, in each container, and read back four ways: ffprobe's stream <code>field_order</code>, the MOV
+<code>fiel</code> atom's bytes (by walking the box tree, <code>scripts/fiel.py</code>), the decoded frame flags,
+and the bitstream headers (FFmpeg's <code>trace_headers</code>). Player behaviour: AVFoundation's format
+description and a full AVAssetReader decode (<code>scripts/fields.swift</code>, <code>decode.swift</code>), and
+VLC's automatic deinterlace. Quality: <code>scripts/quality.sh</code>, below.</p>
+
+<h2>P1. Lossless codecs: <code>-top</code> on the pipe input</h2>
+<div class="scroll"><table>
+<tr><th>Codec</th><th>Container</th><th>field_order</th><th>fiel</th><th>Frame flags</th><th>Pixels</th></tr>
+<tr><td>FFV1</td><td>MKV</td><td>tb / bt</td><td>—</td><td class="good">interlaced, TFF / BFF</td><td rowspan="3">bit-identical to the unflagged encode and to the source</td></tr>
+<tr><td>FFV1</td><td>MOV</td><td>tb / bt</td><td>0209 / 020e</td><td class="good">interlaced, TFF / BFF</td></tr>
+<tr><td>FFV1</td><td>AVI</td><td>unknown</td><td>—</td><td class="good">interlaced, TFF / BFF</td></tr>
+<tr><td>FFVHuff, HuffYUV</td><td>MKV</td><td>tb / bt</td><td>—</td><td>progressive</td><td rowspan="3">bit-identical to the unflagged encode</td></tr>
+<tr><td>FFVHuff, HuffYUV</td><td>MOV</td><td>tb / bt</td><td>0209 / 020e</td><td>progressive</td></tr>
+<tr><td>FFVHuff, HuffYUV</td><td>AVI</td><td class="bad">unknown</td><td>—</td><td class="bad">progressive</td></tr>
+</table></div>
+<p class="caption">Without <code>-top</code> every row reads progressive (MOV <code>0100</code>). FFV1 carries the
+field order in its own frame header, which is why its frame flags follow <code>-top</code> in every container;
+HuffYUV and FFVHuff have no such field, so in AVI nothing records it, and the job log says so.</p>
+
+<h2>P2. x264</h2>
+<div class="scroll"><table>
+<tr><th>Arguments</th><th>MP4 field_order</th><th>Bitstream</th><th>pic_struct (79 frames)</th></tr>
+<tr><td>none (before this change)</td><td>progressive</td><td>frame_mbs_only_flag=1</td><td>—</td></tr>
+<tr><td><code>-top 1</code></td><td>progressive</td><td>frame_mbs_only_flag=1</td><td>—</td></tr>
+<tr><td><code>-top 1 -flags +ildct</code></td><td>tt</td><td class="good">MBAFF</td><td>3 (TFF) ×79</td></tr>
+<tr><td><code>-top 0 -flags +ildct</code></td><td class="bad">tt</td><td>MBAFF, coded bottom-first</td><td class="bad">3 ×46, 4 ×33</td></tr>
+<tr><td><code>-top 0 -flags +ildct -x264-params bff=1</code></td><td>bb</td><td class="good">MBAFF</td><td>4 (BFF) ×79</td></tr>
+<tr><td><code>-top 1 -flags +ildct -x264-params tff=1</code></td><td>tt</td><td class="good">MBAFF</td><td>3 (TFF) ×79</td></tr>
+<tr><td><code>-x264-params fake-interlaced=1</code></td><td>tb (MKV)</td><td>PAFF flag, frames progressive</td><td>—</td></tr>
+</table></div>
+<p class="caption"><code>-top</code> alone changes nothing in an x264 stream (in MKV the container says
+<code>tb</code> over a progressive bitstream). <code>+ildct</code> makes it MBAFF, but libx264 starts from its
+default top-field-first and only follows the frames' flags later: a BFF picture's SEI said top-first on 46 of 79
+frames. Naming the order in <code>-x264-params</code> makes every frame agree, at identical size and pixels
+(the BFF encodes with and without <code>bff=1</code> decode to the same MD5). MBAFF works at every format the app
+can deliver: High 10, High 4:2:2 and High 4:4:4 Predictive were each checked.</p>
+
+<h2>P3. x265</h2>
+<div class="scroll"><table>
+<tr><th>Arguments</th><th>field_order</th><th>fiel</th><th>Bitstream</th></tr>
+<tr><td>none (before this change)</td><td>progressive</td><td>0100</td><td>field_seq_flag=0</td></tr>
+<tr><td><code>-top 1</code></td><td class="warn">tb</td><td class="warn">0209</td><td>field_seq_flag=0 (progressive)</td></tr>
+<tr><td><code>-top 1 -x265-params interlace=tff</code></td><td>tb</td><td>0209</td><td class="bad">field_seq_flag=1, pic_struct 1/2 alternating</td></tr>
+</table></div>
+<p class="caption">All three decode to the same pixels. x265 has no interlaced coding: its <code>interlace</code>
+mode declares that each picture it is given is <em>one field</em>, so a woven frame becomes a "field" of twice
+the height, and a decoder that honours it shows the wrong thing. <code>-top</code> alone flags the container
+over a progressive bitstream; the next two sections show players disagree about such a file.</p>
+
+<h2>P4. Hardware encoders (VideoToolbox, the ones available here)</h2>
+<p><code>h264_videotoolbox</code> ignores <code>+ildct</code> (bitstream progressive,
+<code>frame_mbs_only_flag=1</code>); <code>hevc_videotoolbox</code>, like x265, only gains a container flag.
+NVENC, QSV and AMF could not be run: left unflagged rather than flagged on a guess.
+VideoToolbox's <em>decoder</em> refuses x264's MBAFF stream ("hwaccel initialisation returned error"); FFmpeg
+falls back to software and the result is identical.</p>
+
+<h2>P5–P6. What players make of it</h2>
+<div class="scroll"><table>
+<tr><th>File</th><th>AVFoundation FieldCount / Detail</th><th>AVAssetReader decode</th><th>VLC auto deinterlace</th></tr>
+<tr><td>x264 progressive</td><td>1</td><td>79/79</td><td>shown progressive</td></tr>
+<tr><td>x264 MBAFF TFF / BFF</td><td>— (not set)</td><td class="good">79/79 (software)</td><td class="good">deinterlaced</td></tr>
+<tr><td>x265 progressive</td><td>1</td><td>79/79</td><td>shown progressive</td></tr>
+<tr><td>x265 <code>-top 1</code> (MP4 / MKV)</td><td class="warn">2, SpatialFirstLineEarly</td><td>79/79</td><td class="warn">shown progressive</td></tr>
+<tr><td>x265 <code>interlace=tff</code></td><td>2, SpatialFirstLineEarly</td><td>79/79</td><td>deinterlaced</td></tr>
+<tr><td>FFV1 <code>-top 1</code> MKV / AVI</td><td>(MOV: 2)</td><td>—</td><td class="good">deinterlaced</td></tr>
+<tr><td>FFVHuff, HuffYUV <code>-top 1</code> MKV / MOV</td><td>2, SpatialFirstLineEarly</td><td>—</td><td class="warn">shown progressive</td></tr>
+</table></div>
+<p class="caption">The split that decided x265: with a container-only flag, AVFoundation (QuickTime, Final Cut)
+treats the file as interlaced and VLC (FFmpeg's decoders) as progressive. One file, two answers, and
+neither is the bitstream's. For HuffYUV/FFVHuff the same split is acceptable: they are editing intermediates,
+the flag costs nothing, and the editors they are made for read the container. VLC follows the bitstream
+(MBAFF, FFV1) and ignores the container.</p>
+
+<h2>Q1–Q3. Does interlaced coding pay for itself in x264?</h2>
+<p>Progressive coding of the woven frame (what every H.264 encode of a picture left interlaced was before) against
+MBAFF, preset medium, three fixtures: <strong>vhs</strong> (above, 79 frames), <strong>dvbt</strong>
+(<code>pal-dvbt-fieldcoded-25i.ts</code>, 720x576 25i broadcast, 125 frames) and <strong>bff</strong> (vhs shifted
+up one line, which swaps the field order: idet BFF 75/75). Quality is luma PSNR per <em>field</em>: encode and
+source are both split with <code>separatefields</code>, so both are judged on the pictures a deinterlacer sees.</p>
+<div class="scroll"><table>
+<tr><th>Fixture</th><th class="num">2000 kbit/s</th><th class="num">4000 kbit/s</th><th class="num">8000 kbit/s</th><th class="num">BD-rate, CRF 14–26</th></tr>
+<tr><td>vhs</td><td class="num">37.67 → 38.67 (+1.00)</td><td class="num">40.41 → 40.95 (+0.53)</td><td class="num">42.81 → 43.14 (+0.33)</td><td class="num good">−16.5 %</td></tr>
+<tr><td>dvbt</td><td class="num">46.29 → 46.36 (+0.07)</td><td class="num">50.09 → 50.18 (+0.10)</td><td class="num">55.55 → 55.73 (+0.18)</td><td class="num">−2.2 %</td></tr>
+<tr><td>bff</td><td class="num">37.67 → 38.66 (+0.99)</td><td class="num">40.41 → 40.93 (+0.52)</td><td class="num">42.80 → 43.10 (+0.30)</td><td class="num good">−16.6 %</td></tr>
+</table></div>
+<p class="caption">Field PSNR-Y in dB, progressive → MBAFF, 2-pass at equal bitrate; BD-rate is the bitrate
+change for equal field PSNR over the CRF sweep (negative = smaller). SSIM moves the same way or not at all
+(e.g. vhs 2000 kbit/s 0.9665 → 0.9684; dvbt ≤ 0.0005). <strong>Limits:</strong> PSNR rewards softness and
+three clips are not a population; all three are SD PAL, no 1080i was measured. The bff fixture is the vhs picture shifted, so it confirms the BFF path, not a
+second source.</p>
+<p><strong>Q3, time:</strong> one thread, CRF 18, median of three: 2.67 s progressive, 3.21 s MBAFF
+(+20 %). At CRF the MBAFF file is also slightly smaller (vhs CRF 18: 1.83 vs 1.86 MB) and better (41.27 vs
+40.83 dB).</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>FFV1, HuffYUV, FFVHuff: flag (<code>-top</code>).</strong> Pure metadata, lossless, read by
+editors. In AVI only FFV1 keeps it; the job log says so for the other two.</li>
+<li><strong>x264: code interlaced.</strong> Smaller or equal for the same quality on every fixture, and the
+bitstream, container and frame flags all agree, which a flag alone could not give. The cost is ~20 % encode
+time and software decoding on Apple hardware; a picture left interlaced is an explicit choice (deinterlacing is
+on by default), and one that will be played on a TV or deinterlaced later.</li>
+<li><strong><code>-x264-params tff=1|bff=1</code>, not <code>+ildct</code> alone</strong>, for the BFF SEI
+trap above. A Custom FFmpeg Argument <code>-x264-params</code> comes later and replaces it: the stream stays
+MBAFF; only a BFF picture's SEI goes back to disagreeing.</li>
+<li><strong>x265: nothing.</strong> Its interlace mode misdescribes the picture, and a container-only flag
+gives players different answers about one file. Deinterlace, or choose H.264.</li>
+<li><strong>Hardware encoders: nothing.</strong> VideoToolbox can't code fields; NVENC, QSV and AMF couldn't be checked. Revisit with hardware.</li>
+<li><strong>Say it, don't refuse it.</strong> <code>field_order_note</code> writes a job-log line whenever a
+picture left interlaced goes out unflagged. The user may want exactly that file.</li>
+<li><strong>Exhaustive per codec.</strong> <code>VideoCodec::field_order_signal</code> has no catch-all arm, so a
+new codec cannot be added without this decision.</li>
+</ul>
+
+<h2>Verification</h2>
+<ul>
+<li>Rust: <code>test_field_order_args_matrix</code> sweeps every codec × MP4/MOV/MKV/AVI × six job shapes
+(deinterlaced, TFF/BFF, progressive, Stabilize pitch), against a per-codec expectation written out separately
+from <code>field_order_signal</code>; <code>test_field_order_note</code> the log line;
+<code>field_order_signal_per_codec</code> the families.</li>
+<li>Heavy: <code>app/test/integration_field_order_test.dart</code> encodes through the worker and checks
+MKV/MOV/AVI for FFV1, HuffYUV, FFVHuff and v210 (field_order, <code>fiel</code> bytes, FFV1's frame flags,
+the AVI log line, lossless frames bit-exact); ProRes's container and frame header; x264's
+<code>frame_mbs_only_flag</code>, MBAFF and <code>pic_struct</code> on all ten frames at TFF and BFF;
+x265 unflagged with the log line; deinterlaced jobs progressive.</li>
+</ul>
+
+<div class="card correction">
+<strong>Correction during review.</strong> The heavy test's lossless check first failed on every
+FFV1/HuffYUV/FFVHuff case: the source AVI has null frames (stored frames 0, 5, 6, …), which the
+reference decode skipped while the worker repeats into the gaps. The flag was never the cause; the reference
+now decodes with <code>-fps_mode cfr</code>, as the worker does.
+</div>
+
+<h2>Not tested</h2>
+<ul>
+<li>NVENC, QSV and AMF (no hardware here), and Windows/Linux FFmpeg builds (the nightly heavy run covers the
+flags there).</li>
+<li>Premiere Pro, DaVinci Resolve or a TV opening the files. The player evidence is AVFoundation and VLC.</li>
+<li>1080i sources, and x264 presets other than medium.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>SCRATCH=/path/to/scratch docs/reports/2026-11-field-order-other-codecs/scripts/probe.sh
+SCRATCH=/path/to/scratch docs/reports/2026-11-field-order-other-codecs/scripts/quality.sh
+python3 docs/reports/2026-11-field-order-other-codecs/scripts/summarize.py /path/to/scratch/quality.csv</pre>
+<p>Both need the deps bundle (<code>deps/macos-arm64</code>, or <code>DEPS=…</code>) and write only under
+<code>$SCRATCH</code>; P5 needs macOS (Swift), P6 VLC if installed.</p>
+</main>
+</body>
+</html>

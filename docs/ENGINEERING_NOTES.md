@@ -3570,6 +3570,24 @@ Full report with scripts:
   AVI null frames and soft telecine give an untrimmed decode leading repeat
   slots (79 slots for 75 frames; 122 for 120), so frame numbers disagree.
 
+### Field order for FFV1/HuffYUV/FFVHuff and x264; not x265 (2026-11-14)
+
+Follow-up to the v210 entry below. Full evidence:
+[docs/reports/2026-11-field-order-other-codecs/](reports/2026-11-field-order-other-codecs/index.html).
+
+- **FFV1, HuffYUV, FFVHuff take `-top` like v210**: MKV `tb`/`bt`, MOV
+  `fiel`, bit-identical pixels. FFV1 also writes it in its bitstream, so it
+  survives in AVI; HuffYUV/FFVHuff in AVI record nothing (job log says so).
+- **x264 codes interlaced (MBAFF)**: `-flags +ildct -x264-params tff=1|bff=1`.
+  Field PSNR at equal bitrate +0.33 to +1.00 dB (VHS), +0.07 to +0.18 dB
+  (DVB-T); BD-rate −16.5 % / −2.2 %; ~20 % slower; Apple's hardware decoder
+  refuses MBAFF (software decode is fine). `+ildct` alone left a BFF
+  picture's `pic_struct` saying top-first on 46 of 79 frames.
+- **x265 and the hardware encoders stay unflagged.** x265's `interlace` mode
+  declares each woven frame one field; a container-only flag is read by
+  AVFoundation and ignored by VLC. VideoToolbox ignores `+ildct`; NVENC/QSV/AMF
+  were not available. `field_order_note` logs it instead of refusing.
+
 ### v210 output, and interlaced ProRes/v210 flagged progressive (2026-11-10)
 
 Forum request (videohelp 419911, #154): uncompressed 10-bit 4:2:2 in MOV for

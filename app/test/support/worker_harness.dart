@@ -545,6 +545,80 @@ class WorkerHarness {
     return jsonDecode(result.stdout as String) as Map<String, dynamic>;
   }
 
+  /// The two bytes of the first video sample entry's MOV/MP4 `fiel` atom, as
+  /// hex (`0209` TFF, `020e` BFF, `0100` progressive), or null if it has none.
+  ///
+  /// Walks the box tree (`moov/trak/mdia/minf/stbl/stsd/<entry>/fiel`). A plain
+  /// search for the bytes "fiel" misreads an HEVC file: x265 writes its
+  /// options into the stream as text, and its `field=0` contains them.
+  static String? movFielAtom(String path) {
+    final d = File(path).readAsBytesSync();
+    final bd = ByteData.sublistView(d);
+    const containers = {'moov', 'trak', 'mdia', 'minf', 'stbl'};
+    String? find(int off, int end, {bool sampleEntries = false}) {
+      while (off + 8 <= end) {
+        var size = bd.getUint32(off);
+        final type = String.fromCharCodes(d.sublist(off + 4, off + 8));
+        var header = 8;
+        if (size == 1) {
+          size = bd.getUint64(off + 8);
+          header = 16;
+        } else if (size == 0) {
+          size = end - off;
+        }
+        if (size < header || off + size > end) return null;
+        String? hit;
+        if (sampleEntries) {
+          // A visual sample entry: 78 bytes of fields, then its boxes.
+          hit = find(off + header + 78, off + size);
+        } else if (containers.contains(type)) {
+          hit = find(off + header, off + size);
+        } else if (type == 'stsd') {
+          // Version/flags and the entry count, then the sample entries.
+          hit = find(off + header + 8, off + size, sampleEntries: true);
+        } else if (type == 'fiel') {
+          hit = d
+              .sublist(off + header, off + header + 2)
+              .map((b) => b.toRadixString(16).padLeft(2, '0'))
+              .join();
+        }
+        if (hit != null) return hit;
+        off += size;
+      }
+      return null;
+    }
+
+    return find(0, d.length);
+  }
+
+  /// How often each value of the named bitstream header fields occurs in
+  /// [path]'s first video stream, from FFmpeg's `trace_headers` bitstream
+  /// filter: `{'pic_struct': {'3': 10}, 'frame_mbs_only_flag': {'0': 1}}`.
+  ///
+  /// Only what the stream itself says, which is what a player that ignores
+  /// the container reads.
+  static Future<Map<String, Map<String, int>>> bitstreamHeaderCounts(
+      String path, List<String> fields) async {
+    final r = await Process.run(
+      ffmpegPath,
+      ['-hide_banner', '-v', 'debug', '-i', path, '-map', '0:v:0', '-c', 'copy',
+       '-bsf:v', 'trace_headers', '-f', 'null', '-'],
+      environment: ffmpegEnv,
+    );
+    if (r.exitCode != 0) throw Exception('trace_headers $path: ${r.stderr}');
+    final counts = <String, Map<String, int>>{for (final f in fields) f: {}};
+    // e.g. "[trace_headers @ 0x..] 73  frame_mbs_only_flag   1 = 1"
+    final line = RegExp(r'\]\s+\d+\s+(\w+)\s+[01]+\s+=\s+(-?\d+)\s*$');
+    for (final l in (r.stderr as String).split('\n')) {
+      final m = line.firstMatch(l);
+      if (m == null) continue;
+      final values = counts[m.group(1)];
+      if (values == null) continue;
+      values.update(m.group(2)!, (n) => n + 1, ifAbsent: () => 1);
+    }
+    return counts;
+  }
+
   /// First stream of [selector] (e.g. `a:0`, `v:0`) as a map, or null.
   static Future<Map<String, dynamic>?> firstStream(
     String videoPath, {

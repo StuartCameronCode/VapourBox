@@ -189,7 +189,7 @@ use crate::comment_metadata::{self, CommentFile};
 use crate::gpu_plugin::GpuPlugin;
 use crate::hdr_metadata::HdrMetadata;
 use crate::dependency_locator::DependencyLocator;
-use crate::models::{AspectDeclaration, ContainerFormat, DeinterlaceMethod, EncoderFamily, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
+use crate::models::{AspectDeclaration, ContainerFormat, DeinterlaceMethod, EncoderFamily, FieldOrderSignal, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
 use crate::pixel_format;
 use crate::source_decode;
 use crate::progress_reporter::ProgressReporter;
@@ -201,42 +201,93 @@ use crate::source_timing::SourceTimeline;
 pub struct FieldOrderArgs {
     /// Before `-i -` on the Y4M input: `-top 1` (TFF) or `-top 0` (BFF).
     pub input: Vec<String>,
-    /// After the codec's quality args: `-flags +ildct` for ProRes.
+    /// After the codec's quality args: `-flags +ildct` for ProRes; for x264
+    /// `-flags +ildct -x264-params tff=1|bff=1`.
     pub encoder: Vec<String>,
 }
 
 /// The one decision about how the encode declares field order, used by every
-/// builder of the encoder's arguments.
+/// builder of the encoder's arguments. Which codecs take part, and how, is
+/// `VideoCodec::field_order_signal`.
 ///
 /// vspipe writes `Ip` (progressive) in every Y4M header, whatever
-/// `_FieldBased` says, so without this an interlaced ProRes or v210 MOV is
-/// written with a `fiel` atom of `0x0100`, i.e. flagged progressive. Measured
-/// against FFmpeg 9.0 (docs/reports/2026-11-v210-field-order):
+/// `_FieldBased` says, so without this an interlaced picture is written as
+/// progressive by every codec. Measured against FFmpeg 9.0
+/// (docs/reports/2026-11-v210-field-order, docs/reports/2026-11-field-order-other-codecs):
 ///
 /// - `-field_order tt` as an output option is inert: the encoder's field
 ///   order is overwritten from the frames' flags.
 /// - `-top 1|0` on the Y4M input flags the frames, which gives `fiel 0x0209`
-///   (TFF) / `0x020e` (BFF) in MOV and `tb` / `bt` in MKV. AVI has no field
-///   order to write. `setfield` in `-vf` works too, but a Custom FFmpeg
-///   Argument `-vf` replaces the chain and would drop it.
+///   (TFF) / `0x020e` (BFF) in MOV and `tb` / `bt` in MKV, and FFV1 writes it
+///   in its own bitstream too. AVI has no field order to write. `setfield` in
+///   `-vf` works too, but a Custom FFmpeg Argument `-vf` replaces the chain
+///   and would drop it.
 /// - ProRes also carries a field flag in its own frame header, which stays
 ///   progressive unless the frame is coded as fields (`-flags +ildct`).
+/// - `-top` alone changes nothing in an x264 stream. `+ildct` makes it MBAFF,
+///   but libx264 starts from its default top-field-first and only follows the
+///   frame flags later: on a BFF picture the fields are coded bottom-first
+///   while the `pic_struct` SEI said top-first on 46 of 79 frames. Naming the
+///   order in `-x264-params` makes every frame agree. A Custom FFmpeg
+///   Argument `-x264-params` comes later and replaces it (the stream stays
+///   MBAFF; only a BFF picture's SEI goes back to disagreeing).
 pub fn field_order_args(job: &VideoJob) -> FieldOrderArgs {
     let codec = job.encoding_settings.codec;
-    if !codec.flags_field_order() {
+    let signal = codec.field_order_signal();
+    if signal == FieldOrderSignal::None {
         return FieldOrderArgs::default();
     }
     let pipeline = job.effective_pipeline();
     let Some(tff) = ScriptGenerator::output_field_order(job, &pipeline) else {
         return FieldOrderArgs::default();
     };
+    let ildct = || vec!["-flags".to_string(), "+ildct".to_string()];
     FieldOrderArgs {
         input: vec!["-top".to_string(), if tff { "1" } else { "0" }.to_string()],
-        encoder: if codec.is_prores() {
-            vec!["-flags".to_string(), "+ildct".to_string()]
-        } else {
-            Vec::new()
+        encoder: match signal {
+            FieldOrderSignal::None | FieldOrderSignal::Container => Vec::new(),
+            FieldOrderSignal::ProResFields => ildct(),
+            FieldOrderSignal::X264Interlaced => {
+                let mut a = ildct();
+                a.extend([
+                    "-x264-params".to_string(),
+                    if tff { "tff=1" } else { "bff=1" }.to_string(),
+                ]);
+                a
+            }
         },
+    }
+}
+
+/// The job-log line for a picture left interlaced that the output cannot
+/// declare as such, or `None` when it can (or the picture is progressive).
+///
+/// Players then show it as progressive, combing on every moving edge, and an
+/// editor treats each woven frame as one picture. Said rather than refused:
+/// the user may want exactly this file.
+pub fn field_order_note(job: &VideoJob) -> Option<String> {
+    let codec = job.encoding_settings.codec;
+    let pipeline = job.effective_pipeline();
+    ScriptGenerator::output_field_order(job, &pipeline)?;
+    match codec.field_order_signal() {
+        FieldOrderSignal::None => Some(format!(
+            "The picture is still interlaced, but {} cannot mark it as interlaced, so players \
+             will show it as progressive. Deinterlace it, or choose H.264, ProRes, v210 or FFV1 \
+             to keep the fields.",
+            codec.display_name()
+        )),
+        // FFV1 writes the field order in its own bitstream, so AVI keeps it.
+        FieldOrderSignal::Container
+            if job.encoding_settings.container == ContainerFormat::Avi
+                && codec != VideoCodec::FFV1 =>
+        {
+            Some(format!(
+                "The picture is still interlaced, but AVI cannot record its field order, so \
+                 {} in AVI will be read as progressive. MKV or MOV keep it.",
+                codec.display_name()
+            ))
+        }
+        _ => None,
     }
 }
 
@@ -1017,8 +1068,11 @@ impl PipelineExecutor {
 
         // Encoder-family-specific quality and preset args
         Self::build_encoder_quality_args(&mut args, job);
-        // ProRes codes a still-interlaced picture as fields (`+ildct`).
+        // ProRes and x264 code a still-interlaced picture as fields (`+ildct`).
         args.extend(field_order.encoder.iter().cloned());
+        if let Some(note) = field_order_note(job) {
+            self.reporter.send_log(LogLevel::Info, &note);
+        }
 
         // HDR10 mastering display / content light level (issue #133). The pipe
         // drops them with the rest of the side data; x265 is the one encoder
@@ -2927,19 +2981,50 @@ mod tests {
         job
     }
 
-    /// Field order reaches the encoder only for the intermediates, only when
-    /// the picture is still interlaced, on the pipe input (`-top`, ahead of
-    /// `-i -`), and ProRes alone codes fields (`+ildct`).
+    /// What each codec is expected to emit for a still-interlaced picture,
+    /// written out per codec rather than read from `field_order_signal`, so
+    /// this test is not the function restated. Exhaustive: a new codec fails
+    /// to compile here until it is decided
+    /// (docs/reports/2026-11-field-order-other-codecs).
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum ExpectFieldOrder {
+        Nothing,
+        TopOnly,
+        ProResFields,
+        X264Mbaff,
+    }
+
+    fn expected_field_order(codec: VideoCodec) -> ExpectFieldOrder {
+        use ExpectFieldOrder::*;
+        match codec {
+            VideoCodec::V210 | VideoCodec::FFV1 | VideoCodec::Huffyuv | VideoCodec::Ffvhuff => TopOnly,
+            VideoCodec::ProResProxy
+            | VideoCodec::ProResLT
+            | VideoCodec::ProRes422
+            | VideoCodec::ProResHQ
+            | VideoCodec::ProRes4444
+            | VideoCodec::ProRes4444Xq => ProResFields,
+            VideoCodec::H264 => X264Mbaff,
+            VideoCodec::H265
+            | VideoCodec::H264Nvenc
+            | VideoCodec::H265Nvenc
+            | VideoCodec::H264Qsv
+            | VideoCodec::H265Qsv
+            | VideoCodec::H264Videotoolbox
+            | VideoCodec::H265Videotoolbox
+            | VideoCodec::H264Amf
+            | VideoCodec::H265Amf => Nothing,
+        }
+    }
+
+    /// Field order reaches the encoder only when the picture is still
+    /// interlaced, on the pipe input (`-top`, ahead of `-i -`); ProRes and
+    /// x264 alone code fields (`+ildct`), x264 names the order in
+    /// `-x264-params`, and x265 / the hardware encoders get nothing. Every
+    /// codec in every container.
     #[test]
     fn test_field_order_args_matrix() {
         use crate::models::FieldOrder;
-        let codecs = [
-            (VideoCodec::V210, ContainerFormat::Mov),
-            (VideoCodec::V210, ContainerFormat::Mkv),
-            (VideoCodec::ProResHQ, ContainerFormat::Mov),
-            (VideoCodec::FFV1, ContainerFormat::Mkv),
-            (VideoCodec::H264, ContainerFormat::Mp4),
-        ];
         // (deinterlace on, detected order, stabilize pitch) -> expected top
         let cases: [(bool, Option<FieldOrder>, bool, Option<&str>); 6] = [
             (true, Some(FieldOrder::TopFieldFirst), false, None),
@@ -2949,38 +3034,89 @@ mod tests {
             (false, None, false, None),
             (false, Some(FieldOrder::TopFieldFirst), true, None),
         ];
-        for (codec, container) in codecs {
-            for (deint, order, pitch, expected) in cases {
-                let mut job = field_order_job(codec, container);
-                job.detected_field_order = order;
-                let p = job.processing_pipeline.as_mut().unwrap();
-                p.deinterlace.enabled = deint;
-                if pitch {
-                    p.stabilize.enabled = true;
-                    p.stabilize.pitch_mode = crate::models::PitchMode::Auto;
-                }
-                let args = build_ffmpeg_args_for_test(&job);
-                let ctx = format!("{codec:?} {container:?} deint={deint} {order:?} pitch={pitch}: {args:?}");
-                let expected = if codec.flags_field_order() { expected } else { None };
-                match expected {
-                    Some(v) => {
-                        let top = args.iter().position(|a| a == "-top").expect(&ctx);
-                        let pipe = args.windows(2).position(|w| w[0] == "-i" && w[1] == "-").unwrap();
-                        assert_eq!(args[top + 1], v, "{ctx}");
-                        assert!(top < pipe, "-top must be an input option of the pipe: {ctx}");
-                        assert_eq!(
-                            args.iter().any(|a| a == "+ildct"),
-                            codec.is_prores(),
-                            "{ctx}"
-                        );
+        let containers = [ContainerFormat::Mp4, ContainerFormat::Mov, ContainerFormat::Mkv, ContainerFormat::Avi];
+        for codec in VideoCodec::ALL.iter().copied() {
+            let kind = expected_field_order(codec);
+            assert_eq!(codec.flags_field_order(), kind != ExpectFieldOrder::Nothing, "{codec:?}");
+            for container in containers {
+                for (deint, order, pitch, expected) in cases {
+                    let mut job = field_order_job(codec, container);
+                    job.detected_field_order = order;
+                    let p = job.processing_pipeline.as_mut().unwrap();
+                    p.deinterlace.enabled = deint;
+                    if pitch {
+                        p.stabilize.enabled = true;
+                        p.stabilize.pitch_mode = crate::models::PitchMode::Auto;
                     }
-                    None => {
-                        assert!(!args.contains(&"-top".to_string()), "{ctx}");
-                        assert!(!args.contains(&"+ildct".to_string()), "{ctx}");
+                    let args = build_ffmpeg_args_for_test(&job);
+                    let ctx = format!("{codec:?} {container:?} deint={deint} {order:?} pitch={pitch}: {args:?}");
+                    let has = |a: &str| args.iter().any(|x| x == a);
+                    let x264_params = args
+                        .iter()
+                        .position(|a| a == "-x264-params")
+                        .map(|i| args[i + 1].clone());
+                    let expected = if kind == ExpectFieldOrder::Nothing { None } else { expected };
+                    match expected {
+                        Some(v) => {
+                            let top = args.iter().position(|a| a == "-top").expect(&ctx);
+                            let pipe = args.windows(2).position(|w| w[0] == "-i" && w[1] == "-").unwrap();
+                            assert_eq!(args[top + 1], v, "{ctx}");
+                            assert!(top < pipe, "-top must be an input option of the pipe: {ctx}");
+                            let fields = matches!(kind, ExpectFieldOrder::ProResFields | ExpectFieldOrder::X264Mbaff);
+                            assert_eq!(has("+ildct"), fields, "{ctx}");
+                            if fields {
+                                let f = args.iter().position(|a| a == "+ildct").unwrap();
+                                assert!(f > pipe && args[f - 1] == "-flags", "+ildct is an encoder option: {ctx}");
+                            }
+                            let want = (kind == ExpectFieldOrder::X264Mbaff)
+                                .then(|| if v == "1" { "tff=1" } else { "bff=1" }.to_string());
+                            assert_eq!(x264_params, want, "{ctx}");
+                        }
+                        None => {
+                            assert!(!has("-top"), "{ctx}");
+                            assert!(!has("+ildct"), "{ctx}");
+                            assert_eq!(x264_params, None, "{ctx}");
+                        }
                     }
+                    // Never the inert output option, never x265's interlace
+                    // mode (it declares each woven frame a single field).
+                    assert!(!has("-field_order"), "{ctx}");
+                    assert!(!args.iter().any(|a| a.contains("interlace")), "{ctx}");
                 }
-                // Never the inert output option.
-                assert!(!args.contains(&"-field_order".to_string()), "{ctx}");
+            }
+        }
+    }
+
+    /// The job log says so when a still-interlaced picture goes out
+    /// unflagged: x265, the hardware encoders, and the container-only codecs
+    /// in AVI (FFV1's own bitstream carries it there). Never for a picture
+    /// that is progressive.
+    #[test]
+    fn test_field_order_note() {
+        use crate::models::FieldOrder;
+        let containers = [ContainerFormat::Mp4, ContainerFormat::Mov, ContainerFormat::Mkv, ContainerFormat::Avi];
+        for codec in VideoCodec::ALL.iter().copied() {
+            let kind = expected_field_order(codec);
+            for container in containers {
+                for order in [FieldOrder::TopFieldFirst, FieldOrder::BottomFieldFirst] {
+                    let mut job = field_order_job(codec, container);
+                    job.detected_field_order = Some(order);
+                    let note = field_order_note(&job);
+                    let expect = kind == ExpectFieldOrder::Nothing
+                        || (kind == ExpectFieldOrder::TopOnly
+                            && container == ContainerFormat::Avi
+                            && codec != VideoCodec::FFV1);
+                    assert_eq!(note.is_some(), expect, "{codec:?} {container:?}: {note:?}");
+                    if let Some(n) = note {
+                        assert!(n.contains(codec.display_name()), "{n}");
+                    }
+                    // Deinterlaced, or never interlaced: nothing to say.
+                    job.processing_pipeline.as_mut().unwrap().deinterlace.enabled = true;
+                    assert_eq!(field_order_note(&job), None, "{codec:?} {container:?}");
+                    job.processing_pipeline.as_mut().unwrap().deinterlace.enabled = false;
+                    job.detected_field_order = Some(FieldOrder::Progressive);
+                    assert_eq!(field_order_note(&job), None, "{codec:?} {container:?}");
+                }
             }
         }
     }
@@ -2998,7 +3134,8 @@ mod tests {
             .find(r#"args.extend(["-i".to_string(), "-".to_string()]);"#)
             .expect("pipe input");
         assert!(helper < input && input < pipe, "-top belongs before -i -");
-        assert!(body.contains("field_order.encoder"), "ProRes +ildct");
+        assert!(body.contains("field_order.encoder"), "ProRes/x264 +ildct");
+        assert!(body.contains("field_order_note(job)"), "the job log says when it cannot");
         assert!(body.contains("uses_faststart(settings.codec)"));
     }
 
