@@ -406,9 +406,8 @@ macOS it also runs <code>avf_read.swift</code> (F4) and, when VLC is installed, 
 F6 (<code>scripts/avi_readers/make_fixtures.py</code>, <code>vlc_read.sh</code>, <code>compare.py</code>). The run took about 2 minutes on the M1 Pro and needs about 1.6 GB of
 scratch space.</p>
 <p><strong>F6's Windows half</strong> ran on a GitHub-hosted runner, through a one-off workflow
-(<code>.github/workflows/probe-avi-readers.yml</code>) that was deleted once its run was recorded. To run it again,
-restore that file from this report's commit history (<code>git log --all -- .github/workflows/probe-avi-readers.yml</code>)
-and push it on a branch. It downloads the deps bundle, writes the fixtures, builds <code>avi_readers.cpp</code>
+kept here, inert, as <code>scripts/avi_readers/probe-avi-readers.workflow.yml</code>. To run it again, copy it to
+<code>.github/workflows/probe-avi-readers.yml</code> on a branch and push. It downloads the deps bundle, writes the fixtures, builds <code>avi_readers.cpp</code>
 with MSVC, fetches both VirtualDubs by pinned hash, runs <code>virtualdub.ps1</code> and <code>compare.py</code>,
 and uploads <code>results.jsonl</code> with VirtualDub's logs and screenshots.</p>
 </main>
