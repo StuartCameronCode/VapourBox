@@ -73,6 +73,11 @@ class PreviewGenerator {
   /// other format. See [SeekPlan].
   SeekPlan? _seekPlan;
 
+  /// Frames late the decoder stamps each picture of an AVI that stores
+  /// decode-order timestamps (issue #173), 0 for every other source. Every
+  /// seek of the source adds it.
+  int _decoderDelayFrames = 0;
+
   /// Video dimensions and pixel format (for pipe source).
   int _videoWidth = 0;
   int _videoHeight = 0;
@@ -117,6 +122,12 @@ class PreviewGenerator {
   /// `scale`, which is the step that converts. On an MPEG-TS/PS, [seekPlan]
   /// seeks a GOP early and trims to the moment (issue #169): a plain seek
   /// there decodes from the next keyframe, and past the last one, nothing.
+  ///
+  /// An AVI that stores decode-order timestamps (issue #173) stamps each
+  /// picture [decoderDelayFrames] frames late, so the seek adds them (at
+  /// [frameRate]); near its start such a file cannot seek at all, so the
+  /// thumbnail decodes from the start and drops pictures by count. A
+  /// thumbnail at the very start never seeks.
   static List<String> thumbnailArgs({
     required String videoPath,
     required double time,
@@ -124,10 +135,25 @@ class PreviewGenerator {
     String? toneMap,
     String? tagFix,
     SeekPlan? seekPlan,
+    double frameRate = 0,
+    int decoderDelayFrames = 0,
     required String outputPath,
   }) {
     final target = time + videoStartOffset;
-    final planned = seekPlan == null ? null : SeekPlan.seekArgs(target, seekPlan);
+    final delayed = seekPlan == null && decoderDelayFrames > 0 && frameRate > 0;
+    final ({List<String> input, String? trim})? planned;
+    if (seekPlan != null) {
+      planned = SeekPlan.seekArgs(target, seekPlan);
+    } else if (target <= 0) {
+      planned = (input: const <String>[], trim: null);
+    } else if (delayed) {
+      final t = target + decoderDelayFrames / frameRate;
+      planned = t < SeekPlan.countSeekBelow
+          ? (input: const <String>[], trim: 'trim=start_frame=${(time * frameRate).round()}')
+          : (input: ['-ss', SeekPlan.formatSeek(t)], trim: null);
+    } else {
+      planned = null;
+    }
     return [
       '-y',
       ...?planned?.input,
@@ -163,6 +189,7 @@ class PreviewGenerator {
   int get totalFrames => _totalFrames;
   double get videoStartOffset => _videoStartOffset;
   SeekPlan? get seekPlan => _seekPlan;
+  int get decoderDelayFrames => _decoderDelayFrames;
 
   /// Get all preview log messages.
   List<String> get previewLog => List.unmodifiable(_previewLog);
@@ -303,13 +330,17 @@ class PreviewGenerator {
     String? toneMap,
     String? tagFix,
     SeekPlan? seekPlan,
+    int decoderDelayFrames = 0,
     required String outputPath,
   }) {
     final frame = frameIndex < 0 ? 0 : frameIndex;
-    final offset = videoStartOffset > 0 ? videoStartOffset : 0.0;
-    final seek = frame > 0
-        ? SeekPlan.seekArgs((frame - 0.5) / frameRate + offset, seekPlan)
-        : null;
+    final seek = SeekPlan.frameSeekArgs(
+      frame: frame,
+      frameRate: frameRate,
+      videoStartOffset: videoStartOffset,
+      decoderDelayFrames: decoderDelayFrames,
+      plan: seekPlan,
+    );
     final vf = [
       if (tagFix != null) tagFix,
       if (seek?.trim != null) seek!.trim!,
@@ -353,6 +384,7 @@ class PreviewGenerator {
           toneMap: _toneMap,
           tagFix: _tagFix,
           seekPlan: _seekPlan,
+          decoderDelayFrames: _decoderDelayFrames,
           outputPath: outputPath,
         ),
       );
@@ -674,6 +706,15 @@ class PreviewGenerator {
     );
     _videoStartOffset = videoStart.offset;
 
+    // An AVI holding MPEG-2/MPEG-4/H.264 with a decoder delay stamps every
+    // picture that many frames late (issue #173): seeks add it.
+    _decoderDelayFrames = await FieldOrderDetector.probeDecoderDelay(
+      _ffprobePath!,
+      videoPath,
+      hasBFrames: videoStream['has_b_frames'] as int?,
+      videoStart: _videoStartOffset,
+    );
+
     // An MPEG-TS/PS has no keyframe index, so its seeks start a GOP early
     // and trim to the frame (the twin of the worker's seek plan, #169).
     _seekPlan = await FieldOrderDetector.probeSeekPlan(
@@ -769,9 +810,11 @@ class PreviewGenerator {
           videoPath: videoPath,
           time: time,
           videoStartOffset: _videoStartOffset,
+          frameRate: _frameRate,
           toneMap: _toneMap,
           tagFix: _tagFix,
           seekPlan: _seekPlan,
+          decoderDelayFrames: _decoderDelayFrames,
           outputPath: outputPath,
         ),
       );

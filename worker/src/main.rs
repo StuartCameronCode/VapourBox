@@ -720,32 +720,47 @@ fn fill_frame_size(
     }
 }
 
-/// Fill a missing `video_start_offset` from ffprobe (see
-/// `source_decode::video_start_from_probe`). A job that carries it is never
-/// touched; a failed probe leaves it unset, which means no gap.
+/// Fill a missing `video_start_offset` and `decoder_delay_frames` from
+/// ffprobe (see `source_decode::video_start_from_probe` and
+/// `decoder_delay_from_probe`; the delay needs a second, decoding probe only
+/// for an AVI that stores decode-order timestamps). Values the job carries
+/// are never touched; a failed probe leaves them unset, which means 0.
 fn fill_video_start(
     job: &mut VideoJob,
     deps: Option<&dependency_locator::DependencyLocator>,
     log: impl Fn(&str),
 ) {
-    if job.video_start_offset.is_some() {
+    if job.video_start_offset.is_some() && job.decoder_delay_frames.is_some() {
         return;
     }
     let Some(d) = deps else { return };
     let Ok(ffprobe) = d.ffprobe_path() else { return };
-    if let Some(offset) =
-        source_decode::probe_video_start(&ffprobe, &d.build_environment(), &job.input_path)
-    {
-        if offset > 0.0 {
+    let Some((probed, delay)) =
+        source_decode::probe_video_timing(&ffprobe, &d.build_environment(), &job.input_path)
+    else {
+        return;
+    };
+    if job.video_start_offset.is_none() {
+        if probed > 0.0 {
             job.source_has_audio =
                 source_decode::probe_has_audio(&ffprobe, &d.build_environment(), &job.input_path);
             log(&format!(
                 "The video's first picture starts {:.3} s after the file's start (its sound starts first); \
                  frame numbers count from the picture",
-                offset
+                probed
             ));
         }
-        job.video_start_offset = Some(offset);
+        job.video_start_offset = Some(probed);
+    }
+    if job.decoder_delay_frames.is_none() {
+        if delay > 0 {
+            log(&format!(
+                "The source stores decode-order timestamps (AVI): the decoder stamps each picture \
+                 {} frame(s) late, and seeks allow for it",
+                delay
+            ));
+        }
+        job.decoder_delay_frames = Some(delay);
     }
 }
 
