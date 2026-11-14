@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProRes faststart and restored audio</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>ProRes in MOV: no <code>+faststart</code>, PCM for restored audio</h1>
+<p class="meta">2026-11-14 · follow-up to the v210 work (docs/reports/2026-11-v210-field-order) ·
+measured on an Apple M1 Pro (16 GB, internal SSD), deps 1.16.0 bundle (FFmpeg 9.0.2), app 1.7.0</p>
+
+<div class="card">
+<strong>Outcome: built.</strong> ProRes now follows v210, the other editing intermediate.
+It no longer gets <code>-movflags +faststart</code>. With Audio Restoration on and Output → Audio on Passthrough,
+the restored track is PCM instead of AAC. Both are decided by one predicate,
+<code>VideoCodec::is_editing_intermediate</code> (ProRes, v210), which already decided the field-order flag.
+Neither change fixes a reported bug. Both change existing ProRes output, which is why they are measured
+and recorded here.
+</div>
+
+<h2>Why ask</h2>
+<p>A ProRes or v210 file is made to be cut in an editor, not delivered. Two of the encoder's container
+defaults are aimed at delivery:</p>
+<ul>
+<li><code>+faststart</code> moves the MOV's index (<code>moov</code>) in front of the media after the last frame
+is written. That helps a file played progressively over HTTP. Editors and local players read the index wherever it is.</li>
+<li>A restored audio track is new audio, so Passthrough cannot copy it. It was encoded as AAC in MOV.
+The editor encodes the soundtrack again on delivery, which makes two lossy generations.</li>
+</ul>
+
+<h2>F1 · What <code>+faststart</code> costs</h2>
+<p>Source: 180 s of 1920x1080 25p ProRes HQ (<code>testsrc2</code> with temporal noise, so the data rate is
+realistic), <strong>191 Mbit/s, 4.30 GB</strong>. The same <code>-c copy</code> mux was timed without and with
+<code>+faststart</code>, so the difference is the second pass alone. Two sessions, wall-clock seconds:</p>
+<div class="scroll"><table>
+<tr><th>run</th><th class="num">no faststart</th><th class="num">+faststart</th><th class="num">extra</th></tr>
+<tr><td>A1</td><td class="num">3.79</td><td class="num">8.27</td><td class="num">4.48</td></tr>
+<tr><td>A2</td><td class="num">4.04</td><td class="num">9.79</td><td class="num">5.75</td></tr>
+<tr><td>A3</td><td class="num">5.95</td><td class="num">7.47</td><td class="num">1.52</td></tr>
+<tr><td>B1</td><td class="num">1.88</td><td class="num">3.65</td><td class="num">1.78</td></tr>
+<tr><td>B2</td><td class="num">1.86</td><td class="num">3.80</td><td class="num">1.94</td></tr>
+<tr><td>B3</td><td class="num">2.13</td><td class="num">6.46</td><td class="num">4.33</td></tr>
+<tr><td>B4</td><td class="num">4.32</td><td class="num">7.72</td><td class="num">3.40</td></tr>
+<tr><td>B5</td><td class="num">2.79</td><td class="num">8.81</td><td class="num">6.01</td></tr>
+</table></div>
+<p>The extra pass costs <strong>1.5–6.0 s per 4.3 GB: 0.4–1.4 s/GB, median about 0.9 s/GB</strong>.
+An hour of ProRes HQ 1080p (~86 GB) is about 1–2 minutes on this SSD. For v210 (~500 GB an hour) it is roughly
+6× that.</p>
+<p class="warn">Limits. These runs use a fast internal NVMe SSD. The machine has 16 GB of RAM, so the 4.3 GB file
+is partly in the page cache, which is why the spread is wide. No USB disk or NAS was available. There the pass
+reads and rewrites the whole file at that device's speed, so on a ~150 MB/s hard disk an hour of HQ would take
+an estimated 10–20 minutes. That figure is an estimate, not a measurement.</p>
+<p>Against a whole job: a QTGMC 1080i encode at ~15 fps takes ~300 s for these 3 minutes, so the pass adds
+~1–2% on this SSD. For a straight ProRes transcode it adds more, and on slow storage much more. The pass also
+runs after the last frame, so the progress bar sits at 100% with nothing moving. A process killed during the
+pass leaves an unreadable file.</p>
+
+<h2>F2 · It does not need the space twice</h2>
+<p>The old comment on <code>uses_faststart</code> said faststart "needs the space twice".
+<span class="bad">That was wrong.</span> Polling the output directory during a <code>+faststart</code> mux found
+one file at most, and a peak of 4,210,692 KiB, which is the final file (4,300,722,657 bytes). FFmpeg logs
+"Starting second pass: moving the moov atom to the beginning of the file" and shifts the data in place.
+The comment is corrected.</p>
+
+<h2>F3 · PCM beside ProRes in MOV</h2>
+<p>ProRes plus <code>pcm_s16le</code> muxes as <code>apch</code> + <code>sowt</code>, at 768 kb/s for mono 48 kHz
+(1.5 Mbit/s stereo). Beside 45–300+ Mbit/s of ProRes that is under 3% of the file.
+<code>sowt</code> is the little-endian LPCM tag QuickTime and NLEs read.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>No <code>+faststart</code> for ProRes</strong> (<code>uses_faststart</code> is
+<code>!is_editing_intermediate()</code>). The benefit to an editing file is nil. The cost is small on an SSD,
+real on slow storage, and always a stall at 100%. H.264/H.265 in MP4/MOV keep it.</li>
+<li><strong>PCM for a restored track beside ProRes</strong> (<code>restored_passthrough_codec</code>), in every
+container, the same as v210. ProRes can only go in MOV today. The user can still choose any codec with
+Audio → Convert. Only the Passthrough default changed.</li>
+<li><strong>16-bit PCM</strong> (<code>pcm_s16le</code>, the existing <code>AudioCodec::Pcm</code>), the same as v210.
+The rendered track is 32-bit float, so a 24-bit option for intermediates would keep more. That is a separate
+decision because it needs a new codec value. Left as a follow-up.</li>
+</ul>
+
+<h2>Verification</h2>
+<ul>
+<li>Rust: <code>test_faststart_skipped_for_editing_intermediates</code> sweeps <code>VideoCodec::ALL</code>,
+checks every ProRes profile in MOV has no <code>+faststart</code>, and checks H.264 MP4/MOV and H.265 MOV keep it.
+<code>restored_passthrough_is_pcm_beside_intermediates</code> sweeps every intermediate and container.
+<code>encode_codec_args</code> gives ProRes MOV <code>-c:a:0 pcm_s16le</code> with no bitrate.</li>
+<li>Heavy: <code>integration_audio_restoration_test.dart</code> encodes ProRes and v210 MOVs with restoration
+on and audio copied, and checks the first audio stream is <code>pcm_s16le</code>.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li>A USB disk, a NAS or Windows/Linux file systems (see the estimate in F1).</li>
+<li>Timing through the worker. The remux isolates the pass; through the worker it runs after the same
+file is written, so the extra cost is the same pass.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>SCRATCH=/path/to/scratch docs/reports/2026-11-prores-faststart/scripts/probe.sh   # RUNS=5 for session B</pre>
+<p>It builds the 4.3 GB source if it is missing (~8 minutes), then prints F1–F3.</p>
+</main>
+</body>
+</html>

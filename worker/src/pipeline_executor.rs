@@ -240,12 +240,16 @@ pub fn field_order_args(job: &VideoJob) -> FieldOrderArgs {
     }
 }
 
-/// Whether an MP4/MOV output gets `-movflags +faststart`. Not for v210:
-/// faststart rewrites the whole file in a second pass to move the index to
-/// the front, which at ~1 Gbit/s (an hour of 1080p is ~500 GB) doubles the
-/// disk I/O and needs the space twice, for a streaming feature no editor uses.
+/// Whether an MP4/MOV output gets `-movflags +faststart`. Not for the editing
+/// intermediates (ProRes, v210): faststart moves the index to the front by
+/// reading and rewriting the whole file after the last frame (in place, so no
+/// extra space), which only helps progressive web playback — nothing an
+/// editor does. Measured at 0.4-1.4 s/GB (median ~0.9) on an internal SSD;
+/// an hour of ProRes HQ 1080p is ~86 GB, of v210 ~500 GB; far more on a USB
+/// disk or NAS, with the progress bar sitting at 100% throughout
+/// (docs/reports/2026-11-prores-faststart).
 pub fn uses_faststart(codec: VideoCodec) -> bool {
-    !codec.is_uncompressed()
+    !codec.is_editing_intermediate()
 }
 
 /// Executes the ffmpeg (decode) | vspipe | ffmpeg (encode) pipeline.
@@ -1044,8 +1048,8 @@ impl PipelineExecutor {
 
         // MP4/MOV container fixups. QuickTime and other Apple players reject HEVC
         // with the default `hev1` sample-entry; force `hvc1` so the output is
-        // playable. Also move the moov atom to the front (+faststart) for better
-        // playback/seeking. Both are no-ops for MKV/AVI.
+        // playable. Also move the moov atom to the front (+faststart) for web
+        // playback, except for editing intermediates. Both are no-ops for MKV/AVI.
         if matches!(settings.container, ContainerFormat::Mp4 | ContainerFormat::Mov) {
             if settings.codec.is_h265() {
                 args.extend(["-tag:v".to_string(), "hvc1".to_string()]);
@@ -2014,7 +2018,7 @@ mod tests {
         }
 
         // MP4/MOV container fixups (mirrors build_ffmpeg_args): hvc1 tag for HEVC
-        // so Apple players accept it, plus +faststart.
+        // so Apple players accept it, plus +faststart (not for intermediates).
         if matches!(settings.container, ContainerFormat::Mp4 | ContainerFormat::Mov) {
             if settings.codec.is_h265() {
                 args.extend(["-tag:v".to_string(), "hvc1".to_string()]);
@@ -2886,16 +2890,31 @@ mod tests {
         }
     }
 
-    /// Faststart stays for every other codec in MP4/MOV.
+    /// Faststart is skipped for the editing intermediates (ProRes, v210) and
+    /// kept for every other codec in MP4/MOV.
     #[test]
-    fn test_faststart_only_skipped_for_uncompressed() {
+    fn test_faststart_skipped_for_editing_intermediates() {
         for codec in VideoCodec::ALL.iter().copied() {
-            assert_eq!(uses_faststart(codec), !codec.is_uncompressed(), "{codec:?}");
+            assert_eq!(uses_faststart(codec), !codec.is_editing_intermediate(), "{codec:?}");
         }
-        let mut job = create_test_job("output.mov");
-        job.encoding_settings.codec = VideoCodec::ProResHQ;
-        job.encoding_settings.container = ContainerFormat::Mov;
-        assert!(build_ffmpeg_args_for_test(&job).contains(&"+faststart".to_string()));
+        for codec in VideoCodec::ALL.iter().copied().filter(|c| c.is_prores()) {
+            let mut job = create_test_job("output.mov");
+            job.encoding_settings.codec = codec;
+            job.encoding_settings.container = ContainerFormat::Mov;
+            let args = build_ffmpeg_args_for_test(&job);
+            assert!(!args.iter().any(|a| a.contains("faststart")), "{codec:?}: no faststart for ProRes: {args:?}");
+        }
+        for (codec, container) in [
+            (VideoCodec::H264, ContainerFormat::Mp4),
+            (VideoCodec::H264, ContainerFormat::Mov),
+            (VideoCodec::H265, ContainerFormat::Mov),
+        ] {
+            let mut job = create_test_job(&format!("output.{}", container.extension()));
+            job.encoding_settings.codec = codec;
+            job.encoding_settings.container = container;
+            let args = build_ffmpeg_args_for_test(&job);
+            assert!(has_arg_pair(&args, "-movflags", "+faststart"), "{codec:?}/{container:?} keeps faststart");
+        }
     }
 
     /// The pipe already delivers 10-bit 4:2:2 for v210 (the script converts,

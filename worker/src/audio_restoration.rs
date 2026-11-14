@@ -732,7 +732,7 @@ pub fn encode_map_args(settings: &EncodingSettings, track: Option<&RestoredTrack
 /// The encoder's audio codec arguments. Passthrough copies — except the
 /// rendered track, which is new audio and must be encoded: FLAC in MKV, AAC
 /// at the chosen quality in MP4/MOV, PCM in AVI — and PCM whatever the
-/// container beside uncompressed v210 video.
+/// container beside an editing intermediate (ProRes, v210).
 pub fn encode_codec_args(settings: &EncodingSettings, track: Option<&RestoredTrack>) -> Vec<String> {
     let mut args = Vec::new();
     match settings.audio_mode {
@@ -759,11 +759,11 @@ pub fn encode_codec_args(settings: &EncodingSettings, track: Option<&RestoredTra
 
 /// What a restored track is encoded as when the audio setting is Passthrough.
 ///
-/// An uncompressed (v210) output is an editing intermediate: its restored
-/// track is PCM in every container rather than a lossy codec beside
-/// uncompressed picture.
+/// An editing intermediate (ProRes, v210) gets PCM in every container: its
+/// soundtrack will be encoded again on delivery, so a lossy restored track
+/// would be two lossy generations, and PCM is what editors expect beside it.
 pub fn restored_passthrough_codec(container: ContainerFormat, video: VideoCodec) -> AudioCodec {
-    if video.is_uncompressed() {
+    if video.is_editing_intermediate() {
         return AudioCodec::Pcm;
     }
     match container {
@@ -1591,6 +1591,10 @@ mod tests {
             encode_codec_args(&settings(AudioMode::Passthrough, ContainerFormat::Avi), Some(&t)),
             vec!["-c:a", "copy", "-c:a:0", "pcm_s16le"]
         );
+        // Beside ProRes in MOV: PCM, with no bitrate.
+        let mut prores = settings(AudioMode::Passthrough, ContainerFormat::Mov);
+        prores.codec = VideoCodec::ProResHQ;
+        assert_eq!(encode_codec_args(&prores, Some(&t)), vec!["-c:a", "copy", "-c:a:0", "pcm_s16le"]);
         // Without a track, exactly what the encoder always did.
         assert_eq!(encode_codec_args(&settings(AudioMode::Passthrough, ContainerFormat::Mp4), None), vec!["-c:a", "copy"]);
         let mut convert = settings(AudioMode::Convert, ContainerFormat::Mp4);
@@ -1626,14 +1630,19 @@ mod tests {
         assert_eq!(num_precise(1.000999), "1.000999");
     }
 
-    /// An uncompressed (v210) output's restored track is PCM in every
-    /// container; every other codec keeps the container's choice.
+    /// An editing intermediate's (ProRes, v210) restored track is PCM in
+    /// every container; every other codec keeps the container's choice.
     #[test]
-    fn restored_passthrough_is_pcm_beside_v210() {
-        for container in [ContainerFormat::Mp4, ContainerFormat::Mov, ContainerFormat::Mkv, ContainerFormat::Avi] {
-            assert_eq!(restored_passthrough_codec(container, VideoCodec::V210), AudioCodec::Pcm);
+    fn restored_passthrough_is_pcm_beside_intermediates() {
+        let all = [ContainerFormat::Mp4, ContainerFormat::Mov, ContainerFormat::Mkv, ContainerFormat::Avi];
+        for video in VideoCodec::ALL.iter().copied().filter(|c| c.is_editing_intermediate()) {
+            for container in all {
+                assert_eq!(restored_passthrough_codec(container, video), AudioCodec::Pcm, "{video:?}/{container:?}");
+            }
         }
-        assert_eq!(restored_passthrough_codec(ContainerFormat::Mov, VideoCodec::ProResHQ), AudioCodec::Aac);
+        assert!(VideoCodec::ProResHQ.is_editing_intermediate() && VideoCodec::V210.is_editing_intermediate());
+        assert_eq!(restored_passthrough_codec(ContainerFormat::Mov, VideoCodec::H264), AudioCodec::Aac);
+        assert_eq!(restored_passthrough_codec(ContainerFormat::Mp4, VideoCodec::H265), AudioCodec::Aac);
         assert_eq!(restored_passthrough_codec(ContainerFormat::Mkv, VideoCodec::FFV1), AudioCodec::Flac);
         assert_eq!(restored_passthrough_codec(ContainerFormat::Avi, VideoCodec::H264), AudioCodec::Pcm);
     }
